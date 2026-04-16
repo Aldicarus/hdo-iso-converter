@@ -23,7 +23,7 @@ RUN apt-get update \
     && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/ubuntu/ jammy main" \
        > /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && apt-get update \
-    && apt-get install -y mkvtoolnix \
+    && apt-get install -y mkvtoolnix mediainfo \
     && rm -rf /var/lib/apt/lists/*
 
 # ── dovi_tool (pre-built musl binary — usado en Tab 3 CMv4.0 BD) ─────────────

@@ -1549,15 +1549,18 @@ function renderIncludedTracks(tracks) {
       const raw  = track.raw || {};
       const def  = track.flag_default ? ' active-default' : '';
       const tooltip = [
-        `Codec original: ${raw.codec || '—'}`,
+        `Codec: ${raw.codec || '—'}`,
+        raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
         `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
         raw.description ? `Canales / frecuencia: ${raw.description}` : null,
-        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps} kbps` : null,
+        raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
+        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+        raw.compression_mode ? `Compresión: ${raw.compression_mode}` : null,
         `Posición en MKV: #${flatIdx + 1}`,
         '',
         `Razón: ${track.selection_reason || '—'}`,
       ].filter(Boolean).join('\n');
-      const rawLine = [raw.codec, raw.description].filter(Boolean).join(' · ');
+      const rawLine = [raw.codec, raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ');
       const origIdx = _findOriginalTrackIndex(raw, 'audio');
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
@@ -1600,6 +1603,8 @@ function renderIncludedTracks(tracks) {
         `Codec: PGS (Presentation Graphics)`,
         `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
         `Tipo: ${subTypeLabel}`,
+        raw.resolution ? `Resolución: ${raw.resolution}` : null,
+        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps} kbps` : null,
         `Posición en MKV: #${flatIdx + 1}`,
         '',
         `Razón: ${track.selection_reason || '—'}`,
@@ -1844,7 +1849,11 @@ function showRawAnalysisData() {
 
     lines.push(`── Audio adaptado (${bd.audio_tracks?.length || 0} pistas) ──`);
     (bd.audio_tracks || []).forEach((t, i) => {
-      lines.push(`  #${i+1} codec="${t.codec}" | lang="${t.language}" | desc="${t.description}" | bitrate=${t.bitrate_kbps}`);
+      const parts = [`codec="${t.codec}"`, `lang="${t.language}"`, `desc="${t.description}"`];
+      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString()} kbps`);
+      if (t.format_commercial) parts.push(`format="${t.format_commercial}"`);
+      if (t.compression_mode) parts.push(`${t.compression_mode}`);
+      lines.push(`  #${i+1} ${parts.join(' | ')}`);
     });
     lines.push('');
 
@@ -1854,6 +1863,64 @@ function showRawAnalysisData() {
       lines.push(`  #${i+1} lang="${t.language}" | bitrate_sintético=${t.bitrate_kbps} → ${tipo}`);
     });
     lines.push('');
+  }
+
+  // ── SECCIÓN 2b: MediaInfo (datos extendidos) ──
+  if (bd?.mediainfo_result) {
+    const mi = bd.mediainfo_result;
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  MEDIAINFO (${mi.source_path || bd.main_m2ts || '—'})`);
+    lines.push(`═══════════════════════════════════════════════`);
+    if (mi.source_size_bytes) lines.push(`Tamaño m2ts: ${_fmtBytes(mi.source_size_bytes)}`);
+    (mi.tracks || []).forEach((t, i) => {
+      const parts = [`type=${t.track_type}`];
+      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString()} kbps`);
+      if (t.format_commercial) parts.push(`"${t.format_commercial}"`);
+      if (t.channel_layout) parts.push(`layout="${t.channel_layout}"`);
+      if (t.compression_mode) parts.push(`${t.compression_mode}`);
+      if (t.bit_depth) parts.push(`${t.bit_depth}-bit`);
+      if (t.color_primaries) parts.push(`${t.color_primaries}`);
+      if (t.transfer_characteristics) parts.push(`${t.transfer_characteristics}`);
+      if (t.resolution) parts.push(`res=${t.resolution}`);
+      lines.push(`  ${i+1}. ${parts.join(' | ')}`);
+    });
+    lines.push('');
+  }
+
+  // ── SECCIÓN 2c: Dolby Vision (dovi_tool) ──
+  const mainV = bd?.video_tracks?.find(t => !t.is_el);
+  if (mainV?.dovi) {
+    const d = mainV.dovi;
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  DOLBY VISION (dovi_tool RPU analysis)`);
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`Profile: ${d.profile} (${d.el_type})`);
+    lines.push(`CM version: ${d.cm_version}`);
+    lines.push(`Metadata: L1=${d.has_l1} L2=${d.has_l2} L5=${d.has_l5} L6=${d.has_l6}`);
+    lines.push(`Scenes: ${d.scene_count} | Frames: ${d.frame_count}`);
+    if (d.raw_summary) {
+      lines.push('');
+      lines.push(d.raw_summary.trim());
+    }
+    lines.push('');
+  }
+
+  // ── HDR10 metadata ──
+  if (mainV?.hdr) {
+    const h = mainV.hdr;
+    if (h.hdr_format || h.max_cll || h.mastering_display_luminance) {
+      lines.push(`═══════════════════════════════════════════════`);
+      lines.push(`  HDR METADATA`);
+      lines.push(`═══════════════════════════════════════════════`);
+      if (h.hdr_format) lines.push(`Formato: ${h.hdr_format}`);
+      if (h.color_primaries) lines.push(`Color primaries: ${h.color_primaries}`);
+      if (h.transfer_characteristics) lines.push(`Transfer: ${h.transfer_characteristics}`);
+      if (h.bit_depth) lines.push(`Bit depth: ${h.bit_depth}`);
+      if (h.max_cll != null) lines.push(`MaxCLL: ${h.max_cll} cd/m²`);
+      if (h.max_fall != null) lines.push(`MaxFALL: ${h.max_fall} cd/m²`);
+      if (h.mastering_display_luminance) lines.push(`Mastering display: ${h.mastering_display_luminance}`);
+      lines.push('');
+    }
   }
 
   // ── SECCIÓN 3: Resultado de reglas (Fase B) ──
@@ -3658,10 +3725,16 @@ function _renderMkvEditPanel() {
   const subTracks   = a.tracks.filter(t => t.type === 'subtitles');
 
   // Resumen de vídeo (solo pista principal)
-  const mainVideo = videoTracks.find(v => (v.pixel_dimensions || '').startsWith('3840') || (v.pixel_dimensions || '').startsWith('4096'));
-  const videoInfo = mainVideo ? `${mainVideo.codec} ${mainVideo.pixel_dimensions}` : (videoTracks[0] ? `${videoTracks[0].codec} ${videoTracks[0].pixel_dimensions}` : '');
-  // Dolby Vision: detectar si hay más de un track HEVC (BL + EL)
-  const hasDV = videoTracks.filter(v => v.codec.includes('HEVC') || v.codec.includes('H.265')).length > 1;
+  const mainVideo = videoTracks.find(v => (v.pixel_dimensions || '').startsWith('3840') || (v.pixel_dimensions || '').startsWith('4096')) || videoTracks[0];
+  const videoInfo = mainVideo ? `${mainVideo.codec} ${mainVideo.pixel_dimensions}` : '';
+  const videoBitrate = mainVideo?.bitrate_kbps ? `${mainVideo.bitrate_kbps.toLocaleString()} kbps` : '';
+  // HDR info
+  const hdrInfo = a.hdr ? [a.hdr.hdr_format, a.hdr.color_primaries, a.hdr.transfer_characteristics, a.hdr.bit_depth ? `${a.hdr.bit_depth}-bit` : ''].filter(Boolean).join(' · ') : (mainVideo?.hdr_format || '');
+  const hdrMaxCll = a.hdr?.max_cll ? `MaxCLL: ${a.hdr.max_cll}` : '';
+  const hdrMaxFall = a.hdr?.max_fall ? `MaxFALL: ${a.hdr.max_fall}` : '';
+  // Dolby Vision
+  const hasDV = a.dovi != null || videoTracks.filter(v => v.codec.includes('HEVC') || v.codec.includes('H.265')).length > 1;
+  const dvInfo = a.dovi ? `DV P${a.dovi.profile} ${a.dovi.el_type}, CM ${a.dovi.cm_version}` : '';
 
   const panel = document.getElementById('mkv-edit-panel');
   panel.innerHTML = `
@@ -3675,8 +3748,10 @@ function _renderMkvEditPanel() {
           <div style="font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:6px 16px; line-height:1.6">
             <span>${_fmtBytes(a.file_size_bytes)}</span>
             <span>${_fmtDuration(a.duration_seconds)}</span>
-            <span>${escHtml(videoInfo)}</span>
-            ${hasDV ? '<span style="color:var(--teal); font-weight:600">Dolby Vision</span>' : ''}
+            <span>${escHtml(videoInfo)}${videoBitrate ? ` · ${videoBitrate}` : ''}</span>
+            ${hdrInfo ? `<span style="color:var(--orange); font-weight:500">${escHtml(hdrInfo)}</span>` : ''}
+            ${hdrMaxCll || hdrMaxFall ? `<span style="color:var(--text-3)">${[hdrMaxCll, hdrMaxFall].filter(Boolean).join(' · ')}</span>` : ''}
+            ${hasDV ? `<span style="color:var(--teal); font-weight:600">${dvInfo || 'Dolby Vision'}</span>` : ''}
             <span>${audioTracks.length} audio · ${subTracks.length} subs</span>
           </div>
         </div>
@@ -3761,13 +3836,17 @@ function _renderMkvTracks() {
   audioTracks.forEach(t => {
     const langName = langLiteral(ISO639_MAP[t.language] || t.language || 'und');
     const channels = t.channels ? `${t.channels >= 7 ? '7.1' : t.channels >= 5 ? '5.1' : t.channels >= 2 ? '2.0' : '1.0'}` : '';
-    const desc = [t.codec, channels, t.sample_rate ? `${t.sample_rate/1000}kHz` : ''].filter(Boolean).join(' · ');
+    const desc = [t.codec, channels, t.sample_rate ? `${t.sample_rate/1000}kHz` : '', t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString()} kbps` : ''].filter(Boolean).join(' · ');
     const def = t.flag_default ? ' active-default' : '';
     const tooltip = [
       `Codec: ${t.codec}`,
+      t.format_commercial ? `Formato: ${t.format_commercial}` : null,
       `Idioma: ${t.language} → ${langName}`,
       channels ? `Canales: ${channels}` : null,
+      t.channel_layout ? `Layout: ${t.channel_layout}` : null,
       t.sample_rate ? `Sample rate: ${t.sample_rate/1000}kHz` : null,
+      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
+      t.compression_mode ? `Compresión: ${t.compression_mode}` : null,
       `Track ID: ${t.id}`,
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');
@@ -3803,6 +3882,7 @@ function _renderMkvTracks() {
       `Codec: ${t.codec || 'PGS'}`,
       `Idioma: ${t.language} → ${langName}`,
       `Tipo: ${forcedLabel}`,
+      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps} kbps` : null,
       `Track ID: ${t.id}`,
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');

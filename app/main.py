@@ -71,7 +71,7 @@ from models import (
     Session,
     SessionUpdateRequest,
 )
-from phases.phase_a import parse_mkvmerge_json, parse_mpls_chapters, run_mkvmerge_identify
+from phases.phase_a import run_full_analysis
 from phases.phase_b import apply_rules, generate_auto_chapters
 from phases.phase_d import extract_chapters_from_mkv, find_main_mpls, run_phase_d
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
@@ -297,17 +297,14 @@ async def analyze_iso(body: AnalyzeRequest):
 
     audio_dcp = "audio dcp" in body.iso_path.lower()
 
-    # ── Fase A: mkvmerge -J (con montaje loop) ────────────────────
+    # ── Fase A: análisis completo (mkvmerge + MediaInfo + dovi_tool) ─
     # No se persiste nada hasta que Fase A+B completen con éxito.
     # Si falla, se devuelve el error al frontend sin crear sesión.
     mount_point = None
     mpls_chapters_raw = []
     try:
-        mount_point   = await mount_iso(iso_full_path)
-        mkvmerge_data, mpls_path = await run_mkvmerge_identify(mount_point)
-        bdinfo_result = parse_mkvmerge_json(mkvmerge_data)
-        # Extraer capítulos reales del MPLS (parseo binario directo)
-        mpls_chapters_raw = parse_mpls_chapters(mpls_path)
+        mount_point = await mount_iso(iso_full_path)
+        bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(mount_point)
     except Exception as e:
         _logger.exception("Error en Fase A para ISO %s", iso_full_path)
         raise HTTPException(status_code=500, detail=f"Error en Fase A: {e}")

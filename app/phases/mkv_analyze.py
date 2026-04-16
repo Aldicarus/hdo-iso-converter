@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from models import Chapter, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
+from models import Chapter, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
 
 _logger = logging.getLogger(__name__)
 
@@ -94,6 +94,69 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
     # ── Fichero ──────────────────────────────────────────────────
     p = Path(mkv_path)
 
+    # ── MediaInfo (enriquecimiento opcional) ────────────────────────
+    hdr_meta = None
+    mediainfo_raw = None
+    try:
+        from phases.phase_a import run_mediainfo
+        mi = await run_mediainfo(mkv_path)
+        mediainfo_raw = mi.raw_json
+
+        mi_video = [t for t in mi.tracks if t.track_type == "video"]
+        mi_audio = [t for t in mi.tracks if t.track_type == "audio"]
+        mi_subs  = [t for t in mi.tracks if t.track_type == "text"]
+
+        # Enriquecer pistas de vídeo
+        video_tracks_list = [t for t in tracks if t.type == "video"]
+        if video_tracks_list and mi_video:
+            mv = mi_video[0]
+            video_tracks_list[0].bitrate_kbps = mv.bitrate_kbps
+            video_tracks_list[0].bit_depth = mv.bit_depth
+            video_tracks_list[0].color_primaries = mv.color_primaries
+            hdr_fmt = "HDR10" if mv.transfer_characteristics == "PQ" else ("HLG" if mv.transfer_characteristics == "HLG" else "")
+            video_tracks_list[0].hdr_format = hdr_fmt
+            if hdr_fmt:
+                hdr_meta = HdrMetadata(
+                    hdr_format=hdr_fmt,
+                    color_primaries=mv.color_primaries,
+                    transfer_characteristics=mv.transfer_characteristics,
+                    bit_depth=mv.bit_depth,
+                )
+                # MaxCLL/MaxFALL del raw
+                if mi.raw_json:
+                    for rt in mi.raw_json.get("media", {}).get("track", []):
+                        if rt.get("@type") == "Video" and rt.get("@typeorder", "1") == "1":
+                            try:
+                                hdr_meta.max_cll = int(rt["MaxCLL"]) if rt.get("MaxCLL") else None
+                            except (ValueError, TypeError):
+                                pass
+                            try:
+                                hdr_meta.max_fall = int(rt["MaxFALL"]) if rt.get("MaxFALL") else None
+                            except (ValueError, TypeError):
+                                pass
+                            hdr_meta.mastering_display_luminance = rt.get("MasteringDisplay_Luminance", "")
+                            break
+
+        # Enriquecer pistas de audio
+        audio_idx = 0
+        for t in tracks:
+            if t.type == "audio" and audio_idx < len(mi_audio):
+                ma = mi_audio[audio_idx]
+                t.bitrate_kbps = ma.bitrate_kbps
+                t.format_commercial = ma.format_commercial
+                t.channel_layout = ma.channel_layout
+                t.compression_mode = ma.compression_mode
+                audio_idx += 1
+
+        # Enriquecer pistas de subtítulos
+        sub_idx = 0
+        for t in tracks:
+            if t.type == "subtitles" and sub_idx < len(mi_subs):
+                sub_idx += 1  # por ahora solo incrementar
+
+    except Exception as e:
+        _logger.warning("MediaInfo falló para MKV %s (no bloquea): %s", mkv_path, e)
+
     return MkvAnalysisResult(
         file_path=mkv_path,
         file_name=p.name,
@@ -103,6 +166,8 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
         tracks=tracks,
         chapters=chapters,
         has_fel=has_fel,
+        hdr=hdr_meta,
+        mediainfo_raw=mediainfo_raw,
     )
 
 

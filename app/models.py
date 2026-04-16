@@ -30,30 +30,129 @@ from pydantic import BaseModel, Field
 #  RESULTADO DE BDINFO (Fase A)
 # ══════════════════════════════════════════════════════════════════════
 
+class HdrMetadata(BaseModel):
+    """Metadata HDR10 / Dolby Vision extraída por MediaInfo."""
+
+    hdr_format: str = ""
+    """Formato HDR (ej: 'HDR10', 'Dolby Vision', 'HDR10+', 'HLG')."""
+
+    color_primaries: str = ""
+    """Primarios de color (ej: 'BT.2020')."""
+
+    transfer_characteristics: str = ""
+    """Curva de transferencia (ej: 'PQ', 'HLG')."""
+
+    bit_depth: int = 0
+    """Profundidad de bits (ej: 10, 12)."""
+
+    max_cll: int | None = None
+    """Maximum Content Light Level (cd/m²)."""
+
+    max_fall: int | None = None
+    """Maximum Frame Average Light Level (cd/m²)."""
+
+    mastering_display_luminance: str = ""
+    """Luminancia del display de masterizado (ej: 'min: 0.0001 cd/m2, max: 1000 cd/m2')."""
+
+
+class DoviInfo(BaseModel):
+    """Análisis RPU de Dolby Vision via dovi_tool."""
+
+    profile: int = 0
+    """Perfil DV (4, 5, 7, 8)."""
+
+    el_type: str = ""
+    """Tipo de Enhancement Layer: 'FEL' o 'MEL'."""
+
+    cm_version: str = ""
+    """Content Mapping version (ej: 'v2.9', 'v4.0')."""
+
+    has_l1: bool = False
+    """L1: MaxCLL/MaxFALL presente."""
+
+    has_l2: bool = False
+    """L2: Trim metadata presente."""
+
+    has_l5: bool = False
+    """L5: Active area / letterbox offsets."""
+
+    has_l6: bool = False
+    """L6: MaxCLL/MaxFALL fallback."""
+
+    scene_count: int = 0
+    frame_count: int = 0
+
+    raw_summary: str = ""
+    """Output completo de dovi_tool info --summary."""
+
+
+class MediaInfoTrack(BaseModel):
+    """Datos por pista extraídos de MediaInfo --Output=JSON."""
+
+    track_type: str
+    """Tipo: 'video', 'audio', 'text'."""
+
+    stream_order: int = -1
+    """Orden del stream en el m2ts."""
+
+    bitrate_kbps: int = 0
+    """Bitrate real en kbps."""
+
+    format_commercial: str = ""
+    """Nombre comercial (ej: 'Dolby TrueHD with Dolby Atmos')."""
+
+    channels: int = 0
+    channel_layout: str = ""
+    """Layout de canales (ej: 'L R C LFE Ls Rs Lb Rb')."""
+
+    compression_mode: str = ""
+    """'Lossless' o 'Lossy'."""
+
+    bit_depth: int = 0
+    color_primaries: str = ""
+    transfer_characteristics: str = ""
+
+    resolution: str = ""
+    """Resolución de subtítulos (ej: '1920x1080')."""
+
+
+class MediaInfoResult(BaseModel):
+    """Resultado completo del análisis MediaInfo sobre un m2ts o MKV."""
+
+    source_path: str = ""
+    """Ruta al fichero analizado."""
+
+    source_size_bytes: int = 0
+    tracks: list[MediaInfoTrack] = []
+    raw_json: dict | None = None
+    """JSON completo de MediaInfo para diagnóstico."""
+
+
 class VideoTrack(BaseModel):
     """
-    Pista de vídeo tal como la reporta BDInfoCLI.
+    Pista de vídeo tal como la reporta el análisis (mkvmerge + MediaInfo).
 
     La pista principal (BL, Base Layer) tiene ``is_el=False``.
-    La Enhancement Layer de Dolby Vision tiene ``is_el=True`` y se identifica
-    porque su línea en el report comienza con ``*`` (stream oculto).
-
-    Ref: spec §4.1, §4.2
+    La Enhancement Layer de Dolby Vision tiene ``is_el=True``.
     """
 
     codec: str
-    """Nombre del codec tal como lo escribe BDInfo (ej: 'MPEG-H HEVC Video')."""
+    """Nombre del codec (ej: 'MPEG-H HEVC Video')."""
 
     bitrate_kbps: int
-    """Bitrate en kbps. Para la EL puede tener formato '2093 kbps (3.04%)'
-    — se extrae solo el primer número entero."""
+    """Bitrate en kbps. 0 si no disponible (mkvmerge no lo reporta)."""
 
     description: str
-    """Campo Description completo (ej: '2160p / 23.976 fps / HDR10 / BT.2020')."""
+    """Descripción (ej: '2160p / 23.976 fps / HDR10 / BT.2020')."""
 
     is_el: bool = False
-    """True si es la Enhancement Layer de Dolby Vision (línea prefijada con '*'
-    en el report de BDInfo, resolución 1080p)."""
+    """True si es la Enhancement Layer de Dolby Vision."""
+
+    hdr: HdrMetadata | None = None
+    """Metadata HDR10 del BL (de MediaInfo). None si no disponible."""
+
+    dovi: DoviInfo | None = None
+    """Análisis Dolby Vision RPU (de dovi_tool). None si no disponible."""
 
 
 class RawAudioTrack(BaseModel):
@@ -82,6 +181,16 @@ class RawAudioTrack(BaseModel):
     """Campo Description (ej: '7.1+11 objects / 48 kHz / 4304 kbps / 24-bit').
     Se usa para extraer canales y detectar Atmos en pistas DD+."""
 
+    format_commercial: str = ""
+    """Nombre comercial de MediaInfo (ej: 'Dolby TrueHD with Dolby Atmos').
+    Detección definitiva de Atmos/DTS:X. Vacío si MediaInfo no disponible."""
+
+    channel_layout: str = ""
+    """Layout de canales (ej: 'L R C LFE Ls Rs Lb Rb')."""
+
+    compression_mode: str = ""
+    """'Lossless' o 'Lossy'."""
+
 
 class RawSubtitleTrack(BaseModel):
     """
@@ -101,6 +210,9 @@ class RawSubtitleTrack(BaseModel):
 
     description: str
     """Campo Description (habitualmente vacío para PGS)."""
+
+    resolution: str = ""
+    """Resolución del subtítulo PGS (ej: '1920x1080'). De MediaInfo."""
 
 
 class BDInfoResult(BaseModel):
@@ -152,6 +264,12 @@ class BDInfoResult(BaseModel):
     """JSON completo de mkvmerge -J tal como lo devolvió la herramienta.
     Se preserva para diagnóstico — permite ver las pistas originales sin
     heurísticas aplicadas (bitrate, idiomas, codecs reales)."""
+
+    mediainfo_result: MediaInfoResult | None = None
+    """Resultado de MediaInfo sobre el m2ts principal. None si no disponible."""
+
+    main_m2ts: str = ""
+    """Nombre del fichero m2ts principal (el más grande en BDMV/STREAM/)."""
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -533,9 +651,22 @@ class MkvTrackInfo(BaseModel):
     pixel_dimensions: str = ""
     """Resolución del vídeo (ej: '3840x2160'). Vacío para audio/subs."""
 
+    # Campos enriquecidos por MediaInfo (opcionales, vacíos si no disponible)
+    bitrate_kbps: int = 0
+    """Bitrate real de la pista (de MediaInfo)."""
+
+    format_commercial: str = ""
+    """Nombre comercial (ej: 'Dolby TrueHD with Dolby Atmos')."""
+
+    channel_layout: str = ""
+    compression_mode: str = ""
+    bit_depth: int = 0
+    color_primaries: str = ""
+    hdr_format: str = ""
+
 
 class MkvAnalysisResult(BaseModel):
-    """Resultado del análisis de un MKV existente con mkvmerge -J."""
+    """Resultado del análisis de un MKV existente con mkvmerge -J + MediaInfo."""
 
     file_path: str
     """Ruta absoluta al MKV."""
@@ -560,6 +691,15 @@ class MkvAnalysisResult(BaseModel):
 
     has_fel: bool = False
     """True si se detecta Enhancement Layer HEVC 1080p."""
+
+    hdr: HdrMetadata | None = None
+    """Metadata HDR del vídeo principal (de MediaInfo)."""
+
+    dovi: DoviInfo | None = None
+    """Info Dolby Vision (de MediaInfo sobre MKV — básica, sin dovi_tool)."""
+
+    mediainfo_raw: dict | None = None
+    """JSON completo de MediaInfo para diagnóstico."""
 
 
 class MkvEditTrack(BaseModel):

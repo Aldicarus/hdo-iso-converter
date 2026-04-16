@@ -78,26 +78,58 @@ Presentation Graphics           Japanese         1.848 kbps
 
 
 def _build_fake_bdinfo():
-    """Construye un BDInfoResult fake directamente sin parsear texto."""
-    from models import BDInfoResult, VideoTrack, RawAudioTrack, RawSubtitleTrack
+    """Construye un BDInfoResult fake con datos extendidos de MediaInfo/dovi_tool."""
+    from models import (
+        BDInfoResult, DoviInfo, HdrMetadata, MediaInfoResult, MediaInfoTrack,
+        RawAudioTrack, RawSubtitleTrack, VideoTrack,
+    )
+    hdr = HdrMetadata(
+        hdr_format="HDR10", color_primaries="BT.2020",
+        transfer_characteristics="PQ", bit_depth=10,
+        max_cll=576, max_fall=242,
+        mastering_display_luminance="min: 0.0001 cd/m2, max: 1000 cd/m2",
+    )
+    dovi = DoviInfo(
+        profile=7, el_type="FEL", cm_version="v2.9",
+        has_l1=True, has_l2=True, has_l5=True, has_l6=True,
+        scene_count=7, frame_count=721,
+        raw_summary="Summary:\n  Frames: 721\n  Profile: 7 (FEL)\n  DM version: 1 (CM v2.9)\n  Scene/shot count: 7",
+    )
     return BDInfoResult(
         video_tracks=[
-            VideoTrack(codec="MPEG-H HEVC Video", bitrate_kbps=38519, description="2160p / 23.976 fps / HDR10", is_el=False),
-            VideoTrack(codec="MPEG-H HEVC Video", bitrate_kbps=4156, description="1080p / 23.976 fps / Dolby Vision", is_el=True),
+            VideoTrack(codec="MPEG-H HEVC Video", bitrate_kbps=38519,
+                       description="2160p / 23.976 fps / HDR10", is_el=False,
+                       hdr=hdr, dovi=dovi),
+            VideoTrack(codec="MPEG-H HEVC Video", bitrate_kbps=4156,
+                       description="1080p / 23.976 fps / Dolby Vision", is_el=True),
         ],
         audio_tracks=[
-            RawAudioTrack(codec="Dolby TrueHD/Atmos Audio", language="English", bitrate_kbps=5386, description="7.1 / 48 kHz / 4746 kbps / 24-bit"),
-            RawAudioTrack(codec="Dolby Digital Audio", language="English", bitrate_kbps=320, description="2.0 / 48 kHz / 320 kbps"),
-            RawAudioTrack(codec="Dolby Digital Plus Audio", language="French", bitrate_kbps=1024, description="7.1 / 48 kHz / 1024 kbps"),
-            RawAudioTrack(codec="Dolby TrueHD/Atmos Audio", language="Spanish", bitrate_kbps=5511, description="7.1 / 48 kHz / 4871 kbps / 24-bit"),
-            RawAudioTrack(codec="Dolby Digital Plus Audio", language="Japanese", bitrate_kbps=1024, description="7.1 / 48 kHz / 1024 kbps"),
-            RawAudioTrack(codec="Dolby Digital Audio", language="Japanese", bitrate_kbps=320, description="2.0 / 48 kHz / 320 kbps"),
+            RawAudioTrack(codec="Dolby TrueHD/Atmos Audio", language="English", bitrate_kbps=5386,
+                          description="7.1 / 48 kHz / 4746 kbps / 24-bit",
+                          format_commercial="Dolby TrueHD with Dolby Atmos",
+                          channel_layout="L R C LFE Ls Rs Lb Rb", compression_mode="Lossless"),
+            RawAudioTrack(codec="Dolby Digital Audio", language="English", bitrate_kbps=320,
+                          description="2.0 / 48 kHz / 320 kbps",
+                          format_commercial="Dolby Digital", compression_mode="Lossy"),
+            RawAudioTrack(codec="Dolby Digital Plus Audio", language="French", bitrate_kbps=1024,
+                          description="7.1 / 48 kHz / 1024 kbps",
+                          format_commercial="Dolby Digital Plus", compression_mode="Lossy"),
+            RawAudioTrack(codec="Dolby TrueHD/Atmos Audio", language="Spanish", bitrate_kbps=5511,
+                          description="7.1 / 48 kHz / 4871 kbps / 24-bit",
+                          format_commercial="Dolby TrueHD with Dolby Atmos",
+                          channel_layout="L R C LFE Ls Rs Lb Rb", compression_mode="Lossless"),
+            RawAudioTrack(codec="Dolby Digital Plus Audio", language="Japanese", bitrate_kbps=1024,
+                          description="7.1 / 48 kHz / 1024 kbps",
+                          format_commercial="Dolby Digital Plus", compression_mode="Lossy"),
+            RawAudioTrack(codec="Dolby Digital Audio", language="Japanese", bitrate_kbps=320,
+                          description="2.0 / 48 kHz / 320 kbps",
+                          format_commercial="Dolby Digital", compression_mode="Lossy"),
         ],
         subtitle_tracks=[
-            RawSubtitleTrack(language="English", bitrate_kbps=54.060, description=""),
-            RawSubtitleTrack(language="French", bitrate_kbps=43.235, description=""),
-            RawSubtitleTrack(language="Spanish", bitrate_kbps=36.783, description=""),
-            RawSubtitleTrack(language="Japanese", bitrate_kbps=30.057, description=""),
+            RawSubtitleTrack(language="English", bitrate_kbps=54.060, description="", resolution="1920x1080"),
+            RawSubtitleTrack(language="French", bitrate_kbps=43.235, description="", resolution="1920x1080"),
+            RawSubtitleTrack(language="Spanish", bitrate_kbps=36.783, description="", resolution="1920x1080"),
+            RawSubtitleTrack(language="Japanese", bitrate_kbps=30.057, description="", resolution="1920x1080"),
             RawSubtitleTrack(language="French", bitrate_kbps=1.537, description=""),
             RawSubtitleTrack(language="Spanish", bitrate_kbps=0.508, description=""),
             RawSubtitleTrack(language="Japanese", bitrate_kbps=1.848, description=""),
@@ -105,9 +137,10 @@ def _build_fake_bdinfo():
         duration_seconds=6464.833,
         has_fel=True,
         fel_bitrate_kbps=4156,
-        fel_reason="FEL detectado: bitrate EL = 4156 kbps > umbral 1000 kbps",
+        fel_reason="Dolby Vision Profile 7 (FEL) detectado via dovi_tool — CM v2.9",
         vo_language="English",
         main_mpls="00803.mpls",
+        main_m2ts="00000.m2ts",
     )
 
 
@@ -174,8 +207,8 @@ DEV_FAKE_MKV_FILES: list[str] = [
 ]
 
 def build_fake_mkv_analysis(file_name: str) -> dict:
-    """Construye un MkvAnalysisResult fake para Tab 2 sin mkvmerge."""
-    from models import MkvAnalysisResult, MkvTrackInfo, Chapter
+    """Construye un MkvAnalysisResult fake para Tab 2 con datos extendidos."""
+    from models import MkvAnalysisResult, MkvTrackInfo, Chapter, HdrMetadata
 
     result = MkvAnalysisResult(
         file_path=f"/mnt/output/{file_name}",
@@ -184,17 +217,30 @@ def build_fake_mkv_analysis(file_name: str) -> dict:
         duration_seconds=6464.833,
         title=file_name.replace(".mkv", ""),
         has_fel=True,
+        hdr=HdrMetadata(
+            hdr_format="HDR10", color_primaries="BT.2020",
+            transfer_characteristics="PQ", bit_depth=10,
+            max_cll=576, max_fall=242,
+            mastering_display_luminance="min: 0.0001 cd/m2, max: 1000 cd/m2",
+        ),
         tracks=[
             MkvTrackInfo(id=0, type="video", codec="HEVC/H.265/MPEG-H",
-                         language="und", pixel_dimensions="3840x2160"),
+                         language="und", pixel_dimensions="3840x2160",
+                         bitrate_kbps=38519, bit_depth=10, color_primaries="BT.2020",
+                         hdr_format="HDR10"),
             MkvTrackInfo(id=1, type="video", codec="HEVC/H.265/MPEG-H",
-                         language="und", pixel_dimensions="1920x1080"),
+                         language="und", pixel_dimensions="1920x1080",
+                         bitrate_kbps=4156),
             MkvTrackInfo(id=2, type="audio", codec="TrueHD Atmos",
                          language="spa", name="Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
-                         flag_default=True, channels=8, sample_rate=48000),
+                         flag_default=True, channels=8, sample_rate=48000,
+                         bitrate_kbps=5386, format_commercial="Dolby TrueHD with Dolby Atmos",
+                         channel_layout="L R C LFE Ls Rs Lb Rb", compression_mode="Lossless"),
             MkvTrackInfo(id=3, type="audio", codec="TrueHD Atmos",
                          language="eng", name="Inglés TrueHD Atmos 7.1",
-                         flag_default=False, channels=8, sample_rate=48000),
+                         flag_default=False, channels=8, sample_rate=48000,
+                         bitrate_kbps=5386, format_commercial="Dolby TrueHD with Dolby Atmos",
+                         channel_layout="L R C LFE Ls Rs Lb Rb", compression_mode="Lossless"),
             MkvTrackInfo(id=4, type="subtitles", codec="HDMV PGS",
                          language="spa", name="Castellano Forzados (PGS)",
                          flag_default=True, flag_forced=True),

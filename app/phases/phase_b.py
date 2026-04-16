@@ -328,6 +328,24 @@ def _codec_key(track: RawAudioTrack) -> str:
     """Identifica el codec normalizado de una pista (spec §5.1.2, §5.1.6)."""
     codec = track.codec.lower()
     desc = track.description.lower()
+    # Detección definitiva via MediaInfo Format_Commercial (si disponible)
+    fc = getattr(track, "format_commercial", "").lower()
+    if fc:
+        if "atmos" in fc and "truehd" in fc:
+            return "truehd_atmos"
+        if "truehd" in fc and "atmos" not in fc:
+            return "truehd"
+        if "atmos" in fc and ("digital plus" in fc or "e-ac-3" in fc):
+            return "ddplus_atmos"
+        if "digital plus" in fc or "e-ac-3" in fc:
+            return "ddplus"
+        if "dts-hd master" in fc or "dts-hd ma" in fc:
+            return "dts_hd_ma"
+        if "dts" in fc:
+            return "dts"
+        if "dolby digital" in fc and "plus" not in fc:
+            return "dd"
+    # Fallback: heurística por nombre de codec (sin MediaInfo)
     if "truehd" in codec and "atmos" in codec:
         return "truehd_atmos"
     if "truehd" in codec:

@@ -47,12 +47,24 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from models import BDInfoResult, RawAudioTrack, RawSubtitleTrack, VideoTrack
+import os
+
+from models import (
+    BDInfoResult, DoviInfo, HdrMetadata, MediaInfoResult, MediaInfoTrack,
+    RawAudioTrack, RawSubtitleTrack, VideoTrack,
+)
 
 _logger = logging.getLogger(__name__)
 
 MKVMERGE_BIN = "mkvmerge"
-IDENTIFY_TIMEOUT = 30  # segundos — mkvmerge -J es rápido
+MEDIAINFO_BIN = "mediainfo"
+FFMPEG_BIN = "ffmpeg"
+DOVI_TOOL_BIN = "dovi_tool"
+IDENTIFY_TIMEOUT = 30      # segundos — mkvmerge -J es rápido
+MEDIAINFO_TIMEOUT = 60     # MediaInfo sobre m2ts grande
+FFMPEG_EL_TIMEOUT = 60     # Extracción 30s del EL
+DOVI_TOOL_TIMEOUT = 30     # RPU extract + analysis
+TMP_DIR = os.environ.get("TMP_DIR", "/mnt/tmp")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -729,3 +741,351 @@ def _parse_simple_chapters(output: str) -> list[dict]:
         })
 
     return chapters
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  MEDIAINFO + DOVI_TOOL — Análisis extendido
+# ══════════════════════════════════════════════════════════════════════
+
+def find_main_m2ts(share_path: str) -> str | None:
+    """Localiza el m2ts más grande en BDMV/STREAM/ (feature principal)."""
+    stream_dir = Path(share_path) / "BDMV" / "STREAM"
+    if not stream_dir.exists():
+        stream_dir = Path(share_path) / "bdmv" / "stream"
+        if not stream_dir.exists():
+            return None
+    m2ts_files = list(stream_dir.glob("*.m2ts")) + list(stream_dir.glob("*.M2TS"))
+    if not m2ts_files:
+        return None
+    return str(max(m2ts_files, key=lambda p: p.stat().st_size))
+
+
+async def run_mediainfo(file_path: str) -> MediaInfoResult:
+    """
+    Ejecuta ``mediainfo --Output=JSON`` sobre un m2ts o MKV.
+    Devuelve MediaInfoResult con datos por pista.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        MEDIAINFO_BIN, "--Output=JSON", file_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        _logger.warning("mediainfo falló (%d): %s", proc.returncode, stderr.decode()[:200])
+        return MediaInfoResult(source_path=file_path)
+
+    raw = json.loads(stdout.decode("utf-8", errors="replace"))
+    tracks_raw = raw.get("media", {}).get("track", [])
+
+    mi_tracks: list[MediaInfoTrack] = []
+    source_size = 0
+
+    for t in tracks_raw:
+        ttype = t.get("@type", "").lower()
+
+        if ttype == "general":
+            size_str = t.get("FileSize")
+            if size_str:
+                try:
+                    source_size = int(size_str)
+                except (ValueError, TypeError):
+                    pass
+            continue
+
+        if ttype == "menu":
+            continue
+
+        mapped_type = {"video": "video", "audio": "audio", "text": "text"}.get(ttype, ttype)
+
+        bitrate = 0
+        br_str = t.get("BitRate") or t.get("BitRate_Nominal") or ""
+        if br_str:
+            try:
+                bitrate = int(float(br_str)) // 1000
+            except (ValueError, TypeError):
+                pass
+
+        stream_order = -1
+        so_str = t.get("StreamOrder") or t.get("@typeorder") or ""
+        if so_str:
+            try:
+                stream_order = int(so_str)
+            except (ValueError, TypeError):
+                pass
+
+        mi_tracks.append(MediaInfoTrack(
+            track_type=mapped_type,
+            stream_order=stream_order,
+            bitrate_kbps=bitrate,
+            format_commercial=t.get("Format_Commercial_IfAny", ""),
+            channels=int(t.get("Channels", 0) or 0),
+            channel_layout=t.get("ChannelLayout", ""),
+            compression_mode=t.get("Compression_Mode", ""),
+            bit_depth=int(t.get("BitDepth", 0) or 0),
+            color_primaries=t.get("colour_primaries", ""),
+            transfer_characteristics=t.get("transfer_characteristics", ""),
+            resolution=(
+                f"{t.get('Width', '')}x{t.get('Height', '')}"
+                if t.get("Width") and ttype == "text" else ""
+            ),
+        ))
+
+    return MediaInfoResult(
+        source_path=file_path,
+        source_size_bytes=source_size,
+        tracks=mi_tracks,
+        raw_json=raw,
+    )
+
+
+async def run_dovi_analysis(m2ts_path: str) -> DoviInfo | None:
+    """
+    Pipeline dovi_tool: ffmpeg extrae 30s del EL → extract-rpu → info --summary.
+    Devuelve DoviInfo o None si falla. Limpia ficheros temporales siempre.
+    """
+    pid = os.getpid()
+    tmp_el = str(Path(TMP_DIR) / f"_el_sample_{pid}.hevc")
+    tmp_rpu = str(Path(TMP_DIR) / f"_rpu_{pid}.bin")
+
+    try:
+        # Paso 1: Extraer 30s del Enhancement Layer
+        proc = await asyncio.create_subprocess_exec(
+            FFMPEG_BIN, "-y", "-i", m2ts_path,
+            "-map", "0:v:1", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+            "-t", "30", "-f", "hevc", tmp_el,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            _logger.info("ffmpeg EL extraction falló (sin EL?): %s", stderr.decode()[:200])
+            return None
+
+        if not Path(tmp_el).exists() or Path(tmp_el).stat().st_size < 1000:
+            _logger.info("EL sample demasiado pequeño o inexistente")
+            return None
+
+        # Paso 2: Extraer RPU
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "extract-rpu", tmp_el, "-o", tmp_rpu,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            _logger.warning("dovi_tool extract-rpu falló: %s", stderr.decode()[:200])
+            return None
+
+        # Paso 3: Analizar RPU
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "info", "--summary", tmp_rpu,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            _logger.warning("dovi_tool info falló: %s", stderr.decode()[:200])
+            return None
+
+        summary = stdout.decode("utf-8", errors="replace")
+        return _parse_dovi_summary(summary)
+
+    except Exception as e:
+        _logger.warning("dovi_tool pipeline falló: %s", e)
+        return None
+    finally:
+        Path(tmp_el).unlink(missing_ok=True)
+        Path(tmp_rpu).unlink(missing_ok=True)
+
+
+def _parse_dovi_summary(summary: str) -> DoviInfo:
+    """Parsea el output de ``dovi_tool info --summary``."""
+    info = DoviInfo(raw_summary=summary)
+
+    m = re.search(r"Profile:\s+(\d+)\s+\((FEL|MEL)\)", summary)
+    if m:
+        info.profile = int(m.group(1))
+        info.el_type = m.group(2)
+
+    m = re.search(r"DM version:\s+\d+\s+\(CM (v[\d.]+)\)", summary)
+    if m:
+        info.cm_version = m.group(1)
+
+    m = re.search(r"Scene/shot count:\s+(\d+)", summary)
+    if m:
+        info.scene_count = int(m.group(1))
+
+    m = re.search(r"Frames:\s+(\d+)", summary)
+    if m:
+        info.frame_count = int(m.group(1))
+
+    info.has_l1 = "content light level (L1)" in summary
+    info.has_l2 = "L2 trims" in summary
+    info.has_l5 = "L5 offsets" in summary and "N/A" not in summary.split("L5 offsets")[1][:50] if "L5 offsets" in summary else False
+    info.has_l6 = "L6 metadata" in summary
+
+    return info
+
+
+def enrich_tracks_with_mediainfo(bdinfo: BDInfoResult, mi: MediaInfoResult) -> None:
+    """Enriquece BDInfoResult con datos de MediaInfo (bitrate, HDR, codecs)."""
+    mi_video = [t for t in mi.tracks if t.track_type == "video"]
+    mi_audio = [t for t in mi.tracks if t.track_type == "audio"]
+    mi_subs  = [t for t in mi.tracks if t.track_type == "text"]
+
+    # Vídeo: BL
+    bl_tracks = [v for v in bdinfo.video_tracks if not v.is_el]
+    if bl_tracks and mi_video:
+        bl = bl_tracks[0]
+        mv = mi_video[0]
+        bl.bitrate_kbps = mv.bitrate_kbps
+        hdr_fmt = "HDR10" if mv.transfer_characteristics == "PQ" else ("HLG" if mv.transfer_characteristics == "HLG" else "")
+        bl.hdr = HdrMetadata(
+            hdr_format=hdr_fmt,
+            color_primaries=mv.color_primaries,
+            transfer_characteristics=mv.transfer_characteristics,
+            bit_depth=mv.bit_depth,
+        )
+        # MaxCLL/MaxFALL del JSON raw
+        if mi.raw_json:
+            for t in mi.raw_json.get("media", {}).get("track", []):
+                if t.get("@type") == "Video" and t.get("@typeorder", "1") == "1":
+                    try:
+                        bl.hdr.max_cll = int(t["MaxCLL"]) if t.get("MaxCLL") else None
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        bl.hdr.max_fall = int(t["MaxFALL"]) if t.get("MaxFALL") else None
+                    except (ValueError, TypeError):
+                        pass
+                    bl.hdr.mastering_display_luminance = t.get("MasteringDisplay_Luminance", "")
+                    break
+
+    # Audio: filtrar cores embebidos, luego mapear 1:1
+    mi_audio_filtered = _filter_mediainfo_audio_cores(mi_audio, mi)
+    for i, at in enumerate(bdinfo.audio_tracks):
+        if i < len(mi_audio_filtered):
+            ma = mi_audio_filtered[i]
+            at.bitrate_kbps = ma.bitrate_kbps
+            at.format_commercial = ma.format_commercial
+            at.channel_layout = ma.channel_layout
+            at.compression_mode = ma.compression_mode
+
+    # Subtítulos
+    for i, st in enumerate(bdinfo.subtitle_tracks):
+        if i < len(mi_subs):
+            st.resolution = mi_subs[i].resolution
+
+
+def _filter_mediainfo_audio_cores(mi_audio: list[MediaInfoTrack], mi: MediaInfoResult) -> list[MediaInfoTrack]:
+    """Filtra cores AC-3 embebidos en TrueHD (mismo PID en MediaInfo)."""
+    if not mi.raw_json:
+        return mi_audio
+
+    audio_raw = [t for t in mi.raw_json.get("media", {}).get("track", []) if t.get("@type") == "Audio"]
+    seen_ids: dict[str, int] = {}
+    core_indices: set[int] = set()
+
+    for idx, t in enumerate(audio_raw):
+        tid = t.get("ID", str(idx))
+        if tid in seen_ids:
+            fmt = t.get("Format", "").lower()
+            if "ac-3" in fmt or "ac3" in fmt:
+                core_indices.add(idx)
+            else:
+                core_indices.add(seen_ids[tid])
+        else:
+            seen_ids[tid] = idx
+
+    if not core_indices:
+        return mi_audio
+
+    return [t for i, t in enumerate(mi_audio) if i not in core_indices]
+
+
+def enrich_dovi(bdinfo: BDInfoResult, dovi: DoviInfo) -> None:
+    """Actualiza BDInfoResult con datos definitivos de dovi_tool."""
+    bl_tracks = [v for v in bdinfo.video_tracks if not v.is_el]
+    if bl_tracks:
+        bl_tracks[0].dovi = dovi
+
+    bdinfo.has_fel = (dovi.el_type == "FEL")
+    bdinfo.fel_reason = (
+        f"Dolby Vision Profile {dovi.profile} ({dovi.el_type}) "
+        f"detectado via dovi_tool — CM {dovi.cm_version}"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  ORQUESTADOR: Análisis completo
+# ══════════════════════════════════════════════════════════════════════
+
+async def run_full_analysis(
+    share_path: str,
+    log_callback=None,
+) -> tuple[BDInfoResult, str, list[dict]]:
+    """
+    Análisis completo del disco montado:
+      1. mkvmerge -J (requerido)
+      2. Capítulos del MPLS (requerido)
+      3. MediaInfo sobre m2ts principal (opcional)
+      4. dovi_tool RPU analysis (opcional, solo si hay EL)
+
+    Devuelve (bdinfo_result, mpls_path, chapters_raw).
+    """
+    # 1. mkvmerge -J
+    if log_callback:
+        await log_callback("[Fase A] Identificando MPLS y ejecutando mkvmerge -J…")
+    mkvmerge_data, mpls_path = await run_mkvmerge_identify(share_path, log_callback)
+    bdinfo = parse_mkvmerge_json(mkvmerge_data)
+
+    # 2. Capítulos
+    if log_callback:
+        await log_callback("[Fase A] Extrayendo capítulos del MPLS…")
+    chapters_raw = parse_mpls_chapters(mpls_path)
+
+    # 3. MediaInfo sobre m2ts principal
+    m2ts_path = find_main_m2ts(share_path)
+    if m2ts_path:
+        bdinfo.main_m2ts = Path(m2ts_path).name
+        size_gb = Path(m2ts_path).stat().st_size / 1e9
+        if log_callback:
+            await log_callback(f"[Fase A] M2TS principal: {bdinfo.main_m2ts} ({size_gb:.1f} GB)")
+
+        try:
+            if log_callback:
+                await log_callback("[Fase A] Ejecutando MediaInfo…")
+            mi = await run_mediainfo(m2ts_path)
+            bdinfo.mediainfo_result = mi
+            enrich_tracks_with_mediainfo(bdinfo, mi)
+            if log_callback:
+                await log_callback(f"[Fase A] MediaInfo: {len(mi.tracks)} pistas analizadas")
+        except Exception as e:
+            _logger.warning("MediaInfo falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] ⚠️ MediaInfo falló: {e}")
+
+        # 4. dovi_tool (solo si hay EL)
+        has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
+        if has_el:
+            try:
+                if log_callback:
+                    await log_callback("[Fase A] Analizando Dolby Vision con dovi_tool…")
+                dovi = await run_dovi_analysis(m2ts_path)
+                if dovi:
+                    enrich_dovi(bdinfo, dovi)
+                    if log_callback:
+                        await log_callback(
+                            f"[Fase A] Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                        )
+            except Exception as e:
+                _logger.warning("dovi_tool falló (no bloquea): %s", e)
+                if log_callback:
+                    await log_callback(f"[Fase A] ⚠️ dovi_tool falló: {e}")
+    else:
+        if log_callback:
+            await log_callback("[Fase A] ⚠️ No se encontró m2ts — análisis extendido omitido")
+
+    return bdinfo, mpls_path, chapters_raw
