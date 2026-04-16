@@ -1,0 +1,1311 @@
+"""
+main.py — Backend FastAPI de HDO ISO Converter
+
+Punto de entrada de la aplicación. Sirve la SPA y expone la API REST
+y el endpoint WebSocket para streaming de output en tiempo real.
+
+─────────────────────────────────────────────────────────────────────
+RUTAS DE LA API
+─────────────────────────────────────────────────────────────────────
+
+  Estáticos
+    GET  /                              → index.html (SPA)
+    GET  /static/*                      → ficheros estáticos
+
+  ISOs
+    GET  /api/isos                      → lista de ISOs en /mnt/isos
+
+  Sesiones (unidades de trabajo persistentes)
+    GET  /api/sessions                  → lista todas las sesiones
+    GET  /api/sessions/{id}             → obtiene una sesión
+    PUT  /api/sessions/{id}             → actualiza campos de la sesión (Fase C)
+    DELETE /api/sessions/{id}           → elimina una sesión
+    POST /api/sessions/{id}/recalculate-name  → recalcula el nombre del MKV
+
+  Análisis
+    POST /api/analyze                   → lanza Fase A + B, devuelve sesión nueva
+
+  Ejecución
+    POST /api/sessions/{id}/execute     → lanza Fases D + E en background
+
+  Estado
+    GET  /api/status                    → estado de la app
+
+  WebSocket
+    WS   /ws/{id}                       → streaming de output de la ejecución
+
+─────────────────────────────────────────────────────────────────────
+ACCESO AL ISO — LOOP MOUNT DIRECTO (UDF 2.50)
+─────────────────────────────────────────────────────────────────────
+
+Los ISOs se montan directamente dentro del contenedor Docker usando
+``mount -t udf -o ro,loop``. Requiere ``privileged: true`` en Docker.
+
+  Análisis (Fase A):
+    1. mount_iso(iso_path) → loop mount en /mnt/bd/{nombre}/
+    2. BDInfoCLI lee desde /mnt/bd/{nombre}/
+    3. unmount_iso() en finally (siempre, éxito o error)
+
+  Ejecución (Fase D):
+    1. mount_iso(iso_path) → loop mount
+    2. mkvmerge lee el MPLS desde /mnt/bd/{nombre}/BDMV/PLAYLIST/
+    3. unmount_iso() en finally
+    4. Fase E procesa el MKV intermedio ya en /mnt/tmp
+"""
+import asyncio
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from models import (
+    AnalyzeRequest,
+    ExecutionRecord,
+    IncludedAudioTrack,
+    IncludedSubtitleTrack,
+    QueueReorderRequest,
+    Session,
+    SessionUpdateRequest,
+)
+from phases.phase_a import parse_mkvmerge_json, parse_mpls_chapters, run_mkvmerge_identify
+from phases.phase_b import apply_rules, generate_auto_chapters
+from phases.phase_d import extract_chapters_from_mkv, find_main_mpls, run_phase_d
+from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
+from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
+from queue_manager import queue_manager
+from storage import (
+    compute_iso_fingerprint,
+    delete_session,
+    find_session_by_fingerprint,
+    list_sessions,
+    load_session,
+    make_session_id,
+    save_session,
+)
+
+# ── Constantes de entorno ─────────────────────────────────────────────────────
+
+ISOS_DIR   = Path(os.environ.get("ISOS_DIR", "/mnt/isos"))
+TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
+
+# ── Recuperación de sesiones interrumpidas ───────────────────────────────────
+# Al arrancar, las sesiones que quedaron en 'running' o 'queued' (por un
+# reinicio inesperado) se resetean a 'pending' para que el usuario pueda
+# relanzarlas. Esto se aplica siempre, no solo en DEV_MODE.
+
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+
+# Tracking de cancelación — permite matar el subprocess activo de un pipeline
+_cancel_flags: dict[str, bool] = {}          # session_id → True si cancelado
+_active_processes: dict[str, asyncio.subprocess.Process] = {}  # session_id → proc
+
+def _recover_interrupted_sessions() -> None:
+    """Resetea sesiones zombie (running/queued) a pending tras un reinicio."""
+    count = 0
+    for s in list_sessions():
+        if s.status in ("running", "queued"):
+            s.status = "pending"
+            s.error_message = "Sesión interrumpida por reinicio del servidor"
+            save_session(s)
+            count += 1
+    if count:
+        _logger.info("[Startup] %d sesión(es) interrumpida(s) reseteada(s) a 'pending'", count)
+
+_recover_interrupted_sessions()
+
+# ── DEV MODE ──────────────────────────────────────────────────────────────────
+# ⚠️  TEMPORAL — eliminar junto con dev_fixtures.py una vez validado.
+from dev_fixtures import (
+    DEV_MODE, DEV_FAKE_ISOS, build_fake_session, seed_dev_sessions,
+    DEV_FAKE_MKV_FILES, build_fake_mkv_analysis, build_fake_mkv_apply,
+)
+if DEV_MODE:
+    seed_dev_sessions(CONFIG_DIR)
+
+
+# ── Aplicación FastAPI ────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="HDO ISO Converter",
+    version="1.3.0",
+    description="Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.",
+)
+
+# Conexiones WebSocket activas: session_id → [WebSocket, ...]
+_ws_connections: dict[str, list[WebSocket]] = {}
+
+# Clientes WebSocket suscritos a updates de la cola
+_queue_ws_clients: set[WebSocket] = set()
+# Lock para serializar sends concurrentes al mismo WS (evita conflictos uvicorn/wsproto)
+_broadcast_lock = None  # inicializado en startup (necesita event loop activo)
+
+
+async def _broadcast_queue(status: dict) -> None:
+    """Envía el estado de la cola a todos los clientes WebSocket suscritos."""
+    global _broadcast_lock
+    if _broadcast_lock is None:
+        import asyncio as _asyncio
+        _broadcast_lock = _asyncio.Lock()
+
+    msg = json.dumps(status)
+    async with _broadcast_lock:
+        dead = set()
+        for ws in list(_queue_ws_clients):
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                dead.add(ws)
+        _queue_ws_clients.difference_update(dead)
+
+
+# ── Estáticos ─────────────────────────────────────────────────────────────────
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    """Sirve la SPA (Single Page Application)."""
+    return FileResponse("static/index.html")
+
+
+# ── ISOs disponibles ──────────────────────────────────────────────────────────
+
+@app.get("/api/isos", summary="Lista ISOs disponibles")
+async def list_isos():
+    """
+    Devuelve la lista de ficheros .iso encontrados recursivamente en /mnt/isos.
+
+    Las rutas son relativas a /mnt/isos para que el frontend pueda mostrarlas
+    sin exponer la estructura interna del NAS.
+
+    Respuesta: ``{"isos": ["Movie (2025).iso", "subdir/Movie2 (2024).iso", ...]}``
+    """
+    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    if DEV_MODE:
+        return {"isos": DEV_FAKE_ISOS}
+    if not ISOS_DIR.exists():
+        return {"isos": []}
+    isos = sorted(
+        str(p.relative_to(ISOS_DIR))
+        for p in ISOS_DIR.rglob("*")
+        if p.is_file() and p.suffix.lower() == ".iso"
+    )
+    return {"isos": isos}
+
+
+# ── CRUD de sesiones ──────────────────────────────────────────────────────────
+
+@app.get("/api/sessions", summary="Lista todas las sesiones")
+async def get_sessions():
+    sessions = list_sessions()
+    return {"sessions": [s.model_dump() for s in sessions]}
+
+
+@app.get("/api/sessions/{session_id}", summary="Obtiene una sesión")
+async def get_session(session_id: str):
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    return session.model_dump()
+
+
+@app.delete("/api/sessions/{session_id}", summary="Elimina una sesión")
+async def remove_session(session_id: str):
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    return {"ok": True}
+
+
+@app.put("/api/sessions/{session_id}", summary="Actualiza una sesión (Fase C)")
+async def update_session(session_id: str, body: SessionUpdateRequest):
+    """
+    Aplica las ediciones del usuario sobre una sesión existente (partial update).
+    Solo se actualizan los campos presentes en el body.
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    if body.has_fel           is not None: session.has_fel           = body.has_fel
+    if body.audio_dcp         is not None: session.audio_dcp         = body.audio_dcp
+    if body.mkv_name          is not None: session.mkv_name          = body.mkv_name
+    if body.mkv_name_manual   is not None: session.mkv_name_manual   = body.mkv_name_manual
+    if body.included_tracks   is not None: session.included_tracks   = body.included_tracks
+    if body.discarded_tracks  is not None: session.discarded_tracks  = body.discarded_tracks
+    if body.chapters          is not None: session.chapters          = body.chapters
+
+    save_session(session)
+    return session.model_dump()
+
+
+# ── Comprobar ISO duplicado ───────────────────────────────────────────────────
+
+@app.post("/api/check-duplicate", summary="Comprueba si ya existe un proyecto para este ISO")
+async def check_duplicate(body: AnalyzeRequest):
+    """
+    Calcula la huella del ISO (SHA-256 primer 1 MB + tamaño) y busca
+    si ya existe una sesión con la misma huella. Permite detectar el
+    mismo disco incluso si se ha movido o renombrado.
+
+    Respuesta: ``{"duplicate": bool, "session": {...}|null, "fingerprint": "..."}``
+    """
+    iso_full_path = str(ISOS_DIR / body.iso_path)
+    if not Path(iso_full_path).exists():
+        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+
+    fingerprint = compute_iso_fingerprint(iso_full_path)
+    existing = find_session_by_fingerprint(fingerprint)
+
+    return {
+        "duplicate": existing is not None,
+        "session": existing.model_dump() if existing else None,
+        "fingerprint": fingerprint,
+    }
+
+
+# ── Análisis (Fase A + B) ─────────────────────────────────────────────────────
+
+@app.post("/api/analyze", summary="Analiza un ISO (Fase A + B)")
+async def analyze_iso(body: AnalyzeRequest):
+    """
+    Lanza el análisis completo de un ISO y devuelve la sesión lista para revisar.
+
+    Fases ejecutadas de forma síncrona:
+      - Monta el ISO via loop mount (UDF 2.50).
+      - Fase A: BDInfoCLI analiza el BDMV montado y extrae información de pistas.
+      - Fase B: Se aplican las reglas automáticas de selección de pistas.
+      - Desmonta el ISO (siempre, éxito o error).
+
+    Lanza 400 si el ISO no existe en /mnt/isos.
+    Lanza 500 si BDInfoCLI falla o el montaje del ISO falla.
+    """
+    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    if DEV_MODE:
+        session = build_fake_session(str(ISOS_DIR / body.iso_path))
+        return session.model_dump()
+
+    iso_full_path = str(ISOS_DIR / body.iso_path)
+    if not Path(iso_full_path).exists():
+        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+
+    audio_dcp = "audio dcp" in body.iso_path.lower()
+
+    # ── Fase A: mkvmerge -J (con montaje loop) ────────────────────
+    # No se persiste nada hasta que Fase A+B completen con éxito.
+    # Si falla, se devuelve el error al frontend sin crear sesión.
+    mount_point = None
+    mpls_chapters_raw = []
+    try:
+        mount_point   = await mount_iso(iso_full_path)
+        mkvmerge_data, mpls_path = await run_mkvmerge_identify(mount_point)
+        bdinfo_result = parse_mkvmerge_json(mkvmerge_data)
+        # Extraer capítulos reales del MPLS (parseo binario directo)
+        mpls_chapters_raw = parse_mpls_chapters(mpls_path)
+    except Exception as e:
+        _logger.exception("Error en Fase A para ISO %s", iso_full_path)
+        raise HTTPException(status_code=500, detail=f"Error en Fase A: {e}")
+    finally:
+        if mount_point:
+            await unmount_iso(mount_point)
+
+    # ── Fase B: Reglas automáticas ─────────────────────────────────
+    rules_result = apply_rules(bdinfo_result, body.iso_path, audio_dcp)
+
+    # ── Capítulos ─────────────────────────────────────────────────
+    from models import Chapter
+    if mpls_chapters_raw:
+        chapters      = [Chapter(**c) for c in mpls_chapters_raw]
+        chapters_auto = False
+        chapters_reason = f"{len(chapters)} capítulos extraídos del disco (MPLS)"
+    elif bdinfo_result.duration_seconds > 0:
+        chapters      = generate_auto_chapters(bdinfo_result.duration_seconds)
+        chapters_auto = True
+        chapters_reason = (
+            "Sin capítulos en el disco — generados automáticamente cada 10 min"
+        )
+    else:
+        chapters      = []
+        chapters_auto = True
+        chapters_reason = "No se pudo determinar la duración del disco"
+
+    # ── Reutilizar sesión existente por fingerprint ─────────────────
+    fingerprint = compute_iso_fingerprint(iso_full_path)
+    existing = find_session_by_fingerprint(fingerprint) if fingerprint else None
+    if existing:
+        session_id = existing.id
+    else:
+        session_id = make_session_id(body.iso_path)
+
+    session = Session(
+        id=session_id,
+        iso_path=iso_full_path,
+        iso_fingerprint=fingerprint,
+        status="pending",
+        bdinfo_result=bdinfo_result,
+        has_fel=bdinfo_result.has_fel,
+        audio_dcp=audio_dcp,
+        included_tracks=rules_result["included_tracks"],
+        discarded_tracks=rules_result["discarded_tracks"],
+        mkv_name=rules_result["mkv_name"],
+        mkv_name_manual=False,
+        chapters=chapters,
+        chapters_auto_generated=chapters_auto,
+        chapters_auto_reason=chapters_reason,
+    )
+    save_session(session)
+    return session.model_dump()
+
+
+# ── Recalcular nombre del MKV ─────────────────────────────────────────────────
+
+@app.post(
+    "/api/sessions/{session_id}/recalculate-name",
+    summary="Recalcula el nombre del MKV",
+)
+async def recalculate_mkv_name(session_id: str):
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    if session.mkv_name_manual:
+        return {"mkv_name": session.mkv_name, "manual": True}
+
+    from phases.phase_b import _build_mkv_name, _extract_title_year
+    title, year      = _extract_title_year(session.iso_path)
+    new_name         = _build_mkv_name(title, year, session.has_fel, session.audio_dcp)
+    session.mkv_name = new_name
+    save_session(session)
+    return {"mkv_name": new_name, "manual": False}
+
+
+# ── Restaurar capítulos originales del disco ─────────────────────────────────
+
+@app.post(
+    "/api/sessions/{session_id}/reset-chapters",
+    summary="Restaura los capítulos originales del disco",
+)
+async def reset_chapters(session_id: str):
+    """
+    Re-extrae los capítulos del MPLS original del disco y reemplaza
+    los capítulos actuales de la sesión. Útil si el usuario ha hecho
+    ediciones manuales y quiere volver a los capítulos del disco.
+
+    Requiere montar el ISO temporalmente para leer el MPLS.
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    iso_path = session.iso_path
+    if not Path(iso_path).exists():
+        raise HTTPException(status_code=400, detail="ISO no disponible")
+
+    mount_point = None
+    try:
+        mount_point = await mount_iso(iso_path)
+        _, mpls_path = await run_mkvmerge_identify(mount_point)
+        chapters_raw = parse_mpls_chapters(mpls_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al extraer capítulos: {e}")
+    finally:
+        if mount_point:
+            await unmount_iso(mount_point)
+
+    if not chapters_raw:
+        raise HTTPException(status_code=404, detail="No se encontraron capítulos en el disco")
+
+    from models import Chapter
+    session.chapters = [Chapter(**c) for c in chapters_raw]
+    session.chapters_auto_generated = False
+    session.chapters_auto_reason = f"{len(session.chapters)} capítulos restaurados del disco (MPLS)"
+    save_session(session)
+    return session.model_dump()
+
+
+# ── Ejecución del pipeline (Fases D + E) ──────────────────────────────────────
+
+@app.get("/api/sessions/{session_id}/check-iso", summary="Comprueba si el ISO de la sesión está disponible")
+async def check_iso(session_id: str):
+    """
+    Verifica que el fichero ISO referenciado por la sesión existe en disco
+    y tiene extensión .iso. No monta ni lee el ISO.
+
+    Respuesta: ``{"available": true|false, "iso_path": "/mnt/isos/..."}``
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    iso = Path(session.iso_path)
+    available = iso.exists() and iso.suffix.lower() == ".iso"
+    return {"available": available, "iso_path": session.iso_path}
+
+
+@app.post("/api/sessions/{session_id}/execute", summary="Encola la sesión para Fases D+E")
+async def execute_session(session_id: str):
+    """
+    Añade la sesión a la cola de ejecución (Fase D + Fase E).
+
+    Si no hay ningún trabajo en curso, se inicia inmediatamente.
+    En caso contrario, queda en estado 'queued' hasta que le toque.
+    El output se transmite por WebSocket a ``/ws/{session_id}``.
+    Devuelve 400 si el ISO referenciado no existe o no es un .iso válido.
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    # Solo se puede ejecutar desde estados pending, error o done (re-ejecución tras editar)
+    if session.status in ("running", "queued"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"La sesión ya está en ejecución o encolada (estado: {session.status}). "
+                   f"Espera a que termine o cancela el trabajo actual.",
+        )
+
+    iso = Path(session.iso_path)
+    if not iso.exists() or iso.suffix.lower() != ".iso":
+        raise HTTPException(
+            status_code=400,
+            detail=f"ISO no disponible: {session.iso_path}. Comprueba que el fichero sigue en /mnt/isos.",
+        )
+
+    session.status        = "queued"
+    session.output_log    = []
+    session.error_message = None
+    save_session(session)
+
+    queue_status = await queue_manager.enqueue(session_id)
+    return {"ok": True, "session_id": session_id, **queue_status}
+
+
+async def _run_pipeline(session_id: str) -> None:
+    """
+    Corutina interna que ejecuta el pipeline de extracción en background.
+    Llamada por queue_manager cuando le toca el turno al trabajo.
+
+    Flujo optimizado (v1.4):
+      1. Monta el ISO (loop mount UDF)
+      2. Localiza el MPLS principal
+      3. Decide ruta según reordenación:
+         a) Con reordenación → mkvmerge MPLS → MKV final (1 copia, sin intermedio)
+         b) Sin reordenación → mkvmerge MPLS → intermedio → mkvpropedit + mv (1 copia)
+      4. Desmonta el ISO (siempre, en finally)
+    """
+    session = load_session(session_id)
+    if not session:
+        return
+
+    # Marcar como ejecutando
+    session.status              = "running"
+    session.output_log          = []
+    session.error_message       = None
+    session.execution_started_at = datetime.now(timezone.utc)
+    session.output_mkv_path     = None
+    save_session(session)
+
+    # Tracking de tiempos por fase
+    _phase_starts: dict[str, datetime] = {}
+    _phase_ends:   dict[str, datetime] = {}
+
+    def _mark_phase(phase: str, done: bool = False) -> None:
+        now = datetime.now(timezone.utc)
+        if not done:
+            _phase_starts[phase] = now
+        else:
+            _phase_ends[phase] = now
+
+    async def log(msg: str) -> None:
+        if not msg.startswith("Progress:"):
+            ts = datetime.now().strftime("%H:%M:%S")  # hora local (TZ del contenedor)
+            msg = f"[{ts}] {msg}"
+        session.output_log.append(msg)
+        save_session(session)
+        for ws in _ws_connections.get(session_id, []):
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                pass
+
+    mount_point      = None
+    intermediate_mkv = None
+    _cancel_flags[session_id] = False
+
+    def _check_cancel():
+        """Lanza RuntimeError si la sesión fue cancelada."""
+        if _cancel_flags.get(session_id):
+            raise RuntimeError("Cancelado por el usuario")
+
+    def _register_proc(proc):
+        """Registra el subprocess activo para poder matarlo desde el endpoint cancel."""
+        _active_processes[session_id] = proc
+
+    try:
+        await log(f"[Pipeline] Iniciando extracción de {session.iso_path}")
+
+        # ── 1. Montar ISO ─────────────────────────────────────────
+        _mark_phase("mount")
+        mount_point = await mount_iso(session.iso_path)
+        _mark_phase("mount", done=True)
+        await log(f"[Montando ISO] ISO montado en: {mount_point}")
+
+        _check_cancel()
+
+        # ── 2. Localizar MPLS principal ───────────────────────────
+        # Reutilizar el MPLS detectado en Fase A (guardado en bdinfo_result)
+        if session.bdinfo_result and session.bdinfo_result.main_mpls:
+            mpls_name = session.bdinfo_result.main_mpls
+            for candidate_dir in [
+                Path(mount_point) / "BDMV" / "PLAYLIST",
+                Path(mount_point) / "PLAYLIST",
+            ]:
+                candidate_path = candidate_dir / mpls_name
+                if candidate_path.exists():
+                    mpls_path = str(candidate_path)
+                    break
+            else:
+                mpls_path = find_main_mpls(mount_point)
+        else:
+            mpls_path = find_main_mpls(mount_point)
+        await log(f"[Fase D] MPLS seleccionado: {mpls_path}")
+
+        _check_cancel()
+
+        # ── 3. Decidir ruta ───────────────────────────────────────
+        do_reorder = await needs_reordering(session, mpls_path, log)
+
+        if do_reorder:
+            # ── RUTA DIRECTA: MPLS → MKV final (1 sola copia) ────
+            await log("[Pipeline] Pistas reordenadas/excluidas → ruta directa (MPLS → MKV final)")
+            _mark_phase("extract")
+            final_mkv = await run_phase_e_direct(
+                session=session,
+                mpls_path=mpls_path,
+                log_callback=log,
+                proc_callback=_register_proc,
+            )
+            _mark_phase("extract", done=True)
+
+        else:
+            # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
+            await log("[Pipeline] Sin reordenación → ruta intermedio (mkvpropedit in-place)")
+
+            # Phase D: extraer todo al intermedio
+            _mark_phase("extract")
+            intermediate_mkv = await run_phase_d(
+                share_path=mount_point,
+                tmp_dir=TMP_DIR,
+                log_callback=log,
+                proc_callback=_register_proc,
+            )
+            _mark_phase("extract", done=True)
+            await log(f"[Fase D] MKV intermedio generado: {intermediate_mkv}")
+
+            # Phase E: mkvpropedit in-place + mv
+            _mark_phase("write")
+            _check_cancel()
+            final_mkv = await run_phase_e_propedit(
+                session=session,
+                intermediate_mkv=intermediate_mkv,
+                log_callback=log,
+                proc_callback=_register_proc,
+            )
+            _mark_phase("write", done=True)
+
+        session.output_mkv_path = final_mkv
+
+        # ── Validación final del MKV ─────────────────────────────
+        validation_ok = await _validate_final_mkv(session, final_mkv, log)
+
+        session.status         = "done" if validation_ok else "done"
+        session.last_executed  = datetime.now(timezone.utc)
+
+        if validation_ok:
+            await log(f"[Pipeline] Completado: {final_mkv}")
+        else:
+            await log(f"[Pipeline] Completado con advertencias: {final_mkv}")
+
+    except Exception as e:
+        cancelled = _cancel_flags.get(session_id, False)
+        if cancelled:
+            session.status        = "pending"
+            session.error_message = None
+            await log("[Pipeline] Cancelado por el usuario")
+        else:
+            session.status        = "error"
+            session.error_message = str(e)
+            await log(f"[Pipeline] ERROR: {e}")
+
+        # Limpiar ficheros temporales/parciales
+        for path in [intermediate_mkv, session.output_mkv_path]:
+            if path and Path(path).exists():
+                try:
+                    Path(path).unlink()
+                    await log(f"[Pipeline] Fichero limpiado: {Path(path).name}")
+                except OSError:
+                    pass
+        session.output_mkv_path = None
+
+    finally:
+        # Desmontar siempre (éxito, error o cancelación)
+        if mount_point:
+            _mark_phase("unmount")
+            await unmount_iso(mount_point)
+            _mark_phase("unmount", done=True)
+            await log("[Desmontando ISO] ISO desmontado")
+
+        # Limpiar tracking de cancelación
+        _cancel_flags.pop(session_id, None)
+        _active_processes.pop(session_id, None)
+
+        # Registrar ejecución en historial (no registrar cancelaciones)
+        if session.status != "pending":
+            _append_execution_record(session, _phase_starts, _phase_ends)
+        save_session(session)
+        sig = "__DONE__" if session.status == "done" else "__CANCELLED__" if session.status == "pending" else "__ERROR__"
+        for ws in _ws_connections.get(session_id, []):
+            try:
+                await ws.send_text(sig)
+            except Exception:
+                pass
+
+
+async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
+    """
+    Valida el MKV final contra lo esperado por la sesión.
+
+    Comprueba: existencia del fichero, número y tipo de pistas,
+    coincidencia de idiomas de audio y subtítulos, presencia de capítulos.
+    Escribe un informe detallado en el log para diagnóstico.
+
+    Returns:
+        True si todo es correcto, False si hay discrepancias.
+    """
+    await log("[Validación] Verificando MKV final…")
+
+    if not Path(mkv_path).exists():
+        await log("[Validación] ❌ ERROR: El fichero MKV no existe")
+        return False
+
+    # ── Leer pistas del MKV final con mkvmerge -J ────────────────
+    proc = await asyncio.create_subprocess_exec(
+        "mkvmerge", "-J", mkv_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode >= 2:
+        await log(f"[Validación] ❌ ERROR: mkvmerge -J falló con código {proc.returncode}")
+        return False
+
+    try:
+        data = json.loads(stdout.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        await log("[Validación] ❌ ERROR: JSON inválido de mkvmerge -J")
+        return False
+
+    actual_tracks = data.get("tracks", [])
+    actual_chapters = data.get("chapters", [])
+    file_size = Path(mkv_path).stat().st_size
+
+    # ── Clasificar pistas del MKV ────────────────────────────────
+    actual_video = [t for t in actual_tracks if t.get("type") == "video"]
+    actual_audio = [t for t in actual_tracks if t.get("type") == "audio"]
+    actual_subs  = [t for t in actual_tracks if t.get("type") == "subtitles"]
+
+    # ── Pistas esperadas de la sesión ────────────────────────────
+    expected_audio = [t for t in session.included_tracks if t.track_type == "audio"]
+    expected_subs  = [t for t in session.included_tracks if t.track_type == "subtitle"]
+
+    all_ok = True
+    warnings = []
+
+    # ── Log de información general ───────────────────────────────
+    await log(f"[Validación] Fichero: {Path(mkv_path).name} ({file_size / 1e9:.2f} GB)")
+    await log(f"[Validación] Pistas: {len(actual_video)} vídeo, {len(actual_audio)} audio, {len(actual_subs)} subtítulos")
+
+    # ── Validar vídeo ────────────────────────────────────────────
+    if not actual_video:
+        await log("[Validación] ❌ Sin pistas de vídeo")
+        all_ok = False
+    else:
+        for v in actual_video:
+            codec = v.get("codec", "?")
+            dims = v.get("properties", {}).get("pixel_dimensions", "?")
+            await log(f"[Validación]   🎬 Vídeo: {codec} {dims}")
+
+    # Verificar Dolby Vision si se esperaba FEL
+    # Con mkvmerge v81+, BL+EL se combinan en un solo track (no hay EL separada).
+    # La señalización DV se verifica por el DOVI configuration record en codec private.
+    if session.has_fel:
+        if len(actual_video) == 1:
+            # v81+: BL+EL combinados — comportamiento correcto
+            await log("[Validación]   ✅ Dolby Vision: BL+EL combinados en un solo track (mkvmerge v81+)")
+        elif any("1920" in v.get("properties", {}).get("pixel_dimensions", "") for v in actual_video):
+            # v65 legacy: EL como track separado — DV puede no funcionar
+            await log("[Validación]   ⚠️ Dolby Vision: EL presente como track separado (requiere mkvmerge v81+ para DV correcto)")
+        else:
+            msg = "❌ Dolby Vision: FEL esperado pero no se encontró Enhancement Layer"
+            await log(f"[Validación] {msg}")
+            warnings.append(msg)
+            all_ok = False
+
+    # ── Validar audio ────────────────────────────────────────────
+    if len(actual_audio) != len(expected_audio):
+        msg = f"❌ Audio: {len(actual_audio)} pistas en MKV vs {len(expected_audio)} esperadas"
+        await log(f"[Validación] {msg}")
+        warnings.append(msg)
+        all_ok = False
+
+    # Mapeo ISO 639-2 → nombre inglés lowered para comparación
+    _iso = {
+        "spa": "spanish", "eng": "english", "fre": "french", "fra": "french",
+        "ger": "german", "deu": "german", "ita": "italian", "jpn": "japanese",
+        "por": "portuguese", "dut": "dutch", "nld": "dutch", "rus": "russian",
+    }
+
+    for i, at in enumerate(actual_audio):
+        props = at.get("properties", {})
+        lang_iso = props.get("language", "und")
+        lang_name = _iso.get(lang_iso, lang_iso)
+        codec = at.get("codec", "?")
+        name = props.get("track_name", "")
+        is_default = props.get("default_track", False)
+
+        status = "✅"
+        detail = ""
+        if i < len(expected_audio):
+            exp = expected_audio[i]
+            exp_lang = exp.raw.language.lower()
+            if lang_name != exp_lang:
+                status = "❌"
+                detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                all_ok = False
+        else:
+            status = "⚠️"
+            detail = " (pista extra no esperada)"
+
+        flag_str = " [DEFAULT]" if is_default else ""
+        await log(f"[Validación]   🔊 Audio #{i+1}: {codec} · {lang_iso}{flag_str} · \"{name}\"{detail} {status}")
+
+    # Pistas esperadas que no están en el MKV
+    for i in range(len(actual_audio), len(expected_audio)):
+        exp = expected_audio[i]
+        msg = f"❌ Audio esperada #{i+1} ausente: {exp.raw.language} {exp.raw.codec}"
+        await log(f"[Validación]   {msg}")
+        warnings.append(msg)
+        all_ok = False
+
+    # ── Validar subtítulos ───────────────────────────────────────
+    if len(actual_subs) != len(expected_subs):
+        msg = f"❌ Subtítulos: {len(actual_subs)} pistas en MKV vs {len(expected_subs)} esperadas"
+        await log(f"[Validación] {msg}")
+        warnings.append(msg)
+        all_ok = False
+
+    for i, st in enumerate(actual_subs):
+        props = st.get("properties", {})
+        lang_iso = props.get("language", "und")
+        lang_name = _iso.get(lang_iso, lang_iso)
+        name = props.get("track_name", "")
+        is_default = props.get("default_track", False)
+        is_forced = props.get("forced_track", False)
+
+        status = "✅"
+        detail = ""
+        if i < len(expected_subs):
+            exp = expected_subs[i]
+            exp_lang = exp.raw.language.lower()
+            if lang_name != exp_lang:
+                status = "❌"
+                detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                all_ok = False
+        else:
+            status = "⚠️"
+            detail = " (pista extra)"
+
+        flags = []
+        if is_default: flags.append("DEF")
+        if is_forced: flags.append("FRC")
+        flag_str = f" [{','.join(flags)}]" if flags else ""
+        await log(f"[Validación]   💬 Sub #{i+1}: {lang_iso}{flag_str} · \"{name}\"{detail} {status}")
+
+    for i in range(len(actual_subs), len(expected_subs)):
+        exp = expected_subs[i]
+        msg = f"❌ Subtítulo esperado #{i+1} ausente: {exp.raw.language} {exp.subtitle_type}"
+        await log(f"[Validación]   {msg}")
+        warnings.append(msg)
+        all_ok = False
+
+    # ── Validar capítulos (extracción real, no num_entries) ─────
+    import subprocess as _sp
+    try:
+        _ch_result = _sp.run(
+            ["mkvextract", mkv_path, "chapters", "--simple"],
+            capture_output=True, text=True, timeout=10,
+        )
+        num_chapters = sum(1 for l in _ch_result.stdout.splitlines() if l.startswith("CHAPTER") and "NAME" not in l)
+    except Exception:
+        num_chapters = 0
+    expected_chapters = len(session.chapters)
+    if num_chapters != expected_chapters and expected_chapters > 0:
+        msg = f"⚠️ Capítulos: {num_chapters} en MKV vs {expected_chapters} esperados"
+        await log(f"[Validación] {msg}")
+        warnings.append(msg)
+    else:
+        await log(f"[Validación]   📖 Capítulos: {num_chapters}")
+
+    # ── Resumen ──────────────────────────────────────────────────
+    if all_ok:
+        await log("[Validación] ✅ MKV verificado correctamente")
+    else:
+        await log(f"[Validación] ⚠️ Verificación con {len(warnings)} discrepancia(s)")
+        await log("[Validación] ──── DATOS PARA DIAGNÓSTICO ────")
+        await log(f"[Validación] Sesión ID: {session.id}")
+        await log(f"[Validación] ISO: {session.iso_path}")
+        await log(f"[Validación] MKV: {mkv_path}")
+        await log(f"[Validación] Pistas incluidas (sesión): {len(expected_audio)} audio + {len(expected_subs)} subs")
+        for i, t in enumerate(expected_audio):
+            await log(f"[Validación]   Audio esperado #{i+1}: {t.raw.language} · {t.raw.codec} · label=\"{t.label}\"")
+        for i, t in enumerate(expected_subs):
+            await log(f"[Validación]   Sub esperado #{i+1}: {t.raw.language} · {t.subtitle_type} · label=\"{t.label}\"")
+        await log(f"[Validación] Pistas reales (mkvmerge -J): {len(actual_audio)} audio + {len(actual_subs)} subs")
+        for at in actual_audio:
+            p = at.get("properties", {})
+            await log(f"[Validación]   Audio real: id={at['id']} {at['codec']} {p.get('language','')} \"{p.get('track_name','')}\"")
+        for st in actual_subs:
+            p = st.get("properties", {})
+            await log(f"[Validación]   Sub real: id={st['id']} {p.get('language','')} def={p.get('default_track',False)} frc={p.get('forced_track',False)} \"{p.get('track_name','')}\"")
+        await log("[Validación] ──── FIN DIAGNÓSTICO ────")
+
+    return all_ok
+
+
+def _append_execution_record(
+    session: Session,
+    phase_starts: dict[str, datetime],
+    phase_ends: dict[str, datetime],
+) -> None:
+    """Construye un ExecutionRecord y lo añade al historial de la sesión."""
+    now = datetime.now(timezone.utc)
+    phase_elapsed: dict[str, float | None] = {}
+    for phase in ("mount", "extract", "unmount", "write"):
+        start = phase_starts.get(phase)
+        end   = phase_ends.get(phase)
+        if start and end:
+            phase_elapsed[phase] = round((end - start).total_seconds(), 1)
+        elif start:
+            # Fase iniciada pero no completada (error durante la fase)
+            phase_elapsed[phase] = round((now - start).total_seconds(), 1)
+        else:
+            phase_elapsed[phase] = None
+
+    record = ExecutionRecord(
+        run_number      = len(session.execution_history) + 1,
+        started_at      = session.execution_started_at or now,
+        finished_at     = now,
+        status          = session.status,
+        error_message   = session.error_message,
+        output_mkv_path = session.output_mkv_path,
+        phase_elapsed   = phase_elapsed,
+        output_log      = list(session.output_log),
+    )
+    session.execution_history.append(record)
+
+
+# ── Cola de ejecución ────────────────────────────────────────────────────────
+
+@app.get("/api/queue", summary="Estado de la cola de ejecución")
+async def get_queue():
+    """Devuelve el estado de la cola con objetos de sesión completos."""
+    status = queue_manager.get_status()
+    result: dict = {"running": None, "queue": []}
+
+    if status["running"]:
+        s = load_session(status["running"])
+        if s:
+            result["running"] = s.model_dump()
+
+    for sid in status["queue"]:
+        s = load_session(sid)
+        if s:
+            result["queue"].append(s.model_dump())
+
+    return result
+
+
+@app.delete("/api/queue/{session_id}", summary="Cancela un trabajo encolado")
+async def cancel_queue_job(session_id: str):
+    """Elimina session_id de la cola si aún no ha empezado a ejecutarse."""
+    cancelled = await queue_manager.cancel(session_id)
+    if cancelled:
+        session = load_session(session_id)
+        if session:
+            session.status = "pending"
+            save_session(session)
+    return {"ok": cancelled, "session_id": session_id}
+
+
+@app.post(
+    "/api/sessions/{session_id}/cancel",
+    summary="Cancela la ejecución en curso de una sesión",
+)
+async def cancel_running_session(session_id: str):
+    """
+    Cancela la ejecución activa de una sesión. Mata el subprocess en curso
+    (mkvmerge, mkvpropedit, etc.) y señaliza al pipeline para que haga
+    limpieza (desmontar ISO, eliminar temporales).
+
+    Solo funciona si la sesión está en estado 'running'.
+    Si está 'queued', usar DELETE /api/queue/{id} en su lugar.
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    if session.status != "running":
+        raise HTTPException(status_code=400, detail=f"Sesión no está en ejecución (status={session.status})")
+
+    # Señalizar cancelación
+    _cancel_flags[session_id] = True
+
+    # Matar el subprocess activo si existe
+    proc = _active_processes.get(session_id)
+    if proc and proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+    return {"ok": True, "session_id": session_id}
+
+
+@app.post("/api/queue/reorder", summary="Reordena la cola de ejecución")
+async def reorder_queue(body: QueueReorderRequest):
+    """Reordena la cola según la lista ordered_ids proporcionada."""
+    await queue_manager.reorder(body.ordered_ids)
+    return queue_manager.get_status()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 2 — EDITAR MKV (endpoints stateless)
+# ══════════════════════════════════════════════════════════════════════════════
+
+from models import MkvEditRequest
+from phases.mkv_analyze import analyze_mkv, apply_mkv_edits
+
+OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
+
+
+@app.get("/api/mkv/files", summary="Lista MKVs disponibles en /mnt/output")
+async def list_mkv_files():
+    """Devuelve la lista de ficheros .mkv en el directorio de salida."""
+    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    if DEV_MODE:
+        return {"files": DEV_FAKE_MKV_FILES}
+    if not OUTPUT_DIR_MKV.exists():
+        return {"files": []}
+    files = sorted(
+        [p.name for p in OUTPUT_DIR_MKV.glob("*.mkv")],
+        key=str.lower,
+    )
+    return {"files": files}
+
+
+@app.post("/api/mkv/analyze", summary="Analiza un MKV existente")
+async def analyze_mkv_endpoint(body: dict):
+    """
+    Ejecuta mkvmerge -J + mkvextract chapters sobre un MKV y devuelve
+    toda la información de pistas, capítulos y metadatos.
+
+    Body: ``{"file_path": "Movie.mkv"}`` (relativo a /mnt/output)
+    """
+    rel_path = body.get("file_path", "")
+    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    if DEV_MODE:
+        return build_fake_mkv_analysis(rel_path)
+    mkv_full = str(OUTPUT_DIR_MKV / rel_path)
+    if not Path(mkv_full).exists():
+        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+    try:
+        result = await analyze_mkv(mkv_full)
+        return result.model_dump()
+    except Exception as e:
+        _logger.exception("Error analizando MKV %s", mkv_full)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mkv/apply", summary="Aplica ediciones a un MKV")
+async def apply_mkv_edits_endpoint(body: MkvEditRequest):
+    """
+    Aplica ediciones de metadatos a un MKV vía mkvpropedit (instantáneo).
+
+    Soporta: nombres de pistas, flags default/forced, capítulos.
+    """
+    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    if DEV_MODE:
+        return build_fake_mkv_apply(body)
+    if not Path(body.file_path).exists():
+        raise HTTPException(status_code=400, detail="MKV no encontrado")
+    try:
+        result = await apply_mkv_edits(body)
+        return result
+    except Exception as e:
+        _logger.exception("Error aplicando ediciones a %s", body.file_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── DEV MODE: simulación de ejecución fake ────────────────────────────────────
+# ⚠️  TEMPORAL — eliminar junto con dev_fixtures.py una vez validado.
+if DEV_MODE:
+    import random
+
+    async def _run_fake_pipeline(session_id: str) -> None:
+        """
+        Simula un pipeline D+E completo emitiendo mensajes WS reales con delays.
+        Replica exactamente el mismo flujo de señales que _run_pipeline:
+          [Fase D] → Progress: X% → [Fase E] → __DONE__ (o __ERROR__)
+        """
+        session = load_session(session_id)
+        if not session:
+            return
+
+        session.status              = "running"
+        session.output_log          = []
+        session.execution_started_at = datetime.now(timezone.utc)
+        session.output_mkv_path     = None
+        save_session(session)
+
+        async def log(msg: str) -> None:
+            if not msg.startswith("Progress:"):
+                ts = datetime.now().strftime("%H:%M:%S")  # hora local (TZ del contenedor)
+                msg = f"[{ts}] {msg}"
+            session.output_log.append(msg)
+            save_session(session)
+            for ws in _ws_connections.get(session_id, []):
+                try:
+                    await ws.send_text(msg)
+                except Exception:
+                    pass
+
+        will_error   = random.random() < 0.20
+        do_reorder   = random.random() < 0.50  # simular 50% reorder
+        _ps: dict[str, datetime] = {}
+        _pe: dict[str, datetime] = {}
+
+        try:
+            await log(f"[Pipeline] Iniciando extracción de {session.iso_path}")
+
+            # ── Montar ISO ────────────────────────────────────────────
+            _ps["mount"] = datetime.now(timezone.utc)
+            await asyncio.sleep(0.2)
+            await log("[Montando ISO] mount -t udf -o ro,loop …")
+            await asyncio.sleep(0.4)
+            await log("[Montando ISO] ISO montado en: /mnt/bd/fake_mount_12345")
+            _pe["mount"] = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+            await log("[Fase D] MPLS seleccionado: /mnt/bd/fake_mount_12345/BDMV/PLAYLIST/00800.mpls")
+
+            if do_reorder:
+                # ── RUTA DIRECTA: MPLS → MKV final ───────────────────
+                await log("[Pipeline] Pistas reordenadas/excluidas → ruta directa (MPLS → MKV final)")
+                _ps["extract"] = datetime.now(timezone.utc)
+                await log("[Fase E] mkvmerge directo: MPLS → MKV final")
+                await asyncio.sleep(0.5)
+                for pct in range(5, 101, 5):
+                    await log(f"Progress: {pct}%")
+                    await asyncio.sleep(0.25)
+                if will_error:
+                    raise RuntimeError("[DEV] Error simulado — mkvmerge falló")
+                _pe["extract"] = datetime.now(timezone.utc)
+            else:
+                # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
+                await log("[Pipeline] Sin reordenación → ruta intermedio (mkvpropedit in-place)")
+                _ps["extract"] = datetime.now(timezone.utc)
+                await log("[Fase D] mkvmerge: extrayendo todas las pistas…")
+                await asyncio.sleep(0.5)
+                for pct in range(5, 101, 5):
+                    await log(f"Progress: {pct}%")
+                    await asyncio.sleep(0.25)
+                if will_error:
+                    raise RuntimeError("[DEV] Error simulado — mkvmerge falló")
+                _pe["extract"] = datetime.now(timezone.utc)
+                await log("[Fase D] MKV intermedio generado: /mnt/tmp/fake_intermediate.mkv")
+
+                _ps["write"] = datetime.now(timezone.utc)
+                await log("[Fase E] mkvpropedit in-place: configurando metadatos…")
+                await asyncio.sleep(0.4)
+                await log("[Fase E] mkvpropedit: pistas + capítulos configurados")
+                await asyncio.sleep(0.3)
+                await log("[Fase E] MKV movido a: /mnt/output/")
+                _pe["write"] = datetime.now(timezone.utc)
+
+            mkv_out = f"/mnt/output/{session.mkv_name or 'fake_output.mkv'}"
+            await log(f"[Pipeline] Completado: {mkv_out}")
+
+            session.status          = "done"
+            session.last_executed   = datetime.now(timezone.utc)
+            session.output_mkv_path = mkv_out
+
+        except Exception as e:
+            _logger.exception("Error en pipeline para sesión %s", session.id)
+            session.status        = "error"
+            session.error_message = str(e)
+            await log(f"[ERROR] {e}")
+
+        finally:
+            # Simular desmontaje
+            _ps["unmount"] = datetime.now(timezone.utc)
+            await log("[Desmontando ISO] umount loop device…")
+            await asyncio.sleep(0.2)
+            _pe["unmount"] = datetime.now(timezone.utc)
+            await log("[Pipeline] ISO desmontado")
+
+            _append_execution_record(session, _ps, _pe)
+            save_session(session)
+            sig = "__DONE__" if session.status == "done" else "__ERROR__"
+            for ws in _ws_connections.get(session_id, []):
+                try:
+                    await ws.send_text(sig)
+                except Exception:
+                    pass
+
+    # Registrar la función fake como pipeline del queue_manager
+    queue_manager.set_run_fn(_run_fake_pipeline)
+
+    @app.post("/api/dev/simulate", summary="[DEV] Encola sesiones fake para simular ejecución")
+    async def dev_simulate(body: dict = {}):
+        """
+        ⚠️ Solo disponible con DEV_MODE=1.
+
+        Encola una o varias sesiones fake para simular el pipeline completo.
+
+        Body (opcional):
+          { "session_ids": ["id1", "id2"] }   → encola las indicadas
+          {}                                   → encola las 2 primeras sesiones pending
+        """
+        from storage import list_sessions
+        ids: list[str] = body.get("session_ids", [])
+
+        if not ids:
+            # Auto-seleccionar la primera sesión disponible.
+            # Prioridad: pending/done primero, luego error (reseteable).
+            # Excluir las que ya están corriendo o encoladas ahora mismo.
+            active = {queue_manager.get_status()["running"]} | set(queue_manager.get_status()["queue"])
+            active.discard(None)
+            all_sessions = list_sessions()
+            priority = [s for s in all_sessions if s.status in ("pending", "done") and s.id not in active]
+            fallback  = [s for s in all_sessions if s.status == "error" and s.id not in active]
+            candidates = (priority + fallback)[:1]
+            ids = [s.id for s in candidates]
+
+        if not ids:
+            return {"ok": False, "detail": "No hay sesiones disponibles (todas en ejecución o en cola)"}
+
+        enqueued = []
+        for sid in ids:
+            session = load_session(sid)
+            if not session:
+                continue
+            session.status     = "queued"
+            session.output_log = []
+            session.error_message = None
+            save_session(session)
+            await queue_manager.enqueue(sid)
+            enqueued.append(sid)
+
+        return {"ok": True, "enqueued": enqueued, **queue_manager.get_status()}
+
+
+@app.websocket("/ws/queue")
+async def queue_websocket(websocket: WebSocket):
+    """WebSocket para recibir updates en tiempo real del estado de la cola."""
+    await websocket.accept()
+    _queue_ws_clients.add(websocket)
+    # Enviar estado actual al conectar
+    try:
+        await websocket.send_text(json.dumps(queue_manager.get_status()))
+    except Exception:
+        pass
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _queue_ws_clients.discard(websocket)
+
+
+# ── WebSocket para streaming de output ───────────────────────────────────────
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket para recibir el output del proceso en tiempo real.
+
+    Al conectar, se envía primero el log histórico (permite reconectar
+    sin perder el output anterior). El mensaje especial ``__DONE__``
+    indica que el proceso terminó.
+    """
+    await websocket.accept()
+    _ws_connections.setdefault(session_id, []).append(websocket)
+
+    session = load_session(session_id)
+    if session:
+        for line in session.output_log:
+            try:
+                await websocket.send_text(line)
+            except Exception:
+                break
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if session_id in _ws_connections:
+            _ws_connections[session_id] = [
+                ws for ws in _ws_connections[session_id] if ws != websocket
+            ]
+
+
+# ── Health check ─────────────────────────────────────────────────────────────
+
+@app.get("/api/health", summary="Health check para Docker")
+async def health():
+    """Endpoint ligero para el health check de Docker. Devuelve 200 si la app responde."""
+    return {"status": "ok"}
+
+
+# ── Estado general de la app ──────────────────────────────────────────────────
+
+@app.get("/api/status", summary="Estado de la aplicación")
+async def app_status():
+    """
+    Devuelve el estado general de la aplicación.
+
+    Respuesta::
+
+        {
+          "mount_available": true,
+          "dev_mode": false
+        }
+    """
+    return {
+        "mount_available": is_mount_available(),
+        "dev_mode": DEV_MODE,
+    }
+
+
+# ── Registro del queue_manager ────────────────────────────────────────────────
+# Se hace al final del módulo para que _run_pipeline y _broadcast_queue
+# estén ya definidas antes de registrarlas.
+# En DEV_MODE _run_fake_pipeline ya fue registrada arriba; no sobreescribir.
+if not DEV_MODE:
+    queue_manager.set_run_fn(_run_pipeline)
+queue_manager.on_update(_broadcast_queue)

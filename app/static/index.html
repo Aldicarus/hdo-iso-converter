@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HDO ISO Converter</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+
+<div id="app-root">
+
+  <!-- ═══ HEADER ═══════════════════════════════════════════════════ -->
+  <header id="app-header">
+
+    <!-- Brand -->
+    <div class="brand">
+      <span class="brand-hdo">HDO</span>
+      <span class="brand-sep"></span>
+      <div class="brand-info">
+        <span class="brand-name">ISO Converter</span>
+        <span class="brand-sub">UHD Blu-ray Toolkit</span>
+      </div>
+      <span class="brand-desc-sep"></span>
+      <span class="brand-desc">Convierte ISOs UHD Blu-ray desencriptados a MKV via mkvmerge, con selección automática de pistas y soporte Dolby Vision FEL</span>
+    </div>
+
+    <div class="header-right"></div>
+  </header>
+
+  <!-- ═══ TAB BAR ══════════════════════════════════════════════════ -->
+  <nav id="tab-bar">
+    <button class="tab active" onclick="switchTab(1)" id="tab-btn-1"
+      data-tooltip="Crear un nuevo MKV a partir de un ISO UHD Blu-ray">
+      <span class="tab-icon">💿</span> Crear MKV
+    </button>
+    <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
+      data-tooltip="Editar propiedades de ficheros MKV existentes">
+      <span class="tab-icon">✏️</span> Editar MKV
+    </button>
+    <button class="tab" onclick="switchTab(3)" id="tab-btn-3"
+      data-tooltip="Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD">
+      <span class="tab-icon">🎯</span> CMv4.0 BD
+    </button>
+  </nav>
+
+  <!-- ═══ BODY ══════════════════════════════════════════════════════ -->
+  <div id="app-body">
+
+    <!-- ── SIDEBAR ──────────────────────────────────────────────── -->
+    <aside id="sidebar">
+
+      <!-- Sidebar Tab 1: Nuevo proyecto + lista de proyectos -->
+      <div id="sidebar-tab-1">
+
+        <!-- Botón Nuevo proyecto -->
+        <div class="sidebar-new-project-area">
+          <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openNewProjectModal()"
+            data-tooltip="Seleccionar un ISO y analizar para crear un nuevo proyecto">
+            <span>＋</span> Nuevo proyecto
+          </button>
+        </div>
+
+        <!-- Cabecera + búsqueda + controles -->
+        <div class="sidebar-sessions-header">
+          <span class="sidebar-section-title">🗂️ Proyectos</span>
+          <span class="sessions-count" id="sessions-count">0</span>
+        </div>
+        <div class="sidebar-search-wrap">
+          <span class="sidebar-search-icon">🔎</span>
+          <input type="text" id="sidebar-search" class="sidebar-search-input"
+            placeholder="Buscar proyecto…"
+            oninput="filterSidebarSessions()"
+            data-tooltip="Filtra por nombre ignorando mayúsculas y signos de puntuación">
+        </div>
+
+        <!-- Ordenación + filtros de estado -->
+        <div class="sidebar-controls">
+          <div class="sidebar-sort-row">
+            <select id="sidebar-sort" class="sidebar-sort-select" onchange="onSidebarSortChange()"
+              data-tooltip="Criterio de ordenación">
+              <option value="modified">Modificado</option>
+              <option value="name">Nombre</option>
+              <option value="executed">Ejecutado</option>
+              <option value="status">Estado</option>
+            </select>
+            <button class="sidebar-sort-dir-btn" id="sidebar-sort-dir" onclick="toggleSidebarSortDir()"
+              data-tooltip="Alternar ascendente / descendente">↓</button>
+          </div>
+          <div class="sidebar-status-filters">
+            <button class="sb-filter-pill active" data-filter="all" onclick="onSidebarFilterClick(this)"
+              data-tooltip="Todos">All</button>
+            <button class="sb-filter-pill" data-filter="pending" onclick="onSidebarFilterClick(this)"
+              data-tooltip="Sin ejecutar">💿</button>
+            <button class="sb-filter-pill" data-filter="done" onclick="onSidebarFilterClick(this)"
+              data-tooltip="Completados">✅</button>
+            <button class="sb-filter-pill" data-filter="error" onclick="onSidebarFilterClick(this)"
+              data-tooltip="Con error">❌</button>
+          </div>
+        </div>
+
+        <div id="sessions-list"></div>
+
+      </div>
+
+      <!-- Sidebar Tab 2: sin contenido (Tab 2 usa ancho completo) -->
+      <div id="sidebar-tab-2" style="display:none"></div>
+
+      <!-- Sidebar Tab 3: CMv4.0 BD (futuro) -->
+      <div id="sidebar-tab-3" style="display:none">
+        <div class="sidebar-sessions-header">
+          <span>🗂️ Sesiones</span>
+          <span class="sessions-count">0</span>
+        </div>
+        <div class="empty-state" style="padding:24px 12px">
+          <div class="empty-state-icon">🎯</div>
+          <div>Sin sesiones todavía</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── PANEL PRINCIPAL ──────────────────────────────────────── -->
+    <main id="main-panel">
+
+      <!-- ── TAB 1: Crear MKV ── -->
+      <div id="tab-panel-1" style="display:flex">
+
+        <!-- Sub-tab bar: proyectos (scrollable) + Cola (columna fija derecha) -->
+        <div id="subtab-bar">
+          <div class="subtab-projects-area">
+            <div class="subtab-projects" id="subtab-projects"></div>
+          </div>
+          <div class="subtab-cola-area" id="subtab-cola-area">
+            <button class="subtab-cola-btn" id="subtab-btn-cola" onclick="switchSubTab('cola')"
+              data-tooltip="Monitorea el trabajo activo y la cola de ejecución">
+              🎞️ Demux Jobs
+            </button>
+          </div>
+        </div>
+
+        <!-- Área de contenido: paneles proyecto (izq) + sidebar Cola (der, siempre visible) -->
+        <div id="subtab-content">
+
+          <!-- Cortinilla: se posiciona con CSS calc, viaja entre borde-cola y borde-izquierdo -->
+          <button class="cola-expand-tab" id="cola-expand-tab" onclick="toggleColaSidebar()"
+            title="Mostrar / ocultar panel detallado de trabajos en curso">
+            <span class="cola-expand-icon" id="cola-expand-icon">◀</span>
+          </button>
+
+          <!-- Área de proyecto — scroll container para paneles + panel Cola detallado -->
+          <div id="subtab-main">
+
+            <!-- Panel Cola — panel de control de ejecución en curso -->
+            <div id="panel-cola" class="subtab-panel">
+              <div class="pc-wrap">
+
+                <!-- Estado vacío -->
+                <div id="pc-empty" class="pc-empty">
+                  <div class="pc-empty-icon">⏸</div>
+                  <div class="pc-empty-title">Sin ejecuciones activas</div>
+                  <div class="pc-empty-sub">Confirma un proyecto para iniciar la ejecución</div>
+                </div>
+
+                <!-- Panel de control activo -->
+                <div id="pc-running" style="display:none">
+
+                  <!-- Cabecera del trabajo -->
+                  <div class="pc-header">
+                    <div class="pc-header-left">
+                      <span class="pc-running-dot" data-tooltip="Ejecución activa"></span>
+                      <div>
+                        <div class="pc-job-name" id="pc-job-name">—</div>
+                        <div class="pc-job-paths" id="pc-job-paths">—</div>
+                      </div>
+                    </div>
+                    <div class="pc-total-elapsed" id="pc-total-elapsed"
+                      data-tooltip="Tiempo total transcurrido desde el inicio del trabajo">00:00</div>
+                  </div>
+
+                  <!-- Pipeline de fases (3 pasos: Montar → mkvmerge → Desmontar) -->
+                  <div class="pc-pipeline">
+
+                    <!-- Montar ISO -->
+                    <div class="pc-step pending" id="pc-step-mount"
+                      data-tooltip="Montar el ISO via loop mount (UDF 2.50)">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-mount">💿</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">Montar ISO</div>
+                          <div class="pc-step-sub">loop mount UDF → /mnt/bd/</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-mount"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-mount" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela el montaje en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                    <div class="pc-step-conn" id="pc-conn-me"></div>
+
+                    <!-- mkvmerge (extracción + escritura) -->
+                    <div class="pc-step pending" id="pc-step-extract"
+                      data-tooltip="mkvmerge lee el MPLS y genera el MKV. Ruta directa (MPLS→final) o intermedia (MPLS→tmp→propedit→final)">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-extract">⬇️</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">mkvmerge</div>
+                          <div class="pc-step-sub" id="pc-sub-extract">MPLS → MKV</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-extract"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-progress" id="pc-prog-extract" style="display:none">
+                        <div class="pc-prog-track">
+                          <div class="pc-prog-bar indeterminate" id="pc-bar-extract"></div>
+                        </div>
+                        <div class="pc-prog-meta">
+                          <span class="pc-prog-pct" id="pc-pct-extract"
+                            data-tooltip="Porcentaje completado reportado por mkvmerge"></span>
+                          <span class="pc-eta" id="pc-eta-extract"
+                            data-tooltip="Tiempo estimado hasta completar esta fase"></span>
+                        </div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-extract" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela la extracción en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                    <div class="pc-step-conn" id="pc-conn-eu"></div>
+
+                    <!-- Desmontar ISO -->
+                    <div class="pc-step pending" id="pc-step-unmount"
+                      data-tooltip="Desmontar ISO y liberar loop device">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-unmount">🔓</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">Desmontar ISO</div>
+                          <div class="pc-step-sub">umount loop device</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-unmount"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-unmount" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela el desmontaje en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                  </div><!-- /pc-pipeline -->
+
+                  <!-- Consola en vivo -->
+                  <div class="pc-console">
+                    <div class="pc-console-toolbar">
+                      <span class="pc-console-label" data-tooltip="Salida en tiempo real de mkvmerge y mkvpropedit">🖥️ Consola en vivo</span>
+                      <div class="pc-console-filters">
+                        <button class="cola-filter-btn active" id="pc-filter-all" onclick="setPcLogFilter('all')"
+                          data-tooltip="Mostrar todas las líneas de log">Todo</button>
+                        <button class="cola-filter-btn" id="pc-filter-warn" onclick="setPcLogFilter('warn')"
+                          data-tooltip="Mostrar solo advertencias y errores">⚠️ Avisos</button>
+                      </div>
+                    </div>
+                    <div class="pc-console-viewer" id="pc-log-viewer"></div>
+                  </div>
+
+                </div><!-- /pc-running -->
+
+              </div><!-- /pc-wrap -->
+            </div><!-- /panel-cola -->
+
+          </div><!-- /subtab-main -->
+
+          <!-- Cola sidebar — siempre visible, 268px, contenido compacto fijo -->
+          <div id="cola-sidebar">
+
+            <!-- Scrollable interior del sidebar -->
+            <div class="cola-sb-scroll">
+
+              <!-- En curso -->
+              <div class="csb-section">
+                <div class="sidebar-sessions-header">
+                  <span class="sidebar-section-title"><span id="csb-running-icon">⏳</span> En curso</span>
+                  <span class="sessions-count" id="csb-running-count"
+                    data-tooltip="Trabajos ejecutándose ahora mismo">0</span>
+                </div>
+                <div id="csb-empty" class="csb-empty">
+                  <span class="csb-empty-icon">⏸</span>
+                  <span class="csb-empty-text">Sin actividad</span>
+                </div>
+                <div id="csb-running-card" class="csb-running-card" style="display:none">
+                  <div class="csb-job-hdr">
+                    <span class="csb-job-name" id="csb-job-name">—</span>
+                    <button class="csb-detail-btn" id="csb-detail-btn" onclick="toggleColaJobDetail()"
+                    data-tooltip="Expandir/colapsar el log en vivo del trabajo actual">▼</button>
+                  </div>
+                  <div class="csb-pipeline">
+                    <div class="csb-pipe-phase" id="csb-pipe-mount"
+                      data-tooltip="Montar ISO via loop mount">
+                      <div class="csb-pipe-circle" id="csb-pipe-circle-mount">💿</div>
+                      <div class="csb-pipe-lbl">Montar</div>
+                    </div>
+                    <div class="csb-pipe-conn" id="csb-pipe-conn-me"></div>
+                    <div class="csb-pipe-phase" id="csb-pipe-extract"
+                      data-tooltip="mkvmerge: MPLS → MKV">
+                      <div class="csb-pipe-circle" id="csb-pipe-circle-extract">⬇️</div>
+                      <div class="csb-pipe-lbl">mkvmerge</div>
+                    </div>
+                    <div class="csb-pipe-conn" id="csb-pipe-conn-eu"></div>
+                    <div class="csb-pipe-phase" id="csb-pipe-unmount"
+                      data-tooltip="Desmontar ISO (umount)">
+                      <div class="csb-pipe-circle" id="csb-pipe-circle-unmount">🔓</div>
+                      <div class="csb-pipe-lbl">Desmontar</div>
+                    </div>
+                  </div>
+                  <div class="csb-prog-wrap" data-tooltip="Progreso de la fase activa">
+                    <div class="csb-prog-bar indeterminate" id="csb-prog-bar"></div>
+                  </div>
+                  <div class="csb-prog-meta">
+                    <span class="csb-phase-label" id="csb-phase-label"
+                      data-tooltip="Fase y estado actual del trabajo">Iniciando…</span>
+                    <span class="csb-elapsed" id="csb-elapsed"
+                      data-tooltip="Tiempo transcurrido desde el inicio del trabajo"></span>
+                  </div>
+                  <div id="csb-job-detail" class="csb-job-detail" style="display:none">
+                    <div class="csb-log-toolbar">
+                      <span class="csb-log-label">Log</span>
+                      <button class="cola-filter-btn active" id="csb-filter-all" onclick="setCsbLogFilter('all')"
+                        data-tooltip="Mostrar todas las líneas del log">Todo</button>
+                      <button class="cola-filter-btn" id="csb-filter-warn" onclick="setCsbLogFilter('warn')"
+                        data-tooltip="Mostrar solo advertencias y errores">⚠️</button>
+                    </div>
+                    <div class="csb-log-viewer" id="csb-log-viewer"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- DEV MODE: botón de simulación — solo visible con DEV_MODE=1 -->
+              <div class="csb-section" id="csb-dev-section" style="display:none">
+                <div class="sidebar-sessions-header">
+                  <span class="sidebar-section-title">🛠️ Dev Tools</span>
+                </div>
+                <div style="padding: 0 14px 12px;">
+                  <button class="btn btn-primary btn-md" style="width:100%"
+                    onclick="devSimulate()"
+                    data-tooltip="Encola una sesión fake y simula el pipeline completo D+E con progreso en tiempo real">
+                    ▶ Simular ejecución
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pendiente de inicio -->
+              <div class="csb-section" id="csb-queue-section">
+                <div class="sidebar-sessions-header">
+                  <span class="sidebar-section-title">⏸️ Pendiente de inicio</span>
+                  <span class="sessions-count" id="csb-queue-count"
+                    data-tooltip="Proyectos en cola esperando ejecución">0</span>
+                </div>
+                <div id="csb-queue-list" class="csb-list"></div>
+              </div>
+
+            </div><!-- /cola-sb-scroll -->
+
+          </div><!-- /cola-sidebar -->
+
+        </div><!-- /subtab-content -->
+      </div><!-- /tab-panel-1 -->
+
+      <!-- ── TAB 2: Editar MKV ── -->
+      <div id="tab-panel-2" style="display:none; flex-direction:column">
+
+        <!-- Empty state: sin MKV cargado -->
+        <div id="mkv-empty-state" class="empty-state-full">
+          <div class="empty-state-icon" style="font-size:48px">✏️</div>
+          <div class="empty-state-title">Editar MKV</div>
+          <div class="empty-state-desc">Edita propiedades de pistas de audio, subtítulos y capítulos de ficheros MKV existentes.</div>
+          <button class="btn btn-primary btn-md" onclick="openMkvPickerModal()"
+            style="margin-top:16px">Abrir MKV</button>
+        </div>
+
+        <!-- Panel de edición: se muestra tras análisis -->
+        <div id="mkv-edit-panel" style="display:none; overflow-y:auto; flex:1; min-height:0"></div>
+
+      </div>
+
+      <!-- ── TAB 3: CMv4.0 BD (Under Construction) ── -->
+      <div id="tab-panel-3" style="display:none">
+        <div class="uc-container">
+          <div class="uc-icon">🎯</div>
+          <div class="uc-construction-icon">🚧</div>
+          <div class="uc-title">Próximamente</div>
+          <div class="uc-desc">Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD. Integración con dovi_tool para manipulación de RPU.</div>
+          <div class="uc-badge">Under Construction</div>
+        </div>
+      </div>
+
+    </main>
+  </div><!-- /app-body -->
+
+
+</div><!-- /app-root -->
+
+<!-- ═══ MODAL: Nuevo proyecto ════════════════════════════════════ -->
+<div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
+  <div class="modal-box">
+    <div class="modal-title">💿 Nuevo proyecto</div>
+    <div class="modal-sub">Selecciona el ISO que quieres analizar y convertir a MKV.</div>
+
+    <label class="modal-field-label">ISO de origen</label>
+    <div class="iso-select-row">
+      <select id="iso-picker-select" class="iso-picker-select" onchange="onIsoPickerChange()"
+        data-tooltip="Lista de ISOs disponibles en /mnt/isos">
+        <option value="">— Seleccionar ISO —</option>
+      </select>
+      <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadIsoPickerList()"
+        data-tooltip="Recargar la lista de ISOs desde /mnt/isos">↺ Actualizar</button>
+    </div>
+    <div class="iso-picker-status" id="iso-picker-status">Cargando ISOs disponibles…</div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('new-project-modal')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="new-project-analyze-btn" onclick="analyzeSelectedISO()" disabled>
+        🔍 Analizar ISO
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══ MODAL: Confirmación ═══════════════════════════════════════ -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="confirm-title">Confirmar</div>
+    <div class="modal-sub" id="confirm-message"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('confirm-modal')">Cancelar</button>
+      <button class="btn btn-success btn-sm" id="confirm-ok-btn">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Análisis en curso ═════════════════════════════════ -->
+<div class="modal-overlay" id="analyze-modal">
+  <div class="modal-box" style="max-width:420px; text-align:center">
+    <div style="font-size:40px; margin-bottom:12px">💿</div>
+    <div class="modal-title" style="margin-bottom:4px">Analizando disco</div>
+    <div class="modal-sub" id="analyze-modal-iso" style="margin-bottom:16px; word-break:break-all"></div>
+    <div id="analyze-modal-steps" style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
+      <div id="analyze-step-mount">⏳ Montando ISO (loop mount UDF)…</div>
+      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas (mkvmerge)…</div>
+      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos del disco…</div>
+      <div id="analyze-step-rules" style="opacity:.4">⬜ Aplicando reglas automáticas…</div>
+    </div>
+    <div class="analyze-spinner" style="margin:16px auto 0"></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Datos de análisis del ISO ═════════════════════════ -->
+<div class="modal-overlay" id="raw-analysis-modal" onclick="onModalOverlayClick(event,'raw-analysis-modal')">
+  <div class="modal-box modal-box-wide">
+    <div class="modal-title">🔬 Datos de análisis del ISO</div>
+    <div class="modal-sub">Información extraída por mkvmerge -J y reglas automáticas. Útil para diagnóstico.</div>
+    <div style="text-align:right; margin-bottom:8px">
+      <button class="btn btn-ghost btn-xs" onclick="_copyRawAnalysis()"
+        data-tooltip="Copiar al portapapeles">📋 Copiar</button>
+    </div>
+    <pre id="raw-analysis-content" class="raw-analysis-pre"></pre>
+  </div>
+</div>
+
+<!-- ═══ MODAL: MKV Picker (Tab 2) ════════════════════════════════ -->
+<div class="modal-overlay" id="mkv-picker-modal" onclick="onModalOverlayClick(event,'mkv-picker-modal')">
+  <div class="modal-box">
+    <div class="modal-title">✏️ Abrir MKV</div>
+    <div class="modal-sub">Selecciona un fichero MKV de /mnt/output para editar sus propiedades.</div>
+    <label class="modal-field-label">Fichero MKV</label>
+    <div class="iso-select-row">
+      <select id="mkv-picker-select" class="iso-select" onchange="onMkvPickerChange(this.value)">
+        <option value="">— Seleccionar MKV —</option>
+      </select>
+      <button class="btn btn-secondary btn-md" onclick="loadMkvPickerList()"
+        data-tooltip="Recargar la lista de MKVs disponibles">↺</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('mkv-picker-modal')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="mkv-picker-analyze-btn" disabled
+        onclick="analyzeMkvFromPicker()">🔍 Abrir y analizar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Aplicar cambios MKV (Tab 2) ═══════════════════════ -->
+<div class="modal-overlay" id="mkv-apply-modal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title" id="mkv-apply-modal-title">Aplicando cambios</div>
+    <div class="modal-sub" id="mkv-apply-modal-sub"></div>
+    <pre id="mkv-apply-modal-log" class="raw-analysis-pre"
+      style="max-height:200px; margin:12px 0; font-size:11px; display:none"></pre>
+    <div id="mkv-apply-modal-status" style="text-align:center; margin:12px 0"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-sm" id="mkv-apply-modal-close-btn"
+        onclick="closeModal('mkv-apply-modal')" style="display:none">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Visor de log ═══════════════════════════════════════ -->
+<div class="modal-overlay" id="log-viewer-modal" onclick="onModalOverlayClick(event,'log-viewer-modal')">
+  <div class="modal-box modal-box-wide">
+    <div class="modal-title" id="log-viewer-title">📄 Log de ejecución</div>
+    <div class="modal-sub" id="log-viewer-sub"></div>
+    <div class="log-viewer-content" id="log-viewer-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('log-viewer-modal')">Cerrar</button>
+      <button class="btn btn-primary btn-sm" id="log-viewer-download-btn">⬇ Descargar .txt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Tooltip global ════════════════════════════════════════════ -->
+<div id="tooltip"></div>
+
+<!-- ═══ Toast container ══════════════════════════════════════════ -->
+<div id="toast-container"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

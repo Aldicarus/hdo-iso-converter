@@ -1,0 +1,46 @@
+services:
+  hdo-iso-converter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        DOVI_TOOL_VERSION: "2.1.2"
+    image: hdo-iso-converter:latest
+    container_name: hdo-iso-converter
+    hostname: hdo-iso-converter
+    restart: unless-stopped
+
+    # Necesario para: mount -t udf -o ro,loop (ISOs UHD Blu-ray UDF 2.50)
+    privileged: true
+
+    ports:
+      - "${HDO_PORT:-8090}:8080"
+
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    volumes:
+      # ISOs de origen (solo lectura)
+      - ${ISOS_PATH:?Define ISOS_PATH en .env}:/mnt/isos:ro
+
+      # MKVs finales
+      - ${OUTPUT_PATH:?Define OUTPUT_PATH en .env}:/mnt/output:rw
+
+      # MKV intermedios (SSD recomendado)
+      - ${TMP_PATH:?Define TMP_PATH en .env}:/mnt/tmp:rw
+
+      # Sesiones persistentes + cola
+      - ${CONFIG_PATH:?Define CONFIG_PATH en .env}:/config:rw
