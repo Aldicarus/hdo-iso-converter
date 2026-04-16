@@ -1,5 +1,7 @@
 FROM ubuntu:22.04
 
+LABEL org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
+
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DOVI_TOOL_VERSION=2.1.2
 
