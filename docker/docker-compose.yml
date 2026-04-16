@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         DOVI_TOOL_VERSION: "2.1.2"
-    image: hdo-iso-converter:latest
+    image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter
     restart: unless-stopped

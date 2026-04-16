@@ -15,23 +15,26 @@ Aplicación web en contenedor Docker para procesar contenido UHD Blu-ray. Diseñ
 ### Opción A — Imagen pre-construida (recomendado)
 
 ```bash
-# 1. Descargar docker-compose.yml y .env.example
-mkdir hdo-iso-converter && cd hdo-iso-converter
-curl -LO https://raw.githubusercontent.com/TU_USUARIO/hdo-iso-converter/main/docker/docker-compose.yml
-curl -LO https://raw.githubusercontent.com/TU_USUARIO/hdo-iso-converter/main/docker/.env.example
+# 1. Pull de la imagen
+docker pull ghcr.io/aldicarus/hdo-iso-converter:latest
 
-# 2. Configurar rutas
+# 2. Descargar docker-compose.yml y .env.example
+mkdir hdo-iso-converter && cd hdo-iso-converter
+curl -LO https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/.env.example
+
+# 3. Configurar rutas
 cp .env.example .env
 # Editar .env con las rutas de tu sistema
 
-# 3. Arrancar
+# 4. Arrancar (usa la imagen descargada, sin build)
 docker compose up -d
 ```
 
 ### Opción B — Build local
 
 ```bash
-git clone https://github.com/TU_USUARIO/hdo-iso-converter.git
+git clone https://github.com/Aldicarus/hdo-iso-converter.git
 cd hdo-iso-converter
 
 # Configurar rutas
