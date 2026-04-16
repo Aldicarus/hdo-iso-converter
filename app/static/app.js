@@ -490,6 +490,7 @@ function buildProjectPanelHTML(pid) {
               <div>
                 <div class="global-card-label">Dolby Vision FEL</div>
                 <div class="global-card-reason"><span>ℹ️</span><span id="${pid}-fel-reason-text"></span></div>
+                <div id="${pid}-dovi-detail" class="global-card-reason" style="display:none; margin-top:2px; font-size:10px; color:var(--text-3)"></div>
               </div>
             </div>
             <div class="global-toggle-right">
@@ -1414,6 +1415,23 @@ function renderProjectPanel(project) {
   setText('fel-reason-text', session.bdinfo_result?.fel_reason || '');
   E('global-fel').className = `global-toggle-item${session.has_fel ? ' active-fel' : ''}`;
 
+  // Info extendida de Dolby Vision (dovi_tool)
+  const mainVid = session.bdinfo_result?.video_tracks?.find(t => !t.is_el);
+  const doviDetail = E('dovi-detail');
+  if (doviDetail && mainVid?.dovi) {
+    const d = mainVid.dovi;
+    const parts = [`Profile ${d.profile} (${d.el_type})`, `CM ${d.cm_version}`];
+    if (d.has_l1) parts.push('L1');
+    if (d.has_l2) parts.push('L2');
+    if (d.has_l5) parts.push('L5');
+    if (d.has_l6) parts.push('L6');
+    if (d.scene_count) parts.push(`${d.scene_count} escenas`);
+    doviDetail.textContent = parts.join(' · ');
+    doviDetail.style.display = '';
+  } else if (doviDetail) {
+    doviDetail.style.display = 'none';
+  }
+
   setToggle('toggle-dcp', session.audio_dcp);
   setText('dcp-value', session.audio_dcp ? 'Activo' : 'No detectado');
   setText('dcp-reason-text', session.audio_dcp
@@ -1757,7 +1775,7 @@ function renderDiscardedTracks(tracks) {
       const origIdx = _findOriginalTrackIndex(raw, isAudio ? 'audio' : 'subtitle');
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const codecInfo = isAudio
-        ? [raw.codec, raw.description].filter(Boolean).join(' · ')
+        ? [raw.codec, raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ')
         : `PGS · ${langLiteral(raw.language)}`;
       const div = document.createElement('div');
       div.className = 'discarded-item';
@@ -1945,7 +1963,9 @@ function showRawAnalysisData() {
   (s.discarded_tracks || []).forEach((t, i) => {
     const raw = t.raw || {};
     if (t.track_type === 'audio') {
-      lines.push(`  ${i+1}. [AUDIO] lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"`);
+      const br = raw.bitrate_kbps ? ` | bitrate=${raw.bitrate_kbps.toLocaleString()} kbps` : '';
+      const fc = raw.format_commercial ? ` | format="${raw.format_commercial}"` : '';
+      lines.push(`  ${i+1}. [AUDIO] lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"${br}${fc}`);
     } else {
       lines.push(`  ${i+1}. [SUB] lang="${raw.language}" bitrate=${raw.bitrate_kbps}`);
     }
