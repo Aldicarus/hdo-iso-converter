@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.5)
+# HDO ISO Converter — Reglas del proyecto (v1.6)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -21,7 +21,13 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
 - **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
 - **Frontend:** Vanilla JS ES6+, Sortable.js (CDN), sin framework ni build step
 - **Contenedor:** Docker sobre QNAP NAS x86 (amd64), puerto 8090 (configurable)
-- **Herramientas:** mkvmerge (análisis + extracción), mkvpropedit (edición in-place), mkvextract (capítulos), ffmpeg, dovi_tool
+- **Herramientas:**
+  - `mkvmerge` — análisis de MPLS + extracción a MKV
+  - `mkvpropedit` — edición in-place de metadatos (Tab 2)
+  - `mkvextract` — extracción de capítulos
+  - `mediainfo` — metadata extendida: bitrate real, HDR10, codecs comerciales (v1.6+)
+  - `ffmpeg` — extracción de Enhancement Layer para análisis DV
+  - `dovi_tool` — análisis RPU Dolby Vision: Profile, FEL/MEL, CM version (v1.6+)
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
 - **~~BDInfoCLI~~:** eliminado en v1.5 — crasheaba con ISOs custom/stripped. Reemplazado por `mkvmerge -J`
 - **~~API QTS File Station~~:** eliminada en v1.4
@@ -45,11 +51,11 @@ ISO2MKVFEL/
     ├── queue_manager.py     ← Cola FIFO asyncio para Fases D+E
     ├── phases/
     │   ├── iso_mount.py     ← Loop mount/umount de ISOs UDF 2.50
-    │   ├── phase_a.py       ← mkvmerge -J + adapter BDInfoResult + capítulos MPLS
+    │   ├── phase_a.py       ← Análisis: mkvmerge -J + MediaInfo + dovi_tool + capítulos
     │   ├── phase_b.py       ← Motor de reglas automáticas (audio, subs, capítulos, nombre)
-    │   ├── phase_d.py       ← mkvmerge desde MPLS (extracción, ruta intermedio)
-    │   ├── phase_e.py       ← mkvmerge directo / mkvpropedit (ruta directa/intermedio)
-    │   └── mkv_analyze.py   ← Tab 2: análisis + edición de MKVs existentes
+    │   ├── phase_d.py       ← Extracción: mkvmerge desde MPLS montado
+    │   ├── phase_e.py       ← Escritura final: flags, metadatos, validación
+    │   └── mkv_analyze.py   ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
     ├── dev_fixtures.py      ← ⚠️ TEMPORAL (DEV_MODE=1): ISOs fake + sesiones fake
     └── static/
         ├── index.html       ← SPA completa (Tab 1 + Tab 2 + modales)
@@ -106,25 +112,35 @@ ISO2MKVFEL/
 ## Tab 2 — Editar MKV
 
 ### Arquitectura
-- **Sin persistencia**: estado ephemeral en el frontend (`openMkvProjects[]`).
+- **Sin persistencia**: estado ephemeral en el frontend (`mkvProject`). Un solo MKV abierto a la vez.
 - **Backend stateless**: 3 endpoints bajo `/api/mkv/`.
-- **Edición in-place**: `mkvpropedit` para metadata (O(1), instantáneo). `mkvmerge -o` solo si hay reorden de pistas.
+- **Edición in-place**: solo `mkvpropedit` (O(1), instantáneo). Sin remux.
+- **Análisis extendido**: `mkvmerge -J` + MediaInfo (bitrate, format_commercial, HDR).
+- **Sin sidebar**: Tab 2 ocupa todo el ancho. Botón "Abrir MKV" centrado.
 
 ### Flujo
 1. "Abrir MKV" → modal picker lista MKVs de `/mnt/output`
-2. `mkvmerge -J` + `mkvextract chapters` → panel con pistas y capítulos editables
-3. "Aplicar cambios" → `mkvpropedit` o `mkvmerge` (con confirmación si remux)
+2. `mkvmerge -J` + `mkvextract chapters` + MediaInfo → panel de edición
+3. Editar → "Aplicar cambios" → modal informado con output de mkvpropedit
+4. "Deshacer cambios" revierte al estado original del análisis
+5. "Cerrar" avisa si hay cambios pendientes
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
-- `POST /api/mkv/analyze` — identifica pistas + capítulos
-- `POST /api/mkv/apply` — aplica ediciones (mkvpropedit o remux)
+- `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
+- `POST /api/mkv/apply` — aplica ediciones (solo mkvpropedit)
 
 ### Editable
-- Nombre del fichero (renombrado en disco)
-- Pistas audio: nombre, flag default, reorden (drag & drop)
-- Pistas subtítulos: nombre, flags default/forced, reorden
-- Capítulos: misma timeline interactiva que Tab 1
+- Pistas audio: nombre, flag default
+- Pistas subtítulos: nombre, flags default/forced
+- Capítulos: timeline interactiva, añadir/eliminar, editar nombres/timestamps
+- Botón "Nombres genéricos": reemplaza nombres custom por "Capítulo XX"
+
+### Info mostrada (read-only)
+- Fichero: nombre, tamaño, duración
+- Vídeo: codec, resolución, bitrate real, HDR10 (MaxCLL/MaxFALL), Dolby Vision
+- Audio: codec comercial (MediaInfo), bitrate real, channel layout, compresión
+- Subtítulos: codec, idioma, tipo (forzados/completos)
 
 ---
 
@@ -135,19 +151,42 @@ ISO2MKVFEL/
 - Strings de UI, mensajes de lógica y comentarios en **español**
 - Los literales de pistas siguen exactamente la spec: "Castellano TrueHD Atmos 7.1", "Inglés DTS-HD MA 5.1", etc.
 
-### Análisis del disco (Fase A — mkvmerge -J)
-- **Fuente de datos**: `mkvmerge -J <mpls_path>` sobre el MPLS principal del disco montado
-- **Selección inteligente del MPLS**: ejecuta `mkvmerge -J` sobre los 10 MPLS más grandes, elige el que tiene más pistas de audio (el título principal siempre tiene más que menús o playlists de navegación)
-- **Adaptador BDInfoResult**: el JSON se convierte a los mismos modelos que consumía phase_b con BDInfoCLI
-- **Codecs**: mkvmerge → estilo BDInfo (ej: "TrueHD Atmos" → "Dolby TrueHD/Atmos Audio")
-- **Idiomas**: ISO 639-2 → nombres en inglés via `ISO639_TO_ENGLISH`
-- **DD+ Atmos**: heurística: E-AC-3 con ≥8 canales = Atmos
-- **TrueHD + AC-3 core**: se filtra el core subordinado via `multiplexed_tracks`
-- **FEL**: presencia de segundo track HEVC a 1080p
-- **Subtítulos forzados**: detección por estructura de bloques Blu-ray. Bloque 1 (completos, todos los idiomas) → Bloque 2 (forzados, subconjunto de idiomas). El corte se detecta cuando un idioma aparece por segunda vez. Validación: idiomas del bloque 2 deben ser subconjunto del bloque 1.
-- **Capítulos**: extracción en Fase A via mini MKV (`mkvmerge --no-audio --no-video --no-subtitles`) + `mkvextract chapters --simple`. Timestamps precisos de mkvmerge. Nombres genéricos ("Chapter XX") traducidos a "Capítulo XX". Nombres custom del disco preservados con `name_custom=True`.
-- **Datos raw**: el JSON completo de mkvmerge -J se guarda en `bdinfo_result.mkvmerge_raw` para diagnóstico.
-- **Duración**: `playlist_duration / 1_000_000_000` (nanosegundos → segundos)
+### Análisis del disco (Fase A — pipeline extendido v1.6)
+
+Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
+
+1. **mkvmerge -J** (requerido) — identificación de pistas, estructura del disco
+   - Selección inteligente del MPLS: 10 más grandes, elige el de más pistas audio
+   - Adaptador BDInfoResult: JSON → modelos que consume phase_b
+   - Codecs: mkvmerge → estilo BDInfo (ej: "TrueHD Atmos" → "Dolby TrueHD/Atmos Audio")
+   - Idiomas: ISO 639-2 → nombres en inglés via `ISO639_TO_ENGLISH`
+   - TrueHD + AC-3 core: se filtra el core subordinado via `multiplexed_tracks`
+   - Subtítulos forzados: detección por estructura de bloques Blu-ray
+   - Capítulos: mini MKV + `mkvextract chapters --simple`
+   - Duración: `playlist_duration / 1_000_000_000` (nanosegundos → segundos)
+
+2. **MediaInfo** (opcional, no bloquea si falla) — metadata extendida sobre el m2ts principal
+   - `find_main_m2ts()`: el fichero más grande en `BDMV/STREAM/`
+   - `mediainfo --Output=JSON` → parseo del JSON
+   - **Audio**: bitrate real por pista, `Format_Commercial_IfAny` (detección definitiva Atmos/DTS:X), channel layout, compression mode (Lossless/Lossy)
+   - **Vídeo**: bitrate real, HDR10 metadata (MaxCLL, MaxFALL, mastering display luminance), color primaries (BT.2020), transfer characteristics (PQ), bit depth
+   - **Subtítulos**: resolución (ej: 1920x1080)
+   - Los cores AC-3 embebidos en TrueHD se filtran por PID compartido
+
+3. **dovi_tool** (opcional, solo si hay EL, no bloquea si falla) — análisis RPU Dolby Vision
+   - ffmpeg extrae 30s del EL: `-map 0:v:1 -c:v copy -bsf:v hevc_mp4toannexb -t 30`
+   - `dovi_tool extract-rpu` → RPU.bin
+   - `dovi_tool info --summary` → parseo regex
+   - **Resultado**: Profile (4/5/7/8), FEL/MEL (definitivo), CM version (v2.9/v4.0), L1/L2/L5/L6 metadata
+   - Ficheros temporales limpiados en `finally`
+
+4. **Enriquecimiento** — los datos de MediaInfo y dovi_tool se inyectan en BDInfoResult
+   - `enrich_tracks_with_mediainfo()`: bitrate, format_commercial, HDR, channel_layout en cada pista
+   - `enrich_dovi()`: actualiza `has_fel` y `fel_reason` con dato definitivo de dovi_tool
+   - Orquestado por `run_full_analysis()` que ejecuta todo secuencialmente
+
+- **Datos raw**: mkvmerge -J raw + MediaInfo raw guardados en `bdinfo_result` para diagnóstico
+- **Atmos**: detección definitiva via `format_commercial` de MediaInfo; fallback heurístico por canales ≥8 si MediaInfo no disponible
 
 ### Reglas de audio (spec §5.1)
 - Solo se incluyen pistas en Castellano y en VO
@@ -204,7 +243,7 @@ ISO2MKVFEL/
 - **Cola**: `queue_state.json`. Al arrancar, sesiones zombie → `pending`.
 
 ### Docker
-- **Base**: `ubuntu:22.04` + `.NET 8 runtime` (para BDInfo legacy) + MKVToolNix + ffmpeg + Python 3.10
+- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.1.2 + Python 3.10
 - **`privileged: true`**: para loop mount
 - **Puerto**: 8090 → 8080 (configurable)
 - **Healthcheck**: `GET /api/health` cada 30s

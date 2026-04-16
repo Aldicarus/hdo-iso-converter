@@ -93,13 +93,21 @@ Nuevo proyecto → mkvmerge -J analiza el ISO → reglas automáticas → revisi
 
 **Capítulos:** Extraídos del MPLS. Si no hay, generación automática cada 10 min. Timeline visual interactivo para editar.
 
-### Pipeline
+### Pipeline de análisis (Fase A)
 
-1. **Análisis** (Fase A): monta el ISO via loop mount, ejecuta `mkvmerge -J` sobre el MPLS principal, extrae capítulos
-2. **Reglas** (Fase B): selección automática de pistas, etiquetas, flags, nombre del MKV
-3. **Revisión** (usuario): edita pistas, capítulos, nombre — confirma ejecución
-4. **Extracción** (Fases D+E): `mkvmerge` lee directamente del MPLS montado → MKV final en una sola pasada. Progreso real, cancelable
-5. **Validación**: `mkvmerge -J` + `mkvextract` verifican pistas, flags y capítulos del MKV resultante
+El análisis ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
+
+1. **mkvmerge -J** — identificación de pistas, codecs, idiomas, estructura del disco
+2. **MediaInfo** — bitrate real por pista, HDR10 metadata (MaxCLL/MaxFALL), detección definitiva de Atmos/DTS:X via `Format_Commercial`, channel layout, compression mode
+3. **dovi_tool** — análisis RPU de Dolby Vision: Profile (4/5/7/8), FEL vs MEL (definitivo), CM version (v2.9/v4.0), metadata L1/L2/L5/L6
+4. **mkvextract** — capítulos del MPLS con timestamps precisos
+
+MediaInfo y dovi_tool son opcionales — si fallan, el análisis continúa con datos de mkvmerge.
+
+### Pipeline de extracción (Fases D+E)
+
+1. **Extracción**: `mkvmerge` lee directamente del MPLS montado → MKV final en una sola pasada. Progreso real, cancelable
+2. **Validación**: `mkvmerge -J` + `mkvextract` verifican pistas, flags y capítulos del MKV resultante
 
 ## Tab 2 — Editar MKV
 
@@ -107,14 +115,15 @@ Editor de propiedades instantáneo via `mkvpropedit` (O(1), sin copiar datos):
 
 - Renombrar pistas de audio y subtítulos
 - Cambiar flags default/forced
-- Añadir, eliminar y editar capítulos
+- Añadir, eliminar y editar capítulos (timeline interactivo)
 - Deshacer todos los cambios antes de aplicar
+- Info extendida (MediaInfo): bitrate real, codec comercial, HDR, channel layout
 
 ## Stack técnico
 
 - **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
 - **Frontend:** Vanilla JS ES6+, Sortable.js (CDN), sin framework ni build step
-- **Herramientas:** mkvmerge, mkvpropedit, mkvextract, ffmpeg, dovi_tool
+- **Herramientas:** mkvmerge, mkvpropedit, mkvextract, mediainfo, ffmpeg, dovi_tool
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true`
 
 ## Estructura del proyecto
@@ -133,11 +142,11 @@ hdo-iso-converter/
 │   ├── queue_manager.py     ← Cola FIFO asyncio
 │   ├── phases/
 │   │   ├── iso_mount.py     ← Loop mount/umount de ISOs UDF 2.50
-│   │   ├── phase_a.py       ← Análisis: mkvmerge -J + capítulos MPLS
+│   │   ├── phase_a.py       ← Análisis: mkvmerge -J + MediaInfo + dovi_tool + capítulos
 │   │   ├── phase_b.py       ← Reglas: selección automática de pistas
 │   │   ├── phase_d.py       ← Extracción: mkvmerge desde MPLS montado
 │   │   ├── phase_e.py       ← Escritura final: flags, metadatos, validación
-│   │   └── mkv_analyze.py   ← Tab 2: análisis + edición MKVs
+│   │   └── mkv_analyze.py   ← Tab 2: análisis (mkvmerge + MediaInfo) + edición MKVs
 │   └── static/
 │       ├── index.html
 │       ├── app.js
@@ -152,14 +161,14 @@ hdo-iso-converter/
 |--------|----------|-------------|
 | GET | `/api/isos` | Lista ISOs en /mnt/isos |
 | GET | `/api/sessions` | Lista todas las sesiones |
-| POST | `/api/analyze` | Analiza un ISO (mkvmerge -J + reglas) |
+| POST | `/api/analyze` | Analiza un ISO (mkvmerge -J + MediaInfo + dovi_tool + reglas) |
 | GET | `/api/sessions/{id}` | Obtiene una sesión |
 | PUT | `/api/sessions/{id}` | Actualiza una sesión |
 | DELETE | `/api/sessions/{id}` | Elimina una sesión |
 | POST | `/api/sessions/{id}/execute` | Inicia la ejecución |
 | POST | `/api/sessions/{id}/cancel` | Cancela la ejecución |
 | GET | `/api/mkv/files` | Lista MKVs en /mnt/output |
-| POST | `/api/mkv/analyze` | Analiza un MKV existente |
+| POST | `/api/mkv/analyze` | Analiza un MKV existente (mkvmerge + MediaInfo) |
 | POST | `/api/mkv/apply` | Aplica ediciones (mkvpropedit) |
 | GET | `/api/health` | Healthcheck |
 | WS | `/ws/{id}` | Streaming de output en tiempo real |

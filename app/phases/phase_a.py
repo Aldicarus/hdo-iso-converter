@@ -1,42 +1,48 @@
 """
-phase_a.py — Fase A: Análisis del disco con mkvmerge -J
+phase_a.py — Fase A: Análisis del disco (pipeline extendido v1.6)
 
-Responsabilidades:
-  1. Localizar el MPLS principal del disco montado.
-  2. Ejecutar ``mkvmerge -J`` para obtener la identificación de pistas.
-  3. Convertir el JSON resultante al modelo BDInfoResult que consume Fase B.
+Pipeline de 4 herramientas ejecutadas mientras el ISO está montado:
 
-─────────────────────────────────────────────────────────────────────
-HERRAMIENTA: mkvmerge (MKVToolNix)
-─────────────────────────────────────────────────────────────────────
+  1. ``mkvmerge -J`` (requerido) — identificación de pistas, codecs, idiomas
+  2. ``mediainfo --Output=JSON`` (opcional) — bitrate real, HDR10, codecs comerciales
+  3. ``dovi_tool`` (opcional, solo si hay EL) — Profile DV, FEL/MEL, CM version
+  4. ``mkvextract chapters`` — capítulos del MPLS
 
-Uso:
-    mkvmerge -J <mpls_path>
-
-Devuelve JSON con todas las pistas, info de playlist y capítulos.
-Es robusto con ISOs custom/stripped (no crashea con playlists rotas).
-
-Sustituye a BDInfoCLI (fork tetrahydroc) que crasheaba con
-NullReferenceException en ISOs con M2TS faltantes.
+Si MediaInfo o dovi_tool fallan, el análisis continúa con datos de mkvmerge.
 
 ─────────────────────────────────────────────────────────────────────
-ADAPTACIÓN AL MODELO BDInfoResult
+HERRAMIENTAS
 ─────────────────────────────────────────────────────────────────────
 
-El JSON de mkvmerge se convierte a los mismos modelos (BDInfoResult,
-VideoTrack, RawAudioTrack, RawSubtitleTrack) que espera phase_b.py.
-Esto evita cambios en el motor de reglas.
+mkvmerge -J <mpls_path>
+  Devuelve JSON con pistas, info de playlist y capítulos.
+  Selecciona el MPLS principal (el de más pistas audio entre los 10 más grandes).
 
-Diferencias clave con el report de BDInfo:
-  - Idiomas en ISO 639-2 (eng, spa) → se traducen a inglés (English, Spanish)
-  - No hay bitrate por pista → audio: 0 (no afecta, selección es por codec).
-    Subtítulos: heurística de duplicados para detectar forzados.
-  - TrueHD + AC-3 core aparecen como pistas separadas vinculadas
-    por ``multiplexed_tracks`` → se filtra el core AC-3.
-  - DD+ Atmos no se distingue de DD+ por codec → se infiere por canales ≥ 8.
-  - FEL: sin bitrate, se detecta por presencia de EL HEVC 1080p.
+mediainfo --Output=JSON <m2ts_path>
+  Ejecutado sobre el m2ts más grande (feature principal).
+  Proporciona: bitrate real, Format_Commercial_IfAny (Atmos/DTS:X definitivo),
+  HDR10 metadata, channel layout, compression mode.
 
-Ref: spec §4
+ffmpeg + dovi_tool (3 pasos):
+  1. ffmpeg extrae 30s del Enhancement Layer como raw HEVC
+  2. dovi_tool extract-rpu → RPU.bin
+  3. dovi_tool info --summary → Profile, FEL/MEL, CM version, L1-L6
+
+─────────────────────────────────────────────────────────────────────
+ENRIQUECIMIENTO
+─────────────────────────────────────────────────────────────────────
+
+enrich_tracks_with_mediainfo():
+  Inyecta bitrate, format_commercial, channel_layout, HDR metadata
+  en los modelos de BDInfoResult. Mapeo por orden dentro de cada tipo.
+  Filtra cores AC-3 embebidos por PID compartido.
+
+enrich_dovi():
+  Actualiza has_fel y fel_reason con dato definitivo de dovi_tool.
+  Adjunta DoviInfo a la pista BL.
+
+run_full_analysis() — orquestador:
+  Ejecuta todo secuencialmente, captura errores de herramientas opcionales.
 """
 import asyncio
 import json
