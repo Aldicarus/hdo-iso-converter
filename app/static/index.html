@@ -451,8 +451,10 @@
     <div class="modal-sub" id="analyze-modal-iso" style="margin-bottom:16px; word-break:break-all"></div>
     <div id="analyze-modal-steps" style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
       <div id="analyze-step-mount">⏳ Montando ISO (loop mount UDF)…</div>
-      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas (mkvmerge)…</div>
-      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos del disco…</div>
+      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas (mkvmerge -J)…</div>
+      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos del MPLS…</div>
+      <div id="analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadata extendida (MediaInfo)…</div>
+      <div id="analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision (dovi_tool)…</div>
       <div id="analyze-step-rules" style="opacity:.4">⬜ Aplicando reglas automáticas…</div>
     </div>
     <div class="analyze-spinner" style="margin:16px auto 0"></div>
@@ -463,7 +465,7 @@
 <div class="modal-overlay" id="raw-analysis-modal" onclick="onModalOverlayClick(event,'raw-analysis-modal')">
   <div class="modal-box modal-box-wide">
     <div class="modal-title">🔬 Datos de análisis del ISO</div>
-    <div class="modal-sub">Información extraída por mkvmerge -J y reglas automáticas. Útil para diagnóstico.</div>
+    <div class="modal-sub">Información extraída por mkvmerge -J, MediaInfo, dovi_tool y reglas automáticas. Útil para diagnóstico.</div>
     <div style="text-align:right; margin-bottom:8px">
       <button class="btn btn-ghost btn-xs" onclick="_copyRawAnalysis()"
         data-tooltip="Copiar al portapapeles">📋 Copiar</button>

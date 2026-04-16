@@ -965,7 +965,9 @@ async function _doAnalyzeISO(isoPath, isoName) {
   const stepTimers = [
     setTimeout(() => _advanceAnalyzeStep('mount', 'identify'), 1500),
     setTimeout(() => _advanceAnalyzeStep('identify', 'chapters'), 4000),
-    setTimeout(() => _advanceAnalyzeStep('chapters', 'rules'), 6000),
+    setTimeout(() => _advanceAnalyzeStep('chapters', 'mediainfo'), 6000),
+    setTimeout(() => _advanceAnalyzeStep('mediainfo', 'dovi'), 9000),
+    setTimeout(() => _advanceAnalyzeStep('dovi', 'rules'), 14000),
   ];
 
   const session = await apiFetch('/api/analyze', {
@@ -999,7 +1001,7 @@ async function _doAnalyzeISO(isoPath, isoName) {
 
 /** Resetea todos los pasos del modal de análisis al estado inicial. */
 function _resetAnalyzeSteps() {
-  const steps = ['mount', 'identify', 'chapters', 'rules'];
+  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'dovi', 'rules'];
   steps.forEach((s, i) => {
     const el = document.getElementById(`analyze-step-${s}`);
     if (!el) return;
