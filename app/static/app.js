@@ -22,7 +22,7 @@
  *   switchTab       — Gestiona los tres tabs del header.
  */
 
-// ── Tabla de idiomas (BDInfo → literal en español) ───────────────
+// ── Tabla de idiomas (inglés → literal en español) ───────────────
 const LANGUAGE_MAP = {
   spanish: 'Castellano', english: 'Inglés', french: 'Francés',
   german: 'Alemán', italian: 'Italiano', japanese: 'Japonés',
@@ -35,7 +35,7 @@ const LANGUAGE_MAP = {
   croatian: 'Croata', slovak: 'Eslovaco', ukrainian: 'Ucraniano',
 };
 
-/** Convierte un idioma BDInfo (cualquier capitalización) al literal en español. */
+/** Convierte un idioma en inglés (cualquier capitalización) al literal en español. */
 function langLiteral(bdInfoLang) {
   if (!bdInfoLang) return '';
   return LANGUAGE_MAP[bdInfoLang.toLowerCase()] || bdInfoLang;
@@ -1412,7 +1412,9 @@ function renderProjectPanel(project) {
   // Variables globales
   setToggle('toggle-fel', session.has_fel);
   setText('fel-value', session.has_fel ? 'FEL' : 'MEL');
-  setText('fel-reason-text', session.bdinfo_result?.fel_reason || '');
+  // No mostrar fel_reason si hay dovi detail (evitar duplicado)
+  const hasDovi = session.bdinfo_result?.video_tracks?.find(t => !t.is_el)?.dovi;
+  setText('fel-reason-text', hasDovi ? '' : (session.bdinfo_result?.fel_reason || ''));
   E('global-fel').className = `global-toggle-item${session.has_fel ? ' active-fel' : ''}`;
 
   // Info extendida de Dolby Vision (dovi_tool)
@@ -1426,6 +1428,7 @@ function renderProjectPanel(project) {
     if (d.has_l5) parts.push('L5');
     if (d.has_l6) parts.push('L6');
     if (d.scene_count) parts.push(`${d.scene_count} escenas`);
+    if (mainVid.hdr?.mastering_display_luminance) parts.push(mainVid.hdr.mastering_display_luminance);
     doviDetail.textContent = parts.join(' · ');
     doviDetail.style.display = '';
   } else if (doviDetail) {
@@ -1850,10 +1853,10 @@ function showRawAnalysisData() {
     lines.push('');
   }
 
-  // ── SECCIÓN 2: Post-heurística (BDInfoResult) ──
+  // ── SECCIÓN 2: Post-heurística ──
   if (bd) {
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  POST-HEURÍSTICA (BDInfoResult adaptado)`);
+    lines.push(`  POST-HEURÍSTICA (resultado del análisis)`);
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`Duración: ${bd.duration_seconds?.toFixed(1)}s | VO: ${bd.vo_language} | MPLS: ${bd.main_mpls}`);
     lines.push(`FEL: ${bd.has_fel} | Razón: ${bd.fel_reason}`);
