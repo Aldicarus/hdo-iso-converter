@@ -75,7 +75,7 @@ CONFIG_PATH=/ruta/config           # Sesiones JSON + cola
 | `/mnt/tmp` | lectura-escritura | MKVs intermedios (SSD recomendado) |
 | `/config` | lectura-escritura | Sesiones persistentes (JSON) + cola |
 
-> **Espacio en /mnt/tmp:** el MKV intermedio ocupa aprox. lo mismo que el ISO (~50-100 GB). Se borra automáticamente al completar.
+> **Espacio en /mnt/tmp:** usado como buffer temporal durante la extracción. Se limpia automáticamente.
 
 ## Tab 1 — Crear MKV
 
@@ -95,9 +95,11 @@ Nuevo proyecto → mkvmerge -J analiza el ISO → reglas automáticas → revisi
 
 ### Pipeline
 
-- **Ruta directa** (con reordenación): `mkvmerge` lee MPLS → MKV final. Una sola copia de datos.
-- **Ruta intermedia** (sin reordenación): MKV intermedio → `mkvpropedit` in-place → mover a output.
-- Progreso real en vivo, cancelable, con validación final del MKV resultante.
+1. **Análisis** (Fase A): monta el ISO via loop mount, ejecuta `mkvmerge -J` sobre el MPLS principal, extrae capítulos
+2. **Reglas** (Fase B): selección automática de pistas, etiquetas, flags, nombre del MKV
+3. **Revisión** (usuario): edita pistas, capítulos, nombre — confirma ejecución
+4. **Extracción** (Fases D+E): `mkvmerge` lee directamente del MPLS montado → MKV final en una sola pasada. Progreso real, cancelable
+5. **Validación**: `mkvmerge -J` + `mkvextract` verifican pistas, flags y capítulos del MKV resultante
 
 ## Tab 2 — Editar MKV
 
@@ -131,10 +133,10 @@ hdo-iso-converter/
 │   ├── queue_manager.py     ← Cola FIFO asyncio
 │   ├── phases/
 │   │   ├── iso_mount.py     ← Loop mount/umount de ISOs UDF 2.50
-│   │   ├── phase_a.py       ← mkvmerge -J + capítulos MPLS
-│   │   ├── phase_b.py       ← Motor de reglas automáticas
-│   │   ├── phase_d.py       ← mkvmerge extracción desde MPLS
-│   │   ├── phase_e.py       ← mkvmerge/mkvpropedit escritura final
+│   │   ├── phase_a.py       ← Análisis: mkvmerge -J + capítulos MPLS
+│   │   ├── phase_b.py       ← Reglas: selección automática de pistas
+│   │   ├── phase_d.py       ← Extracción: mkvmerge desde MPLS montado
+│   │   ├── phase_e.py       ← Escritura final: flags, metadatos, validación
 │   │   └── mkv_analyze.py   ← Tab 2: análisis + edición MKVs
 │   └── static/
 │       ├── index.html
