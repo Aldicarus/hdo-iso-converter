@@ -272,20 +272,25 @@ async def check_duplicate(body: AnalyzeRequest):
 
 # ── Análisis (Fase A + B) ─────────────────────────────────────────────────────
 
+# Progreso del análisis en curso (para polling desde el frontend)
+_analyze_progress: dict = {"step": "", "done": False}
+
+
+@app.get("/api/analyze/progress", summary="Progreso del análisis en curso")
+async def analyze_progress():
+    """Devuelve el paso actual del análisis. Usado por el frontend para polling."""
+    return _analyze_progress
+
+
 @app.post("/api/analyze", summary="Analiza un ISO (Fase A + B)")
 async def analyze_iso(body: AnalyzeRequest):
     """
     Lanza el análisis completo de un ISO y devuelve la sesión lista para revisar.
 
-    Fases ejecutadas de forma síncrona:
-      - Monta el ISO via loop mount (UDF 2.50).
-      - Fase A: BDInfoCLI analiza el BDMV montado y extrae información de pistas.
-      - Fase B: Se aplican las reglas automáticas de selección de pistas.
-      - Desmonta el ISO (siempre, éxito o error).
-
-    Lanza 400 si el ISO no existe en /mnt/isos.
-    Lanza 500 si BDInfoCLI falla o el montaje del ISO falla.
+    Pipeline: mount → mkvmerge -J → capítulos → MediaInfo → dovi_tool → reglas.
     """
+    global _analyze_progress
+
     # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
     if DEV_MODE:
         session = build_fake_session(str(ISOS_DIR / body.iso_path))
@@ -297,14 +302,31 @@ async def analyze_iso(body: AnalyzeRequest):
 
     audio_dcp = "audio dcp" in body.iso_path.lower()
 
+    # Callback de progreso para el modal del frontend
+    async def _progress_callback(msg: str):
+        global _analyze_progress
+        # Mapear mensajes de log a pasos del modal
+        msg_l = msg.lower()
+        if "mkvmerge" in msg_l or "identificando" in msg_l:
+            _analyze_progress = {"step": "identify", "done": False}
+        elif "capítulo" in msg_l:
+            _analyze_progress = {"step": "chapters", "done": False}
+        elif "mediainfo" in msg_l:
+            _analyze_progress = {"step": "mediainfo", "done": False}
+        elif "dovi_tool" in msg_l or "dolby vision" in msg_l:
+            _analyze_progress = {"step": "dovi", "done": False}
+
+    _analyze_progress = {"step": "mount", "done": False}
+
     # ── Fase A: análisis completo (mkvmerge + MediaInfo + dovi_tool) ─
-    # No se persiste nada hasta que Fase A+B completen con éxito.
-    # Si falla, se devuelve el error al frontend sin crear sesión.
     mount_point = None
     mpls_chapters_raw = []
     try:
         mount_point = await mount_iso(iso_full_path)
-        bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(mount_point)
+        _analyze_progress = {"step": "identify", "done": False}
+        bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(
+            mount_point, log_callback=_progress_callback,
+        )
     except Exception as e:
         _logger.exception("Error en Fase A para ISO %s", iso_full_path)
         raise HTTPException(status_code=500, detail=f"Error en Fase A: {e}")
@@ -313,6 +335,7 @@ async def analyze_iso(body: AnalyzeRequest):
             await unmount_iso(mount_point)
 
     # ── Fase B: Reglas automáticas ─────────────────────────────────
+    _analyze_progress = {"step": "rules", "done": False}
     rules_result = apply_rules(bdinfo_result, body.iso_path, audio_dcp)
 
     # ── Capítulos ─────────────────────────────────────────────────
@@ -357,6 +380,7 @@ async def analyze_iso(body: AnalyzeRequest):
         chapters_auto_reason=chapters_reason,
     )
     save_session(session)
+    _analyze_progress = {"step": "done", "done": True}
     return session.model_dump()
 
 

@@ -962,20 +962,36 @@ async function _doAnalyzeISO(isoPath, isoName) {
   _resetAnalyzeSteps();
   openModal('analyze-modal');
 
-  const stepTimers = [
-    setTimeout(() => _advanceAnalyzeStep('mount', 'identify'), 1500),
-    setTimeout(() => _advanceAnalyzeStep('identify', 'chapters'), 4000),
-    setTimeout(() => _advanceAnalyzeStep('chapters', 'mediainfo'), 6000),
-    setTimeout(() => _advanceAnalyzeStep('mediainfo', 'dovi'), 9000),
-    setTimeout(() => _advanceAnalyzeStep('dovi', 'rules'), 14000),
-  ];
+  // Polling de progreso real del backend
+  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'dovi', 'rules'];
+  let lastStep = 'mount';
+  const pollId = setInterval(async () => {
+    try {
+      const prog = await apiFetch('/api/analyze/progress');
+      if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
+        const prevIdx = steps.indexOf(lastStep);
+        const newIdx = steps.indexOf(prog.step);
+        // Marcar como completados todos los pasos intermedios
+        for (let i = prevIdx; i < newIdx; i++) {
+          _advanceAnalyzeStep(steps[i], steps[i + 1]);
+        }
+        lastStep = prog.step;
+      }
+    } catch (_) { /* silenciar errores de polling */ }
+  }, 500);
 
   const session = await apiFetch('/api/analyze', {
     method: 'POST',
     body: JSON.stringify({ iso_path: isoPath }),
   }, 120000);
 
-  stepTimers.forEach(t => clearTimeout(t));
+  clearInterval(pollId);
+  // Marcar todos los pasos restantes como completados
+  steps.forEach((s, i) => {
+    if (i < steps.length - 1) _advanceAnalyzeStep(s, steps[i + 1]);
+  });
+  // Pequeña pausa para que se vea el último ✅ antes de cerrar
+  await new Promise(r => setTimeout(r, 400));
   closeModal('analyze-modal');
 
   if (!session) {
