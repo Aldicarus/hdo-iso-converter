@@ -18,8 +18,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -77,20 +79,61 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
     )
 
 
-async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) -> int:
+_FFMPEG_TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
+_FFMPEG_DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+
+
+def _hms_to_seconds(h: str, m: str, s: str) -> float:
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+async def _probe_duration(media_path: str) -> float:
+    """Devuelve la duración del fichero en segundos (0.0 si falla)."""
+    try:
+        rc, out, _ = await _run([
+            FFPROBE_BIN, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            media_path,
+        ], timeout=15)
+        if rc == 0:
+            return float(out.strip())
+    except Exception:
+        pass
+    return 0.0
+
+
+async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
+    """Emite un marcador estructurado de progreso que el frontend detecta."""
+    if not log_callback:
+        return
+    pct = max(0.0, min(100.0, pct))
+    payload = {"pct": round(pct, 1), "label": label}
+    if eta_s is not None and eta_s >= 0:
+        payload["eta_s"] = int(eta_s)
+    await log_callback(f"§§PROGRESS§§{json.dumps(payload)}")
+
+
+async def _run_streaming(
+    cmd: list[str],
+    log_callback=None,
+    proc_callback=None,
+    progress_ctx: dict | None = None,
+) -> int:
+    """Ejecuta un comando con streaming de stdout+stderr al log_callback.
+
+    Divide por ``\\n`` y ``\\r`` (ffmpeg usa ``\\r`` en sus líneas de progreso).
+    Traduce ``#GUI#progress XX%`` de mkvmerge → ``Progress: XX%``.
+    Throttle de 500 ms para ffmpeg para no saturar el log.
+
+    Si se pasa ``progress_ctx``, emite eventos ``§§PROGRESS§§`` con pct y ETA:
+        progress_ctx = {
+          'duration': float,   # duración conocida a priori (s); si 0 intenta extraerla del header
+          'offset': float,     # pct base (0-100)
+          'weight': float,     # peso de este paso en la fase (0-100)
+          'label': str,        # etiqueta a mostrar
+        }
     """
-    Ejecuta un comando con streaming de output al log_callback.
-
-    Divide por ``\\n`` Y ``\\r`` (ffmpeg usa \\r para actualizar la línea de
-    progreso — sin esto el stdout se quedaría bloqueado esperando un \\n).
-
-    Traduce `#GUI#progress XX%` de mkvmerge a `Progress: XX%`.
-
-    Throttle de 500ms para líneas de progreso de ffmpeg (que pueden venir
-    varias por segundo) para evitar saturar el log.
-    """
-    import time
-
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
     proc = await asyncio.create_subprocess_exec(
@@ -102,24 +145,48 @@ async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) 
         proc_callback(proc)
 
     buffer = b""
-    last_progress_emit = 0.0
+    last_throttle = 0.0
+    last_progress_push = 0.0
+    duration = float(progress_ctx["duration"]) if progress_ctx else 0.0
+    offset   = float(progress_ctx.get("offset", 0.0)) if progress_ctx else 0.0
+    weight   = float(progress_ctx.get("weight", 100.0)) if progress_ctx else 100.0
+    label    = progress_ctx.get("label", "") if progress_ctx else ""
+    step_start = time.monotonic()
 
     async def _emit(text: str) -> None:
+        nonlocal last_throttle, last_progress_push, duration
         if not text:
             return
-        # Traducción mkvmerge
         if text.startswith("#GUI#progress "):
             text = "Progress: " + text.removeprefix("#GUI#progress ")
         elif text.startswith("#GUI#"):
             return
-        # Throttle para líneas de progreso de ffmpeg (frame=... fps=... time=...)
-        nonlocal last_progress_emit
+
+        # Detectar Duration en el header si aún no la tenemos
+        if progress_ctx is not None and duration <= 0:
+            m = _FFMPEG_DURATION_RE.search(text)
+            if m:
+                duration = _hms_to_seconds(*m.groups())
+
         is_ffmpeg_progress = text.startswith("frame=") and ("fps=" in text or "time=" in text)
         if is_ffmpeg_progress:
             now = time.monotonic()
-            if now - last_progress_emit < 0.5:
+            # Parse time= para progreso si tenemos duration
+            if progress_ctx is not None and duration > 0 and (now - last_progress_push) >= 1.0:
+                tm = _FFMPEG_TIME_RE.search(text)
+                if tm:
+                    elapsed_media = _hms_to_seconds(*tm.groups())
+                    step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
+                    phase_pct = offset + step_pct * weight / 100.0
+                    wall = now - step_start
+                    eta = (wall / elapsed_media) * (duration - elapsed_media) if elapsed_media > 0 else None
+                    await _emit_progress(log_callback, phase_pct, label, eta)
+                    last_progress_push = now
+            # Throttle de emisión al log
+            if now - last_throttle < 0.5:
                 return
-            last_progress_emit = now
+            last_throttle = now
+
         if log_callback:
             await log_callback(text)
 
@@ -128,7 +195,6 @@ async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) 
         if not chunk:
             break
         buffer += chunk
-        # Dividir por \n o \r (lo que venga primero)
         while True:
             nl = buffer.find(b"\n")
             cr = buffer.find(b"\r")
@@ -145,7 +211,6 @@ async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) 
             if line:
                 await _emit(line)
 
-    # Flush del buffer restante
     if buffer:
         line = buffer.decode("utf-8", errors="replace").rstrip()
         if line:
@@ -153,6 +218,68 @@ async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) 
 
     await proc.wait()
     return proc.returncode
+
+
+async def _run_with_time_estimate(
+    cmd: list[str],
+    estimated_s: float,
+    log_callback=None,
+    proc_callback=None,
+    timeout: int | None = None,
+    label: str = "",
+    offset: float = 0.0,
+    weight: float = 100.0,
+) -> tuple[int, str, str]:
+    """Ejecuta un comando silencioso mientras emite progreso estimado cada 2 s.
+
+    Usado para ``dovi_tool extract-rpu`` y similares que no producen salida
+    de progreso cuando stdout está conectado a un pipe. El cálculo se basa
+    en ``elapsed / estimated_s``, cap al 95 % hasta que termine.
+    """
+    stop = asyncio.Event()
+    start = time.monotonic()
+
+    async def _tick():
+        # Emite al inicio y luego cada 2 s
+        while not stop.is_set():
+            elapsed = time.monotonic() - start
+            est = max(estimated_s, 5.0)
+            step_pct = min(95.0, (elapsed / est) * 100.0)
+            phase_pct = offset + step_pct * weight / 100.0
+            eta = max(0.0, est - elapsed)
+            await _emit_progress(log_callback, phase_pct, label, eta)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
+    tick_task = asyncio.create_task(_tick())
+    try:
+        if log_callback:
+            await log_callback(f"$ {' '.join(cmd)}")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        if proc_callback:
+            proc_callback(proc)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise RuntimeError(f"Timeout tras {timeout}s: {cmd[0]}")
+        return (
+            proc.returncode,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
+    finally:
+        stop.set()
+        try:
+            await tick_task
+        except Exception:
+            pass
 
 
 async def _count_hevc_frames(hevc_path: str) -> int:
@@ -196,30 +323,50 @@ async def run_phase_a_analyze_source(
     rpu_source  = wd / "RPU_source.bin"
     plot_source = wd / "plot_source.png"
 
+    # Pesos estimados: ffmpeg 50% · extract-rpu 45% · info+plot 5%
+    W_FFMPEG, W_RPU, W_INFO = 50.0, 45.0, 5.0
+
+    # Pre-probe duración para estimar progreso
+    duration = await _probe_duration(session.source_mkv_path)
+
     # Paso 1: Extraer HEVC del MKV origen
+    await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV origen")
     if log_callback:
         await log_callback("[Fase A] Extrayendo stream HEVC del MKV origen (ffmpeg)…")
+    ffmpeg_elapsed = 0.0
     if not source_hevc.exists() or source_hevc.stat().st_size < 1_000_000:
+        t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
             "-map", "0:v:0", "-c:v", "copy",
             "-bsf:v", "hevc_mp4toannexb",
             "-f", "hevc", str(source_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback)
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
+               "label": "Extrayendo HEVC del MKV origen",
+           })
+        ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
             raise RuntimeError(f"ffmpeg falló al extraer HEVC (código {rc})")
     else:
         if log_callback:
             await log_callback("[Fase A] source.hevc ya existe, reutilizando")
+    await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
 
-    # Paso 2: Extraer RPU
+    # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
     if log_callback:
         await log_callback("[Fase A] Extrayendo RPU del HEVC (dovi_tool extract-rpu)…")
-    rc, out, err = await _run([
+    # Estimado: ~mismo tiempo que ffmpeg si se midió; si no, 2 min por defecto
+    est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+    rc, out, err = await _run_with_time_estimate([
         DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
-    ], log_callback=log_callback, timeout=600)
+    ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
+       timeout=600, label="Extrayendo RPU del HEVC",
+       offset=W_FFMPEG, weight=W_RPU)
     if rc != 0:
         raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+    await _emit_progress(log_callback, W_FFMPEG + W_RPU, "RPU extraído")
 
     # Paso 3: Info del RPU
     if log_callback:
@@ -244,6 +391,7 @@ async def run_phase_a_analyze_source(
     except Exception as e:
         _logger.warning("dovi_tool plot falló (no bloquea): %s", e)
 
+    await _emit_progress(log_callback, 100, "Análisis completado")
     if log_callback:
         await log_callback(
             f"[Fase A] OK — Profile {dovi_info.profile} ({dovi_info.el_type}), "
@@ -286,13 +434,16 @@ async def run_phase_b_target_from_path(
     if not src.is_file() or src.suffix != ".bin":
         raise RuntimeError(f"Fichero no es un .bin válido: {rpu_path}")
 
+    await _emit_progress(log_callback, 0, f"Copiando RPU target: {src.name}")
     if log_callback:
         await log_callback(f"[Fase B] Copiando RPU target: {src.name}")
     shutil.copy2(src, rpu_target)
+    await _emit_progress(log_callback, 70, "Analizando RPU")
 
     session.target_rpu_source = "path"
     session.target_rpu_path = str(src)
     await _analyze_target_rpu(session, rpu_target, log_callback)
+    await _emit_progress(log_callback, 100, "Completado")
 
 
 async def run_phase_b_target_from_mkv(
@@ -309,29 +460,46 @@ async def run_phase_b_target_from_mkv(
     if not Path(source_mkv_path).exists():
         raise RuntimeError(f"MKV no encontrado: {source_mkv_path}")
 
+    # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
+    W_FFMPEG, W_RPU = 50.0, 45.0
+    duration = await _probe_duration(source_mkv_path)
+
     try:
+        await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV target")
         if log_callback:
             await log_callback(f"[Fase B] Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}")
+        t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", source_mkv_path,
             "-map", "0:v:0", "-c:v", "copy",
             "-bsf:v", "hevc_mp4toannexb",
             "-f", "hevc", str(temp_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback)
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
+               "label": "Extrayendo HEVC del MKV target",
+           })
+        ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
             raise RuntimeError(f"ffmpeg falló (código {rc})")
+        await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
 
         if log_callback:
             await log_callback("[Fase B] Extrayendo RPU del HEVC target…")
-        rc, out, err = await _run([
+        est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+        rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
-        ], log_callback=log_callback, timeout=600)
+        ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
+           timeout=600, label="Extrayendo RPU del HEVC target",
+           offset=W_FFMPEG, weight=W_RPU)
         if rc != 0:
             raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+        await _emit_progress(log_callback, W_FFMPEG + W_RPU, "RPU extraído")
 
         session.target_rpu_source = "mkv"
         session.target_rpu_path = source_mkv_path
         await _analyze_target_rpu(session, rpu_target, log_callback)
+        await _emit_progress(log_callback, 100, "Análisis completado")
     finally:
         temp_hevc.unlink(missing_ok=True)
 
@@ -390,28 +558,44 @@ async def run_phase_c_extract(
     if not rpu_target.exists():
         raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
 
-    # Paso 1: Demux BL + EL
+    # Pesos: demux 70% · per-frame 30%
+    W_DEMUX, W_PFD = 70.0, 30.0
+
+    # Estimar duración del demux por tamaño del HEVC — similar a extract-rpu
+    # Usamos una heurística: ~1GB/min típico en NAS. Mínimo 60s, máximo 600s.
+    try:
+        hevc_gb = source_hevc.stat().st_size / 1e9
+        est_demux = max(60.0, min(600.0, hevc_gb * 60.0))
+    except Exception:
+        est_demux = 180.0
+
+    # Paso 1: Demux BL + EL (silencioso → progreso estimado)
+    await _emit_progress(log_callback, 0, "Separando BL + EL")
     if log_callback:
         await log_callback("[Fase C] Separando BL + EL (dovi_tool demux)…")
     if not (bl_hevc.exists() and el_hevc.exists()):
-        # dovi_tool demux con paths de salida explícitos
-        rc = await _run_streaming([
+        rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "demux", str(source_hevc),
             "--bl-out", str(bl_hevc),
             "--el-out", str(el_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback)
+        ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
+           timeout=900, label="Separando BL + EL (dovi_tool demux)",
+           offset=0.0, weight=W_DEMUX)
         if rc != 0:
-            raise RuntimeError(f"dovi_tool demux falló (código {rc})")
+            raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
     else:
         if log_callback:
             await log_callback("[Fase C] BL.hevc y EL.hevc ya existen, reutilizando")
+    await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
 
-    # Paso 2: Generar per_frame_data.json con dovi_tool export
-    # Usamos `dovi_tool export --data all` que genera un JSON con todos los frames
-    # Si la versión no lo soporta, fallback a loop con --frame
+    # Paso 2: Generar per_frame_data.json
     if log_callback:
         await log_callback("[Fase C] Generando datos per-frame para el chart…")
-    await _generate_per_frame_data(session, rpu_source, rpu_target, per_frame, log_callback)
+    await _generate_per_frame_data(
+        session, rpu_source, rpu_target, per_frame, log_callback,
+        progress_offset=W_DEMUX, progress_weight=W_PFD,
+    )
+    await _emit_progress(log_callback, 100, "Completado")
 
 
 async def _generate_per_frame_data(
@@ -420,6 +604,8 @@ async def _generate_per_frame_data(
     rpu_target: Path,
     output: Path,
     log_callback=None,
+    progress_offset: float = 0.0,
+    progress_weight: float = 100.0,
 ) -> None:
     """
     Genera per_frame_data.json con MaxCLL/MaxFALL de cada frame de ambos RPUs.
@@ -434,8 +620,14 @@ async def _generate_per_frame_data(
         ]
       }
     """
-    src_data = await _export_rpu_frames(rpu_source, log_callback, label="source")
-    tgt_data = await _export_rpu_frames(rpu_target, log_callback, label="target")
+    # Split del peso: 45% source · 45% target · 10% merge/write
+    half = progress_weight * 0.45
+    src_data = await _export_rpu_frames(rpu_source, log_callback, label="source",
+                                        progress_offset=progress_offset, progress_weight=half)
+    await _emit_progress(log_callback, progress_offset + half, "Exportando frames target")
+    tgt_data = await _export_rpu_frames(rpu_target, log_callback, label="target",
+                                        progress_offset=progress_offset + half, progress_weight=half)
+    await _emit_progress(log_callback, progress_offset + half * 2, "Combinando datos per-frame")
 
     max_len = max(len(src_data), len(tgt_data))
     merged = []
@@ -459,24 +651,37 @@ async def _generate_per_frame_data(
         await log_callback(f"[Fase C] per_frame_data.json: {len(merged)} frames")
 
 
-async def _export_rpu_frames(rpu_path: Path, log_callback=None, label: str = "") -> list[dict]:
+async def _export_rpu_frames(
+    rpu_path: Path,
+    log_callback=None,
+    label: str = "",
+    progress_offset: float = 0.0,
+    progress_weight: float = 0.0,
+) -> list[dict]:
     """
     Exporta datos por frame de un RPU usando `dovi_tool export`.
 
     Intenta primero export JSON; si no está disponible, hace muestreo cada N frames.
     """
-    # Intento 1: dovi_tool export (versión reciente)
+    # Intento 1: dovi_tool export (versión reciente) — ~15-30s, estimamos 30s
     try:
         wd = rpu_path.parent
         export_json = wd / f"_export_{label}.json"
-        rc, out, err = await _run([
-            DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
-            "-d", f"all={export_json}",
-        ], timeout=300)
+        if progress_weight > 0:
+            rc, out, err = await _run_with_time_estimate([
+                DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
+                "-d", f"all={export_json}",
+            ], estimated_s=30.0, log_callback=log_callback, timeout=300,
+               label=f"Exportando frames {label}",
+               offset=progress_offset, weight=progress_weight)
+        else:
+            rc, out, err = await _run([
+                DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
+                "-d", f"all={export_json}",
+            ], timeout=300)
         if rc == 0 and export_json.exists():
             data = json.loads(export_json.read_text(encoding="utf-8"))
             export_json.unlink(missing_ok=True)
-            # El formato puede variar por versión, adaptamos
             return _normalize_export_data(data)
     except Exception as e:
         _logger.info("dovi_tool export no disponible: %s — usando muestreo", e)
@@ -485,7 +690,6 @@ async def _export_rpu_frames(rpu_path: Path, log_callback=None, label: str = "")
     if log_callback:
         await log_callback(f"[Fase C] Muestreando frames de {label} (puede tardar)…")
 
-    # Primero contar frames
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_path)], timeout=30)
     frames = 0
     for line in summary.splitlines():
@@ -496,10 +700,11 @@ async def _export_rpu_frames(rpu_path: Path, log_callback=None, label: str = "")
                 pass
             break
 
-    # Muestrear cada 24 frames (≈1/sec a 24fps) para performance
     step = max(1, frames // 5000) if frames > 5000 else 1
+    total_iter = max(1, frames // step)
     data = []
-    for i in range(0, frames, step):
+    last_pct_emit = 0.0
+    for idx, i in enumerate(range(0, frames, step)):
         try:
             rc, out, err = await _run([
                 DOVI_TOOL_BIN, "info", "-i", str(rpu_path), "--frame", str(i),
@@ -510,12 +715,48 @@ async def _export_rpu_frames(rpu_path: Path, log_callback=None, label: str = "")
                 data.append(info)
         except Exception:
             continue
+        # Emitir progreso cada ~2% del paso
+        if progress_weight > 0:
+            step_pct = ((idx + 1) / total_iter) * 100.0
+            phase_pct = progress_offset + step_pct * progress_weight / 100.0
+            if phase_pct - last_pct_emit >= 1.0:
+                await _emit_progress(log_callback, phase_pct, f"Muestreando frames {label}")
+                last_pct_emit = phase_pct
     return data
 
 
+def _extract_l1_from_frame(frame: dict) -> dict | None:
+    """Devuelve {'min_pq', 'max_pq', 'avg_pq'} o None.
+
+    dovi_tool 2.x export -d all vuelca el RPU completo por frame. L1 vive en:
+      frame.vdr_dm_data.cmv29_metadata.ext_metadata_blocks[].Level1   (CMv2.9)
+      frame.vdr_dm_data.cmv40_metadata.ext_metadata_blocks[].Level1   (CMv4.0)
+    """
+    if not isinstance(frame, dict):
+        return None
+    vdr = frame.get("vdr_dm_data")
+    if not isinstance(vdr, dict):
+        return None
+    for key in ("cmv29_metadata", "cmv40_metadata"):
+        meta = vdr.get(key)
+        if not isinstance(meta, dict):
+            continue
+        blocks = meta.get("ext_metadata_blocks") or []
+        for block in blocks:
+            if isinstance(block, dict) and "Level1" in block:
+                l1 = block["Level1"]
+                if isinstance(l1, dict) and "max_pq" in l1:
+                    return l1
+    return None
+
+
 def _normalize_export_data(raw: dict | list) -> list[dict]:
-    """Normaliza datos de dovi_tool export a lista de {frame, maxcll, maxfall}."""
-    # El formato exacto depende de la versión de dovi_tool. Adaptamos:
+    """Normaliza dovi_tool export (-d all) a lista de {frame, maxcll, maxfall}.
+
+    Como `maxcll` usamos ``max_pq`` (código PQ 0-4095) y como `maxfall` usamos
+    ``avg_pq``. La correlación de Pearson mide forma, así que el cambio de
+    escala respecto a nits no afecta al cálculo de confianza ni al chart.
+    """
     if isinstance(raw, list):
         items = raw
     elif isinstance(raw, dict):
@@ -525,20 +766,11 @@ def _normalize_export_data(raw: dict | list) -> list[dict]:
 
     result = []
     for i, it in enumerate(items):
-        if not isinstance(it, dict):
-            continue
-        # Intentar varias rutas donde puede venir MaxCLL/MaxFALL
-        l1 = it.get("l1", {}) or it.get("L1", {}) or {}
-        maxcll = (
-            l1.get("max_cll") or it.get("max_cll") or it.get("maxcll") or 0
-        )
-        maxfall = (
-            l1.get("max_fall") or it.get("max_fall") or it.get("maxfall") or 0
-        )
+        l1 = _extract_l1_from_frame(it) or {}
         result.append({
             "frame": i,
-            "maxcll": float(maxcll or 0),
-            "maxfall": float(maxfall or 0),
+            "maxcll": float(l1.get("max_pq") or 0),
+            "maxfall": float(l1.get("avg_pq") or 0),
         })
     return result
 

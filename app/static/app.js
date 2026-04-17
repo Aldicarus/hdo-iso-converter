@@ -126,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSessions();
   checkAppStatus();
   connectQueueWebSocket();
+  switchSubTab(null);
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -254,16 +255,19 @@ function switchTab(n) {
  * @param {string} id - 'cola' o project.id
  */
 function switchSubTab(id) {
+  // Si no hay proyectos abiertos y no se pide Cola, mostrar estado vacío
+  if (!id && openProjects.length === 0) id = 'empty';
   activeSubTabId = id;
   document.getElementById('subtab-btn-cola')?.classList.toggle('active', id === 'cola');
   document.querySelectorAll('.subtab-proj').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.pid === id);
   });
-  // Mostrar el panel correcto en #subtab-main (Cola o proyecto)
+  // Mostrar el panel correcto en #subtab-main (Cola, proyecto o estado vacío)
   document.querySelectorAll('#subtab-main .subtab-panel').forEach(panel => {
-    const active = id === 'cola'
-      ? panel.id === 'panel-cola'
-      : panel.id === `panel-project-${id}`;
+    let active;
+    if (id === 'cola') active = panel.id === 'panel-cola';
+    else if (id === 'empty') active = panel.id === 'panel-empty-projects';
+    else active = panel.id === `panel-project-${id}`;
     panel.classList.toggle('active-panel', active);
   });
   // Actualizar cortinilla: icono + posición (clase cola-panel-open)
@@ -340,6 +344,7 @@ function openProject(session) {
   createProjectPanel(project);
   switchSubTab(pid);
   renderProjectPanel(project);
+  _doFilterSidebarSessions();
 
   return project;
 }
@@ -683,8 +688,9 @@ function _doCloseProject(pid) {
   // Activar el sub-tab más cercano
   if (activeSubTabId === pid) {
     const next = openProjects[idx] || openProjects[idx - 1];
-    switchSubTab(next ? next.id : 'cola');
+    switchSubTab(next ? next.id : (openProjects.length === 0 ? 'empty' : 'cola'));
   }
+  _doFilterSidebarSessions();
 }
 
 
@@ -1305,6 +1311,7 @@ function renderSidebarSessions(sessions, query = '') {
     const card = document.createElement('div');
     card.className = `session-card${isSelected ? ' selected' : ''}`;
     card.dataset.sid = s.id;
+    const isOpen = !!openProjects.find(p => p.sessionId === s.id);
     card.innerHTML = `
       <div class="session-card-row">
         <div class="session-card-status-badge" data-tooltip="${escHtml(statusLabels[execStatus] || '')}">${statusIcon}</div>
@@ -1323,6 +1330,7 @@ function renderSidebarSessions(sessions, query = '') {
             </div>
           </div>
         </div>
+        ${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>
       <div class="session-card-actions">
         <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')"
@@ -4495,6 +4503,9 @@ function _connectCMv40WebSocket(project) {
 
 function _appendCMv40Log(project, line) {
   const pid = project.id;
+  // Marcador de progreso: no se añade al log visual, solo actualiza la barra
+  const prog = _cmv40ParseProgress(line);
+  if (prog) { _cmv40UpdateProgressUI(pid, prog); return; }
   // Append al log persistente
   const logEl = document.getElementById(`cmv40-log-${pid}`);
   if (logEl) {
@@ -4598,6 +4609,14 @@ function _renderCMv40RunningOverlay(project) {
             </div>
             <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
           </div>
+          <div class="cmv40-progress" id="cmv40-progress-${pid}">
+            <div class="cmv40-progress-meta">
+              <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}">Preparando…</span>
+              <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"></span>
+            </div>
+            <div class="cmv40-progress-track"><div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}" style="width:0%"></div></div>
+            <div class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}">—</div>
+          </div>
           <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
         </div>`;
       panel.appendChild(overlay);
@@ -4616,13 +4635,45 @@ function _renderCMv40RunningOverlay(project) {
   }
 }
 
+function _cmv40ParseProgress(line) {
+  // Detecta marcadores §§PROGRESS§§{json} (con o sin timestamp [HH:MM:SS] delante)
+  const m = line.match(/§§PROGRESS§§(\{.*\})/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+function _cmv40UpdateProgressUI(pid, prog) {
+  const bar = document.getElementById(`cmv40-progress-bar-${pid}`);
+  const pct = document.getElementById(`cmv40-progress-pct-${pid}`);
+  const lab = document.getElementById(`cmv40-progress-label-${pid}`);
+  const eta = document.getElementById(`cmv40-progress-eta-${pid}`);
+  if (!bar || !pct || !lab) return;
+  const p = Math.max(0, Math.min(100, prog.pct ?? 0));
+  bar.classList.remove('indeterminate');
+  bar.style.width = p + '%';
+  pct.textContent = p.toFixed(1) + '%';
+  lab.textContent = prog.label || '';
+  if (eta) {
+    if (prog.eta_s != null && prog.eta_s > 0) {
+      const m = Math.floor(prog.eta_s / 60);
+      const s = prog.eta_s % 60;
+      eta.textContent = `ETA ${m}:${String(s).padStart(2, '0')}`;
+    } else {
+      eta.textContent = '';
+    }
+  }
+}
+
 function _cmv40BindRunningLog(project) {
-  // Replica los últimos logs de la sesión al div de log
+  // Replica los últimos logs de la sesión al div de log y actualiza progreso
   const pid = project.id;
   const logEl = document.getElementById(`cmv40-running-log-${pid}`);
   if (!logEl) return;
   logEl.innerHTML = '';
+  let lastProg = null;
   (project.session.output_log || []).slice(-200).forEach(line => {
+    const prog = _cmv40ParseProgress(line);
+    if (prog) { lastProg = prog; return; }  // no añadir al log
     const div = document.createElement('div');
     div.className = 'log-line';
     if (line.includes('✓')) div.classList.add('log-success');
@@ -4631,6 +4682,7 @@ function _cmv40BindRunningLog(project) {
     div.textContent = line;
     logEl.appendChild(div);
   });
+  if (lastProg) _cmv40UpdateProgressUI(pid, lastProg);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -5129,7 +5181,7 @@ function _cmv40FaseCBody(pid, s) {
 function _cmv40FaseDBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Gráfico del brillo (MaxCLL) por frame. Rojo = origen, Azul = target. Deben coincidir. Si hay offset, aplicar corrección.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Gráfico de MaxPQ (L1 del RPU Dolby Vision) por frame. Rojo = origen, Azul = target. Deben coincidir en forma. Si hay offset, aplicar corrección.</div>
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="320"></canvas>
@@ -5225,15 +5277,17 @@ async function _cmv40LoadRpus(pid) {
 
 async function _cmv40LoadTargetMkvs(pid) {
   const select = document.getElementById(`cmv40-target-mkv-select-${pid}`);
-  const data = await apiFetch('/api/mkv/files');
+  const data = await apiFetch('/api/mkv/files-in-isos');
   select.innerHTML = '<option value="">— Seleccionar MKV con CMv4.0 —</option>';
-  if (data?.files) {
+  if (data?.files && data.files.length) {
     data.files.forEach(f => {
       const opt = document.createElement('option');
-      opt.value = '/mnt/output/' + f;
-      opt.textContent = f;
+      opt.value = f.path;
+      opt.textContent = f.name;
       select.appendChild(opt);
     });
+  } else {
+    select.innerHTML = '<option value="">— No hay MKVs en el directorio de ISOs —</option>';
   }
 }
 
@@ -5806,7 +5860,7 @@ function _renderCMv40Chart(project) {
     ctx.lineTo(padding.left + plotW, y);
     ctx.stroke();
     const val = (yMax * (1 - i / 5)).toFixed(0);
-    ctx.fillText(`${val} cd/m²`, 4, y + 3);
+    ctx.fillText(`${val} PQ`, 4, y + 3);
   }
   // Eje X (frames + tiempo) — 6 labels bien espaciados
   const NUM_X_LABELS = 6;
@@ -5905,8 +5959,8 @@ function _renderCMv40Chart(project) {
       const mm = Math.floor(absFrame / FPS / 60);
       const ss = Math.floor((absFrame / FPS) % 60).toString().padStart(2, '0');
       tooltip.innerHTML = `Frame ${absFrame.toLocaleString()} (${mm}:${ss})<br>
-        <span style="color:#ef4444">Origen: ${(d.src_maxcll || 0).toFixed(0)} cd/m²</span><br>
-        <span style="color:#3b82f6">Target: ${(d.tgt_maxcll || 0).toFixed(0)} cd/m²</span>`;
+        <span style="color:#ef4444">Origen: ${(d.src_maxcll || 0).toFixed(0)} PQ</span><br>
+        <span style="color:#3b82f6">Target: ${(d.tgt_maxcll || 0).toFixed(0)} PQ</span>`;
     }
   };
   canvas.onmouseleave = () => {
