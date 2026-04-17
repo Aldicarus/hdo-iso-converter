@@ -4612,10 +4612,12 @@ function _renderCMv40RunningOverlay(project) {
           <div class="cmv40-progress" id="cmv40-progress-${pid}">
             <div class="cmv40-progress-meta">
               <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}">Preparando…</span>
-              <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"></span>
+              <span class="cmv40-progress-right">
+                <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"></span>
+                <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}">—</span>
+              </span>
             </div>
             <div class="cmv40-progress-track"><div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}" style="width:0%"></div></div>
-            <div class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}">—</div>
           </div>
           <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
         </div>`;
@@ -5584,10 +5586,12 @@ async function _loadCMv40SyncChart(project) {
 
 function _renderCMv40SyncStats(project) {
   const d = project.syncData;
+  const s = project.session;
   const pid = project.id;
   const container = document.getElementById(`cmv40-sync-stats-${pid}`);
   if (!container) return;
-  const delta = d.target_frames - d.source_frames;
+  // Δ autoritativo: session.sync_delta (refleja correcciones ya aplicadas).
+  const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
   const suggested = d.suggested_offset || {};
 
   container.innerHTML = `
@@ -5653,7 +5657,7 @@ function _renderCMv40SyncControls(project) {
   const d = project.syncData;
   const container = document.getElementById(`cmv40-sync-controls-${pid}`);
   if (!container) return;
-  const delta = d.target_frames - d.source_frames;
+  const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
   const suggested = d.suggested_offset || {};
   const hasSyncConfig = !!s.sync_config;
   // Confianza y criterio para habilitar "Confirmar"
@@ -5821,8 +5825,10 @@ function _renderCMv40Chart(project) {
   // Framerate real del vídeo origen
   const FPS = project.session.source_fps || 23.976;
   // totalFrames real de la película (NO es allData.length por muestreo)
+  // No usar Math.max(...array): el spread supera el límite de argumentos (~65k)
+  // y lanza "Maximum call stack size exceeded" con arrays grandes (155k frames).
   const totalFrames = project.syncData.source_frames
-    || Math.max(...allData.map(p => p.frame || 0)) + 1;
+    || (allData.reduce((m, p) => Math.max(m, p.frame || 0), 0) + 1);
   if (!project.chartRange) {
     project.chartRange = { start: 0, end: Math.min(Math.round(30 * FPS), totalFrames) };
   }
@@ -5838,8 +5844,14 @@ function _renderCMv40Chart(project) {
   const plotW = W - padding.left - padding.right;
   const plotH = H - padding.top - padding.bottom;
 
-  const srcMax = Math.max(...data.map(d => d.src_maxcll || 0));
-  const tgtMax = Math.max(...data.map(d => d.tgt_maxcll || 0));
+  // Reduce en vez de spread — evita "Max call stack" con arrays > ~65k
+  let srcMax = 0, tgtMax = 0;
+  for (let i = 0; i < data.length; i++) {
+    const s = data[i].src_maxcll || 0;
+    const t = data[i].tgt_maxcll || 0;
+    if (s > srcMax) srcMax = s;
+    if (t > tgtMax) tgtMax = t;
+  }
   const yMax = Math.max(srcMax, tgtMax, 100) * 1.1;
   // Ancho en frames del rango visible (para mapeo X)
   const rangeSpan = end - start;
@@ -5889,21 +5901,9 @@ function _renderCMv40Chart(project) {
   // Helper: frame absoluto → posición X en el canvas
   const frameToX = (frame) => padding.left + (plotW * (frame - start) / rangeSpan);
 
-  // Curva source (rojo)
-  ctx.strokeStyle = '#ef4444';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    const x = frameToX(d.frame);
-    const y = padding.top + plotH - (plotH * (d.src_maxcll || 0) / yMax);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Curva target (azul)
-  ctx.strokeStyle = '#3b82f6';
-  ctx.lineWidth = 1.5;
+  // Curva target (azul) — se dibuja primero, más gruesa y con cierta transparencia
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.85)';
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   data.forEach((d, i) => {
     const x = frameToX(d.frame);
@@ -5913,15 +5913,35 @@ function _renderCMv40Chart(project) {
   });
   ctx.stroke();
 
-  // Leyenda
-  ctx.fillStyle = '#ef4444';
-  ctx.fillRect(padding.left + 10, 6, 12, 3);
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.fillText('MKV origen (CMv2.9)', padding.left + 28, 12);
+  // Curva source (rojo) — encima, más fina y punteada para que se vea cuando coincide
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = frameToX(d.frame);
+    const y = padding.top + plotH - (plotH * (d.src_maxcll || 0) / yMax);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Leyenda — origen con guiones (reflejando cómo se dibuja)
   ctx.fillStyle = '#3b82f6';
-  ctx.fillRect(padding.left + 180, 6, 12, 3);
+  ctx.fillRect(padding.left + 10, 7, 14, 3);
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.fillText('RPU target (CMv4.0)', padding.left + 198, 12);
+  ctx.fillText('RPU target (CMv4.0)', padding.left + 30, 12);
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(padding.left + 180, 8);
+  ctx.lineTo(padding.left + 196, 8);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillText('MKV origen (CMv2.9)', padding.left + 202, 12);
   // Info de rango prominente (arriba a la derecha)
   const startSec = start / FPS, endSec = end / FPS;
   const fmtTime = (s) => {
