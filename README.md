@@ -8,7 +8,7 @@ Aplicación web en contenedor Docker para procesar contenido UHD Blu-ray. Diseñ
 |-----|--------|-------------|
 | 1 | **Crear MKV** | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL |
 | 2 | **Editar MKV** | Editor de propiedades de MKVs existentes: nombres de pistas, flags, capítulos. Sin re-encoding |
-| 3 | **CMv4.0 BD** | *(futuro)* Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD |
+| 3 | **CMv4.0 BD** | Inyecta RPU Dolby Vision CMv4.0 en un MKV con CMv2.9, con sincronización visual frame-a-frame |
 
 ## Inicio rápido
 
@@ -64,6 +64,7 @@ ISOS_PATH=/ruta/a/tus/isos        # ISOs UHD Blu-ray (solo lectura)
 OUTPUT_PATH=/ruta/a/salida/mkvs    # MKVs finales
 TMP_PATH=/ruta/temporal            # MKVs intermedios (SSD recomendado)
 CONFIG_PATH=/ruta/config           # Sesiones JSON + cola
+CMV40_RPU_PATH=/ruta/cmv40_rpus    # RPUs CMv4.0 externos para Tab 3 (opcional)
 ```
 
 ## Volúmenes Docker
@@ -74,6 +75,7 @@ CONFIG_PATH=/ruta/config           # Sesiones JSON + cola
 | `/mnt/output` | lectura-escritura | MKVs finales (salida Tab 1, entrada Tab 2) |
 | `/mnt/tmp` | lectura-escritura | MKVs intermedios (SSD recomendado) |
 | `/config` | lectura-escritura | Sesiones persistentes (JSON) + cola |
+| `/mnt/cmv40_rpus` | solo lectura | RPUs CMv4.0 externos para Tab 3 (opcional) |
 
 > **Espacio en /mnt/tmp:** usado como buffer temporal durante la extracción. Se limpia automáticamente.
 
@@ -119,6 +121,36 @@ Editor de propiedades instantáneo via `mkvpropedit` (O(1), sin copiar datos):
 - Deshacer todos los cambios antes de aplicar
 - Info extendida (MediaInfo): bitrate real, codec comercial, HDR, channel layout
 
+## Tab 3 — CMv4.0 BD
+
+Pipeline para inyectar un RPU Dolby Vision CMv4.0 (p. ej. de REC999) en un MKV con CMv2.9 del Blu-ray original, añadiendo metadata de tone-mapping L8-L11 sin re-encoding.
+
+### Fases
+
+1. **Analizar origen** — `ffmpeg` + `dovi_tool extract-rpu` sobre el MKV origen
+2. **Proporcionar RPU target** — elegir `.bin` de `/mnt/cmv40_rpus/` o extraerlo de otro MKV con CMv4.0
+3. **Extraer BL/EL** — `dovi_tool demux` + exportación de datos MaxCLL por frame
+4. **Verificar sincronización** — gráfico interactivo frame-a-frame con correlación de Pearson
+5. **Aplicar corrección** — `dovi_tool editor` con `remove`/`duplicate` acumulativos
+6. **Inyectar RPU** — `dovi_tool inject-rpu`
+7. **Remux final** — `dovi_tool mux` + `mkvmerge` preservando audio/subs/capítulos
+8. **Validar** — verifica que el MKV resultante tiene CMv4.0
+
+### Sincronización visual
+
+El RPU target puede tener distinto número de frames que el vídeo (típico por logos de estudio en versiones streaming). Fase D incluye:
+
+- **Gráfico MaxCLL por frame** con dos curvas superpuestas (origen rojo, target azul)
+- **Zoom por tiempo**: 30s / 1min / 5min / 30min / Todo
+- **Detección automática de offset** por cross-correlation
+- **Correcciones acumulativas** con botón de reset al estado original
+- **Métrica de confianza** (correlación de Pearson) con umbral 85%
+- **Criterio combinado** para continuar: `Δ frames = 0` ∧ `confianza ≥ 85%`
+
+### RPUs externos
+
+Coloca ficheros `.bin` CMv4.0 en la ruta configurada via `CMV40_RPU_PATH` (por defecto `/mnt/cmv40_rpus`). Tab 3 los listará automáticamente. El volumen es read-only dentro del contenedor.
+
 ## Stack técnico
 
 - **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
@@ -146,7 +178,8 @@ hdo-iso-converter/
 │   │   ├── phase_b.py       ← Reglas: selección automática de pistas
 │   │   ├── phase_d.py       ← Extracción: mkvmerge desde MPLS montado
 │   │   ├── phase_e.py       ← Escritura final: flags, metadatos, validación
-│   │   └── mkv_analyze.py   ← Tab 2: análisis (mkvmerge + MediaInfo) + edición MKVs
+│   │   ├── mkv_analyze.py   ← Tab 2: análisis (mkvmerge + MediaInfo) + edición MKVs
+│   │   └── cmv40_pipeline.py ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync)
 │   └── static/
 │       ├── index.html
 │       ├── app.js
@@ -170,6 +203,23 @@ hdo-iso-converter/
 | GET | `/api/mkv/files` | Lista MKVs en /mnt/output |
 | POST | `/api/mkv/analyze` | Analiza un MKV existente (mkvmerge + MediaInfo) |
 | POST | `/api/mkv/apply` | Aplica ediciones (mkvpropedit) |
+| GET | `/api/cmv40` | Lista proyectos CMv4.0 |
+| POST | `/api/cmv40/create` | Crea un proyecto CMv4.0 |
+| GET | `/api/cmv40/{id}` | Obtiene sesión + artefactos |
+| GET | `/api/cmv40/rpu-files` | Lista `.bin` CMv4.0 disponibles |
+| POST | `/api/cmv40/{id}/analyze-source` | Fase A |
+| POST | `/api/cmv40/{id}/target-rpu-path` | Fase B (desde carpeta) |
+| POST | `/api/cmv40/{id}/target-rpu-from-mkv` | Fase B (desde otro MKV) |
+| POST | `/api/cmv40/{id}/extract` | Fase C |
+| GET | `/api/cmv40/{id}/sync-data` | Datos del chart + métricas |
+| POST | `/api/cmv40/{id}/apply-sync` | Aplicar corrección (acumulativa) |
+| POST | `/api/cmv40/{id}/mark-synced` | Confirmar sync → avanzar a F |
+| POST | `/api/cmv40/{id}/inject` | Fase F |
+| POST | `/api/cmv40/{id}/remux` | Fase G |
+| POST | `/api/cmv40/{id}/validate` | Fase H |
+| POST | `/api/cmv40/{id}/reset-to/{phase}` | Rehacer desde una fase |
+| POST | `/api/cmv40/{id}/cleanup` | Borra workdir → archived |
+| WS | `/ws/cmv40/{id}` | Log en vivo |
 | GET | `/api/health` | Healthcheck |
 | WS | `/ws/{id}` | Streaming de output en tiempo real |
 

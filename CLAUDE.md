@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.6)
+# HDO ISO Converter — Reglas del proyecto (v1.7)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -13,7 +13,7 @@ El nombre interno del repositorio y ficheros puede seguir siendo `ISO2MKVFEL` po
 Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs:
 - **Tab 1 — Crear MKV:** Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.
 - **Tab 2 — Editar MKV:** Editor de propiedades de ficheros MKV existentes — metadatos de pistas, flags, títulos, capítulos. Sin re-encoding.
-- **Tab 3 — CMv4.0 BD:** (futuro) Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD via dovi_tool.
+- **Tab 3 — CMv4.0 BD:** Pipeline para inyectar RPU Dolby Vision CMv4.0 en un MKV con CMv2.9 del Blu-ray original, con sincronización visual frame-a-frame y multi-proyecto.
 
 ---
 
@@ -50,12 +50,13 @@ ISO2MKVFEL/
     ├── storage.py           ← Persistencia JSON en /config + fingerprint ISO
     ├── queue_manager.py     ← Cola FIFO asyncio para Fases D+E
     ├── phases/
-    │   ├── iso_mount.py     ← Loop mount/umount de ISOs UDF 2.50
-    │   ├── phase_a.py       ← Análisis: mkvmerge -J + MediaInfo + dovi_tool + capítulos
-    │   ├── phase_b.py       ← Motor de reglas automáticas (audio, subs, capítulos, nombre)
-    │   ├── phase_d.py       ← Extracción: mkvmerge desde MPLS montado
-    │   ├── phase_e.py       ← Escritura final: flags, metadatos, validación
-    │   └── mkv_analyze.py   ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
+    │   ├── iso_mount.py       ← Loop mount/umount de ISOs UDF 2.50
+    │   ├── phase_a.py         ← Análisis: mkvmerge -J + MediaInfo + dovi_tool + capítulos
+    │   ├── phase_b.py         ← Motor de reglas automáticas (audio, subs, capítulos, nombre)
+    │   ├── phase_d.py         ← Extracción: mkvmerge desde MPLS montado
+    │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
+    │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
+    │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync)
     ├── dev_fixtures.py      ← ⚠️ TEMPORAL (DEV_MODE=1): ISOs fake + sesiones fake
     └── static/
         ├── index.html       ← SPA completa (Tab 1 + Tab 2 + modales)
@@ -67,9 +68,12 @@ ISO2MKVFEL/
 | Ruta en contenedor | Tipo | Descripción |
 |---|---|---|
 | `/mnt/isos` | read-only | ISOs de origen en el NAS |
-| `/mnt/output` | read-write | MKVs finales (Tab 1 output + Tab 2 input) |
-| `/mnt/tmp` | read-write | MKV intermedios (preferiblemente SSD) |
+| `/mnt/output` | read-write | MKVs finales (Tab 1 output + Tab 2/3 input) |
+| `/mnt/tmp` | read-write | MKV intermedios + artefactos Tab 3 (preferiblemente SSD) |
+| `/mnt/cmv40_rpus` | read-only | Ficheros RPU CMv4.0 externos (Tab 3, p. ej. de REC999) |
 | `/config` | read-write | Sesiones persistentes (JSON) + cola |
+
+El volumen `/mnt/cmv40_rpus` es opcional: Tab 3 también permite extraer RPUs de MKVs que ya tengan CMv4.0.
 
 ---
 
@@ -141,6 +145,117 @@ ISO2MKVFEL/
 - Vídeo: codec, resolución, bitrate real, HDR10 (MaxCLL/MaxFALL), Dolby Vision
 - Audio: codec comercial (MediaInfo), bitrate real, channel layout, compresión
 - Subtítulos: codec, idioma, tipo (forzados/completos)
+
+---
+
+## Tab 3 — CMv4.0 BD (inyección RPU Dolby Vision CMv4.0)
+
+### Objetivo
+Partir de un MKV con DV Profile 7 FEL **CMv2.9** (producto estándar del Blu-ray UHD) y sustituir su RPU por uno **CMv4.0** (que añade metadata de tone-mapping L8-L11). Los RPUs CMv4.0 los genera la comunidad (p. ej. el usuario **REC999**) y se proporcionan como `.bin` externos o extraídos de otros MKVs.
+
+**El punto crítico es la sincronización**: el RPU target puede tener N frames distintos al vídeo (típico por logos de estudio o versiones streaming). Si no se alinea frame-a-frame, el resultado es incorrecto — escenas brillantes se ven oscuras y viceversa. La Fase D aporta un gráfico interactivo + métrica de confianza para validar la alineación antes de inyectar.
+
+### Volúmenes
+- Workdir de artefactos: `/mnt/tmp/cmv40/{session_id}/`
+- RPUs externos (opcional): `/mnt/cmv40_rpus/` (read-only)
+- Sesiones: `/config/cmv40/{session_id}.json`
+
+### Artefactos por proyecto
+Cada proyecto CMv4.0 vive en `/mnt/tmp/cmv40/{session_id}/`:
+
+```
+source.hevc            ← HEVC extraído del MKV origen (BL+EL+RPU)
+BL.hevc                ← Base Layer tras demux
+EL.hevc                ← Enhancement Layer CMv2.9 tras demux
+RPU_source.bin         ← RPU original CMv2.9 extraído del MKV origen
+RPU_target.bin         ← RPU CMv4.0 proporcionado por el usuario
+RPU_synced.bin         ← RPU corregido tras dovi_tool editor (opcional)
+EL_injected.hevc       ← EL con nuevo RPU inyectado
+per_frame_data.json    ← MaxCLL/MaxFALL por frame (muestreado cada 20) para el chart
+editor_config.json     ← JSON de corrección aplicado (remove/duplicate)
+output.mkv             ← MKV final (se mueve a /mnt/output al validar)
+```
+
+### Fases del pipeline (A-H)
+
+Cada fase produce artefactos reutilizables y tiene endpoint independiente. El usuario controla cada transición explícitamente — sin cascadas automáticas.
+
+1. **Fase A — Analizar MKV origen**: `ffmpeg -map 0:v:0 -c:v copy ... source.hevc` + `dovi_tool extract-rpu` + `dovi_tool info --summary`. Captura `source_fps`, `source_frame_count`, profile y CM version originales.
+2. **Fase B — Proporcionar RPU target**: dos opciones UX (tabs):
+   - **Desde carpeta NAS** (`/mnt/cmv40_rpus/*.bin`)
+   - **Extraer de otro MKV** que ya tenga CMv4.0 (ffmpeg + extract-rpu)
+3. **Fase C — Extraer BL/EL + datos per-frame**: `dovi_tool demux` + exportación muestreada de MaxCLL/MaxFALL de ambos RPUs para el chart.
+4. **Fase D — Verificar sincronización** (UX clave): gráfico Canvas custom con dos curvas superpuestas (origen rojo, target azul). Incluye:
+   - **Zoom**: presets 30s / 1min / 5min / 30min / Todo + inputs manuales
+   - **Detección automática de offset** por cross-correlation
+   - **Correcciones acumulativas** (cada "Aplicar" suma a las previas)
+   - **Botón "Resetear al original"** que descarta todas las correcciones
+   - **Panel de confianza** basado en correlación de Pearson sobre MaxCLL (insensible a diferencias absolutas, sensible a desalineación temporal)
+   - **Criterio para avanzar**: `Δ frames = 0` Y `confianza ≥ 85%`
+5. **Fase E — Aplicar corrección** (parte de D): `dovi_tool editor -j editor_config.json` con `remove`/`duplicate`. NO avanza de fase — el usuario sigue iterando hasta pulsar "Confirmar sync".
+6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
+7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
+8. **Fase H — Validación**: extrae RPU del MKV resultante y verifica `CM version == v4.0`. Si OK, mueve el MKV a `/mnt/output/`.
+
+### Estados de la sesión
+
+- `phase`: última fase completada — `created → source_analyzed → target_provided → extracted → sync_verified → injected → remuxed → validated → done`
+- `running_phase`: fase ejecutándose ahora mismo (bloquea la UI en modo modal overlay)
+- `error_message`: error de la última acción intentada (no bloquea, se puede descartar)
+- `archived`: true tras cleanup — proyecto en modo solo lectura, no se pueden rehacer fases
+- `sync_config`: dict con la corrección acumulada (remove/duplicate ranges)
+- `sync_delta`: diferencia de frames actual (target - source)
+
+### UI
+
+- **Multi-proyecto con sidebar** (como Tab 1): búsqueda, ordenación (por modificado/nombre/fase), filtros (todos / en progreso / completados / errores), iconos por fase en el badge
+- **Sub-tabs** para varios proyectos abiertos en paralelo (máx. 5)
+- **Cards apiladas por fase**: todas visibles con estado (done ✅ / active ▶️ / pending 🔒), expandibles/colapsables, con resumen en header
+- **Botón "🔄 Rehacer"** en cada fase done: invalida datos y borra artefactos de fases posteriores con modal de previsualización
+- **Overlay modal bloqueante** cuando `running_phase != null`: spinner + título de la fase + log en vivo + botón Cancelar. Tamaño fijo, no depende del contenido.
+- **Nombre del MKV de salida**: editable en el header del proyecto (no en modal de creación), bloqueado cuando `done` o `archived`
+
+### Endpoints (resumen)
+
+```
+POST   /api/cmv40/create
+GET    /api/cmv40
+GET    /api/cmv40/{id}                      (incluye campo artifacts con sizes)
+DELETE /api/cmv40/{id}                      (?clean_artifacts=true para borrar workdir)
+POST   /api/cmv40/{id}/rename-output        (edita output_mkv_name)
+POST   /api/cmv40/{id}/analyze-source       (Fase A)
+GET    /api/cmv40/rpu-files                 (lista /mnt/cmv40_rpus/*.bin)
+POST   /api/cmv40/{id}/target-rpu-path      (Fase B opción 1)
+POST   /api/cmv40/{id}/target-rpu-from-mkv  (Fase B opción 2)
+POST   /api/cmv40/{id}/extract              (Fase C)
+GET    /api/cmv40/{id}/sync-data            (per_frame_data + confidence + suggested_offset)
+POST   /api/cmv40/{id}/apply-sync           (Fase E, correcciones acumulativas)
+POST   /api/cmv40/{id}/reset-sync           (descartar todas las correcciones)
+POST   /api/cmv40/{id}/mark-synced          (usuario confirma sync OK → avanza a sync_verified)
+POST   /api/cmv40/{id}/inject               (Fase F)
+POST   /api/cmv40/{id}/remux                (Fase G)
+POST   /api/cmv40/{id}/validate             (Fase H)
+POST   /api/cmv40/{id}/reset-to/{phase}     (rehacer desde una fase)
+GET    /api/cmv40/{id}/reset-preview/{phase} (previsualiza artefactos a borrar)
+POST   /api/cmv40/{id}/cleanup              (borra workdir → archived=true)
+POST   /api/cmv40/{id}/clear-error          (descarta error_message)
+POST   /api/cmv40/{id}/cancel               (mata subprocess de running_phase)
+WS     /ws/cmv40/{id}                       (streaming de log)
+```
+
+### Métricas de sincronización (Fase D)
+
+- **Δ frames** (`target_frame_count - source_frame_count`): alineación temporal exacta
+- **Correlación de Pearson** sobre MaxCLL de ambas series: similitud de forma. Insensible a diferencias de escala (los valores absolutos pueden diferir entre CMv2.9 y CMv4.0 por distinto grading) pero sensible a desalineación temporal
+- **Umbral de confianza**: 85% (>= 0.85 Pearson). Protege contra RPUs de películas incompatibles
+
+### Reglas y principios
+
+- Cada transición de fase es explícita (click del usuario) — no hay cascadas automáticas
+- Los artefactos de fases anteriores se preservan para permitir reentrar tras crash/reinicio
+- Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura
+- Errores NO bloquean el proyecto: mantienen la fase previa, solo escriben `error_message` descartable
+- Validación de CM version target = v4.0 (aviso, no bloqueante)
 
 ---
 

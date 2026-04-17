@@ -31,12 +31,14 @@ mkdir -p "$SCRIPT_DIR/local_data/isos"
 mkdir -p "$SCRIPT_DIR/local_data/output"
 mkdir -p "$SCRIPT_DIR/local_data/tmp"
 mkdir -p "$SCRIPT_DIR/local_data/config"
+mkdir -p "$SCRIPT_DIR/local_data/cmv40_rpus"
 
 # Rutas absolutas (uvicorn se ejecuta desde app/)
 export ISOS_DIR="$SCRIPT_DIR/local_data/isos"
 export OUTPUT_DIR="$SCRIPT_DIR/local_data/output"
 export TMP_DIR="$SCRIPT_DIR/local_data/tmp"
 export CONFIG_DIR="$SCRIPT_DIR/local_data/config"
+export CMV40_RPU_DIR="$SCRIPT_DIR/local_data/cmv40_rpus"
 
 echo "▶  ISO2MKVFEL — modo local"
 echo "   ISOS_DIR  : $ISOS_DIR"

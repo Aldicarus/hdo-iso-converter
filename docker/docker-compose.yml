@@ -44,3 +44,6 @@ services:
 
       # Sesiones persistentes + cola
       - ${CONFIG_PATH:?Define CONFIG_PATH en .env}:/config:rw
+
+      # RPUs CMv4.0 externos (read-only, Tab 3). Opcional: si no se define, Tab 3 funciona solo con "extraer de otro MKV"
+      - ${CMV40_RPU_PATH:-/tmp}:/mnt/cmv40_rpus:ro

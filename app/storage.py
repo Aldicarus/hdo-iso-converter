@@ -24,7 +24,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from models import Session
+from models import CMv40Session, Session
 
 logger = logging.getLogger(__name__)
 
@@ -158,3 +158,78 @@ def find_session_by_fingerprint(fingerprint: str) -> "Session | None":
         if session.iso_fingerprint == fingerprint:
             return session
     return None
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TAB 3 — Storage para CMv40Session
+# ══════════════════════════════════════════════════════════════════════
+
+CMV40_DIR = CONFIG_DIR / "cmv40"
+
+
+def _cmv40_session_path(session_id: str) -> Path:
+    """Ruta del JSON de una sesión CMv4.0."""
+    return CMV40_DIR / f"{session_id}.json"
+
+
+def save_cmv40_session(session: CMv40Session) -> None:
+    """Persiste una CMv40Session en /config/cmv40/{id}.json."""
+    session.updated_at = datetime.now(timezone.utc)
+    CMV40_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cmv40_session_path(session.id)
+    path.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+
+
+def load_cmv40_session(session_id: str) -> CMv40Session | None:
+    """Carga una CMv40Session por ID. Devuelve None si no existe."""
+    path = _cmv40_session_path(session_id)
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return CMv40Session.model_validate(data)
+
+
+def list_cmv40_sessions() -> list[CMv40Session]:
+    """Lista todas las sesiones CMv4.0 ordenadas por fecha (más reciente primero)."""
+    if not CMV40_DIR.exists():
+        return []
+    sessions = []
+    for path in sorted(
+        CMV40_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            sessions.append(CMv40Session.model_validate(data))
+        except Exception as e:
+            logger.warning("CMv40 sesión corrupta, omitida: %s — %s", path.name, e)
+            continue
+    return sessions
+
+
+def delete_cmv40_session(session_id: str) -> bool:
+    """Elimina el JSON de una sesión CMv4.0. No borra los artefactos."""
+    path = _cmv40_session_path(session_id)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def make_cmv40_session_id(source_mkv_path: str) -> str:
+    """
+    Genera un ID para una sesión CMv4.0 a partir del MKV origen.
+
+    Formato: 'cmv40_{titulo}_{año}_{timestamp_unix}'.
+    """
+    stem = Path(source_mkv_path).stem
+    m = re.match(r"^(.+?)\s*\((\d{4})\)", stem)
+    if m:
+        title = re.sub(r"[^\w]", "_", m.group(1).strip())[:40]
+        year  = m.group(2)
+    else:
+        title = re.sub(r"[^\w]", "_", stem)[:40]
+        year  = "0000"
+    ts = int(datetime.now(timezone.utc).timestamp())
+    return f"cmv40_{title}_{year}_{ts}"

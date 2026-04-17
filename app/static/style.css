@@ -514,7 +514,8 @@ body {
   min-height: 0;
 }
 #tab-panel-1,
-#tab-panel-2 {
+#tab-panel-2,
+#tab-panel-3 {
   flex-direction: column;
   overflow: hidden;
 }
@@ -2850,4 +2851,436 @@ select { appearance: none; cursor: pointer;
   padding: 8px 10px;
   background: var(--red-dim);
   border-radius: var(--r-sm);
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   TAB 3 — CMv4.0 BD
+   ═════════════════════════════════════════════════════════════════ */
+
+/* Tab 3 subtab bar: mismo layout que Tab 1 */
+#cmv40-subtab-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  position: relative;
+  z-index: 30;
+  overflow: hidden;
+}
+#cmv40-subtab-bar::-webkit-scrollbar { height: 0; }
+.cmv40-panel { display: none; }
+
+.cmv40-sidebar-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.cmv40-sidebar-item:hover { background: var(--surface-2); }
+
+/* Phase strip */
+.cmv40-phase-strip {
+  display: flex;
+  align-items: center;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface-1);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+}
+.cmv40-phase-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 80px;
+}
+.cmv40-phase-circle {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  font-size: 16px;
+  transition: all var(--t-fast);
+}
+.cmv40-phase-label { font-size: 10px; color: var(--text-3); margin-top: 4px; text-align: center; }
+.cmv40-phase-step.done .cmv40-phase-circle { background: var(--green-dim); color: var(--green); }
+.cmv40-phase-step.active .cmv40-phase-circle {
+  background: var(--blue-dim); color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-dim);
+  animation: cmv40-pulse 1.5s infinite;
+}
+.cmv40-phase-step.error .cmv40-phase-circle { background: var(--red-dim); color: var(--red); }
+.cmv40-phase-step.active .cmv40-phase-label, .cmv40-phase-step.done .cmv40-phase-label { color: var(--text-1); }
+.cmv40-phase-conn {
+  flex: 1;
+  height: 2px;
+  background: var(--sep);
+  margin: 0 4px;
+  min-width: 20px;
+}
+@keyframes cmv40-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+  50%      { box-shadow: 0 0 0 6px rgba(59,130,246,0.4); }
+}
+
+/* Log viewer */
+.cmv40-log {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  background: #0a0a0a;
+  color: #d4d4d4;
+  padding: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  white-space: pre-wrap;
+}
+.cmv40-log .log-line { padding: 1px 0; }
+.cmv40-log .log-success { color: #86efac; }
+.cmv40-log .log-error   { color: #f87171; }
+.cmv40-log .log-phase   { color: #93c5fd; font-weight: 600; margin-top: 4px; }
+
+/* Chart de sincronización */
+.cmv40-chart-wrap {
+  position: relative;
+  margin: 12px 0;
+  background: #0a0a0a;
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.cmv40-chart-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+.cmv40-chart-tooltip {
+  position: absolute;
+  background: rgba(0,0,0,0.9);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+  line-height: 1.4;
+}
+
+/* Sync stats */
+.cmv40-sync-stats { margin-bottom: 8px; }
+.cmv40-sync-row {
+  display: flex;
+  gap: 24px;
+  font-size: 12px;
+  padding: 8px 0;
+}
+.sync-label { color: var(--text-3); }
+
+/* Controles de zoom del chart de sincronización */
+.cmv40-zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px 0;
+  padding: 8px;
+  background: var(--surface-1);
+  border-radius: var(--r-sm);
+  flex-wrap: wrap;
+}
+.cmv40-zoom-row > span.section-subtitle {
+  margin: 0 4px 0 0;
+  color: var(--text-2);
+}
+.cmv40-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.cmv40-range-inputs input[type="number"] {
+  width: 80px;
+  margin-left: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: var(--r-xs);
+  padding: 3px 6px;
+  color: var(--text-1);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+}
+
+/* Overlay bloqueante — fixed al viewport para que no se mueva con el scroll */
+.cmv40-running-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  animation: cmv40-overlay-in 0.2s ease;
+}
+.cmv40-running-overlay.closing {
+  animation: cmv40-overlay-out 0.2s ease forwards;
+}
+@keyframes cmv40-overlay-in  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes cmv40-overlay-out { from { opacity: 1 } to { opacity: 0 } }
+
+.cmv40-running-box {
+  width: min(900px, 90vw);
+  height: 500px;               /* altura fija para que el log no empuje nada */
+  max-height: 80vh;
+  background: var(--surface-1);
+  border: 1px solid var(--blue);
+  border-radius: var(--r-md);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cmv40-running-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.cmv40-running-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--surface-4);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: cmv40-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes cmv40-spin { to { transform: rotate(360deg) } }
+.cmv40-running-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cmv40-running-subtitle {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.cmv40-running-log {
+  flex: 1 1 auto;
+  min-height: 0;              /* crucial para que overflow funcione dentro de flex */
+  overflow-y: auto;
+  background: #0a0a0a;
+  color: #d4d4d4;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  padding: 12px 16px;
+  white-space: pre-wrap;
+}
+.cmv40-running-log .log-line { padding: 1px 0; }
+.cmv40-running-log .log-success { color: #86efac; }
+.cmv40-running-log .log-error   { color: #f87171; }
+.cmv40-running-log .log-phase   { color: #93c5fd; font-weight: 600; margin-top: 4px; }
+
+/* Panel de confianza de sincronización */
+.cmv40-confidence-panel {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep);
+  border-left-width: 4px;
+  border-radius: var(--r-sm);
+}
+.cmv40-confidence-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.cmv40-confidence-label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.cmv40-confidence-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cmv40-confidence-rating {
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: auto;
+}
+.cmv40-confidence-bar {
+  position: relative;
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  overflow: visible;
+}
+.cmv40-confidence-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.cmv40-confidence-threshold {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 12px;
+  background: var(--text-1);
+  opacity: 0.5;
+  color: transparent;
+  cursor: help;
+}
+.cmv40-confidence-reason {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* Botón de preset de zoom activo */
+.cmv40-zoom-preset.active {
+  background: var(--blue) !important;
+  color: white !important;
+  border-color: var(--blue) !important;
+  font-weight: 600;
+}
+
+/* Sync controls */
+.cmv40-sync-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.cmv40-sync-form label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cmv40-sync-form input[type="number"] {
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: var(--r-xs);
+  padding: 4px 8px;
+  color: var(--text-1);
+  font-family: 'SF Mono', monospace;
+}
+
+/* Input editable del nombre de salida */
+.cmv40-output-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: var(--r-xs);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  font-family: inherit;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.cmv40-output-name-input:hover { border-color: var(--sep-strong); }
+.cmv40-output-name-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  background: var(--surface-1);
+}
+
+/* Cards de fase (apilados verticalmente) */
+.cmv40-fase-card {
+  transition: opacity var(--t-fast) var(--ease);
+}
+.cmv40-fase-card.cmv40-fase-pending {
+  opacity: 0.55;
+}
+.cmv40-fase-card.cmv40-fase-done {
+  border: 1px solid var(--green);
+}
+.cmv40-fase-card.cmv40-fase-active {
+  border: 1px solid var(--blue);
+  box-shadow: 0 0 0 1px var(--blue-dim);
+}
+.cmv40-fase-header {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background var(--t-fast) var(--ease);
+}
+.cmv40-fase-header:hover {
+  background: var(--surface-2);
+}
+.cmv40-fase-state-icon {
+  font-size: 18px;
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.cmv40-fase-chevron {
+  font-size: 14px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+.cmv40-card-error {
+  border: 1px solid var(--red) !important;
+}
+
+/* Target tabs — switcher para Fase B */
+.cmv40-tab-switcher {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  border-bottom: 2px solid var(--sep);
+}
+.cmv40-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  margin-bottom: -2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--t-fast) var(--ease);
+}
+.cmv40-tab-btn:hover { color: var(--text-1); }
+.cmv40-tab-btn.active {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+  font-weight: 600;
+}
+
+.cmv40-target-tab {
+  padding: 16px;
+  background: var(--surface-1);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  border: 1px solid var(--sep);
+  border-top: none;
+}
+
+/* Badge "abierto" en el sidebar de Tab 3 */
+.session-item-badge {
+  font-size: 9px;
+  color: var(--green);
+  background: var(--green-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: flex-start;
+  flex-shrink: 0;
 }

@@ -124,6 +124,7 @@ _recover_interrupted_sessions()
 from dev_fixtures import (
     DEV_MODE, DEV_FAKE_ISOS, build_fake_session, seed_dev_sessions,
     DEV_FAKE_MKV_FILES, build_fake_mkv_analysis, build_fake_mkv_apply,
+    DEV_FAKE_RPU_FILES, build_fake_per_frame_data, build_fake_cmv40_session,
 )
 if DEV_MODE:
     seed_dev_sessions(CONFIG_DIR)
@@ -1078,6 +1079,892 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     except Exception as e:
         _logger.exception("Error aplicando ediciones a %s", body.file_path)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 3 — CMv4.0 BD Pipeline endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+import shutil as _cmv40_shutil
+from pydantic import BaseModel
+from models import CMv40Session, CMv40Phase, CMv40PhaseRecord, CMV40_PHASES_ORDER
+from storage import (
+    save_cmv40_session, load_cmv40_session, list_cmv40_sessions,
+    delete_cmv40_session, make_cmv40_session_id,
+)
+from phases.cmv40_pipeline import (
+    get_workdir as cmv40_get_workdir,
+    artifact_exists as cmv40_artifact_exists,
+    list_available_rpus,
+    run_phase_a_analyze_source, run_phase_b_target_from_path,
+    run_phase_b_target_from_mkv, run_phase_c_extract,
+    run_phase_e_correct_sync, run_phase_f_inject,
+    run_phase_g_remux, run_phase_h_validate,
+    detect_sync_offset, compute_sync_confidence,
+    CMV40_WORK_BASE, CMV40_RPU_DIR,
+)
+
+# Conexiones WebSocket específicas de CMv4.0
+_cmv40_ws_connections: dict[str, list[WebSocket]] = {}
+_cmv40_active_procs: dict[str, asyncio.subprocess.Process] = {}
+_cmv40_cancel_flags: dict[str, bool] = {}
+
+
+async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
+                              log_lines: list[str], new_phase: str,
+                              apply_fn=None, total_seconds: float = 3.0) -> None:
+    """
+    Simula una fase en DEV mode emitiendo log_lines con delays.
+    Al final aplica apply_fn(session) y avanza a new_phase.
+    """
+    session.running_phase = phase_name
+    session.error_message = ""
+    save_cmv40_session(session)
+    try:
+        delay_per = total_seconds / max(1, len(log_lines))
+        for line in log_lines:
+            if _cmv40_cancel_flags.get(session.id):
+                await _cmv40_log(session, "🛑 Cancelado por el usuario")
+                return
+            await _cmv40_log(session, line)
+            await asyncio.sleep(delay_per)
+        if apply_fn:
+            apply_fn(session)
+        session.phase = new_phase
+        await _cmv40_log(session, f"✓ Fase {phase_name} completada")
+    finally:
+        session.running_phase = None
+        _cmv40_cancel_flags.pop(session.id, None)
+        save_cmv40_session(session)
+
+
+async def _cmv40_log(session: CMv40Session, msg: str) -> None:
+    """Añade un log a la sesión CMv4.0 y lo emite por WebSocket."""
+    ts_msg = f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}"
+    session.output_log.append(ts_msg)
+    save_cmv40_session(session)
+    # Broadcast a clientes WS conectados
+    for ws in _cmv40_ws_connections.get(session.id, []):
+        try:
+            await ws.send_text(ts_msg)
+        except Exception:
+            pass
+
+
+def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
+    """Registra un subprocess activo para permitir cancelación."""
+    _cmv40_active_procs[session_id] = proc
+
+
+def _check_cmv40_cancel(session_id: str) -> None:
+    if _cmv40_cancel_flags.get(session_id):
+        raise RuntimeError("Cancelado por el usuario")
+
+
+async def _run_cmv40_phase(
+    session: CMv40Session,
+    phase_name: str,
+    coro_factory,
+    new_phase: str,
+) -> None:
+    """
+    Wrapper para ejecutar una fase CMv4.0: registra inicio/fin en phase_history,
+    captura errores, actualiza el estado de la sesión.
+
+    coro_factory: función que recibe (log_callback, proc_callback) y devuelve coroutine.
+    """
+    started = datetime.now(timezone.utc)
+    previous_phase = session.phase
+    record = CMv40PhaseRecord(phase=phase_name, started_at=started, status="running")
+    session.phase_history.append(record)
+    session.running_phase = phase_name  # ← bloquea la UI en modo modal
+    save_cmv40_session(session)
+
+    async def _log_cb(msg: str):
+        await _cmv40_log(session, msg)
+
+    def _proc_cb(proc):
+        _cmv40_proc_register(session.id, proc)
+
+    try:
+        await _cmv40_log(session, f"━━━ Inicio fase: {phase_name} ━━━")
+        await coro_factory(_log_cb, _proc_cb)
+
+        record.status = "done"
+        record.finished_at = datetime.now(timezone.utc)
+        record.elapsed_seconds = (record.finished_at - started).total_seconds()
+        session.phase = new_phase
+        session.error_message = ""
+        await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
+    except Exception as e:
+        record.status = "error"
+        record.finished_at = datetime.now(timezone.utc)
+        record.error_message = str(e)
+        session.phase = previous_phase
+        session.error_message = str(e)
+        await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
+    finally:
+        _cmv40_active_procs.pop(session.id, None)
+        session.running_phase = None  # ← desbloquea la UI
+        save_cmv40_session(session)
+
+
+# ── Endpoints CRUD ────────────────────────────────────────────────────────────
+
+class CMv40CreateRequest(BaseModel):
+    source_mkv_path: str
+    output_mkv_name: str | None = None
+
+
+@app.get("/api/cmv40", summary="Lista proyectos CMv4.0")
+async def list_cmv40():
+    return {"sessions": [s.model_dump() for s in list_cmv40_sessions()]}
+
+
+@app.get("/api/cmv40/rpu-files", summary="Lista RPUs disponibles en /mnt/cmv40_rpus")
+async def list_cmv40_rpu_files():
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        return {"files": DEV_FAKE_RPU_FILES}
+    return {"files": list_available_rpus()}
+
+
+@app.post("/api/cmv40/create", summary="Crea un proyecto CMv4.0")
+async def cmv40_create(body: CMv40CreateRequest):
+    mkv_path = body.source_mkv_path
+    # ⚠️ DEV MODE: saltar verificación de existencia
+    if not DEV_MODE and not Path(mkv_path).exists():
+        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {mkv_path}")
+    mkv_name = Path(mkv_path).name
+    sid = make_cmv40_session_id(mkv_path)
+    artifacts_dir = CMV40_WORK_BASE / sid
+    # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo
+    default_name = body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv")
+
+    session = CMv40Session(
+        id=sid,
+        source_mkv_path=mkv_path,
+        source_mkv_name=mkv_name,
+        output_mkv_name=default_name,
+        artifacts_dir=str(artifacts_dir),
+        phase=CMv40Phase.CREATED,
+    )
+    save_cmv40_session(session)
+    cmv40_get_workdir(session)  # crea el directorio
+    return session.model_dump()
+
+
+def _cmv40_scan_artifacts(session: CMv40Session) -> dict:
+    """Escanea el workdir y devuelve {filename: size_bytes} de artefactos existentes."""
+    if not session.artifacts_dir:
+        return {}
+    wd = Path(session.artifacts_dir)
+    if not wd.exists():
+        return {}
+    known = set()
+    for arts in _CMV40_PHASE_ARTIFACTS.values():
+        known.update(arts)
+    sizes = {}
+    for name in known:
+        p = wd / name
+        if p.exists() and p.is_file():
+            sizes[name] = p.stat().st_size
+    return sizes
+
+
+_CMV40_FAKE_ARTIFACT_SIZES = {
+    "source.hevc":        42_000_000_000,
+    "RPU_source.bin":     4_500_000,
+    "RPU_target.bin":     4_700_000,
+    "BL.hevc":            38_500_000_000,
+    "EL.hevc":            3_800_000_000,
+    "per_frame_data.json": 12_500_000,
+    "RPU_synced.bin":     4_700_000,
+    "editor_config.json":  300,
+    "EL_injected.hevc":   3_820_000_000,
+    "output.mkv":         48_500_000_000,
+}
+
+
+@app.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
+async def cmv40_get(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
+    data = session.model_dump()
+    if DEV_MODE:
+        # En DEV simulamos tamaños de artefactos según la fase alcanzada
+        target_idx = CMV40_PHASES_ORDER.index(session.phase)
+        fake_arts = {}
+        for phase_name, arts in _CMV40_PHASE_ARTIFACTS.items():
+            if CMV40_PHASES_ORDER.index(phase_name) <= target_idx:
+                for name in arts:
+                    if name in _CMV40_FAKE_ARTIFACT_SIZES:
+                        fake_arts[name] = _CMV40_FAKE_ARTIFACT_SIZES[name]
+        data["artifacts"] = fake_arts
+    else:
+        data["artifacts"] = _cmv40_scan_artifacts(session)
+    return data
+
+
+@app.delete("/api/cmv40/{session_id}", summary="Borra un proyecto CMv4.0")
+async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if clean_artifacts and session.artifacts_dir:
+        wd = Path(session.artifacts_dir)
+        if wd.exists():
+            _cmv40_shutil.rmtree(wd, ignore_errors=True)
+    delete_cmv40_session(session_id)
+    return {"ok": True}
+
+
+class CMv40RenameRequest(BaseModel):
+    output_mkv_name: str
+
+
+def _cmv40_guard_mutable(session: CMv40Session):
+    """Lanza 400 si la sesión no admite más mutaciones (archivada o completada)."""
+    if session.archived:
+        raise HTTPException(status_code=400, detail="Proyecto archivado — solo lectura")
+    if session.phase == "done":
+        raise HTTPException(status_code=400, detail="Proyecto completado — usa 'Rehacer' para iterar")
+
+
+@app.post("/api/cmv40/{session_id}/rename-output", summary="Edita el nombre del MKV de salida")
+async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_mutable(session)
+    new_name = body.output_mkv_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Nombre vacío")
+    if not new_name.lower().endswith(".mkv"):
+        new_name += ".mkv"
+    session.output_mkv_name = new_name
+    save_cmv40_session(session)
+    return session.model_dump()
+
+
+@app.post("/api/cmv40/{session_id}/cleanup", summary="Borra artefactos intermedios")
+async def cmv40_cleanup(session_id: str):
+    """
+    Borra todos los artefactos intermedios del workdir. Tras esta acción el
+    proyecto queda ARCHIVADO (modo solo lectura) — no se pueden rehacer fases
+    porque los prerrequisitos ya no existen. Para iterar de nuevo, crear un
+    proyecto nuevo.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+    freed = 0
+    if wd and wd.exists():
+        # Borrar TODOS los artefactos intermedios, preservar session.json (vive en /config)
+        for arts in _CMV40_PHASE_ARTIFACTS.values():
+            for name in arts:
+                f = wd / name
+                if f.exists() and f.is_file():
+                    freed += f.stat().st_size
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        _logger.warning("No se pudo borrar %s: %s", f, e)
+        # Borrar plots + RPU_synced también
+        for extra in ["RPU_synced.bin", "editor_config.json"]:
+            f = wd / extra
+            if f.exists() and f.is_file():
+                freed += f.stat().st_size
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+    session.archived = True
+    save_cmv40_session(session)
+    await _cmv40_log(session, f"🗃️ Artefactos borrados ({freed / 1e9:.2f} GB liberados). Proyecto archivado en modo solo lectura.")
+    return {"ok": True, "freed_bytes": freed, "archived": True}
+
+
+@app.post("/api/cmv40/{session_id}/clear-error", summary="Descarta el mensaje de error")
+async def cmv40_clear_error(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    session.error_message = ""
+    save_cmv40_session(session)
+    return session.model_dump()
+
+
+# Mapa de artefactos producidos por cada fase (se borran al rehacer esa fase o anterior)
+_CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
+    "source_analyzed": ["source.hevc", "RPU_source.bin", "plot_source.png"],
+    "target_provided": ["RPU_target.bin", "plot_target.png"],
+    "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
+    "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
+    "injected":        ["EL_injected.hevc"],
+    "remuxed":         ["output.mkv", "DV_dual.hevc"],
+}
+
+
+def _cmv40_artifacts_to_delete(target_phase: str) -> list[str]:
+    """Lista los artefactos que se borrarán al hacer reset-to target_phase."""
+    target_idx = CMV40_PHASES_ORDER.index(target_phase)
+    files: list[str] = []
+    for phase_name, arts in _CMV40_PHASE_ARTIFACTS.items():
+        if CMV40_PHASES_ORDER.index(phase_name) > target_idx:
+            files.extend(arts)
+    return files
+
+
+@app.get("/api/cmv40/{session_id}/reset-preview/{target_phase}", summary="Previsualiza qué se borrará al rehacer")
+async def cmv40_reset_preview(session_id: str, target_phase: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if target_phase not in CMV40_PHASES_ORDER:
+        raise HTTPException(status_code=400, detail=f"Fase inválida: {target_phase}")
+
+    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+    files = _cmv40_artifacts_to_delete(target_phase)
+    existing: list[dict] = []
+    total_bytes = 0
+    if wd and wd.exists():
+        for name in files:
+            p = wd / name
+            if p.exists() and p.is_file():
+                sz = p.stat().st_size
+                total_bytes += sz
+                existing.append({"name": name, "size_bytes": sz})
+    return {"files": existing, "total_bytes": total_bytes}
+
+
+@app.post("/api/cmv40/{session_id}/reset-to/{target_phase}", summary="Resetea a una fase anterior (para rehacer)")
+async def cmv40_reset_to(session_id: str, target_phase: str):
+    """
+    Rebobina el estado de la sesión a una fase anterior y borra los
+    artefactos de fases posteriores para garantizar consistencia al re-ejecutar.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    if session.archived:
+        raise HTTPException(
+            status_code=400,
+            detail="Proyecto archivado — los artefactos intermedios fueron borrados. "
+                   "Crea un nuevo proyecto CMv4.0 para iterar de nuevo.",
+        )
+
+    valid_phases = [p for p in CMV40_PHASES_ORDER if p != "done"]
+    if target_phase not in valid_phases:
+        raise HTTPException(status_code=400, detail=f"Fase inválida: {target_phase}")
+
+    target_idx = CMV40_PHASES_ORDER.index(target_phase)
+
+    def _clear_from(phase_name: str):
+        return CMV40_PHASES_ORDER.index(phase_name) > target_idx
+
+    # Borrar artefactos aguas abajo
+    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+    if wd and wd.exists():
+        for name in _cmv40_artifacts_to_delete(target_phase):
+            p = wd / name
+            if p.exists() and p.is_file():
+                try:
+                    p.unlink()
+                except Exception as e:
+                    _logger.warning("No se pudo borrar %s: %s", p, e)
+
+    # Limpiar datos de sesión aguas abajo
+    if _clear_from("source_analyzed"):
+        session.source_dv_info = None
+        session.source_frame_count = 0
+    if _clear_from("target_provided"):
+        session.target_dv_info = None
+        session.target_frame_count = 0
+        session.target_rpu_path = ""
+        session.target_rpu_source = ""
+        session.sync_delta = 0
+    if _clear_from("sync_corrected"):
+        session.sync_config = None
+    if _clear_from("done"):
+        session.output_mkv_path = ""
+
+    session.phase = target_phase
+    session.error_message = ""
+    save_cmv40_session(session)
+    await _cmv40_log(session, f"🔄 Estado reseteado a fase: {target_phase} — artefactos posteriores borrados")
+    return session.model_dump()
+
+
+@app.post("/api/cmv40/{session_id}/cancel", summary="Cancela la fase en curso")
+async def cmv40_cancel(session_id: str):
+    _cmv40_cancel_flags[session_id] = True
+    proc = _cmv40_active_procs.get(session_id)
+    if proc:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    # Forzar limpieza del running_phase
+    session = load_cmv40_session(session_id)
+    if session:
+        session.running_phase = None
+        await _cmv40_log(session, "🛑 Cancelado por el usuario")
+        save_cmv40_session(session)
+    return {"ok": True}
+
+
+# ── Endpoints de fases ───────────────────────────────────────────────────────
+
+@app.post("/api/cmv40/{session_id}/analyze-source", summary="Fase A: analiza MKV origen")
+async def cmv40_analyze_source(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE — simular fase A con logs realistas
+    if DEV_MODE:
+        from models import DoviInfo
+        def _apply(s):
+            s.source_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v2.9", frame_count=137952)
+            s.source_frame_count = 137952
+            s.source_fps = 23.976
+        logs = [
+            f"$ ffmpeg -i {session.source_mkv_path} -map 0:v:0 -c:v copy -bsf:v hevc_mp4toannexb -f hevc source.hevc",
+            "ffmpeg version 4.4.2 Copyright (c) 2000-2021 the FFmpeg developers",
+            "Input #0, matroska,webm, from 'source.mkv':",
+            "  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps",
+            "Output #0, hevc, to 'source.hevc':",
+            "frame= 45231 fps=245 q=-1.0 size= 8456Mb time=00:31:27.42 bitrate=37552kbps speed=10.2x",
+            "frame= 89142 fps=248 q=-1.0 size=16823Mb time=01:01:59.21 bitrate=37105kbps speed=10.3x",
+            "frame=137952 fps=250 q=-1.0 Lsize=25921Mb time=01:35:52.08 bitrate=37821kbps speed=10.4x",
+            "[Fase A] Extrayendo HEVC completado",
+            "$ dovi_tool extract-rpu source.hevc -o RPU_source.bin",
+            "Parsing HEVC file...",
+            "Found SPS/PPS. Starting RPU extraction.",
+            "Scanning for Dolby Vision metadata...",
+            "Processed 50000/137952 frames",
+            "Processed 100000/137952 frames",
+            "Processed 137952/137952 frames",
+            "$ dovi_tool info --summary RPU_source.bin",
+            "Summary:",
+            "  Frames: 137952",
+            "  Profile: 7 (FEL)",
+            "  DM version: 1 (CM v2.9)",
+            "  Scene/shot count: 487",
+        ]
+        asyncio.create_task(_dev_simulate_phase(session, "analyze_source", logs,
+                                                 CMv40Phase.SOURCE_ANALYZED, _apply, total_seconds=4.0))
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_a_analyze_source(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "analyze_source", _coro, CMv40Phase.SOURCE_ANALYZED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+class CMv40TargetPathRequest(BaseModel):
+    rpu_path: str
+
+
+@app.post("/api/cmv40/{session_id}/target-rpu-path", summary="Fase B1: RPU target desde path")
+async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        from models import DoviInfo
+        session.target_rpu_source = "path"
+        session.target_rpu_path = body.rpu_path
+        session.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0", frame_count=137992)
+        session.target_frame_count = 137992
+        session.sync_delta = 137992 - session.source_frame_count
+        session.phase = CMv40Phase.TARGET_PROVIDED
+        save_cmv40_session(session)
+        await _cmv40_log(session, f"[DEV] RPU target: CM v4.0, 137992 frames (Δ = {session.sync_delta:+d})")
+        return session.model_dump()
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_b_target_from_path(session, body.rpu_path, log_cb)
+
+    try:
+        await _run_cmv40_phase(session, "target_rpu_path", _coro, CMv40Phase.TARGET_PROVIDED)
+        return session.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CMv40TargetMkvRequest(BaseModel):
+    source_mkv_path: str
+
+
+@app.post("/api/cmv40/{session_id}/target-rpu-from-mkv", summary="Fase B2: RPU target desde otro MKV")
+async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        from models import DoviInfo
+        session.target_rpu_source = "mkv"
+        session.target_rpu_path = body.source_mkv_path
+        session.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0", frame_count=137992)
+        session.target_frame_count = 137992
+        session.sync_delta = 137992 - session.source_frame_count
+        session.phase = CMv40Phase.TARGET_PROVIDED
+        save_cmv40_session(session)
+        await _cmv40_log(session, f"[DEV] RPU extraído de MKV: CM v4.0, 137992 frames (Δ = {session.sync_delta:+d})")
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_b_target_from_mkv(session, body.source_mkv_path, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "target_rpu_mkv", _coro, CMv40Phase.TARGET_PROVIDED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+@app.post("/api/cmv40/{session_id}/extract", summary="Fase C: demux BL/EL + per-frame data")
+async def cmv40_extract(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        logs = [
+            "$ dovi_tool demux source.hevc --bl-out BL.hevc --el-out EL.hevc",
+            "Parsing HEVC file...",
+            "Found dual-layer DV content.",
+            "Demuxing BL (Base Layer)...",
+            "BL written: 38.5 GB (3840x2160)",
+            "Demuxing EL (Enhancement Layer)...",
+            "EL written: 3.82 GB (1920x1080)",
+            "$ dovi_tool export -i RPU_source.bin -d all=_export_source.json",
+            "Exporting per-frame metadata...",
+            "Processed 50000/137952 frames",
+            "Processed 100000/137952 frames",
+            "Processed 137952/137952 frames",
+            "$ dovi_tool export -i RPU_target.bin -d all=_export_target.json",
+            "Processed 137992/137992 frames",
+            "per_frame_data.json: 6898 puntos (muestreo cada 20 frames)",
+        ]
+        asyncio.create_task(_dev_simulate_phase(session, "extract", logs,
+                                                 CMv40Phase.EXTRACTED, total_seconds=6.0))
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_c_extract(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "extract", _coro, CMv40Phase.EXTRACTED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+@app.get("/api/cmv40/{session_id}/sync-data", summary="Devuelve per_frame_data.json + métricas")
+async def cmv40_sync_data(session_id: str):
+    # ⚠️ DEV MODE: el offset depende del estado (corregido o no)
+    if DEV_MODE:
+        session = load_cmv40_session(session_id)
+        if session and session.sync_config is not None:
+            data = build_fake_per_frame_data(offset=session.sync_delta)
+        else:
+            data = build_fake_per_frame_data()
+        data["confidence"] = compute_sync_confidence(data)
+        return data
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    wd = Path(session.artifacts_dir)
+    pf = wd / "per_frame_data.json"
+    if not pf.exists():
+        raise HTTPException(status_code=404, detail="per_frame_data.json no existe — ejecuta Fase C primero")
+    import json as _json
+    data = _json.loads(pf.read_text(encoding="utf-8"))
+    data["suggested_offset"] = detect_sync_offset(data)
+    data["confidence"] = compute_sync_confidence(data)
+    return data
+
+
+class CMv40SyncRequest(BaseModel):
+    editor_config: dict
+
+
+@app.post("/api/cmv40/{session_id}/apply-sync", summary="Fase E: corrección de sincronización")
+async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # Acumular corrección con la previa (si existía)
+    def _count_remove(cfg: dict) -> int:
+        total = 0
+        for r in cfg.get("remove", []):
+            if "-" in r:
+                a, b = r.split("-")
+                total += int(b) - int(a) + 1
+        return total
+
+    def _count_duplicate(cfg: dict) -> int:
+        return sum(d.get("length", 0) for d in cfg.get("duplicate", []))
+
+    prev_cfg = session.sync_config or {}
+    new_cfg = body.editor_config or {}
+    total_remove = _count_remove(prev_cfg) + _count_remove(new_cfg)
+    total_dup = _count_duplicate(prev_cfg) + _count_duplicate(new_cfg)
+
+    combined_cfg: dict = {}
+    if total_remove > 0:
+        combined_cfg["remove"] = [f"0-{total_remove - 1}"]
+    if total_dup > 0:
+        combined_cfg["duplicate"] = [{"source": 0, "offset": 0, "length": total_dup}]
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        session.sync_config = combined_cfg or None
+        # En DEV: target original simulado = source + 40 frames.
+        original_target = session.source_frame_count + 40
+        session.target_frame_count = original_target - total_remove + total_dup
+        session.sync_delta = session.target_frame_count - session.source_frame_count
+        # NO cambiamos session.phase — Fase D sigue activa hasta que el usuario confirme
+        save_cmv40_session(session)
+        await _cmv40_log(session,
+            f"[DEV] Corrección acumulada (+{_count_remove(new_cfg)} remove, +{_count_duplicate(new_cfg)} dup). "
+            f"Total: remove={total_remove}, dup={total_dup}. Nuevo Δ = {session.sync_delta:+d}"
+        )
+        return session.model_dump()
+
+    # Sustituimos el editor_config del request por el acumulado
+    body.editor_config = combined_cfg
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_e_correct_sync(session, body.editor_config, log_cb)
+
+    try:
+        # new_phase = session.phase: mantenemos la fase actual (Fase D sigue activa)
+        await _run_cmv40_phase(session, "correct_sync", _coro, session.phase)
+        return session.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/cmv40/{session_id}/reset-sync", summary="Descarta la corrección y vuelve al target original")
+async def cmv40_reset_sync(session_id: str):
+    """Borra la corrección aplicada y re-analiza el RPU_target.bin original."""
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE: restaurar target a valor original simulado (source + 40)
+    if DEV_MODE:
+        session.sync_config = None
+        session.target_frame_count = session.source_frame_count + 40
+        session.sync_delta = 40
+        save_cmv40_session(session)
+        await _cmv40_log(session, "[DEV] Corrección descartada — target restaurado a Δ = +40")
+        return session.model_dump()
+
+    # Prod: re-analizar RPU_target.bin original para obtener su frame count
+    wd = Path(session.artifacts_dir)
+    rpu_target = wd / "RPU_target.bin"
+    if not rpu_target.exists():
+        raise HTTPException(status_code=400, detail="RPU_target.bin no existe")
+
+    # Borrar RPU_synced.bin + editor_config.json
+    (wd / "RPU_synced.bin").unlink(missing_ok=True)
+    (wd / "editor_config.json").unlink(missing_ok=True)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "dovi_tool", "info", "--summary", str(rpu_target),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        from phases.phase_a import _parse_dovi_summary
+        dovi_info = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
+        session.target_frame_count = dovi_info.frame_count
+        session.sync_delta = dovi_info.frame_count - session.source_frame_count
+    except Exception as e:
+        _logger.warning("Re-análisis del RPU target falló: %s", e)
+
+    session.sync_config = None
+    save_cmv40_session(session)
+    await _cmv40_log(session, "Corrección descartada — target restaurado a estado original")
+    return session.model_dump()
+
+
+@app.post("/api/cmv40/{session_id}/mark-synced", summary="Marca sync OK sin corrección")
+async def cmv40_mark_synced(session_id: str):
+    """Usuario confirma que no hace falta corrección (Δ=0 y curvas alineadas)."""
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    session.phase = CMv40Phase.SYNC_VERIFIED
+    save_cmv40_session(session)
+    return session.model_dump()
+
+
+@app.post("/api/cmv40/{session_id}/inject", summary="Fase F: inyecta RPU en EL")
+async def cmv40_inject(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        rpu_file = "RPU_synced.bin" if session.sync_config else "RPU_target.bin"
+        logs = [
+            f"$ dovi_tool inject-rpu -i EL.hevc --rpu-in {rpu_file} -o EL_injected.hevc",
+            "Reading EL.hevc...",
+            "Reading RPU file...",
+            "Verifying frame count: EL has 137952 frames, RPU has 137952 frames ✓",
+            "Injecting RPU into HEVC bitstream...",
+            "Processed 50000/137952 frames",
+            "Processed 100000/137952 frames",
+            "Processed 137952/137952 frames",
+            "EL_injected.hevc: 3.82 GB",
+        ]
+        asyncio.create_task(_dev_simulate_phase(session, "inject", logs,
+                                                 CMv40Phase.INJECTED, total_seconds=3.0))
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_f_inject(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "inject", _coro, CMv40Phase.INJECTED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+@app.post("/api/cmv40/{session_id}/remux", summary="Fase G: mux BL+EL + remux final a MKV")
+async def cmv40_remux(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        logs = [
+            "$ dovi_tool mux --bl BL.hevc --el EL_injected.hevc -o DV_dual.hevc",
+            "Combining Base Layer and Enhancement Layer...",
+            "Processed 50000/137952 frames",
+            "Processed 100000/137952 frames",
+            "Processed 137952/137952 frames",
+            "DV_dual.hevc: 42.3 GB",
+            f"$ mkvmerge --gui-mode -o output.mkv --title \"{session.output_mkv_name.removesuffix('.mkv')}\" DV_dual.hevc --no-video {session.source_mkv_path}",
+            "mkvmerge v81.0.0 ('Demons') 64-bit",
+            "Progress: 10%",
+            "Progress: 25%",
+            "Progress: 50%",
+            "Progress: 75%",
+            "Progress: 90%",
+            "Progress: 100%",
+            "output.mkv: 48.5 GB",
+        ]
+        asyncio.create_task(_dev_simulate_phase(session, "remux", logs,
+                                                 CMv40Phase.REMUXED, total_seconds=7.0))
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_g_remux(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "remux", _coro, CMv40Phase.REMUXED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+@app.post("/api/cmv40/{session_id}/validate", summary="Fase H: validación final y move a output")
+async def cmv40_validate(session_id: str):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        session.output_mkv_path = f"/mnt/output/{session.output_mkv_name}"
+        session.phase = CMv40Phase.DONE
+        save_cmv40_session(session)
+        await _cmv40_log(session, "[DEV] Fase H OK — MKV CMv4.0 validado")
+        return session.model_dump()
+
+    async def _coro(log_cb, proc_cb):
+        result = await run_phase_h_validate(session, log_cb)
+        session.output_log.append(f"Validación final: {result}")
+
+    try:
+        await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
+        return session.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── WebSocket de CMv4.0 ──────────────────────────────────────────────────────
+
+@app.websocket("/ws/cmv40/{session_id}")
+async def cmv40_ws(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+    _cmv40_ws_connections.setdefault(session_id, []).append(websocket)
+
+    # Enviar log histórico al conectar
+    session = load_cmv40_session(session_id)
+    if session:
+        for line in session.output_log[-500:]:  # últimas 500 líneas
+            try:
+                await websocket.send_text(line)
+            except Exception:
+                break
+
+    try:
+        while True:
+            await websocket.receive_text()  # keep-alive (ignoramos mensajes del cliente)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if websocket in _cmv40_ws_connections.get(session_id, []):
+            _cmv40_ws_connections[session_id].remove(websocket)
 
 
 # ── DEV MODE: simulación de ejecución fake ────────────────────────────────────

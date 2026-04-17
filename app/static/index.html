@@ -24,7 +24,7 @@
         <span class="brand-sub">UHD Blu-ray Toolkit</span>
       </div>
       <span class="brand-desc-sep"></span>
-      <span class="brand-desc">Convierte ISOs UHD Blu-ray desencriptados a MKV via mkvmerge, con selección automática de pistas y soporte Dolby Vision FEL</span>
+      <span class="brand-desc">Convierte ISOs UHD Blu-ray a MKV, edita propiedades de MKVs existentes e inyecta Dolby Vision CMv4.0 con sincronización visual</span>
     </div>
 
     <div class="header-right"></div>
@@ -109,15 +109,56 @@
       <div id="sidebar-tab-2" style="display:none"></div>
 
       <!-- Sidebar Tab 3: CMv4.0 BD (futuro) -->
+      <!-- Sidebar Tab 3: CMv4.0 BD (mismo patrón que Tab 1) -->
       <div id="sidebar-tab-3" style="display:none">
+
+        <!-- Botón Nuevo proyecto -->
+        <div class="sidebar-new-project-area">
+          <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openNewCMv40Modal()"
+            data-tooltip="Crear un nuevo proyecto CMv4.0">
+            <span>＋</span> Nuevo proyecto CMv4.0
+          </button>
+        </div>
+
+        <!-- Cabecera + búsqueda + controles -->
         <div class="sidebar-sessions-header">
-          <span>🗂️ Sesiones</span>
-          <span class="sessions-count">0</span>
+          <span class="sidebar-section-title">🎨 Proyectos CMv4.0</span>
+          <span class="sessions-count" id="cmv40-count">0</span>
         </div>
-        <div class="empty-state" style="padding:24px 12px">
-          <div class="empty-state-icon">🎯</div>
-          <div>Sin sesiones todavía</div>
+        <div class="sidebar-search-wrap">
+          <span class="sidebar-search-icon">🔎</span>
+          <input type="text" id="cmv40-sidebar-search" class="sidebar-search-input"
+            placeholder="Buscar proyecto…"
+            oninput="_renderCMv40Sidebar()"
+            data-tooltip="Filtra por nombre ignorando mayúsculas y signos">
         </div>
+
+        <!-- Ordenación + filtros de fase -->
+        <div class="sidebar-controls">
+          <div class="sidebar-sort-row">
+            <select id="cmv40-sidebar-sort" class="sidebar-sort-select" onchange="_renderCMv40Sidebar()"
+              data-tooltip="Criterio de ordenación">
+              <option value="modified">Modificado</option>
+              <option value="name">Nombre</option>
+              <option value="phase">Fase</option>
+            </select>
+            <button class="sidebar-sort-dir-btn" id="cmv40-sort-dir" onclick="_cmv40ToggleSortDir()"
+              data-tooltip="Alternar ascendente / descendente">↓</button>
+          </div>
+          <div class="sidebar-status-filters">
+            <button class="sb-filter-pill active" data-filter="all" onclick="_cmv40FilterClick(this)"
+              data-tooltip="Todos">All</button>
+            <button class="sb-filter-pill" data-filter="in_progress" onclick="_cmv40FilterClick(this)"
+              data-tooltip="En progreso">⏳</button>
+            <button class="sb-filter-pill" data-filter="done" onclick="_cmv40FilterClick(this)"
+              data-tooltip="Completados">✅</button>
+            <button class="sb-filter-pill" data-filter="error" onclick="_cmv40FilterClick(this)"
+              data-tooltip="Con error">❌</button>
+          </div>
+        </div>
+
+        <div id="cmv40-sidebar-list"></div>
+
       </div>
 
     </aside>
@@ -387,15 +428,27 @@
 
       </div>
 
-      <!-- ── TAB 3: CMv4.0 BD (Under Construction) ── -->
+      <!-- ── TAB 3: CMv4.0 BD ── -->
       <div id="tab-panel-3" style="display:none">
-        <div class="uc-container">
-          <div class="uc-icon">🎯</div>
-          <div class="uc-construction-icon">🚧</div>
-          <div class="uc-title">Próximamente</div>
-          <div class="uc-desc">Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD. Integración con dovi_tool para manipulación de RPU.</div>
-          <div class="uc-badge">Under Construction</div>
+
+        <!-- Barra de sub-tabs para proyectos abiertos -->
+        <div id="cmv40-subtab-bar">
+          <div class="subtab-projects-area">
+            <div class="subtab-projects" id="cmv40-subtab-projects"></div>
+          </div>
         </div>
+
+        <!-- Contenido del sub-tab activo -->
+        <div id="cmv40-subtab-content" style="overflow-y:auto; flex:1; min-height:0">
+          <div id="cmv40-empty-state" class="empty-state-full">
+            <div class="empty-state-icon" style="font-size:48px">🎨</div>
+            <div class="empty-state-title">Inyección Dolby Vision CMv4.0</div>
+            <div class="empty-state-desc">Inyecta un RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original. Requiere sincronización frame-a-frame del RPU target con el vídeo origen.</div>
+            <button class="btn btn-primary btn-md" onclick="openNewCMv40Modal()"
+              style="margin-top:16px">＋ Nuevo proyecto CMv4.0</button>
+          </div>
+        </div>
+
       </div>
 
     </main>
@@ -519,6 +572,45 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('log-viewer-modal')">Cerrar</button>
       <button class="btn btn-primary btn-sm" id="log-viewer-download-btn">⬇ Descargar .txt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Nuevo proyecto CMv4.0 (Tab 3) ═════════════════════ -->
+<div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
+    <div class="modal-sub">Selecciona un MKV con Dolby Vision CMv2.9 para inyectarle un RPU CMv4.0.</div>
+
+    <label class="modal-field-label">MKV origen (CMv2.9)</label>
+    <div class="iso-select-row">
+      <select id="cmv40-source-select" class="iso-select" onchange="onCMv40SourceChange(this.value)">
+        <option value="">— Seleccionar MKV origen —</option>
+      </select>
+      <button class="btn btn-secondary btn-md" onclick="loadCMv40SourceList()"
+        data-tooltip="Recargar lista">↺</button>
+    </div>
+    <div style="font-size:11px; color:var(--text-3); margin-top:12px">
+      El nombre del MKV de salida se podrá editar desde el panel del proyecto.
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-new-modal')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="cmv40-create-btn" disabled
+        onclick="createCMv40Project()">Crear proyecto</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Confirmación genérica CMv4.0 ═══════════════════════ -->
+<div class="modal-overlay" id="cmv40-confirm-modal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title" id="cmv40-confirm-title"></div>
+    <div class="modal-sub" id="cmv40-confirm-sub"></div>
+    <div id="cmv40-confirm-body" style="margin:12px 0; font-size:12px; color:var(--text-2); line-height:1.6"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-confirm-modal')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="cmv40-confirm-btn">Confirmar</button>
     </div>
   </div>
 </div>

@@ -236,9 +236,13 @@ function switchTab(n) {
     const el = document.getElementById(`tab-panel-${i}`);
     if (!el) return;
     if (i !== n) { el.style.display = 'none'; return; }
-    el.style.display = (i === 1) ? 'flex' : (i === 2) ? 'flex' : 'block';
+    el.style.display = (i === 1) ? 'flex' : (i === 2) ? 'flex' : (i === 3) ? 'flex' : 'block';
   });
 
+  // Refrescar sidebar Tab 3 al entrar
+  if (n === 3 && typeof refreshCMv40Sidebar === 'function') {
+    refreshCMv40Sidebar();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4279,4 +4283,1634 @@ function _fmtDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TAB 3 — CMv4.0 BD (inyección de RPU Dolby Vision CMv4.0)
+// ═══════════════════════════════════════════════════════════════════
+
+/** Proyectos CMv4.0 abiertos. Cada entrada: {id, subTabId, session, ws, syncData} */
+const openCMv40Projects = [];
+let activeCMv40SubTabId = null;
+let _cmv40SourceSelected = null;
+let _cmv40SidebarList = [];
+let _cmv40SelectedSidebarId = null;
+let _cmv40SortKey = 'modified';
+let _cmv40SortDir = 'desc';
+let _cmv40Filter = 'all';
+
+// Icono por fase (para el badge del sidebar)
+const CMV40_PHASE_ICONS = {
+  'created':         '🎨',
+  'source_analyzed': '🔍',
+  'target_provided': '🎯',
+  'extracted':       '✂️',
+  'sync_verified':   '📊',
+  'sync_corrected':  '📊',
+  'injected':        '💉',
+  'remuxed':         '📦',
+  'validated':       '✅',
+  'done':            '✅',
+  'error':           '❌',
+  'cancelled':       '⏹',
+};
+
+const MAX_CMV40_PROJECTS = 5;
+
+// Label humano por nombre de fase (running_phase)
+const CMV40_RUNNING_LABELS = {
+  'analyze_source':  'Fase A — Analizando MKV origen',
+  'target_rpu_mkv':  'Fase B — Extrayendo RPU target',
+  'extract':         'Fase C — Extrayendo BL/EL y datos per-frame',
+  'inject':          'Fase F — Inyectando RPU en EL',
+  'remux':           'Fase G — Remuxando MKV final',
+};
+
+// Fases ordenadas secuencialmente
+const CMV40_PHASES_ORDER = [
+  'created', 'source_analyzed', 'target_provided', 'extracted',
+  'sync_verified', 'sync_corrected', 'injected', 'remuxed', 'validated', 'done',
+];
+
+// Pretty names por fase
+const CMV40_PHASE_LABELS = {
+  'created':         'Proyecto creado',
+  'source_analyzed': 'Origen analizado',
+  'target_provided': 'RPU target listo',
+  'extracted':       'BL/EL extraídos',
+  'sync_verified':   'Sync verificado',
+  'sync_corrected':  'Sync corregido',
+  'injected':        'RPU inyectado',
+  'remuxed':         'MKV remuxado',
+  'validated':       'Validado',
+  'done':            'Completado',
+  'error':           'Error',
+  'cancelled':       'Cancelado',
+};
+
+// ── Modal "Nuevo proyecto CMv4.0" ────────────────────────────────
+
+async function openNewCMv40Modal() {
+  _cmv40SourceSelected = null;
+  const btn = document.getElementById('cmv40-create-btn');
+  if (btn) btn.disabled = true;
+  await loadCMv40SourceList();
+  openModal('cmv40-new-modal');
+}
+
+async function loadCMv40SourceList() {
+  const select = document.getElementById('cmv40-source-select');
+  select.innerHTML = '<option value="">— Cargando… —</option>';
+  const data = await apiFetch('/api/mkv/files');
+  select.innerHTML = '<option value="">— Seleccionar MKV origen —</option>';
+  if (data?.files) {
+    data.files.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      select.appendChild(opt);
+    });
+  }
+}
+
+function onCMv40SourceChange(val) {
+  _cmv40SourceSelected = val || null;
+  const btn = document.getElementById('cmv40-create-btn');
+  if (btn) btn.disabled = !val;
+}
+
+async function createCMv40Project() {
+  if (!_cmv40SourceSelected) return;
+
+  const data = await apiFetch('/api/cmv40/create', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_mkv_path: '/mnt/output/' + _cmv40SourceSelected,
+    }),
+  });
+
+  closeModal('cmv40-new-modal');
+  if (!data) {
+    showToast('Error al crear el proyecto', 'error');
+    return;
+  }
+  openCMv40Project(data);
+  await refreshCMv40Sidebar();
+}
+
+// ── Proyecto CMv4.0 ──────────────────────────────────────────────
+
+function openCMv40Project(session) {
+  // Si ya está abierto, activar su subtab
+  const existing = openCMv40Projects.find(p => p.id === session.id);
+  if (existing) {
+    switchCMv40SubTab(existing.subTabId);
+    return;
+  }
+  if (openCMv40Projects.length >= MAX_CMV40_PROJECTS) {
+    showToast(`Máximo ${MAX_CMV40_PROJECTS} proyectos abiertos`, 'warning');
+    return;
+  }
+
+  const pid = session.id;
+  const project = {
+    id: pid,
+    subTabId: pid,
+    session: session,
+    ws: null,
+    syncData: null,
+  };
+  openCMv40Projects.push(project);
+  _createCMv40SubTab(project);
+  _createCMv40Panel(project);
+  switchCMv40SubTab(pid);
+  _connectCMv40WebSocket(project);
+}
+
+function closeCMv40Project(pid) {
+  const idx = openCMv40Projects.findIndex(p => p.id === pid);
+  if (idx === -1) return;
+  const project = openCMv40Projects[idx];
+  try { project.ws?.close(); } catch (_) {}
+  document.getElementById(`cmv40-stab-${pid}`)?.remove();
+  document.getElementById(`cmv40-panel-${pid}`)?.remove();
+  openCMv40Projects.splice(idx, 1);
+
+  if (activeCMv40SubTabId === pid) {
+    if (openCMv40Projects.length > 0) {
+      switchCMv40SubTab(openCMv40Projects[openCMv40Projects.length - 1].subTabId);
+    } else {
+      activeCMv40SubTabId = null;
+      document.getElementById('cmv40-empty-state').style.display = '';
+    }
+  }
+  // Refrescar sidebar para actualizar el badge "abierto"
+  _renderCMv40Sidebar();
+}
+
+function switchCMv40SubTab(pid) {
+  activeCMv40SubTabId = pid;
+  document.querySelectorAll('#cmv40-subtab-content > .cmv40-panel').forEach(el => {
+    el.style.display = 'none';
+  });
+  const active = document.getElementById(`cmv40-panel-${pid}`);
+  if (active) active.style.display = 'block';
+  const empty = document.getElementById('cmv40-empty-state');
+  if (empty) empty.style.display = openCMv40Projects.find(p => p.id === pid) ? 'none' : '';
+  document.querySelectorAll('#cmv40-subtab-projects .subtab-proj').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pid === pid);
+  });
+}
+
+function _createCMv40SubTab(project) {
+  const container = document.getElementById('cmv40-subtab-projects');
+  const btn = document.createElement('button');
+  btn.className = 'subtab-proj active';
+  btn.id = `cmv40-stab-${project.id}`;
+  btn.dataset.pid = project.id;
+  const name = project.session.source_mkv_name.replace(/\.mkv$/i, '');
+  btn.innerHTML = `
+    <span class="subtab-proj-icon">🎨</span>
+    <span class="subtab-proj-name" data-tooltip="${escHtml(project.session.source_mkv_name)}">${escHtml(name.slice(0, 24))}${name.length > 24 ? '…' : ''}</span>
+    <button class="subtab-proj-close" onclick="closeCMv40Project('${project.id}');event.stopPropagation()"
+      data-tooltip="Cerrar proyecto">×</button>`;
+  btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchCMv40SubTab(project.id); };
+  container.appendChild(btn);
+}
+
+function _connectCMv40WebSocket(project) {
+  try { project.ws?.close(); } catch (_) {}
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${wsProto}//${location.host}/ws/cmv40/${project.id}`);
+  ws.onmessage = (ev) => {
+    _appendCMv40Log(project, ev.data);
+    // Refrescar sesión periódicamente
+    if (ev.data.includes('━━━') || ev.data.includes('✓') || ev.data.includes('✗')) {
+      _refreshCMv40Session(project.id);
+    }
+  };
+  ws.onerror = () => {};
+  project.ws = ws;
+}
+
+function _appendCMv40Log(project, line) {
+  const pid = project.id;
+  // Append al log persistente
+  const logEl = document.getElementById(`cmv40-log-${pid}`);
+  if (logEl) {
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    if (line.includes('✓')) div.classList.add('log-success');
+    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
+    if (line.includes('━━━')) div.classList.add('log-phase');
+    div.textContent = line;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  // También al overlay si está abierto
+  const runningLogEl = document.getElementById(`cmv40-running-log-${pid}`);
+  if (runningLogEl) {
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    if (line.includes('✓')) div.classList.add('log-success');
+    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
+    if (line.includes('━━━')) div.classList.add('log-phase');
+    div.textContent = line;
+    runningLogEl.appendChild(div);
+    runningLogEl.scrollTop = runningLogEl.scrollHeight;
+  }
+}
+
+async function _refreshCMv40Session(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}`);
+  if (!data) return;
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project) {
+    project.session = data;
+    _updateCMv40Panel(project);
+  }
+  refreshCMv40Sidebar();
+}
+
+// ── Render del panel ─────────────────────────────────────────────
+
+function _createCMv40Panel(project) {
+  const s = project.session;
+  const pid = project.id;
+  const panel = document.createElement('div');
+  panel.className = 'cmv40-panel subtab-panel';
+  panel.id = `cmv40-panel-${pid}`;
+  panel.style.display = 'none';
+  panel.innerHTML = `
+    <div class="project-panel-inner" style="max-width:1100px; margin:0 auto; padding:24px 20px">
+      <div id="cmv40-info-${pid}"></div>
+      <div id="cmv40-phase-strip-${pid}" class="cmv40-phase-strip"></div>
+      <div id="cmv40-active-phase-${pid}"></div>
+
+      <!-- Log de ejecución -->
+      <div class="section-card" style="margin-top:16px">
+        <div class="section-header">
+          <div><div class="section-title">📜 Log</div></div>
+          <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')">🗑️ Limpiar</button>
+        </div>
+        <div class="section-body" style="padding:0">
+          <div id="cmv40-log-${pid}" class="cmv40-log"></div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('cmv40-subtab-content').appendChild(panel);
+  _updateCMv40Panel(project);
+}
+
+function _clearCMv40Log(pid) {
+  const el = document.getElementById(`cmv40-log-${pid}`);
+  if (el) el.innerHTML = '';
+}
+
+function _updateCMv40Panel(project) {
+  const s = project.session;
+  const pid = project.id;
+  _renderCMv40Info(s, pid);
+  _renderCMv40PhaseStrip(s, pid);
+  _renderCMv40ActivePhase(project);
+  _renderCMv40RunningOverlay(project);
+}
+
+function _renderCMv40RunningOverlay(project) {
+  const s = project.session;
+  const pid = project.id;
+  const panel = document.getElementById(`cmv40-panel-${pid}`);
+  if (!panel) return;
+  let overlay = panel.querySelector('.cmv40-running-overlay');
+
+  if (s.running_phase) {
+    // Crear o actualizar overlay
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'cmv40-running-overlay';
+      overlay.innerHTML = `
+        <div class="cmv40-running-box">
+          <div class="cmv40-running-header">
+            <div class="cmv40-running-spinner"></div>
+            <div style="flex:1">
+              <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
+              <div class="cmv40-running-subtitle">El proyecto está bloqueado mientras se ejecuta la tarea</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
+          </div>
+          <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
+        </div>`;
+      panel.appendChild(overlay);
+      // Suscribe al WebSocket para actualizar el log en tiempo real
+      _cmv40BindRunningLog(project);
+    }
+    // Actualizar título
+    const titleEl = document.getElementById(`cmv40-running-title-${pid}`);
+    if (titleEl) {
+      titleEl.textContent = CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`;
+    }
+  } else if (overlay) {
+    // Quitar overlay con animación
+    overlay.classList.add('closing');
+    setTimeout(() => overlay.remove(), 200);
+  }
+}
+
+function _cmv40BindRunningLog(project) {
+  // Replica los últimos logs de la sesión al div de log
+  const pid = project.id;
+  const logEl = document.getElementById(`cmv40-running-log-${pid}`);
+  if (!logEl) return;
+  logEl.innerHTML = '';
+  (project.session.output_log || []).slice(-200).forEach(line => {
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    if (line.includes('✓')) div.classList.add('log-success');
+    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
+    if (line.includes('━━━')) div.classList.add('log-phase');
+    div.textContent = line;
+    logEl.appendChild(div);
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function cmv40CancelRunning(pid) {
+  if (!confirm('¿Cancelar la ejecución en curso?')) return;
+  await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
+  showToast('Cancelando…', 'info');
+}
+
+function _renderCMv40Info(s, pid) {
+  const container = document.getElementById(`cmv40-info-${pid}`);
+  if (!container) return;
+  const srcDv = s.source_dv_info;
+  const tgtDv = s.target_dv_info;
+  const canEditName = s.phase !== 'done' && !s.archived;
+  container.innerHTML = `
+    <div class="section-card">
+      <div class="section-header">
+        <div><div class="section-title">🎬 Proyecto CMv4.0</div>
+        <div class="section-subtitle">💾 Los cambios se guardan automáticamente tras cada acción. Cerrar la pestaña no pierde nada.</div></div>
+      </div>
+      <div class="section-body">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+          <div>
+            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV origen</div>
+            <div style="font-weight:600">${escHtml(s.source_mkv_name)}</div>
+            <div style="font-size:11px; color:var(--text-3); margin-top:4px">
+              ${srcDv ? `Profile ${srcDv.profile} (${srcDv.el_type}) · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV salida ${canEditName ? '<span style="color:var(--text-3)">· editable</span>' : ''}</div>
+            ${canEditName
+              ? `<input type="text" id="cmv40-output-name-${pid}" class="cmv40-output-name-input"
+                    value="${escHtml(s.output_mkv_name)}"
+                    onblur="_cmv40SaveOutputName('${pid}', this.value)"
+                    onkeydown="if(event.key==='Enter'){this.blur()}">`
+              : `<div style="font-weight:600">${escHtml(s.output_mkv_name)}</div>`}
+            <div style="font-size:11px; color:var(--text-3); margin-top:4px">
+              ${tgtDv ? `RPU target: Profile ${tgtDv.profile} (${tgtDv.el_type}) · CM ${tgtDv.cm_version} · ${s.target_frame_count.toLocaleString()} frames` : ''}
+              ${s.sync_delta ? ` · <span style="color:var(--orange)">Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</span>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function _cmv40SaveOutputName(pid, newName) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  const trimmed = (newName || '').trim();
+  if (!trimmed || trimmed === project.session.output_mkv_name) return;
+  const data = await apiFetch(`/api/cmv40/${pid}/rename-output`, {
+    method: 'POST',
+    body: JSON.stringify({ output_mkv_name: trimmed }),
+  });
+  if (data) {
+    project.session = data;
+    showToast('Nombre actualizado', 'success');
+  }
+}
+
+function _renderCMv40PhaseStrip(s, pid) {
+  const container = document.getElementById(`cmv40-phase-strip-${pid}`);
+  if (!container) return;
+  const phases = [
+    { key: 'source_analyzed', icon: '🔍', label: 'Analizar origen' },
+    { key: 'target_provided', icon: '🎯', label: 'RPU target' },
+    { key: 'extracted',       icon: '✂️', label: 'Extraer BL/EL' },
+    { key: 'sync_verified',   icon: '📊', label: 'Verificar sync' },
+    { key: 'injected',        icon: '💉', label: 'Inyectar' },
+    { key: 'remuxed',         icon: '📦', label: 'Remux' },
+    { key: 'validated',       icon: '✅', label: 'Validar' },
+  ];
+  const currentIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const isError = s.phase === 'error';
+  container.innerHTML = phases.map((ph, i) => {
+    const phaseIdx = CMV40_PHASES_ORDER.indexOf(ph.key);
+    let state = 'pending';
+    if (phaseIdx < currentIdx) state = 'done';
+    else if (phaseIdx === currentIdx) state = isError ? 'error' : 'active';
+    return `
+      <div class="cmv40-phase-step ${state}">
+        <div class="cmv40-phase-circle">${ph.icon}</div>
+        <div class="cmv40-phase-label">${ph.label}</div>
+      </div>
+      ${i < phases.length - 1 ? '<div class="cmv40-phase-conn"></div>' : ''}
+    `;
+  }).join('');
+}
+
+// Definición de todas las fases: inicio + fin
+// Una fase está "done" si la phase actual es >= el estado que esa fase PRODUCE
+const CMV40_FASES_DEF = [
+  { key: 'A', title: 'Fase A — Analizar MKV origen',       produces: 'source_analyzed', startsFrom: 'created',         reset_to: 'created' },
+  { key: 'B', title: 'Fase B — Proporcionar RPU target',   produces: 'target_provided', startsFrom: 'source_analyzed', reset_to: 'source_analyzed' },
+  { key: 'C', title: 'Fase C — Extraer BL/EL',             produces: 'extracted',       startsFrom: 'target_provided', reset_to: 'target_provided' },
+  { key: 'D', title: 'Fase D — Verificar sincronización',  produces: 'sync_verified',   startsFrom: 'extracted',       reset_to: 'extracted' },
+  { key: 'F', title: 'Fase F — Inyectar RPU',              produces: 'injected',        startsFrom: 'sync_verified',   reset_to: 'sync_verified' },
+  { key: 'G', title: 'Fase G — Remux final',               produces: 'remuxed',         startsFrom: 'injected',        reset_to: 'injected' },
+  { key: 'H', title: 'Fase H — Validación final',          produces: 'validated',       startsFrom: 'remuxed',         reset_to: 'remuxed' },
+];
+
+function _cmv40PhaseState(sessionPhase, produces, startsFrom) {
+  const currentIdx  = CMV40_PHASES_ORDER.indexOf(sessionPhase);
+  const producesIdx = CMV40_PHASES_ORDER.indexOf(produces);
+  const startsIdx   = CMV40_PHASES_ORDER.indexOf(startsFrom);
+  if (currentIdx >= producesIdx) return 'done';
+  if (currentIdx >= startsIdx)   return 'active';
+  return 'pending';
+}
+
+function _renderCMv40ActivePhase(project) {
+  const s = project.session;
+  const pid = project.id;
+  const container = document.getElementById(`cmv40-active-phase-${pid}`);
+  if (!container) return;
+
+  // Ensure expandedPhases map exists
+  if (!project.expandedPhases) {
+    project.expandedPhases = {};  // key: fase key, value: true/false
+  }
+
+  // Renderizar todas las fases como cards
+  const cards = CMV40_FASES_DEF.map(fase => {
+    const state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
+    // Active siempre expandida. Done colapsada por defecto. Pending colapsada.
+    const isExpanded = project.expandedPhases[fase.key] !== undefined
+      ? project.expandedPhases[fase.key]
+      : (state === 'active');
+    return _cmv40RenderFaseCard(pid, s, fase, state, isExpanded);
+  });
+
+  // Banner de error de la última acción intentada (no bloquea el flujo)
+  let errorHtml = '';
+  if (s.error_message) {
+    errorHtml = `
+      <div class="section-card cmv40-card-error" style="margin-top:12px">
+        <div class="section-body" style="display:flex; align-items:center; gap:12px">
+          <span style="font-size:20px">⚠️</span>
+          <div style="flex:1">
+            <div style="font-weight:600; color:var(--red); margin-bottom:2px">Error en la última acción</div>
+            <div style="font-size:12px; color:var(--text-2)">${escHtml(s.error_message)}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="_cmv40ClearError('${pid}')"
+            data-tooltip="Descartar este mensaje">✕</button>
+        </div>
+      </div>`;
+  }
+
+  // Si done, card de celebración arriba
+  let doneHtml = '';
+  if (s.phase === 'done' && !s.archived) {
+    doneHtml = `
+      <div class="section-card" style="margin-top:16px; background:var(--green-dim); border:1px solid var(--green)">
+        <div class="section-body" style="text-align:center; padding:20px">
+          <div style="font-size:32px">🎉</div>
+          <div style="font-size:15px; font-weight:700; margin-top:4px">MKV CMv4.0 completado</div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:4px">${escHtml(s.output_mkv_path || s.output_mkv_name)}</div>
+          <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
+            <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')">🗑️ Limpiar artefactos</button>
+          </div>
+          <div style="margin-top:8px; font-size:10px; color:var(--text-3)">
+            ⚠️ Al limpiar artefactos no podrás rehacer fases (el proyecto pasará a modo solo lectura)
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Si archived, banner de solo lectura
+  let archivedHtml = '';
+  if (s.archived) {
+    archivedHtml = `
+      <div class="section-card" style="margin-top:16px; background:var(--surface-2); border:1px solid var(--sep-strong)">
+        <div class="section-body" style="display:flex; align-items:center; gap:12px">
+          <span style="font-size:22px">🗃️</span>
+          <div style="flex:1">
+            <div style="font-weight:600">Proyecto archivado — solo lectura</div>
+            <div style="font-size:11px; color:var(--text-3); margin-top:2px">
+              Los artefactos intermedios se borraron. No se pueden rehacer fases.
+              Para iterar de nuevo, crea un proyecto CMv4.0 nuevo desde el mismo MKV origen.
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = errorHtml + archivedHtml + doneHtml + cards.join('');
+
+  // Lanzar cargas asíncronas donde aplique
+  if (_cmv40PhaseState(s.phase, 'target_provided', 'source_analyzed') === 'active') {
+    _cmv40LoadRpus(pid);
+  }
+  // Chart: cargar si Fase D activa o completada y está expandida
+  const faseDState = _cmv40PhaseState(s.phase, 'sync_verified', 'extracted');
+  const dExpanded = project.expandedPhases['D'] !== undefined
+    ? project.expandedPhases['D']
+    : (faseDState === 'active');
+  if ((faseDState === 'active' || faseDState === 'done') && dExpanded) {
+    _loadCMv40SyncChart(project);
+  }
+}
+
+function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
+  const stateIcon = state === 'done' ? '✅' : state === 'active' ? '▶️' : '🔒';
+  const stateLabel = state === 'done' ? 'Completado' : state === 'active' ? 'En curso' : 'Pendiente';
+
+  // Resumen cuando está done
+  let summary = '';
+  if (state === 'done') {
+    summary = _cmv40FaseSummary(fase.key, s);
+  }
+
+  // Body según estado
+  let body = '';
+  if (isExpanded) {
+    if (state === 'active') {
+      body = _cmv40FaseBody(fase.key, pid, s);
+    } else if (state === 'done') {
+      body = `
+        <div class="section-body">
+          ${_cmv40FaseDoneBody(fase.key, pid, s)}
+          ${s.archived ? '' : `
+          <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--sep)">
+            <button class="btn btn-danger btn-sm" onclick="_cmv40Redo('${pid}','${fase.reset_to}','${fase.key}')"
+              data-tooltip="Vuelve a esta fase. Las fases posteriores se invalidarán.">🔄 Rehacer esta fase</button>
+          </div>`}
+        </div>`;
+    } else {
+      body = `<div class="section-body"><div style="font-size:12px; color:var(--text-3)">🔒 Completa las fases anteriores para activar esta.</div></div>`;
+    }
+  }
+
+  return `
+    <div class="section-card cmv40-fase-card cmv40-fase-${state}" style="margin-top:12px" data-fase-key="${fase.key}">
+      <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','${fase.key}')">
+        <div class="cmv40-fase-state-icon">${stateIcon}</div>
+        <div style="flex:1">
+          <div class="section-title">${escHtml(fase.title)}</div>
+          ${summary ? `<div class="section-subtitle">${summary}</div>` : `<div class="section-subtitle">${stateLabel}</div>`}
+        </div>
+        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+      </div>
+      ${body}
+    </div>`;
+}
+
+function _cmv40TogglePhase(pid, key) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  if (!project.expandedPhases) project.expandedPhases = {};
+  const fase = CMV40_FASES_DEF.find(f => f.key === key);
+  const state = _cmv40PhaseState(project.session.phase, fase.produces, fase.startsFrom);
+  const current = project.expandedPhases[key] !== undefined
+    ? project.expandedPhases[key]
+    : (state === 'active');
+  project.expandedPhases[key] = !current;
+  _updateCMv40Panel(project);
+}
+
+function _cmv40FaseSummary(key, s) {
+  const arts = s.artifacts || {};
+  if (key === 'A' && s.source_dv_info) {
+    const d = s.source_dv_info;
+    return `Profile ${d.profile} (${d.el_type}) · CM ${d.cm_version} · ${s.source_frame_count.toLocaleString()} frames`;
+  }
+  if (key === 'B' && s.target_dv_info) {
+    const d = s.target_dv_info;
+    return `CM ${d.cm_version} · ${s.target_frame_count.toLocaleString()} frames (Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta})`;
+  }
+  if (key === 'C') {
+    const sizes = ['BL.hevc', 'EL.hevc', 'per_frame_data.json'].map(n => arts[n] || 0);
+    const total = sizes.reduce((a, b) => a + b, 0);
+    return total > 0 ? `BL.hevc, EL.hevc y per_frame_data (${_fmtBytes(total)} total)` : 'BL.hevc, EL.hevc y datos per-frame generados';
+  }
+  if (key === 'D') return s.sync_config ? `Corrección aplicada (Δ = ${s.sync_delta})` : 'Sincronización verificada (Δ = 0)';
+  if (key === 'F') {
+    const sz = arts['EL_injected.hevc'];
+    return sz ? `EL_injected.hevc generado (${_fmtBytes(sz)})` : 'EL_injected.hevc generado';
+  }
+  if (key === 'G') {
+    const sz = arts['output.mkv'];
+    return sz ? `output.mkv generado (${_fmtBytes(sz)})` : 'output.mkv generado';
+  }
+  if (key === 'H') return s.output_mkv_path ? `Movido a: ${s.output_mkv_path}` : 'Validado';
+  return '';
+}
+
+function _cmv40FaseBody(key, pid, s) {
+  if (key === 'A') return _cmv40FaseABody(pid, s);
+  if (key === 'B') return _cmv40FaseBBody(pid, s);
+  if (key === 'C') return _cmv40FaseCBody(pid, s);
+  if (key === 'D') return _cmv40FaseDBody(pid, s);
+  if (key === 'F') return _cmv40FaseFBody(pid, s);
+  if (key === 'G') return _cmv40FaseGBody(pid, s);
+  if (key === 'H') return _cmv40FaseHBody(pid, s);
+  return '';
+}
+
+function _cmv40FaseDoneBody(key, pid, s) {
+  // Contenido "modo lectura" cuando la fase está completada
+  if (key === 'A' && s.source_dv_info) {
+    const d = s.source_dv_info;
+    return `
+      <div style="font-size:12px; line-height:1.8">
+        <div><span style="color:var(--text-3)">Profile:</span> ${d.profile} (${d.el_type})</div>
+        <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
+        <div><span style="color:var(--text-3)">Frames:</span> ${s.source_frame_count.toLocaleString()}</div>
+        ${d.has_l1 ? '<div><span style="color:var(--text-3)">Metadata:</span> L1 L2 L5 L6</div>' : ''}
+      </div>`;
+  }
+  if (key === 'B' && s.target_dv_info) {
+    const d = s.target_dv_info;
+    const srcType = s.target_rpu_source === 'path' ? 'Carpeta NAS' : 'Extraído de otro MKV';
+    return `
+      <div style="font-size:12px; line-height:1.8">
+        <div><span style="color:var(--text-3)">Fuente:</span> ${srcType}</div>
+        <div><span style="color:var(--text-3)">Path:</span> <code>${escHtml(s.target_rpu_path || '—')}</code></div>
+        <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
+        <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
+        <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
+      </div>`;
+  }
+  // Fase D completada: mostrar stats + chart (modo revisión, sin controles)
+  if (key === 'D') {
+    const syncConfigHtml = s.sync_config
+      ? `<div style="margin-bottom:10px; font-size:12px">
+          <span style="color:var(--text-3)">Corrección aplicada:</span>
+          <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
+        </div>`
+      : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Sincronización confirmada sin corrección.</div>';
+    return `
+      ${syncConfigHtml}
+      <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
+      <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
+        <canvas id="cmv40-chart-${pid}" width="1000" height="280"></canvas>
+        <div class="cmv40-chart-tooltip" id="cmv40-chart-tooltip-${pid}" style="display:none"></div>
+      </div>`;
+  }
+  if (key === 'H' && s.output_mkv_path) {
+    return `<div style="font-size:12px"><span style="color:var(--text-3)">MKV final:</span> <code>${escHtml(s.output_mkv_path)}</code></div>`;
+  }
+  // Fase C: mostrar artefactos generados (BL.hevc, EL.hevc, per_frame_data.json)
+  if (key === 'C') {
+    return _cmv40ArtifactsBody(s, ['BL.hevc', 'EL.hevc', 'per_frame_data.json']);
+  }
+  // Fase F: EL_injected.hevc
+  if (key === 'F') {
+    return _cmv40ArtifactsBody(s, ['EL_injected.hevc']);
+  }
+  // Fase G: output.mkv (antes de mover en Fase H)
+  if (key === 'G') {
+    return _cmv40ArtifactsBody(s, ['output.mkv']);
+  }
+  return '<div style="font-size:11px; color:var(--text-3)">—</div>';
+}
+
+function _cmv40ArtifactsBody(s, fileNames) {
+  const arts = s.artifacts || {};
+  const rows = fileNames.map(name => {
+    const size = arts[name];
+    if (size !== undefined) {
+      return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--sep)">
+        <code style="font-size:11px">${escHtml(name)}</code>
+        <span style="font-size:11px; color:var(--text-3)">${_fmtBytes(size)}</span>
+      </div>`;
+    }
+    return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--sep); opacity:0.5">
+      <code style="font-size:11px">${escHtml(name)}</code>
+      <span style="font-size:11px; color:var(--text-3)">no encontrado</span>
+    </div>`;
+  }).join('');
+  const total = fileNames.reduce((acc, n) => acc + (arts[n] || 0), 0);
+  return `
+    <div style="font-size:12px">
+      <div style="color:var(--text-3); margin-bottom:6px">Artefactos generados:</div>
+      ${rows}
+      ${total > 0 ? `<div style="margin-top:6px; font-size:11px; color:var(--text-3); text-align:right">Total: <b>${_fmtBytes(total)}</b></div>` : ''}
+    </div>`;
+}
+
+async function _cmv40ClearError(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/clear-error`, { method: 'POST' });
+  if (data) {
+    const project = openCMv40Projects.find(p => p.id === pid);
+    if (project) {
+      project.session = data;
+      _updateCMv40Panel(project);
+    }
+  }
+}
+
+async function _cmv40Redo(pid, targetPhase, faseKey) {
+  // Consultar qué artefactos se borrarán
+  const preview = await apiFetch(`/api/cmv40/${pid}/reset-preview/${targetPhase}`);
+
+  let artifactsList = '';
+  if (preview?.files?.length) {
+    const rows = preview.files.map(f =>
+      `<li style="font-family:monospace; font-size:11px">${escHtml(f.name)} <span style="color:var(--text-3)">(${_fmtBytes(f.size_bytes)})</span></li>`
+    ).join('');
+    artifactsList = `
+      <div style="margin-top:10px; padding:10px; background:var(--surface-2); border-radius:var(--r-sm); max-height:180px; overflow-y:auto">
+        <div style="font-size:11px; color:var(--text-2); margin-bottom:6px">
+          <b>Se borrarán ${preview.files.length} artefacto(s)</b> — ${_fmtBytes(preview.total_bytes)} liberados:
+        </div>
+        <ul style="margin:0; padding-left:18px">${rows}</ul>
+      </div>`;
+  } else {
+    artifactsList = '<div style="font-size:11px; color:var(--text-3); margin-top:8px">No hay artefactos posteriores que borrar.</div>';
+  }
+
+  // Uso el modal cmv40-confirm-modal que acepta HTML en el body
+  document.getElementById('cmv40-confirm-title').textContent = '¿Rehacer esta fase?';
+  document.getElementById('cmv40-confirm-sub').textContent = 'La sesión volverá al estado previo. Las fases posteriores se invalidarán y sus artefactos se borrarán del disco.';
+  document.getElementById('cmv40-confirm-body').innerHTML = artifactsList;
+  const confirmBtn = document.getElementById('cmv40-confirm-btn');
+  confirmBtn.textContent = 'Rehacer y borrar artefactos';
+  confirmBtn.className = 'btn btn-danger btn-sm';
+  const newBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+  newBtn.addEventListener('click', async () => {
+    closeModal('cmv40-confirm-modal');
+    const data = await apiFetch(`/api/cmv40/${pid}/reset-to/${targetPhase}`, { method: 'POST' });
+    if (data) {
+      const project = openCMv40Projects.find(p => p.id === pid);
+      if (project) {
+        project.session = data;
+        if (!project.expandedPhases) project.expandedPhases = {};
+        project.expandedPhases[faseKey] = true;
+        project.syncData = null;
+        _updateCMv40Panel(project);
+      }
+      refreshCMv40Sidebar();
+      showToast(`Fase ${faseKey} lista para rehacer`, 'info');
+    }
+  });
+  openModal('cmv40-confirm-modal');
+}
+
+// ── Tarjetas por fase ────────────────────────────────────────────
+
+function _cmv40FaseABody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Extrae el stream HEVC y el RPU del MKV origen. Tarda 2-5 minutos.</div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoAnalyzeSource('${pid}')">🔍 Analizar origen</button>
+    </div>`;
+}
+
+function _cmv40FaseBBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Elige una fuente del RPU CMv4.0 a inyectar.</div>
+      <div class="cmv40-tab-switcher">
+        <button class="cmv40-tab-btn active" id="cmv40-tab-btn-path-${pid}"
+          onclick="_cmv40SwitchTargetTab('${pid}','path')">📂 Desde carpeta NAS</button>
+        <button class="cmv40-tab-btn" id="cmv40-tab-btn-mkv-${pid}"
+          onclick="_cmv40SwitchTargetTab('${pid}','mkv')">🎬 Extraer de otro MKV</button>
+      </div>
+
+      <div id="cmv40-target-path-${pid}" class="cmv40-target-tab">
+        <label class="modal-field-label">RPU disponible en /mnt/cmv40_rpus/</label>
+        <div class="iso-select-row">
+          <select id="cmv40-rpu-select-${pid}" class="iso-select">
+            <option value="">— Cargando… —</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRpus('${pid}')">↺</button>
+        </div>
+        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromPath('${pid}')">✓ Usar este RPU</button>
+      </div>
+
+      <div id="cmv40-target-mkv-${pid}" class="cmv40-target-tab" style="display:none">
+        <label class="modal-field-label">MKV que ya tiene CMv4.0</label>
+        <div class="iso-select-row">
+          <select id="cmv40-target-mkv-select-${pid}" class="iso-select">
+            <option value="">— Cargando… —</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadTargetMkvs('${pid}')">↺</button>
+        </div>
+        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromMkv('${pid}')">✂️ Extraer RPU del MKV</button>
+      </div>
+    </div>`;
+}
+
+function _cmv40FaseCBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Separa el Base Layer del Enhancement Layer y extrae datos de brillo por frame. Tarda 5-15 min.</div>
+      ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon">⚠️</span><span>Ya se detecta diferencia de frames (Δ = ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}). Lo revisarás visualmente en la siguiente fase.</span></div>` : ''}
+      <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')">✂️ Extraer BL/EL + per-frame data</button>
+    </div>`;
+}
+
+function _cmv40FaseDBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Gráfico del brillo (MaxCLL) por frame. Rojo = origen, Azul = target. Deben coincidir. Si hay offset, aplicar corrección.</div>
+      <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
+      <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
+        <canvas id="cmv40-chart-${pid}" width="1000" height="320"></canvas>
+        <div class="cmv40-chart-tooltip" id="cmv40-chart-tooltip-${pid}" style="display:none"></div>
+      </div>
+      <div class="cmv40-sync-controls" id="cmv40-sync-controls-${pid}"></div>
+      <div id="cmv40-confidence-${pid}"></div>
+    </div>`;
+}
+
+function _cmv40FaseFBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Inyecta el RPU sincronizado en el Enhancement Layer.</div>
+      <div class="banner info" style="margin-bottom:10px"><span class="banner-icon">ℹ️</span><span>Verifica en el gráfico de la Fase D que los dos trazos coinciden antes de inyectar.</span></div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')">💉 Inyectar RPU</button>
+    </div>`;
+}
+
+function _cmv40FaseGBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Combina BL + EL inyectado + audio/subs/capítulos del origen. Genera el MKV final.</div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')">📦 Remux MKV final</button>
+    </div>`;
+}
+
+function _cmv40FaseHBody(pid, s) {
+  return `
+    <div class="section-body">
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Verifica que el MKV resultante tiene CMv4.0 y mueve a /mnt/output.</div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoValidate('${pid}')">✅ Validar y finalizar</button>
+    </div>`;
+}
+
+// ── Acciones de fases ────────────────────────────────────────────
+
+async function cmv40DoAnalyzeSource(pid) {
+  await apiFetch(`/api/cmv40/${pid}/analyze-source`, { method: 'POST' });
+  showToast('Analizando origen…', 'info');
+  // Polling hasta que termine la fase
+  _cmv40PollPhase(pid, 'source_analyzed', 'error');
+}
+
+/**
+ * Polling hasta que la sesión alcance una fase objetivo (o error).
+ * Refresca la UI cada 1s durante 60s máximo.
+ */
+async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
+  for (let i = 0; i < maxTries; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const data = await apiFetch(`/api/cmv40/${pid}`);
+    if (!data) continue;
+    const project = openCMv40Projects.find(p => p.id === pid);
+    if (project) {
+      project.session = data;
+      _updateCMv40Panel(project);
+    }
+    // Termina cuando: no hay fase corriendo, alcanzó objetivo, hay error, o done
+    if (!data.running_phase && (data.phase === targetPhase || data.phase === 'done' || data.error_message)) {
+      refreshCMv40Sidebar();
+      return;
+    }
+  }
+}
+
+function _cmv40SwitchTargetTab(pid, tab) {
+  document.getElementById(`cmv40-target-path-${pid}`).style.display = (tab === 'path') ? '' : 'none';
+  document.getElementById(`cmv40-target-mkv-${pid}`).style.display = (tab === 'mkv') ? '' : 'none';
+  const btnPath = document.getElementById(`cmv40-tab-btn-path-${pid}`);
+  const btnMkv  = document.getElementById(`cmv40-tab-btn-mkv-${pid}`);
+  if (btnPath) btnPath.classList.toggle('active', tab === 'path');
+  if (btnMkv)  btnMkv.classList.toggle('active',  tab === 'mkv');
+  if (tab === 'path') _cmv40LoadRpus(pid);
+  else _cmv40LoadTargetMkvs(pid);
+}
+
+async function _cmv40LoadRpus(pid) {
+  const select = document.getElementById(`cmv40-rpu-select-${pid}`);
+  const data = await apiFetch('/api/cmv40/rpu-files');
+  select.innerHTML = '<option value="">— Seleccionar RPU —</option>';
+  if (data?.files?.length) {
+    data.files.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = `${f.name} (${_fmtBytes(f.size_bytes)})`;
+      select.appendChild(opt);
+    });
+  } else {
+    select.innerHTML = '<option value="">— No hay RPUs en /mnt/cmv40_rpus —</option>';
+  }
+}
+
+async function _cmv40LoadTargetMkvs(pid) {
+  const select = document.getElementById(`cmv40-target-mkv-select-${pid}`);
+  const data = await apiFetch('/api/mkv/files');
+  select.innerHTML = '<option value="">— Seleccionar MKV con CMv4.0 —</option>';
+  if (data?.files) {
+    data.files.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = '/mnt/output/' + f;
+      opt.textContent = f;
+      select.appendChild(opt);
+    });
+  }
+}
+
+async function cmv40DoTargetFromPath(pid) {
+  const select = document.getElementById(`cmv40-rpu-select-${pid}`);
+  const rpuPath = select.value;
+  if (!rpuPath) {
+    showToast('Selecciona un RPU', 'warning');
+    return;
+  }
+  const data = await apiFetch(`/api/cmv40/${pid}/target-rpu-path`, {
+    method: 'POST',
+    body: JSON.stringify({ rpu_path: rpuPath }),
+  });
+  if (data) {
+    showToast('RPU target cargado', 'success');
+    _refreshCMv40Session(pid);
+  }
+}
+
+async function cmv40DoTargetFromMkv(pid) {
+  const select = document.getElementById(`cmv40-target-mkv-select-${pid}`);
+  const mkvPath = select.value;
+  if (!mkvPath) {
+    showToast('Selecciona un MKV', 'warning');
+    return;
+  }
+  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
+    method: 'POST',
+    body: JSON.stringify({ source_mkv_path: mkvPath }),
+  });
+  showToast('Extrayendo RPU del MKV…', 'info');
+  _cmv40PollPhase(pid, 'target_provided');
+}
+
+async function cmv40DoExtract(pid) {
+  await apiFetch(`/api/cmv40/${pid}/extract`, { method: 'POST' });
+  showToast('Extrayendo BL/EL y datos per-frame…', 'info');
+  _cmv40PollPhase(pid, 'extracted');
+}
+
+async function cmv40DoInject(pid) {
+  showConfirm(
+    '¿Inyectar RPU?',
+    'Esto creará EL_injected.hevc. ¿Has verificado que la sincronización es correcta?',
+    async () => {
+      await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
+      showToast('Inyectando RPU…', 'info');
+      _cmv40PollPhase(pid, 'injected');
+    },
+    'Inyectar',
+  );
+}
+
+async function cmv40DoRemux(pid) {
+  await apiFetch(`/api/cmv40/${pid}/remux`, { method: 'POST' });
+  showToast('Remuxando a MKV final…', 'info');
+  _cmv40PollPhase(pid, 'remuxed');
+}
+
+async function cmv40DoValidate(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
+  if (data) {
+    showToast('¡Validación OK! MKV CMv4.0 listo.', 'success');
+    _refreshCMv40Session(pid);
+  }
+}
+
+async function cmv40Cleanup(pid) {
+  const bodyHtml = `
+    <div style="line-height:1.6">
+      <p style="margin:0 0 10px 0"><b>Qué se borrará:</b></p>
+      <ul style="margin:0 0 12px 18px; padding:0; font-family:'SF Mono',monospace; font-size:11px">
+        <li>source.hevc, BL.hevc, EL.hevc</li>
+        <li>RPU_source.bin, RPU_target.bin, RPU_synced.bin</li>
+        <li>EL_injected.hevc</li>
+        <li>per_frame_data.json, editor_config.json</li>
+      </ul>
+      <p style="margin:0 0 10px 0"><b>Qué se preserva:</b></p>
+      <ul style="margin:0 0 12px 18px; padding:0; font-size:12px">
+        <li>El MKV final en <code>/mnt/output</code></li>
+        <li>Los metadatos del proyecto (log, sync_config, info DV)</li>
+      </ul>
+      <div class="banner warning" style="margin-top:12px">
+        <span class="banner-icon">⚠️</span>
+        <span><b>Esta acción archiva el proyecto</b>. No podrás rehacer fases porque los artefactos de entrada ya no existen. Para iterar de nuevo tendrás que crear un proyecto nuevo desde el MKV origen.</span>
+      </div>
+    </div>`;
+
+  document.getElementById('cmv40-confirm-title').textContent = '¿Limpiar artefactos?';
+  document.getElementById('cmv40-confirm-sub').textContent = 'Esta acción libera espacio en disco pero deja el proyecto en modo solo lectura.';
+  document.getElementById('cmv40-confirm-body').innerHTML = bodyHtml;
+
+  const btn = document.getElementById('cmv40-confirm-btn');
+  btn.textContent = 'Limpiar y archivar';
+  btn.className = 'btn btn-danger btn-sm';
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+  newBtn.addEventListener('click', async () => {
+    closeModal('cmv40-confirm-modal');
+    const data = await apiFetch(`/api/cmv40/${pid}/cleanup`, { method: 'POST' });
+    if (data) {
+      showToast(`Liberado ${_fmtBytes(data.freed_bytes)} · proyecto archivado`, 'success');
+      _refreshCMv40Session(pid);
+    }
+  });
+  openModal('cmv40-confirm-modal');
+}
+
+// ── Sidebar Tab 3 ────────────────────────────────────────────────
+
+async function refreshCMv40Sidebar() {
+  const data = await apiFetch('/api/cmv40');
+  _cmv40SidebarList = data?.sessions || [];
+  // Capturar cambio del select de ordenación
+  const sortSel = document.getElementById('cmv40-sidebar-sort');
+  if (sortSel) {
+    _cmv40SortKey = sortSel.value;
+    if (!sortSel.dataset.bound) {
+      sortSel.addEventListener('change', () => {
+        _cmv40SortKey = sortSel.value;
+        _renderCMv40Sidebar();
+      });
+      sortSel.dataset.bound = '1';
+    }
+  }
+  _renderCMv40Sidebar();
+}
+
+function _renderCMv40Sidebar() {
+  const list = document.getElementById('cmv40-sidebar-list');
+  const count = document.getElementById('cmv40-count');
+  if (!list) return;
+
+  // Filtro de búsqueda
+  const searchEl = document.getElementById('cmv40-sidebar-search');
+  const searchTerm = (searchEl?.value || '').toLowerCase().trim();
+  const norm = (s) => (s || '').toLowerCase().replace(/[^\w\s]/g, '');
+
+  // Filtro de fase
+  let filtered = _cmv40SidebarList.slice();
+  if (_cmv40Filter === 'done') {
+    filtered = filtered.filter(s => s.phase === 'done' || s.phase === 'validated');
+  } else if (_cmv40Filter === 'error') {
+    filtered = filtered.filter(s => !!s.error_message);
+  } else if (_cmv40Filter === 'in_progress') {
+    filtered = filtered.filter(s => !['done', 'validated', 'cancelled'].includes(s.phase) && !s.error_message);
+  }
+  if (searchTerm) {
+    filtered = filtered.filter(s => {
+      const hay = norm(s.source_mkv_name + ' ' + (CMV40_PHASE_LABELS[s.phase] || s.phase));
+      return hay.includes(norm(searchTerm));
+    });
+  }
+
+  // Ordenación
+  const sortKey = _cmv40SortKey;
+  const dir = _cmv40SortDir === 'asc' ? 1 : -1;
+  filtered.sort((a, b) => {
+    let av, bv;
+    if (sortKey === 'name') {
+      av = (a.source_mkv_name || '').toLowerCase();
+      bv = (b.source_mkv_name || '').toLowerCase();
+    } else if (sortKey === 'phase') {
+      av = CMV40_PHASES_ORDER.indexOf(a.phase);
+      bv = CMV40_PHASES_ORDER.indexOf(b.phase);
+    } else {
+      av = new Date(a.updated_at || 0).getTime();
+      bv = new Date(b.updated_at || 0).getTime();
+    }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+
+  if (count) count.textContent = filtered.length;
+  list.innerHTML = '';
+
+  if (filtered.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state" style="padding:24px 12px">
+        <div class="empty-state-icon">🎨</div>
+        <div>${searchTerm || _cmv40Filter !== 'all' ? 'Sin resultados' : 'Crea un proyecto para inyectar CMv4.0'}</div>
+      </div>`;
+    return;
+  }
+
+  filtered.forEach(s => {
+    const phaseLabel = s.archived ? 'Archivado' : (CMV40_PHASE_LABELS[s.phase] || s.phase);
+    const phaseIcon  = s.archived ? '🗃️' : (s.error_message ? '⚠️' : (CMV40_PHASE_ICONS[s.phase] || '🎨'));
+    const isOpen = openCMv40Projects.find(p => p.id === s.id);
+    const isSelected = _cmv40SelectedSidebarId === s.id;
+    const name = s.source_mkv_name.replace(/\.mkv$/i, '');
+
+    const modDate = formatRelativeDate(s.updated_at || s.created_at);
+    const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {
+      day: '2-digit', month: '2-digit', year: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    const card = document.createElement('div');
+    card.className = `session-card${isSelected ? ' selected' : ''}`;
+    card.dataset.sid = s.id;
+    card.innerHTML = `
+      <div class="session-card-row">
+        <div class="session-card-status-badge" data-tooltip="${escHtml(phaseLabel)}">${phaseIcon}</div>
+        <div class="session-card-body">
+          <div class="session-card-title" data-tooltip="${escHtml(name)}">${escHtml(name)}</div>
+          <div class="session-card-meta">
+            <div class="session-card-meta-row">
+              <span class="meta-label">Fase</span>
+              <span>${escHtml(phaseLabel)}</span>
+            </div>
+            <div class="session-card-meta-row">
+              <span class="meta-label">Modif.</span>
+              <span class="relative-date" data-iso="${s.updated_at || s.created_at || ''}"
+                data-tooltip="${escHtml('Modificado: ' + modFull)}">${escHtml(modDate)}</span>
+            </div>
+          </div>
+        </div>
+        ${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
+      </div>
+      <div class="session-card-actions">
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')"
+          data-tooltip="Abrir este proyecto">📂 Abrir</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();_cmv40DeleteFromSidebar('${s.id}')"
+          data-tooltip="Eliminar permanentemente">🗑️ Eliminar</button>
+      </div>`;
+    const row = card.querySelector('.session-card-row');
+    row.onclick = () => _cmv40ToggleSidebarSelection(s.id);
+    row.ondblclick = () => _cmv40OpenSelected(s.id);
+    list.appendChild(card);
+  });
+}
+
+function _cmv40ToggleSortDir() {
+  _cmv40SortDir = _cmv40SortDir === 'asc' ? 'desc' : 'asc';
+  const btn = document.getElementById('cmv40-sort-dir');
+  if (btn) btn.textContent = _cmv40SortDir === 'asc' ? '↑' : '↓';
+  _renderCMv40Sidebar();
+}
+
+function _cmv40FilterClick(btn) {
+  document.querySelectorAll('#sidebar-tab-3 .sb-filter-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _cmv40Filter = btn.dataset.filter;
+  _renderCMv40Sidebar();
+}
+
+function _cmv40ToggleSidebarSelection(sid) {
+  _cmv40SelectedSidebarId = (_cmv40SelectedSidebarId === sid) ? null : sid;
+  document.querySelectorAll('#cmv40-sidebar-list .session-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.sid === _cmv40SelectedSidebarId);
+  });
+}
+
+function _cmv40OpenSelected(sid) {
+  const s = _cmv40SidebarList.find(x => x.id === sid);
+  if (s) openCMv40Project(s);
+}
+
+async function _cmv40DeleteFromSidebar(sid) {
+  const s = _cmv40SidebarList.find(x => x.id === sid);
+  if (!s) return;
+  showConfirm(
+    '¿Eliminar proyecto?',
+    `Se eliminará "${s.source_mkv_name}" y sus artefactos intermedios. Esta acción no se puede deshacer.`,
+    async () => {
+      await apiFetch(`/api/cmv40/${sid}?clean_artifacts=true`, { method: 'DELETE' });
+      // Cerrar subtab si estaba abierto
+      const open = openCMv40Projects.find(p => p.id === sid);
+      if (open) closeCMv40Project(sid);
+      if (_cmv40SelectedSidebarId === sid) _cmv40SelectedSidebarId = null;
+      refreshCMv40Sidebar();
+    },
+    'Eliminar',
+  );
+}
+
+// ── Chart interactivo de sincronización (Fase D) ─────────────────
+
+async function _loadCMv40SyncChart(project) {
+  const pid = project.id;
+  if (!project.syncData) {
+    const data = await apiFetch(`/api/cmv40/${pid}/sync-data`);
+    if (!data) return;
+    project.syncData = data;
+  }
+  _renderCMv40Chart(project);
+  _renderCMv40SyncStats(project);
+  _renderCMv40SyncControls(project);
+  _renderCMv40Confidence(project);
+}
+
+function _renderCMv40SyncStats(project) {
+  const d = project.syncData;
+  const pid = project.id;
+  const container = document.getElementById(`cmv40-sync-stats-${pid}`);
+  if (!container) return;
+  const delta = d.target_frames - d.source_frames;
+  const suggested = d.suggested_offset || {};
+
+  container.innerHTML = `
+    <div class="cmv40-sync-row">
+      <div><span class="sync-label">Frames origen:</span> <b>${d.source_frames.toLocaleString()}</b></div>
+      <div><span class="sync-label">Frames target:</span> <b>${d.target_frames.toLocaleString()}</b></div>
+      <div><span class="sync-label">Diferencia:</span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta}</b></div>
+    </div>
+    ${suggested.offset !== undefined && suggested.offset !== 0 ? `
+      <div class="banner info" style="margin-top:10px">
+        <span class="banner-icon">🔍</span>
+        <span>Offset detectado automáticamente: <b>${suggested.offset > 0 ? '+' : ''}${suggested.offset} frames</b></span>
+      </div>` : ''}
+  `;
+}
+
+function _renderCMv40Confidence(project) {
+  const d = project.syncData;
+  const pid = project.id;
+  const container = document.getElementById(`cmv40-confidence-${pid}`);
+  if (!container) return;
+  const conf = d.confidence || {};
+  const pct = conf.confidence_pct || 0;
+  const rating = conf.rating || 'insufficient_data';
+  const ratingColor = {
+    'excellent': 'var(--green)',
+    'good':      'var(--green)',
+    'moderate':  'var(--orange)',
+    'poor':      'var(--red)',
+    'insufficient_data': 'var(--text-3)',
+    'no_variance':       'var(--text-3)',
+  }[rating];
+  const ratingLabel = {
+    'excellent': 'Excelente',
+    'good':      'Buena',
+    'moderate':  'Moderada',
+    'poor':      'Baja',
+    'insufficient_data': 'Datos insuficientes',
+    'no_variance':       'Sin variación',
+  }[rating];
+  container.innerHTML = `
+    <div class="cmv40-confidence-panel" style="border-color:${ratingColor}; margin-top:16px">
+      <div class="cmv40-confidence-header">
+        <span class="cmv40-confidence-label">Confianza de sincronización</span>
+        <span class="cmv40-confidence-value" style="color:${ratingColor}">${pct}%</span>
+        <span class="cmv40-confidence-rating" style="color:${ratingColor}">${ratingLabel}</span>
+      </div>
+      <div class="cmv40-confidence-bar">
+        <div class="cmv40-confidence-fill" style="width:${pct}%; background:${ratingColor}"></div>
+        <div class="cmv40-confidence-threshold" style="left:85%" data-tooltip="Umbral mínimo 85%">·</div>
+      </div>
+      <div class="cmv40-confidence-reason">${escHtml(conf.reason || '')}</div>
+      <div style="font-size:10px; color:var(--text-3); margin-top:4px">
+        Mide la correlación de forma entre MaxCLL origen y target. Insensible a diferencias de valor absoluto — las curvas pueden no coincidir exactamente pero sí seguir el mismo patrón temporal.
+      </div>
+    </div>
+  `;
+}
+
+function _renderCMv40SyncControls(project) {
+  const pid = project.id;
+  const s = project.session;
+  const d = project.syncData;
+  const container = document.getElementById(`cmv40-sync-controls-${pid}`);
+  if (!container) return;
+  const delta = d.target_frames - d.source_frames;
+  const suggested = d.suggested_offset || {};
+  const hasSyncConfig = !!s.sync_config;
+  // Confianza y criterio para habilitar "Confirmar"
+  const conf = d.confidence || {};
+  const confPct = conf.confidence_pct || 0;
+  const confOk  = !!conf.threshold_ok;
+  const canConfirm = delta === 0 && confOk;
+  const confirmReason = delta !== 0
+    ? 'Hay diferencia de frames, debes corregir primero'
+    : !confOk
+      ? `Confianza ${confPct}% inferior al umbral 85% — revisa el gráfico o verifica compatibilidad del RPU`
+      : '';
+  // Framerate real del vídeo origen (fallback 23.976)
+  const FPS = s.source_fps || 23.976;
+  const totalFrames = d.source_frames || d.target_frames || 0;
+  if (!project.chartRange) {
+    // Default: primeros 30s — la zona típica donde hay logos y desfases
+    project.chartRange = { start: 0, end: Math.min(Math.round(30 * FPS), totalFrames) };
+  }
+  const currentRange = project.chartRange;
+
+  // Detectar qué preset está activo (si el rango coincide exactamente)
+  const presets = [
+    { key: '30s',   start: 0, end: Math.min(Math.round(30 * FPS), totalFrames),       label: '30 s' },
+    { key: '1min',  start: 0, end: Math.min(Math.round(60 * FPS), totalFrames),       label: '1 min' },
+    { key: '5min',  start: 0, end: Math.min(Math.round(5 * 60 * FPS), totalFrames),   label: '5 min' },
+    { key: '30min', start: 0, end: Math.min(Math.round(30 * 60 * FPS), totalFrames),  label: '30 min' },
+    { key: 'all',   start: 0, end: totalFrames,                                        label: 'Todo' },
+  ];
+  const activeKey = presets.find(p => p.start === currentRange.start && p.end === currentRange.end)?.key;
+
+  const presetBtns = presets.map(p => `
+    <button class="btn btn-ghost btn-xs cmv40-zoom-preset${activeKey === p.key ? ' active' : ''}"
+      onclick="_cmv40SetRange('${pid}', ${p.start}, ${p.end})">${p.label}</button>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="cmv40-zoom-row">
+      <span class="section-subtitle">Zoom</span>
+      ${presetBtns}
+      <span class="cmv40-range-inputs">
+        <label>Desde frame:
+          <input type="number" id="cmv40-range-start-${pid}" value="${currentRange.start}" min="0" max="${totalFrames}"
+            onchange="_cmv40ApplyRangeFromInputs('${pid}')">
+        </label>
+        <label>Hasta frame:
+          <input type="number" id="cmv40-range-end-${pid}" value="${currentRange.end}" min="0" max="${totalFrames}"
+            onchange="_cmv40ApplyRangeFromInputs('${pid}')">
+        </label>
+      </span>
+    </div>
+
+    <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">Corrección ${hasSyncConfig ? 'adicional' : 'manual'}</div>
+    <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
+      ${hasSyncConfig
+        ? 'Estos valores se <b>sumarán</b> a la corrección ya aplicada. El Δ actual del gráfico indica cuánto falta por alinear.'
+        : 'Los valores se aplican desde el target original.'}
+    </div>
+    <div class="cmv40-sync-form">
+      <label>Eliminar N frames al inicio del target:
+        <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px">
+      </label>
+      <label>Duplicar primer frame N veces:
+        <input type="number" id="cmv40-duplicate-${pid}" value="${delta < 0 ? Math.abs(delta) : 0}" min="0" style="width:80px">
+      </label>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
+      <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')">✏️ Aplicar corrección</button>
+      ${hasSyncConfig ? `<button class="btn btn-danger btn-md" onclick="cmv40DoResetSync('${pid}')"
+          data-tooltip="Descartar corrección y volver al target original">↩️ Resetear al original</button>` : ''}
+      <button class="btn btn-primary btn-md" onclick="cmv40DoSkipSync('${pid}')"
+        ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}>✓ Confirmar sync y continuar</button>
+    </div>
+    <div style="margin-top:8px; font-size:11px; color:var(--text-3)">
+      Δ actual: <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta} frames</b>
+      · Confianza: <b style="color:${confOk ? 'var(--green)' : 'var(--orange)'}">${confPct}%</b>
+      ${canConfirm ? ' — <b style="color:var(--green)">listo para continuar</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
+    </div>
+  `;
+}
+
+function _cmv40SetRange(pid, start, end) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  project.chartRange = { start, end };
+  _renderCMv40Chart(project);
+  _renderCMv40SyncControls(project);
+}
+
+function _cmv40ApplyRangeFromInputs(pid) {
+  const start = parseInt(document.getElementById(`cmv40-range-start-${pid}`).value) || 0;
+  const end = parseInt(document.getElementById(`cmv40-range-end-${pid}`).value) || 0;
+  if (end <= start) {
+    showToast('El frame final debe ser mayor que el inicial', 'warning');
+    return;
+  }
+  _cmv40SetRange(pid, start, end);
+}
+
+async function cmv40DoResetSync(pid) {
+  showConfirm(
+    '¿Descartar corrección?',
+    'Se borrará la corrección aplicada y el RPU target volverá a su estado original. El gráfico mostrará de nuevo el desfase inicial para que puedas empezar de cero.',
+    async () => {
+      const data = await apiFetch(`/api/cmv40/${pid}/reset-sync`, { method: 'POST' });
+      if (data) {
+        const project = openCMv40Projects.find(p => p.id === pid);
+        if (project) {
+          project.syncData = null;
+          project.session = data;
+          project.chartRange = null;  // volver al zoom por defecto
+          _updateCMv40Panel(project);
+        }
+        showToast('Corrección descartada', 'info');
+      }
+    },
+    'Descartar corrección',
+  );
+}
+
+async function cmv40DoApplySync(pid) {
+  const remove = parseInt(document.getElementById(`cmv40-remove-${pid}`).value) || 0;
+  const dup = parseInt(document.getElementById(`cmv40-duplicate-${pid}`).value) || 0;
+  if (remove === 0 && dup === 0) {
+    showToast('Indica un valor para eliminar o duplicar', 'warning');
+    return;
+  }
+  const config = {};
+  if (remove > 0) config.remove = [`0-${remove - 1}`];
+  if (dup > 0) config.duplicate = [{ source: 0, offset: 0, length: dup }];
+  const data = await apiFetch(`/api/cmv40/${pid}/apply-sync`, {
+    method: 'POST',
+    body: JSON.stringify({ editor_config: config }),
+  });
+  if (data) {
+    showToast('Corrección aplicada. Recargando chart…', 'success');
+    const project = openCMv40Projects.find(p => p.id === pid);
+    if (project) {
+      project.syncData = null;  // forzar recarga
+      project.session = data;
+      if (!project.expandedPhases) project.expandedPhases = {};
+      project.expandedPhases['D'] = true;  // mantener la fase D visible
+      _updateCMv40Panel(project);
+    }
+  }
+}
+
+async function cmv40DoSkipSync(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
+  if (data) {
+    showToast('Sync confirmado sin corrección', 'success');
+    _refreshCMv40Session(pid);
+  }
+}
+
+// ── Chart Canvas (custom, sin librerías) ─────────────────────────
+
+function _renderCMv40Chart(project) {
+  const pid = project.id;
+  const canvas = document.getElementById(`cmv40-chart-${pid}`);
+  if (!canvas) return;
+  const allData = project.syncData?.data || [];
+  if (allData.length === 0) return;
+
+  // Framerate real del vídeo origen
+  const FPS = project.session.source_fps || 23.976;
+  // totalFrames real de la película (NO es allData.length por muestreo)
+  const totalFrames = project.syncData.source_frames
+    || Math.max(...allData.map(p => p.frame || 0)) + 1;
+  if (!project.chartRange) {
+    project.chartRange = { start: 0, end: Math.min(Math.round(30 * FPS), totalFrames) };
+  }
+  const { start, end } = project.chartRange;
+  // Filtrar por número de frame real (no por índice del array)
+  const data = allData.filter(p => p.frame >= start && p.frame < end);
+  if (data.length === 0) return;
+
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
+
+  const srcMax = Math.max(...data.map(d => d.src_maxcll || 0));
+  const tgtMax = Math.max(...data.map(d => d.tgt_maxcll || 0));
+  const yMax = Math.max(srcMax, tgtMax, 100) * 1.1;
+  // Ancho en frames del rango visible (para mapeo X)
+  const rangeSpan = end - start;
+
+  // Fondo
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid horizontal
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.font = '10px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i = 0; i <= 5; i++) {
+    const y = padding.top + (plotH * i / 5);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(padding.left + plotW, y);
+    ctx.stroke();
+    const val = (yMax * (1 - i / 5)).toFixed(0);
+    ctx.fillText(`${val} cd/m²`, 4, y + 3);
+  }
+  // Eje X (frames + tiempo) — 6 labels bien espaciados
+  const NUM_X_LABELS = 6;
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= NUM_X_LABELS; i++) {
+    const x = padding.left + (plotW * i / NUM_X_LABELS);
+    const frame = Math.round(start + (rangeSpan * i / NUM_X_LABELS));
+    const mm = Math.floor(frame / FPS / 60);
+    const ss = Math.floor((frame / FPS) % 60).toString().padStart(2, '0');
+    // Marca del tick
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.moveTo(x, padding.top + plotH);
+    ctx.lineTo(x, padding.top + plotH + 4);
+    ctx.stroke();
+    // Labels
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText(`${mm}:${ss}`, x, H - 22);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(`f ${frame.toLocaleString()}`, x, H - 8);
+    ctx.font = '10px sans-serif';
+  }
+  ctx.textAlign = 'left';
+
+  // Helper: frame absoluto → posición X en el canvas
+  const frameToX = (frame) => padding.left + (plotW * (frame - start) / rangeSpan);
+
+  // Curva source (rojo)
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = frameToX(d.frame);
+    const y = padding.top + plotH - (plotH * (d.src_maxcll || 0) / yMax);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Curva target (azul)
+  ctx.strokeStyle = '#3b82f6';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = frameToX(d.frame);
+    const y = padding.top + plotH - (plotH * (d.tgt_maxcll || 0) / yMax);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Leyenda
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(padding.left + 10, 6, 12, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillText('MKV origen (CMv2.9)', padding.left + 28, 12);
+  ctx.fillStyle = '#3b82f6';
+  ctx.fillRect(padding.left + 180, 6, 12, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillText('RPU target (CMv4.0)', padding.left + 198, 12);
+  // Info de rango prominente (arriba a la derecha)
+  const startSec = start / FPS, endSec = end / FPS;
+  const fmtTime = (s) => {
+    const mm = Math.floor(s / 60), ss = Math.floor(s % 60).toString().padStart(2, '0');
+    return `${mm}:${ss}`;
+  };
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(`Rango: ${fmtTime(startSec)} — ${fmtTime(endSec)}`, W - padding.right, 14);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`(${(end - start).toLocaleString()} de ${totalFrames.toLocaleString()} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
+  ctx.textAlign = 'left';
+
+  // Hover handler
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const mx = (e.clientX - rect.left) * scaleX;
+    if (mx < padding.left || mx > padding.left + plotW) return;
+    // Posición X → frame absoluto
+    const absFrame = Math.round(start + ((mx - padding.left) / plotW) * rangeSpan);
+    // Buscar el datapoint más cercano al frame
+    const d = data.reduce((closest, p) =>
+      Math.abs(p.frame - absFrame) < Math.abs(closest.frame - absFrame) ? p : closest,
+      data[0]
+    );
+    if (!d) return;
+    const tooltip = document.getElementById(`cmv40-chart-tooltip-${project.id}`);
+    if (tooltip) {
+      tooltip.style.display = '';
+      tooltip.style.left = `${e.clientX - rect.left + 10}px`;
+      tooltip.style.top  = `${e.clientY - rect.top - 30}px`;
+      const mm = Math.floor(absFrame / FPS / 60);
+      const ss = Math.floor((absFrame / FPS) % 60).toString().padStart(2, '0');
+      tooltip.innerHTML = `Frame ${absFrame.toLocaleString()} (${mm}:${ss})<br>
+        <span style="color:#ef4444">Origen: ${(d.src_maxcll || 0).toFixed(0)} cd/m²</span><br>
+        <span style="color:#3b82f6">Target: ${(d.tgt_maxcll || 0).toFixed(0)} cd/m²</span>`;
+    }
+  };
+  canvas.onmouseleave = () => {
+    const tooltip = document.getElementById(`cmv40-chart-tooltip-${project.id}`);
+    if (tooltip) tooltip.style.display = 'none';
+  };
 }

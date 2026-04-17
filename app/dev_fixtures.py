@@ -289,6 +289,90 @@ def build_fake_mkv_apply(body) -> dict:
     }
 
 
+# ── Fixtures fake CMv4.0 (Tab 3) ─────────────────────────────────────────────
+
+DEV_FAKE_RPU_FILES: list[dict] = [
+    {"name": "Zootopia 2 (2025) CMv4.0.bin", "path": "/mnt/cmv40_rpus/Zootopia 2 (2025) CMv4.0.bin", "size_bytes": 4_521_300},
+    {"name": "Inside Out 3 (2025) CMv4.0.bin", "path": "/mnt/cmv40_rpus/Inside Out 3 (2025) CMv4.0.bin", "size_bytes": 3_812_400},
+    {"name": "Moana 2 (2024) CMv4.0.bin", "path": "/mnt/cmv40_rpus/Moana 2 (2024) CMv4.0.bin", "size_bytes": 4_102_800},
+]
+
+
+def build_fake_per_frame_data(source_frames: int = 137_952, offset: int = 40) -> dict:
+    """
+    Genera per_frame_data.json fake con un offset entre source y target.
+
+    Para mantener el payload razonable en DEV se muestrea cada STEP frames
+    pero se preservan los números de frame reales en el campo 'frame'.
+    """
+    import math
+    STEP = 20  # 1 datapoint cada 20 frames ≈ 6898 puntos para 137k frames
+
+    # Genera la serie source (muestreada)
+    src_series: list[dict] = []
+    for i in range(0, source_frames, STEP):
+        if i < 120:
+            src_maxcll = 850 + (i % 30) * 5
+        elif math.sin(i / 500) > 0.6:
+            src_maxcll = 400 + (i % 100) * 2
+        else:
+            src_maxcll = 80 + (i % 60)
+        src_series.append({
+            "frame": i,
+            "src_maxcll": src_maxcll,
+            "src_maxfall": src_maxcll * 0.15,
+        })
+
+    # Genera el target: desplazado `offset` frames (positivo = target adelantado)
+    target_frames = source_frames + offset
+    data: list[dict] = []
+    for point in src_series:
+        i = point["frame"]
+        entry = {
+            "frame": i,
+            "src_maxcll": point["src_maxcll"],
+            "src_maxfall": point["src_maxfall"],
+            "tgt_maxcll": 0,
+            "tgt_maxfall": 0,
+        }
+        # Target en la posición i tiene el valor del source en i-offset
+        tgt_src_frame = i - offset
+        if 0 <= tgt_src_frame < source_frames:
+            # Buscar el datapoint source más cercano por frame
+            closest = min(src_series, key=lambda p: abs(p["frame"] - tgt_src_frame))
+            entry["tgt_maxcll"]  = closest["src_maxcll"]
+            entry["tgt_maxfall"] = closest["src_maxfall"]
+        data.append(entry)
+
+    return {
+        "source_frames": source_frames,
+        "target_frames": target_frames,
+        "sample_step": STEP,
+        "data": data,
+        "suggested_offset": {
+            "offset": offset,
+            "confidence": 0.95,
+            "reason": f"Offset={offset} frames (confianza=95%, RMS error=2.1)",
+        },
+    }
+
+
+def build_fake_cmv40_session(mkv_name: str) -> dict:
+    """Construye un CMv40Session fake en fase 'created' para Tab 3."""
+    from models import CMv40Session, CMv40Phase
+    from storage import make_cmv40_session_id
+    sid = make_cmv40_session_id(f"/mnt/output/{mkv_name}")
+    s = CMv40Session(
+        id=sid,
+        source_mkv_path=f"/mnt/output/{mkv_name}",
+        source_mkv_name=mkv_name,
+        output_mkv_name=mkv_name.replace(".mkv", " [CMv4.0].mkv"),
+        artifacts_dir=f"/mnt/tmp/cmv40/{sid}",
+        phase=CMv40Phase.CREATED,
+    )
+    return s.model_dump()
+
+
 # ── Seed de proyectos fake ────────────────────────────────────────────────────
 
 def seed_dev_sessions(config_dir: Path) -> None:

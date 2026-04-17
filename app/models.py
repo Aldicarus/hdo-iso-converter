@@ -730,3 +730,139 @@ class MkvEditRequest(BaseModel):
 
     chapters: list[Chapter] | None = None
     """Nuevos capítulos (None = no cambiar)."""
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TAB 3 — CMV4.0 BD (inyección de RPU Dolby Vision CMv4.0)
+# ══════════════════════════════════════════════════════════════════════
+
+class CMv40Phase(str):
+    """Estados del pipeline CMv4.0, ordenados secuencialmente."""
+    CREATED          = "created"
+    SOURCE_ANALYZED  = "source_analyzed"
+    TARGET_PROVIDED  = "target_provided"
+    EXTRACTED        = "extracted"
+    SYNC_VERIFIED    = "sync_verified"
+    SYNC_CORRECTED   = "sync_corrected"
+    INJECTED         = "injected"
+    REMUXED          = "remuxed"
+    VALIDATED        = "validated"
+    DONE             = "done"
+    ERROR            = "error"
+    CANCELLED        = "cancelled"
+
+
+# Orden secuencial de fases (para comparaciones de progreso)
+CMV40_PHASES_ORDER = [
+    "created", "source_analyzed", "target_provided", "extracted",
+    "sync_verified", "sync_corrected", "injected", "remuxed", "validated", "done",
+]
+
+
+class CMv40PhaseRecord(BaseModel):
+    """Registro de ejecución de una fase del pipeline CMv4.0."""
+
+    phase: str
+    """Nombre de la fase (ej: 'analyze_source', 'extract', 'inject')."""
+
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str = "running"
+    """'running' | 'done' | 'error' | 'cancelled'"""
+
+    error_message: str | None = None
+    elapsed_seconds: float | None = None
+    output_log: list[str] = []
+
+
+class CMv40Session(BaseModel):
+    """
+    Proyecto CMv4.0 — convierte un MKV con CMv2.9 a CMv4.0 inyectando
+    un RPU externo sincronizado.
+
+    Persistencia: /config/cmv40/{id}.json
+    Artefactos (HEVC, RPU.bin): /mnt/tmp/cmv40/{id}/
+
+    Ciclo de vida por fases (ver CMv40Phase):
+      created → source_analyzed → target_provided → extracted
+      → sync_verified → (sync_corrected) → injected → remuxed → validated → done
+    """
+
+    id: str
+    """Identificador único. Formato: 'cmv40_{titulo}_{año}_{timestamp}'."""
+
+    # ── Fuente (MKV con CMv2.9) ──────────────────────────────────
+    source_mkv_path: str
+    """Ruta absoluta al MKV origen."""
+
+    source_mkv_name: str
+    """Nombre del fichero MKV (sin ruta)."""
+
+    source_dv_info: DoviInfo | None = None
+    """Análisis DV del MKV origen (de dovi_tool info sobre RPU extraído)."""
+
+    source_frame_count: int = 0
+    """Número total de frames del vídeo origen."""
+
+    source_fps: float = 23.976
+    """FPS del vídeo origen (típico en UHD BD: 23.976). Usado para conversiones s↔frames en la UI."""
+
+    source_video_codec: str = ""
+    source_duration_seconds: float = 0.0
+
+    # ── Target (RPU CMv4.0) ──────────────────────────────────────
+    target_rpu_source: str = ""
+    """Tipo de fuente: 'path' (fichero en /mnt/cmv40_rpus/) o 'mkv' (extraído de otro MKV)."""
+
+    target_rpu_path: str = ""
+    """Ruta al .bin de origen (antes de copiarlo al workdir)."""
+
+    target_dv_info: DoviInfo | None = None
+    """Análisis DV del RPU target."""
+
+    target_frame_count: int = 0
+
+    # ── Estado del pipeline ───────────────────────────────────────
+    phase: str = "created"
+    """Fase actual. Ver CMv40Phase."""
+
+    artifacts_dir: str = ""
+    """Ruta absoluta al workdir de artefactos (/mnt/tmp/cmv40/{id})."""
+
+    output_mkv_name: str = ""
+    """Nombre del MKV final (generado: {title} [DV FEL CMv4.0].mkv)."""
+
+    output_mkv_path: str = ""
+    """Ruta final del MKV en /mnt/output/ (solo tras validación)."""
+
+    # ── Sincronización ────────────────────────────────────────────
+    sync_delta: int = 0
+    """Diferencia de frames detectada: target_frame_count - source_frame_count.
+    Positivo = target tiene frames de más (eliminar). Negativo = target tiene de menos (duplicar)."""
+
+    sync_offset_detected: int | None = None
+    """Offset detectado automáticamente por cross-correlation (None = no calculado)."""
+
+    sync_config: dict | None = None
+    """editor_config.json aplicado (remove/duplicate). None si no hubo corrección."""
+
+    # ── Metadata del proyecto ─────────────────────────────────────
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    output_log: list[str] = []
+    """Log acumulado de todas las fases del pipeline."""
+
+    phase_history: list[CMv40PhaseRecord] = []
+    """Historial de ejecuciones de cada fase."""
+
+    error_message: str = ""
+    """Último mensaje de error (si phase == 'error')."""
+
+    archived: bool = False
+    """True si se ejecutó 'cleanup' — los artefactos intermedios se borraron.
+    No se pueden rehacer fases. El proyecto queda en modo solo lectura."""
+
+    running_phase: str | None = None
+    """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').
+    Cuando != None, la UI muestra modo modal con log + cancelar. Al terminar se limpia."""
