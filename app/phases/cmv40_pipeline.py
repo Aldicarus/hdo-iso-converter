@@ -79,10 +79,18 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
 
 async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) -> int:
     """
-    Ejecuta un comando con streaming de stdout línea a línea al log_callback.
+    Ejecuta un comando con streaming de output al log_callback.
+
+    Divide por ``\\n`` Y ``\\r`` (ffmpeg usa \\r para actualizar la línea de
+    progreso — sin esto el stdout se quedaría bloqueado esperando un \\n).
 
     Traduce `#GUI#progress XX%` de mkvmerge a `Progress: XX%`.
+
+    Throttle de 500ms para líneas de progreso de ffmpeg (que pueden venir
+    varias por segundo) para evitar saturar el log.
     """
+    import time
+
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
     proc = await asyncio.create_subprocess_exec(
@@ -93,16 +101,56 @@ async def _run_streaming(cmd: list[str], log_callback=None, proc_callback=None) 
     if proc_callback:
         proc_callback(proc)
 
-    async for line in proc.stdout:
-        text = line.decode("utf-8", errors="replace").rstrip()
+    buffer = b""
+    last_progress_emit = 0.0
+
+    async def _emit(text: str) -> None:
         if not text:
-            continue
+            return
+        # Traducción mkvmerge
         if text.startswith("#GUI#progress "):
             text = "Progress: " + text.removeprefix("#GUI#progress ")
         elif text.startswith("#GUI#"):
-            continue
+            return
+        # Throttle para líneas de progreso de ffmpeg (frame=... fps=... time=...)
+        nonlocal last_progress_emit
+        is_ffmpeg_progress = text.startswith("frame=") and ("fps=" in text or "time=" in text)
+        if is_ffmpeg_progress:
+            now = time.monotonic()
+            if now - last_progress_emit < 0.5:
+                return
+            last_progress_emit = now
         if log_callback:
             await log_callback(text)
+
+    while True:
+        chunk = await proc.stdout.read(4096)
+        if not chunk:
+            break
+        buffer += chunk
+        # Dividir por \n o \r (lo que venga primero)
+        while True:
+            nl = buffer.find(b"\n")
+            cr = buffer.find(b"\r")
+            if nl == -1 and cr == -1:
+                break
+            if nl == -1:
+                idx = cr
+            elif cr == -1:
+                idx = nl
+            else:
+                idx = min(nl, cr)
+            line = buffer[:idx].decode("utf-8", errors="replace").rstrip()
+            buffer = buffer[idx + 1:]
+            if line:
+                await _emit(line)
+
+    # Flush del buffer restante
+    if buffer:
+        line = buffer.decode("utf-8", errors="replace").rstrip()
+        if line:
+            await _emit(line)
+
     await proc.wait()
     return proc.returncode
 
