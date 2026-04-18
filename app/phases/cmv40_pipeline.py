@@ -58,6 +58,107 @@ def artifact_exists(session: CMv40Session, name: str, min_size: int = 100) -> bo
     return p.exists() and p.stat().st_size >= min_size
 
 
+# Artefactos requeridos para estar en cada fase (= haber completado esa fase).
+# Se valida tamaño mínimo razonable para detectar ficheros truncados.
+PHASE_REQUIRED_ARTIFACTS: dict[str, list[tuple[str, int]]] = {
+    "source_analyzed": [("source.hevc", 1_000_000), ("RPU_source.bin", 1_000)],
+    "target_provided": [("source.hevc", 1_000_000), ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
+    "extracted":       [("BL.hevc", 1_000_000), ("EL.hevc", 100_000),
+                        ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000),
+                        ("per_frame_data.json", 100)],
+    "sync_verified":   [("BL.hevc", 1_000_000), ("EL.hevc", 100_000),
+                        ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000),
+                        ("per_frame_data.json", 100)],
+    "injected":        [("BL.hevc", 1_000_000), ("EL_injected.hevc", 100_000)],
+    "remuxed":         [("output.mkv", 1_000_000)],
+}
+
+
+def validate_artifacts(session: CMv40Session) -> dict:
+    """Valida que los artefactos de la fase actual existan.
+
+    Devuelve {
+      'valid_phase': str,            # fase coherente con lo que hay en disco
+      'changed': bool,               # True si valid_phase != session.phase
+      'missing': list[str],          # artefactos faltantes para la fase actual
+      'message': str,                # descripción para UI
+      'all_missing': bool,           # True si no hay ningún artefacto utilizable
+    }
+
+    Estrategia: desde la fase actual, retrocede hasta encontrar la fase más
+    reciente cuyos artefactos estén todos presentes. Si nada encaja, devuelve
+    'created' y all_missing=True.
+
+    NO se ejecuta sobre proyectos archivados (sus artefactos fueron borrados
+    a propósito) ni sobre proyectos en fase 'done' (el output vive en /mnt/output).
+    """
+    from models import CMV40_PHASES_ORDER  # import tardío para evitar ciclos
+
+    result = {
+        "valid_phase": session.phase,
+        "changed": False,
+        "missing": [],
+        "message": "",
+        "all_missing": False,
+    }
+    if session.archived:
+        result["message"] = "Proyecto archivado — artefactos borrados intencionadamente."
+        return result
+    if session.phase == "done":
+        # Validar que el MKV final sigue existiendo en /mnt/output
+        if session.output_mkv_path and Path(session.output_mkv_path).exists():
+            return result
+        result["valid_phase"] = "remuxed"
+        result["changed"] = True
+        result["missing"] = [session.output_mkv_path or "output.mkv"]
+        result["message"] = "El MKV final no existe en /mnt/output — revertido a fase remuxed."
+        return result
+    if session.phase == "created":
+        return result
+
+    wd = get_workdir(session)
+    cur_idx = CMV40_PHASES_ORDER.index(session.phase)
+
+    def _missing_for(phase_key: str) -> list[str]:
+        out = []
+        for name, min_size in PHASE_REQUIRED_ARTIFACTS.get(phase_key, []):
+            p = wd / name
+            if not p.exists() or not p.is_file() or p.stat().st_size < min_size:
+                out.append(name)
+        return out
+
+    # Comprobar la fase actual primero
+    missing_now = _missing_for(session.phase)
+    if not missing_now:
+        return result  # todo OK
+
+    # Retroceder buscando la última fase válida
+    for i in range(cur_idx - 1, 0, -1):
+        phase_key = CMV40_PHASES_ORDER[i]
+        if phase_key not in PHASE_REQUIRED_ARTIFACTS:
+            continue
+        if not _missing_for(phase_key):
+            result["valid_phase"] = phase_key
+            result["changed"] = True
+            result["missing"] = missing_now
+            result["message"] = (
+                f"Faltan artefactos de la fase {session.phase}: {', '.join(missing_now)}. "
+                f"Revertido a fase {phase_key} — se puede reanudar desde ahí."
+            )
+            return result
+
+    # Nada válido hasta 'created'
+    result["valid_phase"] = "created"
+    result["changed"] = True
+    result["missing"] = missing_now
+    result["all_missing"] = True
+    result["message"] = (
+        f"No se encuentra ningún artefacto intermedio. Faltan: {', '.join(missing_now)}. "
+        f"Hay que empezar desde Fase A."
+    )
+    return result
+
+
 async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) -> tuple[int, str, str]:
     """Ejecuta un comando y devuelve (returncode, stdout, stderr)."""
     if log_callback:

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260418c">
+  <link rel="stylesheet" href="/static/style.css?v=20260418e">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -589,9 +589,9 @@
 
 <!-- ═══ MODAL: Nuevo proyecto CMv4.0 (Tab 3) ═════════════════════ -->
 <div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
-  <div class="modal-box" style="max-width:560px">
+  <div class="modal-box" style="max-width:620px">
     <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
-    <div class="modal-sub">Selecciona un MKV con Dolby Vision CMv2.9 para inyectarle un RPU CMv4.0.</div>
+    <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
 
     <label class="modal-field-label">MKV origen (CMv2.9)</label>
     <div class="iso-select-row">
@@ -599,8 +599,40 @@
         <option value="">— Seleccionar MKV origen —</option>
       </select>
       <button class="btn btn-secondary btn-md" onclick="loadCMv40SourceList()"
-        data-tooltip="Recargar lista">↺</button>
+        data-tooltip="Recargar lista de MKVs en /mnt/output">↺</button>
     </div>
+
+    <label class="modal-field-label" style="margin-top:14px">RPU target (CMv4.0)</label>
+    <div class="cmv40-target-tabs" style="margin-bottom:8px">
+      <button class="cmv40-target-tab-btn active" id="cmv40-new-tab-btn-path"
+        onclick="_cmv40NewSwitchTargetTab('path')">📁 Desde carpeta</button>
+      <button class="cmv40-target-tab-btn" id="cmv40-new-tab-btn-mkv"
+        onclick="_cmv40NewSwitchTargetTab('mkv')">🎬 Extraer de otro MKV</button>
+    </div>
+    <div id="cmv40-new-target-path" class="cmv40-target-tab">
+      <div class="iso-select-row">
+        <select id="cmv40-new-rpu-select" class="iso-select" onchange="onCMv40TargetChange()">
+          <option value="">— Cargando… —</option>
+        </select>
+        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadRpus()" data-tooltip="Recargar">↺</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:4px">Ficheros .bin en /mnt/cmv40_rpus</div>
+    </div>
+    <div id="cmv40-new-target-mkv" class="cmv40-target-tab" style="display:none">
+      <div class="iso-select-row">
+        <select id="cmv40-new-target-mkv-select" class="iso-select" onchange="onCMv40TargetChange()">
+          <option value="">— Cargando… —</option>
+        </select>
+        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadTargetMkvs()" data-tooltip="Recargar">↺</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:4px">MKVs en el directorio de ISOs</div>
+    </div>
+
+    <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; cursor:pointer">
+      <input type="checkbox" id="cmv40-new-auto" checked>
+      <span>🤖 Activar auto-pipeline al crear (arranca A → B → C automáticamente)</span>
+    </label>
+
     <div style="font-size:11px; color:var(--text-3); margin-top:12px">
       El nombre del MKV de salida se podrá editar desde el panel del proyecto.
     </div>
@@ -632,6 +664,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260418c"></script>
+<script src="/static/app.js?v=20260418e"></script>
 </body>
 </html>

@@ -4358,11 +4358,22 @@ const CMV40_PHASE_LABELS = {
 
 // ── Modal "Nuevo proyecto CMv4.0" ────────────────────────────────
 
+let _cmv40NewTargetTab = 'path';  // 'path' | 'mkv'
+let _cmv40NewTargetSelected = null;  // { kind: 'path'|'mkv', value: string }
+
 async function openNewCMv40Modal() {
   _cmv40SourceSelected = null;
+  _cmv40NewTargetTab = 'path';
+  _cmv40NewTargetSelected = null;
   const btn = document.getElementById('cmv40-create-btn');
   if (btn) btn.disabled = true;
-  await loadCMv40SourceList();
+  const autoCb = document.getElementById('cmv40-new-auto');
+  if (autoCb) autoCb.checked = true;
+  _cmv40NewSwitchTargetTab('path');
+  await Promise.all([
+    loadCMv40SourceList(),
+    _cmv40NewLoadRpus(),
+  ]);
   openModal('cmv40-new-modal');
 }
 
@@ -4383,12 +4394,71 @@ async function loadCMv40SourceList() {
 
 function onCMv40SourceChange(val) {
   _cmv40SourceSelected = val || null;
+  _cmv40NewUpdateCreateBtn();
+}
+
+function _cmv40NewSwitchTargetTab(tab) {
+  _cmv40NewTargetTab = tab;
+  document.getElementById('cmv40-new-target-path').style.display = tab === 'path' ? '' : 'none';
+  document.getElementById('cmv40-new-target-mkv').style.display  = tab === 'mkv'  ? '' : 'none';
+  document.getElementById('cmv40-new-tab-btn-path').classList.toggle('active', tab === 'path');
+  document.getElementById('cmv40-new-tab-btn-mkv').classList.toggle('active',  tab === 'mkv');
+  _cmv40NewTargetSelected = null;
+  _cmv40NewUpdateCreateBtn();
+  if (tab === 'mkv') _cmv40NewLoadTargetMkvs();
+}
+
+async function _cmv40NewLoadRpus() {
+  const select = document.getElementById('cmv40-new-rpu-select');
+  select.innerHTML = '<option value="">— Cargando… —</option>';
+  const data = await apiFetch('/api/cmv40/rpu-files');
+  select.innerHTML = '<option value="">— Seleccionar RPU —</option>';
+  if (data?.files?.length) {
+    data.files.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = `${f.name} (${_fmtBytes(f.size_bytes)})`;
+      select.appendChild(opt);
+    });
+  } else {
+    select.innerHTML = '<option value="">— No hay RPUs en /mnt/cmv40_rpus —</option>';
+  }
+}
+
+async function _cmv40NewLoadTargetMkvs() {
+  const select = document.getElementById('cmv40-new-target-mkv-select');
+  select.innerHTML = '<option value="">— Cargando… —</option>';
+  const data = await apiFetch('/api/mkv/files-in-isos');
+  select.innerHTML = '<option value="">— Seleccionar MKV con CMv4.0 —</option>';
+  if (data?.files?.length) {
+    data.files.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = f.name;
+      select.appendChild(opt);
+    });
+  } else {
+    select.innerHTML = '<option value="">— No hay MKVs en el directorio de ISOs —</option>';
+  }
+}
+
+function onCMv40TargetChange() {
+  const id = _cmv40NewTargetTab === 'path' ? 'cmv40-new-rpu-select' : 'cmv40-new-target-mkv-select';
+  const val = document.getElementById(id).value;
+  _cmv40NewTargetSelected = val ? { kind: _cmv40NewTargetTab, value: val } : null;
+  _cmv40NewUpdateCreateBtn();
+}
+
+function _cmv40NewUpdateCreateBtn() {
   const btn = document.getElementById('cmv40-create-btn');
-  if (btn) btn.disabled = !val;
+  if (!btn) return;
+  btn.disabled = !_cmv40SourceSelected || !_cmv40NewTargetSelected;
 }
 
 async function createCMv40Project() {
-  if (!_cmv40SourceSelected) return;
+  if (!_cmv40SourceSelected || !_cmv40NewTargetSelected) return;
+  const autoOn = !!document.getElementById('cmv40-new-auto')?.checked;
+  const target = _cmv40NewTargetSelected;
 
   const data = await apiFetch('/api/cmv40/create', {
     method: 'POST',
@@ -4402,8 +4472,21 @@ async function createCMv40Project() {
     showToast('Error al crear el proyecto', 'error');
     return;
   }
-  openCMv40Project(data);
+
+  // Abrir el proyecto y preconfigurar auto + target pendiente
+  const project = openCMv40Project(data);
+  if (project) {
+    project.autoContinue = autoOn;
+    project.pendingTarget = target;  // se aplicará cuando A termine
+    _updateCMv40Panel(project);
+  }
   await refreshCMv40Sidebar();
+
+  // Arrancar cadena auto: A primero (backend). Cuando A termine,
+  // _cmv40MaybeAutoAdvance detectará pendingTarget y disparará B automáticamente.
+  if (autoOn) {
+    cmv40DoAnalyzeSource(data.id);
+  }
 }
 
 // ── Proyecto CMv4.0 ──────────────────────────────────────────────
@@ -4413,11 +4496,11 @@ function openCMv40Project(session) {
   const existing = openCMv40Projects.find(p => p.id === session.id);
   if (existing) {
     switchCMv40SubTab(existing.subTabId);
-    return;
+    return existing;
   }
   if (openCMv40Projects.length >= MAX_CMV40_PROJECTS) {
     showToast(`Máximo ${MAX_CMV40_PROJECTS} proyectos abiertos`, 'warning');
-    return;
+    return null;
   }
 
   const pid = session.id;
@@ -4427,12 +4510,36 @@ function openCMv40Project(session) {
     session: session,
     ws: null,
     syncData: null,
+    autoContinue: false,      // por defecto off; createCMv40Project lo activa
+    pendingTarget: null,      // { kind: 'path'|'mkv', value: string }
   };
   openCMv40Projects.push(project);
   _createCMv40SubTab(project);
   _createCMv40Panel(project);
   switchCMv40SubTab(pid);
   _connectCMv40WebSocket(project);
+  // Validar artefactos en disco — detecta ficheros borrados manualmente
+  // y retrocede la fase automáticamente si hace falta.
+  _cmv40VerifyArtifacts(project);
+  return project;
+}
+
+async function _cmv40VerifyArtifacts(project) {
+  // No validar proyectos recién creados (sin artefactos aún esperados)
+  if (project.session.phase === 'created') return;
+  const data = await apiFetch(`/api/cmv40/${project.id}/verify-artifacts`, { method: 'POST' });
+  if (!data) return;
+  if (data.changed) {
+    project.session = data.session;
+    _updateCMv40Panel(project);
+    refreshCMv40Sidebar();
+    if (data.all_missing) {
+      showToast(`⛔ ${data.message}`, 'error');
+      // Con todo borrado, auto-avance queda neutralizado (comprueba error_message)
+    } else {
+      showToast(`⚠ ${data.message}`, 'warning');
+    }
+  }
 }
 
 function closeCMv40Project(pid) {
@@ -5300,6 +5407,21 @@ function _cmv40MaybeAutoAdvance(project) {
       showToast('🤖 Auto: analizando origen', 'info');
       cmv40DoAnalyzeSource(pid);
       break;
+    case 'source_analyzed':
+      // Si el usuario preseleccionó el target en el modal, aplicarlo automático
+      if (project.pendingTarget) {
+        const t = project.pendingTarget;
+        project.pendingTarget = null;
+        if (t.kind === 'path') {
+          showToast('🤖 Auto: cargando RPU target', 'info');
+          _cmv40AutoTargetPath(pid, t.value);
+        } else {
+          showToast('🤖 Auto: extrayendo RPU del MKV target', 'info');
+          _cmv40AutoTargetMkv(pid, t.value);
+        }
+      }
+      // Si no hay pendingTarget, usuario debe provisionar manual (no auto)
+      break;
     case 'target_provided':
       showToast('🤖 Auto: extrayendo BL/EL + per-frame', 'info');
       cmv40DoExtract(pid);
@@ -5310,7 +5432,6 @@ function _cmv40MaybeAutoAdvance(project) {
       break;
     case 'sync_verified':
       showToast('🤖 Auto: inyectando RPU', 'info');
-      // bypass del modal de confirmación en auto-mode
       _cmv40AutoInject(pid);
       break;
     case 'injected':
@@ -5322,6 +5443,22 @@ function _cmv40MaybeAutoAdvance(project) {
       cmv40DoValidate(pid);
       break;
   }
+}
+
+async function _cmv40AutoTargetPath(pid, rpuPath) {
+  await apiFetch(`/api/cmv40/${pid}/target-rpu-path`, {
+    method: 'POST',
+    body: JSON.stringify({ rpu_path: rpuPath }),
+  });
+  _cmv40PollPhase(pid, 'target_provided');
+}
+
+async function _cmv40AutoTargetMkv(pid, mkvPath) {
+  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
+    method: 'POST',
+    body: JSON.stringify({ source_mkv_path: mkvPath }),
+  });
+  _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function _cmv40AutoInject(pid) {

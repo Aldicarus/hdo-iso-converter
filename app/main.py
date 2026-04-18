@@ -1120,6 +1120,7 @@ from phases.cmv40_pipeline import (
     run_phase_e_correct_sync, run_phase_f_inject,
     run_phase_g_remux, run_phase_h_validate,
     detect_sync_offset, compute_sync_confidence,
+    validate_artifacts as _validate_cmv40_artifacts,
     CMV40_WORK_BASE, CMV40_RPU_DIR,
 )
 
@@ -1535,6 +1536,45 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     save_cmv40_session(session)
     await _cmv40_log(session, f"🔄 Estado reseteado a fase: {target_phase} — artefactos posteriores borrados")
     return session.model_dump()
+
+
+@app.post("/api/cmv40/{session_id}/verify-artifacts", summary="Valida que los artefactos de la fase actual existan")
+async def cmv40_verify_artifacts(session_id: str):
+    """Al reanudar un proyecto, verifica que los artefactos existen en disco.
+
+    Si faltan ficheros para la fase actual, retrocede a la última fase válida.
+    Si no hay NINGÚN artefacto utilizable, marca el proyecto con error.
+    Devuelve {valid_phase, changed, missing, message, all_missing, session}.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # No validar si está running — los artefactos se están generando ahora
+    if session.running_phase:
+        return {
+            "changed": False,
+            "valid_phase": session.phase,
+            "missing": [],
+            "message": "Proyecto ejecutándose — validación omitida",
+            "all_missing": False,
+            "session": session.model_dump(),
+        }
+
+    result = _validate_cmv40_artifacts(session)
+    if result["changed"]:
+        session.phase = result["valid_phase"]
+        # En caso "all_missing" bloqueamos con error; si hay reversión parcial,
+        # solo aviso por error_message descartable.
+        if result["all_missing"]:
+            session.error_message = result["message"]
+        else:
+            # Aviso suave que el usuario puede descartar
+            session.error_message = result["message"]
+        save_cmv40_session(session)
+        await _cmv40_log(session, f"⚠ {result['message']}")
+    result["session"] = session.model_dump()
+    return result
 
 
 @app.post("/api/cmv40/{session_id}/cancel", summary="Cancela la fase en curso")
