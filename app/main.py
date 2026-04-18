@@ -1132,25 +1132,34 @@ _cmv40_cancel_flags: dict[str, bool] = {}
 
 async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
                               log_lines: list[str], new_phase: str,
-                              apply_fn=None, total_seconds: float = 3.0) -> None:
+                              apply_fn=None, total_seconds: float = 3.0,
+                              progress_label: str = "") -> None:
     """
-    Simula una fase en DEV mode emitiendo log_lines con delays.
+    Simula una fase en DEV mode emitiendo log_lines con delays y progreso sintético.
     Al final aplica apply_fn(session) y avanza a new_phase.
     """
+    import json as _json
     session.running_phase = phase_name
     session.error_message = ""
     save_cmv40_session(session)
+    label = progress_label or phase_name
     try:
-        delay_per = total_seconds / max(1, len(log_lines))
-        for line in log_lines:
+        n = max(1, len(log_lines))
+        delay_per = total_seconds / n
+        await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': 0, 'label': label, 'eta_s': int(total_seconds)})}")
+        for i, line in enumerate(log_lines):
             if _cmv40_cancel_flags.get(session.id):
                 await _cmv40_log(session, "🛑 Cancelado por el usuario")
                 return
             await _cmv40_log(session, line)
             await asyncio.sleep(delay_per)
+            pct = round(((i + 1) / n) * 100, 1)
+            eta = max(0, int(total_seconds - delay_per * (i + 1)))
+            await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': pct, 'label': label, 'eta_s': eta})}")
         if apply_fn:
             apply_fn(session)
         session.phase = new_phase
+        await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': 100, 'label': 'Completado', 'eta_s': 0})}")
         await _cmv40_log(session, f"✓ Fase {phase_name} completada")
     finally:
         session.running_phase = None
