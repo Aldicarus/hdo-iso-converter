@@ -127,10 +127,15 @@ async def _probe_frame_count(media_path: str) -> int:
     return 0
 
 
-# Ratios medidos (frames/segundo) para estimar ETAs
-FPS_DEMUX      = 1030.0   # dovi_tool demux
-FPS_EXTRACT_RPU = 1200.0  # dovi_tool extract-rpu
-FPS_EXPORT     = 7000.0   # dovi_tool export -d all
+# Ratios medidos (frames/segundo) para estimar ETAs en NAS QNAP.
+# Obtenidos de runs reales sobre Zootrópolis 2 (155k frames).
+FPS_FFMPEG_EXTRACT = 1336.0  # ffmpeg extract HEVC (copy) — solo fallback, hay progreso real
+FPS_EXTRACT_RPU    = 1450.0  # dovi_tool extract-rpu
+FPS_DEMUX          = 1100.0  # dovi_tool demux
+FPS_EXPORT         = 7000.0  # dovi_tool export -d all
+FPS_INJECT         = 760.0   # dovi_tool inject-rpu
+FPS_MUX            = 711.0   # dovi_tool mux (BL + EL → DV dual-layer)
+FPS_MKVMERGE       = 429.0   # mkvmerge remux — solo fallback, hay progreso real
 
 
 async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
@@ -158,11 +163,13 @@ async def _run_streaming(
 
     Si se pasa ``progress_ctx``, emite eventos ``§§PROGRESS§§`` con pct y ETA:
         progress_ctx = {
-          'duration': float,   # duración conocida a priori (s); si 0 intenta extraerla del header
-          'offset': float,     # pct base (0-100)
-          'weight': float,     # peso de este paso en la fase (0-100)
-          'label': str,        # etiqueta a mostrar
+          'duration': float,           # duración conocida a priori (ffmpeg, s); o 0
+          'time_estimate_s': float,    # alternativa: estimación wall-clock (para comandos silenciosos)
+          'offset': float,             # pct base (0-100)
+          'weight': float,             # peso de este paso en la fase (0-100)
+          'label': str,                # etiqueta a mostrar
         }
+    Prioridad: ffmpeg time= > mkvmerge Progress: > time_estimate_s (ticker).
     """
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
@@ -177,20 +184,33 @@ async def _run_streaming(
     buffer = b""
     last_throttle = 0.0
     last_progress_push = 0.0
-    duration = float(progress_ctx["duration"]) if progress_ctx else 0.0
+    duration = float(progress_ctx["duration"]) if progress_ctx and progress_ctx.get("duration") else 0.0
     offset   = float(progress_ctx.get("offset", 0.0)) if progress_ctx else 0.0
     weight   = float(progress_ctx.get("weight", 100.0)) if progress_ctx else 100.0
     label    = progress_ctx.get("label", "") if progress_ctx else ""
+    time_est = float(progress_ctx.get("time_estimate_s", 0.0)) if progress_ctx else 0.0
     step_start = time.monotonic()
+    has_real_progress = False  # se pone True si detectamos ffmpeg time= o mkvmerge Progress:
 
     async def _emit(text: str) -> None:
-        nonlocal last_throttle, last_progress_push, duration
+        nonlocal last_throttle, last_progress_push, duration, has_real_progress
         if not text:
             return
         if text.startswith("#GUI#progress "):
             text = "Progress: " + text.removeprefix("#GUI#progress ")
         elif text.startswith("#GUI#"):
             return
+
+        # mkvmerge "Progress: XX%" — progreso real
+        if progress_ctx is not None and text.startswith("Progress:"):
+            m = re.search(r"Progress:\s*(\d+)%", text)
+            if m:
+                has_real_progress = True
+                step_pct = float(m.group(1))
+                phase_pct = offset + step_pct * weight / 100.0
+                wall = time.monotonic() - step_start
+                eta = (wall / step_pct) * (100 - step_pct) if step_pct > 1 else None
+                await _emit_progress(log_callback, phase_pct, label, eta)
 
         # Detectar Duration en el header si aún no la tenemos
         if progress_ctx is not None and duration <= 0:
@@ -201,10 +221,10 @@ async def _run_streaming(
         is_ffmpeg_progress = text.startswith("frame=") and ("fps=" in text or "time=" in text)
         if is_ffmpeg_progress:
             now = time.monotonic()
-            # Parse time= para progreso si tenemos duration
             if progress_ctx is not None and duration > 0 and (now - last_progress_push) >= 1.0:
                 tm = _FFMPEG_TIME_RE.search(text)
                 if tm:
+                    has_real_progress = True
                     elapsed_media = _hms_to_seconds(*tm.groups())
                     step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
                     phase_pct = offset + step_pct * weight / 100.0
@@ -219,6 +239,33 @@ async def _run_streaming(
 
         if log_callback:
             await log_callback(text)
+
+    # Ticker time-based: solo si nos han dado time_estimate_s y no vemos progreso real
+    stop_ticker = asyncio.Event()
+
+    async def _ticker():
+        if time_est <= 0:
+            return
+        # Esperar 3s antes del primer tick — si llega progreso real antes, nos callamos
+        try:
+            await asyncio.wait_for(stop_ticker.wait(), timeout=3.0)
+            return
+        except asyncio.TimeoutError:
+            pass
+        while not stop_ticker.is_set():
+            if has_real_progress:
+                return
+            elapsed = time.monotonic() - step_start
+            step_pct = min(95.0, (elapsed / time_est) * 100.0)
+            phase_pct = offset + step_pct * weight / 100.0
+            eta = max(0.0, time_est - elapsed)
+            await _emit_progress(log_callback, phase_pct, label, eta)
+            try:
+                await asyncio.wait_for(stop_ticker.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
+    tick_task = asyncio.create_task(_ticker()) if time_est > 0 else None
 
     while True:
         chunk = await proc.stdout.read(4096)
@@ -245,6 +292,14 @@ async def _run_streaming(
         line = buffer.decode("utf-8", errors="replace").rstrip()
         if line:
             await _emit(line)
+
+    # Parar ticker si estaba activo
+    stop_ticker.set()
+    if tick_task:
+        try:
+            await tick_task
+        except Exception:
+            pass
 
     await proc.wait()
     return proc.returncode
@@ -937,15 +992,23 @@ async def run_phase_f_inject(
             f"[Fase F] Inyectando RPU en EL "
             f"(RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
         )
+    est_inject = rpu_frames / FPS_INJECT if rpu_frames > 0 else 200.0
+    await _emit_progress(log_callback, 0, "Inyectando RPU en EL")
     rc = await _run_streaming([
         DOVI_TOOL_BIN, "inject-rpu",
         "-i", str(el_hevc),
         "--rpu-in", str(rpu_to_inject),
         "-o", str(el_injected),
-    ], log_callback=log_callback, proc_callback=proc_callback)
+    ], log_callback=log_callback, proc_callback=proc_callback,
+       progress_ctx={
+           "time_estimate_s": est_inject,
+           "offset": 0.0, "weight": 100.0,
+           "label": "Inyectando RPU en EL",
+       })
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
 
+    await _emit_progress(log_callback, 100, "RPU inyectado")
     if log_callback:
         await log_callback(f"[Fase F] EL_injected.hevc generado")
 
@@ -974,7 +1037,14 @@ async def run_phase_g_remux(
     if not bl_hevc.exists() or not el_injected.exists():
         raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
 
+    # Pesos: dovi_tool mux 38% (~218s) · mkvmerge remux 62% (~361s) para 155k frames
+    W_MUX, W_MKV = 38.0, 62.0
+    frames = session.source_frame_count or 0
+    est_mux = frames / FPS_MUX if frames > 0 else 200.0
+    est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
+
     # Paso 1: dovi_tool mux → dual-layer HEVC
+    await _emit_progress(log_callback, 0, "Combinando BL + EL_injected")
     if log_callback:
         await log_callback("[Fase G] Combinando BL + EL_injected (dovi_tool mux)…")
     rc = await _run_streaming([
@@ -982,11 +1052,17 @@ async def run_phase_g_remux(
         "--bl", str(bl_hevc),
         "--el", str(el_injected),
         "-o", str(dv_dual),
-    ], log_callback=log_callback, proc_callback=proc_callback)
+    ], log_callback=log_callback, proc_callback=proc_callback,
+       progress_ctx={
+           "time_estimate_s": est_mux,
+           "offset": 0.0, "weight": W_MUX,
+           "label": "Combinando BL + EL (dovi_tool mux)",
+       })
     if rc != 0:
         raise RuntimeError(f"dovi_tool mux falló (código {rc})")
+    await _emit_progress(log_callback, W_MUX, "Dual-layer HEVC generado")
 
-    # Paso 2: mkvmerge → MKV final con audio/subs/capítulos del origen
+    # Paso 2: mkvmerge → MKV final con audio/subs/capítulos del origen (progreso real)
     if log_callback:
         await log_callback("[Fase G] Remuxando a MKV final (mkvmerge)…")
     title = session.output_mkv_name.removesuffix(".mkv")
@@ -994,10 +1070,16 @@ async def run_phase_g_remux(
         MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
         "--title", title,
         str(dv_dual),
-        "--no-video", session.source_mkv_path,  # audio/subs/capítulos del MKV origen
-    ], log_callback=log_callback, proc_callback=proc_callback)
+        "--no-video", session.source_mkv_path,
+    ], log_callback=log_callback, proc_callback=proc_callback,
+       progress_ctx={
+           "time_estimate_s": est_mkv,  # fallback si no llega Progress:
+           "offset": W_MUX, "weight": W_MKV,
+           "label": "Remuxando MKV final (mkvmerge)",
+       })
     if rc not in (0, 1):  # 1 = warning
         raise RuntimeError(f"mkvmerge falló (código {rc})")
+    await _emit_progress(log_callback, 100, "Remux completado")
 
     # Cleanup intermedio
     dv_dual.unlink(missing_ok=True)
@@ -1030,6 +1112,7 @@ async def run_phase_h_validate(
     # Validar DV con dovi_tool
     if log_callback:
         await log_callback("[Fase H] Validando DV del MKV resultante…")
+    await _emit_progress(log_callback, 0, "Extrayendo muestra para validación")
 
     # Extraer RPU del MKV y comprobar CM version
     temp_hevc = wd / "_validate.hevc"
@@ -1041,7 +1124,9 @@ async def run_phase_h_validate(
             "-bsf:v", "hevc_mp4toannexb",
             "-t", "30", "-f", "hevc", str(temp_hevc),
         ], timeout=120)
+        await _emit_progress(log_callback, 20, "Extrayendo RPU de la muestra")
         await _run([DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(temp_rpu)], timeout=60)
+        await _emit_progress(log_callback, 40, "Analizando CM version")
         rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(temp_rpu)], timeout=30)
         if rc != 0:
             raise RuntimeError(f"Validación DV falló: {err[:200]}")
@@ -1056,17 +1141,20 @@ async def run_phase_h_validate(
         )
 
     # Validar pistas con mkvmerge -J
+    await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
     rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
     if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge -J falló sobre MKV final: {err[:200]}")
 
-    # Mover a /mnt/output
+    # Mover a /mnt/output (puede tardar con 40 GB en ZFS)
+    await _emit_progress(log_callback, 60, "Moviendo MKV final a /mnt/output")
     final_path = OUTPUT_DIR / session.output_mkv_name
     if final_path.exists():
         raise RuntimeError(f"Ya existe un MKV con ese nombre: {session.output_mkv_name}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     shutil.move(str(output_mkv), str(final_path))
     session.output_mkv_path = str(final_path)
+    await _emit_progress(log_callback, 100, "Validación completada")
 
     if log_callback:
         await log_callback(
