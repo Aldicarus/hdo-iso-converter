@@ -1235,80 +1235,46 @@ async def _merge_cmv40_into_p7(
             f"[Fase F] Frame counts OK: BD={frames_bd}, target={frames_tgt} (match)"
         )
 
-    # ── Paso 1: Upgradear RPU del BD a CMv4.0 estructuralmente ───────
-    # El RPU source P7 CMv2.9 no tiene contenedor cmv40_metadata.
-    # dovi_tool no puede transferir L8 si no hay contenedor destino.
-    # Solución: añadir un L11 global (default) para crear el contenedor CMv4.0.
-    # Después la transferencia sobreescribe L11 con el valor per-frame del target.
+    # ── Merge según bbeny123/remuxer (PR #351 en dovi_tool 2.3.0+) ──
+    # Config exactamente como la genera remuxer.sh:
+    #   {"allow_cmv4_transfer": true, "source_rpu": "...", "rpu_levels": [...]}
+    # Levels para FEL según remuxer.sh línea 2090: 1,2,3,6,8,9,10,11,254
+    # L254 (no L255) — L254 es el Dolby Vision Metadata Version marker.
     wd = rpu_source_p7.parent
-    rpu_upgraded = wd / "_rpu_source_v40.bin"
-
-    upgrade_cfg_path = wd / "_upgrade_to_v40.json"
-    upgrade_cfg = {
-        # L11 por defecto — "unknown content type" + referencia estándar
-        "level11": {
-            "content_type": 1,
-            "whitepoint": 0,
-            "reference_mode_flag": False,
-        }
+    cfg_path = wd / "_merge_cmv4_transfer.json"
+    cfg = {
+        "allow_cmv4_transfer": True,
+        "source_rpu": str(rpu_target_v40.resolve()),
+        "rpu_levels": [1, 2, 3, 6, 8, 9, 10, 11, 254],
     }
-    upgrade_cfg_path.write_text(json.dumps(upgrade_cfg, indent=2), encoding="utf-8")
+    cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     if log_callback:
         await log_callback(
-            "[Fase F] Paso 1/2: upgrade estructural CMv2.9 → CMv4.0 del RPU BD (añade contenedor)…"
+            "[Fase F] Transferencia CMv4.0 [1,2,3,6,8,9,10,11,254] frame-a-frame "
+            f"desde {rpu_target_v40.name} → RPU P7 del BD "
+            "(allow_cmv4_transfer=true, según remuxer.sh de bbeny123)…"
         )
 
     try:
         rc, out, err = await _run([
             DOVI_TOOL_BIN, "editor",
             "-i", str(rpu_source_p7),
-            "-j", str(upgrade_cfg_path),
-            "-o", str(rpu_upgraded),
-        ], log_callback=log_callback, timeout=180)
-    finally:
-        upgrade_cfg_path.unlink(missing_ok=True)
-
-    if rc != 0:
-        raise RuntimeError(
-            f"dovi_tool editor (upgrade V40) falló: {err[:300]}"
-        )
-
-    # ── Paso 2: Transferir L3/L8/L9/L10/L11 frame-a-frame del target ──
-    transfer_cfg_path = wd / "_merge_cmv4_transfer.json"
-    transfer_cfg = {
-        "source_rpu": str(rpu_target_v40.resolve()),
-        "rpu_levels": [3, 8, 9, 10, 11],
-    }
-    transfer_cfg_path.write_text(json.dumps(transfer_cfg, indent=2), encoding="utf-8")
-
-    if log_callback:
-        await log_callback(
-            "[Fase F] Paso 2/2: transferencia frame-a-frame L3/L8/L9/L10/L11 "
-            f"desde {rpu_target_v40.name} al RPU BD upgradado…"
-        )
-
-    try:
-        rc, out, err = await _run([
-            DOVI_TOOL_BIN, "editor",
-            "-i", str(rpu_upgraded),
-            "-j", str(transfer_cfg_path),
+            "-j", str(cfg_path),
             "-o", str(output),
         ], log_callback=log_callback, timeout=300)
     finally:
-        transfer_cfg_path.unlink(missing_ok=True)
-        rpu_upgraded.unlink(missing_ok=True)  # intermedio, ya no hace falta
+        cfg_path.unlink(missing_ok=True)
 
     if rc != 0:
         err_lc = err.lower()
-        if "same length" in err_lc or "same number" in err_lc or "mismatch" in err_lc:
+        if "same length" in err_lc or "mismatch" in err_lc:
             raise RuntimeError(
-                f"dovi_tool reportó frame count mismatch durante el merge: {err[:200]}\n"
+                f"Frame count mismatch durante el merge: {err[:200]}\n"
                 f"→ Ir a Fase D para re-sincronizar."
             )
         raise RuntimeError(
-            f"dovi_tool editor (cmv4 transfer) falló: {err[:300]}\n"
-            f"Verifica que dovi_tool sea 2.3+ con soporte de source_rpu + rpu_levels."
+            f"dovi_tool editor (cmv4 transfer) falló:\n{err[:500]}"
         )
 
     # ── Verificación post-merge ──────────────────────────────────────
