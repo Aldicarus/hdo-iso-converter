@@ -1042,15 +1042,16 @@ async def list_mkv_files():
 async def list_mkv_files_in_isos():
     """Devuelve .mkv presentes en ISOS_DIR con su ruta absoluta.
 
-    Usado por la Fase B de Tab 3 para extraer el RPU target desde otro MKV
-    (típicamente un rip CMv4.0 almacenado junto a los ISOs originales).
+    Búsqueda NO recursiva — solo ficheros directos en ISOS_DIR. Evita recursar
+    en snapshots ZFS ocultos (`.zfs/snapshot/…`) de QNAP QuTS, que devolverían
+    cientos de ficheros históricos con el mismo nombre.
     """
     if DEV_MODE:
         return {"files": [{"name": f, "path": f"/mnt/isos/{f}"} for f in DEV_FAKE_MKV_FILES]}
     if not ISOS_DIR.exists():
         return {"files": []}
     files = sorted(
-        [{"name": p.name, "path": str(p)} for p in ISOS_DIR.rglob("*.mkv")],
+        [{"name": p.name, "path": str(p)} for p in ISOS_DIR.glob("*.mkv") if p.is_file()],
         key=lambda x: x["name"].lower(),
     )
     return {"files": files}
