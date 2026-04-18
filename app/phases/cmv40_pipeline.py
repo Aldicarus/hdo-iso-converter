@@ -1235,20 +1235,22 @@ async def _merge_cmv40_into_p7(
             f"[Fase F] Frame counts OK: BD={frames_bd}, target={frames_tgt} (match)"
         )
 
-    # ── Aplicar merge via allow_cmv4_transfer ────────────────────────
+    # ── Aplicar merge via source_rpu + rpu_levels ────────────────────
+    # dovi_tool 2.3.2 usa directamente esta combinación para transferir
+    # niveles frame-a-frame desde otro RPU. No hay flag extra;
+    # incluir L8/L9/L10/L11 en rpu_levels activa el upgrade a CMv4.0.
     wd = rpu_source_p7.parent
     cfg_path = wd / "_merge_cmv4_transfer.json"
     cfg = {
         "source_rpu": str(rpu_target_v40.resolve()),
         "rpu_levels": [3, 8, 9, 10, 11],
-        "allow_cmv4_transfer": True,
     }
     cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     if log_callback:
         await log_callback(
             "[Fase F] Transfiriendo niveles CMv4.0 [3, 8, 9, 10, 11] frame-a-frame "
-            f"desde {rpu_target_v40.name} → RPU P7 del BD (preserva FEL, L254 implícito)…"
+            f"desde {rpu_target_v40.name} → RPU P7 del BD (preserva FEL)…"
         )
 
     try:
@@ -1272,7 +1274,7 @@ async def _merge_cmv40_into_p7(
             )
         raise RuntimeError(
             f"dovi_tool editor (cmv4_transfer) falló: {err[:300]}\n"
-            f"Verifica que dovi_tool sea 2.3+ y que el config soporte allow_cmv4_transfer."
+            f"Verifica que dovi_tool sea 2.3+ con soporte de source_rpu + rpu_levels."
         )
 
     # ── Verificación post-merge ──────────────────────────────────────
