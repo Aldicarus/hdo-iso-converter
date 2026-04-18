@@ -988,14 +988,32 @@ async function _doAnalyzeISO(isoPath, isoName) {
         lastStep = prog.step;
         stepStartTs = Date.now();
       }
-      // Timer en vivo para el paso largo (pgs): muestra segundos transcurridos
+      // Paso PGS: barra de progreso real basada en bytes leídos por ffprobe
       if (lastStep === 'pgs') {
-        const el = document.getElementById('analyze-step-pgs');
-        if (el) {
-          const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
-          const mm = Math.floor(elapsed / 60);
-          const ss = (elapsed % 60).toString().padStart(2, '0');
-          el.textContent = `⏳ Contando paquetes PGS por subtítulo · ${mm}:${ss} transcurridos (1-3 min)…`;
+        const labelEl = document.getElementById('analyze-step-pgs-label');
+        const barWrap = document.getElementById('analyze-step-pgs-bar');
+        const barFill = document.getElementById('analyze-step-pgs-bar-fill');
+        const statsEl = document.getElementById('analyze-step-pgs-stats');
+        const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
+        const mm = Math.floor(elapsed / 60);
+        const ss = (elapsed % 60).toString().padStart(2, '0');
+        const pct = prog?.pct;
+        const eta = prog?.eta_s;
+        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (barWrap) barWrap.style.display = 'block';
+        if (statsEl) statsEl.style.display = 'block';
+        if (pct != null && barFill) {
+          barFill.style.width = pct + '%';
+        }
+        if (statsEl) {
+          let line = `${mm}:${ss} transcurridos`;
+          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
+          if (eta && eta > 0) {
+            const em = Math.floor(eta / 60);
+            const es = (eta % 60).toString().padStart(2, '0');
+            line += ` · ETA ${em}:${es}`;
+          }
+          statsEl.textContent = line;
         }
       }
     } catch (_) { /* silenciar errores de polling */ }
@@ -1038,28 +1056,52 @@ async function _doAnalyzeISO(isoPath, isoName) {
   await loadSessions();
 }
 
+/** Devuelve el nodo de texto visible del paso (label directo o anidado para pgs). */
+function _analyzeStepLabelNode(stepKey) {
+  // El paso pgs tiene estructura compleja (label + bar + stats)
+  if (stepKey === 'pgs') return document.getElementById('analyze-step-pgs-label');
+  return document.getElementById(`analyze-step-${stepKey}`);
+}
+
 /** Resetea todos los pasos del modal de análisis al estado inicial. */
 function _resetAnalyzeSteps() {
   const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
   steps.forEach((s, i) => {
-    const el = document.getElementById(`analyze-step-${s}`);
-    if (!el) return;
-    el.style.opacity = i === 0 ? '1' : '.4';
-    el.textContent = el.textContent.replace(/^[✅⏳⬜]\s*/, i === 0 ? '⏳ ' : '⬜ ');
+    const container = document.getElementById(`analyze-step-${s}`);
+    if (container) container.style.opacity = i === 0 ? '1' : '.4';
+    const labelEl = _analyzeStepLabelNode(s);
+    if (!labelEl) return;
+    labelEl.textContent = labelEl.textContent.replace(/^[✅⏳⬜]\s*/, i === 0 ? '⏳ ' : '⬜ ');
   });
+  // Reset bar/stats del step pgs
+  const barWrap = document.getElementById('analyze-step-pgs-bar');
+  const statsEl = document.getElementById('analyze-step-pgs-stats');
+  const barFill = document.getElementById('analyze-step-pgs-bar-fill');
+  if (barWrap) barWrap.style.display = 'none';
+  if (statsEl) statsEl.style.display = 'none';
+  if (barFill) barFill.style.width = '0%';
 }
 
 /** Marca un paso como completado y activa el siguiente. */
 function _advanceAnalyzeStep(doneStep, nextStep) {
-  const doneEl = document.getElementById(`analyze-step-${doneStep}`);
-  if (doneEl) {
-    doneEl.style.opacity = '1';
-    doneEl.textContent = doneEl.textContent.replace(/^[⏳⬜]\s*/, '✅ ');
+  const doneContainer = document.getElementById(`analyze-step-${doneStep}`);
+  if (doneContainer) doneContainer.style.opacity = '1';
+  const doneLabel = _analyzeStepLabelNode(doneStep);
+  if (doneLabel) {
+    doneLabel.textContent = doneLabel.textContent.replace(/^[⏳⬜]\s*/, '✅ ');
   }
-  const nextEl = document.getElementById(`analyze-step-${nextStep}`);
-  if (nextEl) {
-    nextEl.style.opacity = '1';
-    nextEl.textContent = nextEl.textContent.replace(/^[⬜]\s*/, '⏳ ');
+  // Ocultar la barra del pgs al completarse
+  if (doneStep === 'pgs') {
+    const barWrap = document.getElementById('analyze-step-pgs-bar');
+    const statsEl = document.getElementById('analyze-step-pgs-stats');
+    if (barWrap) barWrap.style.display = 'none';
+    if (statsEl) statsEl.style.display = 'none';
+  }
+  const nextContainer = document.getElementById(`analyze-step-${nextStep}`);
+  if (nextContainer) nextContainer.style.opacity = '1';
+  const nextLabel = _analyzeStepLabelNode(nextStep);
+  if (nextLabel) {
+    nextLabel.textContent = nextLabel.textContent.replace(/^[⬜]\s*/, '⏳ ');
   }
 }
 

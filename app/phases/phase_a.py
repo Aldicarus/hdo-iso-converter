@@ -766,16 +766,29 @@ def find_main_m2ts(share_path: str) -> str | None:
     return str(max(m2ts_files, key=lambda p: p.stat().st_size))
 
 
-async def run_pgs_packet_counts(m2ts_path: str) -> dict[int, int]:
+async def run_pgs_packet_counts(
+    m2ts_path: str,
+    progress_callback=None,
+) -> dict[int, int]:
     """Cuenta paquetes por pista PGS del m2ts usando ffprobe -count_packets.
 
     El número de paquetes PES es el proxy más fiable del volumen real de
     subtítulos (forzado vs completo vs audiodescripción), ya que MediaInfo
     y el bit_rate de ffprobe devuelven N/A para PGS.
 
+    Si se pasa ``progress_callback(pct: float, eta_s: int)``, se emite
+    progreso real basado en bytes leídos por el proceso (vía /proc/{pid}/io)
+    cada 2 segundos.
+
     Devuelve {stream_index: packet_count}. Dict vacío si ffprobe falla.
     Tarda ~1-3 min en m2ts de 60GB.
     """
+    import time
+    try:
+        total_bytes = Path(m2ts_path).stat().st_size
+    except Exception:
+        total_bytes = 0
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "error",
@@ -787,7 +800,51 @@ async def run_pgs_packet_counts(m2ts_path: str) -> dict[int, int]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+
+        # Tarea de monitorización de progreso basada en bytes leídos
+        stop_monitor = asyncio.Event()
+        start_ts = time.monotonic()
+
+        async def _monitor():
+            if not progress_callback or total_bytes <= 0 or proc.pid is None:
+                return
+            pid = proc.pid
+            while not stop_monitor.is_set():
+                try:
+                    with open(f"/proc/{pid}/io") as f:
+                        read = 0
+                        for line in f:
+                            if line.startswith("read_bytes:"):
+                                read = int(line.split(":", 1)[1].strip())
+                                break
+                    pct = min(99.0, (read / total_bytes) * 100.0)
+                    elapsed = time.monotonic() - start_ts
+                    eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
+                    try:
+                        await progress_callback(pct, int(eta) if eta else 0)
+                    except Exception:
+                        pass
+                except (FileNotFoundError, ProcessLookupError):
+                    return
+                except Exception as e:
+                    _logger.debug("monitor io error: %s", e)
+                try:
+                    await asyncio.wait_for(stop_monitor.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+
+        monitor_task = asyncio.create_task(_monitor()) if progress_callback else None
+
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        finally:
+            stop_monitor.set()
+            if monitor_task:
+                try:
+                    await monitor_task
+                except Exception:
+                    pass
+
         if proc.returncode != 0:
             _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr.decode()[:200])
             return {}
@@ -1074,6 +1131,7 @@ def enrich_dovi(bdinfo: BDInfoResult, dovi: DoviInfo) -> None:
 async def run_full_analysis(
     share_path: str,
     log_callback=None,
+    pgs_progress_callback=None,
 ) -> tuple[BDInfoResult, str, list[dict]]:
     """
     Análisis completo del disco montado:
@@ -1122,7 +1180,7 @@ async def run_full_analysis(
         try:
             if log_callback:
                 await log_callback("[Fase A] Contando paquetes PGS (ffprobe, 1-3 min)…")
-            pgs_packets = await run_pgs_packet_counts(m2ts_path)
+            pgs_packets = await run_pgs_packet_counts(m2ts_path, progress_callback=pgs_progress_callback)
             if pgs_packets:
                 # ffprobe devuelve índices ascendentes; asignamos por posición
                 # a subtitle_tracks (ambos en el mismo orden del m2ts).

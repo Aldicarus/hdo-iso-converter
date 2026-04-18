@@ -315,9 +315,14 @@ async def analyze_iso(body: AnalyzeRequest):
         elif "mediainfo" in msg_l:
             _analyze_progress = {"step": "mediainfo", "done": False}
         elif "packet" in msg_l or "paquetes pgs" in msg_l:
-            _analyze_progress = {"step": "pgs", "done": False}
+            _analyze_progress = {"step": "pgs", "done": False, "pct": 0, "eta_s": 0}
         elif "dovi_tool" in msg_l or "dolby vision" in msg_l:
             _analyze_progress = {"step": "dovi", "done": False}
+
+    # Callback de progreso granular para el step PGS (bytes leídos por ffprobe)
+    async def _pgs_progress_callback(pct: float, eta_s: int):
+        global _analyze_progress
+        _analyze_progress = {"step": "pgs", "done": False, "pct": round(pct, 1), "eta_s": eta_s}
 
     _analyze_progress = {"step": "mount", "done": False}
 
@@ -328,7 +333,9 @@ async def analyze_iso(body: AnalyzeRequest):
         mount_point = await mount_iso(iso_full_path)
         _analyze_progress = {"step": "identify", "done": False}
         bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(
-            mount_point, log_callback=_progress_callback,
+            mount_point,
+            log_callback=_progress_callback,
+            pgs_progress_callback=_pgs_progress_callback,
         )
     except Exception as e:
         _logger.exception("Error en Fase A para ISO %s", iso_full_path)
