@@ -547,6 +547,14 @@ class Session(BaseModel):
     """True si el usuario ha editado el nombre manualmente. En este caso,
     los cambios de FEL/Audio DCP no sobreescriben el nombre."""
 
+    audio_mode: str = "filtered"
+    """Modo de selección de audio: 'filtered' (solo Castellano + VO) o
+    'keep_all' (todas las pistas con labels automáticos, sin reordenar)."""
+
+    subtitle_mode: str = "filtered"
+    """Modo de selección de subtítulos: 'filtered' (Castellano + VO + Inglés
+    con detección de AD) o 'keep_all' (todas las pistas con labels automáticos)."""
+
     included_tracks: list[IncludedAudioTrack | IncludedSubtitleTrack] = []
     """Pistas ordenadas que se incluirán en el MKV final. El orden aquí
     es el orden real de las pistas en el fichero MKV de salida."""

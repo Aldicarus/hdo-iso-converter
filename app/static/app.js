@@ -536,6 +536,15 @@ function buildProjectPanelHTML(pid) {
         <div><div class="section-title">Audio</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
         <span class="section-badge" id="${pid}-audio-count">0 pistas</span>
       </div>
+      <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
+        <span style="color:var(--text-3)">Modo:</span>
+        <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="audio"
+          onclick="setTrackMode('audio','filtered')"
+          data-tooltip="Solo Castellano + VO con selección por calidad">🎯 Castellano + VO</button>
+        <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="audio"
+          onclick="setTrackMode('audio','keep_all')"
+          data-tooltip="Mantener todas las pistas con labels automáticos (sin reordenar ni descartar)">📋 Mantener todas</button>
+      </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
           <div class="tracks-group-label">Incluidas</div>
@@ -553,6 +562,15 @@ function buildProjectPanelHTML(pid) {
         <span class="section-icon">💬</span>
         <div><div class="section-title">Subtítulos</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
         <span class="section-badge" id="${pid}-sub-count">0 pistas</span>
+      </div>
+      <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
+        <span style="color:var(--text-3)">Modo:</span>
+        <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="subtitle"
+          onclick="setTrackMode('subtitle','filtered')"
+          data-tooltip="Solo Castellano + VO + Inglés, con detección de audiodescripción">🎯 Castellano + VO + Inglés</button>
+        <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="subtitle"
+          onclick="setTrackMode('subtitle','keep_all')"
+          data-tooltip="Mantener todos los subtítulos con labels automáticos (sin reordenar ni descartar)">📋 Mantener todos</button>
       </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
@@ -1494,6 +1512,9 @@ function renderProjectPanel(project) {
   const prevSubTab = activeSubTabId;
   activeSubTabId = project.id;
 
+  // Estado activo de los toggles de modo audio/subs
+  _updateModeToggles(project.id, session.audio_mode || 'filtered', session.subtitle_mode || 'filtered');
+
   // Variables globales
   setToggle('toggle-fel', session.has_fel);
   setText('fel-value', session.has_fel ? 'FEL' : 'MEL');
@@ -1599,6 +1620,41 @@ async function _checkIsoAvailability(project) {
  * @param {'audio'|'subtitle'} type
  * @returns {number} índice 0-based en el array original, o -1 si no se encuentra
  */
+/** Actualiza el estado visual de los toggles de modo audio/subtítulos. */
+function _updateModeToggles(pid, audioMode, subMode) {
+  const prefix = `panel-project-${pid}`;
+  const panel = document.getElementById(prefix);
+  const root = panel || document;
+  root.querySelectorAll('.mode-toggle').forEach(btn => {
+    const track = btn.dataset.track;
+    const mode = btn.dataset.mode;
+    const current = track === 'audio' ? audioMode : subMode;
+    btn.classList.toggle('active', mode === current);
+  });
+}
+
+/** Cambia el modo de selección de audio/subs y re-aplica reglas en backend. */
+async function setTrackMode(trackKind, mode) {
+  const project = getActiveProject();
+  if (!project) return;
+  const sid = project.sessionId;
+  const body = {};
+  if (trackKind === 'audio') body.audio_mode = mode;
+  else body.subtitle_mode = mode;
+  const updated = await apiFetch(`/api/sessions/${sid}/reapply-rules`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (updated) {
+    project.session = updated;
+    currentSession = updated;
+    renderProjectPanel(project);
+    const label = trackKind === 'audio' ? 'Audio' : 'Subtítulos';
+    const modeLabel = mode === 'keep_all' ? 'Mantener todas' : 'Filtrado';
+    showToast(`${label}: modo «${modeLabel}» aplicado`, 'success');
+  }
+}
+
 function _findOriginalTrackIndex(raw, type) {
   const bd = currentSession?.bdinfo_result;
   if (!bd) return -1;

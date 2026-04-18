@@ -123,7 +123,13 @@ CODEC_PRIORITY: dict[str, int] = {
 }
 
 
-def apply_rules(bdinfo: BDInfoResult, iso_path: str, audio_dcp: bool) -> dict:
+def apply_rules(
+    bdinfo: BDInfoResult,
+    iso_path: str,
+    audio_dcp: bool,
+    audio_mode: str = "filtered",
+    subtitle_mode: str = "filtered",
+) -> dict:
     """
     Punto de entrada principal de la Fase B.
 
@@ -137,9 +143,11 @@ def apply_rules(bdinfo: BDInfoResult, iso_path: str, audio_dcp: bool) -> dict:
         vo_warning       — advertencia si la VO no puede determinarse (vacío si OK).
 
     Args:
-        bdinfo:    Resultado de parsear el report de BDInfoCLI (Fase A).
-        iso_path:  Ruta al ISO; se usa para extraer título y año del nombre.
-        audio_dcp: True si el nombre del ISO contiene el tag 'Audio DCP'.
+        bdinfo:        Resultado de parsear el report de BDInfoCLI (Fase A).
+        iso_path:      Ruta al ISO; se usa para extraer título y año del nombre.
+        audio_dcp:     True si el nombre del ISO contiene el tag 'Audio DCP'.
+        audio_mode:    'filtered' (solo Castellano + VO) o 'keep_all' (todas, con labels).
+        subtitle_mode: 'filtered' (Castellano + VO + Inglés) o 'keep_all' (todas, con labels).
 
     Returns:
         Dict directamente asignable a los campos de un Session.
@@ -147,8 +155,12 @@ def apply_rules(bdinfo: BDInfoResult, iso_path: str, audio_dcp: bool) -> dict:
     title, year = _extract_title_year(iso_path)
     vo_language, vo_warning = _detect_vo_language(bdinfo.audio_tracks)
 
-    included_audio, discarded_audio = _select_audio_tracks(bdinfo.audio_tracks, vo_language, audio_dcp)
-    included_subs, discarded_subs = _select_subtitle_tracks(bdinfo.subtitle_tracks, vo_language)
+    included_audio, discarded_audio = _select_audio_tracks(
+        bdinfo.audio_tracks, vo_language, audio_dcp, mode=audio_mode,
+    )
+    included_subs, discarded_subs = _select_subtitle_tracks(
+        bdinfo.subtitle_tracks, vo_language, mode=subtitle_mode,
+    )
 
     # Asignar posiciones: video implícita (makemkvcon la incluye siempre), luego audio, luego subs
     all_included: list[IncludedAudioTrack | IncludedSubtitleTrack] = []
@@ -215,6 +227,7 @@ def _select_audio_tracks(
     tracks: list[RawAudioTrack],
     vo_language: str,
     audio_dcp: bool,
+    mode: str = "filtered",
 ) -> tuple[list[IncludedAudioTrack], list[DiscardedTrack]]:
     """
     Selecciona las pistas de audio según las reglas de la spec §5.1.
@@ -237,6 +250,34 @@ def _select_audio_tracks(
         Castellano → VO, listas para asignar posición en apply_rules.
     """
     vo_norm = vo_language.lower()
+
+    # ── Modo "keep_all": incluir TODAS las pistas con labels generados ──
+    if mode == "keep_all":
+        included_all: list[IncludedAudioTrack] = []
+        best_spanish_codec_key: str | None = None
+        for t in tracks:
+            lang_norm = t.language.lower()
+            lang_lit = _language_literal(lang_norm)
+            is_castellano = lang_norm == "spanish"
+            codec_lit = _codec_literal(t, audio_dcp and is_castellano)
+            label = f"{lang_lit} {codec_lit}"
+            # Default solo para la primera mejor pista de castellano encontrada
+            flag_default = False
+            if is_castellano and best_spanish_codec_key is None:
+                best_spanish_codec_key = _codec_key(t)
+                flag_default = True
+            included_all.append(IncludedAudioTrack(
+                position=0,
+                raw=t,
+                language_literal=lang_lit,
+                codec_literal=codec_lit,
+                label=label,
+                flag_default=flag_default,
+                flag_forced=False,
+                selection_reason=f"Modo «mantener todas»: conservada y etiquetada automáticamente ({label})",
+            ))
+        return included_all, []
+
     target_langs = {"spanish"}
     if vo_norm != "spanish":
         target_langs.add(vo_norm)
@@ -421,6 +462,7 @@ def _quality_ladder_text(track: RawAudioTrack) -> str:
 def _select_subtitle_tracks(
     tracks: list[RawSubtitleTrack],
     vo_language: str,
+    mode: str = "filtered",
 ) -> tuple[list[IncludedSubtitleTrack], list[DiscardedTrack]]:
     """
     Selecciona las pistas de subtítulos según las reglas de la spec §5.2.
@@ -445,6 +487,51 @@ def _select_subtitle_tracks(
         Tupla (incluidas, descartadas) en el orden final de la spec.
     """
     vo_norm = vo_language.lower()
+
+    # ── Modo "keep_all": incluir TODAS las pistas con labels generados ──
+    if mode == "keep_all":
+        included_all: list[IncludedSubtitleTrack] = []
+        first_spanish_forced_seen = False
+        for t in tracks:
+            if t.language.lower() == "qad":
+                continue  # Audio Description siempre descartada
+            lang_norm = t.language.lower()
+            lang_lit = _language_literal(lang_norm)
+            is_castellano = lang_norm == "spanish"
+            # Clasificar tipo por packets (si hay) o bitrate sintético
+            if t.packet_count > 0:
+                if t.packet_count < 500:
+                    sub_type, type_lit = "forced", "Forzados"
+                else:
+                    sub_type, type_lit = "complete", "Completos"
+            else:
+                if t.bitrate_kbps < 3.0:
+                    sub_type, type_lit = "forced", "Forzados"
+                else:
+                    sub_type, type_lit = "complete", "Completos"
+            label = f"{lang_lit} {type_lit} (PGS)"
+            flag_forced = sub_type == "forced"
+            flag_default = False
+            # Default=True solo para la primera pista Castellano forzada
+            if is_castellano and flag_forced and not first_spanish_forced_seen:
+                flag_default = True
+                first_spanish_forced_seen = True
+            included_all.append(IncludedSubtitleTrack(
+                position=0,
+                raw=t,
+                language_literal=lang_lit,
+                subtitle_type=sub_type,
+                label=label,
+                flag_default=flag_default,
+                flag_forced=flag_forced,
+                selection_reason=(
+                    f"Modo «mantener todas»: conservada y etiquetada automáticamente "
+                    f"({label}, {t.packet_count} paquetes)"
+                    if t.packet_count > 0
+                    else f"Modo «mantener todas»: conservada y etiquetada automáticamente ({label})"
+                ),
+            ))
+        return included_all, []
 
     included: list[IncludedSubtitleTrack] = []
     discarded: list[DiscardedTrack] = []

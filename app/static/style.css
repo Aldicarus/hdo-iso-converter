@@ -1207,6 +1207,24 @@ body {
 
 /* Sizes */
 .btn-xs  { font-size: 11px; padding: 4px 9px;  border-radius: var(--r-xs); }
+
+/* Toggle de modo audio/subtítulos (filtered vs keep_all) */
+.mode-toggle {
+  background: transparent;
+  border: 1px solid var(--sep);
+  color: var(--text-2);
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+}
+.mode-toggle:hover { color: var(--text-1); border-color: var(--blue); }
+.mode-toggle.active {
+  background: var(--blue);
+  color: white;
+  border-color: var(--blue);
+  font-weight: 600;
+}
 .btn-sm  { font-size: 12px; padding: 6px 12px; }
 .btn-md  { font-size: 13px; padding: 8px 16px; }
 .btn-lg  { font-size: 14px; padding: 11px 22px; letter-spacing: -0.2px; }

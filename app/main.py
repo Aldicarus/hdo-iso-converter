@@ -246,6 +246,53 @@ async def update_session(session_id: str, body: SessionUpdateRequest):
     return session.model_dump()
 
 
+from pydantic import BaseModel as _BaseModel
+
+
+class ReapplyModeRequest(_BaseModel):
+    audio_mode: str | None = None       # 'filtered' | 'keep_all'
+    subtitle_mode: str | None = None
+
+
+@app.post("/api/sessions/{session_id}/reapply-rules",
+          summary="Re-ejecuta Fase B con modos de audio/subtítulos distintos")
+async def reapply_rules(session_id: str, body: ReapplyModeRequest):
+    """Re-aplica las reglas de selección con el modo indicado sin re-montar
+    el ISO. Regenera included_tracks / discarded_tracks a partir del
+    bdinfo_result ya cacheado en la sesión.
+    """
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    if not session.bdinfo_result:
+        raise HTTPException(status_code=400, detail="La sesión no tiene bdinfo_result — re-analiza el ISO primero")
+
+    if body.audio_mode is not None:
+        if body.audio_mode not in ("filtered", "keep_all"):
+            raise HTTPException(status_code=400, detail=f"audio_mode inválido: {body.audio_mode}")
+        session.audio_mode = body.audio_mode
+    if body.subtitle_mode is not None:
+        if body.subtitle_mode not in ("filtered", "keep_all"):
+            raise HTTPException(status_code=400, detail=f"subtitle_mode inválido: {body.subtitle_mode}")
+        session.subtitle_mode = body.subtitle_mode
+
+    # Re-aplicar reglas con los modos actuales
+    rules = apply_rules(
+        session.bdinfo_result,
+        session.iso_path,
+        session.audio_dcp,
+        audio_mode=session.audio_mode,
+        subtitle_mode=session.subtitle_mode,
+    )
+    session.included_tracks = rules["included_tracks"]
+    session.discarded_tracks = rules["discarded_tracks"]
+    # No sobrescribir mkv_name si el usuario lo editó manualmente
+    if not session.mkv_name_manual:
+        session.mkv_name = rules["mkv_name"]
+    save_session(session)
+    return session.model_dump()
+
+
 # ── Comprobar ISO duplicado ───────────────────────────────────────────────────
 
 @app.post("/api/check-duplicate", summary="Comprueba si ya existe un proyecto para este ISO")
