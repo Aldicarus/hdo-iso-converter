@@ -3,6 +3,15 @@ set -eo pipefail
 
 echo "[entrypoint] HDO ISO Converter arrancando..."
 
+# ── Configurar timezone del contenedor desde TZ env ─────────────────
+if [ -n "${TZ:-}" ] && [ -f "/usr/share/zoneinfo/${TZ}" ]; then
+  ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+  echo "${TZ}" > /etc/timezone
+  echo "[entrypoint] TZ configurado: ${TZ}"
+else
+  echo "[entrypoint] TZ no configurable (env=${TZ:-<unset>}, zoneinfo ausente). Usando UTC."
+fi
+
 # ── Validar volúmenes montados ───────────────────────────────────────
 for dir in /mnt/isos /mnt/output /mnt/tmp /config; do
   if [ ! -d "$dir" ]; then

@@ -17,7 +17,7 @@ ARG DOVI_TOOL_VERSION=2.1.2
 # kmod          — modprobe udf (entrypoint)
 # curl          — healthcheck Docker
 RUN apt-get update \
-    && apt-get install -y wget curl ca-certificates gnupg python3 python3-pip kmod ffmpeg \
+    && apt-get install -y wget curl ca-certificates gnupg python3 python3-pip kmod ffmpeg tzdata \
     && wget -qO /usr/share/keyrings/gpg-pub-moritzbunkus.gpg \
        https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/ubuntu/ jammy main" \
