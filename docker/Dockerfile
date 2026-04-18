@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 LABEL org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DOVI_TOOL_VERSION=2.1.2
+ARG DOVI_TOOL_VERSION=2.3.0
 
 # ── MKVToolNix oficial (v81+ requerido para Dolby Vision dual-layer) ──────────
 # Ubuntu 22.04 trae mkvtoolnix v65 que NO soporta DV. El repo oficial
