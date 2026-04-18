@@ -4539,6 +4539,9 @@ async function _refreshCMv40Session(pid) {
   if (project) {
     project.session = data;
     _updateCMv40Panel(project);
+    if (project.autoContinue && !data.running_phase && !data.error_message) {
+      _cmv40MaybeAutoAdvance(project);
+    }
   }
   refreshCMv40Sidebar();
 }
@@ -4638,7 +4641,8 @@ function _renderCMv40RunningOverlay(project) {
     // Actualizar título
     const titleEl = document.getElementById(`cmv40-running-title-${pid}`);
     if (titleEl) {
-      titleEl.textContent = CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`;
+      const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
+      titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
     }
   } else if (overlay) {
     // Quitar overlay con animación
@@ -4701,7 +4705,14 @@ function _cmv40BindRunningLog(project) {
 async function cmv40CancelRunning(pid) {
   if (!confirm('¿Cancelar la ejecución en curso?')) return;
   await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
-  showToast('Cancelando…', 'info');
+  // Cancelar también desactiva el auto-pipeline (evita que re-arranque la siguiente)
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project && project.autoContinue) {
+    project.autoContinue = false;
+    showToast('Cancelado — auto-avance desactivado', 'info');
+  } else {
+    showToast('Cancelando…', 'info');
+  }
 }
 
 function _renderCMv40Info(s, pid) {
@@ -4710,11 +4721,19 @@ function _renderCMv40Info(s, pid) {
   const srcDv = s.source_dv_info;
   const tgtDv = s.target_dv_info;
   const canEditName = s.phase !== 'done' && !s.archived;
+  const project = openCMv40Projects.find(p => p.id === pid);
+  const autoOn = !!(project && project.autoContinue);
+  const canAuto = s.phase !== 'done' && !s.archived;
   container.innerHTML = `
     <div class="section-card">
-      <div class="section-header">
+      <div class="section-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
         <div><div class="section-title">🎬 Proyecto CMv4.0</div>
         <div class="section-subtitle">💾 Los cambios se guardan automáticamente tras cada acción. Cerrar la pestaña no pierde nada.</div></div>
+        ${canAuto ? `
+        <button class="btn btn-${autoOn ? 'primary' : 'ghost'} btn-sm" onclick="cmv40ToggleAuto('${pid}')"
+          data-tooltip="Auto-ejecuta cada fase tras la anterior. Pausa obligatoria en Fase D para revisión visual del chart.">
+          ${autoOn ? '🤖 Auto ON' : '🤖 Auto OFF'}
+        </button>` : ''}
       </div>
       <div class="section-body">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
@@ -5240,7 +5259,10 @@ async function cmv40DoAnalyzeSource(pid) {
 
 /**
  * Polling hasta que la sesión alcance una fase objetivo (o error).
- * Refresca la UI cada 1s durante 60s máximo.
+ * Refresca la UI cada 500ms durante 5 min máximo.
+ *
+ * Si el proyecto tiene project.autoContinue === true y terminó la fase con
+ * éxito, dispara la siguiente fase automáticamente (sin atravesar Fase D).
  */
 async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
   for (let i = 0; i < maxTries; i++) {
@@ -5255,8 +5277,78 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
     // Termina cuando: no hay fase corriendo, alcanzó objetivo, hay error, o done
     if (!data.running_phase && (data.phase === targetPhase || data.phase === 'done' || data.error_message)) {
       refreshCMv40Sidebar();
+      // Auto-avanzar si el flag está activo y no hay error
+      if (project && project.autoContinue && !data.error_message && data.phase !== 'done') {
+        _cmv40MaybeAutoAdvance(project);
+      }
       return;
     }
+  }
+}
+
+/**
+ * Orquesta el auto-pipeline: dispara la siguiente fase según la actual.
+ * Fase D (extracted → sync_verified) es MANUAL por diseño — revisión visual.
+ */
+function _cmv40MaybeAutoAdvance(project) {
+  if (!project.autoContinue) return;
+  const s = project.session;
+  if (s.running_phase || s.error_message || s.archived) return;
+  const pid = project.id;
+  switch (s.phase) {
+    case 'created':
+      showToast('🤖 Auto: analizando origen', 'info');
+      cmv40DoAnalyzeSource(pid);
+      break;
+    case 'target_provided':
+      showToast('🤖 Auto: extrayendo BL/EL + per-frame', 'info');
+      cmv40DoExtract(pid);
+      break;
+    case 'extracted':
+      // Parada obligatoria: revisión visual del chart
+      showToast('🤖 Auto: pausa en Fase D — revisa el chart y confirma sync', 'info');
+      break;
+    case 'sync_verified':
+      showToast('🤖 Auto: inyectando RPU', 'info');
+      // bypass del modal de confirmación en auto-mode
+      _cmv40AutoInject(pid);
+      break;
+    case 'injected':
+      showToast('🤖 Auto: remuxando MKV final', 'info');
+      cmv40DoRemux(pid);
+      break;
+    case 'remuxed':
+      showToast('🤖 Auto: validando', 'info');
+      cmv40DoValidate(pid);
+      break;
+  }
+}
+
+async function _cmv40AutoInject(pid) {
+  await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
+  _cmv40PollPhase(pid, 'injected');
+}
+
+/** Toggle del auto-pipeline para un proyecto. */
+async function cmv40ToggleAuto(pid) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  // Si activamos, validar colisión de nombre en /mnt/output
+  if (!project.autoContinue) {
+    const existing = await apiFetch('/api/mkv/files');
+    const name = project.session.output_mkv_name;
+    if (existing?.files?.includes(name)) {
+      showToast(`⚠️ Ya existe un MKV con el nombre "${name}" en /mnt/output. Renómbralo antes de activar auto.`, 'warning');
+      return;
+    }
+  }
+  project.autoContinue = !project.autoContinue;
+  _updateCMv40Panel(project);
+  if (project.autoContinue) {
+    showToast('🤖 Auto-avance activado', 'success');
+    _cmv40MaybeAutoAdvance(project);
+  } else {
+    showToast('Auto-avance desactivado', 'info');
   }
 }
 
@@ -5316,7 +5408,15 @@ async function cmv40DoTargetFromPath(pid) {
   });
   if (data) {
     showToast('RPU target cargado', 'success');
-    _refreshCMv40Session(pid);
+    const project = openCMv40Projects.find(p => p.id === pid);
+    if (project) {
+      project.session = data;
+      _updateCMv40Panel(project);
+      refreshCMv40Sidebar();
+      if (project.autoContinue) _cmv40MaybeAutoAdvance(project);
+    } else {
+      _refreshCMv40Session(pid);
+    }
   }
 }
 
@@ -5845,8 +5945,17 @@ async function cmv40DoApplySync(pid) {
 async function cmv40DoSkipSync(pid) {
   const data = await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
   if (data) {
-    showToast('Sync confirmado sin corrección', 'success');
-    _refreshCMv40Session(pid);
+    showToast('Sync confirmado', 'success');
+    const project = openCMv40Projects.find(p => p.id === pid);
+    if (project) {
+      project.session = data;
+      _updateCMv40Panel(project);
+      refreshCMv40Sidebar();
+      // Si auto está activo, disparar el siguiente tramo (inject → remux → validate)
+      if (project.autoContinue) {
+        _cmv40MaybeAutoAdvance(project);
+      }
+    }
   }
 }
 
