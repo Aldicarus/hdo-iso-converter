@@ -1038,6 +1038,24 @@ async def list_mkv_files():
     return {"files": files}
 
 
+@app.get("/api/mkv/files-in-isos", summary="Lista MKVs en el directorio de ISOs (para Tab 3 Fase B)")
+async def list_mkv_files_in_isos():
+    """Devuelve .mkv presentes en ISOS_DIR con su ruta absoluta.
+
+    Usado por la Fase B de Tab 3 para extraer el RPU target desde otro MKV
+    (típicamente un rip CMv4.0 almacenado junto a los ISOs originales).
+    """
+    if DEV_MODE:
+        return {"files": [{"name": f, "path": f"/mnt/isos/{f}"} for f in DEV_FAKE_MKV_FILES]}
+    if not ISOS_DIR.exists():
+        return {"files": []}
+    files = sorted(
+        [{"name": p.name, "path": str(p)} for p in ISOS_DIR.rglob("*.mkv")],
+        key=lambda x: x["name"].lower(),
+    )
+    return {"files": files}
+
+
 @app.post("/api/mkv/analyze", summary="Analiza un MKV existente")
 async def analyze_mkv_endpoint(body: dict):
     """
@@ -1489,6 +1507,24 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         session.sync_delta = 0
     if _clear_from("sync_corrected"):
         session.sync_config = None
+        # Restaurar target_frame_count / sync_delta al valor del RPU original,
+        # no al del RPU_synced (que se está borrando aguas abajo).
+        if session.artifacts_dir:
+            rpu_target_bin = Path(session.artifacts_dir) / "RPU_target.bin"
+            if rpu_target_bin.exists() and session.source_frame_count:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "dovi_tool", "info", "--summary", str(rpu_target_bin),
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, _ = await proc.communicate()
+                    from phases.phase_a import _parse_dovi_summary
+                    dovi_info = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
+                    if dovi_info.frame_count > 0:
+                        session.target_frame_count = dovi_info.frame_count
+                        session.sync_delta = dovi_info.frame_count - session.source_frame_count
+                except Exception as e:
+                    _logger.warning("Re-análisis del RPU target original falló tras reset: %s", e)
     if _clear_from("done"):
         session.output_mkv_path = ""
 
@@ -1819,6 +1855,22 @@ async def cmv40_reset_sync(session_id: str):
     session.sync_config = None
     save_cmv40_session(session)
     await _cmv40_log(session, "Corrección descartada — target restaurado a estado original")
+
+    # Regenerar per_frame_data.json desde el RPU target original
+    from phases.cmv40_pipeline import _generate_per_frame_data, FPS_EXPORT
+    rpu_source = wd / "RPU_source.bin"
+    per_frame  = wd / "per_frame_data.json"
+    if rpu_source.exists() and rpu_target.exists():
+        async def _log_cb(msg: str):
+            await _cmv40_log(session, msg)
+        est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
+        try:
+            await _generate_per_frame_data(
+                session, rpu_source, rpu_target, per_frame, _log_cb,
+                est_export_s=est_export,
+            )
+        except Exception as e:
+            _logger.warning("Regeneración de per_frame_data falló: %s", e)
     return session.model_dump()
 
 
