@@ -766,6 +766,49 @@ def find_main_m2ts(share_path: str) -> str | None:
     return str(max(m2ts_files, key=lambda p: p.stat().st_size))
 
 
+async def run_pgs_packet_counts(m2ts_path: str) -> dict[int, int]:
+    """Cuenta paquetes por pista PGS del m2ts usando ffprobe -count_packets.
+
+    El número de paquetes PES es el proxy más fiable del volumen real de
+    subtítulos (forzado vs completo vs audiodescripción), ya que MediaInfo
+    y el bit_rate de ffprobe devuelven N/A para PGS.
+
+    Devuelve {stream_index: packet_count}. Dict vacío si ffprobe falla.
+    Tarda ~1-3 min en m2ts de 60GB.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-select_streams", "s",
+            "-count_packets",
+            "-show_entries", "stream=index,nb_read_packets",
+            "-of", "csv=p=0",
+            m2ts_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode != 0:
+            _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr.decode()[:200])
+            return {}
+        result: dict[int, int] = {}
+        for line in stdout.decode("utf-8", errors="replace").splitlines():
+            parts = line.strip().split(",")
+            if len(parts) >= 2:
+                try:
+                    idx, pkt = int(parts[0]), int(parts[1])
+                    result[idx] = pkt
+                except ValueError:
+                    continue
+        return result
+    except asyncio.TimeoutError:
+        _logger.warning("ffprobe packet count: timeout tras 10 min")
+        return {}
+    except Exception as e:
+        _logger.warning("ffprobe packet count error: %s", e)
+        return {}
+
+
 async def run_mediainfo(file_path: str) -> MediaInfoResult:
     """
     Ejecuta ``mediainfo --Output=JSON`` sobre un m2ts o MKV.
@@ -1072,6 +1115,30 @@ async def run_full_analysis(
             _logger.warning("MediaInfo falló (no bloquea): %s", e)
             if log_callback:
                 await log_callback(f"[Fase A] ⚠️ MediaInfo falló: {e}")
+
+        # 3b. Contar paquetes PES de cada subtítulo PGS (ffprobe -count_packets).
+        # Proxy fiable del volumen de subtítulo — permite distinguir forzado,
+        # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de 60GB.
+        try:
+            if log_callback:
+                await log_callback("[Fase A] Contando paquetes PGS (ffprobe, 1-3 min)…")
+            pgs_packets = await run_pgs_packet_counts(m2ts_path)
+            if pgs_packets:
+                # ffprobe devuelve índices ascendentes; asignamos por posición
+                # a subtitle_tracks (ambos en el mismo orden del m2ts).
+                sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
+                for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
+                    raw_sub.packet_count = pc
+                if log_callback:
+                    preview = ", ".join(
+                        f"{s.language[:3]}={s.packet_count}"
+                        for s in bdinfo.subtitle_tracks[:12]
+                    )
+                    await log_callback(f"[Fase A] PGS packets: {preview}…")
+        except Exception as e:
+            _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] ⚠️ ffprobe packet count falló: {e}")
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel

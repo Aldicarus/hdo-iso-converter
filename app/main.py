@@ -314,6 +314,8 @@ async def analyze_iso(body: AnalyzeRequest):
             _analyze_progress = {"step": "chapters", "done": False}
         elif "mediainfo" in msg_l:
             _analyze_progress = {"step": "mediainfo", "done": False}
+        elif "packet" in msg_l or "paquetes pgs" in msg_l:
+            _analyze_progress = {"step": "pgs", "done": False}
         elif "dovi_tool" in msg_l or "dolby vision" in msg_l:
             _analyze_progress = {"step": "dovi", "done": False}
 

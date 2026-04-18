@@ -468,14 +468,53 @@ def _select_subtitle_tracks(
         by_lang.setdefault(lang, []).append(t)
 
     def _classify_lang(lang_tracks: list[RawSubtitleTrack]) -> tuple[
-        RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack]
+        RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack],
+        list[RawSubtitleTrack]
     ]:
         """
-        Clasifica las pistas de un idioma en (forzados, completos, sobrantes).
-        Forma A: si hay ≥2 pistas y una tiene bitrate < 3 kbps → es la de forzados.
-        Las sobrantes son pistas que no se clasifican como forzada ni completa
-        principal — deben descartarse explícitamente para que nunca desaparezcan.
+        Clasifica las pistas de un idioma en (forzados, completo, audio_descripción, otros_sobrantes).
+
+        **Modo A — packet-based (si packet_count disponible en alguna pista):**
+          - Forzados:  packets < 500
+          - Candidatos completo: el resto
+          - Audiodescripción: packet_count > 1.3× mediana de candidatos completo
+          - Completo final: primer candidato no-AD por posición original
+          - Forzado final:  primer forzado por posición original
+
+        **Modo B — bitrate sintético (fallback, antes de ffprobe -count_packets):**
+          Forma A: si hay ≥2 pistas y una tiene bitrate < 3 kbps → es la de forzados.
+
+        Devuelve (forced, complete, audio_descriptions, otros_sobrantes).
+        Las AD y sobrantes se descartarán explícitamente con razón distinta.
         """
+        has_packets = any(t.packet_count > 0 for t in lang_tracks)
+
+        if has_packets:
+            forced_cands = [t for t in lang_tracks if t.packet_count < 500]
+            other_cands  = [t for t in lang_tracks if t.packet_count >= 500]
+            # Detectar audiodescripción: pistas con packet_count >1.3× del MÍNIMO
+            # del grupo no-forzado. Usamos mínimo (no mediana) porque con solo 2
+            # pistas la mediana=promedio y los outliers no se detectan.
+            audio_descriptions: list[RawSubtitleTrack] = []
+            complete_cands = other_cands
+            if len(other_cands) >= 2:
+                base = min(t.packet_count for t in other_cands)
+                threshold_ad = base * 1.3
+                complete_cands = [t for t in other_cands if t.packet_count <= threshold_ad]
+                audio_descriptions = [t for t in other_cands if t.packet_count > threshold_ad]
+
+            # Escoger primero por posición original (ya vienen en orden del m2ts)
+            forced   = forced_cands[0] if forced_cands else None
+            complete = complete_cands[0] if complete_cands else None
+            used = {id(t) for t in (forced, complete) if t}
+            # Sobrantes: forzados extra y completos extra (no AD)
+            leftover = [
+                t for t in lang_tracks
+                if id(t) not in used and t not in audio_descriptions
+            ]
+            return forced, complete, audio_descriptions, leftover
+
+        # ── Fallback: bitrate sintético (cuando ffprobe no pudo medir) ──
         if len(lang_tracks) >= 2:
             low = [t for t in lang_tracks if t.bitrate_kbps < 3.0]
             high = [t for t in lang_tracks if t.bitrate_kbps >= 3.0]
@@ -486,11 +525,10 @@ def _select_subtitle_tracks(
                 if complete:
                     used.add(id(complete))
                 leftover = [t for t in lang_tracks if id(t) not in used]
-                return forced, complete, leftover
-        # Una sola pista o sin forzados → completos
+                return forced, complete, [], leftover
         if lang_tracks:
-            return None, lang_tracks[0], lang_tracks[1:]
-        return None, None, []
+            return None, lang_tracks[0], [], lang_tracks[1:]
+        return None, None, [], []
 
     # Clasificar pistas por idioma (forzados, completos, sobrantes)
     classified: dict[str, tuple[RawSubtitleTrack | None, RawSubtitleTrack | None]] = {}
@@ -502,8 +540,18 @@ def _select_subtitle_tracks(
 
     for lang_norm in target_langs:
         if lang_norm in by_lang:
-            forced, complete, leftover = _classify_lang(by_lang[lang_norm])
+            forced, complete, audio_descriptions, leftover = _classify_lang(by_lang[lang_norm])
             classified[lang_norm] = (forced, complete)
+            # Descartar audiodescripción con razón explícita
+            for t in audio_descriptions:
+                discarded.append(DiscardedTrack(
+                    track_type="subtitle",
+                    raw=t,
+                    discard_reason=(
+                        f"Descartada: detectada como audiodescripción "
+                        f"(packet_count={t.packet_count} > 1.3× del mínimo del idioma)"
+                    ),
+                ))
             # Descartar pistas sobrantes del mismo idioma
             for t in leftover:
                 discarded.append(DiscardedTrack(
@@ -549,11 +597,17 @@ def _select_subtitle_tracks(
 
         if track_type == "forced" and forced_track:
             flag_default = is_castellano
-            reason_forced = (
-                f"Forzados Forma A: bitrate {forced_track.bitrate_kbps:.3f} kbps < umbral 3 kbps. "
-                f"Pista completa {lang_norm.capitalize()} presente"
-                + (f" con bitrate {complete_track.bitrate_kbps:.3f} kbps" if complete_track else "")
-            )
+            if forced_track.packet_count > 0:
+                reason_forced = (
+                    f"Forzados (packet-based): {forced_track.packet_count} paquetes < 500. "
+                    f"Primera pista forzada para {lang_norm.capitalize()}"
+                )
+            else:
+                reason_forced = (
+                    f"Forzados Forma A: bitrate {forced_track.bitrate_kbps:.3f} kbps < umbral 3 kbps. "
+                    f"Pista completa {lang_norm.capitalize()} presente"
+                    + (f" con bitrate {complete_track.bitrate_kbps:.3f} kbps" if complete_track else "")
+                )
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=forced_track,
@@ -566,7 +620,13 @@ def _select_subtitle_tracks(
             ))
 
         if track_type == "complete" and complete_track:
-            reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
+            if complete_track.packet_count > 0:
+                reason_complete = (
+                    f"Completos (packet-based): {complete_track.packet_count} paquetes, "
+                    f"primera pista completa para {lang_norm.capitalize()}"
+                )
+            else:
+                reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=complete_track,

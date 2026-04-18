@@ -214,6 +214,16 @@ class RawSubtitleTrack(BaseModel):
     resolution: str = ""
     """Resolución del subtítulo PGS (ej: '1920x1080'). De MediaInfo."""
 
+    packet_count: int = 0
+    """Número de paquetes PES de la pista PGS (medido por ffprobe -count_packets).
+
+    Es el proxy más fiable del volumen de subtítulo real (eventos de pantalla):
+    - Forzado típico: <500 paquetes
+    - Completo típico: ~7.000-11.000 paquetes
+    - Audiodescripción: paquetes > 1.3× mediana del idioma
+
+    0 si ffprobe no pudo medirlo (fallback a heurística de patrones)."""
+
 
 class BDInfoResult(BaseModel):
     """

@@ -973,19 +973,30 @@ async function _doAnalyzeISO(isoPath, isoName) {
   openModal('analyze-modal');
 
   // Polling de progreso real del backend
-  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'dovi', 'rules'];
+  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
   let lastStep = 'mount';
+  let stepStartTs = Date.now();
   const pollId = setInterval(async () => {
     try {
       const prog = await apiFetch('/api/analyze/progress');
       if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
         const prevIdx = steps.indexOf(lastStep);
         const newIdx = steps.indexOf(prog.step);
-        // Marcar como completados todos los pasos intermedios
         for (let i = prevIdx; i < newIdx; i++) {
           _advanceAnalyzeStep(steps[i], steps[i + 1]);
         }
         lastStep = prog.step;
+        stepStartTs = Date.now();
+      }
+      // Timer en vivo para el paso largo (pgs): muestra segundos transcurridos
+      if (lastStep === 'pgs') {
+        const el = document.getElementById('analyze-step-pgs');
+        if (el) {
+          const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
+          const mm = Math.floor(elapsed / 60);
+          const ss = (elapsed % 60).toString().padStart(2, '0');
+          el.textContent = `⏳ Contando paquetes PGS por subtítulo · ${mm}:${ss} transcurridos (1-3 min)…`;
+        }
       }
     } catch (_) { /* silenciar errores de polling */ }
   }, 500);
@@ -1027,7 +1038,7 @@ async function _doAnalyzeISO(isoPath, isoName) {
 
 /** Resetea todos los pasos del modal de análisis al estado inicial. */
 function _resetAnalyzeSteps() {
-  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'dovi', 'rules'];
+  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
   steps.forEach((s, i) => {
     const el = document.getElementById(`analyze-step-${s}`);
     if (!el) return;
@@ -1650,17 +1661,20 @@ function renderIncludedTracks(tracks) {
       const def  = track.flag_default ? ' active-default' : '';
       const frc  = track.flag_forced  ? ' active-forced'  : '';
       const subTypeLabel = track.subtitle_type === 'forced' ? 'Forzados' : 'Completos';
+      const packets = raw.packet_count || 0;
       const tooltip = [
         `Codec: PGS (Presentation Graphics)`,
         `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
         `Tipo: ${subTypeLabel}`,
         raw.resolution ? `Resolución: ${raw.resolution}` : null,
-        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps} kbps` : null,
+        packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
+        raw.bitrate_kbps ? `Bitrate sintético: ${raw.bitrate_kbps} kbps` : null,
         `Posición en MKV: #${flatIdx + 1}`,
         '',
         `Razón: ${track.selection_reason || '—'}`,
       ].filter(Boolean).join('\n');
-      const rawLine = `PGS · ${langLiteral(raw.language)} · ${subTypeLabel}`;
+      const pktTag = packets > 0 ? ` · ${packets.toLocaleString()} paq.` : '';
+      const rawLine = `PGS · ${langLiteral(raw.language)} · ${subTypeLabel}${pktTag}`;
       const origIdx = _findOriginalTrackIndex(raw, 'subtitle');
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
@@ -1910,8 +1924,16 @@ function showRawAnalysisData() {
 
     lines.push(`── Subtítulos adaptado (${bd.subtitle_tracks?.length || 0} pistas) ──`);
     (bd.subtitle_tracks || []).forEach((t, i) => {
-      const tipo = t.bitrate_kbps < 3 ? 'FORZADO (heurística)' : 'COMPLETO (heurística)';
-      lines.push(`  #${i+1} lang="${t.language}" | bitrate_sintético=${t.bitrate_kbps} → ${tipo}`);
+      const pkts = t.packet_count || 0;
+      let tipo, extra;
+      if (pkts > 0) {
+        tipo = pkts < 500 ? 'FORZADO' : 'COMPLETO';
+        extra = `packets=${pkts}`;
+      } else {
+        tipo = t.bitrate_kbps < 3 ? 'FORZADO (patrón)' : 'COMPLETO (patrón)';
+        extra = `bitrate_sintético=${t.bitrate_kbps}`;
+      }
+      lines.push(`  #${i+1} lang="${t.language}" | ${extra} → ${tipo}`);
     });
     lines.push('');
   }
@@ -1986,7 +2008,8 @@ function showRawAnalysisData() {
       lines.push(`  ${i+1}. [AUDIO] label="${t.label}" | default=${t.flag_default} | raw: lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"`);
       lines.push(`         razón: ${t.selection_reason || '—'}`);
     } else {
-      lines.push(`  ${i+1}. [SUB] label="${t.label}" | tipo=${t.subtitle_type} | default=${t.flag_default} | forced=${t.flag_forced} | raw: lang="${raw.language}" bitrate=${raw.bitrate_kbps}`);
+      const pktInfo = raw.packet_count ? ` packets=${raw.packet_count}` : ` bitrate=${raw.bitrate_kbps}`;
+      lines.push(`  ${i+1}. [SUB] label="${t.label}" | tipo=${t.subtitle_type} | default=${t.flag_default} | forced=${t.flag_forced} | raw: lang="${raw.language}"${pktInfo}`);
       lines.push(`         razón: ${t.selection_reason || '—'}`);
     }
   });
@@ -2000,7 +2023,8 @@ function showRawAnalysisData() {
       const fc = raw.format_commercial ? ` | format="${raw.format_commercial}"` : '';
       lines.push(`  ${i+1}. [AUDIO] lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"${br}${fc}`);
     } else {
-      lines.push(`  ${i+1}. [SUB] lang="${raw.language}" bitrate=${raw.bitrate_kbps}`);
+      const pktInfo = raw.packet_count ? `packets=${raw.packet_count}` : `bitrate=${raw.bitrate_kbps}`;
+      lines.push(`  ${i+1}. [SUB] lang="${raw.language}" ${pktInfo}`);
     }
     lines.push(`         razón: ${t.discard_reason}`);
   });
