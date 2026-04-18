@@ -2089,15 +2089,20 @@ async def cmv40_validate(session_id: str):
         await _cmv40_log(session, "[DEV] Fase H OK — MKV CMv4.0 validado")
         return session.model_dump()
 
+    _cmv40_cancel_flags.pop(session_id, None)
+
     async def _coro(log_cb, proc_cb):
-        result = await run_phase_h_validate(session, log_cb)
+        result = await run_phase_h_validate(session, log_cb, proc_cb)
         session.output_log.append(f"Validación final: {result}")
 
-    try:
-        await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
-        return session.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
 
 
 # ── WebSocket de CMv4.0 ──────────────────────────────────────────────────────

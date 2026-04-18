@@ -5730,11 +5730,10 @@ async function cmv40DoRemux(pid) {
 }
 
 async function cmv40DoValidate(pid) {
-  const data = await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
-  if (data) {
-    showToast('¡Validación OK! MKV CMv4.0 listo.', 'success');
-    _refreshCMv40Session(pid);
-  }
+  await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
+  showToast('Validando MKV final…', 'info');
+  // Polling — Fase H dura varios minutos (move 42 GB), no se puede hacer síncrono
+  _cmv40PollPhase(pid, 'done');
 }
 
 async function cmv40Cleanup(pid) {

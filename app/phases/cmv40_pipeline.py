@@ -1404,6 +1404,7 @@ async def run_phase_g_remux(
 async def run_phase_h_validate(
     session: CMv40Session,
     log_callback=None,
+    proc_callback=None,
 ) -> dict:
     """
     Valida que el MKV resultante tiene DV CMv4.0 correctamente.
@@ -1416,28 +1417,53 @@ async def run_phase_h_validate(
     if not output_mkv.exists():
         raise RuntimeError("output.mkv no existe — ejecuta Fase G primero")
 
-    # Validar DV con dovi_tool
     if log_callback:
-        await log_callback("[Fase H] Validando DV del MKV resultante…")
-    await _emit_progress(log_callback, 0, "Extrayendo muestra para validación")
+        mkv_gb = output_mkv.stat().st_size / 1e9
+        await log_callback(f"[Fase H] Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
 
-    # Extraer RPU del MKV y comprobar CM version
+    # Extraer muestra de 30s del MKV (con progreso visible — el scan de 42GB
+    # tarda 1-3 min en NAS). ffmpeg emite time= progress que _run_streaming
+    # convierte a §§PROGRESS§§.
     temp_hevc = wd / "_validate.hevc"
     temp_rpu  = wd / "_validate_rpu.bin"
     try:
-        await _run([
+        if log_callback:
+            await log_callback("[Fase H] Paso 1/4: extrayendo muestra de 30s (ffmpeg)…")
+        rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", str(output_mkv),
             "-map", "0:v:0", "-c:v", "copy",
             "-bsf:v", "hevc_mp4toannexb",
             "-t", "30", "-f", "hevc", str(temp_hevc),
-        ], timeout=120)
-        await _emit_progress(log_callback, 20, "Extrayendo RPU de la muestra")
-        await _run([DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(temp_rpu)], timeout=60)
-        await _emit_progress(log_callback, 40, "Analizando CM version")
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "duration": 30.0,  # extraemos 30s → time= llega hasta 30
+               "offset": 0.0, "weight": 20.0,
+               "label": "Extrayendo muestra para validación",
+           })
+        if rc != 0:
+            raise RuntimeError(f"ffmpeg falló extrayendo muestra (rc={rc})")
+
+        if log_callback:
+            await log_callback("[Fase H] Paso 2/4: extrayendo RPU de la muestra…")
+        await _emit_progress(log_callback, 25, "Extrayendo RPU de la muestra")
+        rc, _, err = await _run([
+            DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(temp_rpu),
+        ], timeout=60)
+        if rc != 0:
+            raise RuntimeError(f"extract-rpu falló: {err[:200]}")
+
+        if log_callback:
+            await log_callback("[Fase H] Paso 3/4: analizando CM version y FEL…")
+        await _emit_progress(log_callback, 40, "Analizando metadata DV")
         rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(temp_rpu)], timeout=30)
         if rc != 0:
-            raise RuntimeError(f"Validación DV falló: {err[:200]}")
+            raise RuntimeError(f"dovi_tool info falló: {err[:200]}")
         result_info = _parse_dovi_summary(summary)
+        if log_callback:
+            await log_callback(
+                f"[Fase H] DV detectado: Profile {result_info.profile} ({result_info.el_type}), "
+                f"CM {result_info.cm_version}"
+            )
     finally:
         temp_hevc.unlink(missing_ok=True)
         temp_rpu.unlink(missing_ok=True)
@@ -1448,18 +1474,63 @@ async def run_phase_h_validate(
         )
 
     # Validar pistas con mkvmerge -J
+    if log_callback:
+        await log_callback("[Fase H] Paso 4/4: validando pistas (mkvmerge -J)…")
     await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
     rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
     if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge -J falló sobre MKV final: {err[:200]}")
 
-    # Mover a /mnt/output (puede tardar con 40 GB en ZFS)
-    await _emit_progress(log_callback, 60, "Moviendo MKV final a /mnt/output")
+    # Mover a /mnt/output — puede tardar varios minutos con 42GB en ZFS.
+    # Usamos task en background que monitorea crecimiento del destino para
+    # emitir % real de copia.
     final_path = OUTPUT_DIR / session.output_mkv_name
     if final_path.exists():
         raise RuntimeError(f"Ya existe un MKV con ese nombre: {session.output_mkv_name}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(output_mkv), str(final_path))
+
+    total_bytes = output_mkv.stat().st_size
+    if log_callback:
+        await log_callback(
+            f"[Fase H] Moviendo MKV final ({total_bytes / 1e9:.1f} GB) a /mnt/output…"
+        )
+
+    # Monitor de progreso durante el move (copy-then-delete en cross-fs)
+    stop_mon = asyncio.Event()
+    start_mon = time.monotonic()
+
+    async def _monitor_move():
+        while not stop_mon.is_set():
+            try:
+                if final_path.exists():
+                    cur = final_path.stat().st_size
+                    pct = min(99.0, (cur / total_bytes) * 100.0)
+                    phase_pct = 55.0 + pct * 0.4  # 55% → 95% durante el move
+                    elapsed = time.monotonic() - start_mon
+                    eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
+                    await _emit_progress(
+                        log_callback, phase_pct,
+                        f"Moviendo a /mnt/output ({cur / 1e9:.1f}/{total_bytes / 1e9:.1f} GB)",
+                        int(eta) if eta else 0,
+                    )
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_mon.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
+    mon_task = asyncio.create_task(_monitor_move())
+    try:
+        # shutil.move es bloqueante y no async; lo ejecutamos en thread pool
+        await asyncio.to_thread(shutil.move, str(output_mkv), str(final_path))
+    finally:
+        stop_mon.set()
+        try:
+            await mon_task
+        except Exception:
+            pass
+
     session.output_mkv_path = str(final_path)
     await _emit_progress(log_callback, 100, "Validación completada")
 
