@@ -5590,14 +5590,16 @@ function _renderCMv40SyncStats(project) {
   const pid = project.id;
   const container = document.getElementById(`cmv40-sync-stats-${pid}`);
   if (!container) return;
-  // Δ autoritativo: session.sync_delta (refleja correcciones ya aplicadas).
-  const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
+  // Frame counts autoritativos de la sesión (reflejan correcciones ya aplicadas).
+  const srcFrames = (s && s.source_frame_count) || d.source_frames;
+  const tgtFrames = (s && s.target_frame_count) || d.target_frames;
+  const delta = (s && s.sync_delta != null) ? s.sync_delta : (tgtFrames - srcFrames);
   const suggested = d.suggested_offset || {};
 
   container.innerHTML = `
     <div class="cmv40-sync-row">
-      <div><span class="sync-label">Frames origen:</span> <b>${d.source_frames.toLocaleString()}</b></div>
-      <div><span class="sync-label">Frames target:</span> <b>${d.target_frames.toLocaleString()}</b></div>
+      <div><span class="sync-label">Frames origen:</span> <b>${srcFrames.toLocaleString()}</b></div>
+      <div><span class="sync-label">Frames target:</span> <b>${tgtFrames.toLocaleString()}</b></div>
       <div><span class="sync-label">Diferencia:</span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta}</b></div>
     </div>
     ${suggested.offset !== undefined && suggested.offset !== 0 ? `
