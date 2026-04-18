@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
-        DOVI_TOOL_VERSION: "2.1.2"
+        DOVI_TOOL_VERSION: "2.3.2"
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter
