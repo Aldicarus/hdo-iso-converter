@@ -1566,7 +1566,13 @@ function _findOriginalTrackIndex(raw, type) {
       t.language === raw.language && t.codec === raw.codec && t.description === raw.description
     );
   }
-  // Subtítulos: comparar por idioma + bitrate (único combo)
+  // Subtítulos: si tenemos packet_count (heurístico nuevo), usarlo como
+  // discriminador principal — el bitrate sintético es idéntico para todos.
+  if (raw.packet_count && raw.packet_count > 0) {
+    return bd.subtitle_tracks.findIndex(t =>
+      t.language === raw.language && t.packet_count === raw.packet_count
+    );
+  }
   return bd.subtitle_tracks.findIndex(t =>
     t.language === raw.language && t.bitrate_kbps === raw.bitrate_kbps
   );
