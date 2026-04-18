@@ -1158,7 +1158,8 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
 
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     """Añade un log a la sesión CMv4.0 y lo emite por WebSocket."""
-    ts_msg = f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}"
+    # Timestamp en hora local del contenedor (TZ env, ej: Europe/Madrid)
+    ts_msg = f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
     session.output_log.append(ts_msg)
     save_cmv40_session(session)
     # Broadcast a clientes WS conectados
