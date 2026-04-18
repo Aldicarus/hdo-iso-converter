@@ -228,15 +228,37 @@ async def _probe_frame_count(media_path: str) -> int:
     return 0
 
 
-# Ratios medidos (frames/segundo) para estimar ETAs en NAS QNAP.
-# Obtenidos de runs reales sobre Zootrópolis 2 (155k frames).
-FPS_FFMPEG_EXTRACT = 1336.0  # ffmpeg extract HEVC (copy) — solo fallback, hay progreso real
-FPS_EXTRACT_RPU    = 1450.0  # dovi_tool extract-rpu
-FPS_DEMUX          = 1100.0  # dovi_tool demux
-FPS_EXPORT         = 7000.0  # dovi_tool export -d all
-FPS_INJECT         = 760.0   # dovi_tool inject-rpu
-FPS_MUX            = 711.0   # dovi_tool mux (BL + EL → DV dual-layer)
-FPS_MKVMERGE       = 429.0   # mkvmerge remux — solo fallback, hay progreso real
+# Ratios medidos vs wall-time de ffmpeg HEVC extract (anclaje empírico).
+# Todas las operaciones silenciosas comparten el cuello de botella I/O del NAS,
+# por eso escalan linealmente con el ffmpeg previo. Medido en 2 runs del mismo
+# MKV con NAS a distinta carga (116s y 157s de ffmpeg) — los ratios se mantienen.
+RATIO_EXTRACT_RPU  = 0.92    # extract-rpu / ffmpeg
+RATIO_DEMUX        = 1.30    # demux / ffmpeg
+RATIO_EXPORT       = 0.19    # export -d all (por RPU) / ffmpeg
+RATIO_INJECT       = 1.77    # inject-rpu / ffmpeg
+RATIO_MUX          = 1.88    # dovi_tool mux / ffmpeg
+
+# Fallbacks si no conocemos ffmpeg_wall_seconds (sesiones antiguas o sin A).
+FPS_FFMPEG_EXTRACT = 1336.0
+FPS_EXTRACT_RPU    = 1450.0
+FPS_DEMUX          = 1100.0
+FPS_EXPORT         = 7000.0
+FPS_INJECT         = 760.0
+FPS_MUX            = 711.0
+FPS_MKVMERGE       = 429.0
+
+
+def _estimate_from_ffmpeg(session: CMv40Session, ratio: float, fps_fallback: float) -> float:
+    """Devuelve estimación wall-time en segundos.
+
+    Preferente: ffmpeg_wall_seconds * ratio (adapta a la carga actual del NAS).
+    Fallback: frame_count / fps_fallback (constante, cuando no hay ancla).
+    """
+    if session.ffmpeg_wall_seconds and session.ffmpeg_wall_seconds > 5:
+        return session.ffmpeg_wall_seconds * ratio
+    if session.source_frame_count:
+        return session.source_frame_count / fps_fallback
+    return 120.0
 
 
 async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
@@ -541,14 +563,20 @@ async def run_phase_a_analyze_source(
             await log_callback("[Fase A] source.hevc ya existe, reutilizando")
     await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
 
+    # Guardar wall-time de ffmpeg como ancla para estimaciones futuras
+    if ffmpeg_elapsed > 5:
+        session.ffmpeg_wall_seconds = ffmpeg_elapsed
+
     # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
     if log_callback:
         await log_callback("[Fase A] Extrayendo RPU del HEVC (dovi_tool extract-rpu)…")
-    # Estimado por frames si lo conocemos; si no, fallback a tiempo ffmpeg
-    if frame_count > 0:
+    # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
+    if ffmpeg_elapsed > 5:
+        est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
+    elif frame_count > 0:
         est_rpu = frame_count / FPS_EXTRACT_RPU
     else:
-        est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+        est_rpu = 120.0
     rc, out, err = await _run_with_time_estimate([
         DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
     ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
@@ -677,10 +705,13 @@ async def run_phase_b_target_from_mkv(
 
         if log_callback:
             await log_callback("[Fase B] Extrayendo RPU del HEVC target…")
-        if frame_count > 0:
+        # Ancla: wall time del ffmpeg que acabamos de medir (mejor que del source)
+        if ffmpeg_elapsed > 5:
+            est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
+        elif frame_count > 0:
             est_rpu = frame_count / FPS_EXTRACT_RPU
         else:
-            est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+            est_rpu = 120.0
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
@@ -760,7 +791,7 @@ async def run_phase_c_extract(
     if frame_count <= 0:
         frame_count = await _probe_frame_count(str(source_hevc))
 
-    est_demux = (frame_count / FPS_DEMUX) if frame_count > 0 else 180.0
+    est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
 
     # Paso 1: Demux BL + EL (silencioso → progreso estimado)
     await _emit_progress(log_callback, 0, "Separando BL + EL")
@@ -784,7 +815,7 @@ async def run_phase_c_extract(
     # Paso 2: Generar per_frame_data.json
     if log_callback:
         await log_callback("[Fase C] Generando datos per-frame para el chart…")
-    est_export = max(10.0, frame_count / FPS_EXPORT) if frame_count > 0 else 30.0
+    est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
     await _generate_per_frame_data(
         session, rpu_source, rpu_target, per_frame, log_callback,
         progress_offset=W_DEMUX, progress_weight=W_PFD,
@@ -1049,7 +1080,7 @@ async def run_phase_e_correct_sync(
     if rpu_source.exists() and rpu_synced.exists():
         if log_callback:
             await log_callback("[Fase E] Regenerando datos per-frame con el target corregido…")
-        est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
+        est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
         await _generate_per_frame_data(
             session, rpu_source, rpu_synced, per_frame, log_callback,
             progress_offset=0.0, progress_weight=100.0, est_export_s=est_export,
@@ -1093,7 +1124,7 @@ async def run_phase_f_inject(
             f"[Fase F] Inyectando RPU en EL "
             f"(RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
         )
-    est_inject = rpu_frames / FPS_INJECT if rpu_frames > 0 else 200.0
+    est_inject = _estimate_from_ffmpeg(session, RATIO_INJECT, FPS_INJECT)
     await _emit_progress(log_callback, 0, "Inyectando RPU en EL")
     rc = await _run_streaming([
         DOVI_TOOL_BIN, "inject-rpu",
@@ -1141,7 +1172,8 @@ async def run_phase_g_remux(
     # Pesos: dovi_tool mux 38% (~218s) · mkvmerge remux 62% (~361s) para 155k frames
     W_MUX, W_MKV = 38.0, 62.0
     frames = session.source_frame_count or 0
-    est_mux = frames / FPS_MUX if frames > 0 else 200.0
+    est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)
+    # mkvmerge emite Progress: real; el estimado solo cubre el arranque
     est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
 
     # Paso 1: dovi_tool mux → dual-layer HEVC

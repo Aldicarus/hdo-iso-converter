@@ -810,6 +810,11 @@ class CMv40Session(BaseModel):
     source_video_codec: str = ""
     source_duration_seconds: float = 0.0
 
+    ffmpeg_wall_seconds: float = 0.0
+    """Wall-time medido de la extracción ffmpeg HEVC del source (Fase A).
+    Usado como ancla para estimar el ETA de fases silenciosas posteriores
+    (extract-rpu, demux, inject, mux) — I/O del NAS es el bottleneck común."""
+
     # ── Target (RPU CMv4.0) ──────────────────────────────────────
     target_rpu_source: str = ""
     """Tipo de fuente: 'path' (fichero en /mnt/cmv40_rpus/) o 'mkv' (extraído de otro MKV)."""
