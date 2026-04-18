@@ -1001,10 +1001,12 @@ async function _doAnalyzeISO(isoPath, isoName) {
     } catch (_) { /* silenciar errores de polling */ }
   }, 500);
 
+  // 15 min timeout: el paso de packet count puede tardar hasta 3 min en m2ts
+  // de 60GB, más el resto del análisis (ffmpeg DV, MediaInfo, mkvmerge).
   const session = await apiFetch('/api/analyze', {
     method: 'POST',
     body: JSON.stringify({ iso_path: isoPath }),
-  }, 120000);
+  }, 900000);
 
   clearInterval(pollId);
   // Marcar todos los pasos restantes como completados
