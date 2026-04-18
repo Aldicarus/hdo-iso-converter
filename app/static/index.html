@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260418e">
+  <link rel="stylesheet" href="/static/style.css?v=20260418f">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -603,10 +603,10 @@
     </div>
 
     <label class="modal-field-label" style="margin-top:14px">RPU target (CMv4.0)</label>
-    <div class="cmv40-target-tabs" style="margin-bottom:8px">
-      <button class="cmv40-target-tab-btn active" id="cmv40-new-tab-btn-path"
+    <div class="cmv40-tab-switcher">
+      <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-path"
         onclick="_cmv40NewSwitchTargetTab('path')">📁 Desde carpeta</button>
-      <button class="cmv40-target-tab-btn" id="cmv40-new-tab-btn-mkv"
+      <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-mkv"
         onclick="_cmv40NewSwitchTargetTab('mkv')">🎬 Extraer de otro MKV</button>
     </div>
     <div id="cmv40-new-target-path" class="cmv40-target-tab">
@@ -616,7 +616,7 @@
         </select>
         <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadRpus()" data-tooltip="Recargar">↺</button>
       </div>
-      <div style="font-size:11px; color:var(--text-3); margin-top:4px">Ficheros .bin en /mnt/cmv40_rpus</div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:6px">Ficheros <code>.bin</code> en <code>/mnt/cmv40_rpus</code></div>
     </div>
     <div id="cmv40-new-target-mkv" class="cmv40-target-tab" style="display:none">
       <div class="iso-select-row">
@@ -625,7 +625,7 @@
         </select>
         <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadTargetMkvs()" data-tooltip="Recargar">↺</button>
       </div>
-      <div style="font-size:11px; color:var(--text-3); margin-top:4px">MKVs en el directorio de ISOs</div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:6px">MKVs directos en el directorio de ISOs</div>
     </div>
 
     <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; cursor:pointer">
@@ -664,6 +664,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260418e"></script>
+<script src="/static/app.js?v=20260418f"></script>
 </body>
 </html>
