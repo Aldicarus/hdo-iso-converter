@@ -3033,6 +3033,92 @@ select { appearance: none; cursor: pointer;
 @keyframes cmv40-overlay-in  { from { opacity: 0 } to { opacity: 1 } }
 @keyframes cmv40-overlay-out { from { opacity: 1 } to { opacity: 0 } }
 
+.cmv40-progress {
+  padding: 14px 18px !important;
+  background: #1a1e2a !important;               /* fondo oscuro, contrasta con todo */
+  border-bottom: 1px solid #2a2f3d !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+.cmv40-progress-meta {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  font-size: 12px !important;
+}
+.cmv40-progress-label {
+  font-weight: 600 !important;
+  color: #e8ecf4 !important;                     /* texto claro sobre oscuro */
+  font-size: 13px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  flex: 1 !important;
+}
+.cmv40-progress-right {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 12px !important;
+  flex-shrink: 0 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+.cmv40-progress-eta {
+  color: #9aa3b2 !important;
+  font-size: 11px !important;
+}
+.cmv40-progress-pct {
+  color: #4da3ff !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  min-width: 54px !important;
+  text-align: right !important;
+}
+.cmv40-progress-track {
+  height: 14px !important;                        /* más grueso para que se vea bien */
+  background: #0b0e17 !important;                 /* track casi negro */
+  border: 1px solid #2a2f3d !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  position: relative !important;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.5) !important;
+}
+.cmv40-progress-bar {
+  height: 100% !important;
+  background: linear-gradient(90deg, #1e6fe6 0%, #3b8fff 50%, #5ab3ff 100%) !important;
+  width: 0%;
+  min-width: 2px;                                 /* visible aun con 0% inicial */
+  transition: width 0.4s ease !important;
+  border-radius: 7px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-shadow: 0 0 10px rgba(59, 143, 255, 0.55), inset 0 1px 0 rgba(255,255,255,0.25) !important;
+}
+.cmv40-progress-bar::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.45) 50%,
+    transparent 100%) !important;
+  animation: cmv40-progress-shimmer 1.6s linear infinite !important;
+}
+@keyframes cmv40-progress-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.cmv40-progress-bar.indeterminate {
+  width: 35% !important;
+  animation: cmv40-progress-slide 1.4s ease-in-out infinite !important;
+}
+@keyframes cmv40-progress-slide {
+  0%   { margin-left: -35%; }
+  50%  { margin-left: 50%; }
+  100% { margin-left: 100%; }
+}
+
 .cmv40-running-box {
   width: min(900px, 90vw);
   height: 500px;               /* altura fija para que el log no empuje nada */

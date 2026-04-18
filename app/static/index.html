@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260418b">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -193,6 +193,17 @@
 
           <!-- Área de proyecto — scroll container para paneles + panel Cola detallado -->
           <div id="subtab-main">
+
+            <!-- Estado vacío: sin proyectos abiertos -->
+            <div id="panel-empty-projects" class="subtab-panel">
+              <div class="empty-state-full">
+                <div class="empty-state-icon" style="font-size:48px">💿</div>
+                <div class="empty-state-title">Crear MKV desde ISO</div>
+                <div class="empty-state-desc">Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas de audio, subtítulos forzados y soporte Dolby Vision FEL.</div>
+                <button class="btn btn-primary btn-md" onclick="openNewProjectModal()"
+                  style="margin-top:16px">＋ Nuevo proyecto</button>
+              </div>
+            </div>
 
             <!-- Panel Cola — panel de control de ejecución en curso -->
             <div id="panel-cola" class="subtab-panel">
@@ -621,6 +632,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20260418b"></script>
 </body>
 </html>

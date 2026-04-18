@@ -4609,15 +4609,25 @@ function _renderCMv40RunningOverlay(project) {
             </div>
             <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
           </div>
-          <div class="cmv40-progress" id="cmv40-progress-${pid}">
-            <div class="cmv40-progress-meta">
-              <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}">Preparando…</span>
-              <span class="cmv40-progress-right">
-                <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"></span>
-                <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}">—</span>
+          <div class="cmv40-progress" id="cmv40-progress-${pid}"
+            style="padding:14px 18px; background:#1a1e2a; border-bottom:1px solid #2a2f3d; display:flex; flex-direction:column; gap:10px">
+            <div class="cmv40-progress-meta"
+              style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; font-size:12px">
+              <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}"
+                style="font-weight:600; color:#e8ecf4; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1">Preparando…</span>
+              <span class="cmv40-progress-right"
+                style="display:flex; align-items:baseline; gap:12px; flex-shrink:0; font-variant-numeric:tabular-nums">
+                <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"
+                  style="color:#9aa3b2; font-size:11px"></span>
+                <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}"
+                  style="color:#4da3ff; font-weight:700; font-size:15px; min-width:54px; text-align:right">—</span>
               </span>
             </div>
-            <div class="cmv40-progress-track"><div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}" style="width:0%"></div></div>
+            <div class="cmv40-progress-track"
+              style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
+              <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"
+                style="height:100%; background:linear-gradient(90deg,#1e6fe6 0%,#3b8fff 50%,#5ab3ff 100%); width:0%; min-width:2px; transition:width 0.4s ease; border-radius:7px; position:relative; overflow:hidden; box-shadow:0 0 10px rgba(59,143,255,0.55), inset 0 1px 0 rgba(255,255,255,0.25)"></div>
+            </div>
           </div>
           <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
         </div>`;
@@ -5720,11 +5730,20 @@ function _renderCMv40SyncControls(project) {
     </div>
     <div class="cmv40-sync-form">
       <label>Eliminar N frames al inicio del target:
-        <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px">
+        <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px"
+          oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
       </label>
       <label>Duplicar primer frame N veces:
-        <input type="number" id="cmv40-duplicate-${pid}" value="${delta < 0 ? Math.abs(delta) : 0}" min="0" style="width:80px">
+        <input type="number" id="cmv40-duplicate-${pid}" value="${delta < 0 ? Math.abs(delta) : 0}" min="0" style="width:80px"
+          oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
       </label>
+    </div>
+    <div style="margin-top:10px; padding:10px 12px; background:var(--surface-2); border-radius:6px; font-size:12px">
+      <span style="color:var(--text-3)">Δ después de aplicar:</span>
+      <b id="cmv40-expected-delta-${pid}" style="margin-left:6px">—</b>
+      <span style="color:var(--text-3); margin-left:12px; font-size:11px">
+        (remove ${delta > 0 ? delta : 0} · dup ${delta < 0 ? Math.abs(delta) : 0} dejaría Δ=0)
+      </span>
     </div>
     <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
       <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')">✏️ Aplicar corrección</button>
@@ -5739,6 +5758,20 @@ function _renderCMv40SyncControls(project) {
       ${canConfirm ? ' — <b style="color:var(--green)">listo para continuar</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
   `;
+  // Inicializar preview del Δ esperado
+  _cmv40UpdateExpectedDelta(pid, delta);
+}
+
+function _cmv40UpdateExpectedDelta(pid, currentDelta) {
+  const r = parseInt(document.getElementById(`cmv40-remove-${pid}`)?.value) || 0;
+  const d = parseInt(document.getElementById(`cmv40-duplicate-${pid}`)?.value) || 0;
+  // Aplicar remove reduce delta; duplicate lo aumenta
+  const expected = currentDelta - r + d;
+  const el = document.getElementById(`cmv40-expected-delta-${pid}`);
+  if (!el) return;
+  const sign = expected > 0 ? '+' : '';
+  const color = expected === 0 ? 'var(--green)' : 'var(--orange)';
+  el.innerHTML = `<span style="color:${color}">${sign}${expected} frames</span>`;
 }
 
 function _cmv40SetRange(pid, start, end) {
@@ -5795,7 +5828,7 @@ async function cmv40DoApplySync(pid) {
     body: JSON.stringify({ editor_config: config }),
   });
   if (data) {
-    showToast('Corrección aplicada. Recargando chart…', 'success');
+    showToast(`Corrección aplicada. Nuevo Δ = ${data.sync_delta > 0 ? '+' : ''}${data.sync_delta}`, 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       project.syncData = null;  // forzar recarga
@@ -5803,6 +5836,8 @@ async function cmv40DoApplySync(pid) {
       if (!project.expandedPhases) project.expandedPhases = {};
       project.expandedPhases['D'] = true;  // mantener la fase D visible
       _updateCMv40Panel(project);
+      // Los inputs se re-renderizan pre-rellenados con el nuevo delta
+      // (evita aplicar dos veces el mismo valor por despiste)
     }
   }
 }

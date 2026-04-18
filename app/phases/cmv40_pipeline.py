@@ -103,6 +103,36 @@ async def _probe_duration(media_path: str) -> float:
     return 0.0
 
 
+async def _probe_frame_count(media_path: str) -> int:
+    """Devuelve nb_frames del stream v:0 (0 si falla). Rápido — lee metadata."""
+    try:
+        rc, out, _ = await _run([
+            FFPROBE_BIN, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=nb_frames",
+            "-of", "csv=p=0",
+            media_path,
+        ], timeout=15)
+        if rc == 0 and out.strip() and out.strip() != "N/A":
+            return int(out.strip())
+    except Exception:
+        pass
+    # Fallback: calcular desde duration × fps
+    try:
+        dur = await _probe_duration(media_path)
+        if dur > 0:
+            return int(dur * 23.976)
+    except Exception:
+        pass
+    return 0
+
+
+# Ratios medidos (frames/segundo) para estimar ETAs
+FPS_DEMUX      = 1030.0   # dovi_tool demux
+FPS_EXTRACT_RPU = 1200.0  # dovi_tool extract-rpu
+FPS_EXPORT     = 7000.0   # dovi_tool export -d all
+
+
 async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
     """Emite un marcador estructurado de progreso que el frontend detecta."""
     if not log_callback:
@@ -326,8 +356,9 @@ async def run_phase_a_analyze_source(
     # Pesos estimados: ffmpeg 50% · extract-rpu 45% · info+plot 5%
     W_FFMPEG, W_RPU, W_INFO = 50.0, 45.0, 5.0
 
-    # Pre-probe duración para estimar progreso
-    duration = await _probe_duration(session.source_mkv_path)
+    # Pre-probe duración + frame count para estimar progreso
+    duration   = await _probe_duration(session.source_mkv_path)
+    frame_count = await _probe_frame_count(session.source_mkv_path)
 
     # Paso 1: Extraer HEVC del MKV origen
     await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV origen")
@@ -357,8 +388,11 @@ async def run_phase_a_analyze_source(
     # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
     if log_callback:
         await log_callback("[Fase A] Extrayendo RPU del HEVC (dovi_tool extract-rpu)…")
-    # Estimado: ~mismo tiempo que ffmpeg si se midió; si no, 2 min por defecto
-    est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+    # Estimado por frames si lo conocemos; si no, fallback a tiempo ffmpeg
+    if frame_count > 0:
+        est_rpu = frame_count / FPS_EXTRACT_RPU
+    else:
+        est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
     rc, out, err = await _run_with_time_estimate([
         DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
     ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
@@ -462,7 +496,8 @@ async def run_phase_b_target_from_mkv(
 
     # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
     W_FFMPEG, W_RPU = 50.0, 45.0
-    duration = await _probe_duration(source_mkv_path)
+    duration    = await _probe_duration(source_mkv_path)
+    frame_count = await _probe_frame_count(source_mkv_path)
 
     try:
         await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV target")
@@ -486,7 +521,10 @@ async def run_phase_b_target_from_mkv(
 
         if log_callback:
             await log_callback("[Fase B] Extrayendo RPU del HEVC target…")
-        est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
+        if frame_count > 0:
+            est_rpu = frame_count / FPS_EXTRACT_RPU
+        else:
+            est_rpu = ffmpeg_elapsed if ffmpeg_elapsed > 5 else 120.0
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
@@ -561,13 +599,12 @@ async def run_phase_c_extract(
     # Pesos: demux 70% · per-frame 30%
     W_DEMUX, W_PFD = 70.0, 30.0
 
-    # Estimar duración del demux por tamaño del HEVC — similar a extract-rpu
-    # Usamos una heurística: ~1GB/min típico en NAS. Mínimo 60s, máximo 600s.
-    try:
-        hevc_gb = source_hevc.stat().st_size / 1e9
-        est_demux = max(60.0, min(600.0, hevc_gb * 60.0))
-    except Exception:
-        est_demux = 180.0
+    # Frame count conocido desde Fase A (fallback a probe si acaso)
+    frame_count = session.source_frame_count or 0
+    if frame_count <= 0:
+        frame_count = await _probe_frame_count(str(source_hevc))
+
+    est_demux = (frame_count / FPS_DEMUX) if frame_count > 0 else 180.0
 
     # Paso 1: Demux BL + EL (silencioso → progreso estimado)
     await _emit_progress(log_callback, 0, "Separando BL + EL")
@@ -591,9 +628,11 @@ async def run_phase_c_extract(
     # Paso 2: Generar per_frame_data.json
     if log_callback:
         await log_callback("[Fase C] Generando datos per-frame para el chart…")
+    est_export = max(10.0, frame_count / FPS_EXPORT) if frame_count > 0 else 30.0
     await _generate_per_frame_data(
         session, rpu_source, rpu_target, per_frame, log_callback,
         progress_offset=W_DEMUX, progress_weight=W_PFD,
+        est_export_s=est_export,
     )
     await _emit_progress(log_callback, 100, "Completado")
 
@@ -606,6 +645,7 @@ async def _generate_per_frame_data(
     log_callback=None,
     progress_offset: float = 0.0,
     progress_weight: float = 100.0,
+    est_export_s: float = 30.0,
 ) -> None:
     """
     Genera per_frame_data.json con MaxCLL/MaxFALL de cada frame de ambos RPUs.
@@ -623,10 +663,12 @@ async def _generate_per_frame_data(
     # Split del peso: 45% source · 45% target · 10% merge/write
     half = progress_weight * 0.45
     src_data = await _export_rpu_frames(rpu_source, log_callback, label="source",
-                                        progress_offset=progress_offset, progress_weight=half)
+                                        progress_offset=progress_offset, progress_weight=half,
+                                        est_s=est_export_s)
     await _emit_progress(log_callback, progress_offset + half, "Exportando frames target")
     tgt_data = await _export_rpu_frames(rpu_target, log_callback, label="target",
-                                        progress_offset=progress_offset + half, progress_weight=half)
+                                        progress_offset=progress_offset + half, progress_weight=half,
+                                        est_s=est_export_s)
     await _emit_progress(log_callback, progress_offset + half * 2, "Combinando datos per-frame")
 
     max_len = max(len(src_data), len(tgt_data))
@@ -657,13 +699,14 @@ async def _export_rpu_frames(
     label: str = "",
     progress_offset: float = 0.0,
     progress_weight: float = 0.0,
+    est_s: float = 30.0,
 ) -> list[dict]:
     """
     Exporta datos por frame de un RPU usando `dovi_tool export`.
 
     Intenta primero export JSON; si no está disponible, hace muestreo cada N frames.
     """
-    # Intento 1: dovi_tool export (versión reciente) — ~15-30s, estimamos 30s
+    # Intento 1: dovi_tool export (versión reciente). Estimación basada en fps real.
     try:
         wd = rpu_path.parent
         export_json = wd / f"_export_{label}.json"
@@ -671,7 +714,7 @@ async def _export_rpu_frames(
             rc, out, err = await _run_with_time_estimate([
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
-            ], estimated_s=30.0, log_callback=log_callback, timeout=300,
+            ], estimated_s=est_s, log_callback=log_callback, timeout=300,
                label=f"Exportando frames {label}",
                offset=progress_offset, weight=progress_weight)
         else:
@@ -841,6 +884,19 @@ async def run_phase_e_correct_sync(
         await log_callback(
             f"[Fase E] RPU corregido: {session.target_frame_count} frames "
             f"(Δ = {session.sync_delta:+d})"
+        )
+
+    # Regenerar per_frame_data.json usando el RPU corregido como target,
+    # para que el chart y la métrica de confianza reflejen la corrección.
+    rpu_source = wd / "RPU_source.bin"
+    per_frame  = wd / "per_frame_data.json"
+    if rpu_source.exists() and rpu_synced.exists():
+        if log_callback:
+            await log_callback("[Fase E] Regenerando datos per-frame con el target corregido…")
+        est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
+        await _generate_per_frame_data(
+            session, rpu_source, rpu_synced, per_frame, log_callback,
+            progress_offset=0.0, progress_weight=100.0, est_export_s=est_export,
         )
 
 
