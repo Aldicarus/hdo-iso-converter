@@ -117,9 +117,11 @@ LANGUAGE_MAP: dict[str, str] = {
 CODEC_PRIORITY: dict[str, int] = {
     "truehd_atmos": 1,
     "ddplus_atmos": 2,
-    "dts_hd_ma": 3,
-    "dts": 4,
-    "dd": 5,
+    "dts_hd_ma":    3,
+    "dts":          4,
+    "truehd":       5,  # TrueHD sin Atmos es raro, pero por si aparece
+    "ddplus":       6,  # DD+ sin Atmos (2.0 ó 5.1 clásico)
+    "dd":           7,
 }
 
 
@@ -366,20 +368,25 @@ def _codec_priority(track: RawAudioTrack) -> int:
 
 
 def _codec_key(track: RawAudioTrack) -> str:
-    """Identifica el codec normalizado de una pista (spec §5.1.2, §5.1.6)."""
+    """Identifica el codec normalizado de una pista (spec §5.1.2, §5.1.6).
+
+    Detección de Atmos: busca en format_commercial, codec y description
+    (cualquiera de los tres basta). Esto cubre casos donde MediaInfo reporta
+    el format_commercial como "Dolby Digital Plus" sin mencionar Atmos pero
+    la description del BD lo indica como "7.1-Atmos".
+    """
     codec = track.codec.lower()
     desc = track.description.lower()
-    # Detección definitiva via MediaInfo Format_Commercial (si disponible)
     fc = getattr(track, "format_commercial", "").lower()
+    # Atmos se detecta en cualquiera de los tres campos
+    has_atmos = ("atmos" in fc) or ("atmos" in codec) or ("atmos" in desc)
+
+    # Detección principal: format_commercial (más fiable si existe)
     if fc:
-        if "atmos" in fc and "truehd" in fc:
-            return "truehd_atmos"
-        if "truehd" in fc and "atmos" not in fc:
-            return "truehd"
-        if "atmos" in fc and ("digital plus" in fc or "e-ac-3" in fc):
-            return "ddplus_atmos"
+        if "truehd" in fc:
+            return "truehd_atmos" if has_atmos else "truehd"
         if "digital plus" in fc or "e-ac-3" in fc:
-            return "ddplus"
+            return "ddplus_atmos" if has_atmos else "ddplus"
         if "dts-hd master" in fc or "dts-hd ma" in fc:
             return "dts_hd_ma"
         if "dts" in fc:
@@ -387,14 +394,10 @@ def _codec_key(track: RawAudioTrack) -> str:
         if "dolby digital" in fc and "plus" not in fc:
             return "dd"
     # Fallback: heurística por nombre de codec (sin MediaInfo)
-    if "truehd" in codec and "atmos" in codec:
-        return "truehd_atmos"
     if "truehd" in codec:
-        return "truehd"
-    if "digital plus" in codec and "atmos" in desc:
-        return "ddplus_atmos"
+        return "truehd_atmos" if has_atmos else "truehd"
     if "digital plus" in codec:
-        return "ddplus"
+        return "ddplus_atmos" if has_atmos else "ddplus"
     if "dts-hd master" in codec or ("dts" in codec and "hd" in codec and "master" in codec):
         return "dts_hd_ma"
     if "dts" in codec and "hd" not in codec:
@@ -454,7 +457,7 @@ def _language_literal(lang_norm: str) -> str:
 
 def _quality_ladder_text(track: RawAudioTrack) -> str:
     """Devuelve el texto de la jerarquía de calidad de audio para la UI."""
-    return "TrueHD Atmos > DD+ Atmos > DTS-HD MA > DTS > DD"
+    return "TrueHD Atmos > DD+ Atmos > DTS-HD MA > DTS > TrueHD > DD+ > DD"
 
 
 # ── Subtítulos (spec §5.2) ────────────────────────────────────────────────────

@@ -1728,7 +1728,9 @@ function renderIncludedTracks(tracks) {
         '',
         `Razón: ${track.selection_reason || '—'}`,
       ].filter(Boolean).join('\n');
-      const rawLine = [raw.codec, raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ');
+      // Orden: descripción (canales + kHz) + bitrate siempre visible (aunque caiga ellipsis).
+      // Omitimos raw.codec porque ya aparece en el label (DD+, TrueHD Atmos, etc.).
+      const rawLine = [raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ');
       const origIdx = _findOriginalTrackIndex(raw, 'audio');
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
