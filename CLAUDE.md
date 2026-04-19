@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.8)
+# HDO ISO Converter — Reglas del proyecto (v1.8.1)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
