@@ -19,6 +19,42 @@ from services.rec999_drive import DriveFile, list_bin_files
 
 _logger = logging.getLogger(__name__)
 
+import re
+
+# Heurísticas de clasificación por nombre de fichero del repo DoviTools.
+# La clasificación definitiva se hace tras descarga con `dovi_tool info`
+# en Fase B, pero estas predicciones UX dan al usuario señalización
+# inmediata sobre qué pipeline esperar antes de crear el proyecto.
+_BIN_PATTERNS = [
+    # P7 FEL con marcador explícito de cmv4.0 → drop-in FEL (rama C-FEL)
+    (re.compile(r"p7[\s_\-]*fel[\s\S]*?cmv[\s_\-]?4", re.I), "trusted_p7_fel_final"),
+    (re.compile(r"cmv[\s_\-]?4[\s\S]*?p7[\s_\-]*fel", re.I), "trusted_p7_fel_final"),
+    # P7 MEL con cmv4.0 → drop-in MEL
+    (re.compile(r"p7[\s_\-]*mel[\s\S]*?cmv[\s_\-]?4", re.I), "trusted_p7_mel_final"),
+    (re.compile(r"cmv[\s_\-]?4[\s\S]*?p7[\s_\-]*mel", re.I), "trusted_p7_mel_final"),
+    # "P5 to P8" / "P5→P8" → bin de transfer (rama B)
+    (re.compile(r"p5[\s_\-]*(?:to|->|→|=>|–|—)[\s_\-]*p8", re.I), "trusted_p8_source"),
+    # Marcadores sueltos "cmv4.0 added" / "cmv4.0 restored" sin profile explícito
+    # → probablemente drop-in FEL (convención común del repo)
+    (re.compile(r"cmv[\s_\-]?4(?:\.0)?[\s_\-]*(added|restored|baked)", re.I), "trusted_p7_fel_final"),
+    # Solo "P7 FEL" (asume CMv4.0 por defecto en el repo DoviTools)
+    (re.compile(r"\bp7[\s_\-]*fel\b", re.I), "trusted_p7_fel_final"),
+    (re.compile(r"\bp7[\s_\-]*mel\b", re.I), "trusted_p7_mel_final"),
+]
+
+
+def predict_bin_type(filename: str) -> str:
+    """Devuelve el target_type predicho a partir del nombre de fichero.
+    Valores: 'trusted_p7_fel_final', 'trusted_p7_mel_final',
+    'trusted_p8_source' o 'unknown' si no coincide con ningún patrón.
+    """
+    if not filename:
+        return "unknown"
+    for pat, typ in _BIN_PATTERNS:
+        if pat.search(filename):
+            return typ
+    return "unknown"
+
 MIN_SCORE_STRICT = 0.65   # con año exacto
 MIN_SCORE_NO_YEAR = 0.78  # sin año fiable
 

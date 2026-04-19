@@ -1447,13 +1447,23 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
             "error": str(e),
         }
 
+    # Enriquece cada candidato con su tipo predicho por nombre de fichero.
+    # La clasificación definitiva la hace Fase B tras descargar + dovi_tool info,
+    # pero esto da señalización UX inmediata en el modal.
+    from services.rec999_drive_match import predict_bin_type
+    cand_list = []
+    for c in candidates:
+        d = c.model_dump()
+        d["predicted_type"] = predict_bin_type(c.file.name)
+        cand_list.append(d)
+
     return {
         "drive_configured": True,
         "tmdb_configured": tmdb_configured(),
         "title_en": title_en,
         "title_es": title,
         "year": year,
-        "candidates": [c.model_dump() for c in candidates],
+        "candidates": cand_list,
     }
 
 

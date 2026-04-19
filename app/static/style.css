@@ -3492,6 +3492,60 @@ select { appearance: none; cursor: pointer;
 .cmv40-trust-gate.fail { color: #ff9b93; }
 .cmv40-trust-gate.soft { color: #ffcd74; }
 
+/* ── Preview del pipeline al seleccionar un bin del repo ──────────── */
+.cmv40-pipeline-preview {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.cmv40-pipeline-preview.ok {
+  background: rgba(52, 199, 89, 0.08);
+  border-color: rgba(52, 199, 89, 0.30);
+}
+.cmv40-pipeline-preview.info {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.30);
+}
+.cmv40-pipeline-preview.warn {
+  background: rgba(255, 149, 0, 0.08);
+  border-color: rgba(255, 149, 0, 0.30);
+}
+.cmv40-pp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.cmv40-pp-icon { font-size: 16px; }
+.cmv40-pp-desc {
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.cmv40-pp-steps {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+  color: var(--text-1);
+}
+.cmv40-pp-steps li { margin-bottom: 3px; }
+.cmv40-pp-steps s { color: var(--text-3); }
+.cmv40-pp-steps code {
+  background: rgba(0,0,0,0.22);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.cmv40-pp-time {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-3);
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+}
+
 /* Fase omitida automáticamente — visual más tenue, borde punteado */
 .cmv40-fase-card.cmv40-fase-skipped {
   opacity: 0.70;

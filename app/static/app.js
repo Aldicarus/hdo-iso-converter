@@ -5122,16 +5122,100 @@ function onCMv40TargetChange() {
   if (!val) {
     _cmv40NewTargetSelected = null;
   } else if (_cmv40NewTargetTab === 'repo') {
-    // select.value es el file_id; guardamos también el nombre para el log backend
     const opt = select.options[select.selectedIndex];
     _cmv40NewTargetSelected = {
       kind: 'repo',
       value: { file_id: val, file_name: opt?.dataset?.filename || opt?.textContent || '' },
+      predicted_type: opt?.dataset?.predictedType || 'unknown',
     };
   } else {
     _cmv40NewTargetSelected = { kind: _cmv40NewTargetTab, value: val };
   }
   _cmv40NewUpdateCreateBtn();
+  _cmv40NewUpdatePipelinePreview();
+}
+
+// Panel explicativo del pipeline que se ejecutará según el tipo de target
+const _CMV40_PIPELINE_PREVIEW = {
+  trusted_p7_fel_final: {
+    icon: '🎯',
+    title: 'Drop-in P7 FEL · CMv4.0 ya cocinado',
+    desc: 'El bin ya es un RPU P7 FEL CMv4.0 completo. Al ejecutar:',
+    steps: [
+      '<b>Fase A</b> analiza el BD y extrae el RPU source',
+      '<b>Fase B</b> descarga el bin del repo y valida gates automáticos (frame count, L8, L5/L6)',
+      '<b>Fase C</b> demuxa BL + EL del BD',
+      '<s>Fase D</s> <span style="opacity:0.6">revisión visual — <b>omitida</b> si gates OK</span>',
+      '<s>Fase F merge</s> <span style="opacity:0.6">transfer CMv4.0 — <b>omitido</b>, inyecta el bin directo</span>',
+      '<b>Fase F inject</b> + <b>G mux</b> + <b>H validate</b> completan el MKV',
+    ],
+    tiempo: '~5–10 min (dominado por demux + mux del MKV)',
+  },
+  trusted_p7_mel_final: {
+    icon: '🎯',
+    title: 'Drop-in P7 MEL · CMv4.0 ya cocinado',
+    desc: 'El bin ya es un RPU P7 MEL CMv4.0. Al ejecutar:',
+    steps: [
+      '<b>Fase A–C</b> analiza BD y demuxa',
+      '<s>Fase D</s> <span style="opacity:0.6">omitida si gates OK</span>',
+      '<b>Fase F</b> inyecta el RPU target directo en BL (MEL descarta EL → P8.1 final)',
+      '<b>G + H</b> mux + validate',
+    ],
+    tiempo: '~5 min',
+  },
+  trusted_p8_source: {
+    icon: '📦',
+    title: 'Source P5→P8 · transfer CMv4.0',
+    desc: 'El bin es un RPU P8 con CMv4.0 (L8 trims) — fuente para el merge clásico. Al ejecutar:',
+    steps: [
+      '<b>Fase A</b> extrae RPU P7 del BD',
+      '<b>Fase B</b> descarga bin y valida gates',
+      '<b>Fase C</b> demuxa BL + EL',
+      '<s>Fase D</s> <span style="opacity:0.6">omitida si gates OK</span>',
+      '<b>Fase F merge</b> transfiere CMv4.0 del bin al RPU P7 (preserva FEL)',
+      '<b>F inject</b> + <b>G mux</b> + <b>H validate</b>',
+    ],
+    tiempo: '~6–10 min',
+  },
+  unknown: {
+    icon: '❓',
+    title: 'Tipo no clasificable por nombre',
+    desc: 'El nombre del fichero no coincide con patrones conocidos de DoviTools. La clasificación real la hará <b>Fase B</b> tras descarga con <code>dovi_tool info</code>.',
+    steps: [
+      'Fase B analiza el bin descargado y asigna target_type + evalúa gates',
+      'Según el resultado, el pipeline elegirá drop-in o flujo completo',
+      'Si los gates no pasan → flujo completo con revisión manual en Fase D',
+    ],
+    tiempo: 'Variable',
+  },
+};
+
+function _cmv40NewUpdatePipelinePreview() {
+  const container = document.getElementById('cmv40-new-pipeline-preview');
+  if (!container) return;
+  // Solo visible cuando la tab es 'repo' y hay un candidato seleccionado
+  if (_cmv40NewTargetTab !== 'repo' || !_cmv40NewTargetSelected
+      || _cmv40NewTargetSelected.kind !== 'repo') {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+  const pt = _cmv40NewTargetSelected.predicted_type || 'unknown';
+  const info = _CMV40_PIPELINE_PREVIEW[pt] || _CMV40_PIPELINE_PREVIEW.unknown;
+  const cls = pt === 'trusted_p7_fel_final' || pt === 'trusted_p7_mel_final' ? 'ok'
+            : pt === 'trusted_p8_source' ? 'info'
+            : 'warn';
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="cmv40-pipeline-preview ${cls}">
+      <div class="cmv40-pp-header">
+        <span class="cmv40-pp-icon">${info.icon}</span>
+        <span class="cmv40-pp-title">${escHtml(info.title)}</span>
+      </div>
+      <div class="cmv40-pp-desc">${info.desc}</div>
+      <ol class="cmv40-pp-steps">${info.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+      <div class="cmv40-pp-time">⏱ Tiempo estimado: ${escHtml(info.tiempo)}</div>
+    </div>`;
 }
 
 function _cmv40NewResetRepoSelect(placeholder) {
@@ -5183,8 +5267,15 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     const opt = document.createElement('option');
     opt.value = c.file.id;
     const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
-    opt.textContent = `${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
+    const pt = c.predicted_type || 'unknown';
+    // Tag compacto delante del path para identificación inmediata
+    const tag = pt === 'trusted_p7_fel_final' ? '🎯 drop-in FEL'
+              : pt === 'trusted_p7_mel_final' ? '🎯 drop-in MEL'
+              : pt === 'trusted_p8_source'    ? '📦 P5→P8 transfer'
+              : '❓ tipo desconocido';
+    opt.textContent = `[${tag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
     opt.dataset.filename = c.file.name;
+    opt.dataset.predictedType = pt;
     sel.appendChild(opt);
     if (i === 0) {
       opt.selected = true;
