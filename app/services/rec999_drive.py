@@ -234,25 +234,51 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
                     drive_msg = f"Drive ✗ ({resp.status_code})"
 
             # ── Sheets API v4 ────────────────────────────────────
+            # Primero probamos con un spreadsheet genérico público para
+            # aislar "API habilitada?" de "este sheet específico funciona?".
+            # Si la key puede acceder al sheet de Google "Getting Started"
+            # (ID público estable de Google), la API está bien habilitada.
+            GENERIC_SHEET = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
             sresp = await client.get(
-                f"https://sheets.googleapis.com/v4/spreadsheets/{_SHEET_ID}",
-                params={"key": key,
-                        "fields": "sheets(properties(title))"},
+                f"https://sheets.googleapis.com/v4/spreadsheets/{GENERIC_SHEET}",
+                params={"key": key, "fields": "spreadsheetId"},
             )
             if sresp.status_code == 200:
                 sheets_ok = True
-                sheets_msg = "Sheets ✓"
+                # La API funciona — probamos también el sheet de DoviTools
+                # para distinguir "todo perfecto" de "XLSX importado".
+                dresp = await client.get(
+                    f"https://sheets.googleapis.com/v4/spreadsheets/{_SHEET_ID}",
+                    params={"key": key, "fields": "spreadsheetId"},
+                )
+                if dresp.status_code == 200:
+                    sheets_msg = "Sheets ✓"
+                else:
+                    try:
+                        demsg = dresp.json().get("error", {}).get("message", "")
+                    except Exception:
+                        demsg = ""
+                    if "not supported for this document" in demsg.lower():
+                        sheets_msg = ("Sheets ✓ (API OK — el sheet DoviTools es "
+                                       "XLSX importado, se lee vía fallback openpyxl)")
+                    else:
+                        sheets_msg = f"Sheets ✓ (pero sheet DoviTools dio {dresp.status_code})"
             else:
                 try:
                     emsg = sresp.json().get("error", {}).get("message", "")
                 except Exception:
                     emsg = ""
                 if "has not been used" in emsg or "disabled" in emsg:
-                    sheets_msg = "Sheets ✗ (API no habilitada — enlaces del sheet no disponibles)"
+                    sheets_msg = ("Sheets ✗ (API no habilitada en tu proyecto — "
+                                   "actívala en console.cloud.google.com/apis/library/sheets.googleapis.com)")
                 elif sresp.status_code == 403:
-                    sheets_msg = f"Sheets ✗ (403: {emsg[:80]})"
+                    if "restriction" in emsg.lower() or "referer" in emsg.lower():
+                        sheets_msg = ("Sheets ✗ (key con restricciones — permite HTTP referers genéricos "
+                                       "o añade la API Sheets a la lista de APIs permitidas)")
+                    else:
+                        sheets_msg = f"Sheets ✗ (403: {emsg[:80]})"
                 else:
-                    sheets_msg = f"Sheets ✗ ({sresp.status_code})"
+                    sheets_msg = f"Sheets ✗ ({sresp.status_code}: {emsg[:80]})"
     except Exception as e:
         return False, f"Error de red: {e}"
 
