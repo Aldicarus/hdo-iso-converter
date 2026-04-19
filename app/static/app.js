@@ -1629,6 +1629,18 @@ function renderProjectPanel(project) {
 
   currentSession = session;
 
+  // Heal silencioso: sesiones guardadas con versiones anteriores de
+  // recoverTrack podrían tener audios después de subs en included_tracks.
+  // Normaliza sin marcar dirty (es una corrección cosmética al cargar).
+  if (session.included_tracks && session.included_tracks.length) {
+    const before = session.included_tracks.map(t => t.track_type).join(',');
+    _enforceTrackGrouping(session.included_tracks);
+    const after = session.included_tracks.map(t => t.track_type).join(',');
+    if (before !== after) {
+      session.included_tracks.forEach((t, i) => { t.position = i; });
+    }
+  }
+
   // Reinicia el tracking de posiciones originales — una sola pasada
   // coherente para todas las listas del panel (incluidas + descartadas,
   // audio + subs). Evita colisiones con pistas duplicadas.
@@ -2064,10 +2076,26 @@ function onTrackReorder(_evt, type) {
     .filter(i => i >= 0);
   // Escribe el nuevo orden en el array plano
   typeIndices.forEach((flatIdx, subIdx) => { tracks[flatIdx] = reordered[subIdx]; });
+  // Red de seguridad: garantiza que en el MKV final el orden sea
+  // [todos los audios…][todos los subs…], por si quedara alguna pista
+  // fuera de sitio (p.ej. por estado heredado de versiones anteriores).
+  _enforceTrackGrouping(tracks);
   tracks.forEach((t, i) => { t.position = i; });
   currentSession.included_tracks = tracks;
   renderIncludedTracks(tracks);
   markProjectDirty();
+}
+
+// Ordena in-place el array para que TODOS los audios vayan antes que
+// TODOS los subs (stable sort — preserva el orden relativo dentro de
+// cada tipo). Útil como red de seguridad en reorder y recover.
+function _enforceTrackGrouping(tracks) {
+  // Array.prototype.sort es stable desde ES2019 (Chrome 70+, Safari 10+).
+  tracks.sort((a, b) => {
+    const ta = a.track_type === 'audio' ? 0 : 1;
+    const tb = b.track_type === 'audio' ? 0 : 1;
+    return ta - tb;
+  });
 }
 
 /**
@@ -2514,6 +2542,11 @@ function recoverTrack(idx) {
     insertAt = inc.length;  // al final del todo (tras subs existentes)
   }
   inc.splice(insertAt, 0, recovered);
+
+  // Red de seguridad: normaliza [audios…][subs…] por si el array venía
+  // desordenado (p.ej. de sesiones guardadas con la versión antigua que
+  // hacía push al final sin agrupar).
+  _enforceTrackGrouping(inc);
 
   // Renumerar posiciones tras la inserción
   inc.forEach((t, i) => { t.position = i; });
