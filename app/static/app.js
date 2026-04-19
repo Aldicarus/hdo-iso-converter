@@ -1791,13 +1791,32 @@ async function setTrackMode(trackKind, mode) {
 // Índices ya asignados en el render actual — evita colisiones cuando hay
 // pistas duplicadas (mismo idioma+codec+descr. ej. dos DD+ francesas, dos
 // DD 2.0 inglés con bitrate distinto, dos subs "forced" mismo lang...).
-// Se resetea al inicio de cada renderProjectPanel.
 let _usedAudioOrigIdx = new Set();
 let _usedSubOrigIdx = new Set();
 
 function _resetOrigIndexTracking() {
   _usedAudioOrigIdx = new Set();
   _usedSubOrigIdx = new Set();
+}
+
+// Pre-computa `_orig_index` en todas las pistas (incluidas + descartadas)
+// de la sesión actual. Se ejecuta al inicio de cada render — evita que
+// render sucesivos (p.ej. tras recoverTrack) pierdan el índice porque el
+// set de "usadas" ya estaba lleno de la pasada anterior.
+function _precomputeOrigIndices() {
+  _resetOrigIndexTracking();
+  if (!currentSession) return;
+  // Orden: incluidas primero, luego descartadas. Dentro de cada lista,
+  // orden actual del array (que el usuario puede haber reordenado).
+  const all = [
+    ...(currentSession.included_tracks || []),
+    ...(currentSession.discarded_tracks || []),
+  ];
+  for (const t of all) {
+    const raw = t.raw || {};
+    const type = t.track_type === 'audio' ? 'audio' : 'subtitle';
+    t._orig_index = _findOriginalTrackIndex(raw, type);
+  }
 }
 
 function _findOriginalTrackIndex(raw, type) {
@@ -1890,6 +1909,10 @@ function renderIncludedTracks(tracks) {
   audioList.innerHTML = '';
   subList.innerHTML   = '';
 
+  // Pre-computa el índice original de cada pista (incluidas + descartadas)
+  // para que los badges #N sean coherentes y únicos, incluso tras recover.
+  _precomputeOrigIndices();
+
   const byType = { audio: [], subtitle: [] };
   tracks.forEach((track, flatIdx) => {
     const type = track.track_type === 'audio' ? 'audio' : 'subtitle';
@@ -1920,7 +1943,7 @@ function renderIncludedTracks(tracks) {
       // Orden: descripción (canales + kHz) + bitrate siempre visible (aunque caiga ellipsis).
       // Omitimos raw.codec porque ya aparece en el label (DD+, TrueHD Atmos, etc.).
       const rawLine = [raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ');
-      const origIdx = _findOriginalTrackIndex(raw, 'audio');
+      const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
       li.className = 'track-item';
@@ -1972,7 +1995,7 @@ function renderIncludedTracks(tracks) {
       ].filter(Boolean).join('\n');
       const pktTag = packets > 0 ? ` · ${packets.toLocaleString()} paq.` : '';
       const rawLine = `PGS · ${langLiteral(raw.language)} · ${subTypeLabel}${pktTag}`;
-      const origIdx = _findOriginalTrackIndex(raw, 'subtitle');
+      const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
       li.className = 'track-item';
@@ -2101,6 +2124,10 @@ function renderDiscardedTracks(tracks) {
   audioContainer.innerHTML = '';
   subContainer.innerHTML   = '';
 
+  // Mismo precompute que renderIncludedTracks — idempotente,
+  // garantiza que los badges son coherentes entre listas.
+  _precomputeOrigIndices();
+
   const byType = { audio: [], subtitle: [] };
   tracks.forEach((track, idx) => {
     const type = track.track_type === 'audio' ? 'audio' : 'subtitle';
@@ -2116,7 +2143,7 @@ function renderDiscardedTracks(tracks) {
     }
     items.forEach(({ track, idx }) => {
       const raw = track.raw || {};
-      const origIdx = _findOriginalTrackIndex(raw, isAudio ? 'audio' : 'subtitle');
+      const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const codecInfo = isAudio
         ? [raw.codec, raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ')
