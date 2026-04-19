@@ -4502,6 +4502,7 @@ async function openNewCMv40Modal() {
   const autoCb = document.getElementById('cmv40-new-auto');
   if (autoCb) autoCb.checked = true;
   _cmv40NewSwitchTargetTab('path');
+  _cmv40LoadRecommendation('');  // limpia banner del anterior modal
   await Promise.all([
     loadCMv40SourceList(),
     _cmv40NewLoadRpus(),
@@ -4527,6 +4528,102 @@ async function loadCMv40SourceList() {
 function onCMv40SourceChange(val) {
   _cmv40SourceSelected = val || null;
   _cmv40NewUpdateCreateBtn();
+  _cmv40LoadRecommendation(val);
+}
+
+// Token para anular peticiones obsoletas si el usuario cambia de MKV rápido
+let _cmv40RecReqId = 0;
+
+async function _cmv40LoadRecommendation(filename) {
+  const banner = document.getElementById('cmv40-recommendation-banner');
+  if (!banner) return;
+  if (!filename) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    banner.className = 'cmv40-rec-banner';
+    return;
+  }
+  const reqId = ++_cmv40RecReqId;
+  banner.style.display = 'block';
+  banner.className = 'cmv40-rec-banner loading';
+  banner.innerHTML = `<div class="cmv40-rec-header">
+    <span class="cmv40-rec-spinner-inline"></span>
+    <span>Consultando hoja de REC_9999…</span>
+  </div>`;
+  const qs = '?filename=' + encodeURIComponent(filename);
+  const data = await apiFetch('/api/cmv40/recommend-from-filename' + qs);
+  if (reqId !== _cmv40RecReqId) return;  // petición obsoleta
+  if (!data) {
+    banner.style.display = 'none';
+    return;
+  }
+  _cmv40RenderRecommendation(data);
+}
+
+function _cmv40RenderRecommendation(data) {
+  const banner = document.getElementById('cmv40-recommendation-banner');
+  if (!banner) return;
+  const status = data.status || 'unknown';
+  const cls = status === 'recommended' ? 'ok'
+            : status === 'not_feasible' ? 'ko'
+            : 'unknown';
+  const icon = status === 'recommended' ? '✅'
+             : status === 'not_feasible' ? '❌'
+             : '❓';
+  const label = status === 'recommended' ? 'Conversión CMv4.0 factible'
+              : status === 'not_feasible' ? 'Conversión CMv4.0 NO factible'
+              : 'Sin datos en la hoja de REC_9999';
+  banner.className = 'cmv40-rec-banner ' + cls;
+
+  let html = `<div class="cmv40-rec-header">
+    <span class="cmv40-rec-icon">${icon}</span>
+    <span>${label}</span>
+  </div>`;
+
+  if (status === 'recommended') {
+    const parts = [];
+    if (data.dv_source) parts.push(`Fuente WEB: <strong>${escHtml(data.dv_source)}</strong>`);
+    if (data.sync_offset) parts.push(`Sync: <strong>${escHtml(data.sync_offset)}</strong>`);
+    if (data.comparisons) parts.push(`Verificación: ${escHtml(data.comparisons)}`);
+    html += `<div class="cmv40-rec-body">${parts.join(' · ')}</div>`;
+    if (data.notes) {
+      html += `<div class="cmv40-rec-notes"><strong>Nota:</strong> ${escHtml(data.notes)}</div>`;
+    }
+  } else if (status === 'not_feasible') {
+    html += `<div class="cmv40-rec-body">`;
+    if (data.dv_source) {
+      html += `<div>Tipo de fuente en el sheet: <strong>${escHtml(data.dv_source)}</strong></div>`;
+    }
+    if (data.notes) {
+      html += `<div class="cmv40-rec-notes"><strong>Motivo (REC_9999):</strong> ${escHtml(data.notes)}</div>`;
+    }
+    if (data.comparisons) {
+      html += `<div style="font-size:11px; margin-top:6px; opacity:0.85">Verificación: ${escHtml(data.comparisons)}</div>`;
+    }
+    html += `</div>`;
+  } else {
+    html += `<div class="cmv40-rec-body">
+      El título <strong>${escHtml(data.input_title || '')}</strong>${data.input_year ? ' (' + data.input_year + ')' : ''}`;
+    if (data.title_en && data.title_en !== data.input_title) {
+      html += ` (TMDb: <em>${escHtml(data.title_en)}</em>)`;
+    }
+    html += ` no aparece en la hoja de REC_9999 (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
+    html += `</div>`;
+    if (!data.tmdb_configured) {
+      html += `<div class="cmv40-rec-footer">⚠️ TMDb API key no configurada — el matching ES→EN es más limitado. Define <code>TMDB_API_KEY</code> en el .env.</div>`;
+    }
+  }
+
+  if (data.match_confidence && data.match_confidence > 0) {
+    const pct = Math.round(data.match_confidence * 100);
+    html += `<div class="cmv40-rec-footer">
+      <span>Match: "${escHtml(data.match_title)}"</span>
+      <span>confianza ${pct}%</span>
+      <span>vía ${escHtml(data.match_source)}</span>
+    </div>`;
+  }
+
+  banner.innerHTML = html;
 }
 
 function _cmv40NewSwitchTargetTab(tab) {

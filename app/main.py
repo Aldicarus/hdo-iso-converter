@@ -1315,6 +1315,29 @@ async def list_cmv40_rpu_files():
     return {"files": list_available_rpus()}
 
 
+@app.get("/api/cmv40/recommend",
+         summary="Recomendación CMv4.0 basada en el sheet live de REC_9999")
+async def cmv40_recommend_endpoint(title: str, year: int | None = None):
+    """Dado un título (y opcionalmente año) extraídos del MKV origen,
+    consulta el sheet de R3S3T_9999 (vía TMDb ES→EN si hay API key) y
+    devuelve si la conversión a CMv4.0 es factible y, si no, por qué.
+    """
+    from services.cmv40_recommend import recommend
+    result = await recommend(title, year)
+    return result.model_dump()
+
+
+@app.get("/api/cmv40/recommend-from-filename",
+         summary="Recomendación CMv4.0 parseando el filename del MKV")
+async def cmv40_recommend_from_filename_endpoint(filename: str):
+    """Extrae título+año de un filename tipo 'Zootrópolis 2 (2025) [DV FEL].mkv'
+    y delega en /recommend. Atajo para el frontend."""
+    from services.cmv40_recommend import parse_mkv_filename, recommend
+    title, year = parse_mkv_filename(filename)
+    result = await recommend(title, year)
+    return result.model_dump()
+
+
 @app.post("/api/cmv40/create", summary="Crea un proyecto CMv4.0")
 async def cmv40_create(body: CMv40CreateRequest):
     mkv_path = body.source_mkv_path

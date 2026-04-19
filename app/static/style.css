@@ -3413,3 +3413,73 @@ select { appearance: none; cursor: pointer;
   align-self: flex-start;
   flex-shrink: 0;
 }
+
+/* Banner de recomendación CMv4.0 (REC_9999) en el modal "Nuevo proyecto" */
+.cmv40-rec-banner {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.cmv40-rec-banner.loading {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.25);
+  color: var(--text-2);
+}
+.cmv40-rec-banner.ok {
+  background: rgba(52, 199, 89, 0.10);
+  border-color: rgba(52, 199, 89, 0.35);
+  color: #a7f3c4;
+}
+.cmv40-rec-banner.ko {
+  background: rgba(255, 69, 58, 0.10);
+  border-color: rgba(255, 69, 58, 0.35);
+  color: #fca5a5;
+}
+.cmv40-rec-banner.unknown {
+  background: rgba(142, 142, 147, 0.10);
+  border-color: rgba(142, 142, 147, 0.25);
+  color: var(--text-2);
+}
+.cmv40-rec-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.cmv40-rec-icon { font-size: 16px; line-height: 1; }
+.cmv40-rec-body { margin-top: 6px; color: var(--text-1); }
+.cmv40-rec-notes {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cmv40-rec-notes strong { color: var(--text-1); }
+.cmv40-rec-footer {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-3);
+  opacity: 0.7;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cmv40-rec-spinner-inline {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
