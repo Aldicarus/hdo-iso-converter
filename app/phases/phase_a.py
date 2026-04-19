@@ -1034,6 +1034,36 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     info.has_l2 = "L2 trims" in summary
     info.has_l5 = "L5 offsets" in summary and "N/A" not in summary.split("L5 offsets")[1][:50] if "L5 offsets" in summary else False
     info.has_l6 = "L6 metadata" in summary
+    # L8 (CMv4.0 target display colorimetry) — marker del transfer CMv4.0
+    info.has_l8 = bool(re.search(r"L8\b|Level 8|content light level \(L8\)", summary, re.I))
+
+    # Valores numéricos para gates de trust
+    # L1: "content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 92.36 nits"
+    m = re.search(r"L1.*?MaxCLL:\s*([\d.]+)\s*nits.*?MaxFALL:\s*([\d.]+)\s*nits", summary, re.I | re.S)
+    if m:
+        try:
+            info.l1_max_cll = float(m.group(1))
+            info.l1_max_fall = float(m.group(2))
+        except ValueError:
+            pass
+    # L5: "L5 offsets: top=276, bottom=276, left=0, right=0"
+    m = re.search(r"L5 offsets:\s*top=(\d+),\s*bottom=(\d+),\s*left=(\d+),\s*right=(\d+)", summary)
+    if m:
+        try:
+            info.l5_top = int(m.group(1))
+            info.l5_bottom = int(m.group(2))
+            info.l5_left = int(m.group(3))
+            info.l5_right = int(m.group(4))
+        except ValueError:
+            pass
+    # L6: "L6 metadata: Mastering display: ... MaxCLL: 998 nits, MaxFALL: 185 nits"
+    m = re.search(r"L6 metadata:.*?MaxCLL:\s*(\d+)\s*nits.*?MaxFALL:\s*(\d+)\s*nits", summary, re.I | re.S)
+    if m:
+        try:
+            info.l6_max_cll = int(m.group(1))
+            info.l6_max_fall = int(m.group(2))
+        except ValueError:
+            pass
 
     return info
 

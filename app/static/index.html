@@ -621,21 +621,21 @@
     <div class="cmv40-tab-switcher cmv40-new-tabs">
       <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-repo"
         onclick="_cmv40NewSwitchTargetTab('repo')"
-        data-tooltip="Descargar automáticamente un RPU del repositorio DoviTools">
+        data-tooltip="Descargar automáticamente un RPU del repositorio DoviTools (recomendado)">
         <span class="tab-icon">📦</span>
         <span class="tab-label">Repo DoviTools</span>
-      </button>
-      <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-path"
-        onclick="_cmv40NewSwitchTargetTab('path')"
-        data-tooltip="Usar un .bin ya descargado en /mnt/cmv40_rpus/">
-        <span class="tab-icon">📁</span>
-        <span class="tab-label">Carpeta local</span>
       </button>
       <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-mkv"
         onclick="_cmv40NewSwitchTargetTab('mkv')"
         data-tooltip="Extraer el RPU de otro MKV que ya tenga CMv4.0">
         <span class="tab-icon">🎬</span>
         <span class="tab-label">Extraer de MKV</span>
+      </button>
+      <button class="cmv40-tab-btn cmv40-tab-btn-residual" id="cmv40-new-tab-btn-path"
+        onclick="_cmv40NewSwitchTargetTab('path')"
+        data-tooltip="Opción residual: usar un .bin ya descargado en /mnt/cmv40_rpus/">
+        <span class="tab-icon">📁</span>
+        <span class="tab-label">Carpeta local</span>
       </button>
     </div>
     <div id="cmv40-new-target-repo" class="cmv40-target-tab">
@@ -753,6 +753,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420h"></script>
+<script src="/static/app.js?v=20260420i"></script>
 </body>
 </html>

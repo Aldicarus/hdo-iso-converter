@@ -866,7 +866,8 @@ async def _analyze_target_rpu(
     rpu_path: Path,
     log_callback=None,
 ) -> None:
-    """Ejecuta dovi_tool info sobre el RPU target y persiste en la sesión."""
+    """Ejecuta dovi_tool info sobre el RPU target, clasifica el tipo y
+    evalúa los gates de trust."""
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
     ], timeout=30)
@@ -878,12 +879,154 @@ async def _analyze_target_rpu(
     session.target_frame_count = dovi_info.frame_count
     session.sync_delta = dovi_info.frame_count - session.source_frame_count
 
+    # Clasificar el tipo de target (v1.9 — integración DoviTools bins)
+    session.target_type = _classify_target_type(dovi_info)
+    # Evaluar gates de trust (solo si tipo no es 'generic' ni 'incompatible')
+    gates, trust_ok = _evaluate_trust_gates(session.source_dv_info, dovi_info,
+                                             session.source_frame_count,
+                                             session.target_frame_count)
+    session.target_trust_gates = gates
+    # Solo confiamos si tipo permite skip Y todos los gates críticos pasaron
+    trusted_types = (
+        "trusted_p7_fel_final", "trusted_p7_mel_final", "trusted_p8_source",
+    )
+    session.target_trust_ok = (session.target_type in trusted_types) and trust_ok
+
     if log_callback:
         await log_callback(
-            f"[Fase B] RPU target: Profile {dovi_info.profile} ({dovi_info.el_type}), "
+            f"[Fase B] RPU target: Profile {dovi_info.profile}"
+            f"{' (' + dovi_info.el_type + ')' if dovi_info.el_type else ''}, "
             f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames "
             f"(Δ = {session.sync_delta:+d} vs source)"
         )
+        await log_callback(
+            f"[Fase B] Clasificación: {session.target_type}"
+            f"{' — TRUSTED ✓ gates OK' if session.target_trust_ok else ''}"
+        )
+        # Log detallado de gates que fallan (útil para diagnóstico)
+        failing = [k for k, v in gates.items() if isinstance(v, dict) and not v.get("ok", True)]
+        if failing:
+            await log_callback(
+                f"[Fase B] Gates que NO pasan: {', '.join(failing)}"
+            )
+
+
+def _classify_target_type(info: DoviInfo) -> str:
+    """Clasifica el RPU target según perfil + CM version + L8 presente.
+
+    Ver docs en CMv40Session.target_type para los valores posibles.
+    """
+    cm = (info.cm_version or "").lower()
+    has_cmv4 = cm in ("v4.0", "4.0")
+    el = (info.el_type or "").upper()
+
+    if not has_cmv4:
+        # No tiene CMv4.0 → no sirve como fuente de transfer (source de BD
+        # sí es v2.9 pero eso NO es un target).
+        return "incompatible"
+
+    # Con CMv4.0 confirmado, distinguimos por profile
+    if info.profile == 7 and el == "FEL":
+        # Bin P7 FEL con CMv4.0 ya cocinado — drop-in candidate
+        return "trusted_p7_fel_final"
+    if info.profile == 7 and el == "MEL":
+        return "trusted_p7_mel_final"
+    if info.profile == 8:
+        # Bin P8 con CMv4.0 — sirve como source para el transfer (rama B)
+        # Requerimos L8 presente: sin L8 no aporta nada al merge
+        if info.has_l8:
+            return "trusted_p8_source"
+        # Sin L8 es un P8 "plano" — igual funciona pero el merge no tendrá
+        # trims CMv4.0 útiles que transferir. Lo marcamos como generic.
+        return "generic"
+    # P5 o profile desconocido con CMv4.0 — caso raro, tratamos como generic
+    return "generic"
+
+
+def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
+                           source_frames: int, target_frames: int) -> tuple[dict, bool]:
+    """Evalúa los gates (frame count + L1/L5/L6 divergence) y devuelve:
+      - dict con resultado de cada gate
+      - bool `trust_ok`: True si todos los críticos pasan
+
+    Umbrales (spec §5):
+      - frames: 0 tolerancia (crítico)
+      - cm_version: debe ser v4.0 (crítico)
+      - has_l8: requerido para trusted_p8_source (crítico en ese caso)
+      - L5 div: ≤5 px = ok, 5-30 = warn, >30 = crítico abort
+      - L6 MaxCLL: diff ≤ 50 nits = ok, soft warn si más
+      - L1 MaxCLL: diff ≤ 5% = ok, soft warn
+    """
+    gates: dict = {}
+
+    # Frame count — crítico, sin tolerancia
+    gates["frames"] = {
+        "ok": source_frames > 0 and source_frames == target_frames,
+        "bd": source_frames,
+        "target": target_frames,
+        "critical": True,
+    }
+
+    # CM version — crítico, debe ser v4.0
+    cm = (target_info.cm_version or "").lower()
+    gates["cm_version"] = {
+        "ok": cm in ("v4.0", "4.0"),
+        "value": target_info.cm_version or "(desconocido)",
+        "critical": True,
+    }
+
+    # L8 presente — crítico para transfer útil
+    gates["has_l8"] = {
+        "ok": bool(target_info.has_l8),
+        "critical": True,
+    }
+
+    # Gates comparativos (solo si tenemos source_info)
+    if source_info is not None:
+        # L5 divergencia — distancia Chebyshev en los 4 offsets
+        l5_diffs = [
+            abs(source_info.l5_top    - target_info.l5_top),
+            abs(source_info.l5_bottom - target_info.l5_bottom),
+            abs(source_info.l5_left   - target_info.l5_left),
+            abs(source_info.l5_right  - target_info.l5_right),
+        ]
+        l5_max = max(l5_diffs) if any(l5_diffs) else 0
+        gates["l5_div"] = {
+            "ok": l5_max <= 30,          # crítico si >30
+            "px_max": l5_max,
+            "soft_px": 5,
+            "critical_px": 30,
+            "warn": 5 < l5_max <= 30,
+            "critical": True,            # crítico si >30
+        }
+
+        # L6 MaxCLL diff — soft
+        l6_diff = abs((source_info.l6_max_cll or 0) - (target_info.l6_max_cll or 0))
+        gates["l6_div"] = {
+            "ok": l6_diff <= 50,
+            "nits_diff": l6_diff,
+            "threshold": 50,
+            "critical": False,           # soft
+        }
+
+        # L1 MaxCLL diff %
+        src_l1 = source_info.l1_max_cll or 0
+        tgt_l1 = target_info.l1_max_cll or 0
+        if src_l1 > 0 and tgt_l1 > 0:
+            pct = abs(src_l1 - tgt_l1) / max(src_l1, tgt_l1) * 100.0
+            gates["l1_div"] = {
+                "ok": pct <= 5.0,
+                "pct_diff": round(pct, 2),
+                "threshold_pct": 5.0,
+                "critical": False,       # soft
+            }
+
+    # trust_ok: TODOS los críticos deben pasar
+    trust_ok = all(
+        g.get("ok", False) for g in gates.values()
+        if isinstance(g, dict) and g.get("critical", False)
+    )
+    return gates, trust_ok
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1282,11 +1425,32 @@ async def run_phase_f_inject(
         raise RuntimeError("No hay RPU target disponible")
 
     # ── Determinar qué RPU inyectar y en qué HEVC ────────────────────
-    # p7_fel: merge CMv4.0 en RPU P7 del source → inyecta en EL (preserva FEL)
+    # p7_fel + target NO trusted (o user forzó interactivo):
+    #   → merge CMv4.0 en RPU P7 del source (rama A/B de la spec)
+    # p7_fel + target trusted_p7_fel_final + trust_ok + auto:
+    #   → DROP-IN: saltar merge, inyectar el bin target directamente (rama C-FEL)
     # p7_mel: descarta EL, usa RPU target directo → inyecta en BL (→ P8 single layer)
     # p8:     usa RPU target directo → inyecta sobre source.hevc (reemplaza RPU)
-    if workflow == "p7_fel":
-        # Merge preservando FEL (sólo este workflow necesita merge)
+    drop_in = (
+        session.target_type == "trusted_p7_fel_final"
+        and session.target_trust_ok
+        and session.trust_override != "force_interactive"
+    )
+    if workflow == "p7_fel" and drop_in:
+        if log_callback:
+            await log_callback(
+                "[Fase F] 🚀 DROP-IN: target es P7 FEL CMv4.0 ya cocinado y "
+                "los gates de trust pasan. Saltando el merge — inyección directa."
+            )
+        rpu_to_inject = rpu_target_effective
+        hevc_input    = el_hevc
+        hevc_output   = el_injected
+        inject_label  = "Inyectando RPU trusted directo en EL (drop-in, sin merge)"
+        # Marcar fase omitida para UI/log
+        if "merge_cmv40_transfer" not in session.phases_skipped:
+            session.phases_skipped.append("merge_cmv40_transfer")
+    elif workflow == "p7_fel":
+        # Merge preservando FEL (flujo clásico)
         if log_callback:
             await log_callback(
                 "[Fase F] P7 FEL: merge CMv4.0 del target en RPU P7 del source…"

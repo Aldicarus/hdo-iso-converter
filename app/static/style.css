@@ -3429,6 +3429,80 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-new-tabs .tab-icon { font-size: 14px; }
 .cmv40-new-tabs .tab-label { font-size: 12px; }
+/* Tab residual (carpeta local): visualmente secundaria, menos peso */
+.cmv40-new-tabs .cmv40-tab-btn-residual {
+  opacity: 0.70;
+  font-weight: 400;
+}
+.cmv40-new-tabs .cmv40-tab-btn-residual.active { opacity: 1; }
+
+/* ── Badge + panel de gates de trust (target clasificado) ──────────── */
+.cmv40-trust-panel {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.cmv40-trust-panel.ok {
+  background: rgba(52, 199, 89, 0.08);
+  border-color: rgba(52, 199, 89, 0.35);
+  color: #a7f3c4;
+}
+.cmv40-trust-panel.warn {
+  background: rgba(255, 149, 0, 0.08);
+  border-color: rgba(255, 149, 0, 0.35);
+  color: #ffcd74;
+}
+.cmv40-trust-panel.ko {
+  background: rgba(255, 69, 58, 0.08);
+  border-color: rgba(255, 69, 58, 0.35);
+  color: #ff9b93;
+}
+.cmv40-trust-panel.generic {
+  background: rgba(142, 142, 147, 0.08);
+  border-color: rgba(142, 142, 147, 0.25);
+  color: var(--text-2);
+}
+.cmv40-trust-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.cmv40-trust-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 10px;
+}
+.cmv40-trust-gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: help;
+}
+.cmv40-trust-gate.pass { color: #a7f3c4; }
+.cmv40-trust-gate.fail { color: #ff9b93; }
+.cmv40-trust-gate.soft { color: #ffcd74; }
+
+/* Fase omitida automáticamente — visual más tenue, borde punteado */
+.cmv40-fase-card.cmv40-fase-skipped {
+  opacity: 0.70;
+  border-style: dashed;
+}
+.cmv40-fase-card.cmv40-fase-skipped .cmv40-fase-state-icon {
+  filter: grayscale(0.3);
+}
+.cmv40-fase-card.cmv40-fase-skipped .section-title {
+  color: var(--text-2);
+}
 
 /* Footer compacto: checkbox auto-pipeline + botones en una sola fila */
 .cmv40-new-footer {

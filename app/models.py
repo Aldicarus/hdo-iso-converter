@@ -79,6 +79,30 @@ class DoviInfo(BaseModel):
     has_l6: bool = False
     """L6: MaxCLL/MaxFALL fallback."""
 
+    has_l8: bool = False
+    """L8: Trims CMv4.0 (target display colorimetry). Marker clave de CMv4.0
+    — sin L8 el bin no sirve como fuente de transfer."""
+
+    # Valores numéricos extraídos del summary — usados para los gates de
+    # trust (comparar BD vs target y decidir si son la misma edición)
+    l1_max_cll: float = 0.0
+    """L1 RPU MaxCLL (ej: 1000.60 nits). Promedio del contenido."""
+
+    l1_max_fall: float = 0.0
+    """L1 RPU MaxFALL (ej: 92.36 nits)."""
+
+    l5_top: int = 0
+    l5_bottom: int = 0
+    l5_left: int = 0
+    l5_right: int = 0
+    """L5 active area offsets en píxeles."""
+
+    l6_max_cll: int = 0
+    """L6 MaxCLL (mastering display MaxCLL, ej: 998 nits)."""
+
+    l6_max_fall: int = 0
+    """L6 MaxFALL (ej: 185 nits)."""
+
     scene_count: int = 0
     frame_count: int = 0
 
@@ -896,6 +920,40 @@ class CMv40Session(BaseModel):
     tmdb_info: dict | None = None
     """Info extendida de TMDb (poster, sinopsis, géneros, rating…) si
     hubo match. Dict libre para flexibilidad — estructura en services/tmdb.py."""
+
+    # ── Clasificación del RPU target (v1.9 — integración DoviTools bins) ──
+    target_type: str = "generic"
+    """Clasificación del target RPU tras `_analyze_target_rpu`. Valores:
+      - 'generic': P5/P8 genérico (bbeny123-style) → requiere merge en Fase F
+      - 'trusted_p8_source': bin P8 CMv4.0 validado (rama B de la spec)
+      - 'trusted_p7_fel_final': bin P7 FEL CMv4.0 ya cocinado (drop-in, skip merge)
+      - 'trusted_p7_mel_final': bin P7 MEL CMv4.0 ya cocinado (drop-in)
+      - 'incompatible': no tiene CMv4.0, no sirve como fuente"""
+
+    target_trust_ok: bool = False
+    """True si los gates de trust (frame count + L5/L6/L1 divergence) pasaron.
+    Si True, Fase D no pausa para revisión visual y Fase F puede saltar el merge."""
+
+    target_trust_gates: dict = {}
+    """Resultado detallado de cada gate. Estructura:
+      {
+        "frames":   {"ok": bool, "bd": int, "target": int, "critical": bool},
+        "cm_version": {"ok": bool, "value": "v4.0", "critical": bool},
+        "has_l8":   {"ok": bool, "critical": bool},
+        "l5_div":   {"ok": bool, "px_max": int, "soft_px": 5, "critical_px": 30},
+        "l6_div":   {"ok": bool, "nits_diff": int, "threshold": 50},
+        "l1_div":   {"ok": bool, "pct_diff": float, "threshold_pct": 5},
+      }"""
+
+    phases_skipped: list[str] = []
+    """Fases que se saltaron automáticamente por ser target trusted. Valores:
+      - 'sync_verification_pause': Fase D se marcó sync OK sin intervención
+      - 'merge_cmv40_transfer': Fase F saltó _merge_cmv40_into_p7 (drop-in directo)"""
+
+    trust_override: str = "auto"
+    """Control del usuario sobre el modo trusted:
+      - 'auto': respeta target_trust_ok (skip si trusted)
+      - 'force_interactive': fuerza rama A completa aunque el target sea trusted"""
 
     running_phase: str | None = None
     """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').

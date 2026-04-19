@@ -5912,8 +5912,22 @@ function _renderCMv40ActivePhase(project) {
 }
 
 function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
-  const stateIcon = state === 'done' ? '✅' : state === 'active' ? '▶️' : '🔒';
-  const stateLabel = state === 'done' ? 'Completado' : state === 'active' ? 'En curso' : 'Pendiente';
+  // Detectar fases omitidas automáticamente por modo trusted
+  // Fase D se "omite" cuando hubo sync_verification_pause skip y la fase
+  // está done pero sin corrección manual.
+  // Fase F se marca "skipped_merge" cuando target es drop-in P7 FEL.
+  const skipped = s.phases_skipped || [];
+  const isSkippedD = fase.key === 'D' && skipped.includes('sync_verification_pause') && state === 'done';
+  const isSkippedF = fase.key === 'F' && skipped.includes('merge_cmv40_transfer') && state === 'done';
+  const isSkipped = isSkippedD || isSkippedF;
+
+  const stateIcon = isSkipped ? '⏭️'
+                  : state === 'done' ? '✅'
+                  : state === 'active' ? '▶️' : '🔒';
+  const stateLabel = isSkippedD ? 'Omitida automáticamente (target trusted — sync validado por gates)'
+                   : isSkippedF ? 'Omitida automáticamente (drop-in directo, sin merge)'
+                   : state === 'done' ? 'Completado'
+                   : state === 'active' ? 'En curso' : 'Pendiente';
 
   // Resumen cuando está done
   let summary = '';
@@ -5941,12 +5955,13 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
     }
   }
 
+  const extraCls = isSkipped ? ' cmv40-fase-skipped' : '';
   return `
-    <div class="section-card cmv40-fase-card cmv40-fase-${state}" style="margin-top:12px" data-fase-key="${fase.key}">
+    <div class="section-card cmv40-fase-card cmv40-fase-${state}${extraCls}" style="margin-top:12px" data-fase-key="${fase.key}">
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','${fase.key}')">
         <div class="cmv40-fase-state-icon">${stateIcon}</div>
         <div style="flex:1">
-          <div class="section-title">${escHtml(fase.title)}</div>
+          <div class="section-title">${escHtml(fase.title)}${isSkipped ? ' <span style="color:var(--text-3); font-weight:400; font-size:11px">(omitida)</span>' : ''}</div>
           ${summary ? `<div class="section-subtitle">${summary}</div>` : `<div class="section-subtitle">${stateLabel}</div>`}
         </div>
         <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
@@ -5966,6 +5981,98 @@ function _cmv40TogglePhase(pid, key) {
     : (state === 'active');
   project.expandedPhases[key] = !current;
   _updateCMv40Panel(project);
+}
+
+// Label amigable del target_type + panel de gates con resultado visual
+const _CMV40_TARGET_TYPE_LABELS = {
+  'generic':               { icon: '🔧', label: 'Target genérico',             desc: 'Flujo completo: merge CMv4.0 + revisión visual en Fase D' },
+  'trusted_p8_source':     { icon: '📦', label: 'Target P8 + CMv4.0 (trusted)', desc: 'Bin pre-validado (rama B): skip Fase D si gates OK' },
+  'trusted_p7_fel_final':  { icon: '🎯', label: 'Target P7 FEL CMv4.0 final',   desc: 'Drop-in: skip merge en Fase F + skip Fase D si gates OK' },
+  'trusted_p7_mel_final':  { icon: '🎯', label: 'Target P7 MEL CMv4.0 final',   desc: 'Drop-in MEL: skip Fase D si gates OK' },
+  'incompatible':          { icon: '❌', label: 'Target incompatible',          desc: 'Sin CMv4.0 — no sirve como fuente de transfer' },
+};
+
+function _cmv40RenderTrustPanel(s) {
+  const tt = s.target_type || 'generic';
+  const meta = _CMV40_TARGET_TYPE_LABELS[tt] || _CMV40_TARGET_TYPE_LABELS.generic;
+  const gates = s.target_trust_gates || {};
+  const trustOk = s.target_trust_ok === true;
+  const isTrusted = tt !== 'generic' && tt !== 'incompatible';
+  const isIncompat = tt === 'incompatible';
+
+  let cls = 'generic';
+  if (isIncompat) cls = 'ko';
+  else if (isTrusted && trustOk) cls = 'ok';
+  else if (isTrusted && !trustOk) cls = 'warn';
+
+  // Renderizar cada gate con status visual
+  const gateItems = [];
+  const pushGate = (key, okText, failText, detail) => {
+    const g = gates[key];
+    if (!g) return;
+    const gClass = g.ok ? 'pass' : (g.critical ? 'fail' : 'soft');
+    const txt = g.ok ? okText : failText;
+    gateItems.push(`<span class="cmv40-trust-gate ${gClass}" data-tooltip="${escHtml(detail)}">
+      ${g.ok ? '✓' : '✗'} ${escHtml(txt)}
+    </span>`);
+  };
+  if (gates.frames) {
+    pushGate('frames',
+      `frames ${gates.frames.bd?.toLocaleString() || '?'}`,
+      `frames ${gates.frames.bd?.toLocaleString()} ≠ ${gates.frames.target?.toLocaleString()}`,
+      'Frame count del BD vs target — crítico'
+    );
+  }
+  if (gates.cm_version) {
+    pushGate('cm_version',
+      `CM ${gates.cm_version.value}`,
+      `CM ${gates.cm_version.value || '?'}`,
+      'Debe ser v4.0 para ser fuente de transfer — crítico'
+    );
+  }
+  if (gates.has_l8) {
+    pushGate('has_l8', 'L8 presente', 'sin L8',
+      'L8 = trims CMv4.0 — sin L8 no hay transfer útil'
+    );
+  }
+  if (gates.l5_div) {
+    pushGate('l5_div',
+      `L5 div ${gates.l5_div.px_max}px`,
+      `L5 div ${gates.l5_div.px_max}px (>30)`,
+      `Divergencia L5 (active area). ≤5 ok · 5-30 warn · >30 aborta — posible edición distinta del disco`
+    );
+  }
+  if (gates.l6_div) {
+    pushGate('l6_div',
+      `L6 Δ${gates.l6_div.nits_diff}n`,
+      `L6 Δ${gates.l6_div.nits_diff}n (>50)`,
+      'Divergencia L6 MaxCLL — soft warn si >50 nits'
+    );
+  }
+  if (gates.l1_div) {
+    pushGate('l1_div',
+      `L1 Δ${gates.l1_div.pct_diff}%`,
+      `L1 Δ${gates.l1_div.pct_diff}% (>5%)`,
+      'Divergencia L1 MaxCLL en % — soft warn si >5%'
+    );
+  }
+
+  const statusTxt = isIncompat
+    ? 'Incompatible — no sirve como target'
+    : isTrusted && trustOk ? 'TRUSTED — se saltarán pasos manuales'
+    : isTrusted && !trustOk ? 'Trust NO aprobado — flujo completo con revisión manual'
+    : 'Flujo estándar con merge + revisión';
+
+  return `
+    <div class="cmv40-trust-panel ${cls}" style="margin-top:10px">
+      <div class="cmv40-trust-header">
+        <span>${meta.icon}</span>
+        <span>${escHtml(meta.label)}</span>
+        <span style="margin-left:auto; font-weight:500; font-size:10px; opacity:0.85">${escHtml(statusTxt)}</span>
+      </div>
+      <div style="font-size:10px; color:var(--text-3); margin-top:2px">${escHtml(meta.desc)}</div>
+      ${gateItems.length ? `<div class="cmv40-trust-gates">${gateItems.join('')}</div>` : ''}
+    </div>`;
 }
 
 function _cmv40FaseSummary(key, s) {
@@ -6021,7 +6128,9 @@ function _cmv40FaseDoneBody(key, pid, s) {
   }
   if (key === 'B' && s.target_dv_info) {
     const d = s.target_dv_info;
-    const srcType = s.target_rpu_source === 'path' ? 'Carpeta NAS' : 'Extraído de otro MKV';
+    const srcType = s.target_rpu_source === 'drive' ? 'Repo DoviTools'
+                   : s.target_rpu_source === 'mkv' ? 'Extraído de otro MKV'
+                   : 'Carpeta NAS';
     return `
       <div style="font-size:12px; line-height:1.8">
         <div><span style="color:var(--text-3)">Fuente:</span> ${srcType}</div>
@@ -6029,7 +6138,8 @@ function _cmv40FaseDoneBody(key, pid, s) {
         <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
         <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
-      </div>`;
+      </div>
+      ${_cmv40RenderTrustPanel(s)}`;
   }
   // Fase D completada: mostrar stats + chart (modo revisión, sin controles)
   if (key === 'D') {
@@ -6315,10 +6425,25 @@ function _cmv40MaybeAutoAdvance(project) {
       showToast('🤖 Auto: extrayendo BL/EL + per-frame', 'info');
       cmv40DoExtract(pid);
       break;
-    case 'extracted':
-      // Parada obligatoria: revisión visual del chart
-      showToast('🤖 Auto: pausa en Fase D — revisa el chart y confirma sync', 'info');
+    case 'extracted': {
+      // Trusted target: los gates automáticos ya validaron frame count,
+      // CM v4.0, L5/L6 — saltar la revisión visual manual.
+      const s = project.session;
+      const trustedAuto = s.target_trust_ok === true
+        && s.trust_override !== 'force_interactive';
+      if (trustedAuto) {
+        showToast('🤖 Auto trusted: saltando revisión visual (gates OK)', 'info');
+        if (!s.phases_skipped) s.phases_skipped = [];
+        if (!s.phases_skipped.includes('sync_verification_pause')) {
+          s.phases_skipped.push('sync_verification_pause');
+        }
+        _cmv40AutoMarkSynced(pid);
+      } else {
+        // Flujo clásico: pausa obligatoria en Fase D
+        showToast('🤖 Auto: pausa en Fase D — revisa el chart y confirma sync', 'info');
+      }
       break;
+    }
     case 'sync_verified':
       showToast('🤖 Auto: inyectando RPU', 'info');
       _cmv40AutoInject(pid);
@@ -6361,6 +6486,13 @@ async function _cmv40AutoTargetMkv(pid, mkvPath) {
 async function _cmv40AutoInject(pid) {
   await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
   _cmv40PollPhase(pid, 'injected');
+}
+
+// Para target trusted: confirma sync OK sin intervención manual y avanza
+// automáticamente a Fase F (inject).
+async function _cmv40AutoMarkSynced(pid) {
+  await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
+  _cmv40PollPhase(pid, 'sync_verified');
 }
 
 /** Toggle del auto-pipeline para un proyecto. */

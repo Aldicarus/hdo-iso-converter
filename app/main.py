@@ -1964,14 +1964,35 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
     # ⚠️ DEV MODE
     if DEV_MODE:
         from models import DoviInfo
+        # DEV: simula un bin trusted_p7_fel_final (drop-in) desde el Drive
+        # con frame count que coincide con el source → gates críticos OK.
+        src_frames = session.source_frame_count or 137992
         session.target_rpu_source = "drive"
         session.target_rpu_path = f"drive://{body.file_id}/{body.file_name}"
-        session.target_dv_info = DoviInfo(profile=8, el_type="", cm_version="v4.0", frame_count=137992)
-        session.target_frame_count = 137992
-        session.sync_delta = 137992 - session.source_frame_count
+        session.target_dv_info = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v4.0",
+            frame_count=src_frames,
+            has_l8=True, l5_top=276, l5_bottom=276,
+            l6_max_cll=900, l6_max_fall=180,
+            l1_max_cll=880.0, l1_max_fall=80.0,
+        )
+        session.target_frame_count = src_frames
+        session.sync_delta = 0
+        session.target_type = "trusted_p7_fel_final"
+        session.target_trust_ok = True
+        session.target_trust_gates = {
+            "frames":     {"ok": True, "bd": src_frames, "target": src_frames, "critical": True},
+            "cm_version": {"ok": True, "value": "v4.0", "critical": True},
+            "has_l8":     {"ok": True, "critical": True},
+            "l5_div":     {"ok": True, "px_max": 0, "soft_px": 5, "critical_px": 30, "warn": False, "critical": True},
+            "l6_div":     {"ok": True, "nits_diff": 0, "threshold": 50, "critical": False},
+            "l1_div":     {"ok": True, "pct_diff": 0.0, "threshold_pct": 5.0, "critical": False},
+        }
         session.phase = CMv40Phase.TARGET_PROVIDED
         save_cmv40_session(session)
-        await _cmv40_log(session, f"[DEV] RPU descargado de Drive: CM v4.0, 137992 frames (Δ = {session.sync_delta:+d})")
+        await _cmv40_log(session,
+            f"[DEV] RPU trusted_p7_fel_final simulado desde Drive: "
+            f"{src_frames} frames (Δ=0), gates OK → drop-in habilitado")
         return {"ok": True, "started": True}
 
     _cmv40_cancel_flags.pop(session_id, None)

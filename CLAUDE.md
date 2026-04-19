@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.8.1)
+# HDO ISO Converter — Reglas del proyecto (v1.9)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -311,9 +311,52 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 
 ### Modal "Nuevo proyecto CMv4.0"
 - Ancho 980px, responsive hasta viewport-48
-- 3 tabs de target: **📦 Repo DoviTools** (default) · **📁 Carpeta local** · **🎬 Extraer de MKV**
+- 3 tabs de target (v1.9 reordenados): **📦 Repo DoviTools** (default) · **🎬 Extraer de MKV** · **📁 Carpeta local** (residual)
 - Banner de recomendación con status-badge pill + chips en fila (Fuente · Sync · Verificación) + note con botón "Abrir ↗"
 - Footer compacto en 1 línea: toggle auto-pipeline + Cancelar/Crear
+
+---
+
+## Sistema de Trust para bins pre-validados (v1.9)
+
+Spec base: [spec_bins_reset9999_integration_v3.md](spec_bins_reset9999_integration_v3.md).
+
+### Clasificación del target RPU
+
+Tras `_analyze_target_rpu` en Fase B, el bin se clasifica automáticamente en `session.target_type`:
+
+| target_type | Detección | Comportamiento |
+|---|---|---|
+| `generic` | P8 sin L8 o P5 | Flujo completo (merge CMv4.0 + revisión visual en Fase D) |
+| `trusted_p8_source` | Profile 8 + CMv4.0 + L8 presente | Rama B spec: skip Fase D si gates OK, Fase F hace merge clásico |
+| `trusted_p7_fel_final` | Profile 7 FEL + CMv4.0 | Rama C-FEL spec: **drop-in**, skip merge en Fase F + skip Fase D |
+| `trusted_p7_mel_final` | Profile 7 MEL + CMv4.0 | Rama C-MEL spec |
+| `incompatible` | CMv2.9 u otros | No sirve como target (aborta o pide otro bin) |
+
+### Gates de trust
+
+`_evaluate_trust_gates` compara source BD vs target:
+
+- **Críticos** (deben pasar para `target_trust_ok=True`):
+  - `frames`: coincidencia exacta (0 tolerancia)
+  - `cm_version`: debe ser v4.0
+  - `has_l8`: requerido para transfer útil
+  - `l5_div`: ≤5 px ok · 5-30 warn · >30 aborta (edición distinta del disco)
+- **Soft** (no bloquean):
+  - `l6_div`: ±50 nits MaxCLL
+  - `l1_div`: ±5% MaxCLL avg
+
+### Skip automático de fases
+
+Si `target_trust_ok=True` y `trust_override == "auto"`:
+- **Fase D** (revisión visual) se salta — `_cmv40AutoMarkSynced` avanza directo a `sync_verified`
+- **Fase F merge** se salta solo en `trusted_p7_fel_final` — inject directo del bin sin `_merge_cmv40_into_p7`
+
+Se registra en `session.phases_skipped` para UI (phase-strip muestra las fases omitidas con opacity + borde punteado).
+
+### Override manual
+
+`session.trust_override = "force_interactive"` fuerza rama A completa incluso con target trusted — todas las validaciones manuales vuelven a ejecutarse.
 
 ---
 
