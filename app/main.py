@@ -1498,7 +1498,7 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
     "target_provided": ["RPU_target.bin", "plot_target.png"],
     "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
     "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
-    "injected":        ["EL_injected.hevc", "RPU_merged.bin"],
+    "injected":        ["EL_injected.hevc", "BL_injected.hevc", "RPU_merged.bin"],
     "remuxed":         ["output.mkv", "DV_dual.hevc"],
 }
 

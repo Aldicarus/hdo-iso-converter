@@ -599,6 +599,14 @@ async def run_phase_a_analyze_source(
     session.source_dv_info = dovi_info
     session.source_frame_count = dovi_info.frame_count
 
+    # Detectar workflow según perfil y subperfil (ver CMv40Session.source_workflow)
+    session.source_workflow = _detect_workflow(dovi_info)
+    workflow_label = {
+        "p7_fel": "P7 FEL — demux + merge CMv4.0 + preserva FEL",
+        "p7_mel": "P7 MEL — descarta EL, inyecta RPU target → P8.1 CMv4.0",
+        "p8":     "P8.1 — inject directo de RPU target → P8.1 CMv4.0",
+    }.get(session.source_workflow, session.source_workflow)
+
     # Paso 4: Plot (opcional, no bloquea)
     try:
         await _run([
@@ -615,6 +623,28 @@ async def run_phase_a_analyze_source(
             f"[Fase A] OK — Profile {dovi_info.profile} ({dovi_info.el_type}), "
             f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames"
         )
+        await log_callback(f"[Fase A] Workflow detectado: {workflow_label}")
+
+
+def _detect_workflow(dovi_info: DoviInfo) -> str:
+    """Determina el pipeline según perfil y subperfil del RPU source.
+
+    - P7 FEL → 'p7_fel': demux + merge CMv4.0 + mux preservando dual-layer
+    - P7 MEL → 'p7_mel': descartar EL, inject RPU target → P8.1 CMv4.0
+    - P8.x   → 'p8':     inject directo sobre el HEVC single-layer
+    """
+    profile = dovi_info.profile
+    el_type = (dovi_info.el_type or "").upper()
+    if profile == 7 and el_type == "FEL":
+        return "p7_fel"
+    if profile == 7 and el_type == "MEL":
+        return "p7_mel"
+    if profile == 8:
+        return "p8"
+    raise RuntimeError(
+        f"Perfil DV no soportado: Profile {profile} ({el_type}). "
+        f"Soportados: P7 FEL, P7 MEL, P8.x"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -783,36 +813,45 @@ async def run_phase_c_extract(
     if not rpu_target.exists():
         raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
 
-    # Pesos: demux 70% · per-frame 30%
-    W_DEMUX, W_PFD = 70.0, 30.0
+    workflow = session.source_workflow or "p7_fel"
 
-    # Frame count conocido desde Fase A (fallback a probe si acaso)
-    frame_count = session.source_frame_count or 0
-    if frame_count <= 0:
-        frame_count = await _probe_frame_count(str(source_hevc))
+    # Para p8 no hace falta demux — el source ya es single-layer. Se mantiene
+    # source.hevc como "capa única" y no se generan BL.hevc/EL.hevc.
+    # Para p7_mel/p7_fel sí hay demux (MEL: se conserva BL y se descarta EL
+    # lógicamente — aunque dovi_tool demux genera ambos, EL_mel es inútil).
+    needs_demux = workflow in ("p7_fel", "p7_mel")
 
-    est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
-
-    # Paso 1: Demux BL + EL (silencioso → progreso estimado)
-    await _emit_progress(log_callback, 0, "Separando BL + EL")
-    if log_callback:
-        await log_callback("[Fase C] Separando BL + EL (dovi_tool demux)…")
-    if not (bl_hevc.exists() and el_hevc.exists()):
-        rc, out, err = await _run_with_time_estimate([
-            DOVI_TOOL_BIN, "demux", str(source_hevc),
-            "--bl-out", str(bl_hevc),
-            "--el-out", str(el_hevc),
-        ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
-           timeout=900, label="Separando BL + EL (dovi_tool demux)",
-           offset=0.0, weight=W_DEMUX)
-        if rc != 0:
-            raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
-    else:
+    if needs_demux:
+        # Pesos: demux 70% · per-frame 30%
+        W_DEMUX, W_PFD = 70.0, 30.0
+        est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
+        await _emit_progress(log_callback, 0, "Separando BL + EL")
         if log_callback:
-            await log_callback("[Fase C] BL.hevc y EL.hevc ya existen, reutilizando")
-    await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
+            label = "BL + EL" if workflow == "p7_fel" else "BL (EL MEL será ignorado)"
+            await log_callback(f"[Fase C] Separando {label} (dovi_tool demux)…")
+        if not (bl_hevc.exists() and el_hevc.exists()):
+            rc, out, err = await _run_with_time_estimate([
+                DOVI_TOOL_BIN, "demux", str(source_hevc),
+                "--bl-out", str(bl_hevc),
+                "--el-out", str(el_hevc),
+            ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
+               timeout=900, label="Separando BL + EL (dovi_tool demux)",
+               offset=0.0, weight=W_DEMUX)
+            if rc != 0:
+                raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
+        else:
+            if log_callback:
+                await log_callback("[Fase C] BL.hevc y EL.hevc ya existen, reutilizando")
+        await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
+    else:
+        # Workflow p8: sin demux. Ajustar pesos para que el per-frame ocupe todo.
+        W_DEMUX, W_PFD = 0.0, 100.0
+        if log_callback:
+            await log_callback(
+                "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
+            )
 
-    # Paso 2: Generar per_frame_data.json
+    # Generar per_frame_data.json (todos los workflows)
     if log_callback:
         await log_callback("[Fase C] Generando datos per-frame para el chart…")
     est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
@@ -1112,31 +1151,43 @@ async def run_phase_f_inject(
     Si target ya es P7 FEL CMv4.0, se inyecta directamente (no hace falta merge).
     """
     wd = get_workdir(session)
+    source_hevc  = wd / "source.hevc"
+    bl_hevc      = wd / "BL.hevc"
     el_hevc      = wd / "EL.hevc"
     rpu_source   = wd / "RPU_source.bin"
     rpu_synced   = wd / "RPU_synced.bin"
     rpu_target   = wd / "RPU_target.bin"
     rpu_merged   = wd / "RPU_merged.bin"
     el_injected  = wd / "EL_injected.hevc"
+    bl_injected  = wd / "BL_injected.hevc"
 
-    if not el_hevc.exists():
-        raise RuntimeError("EL.hevc no existe — ejecuta Fase C primero")
+    workflow = session.source_workflow or "p7_fel"
+
+    # Inputs requeridos según workflow
+    if workflow == "p7_fel":
+        if not el_hevc.exists():
+            raise RuntimeError("EL.hevc no existe — ejecuta Fase C primero")
+    elif workflow == "p7_mel":
+        if not bl_hevc.exists():
+            raise RuntimeError("BL.hevc no existe — ejecuta Fase C primero")
+    elif workflow == "p8":
+        if not source_hevc.exists():
+            raise RuntimeError("source.hevc no existe — ejecuta Fase A primero")
 
     # RPU target a usar: synced si el usuario aplicó sync, si no target original
     rpu_target_effective = rpu_synced if rpu_synced.exists() else rpu_target
     if not rpu_target_effective.exists():
         raise RuntimeError("No hay RPU target disponible")
 
-    # Detectar si necesitamos merge (preservar FEL)
-    src_is_fel = bool(session.source_dv_info and session.source_dv_info.el_type == "FEL")
-    tgt_info = session.target_dv_info
-    tgt_is_p7 = bool(tgt_info and tgt_info.profile == 7)
-    needs_merge = src_is_fel and not tgt_is_p7
-
-    if needs_merge:
+    # ── Determinar qué RPU inyectar y en qué HEVC ────────────────────
+    # p7_fel: merge CMv4.0 en RPU P7 del source → inyecta en EL (preserva FEL)
+    # p7_mel: descarta EL, usa RPU target directo → inyecta en BL (→ P8 single layer)
+    # p8:     usa RPU target directo → inyecta sobre source.hevc (reemplaza RPU)
+    if workflow == "p7_fel":
+        # Merge preservando FEL (sólo este workflow necesita merge)
         if log_callback:
             await log_callback(
-                "[Fase F] Preservando FEL: merge CMv4.0 del target en RPU P7 del source…"
+                "[Fase F] P7 FEL: merge CMv4.0 del target en RPU P7 del source…"
             )
         await _merge_cmv40_into_p7(
             rpu_source_p7=rpu_source,
@@ -1145,10 +1196,27 @@ async def run_phase_f_inject(
             log_callback=log_callback,
         )
         rpu_to_inject = rpu_merged
-    else:
+        hevc_input    = el_hevc
+        hevc_output   = el_injected
+        inject_label  = "Inyectando RPU merged en EL (preserva FEL)"
+    elif workflow == "p7_mel":
         rpu_to_inject = rpu_target_effective
-        if log_callback and src_is_fel:
-            await log_callback("[Fase F] Target ya es P7 FEL — inyección directa (sin merge)")
+        hevc_input    = bl_hevc
+        hevc_output   = bl_injected
+        inject_label  = "Inyectando RPU target en BL (descartando EL MEL → P8.1)"
+        if log_callback:
+            await log_callback(
+                "[Fase F] P7 MEL: EL descartado, inyección directa en BL → P8.1 CMv4.0"
+            )
+    else:  # workflow == "p8"
+        rpu_to_inject = rpu_target_effective
+        hevc_input    = source_hevc
+        hevc_output   = bl_injected  # reutilizamos el mismo slot de artefacto
+        inject_label  = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
+        if log_callback:
+            await log_callback(
+                "[Fase F] P8: sin demux, inject directo sobre source HEVC"
+            )
 
     # Validación de frame count antes de inyectar
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_to_inject)], timeout=30)
@@ -1161,28 +1229,27 @@ async def run_phase_f_inject(
 
     if log_callback:
         await log_callback(
-            f"[Fase F] Inyectando RPU en EL "
-            f"(RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
+            f"[Fase F] {inject_label} (RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
         )
     est_inject = _estimate_from_ffmpeg(session, RATIO_INJECT, FPS_INJECT)
-    await _emit_progress(log_callback, 0, "Inyectando RPU en EL")
+    await _emit_progress(log_callback, 0, inject_label)
     rc = await _run_streaming([
         DOVI_TOOL_BIN, "inject-rpu",
-        "-i", str(el_hevc),
+        "-i", str(hevc_input),
         "--rpu-in", str(rpu_to_inject),
-        "-o", str(el_injected),
+        "-o", str(hevc_output),
     ], log_callback=log_callback, proc_callback=proc_callback,
        progress_ctx={
            "time_estimate_s": est_inject,
            "offset": 0.0, "weight": 100.0,
-           "label": "Inyectando RPU en EL",
+           "label": inject_label,
        })
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
 
     await _emit_progress(log_callback, 100, "RPU inyectado")
     if log_callback:
-        await log_callback("[Fase F] EL_injected.hevc generado")
+        await log_callback(f"[Fase F] {hevc_output.name} generado ({workflow})")
 
 
 async def _merge_cmv40_into_p7(
@@ -1341,72 +1408,89 @@ async def run_phase_g_remux(
     wd = get_workdir(session)
     bl_hevc      = wd / "BL.hevc"
     el_injected  = wd / "EL_injected.hevc"
+    bl_injected  = wd / "BL_injected.hevc"
     dv_dual      = wd / "DV_dual.hevc"
-    # Escribir DIRECTAMENTE al destino final con sufijo .tmp — evita copy 42GB
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_mkv   = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-
-    if not bl_hevc.exists() or not el_injected.exists():
-        raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
-
-    # Si quedó un .tmp previo (p. ej. tras cancelación), borrarlo
+    output_mkv = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
     if output_mkv.exists():
-        try:
-            output_mkv.unlink()
-        except Exception:
-            pass
+        try: output_mkv.unlink()
+        except Exception: pass
 
-    # Pesos: dovi_tool mux 38% (~218s) · mkvmerge remux 62% (~361s) para 155k frames
-    W_MUX, W_MKV = 38.0, 62.0
+    workflow = session.source_workflow or "p7_fel"
     frames = session.source_frame_count or 0
-    est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)
-    # mkvmerge emite Progress: real; el estimado solo cubre el arranque
     est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
 
-    # Paso 1: dovi_tool mux → dual-layer HEVC
-    await _emit_progress(log_callback, 0, "Combinando BL + EL_injected")
-    if log_callback:
-        await log_callback("[Fase G] Combinando BL + EL_injected (dovi_tool mux)…")
-    rc = await _run_streaming([
-        DOVI_TOOL_BIN, "mux",
-        "--bl", str(bl_hevc),
-        "--el", str(el_injected),
-        "-o", str(dv_dual),
-    ], log_callback=log_callback, proc_callback=proc_callback,
-       progress_ctx={
-           "time_estimate_s": est_mux,
-           "offset": 0.0, "weight": W_MUX,
-           "label": "Combinando BL + EL (dovi_tool mux)",
-       })
-    if rc != 0:
-        raise RuntimeError(f"dovi_tool mux falló (código {rc})")
-    await _emit_progress(log_callback, W_MUX, "Dual-layer HEVC generado")
+    # ── Determinar qué HEVC multiplexar según workflow ───────────────
+    if workflow == "p7_fel":
+        # Dual-layer: primero mux BL + EL_injected, luego mkvmerge
+        if not bl_hevc.exists() or not el_injected.exists():
+            raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
 
-    # Paso 2: mkvmerge → MKV final con audio/subs/capítulos del origen (progreso real)
+        W_MUX, W_MKV = 38.0, 62.0
+        est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)
+
+        await _emit_progress(log_callback, 0, "Combinando BL + EL_injected (P7 FEL)")
+        if log_callback:
+            await log_callback("[Fase G] P7 FEL: mux dual-layer (dovi_tool mux)…")
+        rc = await _run_streaming([
+            DOVI_TOOL_BIN, "mux",
+            "--bl", str(bl_hevc),
+            "--el", str(el_injected),
+            "-o", str(dv_dual),
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "time_estimate_s": est_mux,
+               "offset": 0.0, "weight": W_MUX,
+               "label": "Combinando BL + EL (dovi_tool mux)",
+           })
+        if rc != 0:
+            raise RuntimeError(f"dovi_tool mux falló (código {rc})")
+        await _emit_progress(log_callback, W_MUX, "Dual-layer HEVC generado")
+        hevc_for_mkv = dv_dual
+        remux_offset = W_MUX
+        remux_weight = W_MKV
+    else:
+        # p7_mel y p8: single-layer, sin dovi_tool mux. BL_injected.hevc es el stream final.
+        if not bl_injected.exists():
+            raise RuntimeError(
+                f"BL_injected.hevc no existe para workflow {workflow} — ejecuta Fase F primero"
+            )
+        if log_callback:
+            label = "P7 MEL (EL descartado)" if workflow == "p7_mel" else "P8 (sin demux)"
+            await log_callback(f"[Fase G] {label}: sin mux dual-layer, mkvmerge directo…")
+        hevc_for_mkv = bl_injected
+        remux_offset = 0.0
+        remux_weight = 100.0
+
+    # mkvmerge: MKV final con audio/subs/capítulos del origen (progreso real)
     if log_callback:
         await log_callback("[Fase G] Remuxando a MKV final (mkvmerge)…")
     title = session.output_mkv_name.removesuffix(".mkv")
     rc = await _run_streaming([
         MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
         "--title", title,
-        str(dv_dual),
+        str(hevc_for_mkv),
         "--no-video", session.source_mkv_path,
     ], log_callback=log_callback, proc_callback=proc_callback,
        progress_ctx={
-           "time_estimate_s": est_mkv,  # fallback si no llega Progress:
-           "offset": W_MUX, "weight": W_MKV,
+           "time_estimate_s": est_mkv,
+           "offset": remux_offset, "weight": remux_weight,
            "label": "Remuxando MKV final (mkvmerge)",
        })
-    if rc not in (0, 1):  # 1 = warning
+    if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge falló (código {rc})")
     await _emit_progress(log_callback, 100, "Remux completado")
 
-    # Cleanup intermedio
-    dv_dual.unlink(missing_ok=True)
+    # Cleanup intermedio (solo para p7_fel)
+    if workflow == "p7_fel":
+        dv_dual.unlink(missing_ok=True)
 
     if log_callback:
         size_gb = output_mkv.stat().st_size / 1e9
-        await log_callback(f"[Fase G] output.mkv generado ({size_gb:.2f} GB)")
+        await log_callback(
+            f"[Fase G] output.mkv generado ({size_gb:.2f} GB, workflow={workflow})"
+        )
     return str(output_mkv)
 
 
@@ -1493,6 +1577,19 @@ async def run_phase_h_validate(
     if result_info.cm_version != "v4.0":
         raise RuntimeError(
             f"El MKV resultante tiene CM {result_info.cm_version} (esperado v4.0)"
+        )
+
+    # Validación de subprofile según workflow
+    expected_el = "FEL" if (session.source_workflow or "p7_fel") == "p7_fel" else None
+    if expected_el and result_info.el_type != expected_el:
+        raise RuntimeError(
+            f"El MKV resultante tiene el_type={result_info.el_type!r} "
+            f"(esperado '{expected_el}' porque source_workflow='{session.source_workflow}')"
+        )
+    if log_callback:
+        await log_callback(
+            f"[Fase H] ✓ Validación DV OK: Profile {result_info.profile} ({result_info.el_type}), "
+            f"CM {result_info.cm_version}"
         )
 
     # Validar pistas con mkvmerge -J

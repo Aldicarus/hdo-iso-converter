@@ -4982,6 +4982,9 @@ function _renderCMv40Info(s, pid) {
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
               ${srcDv ? `Profile ${srcDv.profile} (${srcDv.el_type}) · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
             </div>
+            ${s.source_workflow ? `<div style="font-size:10px; margin-top:4px">
+              <span class="cmv40-workflow-badge cmv40-workflow-${s.source_workflow}">${_cmv40WorkflowLabel(s.source_workflow)}</span>
+            </div>` : ''}
           </div>
           <div>
             <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV salida ${canEditName ? '<span style="color:var(--text-3)">· editable</span>' : ''}</div>
@@ -4999,6 +5002,14 @@ function _renderCMv40Info(s, pid) {
         </div>
       </div>
     </div>`;
+}
+
+function _cmv40WorkflowLabel(wf) {
+  return {
+    p7_fel: '🎯 P7 FEL · merge CMv4.0 preservando dual-layer',
+    p7_mel: '📀 P7 MEL · descarta EL → P8.1 CMv4.0',
+    p8:     '🎬 P8.1 · inject directo → P8.1 CMv4.0',
+  }[wf] || wf;
 }
 
 async function _cmv40SaveOutputName(pid, newName) {

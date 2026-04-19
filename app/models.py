@@ -833,6 +833,13 @@ class CMv40Session(BaseModel):
     Usado como ancla para estimar el ETA de fases silenciosas posteriores
     (extract-rpu, demux, inject, mux) — I/O del NAS es el bottleneck común."""
 
+    source_workflow: str = ""
+    """Tipo de pipeline según perfil DV del source, detectado en Fase A:
+      - "p7_fel":  P7 FEL → demux BL/EL + merge CMv4.0 + mux preservando FEL
+      - "p7_mel":  P7 MEL → demux BL (descartar EL) + inject RPU target → P8.1 CMv4.0
+      - "p8":      P8.1   → inject RPU target directo sobre source HEVC → P8.1 CMv4.0
+    """
+
     # ── Target (RPU CMv4.0) ──────────────────────────────────────
     target_rpu_source: str = ""
     """Tipo de fuente: 'path' (fichero en /mnt/cmv40_rpus/) o 'mkv' (extraído de otro MKV)."""

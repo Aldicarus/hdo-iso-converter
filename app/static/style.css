@@ -3378,6 +3378,31 @@ select { appearance: none; cursor: pointer;
   border-top: none;
 }
 
+/* Badges de workflow CMv4.0 (P7 FEL / P7 MEL / P8) */
+.cmv40-workflow-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.cmv40-workflow-p7_fel {
+  background: rgba(52, 199, 89, 0.15);
+  color: var(--green, #34c759);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+.cmv40-workflow-p7_mel {
+  background: rgba(255, 149, 0, 0.15);
+  color: var(--orange, #ff9500);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+.cmv40-workflow-p8 {
+  background: rgba(0, 122, 255, 0.15);
+  color: var(--blue, #007aff);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+}
+
 /* Badge "abierto" en el sidebar de Tab 3 */
 .session-item-badge {
   font-size: 9px;
