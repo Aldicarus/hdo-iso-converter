@@ -2173,16 +2173,17 @@ function renderDiscardedTracks(tracks) {
         ].filter(s => s !== null).join('\n');
       }
 
-      // Label compacto: para audio codec+desc+bitrate; para subs lang + paquetes
+      // Label compacto — idioma siempre primero para identificación rápida
       let codecInfo;
+      const langLit = langLiteral(raw.language) || raw.language || '';
       if (isAudio) {
-        codecInfo = [raw.codec, raw.description,
+        codecInfo = [langLit, raw.codec, raw.description,
           raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null
         ].filter(Boolean).join(' · ');
       } else {
         const packets = raw.packet_count || 0;
         const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
-        codecInfo = ['PGS', langLiteral(raw.language), pktTag].filter(Boolean).join(' · ');
+        codecInfo = [langLit, 'PGS', pktTag].filter(Boolean).join(' · ');
       }
 
       const icon = isAudio ? '🔊' : '💬';
