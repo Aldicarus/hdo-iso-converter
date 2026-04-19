@@ -437,6 +437,8 @@ function createProjectPanel(project) {
 /** Genera el HTML interno del panel de revisión de un proyecto (IDs prefijados con pid). */
 function buildProjectPanelHTML(pid) {
   return `
+    <div id="${pid}-tmdb-card" class="tmdb-card-slot"></div>
+
     <div id="${pid}-exec-result-banner" class="banner" style="display:none">
       <span class="banner-icon" id="${pid}-exec-result-icon"></span>
       <div class="exec-result-body">
@@ -797,6 +799,125 @@ function showConfirm(title, message, onConfirm, confirmLabel = 'Confirmar') {
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 /** Cierra un modal eliminando la clase 'open' del overlay. @param {string} id */
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── Modal de Configuración (API keys, integraciones) ─────────────
+async function openSettingsModal() {
+  ['settings-tmdb-feedback', 'settings-google-feedback'].forEach(id => {
+    const fb = document.getElementById(id);
+    if (fb) { fb.textContent = ''; fb.className = 'settings-feedback'; }
+  });
+  ['settings-tmdb-input', 'settings-google-input'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) inp.value = '';
+  });
+  await _loadSettings();
+  openModal('settings-modal');
+  setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
+}
+
+async function _loadSettings() {
+  const data = await apiFetch('/api/settings');
+  if (!data) return;
+  _renderSettings(data);
+}
+
+function _renderSettingsSection(key, data) {
+  const badge = document.getElementById(`settings-${key}-status`);
+  const inp = document.getElementById(`settings-${key}-input`);
+  if (!badge) return false;
+  const st = data[key] || {};
+  if (st.configured) {
+    const srcLabel = st.source === 'env' ? 'desde .env' : 'guardada';
+    const cls = st.source === 'env' ? 'env' : 'ok';
+    badge.className = 'settings-status ' + cls;
+    badge.textContent = `✓ ${srcLabel}${st.last4 ? ' · …' + st.last4 : ''}`;
+    if (inp) inp.placeholder = `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
+    return st.source === 'settings';
+  }
+  badge.className = 'settings-status warn';
+  badge.textContent = 'No configurada';
+  if (inp) {
+    inp.placeholder = key === 'tmdb'
+      ? 'Pega aquí tu Clave de la API…'
+      : 'Pega aquí tu Clave de la API de Google…';
+  }
+  return false;
+}
+
+function _renderSettings(data) {
+  const tmdbUserSet   = _renderSettingsSection('tmdb', data);
+  const googleUserSet = _renderSettingsSection('google', data);
+  const clearBtn = document.getElementById('settings-clear-btn');
+  if (clearBtn) {
+    clearBtn.style.display = (tmdbUserSet || googleUserSet) ? '' : 'none';
+  }
+}
+
+async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
+  const inp = document.getElementById(`settings-${fieldKey}-input`);
+  const fb  = document.getElementById(`settings-${fieldKey}-feedback`);
+  const btn = document.getElementById(`settings-${fieldKey}-test`);
+  const value = (inp?.value || '').trim();
+  if (!fb || !btn) return;
+  if (!value) {
+    fb.textContent = 'Introduce una Clave de la API para probar';
+    fb.className = 'settings-feedback info';
+    return;
+  }
+  btn.disabled = true;
+  fb.textContent = 'Probando…';
+  fb.className = 'settings-feedback info';
+  const body = {};
+  body[payloadKey] = value;
+  const data = await apiFetch(endpoint, {
+    method: 'POST', body: JSON.stringify(body),
+  });
+  btn.disabled = false;
+  if (!data) return;
+  fb.textContent = data.message || (data.ok ? 'OK' : 'Error');
+  fb.className = 'settings-feedback ' + (data.ok ? 'ok' : 'error');
+}
+
+async function testTmdbKey()   { return _testKeyGeneric('tmdb',   'tmdb',   '/api/settings/test-tmdb',   'tmdb_api_key'); }
+async function testGoogleKey() { return _testKeyGeneric('google', 'google', '/api/settings/test-google', 'google_api_key'); }
+
+async function saveSettings() {
+  const tmdbInp   = document.getElementById('settings-tmdb-input');
+  const googleInp = document.getElementById('settings-google-input');
+  const btn = document.getElementById('settings-save-btn');
+  const fbTmdb   = document.getElementById('settings-tmdb-feedback');
+  const fbGoogle = document.getElementById('settings-google-feedback');
+  if (!btn) return;
+  const payload = {};
+  const tk = (tmdbInp?.value || '').trim();
+  const gk = (googleInp?.value || '').trim();
+  if (tk) payload.tmdb_api_key = tk;
+  if (gk) payload.google_api_key = gk;
+  if (!Object.keys(payload).length) {
+    closeModal('settings-modal');
+    return;
+  }
+  btn.disabled = true;
+  const data = await apiFetch('/api/settings', {
+    method: 'POST', body: JSON.stringify(payload),
+  });
+  btn.disabled = false;
+  if (!data) return;
+  _renderSettings(data);
+  if (tk && tmdbInp)   { tmdbInp.value   = ''; if (fbTmdb)   { fbTmdb.textContent = 'Guardada ✓';   fbTmdb.className = 'settings-feedback ok'; } }
+  if (gk && googleInp) { googleInp.value = ''; if (fbGoogle) { fbGoogle.textContent = 'Guardada ✓'; fbGoogle.className = 'settings-feedback ok'; } }
+  showToast('Configuración guardada', 'success');
+}
+
+async function clearAllKeys() {
+  const data = await apiFetch('/api/settings', {
+    method: 'POST',
+    body: JSON.stringify({ tmdb_api_key: '', google_api_key: '' }),
+  });
+  if (!data) return;
+  _renderSettings(data);
+  showToast('Claves borradas', 'info');
+}
 /**
  * Cierra el modal si el click fue directamente sobre el overlay (no en el contenido).
  * @param {MouseEvent} e
@@ -1507,6 +1628,13 @@ function renderProjectPanel(project) {
   if (!session) return;
 
   currentSession = session;
+
+  // Ficha TMDb en la cabecera (mismo look que Tab 3). Best-effort.
+  // Parseamos el título del mkv_name (o del basename del ISO si aún no
+  // hay mkv_name). Cache global evita re-fetches entre cambios.
+  const filenameForTmdb = session.mkv_name
+    || (session.iso_path ? session.iso_path.split('/').pop() : '');
+  hydrateTmdbCard(`${project.id}-tmdb-card`, filenameForTmdb);
 
   // Asegurar que el sub-tab activo es este proyecto
   const prevSubTab = activeSubTabId;
@@ -3925,6 +4053,9 @@ function _renderMkvEditPanel() {
   panel.innerHTML = `
     <div class="project-panel-inner" style="max-width:900px; margin:0 auto; padding:24px 20px">
 
+      <!-- Ficha TMDb (hidratada en async) -->
+      <div id="mkv-edit-tmdb-card" class="tmdb-card-slot"></div>
+
       <!-- Info del fichero (solo lectura) -->
       <div class="section-card">
         <div class="section-header"><div><div class="section-title">📦 Fichero MKV</div></div></div>
@@ -4002,6 +4133,9 @@ function _renderMkvEditPanel() {
           data-tooltip="Aplica todos los cambios al MKV">✅ Aplicar cambios</button>
       </div>
     </div>`;
+
+  // Hidratar ficha TMDb (async, no bloquea el render de pistas)
+  hydrateTmdbCard('mkv-edit-tmdb-card', mkvProject.fileName || a.file_name);
 
   _renderMkvTracks();
   _renderMkvChapters();
@@ -4490,19 +4624,20 @@ const CMV40_PHASE_LABELS = {
 
 // ── Modal "Nuevo proyecto CMv4.0" ────────────────────────────────
 
-let _cmv40NewTargetTab = 'path';  // 'path' | 'mkv'
-let _cmv40NewTargetSelected = null;  // { kind: 'path'|'mkv', value: string }
+let _cmv40NewTargetTab = 'repo';  // 'repo' | 'path' | 'mkv'
+let _cmv40NewTargetSelected = null;  // { kind, value }
 
 async function openNewCMv40Modal() {
   _cmv40SourceSelected = null;
-  _cmv40NewTargetTab = 'path';
+  _cmv40NewTargetTab = 'repo';
   _cmv40NewTargetSelected = null;
   const btn = document.getElementById('cmv40-create-btn');
   if (btn) btn.disabled = true;
   const autoCb = document.getElementById('cmv40-new-auto');
   if (autoCb) autoCb.checked = true;
-  _cmv40NewSwitchTargetTab('path');
-  _cmv40LoadRecommendation('');  // limpia banner del anterior modal
+  _cmv40NewSwitchTargetTab('repo');
+  _cmv40LoadRecommendation('');
+  _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
   await Promise.all([
     loadCMv40SourceList(),
     _cmv40NewLoadRpus(),
@@ -4529,6 +4664,9 @@ function onCMv40SourceChange(val) {
   _cmv40SourceSelected = val || null;
   _cmv40NewUpdateCreateBtn();
   _cmv40LoadRecommendation(val);
+  // Si el usuario está en la pestaña "Repositorio", dispara búsqueda live
+  if (_cmv40NewTargetTab === 'repo') _cmv40NewLoadRepoCandidates();
+  else _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
 }
 
 // Token para anular peticiones obsoletas si el usuario cambia de MKV rápido
@@ -4548,7 +4686,7 @@ async function _cmv40LoadRecommendation(filename) {
   banner.className = 'cmv40-rec-banner loading';
   banner.innerHTML = `<div class="cmv40-rec-header">
     <span class="cmv40-rec-spinner-inline"></span>
-    <span>Consultando hoja de REC_9999…</span>
+    <span>Consultando hoja de DoviTools…</span>
   </div>`;
   const qs = '?filename=' + encodeURIComponent(filename);
   const data = await apiFetch('/api/cmv40/recommend-from-filename' + qs);
@@ -4558,6 +4696,30 @@ async function _cmv40LoadRecommendation(filename) {
     return;
   }
   _cmv40RenderRecommendation(data);
+}
+
+// Metadata por columna: icono, label corta, tooltip explicativo
+const CMV40_CHIP_META = {
+  dv_source:   { icon: '🎬', label: 'Fuente',   help: 'Plataforma de origen del RPU CMv4.0 (iTunes, Disney+, MA, MAX, Fandango, BD-FEL…)' },
+  sync:        { icon: '⏱', label: 'Sync',     help: 'Offset de frames entre WEB-DL y Blu-ray + comprobación de L5 (active area / letterbox)' },
+  comparisons: { icon: '🔬', label: 'Verif.',   help: 'Tipo de verificación: HDR COMP (comparativa HDR), plot (gráfico), L1 (MaxCLL/MaxFALL), nits, sample…' },
+  notes:       { icon: '📝', label: 'Notas',    help: 'Notas / workflow. Factible suele ser "workflow 2-3"; si no, explica el motivo' },
+};
+
+// Chip compacto — icono + label corta + valor. Si hay link, el chip es
+// un enlace clicable y añade ↗.
+function _cmv40Chip(key, value, link) {
+  if (!value && !link) return '';
+  const m = CMV40_CHIP_META[key] || { icon: '·', label: key, help: '' };
+  const inner = `
+    <span class="chip-icon">${m.icon}</span>
+    <span class="chip-label" data-tooltip="${escHtml(m.help)}">${escHtml(m.label)}</span>
+    <span class="chip-value">${escHtml(value || '—')}</span>`;
+  if (link) {
+    return `<a class="cmv40-chip linked" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
+      data-tooltip="Abrir: ${escHtml(link)}">${inner}<span class="chip-arrow">↗</span></a>`;
+  }
+  return `<span class="cmv40-chip">${inner}</span>`;
 }
 
 function _cmv40RenderRecommendation(data) {
@@ -4570,56 +4732,78 @@ function _cmv40RenderRecommendation(data) {
   const icon = status === 'recommended' ? '✅'
              : status === 'not_feasible' ? '❌'
              : '❓';
-  const label = status === 'recommended' ? 'Conversión CMv4.0 factible'
-              : status === 'not_feasible' ? 'Conversión CMv4.0 NO factible'
-              : 'Sin datos en la hoja de REC_9999';
+  const statusLabel = status === 'recommended' ? 'Factible'
+                    : status === 'not_feasible' ? 'No factible'
+                    : 'Sin datos';
   banner.className = 'cmv40-rec-banner ' + cls;
 
-  let html = `<div class="cmv40-rec-header">
-    <span class="cmv40-rec-icon">${icon}</span>
-    <span>${label}</span>
-  </div>`;
+  const matchTitleHtml = data.match_title
+    ? (data.title_link
+        ? `<a class="cmv40-rec-match-title linked" href="${escHtml(data.title_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.title_link)}">${escHtml(data.match_title)} <span class="chip-arrow">↗</span></a>`
+        : `<span class="cmv40-rec-match-title">${escHtml(data.match_title)}</span>`)
+    : '';
 
-  if (status === 'recommended') {
-    const parts = [];
-    if (data.dv_source) parts.push(`Fuente WEB: <strong>${escHtml(data.dv_source)}</strong>`);
-    if (data.sync_offset) parts.push(`Sync: <strong>${escHtml(data.sync_offset)}</strong>`);
-    if (data.comparisons) parts.push(`Verificación: ${escHtml(data.comparisons)}`);
-    html += `<div class="cmv40-rec-body">${parts.join(' · ')}</div>`;
+  // Header compacto en una sola línea: icono + estado + separador + match title
+  let html = `
+    <div class="cmv40-rec-top">
+      <span class="cmv40-rec-status-badge ${cls}">
+        <span class="cmv40-rec-icon">${icon}</span>
+        <span class="cmv40-rec-status-label">${statusLabel}</span>
+      </span>
+      ${matchTitleHtml ? `<span class="cmv40-rec-match-sep">·</span>${matchTitleHtml}` : ''}
+    </div>`;
+
+  if (status === 'recommended' || status === 'not_feasible') {
+    const chips = [
+      _cmv40Chip('dv_source',   data.dv_source,   data.dv_source_link),
+      _cmv40Chip('sync',        data.sync_offset, data.sync_link),
+      _cmv40Chip('comparisons', data.comparisons, data.comparisons_link),
+    ].filter(Boolean);
+    if (chips.length) {
+      html += `<div class="cmv40-rec-chips">${chips.join('')}</div>`;
+    }
     if (data.notes) {
-      html += `<div class="cmv40-rec-notes"><strong>Nota:</strong> ${escHtml(data.notes)}</div>`;
+      const noteLinkHtml = data.notes_link
+        ? `<a class="cmv40-rec-note-link" href="${escHtml(data.notes_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.notes_link)}">Abrir ↗</a>`
+        : '';
+      const noteIcon = CMV40_CHIP_META.notes.icon;
+      const noteLabel = status === 'not_feasible' ? 'Motivo' : CMV40_CHIP_META.notes.label;
+      html += `<div class="cmv40-rec-note">
+        <span class="cmv40-rec-note-label" data-tooltip="${escHtml(CMV40_CHIP_META.notes.help)}">${noteIcon} ${escHtml(noteLabel)}</span>
+        <span class="cmv40-rec-note-body">${escHtml(data.notes)}</span>
+        ${noteLinkHtml}
+      </div>`;
     }
-  } else if (status === 'not_feasible') {
-    html += `<div class="cmv40-rec-body">`;
-    if (data.dv_source) {
-      html += `<div>Tipo de fuente en el sheet: <strong>${escHtml(data.dv_source)}</strong></div>`;
-    }
-    if (data.notes) {
-      html += `<div class="cmv40-rec-notes"><strong>Motivo (REC_9999):</strong> ${escHtml(data.notes)}</div>`;
-    }
-    if (data.comparisons) {
-      html += `<div style="font-size:11px; margin-top:6px; opacity:0.85">Verificación: ${escHtml(data.comparisons)}</div>`;
-    }
-    html += `</div>`;
   } else {
     html += `<div class="cmv40-rec-body">
       El título <strong>${escHtml(data.input_title || '')}</strong>${data.input_year ? ' (' + data.input_year + ')' : ''}`;
     if (data.title_en && data.title_en !== data.input_title) {
       html += ` (TMDb: <em>${escHtml(data.title_en)}</em>)`;
     }
-    html += ` no aparece en la hoja de REC_9999 (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
+    html += ` no aparece en la hoja de DoviTools (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
     html += `</div>`;
     if (!data.tmdb_configured) {
-      html += `<div class="cmv40-rec-footer">⚠️ TMDb API key no configurada — el matching ES→EN es más limitado. Define <code>TMDB_API_KEY</code> en el .env.</div>`;
+      html += `<div class="cmv40-rec-footer">⚠️ Clave de la API de TMDb no configurada — el matching ES→EN es más limitado. Añádela en ⚙︎ Configuración.</div>`;
     }
   }
 
   if (data.match_confidence && data.match_confidence > 0) {
     const pct = Math.round(data.match_confidence * 100);
-    html += `<div class="cmv40-rec-footer">
-      <span>Match: "${escHtml(data.match_title)}"</span>
-      <span>confianza ${pct}%</span>
-      <span>vía ${escHtml(data.match_source)}</span>
+    const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
+    html += `<div class="cmv40-rec-meta">
+      <span class="cmv40-rec-meta-tag" data-tooltip="Similitud entre el título del fichero y la fila de DoviTools">${pct}% match</span>
+      <span class="cmv40-rec-meta-tag" data-tooltip="Fuente del matching: TMDb traduce ES→EN">vía ${escHtml(viaLabel)}</span>
+    </div>`;
+  }
+
+  // Warning: cuando no tenemos hyperlinks (fuentes xlsx/api/html → ok; csv/disk → sin links)
+  const linksOk = ['xlsx', 'api', 'html'].includes(data.sheet_source);
+  if (!linksOk && data.sheet_source && data.sheet_source !== 'none') {
+    const reason = data.sheets_api_error ||
+      'no se pudo leer el sheet vía HTML ni Sheets API';
+    html += `<div class="cmv40-rec-warn">
+      ⚠️ Los enlaces incrustados en el sheet no están disponibles (fuente actual: <code>${escHtml(data.sheet_source)}</code>).<br>
+      <span class="cmv40-rec-warn-detail">${escHtml(reason)}</span>
     </div>`;
   }
 
@@ -4628,13 +4812,17 @@ function _cmv40RenderRecommendation(data) {
 
 function _cmv40NewSwitchTargetTab(tab) {
   _cmv40NewTargetTab = tab;
-  document.getElementById('cmv40-new-target-path').style.display = tab === 'path' ? '' : 'none';
-  document.getElementById('cmv40-new-target-mkv').style.display  = tab === 'mkv'  ? '' : 'none';
-  document.getElementById('cmv40-new-tab-btn-path').classList.toggle('active', tab === 'path');
-  document.getElementById('cmv40-new-tab-btn-mkv').classList.toggle('active',  tab === 'mkv');
+  ['repo', 'path', 'mkv'].forEach(t => {
+    const pane = document.getElementById(`cmv40-new-target-${t}`);
+    const btn  = document.getElementById(`cmv40-new-tab-btn-${t}`);
+    if (pane) pane.style.display = tab === t ? '' : 'none';
+    if (btn)  btn.classList.toggle('active', tab === t);
+  });
   _cmv40NewTargetSelected = null;
   _cmv40NewUpdateCreateBtn();
-  if (tab === 'mkv') _cmv40NewLoadTargetMkvs();
+  if (tab === 'mkv')  _cmv40NewLoadTargetMkvs();
+  if (tab === 'path') _cmv40NewLoadRpus();
+  if (tab === 'repo' && _cmv40SourceSelected) _cmv40NewLoadRepoCandidates();
 }
 
 async function _cmv40NewLoadRpus() {
@@ -4672,10 +4860,96 @@ async function _cmv40NewLoadTargetMkvs() {
 }
 
 function onCMv40TargetChange() {
-  const id = _cmv40NewTargetTab === 'path' ? 'cmv40-new-rpu-select' : 'cmv40-new-target-mkv-select';
-  const val = document.getElementById(id).value;
-  _cmv40NewTargetSelected = val ? { kind: _cmv40NewTargetTab, value: val } : null;
+  const idMap = {
+    repo: 'cmv40-new-repo-select',
+    path: 'cmv40-new-rpu-select',
+    mkv:  'cmv40-new-target-mkv-select',
+  };
+  const id = idMap[_cmv40NewTargetTab];
+  const select = document.getElementById(id);
+  const val = select ? select.value : '';
+  if (!val) {
+    _cmv40NewTargetSelected = null;
+  } else if (_cmv40NewTargetTab === 'repo') {
+    // select.value es el file_id; guardamos también el nombre para el log backend
+    const opt = select.options[select.selectedIndex];
+    _cmv40NewTargetSelected = {
+      kind: 'repo',
+      value: { file_id: val, file_name: opt?.dataset?.filename || opt?.textContent || '' },
+    };
+  } else {
+    _cmv40NewTargetSelected = { kind: _cmv40NewTargetTab, value: val };
+  }
   _cmv40NewUpdateCreateBtn();
+}
+
+function _cmv40NewResetRepoSelect(placeholder) {
+  const sel = document.getElementById('cmv40-new-repo-select');
+  if (!sel) return;
+  sel.innerHTML = `<option value="">${placeholder}</option>`;
+}
+
+async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
+  const sel = document.getElementById('cmv40-new-repo-select');
+  const info = document.getElementById('cmv40-new-repo-info');
+  if (!sel) return;
+  if (!_cmv40SourceSelected) {
+    _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
+    if (info) info.textContent = 'Se descargará desde la carpeta pública de DoviTools en Google Drive.';
+    return;
+  }
+  sel.innerHTML = '<option value="">— Buscando en Drive… —</option>';
+  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
+  const qs = '?filename=' + encodeURIComponent(_cmv40SourceSelected);
+  const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
+  if (!data) {
+    sel.innerHTML = '<option value="">— Error consultando el repositorio —</option>';
+    return;
+  }
+  if (!data.drive_configured) {
+    _cmv40NewResetRepoSelect('— Google API key no configurada —');
+    if (info) {
+      info.innerHTML = '⚠️ Falta la <strong>Clave de la API de Google</strong>. Añádela en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>.';
+    }
+    return;
+  }
+  if (data.error) {
+    _cmv40NewResetRepoSelect('— Error de acceso a Drive —');
+    if (info) info.textContent = data.error;
+    return;
+  }
+  const cands = data.candidates || [];
+  if (!cands.length) {
+    _cmv40NewResetRepoSelect(`— Sin coincidencias para "${data.title_en || data.title_es || '?'}" —`);
+    if (info) {
+      const t = data.title_en || data.title_es;
+      info.innerHTML = `No hay <code>.bin</code> para <strong>${_cmv40EscHtml(t)}</strong> en el repositorio de DoviTools. Prueba otra pestaña.`;
+    }
+    return;
+  }
+  sel.innerHTML = '<option value="">— Seleccionar RPU del repositorio —</option>';
+  cands.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = c.file.id;
+    const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
+    opt.textContent = `${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
+    opt.dataset.filename = c.file.name;
+    sel.appendChild(opt);
+    if (i === 0) {
+      opt.selected = true;
+    }
+  });
+  // Dispara onChange para registrar la pre-selección
+  onCMv40TargetChange();
+  if (info) {
+    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} en el repositorio de DoviTools. Top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Se descargará al crear el proyecto.`;
+  }
+}
+
+function _cmv40EscHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s || '');
+  return d.innerHTML;
 }
 
 function _cmv40NewUpdateCreateBtn() {
@@ -4719,6 +4993,22 @@ async function createCMv40Project() {
 }
 
 // ── Proyecto CMv4.0 ──────────────────────────────────────────────
+
+// Asigna una sesión nueva al proyecto preservando campos que el backend
+// puede no haber hidratado aún (típicamente `tmdb_info`). Evita que la
+// ficha TMDb desaparezca/flickee cuando hay saves concurrentes (p.ej.
+// durante una cancelación de fase que clobberea campos async).
+function _cmv40AssignSession(project, data) {
+  if (!project || !data) return;
+  const preserved = {};
+  const PRESERVE_FIELDS = ['tmdb_info'];
+  for (const f of PRESERVE_FIELDS) {
+    if (project.session && project.session[f] && !data[f]) {
+      preserved[f] = project.session[f];
+    }
+  }
+  project.session = Object.assign({}, data, preserved);
+}
 
 function openCMv40Project(session) {
   // Si ya está abierto, activar su subtab
@@ -4873,7 +5163,7 @@ async function _refreshCMv40Session(pid) {
   if (!data) return;
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
-    project.session = data;
+    _cmv40AssignSession(project, data);
     _updateCMv40Panel(project);
     if (project.autoContinue && !data.running_phase && !data.error_message) {
       _cmv40MaybeAutoAdvance(project);
@@ -5051,6 +5341,90 @@ async function cmv40CancelRunning(pid) {
   }
 }
 
+// Hidrata una ficha TMDb en el DOM (container dado) a partir de un
+// filename. Cache por clave en `_tmdbCardCache` para evitar re-fetches.
+// Uso: desde Tab 1, Tab 2 y Tab 3, pasar el id del contenedor + filename.
+const _tmdbCardCache = new Map();  // clave = filename -> details|null
+
+async function hydrateTmdbCard(containerId, filename) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!filename) { el.innerHTML = ''; return; }
+
+  // Cache hit inmediato
+  if (_tmdbCardCache.has(filename)) {
+    el.innerHTML = renderTmdbCardHTML(_tmdbCardCache.get(filename)) || '';
+    return;
+  }
+  // Skeleton mínimo mientras llega la respuesta
+  el.innerHTML = '<div class="tmdb-card-loading"></div>';
+
+  try {
+    const data = await apiFetch('/api/cmv40/tmdb-lookup', {
+      method: 'POST',
+      body: JSON.stringify({ source_mkv_name: filename }),
+    });
+    const details = (data && data.details) ? data.details : null;
+    _tmdbCardCache.set(filename, details);
+    el.innerHTML = renderTmdbCardHTML(details) || '';
+  } catch {
+    el.innerHTML = '';
+  }
+}
+
+// Genérico — reutilizable para Tab 1, Tab 2 y Tab 3.
+function renderTmdbCardHTML(t) {
+  if (!t) return '';
+  const metaParts = [];
+  if (t.year) metaParts.push(String(t.year));
+  if (t.runtime_minutes)
+    metaParts.push(`${Math.floor(t.runtime_minutes/60)}h ${t.runtime_minutes%60}min`);
+  if (t.genres && t.genres.length) metaParts.push(t.genres.join(' · '));
+
+  const ratingHtml = (t.vote_count > 0)
+    ? `<span class="cmv40-tmdb-rating" data-tooltip="${t.vote_count.toLocaleString()} votos en TMDb">★ ${t.vote_average.toFixed(1)}</span>`
+    : '';
+  const origHtml = (t.original_title && t.original_title !== t.title)
+    ? `<span class="cmv40-tmdb-orig">· ${escHtml(t.original_title)}</span>`
+    : '';
+  const taglineHtml = t.tagline
+    ? `<div class="cmv40-tmdb-tagline">“${escHtml(t.tagline)}”</div>`
+    : '';
+  const overviewHtml = t.overview
+    ? `<div class="cmv40-tmdb-overview">${escHtml(t.overview)}</div>`
+    : '';
+
+  const links = [];
+  if (t.tmdb_url) links.push(`<a href="${escHtml(t.tmdb_url)}" target="_blank" rel="noreferrer noopener">TMDb</a>`);
+  if (t.imdb_id)   links.push(`<a href="https://www.imdb.com/title/${escHtml(t.imdb_id)}/" target="_blank" rel="noreferrer noopener">IMDb</a>`);
+  if (t.homepage)  links.push(`<a href="${escHtml(t.homepage)}" target="_blank" rel="noreferrer noopener">Web oficial</a>`);
+  const linksHtml = links.length ? `<div class="cmv40-tmdb-links">${links.join(' · ')}</div>` : '';
+
+  const posterHtml = t.poster_url
+    ? `<img class="cmv40-tmdb-poster" src="${escHtml(t.poster_url)}" alt="${escHtml(t.title)}" loading="lazy">`
+    : `<div class="cmv40-tmdb-poster cmv40-tmdb-poster-placeholder">🎬</div>`;
+  const backdropHtml = t.backdrop_url
+    ? `<div class="cmv40-tmdb-backdrop" style="background-image: url('${escHtml(t.backdrop_url)}');"></div>`
+    : '';
+
+  return `
+    <div class="cmv40-tmdb-card">
+      ${backdropHtml}
+      ${posterHtml}
+      <div class="cmv40-tmdb-info">
+        <div class="cmv40-tmdb-titlerow">
+          <span class="cmv40-tmdb-title">${escHtml(t.title || t.original_title || '—')}</span>
+          ${origHtml}
+          ${ratingHtml}
+        </div>
+        ${metaParts.length ? `<div class="cmv40-tmdb-meta">${escHtml(metaParts.join(' · '))}</div>` : ''}
+        ${taglineHtml}
+        ${overviewHtml}
+        ${linksHtml}
+      </div>
+    </div>`;
+}
+
 function _renderCMv40Info(s, pid) {
   const container = document.getElementById(`cmv40-info-${pid}`);
   if (!container) return;
@@ -5060,7 +5434,9 @@ function _renderCMv40Info(s, pid) {
   const project = openCMv40Projects.find(p => p.id === pid);
   const autoOn = !!(project && project.autoContinue);
   const canAuto = s.phase !== 'done' && !s.archived;
+  const tmdbCardHtml = renderTmdbCardHTML(s.tmdb_info);
   container.innerHTML = `
+    ${tmdbCardHtml}
     <div class="section-card">
       <div class="section-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
         <div><div class="section-title">🎬 Proyecto CMv4.0</div>
@@ -5099,6 +5475,25 @@ function _renderCMv40Info(s, pid) {
         </div>
       </div>
     </div>`;
+
+  // Si aún no tenemos tmdb_info, intentamos hidratarlo (puede haber fallado la
+  // tarea background). Best-effort, sin bloquear UI.
+  if (!s.tmdb_info && !project?._tmdbLookupTried) {
+    if (project) project._tmdbLookupTried = true;
+    _cmv40HydrateTmdbClient(pid);
+  }
+}
+
+async function _cmv40HydrateTmdbClient(pid) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project || project.session.tmdb_info) return;
+  const data = await apiFetch('/api/cmv40/tmdb-lookup', {
+    method: 'POST',
+    body: JSON.stringify({ source_mkv_name: project.session.source_mkv_name }),
+  });
+  if (!data || !data.details) return;
+  project.session.tmdb_info = data.details;
+  _updateCMv40Panel(project);
 }
 
 function _cmv40WorkflowLabel(wf) {
@@ -5119,7 +5514,7 @@ async function _cmv40SaveOutputName(pid, newName) {
     body: JSON.stringify({ output_mkv_name: trimmed }),
   });
   if (data) {
-    project.session = data;
+    _cmv40AssignSession(project, data);
     showToast('Nombre actualizado', 'success');
   }
 }
@@ -5448,7 +5843,7 @@ async function _cmv40ClearError(pid) {
   if (data) {
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
-      project.session = data;
+      _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
     }
   }
@@ -5489,7 +5884,7 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
     if (data) {
       const project = openCMv40Projects.find(p => p.id === pid);
       if (project) {
-        project.session = data;
+        _cmv40AssignSession(project, data);
         if (!project.expandedPhases) project.expandedPhases = {};
         project.expandedPhases[faseKey] = true;
         project.syncData = null;
@@ -5618,7 +6013,7 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
     if (!data) continue;
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
-      project.session = data;
+      _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
     }
     // Termina cuando: no hay fase corriendo, alcanzó objetivo, hay error, o done
@@ -5655,6 +6050,9 @@ function _cmv40MaybeAutoAdvance(project) {
         if (t.kind === 'path') {
           showToast('🤖 Auto: cargando RPU target', 'info');
           _cmv40AutoTargetPath(pid, t.value);
+        } else if (t.kind === 'repo') {
+          showToast('🤖 Auto: descargando RPU del repositorio DoviTools', 'info');
+          _cmv40AutoTargetDrive(pid, t.value);
         } else {
           showToast('🤖 Auto: extrayendo RPU del MKV target', 'info');
           _cmv40AutoTargetMkv(pid, t.value);
@@ -5689,6 +6087,14 @@ async function _cmv40AutoTargetPath(pid, rpuPath) {
   await apiFetch(`/api/cmv40/${pid}/target-rpu-path`, {
     method: 'POST',
     body: JSON.stringify({ rpu_path: rpuPath }),
+  });
+  _cmv40PollPhase(pid, 'target_provided');
+}
+
+async function _cmv40AutoTargetDrive(pid, driveSel) {
+  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
+    method: 'POST',
+    body: JSON.stringify({ file_id: driveSel.file_id, file_name: driveSel.file_name }),
   });
   _cmv40PollPhase(pid, 'target_provided');
 }
@@ -5787,7 +6193,7 @@ async function cmv40DoTargetFromPath(pid) {
     showToast('RPU target cargado', 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
-      project.session = data;
+      _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
       refreshCMv40Sidebar();
       if (project.autoContinue) _cmv40MaybeAutoAdvance(project);
@@ -6278,7 +6684,7 @@ async function cmv40DoResetSync(pid) {
         const project = openCMv40Projects.find(p => p.id === pid);
         if (project) {
           project.syncData = null;
-          project.session = data;
+          _cmv40AssignSession(project, data);
           project.chartRange = null;  // volver al zoom por defecto
           _updateCMv40Panel(project);
         }
@@ -6308,7 +6714,7 @@ async function cmv40DoApplySync(pid) {
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       project.syncData = null;  // forzar recarga
-      project.session = data;
+      _cmv40AssignSession(project, data);
       if (!project.expandedPhases) project.expandedPhases = {};
       project.expandedPhases['D'] = true;  // mantener la fase D visible
       _updateCMv40Panel(project);
@@ -6324,7 +6730,7 @@ async function cmv40DoSkipSync(pid) {
     showToast('Sync confirmado', 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
-      project.session = data;
+      _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
       refreshCMv40Sidebar();
       // Si auto está activo, disparar el siguiente tramo (inject → remux → validate)

@@ -24,10 +24,16 @@
         <span class="brand-sub">UHD Blu-ray Toolkit</span>
       </div>
       <span class="brand-desc-sep"></span>
-      <span class="brand-desc">Convierte ISOs UHD Blu-ray a MKV, edita propiedades de MKVs existentes e inyecta Dolby Vision CMv4.0 con sincronización visual</span>
+      <span class="brand-desc">Convierte ISOs UHD Blu-ray a MKV, edita propiedades de MKVs existentes e inyecta Dolby Vision CMv4.0 con integración TMDb, repositorio DoviTools y sincronización visual</span>
     </div>
 
-    <div class="header-right"></div>
+    <div class="header-right">
+      <button class="btn-settings" onclick="openSettingsModal()"
+        data-tooltip="Configuración (API keys, integraciones)"
+        aria-label="Configuración">
+        <span class="btn-settings-icon">⚙︎</span>
+      </button>
+    </div>
   </header>
 
   <!-- ═══ TAB BAR ══════════════════════════════════════════════════ -->
@@ -596,7 +602,7 @@
 
 <!-- ═══ MODAL: Nuevo proyecto CMv4.0 (Tab 3) ═════════════════════ -->
 <div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
-  <div class="modal-box" style="max-width:620px">
+  <div class="modal-box cmv40-new-modal-box">
     <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
     <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
 
@@ -612,13 +618,39 @@
     <div id="cmv40-recommendation-banner" class="cmv40-rec-banner" style="display:none"></div>
 
     <label class="modal-field-label" style="margin-top:14px">RPU target (CMv4.0)</label>
-    <div class="cmv40-tab-switcher">
-      <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-path"
-        onclick="_cmv40NewSwitchTargetTab('path')">📁 Desde carpeta</button>
+    <div class="cmv40-tab-switcher cmv40-new-tabs">
+      <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-repo"
+        onclick="_cmv40NewSwitchTargetTab('repo')"
+        data-tooltip="Descargar automáticamente un RPU del repositorio DoviTools">
+        <span class="tab-icon">📦</span>
+        <span class="tab-label">Repo DoviTools</span>
+      </button>
+      <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-path"
+        onclick="_cmv40NewSwitchTargetTab('path')"
+        data-tooltip="Usar un .bin ya descargado en /mnt/cmv40_rpus/">
+        <span class="tab-icon">📁</span>
+        <span class="tab-label">Carpeta local</span>
+      </button>
       <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-mkv"
-        onclick="_cmv40NewSwitchTargetTab('mkv')">🎬 Extraer de otro MKV</button>
+        onclick="_cmv40NewSwitchTargetTab('mkv')"
+        data-tooltip="Extraer el RPU de otro MKV que ya tenga CMv4.0">
+        <span class="tab-icon">🎬</span>
+        <span class="tab-label">Extraer de MKV</span>
+      </button>
     </div>
-    <div id="cmv40-new-target-path" class="cmv40-target-tab">
+    <div id="cmv40-new-target-repo" class="cmv40-target-tab">
+      <div class="iso-select-row">
+        <select id="cmv40-new-repo-select" class="iso-select" onchange="onCMv40TargetChange()">
+          <option value="">— Selecciona primero el MKV origen —</option>
+        </select>
+        <button class="btn btn-secondary btn-md" id="cmv40-new-repo-refresh"
+          onclick="_cmv40NewLoadRepoCandidates(true)" data-tooltip="Recargar candidatos">↺</button>
+      </div>
+      <div id="cmv40-new-repo-info" style="font-size:11px; color:var(--text-3); margin-top:6px">
+        Se descargará desde la carpeta pública del repositorio DoviTools en Google Drive.
+      </div>
+    </div>
+    <div id="cmv40-new-target-path" class="cmv40-target-tab" style="display:none">
       <div class="iso-select-row">
         <select id="cmv40-new-rpu-select" class="iso-select" onchange="onCMv40TargetChange()">
           <option value="">— Cargando… —</option>
@@ -637,19 +669,16 @@
       <div style="font-size:11px; color:var(--text-3); margin-top:6px">MKVs directos en el directorio de ISOs</div>
     </div>
 
-    <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; cursor:pointer">
-      <input type="checkbox" id="cmv40-new-auto" checked>
-      <span>🤖 Activar auto-pipeline al crear (arranca A → B → C automáticamente)</span>
-    </label>
-
-    <div style="font-size:11px; color:var(--text-3); margin-top:12px">
-      El nombre del MKV de salida se podrá editar desde el panel del proyecto.
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-new-modal')">Cancelar</button>
-      <button class="btn btn-primary btn-sm" id="cmv40-create-btn" disabled
-        onclick="createCMv40Project()">Crear proyecto</button>
+    <div class="cmv40-new-footer">
+      <label class="cmv40-new-auto-toggle" data-tooltip="Auto-ejecuta A→B→C en cadena. Pausa obligatoria en la Fase D para revisión visual.">
+        <input type="checkbox" id="cmv40-new-auto" checked>
+        <span>🤖 Auto-pipeline (A → B → C)</span>
+      </label>
+      <div class="cmv40-new-actions">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-new-modal')">Cancelar</button>
+        <button class="btn btn-primary btn-sm" id="cmv40-create-btn" disabled
+          onclick="createCMv40Project()">Crear proyecto</button>
+      </div>
     </div>
   </div>
 </div>
@@ -667,12 +696,63 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: Configuración (API keys, integraciones) ════════════ -->
+<div class="modal-overlay" id="settings-modal" onclick="onModalOverlayClick(event,'settings-modal')">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-title">⚙︎ Configuración</div>
+    <div class="modal-sub">API keys e integraciones. Se persisten en el NAS; ganan sobre las variables de entorno.</div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">
+        🎬 TMDb — Clave de la API
+        <span id="settings-tmdb-status" class="settings-status"></span>
+      </div>
+      <div class="settings-section-desc">
+        Habilita la traducción de títulos ES→EN en la recomendación CMv4.0 (Tab 3). Sin Clave de la API, el match usa el nombre crudo del fichero — peor cobertura con traducciones agresivas (ej. <em>Jungla de cristal → Die Hard</em>).
+        <br>Obtener gratis en <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org/settings/api</a> → campo <strong>“Clave de la API”</strong> (v3 auth).
+      </div>
+      <div class="settings-field-row">
+        <input type="password" id="settings-tmdb-input"
+          class="settings-input" placeholder="Pega aquí tu Clave de la API…"
+          autocomplete="off">
+        <button class="btn btn-secondary btn-sm" id="settings-tmdb-test" onclick="testTmdbKey()">Probar</button>
+      </div>
+      <div id="settings-tmdb-feedback" class="settings-feedback"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">
+        📦 Google API key (Drive + Sheets)
+        <span id="settings-google-status" class="settings-status"></span>
+      </div>
+      <div class="settings-section-desc">
+        Habilita <strong>(1)</strong> listado y descarga de RPUs del repositorio DoviTools en Google Drive, y <strong>(2)</strong> lectura de la hoja de recomendaciones con los <em>hyperlinks</em> originales (imágenes HDR COMP, gráficos, comparativas) incrustados en las celdas.
+        <br>Crear en <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">console.cloud.google.com/apis/credentials</a> → Crear credenciales → Clave de API. Habilitar <strong>dos APIs</strong> en la biblioteca: <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Google Drive API</a> y <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noreferrer">Google Sheets API</a>.
+      </div>
+      <div class="settings-field-row">
+        <input type="password" id="settings-google-input"
+          class="settings-input" placeholder="Pega aquí tu Clave de la API de Google…"
+          autocomplete="off">
+        <button class="btn btn-secondary btn-sm" id="settings-google-test" onclick="testGoogleKey()">Probar</button>
+      </div>
+      <div id="settings-google-feedback" class="settings-feedback"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('settings-modal')">Cerrar</button>
+      <button class="btn btn-danger btn-sm" id="settings-clear-btn" onclick="clearAllKeys()"
+        style="display:none">Borrar claves guardadas</button>
+      <button class="btn btn-primary btn-sm" id="settings-save-btn" onclick="saveSettings()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ Tooltip global ════════════════════════════════════════════ -->
 <div id="tooltip"></div>
 
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260419a"></script>
+<script src="/static/app.js?v=20260419l"></script>
 </body>
 </html>

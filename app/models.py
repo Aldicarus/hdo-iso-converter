@@ -893,6 +893,10 @@ class CMv40Session(BaseModel):
     """True si se ejecutó 'cleanup' — los artefactos intermedios se borraron.
     No se pueden rehacer fases. El proyecto queda en modo solo lectura."""
 
+    tmdb_info: dict | None = None
+    """Info extendida de TMDb (poster, sinopsis, géneros, rating…) si
+    hubo match. Dict libre para flexibilidad — estructura en services/tmdb.py."""
+
     running_phase: str | None = None
     """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').
     Cuando != None, la UI muestra modo modal con log + cancelar. Al terminar se limpia."""

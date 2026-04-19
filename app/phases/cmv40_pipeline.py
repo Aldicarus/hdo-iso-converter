@@ -746,6 +746,56 @@ async def run_phase_b_target_from_path(
     await _emit_progress(log_callback, 100, "Completado")
 
 
+async def run_phase_b_target_from_drive(
+    session: CMv40Session,
+    file_id: str,
+    file_name: str,
+    log_callback=None,
+) -> None:
+    """Descarga un .bin del repositorio de REC_9999 en Drive al workdir
+    y lo analiza. `file_name` se usa solo para el log."""
+    from services.rec999_drive import download_file
+
+    wd = get_workdir(session)
+    rpu_target = wd / "RPU_target.bin"
+
+    await _emit_progress(log_callback, 0, f"Descargando del repositorio: {file_name}")
+    if log_callback:
+        await log_callback(f"[Fase B] Descargando RPU de REC_9999 (Drive): {file_name}")
+
+    last_emit = 0.0
+
+    async def _progress(done: int, total: int | None) -> None:
+        nonlocal last_emit
+        now = time.monotonic()
+        if now - last_emit < 0.3:
+            return
+        last_emit = now
+        if total and total > 0:
+            pct = 0.0 + (done / total) * 70.0  # reserva 30% para el analyze
+            label = f"Descargando… {done/1024/1024:.1f}/{total/1024/1024:.1f} MB"
+        else:
+            pct = min(60.0, done / 1024 / 1024)  # aprox sin total
+            label = f"Descargando… {done/1024/1024:.1f} MB"
+        await _emit_progress(log_callback, pct, label)
+
+    try:
+        written = await download_file(file_id, rpu_target, progress_cb=_progress)
+    except Exception as e:
+        raise RuntimeError(f"Descarga de Drive falló: {e}")
+
+    if log_callback:
+        await log_callback(
+            f"[Fase B] Descargados {written/1024/1024:.1f} MB a {rpu_target.name}"
+        )
+    await _emit_progress(log_callback, 70, "Analizando RPU descargado")
+
+    session.target_rpu_source = "drive"
+    session.target_rpu_path = f"drive://{file_id}/{file_name}"
+    await _analyze_target_rpu(session, rpu_target, log_callback)
+    await _emit_progress(log_callback, 100, "Completado")
+
+
 async def run_phase_b_target_from_mkv(
     session: CMv40Session,
     source_mkv_path: str,

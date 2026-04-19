@@ -1172,7 +1172,8 @@ from phases.cmv40_pipeline import (
     artifact_exists as cmv40_artifact_exists,
     list_available_rpus,
     run_phase_a_analyze_source, run_phase_b_target_from_path,
-    run_phase_b_target_from_mkv, run_phase_c_extract,
+    run_phase_b_target_from_mkv, run_phase_b_target_from_drive,
+    run_phase_c_extract,
     run_phase_e_correct_sync, run_phase_f_inject,
     run_phase_g_remux, run_phase_h_validate,
     detect_sync_offset, compute_sync_confidence,
@@ -1338,6 +1339,124 @@ async def cmv40_recommend_from_filename_endpoint(filename: str):
     return result.model_dump()
 
 
+@app.post("/api/cmv40/tmdb-lookup",
+          summary="Busca y trae detalles TMDb para un filename (sin crear proyecto)")
+async def cmv40_tmdb_lookup(body: dict):
+    """Parsea filename → TMDb search → fetch details. Usado por el frontend
+    para pintar la ficha de la película en la cabecera del proyecto."""
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.tmdb import search_movies, fetch_details, is_configured
+
+    if not is_configured():
+        return {"tmdb_configured": False, "details": None}
+
+    filename = body.get("filename", "")
+    source_mkv_name = body.get("source_mkv_name", "")
+    name = filename or source_mkv_name
+    if not name:
+        return {"tmdb_configured": True, "details": None}
+
+    title, year = parse_mkv_filename(name)
+    matches = await search_movies(title, year, limit=1)
+    if not matches:
+        return {"tmdb_configured": True, "details": None,
+                "input_title": title, "input_year": year}
+    details = await fetch_details(matches[0].tmdb_id)
+    return {
+        "tmdb_configured": True,
+        "input_title": title,
+        "input_year": year,
+        "details": details.model_dump() if details else None,
+    }
+
+
+@app.post("/api/cmv40/{session_id}/tmdb-refresh",
+          summary="Fuerza re-fetch de detalles TMDb y los guarda en la sesión")
+async def cmv40_tmdb_refresh(session_id: str):
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.tmdb import search_movies, fetch_details, is_configured
+
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if not is_configured():
+        return {"tmdb_configured": False, "updated": False}
+
+    title, year = parse_mkv_filename(session.source_mkv_name)
+    matches = await search_movies(title, year, limit=1)
+    if not matches:
+        session.tmdb_info = None
+        save_cmv40_session(session)
+        return {"tmdb_configured": True, "updated": True, "details": None}
+
+    details = await fetch_details(matches[0].tmdb_id)
+    session.tmdb_info = details.model_dump() if details else None
+    save_cmv40_session(session)
+    return {"tmdb_configured": True, "updated": True,
+            "details": session.tmdb_info}
+
+
+@app.get("/api/cmv40/repo-rpus",
+         summary="Lista de .bin candidatos en el repositorio REC_9999 para un título")
+async def cmv40_repo_rpus(title: str = "", year: int | None = None,
+                           filename: str | None = None):
+    """Candidatos rankeados del repositorio Drive de REC_9999. Si se
+    pasa `filename` se parsea; si no, `title`+`year` directos."""
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.rec999_drive import is_configured as drive_configured
+    from services.rec999_drive_match import find_candidates
+    from services.tmdb import search_movies, is_configured as tmdb_configured
+
+    if filename:
+        parsed_title, parsed_year = parse_mkv_filename(filename)
+        title = title or parsed_title
+        year = year if year is not None else parsed_year
+
+    if not drive_configured():
+        return {
+            "drive_configured": False,
+            "tmdb_configured": tmdb_configured(),
+            "title_en": "",
+            "title_es": title,
+            "year": year,
+            "candidates": [],
+            "error": "Google API key no configurada — añádela en ⚙︎ Configuración",
+        }
+
+    title_en = title
+    if tmdb_configured():
+        try:
+            matches = await search_movies(title, year, limit=1)
+            if matches:
+                title_en = matches[0].title_en
+                if year is None:
+                    year = matches[0].year
+        except Exception:
+            pass
+
+    try:
+        candidates = await find_candidates(title_en, title, year)
+    except PermissionError as e:
+        return {
+            "drive_configured": True,
+            "tmdb_configured": tmdb_configured(),
+            "title_en": title_en,
+            "title_es": title,
+            "year": year,
+            "candidates": [],
+            "error": str(e),
+        }
+
+    return {
+        "drive_configured": True,
+        "tmdb_configured": tmdb_configured(),
+        "title_en": title_en,
+        "title_es": title,
+        "year": year,
+        "candidates": [c.model_dump() for c in candidates],
+    }
+
+
 @app.post("/api/cmv40/create", summary="Crea un proyecto CMv4.0")
 async def cmv40_create(body: CMv40CreateRequest):
     mkv_path = body.source_mkv_path
@@ -1360,7 +1479,50 @@ async def cmv40_create(body: CMv40CreateRequest):
     )
     save_cmv40_session(session)
     cmv40_get_workdir(session)  # crea el directorio
+
+    # Fetch de TMDb inline con timeout corto. Así la respuesta trae
+    # tmdb_info si TMDb es rápido; si no, se lanza en background y se
+    # hidrata en la siguiente polling del frontend. Evita race conditions
+    # con otras fases que guardan sesión sin esperar al hydrate.
+    try:
+        await asyncio.wait_for(_cmv40_hydrate_tmdb(sid), timeout=4.0)
+        refreshed = load_cmv40_session(sid)
+        if refreshed:
+            session = refreshed
+    except (asyncio.TimeoutError, Exception):
+        # Timeout o error: seguimos sin bloquear, tarea en background
+        asyncio.create_task(_cmv40_hydrate_tmdb(sid))
+
     return session.model_dump()
+
+
+async def _cmv40_hydrate_tmdb(session_id: str) -> None:
+    """Busca el título en TMDb y rellena `session.tmdb_info`. Best-effort."""
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.tmdb import search_movies, fetch_details, is_configured
+
+    if not is_configured():
+        return
+    try:
+        session = load_cmv40_session(session_id)
+        if not session:
+            return
+        title, year = parse_mkv_filename(session.source_mkv_name)
+        matches = await search_movies(title, year, limit=1)
+        if not matches:
+            return
+        details = await fetch_details(matches[0].tmdb_id)
+        if not details:
+            return
+        # Recarga en caliente por si otra fase ha escrito entretanto
+        fresh = load_cmv40_session(session_id)
+        if not fresh:
+            return
+        fresh.tmdb_info = details.model_dump()
+        save_cmv40_session(fresh)
+    except Exception as e:
+        # No crítico
+        _logger.warning("TMDb hydrate falló para %s: %s", session_id, e)
 
 
 def _cmv40_scan_artifacts(session: CMv40Session) -> dict:
@@ -1785,6 +1947,46 @@ async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
 
 class CMv40TargetMkvRequest(BaseModel):
     source_mkv_path: str
+
+
+class CMv40TargetDriveRequest(BaseModel):
+    file_id: str
+    file_name: str = ""
+
+
+@app.post("/api/cmv40/{session_id}/target-rpu-from-drive",
+          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive")
+async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE
+    if DEV_MODE:
+        from models import DoviInfo
+        session.target_rpu_source = "drive"
+        session.target_rpu_path = f"drive://{body.file_id}/{body.file_name}"
+        session.target_dv_info = DoviInfo(profile=8, el_type="", cm_version="v4.0", frame_count=137992)
+        session.target_frame_count = 137992
+        session.sync_delta = 137992 - session.source_frame_count
+        session.phase = CMv40Phase.TARGET_PROVIDED
+        save_cmv40_session(session)
+        await _cmv40_log(session, f"[DEV] RPU descargado de Drive: CM v4.0, 137992 frames (Δ = {session.sync_delta:+d})")
+        return {"ok": True, "started": True}
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_b_target_from_drive(session, body.file_id, body.file_name, log_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "target_rpu_drive", _coro, CMv40Phase.TARGET_PROVIDED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
 
 
 @app.post("/api/cmv40/{session_id}/target-rpu-from-mkv", summary="Fase B2: RPU target desde otro MKV")
@@ -2376,6 +2578,47 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             _ws_connections[session_id] = [
                 ws for ws in _ws_connections[session_id] if ws != websocket
             ]
+
+
+# ── Settings editables desde la UI ──────────────────────────────────────────
+
+class SettingsUpdate(BaseModel):
+    """Payload parcial: `None` = no tocar, `""` = borrar, otro = setear."""
+    tmdb_api_key: str | None = None
+    google_api_key: str | None = None
+
+
+@app.get("/api/settings", summary="Lee settings persistentes (sin exponer secretos crudos)")
+async def get_settings():
+    from services.settings_store import get_public_settings
+    return get_public_settings()
+
+
+@app.post("/api/settings", summary="Actualiza settings persistentes")
+async def update_settings(body: SettingsUpdate):
+    from services.settings_store import (
+        get_public_settings, update_tmdb_api_key, update_google_api_key,
+    )
+    update_tmdb_api_key(body.tmdb_api_key)
+    update_google_api_key(body.google_api_key)
+    return get_public_settings()
+
+
+@app.post("/api/settings/test-tmdb", summary="Valida una TMDb API key contra el endpoint oficial")
+async def test_tmdb_key(body: SettingsUpdate):
+    from services.tmdb import test_api_key
+    key = body.tmdb_api_key or ""
+    ok, msg = await test_api_key(key)
+    return {"ok": ok, "message": msg}
+
+
+@app.post("/api/settings/test-google",
+          summary="Valida una Google API key listando la carpeta REC_9999")
+async def test_google_key(body: SettingsUpdate):
+    from services.rec999_drive import test_api_key
+    key = body.google_api_key or ""
+    ok, msg = await test_api_key(key)
+    return {"ok": ok, "message": msg}
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

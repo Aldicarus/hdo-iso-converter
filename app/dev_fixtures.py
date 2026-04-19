@@ -199,10 +199,29 @@ _SEED_MOVIES: list[tuple[str, str, str]] = [
 # ── MKVs fake para Tab 2 ─────────────────────────────────────────────────────
 
 DEV_FAKE_MKV_FILES: list[str] = [
+    # ── Formato "humano" con paréntesis + tags [DV FEL]… (estilo HDO)
+    "Zootrópolis 2 (2025) [DV FEL] [Audio DCP] [CMv4.0].mkv",
+    "Oppenheimer (2023) [DV MEL] [TrueHD 7.1] [CMv2.9].mkv",
+    "La jungla de cristal (1988) [DV FEL] [Atmos].mkv",             # Die Hard — requiere TMDb
+    "El Rey León (2019) [DV P8] [Audio Dolby].mkv",                  # The Lion King 2019
+    "Vaiana 2 (2024) [DV FEL] [CMv4.0 Restored].mkv",                # Moana 2 — TMDb
+    "Del revés 2 (2024) [DV FEL] [Atmos].mkv",                       # Inside Out 2 — TMDb
+
+    # ── Formato "scene" dotted con tags después del año
+    "Solo.en.casa.1990.UHD.BluRay.2160p.HDR.DV.x265.mkv",            # Home Alone — TMDb
+    "La.Jungla.de.Cristal.II.1990.REMUX.2160p.DV.FEL.mkv",           # Die Hard 2 — TMDb + romanos II
+    "Buscando.a.Nemo.2003.UHD.BluRay.2160p.DV.P7.mkv",               # Finding Nemo — TMDb
+    "Los.Increíbles.2.2018.BD.FEL.CMv2.9.mkv",                       # Incredibles 2
+
+    # ── Caso conocido NO factible (BD-FEL exclusivo según REC_9999)
+    "Gladiator (2000) [BD FEL] [HDR10 MaxCLL].mkv",
+
+    # ── Caso conocido sin entrada en la hoja (prueba del fallback "unknown")
+    "Película Ficticia (2050) [DV FEL].mkv",
+
+    # ── Formatos originales (mantenidos para compat con otras pruebas)
     "Zootopia 2 (2025) UHD BluRay.mkv",
-    "Inside Out 3 (2025) UHD BluRay.mkv",
     "Toy Story 5 (2025) UHD BluRay.mkv",
-    "The Incredibles 3 (2026) UHD BluRay.mkv",
     "Moana 2 (2024) UHD BluRay.mkv",
 ]
 

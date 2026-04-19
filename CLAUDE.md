@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.7)
+# HDO ISO Converter — Reglas del proyecto (v1.8)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -29,6 +29,10 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
   - `ffmpeg` — extracción de Enhancement Layer para análisis DV
   - `dovi_tool` — análisis RPU Dolby Vision: Profile, FEL/MEL, CM version (v1.6+)
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
+- **Integraciones externas (v1.8):**
+  - **TMDb API** — traducción ES→EN de títulos + ficha extendida (poster, sinopsis, géneros, rating) en la cabecera de proyectos de los 3 tabs. Opcional (key en ⚙︎ Configuración)
+  - **Google Drive API v3** — listado + descarga de RPUs del repositorio público **DoviTools** (compartido por R3S3T_9999). Opcional (key en ⚙︎ Configuración)
+  - **Google Sheets (XLSX export)** — lectura live de la hoja de recomendaciones de DoviTools con extracción de hyperlinks vía openpyxl. Sin auth (endpoint público)
 - **~~BDInfoCLI~~:** eliminado en v1.5 — crasheaba con ISOs custom/stripped. Reemplazado por `mkvmerge -J`
 - **~~API QTS File Station~~:** eliminada en v1.4
 - **~~makemkvcon~~:** eliminado en v1.3
@@ -58,9 +62,16 @@ ISO2MKVFEL/
     │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
     │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync)
     ├── dev_fixtures.py      ← ⚠️ TEMPORAL (DEV_MODE=1): ISOs fake + sesiones fake
+    ├── services/            ← Integraciones externas (v1.8)
+    │   ├── settings_store.py    ← Persistencia de API keys en /config/app_settings.json
+    │   ├── tmdb.py              ← TMDb search + details (poster, sinopsis, géneros, rating)
+    │   ├── rec999_sheet.py      ← Sheet DoviTools: XLSX (con hyperlinks) > HTML > CSV
+    │   ├── rec999_drive.py      ← Google Drive API v3 (listado + descarga de RPUs)
+    │   ├── rec999_drive_match.py ← Fuzzy match de título con candidatos en el repo
+    │   └── cmv40_recommend.py   ← Orquesta filename → TMDb → match contra sheet
     └── static/
-        ├── index.html       ← SPA completa (Tab 1 + Tab 2 + modales)
-        ├── app.js           ← Toda la lógica UI (~3800 líneas)
+        ├── index.html       ← SPA completa (Tab 1 + Tab 2 + Tab 3 + modales + config)
+        ├── app.js           ← Toda la lógica UI
         └── style.css
 ```
 
@@ -70,10 +81,10 @@ ISO2MKVFEL/
 | `/mnt/isos` | read-only | ISOs de origen en el NAS |
 | `/mnt/output` | read-write | MKVs finales (Tab 1 output + Tab 2/3 input) |
 | `/mnt/tmp` | read-write | MKV intermedios + artefactos Tab 3 (preferiblemente SSD) |
-| `/mnt/cmv40_rpus` | read-only | Ficheros RPU CMv4.0 externos (Tab 3, p. ej. de REC999) |
-| `/config` | read-write | Sesiones persistentes (JSON) + cola |
+| `/mnt/cmv40_rpus` | read-only | Ficheros RPU CMv4.0 externos (Tab 3, legacy — preferir repo DoviTools) |
+| `/config` | read-write | Sesiones persistentes + caché sheet/drive/TMDb + `app_settings.json` |
 
-El volumen `/mnt/cmv40_rpus` es opcional: Tab 3 también permite extraer RPUs de MKVs que ya tengan CMv4.0.
+El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede descargar directamente desde el repositorio **DoviTools** en Google Drive (más cómodo, no requiere mantener la carpeta local).
 
 ---
 
@@ -256,6 +267,53 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 - Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura
 - Errores NO bloquean el proyecto: mantienen la fase previa, solo escriben `error_message` descartable
 - Validación de CM version target = v4.0 (aviso, no bloqueante)
+
+---
+
+## Integraciones externas (v1.8)
+
+### Settings UI (⚙︎ Configuración)
+- Botón engranaje arriba-derecha abre el modal de configuración
+- API keys persisten en `/config/app_settings.json` (atomic write con `.tmp` + rename)
+- Prioridad: valor en settings.json > env var > vacío
+- Nunca se exponen secretos crudos al frontend — solo `{configured, source, last4}`
+- Validación live: botón "Probar" contra endpoint oficial de cada API
+
+### TMDb — Ficha de película
+- Fetch de **poster (w342), backdrop (w780), sinopsis, géneros, runtime, rating** via `/movie/{id}?language=es-ES`
+- Para películas no-ASCII (cine asiático) hace llamada extra `?language=en-US` para obtener título inglés fiable
+- **Ficha visible en los 3 tabs** (Crear MKV, Editar MKV, CMv4.0) — reusa `renderTmdbCardHTML`
+- Cache persistente en `/config/tmdb_cache.json` (TTL 30 días)
+- Backdrop como ambient (opacity 0.10 + blur 24px), overlay sólido 0.82 para legibilidad — colores hex explícitos sin depender de variables CSS
+
+### Recomendación CMv4.0 (Tab 3)
+- Parser de filename: trunca tags después del año (`UHD.BluRay.x265`, `[DV FEL]`, etc.)
+- Matching fuzzy compuesto: max(SequenceMatcher, token-set Jaccard, containment) sobre acentos strippeados
+- Normalización de romanos (II→2, III→3…) y stop-words (the, la, de…)
+- Multi-candidato TMDb (top-5) — prueba cada uno contra el sheet
+- Umbrales adaptativos: **0.72 año exacto · 0.82 año ±1 · 0.88 sin año**
+- Dedup por (slug, año) — permite matches distintos con mismo título (El Rey León 1994 vs 2019)
+
+### Sheet DoviTools (R3S3T_9999)
+- El sheet es un **XLSX importado en Drive** (no Sheet nativo) — Sheets API v4 falla con "not supported"
+- Prioridad de fetch: **Sheets API v4 (Google key)** → **XLSX + openpyxl (rich-text hyperlinks)** → gviz HTML → CSV export → disk cache
+- XLSX + openpyxl es la única vía que preserva los rich-text hyperlinks incrustados manualmente en celdas
+- Extracción de URLs: primero `cell.hyperlink.target`, fallback a regex sobre texto plano
+- Parseo de 3 secciones: cols 0-4 (no factible), 6-11 (factible), 13-18 ("Not Sure! / probably ok")
+- Sheet ID + GID hardcodeados a la hoja de DoviTools (variables de entorno para override)
+
+### Drive DoviTools
+- Listado recursivo de `.bin` con Drive API v3 + paginación (profundidad máx 5)
+- Caché en memoria + disco (`/config/rec999_drive_cache.json`, TTL 24h)
+- Match fuzzy de filename → candidatos rankeados por score (reusa lógica de `cmv40_recommend`)
+- Descarga streaming vía `files.get?alt=media&key=...` al workdir del proyecto
+- Nueva Fase B3 en el pipeline: `target-rpu-from-drive` (hermana de B1-path / B2-mkv)
+
+### Modal "Nuevo proyecto CMv4.0"
+- Ancho 980px, responsive hasta viewport-48
+- 3 tabs de target: **📦 Repo DoviTools** (default) · **📁 Carpeta local** · **🎬 Extraer de MKV**
+- Banner de recomendación con status-badge pill + chips en fila (Fuente · Sync · Verificación) + note con botón "Abrir ↗"
+- Footer compacto en 1 línea: toggle auto-pipeline + Cancelar/Crear
 
 ---
 

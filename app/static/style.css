@@ -3414,14 +3414,59 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
 }
 
-/* Banner de recomendación CMv4.0 (REC_9999) en el modal "Nuevo proyecto" */
+/* ── Modal "Nuevo proyecto CMv4.0" — layout ancho + denso ─────────── */
+.cmv40-new-modal-box {
+  max-width: 980px;
+  width: calc(100vw - 48px);
+}
+/* Tabs del selector de RPU target: nunca wrappean */
+.cmv40-new-tabs .cmv40-tab-btn {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.cmv40-new-tabs .tab-icon { font-size: 14px; }
+.cmv40-new-tabs .tab-label { font-size: 12px; }
+
+/* Footer compacto: checkbox auto-pipeline + botones en una sola fila */
+.cmv40-new-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--sep);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cmv40-new-auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.cmv40-new-auto-toggle input[type="checkbox"] { margin: 0; }
+.cmv40-new-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Banner de recomendación CMv4.0 (DoviTools) en el modal "Nuevo proyecto" */
 .cmv40-rec-banner {
   margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
   border: 1px solid;
   font-size: 12px;
   line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .cmv40-rec-banner.loading {
   background: rgba(0, 122, 255, 0.08);
@@ -3443,26 +3488,344 @@ select { appearance: none; cursor: pointer;
   border-color: rgba(142, 142, 147, 0.25);
   color: var(--text-2);
 }
-.cmv40-rec-header {
+/* Cabecera en UNA línea: badge de estado + separador + título del match */
+.cmv40-rec-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cmv40-rec-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.cmv40-rec-status-badge.ok {
+  background: rgba(52, 199, 89, 0.18);
+  color: #a7f3c4;
+  border: 1px solid rgba(52, 199, 89, 0.40);
+}
+.cmv40-rec-status-badge.ko {
+  background: rgba(255, 69, 58, 0.18);
+  color: #ff9b93;
+  border: 1px solid rgba(255, 69, 58, 0.40);
+}
+.cmv40-rec-status-badge.unknown {
+  background: rgba(142, 142, 147, 0.18);
+  color: #b8bcc4;
+  border: 1px solid rgba(142, 142, 147, 0.30);
+}
+.cmv40-rec-icon { font-size: 14px; line-height: 1; }
+.cmv40-rec-status-label { font-size: 11px; }
+.cmv40-rec-match-sep {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.cmv40-rec-match-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
+}
+.cmv40-rec-match-title.linked {
+  color: var(--blue, #007aff);
+  text-decoration: none;
+}
+.cmv40-rec-match-title.linked:hover { text-decoration: underline; }
+
+/* Chips en una sola fila, alineados horizontalmente */
+.cmv40-rec-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmv40-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-1);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.cmv40-chip.linked {
+  cursor: pointer;
+  border-color: rgba(0, 122, 255, 0.40);
+  background: rgba(0, 122, 255, 0.10);
+}
+.cmv40-chip.linked:hover {
+  background: rgba(0, 122, 255, 0.20);
+  border-color: rgba(0, 122, 255, 0.70);
+}
+.chip-icon { font-size: 13px; line-height: 1; }
+.chip-label {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px dotted var(--text-3);
+  cursor: help;
+}
+.chip-value {
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: 12px;
+}
+.cmv40-chip.linked .chip-value { color: #5aabff; }
+.chip-arrow {
+  color: var(--blue, #007aff);
+  font-size: 10px;
+  opacity: 0.8;
+  margin-left: 1px;
+}
+
+/* Nota / motivo en una línea: icono + texto + botón de link opcional */
+.cmv40-rec-note {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  font-size: 13px;
-}
-.cmv40-rec-icon { font-size: 16px; line-height: 1; }
-.cmv40-rec-body { margin-top: 6px; color: var(--text-1); }
-.cmv40-rec-notes {
-  margin-top: 6px;
-  padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.22);
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.18);
   border-radius: 6px;
   font-size: 11px;
-  color: var(--text-2);
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.45;
 }
-.cmv40-rec-notes strong { color: var(--text-1); }
+.cmv40-rec-note-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-2);
+  border-bottom: 1px dotted var(--text-3);
+  cursor: help;
+  white-space: nowrap;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.cmv40-rec-note-body {
+  flex: 1;
+  color: var(--text-1);
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.cmv40-rec-note-link {
+  flex-shrink: 0;
+  color: #5aabff;
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 9px;
+  background: rgba(0, 122, 255, 0.12);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  border-radius: 5px;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cmv40-rec-note-link:hover {
+  background: rgba(0, 122, 255, 0.25);
+  border-color: rgba(0, 122, 255, 0.65);
+}
+
+/* Meta-tags (match %, vía TMDb…) en una línea compacta */
+.cmv40-rec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 10px;
+}
+.cmv40-rec-meta-tag {
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-3);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: help;
+}
+
+/* Compatibilidad: elementos antiguos si algo los usa aún */
+.cmv40-rec-header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.cmv40-rec-body { color: var(--text-1); }
+.cmv40-rec-footer { font-size: 10px; color: var(--text-3); opacity: 0.75; display: flex; gap: 8px; flex-wrap: wrap; }
+.cmv40-rec-warn {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 149, 0, 0.10);
+  border: 1px solid rgba(255, 149, 0, 0.30);
+  color: var(--text-1);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.cmv40-rec-warn a {
+  color: var(--blue, #007aff);
+  text-decoration: none;
+}
+.cmv40-rec-warn a:hover { text-decoration: underline; }
+.cmv40-rec-warn-detail {
+  color: var(--text-3);
+  font-family: -apple-system, "SF Mono", monospace;
+  font-size: 10px;
+}
+
+/* ── Ficha TMDb — slot + skeleton ────────────────────────────────── */
+.tmdb-card-slot:empty { display: none; }
+.tmdb-card-loading {
+  height: 193px;  /* mismo alto que la ficha con poster 110x165 + padding */
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #14171f 0%, #1a1e27 50%, #14171f 100%);
+  background-size: 200% 100%;
+  animation: tmdbSkeleton 1.4s ease-in-out infinite;
+  border: 1px solid var(--sep);
+}
+@keyframes tmdbSkeleton {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Ficha TMDb en la cabecera del proyecto CMv4.0 ────────────────── */
+.cmv40-tmdb-card {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #14171f;  /* fondo sólido oscuro */
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* Backdrop: SOLO un accent muy tenue — blur fuerte + opacidad mínima.
+   Se encarga del ambiente visual sin interferir con la legibilidad. */
+.cmv40-tmdb-backdrop {
+  position: absolute;
+  inset: -40px;           /* mucho margen para que el blur no deje bordes */
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.10;          /* casi invisible, solo aporta color ambient */
+  filter: blur(24px) saturate(0.6);
+  pointer-events: none;
+}
+/* Overlay casi-sólido para garantizar contraste en TODA la ficha */
+.cmv40-tmdb-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(20, 23, 31, 0.82);
+  pointer-events: none;
+}
+/* Contenido siempre por encima del backdrop y el gradiente */
+.cmv40-tmdb-card > *:not(.cmv40-tmdb-backdrop) {
+  position: relative;
+  z-index: 2;
+}
+.cmv40-tmdb-poster {
+  width: 110px;
+  height: 165px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.cmv40-tmdb-poster-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  font-size: 32px;
+  color: var(--text-3);
+}
+.cmv40-tmdb-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #f5f6f8;  /* blanco apagado explícito — no depende de --text-1 */
+}
+.cmv40-tmdb-titlerow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cmv40-tmdb-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.1px;
+}
+.cmv40-tmdb-orig {
+  font-size: 12px;
+  color: #a0a4ad;
+  font-weight: 400;
+  font-style: italic;
+}
+.cmv40-tmdb-rating {
+  margin-left: auto;
+  background: rgba(255, 204, 0, 0.15);
+  color: #ffd93d;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 204, 0, 0.3);
+  cursor: help;
+}
+.cmv40-tmdb-meta {
+  font-size: 11px;
+  color: #c9ccd3;
+  letter-spacing: 0.2px;
+}
+.cmv40-tmdb-tagline {
+  font-size: 12px;
+  color: #b5b9c2;
+  font-style: italic;
+}
+.cmv40-tmdb-overview {
+  font-size: 12px;
+  color: #e3e5ea;
+  line-height: 1.5;
+  max-height: 4.5em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.cmv40-tmdb-links {
+  font-size: 11px;
+  color: #8a8e96;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.cmv40-tmdb-links a {
+  color: var(--blue, #007aff);
+  text-decoration: none;
+}
+.cmv40-tmdb-links a:hover { text-decoration: underline; }
 .cmv40-rec-footer {
   margin-top: 8px;
   font-size: 10px;
@@ -3483,3 +3846,105 @@ select { appearance: none; cursor: pointer;
   vertical-align: -1px;
   margin-right: 6px;
 }
+
+/* ── Botón ⚙︎ en el header y modal de Configuración ─────────────── */
+.btn-settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: rgba(0, 122, 255, 0.10);
+  border: 1px solid rgba(0, 122, 255, 0.40);
+  border-radius: 8px;
+  color: #5aabff;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
+}
+.btn-settings:hover {
+  background: rgba(0, 122, 255, 0.22);
+  color: #7fc0ff;
+  border-color: rgba(0, 122, 255, 0.75);
+  transform: rotate(25deg);
+}
+.btn-settings:active {
+  transform: rotate(25deg) scale(0.92);
+}
+.btn-settings-icon { font-size: 16px; line-height: 1; }
+
+.settings-section {
+  margin: 14px 0 8px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.settings-section-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.55;
+  margin-bottom: 10px;
+}
+.settings-section-desc a {
+  color: var(--blue, #007aff);
+  text-decoration: none;
+}
+.settings-section-desc a:hover { text-decoration: underline; }
+.settings-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-input {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep-strong);
+  border-radius: 6px;
+  color: var(--text-1);
+  font-size: 12px;
+  font-family: -apple-system, "SF Mono", monospace;
+}
+.settings-input:focus {
+  outline: none;
+  border-color: var(--blue, #007aff);
+}
+.settings-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  margin-left: auto;
+}
+.settings-status.ok {
+  background: rgba(52, 199, 89, 0.15);
+  color: var(--green, #34c759);
+}
+.settings-status.warn {
+  background: rgba(255, 149, 0, 0.15);
+  color: var(--orange, #ff9500);
+}
+.settings-status.env {
+  background: rgba(0, 122, 255, 0.15);
+  color: var(--blue, #007aff);
+}
+.settings-feedback {
+  font-size: 11px;
+  margin-top: 8px;
+  min-height: 16px;
+}
+.settings-feedback.ok    { color: var(--green, #34c759); }
+.settings-feedback.error { color: var(--red, #ff3b30); }
+.settings-feedback.info  { color: var(--text-3); }
