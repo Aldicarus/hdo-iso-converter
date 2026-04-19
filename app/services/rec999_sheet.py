@@ -67,14 +67,16 @@ class RecommendationRow(BaseModel):
     dv_source: str = ""           # 'BD FEL', 'iTunes', 'DSNP', 'MA'…
     sync_offset: str = ""         # '(+24)', '0', '(-8 T280/B280)'…
     sync_offset_frames: int | None = None
-    comparisons: str = ""         # 'HDR COMP', 'plot', 'Nits', 'L1'…
+    comparisons: str = ""         # primera sub-columna de Comparisons (HDR COMP, nits…)
+    comparisons_2: str = ""       # segunda sub-columna de Comparisons (L1, plot…)
     notes: str = ""               # razón detallada / workflow
     # Hyperlinks por columna (solo disponibles si la hoja se leyó via
-    # Sheets API v4; vacío si se leyó via CSV export)
+    # Sheets API v4 o XLSX+openpyxl; vacío si se leyó via CSV export)
     title_link: str = ""
     sync_link: str = ""
     dv_source_link: str = ""
     comparisons_link: str = ""
+    comparisons_2_link: str = ""
     notes_link: str = ""
 
 
@@ -166,7 +168,8 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
         raw = (row[i] if i < len(row) else {"text": "", "link": ""})
         return _enrich_cell_link(raw)
 
-    # Izquierda: NO factible (cols 0=title, 1=dv_source, 2=comparisons, 4=notes)
+    # Izquierda: NO factible
+    # cols: 0=title, 1=dv_source, 2+3=comparisons (2 sub-cols), 4=notes
     left = col(0)
     left_title = left["text"].strip()
     if left_title and _extract_year(left_title) and not _is_instructional(left_title):
@@ -180,11 +183,14 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
             dv_source_link=col(1)["link"],
             comparisons=col(2)["text"].strip(),
             comparisons_link=col(2)["link"],
+            comparisons_2=col(3)["text"].strip(),
+            comparisons_2_link=col(3)["link"],
             notes=col(4)["text"].strip(),
             notes_link=col(4)["link"],
         ))
 
-    # Derecha: factible (cols 6=title, 7=sync, 8=dv_source, 9=comparisons, 11=notes)
+    # Derecha: factible
+    # cols: 6=title, 7=sync, 8=dv_source, 9+10=comparisons (2 sub-cols), 11=notes
     right = col(6)
     right_title = right["text"].strip()
     if right_title and _extract_year(right_title) and right_title.upper() != "OLD":
@@ -202,6 +208,8 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
             dv_source_link=col(8)["link"],
             comparisons=col(9)["text"].strip(),
             comparisons_link=col(9)["link"],
+            comparisons_2=col(10)["text"].strip(),
+            comparisons_2_link=col(10)["link"],
             notes=col(11)["text"].strip(),
             notes_link=col(11)["link"],
         ))
@@ -218,9 +226,7 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
             and not _is_instructional(extra_title)
             and extra_title.upper() != "OLD"):
         sync_text = col(14)["text"]
-        notes_parts = [col(18)["text"].strip()]
-        # La columna 16 ("comparisons") también puede tener comentarios
-        extra_comparisons = col(16)["text"].strip()
+        # cols: 13=title, 14=sync, 15=dv_source, 16+17=comparisons (2 sub-cols), 18=notes
         out.append(RecommendationRow(
             feasible=True,
             title_raw=extra_title,
@@ -232,9 +238,11 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
             sync_offset_frames=_parse_offset_frames(sync_text),
             dv_source=col(15)["text"].strip(),
             dv_source_link=col(15)["link"],
-            comparisons=extra_comparisons,
+            comparisons=col(16)["text"].strip(),
             comparisons_link=col(16)["link"],
-            notes=" — ".join(p for p in notes_parts if p),
+            comparisons_2=col(17)["text"].strip(),
+            comparisons_2_link=col(17)["link"],
+            notes=col(18)["text"].strip(),
             notes_link=col(18)["link"],
         ))
 

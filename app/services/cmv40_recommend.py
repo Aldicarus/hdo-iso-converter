@@ -77,7 +77,8 @@ class CMv40RecommendationResult(BaseModel):
     sync_offset: str = ""             # '(+24)', '(-8 T280/B280)'…
     sync_offset_frames: int | None = None
     notes: str = ""                   # motivo/detalle del sheet
-    comparisons: str = ""             # 'HDR COMP', 'plot', 'L1'…
+    comparisons: str = ""             # primera sub-columna Comparisons
+    comparisons_2: str = ""           # segunda sub-columna Comparisons
     sheet_rows_loaded: int = 0
     sheet_source: str = "none"        # 'api' | 'csv' | 'disk' | 'none'
     sheets_api_error: str = ""        # motivo si API v4 falló (para UI)
@@ -88,6 +89,7 @@ class CMv40RecommendationResult(BaseModel):
     sync_link: str = ""
     dv_source_link: str = ""
     comparisons_link: str = ""
+    comparisons_2_link: str = ""
     notes_link: str = ""
 
 
@@ -273,11 +275,13 @@ async def recommend(input_title: str,
     result.sync_offset_frames = best_row.sync_offset_frames
     result.notes = best_row.notes
     result.comparisons = best_row.comparisons
-    # Hyperlinks de la hoja (solo llenos si vinieron vía Sheets API v4)
+    result.comparisons_2 = best_row.comparisons_2
+    # Hyperlinks de la hoja (solo llenos si vinieron vía XLSX+openpyxl o Sheets API v4)
     result.title_link = best_row.title_link
     result.sync_link = best_row.sync_link
     result.dv_source_link = best_row.dv_source_link
     result.comparisons_link = best_row.comparisons_link
+    result.comparisons_2_link = best_row.comparisons_2_link
     result.notes_link = best_row.notes_link
     result.status = "recommended" if best_row.feasible else "not_feasible"
     return result

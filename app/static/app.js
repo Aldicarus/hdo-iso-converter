@@ -4700,10 +4700,11 @@ async function _cmv40LoadRecommendation(filename) {
 
 // Metadata por columna: icono, label corta, tooltip explicativo
 const CMV40_CHIP_META = {
-  dv_source:   { icon: '🎬', label: 'Fuente',   help: 'Plataforma de origen del RPU CMv4.0 (iTunes, Disney+, MA, MAX, Fandango, BD-FEL…)' },
-  sync:        { icon: '⏱', label: 'Sync',     help: 'Offset de frames entre WEB-DL y Blu-ray + comprobación de L5 (active area / letterbox)' },
-  comparisons: { icon: '🔬', label: 'Verif.',   help: 'Tipo de verificación: HDR COMP (comparativa HDR), plot (gráfico), L1 (MaxCLL/MaxFALL), nits, sample…' },
-  notes:       { icon: '📝', label: 'Notas',    help: 'Notas / workflow. Factible suele ser "workflow 2-3"; si no, explica el motivo' },
+  dv_source:     { icon: '🎬', label: 'Fuente',   help: 'Plataforma de origen del RPU CMv4.0 (iTunes, Disney+, MA, MAX, Fandango, BD-FEL…)' },
+  sync:          { icon: '⏱', label: 'Sync',     help: 'Offset de frames entre WEB-DL y Blu-ray + comprobación de L5 (active area / letterbox)' },
+  comparisons:   { icon: '🔬', label: 'Verif.',   help: 'Primera sub-columna de Comparisons: tipo de verificación (HDR COMP, plot, nits, sample, shots…)' },
+  comparisons_2: { icon: '📊', label: 'Verif. 2', help: 'Segunda sub-columna de Comparisons (suele ser plot, L1, nits…)' },
+  notes:         { icon: '📝', label: 'Notas',    help: 'Notas / workflow. Factible suele ser "workflow 2-3"; si no, explica el motivo' },
 };
 
 // Chip compacto — icono + label corta + valor. Si hay link, el chip es
@@ -4755,9 +4756,10 @@ function _cmv40RenderRecommendation(data) {
 
   if (status === 'recommended' || status === 'not_feasible') {
     const chips = [
-      _cmv40Chip('dv_source',   data.dv_source,   data.dv_source_link),
-      _cmv40Chip('sync',        data.sync_offset, data.sync_link),
-      _cmv40Chip('comparisons', data.comparisons, data.comparisons_link),
+      _cmv40Chip('dv_source',     data.dv_source,     data.dv_source_link),
+      _cmv40Chip('sync',          data.sync_offset,   data.sync_link),
+      _cmv40Chip('comparisons',   data.comparisons,   data.comparisons_link),
+      _cmv40Chip('comparisons_2', data.comparisons_2, data.comparisons_2_link),
     ].filter(Boolean);
     if (chips.length) {
       html += `<div class="cmv40-rec-chips">${chips.join('')}</div>`;
