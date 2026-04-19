@@ -1010,10 +1010,13 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     """Parsea el output de ``dovi_tool info --summary``."""
     info = DoviInfo(raw_summary=summary)
 
-    m = re.search(r"Profile:\s+(\d+)\s+\((FEL|MEL)\)", summary)
+    # P7: "Profile: 7 (FEL)" / "Profile: 7 (MEL)"
+    # P8: "Profile: 8.1" (single-layer, sin sufijo)
+    # P5: "Profile: 5"
+    m = re.search(r"Profile:\s+(\d+)(?:\.\d+)?(?:\s+\((FEL|MEL)\))?", summary)
     if m:
         info.profile = int(m.group(1))
-        info.el_type = m.group(2)
+        info.el_type = m.group(2) or ""
 
     m = re.search(r"DM version:\s+\d+\s+\(CM (v[\d.]+)\)", summary)
     if m:

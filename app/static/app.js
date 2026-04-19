@@ -1528,7 +1528,7 @@ function renderProjectPanel(project) {
   const doviDetail = E('dovi-detail');
   if (doviDetail && mainVid?.dovi) {
     const d = mainVid.dovi;
-    const parts = [`Profile ${d.profile} (${d.el_type})`, `CM ${d.cm_version}`];
+    const parts = [`Profile ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}`, `CM ${d.cm_version}`];
     if (d.has_l1) parts.push('L1');
     if (d.has_l2) parts.push('L2');
     if (d.has_l5) parts.push('L5');
@@ -2075,7 +2075,7 @@ function showRawAnalysisData() {
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`  DOLBY VISION (dovi_tool RPU analysis)`);
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`Profile: ${d.profile} (${d.el_type})`);
+    lines.push(`Profile: ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}`);
     lines.push(`CM version: ${d.cm_version}`);
     lines.push(`Metadata: L1=${d.has_l1} L2=${d.has_l2} L5=${d.has_l5} L6=${d.has_l6}`);
     lines.push(`Scenes: ${d.scene_count} | Frames: ${d.frame_count}`);
@@ -3919,7 +3919,7 @@ function _renderMkvEditPanel() {
   const hdrMaxFall = a.hdr?.max_fall ? `MaxFALL: ${a.hdr.max_fall}` : '';
   // Dolby Vision
   const hasDV = a.dovi != null || videoTracks.filter(v => v.codec.includes('HEVC') || v.codec.includes('H.265')).length > 1;
-  const dvInfo = a.dovi ? `DV P${a.dovi.profile} ${a.dovi.el_type}, CM ${a.dovi.cm_version}` : '';
+  const dvInfo = a.dovi ? `DV P${a.dovi.profile}${a.dovi.el_type ? ' ' + a.dovi.el_type : ''}, CM ${a.dovi.cm_version}` : '';
 
   const panel = document.getElementById('mkv-edit-panel');
   panel.innerHTML = `
@@ -4980,7 +4980,7 @@ function _renderCMv40Info(s, pid) {
             <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV origen</div>
             <div style="font-weight:600">${escHtml(s.source_mkv_name)}</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
-              ${srcDv ? `Profile ${srcDv.profile} (${srcDv.el_type}) · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
+              ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
             </div>
             ${s.source_workflow ? `<div style="font-size:10px; margin-top:4px">
               <span class="cmv40-workflow-badge cmv40-workflow-${s.source_workflow}">${_cmv40WorkflowLabel(s.source_workflow)}</span>
@@ -4995,7 +4995,7 @@ function _renderCMv40Info(s, pid) {
                     onkeydown="if(event.key==='Enter'){this.blur()}">`
               : `<div style="font-weight:600">${escHtml(s.output_mkv_name)}</div>`}
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
-              ${tgtDv ? `RPU target: Profile ${tgtDv.profile} (${tgtDv.el_type}) · CM ${tgtDv.cm_version} · ${s.target_frame_count.toLocaleString()} frames` : ''}
+              ${tgtDv ? `RPU target: Profile ${tgtDv.profile}${tgtDv.el_type ? ` (${tgtDv.el_type})` : ''} · CM ${tgtDv.cm_version} · ${s.target_frame_count.toLocaleString()} frames` : ''}
               ${s.sync_delta ? ` · <span style="color:var(--orange)">Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</span>` : ''}
             </div>
           </div>
@@ -5229,7 +5229,7 @@ function _cmv40FaseSummary(key, s) {
   const arts = s.artifacts || {};
   if (key === 'A' && s.source_dv_info) {
     const d = s.source_dv_info;
-    return `Profile ${d.profile} (${d.el_type}) · CM ${d.cm_version} · ${s.source_frame_count.toLocaleString()} frames`;
+    return `Profile ${d.profile}${d.el_type ? ` (${d.el_type})` : ''} · CM ${d.cm_version} · ${s.source_frame_count.toLocaleString()} frames`;
   }
   if (key === 'B' && s.target_dv_info) {
     const d = s.target_dv_info;
@@ -5270,7 +5270,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const d = s.source_dv_info;
     return `
       <div style="font-size:12px; line-height:1.8">
-        <div><span style="color:var(--text-3)">Profile:</span> ${d.profile} (${d.el_type})</div>
+        <div><span style="color:var(--text-3)">Profile:</span> ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}</div>
         <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)">Frames:</span> ${s.source_frame_count.toLocaleString()}</div>
         ${d.has_l1 ? '<div><span style="color:var(--text-3)">Metadata:</span> L1 L2 L5 L6</div>' : ''}
