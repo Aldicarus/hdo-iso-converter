@@ -1689,8 +1689,8 @@ async def cmv40_clear_error(session_id: str):
 
 # Mapa de artefactos producidos por cada fase (se borran al rehacer esa fase o anterior)
 _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
-    "source_analyzed": ["source.hevc", "RPU_source.bin", "plot_source.png"],
-    "target_provided": ["RPU_target.bin", "plot_target.png"],
+    "source_analyzed": ["source.hevc", "RPU_source.bin"],
+    "target_provided": ["RPU_target.bin"],
     "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
     "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
     "injected":        ["EL_injected.hevc", "BL_injected.hevc", "RPU_merged.bin"],
@@ -2114,8 +2114,34 @@ async def cmv40_sync_data(session_id: str):
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     wd = Path(session.artifacts_dir)
     pf = wd / "per_frame_data.json"
+    # Si no existe (target trusted saltó la generación en Fase C), lo
+    # generamos on-demand. Esto soporta el caso donde el usuario cambia
+    # `trust_override` a 'force_interactive' tras el skip automático.
     if not pf.exists():
-        raise HTTPException(status_code=404, detail="per_frame_data.json no existe — ejecuta Fase C primero")
+        from phases.cmv40_pipeline import _generate_per_frame_data, FPS_EXPORT
+        rpu_source = wd / "RPU_source.bin"
+        rpu_target = wd / "RPU_target.bin"
+        if not (rpu_source.exists() and rpu_target.exists()):
+            raise HTTPException(status_code=404,
+                detail="per_frame_data.json no existe y no están los RPUs — ejecuta Fase A/B/C primero")
+        async def _log_cb(msg: str):
+            await _cmv40_log(session, msg)
+        est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
+        await _cmv40_log(session,
+            "[sync-data] per_frame_data.json no existe — regenerando on-demand "
+            "(trusted skip → user forzó revisión manual)")
+        try:
+            await _generate_per_frame_data(
+                session, rpu_source, rpu_target, pf, _log_cb,
+                est_export_s=est_export,
+            )
+            # Remover marca de skip si estaba
+            if "per_frame_data_skipped" in (session.phases_skipped or []):
+                session.phases_skipped.remove("per_frame_data_skipped")
+                save_cmv40_session(session)
+        except Exception as e:
+            raise HTTPException(status_code=500,
+                detail=f"Fallo al regenerar per_frame_data on-demand: {e}")
     import json as _json
     data = _json.loads(pf.read_text(encoding="utf-8"))
     data["suggested_offset"] = detect_sync_offset(data)

@@ -58,18 +58,23 @@ def artifact_exists(session: CMv40Session, name: str, min_size: int = 100) -> bo
     return p.exists() and p.stat().st_size >= min_size
 
 
-# Artefactos requeridos para estar en cada fase (= haber completado esa fase).
-# Se valida tamaño mínimo razonable para detectar ficheros truncados.
+# Artefactos requeridos para haber completado cada fase.
+# Excluye artefactos que el housekeeping borra intencionalmente (source.hevc
+# tras Fase C para p7_fel/mel, EL.hevc para p7_mel, per_frame_data si trusted).
+# Cada fase al ejecutarse valida sus entradas específicas (fallando con
+# mensaje claro si algo falta), así que esta lista solo cubre los ficheros
+# que siempre existen tras la fase para cualquier workflow.
 PHASE_REQUIRED_ARTIFACTS: dict[str, list[tuple[str, int]]] = {
-    "source_analyzed": [("source.hevc", 1_000_000), ("RPU_source.bin", 1_000)],
-    "target_provided": [("source.hevc", 1_000_000), ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
-    "extracted":       [("BL.hevc", 1_000_000), ("EL.hevc", 100_000),
-                        ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000),
-                        ("per_frame_data.json", 100)],
-    "sync_verified":   [("BL.hevc", 1_000_000), ("EL.hevc", 100_000),
-                        ("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000),
-                        ("per_frame_data.json", 100)],
-    "injected":        [("BL.hevc", 1_000_000), ("EL_injected.hevc", 100_000)],
+    # Fase A: source.hevc puede ser borrado por housekeeping tras Fase C,
+    # así que solo RPU_source.bin es estable como marcador de "A hecha".
+    "source_analyzed": [("RPU_source.bin", 1_000)],
+    "target_provided": [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
+    # extracted: los outputs dependen del workflow (BL.hevc para p7_*,
+    # source.hevc ya re-extractable para p8). Solo los RPUs son universales.
+    "extracted":       [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
+    "sync_verified":   [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
+    # injected: uno de los dos outputs según workflow
+    "injected":        [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
     "remuxed":         [("output.mkv", 1_000_000)],
 }
 
@@ -520,18 +525,16 @@ async def run_phase_a_analyze_source(
     Extrae el HEVC del MKV origen, extrae su RPU y lo analiza con dovi_tool.
 
     Artefactos generados:
-      - source.hevc
+      - source.hevc (puede ser borrado tras Fase C en p7_fel/p7_mel)
       - RPU_source.bin
-      - plot_source.png (opcional, fallos silenciosos)
 
     Actualiza session.source_dv_info, source_frame_count.
     """
     wd = get_workdir(session)
     source_hevc = wd / "source.hevc"
     rpu_source  = wd / "RPU_source.bin"
-    plot_source = wd / "plot_source.png"
 
-    # Pesos estimados: ffmpeg 50% · extract-rpu 45% · info+plot 5%
+    # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
     W_FFMPEG, W_RPU, W_INFO = 50.0, 45.0, 5.0
 
     # Pre-probe duración + frame count para estimar progreso
@@ -607,15 +610,8 @@ async def run_phase_a_analyze_source(
         "p8":     "P8.1 — inject directo de RPU target → P8.1 CMv4.0",
     }.get(session.source_workflow, session.source_workflow)
 
-    # Paso 4: Plot (opcional, no bloquea)
-    try:
-        await _run([
-            DOVI_TOOL_BIN, "plot", str(rpu_source),
-            "-t", "RPU origen (CMv2.9)",
-            "-o", str(plot_source),
-        ], timeout=60)
-    except Exception as e:
-        _logger.warning("dovi_tool plot falló (no bloquea): %s", e)
+    # Plot eliminado: generaba plot_source.png que la UI no consume.
+    # Si se quiere reintroducir, añadir también el render en el panel.
 
     await _emit_progress(log_callback, 100, "Análisis completado")
     if log_callback:
@@ -1053,8 +1049,26 @@ async def run_phase_c_extract(
     rpu_target  = wd / "RPU_target.bin"
     per_frame   = wd / "per_frame_data.json"
 
+    # source.hevc puede haberse borrado tras un Fase C previo (housekeeping
+    # v1.9). Si el usuario rehace Fase C lo re-extraemos en ~30s con
+    # ffmpeg -c copy desde el MKV origen.
     if not source_hevc.exists():
-        raise RuntimeError("source.hevc no existe — ejecuta Fase A primero")
+        if Path(session.source_mkv_path).exists():
+            if log_callback:
+                await log_callback(
+                    "[Fase C] source.hevc no encontrado (fue borrado tras un "
+                    "demux previo) — re-extrayéndolo del MKV origen…"
+                )
+            rc = await _run_streaming([
+                FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
+                "-map", "0:v:0", "-c:v", "copy",
+                "-bsf:v", "hevc_mp4toannexb",
+                "-f", "hevc", str(source_hevc),
+            ], log_callback=log_callback, proc_callback=proc_callback)
+            if rc != 0 or not source_hevc.exists():
+                raise RuntimeError("Re-extracción de source.hevc falló")
+        else:
+            raise RuntimeError("source.hevc no existe y el MKV origen no está accesible")
     if not rpu_target.exists():
         raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
 
@@ -1066,9 +1080,24 @@ async def run_phase_c_extract(
     # lógicamente — aunque dovi_tool demux genera ambos, EL_mel es inútil).
     needs_demux = workflow in ("p7_fel", "p7_mel")
 
-    if needs_demux:
-        # Pesos: demux 70% · per-frame 30%
+    # ¿Saltamos `per_frame_data.json`? Sí cuando el target es trusted y los
+    # gates pasan — Fase D se saltará → el chart no se mostrará. Ahorra
+    # ~2-5 min de CPU (2 pasadas de dovi_tool export sobre ambos RPUs).
+    # Si el usuario fuerza revisión manual tardía, el endpoint /sync-data
+    # regenera on-demand.
+    skip_pfd = bool(session.target_trust_ok) and session.trust_override != "force_interactive"
+
+    # Pesos de progreso: demux 70% / PFD 30% si ambos, o 100% al que toque
+    if needs_demux and not skip_pfd:
         W_DEMUX, W_PFD = 70.0, 30.0
+    elif needs_demux and skip_pfd:
+        W_DEMUX, W_PFD = 100.0, 0.0
+    elif not needs_demux and not skip_pfd:
+        W_DEMUX, W_PFD = 0.0, 100.0
+    else:
+        W_DEMUX, W_PFD = 0.0, 0.0  # no-op (poco frecuente: p8 + trusted)
+
+    if needs_demux:
         est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
         await _emit_progress(log_callback, 0, "Separando BL + EL")
         if log_callback:
@@ -1089,22 +1118,61 @@ async def run_phase_c_extract(
                 await log_callback("[Fase C] BL.hevc y EL.hevc ya existen, reutilizando")
         await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
     else:
-        # Workflow p8: sin demux. Ajustar pesos para que el per-frame ocupe todo.
-        W_DEMUX, W_PFD = 0.0, 100.0
         if log_callback:
             await log_callback(
                 "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
             )
 
-    # Generar per_frame_data.json (todos los workflows)
-    if log_callback:
-        await log_callback("[Fase C] Generando datos per-frame para el chart…")
-    est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
-    await _generate_per_frame_data(
-        session, rpu_source, rpu_target, per_frame, log_callback,
-        progress_offset=W_DEMUX, progress_weight=W_PFD,
-        est_export_s=est_export,
-    )
+    if skip_pfd:
+        if log_callback:
+            await log_callback(
+                "[Fase C] ⏭ per_frame_data.json omitido (target trusted — "
+                "Fase D se saltará, no hace falta generar datos del chart). "
+                "Se regenerará on-demand si el usuario fuerza revisión manual."
+            )
+        if "per_frame_data_skipped" not in session.phases_skipped:
+            session.phases_skipped.append("per_frame_data_skipped")
+    else:
+        if log_callback:
+            await log_callback("[Fase C] Generando datos per-frame para el chart…")
+        est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
+        await _generate_per_frame_data(
+            session, rpu_source, rpu_target, per_frame, log_callback,
+            progress_offset=W_DEMUX, progress_weight=W_PFD,
+            est_export_s=est_export,
+        )
+
+    # ── Housekeeping: borrar artefactos ya innecesarios ────────────────
+    # source.hevc (~40 GB): solo lo necesita Fase F en workflow p8. Para
+    #   p7_fel/p7_mel ya tenemos BL.hevc (y EL.hevc) — liberamos disco.
+    #   Si el usuario rehace Fase C, Fase A la regenerará (fast: ffmpeg -c copy).
+    # EL.hevc (~3–5 GB): en p7_mel el EL MEL no se usa (se descarta para
+    #   producir P8.1). Lo borramos tras demux.
+    if workflow in ("p7_fel", "p7_mel") and source_hevc.exists():
+        try:
+            sz = source_hevc.stat().st_size
+            source_hevc.unlink()
+            if log_callback:
+                await log_callback(
+                    f"[Fase C] 🧹 Borrado source.hevc ({sz / 1024**3:.1f} GB) — "
+                    f"ya no se necesita para workflow {workflow}"
+                )
+        except OSError as e:
+            if log_callback:
+                await log_callback(f"[Fase C] No pude borrar source.hevc: {e}")
+    if workflow == "p7_mel" and el_hevc.exists():
+        try:
+            sz = el_hevc.stat().st_size
+            el_hevc.unlink()
+            if log_callback:
+                await log_callback(
+                    f"[Fase C] 🧹 Borrado EL.hevc ({sz / 1024**3:.1f} GB) — "
+                    f"MEL se descarta en workflow p7_mel"
+                )
+        except OSError as e:
+            if log_callback:
+                await log_callback(f"[Fase C] No pude borrar EL.hevc: {e}")
+
     await _emit_progress(log_callback, 100, "Completado")
 
 
