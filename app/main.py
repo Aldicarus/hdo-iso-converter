@@ -1467,6 +1467,15 @@ async def cmv40_cleanup(session_id: str):
                     f.unlink()
                 except Exception:
                     pass
+    # También borrar .mkv.tmp orfeno en /mnt/output (si Fase G escribió pero
+    # Fase H no completó)
+    try:
+        tmp_path = OUTPUT_DIR_MKV / f"{session.output_mkv_name}.tmp"
+        if tmp_path.exists() and tmp_path.is_file():
+            freed += tmp_path.stat().st_size
+            tmp_path.unlink()
+    except Exception as e:
+        _logger.warning("No se pudo borrar .mkv.tmp: %s", e)
     session.archived = True
     save_cmv40_session(session)
     await _cmv40_log(session, f"🗃️ Artefactos borrados ({freed / 1e9:.2f} GB liberados). Proyecto archivado en modo solo lectura.")

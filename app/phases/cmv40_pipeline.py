@@ -1332,16 +1332,29 @@ async def run_phase_g_remux(
     Combina BL + EL_injected en un stream dual-layer y remuxa con
     audio/subs/capítulos del MKV origen.
 
-    Devuelve la ruta del MKV final (en el workdir; se mueve a /mnt/output en validación).
+    Optimización: mkvmerge escribe DIRECTAMENTE al destino final de /mnt/output
+    con sufijo ``.mkv.tmp``. Fase H valida y hace ``os.rename`` (atómico dentro
+    del mismo filesystem) — evita copiar 42GB entre ZFS datasets.
+
+    Devuelve la ruta del MKV final provisional (``{name}.mkv.tmp`` en /mnt/output).
     """
     wd = get_workdir(session)
     bl_hevc      = wd / "BL.hevc"
     el_injected  = wd / "EL_injected.hevc"
     dv_dual      = wd / "DV_dual.hevc"
-    output_mkv   = wd / "output.mkv"
+    # Escribir DIRECTAMENTE al destino final con sufijo .tmp — evita copy 42GB
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_mkv   = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
 
     if not bl_hevc.exists() or not el_injected.exists():
         raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
+
+    # Si quedó un .tmp previo (p. ej. tras cancelación), borrarlo
+    if output_mkv.exists():
+        try:
+            output_mkv.unlink()
+        except Exception:
+            pass
 
     # Pesos: dovi_tool mux 38% (~218s) · mkvmerge remux 62% (~361s) para 155k frames
     W_MUX, W_MKV = 38.0, 62.0
@@ -1412,10 +1425,19 @@ async def run_phase_h_validate(
     Si OK, mueve el MKV a /mnt/output/. Devuelve info de validación.
     """
     wd = get_workdir(session)
-    output_mkv = wd / "output.mkv"
-
-    if not output_mkv.exists():
-        raise RuntimeError("output.mkv no existe — ejecuta Fase G primero")
+    # El MKV final provisional vive en /mnt/output/{name}.mkv.tmp (Fase G lo
+    # escribió directamente allí). Si no existe, fallback al path antiguo
+    # (workdir/output.mkv) para compatibilidad con proyectos viejos.
+    output_mkv_tmp = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
+    output_mkv_legacy = wd / "output.mkv"
+    if output_mkv_tmp.exists():
+        output_mkv = output_mkv_tmp
+    elif output_mkv_legacy.exists():
+        output_mkv = output_mkv_legacy
+    else:
+        raise RuntimeError(
+            f"MKV final no existe: ni {output_mkv_tmp} ni {output_mkv_legacy} — ejecuta Fase G primero"
+        )
 
     if log_callback:
         mkv_gb = output_mkv.stat().st_size / 1e9
@@ -1481,55 +1503,67 @@ async def run_phase_h_validate(
     if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge -J falló sobre MKV final: {err[:200]}")
 
-    # Mover a /mnt/output — puede tardar varios minutos con 42GB en ZFS.
-    # Usamos task en background que monitorea crecimiento del destino para
-    # emitir % real de copia.
+    # Renombrar .tmp → .mkv (atómico si mkvmerge escribió ya en /mnt/output,
+    # fallback a move con monitor de progreso si viene de workdir legacy).
     final_path = OUTPUT_DIR / session.output_mkv_name
     if final_path.exists():
         raise RuntimeError(f"Ya existe un MKV con ese nombre: {session.output_mkv_name}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    total_bytes = output_mkv.stat().st_size
-    if log_callback:
-        await log_callback(
-            f"[Fase H] Moviendo MKV final ({total_bytes / 1e9:.1f} GB) a /mnt/output…"
-        )
+    # Intento 1: os.rename (instantáneo si mismo filesystem — caso normal
+    # porque Fase G escribe directamente a /mnt/output)
+    same_fs_rename_ok = False
+    try:
+        os.rename(str(output_mkv), str(final_path))
+        same_fs_rename_ok = True
+        if log_callback:
+            await log_callback("[Fase H] Rename atómico .tmp → .mkv (instantáneo, mismo filesystem)")
+        await _emit_progress(log_callback, 95, "Renombrado a nombre final")
+    except OSError:
+        # Distintos filesystems (legacy workdir→output): fallback a copy+delete
+        pass
 
-    # Monitor de progreso durante el move (copy-then-delete en cross-fs)
-    stop_mon = asyncio.Event()
-    start_mon = time.monotonic()
+    if not same_fs_rename_ok:
+        total_bytes = output_mkv.stat().st_size
+        if log_callback:
+            await log_callback(
+                f"[Fase H] Rename cross-fs: copiando {total_bytes / 1e9:.1f} GB a /mnt/output "
+                f"(fallback lento — considera poner TMP_PATH y OUTPUT_PATH en el mismo dataset)…"
+            )
 
-    async def _monitor_move():
-        while not stop_mon.is_set():
+        stop_mon = asyncio.Event()
+        start_mon = time.monotonic()
+
+        async def _monitor_move():
+            while not stop_mon.is_set():
+                try:
+                    if final_path.exists():
+                        cur = final_path.stat().st_size
+                        pct = min(99.0, (cur / total_bytes) * 100.0)
+                        phase_pct = 55.0 + pct * 0.4
+                        elapsed = time.monotonic() - start_mon
+                        eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
+                        await _emit_progress(
+                            log_callback, phase_pct,
+                            f"Copiando a /mnt/output ({cur / 1e9:.1f}/{total_bytes / 1e9:.1f} GB)",
+                            int(eta) if eta else 0,
+                        )
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(stop_mon.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+
+        mon_task = asyncio.create_task(_monitor_move())
+        try:
+            await asyncio.to_thread(shutil.move, str(output_mkv), str(final_path))
+        finally:
+            stop_mon.set()
             try:
-                if final_path.exists():
-                    cur = final_path.stat().st_size
-                    pct = min(99.0, (cur / total_bytes) * 100.0)
-                    phase_pct = 55.0 + pct * 0.4  # 55% → 95% durante el move
-                    elapsed = time.monotonic() - start_mon
-                    eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
-                    await _emit_progress(
-                        log_callback, phase_pct,
-                        f"Moviendo a /mnt/output ({cur / 1e9:.1f}/{total_bytes / 1e9:.1f} GB)",
-                        int(eta) if eta else 0,
-                    )
+                await mon_task
             except Exception:
                 pass
-            try:
-                await asyncio.wait_for(stop_mon.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
-                pass
-
-    mon_task = asyncio.create_task(_monitor_move())
-    try:
-        # shutil.move es bloqueante y no async; lo ejecutamos en thread pool
-        await asyncio.to_thread(shutil.move, str(output_mkv), str(final_path))
-    finally:
-        stop_mon.set()
-        try:
-            await mon_task
-        except Exception:
-            pass
 
     session.output_mkv_path = str(final_path)
     await _emit_progress(log_callback, 100, "Validación completada")
