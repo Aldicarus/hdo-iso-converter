@@ -652,25 +652,49 @@ def _detect_workflow(dovi_info: DoviInfo) -> str:
 # ══════════════════════════════════════════════════════════════════════
 
 def list_available_rpus() -> list[dict]:
-    """Lista los .bin del nivel superior de /mnt/cmv40_rpus/.
+    """Lista .bin en /mnt/cmv40_rpus/ con recursión podada.
 
-    No recursivo: en ZFS/QNAP un glob recursivo recogería @Recycle/,
-    .@__thumb/, snapshots ZFS y basura AppleDouble (._*). Saltamos
-    también ficheros ocultos por si cae alguno en la raíz.
+    Recorre subcarpetas (los usuarios suelen organizar por película) pero
+    excluye directorios del sistema típicos de QNAP/ZFS/macOS que empiezan
+    por '.', '@' o '_' (`@Recycle`, `.@__thumb`, `@Recently-Snapshot`,
+    `.zfs`, `._AppleDouble`). Match de `.bin` case-insensitive.
+    Profundidad máxima 3 para no explotar en árboles gigantes.
     """
     if not CMV40_RPU_DIR.exists():
         return []
-    result = []
-    for p in sorted(CMV40_RPU_DIR.glob("*.bin")):
-        if p.name.startswith("."):
-            continue
-        if not p.is_file():
-            continue
-        result.append({
-            "name": p.name,
-            "path": str(p),
-            "size_bytes": p.stat().st_size,
-        })
+
+    root = CMV40_RPU_DIR.resolve()
+    MAX_DEPTH = 3
+    result: list[dict] = []
+
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        depth = len(Path(dirpath).resolve().relative_to(root).parts)
+        # Poda: directorios del sistema (QNAP @Recycle, .zfs, ._*, etc.)
+        dirnames[:] = [d for d in dirnames if not d.startswith((".", "@", "_"))]
+        # Corta el descenso a MAX_DEPTH
+        if depth >= MAX_DEPTH:
+            dirnames[:] = []
+
+        for fname in filenames:
+            if fname.startswith((".", "_")):
+                continue
+            if not fname.lower().endswith(".bin"):
+                continue
+            fpath = Path(dirpath) / fname
+            try:
+                if not fpath.is_file():
+                    continue
+                size = fpath.stat().st_size
+            except OSError:
+                continue
+            rel = fpath.relative_to(root)
+            result.append({
+                "name": str(rel),
+                "path": str(fpath),
+                "size_bytes": size,
+            })
+
+    result.sort(key=lambda r: r["name"].lower())
     return result
 
 
