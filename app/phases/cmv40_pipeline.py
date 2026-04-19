@@ -651,6 +651,17 @@ def _detect_workflow(dovi_info: DoviInfo) -> str:
 #  FASE B — Proporcionar RPU target
 # ══════════════════════════════════════════════════════════════════════
 
+# Ficheros/dirs típicos de /tmp de QTS — si aparecen, el mount está mal
+_QTS_TMP_MARKERS = (
+    ".qcloud-vars-cache",
+    ".qpkg_start.log",
+    "mariadb10_mmc.sock",
+    "myconvertserver.sock",
+    "netmgr.sock",
+    "qpkg_status.conf",
+)
+
+
 def list_available_rpus() -> list[dict]:
     """Lista .bin regulares del nivel superior de /mnt/cmv40_rpus/.
 
@@ -661,16 +672,31 @@ def list_available_rpus() -> list[dict]:
 
     Match .bin case-insensitive. Ignora ocultos, AppleDouble y todo lo
     que no sea fichero regular (dirs, symlinks rotos, FIFOs...).
+
+    Detecta cuando el mount apunta por error al /tmp de QTS (si el
+    CMV40_RPU_PATH del .env no está seteado y cae al fallback) y
+    devuelve lista vacía con un warning explícito en el log.
     """
     if not CMV40_RPU_DIR.exists():
         return []
 
-    result: list[dict] = []
     try:
         entries = list(CMV40_RPU_DIR.iterdir())
     except OSError:
         return []
 
+    # Defensa contra mount mal configurado: si aparecen markers de /tmp de QTS
+    names = {p.name for p in entries}
+    if any(m in names for m in _QTS_TMP_MARKERS):
+        _logger.warning(
+            "CMV40_RPU_DIR (%s) parece ser el /tmp de QTS (contiene sockets/logs "
+            "del sistema QNAP). Revisa CMV40_RPU_PATH en el .env del compose y "
+            "recrea el contenedor. Se ignoran todos los ficheros.",
+            CMV40_RPU_DIR,
+        )
+        return []
+
+    result: list[dict] = []
     for p in entries:
         name = p.name
         if name.startswith((".", "_")):
