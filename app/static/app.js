@@ -2347,19 +2347,87 @@ function _copyRawAnalysis() {
 }
 
 
+// Extrae canales (7.1 / 5.1 / 2.0…) del primer campo de description.
+function _extractAudioChannels(description) {
+  const m = (description || '').match(/(\d+\.\d+)/);
+  return m ? m[1] : '';
+}
+
+// Identifica el codec normalizado (mismo mapeo que phase_b._codec_key).
+// Devuelve 'truehd_atmos', 'truehd', 'ddplus_atmos', 'ddplus',
+// 'dts_hd_ma', 'dts', 'dd' o ''.
+function _codecKeyFromRaw(raw) {
+  const codec = (raw.codec || '').toLowerCase();
+  const desc  = (raw.description || '').toLowerCase();
+  const fc    = (raw.format_commercial || '').toLowerCase();
+  const hasAtmos = fc.includes('atmos') || codec.includes('atmos') || desc.includes('atmos');
+
+  if (fc) {
+    if (fc.includes('truehd')) return hasAtmos ? 'truehd_atmos' : 'truehd';
+    if (fc.includes('digital plus') || fc.includes('e-ac-3'))
+      return hasAtmos ? 'ddplus_atmos' : 'ddplus';
+    if (fc.includes('dts-hd master') || fc.includes('dts-hd ma')) return 'dts_hd_ma';
+    if (fc.includes('dts')) return 'dts';
+    if (fc.includes('dolby digital') && !fc.includes('plus')) return 'dd';
+  }
+  if (codec.includes('truehd')) return hasAtmos ? 'truehd_atmos' : 'truehd';
+  if (codec.includes('digital plus')) return hasAtmos ? 'ddplus_atmos' : 'ddplus';
+  if (codec.includes('dts-hd master') ||
+      (codec.includes('dts') && codec.includes('hd') && codec.includes('master')))
+    return 'dts_hd_ma';
+  if (codec.includes('dts') && !codec.includes('hd')) return 'dts';
+  if (codec.includes('dolby digital') && !codec.includes('plus')) return 'dd';
+  return '';
+}
+
+// Construye el codec literal (ej. "DD+ Atmos 7.1", "TrueHD Atmos 7.1 (DCP 9.1.6)")
+// Replica phase_b._codec_literal para pistas recuperadas manualmente.
+function _buildAudioCodecLiteral(raw, audioDcp) {
+  const channels = _extractAudioChannels(raw.description);
+  const key = _codecKeyFromRaw(raw);
+  const map = {
+    truehd_atmos: `TrueHD Atmos ${channels}`.trim(),
+    truehd:       `TrueHD ${channels}`.trim(),
+    ddplus_atmos: `DD+ Atmos ${channels}`.trim(),
+    ddplus:       `DD+ ${channels}`.trim(),
+    dts_hd_ma:    `DTS-HD MA ${channels}`.trim(),
+    dts:          `DTS ${channels}`.trim(),
+    dd:           `DD ${channels}`.trim(),
+  };
+  let lit = map[key] || `${raw.codec || ''} ${channels}`.trim();
+  // Sufijo DCP solo en TrueHD Atmos Castellano
+  if (audioDcp && key === 'truehd_atmos' && raw.language === 'Spanish') {
+    lit += ' (DCP 9.1.6)';
+  }
+  return lit;
+}
+
 function recoverTrack(idx) {
   const track = currentSession.discarded_tracks.splice(idx, 1)[0];
   const raw   = track.raw || {};
+  const isAudio = track.track_type === 'audio';
+  const langLit = langLiteral(raw.language) || '';
+
+  let codecLit, fullLabel;
+  if (isAudio) {
+    codecLit = _buildAudioCodecLiteral(raw, !!currentSession.audio_dcp);
+    fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
+  } else {
+    // Subtítulos: formato "{Idioma} Completos (PGS)" (asumimos completo al recuperar)
+    codecLit = 'Completos (PGS)';
+    fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
+  }
+
   const recovered = {
     track_type: track.track_type,
     position: currentSession.included_tracks.length,
     raw: track.raw,
-    label: `${langLiteral(raw.language) || ''} ${raw.codec || ''}`.trim() || 'Pista recuperada',
+    label: fullLabel,
     flag_default: false,
     flag_forced: false,
     selection_reason: 'Recuperada manualmente por el usuario',
-    language_literal: raw.language || '',
-    codec_literal: raw.codec || '',
+    language_literal: langLit,
+    codec_literal: codecLit,
     subtitle_type: 'complete',
   };
   currentSession.included_tracks.push(recovered);
