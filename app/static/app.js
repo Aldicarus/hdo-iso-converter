@@ -2138,20 +2138,59 @@ function renderDiscardedTracks(tracks) {
 
   const renderGroup = (container, items, isAudio) => {
     if (!items.length) {
-      container.innerHTML = `<div class="discarded-empty">${isAudio ? 'Ninguna descartada' : 'Ninguna descartada'}</div>`;
+      container.innerHTML = `<div class="discarded-empty">Ninguna descartada</div>`;
       return;
     }
     items.forEach(({ track, idx }) => {
       const raw = track.raw || {};
       const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
-      const codecInfo = isAudio
-        ? [raw.codec, raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ')
-        : `PGS · ${langLiteral(raw.language)}`;
+
+      // Tooltip con todo el detalle (mismo contenido que en incluidas)
+      let tooltip;
+      if (isAudio) {
+        tooltip = [
+          `Codec: ${raw.codec || '—'}`,
+          raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
+          `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
+          raw.description ? `Canales / frecuencia: ${raw.description}` : null,
+          raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
+          raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+          raw.compression_mode ? `Compresión: ${raw.compression_mode}` : null,
+          '',
+          `Razón del descarte: ${track.discard_reason || '—'}`,
+        ].filter(s => s !== null).join('\n');
+      } else {
+        const packets = raw.packet_count || 0;
+        tooltip = [
+          `Codec: PGS (Presentation Graphics)`,
+          `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
+          raw.resolution ? `Resolución: ${raw.resolution}` : null,
+          packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
+          raw.bitrate_kbps ? `Bitrate sintético: ${raw.bitrate_kbps} kbps` : null,
+          '',
+          `Razón del descarte: ${track.discard_reason || '—'}`,
+        ].filter(s => s !== null).join('\n');
+      }
+
+      // Label compacto: para audio codec+desc+bitrate; para subs lang + paquetes
+      let codecInfo;
+      if (isAudio) {
+        codecInfo = [raw.codec, raw.description,
+          raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null
+        ].filter(Boolean).join(' · ');
+      } else {
+        const packets = raw.packet_count || 0;
+        const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
+        codecInfo = ['PGS', langLiteral(raw.language), pktTag].filter(Boolean).join(' · ');
+      }
+
+      const icon = isAudio ? '🔊' : '💬';
       const div = document.createElement('div');
       div.className = 'discarded-item';
       div.innerHTML = `
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
+        <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">${icon}</span>
         <div class="discarded-body">
           <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
           <div class="discarded-reason">${escHtml(track.discard_reason || '')}</div>
