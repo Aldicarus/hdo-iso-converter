@@ -652,47 +652,42 @@ def _detect_workflow(dovi_info: DoviInfo) -> str:
 # ══════════════════════════════════════════════════════════════════════
 
 def list_available_rpus() -> list[dict]:
-    """Lista .bin en /mnt/cmv40_rpus/ con recursión podada.
+    """Lista .bin regulares del nivel superior de /mnt/cmv40_rpus/.
 
-    Recorre subcarpetas (los usuarios suelen organizar por película) pero
-    excluye directorios del sistema típicos de QNAP/ZFS/macOS que empiezan
-    por '.', '@' o '_' (`@Recycle`, `.@__thumb`, `@Recently-Snapshot`,
-    `.zfs`, `._AppleDouble`). Match de `.bin` case-insensitive.
-    Profundidad máxima 3 para no explotar en árboles gigantes.
+    NO recursivo: un recorrido profundo en ZFS/QNAP pescaba basura del
+    sistema (@Recycle/, .@__thumb/, subcarpetas tipo smart/ con data
+    packages, snapshots .zfs/). Si el usuario quiere organizar por
+    subcarpetas tendrá que colocar los .bin en la raíz del mount.
+
+    Match .bin case-insensitive. Ignora ocultos, AppleDouble y todo lo
+    que no sea fichero regular (dirs, symlinks rotos, FIFOs...).
     """
     if not CMV40_RPU_DIR.exists():
         return []
 
-    root = CMV40_RPU_DIR.resolve()
-    MAX_DEPTH = 3
     result: list[dict] = []
+    try:
+        entries = list(CMV40_RPU_DIR.iterdir())
+    except OSError:
+        return []
 
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        depth = len(Path(dirpath).resolve().relative_to(root).parts)
-        # Poda: directorios del sistema (QNAP @Recycle, .zfs, ._*, etc.)
-        dirnames[:] = [d for d in dirnames if not d.startswith((".", "@", "_"))]
-        # Corta el descenso a MAX_DEPTH
-        if depth >= MAX_DEPTH:
-            dirnames[:] = []
-
-        for fname in filenames:
-            if fname.startswith((".", "_")):
+    for p in entries:
+        name = p.name
+        if name.startswith((".", "_")):
+            continue
+        if not name.lower().endswith(".bin"):
+            continue
+        try:
+            if not p.is_file():
                 continue
-            if not fname.lower().endswith(".bin"):
-                continue
-            fpath = Path(dirpath) / fname
-            try:
-                if not fpath.is_file():
-                    continue
-                size = fpath.stat().st_size
-            except OSError:
-                continue
-            rel = fpath.relative_to(root)
-            result.append({
-                "name": str(rel),
-                "path": str(fpath),
-                "size_bytes": size,
-            })
+            size = p.stat().st_size
+        except OSError:
+            continue
+        result.append({
+            "name": name,
+            "path": str(p),
+            "size_bytes": size,
+        })
 
     result.sort(key=lambda r: r["name"].lower())
     return result
