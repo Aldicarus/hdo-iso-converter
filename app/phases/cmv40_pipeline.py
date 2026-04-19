@@ -652,17 +652,24 @@ def _detect_workflow(dovi_info: DoviInfo) -> str:
 # ══════════════════════════════════════════════════════════════════════
 
 def list_available_rpus() -> list[dict]:
-    """Lista los .bin disponibles en /mnt/cmv40_rpus/."""
+    """Lista los .bin del nivel superior de /mnt/cmv40_rpus/.
+
+    No recursivo: en ZFS/QNAP un glob recursivo recogería @Recycle/,
+    .@__thumb/, snapshots ZFS y basura AppleDouble (._*). Saltamos
+    también ficheros ocultos por si cae alguno en la raíz.
+    """
     if not CMV40_RPU_DIR.exists():
         return []
     result = []
-    for p in sorted(CMV40_RPU_DIR.glob("**/*.bin")):
-        size = p.stat().st_size
-        rel = p.relative_to(CMV40_RPU_DIR)
+    for p in sorted(CMV40_RPU_DIR.glob("*.bin")):
+        if p.name.startswith("."):
+            continue
+        if not p.is_file():
+            continue
         result.append({
-            "name": str(rel),
+            "name": p.name,
             "path": str(p),
-            "size_bytes": size,
+            "size_bytes": p.stat().st_size,
         })
     return result
 
