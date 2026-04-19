@@ -2487,7 +2487,7 @@ function recoverTrack(idx) {
 
   const recovered = {
     track_type: track.track_type,
-    position: currentSession.included_tracks.length,
+    position: 0,  // se renumera abajo
     raw: track.raw,
     label: fullLabel,
     flag_default: false,
@@ -2497,8 +2497,28 @@ function recoverTrack(idx) {
     codec_literal: codecLit,
     subtitle_type: 'complete',
   };
-  currentSession.included_tracks.push(recovered);
-  renderIncludedTracks(currentSession.included_tracks);
+
+  // Insertar agrupando por tipo: audio recuperado va tras el último audio;
+  // subtítulo recuperado va al final. Así el orden del MKV final es
+  // [audio…][subs…] coherente, sin subs intercalados entre audios.
+  const inc = currentSession.included_tracks;
+  let insertAt;
+  if (isAudio) {
+    // Último índice donde hay audio; si no hay ninguno, va al principio (0)
+    let lastAudioIdx = -1;
+    for (let i = 0; i < inc.length; i++) {
+      if (inc[i].track_type === 'audio') lastAudioIdx = i;
+    }
+    insertAt = lastAudioIdx + 1;  // tras el último audio (o 0 si no hay)
+  } else {
+    insertAt = inc.length;  // al final del todo (tras subs existentes)
+  }
+  inc.splice(insertAt, 0, recovered);
+
+  // Renumerar posiciones tras la inserción
+  inc.forEach((t, i) => { t.position = i; });
+
+  renderIncludedTracks(inc);
   renderDiscardedTracks(currentSession.discarded_tracks);
   markProjectDirty();
 }
