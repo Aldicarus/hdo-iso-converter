@@ -3138,13 +3138,20 @@ select { appearance: none; cursor: pointer;
 }
 
 .cmv40-running-box {
-  width: min(900px, 90vw);
-  height: 500px;               /* altura fija para que el log no empuje nada */
-  max-height: 80vh;
+  width: min(1180px, 95vw);
+  height: 580px;
+  max-height: 85vh;
   background: var(--surface-1);
   border: 1px solid var(--blue);
   border-radius: var(--r-md);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: row;         /* timeline izquierda · main derecha */
+  overflow: hidden;
+}
+.cmv40-running-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3193,6 +3200,191 @@ select { appearance: none; cursor: pointer;
 .cmv40-running-log .log-success { color: #86efac; }
 .cmv40-running-log .log-error   { color: #f87171; }
 .cmv40-running-log .log-phase   { color: #93c5fd; font-weight: 600; margin-top: 4px; }
+
+/* ── Timeline lateral del auto-pipeline ─────────────────────────── */
+.cmv40-running-timeline-wrap {
+  flex-shrink: 0;
+  width: 330px;
+  background: linear-gradient(180deg, #141824 0%, #0d1018 100%);
+  border-right: 1px solid #252a3a;
+  overflow-y: auto;
+}
+.cmv40-running-timeline { padding: 16px 14px 18px; }
+.cmv40-tl-header { margin-bottom: 14px; padding: 0 4px; }
+.cmv40-tl-title-main {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f5f6f8;
+  letter-spacing: 0.2px;
+  margin-bottom: 6px;
+}
+.cmv40-tl-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.cmv40-tl-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid;
+}
+.cmv40-tl-trust-badge.trusted {
+  background: rgba(52, 199, 89, 0.12);
+  color: #a7f3c4;
+  border-color: rgba(52, 199, 89, 0.35);
+}
+.cmv40-tl-trust-badge.manual {
+  background: rgba(0, 122, 255, 0.10);
+  color: #5aabff;
+  border-color: rgba(0, 122, 255, 0.30);
+}
+.cmv40-tl-total {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lista de pasos con rail vertical */
+.cmv40-tl-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.cmv40-tl-step {
+  display: flex;
+  gap: 10px;
+  padding: 9px 4px;
+  position: relative;
+  transition: background 0.2s;
+}
+.cmv40-tl-step + .cmv40-tl-step::before {
+  /* Rail conectando los pasos */
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 11px;
+  width: 2px;
+  height: 18px;
+  background: #2a2f3d;
+}
+.cmv40-tl-step.cmv40-tl-done + .cmv40-tl-step::before {
+  background: rgba(52, 199, 89, 0.55);
+}
+.cmv40-tl-step.cmv40-tl-running + .cmv40-tl-step::before {
+  background: linear-gradient(180deg, rgba(91, 171, 255, 0.7) 0%, #2a2f3d 100%);
+}
+
+/* Iconos de estado */
+.cmv40-tl-rail {
+  flex-shrink: 0;
+  width: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 1px;
+}
+.cmv40-tl-status-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.cmv40-tl-status-icon.done {
+  background: rgba(52, 199, 89, 0.22);
+  color: #86efac;
+  border: 1.5px solid rgba(52, 199, 89, 0.6);
+}
+.cmv40-tl-status-icon.running {
+  background: rgba(0, 122, 255, 0.25);
+  border: 1.5px solid #5aabff;
+  box-shadow: 0 0 10px rgba(91, 171, 255, 0.55);
+  position: relative;
+}
+.cmv40-tl-status-icon.running::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #5aabff;
+  animation: cmv40-spin 0.9s linear infinite;
+}
+.cmv40-tl-status-icon.skipped {
+  background: rgba(142, 142, 147, 0.15);
+  color: var(--text-3);
+  border: 1.5px dashed rgba(142, 142, 147, 0.5);
+  font-size: 10px;
+}
+.cmv40-tl-status-icon.pending {
+  background: transparent;
+  border: 1.5px solid #2a2f3d;
+}
+
+/* Body de cada paso */
+.cmv40-tl-body { flex: 1; min-width: 0; }
+.cmv40-tl-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 2px;
+}
+.cmv40-tl-phase-icon { font-size: 13px; flex-shrink: 0; }
+.cmv40-tl-what {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+.cmv40-tl-eta {
+  display: inline-block;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-3);
+}
+.cmv40-tl-eta.done {
+  background: rgba(52, 199, 89, 0.12);
+  color: #86efac;
+}
+.cmv40-tl-eta.running {
+  background: rgba(0, 122, 255, 0.15);
+  color: #5aabff;
+  font-weight: 600;
+}
+.cmv40-tl-eta.skipped {
+  background: rgba(142, 142, 147, 0.10);
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* Estilos de estado para el paso completo */
+.cmv40-tl-step.cmv40-tl-done .cmv40-tl-title { color: #c9ccd3; }
+.cmv40-tl-step.cmv40-tl-done .cmv40-tl-what  { color: #6a6f7a; }
+.cmv40-tl-step.cmv40-tl-running {
+  background: rgba(91, 171, 255, 0.06);
+  border-radius: 6px;
+}
+.cmv40-tl-step.cmv40-tl-running .cmv40-tl-title { color: #ffffff; }
+.cmv40-tl-step.cmv40-tl-skipped { opacity: 0.55; }
+.cmv40-tl-step.cmv40-tl-pending .cmv40-tl-title { color: var(--text-2); }
+.cmv40-tl-step.cmv40-tl-pending .cmv40-tl-what  { color: var(--text-3); }
 
 /* Panel de confianza de sincronización */
 .cmv40-confidence-panel {

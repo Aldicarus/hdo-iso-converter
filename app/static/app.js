@@ -4844,10 +4844,201 @@ const MAX_CMV40_PROJECTS = 5;
 const CMV40_RUNNING_LABELS = {
   'analyze_source':  'Fase A — Analizando MKV origen',
   'target_rpu_mkv':  'Fase B — Extrayendo RPU target',
+  'target_rpu_drive':'Fase B — Descargando RPU del repositorio DoviTools',
+  'target_rpu_path': 'Fase B — Cargando RPU de carpeta local',
   'extract':         'Fase C — Extrayendo BL/EL y datos per-frame',
+  'sync_correct':    'Fase E — Aplicando corrección de sincronización',
   'inject':          'Fase F — Inyectando RPU en EL',
   'remux':           'Fase G — Remuxando MKV final',
+  'validate':        'Fase H — Validando MKV final',
 };
+
+// Ratios empíricos replicados del backend (cmv40_pipeline.py) para que
+// el frontend pueda mostrar ETAs por fase sin round-trip al servidor.
+const CMV40_ETA = {
+  // ratio respecto a wall time de ffmpeg (fase A)
+  r_extract_rpu: 0.92,
+  r_demux:       1.30,
+  r_export:      0.19,
+  r_inject:      1.77,
+  r_mux:         1.88,
+  // FPS de cada tool (fallback cuando no hay anchor)
+  fps_extract:   1450,
+  fps_demux:     1100,
+  fps_export:    7000,
+  fps_inject:    760,
+  fps_mux:       711,
+};
+
+// Mapeo de running_phase backend → step key del timeline
+const CMV40_RUNNING_TO_STEP = {
+  'analyze_source':   'A',
+  'target_rpu_path':  'B',
+  'target_rpu_mkv':   'B',
+  'target_rpu_drive': 'B',
+  'extract':          'C',
+  'sync_correct':     'E',
+  'inject':           'F',
+  'remux':            'G',
+  'validate':         'H',
+};
+
+/** Estima segundos de una sub-tarea usando ffmpeg wall time (anchor) o
+ *  frame_count × fps como fallback. */
+function _cmv40EstimateSecs(s, ratio, fps) {
+  if (s.ffmpeg_wall_seconds && s.ffmpeg_wall_seconds > 0) {
+    return Math.max(5, s.ffmpeg_wall_seconds * ratio);
+  }
+  if (s.source_frame_count && s.source_frame_count > 0) {
+    return Math.max(5, s.source_frame_count / fps);
+  }
+  return 60;  // fallback conservador
+}
+
+/** Formatea segundos como "Xm Ys" o "~Xm". */
+function _cmv40FmtEta(secs) {
+  if (!secs || secs <= 0) return '—';
+  const s = Math.round(secs);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 10 && rem > 0) return `${m}m ${rem}s`;
+  return `${m}m`;
+}
+
+/** Plan de pasos del auto-pipeline según workflow + trust del proyecto.
+ *  Devuelve array ordenado de objetos con {key, icon, title, what, etaSecs}. */
+function _cmv40PlanAutoSteps(s) {
+  const wf = s.source_workflow || 'p7_fel';
+  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
+  const skipped = s.phases_skipped || [];
+
+  // ETAs estimados
+  const anchor = s.ffmpeg_wall_seconds || 0;
+  const etaA = anchor > 0 ? anchor * (1 + CMV40_ETA.r_extract_rpu) : _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract);
+  const etaB = s.target_rpu_source === 'drive' ? 30
+             : s.target_rpu_source === 'mkv'   ? _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract)
+             : 10;  // path: copia local
+  const etaDemux = (wf === 'p8') ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux);
+  const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export);  // ×2 por ambos RPUs
+  const etaC = etaDemux + (trust ? 0 : etaExport);
+  const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
+  const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
+  const etaH = 15;
+
+  const steps = [];
+  steps.push({
+    key: 'A', icon: '🔍', title: 'Fase A · Analizar MKV origen',
+    what: 'ffmpeg copia el HEVC + dovi_tool extract-rpu + info',
+    etaSecs: etaA,
+  });
+  const bWhat = s.target_rpu_source === 'drive' ? 'Descarga del repo DoviTools + dovi_tool info + gates'
+              : s.target_rpu_source === 'mkv' ? 'ffmpeg + extract-rpu del MKV target + gates'
+              : 'Copia local + dovi_tool info + gates';
+  steps.push({
+    key: 'B', icon: '🎯', title: 'Fase B · Preparar RPU target',
+    what: bWhat, etaSecs: etaB,
+  });
+  const cWhat = (wf === 'p8') ? 'Workflow P8 — sin demux' + (trust ? ' (per-frame omitido)' : ', genera per-frame data')
+              : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
+  steps.push({
+    key: 'C', icon: '✂️', title: 'Fase C · Demux + per-frame',
+    what: cWhat, etaSecs: etaC,
+  });
+  steps.push({
+    key: 'D', icon: '📊', title: 'Fase D · Verificar sincronización',
+    what: trust ? 'Omitida — gates validaron frame count + L5/L6/L8' : 'Revisión visual manual del usuario',
+    etaSecs: trust ? 0 : null,   // null = desconocido (interactivo)
+    forcedStatus: trust ? 'skipped' : null,
+  });
+  const fWhat = dropIn ? 'Drop-in — inyecta bin directo en EL (sin merge)'
+              : wf === 'p7_fel' ? 'Merge CMv4.0 + inject en EL (preserva FEL)'
+              : wf === 'p7_mel' ? 'Inject RPU target en BL (descarta EL MEL)'
+              : 'Inject RPU target en source HEVC';
+  steps.push({
+    key: 'F', icon: '💉', title: 'Fase F · Inyectar RPU',
+    what: fWhat, etaSecs: etaF,
+  });
+  const gWhat = (wf === 'p7_fel') ? 'dovi_tool mux BL + EL_injected + mkvmerge con audio/subs/caps'
+              : 'Sin mux (single-layer) — mkvmerge directo con audio/subs/caps';
+  steps.push({
+    key: 'G', icon: '📦', title: 'Fase G · Remux MKV final',
+    what: gWhat, etaSecs: etaG,
+  });
+  steps.push({
+    key: 'H', icon: '✅', title: 'Fase H · Validar output',
+    what: 'dovi_tool info + mkvmerge -J verifican profile + CM v4.0 + frames',
+    etaSecs: etaH,
+  });
+
+  return steps;
+}
+
+/** Estado de cada step según session.phase + running_phase + phases_skipped. */
+function _cmv40StepStatus(step, s) {
+  if (step.forcedStatus) return step.forcedStatus;
+  const PROD = {
+    A: 'source_analyzed', B: 'target_provided', C: 'extracted',
+    D: 'sync_verified',   E: 'sync_verified',   F: 'injected',
+    G: 'remuxed',         H: 'done',
+  };
+  const order = CMV40_PHASES_ORDER;
+  const produces = PROD[step.key];
+  const curIdx = order.indexOf(s.phase);
+  const prodIdx = order.indexOf(produces);
+  const runStep = CMV40_RUNNING_TO_STEP[s.running_phase];
+
+  if (runStep === step.key) return 'running';
+  if (prodIdx >= 0 && curIdx >= prodIdx) return 'done';
+  return 'pending';
+}
+
+/** Renderiza el timeline lateral del auto-pipeline (HTML). */
+function _cmv40RenderTimeline(s) {
+  const steps = _cmv40PlanAutoSteps(s);
+  const totalEta = steps.reduce((acc, st) => acc + (st.etaSecs || 0), 0);
+  const itemsHtml = steps.map(st => {
+    const status = _cmv40StepStatus(st, s);
+    const iconMap = {
+      done:    '<span class="cmv40-tl-status-icon done">✓</span>',
+      running: '<span class="cmv40-tl-status-icon running"></span>',
+      skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
+      pending: '<span class="cmv40-tl-status-icon pending"></span>',
+    };
+    const etaHtml = status === 'done'    ? '<span class="cmv40-tl-eta done">completado</span>'
+                  : status === 'skipped' ? '<span class="cmv40-tl-eta skipped">omitida</span>'
+                  : status === 'running' ? '<span class="cmv40-tl-eta running">en curso…</span>'
+                  : `<span class="cmv40-tl-eta">ETA ${_cmv40FmtEta(st.etaSecs)}</span>`;
+    return `<li class="cmv40-tl-step cmv40-tl-${status}">
+      <div class="cmv40-tl-rail">${iconMap[status]}</div>
+      <div class="cmv40-tl-body">
+        <div class="cmv40-tl-title">
+          <span class="cmv40-tl-phase-icon">${st.icon}</span>
+          <span>${escHtml(st.title)}</span>
+        </div>
+        <div class="cmv40-tl-what">${escHtml(st.what)}</div>
+        ${etaHtml}
+      </div>
+    </li>`;
+  }).join('');
+
+  const trustBadge = s.target_trust_ok
+    ? '<span class="cmv40-tl-trust-badge trusted">🚀 Modo trusted</span>'
+    : '<span class="cmv40-tl-trust-badge manual">🔬 Revisión manual</span>';
+
+  return `
+    <aside class="cmv40-running-timeline">
+      <div class="cmv40-tl-header">
+        <div class="cmv40-tl-title-main">Pipeline automático</div>
+        <div class="cmv40-tl-subtitle">
+          ${trustBadge}
+          <span class="cmv40-tl-total">Total ~${_cmv40FmtEta(totalEta)}</span>
+        </div>
+      </div>
+      <ol class="cmv40-tl-steps">${itemsHtml}</ol>
+    </aside>`;
+}
 
 // Fases ordenadas secuencialmente
 const CMV40_PHASES_ORDER = [
@@ -5572,35 +5763,38 @@ function _renderCMv40RunningOverlay(project) {
       overlay.className = 'cmv40-running-overlay';
       overlay.innerHTML = `
         <div class="cmv40-running-box">
-          <div class="cmv40-running-header">
-            <div class="cmv40-running-spinner"></div>
-            <div style="flex:1">
-              <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
-              <div class="cmv40-running-subtitle">El proyecto está bloqueado mientras se ejecuta la tarea</div>
+          <div class="cmv40-running-timeline-wrap" id="cmv40-running-timeline-${pid}"></div>
+          <div class="cmv40-running-main">
+            <div class="cmv40-running-header">
+              <div class="cmv40-running-spinner"></div>
+              <div style="flex:1">
+                <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
+                <div class="cmv40-running-subtitle">El proyecto está bloqueado mientras se ejecuta la tarea</div>
+              </div>
+              <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
             </div>
-            <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
+            <div class="cmv40-progress" id="cmv40-progress-${pid}"
+              style="padding:14px 18px; background:#1a1e2a; border-bottom:1px solid #2a2f3d; display:flex; flex-direction:column; gap:10px">
+              <div class="cmv40-progress-meta"
+                style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; font-size:12px">
+                <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}"
+                  style="font-weight:600; color:#e8ecf4; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1">Preparando…</span>
+                <span class="cmv40-progress-right"
+                  style="display:flex; align-items:baseline; gap:12px; flex-shrink:0; font-variant-numeric:tabular-nums">
+                  <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"
+                    style="color:#9aa3b2; font-size:11px"></span>
+                  <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}"
+                    style="color:#4da3ff; font-weight:700; font-size:15px; min-width:54px; text-align:right">—</span>
+                </span>
+              </div>
+              <div class="cmv40-progress-track"
+                style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
+                <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"
+                  style="height:100%; background:linear-gradient(90deg,#1e6fe6 0%,#3b8fff 50%,#5ab3ff 100%); width:0%; min-width:2px; transition:width 0.4s ease; border-radius:7px; position:relative; overflow:hidden; box-shadow:0 0 10px rgba(59,143,255,0.55), inset 0 1px 0 rgba(255,255,255,0.25)"></div>
+              </div>
+            </div>
+            <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
           </div>
-          <div class="cmv40-progress" id="cmv40-progress-${pid}"
-            style="padding:14px 18px; background:#1a1e2a; border-bottom:1px solid #2a2f3d; display:flex; flex-direction:column; gap:10px">
-            <div class="cmv40-progress-meta"
-              style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; font-size:12px">
-              <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}"
-                style="font-weight:600; color:#e8ecf4; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1">Preparando…</span>
-              <span class="cmv40-progress-right"
-                style="display:flex; align-items:baseline; gap:12px; flex-shrink:0; font-variant-numeric:tabular-nums">
-                <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"
-                  style="color:#9aa3b2; font-size:11px"></span>
-                <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}"
-                  style="color:#4da3ff; font-weight:700; font-size:15px; min-width:54px; text-align:right">—</span>
-              </span>
-            </div>
-            <div class="cmv40-progress-track"
-              style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
-              <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"
-                style="height:100%; background:linear-gradient(90deg,#1e6fe6 0%,#3b8fff 50%,#5ab3ff 100%); width:0%; min-width:2px; transition:width 0.4s ease; border-radius:7px; position:relative; overflow:hidden; box-shadow:0 0 10px rgba(59,143,255,0.55), inset 0 1px 0 rgba(255,255,255,0.25)"></div>
-            </div>
-          </div>
-          <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
         </div>`;
       panel.appendChild(overlay);
       // Suscribe al WebSocket para actualizar el log en tiempo real
@@ -5612,6 +5806,9 @@ function _renderCMv40RunningOverlay(project) {
       const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
       titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
     }
+    // Actualizar timeline en cada tick (sesión cambió → status por paso puede cambiar)
+    const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
+    if (tlWrap) tlWrap.innerHTML = _cmv40RenderTimeline(s);
   } else if (overlay) {
     // Quitar overlay con animación
     overlay.classList.add('closing');
