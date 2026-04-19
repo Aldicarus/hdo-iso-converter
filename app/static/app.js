@@ -1629,6 +1629,11 @@ function renderProjectPanel(project) {
 
   currentSession = session;
 
+  // Reinicia el tracking de posiciones originales — una sola pasada
+  // coherente para todas las listas del panel (incluidas + descartadas,
+  // audio + subs). Evita colisiones con pistas duplicadas.
+  _resetOrigIndexTracking();
+
   // Ficha TMDb en la cabecera (mismo look que Tab 3). Best-effort.
   // Parseamos el título del mkv_name (o del basename del ISO si aún no
   // hay mkv_name). Cache global evita re-fetches entre cambios.
@@ -1783,25 +1788,81 @@ async function setTrackMode(trackKind, mode) {
   }
 }
 
+// Índices ya asignados en el render actual — evita colisiones cuando hay
+// pistas duplicadas (mismo idioma+codec+descr. ej. dos DD+ francesas, dos
+// DD 2.0 inglés con bitrate distinto, dos subs "forced" mismo lang...).
+// Se resetea al inicio de cada renderProjectPanel.
+let _usedAudioOrigIdx = new Set();
+let _usedSubOrigIdx = new Set();
+
+function _resetOrigIndexTracking() {
+  _usedAudioOrigIdx = new Set();
+  _usedSubOrigIdx = new Set();
+}
+
 function _findOriginalTrackIndex(raw, type) {
   const bd = currentSession?.bdinfo_result;
   if (!bd) return -1;
 
   if (type === 'audio') {
-    return bd.audio_tracks.findIndex(t =>
-      t.language === raw.language && t.codec === raw.codec && t.description === raw.description
-    );
+    const list = bd.audio_tracks || [];
+    // Pasada 1: match estricto (lang + codec + desc + bitrate) — si los
+    // bitrates coinciden y la pista no está asignada, la tomamos
+    for (let i = 0; i < list.length; i++) {
+      if (_usedAudioOrigIdx.has(i)) continue;
+      const t = list[i];
+      if (t.language === raw.language && t.codec === raw.codec
+          && t.description === raw.description
+          && t.bitrate_kbps === raw.bitrate_kbps) {
+        _usedAudioOrigIdx.add(i);
+        return i;
+      }
+    }
+    // Pasada 2: match laxo (lang + codec + desc) — cuando duplicados
+    // tienen bitrates idénticos, elegimos cualquiera libre
+    for (let i = 0; i < list.length; i++) {
+      if (_usedAudioOrigIdx.has(i)) continue;
+      const t = list[i];
+      if (t.language === raw.language && t.codec === raw.codec
+          && t.description === raw.description) {
+        _usedAudioOrigIdx.add(i);
+        return i;
+      }
+    }
+    return -1;
   }
-  // Subtítulos: si tenemos packet_count (heurístico nuevo), usarlo como
-  // discriminador principal — el bitrate sintético es idéntico para todos.
+
+  // Subtítulos
+  const subList = bd.subtitle_tracks || [];
   if (raw.packet_count && raw.packet_count > 0) {
-    return bd.subtitle_tracks.findIndex(t =>
-      t.language === raw.language && t.packet_count === raw.packet_count
-    );
+    // Con packet_count el match es definitivo — cada pista tiene un count único
+    for (let i = 0; i < subList.length; i++) {
+      if (_usedSubOrigIdx.has(i)) continue;
+      const t = subList[i];
+      if (t.language === raw.language && t.packet_count === raw.packet_count) {
+        _usedSubOrigIdx.add(i);
+        return i;
+      }
+    }
   }
-  return bd.subtitle_tracks.findIndex(t =>
-    t.language === raw.language && t.bitrate_kbps === raw.bitrate_kbps
-  );
+  // Fallback: lang + bitrate, saltando usados
+  for (let i = 0; i < subList.length; i++) {
+    if (_usedSubOrigIdx.has(i)) continue;
+    const t = subList[i];
+    if (t.language === raw.language && t.bitrate_kbps === raw.bitrate_kbps) {
+      _usedSubOrigIdx.add(i);
+      return i;
+    }
+  }
+  // Último recurso: lang solo
+  for (let i = 0; i < subList.length; i++) {
+    if (_usedSubOrigIdx.has(i)) continue;
+    if (subList[i].language === raw.language) {
+      _usedSubOrigIdx.add(i);
+      return i;
+    }
+  }
+  return -1;
 }
 
 function updateTrackCounts() {
