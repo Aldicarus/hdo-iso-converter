@@ -1747,18 +1747,43 @@ select { appearance: none; cursor: pointer;
 }
 #subtab-bar::-webkit-scrollbar { height: 0; }
 
-/* Área scrollable de proyectos dentro del subtab-bar */
+/* Área scrollable de proyectos dentro del subtab-bar.
+   UN SOLO contenedor de scroll (antes había overflow en .subtab-projects-area Y
+   .subtab-projects anidados, que impedía un scroll funcional). */
 .subtab-projects-area {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: flex-end;
-  padding: 6px 0 0 0;   /* sin padding-left: el primer sub-tab de proyecto queda flush con el borde izquierdo */
-  gap: 3px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  padding: 6px 0 0 0;
+  position: relative;
 }
-.subtab-projects-area::-webkit-scrollbar { height: 0; }
+
+/* Chevrones left/right — visibles solo cuando hay overflow (JS toggla .has-overflow).
+   Altura y alineación iguales a las pestañas para integrarse visualmente. */
+.subtab-scroll-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 28px;
+  margin-bottom: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.90);
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  border-radius: 4px;
+  transition: background var(--t-fast);
+  z-index: 2;
+}
+.subtab-scroll-btn:hover { background: rgba(0, 0, 0, 0.40); color: #fff; }
+.subtab-scroll-btn:disabled { opacity: 0.25; cursor: default; background: transparent; }
+.subtab-projects-area.has-overflow .subtab-scroll-btn { display: inline-flex; }
 
 /* Primer sub-tab de proyecto: pegado al borde izquierdo pero conservando la
    esquina superior redondeada (el radius se respeta; solo quitamos el border-left
@@ -1849,7 +1874,10 @@ select { appearance: none; cursor: pointer;
 
 /* .subtab-divider eliminado — la separación la hace .subtab-cola-area */
 
-/* ── Contenedor de proyectos ────────────────────────────────── */
+/* ── Contenedor de proyectos — ESTE es el scroll container ──────────────
+   (antes el scroll estaba anidado con .subtab-projects-area, provocando que
+   ninguno se comportara como scroller real y las pestañas quedaran ocultas
+   tras la columna Cola sin forma de ver las del final). */
 .subtab-projects {
   display: flex;
   align-items: flex-end;
@@ -1858,8 +1886,17 @@ select { appearance: none; cursor: pointer;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  scroll-behavior: smooth;
 }
-.subtab-projects::-webkit-scrollbar { height: 0; }
+/* Scrollbar fino visible — indica al usuario que hay más contenido
+   y permite arrastrar para ver pestañas ocultas. */
+.subtab-projects::-webkit-scrollbar { height: 6px; }
+.subtab-projects::-webkit-scrollbar-track { background: transparent; }
+.subtab-projects::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+.subtab-projects::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.40); }
 
 /* ── Demux Jobs (cola — azul suave fijo, nunca cambia de color) ──────── */
 .subtab-cola-btn {

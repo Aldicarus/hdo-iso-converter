@@ -127,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkAppStatus();
   connectQueueWebSocket();
   switchSubTab(null);
+  _installSubtabScrollBindings();
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -369,6 +370,45 @@ function renderProjectSubTabButton(project) {
       data-tooltip="Cerrar proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchSubTab(project.id); };
   container.appendChild(btn);
+  _updateSubtabScrollState();
+}
+
+/** Comprueba overflow horizontal del scroller de pestañas de proyecto y
+ *  activa/desactiva los chevrones según si hay contenido oculto a izq/der. */
+function _updateSubtabScrollState() {
+  const area   = document.getElementById('subtab-projects-area');
+  const scroll = document.getElementById('subtab-projects');
+  if (!area || !scroll) return;
+  const hasOverflow = scroll.scrollWidth > scroll.clientWidth + 1;
+  area.classList.toggle('has-overflow', hasOverflow);
+  if (!hasOverflow) return;
+  const left  = document.getElementById('subtab-scroll-left');
+  const right = document.getElementById('subtab-scroll-right');
+  if (left)  left.disabled  = scroll.scrollLeft <= 0;
+  if (right) right.disabled = scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 1;
+}
+
+/** Handler del chevron: scrolla el contenedor ~2 pestañas en la dirección dada. */
+function scrollSubtabProjects(direction) {
+  const scroll = document.getElementById('subtab-projects');
+  if (!scroll) return;
+  const step = Math.max(150, scroll.clientWidth * 0.7);
+  scroll.scrollBy({ left: direction === 'left' ? -step : step, behavior: 'smooth' });
+}
+
+/** Instala wheel→horizontal y listeners de resize/scroll una sola vez. */
+function _installSubtabScrollBindings() {
+  const scroll = document.getElementById('subtab-projects');
+  if (!scroll || scroll.dataset.scrollBound === '1') return;
+  scroll.dataset.scrollBound = '1';
+  // Wheel vertical → scroll horizontal mientras se está sobre la franja de pestañas.
+  scroll.addEventListener('wheel', (e) => {
+    if (e.deltaY === 0 || e.shiftKey) return;
+    scroll.scrollBy({ left: e.deltaY, behavior: 'auto' });
+    e.preventDefault();
+  }, { passive: false });
+  scroll.addEventListener('scroll', _updateSubtabScrollState, { passive: true });
+  window.addEventListener('resize', _updateSubtabScrollState, { passive: true });
 }
 
 /** Marca el proyecto activo como modificado y muestra el punto naranja en su sub-tab. */
@@ -704,6 +744,7 @@ function _doCloseProject(pid) {
   document.getElementById(`panel-project-${pid}`)?.remove();
   document.querySelector(`.subtab-proj[data-pid="${pid}"]`)?.remove();
   openProjects.splice(idx, 1);
+  _updateSubtabScrollState();
 
   // Activar el sub-tab más cercano
   if (activeSubTabId === pid) {
