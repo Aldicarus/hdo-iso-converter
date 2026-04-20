@@ -5351,6 +5351,27 @@ const CMV40_RUNNING_TO_STEP = {
   'validate':         'H',
 };
 
+/** Duración (segs) real de un step completado, leída de session.phase_history.
+ *  Devuelve null si no hay entrada o falta alguna marca de tiempo. */
+function _cmv40StepElapsedSecs(stepKey, s) {
+  const hist = s && s.phase_history;
+  if (!Array.isArray(hist) || !hist.length) return null;
+  // Recorremos en orden y acumulamos duración de TODAS las entradas cuyo
+  // running_phase mapea al stepKey (Fase B puede tener varios intentos).
+  let total = 0, found = false;
+  for (const h of hist) {
+    if (!h || !h.phase) continue;
+    if (CMV40_RUNNING_TO_STEP[h.phase] !== stepKey) continue;
+    if (!h.started_at || !h.finished_at) continue;
+    const a = Date.parse(h.started_at);
+    const b = Date.parse(h.finished_at);
+    if (!isFinite(a) || !isFinite(b) || b < a) continue;
+    total += (b - a) / 1000;
+    found = true;
+  }
+  return found ? total : null;
+}
+
 /** Estima segundos de una sub-tarea usando ffmpeg wall time (anchor) o
  *  frame_count × fps como fallback. */
 function _cmv40EstimateSecs(s, ratio, fps) {
@@ -5576,8 +5597,14 @@ function _cmv40RenderTimeline(s, project) {
       skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
     };
-    // Label por defecto según status, o customLabel si el step lo especifica
-    const defaultLabel = status === 'done'    ? 'completado'
+    // Tiempo real de ejecución (solo disponible si la fase se ejecutó en backend)
+    const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
+    // Label por defecto según status, o customLabel si el step lo especifica.
+    // Para done, añadimos el tiempo real ej. "completado · 05:29" si lo hay.
+    const doneLabel = elapsed != null
+      ? `completado · ${_cmv40FmtClock(elapsed)}`
+      : 'completado';
+    const defaultLabel = status === 'done'    ? doneLabel
                        : status === 'skipped' ? 'omitida'
                        : status === 'running' ? 'en curso…'
                        : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
