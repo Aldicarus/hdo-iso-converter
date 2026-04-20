@@ -3381,20 +3381,33 @@ select { appearance: none; cursor: pointer;
 .cmv40-running-log .log-phase   { color: #93c5fd; font-weight: 600; margin-top: 4px; }
 
 /* ── Timeline lateral del auto-pipeline ─────────────────────────── */
+/* Estructura: wrap → timeline (flex column).
+   · Header (titulo + barra + timer + ETA) fijo, flex-shrink:0 → siempre visible.
+   · Steps (bolitas de fases) con flex:1 + overflow-y:auto → único scroll. */
 .cmv40-running-timeline-wrap {
   flex-shrink: 0;
   width: 330px;
   background: var(--bg);
   border-right: 1px solid var(--sep-strong);
-  overflow-y: auto;
+  overflow: hidden;               /* nada scrolla aquí — el scroll lo gestiona .cmv40-tl-steps */
+  display: flex;
+  flex-direction: column;
 }
-.cmv40-running-timeline { padding: 16px 14px 18px; }
+.cmv40-running-timeline {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
 .cmv40-tl-header {
-  margin-bottom: 14px;
-  padding: 0 4px;
+  flex-shrink: 0;                 /* header siempre visible, no scrollea */
+  padding: 16px 18px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--sep);
 }
 .cmv40-tl-header-top {
   display: flex;
@@ -3561,13 +3574,26 @@ select { appearance: none; cursor: pointer;
   border-color: rgba(255, 59, 48, 0.40);
 }
 
-/* Lista de pasos con rail vertical */
+/* Lista de pasos con rail vertical. Es el UNICO scroll container del
+   timeline — header de arriba queda fijo por flex-shrink:0. */
 .cmv40-tl-steps {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 10px 18px 18px;
   position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+/* Scrollbar fino solo cuando hace falta */
+.cmv40-tl-steps::-webkit-scrollbar { width: 6px; }
+.cmv40-tl-steps::-webkit-scrollbar-track { background: transparent; }
+.cmv40-tl-steps::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.cmv40-tl-steps::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.30); }
 .cmv40-tl-step {
   display: flex;
   gap: 10px;
