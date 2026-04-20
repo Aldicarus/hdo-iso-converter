@@ -5361,6 +5361,35 @@ function _cmv40PlanAutoSteps(s) {
     etaSecs: trust ? 0 : null,   // null = desconocido (interactivo)
     forcedStatus: trust ? 'skipped' : null,
   });
+  // Fase E — corrección de sync (dovi_tool editor remove/duplicate).
+  // Siempre visible. Estado según condiciones:
+  //   · trusted → omitida · Δ=0 por gates
+  //   · manual sin corrección (sync_config null/vacío) → omitida · Δ=0 desde inicio
+  //   · manual con corrección aplicada → aplicada (done)
+  //   · correct_sync en running_phase → en curso (automático por mapping)
+  const hasSyncCfg = !!(s.sync_config && Object.keys(s.sync_config).length);
+  let eStatus = null, eLabel = null;
+  if (trust) {
+    eStatus = 'skipped';
+    eLabel = 'omitida · gates Δ=0';
+  } else if (!hasSyncCfg) {
+    eStatus = 'skipped';
+    eLabel = 'omitida · Δ=0 desde inicio';
+  } else {
+    // Manual con corrección: done si ya pasó la fase correct_sync en backend
+    // (phase avanzado más allá), pending mientras aún no; running lo cubre
+    // el mapping running_phase→step key.
+    eLabel = 'aplicada';
+    eStatus = null;  // deja que _cmv40StepStatus decida según phase actual
+  }
+  steps.push({
+    key: 'E', icon: '🔧', title: 'Fase E · Corrección de sync',
+    what: hasSyncCfg ? 'dovi_tool editor — remove/duplicate frames según config'
+                     : 'No requerida — el RPU target ya alinea con el source',
+    etaSecs: hasSyncCfg ? 20 : 0,
+    forcedStatus: eStatus,
+    customLabel: eLabel,
+  });
   const fWhat = dropIn ? 'Drop-in — inyecta bin directo en EL (sin merge)'
               : wf === 'p7_fel' ? 'Merge CMv4.0 + inject en EL (preserva FEL)'
               : wf === 'p7_mel' ? 'Inject RPU target en BL (descarta EL MEL)'
@@ -5488,10 +5517,13 @@ function _cmv40RenderTimeline(s, project) {
       skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
     };
-    const etaHtml = status === 'done'    ? '<span class="cmv40-tl-eta done">completado</span>'
-                  : status === 'skipped' ? '<span class="cmv40-tl-eta skipped">omitida</span>'
-                  : status === 'running' ? '<span class="cmv40-tl-eta running">en curso…</span>'
-                  : `<span class="cmv40-tl-eta">ETA ${_cmv40FmtEta(st.etaSecs)}</span>`;
+    // Label por defecto según status, o customLabel si el step lo especifica
+    const defaultLabel = status === 'done'    ? 'completado'
+                       : status === 'skipped' ? 'omitida'
+                       : status === 'running' ? 'en curso…'
+                       : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
+    const label = st.customLabel || defaultLabel;
+    const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     return `<li class="cmv40-tl-step cmv40-tl-${status}">
       <div class="cmv40-tl-rail">${iconMap[status]}</div>
       <div class="cmv40-tl-body">
@@ -5860,6 +5892,7 @@ const _CMV40_PIPELINE_PREVIEW = {
       { k: 'B', label: 'Descargar bin',  state: 'run' },
       { k: 'C', label: 'Demux',          state: 'skip', mod: 'no hace falta' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
       { k: 'F', label: 'Inyectar',       state: 'run',  mod: 'sin merge' },
       { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'sin mux dual' },
       { k: 'H', label: 'Validar',        state: 'run' },
@@ -5877,6 +5910,7 @@ const _CMV40_PIPELINE_PREVIEW = {
       { k: 'B', label: 'Descargar bin',  state: 'run' },
       { k: 'C', label: 'Demux BL',       state: 'run', mod: 'EL descartado' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
       { k: 'F', label: 'Inyectar en BL', state: 'run',  mod: 'sin merge' },
       { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'single-layer' },
       { k: 'H', label: 'Validar',        state: 'run' },
@@ -5894,6 +5928,7 @@ const _CMV40_PIPELINE_PREVIEW = {
       { k: 'B', label: 'Descargar bin',  state: 'run' },
       { k: 'C', label: 'Demux BL+EL',    state: 'run' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
       { k: 'F', label: 'Merge + inyectar', state: 'run' },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
       { k: 'H', label: 'Validar',        state: 'run' },
@@ -5911,6 +5946,7 @@ const _CMV40_PIPELINE_PREVIEW = {
       { k: 'B', label: 'Clasificar bin', state: 'run' },
       { k: 'C', label: 'Demux',          state: 'run', mod: 'probable' },
       { k: 'D', label: 'Verif. visual',  state: 'run', mod: 'si no trusted' },
+      { k: 'E', label: 'Corrección sync', state: 'run', mod: 'si Δ≠0' },
       { k: 'F', label: 'Inyectar',       state: 'run' },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
       { k: 'H', label: 'Validar',        state: 'run' },
