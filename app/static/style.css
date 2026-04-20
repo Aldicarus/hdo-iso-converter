@@ -5003,6 +5003,19 @@ select { appearance: none; cursor: pointer;
   border-color: var(--blue, #007aff);
 }
 .cmv40-lookup-input::placeholder { color: var(--text-3); opacity: 1; }
+/* Chrome aplica fondo gris via :-webkit-autofill ignorando autocomplete="off".
+   Este override fuerza el fondo blanco via inset shadow opaco (la única técnica
+   que Webkit respeta), + fija el color de texto negro y el caret. */
+.cmv40-lookup-input:-webkit-autofill,
+.cmv40-lookup-input:-webkit-autofill:hover,
+.cmv40-lookup-input:-webkit-autofill:focus,
+.cmv40-lookup-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #000000 !important;
+  caret-color: #000000;
+  transition: background-color 9999s ease-in-out 0s;
+}
 .cmv40-lookup-input-year {
   font-variant-numeric: tabular-nums;
   padding-right: 28px;  /* espacio para el botón ✕ superpuesto */
