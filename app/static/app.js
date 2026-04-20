@@ -6902,7 +6902,7 @@ const CMV40_FASES_DEF = [
   { key: 'A', title: 'Fase A — Analizar MKV origen',       produces: 'source_analyzed', startsFrom: 'created',         reset_to: 'created' },
   { key: 'B', title: 'Fase B — Proporcionar RPU target',   produces: 'target_provided', startsFrom: 'source_analyzed', reset_to: 'source_analyzed' },
   { key: 'C', title: 'Fase C — Extraer BL/EL',             produces: 'extracted',       startsFrom: 'target_provided', reset_to: 'target_provided' },
-  { key: 'D', title: 'Fase D — Verificar sincronización',  produces: 'sync_verified',   startsFrom: 'extracted',       reset_to: 'extracted' },
+  { key: 'D', title: 'Fase D + E — Verificar y corregir sincronización',  produces: 'sync_verified',   startsFrom: 'extracted',       reset_to: 'extracted' },
   { key: 'F', title: 'Fase F — Inyectar RPU',              produces: 'injected',        startsFrom: 'sync_verified',   reset_to: 'sync_verified' },
   { key: 'G', title: 'Fase G — Remux final',               produces: 'remuxed',         startsFrom: 'injected',        reset_to: 'injected' },
   { key: 'H', title: 'Fase H — Validación final',          produces: 'validated',       startsFrom: 'remuxed',         reset_to: 'remuxed' },

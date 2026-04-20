@@ -2932,7 +2932,7 @@ select { appearance: none; cursor: pointer;
 /* Phase strip */
 .cmv40-phase-strip {
   display: flex;
-  align-items: center;
+  align-items: flex-start;   /* steps anclan arriba; el conector usa margin-top para alinear con el centro del círculo */
   margin: 16px 0;
   padding: 12px;
   background: var(--surface-1);
@@ -2966,10 +2966,14 @@ select { appearance: none; cursor: pointer;
 .cmv40-phase-conn {
   flex: 1;
   height: 2px;
+  /* Centro vertical del círculo (36px) = 18px; la línea es 2px → margin-top 17px la alinea exactamente con el ecuador del círculo */
+  margin: 17px 0 0;
   background: var(--sep);
-  margin: 0 4px;
   min-width: 20px;
 }
+.cmv40-phase-step.done + .cmv40-phase-conn,
+.cmv40-phase-conn.done { background: var(--green); }
+.cmv40-phase-step.active + .cmv40-phase-conn { background: linear-gradient(90deg, var(--blue) 0%, var(--sep) 100%); }
 @keyframes cmv40-pulse {
   0%, 100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
   50%      { box-shadow: 0 0 0 6px rgba(59,130,246,0.4); }
@@ -4194,32 +4198,29 @@ select { appearance: none; cursor: pointer;
   font-style: italic;
 }
 
-/* Flujo horizontal de fases (breadcrumb-style). Nunca wrappea: si no cabe,
-   scrolla horizontalmente para mantener el pipeline como una línea legible. */
+/* Flujo horizontal de fases (breadcrumb-style). Wrappea en 2 líneas si no cabe
+   (8 pills A-H pueden requerir >900px útiles según labels). Sin scroll horizontal. */
 .cmv40-pp-flow {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 3px;
-  overflow-x: auto;
-  padding-bottom: 2px;  /* espacio para el scrollbar horizontal si aparece */
+  gap: 4px 2px;   /* row-gap · column-gap — las arrows ya aportan su propio padding */
+  min-width: 0;
 }
-.cmv40-pp-flow::-webkit-scrollbar { height: 4px; }
-.cmv40-pp-flow::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
-.cmv40-ph-pill { flex-shrink: 0; }
 .cmv40-ph-pill {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0;
-  min-width: 70px;
-  padding: 4px 9px;
+  min-width: 0;    /* sin min-width artificial — el contenido manda */
+  padding: 4px 7px;
   border-radius: 7px;
   border: 1px solid;
   font-size: 11px;
   cursor: help;
   transition: transform 0.1s;
+  flex-shrink: 0;
 }
 .cmv40-ph-pill:hover { transform: translateY(-1px); }
 .cmv40-ph-pill.cmv40-ph-run {
@@ -4261,9 +4262,9 @@ select { appearance: none; cursor: pointer;
   display: inline-flex;
   align-items: center;
   color: var(--text-3);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  padding: 0 2px;
+  padding: 0 1px;
   flex-shrink: 0;
 }
 
