@@ -4967,10 +4967,10 @@ select { appearance: none; cursor: pointer;
   gap: 10px;
   align-items: end;
   margin-top: 8px;
-  padding: 14px;
-  background: var(--surface-2);
-  border: 1px solid var(--sep);
-  border-radius: 10px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 .cmv40-lookup-row {
   display: flex;
