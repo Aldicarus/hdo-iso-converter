@@ -4,11 +4,13 @@ Aplicación web en contenedor Docker para procesar contenido UHD Blu-ray. Diseñ
 
 ## Herramientas
 
-| Tab | Nombre | Descripción |
-|-----|--------|-------------|
-| 1 | **Crear MKV** | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL |
-| 2 | **Editar MKV** | Editor de propiedades de MKVs existentes: nombres de pistas, flags, capítulos. Sin re-encoding |
-| 3 | **CMv4.0 BD** | Inyecta RPU Dolby Vision CMv4.0 en un MKV con CMv2.9, con sincronización visual frame-a-frame |
+Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. El **orden visual** y los labels de la UI son:
+
+| Posición visual | Label UI | Panel interno | Descripción |
+|---|----------|---|-------------|
+| 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL |
+| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU Dolby Vision CMv4.0 sobre un MKV CMv2.9 del Blu-ray original, con sync visual frame-a-frame |
+| 3 | ✏️ **Editar Propiedades MKV** | `tab-panel-2` | Editor de propiedades de MKVs existentes: nombres de pistas, flags, capítulos. Sin re-encoding |
 
 ## Inicio rápido
 
@@ -79,7 +81,7 @@ CMV40_RPU_PATH=/ruta/cmv40_rpus    # RPUs CMv4.0 externos para Tab 3 (opcional)
 
 > **Espacio en /mnt/tmp:** usado como buffer temporal durante la extracción. Se limpia automáticamente.
 
-## Tab 1 — Crear MKV
+## Tab "Blu-Ray ISO → MKV"
 
 ### Flujo
 
@@ -111,7 +113,7 @@ MediaInfo y dovi_tool son opcionales — si fallan, el análisis continúa con d
 1. **Extracción**: `mkvmerge` lee directamente del MPLS montado → MKV final en una sola pasada. Progreso real, cancelable
 2. **Validación**: `mkvmerge -J` + `mkvextract` verifican pistas, flags y capítulos del MKV resultante
 
-## Tab 2 — Editar MKV
+## Tab "Editar Propiedades MKV"
 
 Editor de propiedades instantáneo via `mkvpropedit` (O(1), sin copiar datos):
 
@@ -121,9 +123,9 @@ Editor de propiedades instantáneo via `mkvpropedit` (O(1), sin copiar datos):
 - Deshacer todos los cambios antes de aplicar
 - Info extendida (MediaInfo): bitrate real, codec comercial, HDR, channel layout
 
-## Tab 3 — CMv4.0 BD
+## Tab "Upgrade Dolby Vision CMv4.0"
 
-Pipeline para inyectar un RPU Dolby Vision CMv4.0 (p. ej. de REC999) en un MKV con CMv2.9 del Blu-ray original, añadiendo metadata de tone-mapping L8-L11 sin re-encoding.
+Pipeline para inyectar un RPU Dolby Vision CMv4.0 (p. ej. de REC999 / DoviTools) en un MKV con CMv2.9 del Blu-ray original, añadiendo metadata de tone-mapping L8-L11 sin re-encoding.
 
 ### Fases
 

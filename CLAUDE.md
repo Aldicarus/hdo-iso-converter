@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.9)
+# HDO ISO Converter — Reglas del proyecto (v1.10)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -10,10 +10,15 @@ La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
 El nombre interno del repositorio y ficheros puede seguir siendo `ISO2MKVFEL` por compatibilidad.
 
 ## Descripción
-Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs:
-- **Tab 1 — Crear MKV:** Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.
-- **Tab 2 — Editar MKV:** Editor de propiedades de ficheros MKV existentes — metadatos de pistas, flags, títulos, capítulos. Sin re-encoding.
-- **Tab 3 — CMv4.0 BD:** Pipeline para inyectar RPU Dolby Vision CMv4.0 en un MKV con CMv2.9 del Blu-ray original, con sincronización visual frame-a-frame y multi-proyecto.
+Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs (orden visual v1.10):
+
+| Pos. visual | Label UI | Panel interno | Propósito |
+|---|----------|---|-----------|
+| 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | ISO UHD Blu-ray → MKV con selección automática de pistas y soporte Dolby Vision FEL |
+| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original (sync visual frame-a-frame, multi-proyecto) |
+| 3 | ✏️ **Editar Propiedades MKV** | `tab-panel-2` | Editor in-place de metadatos (pistas, flags, títulos, capítulos) sin re-encoding |
+
+**Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** se reordenan con la rename de v1.10 — `switchTab(1)` sigue abriendo el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
 
 ---
 
@@ -478,8 +483,30 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - Paleta oscura, acentos azul/teal, radios generosos, transiciones fluidas
 - Variables CSS centralizadas en `:root`
 
+### Hub activo — franja superior (v1.10)
+Todas las pestañas comparten una **franja navy** en la parte superior que unifica visualmente la "zona de acción" (tabs principales + botón primary de la herramienta).
+
+- Variable principal `--active-hub: #22436c` — es **la interpolación lineal exacta** entre `--active-hub-top` (`#264a78`) y `--active-hub-bottom` (`#1a3557`) al 35.7% (proporción tab height / total hub height). Este valor NO debe cambiarse arbitrariamente: si se toca, hay que recalcular para mantener la continuidad de slope entre los dos tramos de gradiente.
+- **Dos tramos continuos** (hackeado como un único gradiente virtual):
+  - `.tab.active` usa `--active-hub-tab-grad` = `top → --active-hub`
+  - `#subtab-bar`, `#cmv40-subtab-bar`, `.sidebar-new-project-area`, `#mkv-action-bar` usan `--active-hub-bar-grad` = `--active-hub → bottom`
+- **Altura hub**: `min-height: 63px` en los bars + 14+36+12+1 en `.sidebar-new-project-area`. Este 63px se referencia en varias reglas — mantenerlo sincronizado.
+- **Hairline entre tab-bar y subtab-bar**: resuelto con `border-bottom: 1px solid var(--active-hub)` en `#tab-bar` (se funde con el top del subtab-bar de Tab 1/3; en Tab 2 queda como acento fino).
+- **Botón primary en franja navy**: `.sidebar-new-project-btn` lleva `box-shadow: 0 1px 6px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.08) inset` para destacar sobre el azul oscuro. Tab 2 reutiliza literalmente esa clase (no crea `.mkv-action-btn` duplicada).
+
+### Switching de tabs principales
+`switchTab(n)` debe marcar el active **por ID** (`tab-btn-N`), nunca por posición DOM — el orden visual fue reordenado en v1.10 y no coincide con la numeración interna.
+
+### Scroll horizontal de sub-tabs de proyecto
+Tab 1 y Tab 3 comparten el patrón. Arquitectura:
+- UN SOLO scroll container: `.subtab-projects` con `overflow-x: auto`.
+- Scrollbar nativa oculta (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`).
+- Chevrones circulares blanco/azul (`.subtab-scroll-btn`) dentro de `.subtab-projects-area`, visibles solo cuando hay overflow (JS añade `.has-overflow` en el area).
+- Wheel vertical → scroll horizontal sobre la franja (handler en `_installSubtabScrollBindings`).
+- Los helpers `_updateSubtabScrollState()`, `_scrollSubtabContainer()` y la config `_SUBTAB_SCROLLERS` sirven a ambos tabs por DRY.
+
 ### Indicadores de ejecución
-- **Spinner inline** (`.spinner-inline`): aparece en tab "Crear MKV", subtab del proyecto, sidebar del proyecto y sección "En curso" cuando hay job activo
+- **Spinner inline** (`.spinner-inline`): aparece en tab "Blu-Ray ISO → MKV", subtab del proyecto, sidebar del proyecto y sección "En curso" cuando hay job activo
 - **Barra de progreso real**: en la fase de extracción (mkvmerge), conectada a `Progress: XX%`
 - **Botón cancelar**: dentro de la fase activa del pipeline, se muestra/oculta automáticamente
 
@@ -497,3 +524,5 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - No copiar el ISO bajo ninguna circunstancia
 - No hardcodear rutas de directorio en el backend
 - No añadir abstracción para un solo uso
+- **No cambiar `--active-hub` sin recalcular la interpolación** — romperá la continuidad del gradiente del hub
+- **No usar `idx + 1` sobre los `.tab` principales** para activar tabs — usar IDs (`tab-btn-N`) porque el orden visual no coincide con la numeración interna
