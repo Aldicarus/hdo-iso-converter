@@ -5321,21 +5321,22 @@ const CMV40_RUNNING_LABELS = {
   'validate':        'Fase H — Validando MKV final',
 };
 
-// Ratios empíricos replicados del backend (cmv40_pipeline.py) para que
-// el frontend pueda mostrar ETAs por fase sin round-trip al servidor.
+// Ratios empíricos calibrados contra logs reales del NAS ZFS con Dolby Vision
+// P7 FEL drop-in (Zootrópolis 2, 155001 frames, 34 GB HEVC).
+// Si se cambia de hardware (SSD local vs ZFS sobre HDD), revisitar.
 const CMV40_ETA = {
-  // ratio respecto a wall time de ffmpeg (fase A)
-  r_extract_rpu: 0.92,
-  r_demux:       1.30,
-  r_export:      0.19,
-  r_inject:      1.77,
-  r_mux:         1.88,
+  // ratio respecto a wall time de ffmpeg (fase A) — observados:
+  r_extract_rpu: 0.92,   // ~0.95 observado · para source.hevc y también pre-mux en Fase H
+  r_demux:       1.30,   // (sin medir en drop-in, valor legacy)
+  r_export:      0.19,   // (sin medir en drop-in, valor legacy)
+  r_inject:      2.25,   // antes 1.77 — el drop-in rewrite real sobre ZFS tarda ~2.28× anchor
+  r_mux:         2.15,   // antes 1.88 — mkvmerge de 42 GB sobre ZFS tarda ~2.16× anchor
   // FPS de cada tool (fallback cuando no hay anchor)
   fps_extract:   1450,
   fps_demux:     1100,
   fps_export:    7000,
-  fps_inject:    760,
-  fps_mux:       711,
+  fps_inject:    395,    // antes 760 — real: 155001/394 ≈ 393 fps en drop-in
+  fps_mux:       415,    // antes 711 — real: 155001/374 ≈ 414 fps en mkvmerge 42 GB
 };
 
 // Mapeo de running_phase backend → step key del timeline
@@ -5414,7 +5415,11 @@ function _cmv40PlanAutoSteps(s) {
   const etaC = etaDemux + (trust ? 0 : etaExport);
   const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
   const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
-  const etaH = 15;
+  // Fase H: extract-rpu del HEVC pre-mux (~r_extract_rpu × anchor) + mkvmerge -J (~2s).
+  // Antes era constante 15s pero tras el fix de v1.10.1 (extract-rpu sobre pre-mux
+  // para evitar "Invalid PPS index" en el MKV) tarda mucho más. En el NAS real:
+  // 152s para 155k frames sobre el HEVC de 34 GB.
+  const etaH = _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
 
   const steps = [];
   steps.push({
