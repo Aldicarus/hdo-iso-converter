@@ -3276,11 +3276,16 @@ select { appearance: none; cursor: pointer;
   background: linear-gradient(90deg, #1e6fe6 0%, #3b8fff 50%, #5ab3ff 100%) !important;
   width: 0%;
   min-width: 2px;                                 /* visible aun con 0% inicial */
-  transition: width 0.4s ease !important;
+  /* Linear + duración más larga que el intervalo entre eventos §§PROGRESS§§ (1-3s)
+     para que la animación siga en curso cuando llega el siguiente update — sin
+     saltos abruptos. Antes con 0.4s ease la barra terminaba rápido y quedaba
+     parada hasta el siguiente evento. */
+  transition: width 2s linear !important;
   border-radius: 7px !important;
   position: relative !important;
   overflow: hidden !important;
   box-shadow: 0 0 10px rgba(59, 143, 255, 0.55), inset 0 1px 0 rgba(255,255,255,0.25) !important;
+  will-change: width;
 }
 .cmv40-progress-bar::after {
   content: "" !important;
@@ -3342,8 +3347,13 @@ select { appearance: none; cursor: pointer;
   border-radius: 50%;
   animation: cmv40-spin 0.8s linear infinite;
   flex-shrink: 0;
+  will-change: transform;
+  transform: translateZ(0);
 }
-@keyframes cmv40-spin { to { transform: rotate(360deg) } }
+@keyframes cmv40-spin {
+  from { transform: translateZ(0) rotate(0deg); }
+  to   { transform: translateZ(0) rotate(360deg); }
+}
 .cmv40-running-title {
   font-size: 14px;
   font-weight: 700;
@@ -3629,6 +3639,11 @@ select { appearance: none; cursor: pointer;
   border-radius: 50%;
   border: 2px solid transparent;
   border-top-color: #005fb8;
+  /* will-change + translateZ fuerzan composition layer en GPU — la rotación
+     se compone sin repaints del parent (que tiene box-shadow). Sin esto,
+     cada frame forzaba repaint del parent → rotación "a saltos". */
+  will-change: transform;
+  transform: translateZ(0);
   border-right-color: #005fb8;
   animation: cmv40-spin 0.9s linear infinite;
 }
