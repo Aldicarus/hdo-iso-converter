@@ -7460,8 +7460,23 @@ function _cmv40FaseDoneBody(key, pid, s) {
       </div>
       ${_cmv40RenderTrustPanel(s)}`;
   }
-  // Fase D completada: mostrar stats + chart (modo revisión, sin controles)
+  // Fase D completada — dos casuísticas:
+  //   (1) target trusted + auto → NUNCA se generó per_frame_data.json →
+  //       mostrar banner "omitida" en vez de canvas vacío (que se veía negro).
+  //   (2) revisión visual real (non-trusted, o trust_override=force_interactive)
+  //       → el plot existe; mostrar chart + stats + controles de navegación
+  //       (zoom + frame range) en modo read-only.
   if (key === 'D') {
+    const trustedSkipped = s.target_trust_ok
+      && (s.trust_override || 'auto') !== 'force_interactive';
+    if (trustedSkipped) {
+      return `
+        <div class="banner success" style="margin-bottom:10px">
+          <span class="banner-icon">✓</span>
+          <span>Fase D omitida — el bin target pasó los gates de trust (frames, L5, L6, L8) y no se generó <code>per_frame_data.json</code>. Sin revisión visual necesaria en el auto-pipeline.</span>
+        </div>
+        ${_cmv40RenderTrustPanel(s)}`;
+    }
     const syncConfigHtml = s.sync_config
       ? `<div style="margin-bottom:10px; font-size:12px">
           <span style="color:var(--text-3)">Corrección aplicada:</span>
@@ -7470,11 +7485,16 @@ function _cmv40FaseDoneBody(key, pid, s) {
       : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Sincronización confirmada sin corrección.</div>';
     return `
       ${syncConfigHtml}
+      <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
+        Navegación por el gráfico en solo lectura — la corrección ya está aplicada.
+      </div>
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="280"></canvas>
         <div class="cmv40-chart-tooltip" id="cmv40-chart-tooltip-${pid}" style="display:none"></div>
-      </div>`;
+      </div>
+      <div class="cmv40-sync-controls" id="cmv40-sync-controls-${pid}"></div>
+      <div id="cmv40-confidence-${pid}"></div>`;
   }
   if (key === 'H' && s.output_mkv_path) {
     return `<div style="font-size:12px"><span style="color:var(--text-3)">MKV final:</span> <code>${escHtml(s.output_mkv_path)}</code></div>`;
@@ -8173,14 +8193,11 @@ async function _cmv40DeleteFromSidebar(sid) {
 
 async function _loadCMv40SyncChart(project) {
   const pid = project.id;
-  const s = project.session;
-  // Skip defensivo: proyecto trusted + auto nunca debe cargar el chart — Fase D
-  // se salta por diseño. Si alguien cambia trust_override a 'force_interactive'
-  // el backend regenerará per_frame_data on-demand bajo demanda explícita del
-  // usuario (no desde el auto-render).
-  if (s && s.target_trust_ok === true && (s.trust_override || 'auto') !== 'force_interactive') {
-    return;
-  }
+  // Skip defensivo: si el canvas del chart no existe en el DOM (p.ej. Fase D
+  // omitida por trusted → body muestra banner sin canvas), no hay donde
+  // renderizar y el fetch solo provocaría regeneración innecesaria del
+  // per_frame_data.json en backend.
+  if (!document.getElementById(`cmv40-chart-wrap-${pid}`)) return;
   // Guard anti-thundering-herd: cada re-render de la phase card llamaba aquí.
   // Sin flag, N renders antes de que resuelva la promesa lanzaban N fetches
   // paralelos → N `dovi_tool export` concurrentes en backend → I/O thrash.
@@ -8276,6 +8293,12 @@ function _renderCMv40SyncControls(project) {
   const d = project.syncData;
   const container = document.getElementById(`cmv40-sync-controls-${pid}`);
   if (!container) return;
+  // Read-only mode: la sesión ya pasó Fase D (phase index > sync_verified).
+  // Mostramos solo controles de zoom + inputs de rango para navegar el plot,
+  // nada de form de corrección ni botones de apply/confirmar.
+  const phaseIdx  = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const dDoneIdx  = CMV40_PHASES_ORDER.indexOf('sync_verified');
+  const readOnly  = phaseIdx > dDoneIdx;
   const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
   const suggested = d.suggested_offset || {};
   const hasSyncConfig = !!s.sync_config;
@@ -8313,7 +8336,7 @@ function _renderCMv40SyncControls(project) {
       onclick="_cmv40SetRange('${pid}', ${p.start}, ${p.end})">${p.label}</button>
   `).join('');
 
-  container.innerHTML = `
+  const zoomRowHtml = `
     <div class="cmv40-zoom-row">
       <span class="section-subtitle">Zoom</span>
       ${presetBtns}
@@ -8327,7 +8350,22 @@ function _renderCMv40SyncControls(project) {
             onchange="_cmv40ApplyRangeFromInputs('${pid}')">
         </label>
       </span>
-    </div>
+    </div>`;
+
+  // Read-only: solo zoom/rango, sin form de corrección.
+  if (readOnly) {
+    container.innerHTML = `
+      ${zoomRowHtml}
+      <div style="margin-top:10px; padding:8px 12px; background:var(--surface-2); border-radius:6px; font-size:11px; color:var(--text-3)">
+        ${hasSyncConfig
+          ? `Corrección aplicada en su día — el gráfico se muestra en modo solo lectura.`
+          : 'Sincronización confirmada sin corrección (Δ era 0).'}
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    ${zoomRowHtml}
 
     <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">Corrección ${hasSyncConfig ? 'adicional' : 'manual'}</div>
     <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
