@@ -238,7 +238,10 @@ body {
   font-weight: 700;
   border-color: var(--active-hub-top);
   margin-bottom: -1px; /* solapa cualquier shelf — evita hairline entre tab y bar */
-  box-shadow: 0 -1px 0 rgba(255,255,255,0.08) inset;  /* highlight sutil superior */
+  /* Highlight sutil en el borde SUPERIOR interior (inset 0 +1px). El valor negativo
+     antes proyectaba el shadow en el borde INFERIOR del tab, creando una línea
+     clara translúcida justo en la unión con el subtab-bar. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 
 .tab-icon { font-size: 16px; }
