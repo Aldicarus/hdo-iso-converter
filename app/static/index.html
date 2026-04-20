@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260420aw">
+  <link rel="stylesheet" href="/static/style.css?v=20260420ax">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -461,8 +461,14 @@
 
         <!-- Barra de sub-tabs para proyectos abiertos -->
         <div id="cmv40-subtab-bar">
-          <div class="subtab-projects-area">
+          <div class="subtab-projects-area" id="cmv40-subtab-projects-area">
+            <button class="subtab-scroll-btn subtab-scroll-left" id="cmv40-subtab-scroll-left"
+              onclick="scrollCmv40SubtabProjects('left')"
+              data-tooltip="Desplazar pestañas a la izquierda">‹</button>
             <div class="subtab-projects" id="cmv40-subtab-projects"></div>
+            <button class="subtab-scroll-btn subtab-scroll-right" id="cmv40-subtab-scroll-right"
+              onclick="scrollCmv40SubtabProjects('right')"
+              data-tooltip="Desplazar pestañas a la derecha">›</button>
           </div>
         </div>
 
@@ -867,6 +873,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420av"></script>
+<script src="/static/app.js?v=20260420ax"></script>
 </body>
 </html>

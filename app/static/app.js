@@ -373,41 +373,56 @@ function renderProjectSubTabButton(project) {
   _updateSubtabScrollState();
 }
 
-/** Comprueba overflow horizontal del scroller de pestañas de proyecto y
- *  activa/desactiva los chevrones según si hay contenido oculto a izq/der. */
-function _updateSubtabScrollState() {
-  const area   = document.getElementById('subtab-projects-area');
-  const scroll = document.getElementById('subtab-projects');
+/** Config de los dos scrollers de pestañas (Tab 1 y Tab 3). Misma lógica, IDs distintos. */
+const _SUBTAB_SCROLLERS = [
+  { areaId: 'subtab-projects-area',       scrollId: 'subtab-projects',       leftId: 'subtab-scroll-left',       rightId: 'subtab-scroll-right'       },
+  { areaId: 'cmv40-subtab-projects-area', scrollId: 'cmv40-subtab-projects', leftId: 'cmv40-subtab-scroll-left', rightId: 'cmv40-subtab-scroll-right' },
+];
+
+/** Comprueba overflow horizontal de un scroller y activa/desactiva sus chevrones. */
+function _updateOneSubtabScrollState(cfg) {
+  const area   = document.getElementById(cfg.areaId);
+  const scroll = document.getElementById(cfg.scrollId);
   if (!area || !scroll) return;
   const hasOverflow = scroll.scrollWidth > scroll.clientWidth + 1;
   area.classList.toggle('has-overflow', hasOverflow);
   if (!hasOverflow) return;
-  const left  = document.getElementById('subtab-scroll-left');
-  const right = document.getElementById('subtab-scroll-right');
+  const left  = document.getElementById(cfg.leftId);
+  const right = document.getElementById(cfg.rightId);
   if (left)  left.disabled  = scroll.scrollLeft <= 0;
   if (right) right.disabled = scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 1;
 }
 
-/** Handler del chevron: scrolla el contenedor ~2 pestañas en la dirección dada. */
-function scrollSubtabProjects(direction) {
-  const scroll = document.getElementById('subtab-projects');
+/** Actualiza el estado de scroll de todos los scrollers de pestañas. */
+function _updateSubtabScrollState() {
+  _SUBTAB_SCROLLERS.forEach(_updateOneSubtabScrollState);
+}
+
+/** Scrolla el contenedor ~70% de su ancho en la dirección dada. */
+function _scrollSubtabContainer(scrollId, direction) {
+  const scroll = document.getElementById(scrollId);
   if (!scroll) return;
   const step = Math.max(150, scroll.clientWidth * 0.7);
   scroll.scrollBy({ left: direction === 'left' ? -step : step, behavior: 'smooth' });
 }
 
-/** Instala wheel→horizontal y listeners de resize/scroll una sola vez. */
+/** Handlers invocados desde los chevrones (HTML onclick). */
+function scrollSubtabProjects(direction)      { _scrollSubtabContainer('subtab-projects', direction); }
+function scrollCmv40SubtabProjects(direction) { _scrollSubtabContainer('cmv40-subtab-projects', direction); }
+
+/** Instala wheel→horizontal + listeners de scroll/resize en todos los scrollers. Idempotente. */
 function _installSubtabScrollBindings() {
-  const scroll = document.getElementById('subtab-projects');
-  if (!scroll || scroll.dataset.scrollBound === '1') return;
-  scroll.dataset.scrollBound = '1';
-  // Wheel vertical → scroll horizontal mientras se está sobre la franja de pestañas.
-  scroll.addEventListener('wheel', (e) => {
-    if (e.deltaY === 0 || e.shiftKey) return;
-    scroll.scrollBy({ left: e.deltaY, behavior: 'auto' });
-    e.preventDefault();
-  }, { passive: false });
-  scroll.addEventListener('scroll', _updateSubtabScrollState, { passive: true });
+  _SUBTAB_SCROLLERS.forEach(cfg => {
+    const scroll = document.getElementById(cfg.scrollId);
+    if (!scroll || scroll.dataset.scrollBound === '1') return;
+    scroll.dataset.scrollBound = '1';
+    scroll.addEventListener('wheel', (e) => {
+      if (e.deltaY === 0 || e.shiftKey) return;
+      scroll.scrollBy({ left: e.deltaY, behavior: 'auto' });
+      e.preventDefault();
+    }, { passive: false });
+    scroll.addEventListener('scroll', () => _updateOneSubtabScrollState(cfg), { passive: true });
+  });
   window.addEventListener('resize', _updateSubtabScrollState, { passive: true });
 }
 
@@ -6379,6 +6394,7 @@ function closeCMv40Project(pid) {
   document.getElementById(`cmv40-stab-${pid}`)?.remove();
   document.getElementById(`cmv40-panel-${pid}`)?.remove();
   openCMv40Projects.splice(idx, 1);
+  _updateSubtabScrollState();
 
   if (activeCMv40SubTabId === pid) {
     if (openCMv40Projects.length > 0) {
@@ -6420,6 +6436,7 @@ function _createCMv40SubTab(project) {
       data-tooltip="Cerrar proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchCMv40SubTab(project.id); };
   container.appendChild(btn);
+  _updateSubtabScrollState();
 }
 
 function _connectCMv40WebSocket(project) {
