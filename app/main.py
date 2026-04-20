@@ -1323,14 +1323,28 @@ async def _run_cmv40_phase(
             session.phase = previous_phase
             session.error_message = str(e)
             await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
-            # Fases G/H escriben a /mnt/output/{name}.mkv.tmp. Si fallan, el
-            # .tmp queda huérfano contaminando el dir final — borramos.
-            if phase_name in ("remux", "validate"):
+            # Fase G (remux) fallando → .mkv.tmp puede estar parcial/corrupto →
+            # borrar es correcto. Fase H (validate) fallando → la mux ya
+            # terminó ok, el MKV está completo; la validación es solo sanity
+            # check. Preservamos el .mkv.tmp para que el usuario pueda
+            # inspeccionarlo o renombrarlo manualmente sin perder 40+ GB.
+            if phase_name == "remux":
                 freed = _cmv40_cleanup_orphan_tmp(session)
                 if freed > 0:
                     await _cmv40_log(
                         session,
                         f"🧹 Borrado .mkv.tmp huérfano ({freed / 1e9:.2f} GB liberados)"
+                    )
+            elif phase_name == "validate":
+                from phases.cmv40_pipeline import OUTPUT_DIR as _OUT_DIR
+                tmp_path = _OUT_DIR / f"{session.output_mkv_name}.tmp"
+                if tmp_path.exists():
+                    size_gb = tmp_path.stat().st_size / 1e9
+                    await _cmv40_log(
+                        session,
+                        f"ℹ️ .mkv.tmp preservado ({size_gb:.2f} GB) — la mux de Fase G "
+                        f"terminó ok, solo falló la validación. Inspecciona o renombra "
+                        f"manualmente: mv '{tmp_path.name}' '{session.output_mkv_name}'"
                     )
         finally:
             _cmv40_active_procs.pop(session.id, None)

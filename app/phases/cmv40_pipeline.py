@@ -2039,18 +2039,35 @@ async def run_phase_h_validate(
     drop_in_fel = is_drop_in_fel(session)
     rpu_target = wd / "RPU_target.bin"
     temp_rpu   = wd / "_validate_rpu.bin"
+    # Preferimos extraer el RPU del HEVC pre-mux que está en workdir, no del
+    # MKV final. dovi_tool 2.3.x falla con "Invalid PPS index" al parsear
+    # MKVs donde mkvmerge guardó el PPS en CodecPrivate en vez de inline —
+    # problema del parser matroska de dovi_tool, no del stream. El stream
+    # HEVC que muxó mkvmerge es byte-idéntico al pre-mux (mkvmerge no
+    # re-encoda el vídeo), así que extraer del pre-mux es equivalente y
+    # evita el bug.
+    pre_mux_candidates = [
+        wd / "source_injected.hevc",   # drop-in FEL
+        wd / "DV_dual.hevc",           # workflow p7_fel dual-layer
+        wd / "EL_injected.hevc",       # fallback
+        wd / "BL_injected.hevc",       # workflow p7_mel (single-layer)
+    ]
+    pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
+    extract_input = str(pre_mux_hevc) if pre_mux_hevc else str(output_mkv)
     try:
         if log_callback:
+            msg_source = (f"del HEVC pre-mux ({pre_mux_hevc.name})"
+                          if pre_mux_hevc else "del MKV final")
             await log_callback(
-                "[Fase H] Paso 1/3: extrayendo RPU completo del MKV final "
+                f"[Fase H] Paso 1/3: extrayendo RPU completo {msg_source} "
                 "(escanea todo el stream, no solo 30s)…"
             )
-        await _emit_progress(log_callback, 5, "Extrayendo RPU completo del MKV final")
+        await _emit_progress(log_callback, 5, "Extrayendo RPU completo")
         rc, _, err = await _run([
-            DOVI_TOOL_BIN, "extract-rpu", str(output_mkv), "-o", str(temp_rpu),
+            DOVI_TOOL_BIN, "extract-rpu", extract_input, "-o", str(temp_rpu),
         ], timeout=900)
         if rc != 0:
-            raise RuntimeError(f"extract-rpu falló sobre MKV final: {err[:200]}")
+            raise RuntimeError(f"extract-rpu falló sobre {extract_input}: {err[:200]}")
 
         if log_callback:
             await log_callback("[Fase H] Paso 2/3: analizando metadata DV del RPU…")
