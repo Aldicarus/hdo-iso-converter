@@ -39,31 +39,44 @@ _END   = r"(?![A-Za-z0-9])"
 _P7    = rf"(?:p7|profile{_SEP}+7)"
 
 _BIN_PATTERNS = [
-    # ── MEL primero (evita falsos positivos en la regla genérica cmv4.0) ──
-    # P7 MEL ... cmv4 (ambos órdenes)
+    # ── MEL con cmv4 explícito (ambos órdenes) ───────────────────────────
     (re.compile(rf"{_P7}{_SEP}*mel[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_mel_final"),
     (re.compile(rf"cmv{_SEP}?4[\s\S]*?{_P7}{_SEP}*mel",  re.I), "trusted_p7_mel_final"),
-    # MEL P7 (orden invertido: "retail MEL P7 (cmv4.0 restored)")
     (re.compile(rf"mel{_SEP}+{_P7}[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_mel_final"),
     (re.compile(rf"cmv{_SEP}?4[\s\S]*?mel{_SEP}+{_P7}",  re.I), "trusted_p7_mel_final"),
-    # ── FEL con cmv4 (ambos órdenes) ─────────────────────────────────────
+    # ── FEL con cmv4 explícito (ambos órdenes) ───────────────────────────
     (re.compile(rf"{_P7}{_SEP}*fel[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_fel_final"),
     (re.compile(rf"cmv{_SEP}?4[\s\S]*?{_P7}{_SEP}*fel",  re.I), "trusted_p7_fel_final"),
     (re.compile(rf"fel{_SEP}+{_P7}[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_fel_final"),
     (re.compile(rf"cmv{_SEP}?4[\s\S]*?fel{_SEP}+{_P7}",  re.I), "trusted_p7_fel_final"),
-    # ── P5 → P8 transfer (rama B) ────────────────────────────────────────
+    # ── P5→P8 y P7→P8 transfer (rama B) ──────────────────────────────────
+    # P5→P8: convierte RPU P5 (streaming) a P8 single-layer metadata.
+    # P7→P8: aplana un RPU P7 dual-layer a P8 single-layer (típico iMAX).
+    # Ambos son source_rpu para el merge CMv4.0 — mismo bucket funcional.
     (re.compile(rf"p5{_SEP}*(?:to|->|→|=>|–|—){_SEP}*p8", re.I), "trusted_p8_source"),
-    # ── Catch-all "cmv4.0 added/restored/baked" sin profile → asume FEL ──
+    (re.compile(rf"p7{_SEP}*(?:to|->|→|=>|–|—){_SEP}*p8", re.I), "trusted_p8_source"),
+    # ── Catch-all "cmv4.0 added/restored/baked" sin profile → FEL ────────
     # (MEL ya se detectó arriba, así que aquí es seguro inferir FEL)
     (re.compile(rf"cmv{_SEP}?4(?:\.0)?{_SEP}*(added|restored|baked)", re.I),
      "trusted_p7_fel_final"),
-    # ── Orphan profile tags sin cmv4: P7 MEL / MEL P7 / P7 FEL / FEL P7 ──
-    #    Asumimos CMv4.0 por convención del repo DoviTools; los gates de
-    #    Fase B lo verifican en runtime. _BOUND/_END evitan "felpa", "melt".
-    (re.compile(rf"{_BOUND}{_P7}{_SEP}*mel{_END}", re.I), "trusted_p7_mel_final"),
-    (re.compile(rf"{_BOUND}mel{_SEP}+{_P7}{_END}", re.I), "trusted_p7_mel_final"),
-    (re.compile(rf"{_BOUND}{_P7}{_SEP}*fel{_END}", re.I), "trusted_p7_fel_final"),
-    (re.compile(rf"{_BOUND}fel{_SEP}+{_P7}{_END}", re.I), "trusted_p7_fel_final"),
+    # ── Generated + profile: convención fuerte del repo DoviTools ────────
+    # dovi_tool generate / cm_analyze producen CMv4.0 por defecto desde 2023.
+    # La comunidad sube "Generated P7 FEL/MEL" asumiendo CMv4.0 implícito.
+    # No es garantía absoluta (los gates de Fase B verifican en runtime) pero
+    # es señal suficiente para promover a trusted.
+    (re.compile(rf"generated[\s\S]*?{_P7}{_SEP}*fel", re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"{_P7}{_SEP}*fel[\s\S]*?generated", re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"generated[\s\S]*?fel{_SEP}+{_P7}", re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"fel{_SEP}+{_P7}[\s\S]*?generated", re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"generated[\s\S]*?{_P7}{_SEP}*mel", re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"{_P7}{_SEP}*mel[\s\S]*?generated", re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"generated[\s\S]*?mel{_SEP}+{_P7}", re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"mel{_SEP}+{_P7}[\s\S]*?generated", re.I), "trusted_p7_mel_final"),
+    # NOTA: "P7 FEL" / "P7 MEL" SIN 'cmv4' explícito Y SIN 'Generated'
+    # ya NO se promueven a trusted (antes sí, por convención laxa).
+    # Motivo: un bin tipo "Movie.2020.BD.P7.FEL_Original_L1.bin" podría ser
+    # CMv2.9 extraído de Blu-ray estándar — inútil para nuestro pipeline.
+    # Ahora quedan en 'unknown' → la UI avisa "tipo por clasificar en Fase B".
 ]
 
 # Artefactos que NO son targets utilizables — son salidas de análisis o
