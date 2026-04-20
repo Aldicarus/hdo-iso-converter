@@ -197,7 +197,11 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: flex-end;
-  padding: 8px 16px 0 0;   /* left: 0 para que la primera pestaña quede pegada al borde izquierdo */
+  padding-top: 8px;
+  padding-right: 16px;
+  padding-bottom: 0;
+  padding-left: 0 !important;   /* separado + !important por si un ?v= antiguo o regla cached sobreescribe */
+  margin: 0;
   background: var(--surface-1);
   /* Borde inferior del MISMO color que el navy del hub: en Tab 1/3 se funde con
      el top del subtab-bar (--active-hub) → una franja continua sin costura; en
@@ -227,11 +231,15 @@ body {
   white-space: nowrap;
 }
 
-/* Primera tab flush con el borde izquierdo — sin border-left ni border-radius
-   superior izquierdo para que visualmente no quede un inset por la curvatura. */
-.tab:first-child {
-  border-top-left-radius: 0;
-  border-left: none;
+/* Primera tab pegada al borde izquierdo — sin radius/border/margin/padding-left
+   que puedan crear inset visual. Selector específico + !important para blindar
+   contra reglas posteriores (p.ej. .tab.active que setea border-color). */
+#tab-bar > .tab:first-child,
+#tab-bar > button.tab:first-child {
+  border-top-left-radius: 0 !important;
+  border-left: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 20px !important;
 }
 
 .tab:hover:not(.active) {
