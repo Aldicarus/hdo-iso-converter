@@ -1248,6 +1248,19 @@ def _check_cmv40_cancel(session_id: str) -> None:
         raise RuntimeError("Cancelado por el usuario")
 
 
+# Lock por sesión para evitar ejecuciones concurrentes de la misma fase
+# (protege contra race conditions en el auto-pipeline cuando el frontend
+# dispara la misma transición dos veces antes de que running_phase se
+# haya persistido en disco).
+_cmv40_phase_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_cmv40_phase_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _cmv40_phase_locks:
+        _cmv40_phase_locks[session_id] = asyncio.Lock()
+    return _cmv40_phase_locks[session_id]
+
+
 async def _run_cmv40_phase(
     session: CMv40Session,
     phase_name: str,
@@ -1258,42 +1271,57 @@ async def _run_cmv40_phase(
     Wrapper para ejecutar una fase CMv4.0: registra inicio/fin en phase_history,
     captura errores, actualiza el estado de la sesión.
 
+    Está protegido por un asyncio.Lock por session_id — si una fase ya está
+    corriendo para esa sesión, cualquier invocación concurrente se ignora
+    silenciosamente (evita doble-fire del auto-pipeline que escribía a los
+    mismos artefactos y fallaba al final intentando renombrar .mkv.tmp).
+
     coro_factory: función que recibe (log_callback, proc_callback) y devuelve coroutine.
     """
-    started = datetime.now(timezone.utc)
-    previous_phase = session.phase
-    record = CMv40PhaseRecord(phase=phase_name, started_at=started, status="running")
-    session.phase_history.append(record)
-    session.running_phase = phase_name  # ← bloquea la UI en modo modal
-    save_cmv40_session(session)
-
-    async def _log_cb(msg: str):
-        await _cmv40_log(session, msg)
-
-    def _proc_cb(proc):
-        _cmv40_proc_register(session.id, proc)
-
-    try:
-        await _cmv40_log(session, f"━━━ Inicio fase: {phase_name} ━━━")
-        await coro_factory(_log_cb, _proc_cb)
-
-        record.status = "done"
-        record.finished_at = datetime.now(timezone.utc)
-        record.elapsed_seconds = (record.finished_at - started).total_seconds()
-        session.phase = new_phase
-        session.error_message = ""
-        await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
-    except Exception as e:
-        record.status = "error"
-        record.finished_at = datetime.now(timezone.utc)
-        record.error_message = str(e)
-        session.phase = previous_phase
-        session.error_message = str(e)
-        await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
-    finally:
-        _cmv40_active_procs.pop(session.id, None)
-        session.running_phase = None  # ← desbloquea la UI
+    lock = _get_cmv40_phase_lock(session.id)
+    if lock.locked():
+        _logger.info(
+            "Fase %s ignorada para sesión %s: ya hay una fase en curso (lock)",
+            phase_name, session.id,
+        )
+        await _cmv40_log(session,
+            f"⏭ Fase {phase_name} ignorada — ya hay otra fase en curso para este proyecto")
+        return
+    async with lock:
+        started = datetime.now(timezone.utc)
+        previous_phase = session.phase
+        record = CMv40PhaseRecord(phase=phase_name, started_at=started, status="running")
+        session.phase_history.append(record)
+        session.running_phase = phase_name  # ← bloquea la UI en modo modal
         save_cmv40_session(session)
+
+        async def _log_cb(msg: str):
+            await _cmv40_log(session, msg)
+
+        def _proc_cb(proc):
+            _cmv40_proc_register(session.id, proc)
+
+        try:
+            await _cmv40_log(session, f"━━━ Inicio fase: {phase_name} ━━━")
+            await coro_factory(_log_cb, _proc_cb)
+
+            record.status = "done"
+            record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
+            session.phase = new_phase
+            session.error_message = ""
+            await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
+        except Exception as e:
+            record.status = "error"
+            record.finished_at = datetime.now(timezone.utc)
+            record.error_message = str(e)
+            session.phase = previous_phase
+            session.error_message = str(e)
+            await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
+        finally:
+            _cmv40_active_procs.pop(session.id, None)
+            session.running_phase = None  # ← desbloquea la UI
+            save_cmv40_session(session)
 
 
 # ── Endpoints CRUD ────────────────────────────────────────────────────────────

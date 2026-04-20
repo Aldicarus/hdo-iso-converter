@@ -5872,11 +5872,14 @@ async function cmv40CancelRunning(pid) {
   await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
   // Cancelar también desactiva el auto-pipeline (evita que re-arranque la siguiente)
   const project = openCMv40Projects.find(p => p.id === pid);
-  if (project && project.autoContinue) {
-    project.autoContinue = false;
-    showToast('Cancelado — auto-avance desactivado', 'info');
-  } else {
-    showToast('Cancelando…', 'info');
+  if (project) {
+    project._lastAutoFiredFor = null;  // resetea debounce para futuros arranques
+    if (project.autoContinue) {
+      project.autoContinue = false;
+      showToast('Cancelado — auto-avance desactivado', 'info');
+    } else {
+      showToast('Cancelando…', 'info');
+    }
   }
 }
 
@@ -6686,6 +6689,12 @@ function _cmv40MaybeAutoAdvance(project) {
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
   const pid = project.id;
+  // Debounce: evita doble-fire cuando dos polls back-to-back ven el mismo
+  // phase=X, running_phase=null entre que el backend confirma una fase y
+  // arranca la siguiente. Sin este guard el pipeline dispara dos Fase G
+  // concurrentes que compiten por DV_dual.hevc + output.mkv.tmp.
+  if (project._lastAutoFiredFor === s.phase) return;
+  project._lastAutoFiredFor = s.phase;
   switch (s.phase) {
     case 'created':
       showToast('🤖 Auto: analizando origen', 'info');
