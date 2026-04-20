@@ -31,10 +31,17 @@
   --purple-border:rgba(175, 82, 222, 0.35);
 
   /* Hub activo — franja top (pestaña activa + subtab-bar + área botón Nuevo proyecto).
-     Azul oscuro SÓLIDO. Un gradiente causaría costura entre la pestaña y el subtab-bar
-     porque cada elemento reinicia el gradiente en su propio alto. */
+     Degradado vertical partido en dos tramos que se encuentran en --active-hub:
+       · Tab:     --active-hub-top     → --active-hub
+       · Bar/área:--active-hub         → --active-hub-bottom
+     Así visualmente parece UN solo degradado continuo a lo alto de toda la franja,
+     sin costura entre la pestaña y el subtab-bar (ambos tocan #21406b en la unión). */
   --active-hub:          #21406b;
-  --active-hub-grad:     var(--active-hub);   /* alias — sólido, sin degradado */
+  --active-hub-top:      #264a78;
+  --active-hub-bottom:   #1a3557;
+  --active-hub-tab-grad: linear-gradient(180deg, var(--active-hub-top) 0%, var(--active-hub) 100%);
+  --active-hub-bar-grad: linear-gradient(180deg, var(--active-hub) 0%, var(--active-hub-bottom) 100%);
+  --active-hub-grad:     var(--active-hub-bar-grad);  /* alias retrocompatible */
   --active-hub-text:     #ffffff;
   --active-hub-text-dim: rgba(255, 255, 255, 0.72);
   --active-hub-sep:      rgba(255, 255, 255, 0.14);
@@ -190,7 +197,9 @@ body {
   align-items: flex-end;
   padding: 8px 16px 0;
   background: var(--surface-1);
-  border-bottom: 1px solid var(--sep-strong);
+  /* Sin border-bottom: el navy del subtab-bar (Tab 1/3) ya encola con el fondo
+     de la pestaña activa; para Tab 2 (sin hub) el contraste --surface-1/--bg
+     sigue siendo suficiente como separación visual. */
   gap: 3px;
   z-index: 40;
 }
@@ -220,11 +229,11 @@ body {
 }
 
 .tab.active {
-  background: var(--active-hub-grad);
+  background: var(--active-hub-tab-grad);
   color: var(--active-hub-text);
   font-weight: 700;
-  border-color: var(--active-hub);
-  margin-bottom: -1px; /* solapa el borde inferior del tab-bar → abre hacia el contenido */
+  border-color: var(--active-hub-top);
+  margin-bottom: -1px; /* solapa cualquier shelf — evita hairline entre tab y bar */
   box-shadow: 0 -1px 0 rgba(255,255,255,0.08) inset;  /* highlight sutil superior */
 }
 
@@ -286,9 +295,10 @@ body {
 /* ── Botón Nuevo proyecto en sidebar ────────────────────────── */
 .sidebar-new-project-area {
   padding: 14px 12px 12px;
-  /* Misma franja azul oscura que el subtab-bar — visualmente es la "zona activa"
-     común que aloja el botón de crear proyecto y las pestañas de la tab principal. */
-  background: var(--active-hub-grad);
+  /* Misma franja azul oscura que el subtab-bar — mismo tramo inferior del gradiente
+     para continuidad visual (el sidebar está a la izquierda del subtab-bar y deben
+     leerse como una sola franja). */
+  background: var(--active-hub-bar-grad);
   border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
 }
@@ -1723,7 +1733,7 @@ select { appearance: none; cursor: pointer;
   /* Alto igual al área del botón "Nuevo proyecto" del sidebar (14+36+12+1 = 63px)
      para que la base de los tabs alinee con la línea gris bajo el botón. */
   min-height: 63px;
-  background: var(--active-hub-grad);
+  background: var(--active-hub-bar-grad);
   position: relative;
   z-index: 30;
   overflow: hidden;
@@ -2949,7 +2959,7 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
   /* Mismo alto que Tab 1 — alinea con el área del botón "Nuevo proyecto CMv4.0". */
   min-height: 63px;
-  background: var(--active-hub-grad);
+  background: var(--active-hub-bar-grad);
   position: relative;
   z-index: 30;
   overflow: hidden;
