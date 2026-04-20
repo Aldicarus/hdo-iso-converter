@@ -222,8 +222,11 @@ const TooltipManager = (() => {
 function switchTab(n) {
   currentTab = n;
 
-  document.querySelectorAll('.tab').forEach((btn, idx) => {
-    btn.classList.toggle('active', idx + 1 === n);
+  // Activar por ID, no por posición: el orden visual de los tabs no coincide
+  // con su numeración interna (Tab 3 está visualmente en la posición 2).
+  [1, 2, 3].forEach(i => {
+    const btn = document.getElementById(`tab-btn-${i}`);
+    if (btn) btn.classList.toggle('active', i === n);
   });
 
   // Tab 2 no tiene sidebar — ocultar sidebar y usar ancho completo
