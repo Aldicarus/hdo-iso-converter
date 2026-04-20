@@ -1760,10 +1760,10 @@ select { appearance: none; cursor: pointer;
 }
 .subtab-projects-area::-webkit-scrollbar { height: 0; }
 
-/* Primer sub-tab de proyecto: pegado al borde izquierdo — sin radius ni border-left
-   que puedan generar inset visual por la curvatura del border-radius. */
+/* Primer sub-tab de proyecto: pegado al borde izquierdo pero conservando la
+   esquina superior redondeada (el radius se respeta; solo quitamos el border-left
+   para que no haya un 1px fuera de la curvatura). */
 .subtab-projects > .subtab-proj:first-child {
-  border-top-left-radius: 0;
   border-left: none;
 }
 
