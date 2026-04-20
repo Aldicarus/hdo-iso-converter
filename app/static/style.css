@@ -31,12 +31,14 @@
   --purple-border:rgba(175, 82, 222, 0.35);
 
   /* Hub activo — franja top (pestaña activa + subtab-bar + área botón Nuevo proyecto).
-     Degradado vertical partido en dos tramos que se encuentran en --active-hub:
-       · Tab:     --active-hub-top     → --active-hub
-       · Bar/área:--active-hub         → --active-hub-bottom
-     Así visualmente parece UN solo degradado continuo a lo alto de toda la franja,
-     sin costura entre la pestaña y el subtab-bar (ambos tocan #21406b en la unión). */
-  --active-hub:          #21406b;
+     Gradiente virtual continuo: #264a78 (top del tab) → #1a3557 (base del subtab-bar)
+     sobre un total de ~98px (tab 35 + subtab-bar 63). La frontera cae a los 35px
+     = 35.7% del recorrido total. Para que el SLOPE del gradiente sea continuo a
+     través de la unión (y el ojo no lo lea como una línea), el color en la unión
+     debe ser EXACTAMENTE la interpolación lineal en ese punto:
+        lerp(#264a78, #1a3557, 0.357) = #22436c
+     Por eso --active-hub vale #22436c (no #21406b como antes). */
+  --active-hub:          #22436c;
   --active-hub-top:      #264a78;
   --active-hub-bottom:   #1a3557;
   --active-hub-tab-grad: linear-gradient(180deg, var(--active-hub-top) 0%, var(--active-hub) 100%);
