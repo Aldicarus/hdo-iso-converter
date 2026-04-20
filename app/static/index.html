@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260419a">
+  <link rel="stylesheet" href="/static/style.css?v=20260420z">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -28,6 +28,11 @@
     </div>
 
     <div class="header-right">
+      <button class="btn-lookup" onclick="openCMv40LookupModal()"
+        data-tooltip="Consulta rápida — comprueba si una película tiene bin en DoviTools y qué pipeline se aplicaría (sin crear proyecto)"
+        aria-label="Consulta rápida CMv4.0">
+        <span class="btn-lookup-icon">🔎</span>
+      </button>
       <button class="btn-settings" onclick="openSettingsModal()"
         data-tooltip="Configuración (API keys, integraciones)"
         aria-label="Configuración">
@@ -617,7 +622,7 @@
 
     <div id="cmv40-recommendation-banner" class="cmv40-rec-banner" style="display:none"></div>
 
-    <label class="modal-field-label" style="margin-top:14px">RPU target (CMv4.0)</label>
+    <label class="modal-field-label" style="margin-top:10px">RPU target (CMv4.0)</label>
     <div class="cmv40-tab-switcher cmv40-new-tabs">
       <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-repo"
         onclick="_cmv40NewSwitchTargetTab('repo')"
@@ -649,7 +654,7 @@
       <div id="cmv40-new-repo-info" style="font-size:11px; color:var(--text-3); margin-top:6px">
         Se descargará desde la carpeta pública del repositorio DoviTools en Google Drive.
       </div>
-      <div id="cmv40-new-pipeline-preview" style="display:none; margin-top:10px"></div>
+      <div id="cmv40-new-pipeline-preview" style="display:none; margin-top:6px"></div>
     </div>
     <div id="cmv40-new-target-path" class="cmv40-target-tab" style="display:none">
       <div class="iso-select-row">
@@ -671,9 +676,9 @@
     </div>
 
     <div class="cmv40-new-footer">
-      <label class="cmv40-new-auto-toggle" data-tooltip="Auto-ejecuta A→B→C en cadena. Pausa obligatoria en la Fase D para revisión visual.">
+      <label class="cmv40-new-auto-toggle" data-tooltip="Encadena las fases disponibles sin interacción manual.">
         <input type="checkbox" id="cmv40-new-auto" checked>
-        <span>🤖 Auto-pipeline (A → B → C)</span>
+        <span>🤖 Auto-pipeline</span>
       </label>
       <div class="cmv40-new-actions">
         <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-new-modal')">Cancelar</button>
@@ -693,6 +698,57 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-confirm-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="cmv40-confirm-btn">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Consulta rápida CMv4.0 (read-only, sin crear proyecto) ═ -->
+<div class="modal-overlay" id="cmv40-lookup-modal" onclick="onModalOverlayClick(event,'cmv40-lookup-modal')">
+  <div class="modal-box cmv40-lookup-modal-box">
+    <div class="cmv40-lookup-head">
+      <div class="modal-title">🔎 Consulta rápida CMv4.0</div>
+      <div class="modal-sub">Comprueba si una película tiene bin en el repositorio DoviTools y qué pipeline se aplicaría — <strong>sin crear proyecto</strong>.</div>
+
+      <div class="cmv40-lookup-form">
+        <div class="cmv40-lookup-row">
+          <label class="cmv40-lookup-label">Título (español)</label>
+          <div class="cmv40-lookup-year-wrap">
+            <input id="cmv40-lookup-title" type="text" class="cmv40-lookup-input cmv40-lookup-input-title"
+              placeholder="ej. Zootrópolis 2, La jungla de cristal, Solo en casa…"
+              autocomplete="off"
+              onkeydown="if(event.key==='Enter'){cmv40LookupSearch()}">
+            <button type="button" class="cmv40-lookup-year-clear"
+              onclick="_cmv40LookupClearTitle()"
+              data-tooltip="Borrar y empezar nueva búsqueda"
+              aria-label="Borrar título">✕</button>
+          </div>
+        </div>
+        <div class="cmv40-lookup-row cmv40-lookup-row-year">
+          <label class="cmv40-lookup-label">Año <span class="cmv40-lookup-optional">(opcional)</span></label>
+          <div class="cmv40-lookup-year-wrap">
+            <input id="cmv40-lookup-year" type="number" class="cmv40-lookup-input cmv40-lookup-input-year"
+              placeholder="—" min="1950" max="2099"
+              onkeydown="if(event.key==='Enter'){cmv40LookupSearch()}">
+            <button type="button" class="cmv40-lookup-year-clear"
+              onclick="_cmv40LookupClearYear()"
+              data-tooltip="Borrar año"
+              aria-label="Borrar año">✕</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-md cmv40-lookup-btn" id="cmv40-lookup-btn"
+          onclick="cmv40LookupSearch()"
+          data-tooltip="Consulta la hoja de DoviTools + repositorio Drive">
+          🔎 Consultar
+        </button>
+      </div>
+    </div>
+
+    <div class="cmv40-lookup-body">
+      <div id="cmv40-lookup-results" class="cmv40-lookup-results"></div>
+    </div>
+
+    <div class="cmv40-lookup-foot">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-lookup-modal')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -754,6 +810,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420l"></script>
+<script src="/static/app.js?v=20260420z"></script>
 </body>
 </html>

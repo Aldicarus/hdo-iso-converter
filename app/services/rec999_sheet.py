@@ -117,8 +117,11 @@ def _normalize_title(raw: str) -> str:
 
 
 def _extract_year(raw: str) -> int | None:
-    m = _YEAR_RE.search(raw)
-    return int(m.group(1)) if m else None
+    """Devuelve el año de estreno. Cuando el título contiene varios años
+    (p.ej. 'Blade.Runner.2049.2017', '2001.A.Space.Odyssey.1968'), el año
+    real es el ÚLTIMO — los anteriores forman parte del título."""
+    matches = _YEAR_RE.findall(raw)
+    return int(matches[-1]) if matches else None
 
 
 def _parse_offset_frames(s: str) -> int | None:

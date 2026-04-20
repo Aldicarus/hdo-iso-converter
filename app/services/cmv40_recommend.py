@@ -114,11 +114,16 @@ def parse_mkv_filename(filename: str) -> tuple[str, int | None]:
         year = int(m.group(1))
         title = stem[:m.start()]
     else:
-        # Caso 2: primer año (1950-2099) como token suelto — truncar TODO a partir de él
-        m2 = _YEAR_RE.search(stem)
-        if m2:
-            year = int(m2.group(1))
-            title = stem[:m2.start()]
+        # Caso 2: año (1950-2099) como token suelto. Si hay varios (p.ej.
+        # 'Blade.Runner.2049.2017.UHD.BluRay'), el año de estreno es el
+        # ÚLTIMO — los anteriores forman parte del título. Truncamos en su
+        # posición para que el título conserve '2049' (luego _normalize_title
+        # lo limpia).
+        matches = list(_YEAR_RE.finditer(stem))
+        if matches:
+            last = matches[-1]
+            year = int(last.group(1))
+            title = stem[:last.start()]
 
     # Quitar tags [...] residuales
     title = re.sub(r"\[[^\]]+\]", " ", title)

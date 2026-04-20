@@ -918,6 +918,262 @@ async function clearAllKeys() {
   _renderSettings(data);
   showToast('Claves borradas', 'info');
 }
+
+// ── Modal de Consulta rápida CMv4.0 (read-only, sin crear proyecto) ─
+
+function openCMv40LookupModal() {
+  const input = document.getElementById('cmv40-lookup-title');
+  const yearInput = document.getElementById('cmv40-lookup-year');
+  const results = document.getElementById('cmv40-lookup-results');
+  if (input) input.value = '';
+  if (yearInput) yearInput.value = '';
+  if (results) results.innerHTML = '';
+  openModal('cmv40-lookup-modal');
+  setTimeout(() => input?.focus(), 60);
+}
+
+async function cmv40LookupSearch() {
+  const input = document.getElementById('cmv40-lookup-title');
+  const yearInput = document.getElementById('cmv40-lookup-year');
+  const btn = document.getElementById('cmv40-lookup-btn');
+  const results = document.getElementById('cmv40-lookup-results');
+  if (!input || !results) return;
+
+  const title = (input.value || '').trim();
+  if (!title) {
+    results.innerHTML = '<div class="cmv40-lookup-empty">Introduce un título para consultar.</div>';
+    input.focus();
+    return;
+  }
+  const year = yearInput?.value ? parseInt(yearInput.value, 10) : null;
+
+  if (btn) btn.disabled = true;
+  results.innerHTML = `<div class="cmv40-lookup-loading">
+    <span class="cmv40-rec-spinner-inline"></span>
+    Buscando coincidencias en TMDb…
+  </div>`;
+
+  // Paso 1 — buscar candidatos TMDb. Si hay varios, mostrar selector.
+  const search = await apiFetch('/api/cmv40/tmdb-search', {
+    method: 'POST',
+    body: JSON.stringify({ title, year }),
+  });
+
+  if (!search || !search.tmdb_configured) {
+    // Sin TMDb: vamos directos con el texto crudo (matching peor pero funcional)
+    if (btn) btn.disabled = false;
+    await _cmv40LookupFullFetch(results, title, year);
+    return;
+  }
+
+  const candidates = search.candidates || [];
+
+  if (candidates.length === 0) {
+    if (btn) btn.disabled = false;
+    // No hay match en TMDb — aún así intentamos contra la hoja/repo por si acaso
+    await _cmv40LookupFullFetch(results, title, year);
+    return;
+  }
+
+  if (candidates.length === 1 || (year && candidates.filter(c => c.year === year).length === 1)) {
+    // Una sola coincidencia → consulta directa
+    const picked = (year ? candidates.find(c => c.year === year) : null) || candidates[0];
+    if (btn) btn.disabled = false;
+    await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es || title, picked.year || year);
+    return;
+  }
+
+  // Más de una — mostrar selector visual
+  if (btn) btn.disabled = false;
+  _cmv40LookupRenderSelector(results, candidates, title);
+}
+
+function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
+  const items = candidates.map((c, i) => {
+    const poster = c.poster_url
+      ? `<img class="cmv40-lookup-pick-poster" src="${escHtml(c.poster_url)}" alt="" loading="lazy">`
+      : `<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter">🎬</div>`;
+    const rating = c.vote_average > 0
+      ? `<span class="cmv40-lookup-pick-rating">★ ${c.vote_average.toFixed(1)}</span>`
+      : '';
+    const origHtml = (c.title_en && c.title_en !== c.title_es)
+      ? `<div class="cmv40-lookup-pick-orig">Original: ${escHtml(c.title_en)}</div>`
+      : '';
+    const overview = c.overview
+      ? `<div class="cmv40-lookup-pick-overview">${escHtml(c.overview)}</div>`
+      : '';
+    return `
+      <button class="cmv40-lookup-pick" type="button"
+        onclick="_cmv40LookupPick(${i})"
+        data-tmdb-title="${escHtml(c.title_en || c.title_es || queryTitle)}"
+        data-tmdb-year="${c.year || ''}">
+        ${poster}
+        <div class="cmv40-lookup-pick-info">
+          <div class="cmv40-lookup-pick-title">
+            ${escHtml(c.title_es || c.title_en || '—')}
+            ${c.year ? `<span class="cmv40-lookup-pick-year">(${c.year})</span>` : ''}
+            ${rating}
+          </div>
+          ${origHtml}
+          ${overview}
+        </div>
+      </button>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="cmv40-lookup-section">
+      <div class="cmv40-lookup-section-title">🎬 ${candidates.length} coincidencias en TMDb para "${escHtml(queryTitle)}"</div>
+      <div class="cmv40-lookup-section-desc">Selecciona la película a la que te refieres — la consulta del sheet + repositorio se ejecutará sobre ella.</div>
+      <div class="cmv40-lookup-picks">${items}</div>
+    </div>`;
+
+  // Guardar candidates en memoria para el handler del click
+  _cmv40LookupCandidates = candidates;
+}
+
+let _cmv40LookupCandidates = [];
+
+function _cmv40LookupClearYear() {
+  const yearInput = document.getElementById('cmv40-lookup-year');
+  if (yearInput) {
+    yearInput.value = '';
+    yearInput.focus();
+  }
+}
+
+function _cmv40LookupClearTitle() {
+  const titleInput = document.getElementById('cmv40-lookup-title');
+  const yearInput = document.getElementById('cmv40-lookup-year');
+  const results = document.getElementById('cmv40-lookup-results');
+  if (titleInput) { titleInput.value = ''; titleInput.focus(); }
+  if (yearInput) yearInput.value = '';
+  if (results) results.innerHTML = '';
+  _cmv40LookupCandidates = [];
+}
+
+async function _cmv40LookupPick(idx) {
+  const picked = _cmv40LookupCandidates[idx];
+  if (!picked) return;
+  const results = document.getElementById('cmv40-lookup-results');
+  // NO tocamos los inputs del formulario — quedan como el usuario los
+  // escribió. Así el año que vea en la casilla siempre refleja SU input,
+  // no un valor auto-pegado que pueda envenenar la siguiente búsqueda.
+  await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es, picked.year);
+}
+
+async function _cmv40LookupFullFetch(container, title, year) {
+  container.innerHTML = `<div class="cmv40-lookup-loading">
+    <span class="cmv40-rec-spinner-inline"></span>
+    Consultando hoja DoviTools + repositorio Drive para <strong>${escHtml(title)}${year ? ` (${year})` : ''}</strong>…
+  </div>`;
+  const qs = new URLSearchParams({ title });
+  if (year) qs.set('year', String(year));
+  const qsStr = '?' + qs.toString();
+  const [recResp, repoResp, tmdbResp] = await Promise.all([
+    apiFetch('/api/cmv40/recommend' + qsStr).catch(() => null),
+    apiFetch('/api/cmv40/repo-rpus' + qsStr).catch(() => null),
+    apiFetch('/api/cmv40/tmdb-lookup', {
+      method: 'POST',
+      body: JSON.stringify({ source_mkv_name: title + (year ? ` (${year})` : '') }),
+    }).catch(() => null),
+  ]);
+  _cmv40LookupRenderResults(container, recResp, repoResp, tmdbResp);
+}
+
+function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
+  if (!rec && !repo && !tmdb) {
+    container.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar. Revisa la conexión o las API keys.</div>';
+    return;
+  }
+
+  let html = '';
+
+  // ── 1. Ficha TMDb ─────────────────────────────────────────────
+  const tmdbDetails = tmdb?.details || null;
+  if (tmdbDetails) {
+    html += renderTmdbCardHTML(tmdbDetails) || '';
+  } else if (tmdb && !tmdb.tmdb_configured) {
+    html += `<div class="cmv40-lookup-warn">⚠️ TMDb API key no configurada — la búsqueda usará solo el texto introducido. Añade la key en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a> para mejorar el matching ES→EN.</div>`;
+  } else if (tmdb) {
+    html += `<div class="cmv40-lookup-warn">ℹ️ TMDb no encontró la película con ese título/año. La consulta continúa con el texto crudo.</div>`;
+  }
+
+  // ── 2. Sección "Hoja de DoviTools" con su banner de estado/notas ──
+  // Reusa exactamente el mismo renderer del modal de Nuevo proyecto, con
+  // sus códigos de color (verde/rojo/gris), chips (Fuente·Sync·Verif.),
+  // motivo textual + links clicables al sheet original.
+  html += `<div class="cmv40-lookup-section">
+    <div class="cmv40-lookup-section-title">📋 Hoja de recomendaciones DoviTools</div>
+    <div class="cmv40-lookup-section-desc">Lo que dice la comunidad sobre la viabilidad de la conversión — con comentarios, métricas de sync y enlaces a comparativas HDR/plots cuando existen.</div>
+    <div id="cmv40-lookup-rec-banner" class="cmv40-rec-banner" style="display:none"></div>
+  </div>`;
+
+  // ── 3. Candidatos del repositorio con pipeline previsto ──────
+  html += '<div class="cmv40-lookup-section">';
+  html += '<div class="cmv40-lookup-section-title">📦 Repositorio DoviTools (bins <code>.bin</code>)</div>';
+  html += '<div class="cmv40-lookup-section-desc">Ficheros disponibles para descarga automática. El tag indica qué pipeline se aplicaría.</div>';
+  if (!repo || !repo.drive_configured) {
+    html += `<div class="cmv40-lookup-warn">⚠️ Google API key no configurada — no se puede consultar el repositorio Drive. Configúrala en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>.</div>`;
+  } else if (repo.error) {
+    html += `<div class="cmv40-lookup-warn">${escHtml(repo.error)}</div>`;
+  } else if (!repo.candidates || repo.candidates.length === 0) {
+    const t = repo.title_en || repo.title_es || '(título)';
+    html += `<div class="cmv40-lookup-empty">No hay <code>.bin</code> para <strong>${escHtml(t)}</strong> en el repositorio. Si quieres convertir esta película tendrás que obtener el RPU por otra vía (extraer de otro MKV, bin local, etc.).</div>`;
+  } else {
+    html += '<ul class="cmv40-lookup-candidates">';
+    repo.candidates.forEach((c, i) => {
+      const pt = c.predicted_type || 'unknown';
+      const tagMeta = _cmv40LookupTagMeta(pt);
+      const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
+      const score = Math.round(c.score * 100);
+      const isBest = i === 0;
+      html += `
+        <li class="cmv40-lookup-candidate ${isBest ? 'best' : ''}">
+          <div class="cmv40-lookup-cand-head">
+            <span class="cmv40-lookup-tag ${tagMeta.cls}">${tagMeta.icon} ${tagMeta.label}</span>
+            ${isBest ? '<span class="cmv40-lookup-best">🏆 mejor match</span>' : ''}
+            <span class="cmv40-lookup-score">${score}% similitud</span>
+            <span class="cmv40-lookup-size">${sizeMb} MB</span>
+          </div>
+          <div class="cmv40-lookup-cand-path">${escHtml(c.file.path)}</div>
+          <div class="cmv40-lookup-cand-pipeline">${_cmv40LookupPipelineSummary(pt)}</div>
+        </li>`;
+    });
+    html += '</ul>';
+  }
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  // Tras inyectar el HTML, renderiza el banner de recomendación en su slot
+  // — reusa el mismo renderer de Tab 3 con todos los chips/notas/links.
+  if (rec) {
+    _cmv40RenderRecommendation(rec, 'cmv40-lookup-rec-banner');
+  } else {
+    // Fallback raro: si rec no llegó, ocultamos la sección del sheet
+    const slot = document.getElementById('cmv40-lookup-rec-banner');
+    if (slot) {
+      slot.style.display = 'block';
+      slot.className = 'cmv40-rec-banner unknown';
+      slot.innerHTML = '<div class="cmv40-rec-body">No se pudo consultar la hoja de DoviTools.</div>';
+    }
+  }
+}
+
+function _cmv40LookupTagMeta(pt) {
+  if (pt === 'trusted_p7_fel_final') return { icon: '🎯', label: 'Drop-in FEL', cls: 'tag-ok' };
+  if (pt === 'trusted_p7_mel_final') return { icon: '🎯', label: 'Drop-in MEL', cls: 'tag-ok' };
+  if (pt === 'trusted_p8_source')    return { icon: '📦', label: 'P5→P8 Transfer', cls: 'tag-info' };
+  return { icon: '❓', label: 'Tipo desconocido', cls: 'tag-warn' };
+}
+
+function _cmv40LookupPipelineSummary(pt) {
+  const info = (typeof _CMV40_PIPELINE_PREVIEW !== 'undefined') ? _CMV40_PIPELINE_PREVIEW[pt] : null;
+  if (!info) {
+    return '<div class="cmv40-lookup-pp-desc">Pipeline se determinará tras descarga y análisis con dovi_tool.</div>';
+  }
+  return _cmv40PipelinePreviewHTML(info);
+}
 /**
  * Cierra el modal si el click fue directamente sobre el overlay (no en el contenido).
  * @param {MouseEvent} e
@@ -5075,6 +5331,20 @@ async function openNewCMv40Modal() {
   if (btn) btn.disabled = true;
   const autoCb = document.getElementById('cmv40-new-auto');
   if (autoCb) autoCb.checked = true;
+  // Reset del select de MKV origen por si quedó con valor de una sesión anterior
+  const srcSel = document.getElementById('cmv40-source-select');
+  if (srcSel) srcSel.value = '';
+  // Reset visual de la sección del repo: preview del pipeline + info de
+  // candidatos. Sin esto, al reabrir el modal se queda el match anterior.
+  const pp = document.getElementById('cmv40-new-pipeline-preview');
+  if (pp) { pp.innerHTML = ''; pp.style.display = 'none'; }
+  const repoInfo = document.getElementById('cmv40-new-repo-info');
+  if (repoInfo) {
+    repoInfo.textContent =
+      'Se descargará desde la carpeta pública del repositorio DoviTools en Google Drive.';
+  }
+  // Label del auto-pipeline al estado neutro (sin fases conocidas todavía)
+  _cmv40NewUpdateAutoLabel(null);
   _cmv40NewSwitchTargetTab('repo');
   _cmv40LoadRecommendation('');
   _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
@@ -5147,25 +5417,31 @@ const CMV40_CHIP_META = {
   notes:         { icon: '📝', label: 'Notas',    help: 'Notas / workflow. Factible suele ser "workflow 2-3"; si no, explica el motivo' },
 };
 
-// Chip compacto — icono + label corta + valor. Si hay link, el chip es
-// un enlace clicable y añade ↗.
-function _cmv40Chip(key, value, link) {
+// Fila de tabla key-value — icono + label (columna fija) + valor (flex) + link opcional.
+// Uniforme para todos los campos de factibilidad: Fuente, Sync, Verif, Notas.
+function _cmv40TableRow(key, value, link, opts = {}) {
   if (!value && !link) return '';
   const m = CMV40_CHIP_META[key] || { icon: '·', label: key, help: '' };
-  const inner = `
-    <span class="chip-icon">${m.icon}</span>
-    <span class="chip-label" data-tooltip="${escHtml(m.help)}">${escHtml(m.label)}</span>
-    <span class="chip-value">${escHtml(value || '—')}</span>`;
-  if (link) {
-    return `<a class="cmv40-chip linked" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
-      data-tooltip="Abrir: ${escHtml(link)}">${inner}<span class="chip-arrow">↗</span></a>`;
-  }
-  return `<span class="cmv40-chip">${inner}</span>`;
+  const valueClass = opts.mono ? 'cmv40-rec-row-value mono' : 'cmv40-rec-row-value';
+  const linkHtml = link
+    ? `<a class="cmv40-rec-row-link" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
+         data-tooltip="Abrir: ${escHtml(link)}">Abrir ↗</a>`
+    : '';
+  return `
+    <div class="cmv40-rec-row">
+      <div class="cmv40-rec-row-label" data-tooltip="${escHtml(m.help)}">
+        <span class="cmv40-rec-row-icon">${m.icon}</span>
+        <span>${escHtml(m.label)}</span>
+      </div>
+      <div class="${valueClass}">${escHtml(value || '—')}</div>
+      ${linkHtml}
+    </div>`;
 }
 
-function _cmv40RenderRecommendation(data) {
-  const banner = document.getElementById('cmv40-recommendation-banner');
+function _cmv40RenderRecommendation(data, containerId) {
+  const banner = document.getElementById(containerId || 'cmv40-recommendation-banner');
   if (!banner) return;
+  banner.style.display = 'block';
   const status = data.status || 'unknown';
   const cls = status === 'recommended' ? 'ok'
             : status === 'not_feasible' ? 'ko'
@@ -5184,7 +5460,18 @@ function _cmv40RenderRecommendation(data) {
         : `<span class="cmv40-rec-match-title">${escHtml(data.match_title)}</span>`)
     : '';
 
-  // Header compacto en una sola línea: icono + estado + separador + match title
+  // Meta compacta (match% · vía TMDb) empotrada en el header para no añadir otra fila
+  let metaHtml = '';
+  if (data.match_confidence && data.match_confidence > 0) {
+    const pct = Math.round(data.match_confidence * 100);
+    const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
+    metaHtml = `<div class="cmv40-rec-meta">
+      <span class="cmv40-rec-meta-tag" data-tooltip="Similitud entre el título del fichero y la fila de DoviTools">${pct}% match</span>
+      <span class="cmv40-rec-meta-tag" data-tooltip="Fuente del matching: TMDb traduce ES→EN">vía ${escHtml(viaLabel)}</span>
+    </div>`;
+  }
+
+  // Header compacto en una sola línea: icono + estado + separador + match title + meta
   let html = `
     <div class="cmv40-rec-top">
       <span class="cmv40-rec-status-badge ${cls}">
@@ -5192,29 +5479,24 @@ function _cmv40RenderRecommendation(data) {
         <span class="cmv40-rec-status-label">${statusLabel}</span>
       </span>
       ${matchTitleHtml ? `<span class="cmv40-rec-match-sep">·</span>${matchTitleHtml}` : ''}
+      ${metaHtml}
     </div>`;
 
   if (status === 'recommended' || status === 'not_feasible') {
-    const chips = [
-      _cmv40Chip('dv_source',     data.dv_source,     data.dv_source_link),
-      _cmv40Chip('sync',          data.sync_offset,   data.sync_link),
-      _cmv40Chip('comparisons',   data.comparisons,   data.comparisons_link),
-      _cmv40Chip('comparisons_2', data.comparisons_2, data.comparisons_2_link),
-    ].filter(Boolean);
-    if (chips.length) {
-      html += `<div class="cmv40-rec-chips">${chips.join('')}</div>`;
+    const notesKey = status === 'not_feasible' ? 'notes_motivo' : 'notes';
+    // Etiqueta dinámica para "motivo" en caso no_feasible — reusa meta de 'notes'
+    if (!CMV40_CHIP_META.notes_motivo) {
+      CMV40_CHIP_META.notes_motivo = { ...CMV40_CHIP_META.notes, label: 'Motivo' };
     }
-    if (data.notes) {
-      const noteLinkHtml = data.notes_link
-        ? `<a class="cmv40-rec-note-link" href="${escHtml(data.notes_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.notes_link)}">Abrir ↗</a>`
-        : '';
-      const noteIcon = CMV40_CHIP_META.notes.icon;
-      const noteLabel = status === 'not_feasible' ? 'Motivo' : CMV40_CHIP_META.notes.label;
-      html += `<div class="cmv40-rec-note">
-        <span class="cmv40-rec-note-label" data-tooltip="${escHtml(CMV40_CHIP_META.notes.help)}">${noteIcon} ${escHtml(noteLabel)}</span>
-        <span class="cmv40-rec-note-body">${escHtml(data.notes)}</span>
-        ${noteLinkHtml}
-      </div>`;
+    const rows = [
+      _cmv40TableRow('dv_source',     data.dv_source,     data.dv_source_link),
+      _cmv40TableRow('sync',          data.sync_offset,   data.sync_link),
+      _cmv40TableRow('comparisons',   data.comparisons,   data.comparisons_link),
+      _cmv40TableRow('comparisons_2', data.comparisons_2, data.comparisons_2_link),
+      _cmv40TableRow(notesKey,        data.notes,         data.notes_link),
+    ].filter(Boolean);
+    if (rows.length) {
+      html += `<div class="cmv40-rec-table">${rows.join('')}</div>`;
     }
   } else {
     html += `<div class="cmv40-rec-body">
@@ -5227,15 +5509,6 @@ function _cmv40RenderRecommendation(data) {
     if (!data.tmdb_configured) {
       html += `<div class="cmv40-rec-footer">⚠️ Clave de la API de TMDb no configurada — el matching ES→EN es más limitado. Añádela en ⚙︎ Configuración.</div>`;
     }
-  }
-
-  if (data.match_confidence && data.match_confidence > 0) {
-    const pct = Math.round(data.match_confidence * 100);
-    const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
-    html += `<div class="cmv40-rec-meta">
-      <span class="cmv40-rec-meta-tag" data-tooltip="Similitud entre el título del fichero y la fila de DoviTools">${pct}% match</span>
-      <span class="cmv40-rec-meta-tag" data-tooltip="Fuente del matching: TMDb traduce ES→EN">vía ${escHtml(viaLabel)}</span>
-    </div>`;
   }
 
   // Warning: cuando no tenemos hyperlinks (fuentes xlsx/api/html → ok; csv/disk → sin links)
@@ -5327,59 +5600,108 @@ function onCMv40TargetChange() {
 }
 
 // Panel explicativo del pipeline que se ejecutará según el tipo de target
+// Estructura: cada fase es un pill en el flujo visual. state: 'run' | 'skip'.
+// mod: etiqueta opcional bajo el pill (ej. "sin demux"). autoEndsAt: fase tras
+// la cual el auto-pipeline se detiene (null = corre hasta H).
 const _CMV40_PIPELINE_PREVIEW = {
   trusted_p7_fel_final: {
     icon: '🎯',
     title: 'Drop-in P7 FEL · CMv4.0 ya cocinado',
-    desc: 'El bin ya es un RPU P7 FEL CMv4.0 completo. Al ejecutar:',
-    steps: [
-      '<b>Fase A</b> analiza el BD y extrae el RPU source',
-      '<b>Fase B</b> descarga el bin del repo y valida gates automáticos (frame count, L8, L5/L6)',
-      '<b>Fase C</b> demuxa BL + EL del BD',
-      '<s>Fase D</s> <span style="opacity:0.6">revisión visual — <b>omitida</b> si gates OK</span>',
-      '<s>Fase F merge</s> <span style="opacity:0.6">transfer CMv4.0 — <b>omitido</b>, inyecta el bin directo</span>',
-      '<b>Fase F inject</b> + <b>G mux</b> + <b>H validate</b> completan el MKV',
+    blurb: 'El bin ya es un RPU P7 FEL CMv4.0 final. Se inyecta directo sobre BL+EL.',
+    tiempo: '~4–8 min',
+    cls: 'ok',
+    autoEndsAt: null,
+    phases: [
+      { k: 'A', label: 'Analizar BD',    state: 'run' },
+      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'C', label: 'Demux',          state: 'skip', mod: 'no hace falta' },
+      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'F', label: 'Inyectar',       state: 'run',  mod: 'sin merge' },
+      { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'sin mux dual' },
+      { k: 'H', label: 'Validar',        state: 'run' },
     ],
-    tiempo: '~5–10 min (dominado por demux + mux del MKV)',
   },
   trusted_p7_mel_final: {
     icon: '🎯',
     title: 'Drop-in P7 MEL · CMv4.0 ya cocinado',
-    desc: 'El bin ya es un RPU P7 MEL CMv4.0. Al ejecutar:',
-    steps: [
-      '<b>Fase A–C</b> analiza BD y demuxa',
-      '<s>Fase D</s> <span style="opacity:0.6">omitida si gates OK</span>',
-      '<b>Fase F</b> inyecta el RPU target directo en BL (MEL descarta EL → P8.1 final)',
-      '<b>G + H</b> mux + validate',
+    blurb: 'El bin ya es un RPU P7 MEL CMv4.0. Se descarta EL → P8.1 final.',
+    tiempo: '~5–8 min',
+    cls: 'ok',
+    autoEndsAt: null,
+    phases: [
+      { k: 'A', label: 'Analizar BD',    state: 'run' },
+      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'C', label: 'Demux BL',       state: 'run', mod: 'EL descartado' },
+      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'F', label: 'Inyectar en BL', state: 'run',  mod: 'sin merge' },
+      { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'single-layer' },
+      { k: 'H', label: 'Validar',        state: 'run' },
     ],
-    tiempo: '~5 min',
   },
   trusted_p8_source: {
     icon: '📦',
     title: 'Source P5→P8 · transfer CMv4.0',
-    desc: 'El bin es un RPU P8 con CMv4.0 (L8 trims) — fuente para el merge clásico. Al ejecutar:',
-    steps: [
-      '<b>Fase A</b> extrae RPU P7 del BD',
-      '<b>Fase B</b> descarga bin y valida gates',
-      '<b>Fase C</b> demuxa BL + EL',
-      '<s>Fase D</s> <span style="opacity:0.6">omitida si gates OK</span>',
-      '<b>Fase F merge</b> transfiere CMv4.0 del bin al RPU P7 (preserva FEL)',
-      '<b>F inject</b> + <b>G mux</b> + <b>H validate</b>',
-    ],
+    blurb: 'Fuente P8 con L8 trims — se hace merge del CMv4.0 al RPU P7 preservando FEL.',
     tiempo: '~6–10 min',
+    cls: 'info',
+    autoEndsAt: null,
+    phases: [
+      { k: 'A', label: 'Analizar BD',    state: 'run' },
+      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'C', label: 'Demux BL+EL',    state: 'run' },
+      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'F', label: 'Merge + inyectar', state: 'run' },
+      { k: 'G', label: 'Remux MKV',      state: 'run' },
+      { k: 'H', label: 'Validar',        state: 'run' },
+    ],
   },
   unknown: {
     icon: '❓',
-    title: 'Tipo no clasificable por nombre',
-    desc: 'El nombre del fichero no coincide con patrones conocidos de DoviTools. La clasificación real la hará <b>Fase B</b> tras descarga con <code>dovi_tool info</code>.',
-    steps: [
-      'Fase B analiza el bin descargado y asigna target_type + evalúa gates',
-      'Según el resultado, el pipeline elegirá drop-in o flujo completo',
-      'Si los gates no pasan → flujo completo con revisión manual en Fase D',
-    ],
+    title: 'Tipo por clasificar',
+    blurb: 'La clasificación real se hará en Fase B tras descargar. Si los gates pasan → drop-in; si no → pausa en D para revisión visual.',
     tiempo: 'Variable',
+    cls: 'warn',
+    autoEndsAt: 'D',
+    phases: [
+      { k: 'A', label: 'Analizar BD',    state: 'run' },
+      { k: 'B', label: 'Clasificar bin', state: 'run' },
+      { k: 'C', label: 'Demux',          state: 'run', mod: 'probable' },
+      { k: 'D', label: 'Verif. visual',  state: 'run', mod: 'si no trusted' },
+      { k: 'F', label: 'Inyectar',       state: 'run' },
+      { k: 'G', label: 'Remux MKV',      state: 'run' },
+      { k: 'H', label: 'Validar',        state: 'run' },
+    ],
   },
 };
+
+// Renderer compartido del preview del pipeline — se usa en el modal "Nuevo
+// proyecto" y también en cada candidato de la consulta rápida (🔎).
+function _cmv40PipelinePreviewHTML(info) {
+  if (!info) return '';
+  const cls = info.cls || 'warn';
+  const flow = info.phases.map((p, i) => {
+    const modHtml = p.mod ? `<span class="cmv40-ph-mod">${escHtml(p.mod)}</span>` : '';
+    const arrow = (i < info.phases.length - 1)
+      ? `<span class="cmv40-ph-arrow" aria-hidden="true">→</span>`
+      : '';
+    return `
+      <div class="cmv40-ph-pill cmv40-ph-${p.state}" data-tooltip="Fase ${p.k}: ${escHtml(p.label)}${p.mod ? ' · ' + escHtml(p.mod) : ''}">
+        <span class="cmv40-ph-letter">${p.k}</span>
+        <span class="cmv40-ph-label">${escHtml(p.label)}</span>
+        ${modHtml}
+      </div>${arrow}`;
+  }).join('');
+  return `
+    <div class="cmv40-pipeline-preview ${cls}">
+      <div class="cmv40-pp-header">
+        <span class="cmv40-pp-icon">${info.icon}</span>
+        <span class="cmv40-pp-title">${escHtml(info.title)}</span>
+        <span class="cmv40-pp-time">⏱ ${escHtml(info.tiempo)}</span>
+      </div>
+      <div class="cmv40-pp-flow">${flow}</div>
+      <div class="cmv40-pp-blurb">${escHtml(info.blurb)}</div>
+    </div>`;
+}
 
 function _cmv40NewUpdatePipelinePreview() {
   const container = document.getElementById('cmv40-new-pipeline-preview');
@@ -5389,24 +5711,40 @@ function _cmv40NewUpdatePipelinePreview() {
       || _cmv40NewTargetSelected.kind !== 'repo') {
     container.innerHTML = '';
     container.style.display = 'none';
+    _cmv40NewUpdateAutoLabel(null);
     return;
   }
   const pt = _cmv40NewTargetSelected.predicted_type || 'unknown';
   const info = _CMV40_PIPELINE_PREVIEW[pt] || _CMV40_PIPELINE_PREVIEW.unknown;
-  const cls = pt === 'trusted_p7_fel_final' || pt === 'trusted_p7_mel_final' ? 'ok'
-            : pt === 'trusted_p8_source' ? 'info'
-            : 'warn';
   container.style.display = 'block';
-  container.innerHTML = `
-    <div class="cmv40-pipeline-preview ${cls}">
-      <div class="cmv40-pp-header">
-        <span class="cmv40-pp-icon">${info.icon}</span>
-        <span class="cmv40-pp-title">${escHtml(info.title)}</span>
-      </div>
-      <div class="cmv40-pp-desc">${info.desc}</div>
-      <ol class="cmv40-pp-steps">${info.steps.map(s => `<li>${s}</li>`).join('')}</ol>
-      <div class="cmv40-pp-time">⏱ Tiempo estimado: ${escHtml(info.tiempo)}</div>
-    </div>`;
+  container.innerHTML = _cmv40PipelinePreviewHTML(info);
+  _cmv40NewUpdateAutoLabel(info);
+}
+
+// Actualiza el texto del toggle "Auto-pipeline" según el preview activo.
+// - Trusted: corre todo A→H automáticamente.
+// - Unknown/generic: se detiene en D si los gates no pasan.
+function _cmv40NewUpdateAutoLabel(info) {
+  const span = document.querySelector('.cmv40-new-auto-toggle span');
+  const wrap = document.querySelector('.cmv40-new-auto-toggle');
+  if (!span) return;
+  if (!info) {
+    span.textContent = '🤖 Auto-pipeline';
+    if (wrap) wrap.setAttribute('data-tooltip',
+      'Encadena las fases disponibles sin interacción manual.');
+    return;
+  }
+  const runPhases = info.phases.filter(p => p.state === 'run').map(p => p.k);
+  const endsAt = info.autoEndsAt;
+  if (endsAt) {
+    span.textContent = `🤖 Auto-pipeline hasta Fase ${endsAt} (pausa si no trusted)`;
+    if (wrap) wrap.setAttribute('data-tooltip',
+      `Corre hasta la Fase ${endsAt}. Si los gates no pasan en B, espera revisión manual.`);
+  } else {
+    span.textContent = `🤖 Auto-pipeline completo (${runPhases.join('→')})`;
+    if (wrap) wrap.setAttribute('data-tooltip',
+      `Ejecuta ${runPhases.length} fases automáticamente. Estimado: ${info.tiempo}.`);
+  }
 }
 
 function _cmv40NewResetRepoSelect(placeholder) {
@@ -6359,9 +6697,9 @@ function _cmv40RenderTrustPanel(s) {
       <div class="cmv40-trust-header">
         <span>${meta.icon}</span>
         <span>${escHtml(meta.label)}</span>
-        <span style="margin-left:auto; font-weight:500; font-size:10px; opacity:0.85">${escHtml(statusTxt)}</span>
+        <span class="cmv40-trust-status">${escHtml(statusTxt)}</span>
       </div>
-      <div style="font-size:10px; color:var(--text-3); margin-top:2px">${escHtml(meta.desc)}</div>
+      <div class="cmv40-trust-desc">${escHtml(meta.desc)}</div>
       ${gateItems.length ? `<div class="cmv40-trust-gates">${gateItems.join('')}</div>` : ''}
     </div>`;
 }
@@ -6422,10 +6760,15 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const srcType = s.target_rpu_source === 'drive' ? 'Repo DoviTools'
                    : s.target_rpu_source === 'mkv' ? 'Extraído de otro MKV'
                    : 'Carpeta NAS';
+    const shortHash = s.target_rpu_sha256 ? s.target_rpu_sha256.slice(0, 12) : '';
+    const hashLine = shortHash
+      ? `<div><span style="color:var(--text-3)">SHA-256:</span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
+      : '';
     return `
       <div style="font-size:12px; line-height:1.8">
         <div><span style="color:var(--text-3)">Fuente:</span> ${srcType}</div>
         <div><span style="color:var(--text-3)">Path:</span> <code>${escHtml(s.target_rpu_path || '—')}</code></div>
+        ${hashLine}
         <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
         <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>

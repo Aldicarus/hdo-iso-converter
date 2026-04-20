@@ -25,21 +25,57 @@ import re
 # La clasificación definitiva se hace tras descarga con `dovi_tool info`
 # en Fase B, pero estas predicciones UX dan al usuario señalización
 # inmediata sobre qué pipeline esperar antes de crear el proyecto.
+#
+# Reglas clave:
+# - Separador `[\s_\-\.]` (incluye PUNTO): el repo usa mucho `P7.FEL` con dots.
+# - MEL se evalúa ANTES que FEL/catch-all: nombres tipo "MEL P7 (cmv4.0)"
+#   caerían en la regla genérica "cmv4.0 restored" y se mal-clasificarían como FEL.
+_SEP   = r"[\s_\-\.]"
+# Lookbehind/lookahead para "límites" que NO dependan de \b. `_` es word char
+# en regex, por lo que `_P7 FEL_` no dispara \b; estos asertores sí.
+_BOUND = r"(?<![A-Za-z0-9])"
+_END   = r"(?![A-Za-z0-9])"
+# Alias: "profile 7" equivale a "P7" (nombres tipo "(profile 7 FEL)")
+_P7    = rf"(?:p7|profile{_SEP}+7)"
+
 _BIN_PATTERNS = [
-    # P7 FEL con marcador explícito de cmv4.0 → drop-in FEL (rama C-FEL)
-    (re.compile(r"p7[\s_\-]*fel[\s\S]*?cmv[\s_\-]?4", re.I), "trusted_p7_fel_final"),
-    (re.compile(r"cmv[\s_\-]?4[\s\S]*?p7[\s_\-]*fel", re.I), "trusted_p7_fel_final"),
-    # P7 MEL con cmv4.0 → drop-in MEL
-    (re.compile(r"p7[\s_\-]*mel[\s\S]*?cmv[\s_\-]?4", re.I), "trusted_p7_mel_final"),
-    (re.compile(r"cmv[\s_\-]?4[\s\S]*?p7[\s_\-]*mel", re.I), "trusted_p7_mel_final"),
-    # "P5 to P8" / "P5→P8" → bin de transfer (rama B)
-    (re.compile(r"p5[\s_\-]*(?:to|->|→|=>|–|—)[\s_\-]*p8", re.I), "trusted_p8_source"),
-    # Marcadores sueltos "cmv4.0 added" / "cmv4.0 restored" sin profile explícito
-    # → probablemente drop-in FEL (convención común del repo)
-    (re.compile(r"cmv[\s_\-]?4(?:\.0)?[\s_\-]*(added|restored|baked)", re.I), "trusted_p7_fel_final"),
-    # Solo "P7 FEL" (asume CMv4.0 por defecto en el repo DoviTools)
-    (re.compile(r"\bp7[\s_\-]*fel\b", re.I), "trusted_p7_fel_final"),
-    (re.compile(r"\bp7[\s_\-]*mel\b", re.I), "trusted_p7_mel_final"),
+    # ── MEL primero (evita falsos positivos en la regla genérica cmv4.0) ──
+    # P7 MEL ... cmv4 (ambos órdenes)
+    (re.compile(rf"{_P7}{_SEP}*mel[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"cmv{_SEP}?4[\s\S]*?{_P7}{_SEP}*mel",  re.I), "trusted_p7_mel_final"),
+    # MEL P7 (orden invertido: "retail MEL P7 (cmv4.0 restored)")
+    (re.compile(rf"mel{_SEP}+{_P7}[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"cmv{_SEP}?4[\s\S]*?mel{_SEP}+{_P7}",  re.I), "trusted_p7_mel_final"),
+    # ── FEL con cmv4 (ambos órdenes) ─────────────────────────────────────
+    (re.compile(rf"{_P7}{_SEP}*fel[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"cmv{_SEP}?4[\s\S]*?{_P7}{_SEP}*fel",  re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"fel{_SEP}+{_P7}[\s\S]*?cmv{_SEP}?4",  re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"cmv{_SEP}?4[\s\S]*?fel{_SEP}+{_P7}",  re.I), "trusted_p7_fel_final"),
+    # ── P5 → P8 transfer (rama B) ────────────────────────────────────────
+    (re.compile(rf"p5{_SEP}*(?:to|->|→|=>|–|—){_SEP}*p8", re.I), "trusted_p8_source"),
+    # ── Catch-all "cmv4.0 added/restored/baked" sin profile → asume FEL ──
+    # (MEL ya se detectó arriba, así que aquí es seguro inferir FEL)
+    (re.compile(rf"cmv{_SEP}?4(?:\.0)?{_SEP}*(added|restored|baked)", re.I),
+     "trusted_p7_fel_final"),
+    # ── Orphan profile tags sin cmv4: P7 MEL / MEL P7 / P7 FEL / FEL P7 ──
+    #    Asumimos CMv4.0 por convención del repo DoviTools; los gates de
+    #    Fase B lo verifican en runtime. _BOUND/_END evitan "felpa", "melt".
+    (re.compile(rf"{_BOUND}{_P7}{_SEP}*mel{_END}", re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"{_BOUND}mel{_SEP}+{_P7}{_END}", re.I), "trusted_p7_mel_final"),
+    (re.compile(rf"{_BOUND}{_P7}{_SEP}*fel{_END}", re.I), "trusted_p7_fel_final"),
+    (re.compile(rf"{_BOUND}fel{_SEP}+{_P7}{_END}", re.I), "trusted_p7_fel_final"),
+]
+
+# Artefactos que NO son targets utilizables — son salidas de análisis o
+# working files, no RPUs de consumo. Se filtran en rank_candidates y se
+# muestran aparte en el survey.
+# OJO: NO incluimos `_FlagRPU` — ese sufijo indica que el RPU tiene el flag
+# CMv4.0 activado (es un target VÁLIDO, no un artefacto).
+_NOT_TARGET_PATTERNS = [
+    # "CM_Analyze" / "CM Analyze" / ".CM_Analyze" / "cm_analyze" — separador flex
+    re.compile(rf"{_SEP}cm{_SEP}*analyze", re.I),
+    # "_Resolve" / " resolve" / ".Resolve" — al final o seguido de sep
+    re.compile(rf"{_SEP}resolve(?:{_SEP}|\.bin$|$)", re.I),
 ]
 
 
@@ -54,6 +90,15 @@ def predict_bin_type(filename: str) -> str:
         if pat.search(filename):
             return typ
     return "unknown"
+
+
+def is_not_target(filename: str) -> bool:
+    """True si el nombre sugiere un artefacto (análisis/working file) que
+    no debería usarse como target. Ejemplos: *_CM_Analyze.bin, *_Resolve.bin.
+    """
+    if not filename:
+        return False
+    return any(p.search(filename) for p in _NOT_TARGET_PATTERNS)
 
 MIN_SCORE_STRICT = 0.65   # con año exacto
 MIN_SCORE_NO_YEAR = 0.78  # sin año fiable
@@ -88,6 +133,9 @@ def rank_candidates(title_en: str, title_es: str, year: int | None,
 
     results: list[DriveCandidate] = []
     for f in files:
+        # Saltar artefactos de análisis / working files — no son targets válidos
+        if is_not_target(f.name):
+            continue
         fn_slug = _filename_slug(f.name)
         if not fn_slug:
             continue

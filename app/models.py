@@ -871,6 +871,11 @@ class CMv40Session(BaseModel):
     target_rpu_path: str = ""
     """Ruta al .bin de origen (antes de copiarlo al workdir)."""
 
+    target_rpu_sha256: str = ""
+    """SHA-256 del .bin target descargado/copiado. Útil para detectar repacks
+    del repositorio DoviTools (si REC_9999 republica con correcciones, el hash
+    cambia y puedes decidir si rehacer el MKV)."""
+
     target_dv_info: DoviInfo | None = None
     """Análisis DV del RPU target."""
 

@@ -1334,14 +1334,14 @@ select { appearance: none; cursor: pointer;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   display: flex; align-items: center; gap: 8px;
 }
 .modal-sub {
   font-size: 12px;
   color: var(--text-2);
-  margin-bottom: 18px;
-  line-height: 1.5;
+  margin-bottom: 12px;
+  line-height: 1.45;
 }
 .modal-footer {
   display: flex;
@@ -1381,7 +1381,7 @@ select { appearance: none; cursor: pointer;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: .8px;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .iso-select-row {
@@ -3237,12 +3237,12 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-tl-trust-badge.trusted {
   background: rgba(52, 199, 89, 0.12);
-  color: #a7f3c4;
+  color: #0e6b2a;
   border-color: rgba(52, 199, 89, 0.35);
 }
 .cmv40-tl-trust-badge.manual {
   background: rgba(0, 122, 255, 0.10);
-  color: #5aabff;
+  color: #005fb8;
   border-color: rgba(0, 122, 255, 0.30);
 }
 .cmv40-tl-total {
@@ -3308,7 +3308,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-tl-status-icon.running {
   background: rgba(0, 122, 255, 0.25);
-  border: 1.5px solid #5aabff;
+  border: 1.5px solid #005fb8;
   box-shadow: 0 0 10px rgba(91, 171, 255, 0.55);
   position: relative;
 }
@@ -3318,7 +3318,7 @@ select { appearance: none; cursor: pointer;
   inset: -1px;
   border-radius: 50%;
   border: 2px solid transparent;
-  border-top-color: #5aabff;
+  border-top-color: #005fb8;
   animation: cmv40-spin 0.9s linear infinite;
 }
 .cmv40-tl-status-icon.skipped {
@@ -3365,7 +3365,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-tl-eta.running {
   background: rgba(0, 122, 255, 0.15);
-  color: #5aabff;
+  color: #005fb8;
   font-weight: 600;
 }
 .cmv40-tl-eta.skipped {
@@ -3546,7 +3546,7 @@ select { appearance: none; cursor: pointer;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 10px 16px;
+  padding: 7px 14px;
   margin-bottom: -2px;
   font-size: 13px;
   font-weight: 500;
@@ -3563,7 +3563,7 @@ select { appearance: none; cursor: pointer;
 }
 
 .cmv40-target-tab {
-  padding: 16px;
+  padding: 11px 14px 12px;
   background: var(--surface-1);
   border-radius: 0 0 var(--r-md) var(--r-md);
   border: 1px solid var(--sep);
@@ -3610,6 +3610,7 @@ select { appearance: none; cursor: pointer;
 .cmv40-new-modal-box {
   max-width: 980px;
   width: calc(100vw - 48px);
+  padding: 18px 22px;
 }
 /* Tabs del selector de RPU target: nunca wrappean */
 .cmv40-new-tabs .cmv40-tab-btn {
@@ -3631,111 +3632,194 @@ select { appearance: none; cursor: pointer;
 /* ── Badge + panel de gates de trust (target clasificado) ──────────── */
 .cmv40-trust-panel {
   margin-top: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
   border: 1px solid;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .cmv40-trust-panel.ok {
-  background: rgba(52, 199, 89, 0.08);
-  border-color: rgba(52, 199, 89, 0.35);
-  color: #a7f3c4;
+  background: rgba(52, 199, 89, 0.14);
+  border-color: rgba(52, 199, 89, 0.55);
+  color: #0e6b2a;
 }
 .cmv40-trust-panel.warn {
-  background: rgba(255, 149, 0, 0.08);
-  border-color: rgba(255, 149, 0, 0.35);
-  color: #ffcd74;
+  background: rgba(255, 149, 0, 0.14);
+  border-color: rgba(255, 149, 0, 0.55);
+  color: #8a4a00;
 }
 .cmv40-trust-panel.ko {
-  background: rgba(255, 69, 58, 0.08);
-  border-color: rgba(255, 69, 58, 0.35);
-  color: #ff9b93;
+  background: rgba(255, 59, 48, 0.14);
+  border-color: rgba(255, 59, 48, 0.55);
+  color: #a31a13;
 }
 .cmv40-trust-panel.generic {
-  background: rgba(142, 142, 147, 0.08);
-  border-color: rgba(142, 142, 147, 0.25);
-  color: var(--text-2);
+  background: rgba(142, 142, 147, 0.12);
+  border-color: rgba(142, 142, 147, 0.40);
+  color: var(--text-1);
 }
 .cmv40-trust-header {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.cmv40-trust-status {
+  margin-left: auto;
   font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.cmv40-trust-desc {
+  font-size: 11.5px;
+  color: inherit;
+  opacity: 0.85;
+  margin-top: 3px;
 }
 .cmv40-trust-gates {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 6px;
-  font-size: 10px;
+  gap: 5px 8px;
+  margin-top: 8px;
+  font-size: 11px;
 }
 .cmv40-trust-gate {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   cursor: help;
+  font-weight: 600;
 }
-.cmv40-trust-gate.pass { color: #a7f3c4; }
-.cmv40-trust-gate.fail { color: #ff9b93; }
-.cmv40-trust-gate.soft { color: #ffcd74; }
+.cmv40-trust-gate.pass { color: #0e6b2a; border-color: rgba(52, 199, 89, 0.40); }
+.cmv40-trust-gate.fail { color: #a31a13; border-color: rgba(255, 59, 48, 0.40); }
+.cmv40-trust-gate.soft { color: #8a4a00; border-color: rgba(255, 149, 0, 0.40); }
 
 /* ── Preview del pipeline al seleccionar un bin del repo ──────────── */
 .cmv40-pipeline-preview {
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
   border: 1px solid;
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .cmv40-pipeline-preview.ok {
-  background: rgba(52, 199, 89, 0.08);
-  border-color: rgba(52, 199, 89, 0.30);
+  background: rgba(52, 199, 89, 0.10);
+  border-color: rgba(52, 199, 89, 0.40);
 }
 .cmv40-pipeline-preview.info {
-  background: rgba(0, 122, 255, 0.08);
-  border-color: rgba(0, 122, 255, 0.30);
+  background: rgba(0, 122, 255, 0.10);
+  border-color: rgba(0, 122, 255, 0.40);
 }
 .cmv40-pipeline-preview.warn {
-  background: rgba(255, 149, 0, 0.08);
-  border-color: rgba(255, 149, 0, 0.30);
+  background: rgba(255, 149, 0, 0.10);
+  border-color: rgba(255, 149, 0, 0.40);
 }
 .cmv40-pp-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 12px;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 13px;
   color: var(--text-1);
 }
-.cmv40-pp-icon { font-size: 16px; }
-.cmv40-pp-desc {
-  margin-top: 4px;
+.cmv40-pp-icon { font-size: 18px; line-height: 1; }
+.cmv40-pp-title { flex: 1; min-width: 0; }
+.cmv40-pp-time {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 3px 9px;
+  border-radius: 10px;
+  letter-spacing: 0.2px;
+}
+.cmv40-pp-blurb {
+  font-size: 11.5px;
   color: var(--text-2);
 }
-.cmv40-pp-steps {
-  margin: 6px 0 6px 18px;
-  padding: 0;
-  color: var(--text-1);
+
+/* Flujo horizontal de fases (breadcrumb-style). Nunca wrappea: si no cabe,
+   scrolla horizontalmente para mantener el pipeline como una línea legible. */
+.cmv40-pp-flow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 2px;  /* espacio para el scrollbar horizontal si aparece */
 }
-.cmv40-pp-steps li { margin-bottom: 3px; }
-.cmv40-pp-steps s { color: var(--text-3); }
-.cmv40-pp-steps code {
-  background: rgba(0,0,0,0.22);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10px;
+.cmv40-pp-flow::-webkit-scrollbar { height: 4px; }
+.cmv40-pp-flow::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
+.cmv40-ph-pill { flex-shrink: 0; }
+.cmv40-ph-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: 70px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  border: 1px solid;
+  font-size: 11px;
+  cursor: help;
+  transition: transform 0.1s;
 }
-.cmv40-pp-time {
-  margin-top: 6px;
-  font-size: 10px;
+.cmv40-ph-pill:hover { transform: translateY(-1px); }
+.cmv40-ph-pill.cmv40-ph-run {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(52, 199, 89, 0.55);
+  color: #0e6b2a;
+}
+.cmv40-ph-pill.cmv40-ph-skip {
+  background: rgba(142, 142, 147, 0.12);
+  border-color: rgba(142, 142, 147, 0.40);
+  border-style: dashed;
+  color: #6e6e73;
+}
+.cmv40-ph-pill.cmv40-ph-skip .cmv40-ph-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.85;
+}
+.cmv40-ph-letter {
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.cmv40-ph-label {
+  font-weight: 600;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.cmv40-ph-mod {
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.80;
+  font-style: italic;
+  white-space: nowrap;
+  letter-spacing: 0.1px;
+}
+.cmv40-ph-arrow {
+  display: inline-flex;
+  align-items: center;
   color: var(--text-3);
-  padding-top: 6px;
-  border-top: 1px dashed rgba(255,255,255,0.08);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 2px;
+  flex-shrink: 0;
 }
 
 /* Fase omitida automáticamente — visual más tenue, borde punteado */
@@ -3752,8 +3836,8 @@ select { appearance: none; cursor: pointer;
 
 /* Footer compacto: checkbox auto-pipeline + botones en una sola fila */
 .cmv40-new-footer {
-  margin-top: 16px;
-  padding-top: 14px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--sep);
   display: flex;
   align-items: center;
@@ -3778,15 +3862,16 @@ select { appearance: none; cursor: pointer;
 
 /* Banner de recomendación CMv4.0 (DoviTools) en el modal "Nuevo proyecto" */
 .cmv40-rec-banner {
-  margin-top: 10px;
-  padding: 12px 14px;
+  margin-top: 6px;
+  padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
+  color: var(--text-1);
 }
 .cmv40-rec-banner.loading {
   background: rgba(0, 122, 255, 0.08);
@@ -3794,26 +3879,26 @@ select { appearance: none; cursor: pointer;
   color: var(--text-2);
 }
 .cmv40-rec-banner.ok {
-  background: rgba(52, 199, 89, 0.10);
-  border-color: rgba(52, 199, 89, 0.35);
-  color: #a7f3c4;
+  background: rgba(52, 199, 89, 0.08);
+  border-color: rgba(52, 199, 89, 0.40);
 }
 .cmv40-rec-banner.ko {
-  background: rgba(255, 69, 58, 0.10);
-  border-color: rgba(255, 69, 58, 0.35);
-  color: #fca5a5;
+  background: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.45);
 }
 .cmv40-rec-banner.unknown {
-  background: rgba(142, 142, 147, 0.10);
-  border-color: rgba(142, 142, 147, 0.25);
-  color: var(--text-2);
+  background: rgba(142, 142, 147, 0.08);
+  border-color: rgba(142, 142, 147, 0.35);
 }
-/* Cabecera en UNA línea: badge de estado + separador + título del match */
+/* Cabecera en UNA línea: badge de estado + separador + título del match + meta */
 .cmv40-rec-top {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.cmv40-rec-top .cmv40-rec-meta {
+  margin-left: auto;
 }
 .cmv40-rec-status-badge {
   display: inline-flex;
@@ -3829,18 +3914,18 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-status-badge.ok {
   background: rgba(52, 199, 89, 0.18);
-  color: #a7f3c4;
+  color: #0e6b2a;
   border: 1px solid rgba(52, 199, 89, 0.40);
 }
 .cmv40-rec-status-badge.ko {
   background: rgba(255, 69, 58, 0.18);
-  color: #ff9b93;
+  color: #a31a13;
   border: 1px solid rgba(255, 69, 58, 0.40);
 }
 .cmv40-rec-status-badge.unknown {
   background: rgba(142, 142, 147, 0.18);
-  color: #b8bcc4;
-  border: 1px solid rgba(142, 142, 147, 0.30);
+  color: #4a4a4f;
+  border: 1px solid rgba(142, 142, 147, 0.45);
 }
 .cmv40-rec-icon { font-size: 14px; line-height: 1; }
 .cmv40-rec-status-label { font-size: 11px; }
@@ -3864,7 +3949,76 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-match-title.linked:hover { text-decoration: underline; }
 
-/* Chips en una sola fila, alineados horizontalmente */
+/* ── Tabla key-value de la factibilidad ─────────────────────────── */
+.cmv40-rec-table {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cmv40-rec-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 11px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.cmv40-rec-row:first-child { border-top: none; }
+.cmv40-rec-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  cursor: help;
+  border-bottom: 1px dotted transparent;
+  align-self: center;
+}
+.cmv40-rec-row-label:hover {
+  border-bottom-color: var(--text-3);
+}
+.cmv40-rec-row-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.cmv40-rec-row-value {
+  color: var(--text-1);
+  font-weight: 500;
+  word-break: break-word;
+  min-width: 0;
+}
+.cmv40-rec-row-value.mono {
+  font-family: -apple-system, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+}
+.cmv40-rec-row-link {
+  flex-shrink: 0;
+  color: #005fb8;
+  text-decoration: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  background: rgba(0, 122, 255, 0.10);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  border-radius: 10px;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+  align-self: center;
+}
+.cmv40-rec-row-link:hover {
+  background: rgba(0, 122, 255, 0.20);
+  border-color: rgba(0, 122, 255, 0.65);
+}
+
+/* Legacy: chips viejos (aún usados en timeline/otros sitios). */
 .cmv40-rec-chips {
   display: flex;
   gap: 6px;
@@ -3875,8 +4029,8 @@ select { appearance: none; cursor: pointer;
   align-items: center;
   gap: 5px;
   padding: 5px 9px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.10);
   border-radius: 6px;
   font-size: 11px;
   color: var(--text-1);
@@ -3908,7 +4062,7 @@ select { appearance: none; cursor: pointer;
   font-weight: 600;
   font-size: 12px;
 }
-.cmv40-chip.linked .chip-value { color: #5aabff; }
+.cmv40-chip.linked .chip-value { color: #005fb8; }
 .chip-arrow {
   color: var(--blue, #007aff);
   font-size: 10px;
@@ -3920,16 +4074,17 @@ select { appearance: none; cursor: pointer;
 .cmv40-rec-note {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.18);
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 .cmv40-rec-note-label {
   flex-shrink: 0;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-2);
   border-bottom: 1px dotted var(--text-3);
   cursor: help;
@@ -3949,7 +4104,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-note-link {
   flex-shrink: 0;
-  color: #5aabff;
+  color: #005fb8;
   text-decoration: none;
   font-size: 10px;
   font-weight: 600;
@@ -3973,12 +4128,13 @@ select { appearance: none; cursor: pointer;
   font-size: 10px;
 }
 .cmv40-rec-meta-tag {
-  padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-3);
+  padding: 2px 9px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-2);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.10);
   cursor: help;
+  font-weight: 500;
 }
 
 /* Compatibilidad: elementos antiguos si algo los usa aún */
@@ -4167,6 +4323,420 @@ select { appearance: none; cursor: pointer;
   margin-right: 6px;
 }
 
+/* ── Botón 🔎 de Consulta rápida (header, izda del engranaje) ────── */
+.btn-lookup {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: rgba(52, 199, 89, 0.10);
+  border: 1px solid rgba(52, 199, 89, 0.40);
+  border-radius: 8px;
+  color: #7adfa0;
+  cursor: pointer;
+  margin-right: 8px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
+}
+.btn-lookup:hover {
+  background: rgba(52, 199, 89, 0.22);
+  color: #9cf0b8;
+  border-color: rgba(52, 199, 89, 0.75);
+  transform: scale(1.08);
+}
+.btn-lookup:active { transform: scale(0.92); }
+.btn-lookup-icon { font-size: 16px; line-height: 1; }
+
+/* ── Modal de Consulta rápida CMv4.0 ─────────────────────────────── */
+/* Modal "tool-like": header + form fijos arriba, body con scroll interno,
+   footer fijo abajo. Evita que el scrollbar salga del border-radius y
+   mantiene el formulario siempre accesible mientras se scrollean candidatos. */
+.cmv40-lookup-modal-box {
+  max-width: 1080px;
+  width: calc(100vw - 48px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;          /* el padding lo manejan head/body/foot individualmente */
+  overflow: hidden;    /* clip a border-radius: el scroll vive dentro del body */
+}
+.cmv40-lookup-head {
+  flex-shrink: 0;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--surface-1);
+}
+.cmv40-lookup-body {
+  flex: 1 1 auto;
+  min-height: 0;       /* permite que el flex child respete overflow */
+  overflow-y: auto;
+  padding: 14px 22px;
+  background: var(--bg);
+}
+.cmv40-lookup-foot {
+  flex-shrink: 0;
+  padding: 10px 22px;
+  border-top: 1px solid var(--sep);
+  background: var(--surface-1);
+  display: flex;
+  justify-content: flex-end;
+}
+.cmv40-lookup-form {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 8px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cmv40-lookup-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cmv40-lookup-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+.cmv40-lookup-optional {
+  color: var(--text-3);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cmv40-lookup-input {
+  padding: 9px 11px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep-strong);
+  border-radius: 6px;
+  color: var(--text-1);
+  font-size: 13px;
+}
+.cmv40-lookup-input:focus {
+  outline: none;
+  border-color: var(--blue, #007aff);
+}
+.cmv40-lookup-input-year {
+  font-variant-numeric: tabular-nums;
+  padding-right: 28px;  /* espacio para el botón ✕ superpuesto */
+}
+.cmv40-lookup-input-title {
+  padding-right: 28px;  /* espacio para el botón ✕ superpuesto */
+}
+/* Wrapper para superponer el botón clear sobre el input (año o título) */
+.cmv40-lookup-year-wrap {
+  position: relative;
+  display: block;
+}
+.cmv40-lookup-year-wrap .cmv40-lookup-input-year,
+.cmv40-lookup-year-wrap .cmv40-lookup-input-title {
+  width: 100%;
+  box-sizing: border-box;
+}
+.cmv40-lookup-year-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.cmv40-lookup-year-clear:hover {
+  background: rgba(255, 69, 58, 0.18);
+  color: #a31a13;
+}
+.cmv40-lookup-btn {
+  white-space: nowrap;
+  height: 38px;
+  padding: 0 18px !important;
+}
+
+/* Resultados */
+.cmv40-lookup-results {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cmv40-lookup-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.cmv40-lookup-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.cmv40-lookup-warn {
+  padding: 10px 12px;
+  background: rgba(255, 149, 0, 0.10);
+  border: 1px solid rgba(255, 149, 0, 0.30);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-1);
+  line-height: 1.55;
+}
+.cmv40-lookup-warn a {
+  color: var(--blue, #007aff);
+  text-decoration: none;
+}
+.cmv40-lookup-section {
+  padding: 9px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmv40-lookup-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmv40-lookup-section-title code {
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--text-2);
+}
+.cmv40-lookup-section-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.45;
+  margin-top: -2px;
+}
+
+/* Selector visual de candidatos TMDb (multi-match) */
+.cmv40-lookup-picks {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.cmv40-lookup-pick {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  color: inherit;
+  font-family: inherit;
+  width: 100%;
+}
+.cmv40-lookup-pick:hover {
+  background: rgba(0, 122, 255, 0.06);
+  border-color: rgba(0, 122, 255, 0.45);
+  transform: translateY(-1px);
+}
+.cmv40-lookup-pick:active { transform: translateY(0); }
+.cmv40-lookup-pick-poster {
+  flex-shrink: 0;
+  width: 54px;
+  height: 81px;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  background: var(--surface-3);
+}
+.cmv40-lookup-pick-poster.cmv40-lookup-pick-noposter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--text-3);
+}
+.cmv40-lookup-pick-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cmv40-lookup-pick-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmv40-lookup-pick-year {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.cmv40-lookup-pick-rating {
+  margin-left: auto;
+  background: rgba(255, 204, 0, 0.15);
+  color: #ffd93d;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 204, 0, 0.30);
+}
+.cmv40-lookup-pick-orig {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+}
+.cmv40-lookup-pick-overview {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Lista de candidatos del repo */
+.cmv40-lookup-candidates {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cmv40-lookup-candidate {
+  padding: 9px 11px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  transition: border-color 0.15s;
+}
+.cmv40-lookup-candidate.best {
+  border-color: rgba(52, 199, 89, 0.50);
+  background: linear-gradient(180deg, rgba(52, 199, 89, 0.05) 0%, var(--surface-1) 100%);
+}
+.cmv40-lookup-cand-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.cmv40-lookup-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+.cmv40-lookup-tag.tag-ok   { background: rgba(52, 199, 89, 0.15);  color: #0e6b2a; border: 1px solid rgba(52, 199, 89, 0.40); }
+.cmv40-lookup-tag.tag-info { background: rgba(0, 122, 255, 0.12);   color: #005fb8; border: 1px solid rgba(0, 122, 255, 0.40); }
+.cmv40-lookup-tag.tag-warn { background: rgba(255, 149, 0, 0.12);   color: #8a4a00; border: 1px solid rgba(255, 149, 0, 0.40); }
+.cmv40-lookup-best {
+  font-size: 10px;
+  color: #8a6500;
+  font-weight: 700;
+}
+.cmv40-lookup-score {
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.cmv40-lookup-size {
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.cmv40-lookup-cand-path {
+  font-family: -apple-system, "SF Mono", monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+.cmv40-lookup-pp-desc {
+  display: block;
+  padding: 9px 12px;
+  background: rgba(142, 142, 147, 0.10);
+  border: 1px dashed rgba(142, 142, 147, 0.35);
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+/* Legacy: estilos antiguos del pipeline preview en lookup (aún no referenciados) */
+.cmv40-lookup-pp {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(91, 171, 255, 0.5);
+}
+.cmv40-lookup-pp-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+.cmv40-lookup-pp-steps {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  font-size: 10px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.cmv40-lookup-pp-steps li { margin-bottom: 2px; }
+.cmv40-lookup-pp-steps s { color: var(--text-3); }
+.cmv40-lookup-pp-more {
+  color: var(--text-3);
+  font-style: italic;
+  list-style: none;
+  margin-left: -18px;
+}
+.cmv40-lookup-pp-time {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-3);
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
 /* ── Botón ⚙︎ en el header y modal de Configuración ─────────────── */
 .btn-settings {
   display: inline-flex;
@@ -4177,7 +4747,7 @@ select { appearance: none; cursor: pointer;
   background: rgba(0, 122, 255, 0.10);
   border: 1px solid rgba(0, 122, 255, 0.40);
   border-radius: 8px;
-  color: #5aabff;
+  color: #005fb8;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
 }

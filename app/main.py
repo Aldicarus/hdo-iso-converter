@@ -1178,6 +1178,7 @@ from phases.cmv40_pipeline import (
     run_phase_g_remux, run_phase_h_validate,
     detect_sync_offset, compute_sync_confidence,
     validate_artifacts as _validate_cmv40_artifacts,
+    cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
     CMV40_WORK_BASE, CMV40_RPU_DIR,
 )
 
@@ -1318,6 +1319,15 @@ async def _run_cmv40_phase(
             session.phase = previous_phase
             session.error_message = str(e)
             await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
+            # Fases G/H escriben a /mnt/output/{name}.mkv.tmp. Si fallan, el
+            # .tmp queda huérfano contaminando el dir final — borramos.
+            if phase_name in ("remux", "validate"):
+                freed = _cmv40_cleanup_orphan_tmp(session)
+                if freed > 0:
+                    await _cmv40_log(
+                        session,
+                        f"🧹 Borrado .mkv.tmp huérfano ({freed / 1e9:.2f} GB liberados)"
+                    )
         finally:
             _cmv40_active_procs.pop(session.id, None)
             session.running_phase = None  # ← desbloquea la UI
@@ -1365,6 +1375,34 @@ async def cmv40_recommend_from_filename_endpoint(filename: str):
     title, year = parse_mkv_filename(filename)
     result = await recommend(title, year)
     return result.model_dump()
+
+
+@app.post("/api/cmv40/tmdb-search",
+          summary="Lista de candidatos TMDb para un título — selector multi-resultado")
+async def cmv40_tmdb_search(body: dict):
+    """Devuelve hasta 10 coincidencias TMDb para un título. Pensado para
+    el modal de Consulta rápida cuando el título es ambiguo (ej. 'Predator'
+    devuelve 5-6 películas distintas). El frontend muestra un selector y
+    luego llama a /tmdb-lookup o /recommend con el título final."""
+    from services.tmdb import search_movies, is_configured
+    if not is_configured():
+        return {"tmdb_configured": False, "candidates": []}
+    title = (body.get("title") or "").strip()
+    year = body.get("year")
+    if isinstance(year, str) and year.strip():
+        try:
+            year = int(year)
+        except ValueError:
+            year = None
+    if not title:
+        return {"tmdb_configured": True, "candidates": []}
+    matches = await search_movies(title, year if isinstance(year, int) else None, limit=10)
+    return {
+        "tmdb_configured": True,
+        "query_title": title,
+        "query_year": year if isinstance(year, int) else None,
+        "candidates": [m.model_dump() for m in matches],
+    }
 
 
 @app.post("/api/cmv40/tmdb-lookup",
@@ -1422,6 +1460,56 @@ async def cmv40_tmdb_refresh(session_id: str):
     save_cmv40_session(session)
     return {"tmdb_configured": True, "updated": True,
             "details": session.tmdb_info}
+
+
+@app.get("/api/cmv40/repo-survey",
+         summary="Survey de TODOS los .bin del repo DoviTools con su tipo predicho")
+async def cmv40_repo_survey(refresh: bool = False):
+    """Lista todos los `.bin` del repo de REC_9999 y los clasifica por
+    tipo predicho (predict_bin_type sobre el nombre). Útil para entender
+    la composición del repo y los casos no clasificados ('unknown').
+    """
+    from services.rec999_drive import list_bin_files, is_configured as drive_configured
+    from services.rec999_drive_match import predict_bin_type, is_not_target
+
+    if not drive_configured():
+        return {
+            "drive_configured": False,
+            "error": "Google API key no configurada — añádela en ⚙︎ Configuración",
+        }
+
+    try:
+        files = await list_bin_files(force_refresh=refresh)
+    except PermissionError as e:
+        return {"drive_configured": True, "error": str(e)}
+
+    buckets: dict[str, list[dict]] = {
+        "trusted_p7_fel_final": [],
+        "trusted_p7_mel_final": [],
+        "trusted_p8_source":    [],
+        "not_target":           [],   # _CM_Analyze, _Resolve, _FlagRPU
+        "unknown":              [],
+    }
+    for f in files:
+        # not_target gana a predict_bin_type: aunque tenga profile/cmv4 en el
+        # nombre, si es analysis/working file no lo tratamos como target.
+        if is_not_target(f.name):
+            pt = "not_target"
+        else:
+            pt = predict_bin_type(f.name)
+        buckets.setdefault(pt, []).append({
+            "name": f.name,
+            "path": f.path,
+            "size_mb": round((f.size_bytes or 0) / 1024 / 1024, 1),
+        })
+
+    summary = {k: len(v) for k, v in buckets.items()}
+    return {
+        "drive_configured": True,
+        "total": len(files),
+        "summary": summary,
+        "by_type": buckets,
+    }
 
 
 @app.get("/api/cmv40/repo-rpus",
@@ -1591,6 +1679,7 @@ _CMV40_FAKE_ARTIFACT_SIZES = {
     "RPU_synced.bin":     4_700_000,
     "editor_config.json":  300,
     "EL_injected.hevc":   3_820_000_000,
+    "source_injected.hevc": 42_500_000_000,
     "output.mkv":         48_500_000_000,
 }
 
@@ -1721,7 +1810,7 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
     "target_provided": ["RPU_target.bin"],
     "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
     "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
-    "injected":        ["EL_injected.hevc", "BL_injected.hevc", "RPU_merged.bin"],
+    "injected":        ["EL_injected.hevc", "BL_injected.hevc", "source_injected.hevc", "RPU_merged.bin"],
     "remuxed":         ["output.mkv", "DV_dual.hevc"],
 }
 

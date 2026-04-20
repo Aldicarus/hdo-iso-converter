@@ -58,6 +58,113 @@ def artifact_exists(session: CMv40Session, name: str, min_size: int = 100) -> bo
     return p.exists() and p.stat().st_size >= min_size
 
 
+async def check_disk_space_preflight(
+    session: CMv40Session,
+    log_callback=None,
+) -> None:
+    """Verifica que hay espacio en /mnt/tmp y /mnt/output antes de empezar.
+
+    Requisitos (empíricos, conservadores):
+      - TMP:    2 × size(source.mkv)  → source.hevc + (BL+EL o source_injected) + buffers
+      - OUTPUT: 1.1 × size(source.mkv) → .mkv.tmp durante Fase G
+
+    Si falla, lanza RuntimeError con mensaje explícito. El pipeline aborta
+    ANTES de gastar tiempo en ffmpeg/dovi_tool que se estrellarían a mitad.
+    """
+    src = Path(session.source_mkv_path)
+    try:
+        src_size = src.stat().st_size if src.exists() else 0
+    except OSError:
+        src_size = 0
+    if src_size <= 0:
+        return  # no podemos verificar
+
+    # En drop-in FEL el requisito de TMP baja a ~1.5× (source.hevc + source_injected)
+    tmp_mult    = 1.5 if is_drop_in_fel(session) else 2.0
+    output_mult = 1.1
+
+    required_tmp    = int(src_size * tmp_mult)
+    required_output = int(src_size * output_mult)
+
+    try:
+        tmp_free = shutil.disk_usage(CMV40_WORK_BASE if CMV40_WORK_BASE.exists() else TMP_DIR).free
+    except Exception:
+        tmp_free = -1
+    try:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        out_free = shutil.disk_usage(OUTPUT_DIR).free
+    except Exception:
+        out_free = -1
+
+    problems: list[str] = []
+    if tmp_free >= 0 and tmp_free < required_tmp:
+        problems.append(
+            f"/mnt/tmp: necesita {required_tmp/1e9:.1f} GB, disponibles {tmp_free/1e9:.1f} GB"
+        )
+    if out_free >= 0 and out_free < required_output:
+        problems.append(
+            f"/mnt/output: necesita {required_output/1e9:.1f} GB, disponibles {out_free/1e9:.1f} GB"
+        )
+
+    if problems:
+        raise RuntimeError(
+            "Espacio insuficiente para ejecutar el pipeline:\n  - "
+            + "\n  - ".join(problems)
+            + "\nLibera espacio o mueve el MKV origen antes de continuar."
+        )
+    if log_callback and tmp_free > 0 and out_free > 0:
+        await log_callback(
+            f"[Preflight] Espacio OK — tmp:{tmp_free/1e9:.0f} GB libres "
+            f"(necesita ~{required_tmp/1e9:.0f}), output:{out_free/1e9:.0f} GB "
+            f"(necesita ~{required_output/1e9:.0f})"
+        )
+
+
+def compute_file_sha256(path: Path) -> str:
+    """Calcula SHA-256 hex de un fichero. Usado para huella del bin target."""
+    import hashlib
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def cleanup_orphan_tmp(session: CMv40Session) -> int:
+    """Borra {OUTPUT_DIR}/{output_mkv_name}.tmp si existe. Devuelve bytes liberados.
+
+    Se llama desde el wrapper de fase cuando Fase G o H fallan — sin esto, el
+    .mkv.tmp queda huérfano en /mnt/output contaminando el directorio final.
+    """
+    if not session.output_mkv_name:
+        return 0
+    tmp_path = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
+    if tmp_path.exists() and tmp_path.is_file():
+        try:
+            freed = tmp_path.stat().st_size
+            tmp_path.unlink()
+            return freed
+        except OSError as e:
+            _logger.warning("No pude borrar .mkv.tmp huérfano: %s", e)
+    return 0
+
+
+def is_drop_in_fel(session: CMv40Session) -> bool:
+    """True si el pipeline debe operar en modo drop-in sobre BL+EL sin demux/mux.
+
+    Condiciones: source workflow p7_fel + target P7 FEL CMv4.0 ya cocinado +
+    gates de trust OK + usuario en modo auto. En este modo inject-rpu se
+    ejecuta directamente sobre source.hevc (BL+EL combinados) — evita demux
+    en Fase C y mux en Fase G, ahorra ~90 GB de I/O temporal.
+    """
+    return (
+        (session.source_workflow or "p7_fel") == "p7_fel"
+        and session.target_type == "trusted_p7_fel_final"
+        and bool(session.target_trust_ok)
+        and session.trust_override != "force_interactive"
+    )
+
+
 # Artefactos requeridos para haber completado cada fase.
 # Excluye artefactos que el housekeeping borra intencionalmente (source.hevc
 # tras Fase C para p7_fel/mel, EL.hevc para p7_mel, per_frame_data si trusted).
@@ -534,6 +641,9 @@ async def run_phase_a_analyze_source(
     source_hevc = wd / "source.hevc"
     rpu_source  = wd / "RPU_source.bin"
 
+    # Pre-flight: abortar si no hay espacio suficiente en /mnt/tmp y /mnt/output
+    await check_disk_space_preflight(session, log_callback)
+
     # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
     W_FFMPEG, W_RPU, W_INFO = 50.0, 45.0, 5.0
 
@@ -864,6 +974,19 @@ async def _analyze_target_rpu(
 ) -> None:
     """Ejecuta dovi_tool info sobre el RPU target, clasifica el tipo y
     evalúa los gates de trust."""
+    # SHA-256 del .bin — huella para detectar repacks del repo DoviTools.
+    # Si REC_9999 republica el bin con correcciones, el hash cambiará y
+    # podrás decidir si rehacer el MKV. El .bin es pequeño (<10 MB).
+    try:
+        session.target_rpu_sha256 = await asyncio.to_thread(compute_file_sha256, rpu_path)
+        if log_callback:
+            await log_callback(
+                f"[Fase B] SHA-256 del bin target: {session.target_rpu_sha256[:12]}…"
+            )
+    except Exception as e:
+        _logger.warning("No se pudo calcular SHA-256 del bin target: %s", e)
+        session.target_rpu_sha256 = ""
+
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
     ], timeout=30)
@@ -1073,12 +1196,18 @@ async def run_phase_c_extract(
         raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
 
     workflow = session.source_workflow or "p7_fel"
+    drop_in_fel = is_drop_in_fel(session)
 
     # Para p8 no hace falta demux — el source ya es single-layer. Se mantiene
     # source.hevc como "capa única" y no se generan BL.hevc/EL.hevc.
-    # Para p7_mel/p7_fel sí hay demux (MEL: se conserva BL y se descarta EL
-    # lógicamente — aunque dovi_tool demux genera ambos, EL_mel es inútil).
-    needs_demux = workflow in ("p7_fel", "p7_mel")
+    # Para p7_mel/p7_fel sí hay demux, SALVO en drop-in FEL (bin ya cocinado):
+    # ahí inject-rpu irá directo sobre source.hevc (BL+EL), ahorra ~90 GB I/O.
+    # MEL: se conserva BL y se descarta EL lógicamente.
+    needs_demux = workflow in ("p7_fel", "p7_mel") and not drop_in_fel
+    if drop_in_fel:
+        for skip in ("demux_dual_layer", "mux_dual_layer"):
+            if skip not in session.phases_skipped:
+                session.phases_skipped.append(skip)
 
     # ¿Saltamos `per_frame_data.json`? Sí cuando el target es trusted y los
     # gates pasan — Fase D se saltará → el chart no se mostrará. Ahorra
@@ -1119,9 +1248,16 @@ async def run_phase_c_extract(
         await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
     else:
         if log_callback:
-            await log_callback(
-                "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
-            )
+            if drop_in_fel:
+                await log_callback(
+                    "[Fase C] ⏭ Demux omitido — drop-in FEL: inject-rpu irá "
+                    "directo sobre source.hevc (BL+EL), no hace falta separar capas. "
+                    "Ahorro ~90 GB I/O."
+                )
+            else:
+                await log_callback(
+                    "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
+                )
 
     if skip_pfd:
         if log_callback:
@@ -1143,12 +1279,13 @@ async def run_phase_c_extract(
         )
 
     # ── Housekeeping: borrar artefactos ya innecesarios ────────────────
-    # source.hevc (~40 GB): solo lo necesita Fase F en workflow p8. Para
-    #   p7_fel/p7_mel ya tenemos BL.hevc (y EL.hevc) — liberamos disco.
+    # source.hevc (~40 GB): lo necesitan Fase F en workflow p8 Y en drop-in FEL
+    #   (inject-rpu directo sobre BL+EL). Para p7_fel con merge clásico y
+    #   p7_mel ya tenemos BL.hevc — liberamos disco.
     #   Si el usuario rehace Fase C, Fase A la regenerará (fast: ffmpeg -c copy).
     # EL.hevc (~3–5 GB): en p7_mel el EL MEL no se usa (se descarta para
     #   producir P8.1). Lo borramos tras demux.
-    if workflow in ("p7_fel", "p7_mel") and source_hevc.exists():
+    if needs_demux and source_hevc.exists():
         try:
             sz = source_hevc.stat().st_size
             source_hevc.unlink()
@@ -1465,6 +1602,7 @@ async def run_phase_f_inject(
     """
     wd = get_workdir(session)
     source_hevc  = wd / "source.hevc"
+    source_injected = wd / "source_injected.hevc"
     bl_hevc      = wd / "BL.hevc"
     el_hevc      = wd / "EL.hevc"
     rpu_source   = wd / "RPU_source.bin"
@@ -1475,9 +1613,15 @@ async def run_phase_f_inject(
     bl_injected  = wd / "BL_injected.hevc"
 
     workflow = session.source_workflow or "p7_fel"
+    drop_in_fel = is_drop_in_fel(session)
 
-    # Inputs requeridos según workflow
-    if workflow == "p7_fel":
+    # Inputs requeridos según workflow/modo
+    if drop_in_fel:
+        if not source_hevc.exists():
+            raise RuntimeError(
+                "source.hevc no existe — ejecuta Fase A primero (drop-in opera sobre BL+EL)"
+            )
+    elif workflow == "p7_fel":
         if not el_hevc.exists():
             raise RuntimeError("EL.hevc no existe — ejecuta Fase C primero")
     elif workflow == "p7_mel":
@@ -1496,24 +1640,20 @@ async def run_phase_f_inject(
     # p7_fel + target NO trusted (o user forzó interactivo):
     #   → merge CMv4.0 en RPU P7 del source (rama A/B de la spec)
     # p7_fel + target trusted_p7_fel_final + trust_ok + auto:
-    #   → DROP-IN: saltar merge, inyectar el bin target directamente (rama C-FEL)
+    #   → DROP-IN sobre BL+EL: inject-rpu directo sobre source.hevc (sin demux/mux)
     # p7_mel: descarta EL, usa RPU target directo → inyecta en BL (→ P8 single layer)
     # p8:     usa RPU target directo → inyecta sobre source.hevc (reemplaza RPU)
-    drop_in = (
-        session.target_type == "trusted_p7_fel_final"
-        and session.target_trust_ok
-        and session.trust_override != "force_interactive"
-    )
-    if workflow == "p7_fel" and drop_in:
+    if drop_in_fel:
         if log_callback:
             await log_callback(
-                "[Fase F] 🚀 DROP-IN: target es P7 FEL CMv4.0 ya cocinado y "
-                "los gates de trust pasan. Saltando el merge — inyección directa."
+                "[Fase F] 🚀 DROP-IN BL+EL: target es P7 FEL CMv4.0 ya cocinado y "
+                "los gates de trust pasan. inject-rpu directo sobre source.hevc "
+                "(sin demux ni mux posterior)."
             )
         rpu_to_inject = rpu_target_effective
-        hevc_input    = el_hevc
-        hevc_output   = el_injected
-        inject_label  = "Inyectando RPU trusted directo en EL (drop-in, sin merge)"
+        hevc_input    = source_hevc
+        hevc_output   = source_injected
+        inject_label  = "Inyectando RPU trusted directo sobre BL+EL (drop-in)"
         # Marcar fase omitida para UI/log
         if "merge_cmv40_transfer" not in session.phases_skipped:
             session.phases_skipped.append("merge_cmv40_transfer")
@@ -1740,10 +1880,11 @@ async def run_phase_g_remux(
     Devuelve la ruta del MKV final provisional (``{name}.mkv.tmp`` en /mnt/output).
     """
     wd = get_workdir(session)
-    bl_hevc      = wd / "BL.hevc"
-    el_injected  = wd / "EL_injected.hevc"
-    bl_injected  = wd / "BL_injected.hevc"
-    dv_dual      = wd / "DV_dual.hevc"
+    bl_hevc         = wd / "BL.hevc"
+    el_injected     = wd / "EL_injected.hevc"
+    bl_injected     = wd / "BL_injected.hevc"
+    source_injected = wd / "source_injected.hevc"
+    dv_dual         = wd / "DV_dual.hevc"
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_mkv = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
@@ -1752,12 +1893,28 @@ async def run_phase_g_remux(
         except Exception: pass
 
     workflow = session.source_workflow or "p7_fel"
+    drop_in_fel = is_drop_in_fel(session)
     frames = session.source_frame_count or 0
     est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
 
-    # ── Determinar qué HEVC multiplexar según workflow ───────────────
-    if workflow == "p7_fel":
-        # Dual-layer: primero mux BL + EL_injected, luego mkvmerge
+    # ── Determinar qué HEVC multiplexar según workflow/modo ──────────
+    if drop_in_fel:
+        # Drop-in: source_injected.hevc ya es BL+EL con el RPU CMv4.0 inyectado.
+        # No se ejecuta dovi_tool mux — el stream ya es dual-layer íntegro.
+        if not source_injected.exists():
+            raise RuntimeError(
+                "source_injected.hevc no existe — ejecuta Fase F primero (drop-in FEL)"
+            )
+        if log_callback:
+            await log_callback(
+                "[Fase G] 🚀 Drop-in FEL: mkvmerge directo sobre source_injected.hevc "
+                "(sin dovi_tool mux — el BL+EL ya está intacto)"
+            )
+        hevc_for_mkv = source_injected
+        remux_offset = 0.0
+        remux_weight = 100.0
+    elif workflow == "p7_fel":
+        # Dual-layer clásico: primero mux BL + EL_injected, luego mkvmerge
         if not bl_hevc.exists() or not el_injected.exists():
             raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
 
@@ -1797,13 +1954,22 @@ async def run_phase_g_remux(
         remux_offset = 0.0
         remux_weight = 100.0
 
-    # mkvmerge: MKV final con audio/subs/capítulos del origen (progreso real)
+    # mkvmerge: MKV final con audio/subs/capítulos del origen (progreso real).
+    # --track-name deja una huella visible del procesado (visible en cualquier
+    # inspector MKV / mediainfo) sin depender de session.json externo.
     if log_callback:
         await log_callback("[Fase G] Remuxando a MKV final (mkvmerge)…")
     title = session.output_mkv_name.removesuffix(".mkv")
+    if drop_in_fel or workflow == "p7_fel":
+        video_track_name = "HEVC DV P7 FEL CMv4.0"
+    elif workflow == "p7_mel":
+        video_track_name = "HEVC DV P8.1 CMv4.0 (from P7 MEL)"
+    else:
+        video_track_name = "HEVC DV P8.1 CMv4.0"
     rc = await _run_streaming([
         MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
         "--title", title,
+        "--track-name", f"0:{video_track_name}",
         str(hevc_for_mkv),
         "--no-video", session.source_mkv_path,
     ], log_callback=log_callback, proc_callback=proc_callback,
@@ -1816,8 +1982,11 @@ async def run_phase_g_remux(
         raise RuntimeError(f"mkvmerge falló (código {rc})")
     await _emit_progress(log_callback, 100, "Remux completado")
 
-    # Cleanup intermedio (solo para p7_fel)
-    if workflow == "p7_fel":
+    # Cleanup intermedio
+    if drop_in_fel:
+        # source_injected.hevc (~45 GB) ya está multiplexado en el .mkv.tmp
+        source_injected.unlink(missing_ok=True)
+    elif workflow == "p7_fel":
         dv_dual.unlink(missing_ok=True)
 
     if log_callback:
@@ -1861,40 +2030,31 @@ async def run_phase_h_validate(
         mkv_gb = output_mkv.stat().st_size / 1e9
         await log_callback(f"[Fase H] Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
 
-    # Extraer muestra de 30s del MKV (con progreso visible — el scan de 42GB
-    # tarda 1-3 min en NAS). ffmpeg emite time= progress que _run_streaming
-    # convierte a §§PROGRESS§§.
-    temp_hevc = wd / "_validate.hevc"
-    temp_rpu  = wd / "_validate_rpu.bin"
+    # Validación completa: extract-rpu DIRECTO sobre el MKV final (escanea todo
+    # el stream HEVC, ~segundos-minutos según tamaño, mucho más barato que
+    # ffmpeg + re-extract). Cubre desincronización intermedia que una muestra
+    # de 30s no detectaría. Luego:
+    #   1. Parseamos el RPU con dovi_tool info (frame count, CM, profile, el_type)
+    #   2. Comparamos con RPU_target.bin (byte-idéntico en drop-in puro)
+    drop_in_fel = is_drop_in_fel(session)
+    rpu_target = wd / "RPU_target.bin"
+    temp_rpu   = wd / "_validate_rpu.bin"
     try:
         if log_callback:
-            await log_callback("[Fase H] Paso 1/4: extrayendo muestra de 30s (ffmpeg)…")
-        rc = await _run_streaming([
-            FFMPEG_BIN, "-y", "-i", str(output_mkv),
-            "-map", "0:v:0", "-c:v", "copy",
-            "-bsf:v", "hevc_mp4toannexb",
-            "-t", "30", "-f", "hevc", str(temp_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback,
-           progress_ctx={
-               "duration": 30.0,  # extraemos 30s → time= llega hasta 30
-               "offset": 0.0, "weight": 20.0,
-               "label": "Extrayendo muestra para validación",
-           })
-        if rc != 0:
-            raise RuntimeError(f"ffmpeg falló extrayendo muestra (rc={rc})")
-
-        if log_callback:
-            await log_callback("[Fase H] Paso 2/4: extrayendo RPU de la muestra…")
-        await _emit_progress(log_callback, 25, "Extrayendo RPU de la muestra")
+            await log_callback(
+                "[Fase H] Paso 1/3: extrayendo RPU completo del MKV final "
+                "(escanea todo el stream, no solo 30s)…"
+            )
+        await _emit_progress(log_callback, 5, "Extrayendo RPU completo del MKV final")
         rc, _, err = await _run([
-            DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(temp_rpu),
-        ], timeout=60)
+            DOVI_TOOL_BIN, "extract-rpu", str(output_mkv), "-o", str(temp_rpu),
+        ], timeout=900)
         if rc != 0:
-            raise RuntimeError(f"extract-rpu falló: {err[:200]}")
+            raise RuntimeError(f"extract-rpu falló sobre MKV final: {err[:200]}")
 
         if log_callback:
-            await log_callback("[Fase H] Paso 3/4: analizando CM version y FEL…")
-        await _emit_progress(log_callback, 40, "Analizando metadata DV")
+            await log_callback("[Fase H] Paso 2/3: analizando metadata DV del RPU…")
+        await _emit_progress(log_callback, 30, "Analizando metadata DV")
         rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(temp_rpu)], timeout=30)
         if rc != 0:
             raise RuntimeError(f"dovi_tool info falló: {err[:200]}")
@@ -1902,10 +2062,43 @@ async def run_phase_h_validate(
         if log_callback:
             await log_callback(
                 f"[Fase H] DV detectado: Profile {result_info.profile} ({result_info.el_type}), "
-                f"CM {result_info.cm_version}"
+                f"CM {result_info.cm_version}, {result_info.frame_count} frames"
             )
+
+        # ── Frame count completo (no solo una muestra) ─────────────────
+        expected_frames = session.target_frame_count or session.source_frame_count or 0
+        if expected_frames and result_info.frame_count and result_info.frame_count != expected_frames:
+            raise RuntimeError(
+                f"Frame count del MKV final ({result_info.frame_count}) distinto "
+                f"del esperado ({expected_frames}) — indica corrupción o desincronización."
+            )
+
+        # ── Comparación byte-idéntica con RPU_target (solo drop-in) ────
+        # En drop-in puro el RPU del output DEBE ser idéntico al bin de REC_9999
+        # porque literalmente lo inyectamos sin tocarlo. Cualquier divergencia
+        # indica un problema en el inject-rpu.
+        rpu_identical = None
+        if drop_in_fel and rpu_target.exists():
+            try:
+                import filecmp
+                rpu_identical = await asyncio.to_thread(
+                    filecmp.cmp, str(temp_rpu), str(rpu_target), False
+                )
+            except Exception as e:
+                _logger.warning("filecmp falló: %s", e)
+                rpu_identical = None
+            if rpu_identical is True:
+                if log_callback:
+                    await log_callback(
+                        "[Fase H] ✓ RPU del MKV byte-idéntico a RPU_target.bin "
+                        "(drop-in preservó el bin sin modificaciones)"
+                    )
+            elif rpu_identical is False:
+                raise RuntimeError(
+                    "RPU del MKV final DIFIERE de RPU_target.bin. En drop-in puro "
+                    "deberían ser byte-idénticos — algo en inject-rpu alteró el RPU."
+                )
     finally:
-        temp_hevc.unlink(missing_ok=True)
         temp_rpu.unlink(missing_ok=True)
 
     if result_info.cm_version != "v4.0":
@@ -1923,12 +2116,12 @@ async def run_phase_h_validate(
     if log_callback:
         await log_callback(
             f"[Fase H] ✓ Validación DV OK: Profile {result_info.profile} ({result_info.el_type}), "
-            f"CM {result_info.cm_version}"
+            f"CM {result_info.cm_version}, {result_info.frame_count} frames"
         )
 
     # Validar pistas con mkvmerge -J
     if log_callback:
-        await log_callback("[Fase H] Paso 4/4: validando pistas (mkvmerge -J)…")
+        await log_callback("[Fase H] Paso 3/3: validando pistas (mkvmerge -J)…")
     await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
     rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
     if rc not in (0, 1):

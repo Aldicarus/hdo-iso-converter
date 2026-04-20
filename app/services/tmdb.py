@@ -31,6 +31,16 @@ class TmdbMatch(BaseModel):
     title_en: str
     title_es: str = ""
     year: int | None = None
+    # Campos adicionales para el selector multi-candidato (/tmdb-search).
+    # Vienen directo del endpoint /search/movie de TMDb sin llamadas extra.
+    poster_path: str = ""     # ruta relativa (prepend /t/p/w185 para thumb)
+    poster_url: str = ""      # URL absoluta ya construida (w185)
+    overview: str = ""        # sinopsis corta en es-ES
+    vote_average: float = 0.0
+
+
+# Base de imágenes de TMDb (declarada arriba para poder usarla en search_movies)
+_IMG_BASE = "https://image.tmdb.org/t/p"
 
 
 class TmdbDetails(BaseModel):
@@ -188,11 +198,16 @@ async def search_movies(title_es: str, year: int | None,
                 else:
                     fetched_en = await _fetch_english_title(client, tmdb_id, api_key)
                     title_en = fetched_en or original or title_es_r
+                poster = r.get("poster_path") or ""
                 matches.append(TmdbMatch(
                     tmdb_id=tmdb_id,
                     title_en=title_en,
                     title_es=title_es_r,
                     year=tmdb_year,
+                    poster_path=poster,
+                    poster_url=(f"{_IMG_BASE}/w185{poster}" if poster else ""),
+                    overview=r.get("overview") or "",
+                    vote_average=float(r.get("vote_average") or 0.0),
                 ))
     except Exception as e:
         _logger.warning("TMDb search falló: %s", e)
@@ -212,8 +227,7 @@ async def search_movie(title_es: str, year: int | None) -> TmdbMatch | None:
     return matches[0] if matches else None
 
 
-# Base de imágenes de TMDb. w342 = 342px ancho (card medio), w780 = backdrop.
-_IMG_BASE = "https://image.tmdb.org/t/p"
+# Tamaños de imagen TMDb. w342 = card medio, w780 = backdrop.
 _POSTER_SIZE   = "w342"
 _BACKDROP_SIZE = "w780"
 
