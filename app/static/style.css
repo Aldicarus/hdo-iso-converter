@@ -3749,6 +3749,69 @@ select { appearance: none; cursor: pointer;
   color: var(--text-2);
 }
 
+/* Nota de procedencia del CMv4.0 (retail auténtico / generated sintético) */
+.cmv40-pp-prov {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.cmv40-pp-prov-retail {
+  background: rgba(52, 199, 89, 0.12);
+  border-color: rgba(52, 199, 89, 0.40);
+  color: #0e6b2a;
+}
+.cmv40-pp-prov-gen {
+  background: rgba(255, 149, 0, 0.12);
+  border-color: rgba(255, 149, 0, 0.45);
+  color: #8a4a00;
+}
+.cmv40-pp-prov-icon { font-size: 14px; line-height: 1; }
+.cmv40-pp-prov-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 10.5px;
+}
+.cmv40-pp-prov-body {
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.95;
+}
+.cmv40-pp-prov-body code {
+  background: rgba(255, 255, 255, 0.55);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10.5px;
+}
+.cmv40-pp-prov-alt {
+  grid-column: 1 / -1;
+  margin-top: 5px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.cmv40-pp-prov-alt code {
+  font-size: 10.5px;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.cmv40-pp-prov-alt em {
+  color: var(--text-2);
+  font-style: italic;
+}
+
 /* Flujo horizontal de fases (breadcrumb-style). Nunca wrappea: si no cabe,
    scrolla horizontalmente para mantener el pipeline como una línea legible. */
 .cmv40-pp-flow {
@@ -4628,6 +4691,52 @@ select { appearance: none; cursor: pointer;
 }
 
 /* Lista de candidatos del repo */
+/* Grupos de candidatos por procedencia (Retail / Generated / Sin marca) */
+.cmv40-lookup-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid;
+}
+.cmv40-lookup-group + .cmv40-lookup-group { margin-top: 8px; }
+.cmv40-lookup-group.group-retail {
+  background: rgba(52, 199, 89, 0.07);
+  border-color: rgba(52, 199, 89, 0.35);
+}
+.cmv40-lookup-group.group-gen {
+  background: rgba(255, 149, 0, 0.07);
+  border-color: rgba(255, 149, 0, 0.35);
+}
+.cmv40-lookup-group.group-unknown {
+  background: rgba(142, 142, 147, 0.07);
+  border-color: rgba(142, 142, 147, 0.30);
+}
+.cmv40-lookup-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 2px 4px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+}
+.cmv40-lookup-group.group-retail  .cmv40-lookup-group-label { color: #0e6b2a; }
+.cmv40-lookup-group.group-gen     .cmv40-lookup-group-label { color: #8a4a00; }
+.cmv40-lookup-group.group-unknown .cmv40-lookup-group-label { color: var(--text-2); }
+.cmv40-lookup-group-count {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .cmv40-lookup-candidates {
   list-style: none;
   padding: 0;

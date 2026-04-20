@@ -1470,7 +1470,7 @@ async def cmv40_repo_survey(refresh: bool = False):
     la composición del repo y los casos no clasificados ('unknown').
     """
     from services.rec999_drive import list_bin_files, is_configured as drive_configured
-    from services.rec999_drive_match import predict_bin_type, is_not_target
+    from services.rec999_drive_match import predict_bin_type, is_not_target, predict_provenance
 
     if not drive_configured():
         return {
@@ -1487,9 +1487,12 @@ async def cmv40_repo_survey(refresh: bool = False):
         "trusted_p7_fel_final": [],
         "trusted_p7_mel_final": [],
         "trusted_p8_source":    [],
-        "not_target":           [],   # _CM_Analyze, _Resolve, _FlagRPU
+        "not_target":           [],   # _CM_Analyze, _Resolve
         "unknown":              [],
     }
+    # Cross-tab: target_type × provenance. Permite ver, p.ej., cuántos
+    # FEL son retail vs generated.
+    cross: dict[str, dict[str, int]] = {}
     for f in files:
         # not_target gana a predict_bin_type: aunque tenga profile/cmv4 en el
         # nombre, si es analysis/working file no lo tratamos como target.
@@ -1497,17 +1500,23 @@ async def cmv40_repo_survey(refresh: bool = False):
             pt = "not_target"
         else:
             pt = predict_bin_type(f.name)
+        prov = predict_provenance(f.name)
         buckets.setdefault(pt, []).append({
             "name": f.name,
             "path": f.path,
             "size_mb": round((f.size_bytes or 0) / 1024 / 1024, 1),
+            "provenance": prov,
         })
+        prov_key = prov or "unknown"
+        cross.setdefault(pt, {}).setdefault(prov_key, 0)
+        cross[pt][prov_key] += 1
 
     summary = {k: len(v) for k, v in buckets.items()}
     return {
         "drive_configured": True,
         "total": len(files),
         "summary": summary,
+        "cross_type_provenance": cross,
         "by_type": buckets,
     }
 
@@ -1563,7 +1572,7 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
             "error": str(e),
         }
 
-    # Enriquece cada candidato con su tipo predicho por nombre de fichero.
+    # Enriquece cada candidato con su tipo predicho y procedencia por nombre.
     # La clasificación definitiva la hace Fase B tras descargar + dovi_tool info,
     # pero esto da señalización UX inmediata en el modal.
     from services.rec999_drive_match import predict_bin_type
@@ -1571,6 +1580,9 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
     for c in candidates:
         d = c.model_dump()
         d["predicted_type"] = predict_bin_type(c.file.name)
+        # provenance ya viene en DriveCandidate.provenance; asegura que está
+        # en el dict para el frontend.
+        d.setdefault("provenance", c.provenance)
         cand_list.append(d)
 
     return {

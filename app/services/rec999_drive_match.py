@@ -100,6 +100,41 @@ def is_not_target(filename: str) -> bool:
         return False
     return any(p.search(filename) for p in _NOT_TARGET_PATTERNS)
 
+
+# ── Procedencia: calidad del CMv4.0 (ortogonal a target_type) ────────
+# Retail  = RPU extraído de un master oficial (iTunes, MA, DSNP, MAX…).
+#           Representa el creative intent original del colorista.
+# Generated = RPU sintetizado desde HDR10 via dovi_tool generate /
+#             cm_analyze / madVR. Tone mapping derivado algorítmicamente
+#             de estadísticas de luminancia, no decisión artística.
+#             El tuning (T1/T3/…) afecta el look en highlights.
+# El pipeline técnico funciona igual con ambos; es señal UX de calidad.
+_RETAIL_PATTERNS = [
+    re.compile(r"(?<![A-Za-z])retail(?![A-Za-z])", re.I),
+    re.compile(rf"cmv{_SEP}?4(?:\.0)?{_SEP}*(added|restored|baked)", re.I),
+]
+_GENERATED_PATTERNS = [
+    re.compile(r"(?<![A-Za-z])generated(?![A-Za-z])", re.I),
+]
+
+
+def predict_provenance(filename: str) -> str:
+    """Devuelve la procedencia del CMv4.0 por nombre:
+      'retail'    — RPU extraído de master streaming oficial (creative intent)
+      'generated' — RPU sintetizado desde HDR10 (algorítmico, depende de tuning)
+      ''          — no deducible por nombre
+    Retail gana si están los dos tokens presentes (raro pero posible).
+    """
+    if not filename:
+        return ""
+    for p in _RETAIL_PATTERNS:
+        if p.search(filename):
+            return "retail"
+    for p in _GENERATED_PATTERNS:
+        if p.search(filename):
+            return "generated"
+    return ""
+
 MIN_SCORE_STRICT = 0.65   # con año exacto
 MIN_SCORE_NO_YEAR = 0.78  # sin año fiable
 
@@ -108,6 +143,7 @@ class DriveCandidate(BaseModel):
     file: DriveFile
     score: float
     year_in_filename: int | None = None
+    provenance: str = ""  # 'retail' | 'generated' | '' (ver predict_provenance)
 
 
 def _candidate_year(name: str) -> int | None:
@@ -151,12 +187,19 @@ def rank_candidates(title_en: str, title_es: str, year: int | None,
         # Bonus si año coincide exactamente
         if year and fn_year and fn_year == year:
             best = min(1.0, best + 0.05)
+        # Bonus suave por procedencia retail: cuando varios candidatos del
+        # mismo título empatan en título/año, preferimos retail (CMv4.0
+        # auténtico del master oficial) sobre generated (sintético).
+        prov = predict_provenance(f.name)
+        if prov == "retail":
+            best = min(1.0, best + 0.03)
         # Umbral adaptativo
         min_score = MIN_SCORE_STRICT if (year and fn_year) else MIN_SCORE_NO_YEAR
         if best < min_score:
             continue
         results.append(DriveCandidate(
             file=f, score=round(best, 3), year_in_filename=fn_year,
+            provenance=prov,
         ))
 
     results.sort(key=lambda c: c.score, reverse=True)

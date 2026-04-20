@@ -1120,26 +1120,61 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
     const t = repo.title_en || repo.title_es || '(título)';
     html += `<div class="cmv40-lookup-empty">No hay <code>.bin</code> para <strong>${escHtml(t)}</strong> en el repositorio. Si quieres convertir esta película tendrás que obtener el RPU por otra vía (extraer de otro MKV, bin local, etc.).</div>`;
   } else {
-    html += '<ul class="cmv40-lookup-candidates">';
-    repo.candidates.forEach((c, i) => {
+    // Agrupa candidatos por procedencia: Retail arriba (CMv4.0 auténtico),
+    // Generated abajo (sintético), sin marca al final. Dentro de cada grupo
+    // se conserva el orden por score. El marcador "🏆 mejor match" apunta
+    // al #1 ABSOLUTO (el primer candidato del array original) — no depende
+    // del grupo al que pertenezca.
+    const bestFilename = repo.candidates[0]?.file?.name || '';
+    const groups = {
+      retail:    { label: '🏛 Retail — CMv4.0 auténtico del master streaming', cls: 'group-retail',  items: [] },
+      generated: { label: '⚠️ Generated — CMv4.0 sintético desde HDR10',       cls: 'group-gen',     items: [] },
+      unknown:   { label: '❔ Procedencia no deducible del nombre',            cls: 'group-unknown', items: [] },
+    };
+    repo.candidates.forEach(c => {
+      const key = c.provenance === 'retail' ? 'retail'
+                : c.provenance === 'generated' ? 'generated'
+                : 'unknown';
+      groups[key].items.push(c);
+    });
+
+    const renderCand = (c) => {
       const pt = c.predicted_type || 'unknown';
+      const prov = c.provenance || '';
       const tagMeta = _cmv40LookupTagMeta(pt);
       const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
       const score = Math.round(c.score * 100);
-      const isBest = i === 0;
-      html += `
+      const isBest = c.file.name === bestFilename;
+      const provTag = prov === 'retail'
+        ? '<span class="cmv40-lookup-tag tag-ok">🏛 Retail</span>'
+        : prov === 'generated'
+        ? '<span class="cmv40-lookup-tag tag-warn">⚠️ Generated</span>'
+        : '';
+      return `
         <li class="cmv40-lookup-candidate ${isBest ? 'best' : ''}">
           <div class="cmv40-lookup-cand-head">
             <span class="cmv40-lookup-tag ${tagMeta.cls}">${tagMeta.icon} ${tagMeta.label}</span>
+            ${provTag}
             ${isBest ? '<span class="cmv40-lookup-best">🏆 mejor match</span>' : ''}
             <span class="cmv40-lookup-score">${score}% similitud</span>
             <span class="cmv40-lookup-size">${sizeMb} MB</span>
           </div>
           <div class="cmv40-lookup-cand-path">${escHtml(c.file.path)}</div>
-          <div class="cmv40-lookup-cand-pipeline">${_cmv40LookupPipelineSummary(pt)}</div>
+          <div class="cmv40-lookup-cand-pipeline">${_cmv40LookupPipelineSummary(pt, prov)}</div>
         </li>`;
-    });
-    html += '</ul>';
+    };
+
+    for (const key of ['retail', 'generated', 'unknown']) {
+      const g = groups[key];
+      if (!g.items.length) continue;
+      html += `<div class="cmv40-lookup-group ${g.cls}">
+        <div class="cmv40-lookup-group-head">
+          <span class="cmv40-lookup-group-label">${g.label}</span>
+          <span class="cmv40-lookup-group-count">${g.items.length}</span>
+        </div>
+        <ul class="cmv40-lookup-candidates">${g.items.map(renderCand).join('')}</ul>
+      </div>`;
+    }
   }
   html += '</div>';
 
@@ -1167,12 +1202,12 @@ function _cmv40LookupTagMeta(pt) {
   return { icon: '❓', label: 'Tipo desconocido', cls: 'tag-warn' };
 }
 
-function _cmv40LookupPipelineSummary(pt) {
+function _cmv40LookupPipelineSummary(pt, provenance) {
   const info = (typeof _CMV40_PIPELINE_PREVIEW !== 'undefined') ? _CMV40_PIPELINE_PREVIEW[pt] : null;
   if (!info) {
     return '<div class="cmv40-lookup-pp-desc">Pipeline se determinará tras descarga y análisis con dovi_tool.</div>';
   }
-  return _cmv40PipelinePreviewHTML(info);
+  return _cmv40PipelinePreviewHTML(info, provenance);
 }
 /**
  * Cierra el modal si el click fue directamente sobre el overlay (no en el contenido).
@@ -5591,6 +5626,7 @@ function onCMv40TargetChange() {
       kind: 'repo',
       value: { file_id: val, file_name: opt?.dataset?.filename || opt?.textContent || '' },
       predicted_type: opt?.dataset?.predictedType || 'unknown',
+      provenance: opt?.dataset?.provenance || '',
     };
   } else {
     _cmv40NewTargetSelected = { kind: _cmv40NewTargetTab, value: val };
@@ -5676,7 +5712,10 @@ const _CMV40_PIPELINE_PREVIEW = {
 
 // Renderer compartido del preview del pipeline — se usa en el modal "Nuevo
 // proyecto" y también en cada candidato de la consulta rápida (🔎).
-function _cmv40PipelinePreviewHTML(info) {
+// `provenance`: 'retail' | 'generated' | '' — añade aviso UX.
+// `retailAlternative`: si provenance=generated, nombre del bin retail
+// disponible en la misma lista (refuerza el aviso).
+function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative) {
   if (!info) return '';
   const cls = info.cls || 'warn';
   const flow = info.phases.map((p, i) => {
@@ -5691,6 +5730,7 @@ function _cmv40PipelinePreviewHTML(info) {
         ${modHtml}
       </div>${arrow}`;
   }).join('');
+  const provHtml = _cmv40ProvenanceNoteHTML(provenance, retailAlternative);
   return `
     <div class="cmv40-pipeline-preview ${cls}">
       <div class="cmv40-pp-header">
@@ -5700,7 +5740,39 @@ function _cmv40PipelinePreviewHTML(info) {
       </div>
       <div class="cmv40-pp-flow">${flow}</div>
       <div class="cmv40-pp-blurb">${escHtml(info.blurb)}</div>
+      ${provHtml}
     </div>`;
+}
+
+// Nota de procedencia del CMv4.0. Verde para retail, ámbar para generated;
+// si además hay alternativa retail para el mismo título, el aviso se
+// refuerza con el nombre del bin retail disponible.
+function _cmv40ProvenanceNoteHTML(prov, retailAlternative) {
+  if (prov === 'retail') {
+    return `
+      <div class="cmv40-pp-prov cmv40-pp-prov-retail">
+        <span class="cmv40-pp-prov-icon">🏛</span>
+        <span class="cmv40-pp-prov-label">Retail</span>
+        <span class="cmv40-pp-prov-body">RPU extraído de master streaming oficial — creative intent del colorista.</span>
+      </div>`;
+  }
+  if (prov === 'generated') {
+    const altHtml = retailAlternative
+      ? `<div class="cmv40-pp-prov-alt">
+           <strong>Alternativa retail disponible en este repo:</strong><br>
+           <code>${escHtml(retailAlternative)}</code><br>
+           <em>Cámbiala en el desplegable de arriba para usar CMv4.0 auténtico.</em>
+         </div>`
+      : '';
+    return `
+      <div class="cmv40-pp-prov cmv40-pp-prov-gen">
+        <span class="cmv40-pp-prov-icon">⚠️</span>
+        <span class="cmv40-pp-prov-label">Generated</span>
+        <span class="cmv40-pp-prov-body">CMv4.0 <strong>sintético</strong> desde HDR10 (algorítmico). La calidad depende del tuning (T1/T3…). Si existe un bin <code>(cmv4.0 restored/added)</code> o <code>(P5 to P8)</code> para este título, es preferible.</span>
+        ${altHtml}
+      </div>`;
+  }
+  return '';
 }
 
 function _cmv40NewUpdatePipelinePreview() {
@@ -5715,9 +5787,27 @@ function _cmv40NewUpdatePipelinePreview() {
     return;
   }
   const pt = _cmv40NewTargetSelected.predicted_type || 'unknown';
+  const prov = _cmv40NewTargetSelected.provenance || '';
   const info = _CMV40_PIPELINE_PREVIEW[pt] || _CMV40_PIPELINE_PREVIEW.unknown;
+
+  // Si el usuario eligió un Generated, comprobamos si en la misma lista hay
+  // al menos una opción Retail (CMv4.0 auténtico). En ese caso, el warning se
+  // refuerza — hay alternativa preferible accesible.
+  let retailAlternative = '';
+  if (prov === 'generated') {
+    const sel = document.getElementById('cmv40-new-repo-select');
+    if (sel) {
+      for (const opt of sel.options) {
+        if (opt.dataset && opt.dataset.provenance === 'retail') {
+          retailAlternative = opt.dataset.filename || opt.textContent || '(retail disponible)';
+          break;
+        }
+      }
+    }
+  }
+
   container.style.display = 'block';
-  container.innerHTML = _cmv40PipelinePreviewHTML(info);
+  container.innerHTML = _cmv40PipelinePreviewHTML(info, prov, retailAlternative);
   _cmv40NewUpdateAutoLabel(info);
 }
 
@@ -5797,14 +5887,19 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     opt.value = c.file.id;
     const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
     const pt = c.predicted_type || 'unknown';
-    // Tag compacto delante del path para identificación inmediata
+    const prov = c.provenance || '';
+    // Tag compacto + sufijo de procedencia
     const tag = pt === 'trusted_p7_fel_final' ? '🎯 drop-in FEL'
               : pt === 'trusted_p7_mel_final' ? '🎯 drop-in MEL'
               : pt === 'trusted_p8_source'    ? '📦 P5→P8 transfer'
               : '❓ tipo desconocido';
-    opt.textContent = `[${tag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
+    const provTag = prov === 'retail'    ? ' · retail'
+                  : prov === 'generated' ? ' · generated'
+                  : '';
+    opt.textContent = `[${tag}${provTag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
     opt.dataset.filename = c.file.name;
     opt.dataset.predictedType = pt;
+    opt.dataset.provenance = prov;
     sel.appendChild(opt);
     if (i === 0) {
       opt.selected = true;
