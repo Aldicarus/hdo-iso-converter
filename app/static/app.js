@@ -5447,30 +5447,40 @@ function _cmv40PlanAutoSteps(s) {
     forcedStatus: trust ? 'skipped' : null,
   });
   // Fase E — corrección de sync (dovi_tool editor remove/duplicate).
-  // Siempre visible. Estado según condiciones:
-  //   · trusted → omitida · Δ=0 por gates
-  //   · manual sin corrección (sync_config null/vacío) → omitida · Δ=0 desde inicio
-  //   · manual con corrección aplicada → aplicada (done)
-  //   · correct_sync en running_phase → en curso (automático por mapping)
+  // Estado depende de la combinación (trust, hasSyncCfg, fase actual):
+  //   · trusted+auto                       → omitida por gates
+  //   · no-trusted + fase < sync_verified  → PENDING (aún no sabemos si hará falta)
+  //   · no-trusted + fase ≥ sync_verified + sin sync_config → omitida (Δ=0)
+  //   · con sync_config                    → aplicada (se ejecutó Fase E)
+  //   · running_phase == 'sync_correct'    → running (cubierto por el mapping)
   const hasSyncCfg = !!(s.sync_config && Object.keys(s.sync_config).length);
+  const curIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const syncVerIdx = CMV40_PHASES_ORDER.indexOf('sync_verified');
+  const pastSyncVerified = curIdx >= syncVerIdx;
   let eStatus = null, eLabel = null;
   if (trust) {
     eStatus = 'skipped';
     eLabel = 'omitida · gates Δ=0';
-  } else if (!hasSyncCfg) {
-    eStatus = 'skipped';
-    eLabel = 'omitida · Δ=0 desde inicio';
-  } else {
-    // Manual con corrección: done si ya pasó la fase correct_sync en backend
-    // (phase avanzado más allá), pending mientras aún no; running lo cubre
-    // el mapping running_phase→step key.
+  } else if (hasSyncCfg) {
+    // Corrección aplicada; _cmv40StepStatus decide done/running/pending según
+    // la fase actual. El customLabel se usa cuando esté done.
     eLabel = 'aplicada';
-    eStatus = null;  // deja que _cmv40StepStatus decida según phase actual
+    eStatus = null;
+  } else if (pastSyncVerified) {
+    // Usuario confirmó sync sin corrección — Δ era 0 tras revisión.
+    eStatus = 'skipped';
+    eLabel = 'omitida · Δ=0 confirmado';
   }
+  // (caso restante: no-trusted + sin sync_config + pre-sync_verified →
+  //  eStatus/eLabel null → _cmv40StepStatus decide 'pending'.)
+  const eWhat = hasSyncCfg
+    ? 'dovi_tool editor — remove/duplicate frames según config'
+    : (trust || pastSyncVerified
+        ? 'No requerida — el RPU target alinea con el source'
+        : 'Por determinar tras revisión de sync en Fase D');
   steps.push({
     key: 'E', icon: '🔧', title: 'Fase E · Corrección de sync',
-    what: hasSyncCfg ? 'dovi_tool editor — remove/duplicate frames según config'
-                     : 'No requerida — el RPU target ya alinea con el source',
+    what: eWhat,
     etaSecs: hasSyncCfg ? 20 : 0,
     forcedStatus: eStatus,
     customLabel: eLabel,
