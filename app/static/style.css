@@ -3016,6 +3016,37 @@ select { appearance: none; cursor: pointer;
    TAB 3 — CMv4.0 BD
    ═════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════
+   TAB 2 — Editar MKV: barra azul superior con botón "Abrir MKV"
+   (uniformidad visual con Tab 1/3 aunque no tenga sidebar/subtab-bar)
+   ═══════════════════════════════════════════════════════════════ */
+#mkv-action-bar {
+  flex-shrink: 0;
+  min-height: 63px;                /* misma altura que sidebar-new-project-area + subtab-bar */
+  background: var(--active-hub-bar-grad);
+  display: flex;
+  align-items: center;
+}
+/* Zona del botón — 320px (mismo ancho que la sidebar de Tab 1/3) para que el
+   botón "Abrir MKV" aterrice exactamente donde aterrizaria "Nuevo proyecto". */
+.mkv-action-area {
+  width: 320px;
+  padding: 14px 12px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.mkv-action-btn {
+  width: 100%;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  border-radius: var(--r-md);
+  /* Misma shadow que .sidebar-new-project-btn — resalta el primary contra el navy */
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
 /* Tab 3 subtab bar: mismo layout que Tab 1 */
 #cmv40-subtab-bar {
   display: flex;
