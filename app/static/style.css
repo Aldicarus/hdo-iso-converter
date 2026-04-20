@@ -197,7 +197,7 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: flex-end;
-  padding: 8px 16px 0;
+  padding: 8px 16px 0 0;   /* left: 0 para que la primera pestaña quede pegada al borde izquierdo */
   background: var(--surface-1);
   /* Borde inferior del MISMO color que el navy del hub: en Tab 1/3 se funde con
      el top del subtab-bar (--active-hub) → una franja continua sin costura; en
