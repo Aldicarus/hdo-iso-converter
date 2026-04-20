@@ -27,20 +27,39 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
-from services.settings_store import get_google_api_key
+from services.settings_store import (
+    get_google_api_key,
+    get_cmv40_sheet_id_gid,
+)
 
 _logger = logging.getLogger(__name__)
 
-# Defaults: sheet de R3S3T_9999 pestaña "GRADE CHECK"
-DEFAULT_SHEET_ID = "15i0a84uiBtWiHZ5CXZZ7wygLFXwYOd84"
-DEFAULT_SHEET_GID = "828864432"
+# El ID y GID del sheet se leen en runtime desde settings (con default público
+# al sheet DoviTools oficial). El usuario puede cambiarlo en la pantalla de
+# Configuración y se aplica sin reiniciar.
 
-SHEET_ID  = os.environ.get("CMV40_SHEET_ID", DEFAULT_SHEET_ID)
-SHEET_GID = os.environ.get("CMV40_SHEET_GID", DEFAULT_SHEET_GID)
-SHEET_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
-    f"/export?format=csv&gid={SHEET_GID}"
-)
+
+def _sheet_ids() -> tuple[str, str]:
+    """(sheet_id, gid) actual. Consultar en runtime."""
+    return get_cmv40_sheet_id_gid()
+
+
+def _sheet_csv_url() -> str:
+    sid, gid = _sheet_ids()
+    return (f"https://docs.google.com/spreadsheets/d/{sid}"
+            f"/export?format=csv&gid={gid}")
+
+
+def _sheet_html_url() -> str:
+    sid, gid = _sheet_ids()
+    return (f"https://docs.google.com/spreadsheets/d/{sid}"
+            f"/gviz/tq?tqx=out:html&gid={gid}")
+
+
+def _sheet_xlsx_url() -> str:
+    sid, gid = _sheet_ids()
+    return (f"https://docs.google.com/spreadsheets/d/{sid}"
+            f"/export?format=xlsx&gid={gid}")
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
 CACHE_PATH = CONFIG_DIR / "rec999_sheet_cache.csv"
@@ -277,17 +296,15 @@ def parse_api_rows(api_rows: list[list[dict]]) -> list[RecommendationRow]:
 
 async def _fetch_csv() -> str:
     async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-        resp = await client.get(SHEET_URL)
+        resp = await client.get(_sheet_csv_url())
         resp.raise_for_status()
         return resp.text
 
 
 # HTML export vía gviz — funciona con sheets XLSX importados (donde Sheets
-# API v4 falla con "This operation is not supported for this document")
-SHEET_HTML_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
-    f"/gviz/tq?tqx=out:html&gid={SHEET_GID}"
-)
+# API v4 falla con "This operation is not supported for this document").
+# URL se construye en runtime con _sheet_html_url() para respetar cambios
+# en la configuración del sheet desde la UI.
 
 
 def _parse_gviz_html(html: str) -> list[list[dict]]:
@@ -357,11 +374,8 @@ def _parse_gviz_html(html: str) -> list[list[dict]]:
 
 # XLSX export — única vía que preserva rich-text hyperlinks (los que el
 # usuario crea seleccionando texto y pulsando "insertar enlace", sin usar
-# la fórmula =HYPERLINK). gviz HTML y CSV los pierden.
-SHEET_XLSX_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
-    f"/export?format=xlsx&gid={SHEET_GID}"
-)
+# la fórmula =HYPERLINK). gviz HTML y CSV los pierden. URL se construye
+# en runtime con _sheet_xlsx_url().
 
 
 async def _fetch_sheet_xlsx() -> list[list[dict]] | None:
@@ -369,7 +383,7 @@ async def _fetch_sheet_xlsx() -> list[list[dict]] | None:
     los hyperlinks rich-text de cada celda."""
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(SHEET_XLSX_URL)
+            resp = await client.get(_sheet_xlsx_url())
             if resp.status_code != 200:
                 _logger.info("XLSX export no accesible (%d)", resp.status_code)
                 return None
@@ -437,7 +451,7 @@ async def _fetch_sheet_html() -> list[list[dict]] | None:
     sheets XLSX importados donde Sheets API v4 no aplica."""
     try:
         async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
-            resp = await client.get(SHEET_HTML_URL)
+            resp = await client.get(_sheet_html_url())
             if resp.status_code != 200:
                 _logger.info("gviz HTML no accesible (%d)", resp.status_code)
                 return None
@@ -474,11 +488,12 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
     habilitada, etc.). Actualiza `_sheets_api_error` con el motivo."""
     global _sheets_api_error
     _sheets_api_error = ""
+    sheet_id, sheet_gid = _sheet_ids()
     try:
         async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
             # 1. Resolver nombre de pestaña desde el GID
             meta_resp = await client.get(
-                f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}",
+                f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}",
                 params={"key": api_key,
                         "fields": "sheets(properties(title,sheetId))"},
             )
@@ -490,11 +505,11 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
             sheets_meta = meta_resp.json().get("sheets", [])
             sheet_name: str | None = None
             for s in sheets_meta:
-                if str(s.get("properties", {}).get("sheetId")) == str(SHEET_GID):
+                if str(s.get("properties", {}).get("sheetId")) == str(sheet_gid):
                     sheet_name = s["properties"].get("title")
                     break
             if not sheet_name:
-                _sheets_api_error = f"Pestaña con gid={SHEET_GID} no encontrada"
+                _sheets_api_error = f"Pestaña con gid={sheet_gid} no encontrada"
                 _logger.warning(_sheets_api_error)
                 return None
 
@@ -506,7 +521,7 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
                 "))))"
             )
             grid_resp = await client.get(
-                f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}",
+                f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}",
                 params={
                     "key": api_key,
                     "ranges": sheet_name,

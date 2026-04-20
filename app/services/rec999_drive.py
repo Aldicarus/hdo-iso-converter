@@ -24,13 +24,18 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
-from services.settings_store import get_google_api_key
+from services.settings_store import (
+    get_google_api_key,
+    get_cmv40_drive_folder_id,
+    parse_drive_folder_id,
+)
 
 _logger = logging.getLogger(__name__)
 
-# Carpeta pública de REC_9999 con los .bin CMv4.0
-DEFAULT_FOLDER_ID = "1lg46Oic1pWiANf79zwGrdd74Gq5lmPgN"
-FOLDER_ID = os.environ.get("CMV40_DRIVE_FOLDER_ID", DEFAULT_FOLDER_ID)
+# El folder ID ya NO está hardcoded — el usuario debe configurarlo en la UI
+# (el acceso al repo de REC_9999 requiere donación previa al autor).
+# Se lee en runtime via get_cmv40_drive_folder_id() para que cambios en la
+# UI se apliquen inmediatamente sin reiniciar el backend.
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
 CACHE_PATH = CONFIG_DIR / "rec999_drive_cache.json"
@@ -122,7 +127,7 @@ def _save_cache(files: list[DriveFile]) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "fetched_at": time.time(),
-            "folder_id": FOLDER_ID,
+            "folder_id": get_cmv40_drive_folder_id(),
             "files": [f.model_dump() for f in files],
         }
         CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
@@ -138,13 +143,18 @@ def _load_cache() -> list[DriveFile] | None:
         data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if data.get("folder_id") != FOLDER_ID:
+    if data.get("folder_id") != get_cmv40_drive_folder_id():
         return None
     return [DriveFile(**f) for f in data.get("files", [])]
 
 
 def is_configured() -> bool:
-    return bool(get_google_api_key())
+    """Requiere API key Y folder ID. Sin ambos no tiene sentido listar."""
+    return bool(get_google_api_key()) and bool(get_cmv40_drive_folder_id())
+
+
+def is_folder_configured() -> bool:
+    return bool(get_cmv40_drive_folder_id())
 
 
 async def list_bin_files(force_refresh: bool = False) -> list[DriveFile]:
@@ -170,7 +180,7 @@ async def list_bin_files(force_refresh: bool = False) -> list[DriveFile]:
 
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            files = await _walk(client, api_key, FOLDER_ID)
+            files = await _walk(client, api_key, get_cmv40_drive_folder_id())
     except PermissionError:
         raise
     except Exception as e:
@@ -200,8 +210,10 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
         return False, "API key vacía"
 
     # Import tardío para evitar ciclos de importación
-    from services.rec999_sheet import SHEET_ID as _SHEET_ID
+    from services.settings_store import get_cmv40_sheet_id_gid
+    _SHEET_ID, _ = get_cmv40_sheet_id_gid()
 
+    folder_id = get_cmv40_drive_folder_id()
     drive_ok = False
     drive_msg = ""
     sheets_ok = False
@@ -210,28 +222,32 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             # ── Drive API ────────────────────────────────────────
-            resp = await client.get(f"{DRIVE_API}/files", params={
-                "q": f"'{FOLDER_ID}' in parents and trashed=false",
-                "key": key,
-                "fields": "files(id)",
-                "pageSize": "1",
-            })
-            if resp.status_code == 200:
-                drive_ok = True
-                drive_msg = "Drive ✓"
+            if not folder_id:
+                drive_msg = "Drive ⏭ (folder no configurado — saltado)"
+                drive_ok = True  # no falla si no hay folder
             else:
-                try:
-                    emsg = resp.json().get("error", {}).get("message", "")
-                except Exception:
-                    emsg = ""
-                if "has not been used" in emsg or "disabled" in emsg:
-                    drive_msg = "Drive ✗ (API no habilitada)"
-                elif resp.status_code == 403:
-                    drive_msg = f"Drive ✗ (403: {emsg[:80]})"
-                elif resp.status_code == 400:
-                    drive_msg = "Drive ✗ (petición mal formada — key inválida?)"
+                resp = await client.get(f"{DRIVE_API}/files", params={
+                    "q": f"'{folder_id}' in parents and trashed=false",
+                    "key": key,
+                    "fields": "files(id)",
+                    "pageSize": "1",
+                })
+                if resp.status_code == 200:
+                    drive_ok = True
+                    drive_msg = "Drive ✓"
                 else:
-                    drive_msg = f"Drive ✗ ({resp.status_code})"
+                    try:
+                        emsg = resp.json().get("error", {}).get("message", "")
+                    except Exception:
+                        emsg = ""
+                    if "has not been used" in emsg or "disabled" in emsg:
+                        drive_msg = "Drive ✗ (API no habilitada)"
+                    elif resp.status_code == 403:
+                        drive_msg = f"Drive ✗ (403: {emsg[:80]})"
+                    elif resp.status_code == 400:
+                        drive_msg = "Drive ✗ (petición mal formada — key inválida?)"
+                    else:
+                        drive_msg = f"Drive ✗ ({resp.status_code})"
 
             # ── Sheets API v4 ────────────────────────────────────
             # Primero probamos con un spreadsheet genérico público para
@@ -288,6 +304,83 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
     if drive_ok:
         return True, f"API key OK para descargas, pero {sheets_msg} (habilítala para ver los enlaces del sheet)"
     return False, composite
+
+
+async def test_folder_access(folder_url_or_id: str, api_key: str = "") -> tuple[bool, str, int]:
+    """Prueba que un folder URL/ID de Drive es accesible con la API key dada
+    (o la configurada si no se pasa). Devuelve (ok, mensaje, bin_count_sample).
+
+    bin_count_sample: nº de .bin encontrados en la muestra (pageSize=50).
+    Útil para confirmar al usuario que el folder es el correcto.
+    """
+    from services.settings_store import parse_drive_folder_id
+    folder_id = parse_drive_folder_id(folder_url_or_id)
+    if not folder_id:
+        return False, "URL/ID de carpeta no válido (formato esperado: https://drive.google.com/drive/folders/XXX o el ID)", 0
+
+    key = (api_key or get_google_api_key()).strip()
+    if not key:
+        return False, "Necesitas una Google API key configurada antes de probar el folder", 0
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{DRIVE_API}/files", params={
+                "q": f"'{folder_id}' in parents and trashed=false",
+                "key": key,
+                "fields": "files(id,name,mimeType)",
+                "pageSize": "50",
+            })
+        if resp.status_code != 200:
+            try:
+                emsg = resp.json().get("error", {}).get("message", "")
+            except Exception:
+                emsg = ""
+            if resp.status_code == 404:
+                return False, f"Folder no encontrado (404). Verifica la URL. {emsg[:80]}", 0
+            if resp.status_code == 403:
+                return False, f"Acceso denegado (403). Permisos del folder o API key restringida. {emsg[:100]}", 0
+            return False, f"Error Drive ({resp.status_code}): {emsg[:120]}", 0
+
+        items = resp.json().get("files", [])
+        bin_count = sum(1 for it in items if it.get("name", "").lower().endswith(".bin"))
+        folder_count = sum(1 for it in items
+                           if it.get("mimeType") == "application/vnd.google-apps.folder")
+        # Si no hay nada, es sospechoso — puede que el folder sea incorrecto o esté vacío
+        if not items:
+            return False, "Folder accesible pero vacío. ¿Es la URL correcta del repo DoviTools?", 0
+        # Mensaje con muestra
+        return True, (f"Folder accesible — {len(items)} entradas en la muestra "
+                      f"({bin_count} .bin, {folder_count} subcarpetas). "
+                      f"El listado completo se indexará al usar el repo."), bin_count
+    except Exception as e:
+        return False, f"Error de red consultando Drive: {e}", 0
+
+
+async def test_sheet_access(sheet_url: str) -> tuple[bool, str, int]:
+    """Prueba que un sheet URL es accesible (CSV export). Devuelve (ok, mensaje, row_count)."""
+    from services.settings_store import parse_sheet_id_gid
+    sid, gid = parse_sheet_id_gid(sheet_url)
+    if not sid:
+        return False, "URL de sheet no válida (formato esperado: https://docs.google.com/spreadsheets/d/XXX/edit#gid=YYY)", 0
+    csv_url = (f"https://docs.google.com/spreadsheets/d/{sid}"
+               f"/export?format=csv&gid={gid}")
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(csv_url)
+        if resp.status_code != 200:
+            if resp.status_code == 404:
+                return False, f"Sheet o pestaña no encontrada (404). Verifica el sheet ID y el GID.", 0
+            if resp.status_code == 403:
+                return False, f"Acceso denegado (403). El sheet debe ser público (compartir con 'cualquiera con el enlace').", 0
+            return False, f"Error ({resp.status_code}) descargando el sheet", 0
+        text = resp.text
+        if not text.strip():
+            return False, "Sheet accesible pero vacío", 0
+        lines = [l for l in text.split("\n") if l.strip()]
+        return True, (f"Sheet accesible — {len(lines)} filas en CSV export. "
+                      f"El parser completo se ejecuta al usar las recomendaciones."), len(lines)
+    except Exception as e:
+        return False, f"Error de red consultando el sheet: {e}", 0
 
 
 # ── Descarga ───────────────────────────────────────────────────────────

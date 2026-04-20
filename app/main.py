@@ -1469,13 +1469,26 @@ async def cmv40_repo_survey(refresh: bool = False):
     tipo predicho (predict_bin_type sobre el nombre). Útil para entender
     la composición del repo y los casos no clasificados ('unknown').
     """
-    from services.rec999_drive import list_bin_files, is_configured as drive_configured
+    from services.rec999_drive import (
+        list_bin_files,
+        is_configured as drive_configured,
+        is_folder_configured as drive_folder_configured,
+    )
     from services.rec999_drive_match import predict_bin_type, is_not_target, predict_provenance
+    from services.settings_store import get_google_api_key
 
     if not drive_configured():
+        folder_ok = drive_folder_configured()
+        key_ok = bool(get_google_api_key())
+        if not folder_ok:
+            err = "URL del repositorio DoviTools no configurada — configúrala en ⚙︎ Configuración (requiere donación al autor del repo)"
+        else:
+            err = "Google API key no configurada — añádela en ⚙︎ Configuración"
         return {
             "drive_configured": False,
-            "error": "Google API key no configurada — añádela en ⚙︎ Configuración",
+            "drive_folder_configured": folder_ok,
+            "google_key_configured": key_ok,
+            "error": err,
         }
 
     try:
@@ -1528,8 +1541,12 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
     """Candidatos rankeados del repositorio Drive de REC_9999. Si se
     pasa `filename` se parsea; si no, `title`+`year` directos."""
     from services.cmv40_recommend import parse_mkv_filename
-    from services.rec999_drive import is_configured as drive_configured
+    from services.rec999_drive import (
+        is_configured as drive_configured,
+        is_folder_configured as drive_folder_configured,
+    )
     from services.rec999_drive_match import find_candidates
+    from services.settings_store import get_google_api_key
     from services.tmdb import search_movies, is_configured as tmdb_configured
 
     if filename:
@@ -1538,14 +1555,24 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
         year = year if year is not None else parsed_year
 
     if not drive_configured():
+        folder_ok = drive_folder_configured()
+        key_ok = bool(get_google_api_key())
+        if not folder_ok and not key_ok:
+            err = "Falta la URL del repositorio DoviTools Y la Google API key — configura ambas en ⚙︎ Configuración"
+        elif not folder_ok:
+            err = "URL del repositorio DoviTools no configurada — el acceso al repo es privado (donación al autor). Configúralo en ⚙︎ Configuración"
+        else:
+            err = "Google API key no configurada — añádela en ⚙︎ Configuración"
         return {
             "drive_configured": False,
+            "drive_folder_configured": folder_ok,
+            "google_key_configured": key_ok,
             "tmdb_configured": tmdb_configured(),
             "title_en": "",
             "title_es": title,
             "year": year,
             "candidates": [],
-            "error": "Google API key no configurada — añádela en ⚙︎ Configuración",
+            "error": err,
         }
 
     title_en = title
@@ -2769,9 +2796,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # ── Settings editables desde la UI ──────────────────────────────────────────
 
 class SettingsUpdate(BaseModel):
-    """Payload parcial: `None` = no tocar, `""` = borrar, otro = setear."""
+    """Payload parcial: `None` = no tocar, `""` = borrar/restaurar, otro = setear."""
     tmdb_api_key: str | None = None
     google_api_key: str | None = None
+    cmv40_drive_folder_url: str | None = None
+    cmv40_sheet_url: str | None = None
 
 
 @app.get("/api/settings", summary="Lee settings persistentes (sin exponer secretos crudos)")
@@ -2783,10 +2812,14 @@ async def get_settings():
 @app.post("/api/settings", summary="Actualiza settings persistentes")
 async def update_settings(body: SettingsUpdate):
     from services.settings_store import (
-        get_public_settings, update_tmdb_api_key, update_google_api_key,
+        get_public_settings,
+        update_tmdb_api_key, update_google_api_key,
+        update_cmv40_drive_folder_url, update_cmv40_sheet_url,
     )
     update_tmdb_api_key(body.tmdb_api_key)
     update_google_api_key(body.google_api_key)
+    update_cmv40_drive_folder_url(body.cmv40_drive_folder_url)
+    update_cmv40_sheet_url(body.cmv40_sheet_url)
     return get_public_settings()
 
 
@@ -2799,12 +2832,30 @@ async def test_tmdb_key(body: SettingsUpdate):
 
 
 @app.post("/api/settings/test-google",
-          summary="Valida una Google API key listando la carpeta REC_9999")
+          summary="Valida una Google API key (Drive + Sheets)")
 async def test_google_key(body: SettingsUpdate):
     from services.rec999_drive import test_api_key
     key = body.google_api_key or ""
     ok, msg = await test_api_key(key)
     return {"ok": ok, "message": msg}
+
+
+@app.post("/api/settings/test-drive-folder",
+          summary="Valida el URL/ID del folder Drive del repo DoviTools")
+async def test_drive_folder(body: SettingsUpdate):
+    from services.rec999_drive import test_folder_access
+    folder = body.cmv40_drive_folder_url or ""
+    ok, msg, bin_count = await test_folder_access(folder)
+    return {"ok": ok, "message": msg, "bin_count_sample": bin_count}
+
+
+@app.post("/api/settings/test-sheet",
+          summary="Valida el URL del sheet de recomendaciones DoviTools")
+async def test_sheet_url(body: SettingsUpdate):
+    from services.rec999_drive import test_sheet_access
+    url = body.cmv40_sheet_url or ""
+    ok, msg, rows = await test_sheet_access(url)
+    return {"ok": ok, "message": msg, "row_count": rows}
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

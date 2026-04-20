@@ -801,15 +801,23 @@ function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 // ── Modal de Configuración (API keys, integraciones) ─────────────
+// Cache de la respuesta /api/settings — se usa para saber si las secciones
+// del repo DoviTools están configuradas sin tener que llamar cada vez.
+let _settingsCache = null;
+
 async function openSettingsModal() {
-  ['settings-tmdb-feedback', 'settings-google-feedback'].forEach(id => {
+  ['settings-tmdb-feedback', 'settings-google-feedback',
+   'settings-drive-folder-feedback', 'settings-sheet-feedback'].forEach(id => {
     const fb = document.getElementById(id);
     if (fb) { fb.textContent = ''; fb.className = 'settings-feedback'; }
   });
-  ['settings-tmdb-input', 'settings-google-input'].forEach(id => {
+  ['settings-tmdb-input', 'settings-google-input',
+   'settings-drive-folder-input'].forEach(id => {
     const inp = document.getElementById(id);
     if (inp) inp.value = '';
   });
+  // El sheet NO se borra — pre-populamos con la URL actual para que el
+  // usuario vea qué está usando y pueda editarlo directamente.
   await _loadSettings();
   openModal('settings-modal');
   setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
@@ -818,6 +826,7 @@ async function openSettingsModal() {
 async function _loadSettings() {
   const data = await apiFetch('/api/settings');
   if (!data) return;
+  _settingsCache = data;
   _renderSettings(data);
 }
 
@@ -844,12 +853,55 @@ function _renderSettingsSection(key, data) {
   return false;
 }
 
+function _renderSettingsDriveFolder(data) {
+  const badge = document.getElementById('settings-drive-folder-status');
+  const inp = document.getElementById('settings-drive-folder-input');
+  if (!badge) return false;
+  const st = data.drive_folder || {};
+  if (st.configured) {
+    const srcLabel = st.source === 'env' ? 'desde .env' : 'guardada';
+    const cls = st.source === 'env' ? 'env' : 'ok';
+    badge.className = 'settings-status ' + cls;
+    const idTail = st.folder_id_last6 ? ` · ID …${st.folder_id_last6}` : '';
+    badge.textContent = `✓ ${srcLabel}${idTail}`;
+    if (inp) inp.placeholder = `Ya configurado. Escribe una URL para reemplazar.`;
+    return st.source === 'settings';
+  }
+  badge.className = 'settings-status warn';
+  badge.textContent = '⛔ Sin URL — repo bloqueado';
+  if (inp) inp.placeholder = 'https://drive.google.com/drive/folders/…';
+  return false;
+}
+
+function _renderSettingsSheet(data) {
+  const badge = document.getElementById('settings-sheet-status');
+  const inp = document.getElementById('settings-sheet-input');
+  const resetBtn = document.getElementById('settings-sheet-reset');
+  if (!badge) return false;
+  const st = data.sheet || {};
+  const srcLabel = st.source === 'env' ? 'desde .env'
+                 : st.source === 'settings' ? 'personalizado'
+                 : 'default público';
+  const cls = st.source === 'settings' ? 'ok' : (st.source === 'env' ? 'env' : 'default');
+  badge.className = 'settings-status ' + cls;
+  const idTail = st.sheet_id_last6 ? ` · …${st.sheet_id_last6}·gid${st.gid || '0'}` : '';
+  badge.textContent = `${srcLabel}${idTail}`;
+  // Pre-popular con la URL activa (es pública, no es secret)
+  if (inp && !inp.value) inp.value = st.url || '';
+  // Botón reset visible solo si NO es el default
+  if (resetBtn) resetBtn.style.display = st.is_default ? 'none' : '';
+  return st.source === 'settings';
+}
+
 function _renderSettings(data) {
   const tmdbUserSet   = _renderSettingsSection('tmdb', data);
   const googleUserSet = _renderSettingsSection('google', data);
+  const driveUserSet  = _renderSettingsDriveFolder(data);
+  const sheetUserSet  = _renderSettingsSheet(data);
   const clearBtn = document.getElementById('settings-clear-btn');
   if (clearBtn) {
-    clearBtn.style.display = (tmdbUserSet || googleUserSet) ? '' : 'none';
+    const anyUserSet = tmdbUserSet || googleUserSet || driveUserSet || sheetUserSet;
+    clearBtn.style.display = anyUserSet ? '' : 'none';
   }
 }
 
@@ -860,7 +912,11 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
   const value = (inp?.value || '').trim();
   if (!fb || !btn) return;
   if (!value) {
-    fb.textContent = 'Introduce una Clave de la API para probar';
+    fb.textContent = key === 'drive-folder'
+      ? 'Pega la URL del folder Drive para probar'
+      : key === 'sheet'
+      ? 'Pega la URL del sheet para probar'
+      : 'Introduce una Clave de la API para probar';
     fb.className = 'settings-feedback info';
     return;
   }
@@ -878,21 +934,52 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
   fb.className = 'settings-feedback ' + (data.ok ? 'ok' : 'error');
 }
 
-async function testTmdbKey()   { return _testKeyGeneric('tmdb',   'tmdb',   '/api/settings/test-tmdb',   'tmdb_api_key'); }
-async function testGoogleKey() { return _testKeyGeneric('google', 'google', '/api/settings/test-google', 'google_api_key'); }
+async function testTmdbKey()        { return _testKeyGeneric('tmdb',         'tmdb',         '/api/settings/test-tmdb',         'tmdb_api_key'); }
+async function testGoogleKey()      { return _testKeyGeneric('google',       'google',       '/api/settings/test-google',       'google_api_key'); }
+async function testDriveFolderUrl() { return _testKeyGeneric('drive-folder', 'drive-folder', '/api/settings/test-drive-folder', 'cmv40_drive_folder_url'); }
+async function testSheetUrl()       { return _testKeyGeneric('sheet',        'sheet',        '/api/settings/test-sheet',        'cmv40_sheet_url'); }
+
+function resetSheetUrlToDefault() {
+  // Envía cadena vacía → borra el override → vuelve al default público
+  const inp = document.getElementById('settings-sheet-input');
+  if (inp) inp.value = '';
+  apiFetch('/api/settings', {
+    method: 'POST',
+    body: JSON.stringify({ cmv40_sheet_url: '' }),
+  }).then(data => {
+    if (!data) return;
+    _settingsCache = data;
+    _renderSettings(data);
+    const fb = document.getElementById('settings-sheet-feedback');
+    if (fb) { fb.textContent = 'URL restaurada al default público ✓'; fb.className = 'settings-feedback ok'; }
+    showToast('URL del sheet restaurada', 'success');
+  });
+}
 
 async function saveSettings() {
-  const tmdbInp   = document.getElementById('settings-tmdb-input');
-  const googleInp = document.getElementById('settings-google-input');
+  const tmdbInp        = document.getElementById('settings-tmdb-input');
+  const googleInp      = document.getElementById('settings-google-input');
+  const driveFolderInp = document.getElementById('settings-drive-folder-input');
+  const sheetInp       = document.getElementById('settings-sheet-input');
   const btn = document.getElementById('settings-save-btn');
   const fbTmdb   = document.getElementById('settings-tmdb-feedback');
   const fbGoogle = document.getElementById('settings-google-feedback');
+  const fbDrive  = document.getElementById('settings-drive-folder-feedback');
+  const fbSheet  = document.getElementById('settings-sheet-feedback');
   if (!btn) return;
   const payload = {};
   const tk = (tmdbInp?.value || '').trim();
   const gk = (googleInp?.value || '').trim();
+  const du = (driveFolderInp?.value || '').trim();
+  const su = (sheetInp?.value || '').trim();
   if (tk) payload.tmdb_api_key = tk;
   if (gk) payload.google_api_key = gk;
+  if (du) payload.cmv40_drive_folder_url = du;
+  // Para el sheet, si la URL está vacía o coincide con el default, no la guardamos
+  // (dejamos que caiga al default automático). Si es distinta, la guardamos.
+  if (su && su !== (_settingsCache?.sheet?.default_url || '')) {
+    payload.cmv40_sheet_url = su;
+  }
   if (!Object.keys(payload).length) {
     closeModal('settings-modal');
     return;
@@ -903,20 +990,76 @@ async function saveSettings() {
   });
   btn.disabled = false;
   if (!data) return;
+  _settingsCache = data;
   _renderSettings(data);
-  if (tk && tmdbInp)   { tmdbInp.value   = ''; if (fbTmdb)   { fbTmdb.textContent = 'Guardada ✓';   fbTmdb.className = 'settings-feedback ok'; } }
-  if (gk && googleInp) { googleInp.value = ''; if (fbGoogle) { fbGoogle.textContent = 'Guardada ✓'; fbGoogle.className = 'settings-feedback ok'; } }
+  if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = 'Guardada ✓';   fbTmdb.className = 'settings-feedback ok'; } }
+  if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = 'Guardada ✓'; fbGoogle.className = 'settings-feedback ok'; } }
+  if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = 'Guardada ✓';  fbDrive.className = 'settings-feedback ok'; } }
+  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = 'Guardada ✓'; fbSheet.className = 'settings-feedback ok'; }
   showToast('Configuración guardada', 'success');
 }
 
 async function clearAllKeys() {
   const data = await apiFetch('/api/settings', {
     method: 'POST',
-    body: JSON.stringify({ tmdb_api_key: '', google_api_key: '' }),
+    body: JSON.stringify({
+      tmdb_api_key: '',
+      google_api_key: '',
+      cmv40_drive_folder_url: '',
+      cmv40_sheet_url: '',
+    }),
   });
   if (!data) return;
+  _settingsCache = data;
   _renderSettings(data);
-  showToast('Claves borradas', 'info');
+  showToast('Claves y URLs borradas', 'info');
+}
+
+// Banner explicativo cuando el Repo DoviTools no está accesible. Cubre 3
+// casos: falta folder URL (paywall), falta Google API key, o ambos. El
+// primero es el más importante — el acceso al repo es privado (donación al
+// autor) y merece explicación clara + link al PayPal.
+function _cmv40RepoUnavailableBanner(repo) {
+  const folderOk = !!(repo && repo.drive_folder_configured);
+  const keyOk    = !!(repo && repo.google_key_configured);
+  const openCfg = `<a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>`;
+  const donate  = `<a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>`;
+  if (!folderOk && !keyOk) {
+    return `<div class="cmv40-repo-locked">
+      <div class="cmv40-repo-locked-title">🔒 Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-body">
+        Faltan <strong>dos cosas</strong>:
+        <ol>
+          <li><strong>URL del folder Drive del repo</strong> — es privado, requiere donación (15 CAD) en ${donate} indicando tu correo y pidiendo acceso al repositorio de RPUs. Recibirás el link por email.</li>
+          <li><strong>Google API key</strong> con Drive API y Sheets API habilitadas.</li>
+        </ol>
+        Configura ambas en ${openCfg}.
+      </div>
+    </div>`;
+  }
+  if (!folderOk) {
+    return `<div class="cmv40-repo-locked">
+      <div class="cmv40-repo-locked-title">🔒 Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-body">
+        La URL del folder Drive del repo de REC_9999 no está configurada. Es un repositorio <strong>privado</strong>: el acceso se obtiene donando 15 CAD en ${donate}, indicando tu correo y pidiendo acceso al repositorio de RPUs. Recibirás el link por email.
+        <br><br>Una vez tengas el link, pégalo en ${openCfg} → sección <em>URL del repositorio DoviTools</em>.
+      </div>
+    </div>`;
+  }
+  if (!keyOk) {
+    return `<div class="cmv40-repo-locked">
+      <div class="cmv40-repo-locked-title">⚠️ Google API key no configurada</div>
+      <div class="cmv40-repo-locked-body">
+        La URL del repo está OK, pero falta la Google API key para consultar Drive. Configúrala en ${openCfg}.
+      </div>
+    </div>`;
+  }
+  return `<div class="cmv40-repo-locked">
+    <div class="cmv40-repo-locked-title">⚠️ Repo DoviTools no accesible</div>
+    <div class="cmv40-repo-locked-body">
+      ${escHtml(repo?.error || 'Error desconocido')}
+    </div>
+  </div>`;
 }
 
 // ── Modal de Consulta rápida CMv4.0 (read-only, sin crear proyecto) ─
@@ -1113,7 +1256,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   html += '<div class="cmv40-lookup-section-title">📦 Repositorio DoviTools (bins <code>.bin</code>)</div>';
   html += '<div class="cmv40-lookup-section-desc">Ficheros disponibles para descarga automática. El tag indica qué pipeline se aplicaría.</div>';
   if (!repo || !repo.drive_configured) {
-    html += `<div class="cmv40-lookup-warn">⚠️ Google API key no configurada — no se puede consultar el repositorio Drive. Configúrala en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>.</div>`;
+    html += _cmv40RepoUnavailableBanner(repo);
   } else if (repo.error) {
     html += `<div class="cmv40-lookup-warn">${escHtml(repo.error)}</div>`;
   } else if (!repo.candidates || repo.candidates.length === 0) {
@@ -5861,10 +6004,11 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     return;
   }
   if (!data.drive_configured) {
-    _cmv40NewResetRepoSelect('— Google API key no configurada —');
-    if (info) {
-      info.innerHTML = '⚠️ Falta la <strong>Clave de la API de Google</strong>. Añádela en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>.';
-    }
+    const placeholder = !data.drive_folder_configured
+      ? '— URL del repo DoviTools no configurada —'
+      : '— Google API key no configurada —';
+    _cmv40NewResetRepoSelect(placeholder);
+    if (info) info.innerHTML = _cmv40RepoUnavailableBanner(data);
     return;
   }
   if (data.error) {
@@ -5882,29 +6026,49 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     return;
   }
   sel.innerHTML = '<option value="">— Seleccionar RPU del repositorio —</option>';
-  cands.forEach((c, i) => {
+  // Agrupar candidatos por procedencia con <optgroup> nativo — Retail arriba
+  // (CMv4.0 auténtico, preferente), Generated en medio (sintético), Sin marca
+  // al final. El pre-seleccionado es el top-score global (respeta el orden que
+  // ya venía del backend incluyendo el bonus +0.03 a retail).
+  const topFilename = cands[0]?.file?.name || '';
+  const groups = {
+    retail:    { label: '🏛 Retail — CMv4.0 auténtico del master',   items: [] },
+    generated: { label: '⚠ Generated — CMv4.0 sintético desde HDR10', items: [] },
+    unknown:   { label: '❔ Procedencia no deducible del nombre',     items: [] },
+  };
+  cands.forEach(c => {
+    const key = c.provenance === 'retail' ? 'retail'
+              : c.provenance === 'generated' ? 'generated'
+              : 'unknown';
+    groups[key].items.push(c);
+  });
+
+  const makeOption = (c) => {
     const opt = document.createElement('option');
     opt.value = c.file.id;
     const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
     const pt = c.predicted_type || 'unknown';
     const prov = c.provenance || '';
-    // Tag compacto + sufijo de procedencia
-    const tag = pt === 'trusted_p7_fel_final' ? '🎯 drop-in FEL'
-              : pt === 'trusted_p7_mel_final' ? '🎯 drop-in MEL'
-              : pt === 'trusted_p8_source'    ? '📦 P5→P8 transfer'
-              : '❓ tipo desconocido';
-    const provTag = prov === 'retail'    ? ' · retail'
-                  : prov === 'generated' ? ' · generated'
-                  : '';
-    opt.textContent = `[${tag}${provTag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
+    const tag = pt === 'trusted_p7_fel_final' ? '🎯 FEL'
+              : pt === 'trusted_p7_mel_final' ? '🎯 MEL'
+              : pt === 'trusted_p8_source'    ? '📦 P8 source'
+              : '❓ ?';
+    opt.textContent = `[${tag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
     opt.dataset.filename = c.file.name;
     opt.dataset.predictedType = pt;
     opt.dataset.provenance = prov;
-    sel.appendChild(opt);
-    if (i === 0) {
-      opt.selected = true;
-    }
-  });
+    if (c.file.name === topFilename) opt.selected = true;
+    return opt;
+  };
+
+  for (const key of ['retail', 'generated', 'unknown']) {
+    const g = groups[key];
+    if (!g.items.length) continue;
+    const grp = document.createElement('optgroup');
+    grp.label = `${g.label}  (${g.items.length})`;
+    g.items.forEach(c => grp.appendChild(makeOption(c)));
+    sel.appendChild(grp);
+  }
   // Dispara onChange para registrar la pre-selección
   onCMv40TargetChange();
   if (info) {
