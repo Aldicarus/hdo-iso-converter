@@ -4990,7 +4990,11 @@ select { appearance: none; cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
 }
-.cmv40-lookup-input {
+/* Selector con element `input` para igualar especificidad de la regla global
+   `input[type="text"], select { background: var(--surface-2); }` (style.css:1321)
+   que estaba ganando y pintando el input de título en gris mientras el de año
+   (type="number") no caía en esa regla y se veia blanco. */
+input.cmv40-lookup-input {
   padding: 9px 11px;
   background: #ffffff;
   color: #000000;
@@ -4998,18 +5002,18 @@ select { appearance: none; cursor: pointer;
   border-radius: 6px;
   font-size: 13px;
 }
-.cmv40-lookup-input:focus {
+input.cmv40-lookup-input:focus {
   outline: none;
   border-color: var(--blue, #007aff);
 }
-.cmv40-lookup-input::placeholder { color: var(--text-3); opacity: 1; }
+input.cmv40-lookup-input::placeholder { color: var(--text-3); opacity: 1; }
 /* Chrome aplica fondo gris via :-webkit-autofill ignorando autocomplete="off".
    Este override fuerza el fondo blanco via inset shadow opaco (la única técnica
    que Webkit respeta), + fija el color de texto negro y el caret. */
-.cmv40-lookup-input:-webkit-autofill,
-.cmv40-lookup-input:-webkit-autofill:hover,
-.cmv40-lookup-input:-webkit-autofill:focus,
-.cmv40-lookup-input:-webkit-autofill:active {
+input.cmv40-lookup-input:-webkit-autofill,
+input.cmv40-lookup-input:-webkit-autofill:hover,
+input.cmv40-lookup-input:-webkit-autofill:focus,
+input.cmv40-lookup-input:-webkit-autofill:active {
   -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
   box-shadow: 0 0 0 1000px #ffffff inset !important;
   -webkit-text-fill-color: #000000 !important;
