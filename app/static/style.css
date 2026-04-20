@@ -31,10 +31,10 @@
   --purple-border:rgba(175, 82, 222, 0.35);
 
   /* Hub activo — franja top (pestaña activa + subtab-bar + área botón Nuevo proyecto).
-     Azul oscuro con sutil gradiente vertical para dar profundidad sin perder legibilidad. */
-  --active-hub:          #1e3a5f;
-  --active-hub-2:        #264a78;   /* tono un poco más claro para el gradiente */
-  --active-hub-grad:     linear-gradient(180deg, var(--active-hub-2) 0%, var(--active-hub) 100%);
+     Azul oscuro SÓLIDO. Un gradiente causaría costura entre la pestaña y el subtab-bar
+     porque cada elemento reinicia el gradiente en su propio alto. */
+  --active-hub:          #21406b;
+  --active-hub-grad:     var(--active-hub);   /* alias — sólido, sin degradado */
   --active-hub-text:     #ffffff;
   --active-hub-text-dim: rgba(255, 255, 255, 0.72);
   --active-hub-sep:      rgba(255, 255, 255, 0.14);
