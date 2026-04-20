@@ -1670,7 +1670,9 @@ select { appearance: none; cursor: pointer;
   color: var(--text-3);
 }
 .empty-state-title { font-size: 18px; font-weight: 700; color: var(--text-1); }
-.empty-state-desc { font-size: 13px; max-width: 400px; text-align: center; line-height: 1.5; }
+.empty-state-desc { font-size: 13px; max-width: 560px; text-align: center; line-height: 1.55; color: var(--text-2); }
+.empty-state-desc code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+.empty-state-desc strong { color: var(--text-1); }
 
 .uc-container {
   display: flex;
