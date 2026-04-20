@@ -3550,8 +3550,8 @@ async function _doExecute() {
 
   const queuePos = data.queue?.length || 0;
   showToast(queuePos > 0
-    ? `Añadido a la cola en posición ${queuePos}. Sigue el progreso en "Demux Jobs".`
-    : 'Iniciando extracción… Sigue el progreso en "Demux Jobs".', 'success');
+    ? `Añadido a la cola en posición ${queuePos}. Sigue el progreso en "Trabajos en Curso".`
+    : 'Iniciando extracción… Sigue el progreso en "Trabajos en Curso".', 'success');
 
   // Actualizar proyecto abierto: ahora está queued/running
   refreshOpenProjectState(sid);
@@ -3580,7 +3580,7 @@ function renderExecResultBanner(session) {
     banner.className = 'banner info';
     icon.textContent = session.status === 'running' ? '⏳' : '⏸';
     title.textContent = session.status === 'running' ? 'Ejecución en curso…' : 'En cola de ejecución';
-    detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Demux Jobs</strong>.';
+    detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
       ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')"
           data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales">🛑 Cancelar</button>`
@@ -4235,7 +4235,7 @@ function setColaLogFilter(mode) {
   _renderCsbLog();
 }
 
-/** No-op: el sub-tab "Demux Jobs" ya no muestra contador ni icono dinámico. */
+/** No-op: el sub-tab "Trabajos en Curso" ya no muestra contador ni icono dinámico. */
 /** Actualiza indicadores de ejecución: tab principal + sidebar proyectos. */
 function updateSubtabQueuePill() {
   const running = !!queueState.running;
@@ -4361,7 +4361,7 @@ async function cancelRunningSession(sessionId) {
 }
 
 /**
- * Cancela el trabajo en ejecución desde el panel Cola (Demux Jobs).
+ * Cancela el trabajo en ejecución desde el panel Cola (Trabajos en Curso).
  * Lee el session_id del trabajo en curso desde el estado de cola.
  */
 function cancelRunningFromCola() {

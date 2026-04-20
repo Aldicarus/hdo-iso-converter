@@ -1908,7 +1908,7 @@ select { appearance: none; cursor: pointer;
 .subtab-projects { scrollbar-width: none; }
 .subtab-projects::-webkit-scrollbar { height: 0; width: 0; display: none; }
 
-/* ── Demux Jobs (cola — azul suave fijo, nunca cambia de color) ──────── */
+/* ── Trabajos en Curso (cola — azul suave fijo, nunca cambia de color) ──────── */
 .subtab-cola-btn {
   gap: 6px;
   justify-content: center;
