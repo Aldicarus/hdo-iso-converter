@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260420az">
+  <link rel="stylesheet" href="/static/style.css?v=20260420ba">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -42,18 +42,21 @@
   </header>
 
   <!-- ═══ TAB BAR ══════════════════════════════════════════════════ -->
+  <!-- Orden visual: 1) ISO→MKV   2) Upgrade DV   3) Editar props.
+       Los IDs/switchTab(N) siguen referenciando al panel correspondiente
+       (1=Crear, 2=Editar, 3=CMv4.0). Solo cambia el orden visual + labels. -->
   <nav id="tab-bar">
     <button class="tab active" onclick="switchTab(1)" id="tab-btn-1"
-      data-tooltip="Crear un nuevo MKV a partir de un ISO UHD Blu-ray">
-      <span class="tab-icon">💿</span> Crear MKV
-    </button>
-    <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
-      data-tooltip="Editar propiedades de ficheros MKV existentes">
-      <span class="tab-icon">✏️</span> Editar MKV
+      data-tooltip="Convierte un ISO UHD Blu-ray en un MKV con pistas filtradas y Dolby Vision FEL">
+      <span class="tab-icon">💿</span> Blu-Ray ISO → MKV
     </button>
     <button class="tab" onclick="switchTab(3)" id="tab-btn-3"
-      data-tooltip="Pipeline para añadir Dolby Vision CMv4.0 a discos Blu-ray UHD">
-      <span class="tab-icon">🎯</span> CMv4.0 BD
+      data-tooltip="Inyecta RPU Dolby Vision CMv4.0 sobre un MKV con CMv2.9 del Blu-ray original">
+      <span class="tab-icon">✨</span> Upgrade Dolby Vision CMv4.0
+    </button>
+    <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
+      data-tooltip="Edita metadatos, pistas y capítulos de ficheros MKV existentes">
+      <span class="tab-icon">✏️</span> Editar Propiedades MKV
     </button>
   </nav>
 
