@@ -1982,12 +1982,12 @@ async def run_phase_g_remux(
         raise RuntimeError(f"mkvmerge falló (código {rc})")
     await _emit_progress(log_callback, 100, "Remux completado")
 
-    # Cleanup intermedio
-    if drop_in_fel:
-        # source_injected.hevc (~45 GB) ya está multiplexado en el .mkv.tmp
-        source_injected.unlink(missing_ok=True)
-    elif workflow == "p7_fel":
-        dv_dual.unlink(missing_ok=True)
+    # Cleanup intermedio: NO se borra aquí el pre-mux HEVC (source_injected /
+    # dv_dual). Fase H los necesita para `extract-rpu` como alternativa al
+    # MKV (dovi_tool 2.3.x falla con "Invalid PPS index" al parsear ciertos
+    # MKVs). El unlink se pospone al final de Fase H tras validar. Los
+    # ~45 GB extra durante el ventana G→H no son un problema: TMP tiene
+    # margen holgado (preflight lo comprobó).
 
     if log_callback:
         size_gb = output_mkv.stat().st_size / 1e9
@@ -2208,6 +2208,14 @@ async def run_phase_h_validate(
 
     session.output_mkv_path = str(final_path)
     await _emit_progress(log_callback, 100, "Validación completada")
+
+    # Cleanup DIFERIDO del pre-mux HEVC: tras validación exitosa ya no los
+    # necesitamos. Antes se borraban al final de Fase G, pero Fase H los
+    # requería como input alternativo a extract-rpu sobre el MKV final
+    # (evita "Invalid PPS index" de dovi_tool 2.3.x con ciertos MKVs).
+    for hevc_name in ("source_injected.hevc", "DV_dual.hevc",
+                      "EL_injected.hevc", "BL_injected.hevc"):
+        (wd / hevc_name).unlink(missing_ok=True)
 
     if log_callback:
         await log_callback(
