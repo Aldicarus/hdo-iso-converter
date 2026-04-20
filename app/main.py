@@ -1746,6 +1746,39 @@ async def cmv40_get(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
+
+    # Auto-rewind: si la sesión dice "remuxed/validated/done" pero el MKV
+    # esperado (.mkv.tmp para remuxed, .mkv para validated/done) no existe
+    # físicamente en OUTPUT_DIR, retrocedemos la fase a `injected` para que
+    # la UI muestre Fase G (remux) como siguiente en vez de H (validate).
+    # Sin esto, el usuario era llevado a Fase H y la ejecución fallaba con
+    # "MKV final no existe — ejecuta Fase G primero".
+    # No se aplica a sesiones archivadas (modo solo lectura) ni a DEV_MODE.
+    if (not DEV_MODE and not session.archived
+            and session.phase in ("remuxed", "validated", "done")
+            and session.output_mkv_name):
+        tmp_path   = OUTPUT_DIR_MKV / f"{session.output_mkv_name}.tmp"
+        final_path = OUTPUT_DIR_MKV / session.output_mkv_name
+        if session.phase == "remuxed":
+            missing = not tmp_path.exists() and not final_path.exists()
+        else:
+            # validated / done: el archivo final debería existir (tmp ya renombrado)
+            missing = not final_path.exists()
+        if missing:
+            _logger.info(
+                "Auto-rewind de sesión %s: phase=%s pero MKV no existe en %s → injected",
+                session.id, session.phase, OUTPUT_DIR_MKV,
+            )
+            session.phase = "injected"
+            session.output_mkv_path = None
+            session.error_message = None
+            save_cmv40_session(session)
+            await _cmv40_log(
+                session,
+                f"ℹ️ Auto-rewind: MKV final no existe en /mnt/output — "
+                f"fase retrocedida a 'injected' para re-ejecutar desde Fase G"
+            )
+
     data = session.model_dump()
     if DEV_MODE:
         # En DEV simulamos tamaños de artefactos según la fase alcanzada
