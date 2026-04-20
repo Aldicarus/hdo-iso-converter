@@ -5538,7 +5538,10 @@ function _cmv40FmtClock(totalSecs) {
 }
 
 // Ticker único global que actualiza todos los timers vivos cada segundo.
-// Re-calcula elapsed y remaining desde data-started-at + data-total-eta.
+// Re-calcula elapsed y remaining cada segundo. Elapsed = now - started_at.
+// Remaining = baseRemaining (snapshot en render) - (now - baseAt). Así
+// decrementa suavemente segundo a segundo entre renders, y solo "salta" al
+// recomputar cuando llega una actualización de sesión (transición de fase).
 function _cmv40EnsureTimerTick() {
   if (window._cmv40TimerTick) return;
   window._cmv40TimerTick = setInterval(() => {
@@ -5547,22 +5550,47 @@ function _cmv40EnsureTimerTick() {
       if (!started) return;
       const elapsed = (Date.now() - started) / 1000;
       el.textContent = _cmv40FmtClock(elapsed);
-      // Actualiza también el restante dentro del mismo contenedor
+      // Remaining: decrementa desde la snapshot del último render.
       const remainEl = el.parentElement?.parentElement?.querySelector('.cmv40-tl-timer-remaining');
-      const totalEta = parseFloat(el.dataset.totalEta || '0');
-      if (remainEl && totalEta > 0) {
-        const remaining = Math.max(0, totalEta - elapsed);
-        remainEl.textContent = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
+      const baseRem = parseFloat(el.dataset.baseRemaining || 'NaN');
+      const baseAt  = parseFloat(el.dataset.baseAt || 'NaN');
+      if (remainEl && isFinite(baseRem) && isFinite(baseAt)) {
+        const delta = (Date.now() - baseAt) / 1000;
+        const remaining = Math.max(0, baseRem - delta);
+        remainEl.textContent = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes (auto)` : 'casi listo…';
       }
     });
   }, 1000);
 }
 
+/** Segundos restantes estimados para las fases AUTO pendientes de ejecución.
+ *  Suma los etaSecs de pasos no-done/no-skipped, descontando el tiempo que
+ *  lleva ejecutándose el paso en curso. Fase D manual (etaSecs=null) no cuenta. */
+function _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist) {
+  let remaining = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const status = stepStatuses[i];
+    if (status === 'done' || status === 'skipped') continue;
+    const eta = steps[i].etaSecs || 0;   // null (manual) → 0
+    remaining += eta;
+  }
+  // Descontar el tiempo que lleva ejecutándose la fase actual (si existe)
+  if (s.running_phase && Array.isArray(hist)) {
+    const curEntry = [...hist].reverse().find(h => h.phase === s.running_phase);
+    if (curEntry && curEntry.started_at && !curEntry.finished_at) {
+      const startMs = Date.parse(curEntry.started_at);
+      if (isFinite(startMs)) {
+        const runningSecs = (Date.now() - startMs) / 1000;
+        remaining = Math.max(0, remaining - runningSecs);
+      }
+    }
+  }
+  return Math.max(0, Math.round(remaining));
+}
+
 /** Renderiza el timeline lateral del auto-pipeline (HTML). */
 function _cmv40RenderTimeline(s, project) {
   const steps = _cmv40PlanAutoSteps(s);
-  const totalEta = steps.reduce((acc, st) => acc + (st.etaSecs || 0), 0);
-
   // Progreso por #pasos completados (done + skipped) sobre total.
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
@@ -5596,9 +5624,16 @@ function _cmv40RenderTimeline(s, project) {
       remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
-      const remaining = Math.max(0, totalEta - elapsedSecs);
-      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
-      timerAttrs = ` data-started-at="${startedMs}" data-total-eta="${totalEta}"`;
+      // Tiempo restante de fases AUTO pendientes. Excluye fases manuales
+      // (etaSecs null = interactiva, p.ej. Fase D no-trusted). Descontamos
+      // el tiempo que lleva ejecutándose la fase actual para que el contador
+      // baje suavemente durante ella.
+      const remaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist);
+      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes (auto)` : 'casi listo…';
+      // data-base-remaining + data-base-at permiten que el tick de 1s
+      // decremente suavemente sin recalcular la suma (evita fluctuaciones
+      // por cambios de steps.etaSecs entre renders).
+      timerAttrs = ` data-started-at="${startedMs}" data-base-remaining="${remaining}" data-base-at="${Date.now()}"`;
       _cmv40EnsureTimerTick();
     }
     elapsedLabel = _cmv40FmtClock(elapsedSecs);
@@ -6755,7 +6790,6 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
 
   // Recalcular métricas
   const steps = _cmv40PlanAutoSteps(s);
-  const totalEta = steps.reduce((acc, st) => acc + (st.etaSecs || 0), 0);
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
   const totalCount = steps.length;
@@ -6774,6 +6808,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   const isTerminal = (s.phase === 'done' || !!s.error_message);
   let elapsedLabel  = '—';
   let remainingText = '';
+  let newBaseRemaining = null;   // null = no actualizar data-base-remaining
   if (startedMs) {
     let elapsedSecs;
     if (isTerminal) {
@@ -6783,8 +6818,10 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
       remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
-      const remaining = Math.max(0, totalEta - elapsedSecs);
-      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
+      newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist);
+      remainingText = newBaseRemaining > 0
+        ? `~${_cmv40FmtClock(newBaseRemaining)} restantes (auto)`
+        : 'casi listo…';
     }
     elapsedLabel = _cmv40FmtClock(elapsedSecs);
   }
@@ -6797,6 +6834,11 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   const progressBox = tlWrap.querySelector('.cmv40-tl-progress');
   if (elapsedEl   && elapsedEl.textContent   !== elapsedLabel)   elapsedEl.textContent   = elapsedLabel;
   if (remainingEl && remainingEl.textContent !== remainingText)  remainingEl.textContent = remainingText;
+  // Refrescar snapshot del remaining — el tick de 1s decrementa desde aquí.
+  if (elapsedEl && newBaseRemaining !== null) {
+    elapsedEl.dataset.baseRemaining = String(newBaseRemaining);
+    elapsedEl.dataset.baseAt = String(Date.now());
+  }
   const pctText = `${doneCount}/${totalCount} · ${progressPct}%`;
   if (pctEl       && pctEl.textContent       !== pctText)        pctEl.textContent       = pctText;
   if (fillEl) {
