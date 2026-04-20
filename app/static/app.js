@@ -8017,10 +8017,27 @@ async function _cmv40DeleteFromSidebar(sid) {
 
 async function _loadCMv40SyncChart(project) {
   const pid = project.id;
+  const s = project.session;
+  // Skip defensivo: proyecto trusted + auto nunca debe cargar el chart — Fase D
+  // se salta por diseño. Si alguien cambia trust_override a 'force_interactive'
+  // el backend regenerará per_frame_data on-demand bajo demanda explícita del
+  // usuario (no desde el auto-render).
+  if (s && s.target_trust_ok === true && (s.trust_override || 'auto') !== 'force_interactive') {
+    return;
+  }
+  // Guard anti-thundering-herd: cada re-render de la phase card llamaba aquí.
+  // Sin flag, N renders antes de que resuelva la promesa lanzaban N fetches
+  // paralelos → N `dovi_tool export` concurrentes en backend → I/O thrash.
+  if (project._syncDataLoading) return;
   if (!project.syncData) {
-    const data = await apiFetch(`/api/cmv40/${pid}/sync-data`);
-    if (!data) return;
-    project.syncData = data;
+    project._syncDataLoading = true;
+    try {
+      const data = await apiFetch(`/api/cmv40/${pid}/sync-data`);
+      if (!data) return;
+      project.syncData = data;
+    } finally {
+      project._syncDataLoading = false;
+    }
   }
   _renderCMv40Chart(project);
   _renderCMv40SyncStats(project);
