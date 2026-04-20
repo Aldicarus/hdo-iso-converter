@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260420af">
+  <link rel="stylesheet" href="/static/style.css?v=20260420am">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -24,7 +24,7 @@
         <span class="brand-sub">UHD Blu-ray Toolkit</span>
       </div>
       <span class="brand-desc-sep"></span>
-      <span class="brand-desc">Convierte ISOs UHD Blu-ray a MKV, edita propiedades de MKVs existentes e inyecta Dolby Vision CMv4.0 con integración TMDb, repositorio DoviTools y sincronización visual</span>
+      <span class="brand-desc">Convierte, edita y potencia tus Blu-ray UHD con Dolby Vision.</span>
     </div>
 
     <div class="header-right">
@@ -608,9 +608,12 @@
 <!-- ═══ MODAL: Nuevo proyecto CMv4.0 (Tab 3) ═════════════════════ -->
 <div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
   <div class="modal-box cmv40-new-modal-box">
-    <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
-    <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
+    <div class="cmv40-new-head">
+      <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
+      <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
+    </div>
 
+    <div class="cmv40-new-body">
     <label class="modal-field-label">MKV origen (CMv2.9)</label>
     <div class="iso-select-row">
       <select id="cmv40-source-select" class="iso-select" onchange="onCMv40SourceChange(this.value)">
@@ -644,15 +647,15 @@
       </button>
     </div>
     <div id="cmv40-new-target-repo" class="cmv40-target-tab">
-      <div class="iso-select-row">
-        <select id="cmv40-new-repo-select" class="iso-select" onchange="onCMv40TargetChange()">
-          <option value="">— Selecciona primero el MKV origen —</option>
-        </select>
-        <button class="btn btn-secondary btn-md" id="cmv40-new-repo-refresh"
-          onclick="_cmv40NewLoadRepoCandidates(true)" data-tooltip="Recargar candidatos">↺</button>
+      <div class="cmv40-repo-toolbar">
+        <div id="cmv40-new-repo-info" class="cmv40-repo-info">
+          Selecciona primero un MKV origen.
+        </div>
+        <button class="btn btn-secondary btn-sm" id="cmv40-new-repo-refresh"
+          onclick="_cmv40NewLoadRepoCandidates(true)" data-tooltip="Recargar candidatos">↺ Recargar</button>
       </div>
-      <div id="cmv40-new-repo-info" style="font-size:11px; color:var(--text-3); margin-top:6px">
-        Se descargará desde la carpeta pública del repositorio DoviTools en Google Drive.
+      <div id="cmv40-new-repo-list" class="cmv40-repo-list">
+        <div class="cmv40-repo-empty">— Selecciona primero el MKV origen —</div>
       </div>
       <div id="cmv40-new-pipeline-preview" style="display:none; margin-top:6px"></div>
     </div>
@@ -674,6 +677,7 @@
       </div>
       <div style="font-size:11px; color:var(--text-3); margin-top:6px">MKVs directos en el directorio de ISOs</div>
     </div>
+    </div><!-- /cmv40-new-body -->
 
     <div class="cmv40-new-footer">
       <label class="cmv40-new-auto-toggle" data-tooltip="Encadena las fases disponibles sin interacción manual.">
@@ -854,6 +858,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420ae"></script>
+<script src="/static/app.js?v=20260420am"></script>
 </body>
 </html>

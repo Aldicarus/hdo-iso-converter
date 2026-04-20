@@ -1263,24 +1263,10 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
     const t = repo.title_en || repo.title_es || '(título)';
     html += `<div class="cmv40-lookup-empty">No hay <code>.bin</code> para <strong>${escHtml(t)}</strong> en el repositorio. Si quieres convertir esta película tendrás que obtener el RPU por otra vía (extraer de otro MKV, bin local, etc.).</div>`;
   } else {
-    // Agrupa candidatos por procedencia: Retail arriba (CMv4.0 auténtico),
-    // Generated abajo (sintético), sin marca al final. Dentro de cada grupo
-    // se conserva el orden por score. El marcador "🏆 mejor match" apunta
-    // al #1 ABSOLUTO (el primer candidato del array original) — no depende
-    // del grupo al que pertenezca.
+    // Lista plana ordenada por score. El backend ya aplicó bonus retail +0.03
+    // — el orden viene correcto. Sin agrupación para no confundir (un
+    // P5→P8 source sin provenance marker puede ser mejor que un Generated).
     const bestFilename = repo.candidates[0]?.file?.name || '';
-    const groups = {
-      retail:    { label: '🏛 Retail — CMv4.0 auténtico del master streaming', cls: 'group-retail',  items: [] },
-      generated: { label: '⚠️ Generated — CMv4.0 sintético desde HDR10',       cls: 'group-gen',     items: [] },
-      unknown:   { label: '❔ Procedencia no deducible del nombre',            cls: 'group-unknown', items: [] },
-    };
-    repo.candidates.forEach(c => {
-      const key = c.provenance === 'retail' ? 'retail'
-                : c.provenance === 'generated' ? 'generated'
-                : 'unknown';
-      groups[key].items.push(c);
-    });
-
     const renderCand = (c) => {
       const pt = c.predicted_type || 'unknown';
       const prov = c.provenance || '';
@@ -1306,18 +1292,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
           <div class="cmv40-lookup-cand-pipeline">${_cmv40LookupPipelineSummary(pt, prov)}</div>
         </li>`;
     };
-
-    for (const key of ['retail', 'generated', 'unknown']) {
-      const g = groups[key];
-      if (!g.items.length) continue;
-      html += `<div class="cmv40-lookup-group ${g.cls}">
-        <div class="cmv40-lookup-group-head">
-          <span class="cmv40-lookup-group-label">${g.label}</span>
-          <span class="cmv40-lookup-group-count">${g.items.length}</span>
-        </div>
-        <ul class="cmv40-lookup-candidates">${g.items.map(renderCand).join('')}</ul>
-      </div>`;
-    }
+    html += `<ul class="cmv40-lookup-candidates">${repo.candidates.map(renderCand).join('')}</ul>`;
   }
   html += '</div>';
 
@@ -5525,7 +5500,7 @@ async function openNewCMv40Modal() {
   _cmv40NewUpdateAutoLabel(null);
   _cmv40NewSwitchTargetTab('repo');
   _cmv40LoadRecommendation('');
-  _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
+  _cmv40NewResetRepoList('— Selecciona primero el MKV origen —');
   await Promise.all([
     loadCMv40SourceList(),
     _cmv40NewLoadRpus(),
@@ -5554,7 +5529,7 @@ function onCMv40SourceChange(val) {
   _cmv40LoadRecommendation(val);
   // Si el usuario está en la pestaña "Repositorio", dispara búsqueda live
   if (_cmv40NewTargetTab === 'repo') _cmv40NewLoadRepoCandidates();
-  else _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
+  else _cmv40NewResetRepoList('— Selecciona primero el MKV origen —');
 }
 
 // Token para anular peticiones obsoletas si el usuario cambia de MKV rápido
@@ -5753,8 +5728,15 @@ async function _cmv40NewLoadTargetMkvs() {
 }
 
 function onCMv40TargetChange() {
+  // Repo: _cmv40NewTargetSelected se mantiene gracias al card-picker
+  // (_cmv40NewSelectRepoCandidate). path y mkv siguen usando <select>.
+  if (_cmv40NewTargetTab === 'repo') {
+    // No hacemos nada aquí; el picker ya llamó a _cmv40NewSelectRepoCandidate.
+    _cmv40NewUpdateCreateBtn();
+    _cmv40NewUpdatePipelinePreview();
+    return;
+  }
   const idMap = {
-    repo: 'cmv40-new-repo-select',
     path: 'cmv40-new-rpu-select',
     mkv:  'cmv40-new-target-mkv-select',
   };
@@ -5763,14 +5745,6 @@ function onCMv40TargetChange() {
   const val = select ? select.value : '';
   if (!val) {
     _cmv40NewTargetSelected = null;
-  } else if (_cmv40NewTargetTab === 'repo') {
-    const opt = select.options[select.selectedIndex];
-    _cmv40NewTargetSelected = {
-      kind: 'repo',
-      value: { file_id: val, file_name: opt?.dataset?.filename || opt?.textContent || '' },
-      predicted_type: opt?.dataset?.predictedType || 'unknown',
-      provenance: opt?.dataset?.provenance || '',
-    };
   } else {
     _cmv40NewTargetSelected = { kind: _cmv40NewTargetTab, value: val };
   }
@@ -5933,20 +5907,13 @@ function _cmv40NewUpdatePipelinePreview() {
   const prov = _cmv40NewTargetSelected.provenance || '';
   const info = _CMV40_PIPELINE_PREVIEW[pt] || _CMV40_PIPELINE_PREVIEW.unknown;
 
-  // Si el usuario eligió un Generated, comprobamos si en la misma lista hay
-  // al menos una opción Retail (CMv4.0 auténtico). En ese caso, el warning se
-  // refuerza — hay alternativa preferible accesible.
+  // Si el usuario eligió un Generated, comprobamos si en la lista cargada
+  // hay al menos una opción Retail (CMv4.0 auténtico). En ese caso, el warning
+  // se refuerza — hay alternativa preferible accesible en la misma vista.
   let retailAlternative = '';
-  if (prov === 'generated') {
-    const sel = document.getElementById('cmv40-new-repo-select');
-    if (sel) {
-      for (const opt of sel.options) {
-        if (opt.dataset && opt.dataset.provenance === 'retail') {
-          retailAlternative = opt.dataset.filename || opt.textContent || '(retail disponible)';
-          break;
-        }
-      }
-    }
+  if (prov === 'generated' && Array.isArray(_cmv40NewRepoCands)) {
+    const alt = _cmv40NewRepoCands.find(c => c.provenance === 'retail');
+    if (alt) retailAlternative = alt.file?.name || '(retail disponible)';
   }
 
   container.style.display = 'block';
@@ -5980,100 +5947,139 @@ function _cmv40NewUpdateAutoLabel(info) {
   }
 }
 
-function _cmv40NewResetRepoSelect(placeholder) {
-  const sel = document.getElementById('cmv40-new-repo-select');
-  if (!sel) return;
-  sel.innerHTML = `<option value="">${placeholder}</option>`;
+// Cache de los candidatos cargados (para que _cmv40NewSelectRepoCandidate
+// pueda recuperar el objeto completo por file_id al hacer click en una card).
+let _cmv40NewRepoCands = [];
+
+function _cmv40NewResetRepoList(placeholder, isError = false) {
+  const list = document.getElementById('cmv40-new-repo-list');
+  if (!list) return;
+  _cmv40NewRepoCands = [];
+  list.innerHTML = `<div class="cmv40-repo-empty ${isError ? 'error' : ''}">${placeholder}</div>`;
+  // Al resetear también limpia la selección del target
+  if (_cmv40NewTargetSelected?.kind === 'repo') {
+    _cmv40NewTargetSelected = null;
+    _cmv40NewUpdateCreateBtn();
+    _cmv40NewUpdatePipelinePreview();
+  }
 }
 
 async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
-  const sel = document.getElementById('cmv40-new-repo-select');
+  const list = document.getElementById('cmv40-new-repo-list');
   const info = document.getElementById('cmv40-new-repo-info');
-  if (!sel) return;
+  if (!list) return;
   if (!_cmv40SourceSelected) {
-    _cmv40NewResetRepoSelect('— Selecciona primero el MKV origen —');
-    if (info) info.textContent = 'Se descargará desde la carpeta pública de DoviTools en Google Drive.';
+    _cmv40NewResetRepoList('— Selecciona primero el MKV origen —');
+    if (info) info.textContent = 'Selecciona primero un MKV origen.';
     return;
   }
-  sel.innerHTML = '<option value="">— Buscando en Drive… —</option>';
+  list.innerHTML = '<div class="cmv40-repo-empty">⏳ Buscando en Drive…</div>';
   if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
   const qs = '?filename=' + encodeURIComponent(_cmv40SourceSelected);
   const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
   if (!data) {
-    sel.innerHTML = '<option value="">— Error consultando el repositorio —</option>';
+    _cmv40NewResetRepoList('Error consultando el repositorio', true);
     return;
   }
   if (!data.drive_configured) {
-    const placeholder = !data.drive_folder_configured
-      ? '— URL del repo DoviTools no configurada —'
-      : '— Google API key no configurada —';
-    _cmv40NewResetRepoSelect(placeholder);
-    if (info) info.innerHTML = _cmv40RepoUnavailableBanner(data);
+    _cmv40NewRepoCands = [];
+    list.innerHTML = `<div class="cmv40-repo-banner-wrap">${_cmv40RepoUnavailableBanner(data)}</div>`;
+    if (info) {
+      info.textContent = !data.drive_folder_configured
+        ? 'Repo bloqueado — configura la URL.'
+        : 'Google API key no configurada.';
+    }
     return;
   }
   if (data.error) {
-    _cmv40NewResetRepoSelect('— Error de acceso a Drive —');
+    _cmv40NewResetRepoList(data.error, true);
     if (info) info.textContent = data.error;
     return;
   }
   const cands = data.candidates || [];
   if (!cands.length) {
-    _cmv40NewResetRepoSelect(`— Sin coincidencias para "${data.title_en || data.title_es || '?'}" —`);
+    const t = data.title_en || data.title_es || '?';
+    _cmv40NewResetRepoList(`Sin coincidencias para "${escHtml(t)}"`);
     if (info) {
-      const t = data.title_en || data.title_es;
-      info.innerHTML = `No hay <code>.bin</code> para <strong>${_cmv40EscHtml(t)}</strong> en el repositorio de DoviTools. Prueba otra pestaña.`;
+      info.innerHTML = `No hay <code>.bin</code> para <strong>${escHtml(t)}</strong> en el repositorio. Prueba otra pestaña.`;
     }
     return;
   }
-  sel.innerHTML = '<option value="">— Seleccionar RPU del repositorio —</option>';
-  // Agrupar candidatos por procedencia con <optgroup> nativo — Retail arriba
-  // (CMv4.0 auténtico, preferente), Generated en medio (sintético), Sin marca
-  // al final. El pre-seleccionado es el top-score global (respeta el orden que
-  // ya venía del backend incluyendo el bonus +0.03 a retail).
-  const topFilename = cands[0]?.file?.name || '';
-  const groups = {
-    retail:    { label: '🏛 Retail — CMv4.0 auténtico del master',   items: [] },
-    generated: { label: '⚠ Generated — CMv4.0 sintético desde HDR10', items: [] },
-    unknown:   { label: '❔ Procedencia no deducible del nombre',     items: [] },
-  };
-  cands.forEach(c => {
-    const key = c.provenance === 'retail' ? 'retail'
-              : c.provenance === 'generated' ? 'generated'
-              : 'unknown';
-    groups[key].items.push(c);
-  });
 
-  const makeOption = (c) => {
-    const opt = document.createElement('option');
-    opt.value = c.file.id;
+  // Lista plana ordenada por score (el backend ya aplicó +0.03 a retail,
+  // así que el orden viene correcto). Quitamos la agrupación visual
+  // porque confunde: un P5→P8 source (provenance='') puede ser mejor
+  // que un Generated FEL aunque "Sin marca" suena peor que "Generated".
+  _cmv40NewRepoCands = cands;
+  const topFilename = cands[0]?.file?.name || '';
+
+  const renderCard = (c) => {
     const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
     const pt = c.predicted_type || 'unknown';
     const prov = c.provenance || '';
-    const tag = pt === 'trusted_p7_fel_final' ? '🎯 FEL'
-              : pt === 'trusted_p7_mel_final' ? '🎯 MEL'
-              : pt === 'trusted_p8_source'    ? '📦 P8 source'
-              : '❓ ?';
-    opt.textContent = `[${tag}]  ${c.file.path}  (${sizeMb} MB · ${Math.round(c.score * 100)}%)`;
-    opt.dataset.filename = c.file.name;
-    opt.dataset.predictedType = pt;
-    opt.dataset.provenance = prov;
-    if (c.file.name === topFilename) opt.selected = true;
-    return opt;
+    const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: '🎯', label: 'drop-in FEL',    cls: 'tag-ok' }
+                  : pt === 'trusted_p7_mel_final' ? { icon: '🎯', label: 'drop-in MEL',    cls: 'tag-ok' }
+                  : pt === 'trusted_p8_source'    ? { icon: '📦', label: 'P5→P8 transfer', cls: 'tag-info' }
+                  : { icon: '❓', label: 'tipo desconocido', cls: 'tag-warn' };
+    const provTag = prov === 'retail'
+      ? '<span class="cmv40-repo-card-tag tag-ok">🏛 Retail</span>'
+      : prov === 'generated'
+      ? '<span class="cmv40-repo-card-tag tag-warn">⚠ Generated</span>'
+      : '';
+    const isBest = c.file.name === topFilename;
+    return `
+      <div class="cmv40-repo-card" data-file-id="${escHtml(c.file.id)}"
+           role="button" tabindex="0"
+           onclick="_cmv40NewSelectRepoCandidate('${escHtml(c.file.id)}')"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40NewSelectRepoCandidate('${escHtml(c.file.id)}')}">
+        <div class="cmv40-repo-card-head">
+          <span class="cmv40-repo-card-tag ${tagMeta.cls}">${tagMeta.icon} ${tagMeta.label}</span>
+          ${provTag}
+          ${isBest ? '<span class="cmv40-repo-card-best">🏆 mejor match</span>' : ''}
+          <span class="cmv40-repo-card-score">${Math.round(c.score * 100)}%</span>
+          <span class="cmv40-repo-card-size">${sizeMb} MB</span>
+        </div>
+        <div class="cmv40-repo-card-path">${escHtml(c.file.path)}</div>
+      </div>`;
   };
 
-  for (const key of ['retail', 'generated', 'unknown']) {
-    const g = groups[key];
-    if (!g.items.length) continue;
-    const grp = document.createElement('optgroup');
-    grp.label = `${g.label}  (${g.items.length})`;
-    g.items.forEach(c => grp.appendChild(makeOption(c)));
-    sel.appendChild(grp);
+  list.innerHTML = cands.map(renderCard).join('');
+
+  // Auto-seleccionar el top-score global
+  if (topFilename) {
+    const top = cands.find(c => c.file.name === topFilename);
+    if (top) _cmv40NewSelectRepoCandidate(top.file.id);
   }
-  // Dispara onChange para registrar la pre-selección
-  onCMv40TargetChange();
+
   if (info) {
-    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} en el repositorio de DoviTools. Top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Se descargará al crear el proyecto.`;
+    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} · top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Haz click para seleccionar. Se descargará al crear el proyecto.`;
   }
+}
+
+// Marca visualmente una card como seleccionada y actualiza el estado global.
+function _cmv40NewSelectRepoCandidate(fileId) {
+  const list = document.getElementById('cmv40-new-repo-list');
+  if (!list) return;
+  const card = list.querySelector(`.cmv40-repo-card[data-file-id="${fileId}"]`);
+  if (!card) return;
+  // Quita selected de todas las cards, marca la actual
+  list.querySelectorAll('.cmv40-repo-card.selected').forEach(el => el.classList.remove('selected'));
+  card.classList.add('selected');
+  // Scroll dentro del contenedor para que la card elegida sea visible
+  try {
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } catch (e) { /* ignore */ }
+
+  const cand = _cmv40NewRepoCands.find(c => c.file.id === fileId);
+  if (!cand) return;
+  _cmv40NewTargetSelected = {
+    kind: 'repo',
+    value: { file_id: cand.file.id, file_name: cand.file.name },
+    predicted_type: cand.predicted_type || 'unknown',
+    provenance: cand.provenance || '',
+  };
+  _cmv40NewUpdateCreateBtn();
+  _cmv40NewUpdatePipelinePreview();
 }
 
 function _cmv40EscHtml(s) {
@@ -6353,7 +6359,15 @@ function _renderCMv40RunningOverlay(project) {
   if (!panel) return;
   let overlay = panel.querySelector('.cmv40-running-overlay');
 
-  if (s.running_phase) {
+  // Auto-pipeline "puente": entre una fase y la siguiente el backend pone
+  // running_phase=null brevemente. Si el proyecto sigue en modo auto y NO
+  // es estado terminal (done/error), mantenemos el overlay visible para
+  // evitar parpadeo fase→fase. El overlay cambia a modo "transicionando".
+  const terminalPhase = (s.phase === 'done' || s.phase === 'error' || !!s.error_message);
+  const bridgingAuto  = !s.running_phase && project.autoContinue && !terminalPhase;
+  const shouldShow    = !!s.running_phase || bridgingAuto;
+
+  if (shouldShow) {
     // Crear o actualizar overlay
     if (!overlay) {
       overlay = document.createElement('div');
@@ -6366,7 +6380,7 @@ function _renderCMv40RunningOverlay(project) {
               <div class="cmv40-running-spinner"></div>
               <div style="flex:1">
                 <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
-                <div class="cmv40-running-subtitle">El proyecto está bloqueado mientras se ejecuta la tarea</div>
+                <div class="cmv40-running-subtitle" id="cmv40-running-subtitle-${pid}">El proyecto está bloqueado mientras se ejecuta la tarea</div>
               </div>
               <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
             </div>
@@ -6397,17 +6411,25 @@ function _renderCMv40RunningOverlay(project) {
       // Suscribe al WebSocket para actualizar el log en tiempo real
       _cmv40BindRunningLog(project);
     }
-    // Actualizar título
-    const titleEl = document.getElementById(`cmv40-running-title-${pid}`);
+    // Actualizar título + subtítulo según estemos en una fase o "puente"
+    const titleEl    = document.getElementById(`cmv40-running-title-${pid}`);
+    const subtitleEl = document.getElementById(`cmv40-running-subtitle-${pid}`);
     if (titleEl) {
-      const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
-      titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
+      if (s.running_phase) {
+        const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
+        titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
+        if (subtitleEl) subtitleEl.textContent = 'El proyecto está bloqueado mientras se ejecuta la tarea';
+      } else {
+        // Modo puente: fase X completada, siguiente a punto de arrancar
+        titleEl.textContent = '🤖 Auto · Preparando siguiente fase…';
+        if (subtitleEl) subtitleEl.textContent = 'Encadenando automáticamente — no cierres esta ventana';
+      }
     }
     // Actualizar timeline en cada tick (sesión cambió → status por paso puede cambiar)
     const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
     if (tlWrap) tlWrap.innerHTML = _cmv40RenderTimeline(s);
   } else if (overlay) {
-    // Quitar overlay con animación
+    // Quitar overlay con animación — solo cuando SEGURO que no hay más fases
     overlay.classList.add('closing');
     setTimeout(() => overlay.remove(), 200);
   }

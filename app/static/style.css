@@ -150,15 +150,28 @@ body {
 }
 
 .brand-desc {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-3);
   line-height: 1.35;
-  max-width: 320px;
+  max-width: 420px;
+  font-style: italic;
+  /* Una sola línea; si no cabe se trunca con ellipsis en vez de wrappear */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-/* Ocultar subtexto en pantallas pequeñas */
-@media (max-width: 860px) {
+/* Pantallas medianas: ocultar subtexto (UHD Blu-ray Toolkit) para que la
+   descripción respire; si aún así no cabe, la propia descripción se
+   ocultará en el breakpoint siguiente. */
+@media (max-width: 1024px) {
   .brand-sub { display: none; }
+}
+@media (max-width: 780px) {
+  .brand-desc,
+  .brand-desc-sep { display: none; }
 }
 
 /* ── Tab bar (carpeta — ancho completo) ─────────────────────────── */
@@ -3224,8 +3237,8 @@ select { appearance: none; cursor: pointer;
 .cmv40-running-timeline-wrap {
   flex-shrink: 0;
   width: 330px;
-  background: linear-gradient(180deg, #141824 0%, #0d1018 100%);
-  border-right: 1px solid #252a3a;
+  background: var(--bg);
+  border-right: 1px solid var(--sep-strong);
   overflow-y: auto;
 }
 .cmv40-running-timeline { padding: 16px 14px 18px; }
@@ -3291,13 +3304,13 @@ select { appearance: none; cursor: pointer;
   left: 11px;
   width: 2px;
   height: 18px;
-  background: #2a2f3d;
+  background: var(--sep-strong, #dcdce0);
 }
 .cmv40-tl-step.cmv40-tl-done + .cmv40-tl-step::before {
   background: rgba(52, 199, 89, 0.55);
 }
 .cmv40-tl-step.cmv40-tl-running + .cmv40-tl-step::before {
-  background: linear-gradient(180deg, rgba(91, 171, 255, 0.7) 0%, #2a2f3d 100%);
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.65) 0%, var(--sep-strong, #dcdce0) 100%);
 }
 
 /* Iconos de estado */
@@ -3321,34 +3334,35 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
 }
 .cmv40-tl-status-icon.done {
-  background: rgba(52, 199, 89, 0.22);
-  color: #86efac;
-  border: 1.5px solid rgba(52, 199, 89, 0.6);
+  background: rgba(52, 199, 89, 0.20);
+  color: #0e6b2a;
+  border: 1.5px solid rgba(52, 199, 89, 0.60);
 }
 .cmv40-tl-status-icon.running {
-  background: rgba(0, 122, 255, 0.25);
-  border: 1.5px solid #005fb8;
-  box-shadow: 0 0 10px rgba(91, 171, 255, 0.55);
+  background: #ffffff;
+  border: 2px solid rgba(0, 122, 255, 0.35);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
   position: relative;
 }
 .cmv40-tl-status-icon.running::before {
   content: '';
   position: absolute;
-  inset: -1px;
+  inset: -2px;
   border-radius: 50%;
   border: 2px solid transparent;
   border-top-color: #005fb8;
+  border-right-color: #005fb8;
   animation: cmv40-spin 0.9s linear infinite;
 }
 .cmv40-tl-status-icon.skipped {
-  background: rgba(142, 142, 147, 0.15);
+  background: rgba(142, 142, 147, 0.12);
   color: var(--text-3);
-  border: 1.5px dashed rgba(142, 142, 147, 0.5);
+  border: 1.5px dashed rgba(142, 142, 147, 0.55);
   font-size: 10px;
 }
 .cmv40-tl-status-icon.pending {
   background: transparent;
-  border: 1.5px solid #2a2f3d;
+  border: 1.5px solid var(--sep-strong, #dcdce0);
 }
 
 /* Body de cada paso */
@@ -3373,35 +3387,42 @@ select { appearance: none; cursor: pointer;
   display: inline-block;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
   color: var(--text-3);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 .cmv40-tl-eta.done {
-  background: rgba(52, 199, 89, 0.12);
-  color: #86efac;
+  background: rgba(52, 199, 89, 0.15);
+  color: #0e6b2a;
+  border-color: rgba(52, 199, 89, 0.35);
 }
 .cmv40-tl-eta.running {
   background: rgba(0, 122, 255, 0.15);
   color: #005fb8;
-  font-weight: 600;
+  border-color: rgba(0, 122, 255, 0.40);
+  font-weight: 700;
 }
 .cmv40-tl-eta.skipped {
-  background: rgba(142, 142, 147, 0.10);
+  background: rgba(142, 142, 147, 0.12);
   color: var(--text-3);
+  border-color: rgba(142, 142, 147, 0.30);
   font-style: italic;
 }
 
 /* Estilos de estado para el paso completo */
-.cmv40-tl-step.cmv40-tl-done .cmv40-tl-title { color: #c9ccd3; }
-.cmv40-tl-step.cmv40-tl-done .cmv40-tl-what  { color: #6a6f7a; }
+.cmv40-tl-step.cmv40-tl-done .cmv40-tl-title { color: var(--text-2); }
+.cmv40-tl-step.cmv40-tl-done .cmv40-tl-what  { color: var(--text-3); }
 .cmv40-tl-step.cmv40-tl-running {
-  background: rgba(91, 171, 255, 0.06);
-  border-radius: 6px;
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 8px;
+  padding: 9px 8px;
+  margin: 0 -4px;
+  box-shadow: inset 3px 0 0 #005fb8;
 }
-.cmv40-tl-step.cmv40-tl-running .cmv40-tl-title { color: #ffffff; }
-.cmv40-tl-step.cmv40-tl-skipped { opacity: 0.55; }
+.cmv40-tl-step.cmv40-tl-running .cmv40-tl-title { color: #005fb8; font-weight: 700; }
+.cmv40-tl-step.cmv40-tl-skipped { opacity: 0.60; }
 .cmv40-tl-step.cmv40-tl-pending .cmv40-tl-title { color: var(--text-2); }
 .cmv40-tl-step.cmv40-tl-pending .cmv40-tl-what  { color: var(--text-3); }
 
@@ -3589,6 +3610,188 @@ select { appearance: none; cursor: pointer;
   border-top: none;
 }
 
+/* ── Lista de candidatos del repo DoviTools (reemplaza al <select>) ── */
+.cmv40-repo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.cmv40-repo-info {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.cmv40-repo-info code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10.5px;
+}
+.cmv40-repo-list {
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmv40-repo-empty {
+  padding: 18px 14px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  font-style: italic;
+}
+.cmv40-repo-empty.error {
+  color: #a31a13;
+  font-style: normal;
+  font-weight: 500;
+}
+.cmv40-repo-banner-wrap { padding: 2px; }
+
+.cmv40-repo-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid;
+}
+.cmv40-repo-group.group-retail {
+  background: rgba(52, 199, 89, 0.06);
+  border-color: rgba(52, 199, 89, 0.35);
+}
+.cmv40-repo-group.group-gen {
+  background: rgba(255, 149, 0, 0.06);
+  border-color: rgba(255, 149, 0, 0.35);
+}
+.cmv40-repo-group.group-unknown {
+  background: rgba(142, 142, 147, 0.06);
+  border-color: rgba(142, 142, 147, 0.30);
+}
+.cmv40-repo-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 2px 3px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cmv40-repo-group.group-retail  .cmv40-repo-group-label { color: #0e6b2a; }
+.cmv40-repo-group.group-gen     .cmv40-repo-group-label { color: #8a4a00; }
+.cmv40-repo-group.group-unknown .cmv40-repo-group-label { color: var(--text-2); }
+.cmv40-repo-group-count {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cmv40-repo-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Card con radio-style indicator a la izquierda — patrón estándar de
+   "elegir uno de varios". El radio siempre es visible, distingue
+   claramente seleccionado (azul relleno) de no-seleccionado (anillo gris). */
+.cmv40-repo-card {
+  position: relative;
+  padding: 9px 11px 9px 38px;   /* 38px deja sitio al radio a la izquierda */
+  background: var(--surface-1);
+  border: 1.5px solid var(--sep);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  outline: none;
+}
+.cmv40-repo-card::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-3);
+  background: var(--surface-1);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+.cmv40-repo-card:hover {
+  background: rgba(0, 122, 255, 0.05);
+  border-color: rgba(0, 122, 255, 0.45);
+}
+.cmv40-repo-card:hover::before {
+  border-color: rgba(0, 122, 255, 0.55);
+}
+.cmv40-repo-card:focus-visible {
+  border-color: rgba(0, 122, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+.cmv40-repo-card.selected {
+  background: rgba(0, 122, 255, 0.10);
+  border-color: #005fb8;
+  box-shadow: 0 0 0 1px #005fb8;
+}
+.cmv40-repo-card.selected::before {
+  border-color: #005fb8;
+  background: #005fb8;
+  /* anillo blanco interior que emula radio button iOS */
+  box-shadow: inset 0 0 0 3px var(--surface-1);
+}
+.cmv40-repo-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+}
+.cmv40-repo-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+}
+.cmv40-repo-card-tag.tag-ok   { background: rgba(52, 199, 89, 0.15);  color: #0e6b2a; border: 1px solid rgba(52, 199, 89, 0.40); }
+.cmv40-repo-card-tag.tag-info { background: rgba(0, 122, 255, 0.12);  color: #005fb8; border: 1px solid rgba(0, 122, 255, 0.40); }
+.cmv40-repo-card-tag.tag-warn { background: rgba(255, 149, 0, 0.12);  color: #8a4a00; border: 1px solid rgba(255, 149, 0, 0.40); }
+.cmv40-repo-card-best {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #8a6500;
+}
+.cmv40-repo-card-score, .cmv40-repo-card-size {
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.cmv40-repo-card-size { margin-left: 4px; }
+.cmv40-repo-card-path {
+  font-family: -apple-system, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  word-break: break-all;
+  line-height: 1.4;
+}
+.cmv40-repo-card.selected .cmv40-repo-card-path { color: var(--text-1); }
+
 /* Badges de workflow CMv4.0 (P7 FEL / P7 MEL / P8) */
 .cmv40-workflow-badge {
   display: inline-block;
@@ -3629,7 +3832,25 @@ select { appearance: none; cursor: pointer;
 .cmv40-new-modal-box {
   max-width: 980px;
   width: calc(100vw - 48px);
-  padding: 18px 22px;
+  max-height: 92vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cmv40-new-head {
+  flex-shrink: 0;
+  padding: 16px 22px 10px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--surface-1);
+}
+.cmv40-new-head .modal-title { margin-bottom: 3px; }
+.cmv40-new-head .modal-sub   { margin-bottom: 0; line-height: 1.4; }
+.cmv40-new-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 22px 14px;
 }
 /* Tabs del selector de RPU target: nunca wrappean */
 .cmv40-new-tabs .cmv40-tab-btn {
@@ -3916,11 +4137,12 @@ select { appearance: none; cursor: pointer;
   color: var(--text-2);
 }
 
-/* Footer compacto: checkbox auto-pipeline + botones en una sola fila */
+/* Footer: sticky abajo gracias al flex column del modal-box. */
 .cmv40-new-footer {
-  margin-top: 10px;
-  padding-top: 9px;
+  flex-shrink: 0;
+  padding: 10px 22px;
   border-top: 1px solid var(--sep);
+  background: var(--surface-1);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4930,7 +5152,7 @@ select { appearance: none; cursor: pointer;
    quepan en pantallas pequeñas sin desbordar. Head (título) y foot
    (botones) fijos; body scrollea. */
 .settings-modal-box {
-  max-width: 600px;
+  max-width: 860px;
   width: calc(100vw - 48px);
   max-height: 88vh;
   display: flex;
@@ -4940,22 +5162,22 @@ select { appearance: none; cursor: pointer;
 }
 .settings-head {
   flex-shrink: 0;
-  padding: 20px 22px 12px;
+  padding: 12px 22px 8px;
   border-bottom: 1px solid var(--sep);
   background: var(--surface-1);
 }
-.settings-head .modal-title { margin-bottom: 4px; }
-.settings-head .modal-sub   { margin-bottom: 0; }
+.settings-head .modal-title { margin-bottom: 2px; }
+.settings-head .modal-sub   { margin-bottom: 0; line-height: 1.35; }
 .settings-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 22px 14px;
+  padding: 4px 22px 8px;
   background: var(--bg);
 }
 .settings-foot {
   flex-shrink: 0;
-  padding: 12px 22px;
+  padding: 9px 22px;
   border-top: 1px solid var(--sep);
   background: var(--surface-1);
   display: flex;
@@ -4965,13 +5187,14 @@ select { appearance: none; cursor: pointer;
 }
 
 .settings-section {
-  margin: 10px 0 8px;
-  padding: 14px;
+  margin: 6px 0;
+  padding: 10px 12px;
   background: var(--surface-2);
   border: 1px solid var(--sep);
   border-radius: 10px;
 }
-.settings-section:first-child { margin-top: 6px; }
+.settings-section:first-child { margin-top: 0; }
+.settings-section:last-child  { margin-bottom: 0; }
 .settings-section-title {
   font-size: 13px;
   font-weight: 600;
@@ -4979,13 +5202,13 @@ select { appearance: none; cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 .settings-section-desc {
   font-size: 11px;
   color: var(--text-3);
-  line-height: 1.55;
-  margin-bottom: 10px;
+  line-height: 1.4;
+  margin-bottom: 6px;
 }
 .settings-section-desc a {
   color: var(--blue, #007aff);
@@ -4999,7 +5222,7 @@ select { appearance: none; cursor: pointer;
 }
 .settings-input {
   flex: 1;
-  padding: 8px 10px;
+  padding: 6px 10px;
   background: var(--surface-1);
   border: 1px solid var(--sep-strong);
   border-radius: 6px;
@@ -5035,9 +5258,10 @@ select { appearance: none; cursor: pointer;
 }
 .settings-feedback {
   font-size: 11px;
-  margin-top: 8px;
-  min-height: 16px;
+  margin-top: 5px;
+  min-height: 0;
 }
+.settings-feedback:empty { margin-top: 0; }
 .settings-feedback.ok    { color: var(--green, #34c759); }
 .settings-feedback.error { color: var(--red, #ff3b30); }
 .settings-feedback.info  { color: var(--text-3); }
