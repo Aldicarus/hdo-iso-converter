@@ -6672,8 +6672,7 @@ function _renderCMv40RunningOverlay(project) {
               </div>
               <div class="cmv40-progress-track"
                 style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
-                <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"
-                  style="height:100%; background:linear-gradient(90deg,#1e6fe6 0%,#3b8fff 50%,#5ab3ff 100%); width:0%; min-width:2px; transition:width 0.4s ease; border-radius:7px; position:relative; overflow:hidden; box-shadow:0 0 10px rgba(59,143,255,0.55), inset 0 1px 0 rgba(255,255,255,0.25)"></div>
+                <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"></div>
               </div>
             </div>
             <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
@@ -6697,14 +6696,139 @@ function _renderCMv40RunningOverlay(project) {
         if (subtitleEl) subtitleEl.textContent = 'Encadenando automáticamente — no cierres esta ventana';
       }
     }
-    // Actualizar timeline en cada tick (sesión cambió → status por paso puede cambiar)
+    // Actualizar timeline en cada tick — incremental, NO innerHTML wholesale.
+    // Antes reemplazabamos todo el HTML, lo que (a) reiniciaba la animación
+    // del spinner de la fase en curso (elemento destruido/recreado cada tick),
+    // (b) rompía el CSS transition de la barra de progreso total (cada vez
+    // un elemento nuevo con width inicial 0% → sin transición), y (c) saltaba
+    // el scroll de .cmv40-tl-steps a 0 (nuevo DOM).
     const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
-    if (tlWrap) tlWrap.innerHTML = _cmv40RenderTimeline(s, project);
+    if (tlWrap) _cmv40UpdateTimelineIncremental(tlWrap, s, project);
   } else if (overlay) {
     // Quitar overlay con animación — solo cuando SEGURO que no hay más fases
     overlay.classList.add('closing');
     setTimeout(() => overlay.remove(), 200);
   }
+}
+
+/** Update incremental del timeline — actualiza solo los campos que cambian
+ *  sin reemplazar el DOM (preserva animación del spinner, CSS transition de
+ *  la barra de progreso total, y scrollTop de la lista de pasos). */
+function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
+  // Si el timeline aun no existe (primera vez), render completo.
+  if (!tlWrap.querySelector('.cmv40-tl-steps')) {
+    tlWrap.innerHTML = _cmv40RenderTimeline(s, project);
+    return;
+  }
+
+  // Recalcular métricas
+  const steps = _cmv40PlanAutoSteps(s);
+  const totalEta = steps.reduce((acc, st) => acc + (st.etaSecs || 0), 0);
+  const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
+  const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
+  const totalCount = steps.length;
+  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // Timer: elapsed / remaining (mismos cálculos que en _cmv40RenderTimeline)
+  const hist = s.phase_history || [];
+  const firstWithTime = hist.find(h => h.started_at);
+  let startedMs = firstWithTime ? Date.parse(firstWithTime.started_at) : 0;
+  if (!startedMs && project) {
+    if (!project._pipelineStartMs && (s.running_phase || (project.autoContinue && !s.error_message && s.phase !== 'done'))) {
+      project._pipelineStartMs = Date.now();
+    }
+    if (project._pipelineStartMs) startedMs = project._pipelineStartMs;
+  }
+  const isTerminal = (s.phase === 'done' || !!s.error_message);
+  let elapsedLabel  = '—';
+  let remainingText = '';
+  if (startedMs) {
+    let elapsedSecs;
+    if (isTerminal) {
+      const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
+      const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
+      elapsedSecs = (endMs - startedMs) / 1000;
+      remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
+    } else {
+      elapsedSecs = (Date.now() - startedMs) / 1000;
+      const remaining = Math.max(0, totalEta - elapsedSecs);
+      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
+    }
+    elapsedLabel = _cmv40FmtClock(elapsedSecs);
+  }
+
+  // Update header fields (mismos elementos, solo text/style — transiciones OK)
+  const elapsedEl   = tlWrap.querySelector('.cmv40-tl-timer-elapsed');
+  const remainingEl = tlWrap.querySelector('.cmv40-tl-timer-remaining');
+  const pctEl       = tlWrap.querySelector('.cmv40-tl-progress-pct');
+  const fillEl      = tlWrap.querySelector('.cmv40-tl-progress-fill');
+  const progressBox = tlWrap.querySelector('.cmv40-tl-progress');
+  if (elapsedEl   && elapsedEl.textContent   !== elapsedLabel)   elapsedEl.textContent   = elapsedLabel;
+  if (remainingEl && remainingEl.textContent !== remainingText)  remainingEl.textContent = remainingText;
+  const pctText = `${doneCount}/${totalCount} · ${progressPct}%`;
+  if (pctEl       && pctEl.textContent       !== pctText)        pctEl.textContent       = pctText;
+  if (fillEl) {
+    const newW = progressPct + '%';
+    if (fillEl.style.width !== newW) fillEl.style.width = newW;
+  }
+  if (progressBox) {
+    const cls = isTerminal && !s.error_message ? 'cmv40-tl-progress-done'
+              : s.error_message ? 'cmv40-tl-progress-error'
+              : '';
+    progressBox.classList.toggle('cmv40-tl-progress-done',  cls === 'cmv40-tl-progress-done');
+    progressBox.classList.toggle('cmv40-tl-progress-error', cls === 'cmv40-tl-progress-error');
+  }
+
+  // Update de steps: solo reemplaza el HTML de la lista si el HASH de
+  // estados+labels cambió (evita spinner restart cuando no cambia nada).
+  const newStepsHash = stepStatuses.map((st, i) =>
+    `${steps[i].key}:${st}:${steps[i].customLabel || ''}`
+  ).join('|');
+  const stepsEl = tlWrap.querySelector('.cmv40-tl-steps');
+  if (stepsEl && stepsEl.dataset.hash !== newStepsHash) {
+    const savedScroll = stepsEl.scrollTop;
+    // Re-genera solo los <li> de steps, no toca el <ol> wrapper (mantiene
+    // scrollTop implícitamente si no tocamos el contenedor... pero innerHTML
+    // sí reemplaza hijos → guardamos scrollTop y lo restauramos).
+    stepsEl.innerHTML = _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s);
+    stepsEl.scrollTop = savedScroll;
+    stepsEl.dataset.hash = newStepsHash;
+  }
+}
+
+/** Genera solo el contenido interno (<li>...</li>) de la lista de steps.
+ *  Extraído de _cmv40RenderTimeline para reuso desde el update incremental. */
+function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
+  return steps.map((st, i) => {
+    const status = stepStatuses[i];
+    const iconMap = {
+      done:    '<span class="cmv40-tl-status-icon done">✓</span>',
+      running: '<span class="cmv40-tl-status-icon running"></span>',
+      skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
+      pending: '<span class="cmv40-tl-status-icon pending"></span>',
+    };
+    const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
+    const doneLabel = elapsed != null
+      ? `completado · ${_cmv40FmtClock(elapsed)}`
+      : 'completado';
+    const defaultLabel = status === 'done'    ? doneLabel
+                       : status === 'skipped' ? 'omitida'
+                       : status === 'running' ? 'en curso…'
+                       : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
+    const label = st.customLabel || defaultLabel;
+    const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
+    return `<li class="cmv40-tl-step cmv40-tl-${status}">
+      <div class="cmv40-tl-rail">${iconMap[status]}</div>
+      <div class="cmv40-tl-body">
+        <div class="cmv40-tl-title">
+          <span class="cmv40-tl-phase-icon">${st.icon}</span>
+          <span>${escHtml(st.title)}</span>
+        </div>
+        <div class="cmv40-tl-what">${escHtml(st.what)}</div>
+        ${etaHtml}
+      </div>
+    </li>`;
+  }).join('');
 }
 
 function _cmv40ParseProgress(line) {
