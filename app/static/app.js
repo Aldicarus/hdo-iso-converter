@@ -6182,6 +6182,11 @@ function _cmv40NewResetRepoList(placeholder, isError = false) {
   }
 }
 
+// Token anti-race: si el usuario cambia de tab o de source durante el await,
+// la respuesta vieja NO debe auto-seleccionar un repo candidate (lo que
+// sobreescribe el target que el usuario haya elegido mientras tanto).
+let _cmv40RepoReqId = 0;
+
 async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
   const list = document.getElementById('cmv40-new-repo-list');
   const info = document.getElementById('cmv40-new-repo-info');
@@ -6194,7 +6199,15 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
   list.innerHTML = '<div class="cmv40-repo-empty">⏳ Buscando en Drive…</div>';
   if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
   const qs = '?filename=' + encodeURIComponent(_cmv40SourceSelected);
+  const myReqId = ++_cmv40RepoReqId;
+  const mySource = _cmv40SourceSelected;
   const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
+  // Stale response: el usuario ya lanzó otra carga, cambió de tab o de
+  // source — descartamos silenciosamente para no sobreescribir su selección.
+  if (myReqId !== _cmv40RepoReqId || mySource !== _cmv40SourceSelected
+      || _cmv40NewTargetTab !== 'repo') {
+    return;
+  }
   if (!data) {
     _cmv40NewResetRepoList('Error consultando el repositorio', true);
     return;
@@ -6276,6 +6289,10 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
 
 // Marca visualmente una card como seleccionada y actualiza el estado global.
 function _cmv40NewSelectRepoCandidate(fileId) {
+  // Guard anti-race: si el usuario cambió de tab, no pisamos su target.
+  // (La carga async de repo candidates podía completar tras un cambio de
+  //  tab y reemplazar _cmv40NewTargetSelected con el top-candidate.)
+  if (_cmv40NewTargetTab !== 'repo') return;
   const list = document.getElementById('cmv40-new-repo-list');
   if (!list) return;
   const card = list.querySelector(`.cmv40-repo-card[data-file-id="${fileId}"]`);
