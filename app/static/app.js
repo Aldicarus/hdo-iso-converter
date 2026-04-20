@@ -5403,12 +5403,85 @@ function _cmv40StepStatus(step, s) {
   return 'pending';
 }
 
+// Formatea segundos → "MM:SS" (o "HH:MM:SS" si pasa de 1h)
+function _cmv40FmtClock(totalSecs) {
+  totalSecs = Math.max(0, Math.floor(totalSecs || 0));
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+// Ticker único global que actualiza todos los timers vivos cada segundo.
+// Re-calcula elapsed y remaining desde data-started-at + data-total-eta.
+function _cmv40EnsureTimerTick() {
+  if (window._cmv40TimerTick) return;
+  window._cmv40TimerTick = setInterval(() => {
+    document.querySelectorAll('.cmv40-tl-timer-elapsed[data-started-at]').forEach(el => {
+      const started = parseInt(el.dataset.startedAt, 10);
+      if (!started) return;
+      const elapsed = (Date.now() - started) / 1000;
+      el.textContent = _cmv40FmtClock(elapsed);
+      // Actualiza también el restante dentro del mismo contenedor
+      const remainEl = el.parentElement?.parentElement?.querySelector('.cmv40-tl-timer-remaining');
+      const totalEta = parseFloat(el.dataset.totalEta || '0');
+      if (remainEl && totalEta > 0) {
+        const remaining = Math.max(0, totalEta - elapsed);
+        remainEl.textContent = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
+      }
+    });
+  }, 1000);
+}
+
 /** Renderiza el timeline lateral del auto-pipeline (HTML). */
-function _cmv40RenderTimeline(s) {
+function _cmv40RenderTimeline(s, project) {
   const steps = _cmv40PlanAutoSteps(s);
   const totalEta = steps.reduce((acc, st) => acc + (st.etaSecs || 0), 0);
-  const itemsHtml = steps.map(st => {
-    const status = _cmv40StepStatus(st, s);
+
+  // Progreso por #pasos completados (done + skipped) sobre total.
+  const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
+  const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
+  const totalCount = steps.length;
+  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // Timer — arranque del pipeline. Tres fuentes en orden de preferencia:
+  //   1. phase_history[0].started_at (autoridad si llega del backend)
+  //   2. project._pipelineStartMs (cacheado la primera vez que vimos fase activa)
+  //   3. Date.now() como último recurso (solo si running activo)
+  const hist = s.phase_history || [];
+  const firstWithTime = hist.find(h => h.started_at);
+  let startedMs = firstWithTime ? Date.parse(firstWithTime.started_at) : 0;
+  if (!startedMs && project) {
+    if (!project._pipelineStartMs && (s.running_phase || (project.autoContinue && !s.error_message && s.phase !== 'done'))) {
+      project._pipelineStartMs = Date.now();
+    }
+    if (project._pipelineStartMs) startedMs = project._pipelineStartMs;
+  }
+
+  const isTerminal = (s.phase === 'done' || !!s.error_message);
+  let elapsedLabel  = '—';
+  let remainingText = '';
+  let timerAttrs    = '';
+  if (startedMs) {
+    let elapsedSecs;
+    if (isTerminal) {
+      const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
+      const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
+      elapsedSecs = (endMs - startedMs) / 1000;
+      remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
+    } else {
+      elapsedSecs = (Date.now() - startedMs) / 1000;
+      const remaining = Math.max(0, totalEta - elapsedSecs);
+      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes` : 'casi listo…';
+      timerAttrs = ` data-started-at="${startedMs}" data-total-eta="${totalEta}"`;
+      _cmv40EnsureTimerTick();
+    }
+    elapsedLabel = _cmv40FmtClock(elapsedSecs);
+  }
+
+  const itemsHtml = steps.map((st, i) => {
+    const status = stepStatuses[i];
     const iconMap = {
       done:    '<span class="cmv40-tl-status-icon done">✓</span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
@@ -5433,16 +5506,34 @@ function _cmv40RenderTimeline(s) {
   }).join('');
 
   const trustBadge = s.target_trust_ok
-    ? '<span class="cmv40-tl-trust-badge trusted">🚀 Modo trusted</span>'
-    : '<span class="cmv40-tl-trust-badge manual">🔬 Revisión manual</span>';
+    ? '<span class="cmv40-tl-trust-badge trusted">🚀 Trusted</span>'
+    : '<span class="cmv40-tl-trust-badge manual">🔬 Manual</span>';
+
+  const progressCls = isTerminal && !s.error_message ? 'cmv40-tl-progress-done'
+                    : s.error_message ? 'cmv40-tl-progress-error'
+                    : '';
 
   return `
     <aside class="cmv40-running-timeline">
       <div class="cmv40-tl-header">
-        <div class="cmv40-tl-title-main">Pipeline automático</div>
-        <div class="cmv40-tl-subtitle">
+        <div class="cmv40-tl-header-top">
+          <div class="cmv40-tl-title-main">Pipeline automático</div>
           ${trustBadge}
-          <span class="cmv40-tl-total">Total ~${_cmv40FmtEta(totalEta)}</span>
+        </div>
+        <div class="cmv40-tl-progress ${progressCls}">
+          <div class="cmv40-tl-progress-meta">
+            <span class="cmv40-tl-timer-block">
+              <span class="cmv40-tl-timer">
+                <span class="cmv40-tl-timer-icon">⏱</span>
+                <span class="cmv40-tl-timer-elapsed"${timerAttrs}>${elapsedLabel}</span>
+              </span>
+              <span class="cmv40-tl-timer-remaining">${escHtml(remainingText)}</span>
+            </span>
+            <span class="cmv40-tl-progress-pct">${doneCount}/${totalCount} · ${progressPct}%</span>
+          </div>
+          <div class="cmv40-tl-progress-track">
+            <div class="cmv40-tl-progress-fill" style="width:${progressPct}%"></div>
+          </div>
         </div>
       </div>
       <ol class="cmv40-tl-steps">${itemsHtml}</ol>
@@ -6159,14 +6250,20 @@ function openCMv40Project(session) {
   }
 
   const pid = session.id;
+  // Si abrimos un proyecto que YA está ejecutando una fase y no es terminal,
+  // asumimos que estaba en modo auto (si no, el overlay parpadearía entre
+  // fases al perder autoContinue tras recargar la página).
+  const resumeAuto = !!session.running_phase
+    && session.phase !== 'done'
+    && !session.error_message;
   const project = {
     id: pid,
     subTabId: pid,
     session: session,
     ws: null,
     syncData: null,
-    autoContinue: false,      // por defecto off; createCMv40Project lo activa
-    pendingTarget: null,      // { kind: 'path'|'mkv', value: string }
+    autoContinue: resumeAuto,  // off por defecto; createCMv40Project lo activa explícitamente
+    pendingTarget: null,       // { kind: 'path'|'mkv', value: string }
   };
   openCMv40Projects.push(project);
   _createCMv40SubTab(project);
@@ -6263,35 +6360,78 @@ function _connectCMv40WebSocket(project) {
   project.ws = ws;
 }
 
+// Copia al portapapeles el texto plano de un elemento que contiene líneas de
+// log (div.log-line). Muestra un toast de confirmación; fallback a
+// document.execCommand para contextos inseguros (file://, http en IP).
+async function copyLogToClipboard(containerId, btn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const text = Array.from(el.querySelectorAll('.log-line, div'))
+    .map(d => d.textContent || '')
+    .filter(Boolean)
+    .join('\n') || (el.textContent || '');
+  if (!text.trim()) {
+    showToast('No hay log que copiar', 'info');
+    return;
+  }
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  } catch { ok = false; }
+  if (ok) {
+    showToast(`Log copiado (${text.length.toLocaleString()} caracteres)`, 'success');
+    // Feedback visual breve en el botón si se pasó
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = '✓ Copiado';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+    }
+  } else {
+    showToast('No se pudo copiar al portapapeles', 'error');
+  }
+}
+
+// Auto-scroll "sticky": solo scrolla al fondo si el usuario YA estaba ahí.
+// Tolerancia de 30px para no perder el pegado cuando llegan líneas rápidas.
+// Si el usuario hace scroll arriba para leer, se respeta — el foco no vuelve
+// al final en cada nueva línea.
+function _isScrolledNearBottom(el, tolerance = 30) {
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) <= tolerance;
+}
+
+function _appendLogLine(containerEl, line) {
+  if (!containerEl) return;
+  const wasAtBottom = _isScrolledNearBottom(containerEl);
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  if (line.includes('✓')) div.classList.add('log-success');
+  if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
+  if (line.includes('━━━')) div.classList.add('log-phase');
+  div.textContent = line;
+  containerEl.appendChild(div);
+  if (wasAtBottom) containerEl.scrollTop = containerEl.scrollHeight;
+}
+
 function _appendCMv40Log(project, line) {
   const pid = project.id;
   // Marcador de progreso: no se añade al log visual, solo actualiza la barra
   const prog = _cmv40ParseProgress(line);
   if (prog) { _cmv40UpdateProgressUI(pid, prog); return; }
-  // Append al log persistente
-  const logEl = document.getElementById(`cmv40-log-${pid}`);
-  if (logEl) {
-    const div = document.createElement('div');
-    div.className = 'log-line';
-    if (line.includes('✓')) div.classList.add('log-success');
-    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
-    if (line.includes('━━━')) div.classList.add('log-phase');
-    div.textContent = line;
-    logEl.appendChild(div);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-  // También al overlay si está abierto
-  const runningLogEl = document.getElementById(`cmv40-running-log-${pid}`);
-  if (runningLogEl) {
-    const div = document.createElement('div');
-    div.className = 'log-line';
-    if (line.includes('✓')) div.classList.add('log-success');
-    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
-    if (line.includes('━━━')) div.classList.add('log-phase');
-    div.textContent = line;
-    runningLogEl.appendChild(div);
-    runningLogEl.scrollTop = runningLogEl.scrollHeight;
-  }
+  _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
+  _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
 }
 
 async function _refreshCMv40Session(pid) {
@@ -6327,7 +6467,12 @@ function _createCMv40Panel(project) {
       <div class="section-card" style="margin-top:16px">
         <div class="section-header">
           <div><div class="section-title">📜 Log</div></div>
-          <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')">🗑️ Limpiar</button>
+          <div style="display:flex; gap:6px">
+            <button class="btn btn-ghost btn-xs"
+              onclick="copyLogToClipboard('cmv40-log-${pid}', this)"
+              data-tooltip="Copiar todo el log al portapapeles">📋 Copiar</button>
+            <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')">🗑️ Limpiar</button>
+          </div>
         </div>
         <div class="section-body" style="padding:0">
           <div id="cmv40-log-${pid}" class="cmv40-log"></div>
@@ -6382,6 +6527,9 @@ function _renderCMv40RunningOverlay(project) {
                 <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
                 <div class="cmv40-running-subtitle" id="cmv40-running-subtitle-${pid}">El proyecto está bloqueado mientras se ejecuta la tarea</div>
               </div>
+              <button class="btn btn-ghost btn-sm"
+                onclick="copyLogToClipboard('cmv40-running-log-${pid}', this)"
+                data-tooltip="Copiar el log actual al portapapeles">📋 Copiar log</button>
               <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
             </div>
             <div class="cmv40-progress" id="cmv40-progress-${pid}"
@@ -6427,7 +6575,7 @@ function _renderCMv40RunningOverlay(project) {
     }
     // Actualizar timeline en cada tick (sesión cambió → status por paso puede cambiar)
     const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
-    if (tlWrap) tlWrap.innerHTML = _cmv40RenderTimeline(s);
+    if (tlWrap) tlWrap.innerHTML = _cmv40RenderTimeline(s, project);
   } else if (overlay) {
     // Quitar overlay con animación — solo cuando SEGURO que no hay más fases
     overlay.classList.add('closing');
@@ -6465,13 +6613,15 @@ function _cmv40UpdateProgressUI(pid, prog) {
 }
 
 function _cmv40BindRunningLog(project) {
-  // Replica los últimos logs de la sesión al div de log y actualiza progreso
+  // Replica TODO el log backend acumulado (no solo -200: entre fases puede
+  // acumular miles de líneas y queremos ver el histórico completo si el
+  // usuario scrolla arriba). Actualiza la barra con el último progreso.
   const pid = project.id;
   const logEl = document.getElementById(`cmv40-running-log-${pid}`);
   if (!logEl) return;
   logEl.innerHTML = '';
   let lastProg = null;
-  (project.session.output_log || []).slice(-200).forEach(line => {
+  (project.session.output_log || []).forEach(line => {
     const prog = _cmv40ParseProgress(line);
     if (prog) { lastProg = prog; return; }  // no añadir al log
     const div = document.createElement('div');
@@ -6483,6 +6633,7 @@ function _cmv40BindRunningLog(project) {
     logEl.appendChild(div);
   });
   if (lastProg) _cmv40UpdateProgressUI(pid, lastProg);
+  // Primera hidratación: al fondo (el usuario aún no ha scrolleado)
   logEl.scrollTop = logEl.scrollHeight;
 }
 

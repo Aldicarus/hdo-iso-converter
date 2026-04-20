@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260420am">
+  <link rel="stylesheet" href="/static/style.css?v=20260420as">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -600,6 +600,9 @@
     <div class="log-viewer-content" id="log-viewer-content"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('log-viewer-modal')">Cerrar</button>
+      <button class="btn btn-secondary btn-sm"
+        onclick="copyLogToClipboard('log-viewer-content', this)"
+        data-tooltip="Copiar el log al portapapeles">📋 Copiar</button>
       <button class="btn btn-primary btn-sm" id="log-viewer-download-btn">⬇ Descargar .txt</button>
     </div>
   </div>
@@ -858,6 +861,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420am"></script>
+<script src="/static/app.js?v=20260420as"></script>
 </body>
 </html>

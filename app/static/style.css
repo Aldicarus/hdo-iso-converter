@@ -3242,13 +3242,24 @@ select { appearance: none; cursor: pointer;
   overflow-y: auto;
 }
 .cmv40-running-timeline { padding: 16px 14px 18px; }
-.cmv40-tl-header { margin-bottom: 14px; padding: 0 4px; }
+.cmv40-tl-header {
+  margin-bottom: 14px;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cmv40-tl-header-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
 .cmv40-tl-title-main {
   font-size: 13px;
   font-weight: 700;
-  color: #f5f6f8;
+  color: var(--text-1);
   letter-spacing: 0.2px;
-  margin-bottom: 6px;
 }
 .cmv40-tl-subtitle {
   display: flex;
@@ -3264,22 +3275,143 @@ select { appearance: none; cursor: pointer;
   gap: 4px;
   padding: 2px 8px;
   border-radius: 10px;
-  font-weight: 600;
+  font-weight: 700;
   border: 1px solid;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 .cmv40-tl-trust-badge.trusted {
   background: rgba(52, 199, 89, 0.12);
   color: #0e6b2a;
-  border-color: rgba(52, 199, 89, 0.35);
+  border-color: rgba(52, 199, 89, 0.45);
 }
 .cmv40-tl-trust-badge.manual {
   background: rgba(0, 122, 255, 0.10);
   color: #005fb8;
-  border-color: rgba(0, 122, 255, 0.30);
+  border-color: rgba(0, 122, 255, 0.35);
 }
 .cmv40-tl-total {
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* Timer + progress bar en el header del timeline */
+.cmv40-tl-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cmv40-tl-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+/* Bloque del timer: elapsed grande + remaining en línea inferior */
+.cmv40-tl-timer-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+.cmv40-tl-timer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 1.1;
+}
+.cmv40-tl-timer-icon {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.cmv40-tl-timer-elapsed {
+  font-weight: 800;
+  color: var(--text-1);
+  font-size: 16px;
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+.cmv40-tl-timer-remaining {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.2;
+  padding-left: 18px;                     /* alinea bajo "HH:MM" (tras icono) */
+  min-height: 12px;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+}
+/* Legacy — ya no se usan pero dejados por compat */
+.cmv40-tl-timer-sep { color: var(--text-3); }
+.cmv40-tl-timer-total { color: var(--text-3); font-size: 11px; }
+.cmv40-tl-progress-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: #005fb8;
+  background: rgba(0, 122, 255, 0.10);
+  border: 1px solid rgba(0, 122, 255, 0.30);
+  border-radius: 10px;
+  padding: 1px 9px;
+  letter-spacing: 0.2px;
+}
+.cmv40-tl-progress-track {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.cmv40-tl-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1e6fe6 0%, #3b8fff 50%, #5ab3ff 100%);
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: 0 0 6px rgba(59, 143, 255, 0.40);
+  position: relative;
+  overflow: hidden;
+}
+/* Brillo animado que recorre el fill mientras el pipeline corre */
+.cmv40-tl-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.50) 50%, transparent 100%);
+  animation: cmv40-tl-shimmer 1.8s linear infinite;
+}
+@keyframes cmv40-tl-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+/* Variantes: completo (verde) y error (rojo), paran el shimmer */
+.cmv40-tl-progress.cmv40-tl-progress-done .cmv40-tl-progress-fill {
+  background: linear-gradient(90deg, #34c759 0%, #30b350 100%);
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.40);
+}
+.cmv40-tl-progress.cmv40-tl-progress-done .cmv40-tl-progress-fill::after,
+.cmv40-tl-progress.cmv40-tl-progress-error .cmv40-tl-progress-fill::after {
+  display: none;
+}
+.cmv40-tl-progress.cmv40-tl-progress-done .cmv40-tl-progress-pct {
+  color: #0e6b2a;
+  background: rgba(52, 199, 89, 0.12);
+  border-color: rgba(52, 199, 89, 0.40);
+}
+.cmv40-tl-progress.cmv40-tl-progress-error .cmv40-tl-progress-fill {
+  background: linear-gradient(90deg, #ff453a 0%, #d32f2f 100%);
+  box-shadow: 0 0 6px rgba(255, 59, 48, 0.40);
+}
+.cmv40-tl-progress.cmv40-tl-progress-error .cmv40-tl-progress-pct {
+  color: #a31a13;
+  background: rgba(255, 59, 48, 0.12);
+  border-color: rgba(255, 59, 48, 0.40);
 }
 
 /* Lista de pasos con rail vertical */
@@ -3296,21 +3428,29 @@ select { appearance: none; cursor: pointer;
   position: relative;
   transition: background 0.2s;
 }
-.cmv40-tl-step + .cmv40-tl-step::before {
-  /* Rail conectando los pasos */
+/* Línea vertical de cada step al siguiente.
+   Posicionamos el pseudo-elemento sobre el STEP (no sobre `.cmv40-tl-rail`)
+   porque el rail, como flex-item sin altura explícita y con su propio
+   display:flex, no se estira al alto del step — el body (título + desc +
+   badge) define el alto real. Sobre el step el `top/bottom` SÍ funciona.
+   Geometría:
+     · step padding: 9px top/bottom, 4px left/right
+     · rail width: 24px  → centro horizontal del icono = 4 + 12 = 16px
+     · línea 2px centrada → left: 15px
+     · icono: padding-rail 1 + 22px alto → desde y=10 a y=32 dentro del step
+     · top: 32px  → justo debajo del icono
+     · bottom: -11px  → 11 px por debajo del step, alcanza y supera el top
+       del icono del siguiente step (que empieza a y = step_h + 10). El fondo
+       opaco del siguiente icono "corta" la línea visualmente. */
+.cmv40-tl-step:not(:last-child)::before {
   content: '';
   position: absolute;
-  top: -9px;
-  left: 11px;
+  left: 15px;
+  top: 32px;
+  bottom: -11px;
   width: 2px;
-  height: 18px;
   background: var(--sep-strong, #dcdce0);
-}
-.cmv40-tl-step.cmv40-tl-done + .cmv40-tl-step::before {
-  background: rgba(52, 199, 89, 0.55);
-}
-.cmv40-tl-step.cmv40-tl-running + .cmv40-tl-step::before {
-  background: linear-gradient(180deg, rgba(0, 122, 255, 0.65) 0%, var(--sep-strong, #dcdce0) 100%);
+  z-index: 0;
 }
 
 /* Iconos de estado */
@@ -3334,13 +3474,14 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
 }
 .cmv40-tl-status-icon.done {
-  background: rgba(52, 199, 89, 0.20);
+  /* fondo pastel opaco (en vez de rgba) para tapar la línea por detrás */
+  background: #d6f3dd;
   color: #0e6b2a;
   border: 1.5px solid rgba(52, 199, 89, 0.60);
 }
 .cmv40-tl-status-icon.running {
   background: #ffffff;
-  border: 2px solid rgba(0, 122, 255, 0.35);
+  border: 2px solid rgba(0, 122, 255, 0.55);
   box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
   position: relative;
 }
@@ -3355,13 +3496,13 @@ select { appearance: none; cursor: pointer;
   animation: cmv40-spin 0.9s linear infinite;
 }
 .cmv40-tl-status-icon.skipped {
-  background: rgba(142, 142, 147, 0.12);
+  background: #ecedef;              /* opaco para tapar la línea */
   color: var(--text-3);
   border: 1.5px dashed rgba(142, 142, 147, 0.55);
   font-size: 10px;
 }
 .cmv40-tl-status-icon.pending {
-  background: transparent;
+  background: var(--bg);            /* opaco — mismo color que fondo lateral */
   border: 1.5px solid var(--sep-strong, #dcdce0);
 }
 
@@ -3415,11 +3556,12 @@ select { appearance: none; cursor: pointer;
 .cmv40-tl-step.cmv40-tl-done .cmv40-tl-title { color: var(--text-2); }
 .cmv40-tl-step.cmv40-tl-done .cmv40-tl-what  { color: var(--text-3); }
 .cmv40-tl-step.cmv40-tl-running {
-  background: rgba(0, 122, 255, 0.06);
-  border-radius: 8px;
-  padding: 9px 8px;
-  margin: 0 -4px;
-  box-shadow: inset 3px 0 0 #005fb8;
+  /* Fondo sutil pero SIN tocar padding/margin — altera la alineación del
+     conector vertical (que se posiciona en `left: 11px` del step).
+     El énfasis "fase activa" lo comunica el status icon con su ring azul
+     + el título en azul con peso 700. */
+  background: rgba(0, 122, 255, 0.07);
+  border-radius: 6px;
 }
 .cmv40-tl-step.cmv40-tl-running .cmv40-tl-title { color: #005fb8; font-weight: 700; }
 .cmv40-tl-step.cmv40-tl-skipped { opacity: 0.60; }
