@@ -2175,6 +2175,11 @@ select { appearance: none; cursor: pointer;
 }
 .subtab-panel.active-panel { display: block; }
 
+/* Empty state necesita altura del contenedor para que el .empty-state-full
+   (height: 100%) centre vertical. Al ser .subtab-panel.active-panel display:block,
+   la altura por defecto es auto y el 100% del hijo colapsa a su contenido. */
+#panel-empty-projects.active-panel { height: 100%; }
+
 /* ── Panel de proyecto (review screen) ─────────────────────── */
 .panel-project {
   width: 100%;
