@@ -243,10 +243,24 @@ body {
   width: 320px;
   flex-shrink: 0;
   background: rgba(235, 235, 240, 0.98);
-  border-right: 1px solid var(--sep);
+  /* El border-right se dibuja con ::after solo POR DEBAJO del área del botón
+     "Nuevo proyecto", para que el mismo color --surface-2 fluya continuo desde
+     el botón hasta el subtab-bar (sin línea vertical cortándolos). */
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+}
+#sidebar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  /* Área del botón = padding 14+12 + botón 36 + border-bottom 1 = 63px */
+  height: calc(100% - 63px);
+  width: 1px;
+  background: var(--sep);
+  pointer-events: none;
 }
 
 /* Sidebar tab panels */
@@ -1691,6 +1705,9 @@ select { appearance: none; cursor: pointer;
   display: flex;
   align-items: flex-end;
   flex-shrink: 0;
+  /* Alto igual al área del botón "Nuevo proyecto" del sidebar (14+36+12+1 = 63px)
+     para que la base de los tabs alinee con la línea gris bajo el botón. */
+  min-height: 63px;
   background: var(--surface-2);
   position: relative;
   z-index: 30;
@@ -2912,6 +2929,8 @@ select { appearance: none; cursor: pointer;
   display: flex;
   align-items: flex-end;
   flex-shrink: 0;
+  /* Mismo alto que Tab 1 — alinea con el área del botón "Nuevo proyecto CMv4.0". */
+  min-height: 63px;
   background: var(--surface-2);
   position: relative;
   z-index: 30;
