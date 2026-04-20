@@ -227,6 +227,13 @@ body {
   white-space: nowrap;
 }
 
+/* Primera tab flush con el borde izquierdo — sin border-left ni border-radius
+   superior izquierdo para que visualmente no quede un inset por la curvatura. */
+.tab:first-child {
+  border-top-left-radius: 0;
+  border-left: none;
+}
+
 .tab:hover:not(.active) {
   background: var(--surface-2);
   color: var(--text-2);
