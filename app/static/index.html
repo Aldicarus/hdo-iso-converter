@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260421a">
+  <link rel="stylesheet" href="/static/style.css?v=20260421b">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -485,6 +485,12 @@
               onclick="scrollCmv40SubtabProjects('right')"
               data-tooltip="Desplazar pestañas a la derecha">›</button>
           </div>
+          <div class="cmv40-help-area">
+            <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40HelpModal()"
+              data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas">
+              <span>📖</span> Ayuda / Manual
+            </button>
+          </div>
         </div>
 
         <!-- Contenido del sub-tab activo -->
@@ -787,6 +793,73 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: Ayuda / Manual Dolby Vision CMv4.0 ════════════════ -->
+<!-- Estructura: sidebar con secciones (nav) + área de contenido scrollable.
+     El contenido lo renderiza JS vía _cmv40HelpRender(sectionId). -->
+<div class="modal-overlay" id="cmv40-help-modal" onclick="onModalOverlayClick(event,'cmv40-help-modal')">
+  <div class="modal-box cmv40-help-modal-box">
+    <div class="cmv40-help-head">
+      <div class="modal-title">📖 Manual Dolby Vision CMv4.0</div>
+      <div class="modal-sub">Guía técnica y operativa. Navega las secciones para entender profiles, pipelines, DoviTools y herramientas.</div>
+      <button class="btn btn-ghost btn-xs cmv40-help-close" onclick="closeModal('cmv40-help-modal')"
+        data-tooltip="Cerrar">✕</button>
+    </div>
+    <div class="cmv40-help-body">
+      <nav class="cmv40-help-nav" id="cmv40-help-nav">
+        <button class="cmv40-help-nav-item active" data-section="general"
+          onclick="_cmv40HelpSwitch('general')">
+          <span class="cmv40-help-nav-icon">🧠</span>
+          <span class="cmv40-help-nav-text">
+            <b>General</b>
+            <small>BL, EL, profiles, CMv2.9/v4.0, niveles L1-L11</small>
+          </span>
+        </button>
+        <button class="cmv40-help-nav-item" data-section="why-upgrade"
+          onclick="_cmv40HelpSwitch('why-upgrade')">
+          <span class="cmv40-help-nav-icon">💡</span>
+          <span class="cmv40-help-nav-text">
+            <b>Por qué upgrade</b>
+            <small>Beneficios, limitaciones, cuándo sí/no</small>
+          </span>
+        </button>
+        <button class="cmv40-help-nav-item" data-section="sheet"
+          onclick="_cmv40HelpSwitch('sheet')">
+          <span class="cmv40-help-nav-icon">📊</span>
+          <span class="cmv40-help-nav-text">
+            <b>Hoja DoviTools</b>
+            <small>Listado REC_9999: estructura y columnas</small>
+          </span>
+        </button>
+        <button class="cmv40-help-nav-item" data-section="repo"
+          onclick="_cmv40HelpSwitch('repo')">
+          <span class="cmv40-help-nav-icon">📦</span>
+          <span class="cmv40-help-nav-text">
+            <b>Repositorio DoviTools</b>
+            <small>Acceso, tipos de bin, cómo activa cada pipeline</small>
+          </span>
+        </button>
+        <button class="cmv40-help-nav-item" data-section="tools"
+          onclick="_cmv40HelpSwitch('tools')">
+          <span class="cmv40-help-nav-icon">🔧</span>
+          <span class="cmv40-help-nav-text">
+            <b>Herramientas</b>
+            <small>ffmpeg, dovi_tool, mkvmerge, mediainfo</small>
+          </span>
+        </button>
+        <button class="cmv40-help-nav-item" data-section="pipelines"
+          onclick="_cmv40HelpSwitch('pipelines')">
+          <span class="cmv40-help-nav-icon">🔀</span>
+          <span class="cmv40-help-nav-text">
+            <b>Pipelines CMv4.0</b>
+            <small>Fases A-H, casuísticas, validaciones</small>
+          </span>
+        </button>
+      </nav>
+      <div class="cmv40-help-content" id="cmv40-help-content"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Configuración (API keys, integraciones) ════════════ -->
 <div class="modal-overlay" id="settings-modal" onclick="onModalOverlayClick(event,'settings-modal')">
   <div class="modal-box settings-modal-box">
@@ -888,6 +961,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260420bs"></script>
+<script src="/static/app.js?v=20260421b"></script>
 </body>
 </html>

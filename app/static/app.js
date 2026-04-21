@@ -1134,6 +1134,578 @@ function openCMv40LookupModal() {
   setTimeout(() => input?.focus(), 60);
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  Modal de Ayuda / Manual CMv4.0
+// ══════════════════════════════════════════════════════════════════
+
+function openCMv40HelpModal() {
+  openModal('cmv40-help-modal');
+  // Recordar última sección abierta (o abrir "general" la primera vez)
+  const last = sessionStorage.getItem('cmv40HelpSection') || 'general';
+  _cmv40HelpSwitch(last);
+}
+
+function _cmv40HelpSwitch(section) {
+  sessionStorage.setItem('cmv40HelpSection', section);
+  document.querySelectorAll('.cmv40-help-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.section === section);
+  });
+  const content = document.getElementById('cmv40-help-content');
+  if (!content) return;
+  const html = _CMV40_HELP_SECTIONS[section] || '<p>Sección no encontrada.</p>';
+  content.innerHTML = html;
+  content.scrollTop = 0;
+}
+
+/**
+ * Contenido de las secciones del manual. v1 — se irá iterando con el usuario.
+ * Datos validados contra el código real del pipeline (inventario de audit).
+ * Marcado con `help-unverified` lo que requiera research externa.
+ */
+const _CMV40_HELP_SECTIONS = {
+
+  // ═══════════════════════════════════════════════════════════════
+  // GENERAL — Conceptos clave
+  // ═══════════════════════════════════════════════════════════════
+  general: `
+    <h1>🧠 Conceptos clave de Dolby Vision</h1>
+    <p class="cmv40-help-lead">Qué son BL, EL, los profiles DV, las versiones CM y los niveles. Base común para entender por qué se hace el upgrade y qué decisiones toma el pipeline.</p>
+
+    <h2>🎞️ BL + EL: las dos capas de Dolby Vision</h2>
+    <p>Dolby Vision puede codificarse en <strong>single-layer</strong> (un solo stream HEVC) o <strong>dual-layer</strong> (dos streams combinados).</p>
+    <table>
+      <tr><th>Capa</th><th>Qué contiene</th><th>Tamaño típico (2h UHD)</th></tr>
+      <tr><td><strong>BL</strong> (Base Layer)</td><td>Vídeo HEVC HDR10 compatible con cualquier TV HDR. Es el "fallback" visible sin metadata DV.</td><td>30-50 GB</td></tr>
+      <tr><td><strong>EL</strong> (Enhancement Layer)</td><td>Capa extra con <em>residual</em> de brillo/color que se suma al BL para obtener la imagen completa DV.</td><td>variable</td></tr>
+      <tr><td><strong>RPU</strong> (Reference Processing Unit)</td><td>Metadata de tone-mapping por escena (L1-L11). Se interleva con NALs en el HEVC.</td><td>&lt; 10 MB</td></tr>
+    </table>
+
+    <h3>FEL vs MEL</h3>
+    <p>Cuando la versión es dual-layer (Profile 7), el EL tiene dos variantes:</p>
+    <ul>
+      <li><span class="help-pill help-pill-fel">FEL</span> <strong>Full Enhancement Layer</strong> — contiene residual completo de brillo (puede alcanzar 4000 nits sobre un BL base). Aporta ganancia real en highlights. Bitrate típico 1-10 Mbps.</li>
+      <li><span class="help-pill help-pill-mel">MEL</span> <strong>Minimal Enhancement Layer</strong> — stream EL "mínimo" que apenas aporta info al BL. En la práctica es equivalente a un Profile 8.1 con algo de overhead. Bitrate típico &lt;1 Mbps.</li>
+    </ul>
+    <div class="help-callout help-callout-info">
+      <strong>Práctico:</strong> un Blu-ray UHD con <span class="help-pill help-pill-fel">FEL</span> es la versión <em>premium</em> — preservar el EL es lo que hace que el upgrade tenga sentido sobre el BD. Un MEL puede descartarse sin pérdida perceptible (→ P8.1).
+    </div>
+
+    <h2>🎯 Profiles Dolby Vision</h2>
+    <table>
+      <tr><th>Profile</th><th>Tipo</th><th>Uso típico</th></tr>
+      <tr><td><strong>4</strong></td><td>Dual-layer (legacy)</td><td>Muy poco usado, master de estudio</td></tr>
+      <tr><td><strong>5</strong></td><td>Single-layer (IPT-PQ)</td><td>Streaming Netflix, iTunes, DSNP. Sin HDR10 base — solo DV</td></tr>
+      <tr><td><strong>7</strong> (FEL/MEL)</td><td>Dual-layer (BL+EL+RPU)</td><td><strong>UHD Blu-ray estándar</strong>. Base HDR10 + EL residual</td></tr>
+      <tr><td><strong>8.1</strong></td><td>Single-layer (HDR10 base + RPU)</td><td>Streaming moderno, derivado de masters retail. Sin EL</td></tr>
+      <tr><td><strong>8.4</strong></td><td>Single-layer HLG</td><td>Broadcast HLG-compatible</td></tr>
+    </table>
+    <div class="help-callout help-callout-info">
+      <strong>Nota:</strong> los TVs Dolby Vision reproducen todos los profiles por defecto. Los profiles P4/P7 dual-layer requieren un <em>reproductor</em> que sepa combinar BL+EL (players UHD, MadVR, algunos Android TV). Muchos reproductores de software solo consumen single-layer (P5/P8).
+    </div>
+
+    <h2>📐 CM Versions — v2.9 y v4.0</h2>
+    <p>El <strong>Content Mapping</strong> (CM) es el sistema de tone-mapping adaptativo por escena. Es la metadata que le dice al TV cómo comprimir los 4000+ nits del master a lo que pueda mostrar.</p>
+    <table>
+      <tr><th>Version</th><th>Características</th><th>Cuándo aparece</th></tr>
+      <tr><td><span class="help-pill help-pill-cm29">CMv2.9</span></td><td>L1-L6. Estándar del UHD Blu-ray inicial (~2015-2021). Tone-mapping "clásico".</td><td>La mayoría de BDs UHD y streaming antiguo</td></tr>
+      <tr><td><span class="help-pill help-pill-cm40">CMv4.0</span></td><td>L1-L6 + <strong>L8-L11</strong>. Tone-mapping más fino con trims por target display, white-point adjustments, curvas HDR adaptadas.</td><td>Masters recientes, re-masters streaming, algunos BDs 2023+</td></tr>
+    </table>
+    <div class="help-callout help-callout-warning">
+      <strong>⚠️ No todos los TVs "ven" CMv4.0:</strong> aunque el RPU contenga L8-L11, solo TVs con firmware CMv4.0-aware los aplica (ver sección <em>Por qué upgrade</em>). En TVs más antiguos, los niveles adicionales se ignoran silenciosamente — el tone-mapping usa L1-L6 como antes.
+    </div>
+
+    <h2>📊 Niveles (L1-L11) — qué hace cada uno</h2>
+    <table>
+      <tr><th>Nivel</th><th>Función</th><th>Cuándo se usa</th></tr>
+      <tr><td><strong>L1</strong></td><td>MaxCLL/MaxFALL dinámicos por escena (el "corazón" del tone-mapping DV)</td><td>Siempre, en todas las CM versions</td></tr>
+      <tr><td><strong>L2</strong></td><td>Trims manuales del colorista para displays a distintos brillos (100/300/600/1000 nits)</td><td>CMv2.9+ (opcional — no siempre presente)</td></tr>
+      <tr><td><strong>L3</strong></td><td>Ajustes sRGB ↔ P3 wide-gamut</td><td>Raro en la práctica <span class="help-unverified">verificar uso</span></td></tr>
+      <tr><td><strong>L4</strong></td><td>Histograma extendido de la escena</td><td>Poco común</td></tr>
+      <tr><td><strong>L5</strong></td><td><strong>Active area offsets</strong> — posición real del frame dentro del canvas 16:9 (letterbox, pillarbox). Crítico para cinemascope.</td><td>Siempre. Usado por el pipeline para detectar desfases</td></tr>
+      <tr><td><strong>L6</strong></td><td>HDR10 fallback — MaxCLL/MaxFALL estáticos del master</td><td>Siempre</td></tr>
+      <tr><td><strong>L8</strong></td><td>Trims específicos CMv4.0 para mid-tones y highlights en displays CMv4.0-aware. Reemplaza L2 en esos TVs.</td><td>Solo CMv4.0</td></tr>
+      <tr><td><strong>L9</strong></td><td>White point adjustments por escena</td><td>Solo CMv4.0 <span class="help-unverified">detalles a verificar</span></td></tr>
+      <tr><td><strong>L10</strong></td><td>HDR target curves adaptativas</td><td>Solo CMv4.0 <span class="help-unverified">detalles a verificar</span></td></tr>
+      <tr><td><strong>L11</strong></td><td>Auxiliar / extensión</td><td>Presencia opcional <span class="help-unverified">función exacta a verificar</span></td></tr>
+    </table>
+    <div class="help-callout help-callout-info">
+      <strong>En el pipeline de esta app:</strong> L1/L5/L6 se comparan en los <em>trust gates</em> para decidir si un bin es compatible (ver sección <em>Pipelines</em>). L8 presente es requisito para target trusted CMv4.0.
+    </div>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // POR QUÉ UPGRADE
+  // ═══════════════════════════════════════════════════════════════
+  'why-upgrade': `
+    <h1>💡 Por qué hacer upgrade a CMv4.0</h1>
+    <p class="cmv40-help-lead">El objetivo es combinar "lo mejor de ambos mundos": el <strong>EL del Blu-ray UHD</strong> (con la mejor calidad de vídeo disponible, P7 FEL típicamente) + los <strong>trims CMv4.0</strong> de los masters streaming re-grading recientes. El resultado: BD FEL + tone-mapping fino.</p>
+
+    <h2>🎯 Qué se gana</h2>
+    <ul>
+      <li><strong>Highlights más fieles en TVs modernos</strong>: L8 de CMv4.0 corrige sobre-compresión de highlights típica del tone-mapping v2.9 en TVs con picos de brillo altos (OLED 2000+ nits).</li>
+      <li><strong>Mid-tones más precisos</strong>: trims CMv4.0 específicos por display evitan lifting de negros y pérdida de contraste que el v2.9 genérico a veces genera.</li>
+      <li><strong>Transición de escenas más suave</strong>: con L1 dinámico mejor calibrado, los cambios de luminancia se ajustan con menos "ruido" visible.</li>
+      <li><strong>Se preserva el FEL del BD</strong>: toda la ganancia adicional de brillo del EL se mantiene intacta (el pipeline no re-encoda el vídeo).</li>
+    </ul>
+
+    <h2>⚠️ Limitaciones importantes</h2>
+
+    <h3>TVs que NO aprovechan CMv4.0</h3>
+    <p>Los TVs sin firmware CMv4.0-aware <strong>ignoran L8-L11</strong> silenciosamente. En ese caso el upgrade no aporta nada visible — el tone-mapping sigue usando L1-L6 como siempre.</p>
+    <div class="help-callout help-callout-warning">
+      <strong>⚠️ Qué TVs lo soportan</strong> <span class="help-unverified">requiere verificación precisa por modelo/firmware</span><br>
+      En general <strong>modelos 2022+</strong> de LG (G2/C2+, G3/C3+), Sony (A95L/A80L+, Bravia 2023+), algunos Panasonic OLED y TCL/Hisense gama alta 2023+. Modelos anteriores <em>no</em> suelen aprovecharlo. <em>La matriz exacta está en continua evolución — la comunidad de DoviTools mantiene listas más precisas.</em>
+    </div>
+
+    <h3>LLDV — Low Latency Dolby Vision</h3>
+    <p>LLDV es el modo "pass-through" donde el player/Apple TV/NVIDIA Shield convierte DV a HDR10+ señales especiales vía HDMI sin que el TV vea el RPU real.</p>
+    <div class="help-callout help-callout-danger">
+      <strong>❌ En LLDV el upgrade CMv4.0 no aplica:</strong> la conversión LLDV se hace en el source device (player) que típicamente trabaja con CMv2.9-equivalente. El TV recibe una señal ya mapeada sin metadata DV real — L8-L11 se pierden en la conversión. <span class="help-unverified">casos específicos por firmware requieren validación</span>
+    </div>
+
+    <h3>FEL con brightness enhancement</h3>
+    <p>Algunos BDs tienen FEL calibrado para picos muy altos (p.ej. discos Disney/Warner con masters > 4000 nits efectivos).</p>
+    <div class="help-callout help-callout-warning">
+      <strong>⚠️ El bin CMv4.0 debe ser consistente con el brillo del BD:</strong> si el bin proviene de un master streaming con brillo diferente (o si se generó sintéticamente desde HDR10), los trims pueden <em>romperse</em> sobre el FEL del BD. El pipeline detecta esto vía comparación L5/L6/L1 en los trust gates.
+    </div>
+
+    <h3>Casos de edición diferente master</h3>
+    <ul>
+      <li><strong>Versión theatrical vs extended</strong>: RPUs extraídos de masters distintos pueden diferir en número de frames y L5 — el pipeline aborta si hay diferencia > 30 px en offsets L5.</li>
+      <li><strong>Re-masters con color grading diferente</strong>: L1/L6 muy distantes indican que el bin procede de un master re-calibrado, no simplemente un upgrade de CM. Sigue siendo utilizable pero con gates soft en warning.</li>
+    </ul>
+
+    <h3>Generated vs Retail</h3>
+    <table>
+      <tr><th>Tipo</th><th>Origen</th><th>Calidad</th></tr>
+      <tr><td><span class="help-pill help-pill-retail">Retail</span></td><td>Extracción de un MKV/stream CMv4.0 oficial (streaming con remaster, re-release BD con CMv4.0)</td><td>Máxima — trims hechos por colorista</td></tr>
+      <tr><td><span class="help-pill help-pill-gen">Generated</span></td><td>Sintetizado algorítmicamente desde HDR10 del propio BD (tools como tcfs1/tcfs3 de DoviTools)</td><td>Buena aproximación, <strong>no</strong> es trim real — es HDR10 convertido a L8 sintético</td></tr>
+    </table>
+    <div class="help-callout help-callout-info">
+      <strong>Preferencia del pipeline:</strong> si hay retail disponible, siempre usarlo. El repo DoviTools indica con tags qué bins son retail vs generated. Los generated son "mejor que nada" en TVs CMv4.0 pero no aportan lo mismo que un remaster real.
+    </div>
+
+    <h2>✅ Decisión práctica: ¿vale la pena?</h2>
+    <ol>
+      <li><strong>Revisa tu TV</strong>: ¿es 2022+ CMv4.0-aware? Si no → el upgrade no aporta visible. Dedícate a ripear BD directo.</li>
+      <li><strong>Revisa el bin disponible</strong>: retail > generated. Si solo hay generated, considera si vale el proceso.</li>
+      <li><strong>Comprueba FEL del BD</strong>: si tu BD es P7 MEL, considera conversión a P8.1 CMv4.0 single-layer (ahorro de espacio sin pérdida). Si es FEL, preserva siempre.</li>
+      <li><strong>Evita si vas a usar LLDV</strong>: conversiones en el chain de output anulan el upgrade.</li>
+      <li><strong>Cross-check con la comunidad</strong>: el sheet de REC_9999 indica casos específicos donde el upgrade se ha verificado como útil o problemático.</li>
+    </ol>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // SHEET DOVITOOLS
+  // ═══════════════════════════════════════════════════════════════
+  sheet: `
+    <h1>📊 Hoja de DoviTools (REC_9999)</h1>
+    <p class="cmv40-help-lead">Research comunitaria que documenta qué películas aceptan upgrade CMv4.0 y cuáles no. Es el primer chequeo antes de gastar horas en un proyecto.</p>
+
+    <h2>¿Qué es?</h2>
+    <p>La "DoviTools Sheet" es una hoja pública de Google Drive mantenida por <strong>REC_9999</strong> (alias activo en foros de UHD Blu-ray y Reddit). Recopila el trabajo de testear si cada película tiene un camino viable para upgrade CMv4.0 sobre el BD UHD original.</p>
+    <div class="help-callout help-callout-info">
+      <strong>Detalles exactos del scope</strong> <span class="help-unverified">nº películas documentadas, frecuencia de actualización — consultar sheet live</span>
+    </div>
+
+    <h2>📋 Estructura en 3 secciones por fila</h2>
+    <p>El sheet organiza la research en <strong>3 columnas agrupadas horizontalmente</strong> — cada fila lista la misma película en las 3 secciones si la encuentra categorizable de varias formas:</p>
+    <table>
+      <tr><th>Sección</th><th>Columnas</th><th>Criterio</th></tr>
+      <tr><td><strong>No factible</strong></td><td>0-4</td><td>Películas que <em>no</em> aceptan upgrade limpio — problemas técnicos, BD-FEL exclusivas sin equivalente CMv4.0, masters incompatibles</td></tr>
+      <tr><td><strong>Factible</strong></td><td>6-11</td><td>Upgrade verificado y testeado OK — bin disponible, sync conocido, match de L1/L5 OK</td></tr>
+      <tr><td><strong>Probably OK / Not Sure</strong></td><td>13-18</td><td>Casos con incertidumbre — bin disponible pero sin verificación completa. La app los trata como <em>feasible con precaución</em></td></tr>
+    </table>
+
+    <h2>🗂️ Columnas parseadas</h2>
+    <p>Para cada sección, la app extrae (via <code>rec999_sheet.py</code>):</p>
+    <table>
+      <tr><th>Campo</th><th>Significado</th></tr>
+      <tr><td><code>title</code></td><td>Título de la película (en inglés típicamente)</td></tr>
+      <tr><td><code>dv_source</code></td><td>Procedencia del DV: <code>BD FEL</code>, <code>iTunes</code>, <code>DSNP</code> (Disney+), <code>MA</code> (Movies Anywhere), <code>Netflix</code>…</td></tr>
+      <tr><td><code>sync_offset</code></td><td>Offset en frames entre bin y BD. Ej: <code>+48</code> = eliminar 48 frames al inicio del bin</td></tr>
+      <tr><td><code>comparisons</code></td><td>Datos de verificación: <code>HDR COMP</code>, <code>plot</code>, <code>nits</code>, <code>sample</code>…</td></tr>
+      <tr><td><code>notes</code></td><td>Observaciones libres del autor — problemas, warnings, tips</td></tr>
+    </table>
+
+    <h3>🔗 Hyperlinks</h3>
+    <p>Los hyperlinks están <strong>incrustados en el texto de las celdas</strong> (rich-text), no solo como formulas <code>HYPERLINK()</code>. La app prioriza lectura XLSX + openpyxl porque:</p>
+    <ul>
+      <li>La <strong>Sheets API v4</strong> no los expone (la hoja es un XLSX importado, no Sheet nativo).</li>
+      <li>El <strong>export HTML gviz</strong> solo conserva hyperlinks formales.</li>
+      <li>El <strong>export CSV</strong> los pierde completamente.</li>
+    </ul>
+    <p>Cuando se preservan, se muestran como enlaces "Abrir ↗" en los banners de recomendación del modal "Nuevo proyecto" y en la consulta rápida <code>🔎</code>.</p>
+
+    <h2>🔄 Cómo se accede desde la app</h2>
+    <ol>
+      <li>Al seleccionar un MKV origen en el modal "Nuevo proyecto CMv4.0", la app busca live en el sheet vía el endpoint <code>/api/cmv40/recommend-from-filename</code>.</li>
+      <li>Se parsea el filename → título+año → fuzzy match contra las 3 secciones.</li>
+      <li>Si hay match, se muestra el banner de recomendación con chips de verificación, sync offset, y note con links si están disponibles.</li>
+      <li>La <strong>consulta rápida 🔎</strong> del header permite testear cualquier título sin crear proyecto.</li>
+    </ol>
+
+    <h2>⚙️ Umbrales de match</h2>
+    <ul>
+      <li><strong>0.72</strong> de similitud si el año coincide exacto.</li>
+      <li><strong>0.82</strong> si el año difiere en ±1 (remaster/re-release).</li>
+      <li><strong>0.88</strong> si no hay año disponible (desambiguación más estricta).</li>
+    </ul>
+    <p>Normalización: acentos strippeados, romanos convertidos a dígitos (<em>Rocky II → Rocky 2</em>), stop-words eliminados (<em>the, la, de, of…</em>).</p>
+
+    <h2>🔄 Caching</h2>
+    <p>La app cachea el sheet en disco (<code>/config/rec999_sheet_cache.csv</code>) con TTL 1h. Los refreshes manuales fuerzan re-fetch desde el origen.</p>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // REPO DRIVE
+  // ═══════════════════════════════════════════════════════════════
+  repo: `
+    <h1>📦 Repositorio DoviTools (Google Drive)</h1>
+    <p class="cmv40-help-lead">Carpeta pública de Google Drive con los <code>.bin</code> RPU pre-validados por la comunidad. Cada bin activa un pipeline específico según su tipo.</p>
+
+    <h2>🔑 Acceso</h2>
+    <p>El repositorio está en una carpeta pública de Drive (folder compartido por REC_9999). La app accede vía <strong>Google Drive API v3</strong> con una API key (solo lectura, sin OAuth).</p>
+    <ol>
+      <li>Obtén una Google API key en <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console</a> con "Drive API v3" habilitada.</li>
+      <li>Pégala en ⚙︎ Configuración → Google API key.</li>
+      <li>El folder ID del repo de DoviTools ya viene configurado por defecto (hardcoded). Puede overridearse con la env var <code>CMV40_DRIVE_FOLDER_ID</code>.</li>
+    </ol>
+    <div class="help-callout help-callout-info">
+      <strong>Cache</strong>: la app mantiene un inventario del Drive en <code>/config/rec999_drive_cache.json</code> con TTL de 24h. Refresh manual disponible.
+    </div>
+
+    <h2>📁 Estructura del repositorio</h2>
+    <p>El folder se organiza jerárquicamente. La app escanea hasta <strong>5 niveles de profundidad</strong> buscando ficheros <code>.bin</code>.</p>
+    <div class="help-callout help-callout-warning">
+      <strong>Total de ficheros y desglose por tipo</strong> <span class="help-unverified">a documentar con inventario live — ver <code>/api/cmv40/repo-survey</code></span>
+    </div>
+
+    <h2>🏷️ Tipos de bins y cómo activan pipelines</h2>
+    <p>El nombre del fichero sigue convenciones implícitas que la app detecta para <strong>pre-clasificar</strong> (antes de descargar). Así el usuario ve qué pipeline se activará sin bajar el bin.</p>
+
+    <table>
+      <tr><th>Patrón en filename</th><th>Tipo detectado</th><th>Pipeline activado</th><th>Provenance</th></tr>
+      <tr><td><code>P7 FEL</code> + <code>cmv4.0 restored</code> / <code>retail</code></td><td><span class="help-pill help-pill-cm40">trusted_p7_fel_final</span></td><td><strong>Drop-in FEL</strong> — inject directo sobre source.hevc, sin merge</td><td><span class="help-pill help-pill-retail">Retail</span></td></tr>
+      <tr><td><code>P7 MEL</code> + <code>cmv4.0</code></td><td><span class="help-pill help-pill-cm40">trusted_p7_mel_final</span></td><td>Drop-in MEL — inject en BL, descarta EL, sale P8.1</td><td><span class="help-pill help-pill-retail">Retail</span></td></tr>
+      <tr><td><code>P5 to P8</code> + <code>variable L5</code></td><td><span class="help-pill help-pill-cm40">trusted_p8_source</span></td><td>Transfer P5→P8 — merge CMv4.0 sobre P7 del BD preservando FEL</td><td><span class="help-pill help-pill-retail">Retail</span></td></tr>
+      <tr><td><code>iMAX_Generated</code> / <code>generated</code> / <code>V3</code></td><td><span class="help-pill help-pill-gen">generic (generated)</span></td><td>Rama completa — merge + revisión visual obligatoria</td><td><span class="help-pill help-pill-gen">Generated</span></td></tr>
+    </table>
+
+    <div class="help-callout help-callout-info">
+      <strong>Banner de procedencia</strong>: si se selecciona un bin <em>Generated</em> pero existe una alternativa <em>Retail</em> para la misma película en el repo, el modal "Nuevo proyecto" muestra un aviso ámbar con el nombre del bin retail disponible — para que elijas el mejor.
+    </div>
+
+    <h2>🔍 Matching contra el MKV origen</h2>
+    <p>Cuando seleccionas un MKV origen en el modal "Nuevo proyecto", el sistema:</p>
+    <ol>
+      <li>Parsea el filename → título + año.</li>
+      <li>Opcionalmente consulta TMDb para desambiguar títulos no-ASCII (cine asiático) vía traducción ES→EN.</li>
+      <li>Scorea cada bin del repo contra el título/año con fuzzy match (max de SequenceMatcher, Jaccard tokens, containment).</li>
+      <li>Devuelve top-N candidatos ordenados. El "top score" se auto-selecciona.</li>
+      <li>La clasificación del bin (FEL/MEL/P8/generated) se infiere del filename sin descargar.</li>
+    </ol>
+
+    <h2>📥 Descarga</h2>
+    <p>Al crear el proyecto con un bin del repo:</p>
+    <ol>
+      <li>La app descarga el <code>.bin</code> streaming a <code>/mnt/tmp/cmv40/{session_id}/RPU_target.bin</code>.</li>
+      <li>Calcula SHA-256 del bin (primeros 12 caracteres como huella breve).</li>
+      <li>Ejecuta <code>dovi_tool info</code> para validar profile, CM version y frames.</li>
+      <li>Compara con el source (gates) → clasifica como trusted_* o generic → activa el pipeline apropiado.</li>
+    </ol>
+    <p>Tamaños típicos de bin: <strong>5-50 MB</strong>. Descarga en segundos.</p>
+
+    <h3>Volumen legacy <code>/mnt/cmv40_rpus/</code></h3>
+    <p>Además del repo Drive, la app soporta bins <code>.bin</code> en un volumen local (configurable con <code>CMV40_RPU_PATH</code>). Desde v1.8 este volumen es <em>legacy</em> — la recomendación es usar Drive (más cómodo, siempre actualizado).</p>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // HERRAMIENTAS
+  // ═══════════════════════════════════════════════════════════════
+  tools: `
+    <h1>🔧 Herramientas utilizadas</h1>
+    <p class="cmv40-help-lead">No es un manual de comandos — es la explicación de por qué cada tool forma parte del juego y qué aporta. Todas son open-source y se distribuyen en el contenedor Docker.</p>
+
+    <h2>🎬 ffmpeg</h2>
+    <p><strong>Qué es</strong>: el multi-herramienta de vídeo/audio por excelencia. Aquí lo usamos <em>solo</em> para <strong>demultiplexar sin re-encodar</strong>.</p>
+    <ul>
+      <li><strong>En Fase A</strong>: extrae el stream HEVC del MKV origen a un <code>.hevc</code> raw (anexb format). No toca el vídeo — es copia bit-a-bit.</li>
+      <li><strong>En Fase B (modo "desde otro MKV")</strong>: extrae los primeros ~30s del HEVC de un MKV target para que <code>dovi_tool</code> pueda leer su RPU.</li>
+      <li>Filtro clave usado: <code>-bsf:v hevc_mp4toannexb</code> — convierte la envoltura MP4 de matroska al formato anexb que dovi_tool necesita.</li>
+    </ul>
+    <div class="help-callout help-callout-success">
+      <strong>Por qué es necesario</strong>: <code>dovi_tool</code> no parsea MKV de forma fiable (<em>bug conocido</em> de PPS en CodecPrivate). Siempre pasamos por HEVC raw para operaciones sensibles.
+    </div>
+
+    <h2>🎯 dovi_tool</h2>
+    <p><strong>Qué es</strong>: swiss-army knife de Dolby Vision mantenido por <em>quietvoid</em> en GitHub. El corazón del pipeline. Distribuido como binario estático (versión 2.1.2 en el contenedor).</p>
+    <h3>Sub-comandos que usamos</h3>
+    <table>
+      <tr><th>Sub-comando</th><th>Fase</th><th>Función</th></tr>
+      <tr><td><code>extract-rpu</code></td><td>A, B, H</td><td>Extrae el RPU (metadata DV) del HEVC → <code>.bin</code></td></tr>
+      <tr><td><code>info --summary</code></td><td>A, B, E, H</td><td>Parsea metadata del RPU: profile, FEL/MEL, CM version, frames, L1/L5/L6</td></tr>
+      <tr><td><code>demux</code></td><td>C</td><td>Separa HEVC dual-layer en BL.hevc + EL.hevc (solo P7 FEL/MEL no drop-in)</td></tr>
+      <tr><td><code>editor</code></td><td>E</td><td>Aplica correcciones <code>remove</code>/<code>duplicate</code> frames al RPU target → RPU_synced.bin</td></tr>
+      <tr><td><code>inject-rpu</code></td><td>F</td><td>Sustituye el RPU de un HEVC por otro — <strong>el paso clave del upgrade</strong></td></tr>
+      <tr><td><code>mux</code></td><td>G</td><td>Combina BL + EL_injected en un stream dual-layer (P7 FEL clásico, no drop-in)</td></tr>
+    </table>
+    <div class="help-callout help-callout-info">
+      <strong>Coste temporal típico</strong>: extract-rpu ~2-3 min por BD UHD de 155k frames; inject-rpu ~5-6 min (rewrite full); mux ~2 min.
+    </div>
+
+    <h2>📦 mkvmerge (MKVToolNix)</h2>
+    <p><strong>Qué es</strong>: muxer Matroska profesional de Moritz Bunkus. Versión v81+ en el contenedor.</p>
+    <ul>
+      <li><strong>En Fase G</strong>: crea el MKV final combinando el HEVC inyectado + audio + subtítulos + capítulos <em>del origen</em>. La opción <code>--no-video</code> permite usar el MKV origen como fuente de A/V/subs sin duplicar el vídeo.</li>
+      <li><strong>En Fase H</strong>: valida el MKV resultante con <code>-J</code> (dump JSON) para verificar que las pistas y durations coinciden.</li>
+      <li>Escribe directamente al destino final con sufijo <code>.mkv.tmp</code>, rename atómico tras validar (mismo filesystem = sin copia).</li>
+    </ul>
+
+    <h2>🏷️ mkvpropedit</h2>
+    <p><strong>Qué es</strong>: compañero de mkvmerge para editar propiedades MKV sin remux (O(1), instantáneo).</p>
+    <ul>
+      <li>Se usa en <strong>Tab 2 (Editar Propiedades MKV)</strong> para renombrar pistas, cambiar flags default/forced, editar capítulos sin copiar datos.</li>
+      <li>El pipeline CMv4.0 no lo usa directamente — mkvmerge escribe con los nombres/flags correctos desde el principio.</li>
+    </ul>
+
+    <h2>🔍 mediainfo</h2>
+    <p><strong>Qué es</strong>: lector de metadata multimedia con JSON output.</p>
+    <ul>
+      <li><strong>En Tab 1 (Crear MKV)</strong>: enriquece la detección con bitrate real, <code>Format_Commercial</code> (distinguir Atmos/DTS:X definitivo), canales, resolución.</li>
+      <li>En el pipeline CMv4.0 no tiene papel central — la información DV la da dovi_tool.</li>
+    </ul>
+
+    <h2>🐍 Python stack (FastAPI + uvicorn + httpx + openpyxl)</h2>
+    <p>Aplicación backend. Lo más relevante aquí:</p>
+    <ul>
+      <li><strong>openpyxl</strong>: el único parser Python que preserva rich-text hyperlinks del XLSX. Obligatorio para leer el sheet DoviTools con los links intactos.</li>
+      <li><strong>httpx</strong>: HTTP async para llamadas a TMDb, Google Drive API, Google Sheets.</li>
+      <li><strong>asyncio.subprocess</strong>: cómo se invocan ffmpeg/dovi_tool/mkvmerge — con streaming de stdout al log WebSocket para ver progreso en vivo.</li>
+    </ul>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // PIPELINES
+  // ═══════════════════════════════════════════════════════════════
+  pipelines: `
+    <h1>🔀 Pipelines CMv4.0 — fases A-H</h1>
+    <p class="cmv40-help-lead">El pipeline tiene 8 fases nominadas A-H. Según el tipo de source (P7 FEL / P7 MEL / P8) y el target (retail CMv4.0 trusted / generic / generated), algunas fases se saltan o se optimizan automáticamente.</p>
+
+    <h2>🔁 Flujo general</h2>
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Pipeline por defecto — rama GENERIC (target no trusted)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar BD</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Preparar target</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux + per-frame</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Revisión visual</span><span class="cmv40-ph-mod">manual</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección sync</span><span class="cmv40-ph-mod">si Δ≠0</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Merge + inyectar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux MKV</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+      </div>
+    </div>
+
+    <h2>📋 Qué hace cada fase</h2>
+
+    <h3>Fase A — Analizar BD origen</h3>
+    <ul>
+      <li><code>ffmpeg</code> extrae <code>source.hevc</code> raw del MKV (copy, no re-encode).</li>
+      <li><code>dovi_tool extract-rpu</code> extrae <code>RPU_source.bin</code> del HEVC completo.</li>
+      <li><code>dovi_tool info --summary</code> parsea: profile, FEL/MEL, CM version, frames, L1/L5/L6.</li>
+      <li>Se detecta <strong>source_workflow</strong>: <code>p7_fel</code>, <code>p7_mel</code>, <code>p8</code>.</li>
+    </ul>
+
+    <h3>Fase B — Preparar RPU target (3 opciones)</h3>
+    <ol>
+      <li><strong>Repo DoviTools</strong> (recomendado): descarga directa del Drive.</li>
+      <li><strong>Extraer de MKV</strong>: ffmpeg + extract-rpu sobre un MKV con CMv4.0 ya inyectado.</li>
+      <li><strong>Carpeta local</strong>: <code>.bin</code> previamente descargado en <code>/mnt/cmv40_rpus/</code>.</li>
+    </ol>
+    <p>Tras preparar el bin: <code>dovi_tool info</code> + <strong>trust gates</strong> (ver abajo) → clasifica target_type → decide saltos automáticos.</p>
+
+    <h3>Fase C — Extraer BL/EL + per-frame data</h3>
+    <ul>
+      <li><code>dovi_tool demux</code> separa HEVC dual-layer en BL.hevc + EL.hevc.</li>
+      <li>Exportación muestreada de MaxCLL por frame de ambos RPUs → <code>per_frame_data.json</code> (para el chart).</li>
+      <li><strong>SKIP automático</strong> si target es drop-in FEL (no hace falta demux — el source.hevc se usa tal cual) o si trust gates pasaron (no hace falta per_frame_data — Fase D se saltará).</li>
+    </ul>
+
+    <h3>Fase D — Revisión visual (manual)</h3>
+    <p>UI con chart Canvas custom que muestra MaxCLL por frame de source (rojo) vs target (azul). El usuario:</p>
+    <ul>
+      <li><strong>Zoom</strong>: presets 30s / 1min / 5min / 30min / Todo + inputs manuales.</li>
+      <li><strong>Detección automática de offset</strong> por cross-correlation.</li>
+      <li><strong>Métrica de confianza</strong>: correlación de Pearson sobre MaxCLL (insensible a diferencia de escala, sensible a desalineación temporal).</li>
+      <li><strong>Criterio para avanzar</strong>: Δ frames = 0 Y confianza ≥ 85%.</li>
+    </ul>
+    <div class="help-callout help-callout-success">
+      <strong>SKIP automático</strong> si <code>target_trust_ok=True</code> y <code>trust_override=auto</code>: el usuario puede forzar revisión con <code>trust_override=force_interactive</code>.
+    </div>
+
+    <h3>Fase E — Aplicar corrección (opcional)</h3>
+    <ul>
+      <li><code>dovi_tool editor</code> con <code>remove</code>/<code>duplicate</code> frames según <code>editor_config.json</code>.</li>
+      <li>Correcciones <strong>acumulativas</strong> (cada "Aplicar" suma a las previas).</li>
+      <li>Reset al original disponible.</li>
+      <li>No avanza de fase — el usuario sigue iterando hasta pulsar "Confirmar sync" en Fase D.</li>
+    </ul>
+
+    <h3>Fase F — Inyectar RPU</h3>
+    <p>Varía por workflow:</p>
+    <ul>
+      <li><strong>Drop-in FEL</strong> (trusted_p7_fel_final): <code>inject-rpu</code> directo sobre source.hevc — sin demux ni mux.</li>
+      <li><strong>P7 FEL clásico</strong>: merge CMv4.0 sobre P7 del BD (tcfs-like) → inject en EL.hevc.</li>
+      <li><strong>P7 MEL</strong>: descarta EL, inject en BL.hevc → sale P8.1.</li>
+      <li><strong>P8</strong>: inject directo sobre source.hevc.</li>
+    </ul>
+
+    <h3>Fase G — Remux MKV final</h3>
+    <ul>
+      <li><code>dovi_tool mux</code> combina BL + EL_injected (solo P7 FEL clásico, no drop-in).</li>
+      <li><code>mkvmerge</code> crea MKV final con vídeo + audio/subs/capítulos del origen.</li>
+      <li>Escribe a <code>/mnt/output/{name}.mkv.tmp</code> con progress real (parseado de <code>#GUI#progress XX%</code>).</li>
+    </ul>
+
+    <h3>Fase H — Validación final</h3>
+    <ul>
+      <li><code>dovi_tool extract-rpu</code> sobre el HEVC pre-mux del workdir (evita bug MKV-PPS).</li>
+      <li><code>dovi_tool info</code> verifica profile + CM v4.0 + frames correctos.</li>
+      <li>Comparación byte-idéntica con RPU_target para drop-in puro.</li>
+      <li><code>mkvmerge -J</code> valida estructura del MKV.</li>
+      <li>Rename atómico <code>.tmp</code> → <code>.mkv</code> en <code>/mnt/output/</code>.</li>
+    </ul>
+
+    <h2>🛡️ Trust gates — cómo decide automático vs manual</h2>
+    <p>Tras Fase B, la app compara el RPU target contra el RPU source del BD. Si <strong>todos los gates críticos pasan</strong>, marca <code>target_trust_ok=True</code> y el pipeline salta Fases D/E (y demux en drop-in FEL).</p>
+
+    <h3>Gates críticos (deben pasar todos)</h3>
+    <table>
+      <tr><th>Gate</th><th>Criterio</th><th>Si falla</th></tr>
+      <tr><td><strong>frames</strong></td><td>source_frames == target_frames (0 tolerancia)</td><td>No trusted — requiere sync manual en Fase D</td></tr>
+      <tr><td><strong>cm_version</strong></td><td>target debe ser CMv4.0</td><td>Incompatible — aborta</td></tr>
+      <tr><td><strong>has_l8</strong></td><td>target debe incluir L8</td><td>No vale como target CMv4.0 útil</td></tr>
+      <tr><td><strong>l5_div</strong></td><td>Divergencia en L5 offsets ≤ 5 px</td><td>5-30 px = warn, &gt; 30 px = <strong>aborta</strong> (edición distinta)</td></tr>
+    </table>
+
+    <h3>Gates soft (informan, no bloquean)</h3>
+    <ul>
+      <li><strong>l6_div</strong>: diferencia en MaxCLL estático ≤ 50 nits.</li>
+      <li><strong>l1_div</strong>: diferencia en MaxCLL average ≤ 5%.</li>
+    </ul>
+
+    <h2>🌳 Inventario de casuísticas</h2>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 FEL + target Retail P7 FEL CMv4.0 (drop-in)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">no hace falta</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span><span class="cmv40-ph-mod">Δ=0 gates</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inyectar</span><span class="cmv40-ph-mod">sin merge</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux</span><span class="cmv40-ph-mod">sin mux dual</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">Caso más rápido (~20 min en hardware NAS). El bin de DoviTools es idéntico al que se inyecta — la validación lo comprueba byte-a-byte.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 FEL + target Retail P7 MEL CMv4.0</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span><span class="cmv40-ph-mod">Δ=0 gates</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inyectar en BL</span><span class="cmv40-ph-mod">sin merge</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux</span><span class="cmv40-ph-mod">single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">El MEL del BD no aporta calidad real vs el P8.1 del target — se descarta. Salida: MKV P8.1 CMv4.0 single-layer, más ligero que el origen.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 FEL + target Retail P5→P8 (transfer CMv4.0)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span><span class="cmv40-ph-mod">Δ=0 gates</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Merge + inyectar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">Fuente P8 con L8 trims — se hace merge del CMv4.0 al RPU P7 preservando FEL. Mantiene toda la calidad del BD con trims mejorados.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 FEL + target Generated / Sin clasificar</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Clasificar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">probable</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">si no trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span><span class="cmv40-ph-mod">si Δ≠0</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inyectar</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">Rama completa con <strong>pausa manual en Fase D</strong>. El auto-pipeline se detiene en D; el usuario revisa el chart, confirma o corrige, y manualmente desbloquea F.</div>
+    </div>
+
+    <h2>❓ Problemas típicos y diagnóstico</h2>
+    <ul>
+      <li><strong>"MKV final no existe"</strong>: fichero borrado externamente. La app auto-rewinde la fase a <code>injected</code> para re-ejecutar desde G.</li>
+      <li><strong>"Invalid PPS index" en Fase H</strong>: bug de dovi_tool con MKVs donde mkvmerge guarda PPS en CodecPrivate. Fix: la app extrae el RPU del HEVC pre-mux en workdir en vez del MKV.</li>
+      <li><strong>Δ frames ≠ 0 + confianza baja</strong>: el bin no es compatible con este BD. Buscar alternativas en repo o reportar a la comunidad.</li>
+      <li><strong>L5 divergence &gt; 30 px</strong>: edición distinta (theatrical vs extended). Buscar bin de la versión correcta.</li>
+    </ul>
+
+    <div class="help-callout help-callout-info">
+      <strong>Próximos pasos:</strong> los diagramas anteriores son reutilizables para todos los casos retail/generated. En iteraciones sucesivas podremos añadir capturas reales, matriz TV-compat, y un árbol de decisión interactivo.
+    </div>
+  `
+};
+
 async function cmv40LookupSearch() {
   const input = document.getElementById('cmv40-lookup-title');
   const yearInput = document.getElementById('cmv40-lookup-year');

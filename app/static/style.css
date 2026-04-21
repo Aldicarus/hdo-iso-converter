@@ -5615,3 +5615,270 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .settings-feedback.ok    { color: var(--green, #34c759); }
 .settings-feedback.error { color: var(--red, #ff3b30); }
 .settings-feedback.info  { color: var(--text-3); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Modal "📖 Manual CMv4.0" — panel lateral de ayuda
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Botón "Ayuda / Manual" en la franja navy del subtab-bar CMv4.0 */
+.cmv40-help-area {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 6px 16px 7px 0;
+}
+.cmv40-help-btn {
+  color: rgba(255, 255, 255, 0.92) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 6px 12px !important;
+  height: 32px;
+  gap: 6px;
+  white-space: nowrap;
+}
+.cmv40-help-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Modal wide — sidebar nav + content */
+.cmv40-help-modal-box {
+  max-width: 1180px;
+  width: calc(100vw - 40px);
+  max-height: 92vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cmv40-help-head {
+  flex-shrink: 0;
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--surface-1);
+  position: relative;
+}
+.cmv40-help-head .modal-title { margin-bottom: 3px; }
+.cmv40-help-head .modal-sub   { margin-bottom: 0; line-height: 1.4; }
+.cmv40-help-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  font-size: 15px;
+  line-height: 1;
+}
+.cmv40-help-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Sidebar nav */
+.cmv40-help-nav {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--sep);
+  overflow-y: auto;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cmv40-help-nav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text-1);
+  transition: background var(--t-fast) var(--ease);
+}
+.cmv40-help-nav-item:hover { background: rgba(0, 0, 0, 0.04); }
+.cmv40-help-nav-item.active {
+  background: var(--surface-1);
+  border-color: rgba(0, 122, 255, 0.30);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.cmv40-help-nav-icon {
+  font-size: 18px;
+  line-height: 1;
+  padding-top: 1px;
+  flex-shrink: 0;
+}
+.cmv40-help-nav-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.cmv40-help-nav-text b { font-weight: 700; color: var(--text-1); }
+.cmv40-help-nav-text small { color: var(--text-3); font-size: 11px; line-height: 1.35; }
+.cmv40-help-nav-item.active .cmv40-help-nav-text b { color: var(--blue); }
+
+/* Content area scrollable */
+.cmv40-help-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 30px;
+  /* aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
+}
+
+/* Tipografía interna del manual */
+.cmv40-help-content h1 {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 4px;
+  color: var(--text-1);
+  letter-spacing: -0.4px;
+}
+.cmv40-help-content .cmv40-help-lead {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 18px;
+  line-height: 1.55;
+}
+.cmv40-help-content h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 22px 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 2px solid rgba(0, 122, 255, 0.25);
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cmv40-help-content h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 14px 0 6px;
+  color: var(--text-1);
+}
+.cmv40-help-content p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+  margin: 0 0 10px;
+}
+.cmv40-help-content ul, .cmv40-help-content ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+}
+.cmv40-help-content li { margin-bottom: 5px; }
+.cmv40-help-content code {
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 11.5px;
+}
+.cmv40-help-content strong { color: var(--text-1); font-weight: 700; }
+.cmv40-help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0 14px;
+}
+.cmv40-help-content table th,
+.cmv40-help-content table td {
+  padding: 7px 10px;
+  border: 1px solid var(--sep);
+  text-align: left;
+  vertical-align: top;
+}
+.cmv40-help-content table th {
+  background: var(--surface-2);
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cmv40-help-content table td code { font-size: 11px; }
+
+/* Callouts semánticos */
+.help-callout {
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 10px 0 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  border-left: 3px solid;
+}
+.help-callout-info    { background: rgba(0, 122, 255, 0.07);  border-color: var(--blue); }
+.help-callout-warning { background: rgba(255, 149, 0, 0.09); border-color: var(--orange); }
+.help-callout-success { background: rgba(52, 199, 89, 0.09); border-color: var(--green); }
+.help-callout-danger  { background: rgba(255, 59, 48, 0.08); border-color: var(--red); }
+.help-callout strong { display: block; margin-bottom: 3px; }
+
+/* Pipeline diagram reusa estilos del .cmv40-pp-flow pero con márgenes manual */
+.cmv40-help-content .help-pipeline-diagram {
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 10px 0 16px;
+}
+.cmv40-help-content .help-pipeline-diagram-title {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-1);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.cmv40-help-content .help-pipeline-diagram-sub {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* Pills reutilizables para badges (FEL, MEL, P7, etc.) */
+.help-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.help-pill-fel    { background: rgba(0, 122, 255, 0.15);  color: #005fb8; }
+.help-pill-mel    { background: rgba(142, 142, 147, 0.20); color: var(--text-2); }
+.help-pill-cm29   { background: rgba(255, 149, 0, 0.15); color: #8a4a00; }
+.help-pill-cm40   { background: rgba(52, 199, 89, 0.15); color: #0e6b2a; }
+.help-pill-retail { background: rgba(0, 122, 255, 0.15); color: #005fb8; }
+.help-pill-gen    { background: rgba(255, 149, 0, 0.15); color: #8a4a00; }
+
+/* Nota "pendiente de verificar" */
+.help-unverified {
+  background: rgba(255, 149, 0, 0.10);
+  border: 1px dashed rgba(255, 149, 0, 0.50);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #8a4a00;
+  display: inline-block;
+  margin-left: 6px;
+}
