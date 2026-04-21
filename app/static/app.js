@@ -7176,6 +7176,40 @@ function _cmv40PlanAutoSteps(s) {
     key: 'B', icon: '🎯', title: 'Fase B · Preparar RPU target',
     what: bWhat, etaSecs: etaB,
   });
+
+  // Gate B→C: validaciones estructurales + trust gates del target
+  // Se evalúa al cerrar Fase B. No gasta tiempo (es una comprobación in-memory).
+  // Visible siempre en el timeline para dar trazabilidad de la decisión.
+  const curIdxForGate = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const targetProvidedIdx = CMV40_PHASES_ORDER.indexOf('target_provided');
+  const gateBCStatus = s.compat_warning ? 'error'
+                    : (curIdxForGate < targetProvidedIdx) ? 'pending'
+                    : 'done';
+  const failingGates = Object.entries(s.target_trust_gates || {})
+    .filter(([k, v]) => typeof v === 'object' && v && v.ok === false)
+    .map(([k]) => k);
+  let gateBCLabel;
+  if (s.compat_warning) {
+    gateBCLabel = 'incompatible · abortada';
+  } else if (curIdxForGate < targetProvidedIdx) {
+    gateBCLabel = 'pendiente';
+  } else if (s.target_trust_ok) {
+    gateBCLabel = 'trusted ✓';
+  } else if (failingGates.length) {
+    gateBCLabel = `${failingGates.length} gate${failingGates.length > 1 ? 's' : ''} ⚠ revisión manual`;
+  } else {
+    gateBCLabel = 'flujo manual';
+  }
+  const gateBCWhat = s.compat_warning
+    ? s.compat_warning.slice(0, 140) + (s.compat_warning.length > 140 ? '…' : '')
+    : 'Comparación target vs source RPU: frames · CM version · L8 · L5/L6/L1 · compatibilidad estructural';
+  steps.push({
+    key: 'GATE_BC', icon: '🛡️', title: 'Validaciones — trust gates + compatibilidad',
+    what: gateBCWhat, etaSecs: 0,
+    forcedStatus: gateBCStatus, customLabel: gateBCLabel,
+    isGate: true,
+  });
+
   const cWhat = (wf === 'p8') ? 'Workflow P8 — sin demux' + (trust ? ' (per-frame omitido)' : ', genera per-frame data')
               : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
   steps.push({
@@ -7241,10 +7275,27 @@ function _cmv40PlanAutoSteps(s) {
     key: 'G', icon: '📦', title: 'Fase G · Remux MKV final',
     what: gWhat, etaSecs: etaG,
   });
+
+  // Gate G→H: validación final pre-finalizar (profile + CM v4.0 + frames).
+  // Esto es lo que antes se llamaba "Fase H" — renombrado el H a "Finalizar"
+  // más abajo y dejado aquí solo el gate de validación estructural.
+  const validatedIdx = CMV40_PHASES_ORDER.indexOf('validated');
+  const gateGHStatus = (curIdxForGate < validatedIdx) ? 'pending' : 'done';
+  const gateGHLabel = (curIdxForGate < validatedIdx)
+    ? (s.running_phase === 'validating' ? 'en curso…' : 'pendiente')
+    : 'validación OK';
   steps.push({
-    key: 'H', icon: '✅', title: 'Fase H · Validar output',
-    what: 'dovi_tool info + mkvmerge -J verifican profile + CM v4.0 + frames',
+    key: 'GATE_GH', icon: '🛡️', title: 'Validación final pre-finalizar',
+    what: 'dovi_tool info + mkvmerge -J verifican profile + CM v4.0 + frame count del MKV resultante',
     etaSecs: etaH,
+    forcedStatus: gateGHStatus, customLabel: gateGHLabel,
+    isGate: true,
+  });
+
+  steps.push({
+    key: 'H', icon: '✅', title: 'Fase H · Finalizar',
+    what: 'Mover MKV al output final, cleanup de artefactos temporales',
+    etaSecs: 2,
   });
 
   return steps;
@@ -7388,6 +7439,7 @@ function _cmv40RenderTimeline(s, project) {
       running: '<span class="cmv40-tl-status-icon running"></span>',
       skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
+      error:   '<span class="cmv40-tl-status-icon error">✗</span>',
     };
     // Tiempo real de ejecución (solo disponible si la fase se ejecutó en backend)
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
@@ -7399,11 +7451,13 @@ function _cmv40RenderTimeline(s, project) {
     const defaultLabel = status === 'done'    ? doneLabel
                        : status === 'skipped' ? 'omitida'
                        : status === 'running' ? 'en curso…'
+                       : status === 'error'   ? 'incompatible'
                        : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
-    return `<li class="cmv40-tl-step cmv40-tl-${status}">
-      <div class="cmv40-tl-rail">${iconMap[status]}</div>
+    const gateCls = st.isGate ? ' cmv40-tl-is-gate' : '';
+    return `<li class="cmv40-tl-step cmv40-tl-${status}${gateCls}">
+      <div class="cmv40-tl-rail">${iconMap[status] || iconMap.pending}</div>
       <div class="cmv40-tl-body">
         <div class="cmv40-tl-title">
           <span class="cmv40-tl-phase-icon">${st.icon}</span>
@@ -8956,14 +9010,29 @@ function _renderCMv40ActivePhase(project) {
     project.expandedPhases = {};  // key: fase key, value: true/false
   }
 
-  // Renderizar todas las fases como cards
-  const cards = CMV40_FASES_DEF.map(fase => {
+  // Renderizar todas las fases como cards — intercalando los gates entre
+  // Fase B y Fase C (trust gates) y entre Fase G y Fase H (validación final).
+  const cards = [];
+  CMV40_FASES_DEF.forEach(fase => {
     const state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
-    // Active siempre expandida. Done colapsada por defecto. Pending colapsada.
     const isExpanded = project.expandedPhases[fase.key] !== undefined
       ? project.expandedPhases[fase.key]
       : (state === 'active');
-    return _cmv40RenderFaseCard(pid, s, fase, state, isExpanded);
+    cards.push(_cmv40RenderFaseCard(pid, s, fase, state, isExpanded));
+    // Inyectar gate card tras Fase B — trust gates + compatibilidad
+    if (fase.key === 'B') {
+      const gateBCExpanded = project.expandedPhases['GATE_BC'] !== undefined
+        ? project.expandedPhases['GATE_BC']
+        : true;  // por defecto expandida — la info es la que el usuario necesita revisar
+      cards.push(_cmv40RenderGateCardBC(pid, s, gateBCExpanded));
+    }
+    // Inyectar gate card tras Fase G — validación final pre-finalizar
+    if (fase.key === 'G') {
+      const gateGHExpanded = project.expandedPhases['GATE_GH'] !== undefined
+        ? project.expandedPhases['GATE_GH']
+        : false;
+      cards.push(_cmv40RenderGateCardGH(pid, s, gateGHExpanded));
+    }
   });
 
   // Banner de error de la última acción intentada (no bloquea el flujo)
@@ -9095,10 +9164,244 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
     </div>`;
 }
 
+/* ───────── Gate cards (pseudo-fases) ──────────────────────────────────
+ * No son fases ejecutables: son puntos de decisión que la app evalúa
+ * automáticamente a partir de datos ya capturados. Por eso no tienen
+ * botón "rehacer" — se recalculan al re-ejecutar la fase que las alimenta
+ * (Fase B para el gate de trust, Fase G para la validación final).
+ * Visualmente usan el esquema azul-dashed igual que los pills del manual.
+ */
+
+/** Genera el HTML de una fila de gate con estado coloreado + explicación. */
+function _cmv40GateRowHtml(status, title, result, explanation) {
+  // status: 'ok' | 'warn' | 'ko' | 'pending'
+  const icon = { ok: '✓', warn: '⚠', ko: '✗', pending: '○' }[status] || '·';
+  const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
+  const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
+  return `
+    <div style="display:grid; grid-template-columns:24px 1fr; gap:10px; padding:10px 12px; background:${bg}; border-radius:6px; margin-bottom:6px">
+      <div style="font-size:16px; font-weight:700; color:${color}; text-align:center">${icon}</div>
+      <div>
+        <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap">
+          <span style="font-size:12px; font-weight:700; color:var(--text-1)">${escHtml(title)}</span>
+          <span style="font-size:11px; color:${color}; font-weight:600">${escHtml(result)}</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-2); line-height:1.5; margin-top:2px">${escHtml(explanation)}</div>
+      </div>
+    </div>`;
+}
+
+function _cmv40RenderGateCardBC(pid, s, isExpanded) {
+  const curIdx   = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const bIdx     = CMV40_PHASES_ORDER.indexOf('target_provided');
+  const hasData  = curIdx >= bIdx && (s.target_dv_info || s.target_trust_gates);
+  const compatErr= !!s.compat_warning;
+  const trustOk  = s.target_trust_ok === true;
+
+  let overallIcon, overallLabel;
+  if (compatErr) { overallIcon = '⛔'; overallLabel = 'Abortada · combinación incompatible'; }
+  else if (!hasData) { overallIcon = '🔒'; overallLabel = 'Pendiente — se evalúa al cerrar Fase B'; }
+  else if (trustOk) { overallIcon = '✅'; overallLabel = 'Trusted · todos los críticos pasan'; }
+  else { overallIcon = '⚠️'; overallLabel = 'Sin trust automático · flujo completo manual'; }
+
+  // Resumen en el header
+  let summary;
+  if (compatErr) summary = `Combinación ${s.source_workflow || '?'} + ${s.target_type || '?'} incompatible`;
+  else if (!hasData) summary = 'Se evalúan al tener target — comparación con el RPU del Blu-ray';
+  else if (trustOk) summary = 'Bin pre-validado: se saltan fases manuales (D/E)';
+  else summary = 'Se ejecuta el flujo completo con revisión visual en Fase D';
+
+  let body = '';
+  if (isExpanded) {
+    const rows = [];
+    if (compatErr) {
+      rows.push(_cmv40GateRowHtml('ko', 'Compatibilidad estructural',
+        'abortada',
+        s.compat_warning || 'Source y target estructuralmente incompatibles — la inyección produciría un MKV inválido.'));
+    } else if (hasData) {
+      const g = s.target_trust_gates || {};
+      // Frames
+      if (g.frames) {
+        const ok = g.frames.ok;
+        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
+          'Número de frames',
+          ok ? `coinciden · ${(g.frames.bd || 0).toLocaleString()} frames`
+             : `${(g.frames.bd || 0).toLocaleString()} ≠ ${(g.frames.target || 0).toLocaleString()}`,
+          ok
+            ? 'Source y target tienen exactamente el mismo número de frames — condición crítica para que el RPU target se inyecte alineado escena a escena.'
+            : 'Diferencia de frames ≠ 0. Suele indicar que el bin target es para otra edición (theatrical vs extended, streaming recortado). Requiere sync manual en Fase D/E o buscar el bin correcto.'));
+      }
+      // CM version
+      if (g.cm_version) {
+        const ok = g.cm_version.ok;
+        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
+          'CM version del target',
+          ok ? `CM ${g.cm_version.value}` : `CM ${g.cm_version.value || '?'}`,
+          ok
+            ? 'El target está firmado como CMv4.0 — tiene los niveles nuevos (L3/L8-L11) que justifican el upgrade.'
+            : 'El target no es CMv4.0. Sin CMv4.0 no hay upgrade posible — elige otro bin.'));
+      }
+      // L8
+      if (g.has_l8) {
+        const ok = g.has_l8.ok;
+        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
+          'Presencia de L8',
+          ok ? 'L8 detectado' : 'L8 ausente',
+          ok
+            ? 'El bin contiene trims L8 auténticos — el nivel que aporta el tone-mapping fino de CMv4.0.'
+            : 'Bin "CMv4.0 vacío" sin L8. No añade valor sobre el v2.9 original — rechazado.'));
+      }
+      // L5 divergence
+      if (g.l5_div) {
+        const px = g.l5_div.px_max || 0;
+        const st = px <= 5 ? 'ok' : (px <= 30 ? 'warn' : 'ko');
+        const result = px <= 5 ? `div ≤ 5 px` : (px <= 30 ? `div ${px} px · warn` : `div ${px} px · aborta`);
+        const explanation = st === 'ok'
+          ? 'Los offsets de letterbox del target están a ≤5 px de los del BD — misma edición o recorte equivalente.'
+          : st === 'warn'
+          ? 'Divergencia moderada del active area (5-30 px). Puede ser la misma edición con recorte ligeramente distinto. La app avanza pero conviene revisar visualmente.'
+          : 'Divergencia crítica de active area (>30 px). Target es un master con corte radicalmente distinto — rechazado automáticamente.';
+        rows.push(_cmv40GateRowHtml(st, 'L5 — letterbox (active area)', result, explanation));
+      }
+      // L6 divergence
+      if (g.l6_div) {
+        const nits = Math.abs(g.l6_div.nits_diff || 0);
+        const st = nits <= 50 ? 'ok' : 'warn';
+        rows.push(_cmv40GateRowHtml(st,
+          'L6 — MaxCLL/MaxFALL estático',
+          `Δ ${g.l6_div.nits_diff} nits`,
+          st === 'ok'
+            ? 'La metadata HDR estática del target coincide (≤50 nits de diferencia) con la del BD.'
+            : `Diferencia > 50 nits en L6. Sugiere que el target viene de un mastering con brillo global distinto. No bloquea pero el carácter de la imagen puede cambiar.`));
+      }
+      // L1 divergence
+      if (g.l1_div) {
+        const pct = Math.abs(g.l1_div.pct_diff || 0);
+        const st = pct <= 5 ? 'ok' : 'warn';
+        rows.push(_cmv40GateRowHtml(st,
+          'L1 — MaxCLL dinámico por escena',
+          `Δ ${g.l1_div.pct_diff}%`,
+          st === 'ok'
+            ? 'El promedio de brillo escena-a-escena coincide (≤5% de diferencia) — el grading es comparable.'
+            : 'Diferencia > 5% en el promedio de brillo por escena. Sugiere color grading distinto entre el target y el BD. Avanza pero el resultado puede verse diferente al original.'));
+      }
+    }
+    body = `
+      <div class="section-body">
+        <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:10px">
+          <strong>Qué se valida aquí:</strong> al cerrar Fase B, la app compara automáticamente el RPU target con el RPU del Blu-ray para decidir si puede saltar las fases manuales (D/E) o si hace falta revisión visual. Las validaciones críticas además aseguran que la combinación source × target no producirá un MKV roto.
+        </div>
+        ${rows.join('') || '<div style="font-size:12px; color:var(--text-3); font-style:italic">Aún sin datos — completa Fase B primero.</div>'}
+      </div>`;
+  }
+
+  return `
+    <div class="section-card cmv40-gate-card" style="margin-top:12px; border-left:3px solid rgba(0,122,255,0.55)">
+      <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_BC')" style="cursor:pointer">
+        <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
+        <div style="flex:1">
+          <div class="section-title" style="color:#0a5cab">🛡️ Validaciones — trust gates + compatibilidad</div>
+          <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
+        </div>
+        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+      </div>
+      ${body}
+    </div>`;
+}
+
+function _cmv40RenderGateCardGH(pid, s, isExpanded) {
+  const curIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const remuxedIdx = CMV40_PHASES_ORDER.indexOf('remuxed');
+  const validatedIdx = CMV40_PHASES_ORDER.indexOf('validated');
+  const state = curIdx < remuxedIdx ? 'pending'
+             : curIdx === remuxedIdx ? 'running'
+             : curIdx >= validatedIdx ? 'done'
+             : 'pending';
+
+  let overallIcon, overallLabel, summary;
+  if (state === 'done') {
+    overallIcon = '✅';
+    overallLabel = 'Validación final OK';
+    summary = 'El MKV contiene CMv4.0, el profile es correcto y el frame count coincide';
+  } else if (state === 'running') {
+    overallIcon = '⏳';
+    overallLabel = 'Validación en curso…';
+    summary = 'Verificando profile + CM v4.0 + frame count del HEVC pre-mux';
+  } else {
+    overallIcon = '🔒';
+    overallLabel = 'Pendiente';
+    summary = 'Se ejecuta tras completar Fase G (remux)';
+  }
+
+  let body = '';
+  if (isExpanded) {
+    const rows = [];
+    // Profile
+    const targetProfile = s.source_dv_info?.profile || '?';
+    rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
+      'Profile del HEVC resultante',
+      state === 'done' ? `Profile ${targetProfile}` : '—',
+      state === 'done'
+        ? 'El MKV final tiene el profile DV esperado según el workflow elegido (P7 FEL si source era FEL, P8.1 single-layer si source era MEL/P8).'
+        : 'Se verifica que el profile coincide con el esperado al completar Fase G.'));
+    // CM version
+    rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
+      'CM version del MKV',
+      state === 'done' ? 'CM v4.0 confirmado' : '—',
+      state === 'done'
+        ? 'dovi_tool extract-rpu + info sobre el HEVC pre-mux confirma CMv4.0 en el RPU del MKV resultante.'
+        : 'Se verifica que el RPU del MKV final reporta CMv4.0.'));
+    // Frame count
+    rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
+      'Frame count',
+      state === 'done' ? `${(s.source_frame_count || 0).toLocaleString()} frames` : '—',
+      state === 'done'
+        ? 'El número de frames del MKV resultante coincide con el del Blu-ray origen — sin inserciones ni recortes accidentales.'
+        : 'Se compara frame count del resultado contra el del source.'));
+    // Estructura MKV
+    rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
+      'Estructura Matroska',
+      state === 'done' ? 'MKV válido · mkvmerge -J OK' : '—',
+      state === 'done'
+        ? 'mkvmerge -J lee el fichero sin errores: audio, subs, capítulos y pista de vídeo con RPU NAL units correctamente ensamblados.'
+        : 'Se verifica que el contenedor MKV es estructuralmente correcto.'));
+
+    body = `
+      <div class="section-body">
+        <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:10px">
+          <strong>Qué se valida aquí:</strong> antes de mover el MKV al directorio de salida, la app verifica que el resultado es estructuralmente correcto y que el upgrade a CMv4.0 se ha materializado en el fichero. Si algo falla, el proyecto queda en error y puedes rehacer desde la fase que prefieras.
+        </div>
+        ${rows.join('')}
+      </div>`;
+  }
+
+  return `
+    <div class="section-card cmv40-gate-card" style="margin-top:12px; border-left:3px solid rgba(0,122,255,0.55)">
+      <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_GH')" style="cursor:pointer">
+        <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
+        <div style="flex:1">
+          <div class="section-title" style="color:#0a5cab">🛡️ Validación final pre-finalizar</div>
+          <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
+        </div>
+        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+      </div>
+      ${body}
+    </div>`;
+}
+
 function _cmv40TogglePhase(pid, key) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
   if (!project.expandedPhases) project.expandedPhases = {};
+  // Gates son pseudo-fases — toggle directo sin consultar CMV40_FASES_DEF
+  if (key === 'GATE_BC' || key === 'GATE_GH') {
+    const current = project.expandedPhases[key] !== undefined
+      ? project.expandedPhases[key]
+      : (key === 'GATE_BC');   // BC abierto por defecto, GH cerrado
+    project.expandedPhases[key] = !current;
+    _updateCMv40Panel(project);
+    return;
+  }
   const fase = CMV40_FASES_DEF.find(f => f.key === key);
   const state = _cmv40PhaseState(project.session.phase, fase.produces, fase.startsFrom);
   const current = project.expandedPhases[key] !== undefined
@@ -9554,9 +9857,12 @@ function _cmv40MaybeAutoAdvance(project) {
   // concurrentes que compiten por DV_dual.hevc + output.mkv.tmp.
   if (project._lastAutoFiredFor === s.phase) return;
   project._lastAutoFiredFor = s.phase;
+  // Los toasts intermedios ("🤖 Auto: analizando", "🤖 Auto: inyectando"…) eran
+  // redundantes con el timeline lateral que ya muestra fase en curso + progreso.
+  // Aquí solo disparamos las acciones del pipeline; el toast de inicio está en
+  // cmv40ToggleAuto y el de fin (done) lo emitimos al final del switch.
   switch (s.phase) {
     case 'created':
-      showToast('🤖 Auto: analizando origen', 'info');
       cmv40DoAnalyzeSource(pid);
       break;
     case 'source_analyzed':
@@ -9565,20 +9871,16 @@ function _cmv40MaybeAutoAdvance(project) {
         const t = project.pendingTarget;
         project.pendingTarget = null;
         if (t.kind === 'path') {
-          showToast('🤖 Auto: cargando RPU target', 'info');
           _cmv40AutoTargetPath(pid, t.value);
         } else if (t.kind === 'repo') {
-          showToast('🤖 Auto: descargando RPU del repositorio DoviTools', 'info');
           _cmv40AutoTargetDrive(pid, t.value);
         } else {
-          showToast('🤖 Auto: extrayendo RPU del MKV target', 'info');
           _cmv40AutoTargetMkv(pid, t.value);
         }
       }
       // Si no hay pendingTarget, usuario debe provisionar manual (no auto)
       break;
     case 'target_provided':
-      showToast('🤖 Auto: extrayendo BL/EL + per-frame', 'info');
       cmv40DoExtract(pid);
       break;
     case 'extracted': {
@@ -9588,29 +9890,29 @@ function _cmv40MaybeAutoAdvance(project) {
       const trustedAuto = s.target_trust_ok === true
         && s.trust_override !== 'force_interactive';
       if (trustedAuto) {
-        showToast('🤖 Auto trusted: saltando revisión visual (gates OK)', 'info');
         if (!s.phases_skipped) s.phases_skipped = [];
         if (!s.phases_skipped.includes('sync_verification_pause')) {
           s.phases_skipped.push('sync_verification_pause');
         }
         _cmv40AutoMarkSynced(pid);
-      } else {
-        // Flujo clásico: pausa obligatoria en Fase D
-        showToast('🤖 Auto: pausa en Fase D — revisa el chart y confirma sync', 'info');
       }
+      // Si no es trusted, el flujo se pausa aquí esperando revisión visual
+      // del usuario en Fase D; no hace falta toast — el banner azul del
+      // proyecto ya lo indica.
       break;
     }
     case 'sync_verified':
-      showToast('🤖 Auto: inyectando RPU', 'info');
       _cmv40AutoInject(pid);
       break;
     case 'injected':
-      showToast('🤖 Auto: remuxando MKV final', 'info');
       cmv40DoRemux(pid);
       break;
     case 'remuxed':
-      showToast('🤖 Auto: validando', 'info');
       cmv40DoValidate(pid);
+      break;
+    case 'done':
+      // Terminal: toast único de éxito cuando la pipeline completa el full run.
+      showToast('✅ Pipeline CMv4.0 completado — MKV listo en /mnt/output', 'success');
       break;
   }
 }

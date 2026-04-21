@@ -3772,6 +3772,32 @@ select { appearance: none; cursor: pointer;
 .cmv40-tl-step.cmv40-tl-pending .cmv40-tl-title { color: var(--text-2); }
 .cmv40-tl-step.cmv40-tl-pending .cmv40-tl-what  { color: var(--text-3); }
 
+/* Icono de estado "error" — punto de decisión que aborta (incompatibilidad) */
+.cmv40-tl-status-icon.error {
+  background: rgba(255, 59, 48, 0.18);
+  color: #b10b0b;
+  border: 1.5px solid rgba(255, 59, 48, 0.55);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cmv40-tl-eta.error {
+  background: rgba(255, 59, 48, 0.15);
+  color: #b10b0b;
+  border-color: rgba(255, 59, 48, 0.45);
+  font-weight: 700;
+}
+/* Gate (🛡️) — punto de decisión entre fases. Color azul distintivo. */
+.cmv40-tl-step.cmv40-tl-is-gate .cmv40-tl-title {
+  color: #0a5cab;
+  font-weight: 600;
+}
+.cmv40-tl-step.cmv40-tl-is-gate.cmv40-tl-done .cmv40-tl-title {
+  color: #0a5cab;
+}
+.cmv40-tl-step.cmv40-tl-is-gate.cmv40-tl-pending .cmv40-tl-title {
+  color: #68758a;
+}
+
 /* Panel de confianza de sincronización */
 .cmv40-confidence-panel {
   margin-top: 12px;
