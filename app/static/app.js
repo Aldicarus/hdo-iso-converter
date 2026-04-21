@@ -1625,11 +1625,44 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#r-download">Descarga y caching</a>
     </div>
 
-    <h2 id="r-access">🔑 Estado de acceso a este repo</h2>
-    <p>El repositorio vive en una carpeta pública de Google Drive mantenida por la comunidad DoviTools. La app necesita dos cosas para listar y descargar bins: una <strong>Google API key</strong> con Drive API habilitado, y la <strong>URL de la carpeta del Drive DoviTools</strong>. Cómo obtener ambas y configurarlas está explicado al detalle en la sección <strong>🔐 Claves y APIs</strong> al final del manual.</p>
+    <h2 id="r-access">🔑 Cómo conseguir acceso al repo</h2>
+    <p>Hay una diferencia importante que conviene entender desde el principio: la hoja pública de recomendaciones (la que consulta el tab <strong>📊 Hoja</strong> del manual) es <strong>abierta y anónima</strong>, no requiere nada. Los <strong>bins en sí</strong> (los <code>.bin</code> del Google Drive) están en una carpeta <strong>gated</strong> mantenida personalmente por REC_9999 — no es un enlace público.</p>
+
+    <h3>El modelo de acceso de la comunidad DoviTools</h3>
+    <p>El repositorio lo mantiene y paga REC_9999 de su propio bolsillo (coste de Drive, ancho de banda, tiempo). Para sostenerlo, el acceso a la carpeta se comparte con los usuarios que <strong>apoyan económicamente el proyecto</strong>. El flujo típico es:</p>
+    <ol style="font-size:13px">
+      <li>Haces una <strong>donación vía PayPal</strong> al enlace oficial que aparece en el <a href="https://github.com/R3S3t9999/DoVi_Scripts#readme" target="_blank" rel="noreferrer">README del repo DoVi_Scripts en GitHub</a>. Enlace directo al botón de donación: <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">paypal.com/donate — DoVi_Scripts</a>.</li>
+      <li>Después de donar, contactas con REC_9999 <em>indicando el correo de Google</em> al que quieres que se comparta la carpeta. Los sitios habituales donde se hace ese contacto son el <a href="https://forum.doom9.org/showthread.php?t=185317" target="_blank" rel="noreferrer">hilo del soporte oficial en Doom9</a> (mencionado en el README de DoVi_Scripts como canal de preguntas y soporte) y el <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">hilo de AVSForum sobre CoreELEC + DV FEL</a>.</li>
+      <li>REC_9999 comparte manualmente la carpeta contigo a través de Google Drive usando ese correo. A partir de ese momento, tu cuenta de Google "ve" la carpeta como compartida.</li>
+      <li>Copia la URL de la carpeta compartida desde tu Drive y configúrala en la app (ver el paso 3 de la sección <strong>🔐 Claves y APIs</strong>).</li>
+    </ol>
+
+    <div class="help-callout help-callout-info">
+      <strong>Por qué el modelo es gated:</strong> almacenar cientos de bins .bin (algunos de varios MB cada uno) con docenas de películas implica coste de espacio y tráfico en Google Drive, además del tiempo de curación. El modelo de donación hace sostenible el proyecto sin anuncios ni comercialización — es la forma habitual en proyectos de comunidad A/V cuando un solo mantenedor lleva la infraestructura.
+    </div>
+
+    <h3>¿Qué es exactamente lo que obtienes con el acceso?</h3>
+    <ul style="font-size:13px">
+      <li>Lectura completa de la carpeta de Google Drive con todos los bins validados</li>
+      <li>Puedes filtrar, listar y descargar desde la propia interfaz web de Drive</li>
+      <li>Desde esta app: la pestaña <strong>📦 Repo DoviTools</strong> del modal "Nuevo proyecto" lista el inventario y descarga al workdir sin clics manuales</li>
+      <li>Acceso a nuevas ediciones según el mantenedor añade bins (sin tener que volver a donar)</li>
+    </ul>
+
+    <h3>Sin donar — qué puedes hacer igualmente</h3>
+    <ul style="font-size:13px">
+      <li>La <strong>hoja pública de recomendaciones</strong> (tab <strong>📊 Hoja</strong> del manual) funciona sin credenciales — es una hoja de Google Sheets pública, cualquiera la puede leer</li>
+      <li>Puedes ver <em>qué películas</em> tienen upgrade disponible y de qué tipo (retail/restored/generated) — te hace el diagnóstico previo igual</li>
+      <li>Si solo tienes curiosidad o pocas películas, puedes construir tus propios RPUs con <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">DoVi_Scripts</a> directamente: el código es open-source, lo que se paga es la infraestructura de distribución y la curación comunitaria</li>
+      <li>Algunos usuarios comparten puntualmente bins sueltos en los foros públicos — búsqueda caso a caso</li>
+    </ul>
+
+    <div class="help-callout help-callout-warning">
+      <strong>Aviso de honestidad:</strong> los detalles exactos del flujo (cantidad mínima, forma de contacto preferida, tiempo de respuesta del mantenedor) varían con el tiempo y no están documentados formalmente en un sitio central. Si el proceso cambia, lo verás reflejado en los hilos de AVSForum y Doom9 antes que aquí. Trata esta guía como orientativa — para confirmar el procedimiento actual, revisa el primer post del hilo de AVSForum o pregunta en el hilo de Doom9.
+    </div>
 
     <!-- Estado actual del folder Drive configurado en este servidor -->
-    <div id="help-drive-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+    <div id="help-drive-link-slot" style="margin:18px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
       <span style="font-size:18px">📁</span>
       <div style="flex:1; min-width:0">
         <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Carpeta Drive en este servidor</div>
@@ -1637,6 +1670,8 @@ const _CMV40_HELP_SECTIONS = {
         <div id="help-drive-link-meta" style="font-size:11px; color:var(--text-3); margin-top:2px; font-style:italic">—</div>
       </div>
     </div>
+
+    <p style="font-size:12px; color:var(--text-3); font-style:italic">Para la configuración técnica (cómo crear la Google API key que la app usa para leer el Drive, cómo pegarlo todo en ⚙︎ Configuración, errores frecuentes), ve a la sección <strong>🔐 Claves y APIs</strong> al final del manual.</p>
 
     <h2 id="r-structure">📁 Estructura del repo</h2>
     <p>La carpeta se organiza jerárquicamente por película + versión + tipo de bin. La app escanea hasta <strong>5 niveles de profundidad</strong> buscando <code>.bin</code>. Ejemplos de estructura típica:</p>
