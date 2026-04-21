@@ -5882,3 +5882,63 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: inline-block;
   margin-left: 6px;
 }
+
+/* Bloque de fuentes al final de cada sección */
+.help-sources {
+  margin-top: 22px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--text-3);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.help-sources b {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-2);
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+.help-sources a {
+  color: var(--blue);
+  text-decoration: none;
+  word-break: break-all;
+}
+.help-sources a:hover { text-decoration: underline; }
+
+/* Sub-navegación dentro de cada sección (anchors) */
+.help-subtoc {
+  background: rgba(0, 122, 255, 0.05);
+  border: 1px solid rgba(0, 122, 255, 0.20);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 18px;
+  font-size: 12px;
+}
+.help-subtoc b {
+  display: block;
+  color: var(--text-1);
+  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.help-subtoc a {
+  color: var(--blue);
+  text-decoration: none;
+  margin-right: 10px;
+  display: inline-block;
+  padding: 1px 0;
+}
+.help-subtoc a:hover { text-decoration: underline; }
+
+/* Pills adicionales */
+.help-pill-p5  { background: rgba(175, 82, 222, 0.15); color: #6b2a9b; }
+.help-pill-p7  { background: rgba(0, 122, 255, 0.15); color: #005fb8; }
+.help-pill-p8  { background: rgba(52, 199, 89, 0.15); color: #0e6b2a; }
+.help-pill-lldv { background: rgba(255, 59, 48, 0.12); color: #a31a13; }
+.help-pill-samsung { background: rgba(142, 142, 147, 0.20); color: var(--text-2); }
