@@ -5576,13 +5576,57 @@ async function _doAnalyzeMkvFromPicker() {
   const btn = document.getElementById('mkv-picker-analyze-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Analizando…'; }
 
+  // Cerrar picker y abrir modal de progreso
+  closeModal('mkv-picker-modal');
+  const fileEl = document.getElementById('mkv-analyze-modal-file');
+  if (fileEl) fileEl.textContent = fileName;
+  _resetMkvAnalyzeSteps();
+  openModal('mkv-analyze-modal');
+
+  // Polling de progreso real del backend — reusa /api/analyze/progress
+  const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
+  let lastStep = 'identify';
+  let stepStartTs = Date.now();
+  const pollId = setInterval(async () => {
+    try {
+      const prog = await apiFetch('/api/analyze/progress');
+      if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
+        const prevIdx = steps.indexOf(lastStep);
+        const newIdx = steps.indexOf(prog.step);
+        for (let i = prevIdx; i < newIdx; i++) {
+          _advanceMkvAnalyzeStep(steps[i], steps[i + 1]);
+        }
+        lastStep = prog.step;
+        stepStartTs = Date.now();
+      }
+      // En el paso PGS mostrar tiempo transcurrido (ffprobe puede tardar 1-3 min)
+      if (lastStep === 'pgs') {
+        const statsEl = document.getElementById('mkv-analyze-step-pgs-stats');
+        if (statsEl) {
+          const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
+          const mm = Math.floor(elapsed / 60);
+          const ss = (elapsed % 60).toString().padStart(2, '0');
+          statsEl.style.display = 'block';
+          statsEl.textContent = `${mm}:${ss} transcurridos`;
+        }
+      }
+    } catch (_) { /* silenciar errores de polling */ }
+  }, 500);
+
   const data = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
     body: JSON.stringify({ file_path: fileName }),
+  }, 600000);  // 10 min timeout — el PGS puede tardar 1-3 min
+
+  clearInterval(pollId);
+  // Marcar todos los pasos restantes como completados
+  steps.forEach((s, i) => {
+    if (i < steps.length - 1) _advanceMkvAnalyzeStep(s, steps[i + 1]);
   });
+  await new Promise(r => setTimeout(r, 300));
+  closeModal('mkv-analyze-modal');
 
   if (btn) { btn.disabled = false; btn.textContent = '🔍 Abrir y analizar'; }
-  closeModal('mkv-picker-modal');
 
   if (!data) {
     showToast('Error al analizar el MKV.', 'error');
@@ -5590,6 +5634,42 @@ async function _doAnalyzeMkvFromPicker() {
   }
 
   openMkvProject(data);
+}
+
+/** Resetea los pasos del modal de análisis de MKV. */
+function _resetMkvAnalyzeSteps() {
+  const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
+  steps.forEach((s, i) => {
+    const container = document.getElementById(`mkv-analyze-step-${s}`);
+    if (container) container.style.opacity = i === 0 ? '1' : '.4';
+    const labelEl = s === 'pgs'
+      ? document.getElementById('mkv-analyze-step-pgs-label')
+      : container;
+    if (labelEl) {
+      labelEl.textContent = labelEl.textContent.replace(/^[✅⏳⬜]\s*/, i === 0 ? '⏳ ' : '⬜ ');
+    }
+  });
+  const statsEl = document.getElementById('mkv-analyze-step-pgs-stats');
+  if (statsEl) { statsEl.style.display = 'none'; statsEl.textContent = ''; }
+}
+
+/** Avanza del paso fromStep (que se marca ✅) al nextStep (que se marca ⏳). */
+function _advanceMkvAnalyzeStep(fromStep, nextStep) {
+  const fromLabel = fromStep === 'pgs'
+    ? document.getElementById('mkv-analyze-step-pgs-label')
+    : document.getElementById(`mkv-analyze-step-${fromStep}`);
+  if (fromLabel) fromLabel.textContent = fromLabel.textContent.replace(/^[⏳⬜✅]\s*/, '✅ ');
+  const fromContainer = document.getElementById(`mkv-analyze-step-${fromStep}`);
+  if (fromContainer) fromContainer.style.opacity = '1';
+
+  if (nextStep) {
+    const nextContainer = document.getElementById(`mkv-analyze-step-${nextStep}`);
+    if (nextContainer) nextContainer.style.opacity = '1';
+    const nextLabel = nextStep === 'pgs'
+      ? document.getElementById('mkv-analyze-step-pgs-label')
+      : nextContainer;
+    if (nextLabel) nextLabel.textContent = nextLabel.textContent.replace(/^[⏳⬜✅]\s*/, '⏳ ');
+  }
 }
 
 // ── Proyecto MKV ─────────────────────────────────────────────────

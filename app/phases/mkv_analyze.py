@@ -37,17 +37,30 @@ TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 #  ANÁLISIS
 # ══════════════════════════════════════════════════════════════════════
 
-async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
+async def analyze_mkv(mkv_path: str, progress_callback=None) -> MkvAnalysisResult:
     """
     Analiza un MKV existente: pistas, capítulos, metadatos.
 
-    Ejecuta ``mkvmerge -J`` para la identificación de pistas y
-    ``mkvextract chapters --simple`` para los capítulos.
+    Pipeline: mkvmerge -J + mkvextract chapters + MediaInfo + ffprobe packet
+    counts + dovi_tool info. En un MKV grande (40-60 GB) puede tardar 1-3 min,
+    dominado por el conteo de paquetes PGS.
+
+    Si se pasa ``progress_callback(step: str)``, se notifica al arrancar cada
+    paso costoso para que el frontend pueda mostrar un modal de progreso.
+    Pasos emitidos: ``identify``, ``mediainfo``, ``pgs``, ``dovi``.
     """
+    async def _emit(step: str):
+        if progress_callback:
+            try:
+                await progress_callback(step)
+            except Exception:
+                pass
+
     if not Path(mkv_path).exists():
         raise RuntimeError(f"Fichero no encontrado: {mkv_path}")
 
     # ── mkvmerge -J ──────────────────────────────────────────────
+    await _emit("identify")
     proc = await asyncio.create_subprocess_exec(
         MKVMERGE_BIN, "-J", mkv_path,
         stdout=asyncio.subprocess.PIPE,
@@ -98,6 +111,7 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
     p = Path(mkv_path)
 
     # ── MediaInfo (enriquecimiento opcional) ────────────────────────
+    await _emit("mediainfo")
     hdr_meta = None
     mediainfo_raw = None
     try:
@@ -170,6 +184,7 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
     try:
         sub_tracks_list = [t for t in tracks if t.type == "subtitles"]
         if sub_tracks_list:
+            await _emit("pgs")
             pkt_counts = await _run_pgs_packet_counts_on_mkv(mkv_path)
             # ffprobe devuelve stream_index absoluto dentro del MKV,
             # que coincide con mkvmerge "id" de pista.
@@ -180,6 +195,7 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
         _logger.warning("ffprobe packet count falló para MKV %s (no bloquea): %s", mkv_path, e)
 
     # ── dovi_tool (opcional — añade profile, FEL/MEL, CM version, L levels) ──
+    await _emit("dovi")
     dovi_info = None
     try:
         hevc_count_val = sum(

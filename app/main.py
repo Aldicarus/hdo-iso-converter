@@ -1116,22 +1116,49 @@ async def list_mkv_files_in_isos():
 @app.post("/api/mkv/analyze", summary="Analiza un MKV existente")
 async def analyze_mkv_endpoint(body: dict):
     """
-    Ejecuta mkvmerge -J + mkvextract chapters sobre un MKV y devuelve
-    toda la información de pistas, capítulos y metadatos.
+    Ejecuta mkvmerge -J + MediaInfo + ffprobe (packet counts) + dovi_tool
+    sobre un MKV y devuelve toda la información de pistas, capítulos y
+    metadatos. Puede tardar 1-3 min en MKVs grandes.
 
-    Body: ``{"file_path": "Movie.mkv"}`` (relativo a /mnt/output)
+    Body: ``{"file_path": "Movie.mkv"}`` (relativo a /mnt/output).
+    Durante la ejecución emite progreso en ``_analyze_progress`` (mismo
+    endpoint ``/api/analyze/progress`` que usa Tab 1).
     """
+    global _analyze_progress
     rel_path = body.get("file_path", "")
     # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
     if DEV_MODE:
+        # Simulación corta de progreso para que el modal tenga algo que mostrar
+        import asyncio as _aio
+        _analyze_progress = {"step": "identify", "done": False}
+        await _aio.sleep(0.3)
+        _analyze_progress = {"step": "mediainfo", "done": False}
+        await _aio.sleep(0.3)
+        _analyze_progress = {"step": "pgs", "done": False, "pct": 100, "eta_s": 0}
+        await _aio.sleep(0.3)
+        _analyze_progress = {"step": "dovi", "done": False}
+        await _aio.sleep(0.2)
+        _analyze_progress = {"step": "", "done": True}
         return build_fake_mkv_analysis(rel_path)
+
     mkv_full = str(OUTPUT_DIR_MKV / rel_path)
     if not Path(mkv_full).exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+
+    async def _mkv_progress_callback(step: str):
+        global _analyze_progress
+        if step == "pgs":
+            _analyze_progress = {"step": "pgs", "done": False, "pct": 0, "eta_s": 0}
+        else:
+            _analyze_progress = {"step": step, "done": False}
+
+    _analyze_progress = {"step": "identify", "done": False}
     try:
-        result = await analyze_mkv(mkv_full)
+        result = await analyze_mkv(mkv_full, progress_callback=_mkv_progress_callback)
+        _analyze_progress = {"step": "", "done": True}
         return result.model_dump()
     except Exception as e:
+        _analyze_progress = {"step": "", "done": True, "error": str(e)}
         _logger.exception("Error analizando MKV %s", mkv_full)
         raise HTTPException(status_code=500, detail=str(e))
 
