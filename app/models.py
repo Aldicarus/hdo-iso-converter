@@ -708,6 +708,12 @@ class MkvTrackInfo(BaseModel):
     color_primaries: str = ""
     hdr_format: str = ""
 
+    packet_count: int = 0
+    """Número de paquetes PES de la pista (ffprobe -count_packets). Solo se
+    calcula para subtítulos bitmap (PGS/VobSub); es el proxy más fiable de
+    forzado vs completo: <500 paquetes ≈ forzados, ≥500 ≈ completos.
+    0 si no calculado o no aplicable."""
+
 
 class MkvAnalysisResult(BaseModel):
     """Resultado del análisis de un MKV existente con mkvmerge -J + MediaInfo."""

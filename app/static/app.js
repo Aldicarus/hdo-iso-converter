@@ -5877,9 +5877,6 @@ function _renderMkvTracks() {
   subList.innerHTML = '';
   subTracksArr.forEach(t => {
     const langName = langLiteral(ISO639_MAP[t.language] || t.language || 'und');
-    const def = t.flag_default ? ' active-default' : '';
-    const frc = t.flag_forced  ? ' active-forced'  : '';
-    const forcedLabel = t.flag_forced ? 'Forzados' : 'Completos';
     // Codec real desde mkvmerge (ej: "HDMV PGS", "SubRip/SRT", "VobSub", "TrueType SSA/ASS")
     const codecRaw = (t.codec || '').trim();
     const codecPretty = codecRaw
@@ -5889,18 +5886,46 @@ function _renderMkvTracks() {
         : codecRaw.toUpperCase().includes('ASS') || codecRaw.toUpperCase().includes('SSA') ? 'ASS'
         : codecRaw)
       : 'PGS';
-    // Info visible: codec + resolución (si PGS con bitmap) + bitrate
+
+    // Clasificación Forzados / Completos con señal de fallback:
+    //   1. Si el flag del MKV está puesto → es la verdad.
+    //   2. Si no: packet_count < 500 → forzados (proxy fiable para PGS).
+    //   3. Si no hay packet_count: bitrate < 3 kbps → forzados (señal menos fiable).
+    //   4. En otro caso: completos.
+    const packets = t.packet_count || 0;
+    let derivedForced = t.flag_forced;
+    let forcedSource = t.flag_forced ? 'flag del MKV' : '';
+    if (!t.flag_forced) {
+      if (packets > 0 && packets < 500) {
+        derivedForced = true;
+        forcedSource = `${packets} paquetes < 500`;
+      } else if (packets === 0 && t.bitrate_kbps > 0 && t.bitrate_kbps < 3) {
+        derivedForced = true;
+        forcedSource = `bitrate ${t.bitrate_kbps} kbps < 3`;
+      }
+    }
+    const flagForcedLit = t.flag_forced;
+    const def = t.flag_default ? ' active-default' : '';
+    const frc = flagForcedLit ? ' active-forced' : '';
+    const forcedLabel = derivedForced ? 'Forzados' : 'Completos';
+    // Anotación cuando la clasificación viene inferida del volumen, no del flag
+    const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-tooltip="Clasificación inferida por volumen (el flag forced del MKV no está puesto)">↯ inferido</span>' : '';
+
+    // Info visible: codec + resolución + paq. + bitrate + tipo
+    const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
     const desc = [
       codecPretty,
       t.pixel_dimensions ? escHtml(t.pixel_dimensions) : '',
+      pktTag,
       t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString()} kbps` : '',
       forcedLabel,
     ].filter(Boolean).join(' · ');
     const tooltip = [
       `Codec: ${codecRaw || 'PGS'}`,
       `Idioma: ${t.language || '—'} → ${langName}`,
-      `Tipo: ${forcedLabel}`,
+      `Tipo: ${forcedLabel}${forcedSource ? ` (${forcedSource})` : ''}`,
       t.pixel_dimensions ? `Resolución bitmap: ${t.pixel_dimensions}` : null,
+      packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
       `Track ID: ${t.id}`,
     ].filter(Boolean).join('\n');
@@ -5916,7 +5941,7 @@ function _renderMkvTracks() {
           placeholder="${escHtml(langName + ' ' + forcedLabel + ' (' + codecPretty + ')')}"
           onchange="onMkvTrackEdit(${t.id}, 'name', this.value)"
           data-tooltip="Nombre de la pista en el MKV">
-        <span class="track-raw">${escHtml(langName)} · ${desc}</span>
+        <span class="track-raw">${escHtml(langName)} · ${desc}${inferredMark}</span>
       </div>
       <div class="track-flags">
         <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'subtitles')"

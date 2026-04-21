@@ -165,6 +165,20 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
     except Exception as e:
         _logger.warning("MediaInfo falló para MKV %s (no bloquea): %s", mkv_path, e)
 
+    # ── Packet counts de subtítulos bitmap (ffprobe) ─────────────────
+    # Proxy fiable de forzado vs completo cuando el flag no está seteado.
+    try:
+        sub_tracks_list = [t for t in tracks if t.type == "subtitles"]
+        if sub_tracks_list:
+            pkt_counts = await _run_pgs_packet_counts_on_mkv(mkv_path)
+            # ffprobe devuelve stream_index absoluto dentro del MKV,
+            # que coincide con mkvmerge "id" de pista.
+            for t in sub_tracks_list:
+                if t.id in pkt_counts:
+                    t.packet_count = pkt_counts[t.id]
+    except Exception as e:
+        _logger.warning("ffprobe packet count falló para MKV %s (no bloquea): %s", mkv_path, e)
+
     # ── dovi_tool (opcional — añade profile, FEL/MEL, CM version, L levels) ──
     dovi_info = None
     try:
@@ -189,6 +203,46 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
         dovi=dovi_info,
         mediainfo_raw=mediainfo_raw,
     )
+
+
+async def _run_pgs_packet_counts_on_mkv(mkv_path: str) -> dict[int, int]:
+    """
+    Cuenta paquetes PES de cada pista de subtítulos de un MKV con
+    ``ffprobe -count_packets``. Devuelve {stream_index: packet_count}.
+
+    El número de paquetes es el proxy más fiable para distinguir forzados
+    (<500) de completos (≥500) cuando el flag no está seteado. MediaInfo
+    y ffprobe-bitrate devuelven N/A para PGS, así que contar paquetes es
+    la única señal real. Tarda ~10-30s en un MKV típico.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-select_streams", "s",
+            "-count_packets",
+            "-show_entries", "stream=index,nb_read_packets",
+            "-of", "csv=p=0",
+            mkv_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0:
+            _logger.info("ffprobe packet count falló: %s", stderr.decode()[:200])
+            return {}
+
+        counts: dict[int, int] = {}
+        for line in stdout.decode("utf-8", errors="replace").strip().splitlines():
+            parts = line.split(",")
+            if len(parts) == 2:
+                try:
+                    counts[int(parts[0])] = int(parts[1])
+                except ValueError:
+                    pass
+        return counts
+    except asyncio.TimeoutError:
+        _logger.warning("ffprobe packet count: timeout (120s)")
+        return {}
 
 
 async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
