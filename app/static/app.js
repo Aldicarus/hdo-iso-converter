@@ -1849,12 +1849,15 @@ const _CMV40_HELP_SECTIONS = {
 
     <h2 id="p-overview">🔁 Flujo general</h2>
     <p>Este es el recorrido cuando el target <em>no</em> está pre-validado por la comunidad (bin generated, MKV custom o divergencias con el BD). Es el caso que requiere más intervención tuya: la fase D exige que valides visualmente que las curvas están alineadas antes de inyectar.</p>
+    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">Las <em>fases</em> (letras A-H) son trabajo que ejecuta la app. Las <em>🛡️ validaciones</em> son puntos de decisión que viven entre fases: la app compara datos de la Fase A con los del bin target, y según el resultado, el pipeline puede saltar fases enteras. Por eso aparecen en los diagramas con otro color y sin letra.</p>
     <div class="help-pipeline-diagram">
       <div class="help-pipeline-diagram-title">Pipeline por defecto — target no pre-validado</div>
       <div class="cmv40-pp-flow">
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar BD</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Preparar target</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Validaciones</span><span class="cmv40-ph-mod">gates no OK</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Separar capas</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1866,25 +1869,55 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Ensamblar MKV</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Validación final</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
       </div>
     </div>
 
     <h2 id="p-phases">📋 Qué hace cada fase (y qué ves tú)</h2>
 
     <h3>Fase A — Analizar el Blu-ray de origen</h3>
-    <p>La app lee el MKV que has elegido como source y averigua con qué tipo de Dolby Vision está codificado. Esto determina todo lo que viene después: <strong>P7 FEL</strong> (el 99% de los Blu-ray UHD), <strong>P7 MEL</strong> (los primeros Blu-ray DV de 2017-2018) o <strong>P8</strong> (streaming). También cuenta exactamente cuántos frames tiene la película y extrae el RPU original para poder compararlo luego con el bin target.</p>
+    <p>Fase A hace más de lo que su nombre sugiere: no es solo "detectar qué tienes", es también <strong>extraer el material que servirá de referencia para todas las validaciones posteriores</strong>. En concreto:</p>
+    <ul>
+      <li><strong>Detecta el profile DV</strong>: P7 FEL (el 99% de los Blu-ray UHD), P7 MEL (primeros BDs DV 2017-2018) o P8 (streaming). Esto determina toda la ruta del pipeline.</li>
+      <li><strong>Extrae el RPU completo del Blu-ray</strong> a un fichero <code>.bin</code> temporal. Es el paso más pesado — tarda un buen rato, especialmente en películas largas, porque requiere leer el stream HEVC entero y procesar los NAL units con <code>dovi_tool</code>. Este RPU es la <em>línea base</em> contra la que se comparará el bin target en las validaciones.</li>
+      <li><strong>Cuenta los frames exactos</strong> de la película. Esta cifra es crítica: la validación crítica de frames en gates solo pasa si el bin target tiene exactamente el mismo número (tolerancia cero).</li>
+      <li><strong>Captura metadata L1/L5/L6</strong>: MaxCLL/MaxFALL dinámico, offsets de letterbox, MaxCLL estático. Todo esto se usará en las validaciones soft/críticas para decidir si el target encaja con este master.</li>
+      <li><strong>Detecta CM version actual</strong>: v2.9 vs v4.0 del disco, para saber si el upgrade es aplicable.</li>
+    </ul>
     <div class="help-callout help-callout-info">
-      <strong>Lo que ves:</strong> spinner y log con la detección de profile, FEL/MEL, CM version (v2.9 o v4.0) y número de frames. En 20-40 segundos salta a Fase B.
+      <strong>Lo que ves:</strong> spinner y log con los pasos de extracción. El tiempo depende del tamaño del MKV — desde ~30 segundos en una película corta hasta varios minutos en películas de más de 2 horas con bitrates altos. Al terminar, la app salta a Fase B con el RPU source ya guardado en el workdir del proyecto.
     </div>
 
-    <h3>Fase B — Preparar el RPU target (3 formas)</h3>
+    <h3>Fase B — Preparar el RPU target</h3>
+    <p>Eliges de dónde viene el bin CMv4.0 que vas a transferir a tu MKV. Tres opciones en el modal:</p>
     <ol>
       <li><strong>📦 Repo DoviTools</strong> <em>(recomendado)</em>: descarga directa desde el repositorio compartido. Un clic, sin backups locales. La app lo descarga en segundo plano.</li>
       <li><strong>🎬 Extraer de MKV</strong>: si ya tienes en casa un MKV con CMv4.0 (por ejemplo un WEB-DL reciente), la app extrae el RPU de ese fichero. Útil para casos que no están en el repo.</li>
-      <li><strong>📁 Carpeta local</strong> <em>(residual)</em>: para .bin que ya tenías descargados previamente. Ya apenas se usa desde que el repo DoviTools es accesible directamente.</li>
+      <li><strong>📁 Carpeta local</strong> <em>(residual)</em>: para .bin que ya tenías descargados previamente.</li>
     </ol>
-    <p>Tras obtener el bin, la app lo examina y lo clasifica automáticamente. Este paso es crítico: aquí se decide si el resto del pipeline va a ser automático o va a pedir tu intervención (ver "Cómo decide" más abajo).</p>
+    <p>En cuanto el bin está en el workdir, la app lee su metadata con <code>dovi_tool info --summary</code>: profile, CM version, niveles presentes (L1, L2, L5, L6, L8, L9…), scene/frame count. Con esta metadata lista, se cierra Fase B y se ejecuta el siguiente bloque: las validaciones.</p>
+
+    <h3>🛡️ Validaciones (trust gates) — el punto de decisión</h3>
+    <p>Entre Fase B y Fase C, la app <strong>compara la metadata del bin target con la que Fase A extrajo del Blu-ray</strong>. Esto no es una fase (no hace trabajo nuevo de procesado), es una decisión basada en la comparación. No aparece como letra en los diagramas pero sí como marcador 🛡️, porque es donde el pipeline elige entre ruta auto o ruta manual.</p>
+    <p>Lo que se compara:</p>
+    <ul>
+      <li><strong>Número de frames</strong> — tolerancia cero. Si difieren, el bin es para otra edición.</li>
+      <li><strong>CM version</strong> — debe ser v4.0 en el target; si no, no hay upgrade posible y se aborta.</li>
+      <li><strong>Presencia de L8</strong> — el nivel que hace útil el CMv4.0.</li>
+      <li><strong>L5 offsets</strong> — si el letterbox difiere mucho, los cortes no coinciden.</li>
+      <li><strong>L1 / L6 divergencias</strong> — validaciones soft: divergencia no aborta, solo avisa.</li>
+    </ul>
+    <p>La app pinta un resumen de las validaciones en el log y toma una decisión:</p>
+    <ul>
+      <li><strong>Todas las críticas pasan</strong> → <em>trusted</em>. El pipeline marca el bin como pre-validado y <strong>salta Fase D (revisión visual)</strong> y — en algunos casos — también Fase C (no hace falta medir luminancia si no va a haber chart).</li>
+      <li><strong>Alguna crítica falla</strong> → <em>not trusted</em>. El pipeline ejecuta la ruta completa: separar capas, generar el chart de luminancia, pedir tu revisión visual en Fase D.</li>
+      <li><strong>Alguna crítica aborta</strong> (CM no es v4.0, sin L8, L5 muy divergente…) → error claro: el bin no sirve para este disco.</li>
+    </ul>
+    <div class="help-callout help-callout-info">
+      <strong>Detalle importante:</strong> estas validaciones son posibles <em>porque Fase A ya había extraído el RPU source</em>. Si Fase A se saltara, no habría referencia contra la que comparar. Esa es la razón de por qué Fase A dedica tanto tiempo a extraer el RPU aunque aparentemente solo quieras "detectar el profile" — ese trabajo se reutiliza aquí.
+    </div>
 
     <h3>Fase C — Separar las capas del vídeo</h3>
     <p>Los Blu-ray DV Profile 7 tienen la imagen partida en dos capas dentro del mismo fichero: la <strong>Base Layer</strong> (BL) es el HDR10 que vería una TV sin Dolby Vision, y la <strong>Enhancement Layer</strong> (EL) es la corrección fina que le suma DV. Para poder sustituir el RPU hay que separarlas. La app hace ese split automáticamente y mide los niveles de luminancia frame a frame para dibujar el chart de Fase D.</p>
@@ -1919,11 +1952,14 @@ const _CMV40_HELP_SECTIONS = {
     <h3>Fase G — Ensamblar el MKV final</h3>
     <p>El vídeo con el RPU CMv4.0 se junta con el audio, subtítulos y capítulos del Blu-ray original. El MKV resultante se escribe con una barra de progreso real (no estimada). Se escribe con sufijo temporal y se renombra atómicamente al nombre final al acabar — si la app se corta a mitad, nunca queda un MKV a medias con el nombre definitivo.</p>
 
-    <h3>Fase H — Validar el resultado</h3>
-    <p>La app verifica que el MKV final efectivamente contiene CMv4.0, que el número de frames coincide con el BD y que la estructura del fichero es correcta. Si todo pasa, el MKV aparece en <code>/mnt/output/</code> listo para reproducir. Si algo falla, el proyecto se marca con error y puedes rehacer desde la fase que quieras.</p>
+    <h3>🛡️ Validación final — antes de Fase H</h3>
+    <p>Igual que en el punto B→C, aquí hay otro <em>gate</em> entre G y H: la app verifica que el HEVC ensamblado contiene efectivamente CMv4.0, que el número de frames coincide con el BD original, y que la estructura del fichero Matroska es correcta. Si algo falla, el MKV se rechaza y el proyecto se marca con error (se puede rehacer desde la fase que quieras).</p>
     <div class="help-callout help-callout-info">
       <strong>Detalle de implementación que te ahorra dolores:</strong> la validación extrae el RPU del HEVC en el directorio de trabajo, no del MKV final. La razón es un bug conocido de <code>dovi_tool</code> 2.1.x que fallaba al leer RPUs desde algunos MKVs por cómo se guardan los PPS. Aislando esa validación se evita falsos negativos.
     </div>
+
+    <h3>Fase H — Finalizar</h3>
+    <p>Si la validación final pasa, la app mueve el MKV a <code>/mnt/output/</code>, limpia los ficheros temporales del workdir y marca el proyecto como completo. Es el único paso en el que el fichero aparece en su ubicación final — antes de eso vive con sufijo <code>.tmp</code> para evitar que quede un MKV a medias si algo se corta.</p>
 
     <h2 id="p-gates">🛡️ Cómo decide la app entre automático y manual</h2>
     <p>Tras preparar el bin en Fase B, la app lo compara automáticamente contra el RPU original del Blu-ray. A esta comparación la llamamos <strong>trust gates</strong> (puertas de confianza). Si el bin pasa todos los críticos, la app lo marca como "pre-validado por la comunidad" y <strong>salta las fases manuales</strong> (D y a veces C). Así un pipeline que de otro modo duraría ~1 hora se completa en ~20-25 minutos.</p>
@@ -1958,6 +1994,8 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">no hace falta</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
@@ -1979,6 +2017,8 @@ const _CMV40_HELP_SECTIONS = {
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -2002,6 +2042,8 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
@@ -2024,6 +2066,8 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">si gates OK</span></div>
@@ -2045,6 +2089,8 @@ const _CMV40_HELP_SECTIONS = {
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -2069,6 +2115,8 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
         <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">obligatoria</span></div>
@@ -2091,6 +2139,8 @@ const _CMV40_HELP_SECTIONS = {
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (MEL)</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin P8.1</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>

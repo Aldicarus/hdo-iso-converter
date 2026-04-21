@@ -4444,6 +4444,14 @@ select { appearance: none; cursor: pointer;
   text-decoration-thickness: 1px;
   opacity: 0.85;
 }
+/* Marcador de validaciones — no es una fase, es un punto de decisión que
+   vive entre dos fases. Color diferente (azul) para distinguir. */
+.cmv40-ph-pill.cmv40-ph-gate {
+  background: rgba(0, 122, 255, 0.10);
+  border-color: rgba(0, 122, 255, 0.45);
+  border-style: dashed;
+  color: #0a5cab;
+}
 .cmv40-ph-letter {
   font-weight: 800;
   font-size: 13px;
