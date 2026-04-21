@@ -1274,25 +1274,78 @@ const _CMV40_HELP_SECTIONS = {
 
     <div class="help-subtoc">
       <b>En esta sección</b>
-      <a href="#w-gain">Qué se gana</a>
+      <a href="#w-gain">Qué se gana exactamente</a>
+      <a href="#w-levels">Los niveles (L) que marcan la diferencia</a>
+      <a href="#w-static-vs-runtime">Upgrade estático vs conversión en tiempo real</a>
       <a href="#w-tvs">TVs que realmente lo aprovechan</a>
-      <a href="#w-lldv">El caso LLDV</a>
-      <a href="#w-fel">Consistencia FEL ↔ bin CMv4.0</a>
-      <a href="#w-retail-gen">Retail vs Generated</a>
+      <a href="#w-lldv">El caso LLDV (proyectores, Shield, HDFury)</a>
       <a href="#w-decide">Árbol de decisión</a>
     </div>
 
-    <h2 id="w-gain">🎯 Qué se gana (y qué no)</h2>
+    <h2 id="w-gain">🎯 Qué se gana exactamente (y qué no)</h2>
+    <p>El Blu-ray UHD es la mejor fuente de vídeo que puedes tener hoy en casa. Lo que no siempre es lo mejor es el <em>conjunto de instrucciones</em> que lo acompaña (el RPU) para decirle a tu TV cómo adaptar la imagen a sus capacidades. Muchos Blu-ray se masterizaron antes de 2018 con CMv2.9 — un estándar menor, con menos precisión y con bugs conocidos. CMv4.0 es la evolución: misma imagen base, mejores instrucciones de tone-mapping. El upgrade sustituye <em>solo</em> esas instrucciones.</p>
     <ul>
-      <li><strong>Tone-mapping adaptativo más fino</strong> en TVs CMv4.0-aware: L8 sustituye a L2 con 8 parámetros (slope, offset, power, chroma, saturation, mid-contrast, mid, clip) — mejor precisión en mid-tones y clipping controlado de highlights.</li>
-      <li><strong>Corrección de bugs específicos de CMv2.9</strong>: CMv4.0 arregla el bug de sobrebrillo con EDID 1000-nit y el bug de Chroma Weight en trims.</li>
-      <li><strong>Content Type (L11)</strong>: Dolby Vision IQ — el TV puede activar perfiles de post-procesado automáticamente (Filmmaker Mode, Game Mode, etc.).</li>
-      <li><strong>Se preserva el FEL del BD intacto</strong>: el vídeo HEVC no se re-encoda. Solo se sustituye el RPU (metadata) — cero pérdida de calidad de imagen base.</li>
+      <li><strong>Tone-mapping adaptativo más fino</strong> en TVs CMv4.0-aware: el nivel L8 amplía a L2 con 8 parámetros (slope, offset, power, chroma weight, saturation, mid-contrast, mid, clip) — mejor precisión en mid-tones y clipping controlado de highlights.</li>
+      <li><strong>Corrección de bugs específicos de CMv2.9</strong>: CMv4.0 arregla el bug de sobrebrillo con EDID 1000-nit (TVs de brillo moderado perdían detalle en highlights) y el bug de Chroma Weight en trims.</li>
+      <li><strong>Metadata de tipo de contenido (L11)</strong>: Dolby Vision IQ — el TV puede activar perfiles de post-procesado automáticamente según el tipo de material (Filmmaker Mode para cine, Game Mode, etc.).</li>
+      <li><strong>Se preserva el vídeo del Blu-ray intacto</strong>: ni el HEVC ni la Enhancement Layer se re-encodan. Solo se sustituye el RPU (la metadata) — cero pérdida de calidad de imagen base.</li>
     </ul>
     <div class="help-callout help-callout-warning">
       <strong>Qué NO es cierto (aunque se repite):</strong>
-      <br>· <em>"CMv4.0 añade brillo"</em> → no. El rango PQ 0-10.000 nits está en L1 igual en ambas versiones.
-      <br>· <em>"Mejora dramática visible"</em> → no en todos los TVs. En TVs pre-2019 es indistinguible; en OLED tope de gama 2023+ sí hay diferencia sutil-notable.
+      <br>· <em>"CMv4.0 añade brillo"</em> → no. El rango PQ 0-10.000 nits está en L1 igual en ambas versiones. Lo que cambia es cómo se mapea, no el rango.
+      <br>· <em>"Mejora dramática visible"</em> → no en todos los TVs. En TVs pre-2019 es indistinguible (el engine ignora L8-L11). En OLED tope de gama 2023+ la diferencia existe, pero es sutil-notable, no obvia.
+      <br>· <em>"CMv4.0 arregla el grading"</em> → tampoco. Si el master original tenía un problema de color, CMv4.0 no lo corrige. Corrige la <em>adaptación</em> al display.
+    </div>
+
+    <h2 id="w-levels">📐 Los niveles (L) que marcan la diferencia</h2>
+    <p>Un RPU contiene instrucciones organizadas en niveles numerados (L0, L1, L2…). Cada nivel describe un aspecto distinto del tone-mapping. CMv2.9 tiene L0, L1, L2, L4, L5, L6. CMv4.0 es <strong>superset</strong>: mantiene todos los de v2.9 y añade L3, L8, L9, L10 y (más tarde) L11. Estos son los que importan para el upgrade:</p>
+    <table>
+      <tr><th>Nivel</th><th>Qué hace</th><th>Por qué mejora con v4.0</th></tr>
+      <tr><td><strong>L1</strong> <span class="help-pill help-pill-mel">común v2.9 + v4.0</span></td><td>MaxCLL/MaxFALL dinámico por escena. Guía principal del tone-mapping.</td><td>Mismo en ambas versiones. No es donde está la ganancia.</td></tr>
+      <tr><td><strong>L2</strong> <span class="help-pill help-pill-mel">común v2.9 + v4.0</span></td><td>Trim por target display: slope/offset/power (lift/gamma/gain) en hasta 9 niveles de pico de brillo distintos (100, 600, 1000 nits, etc.).</td><td>Sigue existiendo en v4.0 como <em>fallback</em> para TVs sin engine v4.0. En engine v4.0 se deriva automáticamente de L8 (y por eso los MKVs CMv4.0 en TVs viejas siguen funcionando).</td></tr>
+      <tr><td><strong>L3</strong> <span class="help-pill help-pill-cm40">nuevo en v4.0</span></td><td>Ajuste local de L1 por escena específica.</td><td>Permite al colorista afinar escenas concretas sin tocar el resto.</td></tr>
+      <tr><td><strong>L5</strong> <span class="help-pill help-pill-mel">común v2.9 + v4.0</span></td><td>Área activa (letterbox) — indica al TV la zona real de imagen.</td><td>Clave para los trust gates: si el bin tiene otro L5, es otro corte.</td></tr>
+      <tr><td><strong>L6</strong> <span class="help-pill help-pill-mel">común v2.9 + v4.0</span></td><td>MaxCLL/MaxFALL estáticos (HDR10 fallback).</td><td>Mismo en ambas versiones.</td></tr>
+      <tr><td><strong>L8</strong> <span class="help-pill help-pill-cm40">nuevo en v4.0 — el grande</span></td><td>Trim ampliado con 8 parámetros: slope, offset, power, <strong>chroma weight</strong>, <strong>saturation</strong>, <strong>mid-contrast</strong>, <strong>mid point</strong>, <strong>clip</strong>.</td><td>Permite trims con <em>mucho</em> más control que L2. El chroma weight corrige el bug de saturación que arrastraba v2.9 en trims agresivos. Es <strong>la razón principal</strong> del upgrade.</td></tr>
+      <tr><td><strong>L9</strong> <span class="help-pill help-pill-cm40">nuevo en v4.0</span></td><td>Gamut source primaries (qué espacio de color usa el master: Rec.709, P3, Rec.2020).</td><td>En v2.9 el TV tenía que asumir. Con L9, el TV sabe con certeza el gamut origen y adapta mejor.</td></tr>
+      <tr><td><strong>L10</strong> <span class="help-pill help-pill-cm40">nuevo en v4.0</span></td><td>Target display primaries (qué espacio reproduce el target).</td><td>Permite mapeo más preciso cuando el TV tiene gamut limitado.</td></tr>
+      <tr><td><strong>L11</strong> <span class="help-pill help-pill-cm40">añadido en v4.0 (2020+)</span></td><td>Content Type — señaliza "película", "deporte", "animación", "HDR game", etc.</td><td>Activa Dolby Vision IQ: el TV ajusta post-procesado (motion, sharpening) automáticamente.</td></tr>
+    </table>
+    <div class="help-callout help-callout-success">
+      <strong>El nivel decisivo es L8.</strong> Si un bin se etiqueta como CMv4.0 pero no contiene L8 (pasa con bins "CMv4.0 vacíos" que solo renombran niveles), la app lo rechaza en Fase B — no aporta sobre el Blu-ray original. Esto es exactamente uno de los trust gates críticos.
+    </div>
+    <div class="help-callout help-callout-info">
+      <strong>Un detalle técnico bonito:</strong> CMv4.0 es <em>hacia atrás compatible</em>. Un MKV CMv4.0 se reproduce sin fallos en una TV CMv2.9 — el engine antiguo ignora los niveles que no entiende (L3, L8-L11) y usa L1+L2 como siempre. Por eso el upgrade nunca "rompe" nada aunque tu TV sea vieja. Simplemente no aprovecha lo nuevo.
+    </div>
+
+    <h2 id="w-static-vs-runtime">⚡ Upgrade estático (esta app) vs conversión en tiempo real (CoreELEC)</h2>
+    <p>Existen dos caminos para pasar un Blu-ray CMv2.9 a CMv4.0. No son equivalentes y conviene entender en qué se diferencian antes de elegir:</p>
+
+    <h3>🎯 Upgrade estático — lo que hace esta app</h3>
+    <p>La app reemplaza permanentemente el RPU del MKV por uno CMv4.0 y te deja un fichero nuevo con el upgrade "cocido" dentro. Ese MKV se reproduce igual en <strong>cualquier</strong> cadena DV compatible — tu TV, un Shield, un Apple TV, un proyector con LLDV, otro reproductor Amlogic, un PC. El upgrade viaja con el fichero.</p>
+
+    <h3>🔄 Conversión en tiempo real — "DV append" en CoreELEC</h3>
+    <p>En algunos reproductores basados en Amlogic (Ugoos AM6B+, AM6B Plus, cajas similares) hay builds de desarrollador de CoreELEC — los más conocidos son <strong>avdvplus</strong> y <strong>panni</strong> — que añaden un modo "CMv4.0 append" que actúa <em>durante la reproducción</em>: al vuelo, el reproductor fusiona los niveles L3/L8-L11 de un RPU CMv4.0 externo encima del RPU v2.9 del disco. El MKV original no cambia; el truco solo funciona en esa caja con ese firmware.</p>
+
+    <h3>¿Se sintetiza L8 a partir de L1/L2?</h3>
+    <div class="help-callout help-callout-warning">
+      <strong>No.</strong> Ninguna de las dos opciones "inventa" L8-L11 a partir de la metadata existente. Dolby ha confirmado oficialmente que <em>convertir</em> CMv2.9 a CMv4.0 requiere re-autoría por un colorista — <strong>no es un cálculo matemático posible</strong>. Tanto la app como avdvplus/panni parten del mismo principio: toman L3/L8-L11 de un RPU CMv4.0 retail externo (típicamente un WEB-DL streaming) y lo trasladan al contenido del Blu-ray. La fuente es la misma; cambia cuándo y dónde se aplica.
+    </div>
+
+    <h3>Comparativa directa</h3>
+    <table>
+      <tr><th>Aspecto</th><th>Upgrade estático (esta app)</th><th>Append en tiempo real (avdvplus / panni)</th></tr>
+      <tr><td><strong>Dónde funciona</strong></td><td>En cualquier reproductor con DV</td><td>Solo en la caja Amlogic con ese firmware de desarrollador</td></tr>
+      <tr><td><strong>Portabilidad del fichero</strong></td><td>Un MKV que puedes mover a cualquier dispositivo</td><td>El MKV original no cambia — el upgrade "vive" en la caja</td></tr>
+      <tr><td><strong>Validación de alineación</strong></td><td>Auditable: Fase D muestra gráficamente Δ frames y un medidor de confianza Pearson. El resultado queda certificado.</td><td>Heurística en el reproductor (detecta ausencia de L2 y compara EDID vs MDL). Sin chequeo humano — si la heurística se equivoca, el upgrade se aplica mal y lo descubres viéndolo.</td></tr>
+      <tr><td><strong>Fuente del RPU CMv4.0</strong></td><td>Lo eliges explícitamente (repo DoviTools, MKV WEB-DL propio).</td><td>Te lo descarga/gestiona el sistema; control menos directo sobre qué bin exacto se usa.</td></tr>
+      <tr><td><strong>Coste computacional</strong></td><td>Una vez, al crear el proyecto (20-60 min). Luego, reproducción normal.</td><td>Cada reproducción hace el append — coste mínimo, pero siempre presente.</td></tr>
+      <tr><td><strong>Reversibilidad</strong></td><td>Guardas el MKV original aparte si quieres deshacer.</td><td>Cambias el toggle off y vuelves a v2.9 instantáneamente.</td></tr>
+      <tr><td><strong>Compatibilidad futura</strong></td><td>Archivo estándar — sobrevive actualizaciones, cambios de reproductor, backups.</td><td>Depende de que el developer mantenga el build y de que futuras versiones de CoreELEC sigan permitiéndolo.</td></tr>
+    </table>
+
+    <div class="help-callout help-callout-info">
+      <strong>Conclusión práctica:</strong> si reproduces <em>exclusivamente</em> desde una Ugoos con CoreELEC-avdvplus y no te importa que la biblioteca esté "atada" al reproductor, el append es cómodo y no necesitas esta app. Si quieres un archivo portable que se reproduzca idénticamente en TV, proyector, Shield o Apple TV, con auditoría de alineación frame a frame, el upgrade estático es el camino. Muchos usuarios combinan ambos: mantienen el MKV estático como fichero "maestro" y el append como conveniencia en la caja del salón.
     </div>
 
     <h2 id="w-tvs">📺 Matriz de TVs que realmente aprovechan CMv4.0</h2>
@@ -1322,51 +1375,32 @@ const _CMV40_HELP_SECTIONS = {
       <br>Si tu cadena de reproducción pasa por LLDV en un reproductor sin soporte CMv4, el upgrade no aporta. <strong>Verifica el firmware de tu reproductor antes de invertir horas.</strong>
     </div>
 
-    <h2 id="w-fel">🎨 Consistencia FEL ↔ bin CMv4.0</h2>
-    <p>El pipeline detecta automáticamente si el bin target es compatible con el BD source via los <em>trust gates</em>:</p>
-    <ul>
-      <li><strong>frames</strong>: deben coincidir exactamente (tolerancia 0). Si difieren → edición distinta (theatrical vs extended, versión streaming cortada).</li>
-      <li><strong>L5</strong> (active area): divergencia ≤ 5 px = OK, 5-30 = warn, > 30 = aborta. Más de 30 px indica que es un master con corte diferente.</li>
-      <li><strong>L6</strong> (MaxCLL/MaxFALL estáticos): divergencia &gt; 50 nits = warn → el bin viene de un re-grading con brillo distinto.</li>
-      <li><strong>L1</strong> (MaxCLL avg): divergencia &gt; 5% = warn → color grading diferente en master.</li>
-    </ul>
-    <div class="help-callout help-callout-info">
-      <strong>Avisos vs abortos:</strong> los gates soft (L1/L6) solo avisan — el pipeline sigue. Los gates críticos (frames, L5 &gt; 30, CM no es v4.0, sin L8) <em>abortan</em> o requieren revisión visual manual. Esto protege contra los casos de "bin CMv4.0 de otra edición".
-    </div>
-
-    <h2 id="w-retail-gen">🏷️ Retail vs Generated — la taxonomía de la comunidad</h2>
-    <p>La comunidad DoviTools usa terminología precisa para clasificar bins:</p>
-    <table>
-      <tr><th>Tipo</th><th>Qué es</th><th>Cuándo se usa</th><th>Calidad</th></tr>
-      <tr><td><span class="help-pill help-pill-retail">Retail</span></td><td>RPU extraído de un stream/remux DV <strong>oficial</strong> sin modificación (WEB-DL con CMv4.0 o BD CMv4.0).</td><td>Cuando existe versión streaming/BD con CMv4.0 de la misma edición.</td><td><strong>Máxima</strong>. Trims hechos por colorista de Dolby/estudio.</td></tr>
-      <tr><td><span class="help-pill help-pill-retail">Restored CMv4.0 retail</span></td><td>RPU retail extraído de una versión WEB/BD con CMv4.0 cuando el BD-FEL original es solo CMv2.9. <strong>Es el caso típico de este app.</strong></td><td>Upgrade clásico: BD FEL + bin CMv4.0 WEB.</td><td>Máxima práctica.</td></tr>
-      <tr><td><span class="help-pill help-pill-gen">Generated</span></td><td>RPU <strong>sintético</strong> — creado algorítmicamente cuando no hay DV real o el original es estático. Herramientas: DoVi_Scripts (R3S3t9999), dovi_tool generate.</td><td>Blockbusters sin versión streaming CMv4.0, conversiones de HDR10+/HLG a DV.</td><td>Aceptable pero no equivalente a retail. Mejor que el v2.9 original en TVs CMv4.0-aware.</td></tr>
-    </table>
-    <div class="help-callout help-callout-success">
-      <strong>Consenso comunidad:</strong> <em>si existe retail CMv4.0 de la misma edición, usar retail siempre</em>. Generated es "mejor que nada" cuando no hay alternativa.
-    </div>
-
     <h2 id="w-decide">✅ Árbol de decisión — ¿vale la pena en mi caso?</h2>
     <ol>
-      <li><strong>¿Tu TV es Samsung?</strong> → no aprovechas DV. Detente aquí.</li>
-      <li><strong>¿Tu TV es &lt; 2020?</strong> → probablemente engine CMv2.9. El upgrade no aporta visible. Quédate con el BD original.</li>
-      <li><strong>¿Tu TV es 2020-2022?</strong> → aprovecha CMv4.0 en cierta medida. Merece la pena si el bin es retail; marginal si es generated.</li>
-      <li><strong>¿Tu TV es 2023+ tope de gama (LG G3+, Sony A95L+, TCL X955+, Hisense U9N+)?</strong> → beneficio claro. Upgrade recomendado cuando haya bin retail.</li>
-      <li><strong>¿Reproduces vía LLDV (proyector, Shield, HDFury)?</strong> → verifica firmware. Si tu reproductor es Apple TV tvOS 17+, OK. Si es CoreELEC u otros, el upgrade se puede perder.</li>
-      <li><strong>¿Tu BD es MEL (no FEL)?</strong> → considera conversión a P8.1 CMv4.0 single-layer. Mismo resultado visual, archivo más ligero.</li>
-      <li><strong>¿Hay bin retail para tu peli?</strong> (consulta rápida <code>🔎</code> en la app o el sheet de R3S3t9999) → si sí, adelante. Si solo hay generated, decide según tu tolerancia a aproximaciones algorítmicas.</li>
+      <li><strong>¿Tu TV es Samsung?</strong> → no aprovechas DV en ningún modelo (política corporativa). Detente aquí.</li>
+      <li><strong>¿Tu TV es anterior a 2020?</strong> → probablemente engine CMv2.9. El upgrade no aporta mejora visible porque el TV ignora L8-L11. Quédate con el Blu-ray original.</li>
+      <li><strong>¿Tu TV es 2020-2022?</strong> → aprovecha CMv4.0 en cierta medida según el panel y el procesador. Merece la pena con bin retail; marginal con generated.</li>
+      <li><strong>¿Tu TV es 2023+ de tope de gama</strong> (LG G3/G4/C3/C4, Sony A95L/A80L+, Panasonic MZ/Z95, TCL X955+, Hisense U9N+)? → beneficio claro del upgrade cuando haya bin retail. Es donde más se nota.</li>
+      <li><strong>¿Reproduces vía LLDV</strong> (proyector, Shield, HDFury)? → verifica firmware. Apple TV tvOS 17+ OK; CoreELEC stock y varios reproductores antiguos pueden perder el upgrade en el camino.</li>
+      <li><strong>¿Tu Blu-ray es MEL (no FEL)?</strong> → considera el camino "descartar MEL → P8.1 CMv4.0 single-layer". Mismo resultado visual, archivo más ligero.</li>
+      <li><strong>¿Reproduces exclusivamente desde una Ugoos con CoreELEC-avdvplus?</strong> → tienes append automático en el reproductor. Puedes saltarte el upgrade estático o hacerlo solo para películas que quieras archivar portables.</li>
+      <li><strong>¿Hay bin retail para tu peli en el repo DoviTools?</strong> (consulta rápida 🔎 desde la app) → si sí, adelante. Si solo hay generated, decide según tu tolerancia a aproximaciones algorítmicas.</li>
     </ol>
 
     <div class="help-sources">
       <b>Fuentes</b>
       <a href="https://community.firecore.com/t/what-advantages-does-dolbyvision-cmv4-0-have-compared-to-cmv2-9/57517" target="_blank" rel="noreferrer">Firecore community — CMv4 vs CMv2.9 advantages</a> ·
-      <a href="https://www.avsforum.com/threads/apple-dolby-vision.3252865/" target="_blank" rel="noreferrer">AVSForum — Apple Dolby Vision hilo</a> ·
-      <a href="http://videoprocessor.org/lldv" target="_blank" rel="noreferrer">VideoProcessor.org — LLDV explained</a> ·
-      <a href="https://www.avsforum.com/threads/alternative-devices-for-enabling-lldv-please-read-posts-1-2.3254266/" target="_blank" rel="noreferrer">AVSForum — LLDV devices</a> ·
-      <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">AVSForum — CoreELEC DV P7 FEL</a> ·
+      <a href="https://professionalsupport.dolby.com/s/article/When-should-I-use-CM-v2-9-or-CM-v4-0-and-can-I-convert-between-them" target="_blank" rel="noreferrer">Dolby oficial — CMv2.9 vs CMv4.0 y conversión</a> ·
+      <a href="https://professionalsupport.dolby.com/s/article/Dolby-Vision-IQ-Content-Type-Metadata-L11" target="_blank" rel="noreferrer">Dolby oficial — L11 Content Type</a> ·
+      <a href="https://avdisco.com/t/demystifying-dolby-vision-profile-levels-dolby-vision-levels-mel-fel/95" target="_blank" rel="noreferrer">avdisco — Demystifying DV Levels</a> ·
+      <a href="https://www.veneratech.com/hdr-dolby-vision-meta-data-parameters-to-validate-content" target="_blank" rel="noreferrer">Venera Tech — DV metadata parameters</a> ·
+      <a href="http://videoprocessor.org/lldv" target="_blank" rel="noreferrer">VideoProcessor.org — LLDV explicado</a> ·
+      <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">AVSForum — Ugoos AM6B+ CoreELEC + DV P7 FEL</a> ·
+      <a href="https://discourse.coreelec.org/t/ce-ng-dolby-vision-fel-for-dv-licensed-socs-s905x2-s922x-z-s905x4/50953" target="_blank" rel="noreferrer">CoreELEC forum — CE-NG DV (+FEL)</a> ·
+      <a href="https://github.com/avdvplus/Builds/releases" target="_blank" rel="noreferrer">avdvplus/Builds — releases del fork CMv4.0 append</a> ·
+      <a href="https://www.kodinerds.net/thread/80579-coreelec-entwickler-builds-cpm-avdvplus-pannal-p3i/" target="_blank" rel="noreferrer">Kodinerds — builds avdvplus / pannal P3i</a> ·
       <a href="https://www.samsung.com/us/support/answer/ANS00078565/" target="_blank" rel="noreferrer">Samsung — no Dolby Vision support</a> ·
-      <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">R3S3t9999/DoVi_Scripts</a> ·
-      <a href="https://forum.makemkv.com/forum/viewtopic.php?t=18602" target="_blank" rel="noreferrer">makemkv forum — DV master hilo</a>
+      <a href="https://forum.makemkv.com/forum/viewtopic.php?t=18602" target="_blank" rel="noreferrer">makemkv forum — hilo DV master</a>
     </div>
   `,
 
@@ -1468,6 +1502,7 @@ const _CMV40_HELP_SECTIONS = {
       <b>En esta sección</b>
       <a href="#r-access">Acceso y API key</a>
       <a href="#r-structure">Estructura del repo</a>
+      <a href="#r-philosophy">Retail vs Restored vs Generated</a>
       <a href="#r-taxonomy">Taxonomía de bins</a>
       <a href="#r-pipelines">Qué pipeline activa cada tipo</a>
       <a href="#r-match">Matching con el MKV origen</a>
@@ -1500,8 +1535,20 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Inventario total:</strong> el repo crece constantemente (cientos de películas indexadas). La app lo consulta en tiempo real cuando seleccionas un Blu-ray, filtrando solo los bins que potencialmente encajan con tu película.
     </div>
 
-    <h2 id="r-taxonomy">🏷️ Taxonomía de bins — cómo nombra la comunidad</h2>
-    <p>Los nombres siguen convenciones consolidadas por R3S3t9999 y adoptadas en AVSForum/makemkv. La app las detecta por patrones en el filename <em>sin descargar</em>:</p>
+    <h2 id="r-philosophy">🏷️ Retail vs Restored vs Generated — la taxonomía de la comunidad</h2>
+    <p>Antes de profundizar en los nombres de los ficheros conviene entender la <em>clasificación conceptual</em> que usa la comunidad DoviTools para hablar de RPUs. No todos los bins CMv4.0 son iguales: dependiendo de cómo se haya creado el RPU, la calidad del resultado final cambia sustancialmente. Estas son las tres categorías consolidadas en AVSForum, MakeMKV y el propio repo:</p>
+    <table>
+      <tr><th>Categoría</th><th>Qué es</th><th>Cuándo aparece</th><th>Calidad esperable</th></tr>
+      <tr><td><span class="help-pill help-pill-retail">Retail</span></td><td>RPU extraído sin modificar de un stream o remux con Dolby Vision <strong>oficial</strong>: un WEB-DL con CMv4.0, un Blu-ray CMv4.0, o similar. Los trims los ha firmado un colorista de Dolby o del estudio.</td><td>Cuando existe una versión streaming o disco con CMv4.0 de la misma edición que el Blu-ray que quieres upgradear.</td><td><strong>Máxima.</strong> Es lo que pretendes cuando usas esta app.</td></tr>
+      <tr><td><span class="help-pill help-pill-retail">Restored CMv4.0 retail</span></td><td>Lo mismo que Retail, pero cuando el Blu-ray original es P7 FEL CMv2.9 y el streaming es P5 o P8 CMv4.0. El bin "restaura" los trims CMv4.0 al formato P7 FEL del disco. <strong>Es el caso más frecuente del upgrade con esta app.</strong></td><td>Upgrade clásico: Blu-ray FEL + bin CMv4.0 de un WEB-DL moderno.</td><td>Máxima práctica. Indistinguible de retail puro en reproducción.</td></tr>
+      <tr><td><span class="help-pill help-pill-gen">Generated</span></td><td>RPU <strong>sintético</strong>, creado por algoritmos de la comunidad (scripts del propio R3S3t9999, la opción <em>generate</em> de dovi_tool) a partir del HDR10/HDR10+/HLG del Blu-ray. <strong>No hay colorista detrás</strong> — los trims los calcula una heurística.</td><td>Blockbusters sin versión streaming CMv4.0 — la única forma de obtener "algún" CMv4.0 para el Blu-ray es generarlo.</td><td>Aceptable. Mejor que el CMv2.9 original en TVs CMv4.0-aware, pero un escalón por debajo de retail en precisión de trims.</td></tr>
+    </table>
+    <div class="help-callout help-callout-success">
+      <strong>Consenso consolidado en la comunidad:</strong> <em>si existe retail (o restored retail) CMv4.0 de la edición exacta de tu Blu-ray, usar retail siempre</em>. Generated es la opción "mejor que nada" cuando no hay alternativa real. Por eso el modal de nuevo proyecto avisa en ámbar si eliges un generated habiendo retail disponible.
+    </div>
+
+    <h2 id="r-taxonomy">🏷️ Cómo se nombran en el repo</h2>
+    <p>Esta sección pasa de lo conceptual a lo concreto: cómo identificar qué tipo es cada fichero <em>a partir de su nombre</em> sin necesidad de descargarlo. Los nombres siguen convenciones consolidadas por R3S3t9999 y adoptadas ampliamente en AVSForum y MakeMKV. La app detecta estos patrones automáticamente:</p>
     <table>
       <tr><th>Patrón en filename</th><th>Significado</th><th>Provenance</th></tr>
       <tr><td><code>P7 FEL</code> + <code>retail cmv4.0 restored</code></td><td>RPU retail extraído de WEB CMv4.0 re-adaptado al stream P7 FEL del BD. <strong>Formato estrella</strong> — drop-in directo.</td><td><span class="help-pill help-pill-retail">Retail</span></td></tr>
