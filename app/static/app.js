@@ -8492,11 +8492,15 @@ function _renderCMv40RunningOverlay(project) {
   let overlay = panel.querySelector('.cmv40-running-overlay');
 
   // Auto-pipeline "puente": entre una fase y la siguiente el backend pone
-  // running_phase=null brevemente. Si el proyecto sigue en modo auto y NO
-  // es estado terminal (done/error), mantenemos el overlay visible para
-  // evitar parpadeo fase→fase. El overlay cambia a modo "transicionando".
+  // running_phase=null brevemente. Para que el overlay no parpadee,
+  // mostramos overlay también cuando project._autoChaining está activo —
+  // flag que se enciende al disparar una fase desde _cmv40MaybeAutoAdvance
+  // y se apaga al llegar a terminal o intervenir manualmente. Esto evita
+  // que el overlay se quede "pillado" tras un reset/toggle cuando auto=ON
+  // pero no hay cadena real en curso.
   const terminalPhase = (s.phase === 'done' || s.phase === 'error' || !!s.error_message);
-  const bridgingAuto  = !s.running_phase && project.autoContinue && !terminalPhase;
+  if (terminalPhase) project._autoChaining = false;
+  const bridgingAuto  = !s.running_phase && !!project._autoChaining && !terminalPhase;
   const shouldShow    = !!s.running_phase || bridgingAuto;
 
   if (shouldShow) {
@@ -8762,6 +8766,7 @@ async function cmv40CancelRunning(pid) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
     project._lastAutoFiredFor = null;  // resetea debounce para futuros arranques
+    project._autoChaining = false;     // intervencion manual: apaga bridging
     if (project.autoContinue) {
       project.autoContinue = false;
       showToast('Cancelado — auto-avance desactivado', 'info');
@@ -9702,19 +9707,15 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         if (!project.expandedPhases) project.expandedPhases = {};
         project.expandedPhases[faseKey] = true;
         project.syncData = null;
-        // Tras reset debemos invalidar el dedup del orquestador (que podría
-        // tener cacheada la última fase del run anterior) y también forzar
-        // que el overlay se recalcule para el nuevo estado, para no quedarnos
-        // con un overlay "puente" sobre una pipeline que ya no está corriendo.
+        // Tras reset invalidamos el dedup del orquestador, el timer del
+        // overlay y el flag de bridging. El reset NO dispara ninguna fase
+        // automaticamente — el lanzamiento es siempre manual. Si el usuario
+        // tiene auto=ON y lanza la fase manualmente, las siguientes se
+        // encadenaran al terminar esa.
         project._lastAutoFiredFor = null;
         project._pipelineStartMs = null;
+        project._autoChaining = false;
         _updateCMv40Panel(project);
-        // Si el usuario tenía auto-avance activo, reanudarlo desde la fase a
-        // la que hemos vuelto. Si no, el overlay se oculta y el usuario dispara
-        // manualmente la fase cuando quiera.
-        if (project.autoContinue) {
-          _cmv40MaybeAutoAdvance(project);
-        }
       }
       refreshCMv40Sidebar();
       showToast(`Fase ${faseKey} lista para rehacer`, 'info');
@@ -9879,6 +9880,12 @@ function _cmv40MaybeAutoAdvance(project) {
   // concurrentes que compiten por DV_dual.hevc + output.mkv.tmp.
   if (project._lastAutoFiredFor === s.phase) return;
   project._lastAutoFiredFor = s.phase;
+  // Marca que la cadena auto está encadenando en este momento — usado por
+  // el overlay para mostrarse durante el "puente" entre dos fases. Se limpia
+  // al alcanzar un estado terminal o al intervenir manualmente (toggle,
+  // reset, cancel). No es lo mismo que autoContinue: el flag refleja
+  // actividad, la variable refleja configuración.
+  project._autoChaining = true;
   // Los toasts intermedios ("🤖 Auto: analizando", "🤖 Auto: inyectando"…) eran
   // redundantes con el timeline lateral que ya muestra fase en curso + progreso.
   // Aquí solo disparamos las acciones del pipeline; el toast de inicio está en
@@ -9989,12 +9996,17 @@ async function cmv40ToggleAuto(pid) {
     }
   }
   project.autoContinue = !project.autoContinue;
+  // El switch solo marca el modo de trabajo — NO dispara fases por si mismo.
+  // Al acabar la fase que el usuario lance manualmente, si auto=ON la siguiente
+  // se encadena automaticamente. Lanzar con el toggle seria sorprendente para
+  // el usuario (ej. si tocan el toggle sin recordar que estado tiene el proyecto).
+  // Toggling tambien apaga _autoChaining — limpia el estado de bridging.
+  project._autoChaining = false;
   _updateCMv40Panel(project);
   if (project.autoContinue) {
-    showToast('🤖 Auto-avance activado', 'success');
-    _cmv40MaybeAutoAdvance(project);
+    showToast('🤖 Auto-avance activado · la siguiente fase se lanzara al terminar la actual', 'success');
   } else {
-    showToast('Auto-avance desactivado', 'info');
+    showToast('Auto-avance desactivado · tendras que lanzar cada fase manualmente', 'info');
   }
 }
 
