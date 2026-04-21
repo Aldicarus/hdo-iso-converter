@@ -19,15 +19,18 @@ import tempfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from models import Chapter, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
+from models import Chapter, DoviInfo, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
 
 _logger = logging.getLogger(__name__)
 
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
 MKVEXTRACT_BIN  = "mkvextract"
+FFMPEG_BIN      = "ffmpeg"
+DOVI_TOOL_BIN   = "dovi_tool"
 
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/mnt/output")
+TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -148,14 +151,30 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
                 t.compression_mode = ma.compression_mode
                 audio_idx += 1
 
-        # Enriquecer pistas de subtítulos
+        # Enriquecer pistas de subtítulos — resolution del bitmap PGS + bitrate
         sub_idx = 0
         for t in tracks:
             if t.type == "subtitles" and sub_idx < len(mi_subs):
-                sub_idx += 1  # por ahora solo incrementar
+                ms = mi_subs[sub_idx]
+                if ms.resolution:
+                    t.pixel_dimensions = ms.resolution
+                if ms.bitrate_kbps:
+                    t.bitrate_kbps = ms.bitrate_kbps
+                sub_idx += 1
 
     except Exception as e:
         _logger.warning("MediaInfo falló para MKV %s (no bloquea): %s", mkv_path, e)
+
+    # ── dovi_tool (opcional — añade profile, FEL/MEL, CM version, L levels) ──
+    dovi_info = None
+    try:
+        hevc_count_val = sum(
+            1 for t in tracks
+            if t.type == "video" and ("HEVC" in t.codec.upper() or "H.265" in t.codec.upper())
+        )
+        dovi_info = await _run_dovi_on_mkv(mkv_path, hevc_count_val)
+    except Exception as e:
+        _logger.warning("dovi_tool falló para MKV %s (no bloquea): %s", mkv_path, e)
 
     return MkvAnalysisResult(
         file_path=mkv_path,
@@ -167,8 +186,68 @@ async def analyze_mkv(mkv_path: str) -> MkvAnalysisResult:
         chapters=chapters,
         has_fel=has_fel,
         hdr=hdr_meta,
+        dovi=dovi_info,
         mediainfo_raw=mediainfo_raw,
     )
+
+
+async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
+    """
+    Analiza el RPU Dolby Vision de un MKV.
+
+    - Si hay 2+ pistas HEVC (P7 FEL/MEL) usa la Enhancement Layer (v:1).
+    - Si hay 1 pista HEVC (P8/P5 single-layer) usa la Base Layer (v:0).
+    - Si no hay DV, ffmpeg/extract-rpu fallan y se devuelve None.
+
+    Reutiliza el parser de ``phases.phase_a._parse_dovi_summary``.
+    """
+    from phases.phase_a import _parse_dovi_summary
+
+    pid = os.getpid()
+    tmp_hevc = str(Path(TMP_DIR) / f"_mkv_hevc_{pid}.hevc")
+    tmp_rpu  = str(Path(TMP_DIR) / f"_mkv_rpu_{pid}.bin")
+
+    map_arg = "0:v:1" if hevc_count >= 2 else "0:v:0"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            FFMPEG_BIN, "-y", "-i", mkv_path,
+            "-map", map_arg, "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+            "-t", "30", "-f", "hevc", tmp_hevc,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            _logger.info("ffmpeg HEVC extract falló (¿sin DV?): %s", stderr.decode()[:200])
+            return None
+        if not Path(tmp_hevc).exists() or Path(tmp_hevc).stat().st_size < 1000:
+            return None
+
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "extract-rpu", tmp_hevc, "-o", tmp_rpu,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0 or not Path(tmp_rpu).exists() or Path(tmp_rpu).stat().st_size < 10:
+            _logger.info("dovi_tool extract-rpu falló: %s", stderr.decode()[:200])
+            return None
+
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "info", "--summary", tmp_rpu,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            _logger.warning("dovi_tool info falló: %s", stderr.decode()[:200])
+            return None
+
+        return _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
+    finally:
+        Path(tmp_hevc).unlink(missing_ok=True)
+        Path(tmp_rpu).unlink(missing_ok=True)
 
 
 def _extract_chapters(mkv_path: str) -> list[Chapter]:

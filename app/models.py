@@ -691,7 +691,9 @@ class MkvTrackInfo(BaseModel):
     """Frecuencia de muestreo en Hz (None para vídeo/subtítulos)."""
 
     pixel_dimensions: str = ""
-    """Resolución del vídeo (ej: '3840x2160'). Vacío para audio/subs."""
+    """Resolución (ej: '3840x2160'). Para vídeo: resolución del frame.
+    Para subtítulos PGS: resolución del bitmap (enriquecido desde MediaInfo).
+    Vacío para audio."""
 
     # Campos enriquecidos por MediaInfo (opcionales, vacíos si no disponible)
     bitrate_kbps: int = 0
