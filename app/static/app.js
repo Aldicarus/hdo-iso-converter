@@ -2358,8 +2358,8 @@ const _CMV40_HELP_SECTIONS = {
       <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-gen">Generated</span> Source P8.1 sin retail disponible para mejorar el grading. Se usa un bin generated que reemplaza el RPU existente. Calidad intermedia — mejor que un P8.1 sin trims pero sin la precisión de un master nativo.</div>
     </div>
 
-    <div class="help-callout help-callout-warning">
-      <strong>Combinaciones que la app no valida estrictamente:</strong> si tu source es P8.1 y eliges un bin target P7 FEL, el pipeline no aborta pero el resultado es incorrecto (intentas inyectar un RPU P7 en un HEVC P8). La regla práctica: <em>el target tiene que ser compatible con el source</em>. Para source P8.1, elige targets P5/P8/P8.x o generated; evita los drop-in P7 FEL/MEL.
+    <div class="help-callout help-callout-success">
+      <strong>Compatibilidad source × target — validación automática:</strong> la app rechaza al cerrar Fase B las combinaciones estructuralmente imposibles. En concreto: si tu source es <code>P8.1</code> o <code>P7 MEL</code> (cualquier caso donde el material resultante es single-layer) y eliges un bin target de tipo <em>drop-in P7 FEL</em> o <em>drop-in P7 MEL</em>, el pipeline <strong>aborta con un mensaje explicativo</strong> — no se llega a inyectar, no se pierden los minutos de Fase C ni se produce un MKV inválido. En esos casos elige en su lugar targets P8.x retail, P5→P8 transfer, o generated, que sí son compatibles con sources single-layer.
     </div>
 
     <h2 id="p-sync">🎛️ El ajustador visual (Fase D) al detalle</h2>
