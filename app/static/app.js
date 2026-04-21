@@ -1554,7 +1554,6 @@ const _CMV40_HELP_SECTIONS = {
     <ol>
       <li>Al seleccionar el Blu-ray origen en "Nuevo proyecto", la app extrae el título y año del nombre del fichero.</li>
       <li>Si has configurado una API key de TMDb en <strong>⚙︎ Configuración</strong>, la app contrasta el título con TMDb — así desambigua cine no-ASCII (cine asiático, títulos en otros idiomas) y confirma el año.</li>
-      <li>Busca la película en el sheet usando <strong>fuzzy matching</strong> (compara ignorando acentos, puntuación, números romanos vs árabes, y palabras vacías como <em>the, la, de, of</em>).</li>
       <li>Te muestra el banner de recomendación: verde / ámbar / rojo según la categoría, con los detalles de la columna correspondiente y los enlaces a los recursos.</li>
     </ol>
 
