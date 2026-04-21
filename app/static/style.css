@@ -1665,6 +1665,17 @@ select { appearance: none; cursor: pointer;
 }
 #mkv-edit-panel .track-main {
   position: relative;
+  min-width: 0;      /* permite que track-raw respete el ancho del contenedor */
+}
+/* Tab 2: la linea info de la pista puede ser mas larga (codec comercial
+   + channel layout + sample rate + bitrate + packet count). Deja que use
+   todo el ancho disponible en lugar de cortarse a 460px con ellipsis. */
+#mkv-edit-panel .track-raw {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.5;
 }
 #mkv-edit-panel .track-edit-icon {
   position: absolute;
