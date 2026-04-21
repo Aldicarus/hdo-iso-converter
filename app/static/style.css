@@ -1393,6 +1393,11 @@ select { appearance: none; cursor: pointer;
   white-space: pre-wrap;
   word-break: break-all;
   margin: 12px 0;
+  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 .log-viewer-content .log-line-error   { color: #f44747; }
 .log-viewer-content .log-line-warning { color: #ce9178; }
@@ -4181,6 +4186,11 @@ select { appearance: none; cursor: pointer;
   min-height: 0;
   overflow-y: auto;
   padding: 10px 22px 14px;
+  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 /* Tabs del selector de RPU target: nunca wrappean */
 .cmv40-new-tabs .cmv40-tab-btn {
@@ -5003,6 +5013,11 @@ select { appearance: none; cursor: pointer;
   overflow-y: auto;
   padding: 14px 22px;
   background: var(--bg);
+  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 .cmv40-lookup-foot {
   flex-shrink: 0;
@@ -5524,6 +5539,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   overflow-y: auto;
   padding: 4px 22px 8px;
   background: var(--bg);
+  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 .settings-foot {
   flex-shrink: 0;
@@ -5620,28 +5640,32 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    Modal "📖 Manual CMv4.0" — panel lateral de ayuda
    ═══════════════════════════════════════════════════════════════════ */
 
-/* Botón "Ayuda / Manual" en la franja navy del subtab-bar CMv4.0 */
+/* Botón "Ayuda / Manual" en la franja navy del subtab-bar CMv4.0
+   Centrado vertical en la franja (no anclado al bottom como las tabs);
+   contraste fuerte sobre el navy: fondo blanco traslúcido + borde claro. */
 .cmv40-help-area {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
-  padding: 6px 16px 7px 0;
+  align-items: center;
+  height: 100%;
+  padding: 0 16px 0 8px;
 }
 .cmv40-help-btn {
-  color: rgba(255, 255, 255, 0.92) !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.22) !important;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  padding: 6px 12px !important;
+  padding: 6px 14px !important;
   height: 32px;
   gap: 6px;
   white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
 .cmv40-help-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18) !important;
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.32) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
 }
 
 /* Modal wide — sidebar nav + content */
