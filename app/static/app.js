@@ -5677,12 +5677,11 @@ function _renderMkvEditPanel() {
   let dvProfileLine = '';
   let dvLevelsLine  = '';
   let dvCountsLine  = '';
+  let cmBadgeHtml   = '';
+  let cmHintHtml    = '';
   if (dv) {
     const elType = dv.el_type || (a.has_fel ? 'FEL' : (hasElByCount ? 'MEL' : ''));
-    dvProfileLine = [
-      `Profile ${dv.profile}${elType ? ` (${elType})` : ''}`,
-      dv.cm_version ? `CM ${dv.cm_version}` : '',
-    ].filter(Boolean).join(' · ');
+    dvProfileLine = `Profile ${dv.profile}${elType ? ` (${elType})` : ''}`;
     const lvls = [];
     if (dv.has_l1) lvls.push('L1');
     if (dv.has_l2) lvls.push('L2');
@@ -5694,6 +5693,20 @@ function _renderMkvEditPanel() {
     if (dv.scene_count) counts.push(`${dv.scene_count.toLocaleString()} escenas`);
     if (dv.frame_count) counts.push(`${dv.frame_count.toLocaleString()} frames`);
     dvCountsLine = counts.join(' · ');
+
+    // Badge CM version — v2.9 naranja (upgradeable), v4.0 verde (ya CMv4.0)
+    const cm = (dv.cm_version || '').toLowerCase();
+    const isV40 = cm.includes('4.0') || cm.includes('v4');
+    const isV29 = cm.includes('2.9') || cm.includes('v2');
+    if (isV40) {
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)">✓ CMv4.0</span>`;
+      cmHintHtml = `<span style="color:var(--text-3); font-size:11px; font-style:italic">Ya en CMv4.0 — no necesita upgrade</span>`;
+    } else if (isV29) {
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11">⚡ CMv2.9</span>`;
+      cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500">→ Upgradeable a CMv4.0 (pestaña "Upgrade Dolby Vision CMv4.0")</span>`;
+    } else if (dv.cm_version) {
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(142,142,147,0.20); color:var(--text-2); font-size:11px; font-weight:700">CM ${escHtml(dv.cm_version)}</span>`;
+    }
   } else if (dvDetected) {
     // Se detecta DV por número de HEVC pero dovi_tool no corrió / falló
     dvProfileLine = a.has_fel ? 'P7 FEL (detectado por estructura)' : (hasElByCount ? 'P7 MEL (detectado por estructura)' : 'Dolby Vision detectado');
@@ -5732,7 +5745,12 @@ function _renderMkvEditPanel() {
             ${hdrLuminance ? `<div style="color:var(--text-3)">Mastering display: ${escHtml(hdrLuminance)}</div>` : ''}
             ${dvDetected ? `
               <div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--sep)">
-                <div><span style="color:var(--teal); font-weight:700">✨ Dolby Vision</span>${dvProfileLine ? ` <span style="color:var(--text-1); font-weight:500">· ${escHtml(dvProfileLine)}</span>` : ''}</div>
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px">
+                  <span style="color:var(--teal); font-weight:700">✨ Dolby Vision</span>
+                  ${dvProfileLine ? `<span style="color:var(--text-1); font-weight:500">${escHtml(dvProfileLine)}</span>` : ''}
+                  ${cmBadgeHtml}
+                </div>
+                ${cmHintHtml ? `<div style="margin-top:4px">${cmHintHtml}</div>` : ''}
                 ${dvLevelsLine ? `<div style="color:var(--text-3); margin-top:2px">${escHtml(dvLevelsLine)}</div>` : ''}
                 ${dvCountsLine ? `<div style="color:var(--text-3); margin-top:2px">${escHtml(dvCountsLine)}</div>` : ''}
                 ${!dv ? `<div style="color:var(--text-3); margin-top:2px; font-style:italic">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : ''}
