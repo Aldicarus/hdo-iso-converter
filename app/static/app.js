@@ -1199,10 +1199,29 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td><span class="help-pill help-pill-mel">MEL</span> · Minimal EL</td><td>EL "vacío" — solo metadatos estructurales con offsets cero.</td><td>Nada perceptible. Funcionalmente equivalente a un Profile 8.1 con overhead de container.</td></tr>
     </table>
     <div class="help-callout help-callout-warning">
-      <strong>Quién lo procesa realmente:</strong> Apple TV 4K, NVIDIA Shield, FireTV <em>no soportan P7 nativamente</em>. Zidoo/Dune/CoreELEC aceptan P7 pero <strong>descartan el EL</strong> — efectivamente reproducen FEL como si fuera MEL. Los únicos que procesan FEL real son Kaleidescape Strato V, ciertos Panasonic OLED y reproductores UHD de disco.
+      <strong>Por qué la reproducción de FEL es un tema delicado:</strong>
+      <p style="margin:6px 0 0">Procesar FEL de verdad significa <em>combinar</em> BL + EL frame a frame y aplicar el RPU con tone-mapping dinámico en tiempo real. Es computacionalmente más costoso que HDR10 o DV single-layer, y <strong>requiere licencia Dolby</strong> (Dolby no libera el decoder — cada fabricante integra una SDK cerrada). Eso explica por qué la mayoría del ecosistema streaming (Apple TV 4K, NVIDIA Shield, FireTV) <em>ni siquiera acepta Profile 7</em>: Dolby no licencia P7 para apps genéricas — lo reserva a reproductores Blu-ray certificados y a algunos hardware dedicados.</p>
+    </div>
+
+    <div class="help-callout help-callout-success">
+      <strong>Quién reproduce FEL correctamente en la práctica:</strong>
+      <table style="margin-top:8px; width:100%">
+        <tr><th>Categoría</th><th>Ejemplos</th><th>Notas</th></tr>
+        <tr><td><strong>Reproductores UHD Blu-ray oficiales</strong></td><td>Panasonic UB820/9000, Sony UBP-X800M2/X1100ES, Pioneer UDP-LX800</td><td>La vía original — Dolby los certifica específicamente para P7 FEL desde disco.</td></tr>
+        <tr><td><strong>Reproductores Chinos "Chinoppo"</strong></td><td>Reavon UBR-X100/X110/X200, Magnetar UDP800/900, Pioneer LX500 (chip Mediatek)</td><td>Clones de la plataforma OPPO UDP-205 descontinuada. Reproducen FEL desde ISO o disco físico sin problema. <strong>Requieren ISO completa</strong> — no rippeo MKV.</td></tr>
+        <tr><td><strong>Amlogic + CoreELEC (FEL-aware)</strong></td><td>Ugoos AM6B+, AM6B Plus, Homatics Box R 4K Plus; SoCs S905X4/S922X/S922X-J/Z licenciados por Dolby</td><td>La vía más flexible para MKV: CoreELEC NG 20.5+/21+ procesa FEL real frame a frame sobre MKVs P7. Sin licencia Dolby en SoC no funciona — por eso NO todos los boxes Amlogic valen.</td></tr>
+        <tr><td><strong>Hardware dedicado premium</strong></td><td>Kaleidescape Strato V / Terra / Alto</td><td>Servidor multiroom profesional con licencia Dolby completa.</td></tr>
+        <tr><td><strong>Algunos TVs OLED directamente</strong></td><td>Panasonic GZ2000 (2019) y OLED Panasonic posteriores (JZ, LZ, MZ, Z95)</td><td>Panasonic fue el primer fabricante en incluir decoder FEL real en un TV de consumo. LG y Sony <strong>no</strong> procesan FEL en el TV — dependen del reproductor.</td></tr>
+      </table>
+    </div>
+
+    <div class="help-callout help-callout-info">
+      <strong>Nota importante sobre los boxes que "aceptan P7 pero descartan el EL":</strong> esto sigue siendo cierto para Zidoo/Dune y para <em>Amlogic sin CoreELEC-NG reciente</em>. Reproducen BL + RPU (equivalente a P8.1), lo cual se ve bien pero pierde la precisión de color del EL. La diferencia con los boxes FEL-aware es exactamente esa: procesan el EL o no. Si tienes una Ugoos AM6B+ con CoreELEC NG actualizado, estás en el grupo que sí procesa.
     </div>
 
     <h2 id="g-profiles">🎯 Profiles Dolby Vision — matriz completa</h2>
+    <p>Un <strong>Profile</strong> en Dolby Vision es el <em>"formato de empaquetado"</em> del stream: describe cómo están organizadas las capas (single vs dual-layer), qué codec se usa (HEVC o AV1), qué color space tiene la Base Layer (HDR10, HLG, SDR, IPT propietario), y cómo viaja el RPU. No es una "calidad" — un profile no es mejor que otro en abstracto. Lo que cambia es el <em>caso de uso</em>: cada ecosistema (UHD Blu-ray, streaming, broadcast, móvil) adopta los profiles que encajan con sus restricciones de ancho de banda, compatibilidad y licencia.</p>
+    <p>Conocer el profile de un fichero determina tres cosas prácticas: <strong>(1)</strong> si tu reproductor lo puede entender; <strong>(2)</strong> si se ve correctamente en un display no-DV (solo los profiles con BL válida HDR10/SDR/HLG son retro-compatibles); <strong>(3)</strong> qué pipeline de upgrade CMv4.0 tiene sentido (ej. P7 FEL se puede upgradear conservando el EL; P5 no tiene sentido upgradear porque la BL es propietaria).</p>
     <table>
       <tr><th>Profile</th><th>Tipo</th><th>Retrocompatibilidad</th><th>Uso típico</th></tr>
       <tr><td><span class="help-pill help-pill-p5">5</span></td><td>Single-layer HEVC 10-bit (IPT/ICtCp)</td><td><strong>Ninguna</strong> — fuera de aparato DV se ve verdoso</td><td>Netflix, iTunes, Disney+ (antiguo)</td></tr>
