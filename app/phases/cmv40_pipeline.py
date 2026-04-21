@@ -1029,6 +1029,45 @@ async def _analyze_target_rpu(
                 f"[Fase B] Gates que NO pasan: {', '.join(failing)}"
             )
 
+    # Validación de compatibilidad estructural source × target. Se aborta
+    # ya aquí para que el usuario pueda elegir otro target sin gastar Fase
+    # C/D/etc. En Fase F hay un safety net por si se bypassea.
+    if session.source_workflow:
+        compat_ok, compat_msg = _check_source_target_compat(
+            session.source_workflow, session.target_type
+        )
+        session.compat_warning = "" if compat_ok else compat_msg
+        if not compat_ok:
+            if log_callback:
+                await log_callback(f"[Fase B] ⛔ {compat_msg}")
+            raise RuntimeError(compat_msg)
+
+
+def _check_source_target_compat(source_workflow: str, target_type: str) -> tuple[bool, str]:
+    """Valida compatibilidad estructural source + target.
+
+    Algunas combinaciones son imposibles por estructura de RPU:
+      - Source single-layer (p7_mel post-discard EL, o p8) + target P7 dual-layer
+        (trusted_p7_fel_final o trusted_p7_mel_final) → el target RPU declara
+        profile 7 dual-layer pero se inyectaría en HEVC single-layer, resultando
+        en un MKV con metadata de P7 sin EL que los players interpretarían mal
+        (fallback a HDR10 o vídeo roto).
+
+    Devuelve (ok, mensaje). Si ok=False, el mensaje explica por qué aborta.
+    """
+    p7_drop_in = ("trusted_p7_fel_final", "trusted_p7_mel_final")
+    if source_workflow in ("p7_mel", "p8") and target_type in p7_drop_in:
+        target_label = "P7 FEL CMv4.0 (drop-in)" if target_type == "trusted_p7_fel_final" else "P7 MEL CMv4.0 (drop-in)"
+        source_label = "P7 MEL (descarta EL al inyectar)" if source_workflow == "p7_mel" else "P8.1 (single-layer)"
+        return False, (
+            f"Combinación incompatible: source {source_label} + target {target_label}. "
+            f"El target está pensado para reemplazar capas BL+EL de un BD FEL original; "
+            f"aplicado sobre un source single-layer produce un MKV con metadata P7 dual-layer "
+            f"pero sin EL, que los reproductores interpretan incorrectamente. "
+            f"Elige un bin target de tipo P8.x retail, P5→P8 transfer, o generated."
+        )
+    return True, ""
+
 
 def _classify_target_type(info: DoviInfo) -> str:
     """Clasifica el RPU target según perfil + CM version + L8 presente.
@@ -1614,6 +1653,13 @@ async def run_phase_f_inject(
 
     workflow = session.source_workflow or "p7_fel"
     drop_in_fel = is_drop_in_fel(session)
+
+    # Safety net: compatibilidad estructural source × target. Aborta antes de
+    # tocar ffmpeg/dovi_tool si la combinación es imposible (p.ej. source P8
+    # single-layer + target P7 FEL drop-in → metadata incoherente).
+    compat_ok, compat_msg = _check_source_target_compat(workflow, session.target_type or "")
+    if not compat_ok:
+        raise RuntimeError(compat_msg)
 
     # Inputs requeridos según workflow/modo
     if drop_in_fel:

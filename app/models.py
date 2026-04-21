@@ -968,6 +968,12 @@ class CMv40Session(BaseModel):
     """True si los gates de trust (frame count + L5/L6/L1 divergence) pasaron.
     Si True, Fase D no pausa para revisión visual y Fase F puede saltar el merge."""
 
+    compat_warning: str = ""
+    """Mensaje de warning si la combinación (source_workflow, target_type) es
+    estructuralmente incompatible (p.ej. source P8 + target P7 FEL drop-in).
+    Se calcula al cerrar Fase B y se valida de nuevo al arrancar Fase F (abort).
+    Vacío si la combinación es válida."""
+
     target_trust_gates: dict = {}
     """Resultado detallado de cada gate. Estructura:
       {
