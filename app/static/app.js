@@ -9806,9 +9806,19 @@ function _cmv40FaseHBody(pid, s) {
 
 // ── Acciones de fases ────────────────────────────────────────────
 
+/** Toast de inicio de fase. Silenciado cuando el auto-pipeline está activo
+ *  — el timeline lateral ya muestra fase en curso + progreso en vivo y los
+ *  toasts intermedios saturan la UI. Con auto-off (usuario dispara fase
+ *  manualmente con el botón), sí aparece para confirmar que se oyó el click. */
+function _cmv40PhaseToast(pid, msg) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project?.autoContinue) return;
+  showToast(msg, 'info');
+}
+
 async function cmv40DoAnalyzeSource(pid) {
   await apiFetch(`/api/cmv40/${pid}/analyze-source`, { method: 'POST' });
-  showToast('Analizando origen…', 'info');
+  _cmv40PhaseToast(pid, 'Analizando origen…');
   // Polling hasta que termine la fase
   _cmv40PollPhase(pid, 'source_analyzed', 'error');
 }
@@ -10055,13 +10065,13 @@ async function cmv40DoTargetFromMkv(pid) {
     method: 'POST',
     body: JSON.stringify({ source_mkv_path: mkvPath }),
   });
-  showToast('Extrayendo RPU del MKV…', 'info');
+  _cmv40PhaseToast(pid, 'Extrayendo RPU del MKV…');
   _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function cmv40DoExtract(pid) {
   await apiFetch(`/api/cmv40/${pid}/extract`, { method: 'POST' });
-  showToast('Extrayendo BL/EL y datos per-frame…', 'info');
+  _cmv40PhaseToast(pid, 'Extrayendo BL/EL y datos per-frame…');
   _cmv40PollPhase(pid, 'extracted');
 }
 
@@ -10071,7 +10081,7 @@ async function cmv40DoInject(pid) {
     'Esto creará EL_injected.hevc. ¿Has verificado que la sincronización es correcta?',
     async () => {
       await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
-      showToast('Inyectando RPU…', 'info');
+      _cmv40PhaseToast(pid, 'Inyectando RPU…');
       _cmv40PollPhase(pid, 'injected');
     },
     'Inyectar',
@@ -10080,13 +10090,13 @@ async function cmv40DoInject(pid) {
 
 async function cmv40DoRemux(pid) {
   await apiFetch(`/api/cmv40/${pid}/remux`, { method: 'POST' });
-  showToast('Remuxando a MKV final…', 'info');
+  _cmv40PhaseToast(pid, 'Remuxando a MKV final…');
   _cmv40PollPhase(pid, 'remuxed');
 }
 
 async function cmv40DoValidate(pid) {
   await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
-  showToast('Validando MKV final…', 'info');
+  _cmv40PhaseToast(pid, 'Validando MKV final…');
   // Polling — Fase H dura varios minutos (move 42 GB), no se puede hacer síncrono
   _cmv40PollPhase(pid, 'done');
 }
