@@ -5680,6 +5680,21 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 
 /* Modal wide — sidebar nav + content */
+/* Fix definitivo del flick al scrollear: WebKit tiene un bug conocido por el
+   que backdrop-filter en un ancestro se re-evalua por frame cuando un hijo
+   scrollea, pese a contain:paint/isolation/translateZ en el scroll child
+   (probados con y sin — NO solucionan el flick en este modal concreto por
+   su tamaño + cantidad de contenido en el content area).
+
+   Solución: deshabilitar backdrop-filter SOLO en este overlay y reforzar la
+   opacidad del overlay para mantener la separacion visual. El resto de
+   modales (mas pequeños y con menos scroll) mantienen el blur. */
+#cmv40-help-modal {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(0, 0, 0, 0.78);
+}
+
 .cmv40-help-modal-box {
   max-width: 1180px;
   width: calc(100vw - 40px);
@@ -5688,12 +5703,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Promueve el modal a su propia capa compositora para que los scrolls
-     internos NO invaliden el backdrop-filter:blur(8px) del overlay padre.
-     Sin esto, aunque .cmv40-help-content tenga contain:paint, WebKit sigue
-     recomponiendo el blur cada vez que el modal-box repinta porque no es
-     un stacking context propio — y el modal-box repinta cuando scrollean
-     sus hijos por cuestiones de scroll shadow / sombras internas. */
+  /* Mantenemos la promocion a capa compositora por si WebKit siguiera
+     haciendo repaints del modal-box: aisla el layout + paint del resto. */
   isolation: isolate;
   transform: translateZ(0);
   will-change: transform;
