@@ -37,7 +37,11 @@ TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 #  ANÁLISIS
 # ══════════════════════════════════════════════════════════════════════
 
-async def analyze_mkv(mkv_path: str, progress_callback=None) -> MkvAnalysisResult:
+async def analyze_mkv(
+    mkv_path: str,
+    progress_callback=None,
+    pgs_progress_callback=None,
+) -> MkvAnalysisResult:
     """
     Analiza un MKV existente: pistas, capítulos, metadatos.
 
@@ -48,6 +52,10 @@ async def analyze_mkv(mkv_path: str, progress_callback=None) -> MkvAnalysisResul
     Si se pasa ``progress_callback(step: str)``, se notifica al arrancar cada
     paso costoso para que el frontend pueda mostrar un modal de progreso.
     Pasos emitidos: ``identify``, ``mediainfo``, ``pgs``, ``dovi``.
+
+    Si se pasa ``pgs_progress_callback(pct: float, eta_s: int)``, durante el
+    conteo de paquetes ffprobe se emite progreso real basado en bytes leídos
+    (vía /proc/{pid}/io), exactamente como en Tab 1.
     """
     async def _emit(step: str):
         if progress_callback:
@@ -181,11 +189,17 @@ async def analyze_mkv(mkv_path: str, progress_callback=None) -> MkvAnalysisResul
 
     # ── Packet counts de subtítulos bitmap (ffprobe) ─────────────────
     # Proxy fiable de forzado vs completo cuando el flag no está seteado.
+    # Reutiliza la función de phase_a que monitoriza bytes leídos por ffprobe
+    # para emitir progreso real durante el conteo (~1-3 min en MKVs grandes).
     try:
         sub_tracks_list = [t for t in tracks if t.type == "subtitles"]
         if sub_tracks_list:
             await _emit("pgs")
-            pkt_counts = await _run_pgs_packet_counts_on_mkv(mkv_path)
+            from phases.phase_a import run_pgs_packet_counts
+            pkt_counts = await run_pgs_packet_counts(
+                mkv_path,
+                progress_callback=pgs_progress_callback,
+            )
             # ffprobe devuelve stream_index absoluto dentro del MKV,
             # que coincide con mkvmerge "id" de pista.
             for t in sub_tracks_list:
@@ -219,46 +233,6 @@ async def analyze_mkv(mkv_path: str, progress_callback=None) -> MkvAnalysisResul
         dovi=dovi_info,
         mediainfo_raw=mediainfo_raw,
     )
-
-
-async def _run_pgs_packet_counts_on_mkv(mkv_path: str) -> dict[int, int]:
-    """
-    Cuenta paquetes PES de cada pista de subtítulos de un MKV con
-    ``ffprobe -count_packets``. Devuelve {stream_index: packet_count}.
-
-    El número de paquetes es el proxy más fiable para distinguir forzados
-    (<500) de completos (≥500) cuando el flag no está seteado. MediaInfo
-    y ffprobe-bitrate devuelven N/A para PGS, así que contar paquetes es
-    la única señal real. Tarda ~10-30s en un MKV típico.
-    """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
-            "-select_streams", "s",
-            "-count_packets",
-            "-show_entries", "stream=index,nb_read_packets",
-            "-of", "csv=p=0",
-            mkv_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode != 0:
-            _logger.info("ffprobe packet count falló: %s", stderr.decode()[:200])
-            return {}
-
-        counts: dict[int, int] = {}
-        for line in stdout.decode("utf-8", errors="replace").strip().splitlines():
-            parts = line.split(",")
-            if len(parts) == 2:
-                try:
-                    counts[int(parts[0])] = int(parts[1])
-                except ValueError:
-                    pass
-        return counts
-    except asyncio.TimeoutError:
-        _logger.warning("ffprobe packet count: timeout (120s)")
-        return {}
 
 
 async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:

@@ -587,6 +587,9 @@
       <div id="mkv-analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadata extendida (MediaInfo)…</div>
       <div id="mkv-analyze-step-pgs" style="opacity:.4">
         <div id="mkv-analyze-step-pgs-label">⬜ Contando paquetes PGS por subtítulo (1-3 min en MKVs grandes)…</div>
+        <div id="mkv-analyze-step-pgs-bar" style="display:none; margin:6px 0 2px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
+          <div id="mkv-analyze-step-pgs-bar-fill" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px; box-shadow:0 0 6px rgba(59,143,255,0.4)"></div>
+        </div>
         <div id="mkv-analyze-step-pgs-stats" style="display:none; font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums"></div>
       </div>
       <div id="mkv-analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision (dovi_tool)…</div>
@@ -983,6 +986,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260421k"></script>
+<script src="/static/app.js?v=20260421l"></script>
 </body>
 </html>

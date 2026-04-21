@@ -1128,16 +1128,19 @@ async def analyze_mkv_endpoint(body: dict):
     rel_path = body.get("file_path", "")
     # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
     if DEV_MODE:
-        # Simulación corta de progreso para que el modal tenga algo que mostrar
+        # Simulación de progreso para que el modal se vea en dev — incluye
+        # barra PGS animada del 0 al 100% para probar la UX.
         import asyncio as _aio
         _analyze_progress = {"step": "identify", "done": False}
-        await _aio.sleep(0.3)
+        await _aio.sleep(0.4)
         _analyze_progress = {"step": "mediainfo", "done": False}
-        await _aio.sleep(0.3)
-        _analyze_progress = {"step": "pgs", "done": False, "pct": 100, "eta_s": 0}
-        await _aio.sleep(0.3)
+        await _aio.sleep(0.6)
+        for pct in (5, 20, 45, 70, 90, 100):
+            eta = max(0, int((100 - pct) * 0.04))
+            _analyze_progress = {"step": "pgs", "done": False, "pct": pct, "eta_s": eta}
+            await _aio.sleep(0.35)
         _analyze_progress = {"step": "dovi", "done": False}
-        await _aio.sleep(0.2)
+        await _aio.sleep(0.5)
         _analyze_progress = {"step": "", "done": True}
         return build_fake_mkv_analysis(rel_path)
 
@@ -1152,9 +1155,17 @@ async def analyze_mkv_endpoint(body: dict):
         else:
             _analyze_progress = {"step": step, "done": False}
 
+    async def _mkv_pgs_progress_callback(pct: float, eta_s: int):
+        global _analyze_progress
+        _analyze_progress = {"step": "pgs", "done": False, "pct": round(pct, 1), "eta_s": eta_s}
+
     _analyze_progress = {"step": "identify", "done": False}
     try:
-        result = await analyze_mkv(mkv_full, progress_callback=_mkv_progress_callback)
+        result = await analyze_mkv(
+            mkv_full,
+            progress_callback=_mkv_progress_callback,
+            pgs_progress_callback=_mkv_pgs_progress_callback,
+        )
         _analyze_progress = {"step": "", "done": True}
         return result.model_dump()
     except Exception as e:

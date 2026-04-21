@@ -5599,15 +5599,33 @@ async function _doAnalyzeMkvFromPicker() {
         lastStep = prog.step;
         stepStartTs = Date.now();
       }
-      // En el paso PGS mostrar tiempo transcurrido (ffprobe puede tardar 1-3 min)
+      // En el paso PGS mostrar barra de progreso real basada en bytes leídos
+      // por ffprobe (vía /proc/{pid}/io, emitido desde phase_a.run_pgs_packet_counts).
       if (lastStep === 'pgs') {
+        const labelEl = document.getElementById('mkv-analyze-step-pgs-label');
+        const barWrap = document.getElementById('mkv-analyze-step-pgs-bar');
+        const barFill = document.getElementById('mkv-analyze-step-pgs-bar-fill');
         const statsEl = document.getElementById('mkv-analyze-step-pgs-stats');
+        const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
+        const mm = Math.floor(elapsed / 60);
+        const ss = (elapsed % 60).toString().padStart(2, '0');
+        const pct = prog?.pct;
+        const eta = prog?.eta_s;
+        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (barWrap) barWrap.style.display = 'block';
+        if (statsEl) statsEl.style.display = 'block';
+        if (pct != null && barFill) {
+          barFill.style.width = pct + '%';
+        }
         if (statsEl) {
-          const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
-          const mm = Math.floor(elapsed / 60);
-          const ss = (elapsed % 60).toString().padStart(2, '0');
-          statsEl.style.display = 'block';
-          statsEl.textContent = `${mm}:${ss} transcurridos`;
+          let line = `${mm}:${ss} transcurridos`;
+          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
+          if (eta && eta > 0) {
+            const em = Math.floor(eta / 60);
+            const es = (eta % 60).toString().padStart(2, '0');
+            line += ` · ETA ${em}:${es}`;
+          }
+          statsEl.textContent = line;
         }
       }
     } catch (_) { /* silenciar errores de polling */ }
@@ -5651,6 +5669,10 @@ function _resetMkvAnalyzeSteps() {
   });
   const statsEl = document.getElementById('mkv-analyze-step-pgs-stats');
   if (statsEl) { statsEl.style.display = 'none'; statsEl.textContent = ''; }
+  const barWrap = document.getElementById('mkv-analyze-step-pgs-bar');
+  const barFill = document.getElementById('mkv-analyze-step-pgs-bar-fill');
+  if (barWrap) barWrap.style.display = 'none';
+  if (barFill) barFill.style.width = '0%';
 }
 
 /** Avanza del paso fromStep (que se marca ✅) al nextStep (que se marca ⏳). */
