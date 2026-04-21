@@ -226,8 +226,64 @@ DEV_FAKE_MKV_FILES: list[str] = [
 ]
 
 def build_fake_mkv_analysis(file_name: str) -> dict:
-    """Construye un MkvAnalysisResult fake para Tab 2 con datos extendidos."""
-    from models import MkvAnalysisResult, MkvTrackInfo, Chapter, HdrMetadata
+    """Construye un MkvAnalysisResult fake para Tab 2 con datos extendidos.
+
+    Por defecto simula un Blu-ray UHD P7 FEL con CMv2.9 (caso típico). Para
+    probar la UI con otras casuísticas, usa sufijos en el filename:
+    - "*CMv4.0 retail*"    → CMv4.0 con perfil retail/transferido (azul claro)
+    - "*CMv4.0 native*"    → CMv4.0 con perfil de colorista (azul fuerte)
+    - "*CMv4.0 generated*" → CMv4.0 sintético algorítmico (naranja)
+    """
+    from models import MkvAnalysisResult, MkvTrackInfo, Chapter, HdrMetadata, DoviInfo
+
+    fn_lower = file_name.lower()
+
+    # ── Construcción del DoviInfo según el filename ───────────────────
+    if "cmv4.0 native" in fn_lower or "cmv4.0 colorist" in fn_lower:
+        # CMv4.0 nativo: todos los niveles de autoría + múltiples L8 trims
+        dovi = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v4.0",
+            has_l1=True, has_l2=True, has_l3=True, has_l5=True, has_l6=True,
+            has_l8=True, has_l9=True, has_l10=True, has_l11=True,
+            l8_trim_count=4,
+            l1_max_cll=1000.6, l1_max_fall=92.36,
+            l6_max_cll=998, l6_max_fall=185,
+            scene_count=890, frame_count=173456,
+            raw_summary="[fake] CMv4.0 nativo con firma de colorista",
+        )
+    elif "cmv4.0 generated" in fn_lower or "cmv4.0 synthetic" in fn_lower:
+        # Generated: solo L8 con 1 trim, sin L3/L9/L10/L11
+        dovi = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v4.0",
+            has_l1=True, has_l2=True, has_l5=True, has_l6=True,
+            has_l8=True, l8_trim_count=1,
+            l1_max_cll=720.0, l1_max_fall=80.0,
+            l6_max_cll=1000, l6_max_fall=185,
+            scene_count=890, frame_count=173456,
+            raw_summary="[fake] CMv4.0 generated algorítmicamente",
+        )
+    elif "cmv4.0 retail" in fn_lower or "cmv4.0" in fn_lower:
+        # Retail/transferred: 2-3 niveles de autoría + L8 con varios trims
+        dovi = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v4.0",
+            has_l1=True, has_l2=True, has_l5=True, has_l6=True,
+            has_l8=True, has_l9=True, has_l10=True,
+            l8_trim_count=3,
+            l1_max_cll=1000.6, l1_max_fall=92.36,
+            l6_max_cll=998, l6_max_fall=185,
+            scene_count=890, frame_count=173456,
+            raw_summary="[fake] CMv4.0 retail transferido desde WEB-DL",
+        )
+    else:
+        # Por defecto: CMv2.9 P7 FEL (caso típico de Blu-ray UHD sin upgrade)
+        dovi = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v2.9",
+            has_l1=True, has_l2=True, has_l5=True, has_l6=True,
+            l1_max_cll=720.0, l1_max_fall=80.0,
+            l6_max_cll=1000, l6_max_fall=185,
+            scene_count=890, frame_count=173456,
+            raw_summary="[fake] CMv2.9 P7 FEL original del Blu-ray",
+        )
 
     result = MkvAnalysisResult(
         file_path=f"/mnt/output/{file_name}",
@@ -242,6 +298,7 @@ def build_fake_mkv_analysis(file_name: str) -> dict:
             max_cll=576, max_fall=242,
             mastering_display_luminance="min: 0.0001 cd/m2, max: 1000 cd/m2",
         ),
+        dovi=dovi,
         tracks=[
             MkvTrackInfo(id=0, type="video", codec="HEVC/H.265/MPEG-H",
                          language="und", pixel_dimensions="3840x2160",
@@ -260,18 +317,24 @@ def build_fake_mkv_analysis(file_name: str) -> dict:
                          flag_default=False, channels=8, sample_rate=48000,
                          bitrate_kbps=5386, format_commercial="Dolby TrueHD with Dolby Atmos",
                          channel_layout="L R C LFE Ls Rs Lb Rb", compression_mode="Lossless"),
+            # Subs con packet_count realistas: forzados <500, completos ≥500
             MkvTrackInfo(id=4, type="subtitles", codec="HDMV PGS",
                          language="spa", name="Castellano Forzados (PGS)",
-                         flag_default=True, flag_forced=True),
+                         flag_default=True, flag_forced=True,
+                         pixel_dimensions="1920x1080", packet_count=142, bitrate_kbps=2),
             MkvTrackInfo(id=5, type="subtitles", codec="HDMV PGS",
                          language="eng", name="Inglés Completos (PGS)",
-                         flag_default=False, flag_forced=False),
+                         flag_default=False, flag_forced=False,
+                         pixel_dimensions="1920x1080", packet_count=2980, bitrate_kbps=41),
             MkvTrackInfo(id=6, type="subtitles", codec="HDMV PGS",
                          language="spa", name="Castellano Completos (PGS)",
-                         flag_default=False, flag_forced=False),
+                         flag_default=False, flag_forced=False,
+                         pixel_dimensions="1920x1080", packet_count=2643, bitrate_kbps=38),
+            # Este viene sin flag forzado puesto → inferido por packet_count < 500
             MkvTrackInfo(id=7, type="subtitles", codec="HDMV PGS",
-                         language="eng", name="Inglés Forzados (PGS)",
-                         flag_default=False, flag_forced=True),
+                         language="eng", name="",
+                         flag_default=False, flag_forced=False,
+                         pixel_dimensions="1920x1080", packet_count=89, bitrate_kbps=1),
         ],
         chapters=[
             Chapter(number=1, timestamp="00:00:00.000", name="Capítulo 01", name_custom=False),
