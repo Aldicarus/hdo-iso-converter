@@ -1549,9 +1549,6 @@ const _CMV40_HELP_SECTIONS = {
       <li>El <strong>banner de recomendación</strong> que aparece al seleccionar un Blu-ray en "Nuevo proyecto".</li>
       <li>La <strong>consulta rápida <code>🔎</code></strong> del header — para revisar un título sin crear proyecto.</li>
     </ul>
-    <div class="help-callout help-callout-info">
-      <strong>Detalle técnico interesante:</strong> los enlaces del sheet están pegados en el texto de las celdas, no como fórmulas. La mayoría de herramientas que leen Google Sheets los pierden por esa razón — la app usa una vía alternativa que sí los conserva. Si ves un enlace en el sheet que la app no te muestra, probablemente el autor lo pegó en un formato no estándar: repórtalo.
-    </div>
 
     <h2 id="s-app">⚙️ Cómo lo usa esta app</h2>
     <ol>
