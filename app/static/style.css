@@ -5688,6 +5688,16 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Promueve el modal a su propia capa compositora para que los scrolls
+     internos NO invaliden el backdrop-filter:blur(8px) del overlay padre.
+     Sin esto, aunque .cmv40-help-content tenga contain:paint, WebKit sigue
+     recomponiendo el blur cada vez que el modal-box repinta porque no es
+     un stacking context propio — y el modal-box repinta cuando scrollean
+     sus hijos por cuestiones de scroll shadow / sombras internas. */
+  isolation: isolate;
+  transform: translateZ(0);
+  will-change: transform;
+  contain: layout paint;
 }
 .cmv40-help-head {
   flex-shrink: 0;
@@ -5726,6 +5736,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Mismo aislamiento que el content — por si el usuario scrollea la nav
+     sidebar cuando hay muchas secciones y el viewport es pequeño. */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 .cmv40-help-nav-item {
   display: flex;
