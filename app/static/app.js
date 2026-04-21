@@ -1337,34 +1337,54 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Un detalle técnico bonito:</strong> CMv4.0 es <em>hacia atrás compatible</em>. Un MKV CMv4.0 se reproduce sin fallos en una TV CMv2.9 — el engine antiguo ignora los niveles que no entiende (L3, L8-L11) y usa L1+L2 como siempre. Por eso el upgrade nunca "rompe" nada aunque tu TV sea vieja. Simplemente no aprovecha lo nuevo.
     </div>
 
-    <h2 id="w-static-vs-runtime">⚡ Upgrade estático (esta app) vs conversión en tiempo real (CoreELEC)</h2>
-    <p>Existen dos caminos para pasar un Blu-ray CMv2.9 a CMv4.0. No son equivalentes y conviene entender en qué se diferencian antes de elegir:</p>
+    <h2 id="w-static-vs-runtime">⚡ Upgrade estático (esta app) vs conversión procedural en tiempo real (CoreELEC)</h2>
+    <p>Existen dos caminos para pasar un Blu-ray CMv2.9 a CMv4.0, y son <strong>radicalmente distintos</strong> en qué hacen y qué consiguen. Conviene entenderlos bien antes de elegir.</p>
 
-    <h3>🎯 Upgrade estático — lo que hace esta app</h3>
-    <p>La app reemplaza permanentemente el RPU del MKV por uno CMv4.0 y te deja un fichero nuevo con el upgrade "cocido" dentro. Ese MKV se reproduce igual en <strong>cualquier</strong> cadena DV compatible — tu TV, un Shield, un Apple TV, un proyector con LLDV, otro reproductor Amlogic, un PC. El upgrade viaja con el fichero.</p>
+    <h3>🎯 Upgrade estático con transferencia — lo que hace esta app</h3>
+    <p>Esta app reemplaza permanentemente el RPU del MKV por uno CMv4.0 <strong>auténtico</strong>, transferido desde una fuente externa firmada por colorista (WEB-DL retail, bin del repo DoviTools). Los niveles L3/L8-L11 que acaban en el MKV son reales — con valores artísticos, trims por escena y primaries de colorimetría que un colorista de Dolby decidió. El fichero resultante se reproduce igual en <strong>cualquier</strong> cadena DV — tu TV, un Shield, un Apple TV, un proyector con LLDV, otro reproductor Amlogic, un PC. El upgrade viaja con el fichero.</p>
 
-    <h3>🔄 Conversión en tiempo real — "DV append" en CoreELEC</h3>
-    <p>En algunos reproductores basados en Amlogic (Ugoos AM6B+, AM6B Plus, cajas similares) hay builds de desarrollador de CoreELEC — los más conocidos son <strong>avdvplus</strong> y <strong>panni</strong> — que añaden un modo "CMv4.0 append" que actúa <em>durante la reproducción</em>: al vuelo, el reproductor fusiona los niveles L3/L8-L11 de un RPU CMv4.0 externo encima del RPU v2.9 del disco. El MKV original no cambia; el truco solo funciona en esa caja con ese firmware.</p>
+    <h3>🔄 Conversión procedural en tiempo real — "CMv4.0 on-the-fly append" en CoreELEC</h3>
+    <p>Builds de desarrollador de CoreELEC como <strong>avdvplus</strong>, <strong>panni/pannal</strong> o <strong>cpm</strong> —disponibles en reproductores Amlogic con SoC licenciado por Dolby (Ugoos AM6B+, AM6B Plus, Homatics R 4K Plus)— tienen un toggle <em>"DV CMv4.0 on-the-fly append"</em> que hace una operación muy concreta: al reproducir un RPU CMv2.9, lo <strong>promociona estructuralmente</strong> a CMv4.0 en memoria, sin tocar el fichero.</p>
 
-    <h3>¿Se sintetiza L8 a partir de L1/L2?</h3>
     <div class="help-callout help-callout-warning">
-      <strong>No.</strong> Ninguna de las dos opciones "inventa" L8-L11 a partir de la metadata existente. Dolby ha confirmado oficialmente que <em>convertir</em> CMv2.9 a CMv4.0 requiere re-autoría por un colorista — <strong>no es un cálculo matemático posible</strong>. Tanto la app como avdvplus/panni parten del mismo principio: toman L3/L8-L11 de un RPU CMv4.0 retail externo (típicamente un WEB-DL streaming) y lo trasladan al contenido del Blu-ray. La fuente es la misma; cambia cuándo y dónde se aplica.
+      <strong>Importante — no hay fuente externa:</strong> esta conversión <em>no</em> descarga ni consulta un bin CMv4.0 retail. Es puramente procedural: se añade el marker CMv4.0 (bloque L254) y se rellenan los niveles L3/L9/L11 con <strong>valores por defecto neutros/identidad</strong> (L9=DCI-P3, L11=Cinema, L3 en cero, L8 derivado de L2 cuando existe). La metadata original CMv2.9 se respeta tal cual; el "upgrade" es solo el envoltorio estructural.
+    </div>
+
+    <h3>¿Por qué mejora si no añade información real?</h3>
+    <p>El beneficio es <strong>indirecto pero medible</strong>: al recibir un stream etiquetado como CMv4.0, la TV conmuta del decoder DV viejo al decoder DV nuevo — y ese decoder nuevo corrige varios bugs conocidos del pipeline CMv2.9:</p>
+    <ul>
+      <li><strong>Bug de sobrebrillo con EDID 1000-nit</strong>: TVs de brillo moderado aplicaban un tone-mapping agresivo de más en CMv2.9; el pipeline CMv4.0 lo modera.</li>
+      <li><strong>Bug de Chroma Weight en trims L2</strong>: error matemático histórico en la aplicación de saturation offsets que CMv4.0 arregla.</li>
+      <li><strong>Bug "base config data" Display-Led DV-STD</strong>: early tone-mapping visible sobre todo en masters 4000-nit, corregido en v4.0.</li>
+    </ul>
+    <p>Es decir, la conversión procedural no inventa L8-L11 ni aporta grading nuevo, pero obliga al display a ejecutar <em>código más reciente y depurado</em> sobre la misma metadata base. De ahí que el "Auto" mode solo active el append cuando se cumple una de dos condiciones: (1) el source no tiene L2 (no hay trims reales que "perder" al re-etiquetar), o (2) el display es más brillante que el MDL del master (la TV iba a ignorar los trims de todos modos). En esos casos es riesgo cero.</p>
+
+    <h3>¿Se puede "inventar" L8-L11 con cálculos desde L1/L2?</h3>
+    <div class="help-callout help-callout-info">
+      <strong>No, oficialmente.</strong> Dolby es claro en su documentación: la conversión real CMv2.9 → CMv4.0 requiere <em>re-autoría</em> por un colorista en una Content Mapping Unit. No existe una fórmula pública que derive trims L8-L11 artísticamente correctos desde L1/L2.
+      <br><br>
+      Lo que hace esta app es <em>transferir</em> niveles L8-L11 desde una fuente que sí los tiene auténticos (un master CMv4.0 retail de la misma edición). Lo que hace avdvplus es <em>estructural</em> — rellena los huecos con identidad para que la TV use el pipeline nuevo. Son operaciones distintas con objetivos distintos; ninguna inventa metadata artística.
     </div>
 
     <h3>Comparativa directa</h3>
     <table>
-      <tr><th>Aspecto</th><th>Upgrade estático (esta app)</th><th>Append en tiempo real (avdvplus / panni)</th></tr>
-      <tr><td><strong>Dónde funciona</strong></td><td>En cualquier reproductor con DV</td><td>Solo en la caja Amlogic con ese firmware de desarrollador</td></tr>
-      <tr><td><strong>Portabilidad del fichero</strong></td><td>Un MKV que puedes mover a cualquier dispositivo</td><td>El MKV original no cambia — el upgrade "vive" en la caja</td></tr>
-      <tr><td><strong>Validación de alineación</strong></td><td>Auditable: Fase D muestra gráficamente Δ frames y un medidor de confianza Pearson. El resultado queda certificado.</td><td>Heurística en el reproductor (detecta ausencia de L2 y compara EDID vs MDL). Sin chequeo humano — si la heurística se equivoca, el upgrade se aplica mal y lo descubres viéndolo.</td></tr>
-      <tr><td><strong>Fuente del RPU CMv4.0</strong></td><td>Lo eliges explícitamente (repo DoviTools, MKV WEB-DL propio).</td><td>Te lo descarga/gestiona el sistema; control menos directo sobre qué bin exacto se usa.</td></tr>
-      <tr><td><strong>Coste computacional</strong></td><td>Una vez, al crear el proyecto (20-60 min). Luego, reproducción normal.</td><td>Cada reproducción hace el append — coste mínimo, pero siempre presente.</td></tr>
-      <tr><td><strong>Reversibilidad</strong></td><td>Guardas el MKV original aparte si quieres deshacer.</td><td>Cambias el toggle off y vuelves a v2.9 instantáneamente.</td></tr>
-      <tr><td><strong>Compatibilidad futura</strong></td><td>Archivo estándar — sobrevive actualizaciones, cambios de reproductor, backups.</td><td>Depende de que el developer mantenga el build y de que futuras versiones de CoreELEC sigan permitiéndolo.</td></tr>
+      <tr><th>Aspecto</th><th>Upgrade estático con transferencia (esta app)</th><th>Conversión procedural on-the-fly (avdvplus/panni)</th></tr>
+      <tr><td><strong>Origen de L3/L8-L11 en el resultado</strong></td><td>RPU CMv4.0 <em>real</em> (colorista) de una fuente externa retail — trims y primaries auténticos</td><td>Valores <em>identidad/neutros</em> generados procedimentalmente (L9=DCI-P3, L11=Cinema, L3=0, L8=L2 o neutro)</td></tr>
+      <tr><td><strong>Qué gana la TV</strong></td><td>Trims artísticos reales + pipeline CMv4.0 (lo mejor de ambos)</td><td>Solo el pipeline CMv4.0 (los bugs v2.9 se corrigen, pero sin trims nuevos)</td></tr>
+      <tr><td><strong>Dónde funciona</strong></td><td>En cualquier reproductor con DV (Apple TV, Shield, TVs, proyectores, otros Amlogic)</td><td>Solo en la caja Amlogic con firmware avdvplus/panni — no es portable</td></tr>
+      <tr><td><strong>Portabilidad del fichero</strong></td><td>El MKV resultante es portable — el upgrade viaja con él</td><td>El MKV original no se modifica — el "upgrade" vive en la caja</td></tr>
+      <tr><td><strong>Validación</strong></td><td>Auditable: Fase D muestra Δ frames y correlación Pearson</td><td>Heurística en el reproductor (Off/Always/Auto); sin chequeo humano</td></tr>
+      <tr><td><strong>Qué necesitas aportar</strong></td><td>Un bin CMv4.0 retail compatible (repo DoviTools o MKV propio)</td><td>Nada — la caja lo hace sola con lo que hay en el fichero</td></tr>
+      <tr><td><strong>Coste</strong></td><td>Una vez, al crear el proyecto (20-60 min). Reproducción normal después.</td><td>Cada reproducción hace la promoción — coste mínimo pero siempre presente</td></tr>
+      <tr><td><strong>Reversibilidad</strong></td><td>Conservas el MKV original aparte si quieres deshacer</td><td>Toggle off y vuelve a v2.9 al instante</td></tr>
+      <tr><td><strong>Compatibilidad futura</strong></td><td>Archivo estándar — sobrevive a actualizaciones y cambios de reproductor</td><td>Depende de que el developer siga manteniendo el build</td></tr>
     </table>
 
-    <div class="help-callout help-callout-info">
-      <strong>Conclusión práctica:</strong> si reproduces <em>exclusivamente</em> desde una Ugoos con CoreELEC-avdvplus y no te importa que la biblioteca esté "atada" al reproductor, el append es cómodo y no necesitas esta app. Si quieres un archivo portable que se reproduzca idénticamente en TV, proyector, Shield o Apple TV, con auditoría de alineación frame a frame, el upgrade estático es el camino. Muchos usuarios combinan ambos: mantienen el MKV estático como fichero "maestro" y el append como conveniencia en la caja del salón.
+    <div class="help-callout help-callout-success">
+      <strong>Cuándo interesa cada uno:</strong>
+      <br>· <em>Si tu caja es Ugoos AM6B+ (o similar con CoreELEC-avdvplus) y solo reproduces ahí</em>: el append procedural es cómodo, gratis y suficiente para corregir los bugs del pipeline v2.9 sin hacer nada. No necesitas esta app.
+      <br>· <em>Si quieres un archivo portable con trims reales de colorista, que se reproduzca igual en cualquier cadena DV</em>: el upgrade estático con transferencia es el camino. Ganas además los L3/L8-L11 auténticos, no solo el cambio de pipeline.
+      <br>· <em>Enfoque combinado</em>: muchos usuarios avanzados mantienen el MKV estático como "master" portable y usan el append procedural como conveniencia para películas sin bin retail disponible.
     </div>
 
     <h2 id="w-tvs">📺 Matriz de TVs que realmente aprovechan CMv4.0</h2>
