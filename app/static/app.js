@@ -1629,12 +1629,13 @@ const _CMV40_HELP_SECTIONS = {
     <p>Hay una diferencia importante que conviene entender desde el principio: la hoja pública de recomendaciones (la que consulta el tab <strong>📊 Hoja</strong> del manual) es <strong>abierta y anónima</strong>, no requiere nada. Los <strong>bins en sí</strong> (los <code>.bin</code> del Google Drive) están en una carpeta <strong>gated</strong> mantenida personalmente por REC_9999 — no es un enlace público.</p>
 
     <h3>El modelo de acceso de la comunidad DoviTools</h3>
-    <p>El repositorio lo mantiene y paga REC_9999 de su propio bolsillo (coste de Drive, ancho de banda, tiempo). Para sostenerlo, el acceso a la carpeta se comparte con los usuarios que <strong>apoyan económicamente el proyecto</strong>. El flujo típico es:</p>
+    <p>El repositorio lo mantiene y paga REC_9999 de su propio bolsillo (coste de Drive, ancho de banda, tiempo de curación). Para sostenerlo, el acceso se concede a los usuarios que <strong>apoyan económicamente el proyecto</strong>. El proceso es muy directo:</p>
     <ol style="font-size:13px">
-      <li>Haces una <strong>donación vía PayPal</strong> al enlace oficial que aparece en el <a href="https://github.com/R3S3t9999/DoVi_Scripts#readme" target="_blank" rel="noreferrer">README del repo DoVi_Scripts en GitHub</a>. Enlace directo al botón de donación: <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">paypal.com/donate — DoVi_Scripts</a>.</li>
-      <li>Después de donar, contactas con REC_9999 <em>indicando el correo de Google</em> al que quieres que se comparta la carpeta. Los sitios habituales donde se hace ese contacto son el <a href="https://forum.doom9.org/showthread.php?t=185317" target="_blank" rel="noreferrer">hilo del soporte oficial en Doom9</a> (mencionado en el README de DoVi_Scripts como canal de preguntas y soporte) y el <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">hilo de AVSForum sobre CoreELEC + DV FEL</a>.</li>
-      <li>REC_9999 comparte manualmente la carpeta contigo a través de Google Drive usando ese correo. A partir de ese momento, tu cuenta de Google "ve" la carpeta como compartida.</li>
-      <li>Copia la URL de la carpeta compartida desde tu Drive y configúrala en la app (ver el paso 3 de la sección <strong>🔐 Claves y APIs</strong>).</li>
+      <li>Abre el enlace oficial de donación de DoVi_Scripts en PayPal: <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">paypal.com/donate — DoVi_Scripts</a> (el mismo que aparece en el README de <a href="https://github.com/R3S3t9999/DoVi_Scripts#readme" target="_blank" rel="noreferrer">R3S3t9999/DoVi_Scripts</a> en GitHub).</li>
+      <li>Donas <strong>15 CAD</strong> (la cifra de referencia para obtener acceso — dólares canadienses, la moneda por defecto del mantenedor).</li>
+      <li>En el campo de <strong>comentarios / mensaje</strong> del formulario de PayPal escribe tu <strong>correo de Google</strong> y una petición breve del tipo <em>"acceso al repositorio de RPUs"</em>. Todo en el mismo paso — no hace falta escribir después por forum ni Discord.</li>
+      <li>REC_9999 recibe el correo y comparte manualmente la carpeta de Google Drive contigo usando el correo que has indicado. A partir de ahí tu cuenta de Google tiene visibilidad sobre la carpeta como "compartida conmigo".</li>
+      <li>Copia la URL de la carpeta desde tu Google Drive y configúrala en la app (ver el paso 3 de la sección <strong>🔐 Claves y APIs</strong>).</li>
     </ol>
 
     <div class="help-callout help-callout-info">
@@ -1658,7 +1659,7 @@ const _CMV40_HELP_SECTIONS = {
     </ul>
 
     <div class="help-callout help-callout-warning">
-      <strong>Aviso de honestidad:</strong> los detalles exactos del flujo (cantidad mínima, forma de contacto preferida, tiempo de respuesta del mantenedor) varían con el tiempo y no están documentados formalmente en un sitio central. Si el proceso cambia, lo verás reflejado en los hilos de AVSForum y Doom9 antes que aquí. Trata esta guía como orientativa — para confirmar el procedimiento actual, revisa el primer post del hilo de AVSForum o pregunta en el hilo de Doom9.
+      <strong>Aviso:</strong> la cifra de 15 CAD y el formato del proceso son la referencia actual de la comunidad, pero pueden cambiar con el tiempo. Si al donar no recibes respuesta en unos días, los <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">hilos de AVSForum</a> y <a href="https://forum.doom9.org/showthread.php?t=185317" target="_blank" rel="noreferrer">Doom9</a> son los sitios donde consultar el procedimiento vigente.
     </div>
 
     <!-- Estado actual del folder Drive configurado en este servidor -->
