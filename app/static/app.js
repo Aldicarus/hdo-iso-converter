@@ -1155,6 +1155,41 @@ function _cmv40HelpSwitch(section) {
   const html = _CMV40_HELP_SECTIONS[section] || '<p>Sección no encontrada.</p>';
   content.innerHTML = html;
   content.scrollTop = 0;
+
+  // Hidrataciones post-render (nodos que dependen de estado live)
+  if (section === 'sheet') _cmv40HelpHydrateSheetLink();
+}
+
+/** Hidrata el enlace "Hoja en uso" al abrir la sección Sheet del manual.
+ *  Lee /api/settings y rellena el <a> con la URL efectiva (configurada o
+ *  default). Añade un meta línea con la procedencia (settings/env/default). */
+async function _cmv40HelpHydrateSheetLink() {
+  const anchor = document.getElementById('help-sheet-link-anchor');
+  const metaEl = document.getElementById('help-sheet-link-meta');
+  if (!anchor) return;
+  try {
+    const s = await apiFetch('/api/settings');
+    const sh = s?.sheet || {};
+    const url = sh.url || sh.default_url || '';
+    if (!url) {
+      anchor.textContent = 'URL no disponible';
+      anchor.removeAttribute('href');
+      return;
+    }
+    anchor.href = url;
+    anchor.textContent = url;
+    if (metaEl) {
+      const srcLabel = sh.source === 'settings' ? 'URL personalizada (Configuración)'
+        : sh.source === 'env'      ? 'URL de variable de entorno'
+        : 'URL por defecto de la comunidad DoviTools';
+      metaEl.textContent = sh.is_default
+        ? 'URL por defecto de la comunidad DoviTools — la puedes cambiar en ⚙︎ Configuración'
+        : srcLabel;
+    }
+  } catch (_) {
+    anchor.textContent = 'No se ha podido cargar la URL';
+    anchor.removeAttribute('href');
+  }
 }
 
 /**
@@ -1449,6 +1484,21 @@ const _CMV40_HELP_SECTIONS = {
   sheet: `
     <h1>📊 Hoja de DoviTools (R3S3t9999)</h1>
     <p class="cmv40-help-lead">Investigación comunitaria que documenta qué películas aceptan upgrade CMv4.0 sobre el BD original. Es el primer chequeo antes de gastar horas en un proyecto.</p>
+
+    <!-- Enlace directo a la hoja en uso (configurada o por defecto).
+         Se hidrata al abrir la sección — ver _cmv40HelpHydrateSheetLink(). -->
+    <div id="help-sheet-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <span style="font-size:18px">🔗</span>
+      <div style="flex:1; min-width:0">
+        <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Hoja en uso ahora mismo</div>
+        <a id="help-sheet-link-anchor" href="#" target="_blank" rel="noreferrer"
+           style="font-size:13px; color:var(--blue); font-weight:600; text-decoration:none; word-break:break-all"
+           data-tooltip="Abre la hoja en una pestaña nueva">
+          Cargando…
+        </a>
+        <div id="help-sheet-link-meta" style="font-size:11px; color:var(--text-3); margin-top:2px; font-style:italic">—</div>
+      </div>
+    </div>
 
     <div class="help-subtoc">
       <b>En esta sección</b>
