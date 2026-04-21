@@ -1158,6 +1158,7 @@ function _cmv40HelpSwitch(section) {
 
   // Hidrataciones post-render (nodos que dependen de estado live)
   if (section === 'sheet') _cmv40HelpHydrateSheetLink();
+  if (section === 'repo')  _cmv40HelpHydrateDriveLink();
 }
 
 /** Hidrata el enlace "Hoja en uso" al abrir la sección Sheet del manual.
@@ -1189,6 +1190,36 @@ async function _cmv40HelpHydrateSheetLink() {
   } catch (_) {
     anchor.textContent = 'No se ha podido cargar la URL';
     anchor.removeAttribute('href');
+  }
+}
+
+/** Hidrata el bloque "Carpeta Drive en este servidor" al abrir la sección Repo.
+ *  Lee /api/settings y muestra si el folder está configurado, su origen
+ *  (settings / env / ninguno) y el sufijo del folder_id como confirmación. */
+async function _cmv40HelpHydrateDriveLink() {
+  const statusEl = document.getElementById('help-drive-link-status');
+  const metaEl   = document.getElementById('help-drive-link-meta');
+  if (!statusEl) return;
+  try {
+    const s = await apiFetch('/api/settings');
+    const df = s?.drive_folder || {};
+    const apiKey = s?.google || {};
+    if (df.configured) {
+      statusEl.innerHTML = `✓ Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">(folder …${escHtml(df.folder_id_last6 || '??????')})</span>`;
+      statusEl.style.color = '#0e6b2a';
+      const srcLabel = df.source === 'settings' ? 'configurada desde ⚙︎ Configuración'
+        : df.source === 'env' ? 'configurada por variable de entorno del contenedor'
+        : 'configurada';
+      const apiKeyState = apiKey.configured ? 'API key ✓' : 'API key ✗ sin configurar — imprescindible';
+      if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
+    } else {
+      statusEl.innerHTML = `⚠️ No configurada`;
+      statusEl.style.color = '#8a4a00';
+      if (metaEl) metaEl.textContent = 'Sigue los pasos de abajo para habilitar el acceso al repo DoviTools';
+    }
+  } catch (_) {
+    statusEl.textContent = 'No se ha podido consultar el estado';
+    if (metaEl) metaEl.textContent = '—';
   }
 }
 
@@ -1594,15 +1625,63 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#r-download">Descarga y caching</a>
     </div>
 
-    <h2 id="r-access">🔑 Acceso y configuración</h2>
-    <p>El repositorio vive en una carpeta pública de Google Drive. La app accede solo a lectura, sin cuenta Google personal — basta con una API key que tú creas gratis.</p>
-    <ol>
-      <li>Entra a <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud Console → Credenciales</a> y crea una API key.</li>
-      <li>Habilita "Drive API v3" en el mismo proyecto de Google Cloud.</li>
-      <li>Pega la key en <strong>⚙︎ Configuración → Google API key</strong>. El botón "Probar" verifica que todo está bien.</li>
+    <h2 id="r-access">🔑 Cómo conseguir acceso — guía paso a paso</h2>
+    <p>El repositorio vive en una carpeta pública de Google Drive mantenida por la comunidad DoviTools. La app lo consulta solo a lectura; tú no necesitas una cuenta de Google personal en la app. Para que funcione, la app necesita <strong>dos cosas</strong> que configuras una sola vez y se guardan en el servidor:</p>
+    <ol style="font-size:13px">
+      <li>Una <strong>Google API key</strong> gratuita con Drive API habilitado (para que la app pueda listar y descargar ficheros del Drive)</li>
+      <li>La <strong>URL de la carpeta del Drive DoviTools</strong> (apunta a qué carpeta leer)</li>
     </ol>
+    <p>Sin ambas, la pestaña "📦 Repo DoviTools" del modal "Nuevo proyecto" quedará vacía. Con ambas configuradas, tienes acceso inmediato a cientos de bins pre-validados por la comunidad.</p>
+
+    <!-- Estado actual del folder Drive configurado en este servidor -->
+    <div id="help-drive-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <span style="font-size:18px">📁</span>
+      <div style="flex:1; min-width:0">
+        <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Carpeta Drive en este servidor</div>
+        <div id="help-drive-link-status" style="font-size:13px; font-weight:600">Cargando…</div>
+        <div id="help-drive-link-meta" style="font-size:11px; color:var(--text-3); margin-top:2px; font-style:italic">—</div>
+      </div>
+    </div>
+
+    <h3>① Crear la Google API key (5-10 min)</h3>
+    <ol style="font-size:13px">
+      <li>Abre <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> con tu cuenta de Google (cualquier cuenta personal vale).</li>
+      <li>Arriba a la izquierda, junto al logo de Google Cloud, despliega el selector de proyecto y pulsa <strong>"Nuevo proyecto"</strong>. Nombre sugerido: <em>HDO ISO Converter</em>. Puedes dejar la organización en "Sin organización".</li>
+      <li>Con el proyecto seleccionado, ve al menú lateral → <strong>"APIs y servicios" → "Biblioteca"</strong>. Busca <strong>"Google Drive API"</strong> y pulsa <strong>Habilitar</strong>. Sin este paso la API key no valdrá nada aunque exista.</li>
+      <li>Ve a <strong>"APIs y servicios" → "Credenciales"</strong> → <strong>"+ Crear credenciales" → "Clave de API"</strong>. Google genera una cadena larga (formato <code>AIzaSy...</code>). Cópiala.</li>
+      <li><em>Opcional pero recomendado</em>: pulsa "Editar clave de API" y bajo <strong>"Restricciones de API"</strong> selecciona "Restringir clave" → marca solo <strong>"Google Drive API"</strong>. Así la key solo vale para esto, reduciendo riesgo si se filtra.</li>
+    </ol>
+
+    <h3>② Conseguir la URL del folder DoviTools</h3>
+    <p>La URL exacta del folder no se publica en un sitio central — la comunidad la comparte en hilos. Los puntos más fiables para encontrarla hoy:</p>
+    <ul style="font-size:13px">
+      <li><strong>AVSForum hilo principal</strong>: <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">Ugoos AM6B+ CoreELEC + DV P7 FEL</a>. El OP (R3S3T_9999 / REC_9999 / Salty01) lo actualiza con el enlace al Drive vigente.</li>
+      <li><strong>MakeMKV forum</strong>: <a href="https://forum.makemkv.com/forum/viewtopic.php?t=18602" target="_blank" rel="noreferrer">Dolby Vision hilo</a>. Referencias y enlaces al Drive entre los 7000+ posts.</li>
+      <li><strong>Reddit r/4kBluRay</strong> y <strong>Discord de DoviTools</strong>: se comparten enlaces actualizados.</li>
+      <li><strong>GitHub de R3S3t9999</strong>: <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">DoVi_Scripts</a>. En las discussions a veces hay enlaces actualizados al Drive.</li>
+    </ul>
+    <p style="font-size:12px; color:var(--text-3); font-style:italic">Nota: la URL cambia ocasionalmente (el mantenedor mueve de cuenta o reorganiza el folder). Si un día los downloads fallan, es probable que la URL haya cambiado — ve a los hilos y busca la versión actual.</p>
+
+    <h3>③ Configurar ambos en la app</h3>
+    <ol style="font-size:13px">
+      <li>Abre <strong>⚙︎ Configuración</strong> (icono arriba a la derecha).</li>
+      <li>En el campo <strong>"Google API key"</strong> pega la cadena del paso ①. Pulsa <strong>"Probar"</strong> — debe aparecer ✓ verde.</li>
+      <li>En el campo <strong>"Carpeta Drive DoviTools"</strong> pega la URL completa del paso ② (formato <code>https://drive.google.com/drive/folders/…</code>). Pulsa <strong>"Probar"</strong>.</li>
+      <li>Guarda. El modal "Nuevo proyecto" debería abrir la pestaña 📦 Repo DoviTools con el inventario ya listable.</li>
+    </ol>
+
+    <h3>Coste y cuota</h3>
+    <p>La Google Drive API tiene <strong>cuota gratuita generosa</strong>: 1.000 peticiones por cada 100 segundos por usuario, 20.000 por día para lecturas. Uso típico de la app (abrir el modal ocasionalmente, descargar algunos bins) está muy lejos del límite. No necesitas tarjeta de crédito — el <em>free tier</em> es suficiente.</p>
+
     <div class="help-callout help-callout-info">
-      <strong>Privacidad:</strong> la app guarda tu key ofuscada en el servidor y nunca la envía al navegador. Solo ves los últimos 4 caracteres como confirmación de que está configurada.
+      <strong>Privacidad:</strong> tu API key se guarda ofuscada en el servidor (fichero <code>app_settings.json</code> con permisos restrictivos) y nunca viaja al navegador. Solo se muestran los últimos 4 caracteres como confirmación de que está configurada. La URL de la carpeta del Drive DoviTools sí se muestra completa porque es un recurso público compartido de la comunidad, no un secreto.
+    </div>
+
+    <div class="help-callout help-callout-warning">
+      <strong>Problemas frecuentes:</strong>
+      <br>· <em>"Probar" falla con 403 en la API key</em> → te falta habilitar "Google Drive API" en la biblioteca del proyecto de Cloud Console (paso ① punto 3).
+      <br>· <em>"Probar" en la carpeta falla con 404</em> → la URL del folder es incorrecta o ha caducado; busca la versión vigente en los hilos del paso ②.
+      <br>· <em>El modal carga pero no aparecen películas</em> → comprueba conexión y recarga el inventario con el botón ↻ del modal (la caché local dura 24h).
     </div>
 
     <h2 id="r-structure">📁 Estructura del repo</h2>
