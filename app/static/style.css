@@ -947,6 +947,12 @@ body {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  /* Aislar el scroll del overlay-backdrop-blur: sin esto, cada tick de
+     scroll invalida la backdrop-filter:blur(8px) del .modal-overlay → todo
+     el viewport repintado → flash blanco visible ~500ms. */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
 }
 
 .track-orig-pos {

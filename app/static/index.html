@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260420bm">
+  <link rel="stylesheet" href="/static/style.css?v=20260421a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -792,7 +792,7 @@
   <div class="modal-box settings-modal-box">
     <div class="settings-head">
       <div class="modal-title">⚙︎ Configuración</div>
-      <div class="modal-sub">API keys e integraciones. Se persisten en el NAS; ganan sobre las variables de entorno.</div>
+      <div class="modal-sub">API keys e integraciones. Se persisten ofuscadas en local; ganan sobre las variables de entorno.</div>
     </div>
 
     <div class="settings-body">
@@ -838,9 +838,9 @@
         <span id="settings-drive-folder-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        Google Drive folder con los bins <code>.bin</code> CMv4.0 de REC_9999. <strong>El acceso es privado</strong> — se obtiene haciendo una donación al autor (15 CAD) en
-        <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>. Al donar, indica el correo y pide acceso al repositorio de RPUs. Recibirás por correo el link de la carpeta; pégalo aquí.
-        <br>Hasta configurar esto, toda la sección "Repo DoviTools" de los modales queda deshabilitada.
+        Google Drive folder con los bins <code>.bin</code> CMv4.0 de REC_9999. <strong>El acceso es privado</strong> — se obtiene haciendo una donación al autor (15 CAD$) en este link
+        <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>. Al donar, indica el correo y pide acceso al repositorio de RPUs. Recibirás el link de la carpeta de Google Drive; pégalo aquí.
+        <br>Hasta configurar esto, toda la sección "Repo DoviTools" queda deshabilitada.
       </div>
       <div class="settings-field-row">
         <input type="password" id="settings-drive-folder-input"
@@ -858,7 +858,7 @@
         <span id="settings-sheet-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        Google Sheet público de DoviTools con las recomendaciones de viabilidad CMv4.0 por película. Por defecto apunta al sheet oficial; puedes cambiarlo si un día se mueve o usas un fork propio. Debe ser público (<em>cualquiera con el enlace puede ver</em>).
+        Google Sheet público de DoviTools con las recomendaciones de viabilidad CMv4.0 por película. Por defecto apunta al sheet oficial; puedes cambiarlo por si un día cambia o usas un fork propio. Debe ser público (<em>cualquiera con el enlace debe poder acceder</em>).
       </div>
       <div class="settings-field-row">
         <input type="text" id="settings-sheet-input"
