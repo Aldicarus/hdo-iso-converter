@@ -16,7 +16,7 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
 |---|----------|---|-----------|
 | 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | ISO UHD Blu-ray → MKV con selección automática de pistas y soporte Dolby Vision FEL |
 | 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original (sync visual frame-a-frame, multi-proyecto) |
-| 3 | ✏️ **Editar Propiedades MKV** | `tab-panel-2` | Editor in-place de metadatos (pistas, flags, títulos, capítulos) sin re-encoding |
+| 3 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspección profunda de la metadata del MKV (codecs comerciales, bitrate, HDR10 MaxCLL/MaxFALL, Dolby Vision profile + CM version + niveles L1-L11, procedencia CMv4.0, paquetes PGS, etc.) y edición in-place de nombres de pistas, flags default/forced y capítulos sin re-encoding |
 
 **Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** se reordenan con la rename de v1.10 — `switchTab(1)` sigue abriendo el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
 

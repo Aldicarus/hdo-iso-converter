@@ -10,7 +10,7 @@ Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. E
 |---|----------|---|-------------|
 | 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL |
 | 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU Dolby Vision CMv4.0 sobre un MKV CMv2.9 del Blu-ray original, con sync visual frame-a-frame |
-| 3 | ✏️ **Editar Propiedades MKV** | `tab-panel-2` | Editor de propiedades de MKVs existentes: nombres de pistas, flags, capítulos. Sin re-encoding |
+| 3 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspecciona metadata detallada de un MKV (codecs, bitrate, HDR10, Dolby Vision + CM version y procedencia, paquetes PGS, etc.) y edita nombres de pistas, flags y capítulos sin re-encoding |
 
 ## Inicio rápido
 
@@ -113,7 +113,7 @@ MediaInfo y dovi_tool son opcionales — si fallan, el análisis continúa con d
 1. **Extracción**: `mkvmerge` lee directamente del MPLS montado → MKV final en una sola pasada. Progreso real, cancelable
 2. **Validación**: `mkvmerge -J` + `mkvextract` verifican pistas, flags y capítulos del MKV resultante
 
-## Tab "Editar Propiedades MKV"
+## Tab "Consultar / Editar MKV"
 
 Editor de propiedades instantáneo via `mkvpropedit` (O(1), sin copiar datos):
 

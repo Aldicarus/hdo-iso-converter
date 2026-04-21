@@ -24,7 +24,7 @@
         <span class="brand-sub">UHD Blu-ray Toolkit</span>
       </div>
       <span class="brand-desc-sep"></span>
-      <span class="brand-desc">Convierte, edita y potencia tus Blu-ray UHD con Dolby Vision.</span>
+      <span class="brand-desc">Convierte, inspecciona, edita y potencia tus Blu-ray UHD con Dolby Vision.</span>
     </div>
 
     <div class="header-right">
@@ -55,8 +55,8 @@
       <span class="tab-icon">✨</span> Upgrade Dolby Vision CMv4.0
     </button>
     <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
-      data-tooltip="Edita metadatos, pistas y capítulos de ficheros MKV existentes">
-      <span class="tab-icon">✏️</span> Editar Propiedades MKV
+      data-tooltip="Inspecciona metadata detallada (codecs, HDR, Dolby Vision, CM version, subs) y edita nombres, flags y capítulos de ficheros MKV existentes">
+      <span class="tab-icon">✏️</span> Consultar / Editar MKV
     </button>
   </nav>
 
@@ -460,8 +460,8 @@
         <!-- Empty state: sin MKV cargado -->
         <div id="mkv-empty-state" class="empty-state-full">
           <div class="empty-state-icon" style="font-size:48px">✏️</div>
-          <div class="empty-state-title">Editar MKV</div>
-          <div class="empty-state-desc">Edita propiedades de pistas de audio, subtítulos y capítulos de ficheros MKV existentes.</div>
+          <div class="empty-state-title">Consultar / Editar MKV</div>
+          <div class="empty-state-desc">Inspecciona la metadata detallada de cualquier MKV (codecs, bitrate, HDR, Dolby Vision, CM version, paquetes PGS…) y edita nombres de pistas, flags y capítulos sin re-encodar.</div>
           <button class="btn btn-primary btn-md" onclick="openMkvPickerModal()"
             style="margin-top:16px"><span>📂</span> Abrir MKV</button>
         </div>
