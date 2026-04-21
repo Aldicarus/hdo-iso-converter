@@ -1842,7 +1842,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#p-overview">Flujo general</a>
       <a href="#p-phases">Qué hace cada fase (y qué ves tú)</a>
       <a href="#p-gates">Cómo decide la app entre automático y manual</a>
-      <a href="#p-casos">Las 7 casuísticas típicas con diagrama</a>
+      <a href="#p-casos">Casuísticas completas por tipo de source</a>
       <a href="#p-sync">El ajustador visual (Fase D) al detalle</a>
       <a href="#p-problems">Problemas típicos y qué hacer</a>
     </div>
@@ -1984,9 +1984,11 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Modo "auditar antes de confiar":</strong> aunque el bin pase todos los gates, puedes pedir a la app que te enseñe Fase D igualmente para comprobar las curvas con tus propios ojos antes de inyectar. Es el toggle "forzar revisión interactiva" del modal de nuevo proyecto.
     </div>
 
-    <h2 id="p-casos">🌳 Las 7 casuísticas típicas con diagrama</h2>
-    <p>Cada casuística combina el <strong>tipo de Blu-ray de origen</strong> con el <strong>tipo de bin CMv4.0 disponible</strong>. Son todas las combinaciones que aparecen en la práctica con el repo DoviTools. Los pasos en color son los que se ejecutan; los grises son los que la app salta automáticamente.</p>
+    <h2 id="p-casos">🌳 Casuísticas completas por tipo de source</h2>
+    <p>Cada casuística combina el <strong>tipo de Blu-ray de origen</strong> con el <strong>tipo de bin CMv4.0 disponible</strong>. La app soporta las tres fuentes habituales (P7 FEL, P7 MEL, P8.1) cruzadas con los cuatro tipos de target, y elige automáticamente la ruta que tiene sentido en cada caso. Los pasos en color son los que se ejecutan; los grises son los que se saltan.</p>
+    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 14px">Organización: <strong>(1)</strong> source P7 FEL — el caso más frecuente, 7 variantes; <strong>(2)</strong> source P7 MEL — BDs DV 2017-2018, 4 variantes que siempre producen P8.1 single-layer; <strong>(3)</strong> source P8.1 — MKVs ya single-layer (WEB-DL o MEL ya convertido), 4 variantes de refinamiento a P8.1 mejorado.</p>
 
+    <h3 style="margin-top:14px; color:var(--blue); font-size:15px">① Source <code>P7 FEL</code> — Blu-ray UHD con capa de mejora completa</h3>
     <div class="help-pipeline-diagram">
       <div class="help-pipeline-diagram-title">Source P7 FEL + target Retail P7 FEL CMv4.0 (drop-in)</div>
       <div class="cmv40-pp-flow">
@@ -2133,6 +2135,9 @@ const _CMV40_HELP_SECTIONS = {
       <div class="help-pipeline-diagram-sub">RPU sintético creado algorítmicamente cuando no existe un master CMv4.0 oficial de la película. <strong>Rama completa obligatoria</strong> — los trims los calcula un script a partir del BD, no los ha aprobado un colorista, así que siempre revisas visualmente aunque el número de frames coincida. Calidad: mejor que el v2.9 original en TV CMv4.0-aware, pero un escalón por debajo de un bin retail.</div>
     </div>
 
+    <h3 style="margin-top:20px; color:var(--blue); font-size:15px">② Source <code>P7 MEL</code> — Blu-ray UHD con Minimal EL (típico 2017-2018)</h3>
+    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">El MEL no aporta precisión de color real respecto a un target CMv4.0 moderno. En las 4 variantes siguientes la app <strong>descarta el EL</strong> del disco y se queda solo con la Base Layer + el RPU CMv4.0 del target. Resultado: un MKV <strong>P8.1 CMv4.0 single-layer</strong>, más ligero que el origen y visualmente equivalente (o mejor) al BD original en TVs CMv4.0-aware.</p>
+
     <div class="help-pipeline-diagram">
       <div class="help-pipeline-diagram-title">Source P7 MEL → descarte EL → P8.1 CMv4.0 (con bin P8.1 retail)</div>
       <div class="cmv40-pp-flow">
@@ -2155,7 +2160,206 @@ const _CMV40_HELP_SECTIONS = {
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
       </div>
       <div class="help-pill help-pill-retail"></div>
-      <div class="help-pipeline-diagram-sub">Tu Blu-ray es MEL (típico de discos DV de 2017-2018) y el repo tiene un bin P8.1 retail. Como el MEL no aporta precisión de color real, la app lo descarta y se queda solo con la Base Layer + el RPU nuevo. El MKV final queda single-layer, es más ligero que mantener el MEL y visualmente no pierdes nada.</div>
+      <div class="help-pipeline-diagram-sub">El caso más limpio para BDs MEL: hay bin P8.1 retail firmado por colorista en el repo. Resultado single-layer con calidad máxima disponible para este disco.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 MEL + target Retail P5→P8 (transfer CMv4.0)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (MEL)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en BL</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> El bin viene de un stream P5 o P8 con trims CMv4.0. La app inyecta el RPU directamente en la BL del Blu-ray (descartando el MEL). Resultado: P8.1 CMv4.0 con los trims de la edición streaming pero sobre la BL del disco UHD.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 MEL + target P8.x retail genérico</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (MEL)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en BL</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Hay bin P8.1 de otra edición (sin los marcadores del repo tipo 'trusted_p8_source') pero con CMv4.0 válido. Mismo flujo que los anteriores: descartar EL, inyectar target en BL → P8.1 CMv4.0.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 MEL + target extraído de otro MKV</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (MEL)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL + per-frame</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">obligatoria</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección si Δ≠0</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en BL</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">Tienes un MKV propio con CMv4.0 (p.ej. WEB-DL que quieres portar al master del Blu-ray MEL) y el repo no tiene el bin exacto. La app extrae el RPU del MKV y lo usa. <strong>Siempre pasa por Fase D</strong> porque no hay pre-validación — tú garantizas la alineación frame a frame. Salida: P8.1 CMv4.0 single-layer.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P7 MEL + target Generated (sin retail disponible)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (MEL)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL + per-frame</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">obligatoria</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en BL</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-gen">Generated</span> No existe master CMv4.0 oficial de esta película. RPU sintético algorítmico. Rama completa obligatoria — trims no firmados por colorista, revisión visual siempre. Salida: P8.1 CMv4.0 single-layer. Mejor que v2.9 en TVs aware.</div>
+    </div>
+
+    <h3 style="margin-top:20px; color:var(--blue); font-size:15px">③ Source <code>P8.1</code> — MKV ya single-layer (WEB-DL o MEL ya convertido)</h3>
+    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">Cuando el source es ya P8.1 (por ejemplo un MKV WEB-DL que guardas, o un Blu-ray MEL que ya habías convertido antes), no hay capas que separar — Fase C prácticamente no hace nada. La app simplemente <strong>reemplaza el RPU del MKV por uno mejor</strong>. Estas 4 variantes tienen como objetivo tomar un P8.1 ya funcional y "mejorarlo" con un RPU CMv4.0 más afinado. Resultado: <strong>P8.1 CMv4.0 mejorado</strong>, mismo formato base pero con metadata más precisa.</p>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P8.1 + target Retail P5→P8 (transfer CMv4.0)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (P8.1)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en HEVC</span><span class="cmv40-ph-mod">in-place</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> MKV P8.1 (WEB-DL, conversión previa de MEL, etc.) al que quieres sustituir el RPU por uno CMv4.0 retail de mejor calidad. Caso casi instantáneo — no hay demux ni remux complejo, solo reemplazar el RPU en el HEVC.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P8.1 + target P8.x retail genérico</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (P8.1)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">gates trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en HEVC</span><span class="cmv40-ph-mod">in-place</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Variante del anterior con un bin P8.x de otra edición. Mismo flujo: reemplazo del RPU in-place sobre el HEVC existente → P8.1 CMv4.0 refinado.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P8.1 + target extraído de otro MKV</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (P8.1)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Per-frame solo</span><span class="cmv40-ph-mod">sin demux</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">obligatoria</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección si Δ≠0</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en HEVC</span><span class="cmv40-ph-mod">in-place</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub">Tu source ya es P8.1 y tienes otro MKV con CMv4.0 retail para la misma película. La app extrae el RPU del MKV secundario, pasa por Fase D obligatoria (sin pre-validación), y reemplaza el RPU del source. Salida: P8.1 CMv4.0 con el grading del secundario sobre la imagen del primero.</div>
+    </div>
+
+    <div class="help-pipeline-diagram">
+      <div class="help-pipeline-diagram-title">Source P8.1 + target Generated (sin retail disponible)</div>
+      <div class="cmv40-pp-flow">
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">A</span><span class="cmv40-ph-label">Analizar (P8.1)</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Per-frame solo</span><span class="cmv40-ph-mod">sin demux</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">D</span><span class="cmv40-ph-label">Verif. visual</span><span class="cmv40-ph-mod">obligatoria</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">E</span><span class="cmv40-ph-label">Corrección</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">F</span><span class="cmv40-ph-label">Inject en HEVC</span><span class="cmv40-ph-mod">in-place</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Remux single-layer</span></div>
+        <span class="cmv40-ph-arrow">→</span>
+        <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
+      </div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-gen">Generated</span> Source P8.1 sin retail disponible para mejorar el grading. Se usa un bin generated que reemplaza el RPU existente. Calidad intermedia — mejor que un P8.1 sin trims pero sin la precisión de un master nativo.</div>
+    </div>
+
+    <div class="help-callout help-callout-warning">
+      <strong>Combinaciones que la app no valida estrictamente:</strong> si tu source es P8.1 y eliges un bin target P7 FEL, el pipeline no aborta pero el resultado es incorrecto (intentas inyectar un RPU P7 en un HEVC P8). La regla práctica: <em>el target tiene que ser compatible con el source</em>. Para source P8.1, elige targets P5/P8/P8.x o generated; evita los drop-in P7 FEL/MEL.
     </div>
 
     <h2 id="p-sync">🎛️ El ajustador visual (Fase D) al detalle</h2>
