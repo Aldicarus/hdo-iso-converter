@@ -953,6 +953,10 @@ body {
   contain: paint;
   will-change: scroll-position;
   transform: translateZ(0);
+  /* Contener el rubber-band/overscroll: sin esto, al alcanzar tope o fondo
+     del scroll, el navegador propaga la acción al contenedor padre (el
+     overlay con backdrop-filter), volviendo a invalidar el viewport. */
+  overscroll-behavior: contain;
 }
 
 .track-orig-pos {
