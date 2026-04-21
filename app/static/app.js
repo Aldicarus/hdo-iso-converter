@@ -5685,9 +5685,13 @@ function _renderMkvEditPanel() {
     const lvls = [];
     if (dv.has_l1) lvls.push('L1');
     if (dv.has_l2) lvls.push('L2');
+    if (dv.has_l3) lvls.push('L3');
     if (dv.has_l5) lvls.push('L5');
     if (dv.has_l6) lvls.push('L6');
-    if (dv.has_l8) lvls.push('L8');
+    if (dv.has_l8) lvls.push(`L8${dv.l8_trim_count ? '×' + dv.l8_trim_count : ''}`);
+    if (dv.has_l9)  lvls.push('L9');
+    if (dv.has_l10) lvls.push('L10');
+    if (dv.has_l11) lvls.push('L11');
     dvLevelsLine = lvls.length ? `Niveles: ${lvls.join(' · ')}` : '';
     const counts = [];
     if (dv.scene_count) counts.push(`${dv.scene_count.toLocaleString()} escenas`);
@@ -5700,7 +5704,31 @@ function _renderMkvEditPanel() {
     const isV29 = cm.includes('2.9') || cm.includes('v2');
     if (isV40) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)">✓ CMv4.0</span>`;
-      cmHintHtml = `<span style="color:var(--text-3); font-size:11px; font-style:italic">Ya en CMv4.0 — no necesita upgrade</span>`;
+      // Procedencia: nativo vs transferred vs generado
+      // — Nativo: typicamente L11 (content type) + L9/L10 (gamut primaries) + L8 con varios trims
+      // — Generated: L8 presente pero sin L9/L10/L11, trims mínimos
+      // — Transferred: L8+L9/L10 pueden estar, pero L5 frame-coincidente con otro master
+      const authorSignals = [dv.has_l3, dv.has_l9, dv.has_l10, dv.has_l11].filter(Boolean).length;
+      const l8Trims = dv.l8_trim_count || 0;
+      let origin, originColor, originBg, originTip;
+      if (dv.has_l11 && dv.has_l9 && dv.has_l10 && l8Trims >= 3) {
+        origin = '👨‍🎨 Nativo (colorista)';
+        originColor = '#0a5cab'; originBg = 'rgba(0,122,255,0.15)';
+        originTip = `Grading CMv4.0 nativo — firmado por colorista:\n• L11 (content type) presente\n• L9/L10 (primaries) presentes\n• L8 con ${l8Trims} target displays\nCalidad máxima disponible.`;
+      } else if (authorSignals >= 2 && l8Trims >= 2) {
+        origin = '🎬 Retail / transferido';
+        originColor = '#0a5cab'; originBg = 'rgba(0,122,255,0.12)';
+        originTip = `CMv4.0 retail o transferido desde un master nativo:\n• ${authorSignals}/4 niveles de autoría (L3/L9/L10/L11)\n• L8 con ${l8Trims} target displays\nCalidad alta. Típico de upgrades desde WEB-DL o drop-ins del repo DoviTools.`;
+      } else if (dv.has_l8 && authorSignals === 0 && l8Trims <= 1) {
+        origin = '⚙️ Generado (algorítmico)';
+        originColor = '#8a4a00'; originBg = 'rgba(255,149,0,0.15)';
+        originTip = `CMv4.0 sintético, generado algorítmicamente a partir del HDR10 del disco:\n• Sin L3/L9/L10/L11 (niveles de autoría ausentes)\n• L8 con ${l8Trims || '0'} target displays\nMejor que v2.9 en TVs CMv4.0-aware, pero calidad inferior a retail.`;
+      } else {
+        origin = '❓ Procedencia incierta';
+        originColor = 'var(--text-2)'; originBg = 'rgba(142,142,147,0.18)';
+        originTip = `No se pueden distinguir con seguridad los indicadores de procedencia:\n• ${authorSignals}/4 niveles de autoría detectados\n• L8 con ${l8Trims} target displays\nPuede ser retail limitado o generated con algunos niveles añadidos.`;
+      }
+      cmBadgeHtml += ` <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:${originBg}; color:${originColor}; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="${escHtml(originTip)}">${origin}</span>`;
     } else if (isV29) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11">⚡ CMv2.9</span>`;
       cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500">→ Upgradeable a CMv4.0 (pestaña "Upgrade Dolby Vision CMv4.0")</span>`;

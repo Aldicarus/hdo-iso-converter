@@ -83,6 +83,27 @@ class DoviInfo(BaseModel):
     """L8: Trims CMv4.0 (target display colorimetry). Marker clave de CMv4.0
     — sin L8 el bin no sirve como fuente de transfer."""
 
+    has_l3: bool = False
+    """L3: Ajuste local por escena (introducido en CMv4.0). Presente típicamente
+    en grading nativo de colorista; ausente en bins generados algorítmicamente."""
+
+    has_l9: bool = False
+    """L9: Source gamut primaries (Rec.709/P3/Rec.2020). Presente en CMv4.0
+    nativo; ausente en la mayoría de bins generated/transferred."""
+
+    has_l10: bool = False
+    """L10: Target display primaries. Mismo patrón que L9 — indicador de grading
+    nativo auténtico."""
+
+    has_l11: bool = False
+    """L11: Content Type (película/deporte/animación/HDR game) — activa Dolby
+    Vision IQ en TVs 2020+. Añadido a CMv4.0 posteriormente. Presente solo en
+    masters nativos recientes; raramente en bins convertidos."""
+
+    l8_trim_count: int = 0
+    """Número de target displays distintos con trim L8 (ej: 100, 600, 1000, 2000
+    nits = 4 trims). Masters nativos tienen ≥3. Generated suelen tener 1-2."""
+
     # Valores numéricos extraídos del summary — usados para los gates de
     # trust (comparar BD vs target y decidir si son la misma edición)
     l1_max_cll: float = 0.0

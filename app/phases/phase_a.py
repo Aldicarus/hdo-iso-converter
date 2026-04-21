@@ -1037,6 +1037,23 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     # L8 (CMv4.0 target display colorimetry) — marker del transfer CMv4.0
     info.has_l8 = bool(re.search(r"L8\b|Level 8|content light level \(L8\)", summary, re.I))
 
+    # Niveles "de autoría" — más presentes en masters nativos de colorista:
+    # L3 (ajuste local por escena), L9 (source primaries), L10 (target primaries),
+    # L11 (content type). Su ausencia combinada sugiere RPU generado/transferred.
+    info.has_l3  = bool(re.search(r"L3\b|Level 3|L3 (?:offsets|trims)", summary, re.I))
+    info.has_l9  = bool(re.search(r"L9\b|Level 9|source (?:primaries|colour|color)", summary, re.I))
+    info.has_l10 = bool(re.search(r"L10\b|Level 10|target (?:primaries|display primaries)", summary, re.I))
+    info.has_l11 = bool(re.search(r"L11\b|Level 11|content type", summary, re.I))
+
+    # Número de target displays distintos con trim L8 (ej: "L8 trims: 100, 600, 1000, 2000")
+    # Nativo: ≥3 típico. Generated: 1-2.
+    m = re.search(r"L8 trims:\s*([0-9,\s]+)", summary, re.I)
+    if m:
+        try:
+            info.l8_trim_count = len([v for v in m.group(1).split(",") if v.strip().isdigit()])
+        except Exception:
+            pass
+
     # Valores numéricos para gates de trust
     # L1: "content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 92.36 nits"
     m = re.search(r"L1.*?MaxCLL:\s*([\d.]+)\s*nits.*?MaxFALL:\s*([\d.]+)\s*nits", summary, re.I | re.S)
