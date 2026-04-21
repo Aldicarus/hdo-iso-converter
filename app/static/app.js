@@ -1289,7 +1289,7 @@ const _CMV40_HELP_SECTIONS = {
   // ═══════════════════════════════════════════════════════════════
   'why-upgrade': `
     <h1>💡 Por qué hacer upgrade a CMv4.0</h1>
-    <p class="cmv40-help-lead">El objetivo: combinar el <strong>vídeo del UHD Blu-ray</strong> (la mejor calidad de imagen disponible) con el <strong>tone-mapping CMv4.0</strong> (typically extraído de versiones streaming con remaster reciente). Hay que entender qué se gana, qué no, y en qué TVs merece la pena antes de invertir horas.</p>
+    <p class="cmv40-help-lead">El objetivo: combinar el <strong>vídeo del UHD Blu-ray</strong> (la mejor calidad de imagen disponible) con el <strong>tone-mapping CMv4.0</strong> (típicamente extraído de versiones streaming con remaster reciente). Hay que entender qué se gana, qué no, y en qué TVs merece la pena antes de invertir horas.</p>
 
     <div class="help-subtoc">
       <b>En esta sección</b>
