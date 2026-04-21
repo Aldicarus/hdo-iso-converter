@@ -9702,7 +9702,19 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         if (!project.expandedPhases) project.expandedPhases = {};
         project.expandedPhases[faseKey] = true;
         project.syncData = null;
+        // Tras reset debemos invalidar el dedup del orquestador (que podría
+        // tener cacheada la última fase del run anterior) y también forzar
+        // que el overlay se recalcule para el nuevo estado, para no quedarnos
+        // con un overlay "puente" sobre una pipeline que ya no está corriendo.
+        project._lastAutoFiredFor = null;
+        project._pipelineStartMs = null;
         _updateCMv40Panel(project);
+        // Si el usuario tenía auto-avance activo, reanudarlo desde la fase a
+        // la que hemos vuelto. Si no, el overlay se oculta y el usuario dispara
+        // manualmente la fase cuando quiera.
+        if (project.autoContinue) {
+          _cmv40MaybeAutoAdvance(project);
+        }
       }
       refreshCMv40Sidebar();
       showToast(`Fase ${faseKey} lista para rehacer`, 'info');
