@@ -1625,13 +1625,8 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#r-download">Descarga y caching</a>
     </div>
 
-    <h2 id="r-access">🔑 Cómo conseguir acceso — guía paso a paso</h2>
-    <p>El repositorio vive en una carpeta pública de Google Drive mantenida por la comunidad DoviTools. La app lo consulta solo a lectura; tú no necesitas una cuenta de Google personal en la app. Para que funcione, la app necesita <strong>dos cosas</strong> que configuras una sola vez y se guardan en el servidor:</p>
-    <ol style="font-size:13px">
-      <li>Una <strong>Google API key</strong> gratuita con Drive API habilitado (para que la app pueda listar y descargar ficheros del Drive)</li>
-      <li>La <strong>URL de la carpeta del Drive DoviTools</strong> (apunta a qué carpeta leer)</li>
-    </ol>
-    <p>Sin ambas, la pestaña "📦 Repo DoviTools" del modal "Nuevo proyecto" quedará vacía. Con ambas configuradas, tienes acceso inmediato a cientos de bins pre-validados por la comunidad.</p>
+    <h2 id="r-access">🔑 Estado de acceso a este repo</h2>
+    <p>El repositorio vive en una carpeta pública de Google Drive mantenida por la comunidad DoviTools. La app necesita dos cosas para listar y descargar bins: una <strong>Google API key</strong> con Drive API habilitado, y la <strong>URL de la carpeta del Drive DoviTools</strong>. Cómo obtener ambas y configurarlas está explicado al detalle en la sección <strong>🔐 Claves y APIs</strong> al final del manual.</p>
 
     <!-- Estado actual del folder Drive configurado en este servidor -->
     <div id="help-drive-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
@@ -1641,47 +1636,6 @@ const _CMV40_HELP_SECTIONS = {
         <div id="help-drive-link-status" style="font-size:13px; font-weight:600">Cargando…</div>
         <div id="help-drive-link-meta" style="font-size:11px; color:var(--text-3); margin-top:2px; font-style:italic">—</div>
       </div>
-    </div>
-
-    <h3>① Crear la Google API key (5-10 min)</h3>
-    <ol style="font-size:13px">
-      <li>Abre <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> con tu cuenta de Google (cualquier cuenta personal vale).</li>
-      <li>Arriba a la izquierda, junto al logo de Google Cloud, despliega el selector de proyecto y pulsa <strong>"Nuevo proyecto"</strong>. Nombre sugerido: <em>HDO ISO Converter</em>. Puedes dejar la organización en "Sin organización".</li>
-      <li>Con el proyecto seleccionado, ve al menú lateral → <strong>"APIs y servicios" → "Biblioteca"</strong>. Busca <strong>"Google Drive API"</strong> y pulsa <strong>Habilitar</strong>. Sin este paso la API key no valdrá nada aunque exista.</li>
-      <li>Ve a <strong>"APIs y servicios" → "Credenciales"</strong> → <strong>"+ Crear credenciales" → "Clave de API"</strong>. Google genera una cadena larga (formato <code>AIzaSy...</code>). Cópiala.</li>
-      <li><em>Opcional pero recomendado</em>: pulsa "Editar clave de API" y bajo <strong>"Restricciones de API"</strong> selecciona "Restringir clave" → marca solo <strong>"Google Drive API"</strong>. Así la key solo vale para esto, reduciendo riesgo si se filtra.</li>
-    </ol>
-
-    <h3>② Conseguir la URL del folder DoviTools</h3>
-    <p>La URL exacta del folder no se publica en un sitio central — la comunidad la comparte en hilos. Los puntos más fiables para encontrarla hoy:</p>
-    <ul style="font-size:13px">
-      <li><strong>AVSForum hilo principal</strong>: <a href="https://www.avsforum.com/threads/ugoos-am6b-coreelec-and-dv-profile-7-fel-playback.3294526/" target="_blank" rel="noreferrer">Ugoos AM6B+ CoreELEC + DV P7 FEL</a>. El OP (R3S3T_9999 / REC_9999 / Salty01) lo actualiza con el enlace al Drive vigente.</li>
-      <li><strong>MakeMKV forum</strong>: <a href="https://forum.makemkv.com/forum/viewtopic.php?t=18602" target="_blank" rel="noreferrer">Dolby Vision hilo</a>. Referencias y enlaces al Drive entre los 7000+ posts.</li>
-      <li><strong>Reddit r/4kBluRay</strong> y <strong>Discord de DoviTools</strong>: se comparten enlaces actualizados.</li>
-      <li><strong>GitHub de R3S3t9999</strong>: <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">DoVi_Scripts</a>. En las discussions a veces hay enlaces actualizados al Drive.</li>
-    </ul>
-    <p style="font-size:12px; color:var(--text-3); font-style:italic">Nota: la URL cambia ocasionalmente (el mantenedor mueve de cuenta o reorganiza el folder). Si un día los downloads fallan, es probable que la URL haya cambiado — ve a los hilos y busca la versión actual.</p>
-
-    <h3>③ Configurar ambos en la app</h3>
-    <ol style="font-size:13px">
-      <li>Abre <strong>⚙︎ Configuración</strong> (icono arriba a la derecha).</li>
-      <li>En el campo <strong>"Google API key"</strong> pega la cadena del paso ①. Pulsa <strong>"Probar"</strong> — debe aparecer ✓ verde.</li>
-      <li>En el campo <strong>"Carpeta Drive DoviTools"</strong> pega la URL completa del paso ② (formato <code>https://drive.google.com/drive/folders/…</code>). Pulsa <strong>"Probar"</strong>.</li>
-      <li>Guarda. El modal "Nuevo proyecto" debería abrir la pestaña 📦 Repo DoviTools con el inventario ya listable.</li>
-    </ol>
-
-    <h3>Coste y cuota</h3>
-    <p>La Google Drive API tiene <strong>cuota gratuita generosa</strong>: 1.000 peticiones por cada 100 segundos por usuario, 20.000 por día para lecturas. Uso típico de la app (abrir el modal ocasionalmente, descargar algunos bins) está muy lejos del límite. No necesitas tarjeta de crédito — el <em>free tier</em> es suficiente.</p>
-
-    <div class="help-callout help-callout-info">
-      <strong>Privacidad:</strong> tu API key se guarda ofuscada en el servidor (fichero <code>app_settings.json</code> con permisos restrictivos) y nunca viaja al navegador. Solo se muestran los últimos 4 caracteres como confirmación de que está configurada. La URL de la carpeta del Drive DoviTools sí se muestra completa porque es un recurso público compartido de la comunidad, no un secreto.
-    </div>
-
-    <div class="help-callout help-callout-warning">
-      <strong>Problemas frecuentes:</strong>
-      <br>· <em>"Probar" falla con 403 en la API key</em> → te falta habilitar "Google Drive API" en la biblioteca del proyecto de Cloud Console (paso ① punto 3).
-      <br>· <em>"Probar" en la carpeta falla con 404</em> → la URL del folder es incorrecta o ha caducado; busca la versión vigente en los hilos del paso ②.
-      <br>· <em>El modal carga pero no aparecen películas</em> → comprueba conexión y recarga el inventario con el botón ↻ del modal (la caché local dura 24h).
     </div>
 
     <h2 id="r-structure">📁 Estructura del repo</h2>
@@ -2187,6 +2141,184 @@ const _CMV40_HELP_SECTIONS = {
       <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">DoVi_Scripts — scripts de la comunidad DoviTools</a> ·
       <a href="https://forum.makemkv.com/forum/viewtopic.php?t=18602" target="_blank" rel="noreferrer">MakeMKV forum — hilo de referencia sobre DV master</a> ·
       <a href="https://www.avsforum.com/threads/dolby-vision-profile-7-fel-with-full-lossless-audio-truehd-atmos-and-dts-x.3339774/" target="_blank" rel="noreferrer">AVSForum — hilo técnico sobre DV P7 FEL</a>
+    </div>
+  `,
+
+  // ═══════════════════════════════════════════════════════════════
+  // CLAVES Y APIS — guía de configuración centralizada
+  // ═══════════════════════════════════════════════════════════════
+  keys: `
+    <h1>🔐 Claves y APIs — configuración paso a paso</h1>
+    <p class="cmv40-help-lead">La app usa dos servicios externos opcionales para enriquecer la experiencia. Ambos tienen <strong>cuota gratuita</strong> y se configuran una sola vez en <strong>⚙︎ Configuración</strong>. Ninguna es obligatoria, pero la app es mucho más útil con ellas.</p>
+
+    <div class="help-subtoc">
+      <b>En esta sección</b>
+      <a href="#k-overview">Qué necesita cada servicio</a>
+      <a href="#k-tmdb">TMDb — paso a paso</a>
+      <a href="#k-google">Google API (Drive) — paso a paso</a>
+      <a href="#k-configure">Pegarlas en la app</a>
+      <a href="#k-troubleshoot">Problemas frecuentes</a>
+      <a href="#k-privacy">Privacidad y seguridad</a>
+    </div>
+
+    <h2 id="k-overview">📋 Qué necesita cada servicio</h2>
+    <table>
+      <tr><th>Servicio</th><th>Para qué lo usa la app</th><th>Qué pasa si no lo configuras</th></tr>
+      <tr>
+        <td><strong>TMDb</strong><br><span style="font-size:11px; color:var(--text-3)">(The Movie Database)</span></td>
+        <td>Traducción de títulos ES→EN, ficha extendida (póster, sinopsis, géneros, rating) en la cabecera de cada proyecto. Ayuda también a desambiguar cine no-ASCII (cine asiático).</td>
+        <td>Los proyectos se crean igual, pero sin ficha visual y con menor precisión en la búsqueda contra el repo/sheet para títulos con variantes de nombre.</td>
+      </tr>
+      <tr>
+        <td><strong>Google API</strong><br><span style="font-size:11px; color:var(--text-3)">(Drive v3)</span></td>
+        <td>Listar y descargar bins <code>.bin</code> del repositorio público DoviTools en Google Drive. También permite lectura del sheet vía API oficial.</td>
+        <td>La pestaña "📦 Repo DoviTools" del modal de nuevo proyecto queda vacía. Sigues pudiendo usar el repo descargando bins a mano a una carpeta local, pero pierdes la comodidad del flujo integrado.</td>
+      </tr>
+    </table>
+
+    <div class="help-callout help-callout-info">
+      <strong>No necesitas tarjeta de crédito para ninguna.</strong> Ambas funcionan con cuentas personales gratuitas sin métodos de pago asociados. La app está diseñada para uso doméstico — las cuotas gratuitas del free tier de Google + el acceso TMDb gratuito cubren cualquier uso razonable sin pisar los límites.
+    </div>
+
+    <h2 id="k-tmdb">🎬 TMDb — paso a paso</h2>
+    <p><strong>The Movie Database</strong> es una base de datos comunitaria de películas con API pública gratuita. No necesita pago ni aprobación comercial — cualquier cuenta personal puede solicitar una API key para uso privado.</p>
+
+    <h3>Conseguir la API key</h3>
+    <ol style="font-size:13px">
+      <li>Abre <a href="https://www.themoviedb.org/signup" target="_blank" rel="noreferrer">themoviedb.org/signup</a> y crea una cuenta (email + contraseña). Si ya tienes cuenta, entra en <a href="https://www.themoviedb.org/login" target="_blank" rel="noreferrer">themoviedb.org/login</a>.</li>
+      <li>Ve a tu perfil → <strong>Settings</strong> (Ajustes) → <strong>API</strong> en el menú lateral izquierdo. Enlace directo: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org/settings/api</a>.</li>
+      <li>En "Request an API Key" selecciona <strong>"Developer"</strong>. No necesitas "Commercial" — este es gratis.</li>
+      <li>Acepta los términos de uso. Rellena el formulario con datos reales:
+        <ul style="margin-top:4px">
+          <li><em>Application name</em>: <strong>HDO ISO Converter</strong> (o el nombre que quieras)</li>
+          <li><em>Application URL</em>: cualquier URL válida (por ejemplo <code>http://localhost</code> si no tienes dominio — vale)</li>
+          <li><em>Application summary</em>: <em>Uso doméstico para enriquecer metadata de películas en biblioteca personal</em></li>
+          <li>Tipo: <em>Personal</em> / <em>Non-commercial</em></li>
+        </ul>
+      </li>
+      <li>Envía. La aprobación es <strong>instantánea</strong> — recarga la página y verás tu key en la misma sección. Hay dos valores:
+        <ul style="margin-top:4px">
+          <li><strong>API Key (v3 auth)</strong> — una cadena corta tipo <code>1a2b3c4d5e6f...</code> → <em>esta es la que necesitas</em>.</li>
+          <li><strong>API Read Access Token (v4 auth)</strong> — una cadena larga JWT — <em>esta NO la uses</em>, la app usa v3.</li>
+        </ul>
+      </li>
+      <li>Cópiala al portapapeles. La configurarás en la app en la sección <a href="#k-configure">"Pegarlas en la app"</a>.</li>
+    </ol>
+
+    <h3>Cuota TMDb</h3>
+    <p>Sin límite explícito para uso personal. TMDb pide no hacer más de 50 peticiones por segundo (imposible alcanzarlo con uso normal). No hay cuota diaria.</p>
+
+    <h2 id="k-google">🔑 Google API (Drive) — paso a paso</h2>
+    <p>Google Cloud te da una API key gratuita con cuotas generosas. Es el mismo mecanismo que usan aplicaciones profesionales — el setup parece intimidante la primera vez, pero se hace en ~10 minutos.</p>
+
+    <h3>Crear un proyecto en Google Cloud</h3>
+    <ol style="font-size:13px">
+      <li>Abre <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">console.cloud.google.com</a> con tu cuenta de Google (cualquier Gmail vale — no hace falta cuenta de pago, solo una cuenta Google normal).</li>
+      <li>Si es tu primera vez, Google te pedirá aceptar los términos de Cloud Console. Acepta. No te pedirá tarjeta; el free tier funciona sin ella.</li>
+      <li>Arriba a la izquierda, justo al lado del logo de Google Cloud, hay un selector de proyecto. Pulsa sobre él.</li>
+      <li>En la ventana que se abre, arriba a la derecha, pulsa <strong>"Nuevo proyecto"</strong>.</li>
+      <li>Rellena:
+        <ul style="margin-top:4px">
+          <li><em>Nombre</em>: <strong>HDO ISO Converter</strong> (o lo que quieras)</li>
+          <li><em>Organización</em>: deja "Sin organización" si no perteneces a una</li>
+          <li><em>Ubicación</em>: "Sin organización"</li>
+        </ul>
+      </li>
+      <li>Pulsa <strong>Crear</strong>. Google tardará unos segundos en aprovisionarlo; verás una notificación cuando esté listo. Asegúrate de que el selector de proyecto arriba muestra tu proyecto nuevo (no otro que tuvieras antes).</li>
+    </ol>
+
+    <h3>Habilitar la Google Drive API</h3>
+    <div class="help-callout help-callout-warning">
+      <strong>Este paso es crítico.</strong> Sin habilitar la API, la key no funciona aunque la generes correctamente. Es el error más común al configurar.
+    </div>
+    <ol style="font-size:13px">
+      <li>Con tu proyecto seleccionado arriba, abre el menú lateral (☰ arriba a la izquierda) → <strong>APIs y servicios</strong> → <strong>Biblioteca</strong>. Enlace directo: <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noreferrer">console.cloud.google.com/apis/library</a>.</li>
+      <li>En el buscador escribe <strong>"Google Drive API"</strong>. Pulsa en la tarjeta del resultado.</li>
+      <li>Pulsa el botón azul <strong>"Habilitar"</strong> (Enable). Espera unos segundos. Cuando termine verás una pantalla con métricas de uso (inicialmente a cero).</li>
+    </ol>
+
+    <h3>Crear la API key</h3>
+    <ol style="font-size:13px">
+      <li>Menú lateral → <strong>APIs y servicios</strong> → <strong>Credenciales</strong>. Enlace directo: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">console.cloud.google.com/apis/credentials</a>.</li>
+      <li>Arriba pulsa <strong>"+ Crear credenciales"</strong> → <strong>"Clave de API"</strong>.</li>
+      <li>Google genera una cadena larga (formato <code>AIzaSy...</code> — 39 caracteres). Cópiala al portapapeles.</li>
+      <li><em>Opcional pero recomendado</em>: en el popup de "Clave de API creada" pulsa <strong>"Editar clave de API"</strong> (o luego desde la lista de credenciales). En la sección <strong>"Restricciones de API"</strong> selecciona <strong>"Restringir clave"</strong> → marca solo <strong>"Google Drive API"</strong>. Guarda.<br>
+        <em>Por qué</em>: si la key se filtrara, el atacante solo podría hacer peticiones a Drive, no a otras APIs de Google. Es una buena práctica de seguridad.</li>
+    </ol>
+
+    <h3>Cuota Google Drive API</h3>
+    <p>Free tier generoso para uso personal:</p>
+    <ul style="font-size:13px">
+      <li><strong>1.000 peticiones por 100 segundos</strong> por usuario (~10 req/s sostenido)</li>
+      <li><strong>20.000 peticiones/día</strong> para lecturas</li>
+    </ul>
+    <p>Uso típico de la app (abrir el modal de nuevo proyecto una docena de veces al día, descargar algunos bins) está <em>muy</em> por debajo. No verás límites.</p>
+
+    <h2 id="k-configure">📝 Pegarlas en la app</h2>
+    <ol style="font-size:13px">
+      <li>En la app, pulsa el icono <strong>⚙︎</strong> arriba a la derecha para abrir el modal de Configuración.</li>
+      <li>En <strong>"TMDb API key"</strong> pega la cadena corta (v3 auth) del paso TMDb. Pulsa <strong>"Probar"</strong>. Si todo va bien verás ✓ verde y un título de prueba.</li>
+      <li>En <strong>"Google API key"</strong> pega la cadena <code>AIzaSy...</code>. Pulsa <strong>"Probar"</strong>.</li>
+      <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong>📦 Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
+      <li>Pulsa <strong>Guardar</strong>. La configuración queda en el servidor; no hay que reintroducirla al reabrir el navegador.</li>
+    </ol>
+
+    <h2 id="k-troubleshoot">❓ Problemas frecuentes</h2>
+    <table>
+      <tr><th>Síntoma</th><th>Causa</th><th>Solución</th></tr>
+      <tr>
+        <td>"Probar" en Google API key devuelve <strong>403</strong></td>
+        <td>La Google Drive API no está habilitada en tu proyecto de Cloud Console</td>
+        <td>Vuelve al paso "Habilitar la Google Drive API" — es el más olvidado.</td>
+      </tr>
+      <tr>
+        <td>"Probar" en Google API key devuelve <strong>400 Bad Request</strong></td>
+        <td>La clave es sintácticamente inválida (faltó un carácter al copiar)</td>
+        <td>Vuelve a copiar desde la consola de Google. Debe tener 39 caracteres y empezar por <code>AIzaSy</code>.</td>
+      </tr>
+      <tr>
+        <td>"Probar" en Google API key devuelve <strong>referer not allowed</strong></td>
+        <td>Has restringido la key por HTTP referrer en lugar de por API</td>
+        <td>Edita la key en Cloud Console y cambia la restricción de "Restricciones de aplicación" a <strong>None</strong>. Usa solo "Restricciones de API" para acotarla a Drive.</td>
+      </tr>
+      <tr>
+        <td>"Probar" en carpeta Drive devuelve <strong>404</strong></td>
+        <td>La URL de la carpeta es incorrecta o la carpeta ha cambiado de propietario</td>
+        <td>Busca la URL vigente en los hilos de AVSForum / MakeMKV / Discord DoviTools listados en la sección <strong>📦 Repositorio DoviTools</strong>.</td>
+      </tr>
+      <tr>
+        <td>"Probar" en TMDb key devuelve <strong>401 Unauthorized</strong></td>
+        <td>Has pegado el "Read Access Token v4" en lugar de la "API Key v3"</td>
+        <td>Vuelve a themoviedb.org/settings/api y copia el campo <strong>"API Key (v3 auth)"</strong> — el corto, no el JWT largo.</td>
+      </tr>
+      <tr>
+        <td>TMDb funciona pero no encuentra la película</td>
+        <td>Título demasiado ofuscado por tags del filename</td>
+        <td>Usa el botón <strong>🔎 Consulta</strong> del tab CMv4.0 y busca manualmente por título + año. La ficha aparecerá con el título canónico.</td>
+      </tr>
+    </table>
+
+    <h2 id="k-privacy">🔒 Privacidad y seguridad</h2>
+    <ul>
+      <li><strong>Dónde se guardan</strong>: ambas keys se persisten en <code>/config/app_settings.json</code> dentro del volumen Docker del servidor, con permisos restrictivos de fichero. Nunca salen de tu NAS / servidor local.</li>
+      <li><strong>Qué ve el navegador</strong>: nada. El servidor nunca envía los valores crudos al frontend — solo los últimos 4 caracteres como confirmación de que están configuradas.</li>
+      <li><strong>Compartir el fichero</strong>: si haces backup del volumen <code>/config</code>, estás copiando tus keys. Trátalas como credenciales personales.</li>
+      <li><strong>Rotación</strong>: si sospechas que una key se ha filtrado, genera una nueva en Google Cloud / TMDb, pégala en la app y borra la anterior desde la consola de origen.</li>
+      <li><strong>Variables de entorno</strong>: alternativa a configurar en la UI — puedes pasar <code>TMDB_API_KEY</code> y <code>GOOGLE_API_KEY</code> como env vars al contenedor. La UI tendrá prioridad si están ambas fuentes.</li>
+    </ul>
+
+    <div class="help-callout help-callout-info">
+      <strong>Resumen:</strong> TMDb es casi instantáneo (cuenta + formulario de aprobación automática). Google es más laborioso porque requiere crear un proyecto en Cloud Console y habilitar la Drive API — ~10 minutos la primera vez. Con ambas configuradas la app alcanza su potencial completo: fichas con póster, sinopsis y géneros; acceso directo a cientos de bins pre-validados; búsqueda robusta en idiomas no latinos.
+    </div>
+
+    <div class="help-sources">
+      <b>Enlaces útiles</b>
+      <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">TMDb — API keys</a> ·
+      <a href="https://developer.themoviedb.org/docs/getting-started" target="_blank" rel="noreferrer">TMDb — Docs oficiales</a> ·
+      <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">Google Cloud Console</a> ·
+      <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Habilitar Google Drive API</a> ·
+      <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Google Cloud — Credenciales</a> ·
+      <a href="https://developers.google.com/drive/api/guides/about-sdk" target="_blank" rel="noreferrer">Google Drive API v3 — Docs</a>
     </div>
   `
 };
