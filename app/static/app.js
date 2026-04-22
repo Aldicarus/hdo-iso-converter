@@ -5492,6 +5492,9 @@ function stopColaExecTimer() {
 function appendConsole(text) {
   const c = E('console-wrap');
   if (!c) return;
+  // Smart scroll: solo auto-scroll al final si el usuario ya estaba en el
+  // fondo. Si ha scrolleado arriba para leer, no le arrastramos.
+  const wasAtBottom = _isScrolledNearBottom(c);
   const line = document.createElement('div');
   const low  = text.toLowerCase();
   if (low.startsWith('[fase') || low.startsWith('[pipeline')) line.className = 'log-phase';
@@ -5500,7 +5503,7 @@ function appendConsole(text) {
   else if (low.startsWith('prgv:'))                          line.className = 'log-prog';
   line.textContent = text;
   c.appendChild(line);
-  c.scrollTop = c.scrollHeight;
+  if (wasAtBottom) c.scrollTop = c.scrollHeight;
 }
 
 /** Vacía el contenido de la consola de output. */
@@ -5531,6 +5534,10 @@ function _renderCsbLog() {
   // Renderiza en un elemento dado — misma paleta rica que Tab 3
   const fill = (c) => {
     if (!c) return;
+    // Smart scroll: capturar si el usuario estaba en el fondo ANTES de borrar.
+    // Si scrolleo arriba para leer lineas previas, respetamos su posicion.
+    const wasAtBottom = _isScrolledNearBottom(c);
+    const prevScrollTop = c.scrollTop;
     c.innerHTML = '';
     lines.forEach(text => {
       const div = document.createElement('div');
@@ -5543,7 +5550,13 @@ function _renderCsbLog() {
       div.textContent = text;
       c.appendChild(div);
     });
-    c.scrollTop = c.scrollHeight;
+    if (wasAtBottom) {
+      c.scrollTop = c.scrollHeight;
+    } else {
+      // Restaurar aproximadamente la posicion previa. Al re-render con
+      // innerHTML=""  el scrollTop se resetea a 0, asi que lo reponemos.
+      c.scrollTop = prevScrollTop;
+    }
   };
 
   fill(document.getElementById('csb-log-viewer'));  // sidebar compacto
