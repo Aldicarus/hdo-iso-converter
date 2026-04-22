@@ -10256,8 +10256,13 @@ function _cmv40MaybeAutoAdvance(project) {
         } else {
           _cmv40AutoTargetMkv(pid, t.value);
         }
+      } else {
+        // Pause point: sin pendingTarget, el usuario debe provisionar manual.
+        // Apagamos _autoChaining para que el overlay se oculte y la UI vuelva
+        // al proyecto. autoContinue se mantiene ON para retomar si el usuario
+        // lanza Fase B manualmente.
+        project._autoChaining = false;
       }
-      // Si no hay pendingTarget, usuario debe provisionar manual (no auto)
       break;
     case 'target_provided':
       cmv40DoExtract(pid);
@@ -10274,10 +10279,16 @@ function _cmv40MaybeAutoAdvance(project) {
           s.phases_skipped.push('sync_verification_pause');
         }
         _cmv40AutoMarkSynced(pid);
+      } else {
+        // Pause point: target no pasó los trust gates (caso MKV custom o bin
+        // generated). El flujo se detiene aqui a la espera de revisión visual
+        // manual en Fase D. Apagamos _autoChaining para que el overlay se oculte
+        // y el usuario pueda interactuar con el chart. autoContinue se mantiene
+        // ON para que al pulsar "Confirmar sync" (o aplicar correccion) la
+        // cadena retome automaticamente hacia Fase F.
+        project._autoChaining = false;
+        showToast('⏸️ Auto pausado en Fase D — los gates requieren revisión manual del sync', 'info');
       }
-      // Si no es trusted, el flujo se pausa aquí esperando revisión visual
-      // del usuario en Fase D; no hace falta toast — el banner azul del
-      // proyecto ya lo indica.
       break;
     }
     case 'sync_verified':
