@@ -7332,26 +7332,32 @@ function _cmv40PlanAutoSteps(s) {
     what: gWhat, etaSecs: etaG,
   });
 
-  // Gate G→H: validación final pre-finalizar (profile + CM v4.0 + frames).
-  // Esto es lo que antes se llamaba "Fase H" — renombrado el H a "Finalizar"
-  // más abajo y dejado aquí solo el gate de validación estructural.
+  // Gate G→H: decisión instantanea sobre el resultado de Fase H (profile + CM
+  // v4.0 + frames). La etaSecs es 0 — es solo la trazabilidad del veredicto;
+  // el trabajo real de validacion vive dentro de Fase H. Antes etaSecs=etaH
+  // duplicaba el tiempo mostrado en el timeline.
   const validatedIdx = CMV40_PHASES_ORDER.indexOf('validated');
   const gateGHStatus = (curIdxForGate < validatedIdx) ? 'pending' : 'done';
   const gateGHLabel = (curIdxForGate < validatedIdx)
-    ? (s.running_phase === 'validating' ? 'en curso…' : 'pendiente')
+    ? (s.running_phase === 'validate' ? 'en curso…' : 'pendiente')
     : 'validación OK';
   steps.push({
     key: 'GATE_GH', icon: '🛡️', title: 'Validación final pre-finalizar',
     what: 'dovi_tool info + mkvmerge -J verifican profile + CM v4.0 + frame count del MKV resultante',
-    etaSecs: etaH,
+    etaSecs: 0,
     forcedStatus: gateGHStatus, customLabel: gateGHLabel,
     isGate: true,
   });
 
+  // Fase H = validar + finalizar. El backend unifica en running_phase='validate'
+  // tanto el extract-rpu del HEVC pre-mux (~150s en UHD BD) como el mkvmerge -J
+  // (~2s) y el rename atomico (instantaneo). El ETA visible debe reflejar todo
+  // el trabajo, no solo el rename — antes etaSecs=2 hacia que el timeline dijera
+  // "ETA 2s" cuando quedaban 2min 30s reales.
   steps.push({
-    key: 'H', icon: '✅', title: 'Fase H · Finalizar',
-    what: 'Mover MKV al output final, cleanup de artefactos temporales',
-    etaSecs: 2,
+    key: 'H', icon: '✅', title: 'Fase H · Validar + finalizar',
+    what: 'Validación DV completa (extract-rpu full-stream + dovi_tool info + mkvmerge -J) → rename atómico → cleanup',
+    etaSecs: etaH,
   });
 
   return steps;
