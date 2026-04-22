@@ -809,17 +809,30 @@ async def run_pgs_packet_counts(
             if not progress_callback or total_bytes <= 0 or proc.pid is None:
                 return
             pid = proc.pid
+            # rchar = total bytes pasados a read() (incluye page cache).
+            # read_bytes = I/O real al bloque → 0 si el MKV ya está en cache.
+            # Usamos rchar como primary y read_bytes como fallback por si
+            # el kernel no expone rchar (algunos containers restringidos).
             while not stop_monitor.is_set():
                 try:
+                    rchar = 0
+                    read_bytes = 0
                     with open(f"/proc/{pid}/io") as f:
-                        read = 0
                         for line in f:
-                            if line.startswith("read_bytes:"):
-                                read = int(line.split(":", 1)[1].strip())
-                                break
+                            if line.startswith("rchar:"):
+                                rchar = int(line.split(":", 1)[1].strip())
+                            elif line.startswith("read_bytes:"):
+                                read_bytes = int(line.split(":", 1)[1].strip())
+                    read = rchar if rchar > 0 else read_bytes
                     pct = min(99.0, (read / total_bytes) * 100.0)
                     elapsed = time.monotonic() - start_ts
-                    eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
+                    # ETA basado en velocidad observada; si pct<1% usamos
+                    # el elapsed en seg con un techo razonable (evitamos
+                    # mostrar "1h" cuando es un arranque frio de 3 seg)
+                    if pct > 1:
+                        eta = (elapsed / pct) * (100 - pct)
+                    else:
+                        eta = None
                     try:
                         await progress_callback(pct, int(eta) if eta else 0)
                     except Exception:
