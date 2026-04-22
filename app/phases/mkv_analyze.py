@@ -196,9 +196,13 @@ async def analyze_mkv(
         if sub_tracks_list:
             await _emit("pgs")
             from phases.phase_a import run_pgs_packet_counts
+            # Pasamos duration_s para que run_pgs_packet_counts muestree los
+            # primeros 20 min (si el MKV dura >30 min) y escale por proporción
+            # -> misma cadencia, misma clasificación, 5-10× más rápido.
             pkt_counts = await run_pgs_packet_counts(
                 mkv_path,
                 progress_callback=pgs_progress_callback,
+                total_duration_seconds=duration_s,
             )
             # ffprobe devuelve stream_index absoluto dentro del MKV,
             # que coincide con mkvmerge "id" de pista.

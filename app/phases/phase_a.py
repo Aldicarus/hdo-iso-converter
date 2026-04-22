@@ -769,6 +769,8 @@ def find_main_m2ts(share_path: str) -> str | None:
 async def run_pgs_packet_counts(
     m2ts_path: str,
     progress_callback=None,
+    sample_seconds: int | None = 1200,
+    total_duration_seconds: float = 0.0,
 ) -> dict[int, int]:
     """Cuenta paquetes por pista PGS del m2ts usando ffprobe -count_packets.
 
@@ -776,12 +778,21 @@ async def run_pgs_packet_counts(
     subtítulos (forzado vs completo vs audiodescripción), ya que MediaInfo
     y el bit_rate de ffprobe devuelven N/A para PGS.
 
+    Si `sample_seconds` (default 1200 = 20 min) y `total_duration_seconds` se
+    pasan, y el fichero dura más del 1.5× del sample, contamos solo los primeros
+    `sample_seconds` (via ffprobe -read_intervals) y ESCALAMOS la cuenta al
+    total por proporción de duración. Asi la cadencia (pkts/sec) se preserva y
+    phase_b puede seguir usando los umbrales absolutos habituales (<500 forzado,
+    etc.). Para ficheros cortos o sin duración conocida, se lee completo.
+
     Si se pasa ``progress_callback(pct: float, eta_s: int)``, se emite
     progreso real basado en bytes leídos por el proceso (vía /proc/{pid}/io)
-    cada 2 segundos.
+    cada 2 segundos. En modo sampling el progreso se calcula contra los bytes
+    esperados del tramo muestreado, no contra el fichero entero.
 
-    Devuelve {stream_index: packet_count}. Dict vacío si ffprobe falla.
-    Tarda ~1-3 min en m2ts de 60GB.
+    Devuelve {stream_index: packet_count} (ya escalado si hubo sampling). Dict
+    vacío si ffprobe falla.
+    Full: ~1-3 min en m2ts de 60GB. Sampling 20 min: ~15-30s.
     """
     import time
     try:
@@ -789,14 +800,35 @@ async def run_pgs_packet_counts(
     except Exception:
         total_bytes = 0
 
+    # Decide si muestreamos. Condiciones: sample_seconds positivo + duración
+    # conocida y > 1.5× sample. Sin duración conocida no podemos escalar el
+    # resultado -> leemos todo para no corromper el count.
+    do_sample = (
+        sample_seconds is not None
+        and sample_seconds > 0
+        and total_duration_seconds > sample_seconds * 1.5
+    )
+    scale_factor = 1.0
+    ffprobe_args = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "s",
+        "-count_packets",
+    ]
+    if do_sample:
+        ffprobe_args += ["-read_intervals", f"0%{sample_seconds}"]
+        scale_factor = total_duration_seconds / float(sample_seconds)
+        # Bytes esperados del tramo muestreado — aprox. proporcional al tiempo
+        if total_bytes > 0 and total_duration_seconds > 0:
+            total_bytes = int(total_bytes * sample_seconds / total_duration_seconds)
+    ffprobe_args += [
+        "-show_entries", "stream=index,nb_read_packets",
+        "-of", "csv=p=0",
+        m2ts_path,
+    ]
+
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
-            "-select_streams", "s",
-            "-count_packets",
-            "-show_entries", "stream=index,nb_read_packets",
-            "-of", "csv=p=0",
-            m2ts_path,
+            *ffprobe_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -867,9 +899,18 @@ async def run_pgs_packet_counts(
             if len(parts) >= 2:
                 try:
                     idx, pkt = int(parts[0]), int(parts[1])
-                    result[idx] = pkt
+                    # Escalar por duracion si hubo sampling — preserva la
+                    # cadencia (pkts/sec) y mantiene los umbrales absolutos
+                    # de phase_b compatibles (<500 forzado, etc.).
+                    scaled = int(round(pkt * scale_factor)) if scale_factor != 1.0 else pkt
+                    result[idx] = scaled
                 except ValueError:
                     continue
+        if do_sample and result:
+            _logger.info(
+                "PGS count sampling: %ds de %ds (scale ×%.2f), resultados extrapolados",
+                sample_seconds, int(total_duration_seconds), scale_factor,
+            )
         return result
     except asyncio.TimeoutError:
         _logger.warning("ffprobe packet count: timeout tras 10 min")
@@ -1252,8 +1293,19 @@ async def run_full_analysis(
         # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de 60GB.
         try:
             if log_callback:
-                await log_callback("[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe (1-3 min, paso dominante)…")
-            pgs_packets = await run_pgs_packet_counts(m2ts_path, progress_callback=pgs_progress_callback)
+                dur_min = (bdinfo.duration_seconds or 0) / 60.0
+                if dur_min > 25:
+                    await log_callback(
+                        f"[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe "
+                        f"(muestra 20 min de {dur_min:.0f} min, ~15-30s)…"
+                    )
+                else:
+                    await log_callback("[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe…")
+            pgs_packets = await run_pgs_packet_counts(
+                m2ts_path,
+                progress_callback=pgs_progress_callback,
+                total_duration_seconds=bdinfo.duration_seconds or 0,
+            )
             if pgs_packets:
                 # ffprobe devuelve índices ascendentes; asignamos por posición
                 # a subtitle_tracks (ambos en el mismo orden del m2ts).
