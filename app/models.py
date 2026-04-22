@@ -897,6 +897,11 @@ class CMv40Session(BaseModel):
     source_video_codec: str = ""
     source_duration_seconds: float = 0.0
 
+    source_file_size_bytes: int = 0
+    """Tamaño del MKV origen (persistido al crear la sesion). Usado para
+    calcular un fallback anchor del ETA escalado al tamaño real del fichero,
+    antes de que Fase A mida ffmpeg_wall_seconds en esta maquina."""
+
     ffmpeg_wall_seconds: float = 0.0
     """Wall-time medido de la extracción ffmpeg HEVC del source (Fase A).
     Usado como ancla para estimar el ETA de fases silenciosas posteriores

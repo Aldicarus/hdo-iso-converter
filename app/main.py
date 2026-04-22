@@ -1713,6 +1713,14 @@ async def cmv40_create(body: CMv40CreateRequest):
     # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo
     default_name = body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv")
 
+    # Tamaño del MKV → ETA fallback escalado al tamaño real. Best-effort:
+    # si falla (DEV_MODE con rutas fake, permisos) se queda en 0 y el ETA
+    # usa el fallback constante.
+    try:
+        source_size = Path(mkv_path).stat().st_size if Path(mkv_path).exists() else 0
+    except Exception:
+        source_size = 0
+
     session = CMv40Session(
         id=sid,
         source_mkv_path=mkv_path,
@@ -1720,6 +1728,7 @@ async def cmv40_create(body: CMv40CreateRequest):
         output_mkv_name=default_name,
         artifacts_dir=str(artifacts_dir),
         phase=CMv40Phase.CREATED,
+        source_file_size_bytes=source_size,
     )
     save_cmv40_session(session)
     cmv40_get_workdir(session)  # crea el directorio

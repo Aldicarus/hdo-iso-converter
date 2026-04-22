@@ -7087,11 +7087,12 @@ const CMV40_ETA = {
   fps_export:    7000,
   fps_inject:    400,    // 155001/388 observado en drop-in (antes 545 era subestimacion)
   fps_mux:       415,    // 155001/373 ≈ 415 (antes 711)
-  // Fallback inicial cuando aun no tenemos ffmpeg_wall_seconds. Un UHD BD
-  // tipico de ~2h / 35-50 GB HEVC rinde ffmpeg extract ~180s en NAS ZFS.
-  // Usarlo de seed evita el salto de "5 min → 25 min" cuando llega el dato
-  // real; ahora va de ~18 → ~17 → ... progresion limpia hacia 0.
-  ffmpeg_wall_fallback_s: 180,
+  // Fallback inicial cuando aun no tenemos ffmpeg_wall_seconds ni tamaño
+  // del fichero (sesiones pre-v1.10.3). Los usuarios tipicos de UHD BD manejan
+  // 60-70 GB — ffmpeg extract ~280-330s en NAS ZFS a ~220 MB/s. Antes era 180
+  // (caso 35-42 GB) que subestimaba. Con tamaño en session usamos scaling en
+  // _cmv40FallbackAnchor; este valor solo aplica a sesiones viejas sin size.
+  ffmpeg_wall_fallback_s: 260,
 };
 
 /** Deduce el label de la siguiente fase que el auto-pipeline disparara,
@@ -7148,6 +7149,24 @@ function _cmv40StepElapsedSecs(stepKey, s) {
   return found ? total : null;
 }
 
+/** Calcula el anchor fallback (segundos estimados de ffmpeg extract) a partir
+ *  del tamaño del MKV origen. El usuario tipico de UHD BD maneja 40-70 GB;
+ *  usar 180s constante subestimaba cuando el MKV era grande.
+ *
+ *  Calibracion: NAS ZFS observado ~239 MB/s en ffmpeg -c copy. Tomamos 220
+ *  MB/s como margen conservador (mejor sobreestimar el ETA que quedarse corto).
+ *  Para 42 GB sale ~195s (observado 182s, +7%), para 65 GB ~302s, para 70 GB ~326s.
+ */
+function _cmv40FallbackAnchor(s) {
+  const size = s && s.source_file_size_bytes;
+  if (size && size > 0) {
+    const mbps = 220;                       // MB/s — margen conservador
+    const secs = size / (mbps * 1024 * 1024);
+    return Math.max(60, Math.min(900, secs));   // clamp [60s, 15min]
+  }
+  return CMV40_ETA.ffmpeg_wall_fallback_s;   // 180s por defecto si no hay size
+}
+
 /** Estima segundos de una sub-tarea usando ffmpeg wall time (anchor) o
  *  frame_count × fps como fallback. */
 function _cmv40EstimateSecs(s, ratio, fps) {
@@ -7157,10 +7176,9 @@ function _cmv40EstimateSecs(s, ratio, fps) {
   if (s.source_frame_count && s.source_frame_count > 0) {
     return Math.max(5, s.source_frame_count / fps);
   }
-  // Fallback usando un anchor tipico de UHD BD (evita que todos los pasos
-  // caigan a 60s constante — eso producia un total inicial de 5 min que
-  // luego saltaba a 25 min cuando llegaba el anchor real).
-  return Math.max(5, CMV40_ETA.ffmpeg_wall_fallback_s * ratio);
+  // Fallback escalado al tamaño del fichero origen (si disponible), evitando
+  // el salto de "5 min → 25 min" cuando llega el anchor real de Fase A.
+  return Math.max(5, _cmv40FallbackAnchor(s) * ratio);
 }
 
 /** Formatea segundos como "Xm Ys" o "~Xm". */
