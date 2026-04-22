@@ -2059,29 +2059,38 @@ async def _merge_cmv40_into_p7(
       - L3/L8/L9/L10/L11 transferidos frame-a-frame desde el streaming CMv4.0
       - L254 añadido implícitamente por dovi_tool (marca el CMv4.0)
     """
-    # ── Pre-check: frame count debe coincidir ────────────────────────
+    # ── Pre-check: frame count debe coincidir + capturar profile de entrada ─
     rc_s, sum_s, _ = await _run([
         DOVI_TOOL_BIN, "info", "-s", "-i", str(rpu_source_p7),
     ], timeout=30)
     rc_t, sum_t, _ = await _run([
         DOVI_TOOL_BIN, "info", "-s", "-i", str(rpu_target_v40),
     ], timeout=30)
-    frames_bd = _parse_dovi_summary(sum_s).frame_count if rc_s == 0 else 0
+    source_info = _parse_dovi_summary(sum_s) if rc_s == 0 else None
+    frames_bd = source_info.frame_count if source_info else 0
     frames_tgt = _parse_dovi_summary(sum_t).frame_count if rc_t == 0 else 0
     if frames_bd == 0 or frames_tgt == 0:
         raise RuntimeError("No se pudo leer frame count de uno de los RPUs con dovi_tool info")
     if frames_bd != frames_tgt:
         raise RuntimeError(
             f"Frame count mismatch ANTES del merge CMv4.0:\n"
-            f"  RPU BD (source P7):    {frames_bd} frames\n"
-            f"  RPU target (streaming): {frames_tgt} frames\n"
+            f"  RPU source:   {frames_bd} frames\n"
+            f"  RPU target:   {frames_tgt} frames\n"
             f"Diferencia: {frames_tgt - frames_bd:+d}\n\n"
             f"→ Vuelve a la Fase D («Verificar sincronización») y aplica la corrección "
             f"(remove/duplicate) hasta que Δ = 0. Después reanuda la inyección."
         )
+    # Profile/el_type del source ANTES del merge — se usa en la verificacion
+    # post-merge para confirmar que el transfer NO altero la estructura.
+    # El output hereda profile/el_type del INPUT, asi que estos son los
+    # valores esperados independientemente de la profile del target.
+    expected_profile = source_info.profile if source_info else 0
+    expected_el_type = source_info.el_type if source_info else ""
     if log_callback:
+        el_label = f" {expected_el_type}" if expected_el_type else ""
         await log_callback(
-            f"[Fase F] Frame counts OK: BD={frames_bd}, target={frames_tgt} (match)"
+            f"[Fase F] Frame counts OK: source={frames_bd}, target={frames_tgt} (match). "
+            f"Profile source: P{expected_profile}{el_label} (se preserva en el output)"
         )
 
     # ── Merge según bbeny123/remuxer (PR #351 en dovi_tool 2.3.0+) ──
@@ -2127,6 +2136,11 @@ async def _merge_cmv40_into_p7(
         )
 
     # ── Verificación post-merge ──────────────────────────────────────
+    # El allow_cmv4_transfer copia levels (L1-L11) del target al source
+    # preservando la ESTRUCTURA del source (profile + el_type). Por eso
+    # comparamos contra los valores capturados antes del merge, no contra
+    # una expectativa fija como 'FEL'. Asi la funcion sirve para P7 FEL,
+    # P7 MEL y P8 sources indistintamente.
     rc, summary, _ = await _run([
         DOVI_TOOL_BIN, "info", "-s", "-i", str(output),
     ], timeout=30)
@@ -2134,11 +2148,16 @@ async def _merge_cmv40_into_p7(
         raise RuntimeError("No se pudo leer el RPU merged con dovi_tool info")
     result_info = _parse_dovi_summary(summary)
 
-    # Checkpoints esperados: FEL preservado, CM v4.0, mismo frame count
     errors: list[str] = []
-    if result_info.el_type != "FEL":
+    if expected_profile and result_info.profile != expected_profile:
         errors.append(
-            f"el_type={result_info.el_type!r} (esperado 'FEL' — se perdió la estructura dual-layer)"
+            f"profile={result_info.profile} (esperado {expected_profile} — "
+            f"el transfer alteró la profile del source, deberia haber sido idempotente)"
+        )
+    if result_info.el_type != expected_el_type:
+        errors.append(
+            f"el_type={result_info.el_type!r} (esperado {expected_el_type!r} — "
+            f"el transfer alteró la estructura de capas del source)"
         )
     if result_info.cm_version != "v4.0":
         errors.append(
@@ -2155,15 +2174,17 @@ async def _merge_cmv40_into_p7(
         errors.append("no se detectan bloques L8 en el RPU merged (L8 trims ausentes)")
 
     if errors:
+        src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
         raise RuntimeError(
-            "Verificación post-merge falló. El RPU resultante no es P7 FEL CMv4.0 válido:\n  - "
+            f"Verificación post-merge falló. El RPU resultante no es un {src_label} CMv4.0 válido:\n  - "
             + "\n  - ".join(errors)
             + "\n\nSe aborta la inyección para no generar un MKV incorrecto."
         )
 
     if log_callback:
+        el_label = f" ({result_info.el_type})" if result_info.el_type else ""
         await log_callback(
-            f"[Fase F] ✓ Merge verificado: Profile {result_info.profile} ({result_info.el_type}), "
+            f"[Fase F] ✓ Merge verificado: Profile {result_info.profile}{el_label}, "
             f"CM {result_info.cm_version}, {result_info.frame_count} frames, L8 presente"
         )
 
