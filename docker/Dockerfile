@@ -27,6 +27,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # ── dovi_tool (pre-built musl binary — usado en Tab 3 CMv4.0 BD) ─────────────
+# Cuando DOVI_TOOL_VERSION cambia en Dockerfile/docker-compose.yml, este RUN
+# se invalida y se re-descarga el binario en el siguiente `docker compose
+# build --pull`. Sin cambio de version Docker usa cache (correcto).
 RUN wget -q \
     "https://github.com/quietvoid/dovi_tool/releases/download/${DOVI_TOOL_VERSION}/dovi_tool-${DOVI_TOOL_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
     -O /tmp/dovi_tool.tar.gz \
@@ -34,6 +37,10 @@ RUN wget -q \
     && mv /tmp/dovi_tool /usr/local/bin/dovi_tool \
     && chmod +x /usr/local/bin/dovi_tool \
     && rm /tmp/dovi_tool.tar.gz
+
+# Label con la version bakeada — inspecciona con:
+#   docker image inspect hdo-iso-converter --format '{{index .Config.Labels "dovi_tool.version"}}'
+LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 
 # ── Python app ────────────────────────────────────────────────────────────────
 WORKDIR /app

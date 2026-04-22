@@ -42,4 +42,14 @@ modprobe udf 2>/dev/null || true
 
 echo "[entrypoint] Volúmenes verificados. Modo: loop mount directo (privileged)."
 
+# ── Log de versiones de herramientas clave ──────────────────────────
+# Deja constancia en `docker logs` de qué versiones están realmente
+# empaquetadas tras cada rebuild. Si tras `docker compose up -d --build`
+# no ves la versión esperada, el build usó caché — fuerza `--pull --no-cache`.
+echo "[entrypoint] Herramientas:"
+echo "[entrypoint]   dovi_tool   $(dovi_tool --version 2>/dev/null | head -n1 || echo '<no detectado>')"
+echo "[entrypoint]   mkvmerge    $(mkvmerge --version 2>/dev/null | head -n1 | awk '{print $2}' || echo '<no detectado>')"
+echo "[entrypoint]   ffmpeg      $(ffmpeg -version 2>/dev/null | head -n1 | awk '{print $3}' || echo '<no detectado>')"
+echo "[entrypoint]   mediainfo   $(mediainfo --Version 2>/dev/null | head -n1 | awk '{print $NF}' || echo '<no detectado>')"
+
 exec "$@"
