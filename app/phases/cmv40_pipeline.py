@@ -1106,7 +1106,7 @@ async def _analyze_target_rpu(
     # de perder tiempo con una revisión manual condenada al fracaso.
     #
     # (a0) Target sin CMv4.0: no hay metadata que transferir — ni el chart ni
-    #      correcciones manuales pueden materializarla. Es punto muerto.
+    #      correcciones manuales pueden materializarla. Es punto muerto absoluto.
     if session.target_type == "incompatible":
         cm = (dovi_info.cm_version or "desconocido")
         abort_msg = (
@@ -1120,26 +1120,14 @@ async def _analyze_target_rpu(
             await log_callback(f"[Fase B] ⛔ {abort_msg}")
         raise RuntimeError(abort_msg)
 
-    # (a) L5 divergence > 30 px: el target es una edición distinta del disco
-    #     (theatrical vs extended, WEB-DL con aspect ratio recortado, etc.).
-    #     Ni el chart de Fase D ni correcciones de sync lo arreglan — los
-    #     offsets de L5 del RPU reflejan estructura del frame, no timing.
-    #     Spec §Sistema de Trust (CLAUDE.md): "L5 div >30 aborta".
-    l5_gate = gates.get("l5_div") if isinstance(gates, dict) else None
-    if isinstance(l5_gate, dict) and l5_gate.get("critical") and not l5_gate.get("ok"):
-        px_max = l5_gate.get("px_max", 0)
-        abort_msg = (
-            f"L5 divergencia >30 px (medida: {px_max} px). "
-            f"El target es una edición distinta del disco origen (probablemente "
-            f"WEB-DL con otro aspect ratio, theatrical vs extended, o master remastered). "
-            f"Los offsets L5 del RPU reflejan cropping estructural del frame — ninguna "
-            f"corrección de sync en Fase D/E lo arregla. Usa un bin target del mismo master "
-            f"que el BD (preferiblemente retail CMv4.0 del repo DoviTools)."
-        )
-        session.compat_warning = abort_msg
-        if log_callback:
-            await log_callback(f"[Fase B] ⛔ {abort_msg}")
-        raise RuntimeError(abort_msg)
+    # NOTA: el spec define "L5 div >30 aborta" pero en la practica hay casos
+    # legitimos donde L5 diverge sin que el bin sea inservible: fuentes
+    # convertidas (MEL→P8.1 con dovi_tool) pueden tener L5 con variaciones
+    # vs retail bins limpios aun siendo del mismo master. En lugar de abortar,
+    # marcamos trust_ok=False (ya hecho por el gate) -> pausa en Fase D, el
+    # usuario ve el chart y decide. Para el caso claro de edicion distinta
+    # (WEB-DL scope vs BD, ~276 px) el chart tambien muestra la incompatibilidad
+    # y el usuario puede cancelar sin haber inyectado nada irrecuperable.
 
     # (b) Compatibilidad estructural source × target (ej. source single-layer
     #     + target P7 dual-layer drop-in). En Fase F hay un safety net por
