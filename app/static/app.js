@@ -2863,7 +2863,7 @@ function _cmv40LookupPipelineSummary(pt, provenance) {
   if (!info) {
     return '<div class="cmv40-lookup-pp-desc">Pipeline se determinará tras descarga y análisis con dovi_tool.</div>';
   }
-  return _cmv40PipelinePreviewHTML(info, provenance);
+  return _cmv40PipelinePreviewHTML(info, provenance, null, pt);
 }
 /**
  * Cierra el modal si el click fue directamente sobre el overlay (no en el contenido).
@@ -7874,16 +7874,54 @@ function onCMv40TargetChange() {
   _cmv40NewUpdatePipelinePreview();
 }
 
+/** Calcula el ETA total del pipeline para un tipo de target dado, usando las
+ *  constantes calibradas de CMV40_ETA. Se deriva dinámicamente para que
+ *  cualquier recalibración de ratios se refleje automáticamente en el modal
+ *  sin tocar strings hardcoded. */
+function _cmv40ComputeTargetTypeETA(targetType) {
+  const anchor = CMV40_ETA.ffmpeg_wall_fallback_s;  // 180s típico UHD BD
+  // Partes comunes
+  const etaA = anchor + anchor * CMV40_ETA.r_extract_rpu;   // ffmpeg + extract-rpu
+  const etaB = 30;                                           // drive download
+  const etaH = anchor * CMV40_ETA.r_extract_rpu + 5;         // extract-rpu pre-mux + info
+  let etaC, etaF, etaG, etaDE;
+  etaDE = 0;  // drop-in trusted salta D y E
+  switch (targetType) {
+    case 'trusted_p7_fel_final':
+      etaC = 0;                                  // sin demux, sin per-frame
+      etaF = anchor * CMV40_ETA.r_inject;        // inject sobre source.hevc
+      etaG = anchor * CMV40_ETA.r_mux;           // mkvmerge 42 GB dual-layer
+      break;
+    case 'trusted_p7_mel_final':
+      etaC = anchor * CMV40_ETA.r_demux;         // demux solo BL
+      etaF = anchor * CMV40_ETA.r_inject;        // inject en BL
+      etaG = 30;                                 // mkvmerge single-layer rápido
+      break;
+    case 'trusted_p8_source':
+      etaC = anchor * CMV40_ETA.r_demux;         // demux BL+EL
+      etaF = anchor * CMV40_ETA.r_inject;        // merge + inject
+      etaG = anchor * CMV40_ETA.r_mux;           // mkvmerge dual-layer
+      break;
+    default:
+      return { tiempo: 'Variable · depende de revisión manual', totalSecs: null };
+  }
+  const total = etaA + etaB + etaC + etaDE + etaF + etaG + etaH;
+  const mins = total / 60;
+  const lo = Math.max(1, Math.floor(mins * 0.9));
+  const hi = Math.ceil(mins * 1.15);
+  return { tiempo: `~${lo}-${hi} min`, totalSecs: total };
+}
+
 // Panel explicativo del pipeline que se ejecutará según el tipo de target
 // Estructura: cada fase es un pill en el flujo visual. state: 'run' | 'skip'.
 // mod: etiqueta opcional bajo el pill (ej. "sin demux"). autoEndsAt: fase tras
 // la cual el auto-pipeline se detiene (null = corre hasta H).
+// El campo `tiempo` se calcula dinámicamente — ver _cmv40PipelinePreviewHTML.
 const _CMV40_PIPELINE_PREVIEW = {
   trusted_p7_fel_final: {
     icon: '🎯',
     title: 'Drop-in P7 FEL · CMv4.0 ya cocinado',
     blurb: 'El bin ya es un RPU P7 FEL CMv4.0 final. Se inyecta directo sobre BL+EL.',
-    tiempo: '~4–8 min',
     cls: 'ok',
     autoEndsAt: null,
     phases: [
@@ -7901,7 +7939,6 @@ const _CMV40_PIPELINE_PREVIEW = {
     icon: '🎯',
     title: 'Drop-in P7 MEL · CMv4.0 ya cocinado',
     blurb: 'El bin ya es un RPU P7 MEL CMv4.0. Se descarta EL → P8.1 final.',
-    tiempo: '~5–8 min',
     cls: 'ok',
     autoEndsAt: null,
     phases: [
@@ -7919,7 +7956,6 @@ const _CMV40_PIPELINE_PREVIEW = {
     icon: '📦',
     title: 'Source P5→P8 · transfer CMv4.0',
     blurb: 'Fuente P8 con L8 trims — se hace merge del CMv4.0 al RPU P7 preservando FEL.',
-    tiempo: '~6–10 min',
     cls: 'info',
     autoEndsAt: null,
     phases: [
@@ -7937,7 +7973,6 @@ const _CMV40_PIPELINE_PREVIEW = {
     icon: '❓',
     title: 'Tipo por clasificar',
     blurb: 'La clasificación real se hará en Fase B tras descargar. Si los gates pasan → drop-in; si no → pausa en D para revisión visual.',
-    tiempo: 'Variable',
     cls: 'warn',
     autoEndsAt: 'D',
     phases: [
@@ -7958,7 +7993,7 @@ const _CMV40_PIPELINE_PREVIEW = {
 // `provenance`: 'retail' | 'generated' | '' — añade aviso UX.
 // `retailAlternative`: si provenance=generated, nombre del bin retail
 // disponible en la misma lista (refuerza el aviso).
-function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative) {
+function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative, targetType) {
   if (!info) return '';
   const cls = info.cls || 'warn';
   const flow = info.phases.map((p, i) => {
@@ -7973,13 +8008,19 @@ function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative) {
         ${modHtml}
       </div>${arrow}`;
   }).join('');
+  // ETA dinámico: se calcula a partir de CMV40_ETA constants (calibradas con
+  // mediciones reales). Se actualiza automáticamente cuando se recalibran
+  // los ratios sin tocar strings hardcoded.
+  const tiempo = targetType
+    ? _cmv40ComputeTargetTypeETA(targetType).tiempo
+    : (info.tiempo || 'Variable');
   const provHtml = _cmv40ProvenanceNoteHTML(provenance, retailAlternative);
   return `
     <div class="cmv40-pipeline-preview ${cls}">
       <div class="cmv40-pp-header">
         <span class="cmv40-pp-icon">${info.icon}</span>
         <span class="cmv40-pp-title">${escHtml(info.title)}</span>
-        <span class="cmv40-pp-time">⏱ ${escHtml(info.tiempo)}</span>
+        <span class="cmv40-pp-time" data-tooltip="Estimación basada en tiempos medidos en NAS ZFS — se recalibra con cada ejecución real">⏱ ${escHtml(tiempo)}</span>
       </div>
       <div class="cmv40-pp-flow">${flow}</div>
       <div class="cmv40-pp-blurb">${escHtml(info.blurb)}</div>
@@ -8043,7 +8084,7 @@ function _cmv40NewUpdatePipelinePreview() {
   }
 
   container.style.display = 'block';
-  container.innerHTML = _cmv40PipelinePreviewHTML(info, prov, retailAlternative);
+  container.innerHTML = _cmv40PipelinePreviewHTML(info, prov, retailAlternative, pt);
   _cmv40NewUpdateAutoLabel(info);
 }
 
@@ -9285,20 +9326,28 @@ function _renderCMv40ActivePhase(project) {
 }
 
 function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
-  // Detectar fases omitidas automáticamente por modo trusted
-  // Fase D se "omite" cuando hubo sync_verification_pause skip y la fase
-  // está done pero sin corrección manual.
-  // Fase F se marca "skipped_merge" cuando target es drop-in P7 FEL.
+  // Detectar fases omitidas o modificadas por modo trusted/drop-in
   const skipped = s.phases_skipped || [];
+  // Fase C: omitida completamente cuando drop-in + trusted (ambos
+  // demux_dual_layer y per_frame_data_skipped marcados).
+  const isSkippedC = fase.key === 'C'
+                      && skipped.includes('demux_dual_layer')
+                      && (skipped.includes('per_frame_data_skipped') || skipped.includes('mux_dual_layer'))
+                      && state === 'done';
+  // Fase D: omitida cuando hubo sync_verification_pause (trusted auto).
   const isSkippedD = fase.key === 'D' && skipped.includes('sync_verification_pause') && state === 'done';
-  const isSkippedF = fase.key === 'F' && skipped.includes('merge_cmv40_transfer') && state === 'done';
-  const isSkipped = isSkippedD || isSkippedF;
+  // Fase F: en drop-in se salta SOLO el merge, pero el inject SI se ejecuta.
+  // NO marcamos la fase como omitida (seria engañoso) — se anotara el "sin
+  // merge" en el summary pero el stateIcon sigue siendo ✅ Completado.
+  const isDropInF = fase.key === 'F' && skipped.includes('merge_cmv40_transfer') && state === 'done';
+  const isSkipped = isSkippedC || isSkippedD;   // solo C y D son "totalmente omitidas"
 
   const stateIcon = isSkipped ? '⏭️'
                   : state === 'done' ? '✅'
                   : state === 'active' ? '▶️' : '🔒';
-  const stateLabel = isSkippedD ? 'Omitida automáticamente (target trusted — sync validado por gates)'
-                   : isSkippedF ? 'Omitida automáticamente (drop-in directo, sin merge)'
+  const stateLabel = isSkippedC ? 'Omitida — drop-in: no hace falta demux ni per-frame data'
+                   : isSkippedD ? 'Omitida — target trusted: sync validado por gates'
+                   : isDropInF  ? 'Ejecutada en modo drop-in (inject directo sin merge previo)'
                    : state === 'done' ? 'Completado'
                    : state === 'active' ? 'En curso' : 'Pendiente';
 
@@ -9329,13 +9378,23 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   }
 
   const extraCls = isSkipped ? ' cmv40-fase-skipped' : '';
+  // Subtitulo: cuando la fase se omite o se ejecuta en drop-in preferimos
+  // el stateLabel explicito (es mas claro que el summary auto-generado que
+  // puede sugerir trabajo que realmente no se hizo).
+  const preferStateLabel = isSkipped || isDropInF;
+  const subtitle = (!preferStateLabel && summary) ? summary : stateLabel;
+  const titleSuffix = isSkipped
+    ? ' <span style="color:var(--text-3); font-weight:400; font-size:11px">(omitida)</span>'
+    : isDropInF
+    ? ' <span style="color:#8a4a00; font-weight:500; font-size:11px">(drop-in)</span>'
+    : '';
   return `
     <div class="section-card cmv40-fase-card cmv40-fase-${state}${extraCls}" style="margin-top:12px" data-fase-key="${fase.key}">
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','${fase.key}')">
         <div class="cmv40-fase-state-icon">${stateIcon}</div>
         <div style="flex:1">
-          <div class="section-title">${escHtml(fase.title)}${isSkipped ? ' <span style="color:var(--text-3); font-weight:400; font-size:11px">(omitida)</span>' : ''}</div>
-          ${summary ? `<div class="section-subtitle">${summary}</div>` : `<div class="section-subtitle">${stateLabel}</div>`}
+          <div class="section-title">${escHtml(fase.title)}${titleSuffix}</div>
+          <div class="section-subtitle">${subtitle}</div>
         </div>
         <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
       </div>
@@ -9742,6 +9801,9 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const hashLine = shortHash
       ? `<div><span style="color:var(--text-3)">SHA-256:</span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
       : '';
+    // NO incluimos _cmv40RenderTrustPanel aqui — los gates tienen su propia
+    // tarjeta dedicada (🛡️ Validaciones) que aparece justo debajo de Fase B.
+    // Mostrarlo aqui ademas duplicaba la informacion.
     return `
       <div style="font-size:12px; line-height:1.8">
         <div><span style="color:var(--text-3)">Fuente:</span> ${srcType}</div>
@@ -9750,8 +9812,8 @@ function _cmv40FaseDoneBody(key, pid, s) {
         <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
         <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
-      </div>
-      ${_cmv40RenderTrustPanel(s)}`;
+        <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic">💡 Los resultados de los trust gates se muestran en la tarjeta 🛡️ Validaciones de abajo.</div>
+      </div>`;
   }
   // Fase D completada — dos casuísticas:
   //   (1) target trusted + auto → NUNCA se generó per_frame_data.json →
@@ -9763,12 +9825,13 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const trustedSkipped = s.target_trust_ok
       && (s.trust_override || 'auto') !== 'force_interactive';
     if (trustedSkipped) {
+      // Sin trust panel aqui — la tarjeta 🛡️ Validaciones arriba ya lo muestra.
       return `
         <div class="banner success" style="margin-bottom:10px">
           <span class="banner-icon">✓</span>
-          <span>Fase D omitida — el bin target pasó los gates de trust (frames, L5, L6, L8) y no se generó <code>per_frame_data.json</code>. Sin revisión visual necesaria en el auto-pipeline.</span>
+          <span>Fase D omitida — el bin target pasó los trust gates (frames, L5, L6, L8) y no se generó <code>per_frame_data.json</code>. Sin revisión visual necesaria en el auto-pipeline.</span>
         </div>
-        ${_cmv40RenderTrustPanel(s)}`;
+        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">💡 Los resultados de los gates están en la tarjeta 🛡️ Validaciones justo tras Fase B.</div>`;
     }
     const syncConfigHtml = s.sync_config
       ? `<div style="margin-bottom:10px; font-size:12px">
