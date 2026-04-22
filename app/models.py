@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -858,6 +858,22 @@ class CMv40Session(BaseModel):
       created → source_analyzed → target_provided → extracted
       → sync_verified → (sync_corrected) → injected → remuxed → validated → done
     """
+
+    # Migracion de sesiones antiguas: versiones previas persistian algunos
+    # campos str como null cuando no tenian valor. El modelo actual los tipa
+    # como str con default "", por lo que validate_python falla con "Input
+    # should be a valid string" al leer JSONs viejos. Introspeccionamos los
+    # campos str del modelo y coercionamos None -> default (usualmente "").
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_none_strings(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for fld_name, fld_info in cls.model_fields.items():
+            if fld_info.annotation is str and data.get(fld_name) is None:
+                default = fld_info.default if fld_info.default is not None else ""
+                data[fld_name] = default
+        return data
 
     id: str
     """Identificador único. Formato: 'cmv40_{titulo}_{año}_{timestamp}'."""
