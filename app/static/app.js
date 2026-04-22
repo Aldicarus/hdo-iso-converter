@@ -8789,6 +8789,33 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     progressBox.classList.toggle('cmv40-tl-progress-error', cls === 'cmv40-tl-progress-error');
   }
 
+  // Update trust badge: el badge se calcula dinamicamente a partir del
+  // estado (gates evaluados / trust_ok / trust_override) y debe refrescarse
+  // cuando cambia la fase. Sin esto, el badge se queda en "pendiente
+  // validaciones" aun despues de que Fase B haya clasificado el target.
+  const trustBadgeEl = tlWrap.querySelector('.cmv40-tl-trust-badge');
+  if (trustBadgeEl) {
+    const gatesEvaluated2 = !!(s.target_trust_gates && Object.keys(s.target_trust_gates).length);
+    const targetProvidedIdx2 = CMV40_PHASES_ORDER.indexOf('target_provided');
+    const curPhaseIdx2 = CMV40_PHASES_ORDER.indexOf(s.phase);
+    const beforeGates2 = curPhaseIdx2 < targetProvidedIdx2 || !gatesEvaluated2;
+    let cls2, txt2;
+    if (beforeGates2) {
+      cls2 = 'pending'; txt2 = '⏳ Auto · pendiente validaciones';
+    } else if (s.target_trust_ok && s.trust_override !== 'force_interactive') {
+      cls2 = 'trusted'; txt2 = '🚀 Auto · trusted';
+    } else {
+      cls2 = 'manual'; txt2 = '🔬 Manual · revisión visual';
+    }
+    if (trustBadgeEl.textContent !== txt2) {
+      trustBadgeEl.textContent = txt2;
+    }
+    // Asegurar que solo tiene la clase correcta de las tres
+    trustBadgeEl.classList.toggle('pending', cls2 === 'pending');
+    trustBadgeEl.classList.toggle('trusted', cls2 === 'trusted');
+    trustBadgeEl.classList.toggle('manual',  cls2 === 'manual');
+  }
+
   // Update de steps: solo reemplaza el HTML de la lista si el HASH de
   // estados+labels cambió (evita spinner restart cuando no cambia nada).
   const newStepsHash = stepStatuses.map((st, i) =>
