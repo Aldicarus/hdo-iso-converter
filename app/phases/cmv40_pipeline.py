@@ -2040,7 +2040,10 @@ async def _merge_cmv40_into_p7(
     output: Path,
     log_callback=None,
 ) -> None:
-    """Transfiere los niveles CMv4.0 del RPU streaming al RPU P7 del BD preservando FEL.
+    """Transfiere los niveles CMv4.0 del RPU target al RPU source, preservando
+    la estructura (profile + el_type) del source. Funciona para P7 FEL, P7 MEL
+    y P8 sources — `allow_cmv4_transfer` de dovi_tool solo copia levels, no
+    altera la profile/subprofile del input.
 
     Usa la primitiva nativa de dovi_tool ``allow_cmv4_transfer`` que transfiere
     los niveles especificados frame-a-frame desde ``source_rpu`` hacia el RPU
@@ -2108,9 +2111,10 @@ async def _merge_cmv40_into_p7(
     cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     if log_callback:
+        src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
         await log_callback(
             "[Fase F] Transferencia CMv4.0 [1,2,3,6,8,9,10,11,254] frame-a-frame "
-            f"desde {rpu_target_v40.name} → RPU P7 del BD "
+            f"desde {rpu_target_v40.name} → RPU {src_label} del source "
             "(allow_cmv4_transfer=true, según remuxer.sh de bbeny123)…"
         )
 
@@ -2250,7 +2254,7 @@ async def run_phase_g_remux(
         else:  # p8
             await log_callback(
                 "[Fase G] 📋 Plan: ensamblar el MKV final. Source era P8.1 single-layer "
-                "→ mkvmerge directo sobre source_injected.hevc con audio/subs/"
+                "→ mkvmerge directo sobre BL_injected.hevc con audio/subs/"
                 "capítulos del origen."
             )
 
