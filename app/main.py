@@ -2367,6 +2367,20 @@ async def cmv40_sync_data(session_id: str):
     # a que termine la primera en vez de lanzar N `dovi_tool export` en
     # paralelo → I/O thrash → timeouts.
     if not pf.exists():
+        # Guard: si hay una fase corriendo + el target es trusted, NO regenerar.
+        # La unica razon para generar per_frame_data.json en trusted es que
+        # el usuario haya forzado force_interactive — y en ese caso no estamos
+        # en running_phase porque el flujo se pauso en Fase D. Si llegamos
+        # aqui con running_phase != None es una llamada parasita del render
+        # del frontend y regenerar superpone ~2 min de dovi_tool export
+        # sobre la fase en curso (contamina Fase F inject).
+        if session.running_phase and session.target_trust_ok and session.trust_override != "force_interactive":
+            raise HTTPException(
+                status_code=409,
+                detail=("per_frame_data.json omitido por target trusted; "
+                        "hay otra fase ejecutandose. No se regenera durante auto-pipeline "
+                        "para no solapar dovi_tool export con la fase activa."),
+            )
         lock = _cmv40_perframe_locks.setdefault(session_id, asyncio.Lock())
         async with lock:
             if not pf.exists():   # re-check después del lock (otra llamada lo pudo generar)
@@ -2379,9 +2393,13 @@ async def cmv40_sync_data(session_id: str):
                 async def _log_cb(msg: str):
                     await _cmv40_log(session, msg)
                 est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
+                # Log claro: si llegamos aqui sin running_phase ni force_interactive,
+                # es una carga legitima (usuario expandio Fase D en proyecto quiescente).
+                reason = ("force_interactive"
+                          if session.trust_override == "force_interactive"
+                          else "apertura manual del chart")
                 await _cmv40_log(session,
-                    "[sync-data] per_frame_data.json no existe — regenerando on-demand "
-                    "(trusted skip → user forzó revisión manual)")
+                    f"[sync-data] per_frame_data.json no existe — regenerando on-demand ({reason})")
                 try:
                     await _generate_per_frame_data(
                         session, rpu_source, rpu_target, pf, _log_cb,

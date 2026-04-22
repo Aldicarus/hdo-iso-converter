@@ -7065,21 +7065,49 @@ const CMV40_RUNNING_LABELS = {
 
 // Ratios empíricos calibrados contra logs reales del NAS ZFS con Dolby Vision
 // P7 FEL drop-in (Zootrópolis 2, 155001 frames, 34 GB HEVC).
+// Recalibrados tras aislar per_frame_data regeneration del Fase F real:
+// antes el inject aparecia ~407s porque tenia export dovi_tool concurrente
+// de 2 min encima. Sin contaminacion el inject real es ~283s → fps ~548.
 // Si se cambia de hardware (SSD local vs ZFS sobre HDD), revisitar.
 const CMV40_ETA = {
   // ratio respecto a wall time de ffmpeg (fase A) — observados:
-  r_extract_rpu: 0.92,   // ~0.95 observado · para source.hevc y también pre-mux en Fase H
+  r_extract_rpu: 0.84,   // 157/186 observado (antes 0.92)
   r_demux:       1.30,   // (sin medir en drop-in, valor legacy)
   r_export:      0.19,   // (sin medir en drop-in, valor legacy)
-  r_inject:      2.25,   // antes 1.77 — el drop-in rewrite real sobre ZFS tarda ~2.28× anchor
-  r_mux:         2.15,   // antes 1.88 — mkvmerge de 42 GB sobre ZFS tarda ~2.16× anchor
+  r_inject:      1.55,   // 283/186 observado SIN contaminacion (antes 2.25 con pfd concurrente)
+  r_mux:         2.00,   // 373/186 observado (antes 2.15)
   // FPS de cada tool (fallback cuando no hay anchor)
-  fps_extract:   1450,
+  fps_extract:   1550,   // 155001/100 ≈ 1550
   fps_demux:     1100,
   fps_export:    7000,
-  fps_inject:    395,    // antes 760 — real: 155001/394 ≈ 393 fps en drop-in
-  fps_mux:       415,    // antes 711 — real: 155001/374 ≈ 414 fps en mkvmerge 42 GB
+  fps_inject:    545,    // 155001/283 (antes 395 por contaminacion pfd)
+  fps_mux:       415,    // 155001/373 ≈ 415 (antes 711)
+  // Fallback inicial cuando aun no tenemos ffmpeg_wall_seconds. Un UHD BD
+  // tipico de ~2h / 35-50 GB HEVC rinde ffmpeg extract ~180s en NAS ZFS.
+  // Usarlo de seed evita el salto de "5 min → 25 min" cuando llega el dato
+  // real; ahora va de ~18 → ~17 → ... progresion limpia hacia 0.
+  ffmpeg_wall_fallback_s: 180,
 };
+
+/** Deduce el label de la siguiente fase que el auto-pipeline disparara,
+ *  a partir del phase actual (sin running_phase). Usado en el subtitulo del
+ *  overlay durante el "puente" entre fases para mostrar algo util en vez
+ *  del antiguo "Preparando siguiente fase..." vago. */
+function _cmv40GuessNextPhase(s) {
+  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  switch (s.phase) {
+    case 'created':          return 'Fase A — Analizando MKV origen';
+    case 'source_analyzed':  return 'Fase B — Preparando RPU target';
+    case 'target_provided':  return 'Fase C — Separando capas';
+    case 'extracted':        return trust ? 'Fase F — Inyectando RPU (drop-in)' : 'Fase D — Revisión visual';
+    case 'sync_verified':    return 'Fase F — Inyectando RPU';
+    case 'sync_corrected':   return 'Fase F — Inyectando RPU';
+    case 'injected':         return 'Fase G — Ensamblando MKV';
+    case 'remuxed':          return 'Fase H — Validando resultado';
+    case 'validated':        return 'Fase H — Finalizando';
+    default:                 return '';
+  }
+}
 
 // Mapeo de running_phase backend → step key del timeline
 const CMV40_RUNNING_TO_STEP = {
@@ -7124,7 +7152,10 @@ function _cmv40EstimateSecs(s, ratio, fps) {
   if (s.source_frame_count && s.source_frame_count > 0) {
     return Math.max(5, s.source_frame_count / fps);
   }
-  return 60;  // fallback conservador
+  // Fallback usando un anchor tipico de UHD BD (evita que todos los pasos
+  // caigan a 60s constante — eso producia un total inicial de 5 min que
+  // luego saltaba a 25 min cuando llegaba el anchor real).
+  return Math.max(5, CMV40_ETA.ffmpeg_wall_fallback_s * ratio);
 }
 
 /** Formatea segundos como "Xm Ys" o "~Xm". */
@@ -7152,9 +7183,13 @@ function _cmv40PlanAutoSteps(s) {
   const etaB = s.target_rpu_source === 'drive' ? 30
              : s.target_rpu_source === 'mkv'   ? _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract)
              : 10;  // path: copia local
-  const etaDemux = (wf === 'p8') ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux);
+  // Drop-in trusted: Fase C no hace nada — cero demux, cero per_frame.
+  // Esta es la parte que mas desajustaba el ETA antes: el etaC calculado
+  // (~300-400s en un UHD BD) inflaba el total inicial y luego se evaporaba
+  // al detectar trust, causando el salto visible de 25 → 15 min.
+  const etaDemux = (wf === 'p8' || dropIn) ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux);
   const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export);  // ×2 por ambos RPUs
-  const etaC = etaDemux + (trust ? 0 : etaExport);
+  const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
   const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
   const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
   // Fase H: extract-rpu del HEVC pre-mux (~r_extract_rpu × anchor) + mkvmerge -J (~2s).
@@ -7210,11 +7245,27 @@ function _cmv40PlanAutoSteps(s) {
     isGate: true,
   });
 
-  const cWhat = (wf === 'p8') ? 'Workflow P8 — sin demux' + (trust ? ' (per-frame omitido)' : ', genera per-frame data')
-              : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
+  // Fase C: si el backend marco tanto demux_dual_layer como per_frame_data_skipped,
+  // la fase no hizo trabajo real (caso drop-in trusted) — mostrar como 'skipped'
+  // en el timeline con label descriptivo en vez de 'done · 00:00'.
+  const demuxSkipped = skipped.includes('demux_dual_layer');
+  const pfdSkipped   = skipped.includes('per_frame_data_skipped');
+  const cFullySkipped = demuxSkipped && (pfdSkipped || (wf === 'p8' && skipped.length));
+  let cWhat, cForcedStatus = null, cLabel = null;
+  if (cFullySkipped) {
+    cWhat = dropIn
+      ? 'Omitida — drop-in FEL: sin demux ni per-frame (inject directo sobre source.hevc)'
+      : 'Omitida — target trusted, no se necesitan capas separadas ni chart';
+    cForcedStatus = 'skipped';
+    cLabel = 'omitida · drop-in';
+  } else {
+    cWhat = (wf === 'p8') ? 'Workflow P8 — sin demux' + (trust ? ' (per-frame omitido)' : ', genera per-frame data')
+                          : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
+  }
   steps.push({
     key: 'C', icon: '✂️', title: 'Fase C · Demux + per-frame',
-    what: cWhat, etaSecs: etaC,
+    what: cWhat, etaSecs: cFullySkipped ? 0 : etaC,
+    forcedStatus: cForcedStatus, customLabel: cLabel,
   });
   steps.push({
     key: 'D', icon: '📊', title: 'Fase D · Verificar sincronización',
@@ -8558,9 +8609,18 @@ function _renderCMv40RunningOverlay(project) {
         titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
         if (subtitleEl) subtitleEl.textContent = 'El proyecto está bloqueado mientras se ejecuta la tarea';
       } else {
-        // Modo puente: fase X completada, siguiente a punto de arrancar
-        titleEl.textContent = '🤖 Auto · Preparando siguiente fase…';
-        if (subtitleEl) subtitleEl.textContent = 'Encadenando automáticamente — no cierres esta ventana';
+        // Modo puente: fase X completada, siguiente a punto de arrancar.
+        // En vez de mostrar "Preparando siguiente fase" (redundante y vago),
+        // mostramos el titulo de la proxima fase deducida del estado actual.
+        const nextPhase = _cmv40GuessNextPhase(s);
+        const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
+        if (nextPhase) {
+          titleEl.textContent = autoTag + nextPhase;
+          if (subtitleEl) subtitleEl.textContent = 'Transición entre fases — arrancando en un instante';
+        } else {
+          titleEl.textContent = autoTag + 'Encadenando fases…';
+          if (subtitleEl) subtitleEl.textContent = '';
+        }
       }
     }
     // Actualizar timeline en cada tick — incremental, NO innerHTML wholesale.
@@ -8766,6 +8826,7 @@ async function cmv40CancelRunning(pid) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
     project._lastAutoFiredFor = null;  // resetea debounce para futuros arranques
+    project._lastAutoFiredAt = 0;
     project._autoChaining = false;     // intervencion manual: apaga bridging
     if (project.autoContinue) {
       project.autoContinue = false;
@@ -9100,12 +9161,22 @@ function _renderCMv40ActivePhase(project) {
   if (_cmv40PhaseState(s.phase, 'target_provided', 'source_analyzed') === 'active') {
     _cmv40LoadRpus(pid);
   }
-  // Chart: cargar si Fase D activa o completada y está expandida
+  // Chart: cargar si Fase D activa o completada y está expandida.
+  // Guards para NO disparar per_frame_data.json on-demand durante auto:
+  //   1. Si hay otra fase running — no lanzar otro dovi_tool export pesado
+  //      sobre el mismo workdir (race con Fase F inject)
+  //   2. Si target_trust_ok — drop-in trusted, nunca se va a usar el chart
+  //      (Fase D ya se saltó por gates). Regenerarlo on-demand desperdicia
+  //      ~2 min de CPU superponiendose a Fase F.
   const faseDState = _cmv40PhaseState(s.phase, 'sync_verified', 'extracted');
   const dExpanded = project.expandedPhases['D'] !== undefined
     ? project.expandedPhases['D']
     : (faseDState === 'active');
-  if ((faseDState === 'active' || faseDState === 'done') && dExpanded) {
+  const shouldLoadChart = (faseDState === 'active' || faseDState === 'done')
+                          && dExpanded
+                          && !s.running_phase
+                          && !s.target_trust_ok;
+  if (shouldLoadChart) {
     _loadCMv40SyncChart(project);
   }
 }
@@ -9713,6 +9784,7 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         // tiene auto=ON y lanza la fase manualmente, las siguientes se
         // encadenaran al terminar esa.
         project._lastAutoFiredFor = null;
+        project._lastAutoFiredAt = 0;
         project._pipelineStartMs = null;
         project._autoChaining = false;
         _updateCMv40Panel(project);
@@ -9876,10 +9948,18 @@ function _cmv40MaybeAutoAdvance(project) {
   const pid = project.id;
   // Debounce: evita doble-fire cuando dos polls back-to-back ven el mismo
   // phase=X, running_phase=null entre que el backend confirma una fase y
-  // arranca la siguiente. Sin este guard el pipeline dispara dos Fase G
-  // concurrentes que compiten por DV_dual.hevc + output.mkv.tmp.
+  // arranca la siguiente. Dos guardas:
+  //   (a) dedup por phase — si ya disparamos para esta fase, no repetir
+  //   (b) dedup por tiempo — aunque la fase parezca nueva, si disparamos
+  //       hace <3s es muy probable una carrera (poll + WS + render chain
+  //       viendo el mismo estado transiente). El backend rechaza con
+  //       "ya hay otra fase en curso" pero aqui evitamos enviarlo siquiera.
   if (project._lastAutoFiredFor === s.phase) return;
+  const now = Date.now();
+  const lastFiredAt = project._lastAutoFiredAt || 0;
+  if (now - lastFiredAt < 3000) return;
   project._lastAutoFiredFor = s.phase;
+  project._lastAutoFiredAt = now;
   // Marca que la cadena auto está encadenando en este momento — usado por
   // el overlay para mostrarse durante el "puente" entre dos fases. Se limpia
   // al alcanzar un estado terminal o al intervenir manualmente (toggle,
