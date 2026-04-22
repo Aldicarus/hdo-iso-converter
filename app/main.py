@@ -624,13 +624,20 @@ async def _run_pipeline(session_id: str) -> None:
         _active_processes[session_id] = proc
 
     try:
-        await log(f"[Pipeline] Iniciando extracción de {session.iso_path}")
+        await log(f"[Pipeline] ━━━ Iniciando extracción de {session.iso_path} ━━━")
+        await log(
+            "[Pipeline] 📋 Plan general: montar el ISO (loop mount UDF), localizar el "
+            "MPLS principal del Blu-ray, extraer las pistas seleccionadas a un MKV y "
+            "aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
+            "validar el resultado y desmontar el ISO."
+        )
 
         # ── 1. Montar ISO ─────────────────────────────────────────
         _mark_phase("mount")
+        await log("[Montando ISO] ┌─ Paso 1: Montando ISO en /mnt/bd (loop mount UDF)…")
         mount_point = await mount_iso(session.iso_path)
         _mark_phase("mount", done=True)
-        await log(f"[Montando ISO] ISO montado en: {mount_point}")
+        await log(f"[Montando ISO] └─ ✓ ISO montado en: {mount_point}")
 
         _check_cancel()
 
@@ -659,7 +666,11 @@ async def _run_pipeline(session_id: str) -> None:
 
         if do_reorder:
             # ── RUTA DIRECTA: MPLS → MKV final (1 sola copia) ────
-            await log("[Pipeline] Pistas reordenadas/excluidas → ruta directa (MPLS → MKV final)")
+            await log(
+                "[Pipeline] 🎯 Ruta elegida: DIRECTA (MPLS → MKV final, una sola "
+                "copia). Se elige porque hay pistas que reordenar o excluir — "
+                "mkvmerge hace selección + metadatos + capítulos en una pasada."
+            )
             _mark_phase("extract")
             final_mkv = await run_phase_e_direct(
                 session=session,
@@ -671,7 +682,11 @@ async def _run_pipeline(session_id: str) -> None:
 
         else:
             # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
-            await log("[Pipeline] Sin reordenación → ruta intermedio (mkvpropedit in-place)")
+            await log(
+                "[Pipeline] 🎯 Ruta elegida: INTERMEDIO (Fase D + Fase E in-place). "
+                "Se elige porque no hay reordenación — mejor copiar una sola vez al "
+                "intermedio y aplicar metadatos con mkvpropedit (O(1), sin recopia)."
+            )
 
             # Phase D: extraer todo al intermedio
             _mark_phase("extract")
@@ -704,9 +719,17 @@ async def _run_pipeline(session_id: str) -> None:
         session.last_executed  = datetime.now(timezone.utc)
 
         if validation_ok:
-            await log(f"[Pipeline] Completado: {final_mkv}")
+            await log(f"[Pipeline] ✓ Completado: {final_mkv}")
+            await log(
+                "[Pipeline] 🎯 Resultado: MKV disponible en /mnt/output con validación "
+                "final OK (pistas, idiomas, flags y capítulos verificados contra lo esperado)."
+            )
         else:
-            await log(f"[Pipeline] Completado con advertencias: {final_mkv}")
+            await log(f"[Pipeline] ⚠ Completado con advertencias: {final_mkv}")
+            await log(
+                "[Pipeline] 🎯 Resultado: MKV escrito pero con discrepancias en la "
+                "validación — revisa el log de validación para ver qué campos no cuadran."
+            )
 
     except Exception as e:
         cancelled = _cancel_flags.get(session_id, False)

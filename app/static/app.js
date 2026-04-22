@@ -5528,22 +5528,18 @@ function _renderCsbLog() {
       })
     : _colaLogLines;
 
-  // Renderiza en un elemento dado
+  // Renderiza en un elemento dado — misma paleta rica que Tab 3
   const fill = (c) => {
     if (!c) return;
     c.innerHTML = '';
     lines.forEach(text => {
       const div = document.createElement('div');
-      const low = text.toLowerCase();
-      if (low.includes('error') || low.includes('fallo')) {
-        div.className = 'cola-log-error';
-      } else if (low.includes('aviso') || low.includes('warning')) {
-        div.className = 'cola-log-warn';
-      } else if (/^\[(?:Fase|Montando|Desmontando|Pipeline)\b/i.test(text)) {
-        div.className = 'log-phase';
-      } else if (/^Progress:\s*\d+%/i.test(text)) {
-        div.className = 'log-progress';
-      }
+      // Clase base 'log-line' + clase semantica via classifier compartido
+      const semCls = _classifyLogLine(text);
+      // Caso especial: "Progress: X%" no lo captura el classifier — mantener
+      // clase dedicada para que no distraiga con color de fase.
+      const progressMatch = /^Progress:\s*\d+%/i.test(text) || /\] Progress:\s*\d+%/.test(text);
+      div.className = 'log-line ' + (progressMatch ? 'log-progress' : semCls);
       div.textContent = text;
       c.appendChild(div);
     });
@@ -5931,17 +5927,13 @@ function showLogModal(idx) {
   document.getElementById('log-viewer-title').textContent = `📄 Log — Ejecución #${rec.run_number}`;
   document.getElementById('log-viewer-sub').textContent   = `${status} · ${dateStr}`;
 
-  // Renderizar log con coloreado semántico
+  // Renderizar log con coloreado semántico (misma paleta rica que Tab 3)
   const content = document.getElementById('log-viewer-content');
   content.innerHTML = '';
   const lines = rec.output_log || [];
   for (const line of lines) {
     const div = document.createElement('div');
-    const low = line.toLowerCase();
-    if (low.includes('error') || low.includes('fallo'))       div.className = 'log-line-error';
-    else if (low.includes('aviso') || low.includes('warning')) div.className = 'log-line-warning';
-    else if (line.includes('[Pipeline]') || line.includes('Completado')) div.className = 'log-line-done';
-    else if (line.includes('[Fase ') || line.includes('[Montando') || line.includes('[Desmontando')) div.className = 'log-line-phase';
+    div.className = 'log-line ' + _classifyLogLine(line);
     div.textContent = line;
     content.appendChild(div);
   }

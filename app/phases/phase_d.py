@@ -73,8 +73,14 @@ async def run_phase_d(
     cmd = [MKVMERGE_BIN, "--gui-mode", "-o", out_path, mpls_path]
 
     if log_callback:
-        await log_callback(f"[Fase D] MPLS seleccionado: {mpls_path}")
-        await log_callback(f"[Fase D] Ejecutando: {' '.join(cmd)}")
+        await log_callback(
+            "[Fase D] 📋 Plan: extraer el contenido del MPLS principal del disco a "
+            "un MKV intermedio en /mnt/tmp, manteniendo todas las pistas. Este "
+            "paso usa mkvmerge directamente sobre el MPLS — copia streaming "
+            "sin re-encoding. Las reorganizaciones y ediciones se aplicarán en Fase E."
+        )
+        await log_callback(f"[Fase D] ┌─ MPLS seleccionado: {mpls_path}")
+        await log_callback(f"[Fase D] └─ $ {' '.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -104,7 +110,13 @@ async def run_phase_d(
         raise RuntimeError(f"mkvmerge no generó el MKV intermedio en {out_path}")
 
     if log_callback:
-        await log_callback(f"[Fase D] MKV intermedio generado: {out_path}")
+        size_gb = Path(out_path).stat().st_size / 1e9
+        await log_callback(f"[Fase D] ✓ MKV intermedio generado: {out_path} ({size_gb:.1f} GB)")
+        await log_callback(
+            "[Fase D] 🎯 Resultado: MKV temporal con TODAS las pistas del MPLS. "
+            "Fase E lo procesará con mkvpropedit (nombres, flags, capítulos) o hará "
+            "remux selectivo si hay que reordenar o excluir pistas."
+        )
 
     return out_path
 

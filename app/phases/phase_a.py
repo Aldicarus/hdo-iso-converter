@@ -1192,15 +1192,25 @@ async def run_full_analysis(
 
     Devuelve (bdinfo_result, mpls_path, chapters_raw).
     """
+    # Plan general de la fase
+    if log_callback:
+        await log_callback(
+            "[Fase A] 📋 Plan: analizar el disco Blu-ray montado en 4 pasos — "
+            "identificar MPLS/pistas con mkvmerge -J, extraer capítulos del MPLS, "
+            "enriquecer con MediaInfo (bitrate, format_commercial, HDR10, canales) "
+            "y — si hay Dolby Vision con EL — ejecutar dovi_tool para detectar "
+            "profile y CM version. El resultado alimenta las reglas de Fase B."
+        )
+
     # 1. mkvmerge -J
     if log_callback:
-        await log_callback("[Fase A] Identificando MPLS y ejecutando mkvmerge -J…")
+        await log_callback("[Fase A] ┌─ Paso 1/4: Identificando MPLS y pistas con mkvmerge -J…")
     mkvmerge_data, mpls_path = await run_mkvmerge_identify(share_path, log_callback)
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
 
     # 2. Capítulos
     if log_callback:
-        await log_callback("[Fase A] Extrayendo capítulos del MPLS…")
+        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo capítulos del MPLS…")
     chapters_raw = parse_mpls_chapters(mpls_path)
 
     # 3. MediaInfo sobre m2ts principal
@@ -1209,27 +1219,27 @@ async def run_full_analysis(
         bdinfo.main_m2ts = Path(m2ts_path).name
         size_gb = Path(m2ts_path).stat().st_size / 1e9
         if log_callback:
-            await log_callback(f"[Fase A] M2TS principal: {bdinfo.main_m2ts} ({size_gb:.1f} GB)")
+            await log_callback(f"[Fase A] ├─ Paso 3/4: Analizando M2TS principal {bdinfo.main_m2ts} ({size_gb:.1f} GB)")
 
         try:
             if log_callback:
-                await log_callback("[Fase A] Ejecutando MediaInfo…")
+                await log_callback("[Fase A] ├─   Ejecutando MediaInfo sobre el m2ts…")
             mi = await run_mediainfo(m2ts_path)
             bdinfo.mediainfo_result = mi
             enrich_tracks_with_mediainfo(bdinfo, mi)
             if log_callback:
-                await log_callback(f"[Fase A] MediaInfo: {len(mi.tracks)} pistas analizadas")
+                await log_callback(f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas (bitrate, format_commercial, HDR, canales)")
         except Exception as e:
             _logger.warning("MediaInfo falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ⚠️ MediaInfo falló: {e}")
+                await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
         # 3b. Contar paquetes PES de cada subtítulo PGS (ffprobe -count_packets).
         # Proxy fiable del volumen de subtítulo — permite distinguir forzado,
         # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de 60GB.
         try:
             if log_callback:
-                await log_callback("[Fase A] Contando paquetes PGS (ffprobe, 1-3 min)…")
+                await log_callback("[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe (1-3 min, paso dominante)…")
             pgs_packets = await run_pgs_packet_counts(m2ts_path, progress_callback=pgs_progress_callback)
             if pgs_packets:
                 # ffprobe devuelve índices ascendentes; asignamos por posición
@@ -1242,31 +1252,50 @@ async def run_full_analysis(
                         f"{s.language[:3]}={s.packet_count}"
                         for s in bdinfo.subtitle_tracks[:12]
                     )
-                    await log_callback(f"[Fase A] PGS packets: {preview}…")
+                    await log_callback(f"[Fase A] ├─   ✓ PGS packet counts — {preview}…")
         except Exception as e:
             _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ⚠️ ffprobe packet count falló: {e}")
+                await log_callback(f"[Fase A] ├─   ⚠️ ffprobe packet count falló (no bloquea): {e}")
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
         if has_el:
             try:
                 if log_callback:
-                    await log_callback("[Fase A] Analizando Dolby Vision con dovi_tool…")
+                    await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision con dovi_tool (extract-rpu + info)…")
                 dovi = await run_dovi_analysis(m2ts_path)
                 if dovi:
                     enrich_dovi(bdinfo, dovi)
                     if log_callback:
                         await log_callback(
-                            f"[Fase A] Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                            f"[Fase A] └─   ✓ Dolby Vision detectado: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
                         )
             except Exception as e:
                 _logger.warning("dovi_tool falló (no bloquea): %s", e)
                 if log_callback:
-                    await log_callback(f"[Fase A] ⚠️ dovi_tool falló: {e}")
+                    await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+        else:
+            if log_callback:
+                await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
     else:
         if log_callback:
-            await log_callback("[Fase A] ⚠️ No se encontró m2ts — análisis extendido omitido")
+            await log_callback("[Fase A] ⚠️ No se encontró m2ts — análisis extendido omitido (MediaInfo + dovi_tool no corren)")
+
+    # Resultado: resumen de lo que queda listo para Fase B (reglas)
+    if log_callback:
+        n_audio = len(bdinfo.audio_tracks) if bdinfo.audio_tracks else 0
+        n_subs  = len(bdinfo.subtitle_tracks) if bdinfo.subtitle_tracks else 0
+        n_vid   = len(bdinfo.video_tracks) if bdinfo.video_tracks else 0
+        dv_part = ""
+        if bdinfo.video_tracks:
+            main_vid = next((v for v in bdinfo.video_tracks if not v.is_el), bdinfo.video_tracks[0])
+            if getattr(main_vid, "dovi", None):
+                d = main_vid.dovi
+                dv_part = f" · DV Profile {d.profile}{' ' + d.el_type if d.el_type else ''} CM {d.cm_version}"
+        await log_callback(
+            f"[Fase A] 🎯 Resultado: {n_vid} vídeo + {n_audio} audio + {n_subs} subtítulos identificados{dv_part}. "
+            f"Fase B aplicará las reglas para seleccionar las pistas relevantes (ES/VO, mejor codec por idioma, subs forzados por packet_count, DCP, etc.)."
+        )
 
     return bdinfo, mpls_path, chapters_raw
