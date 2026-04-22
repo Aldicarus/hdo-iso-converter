@@ -464,7 +464,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - **Cola**: `queue_state.json`. Al arrancar, sesiones zombie → `pending`.
 
 ### Docker
-- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.1.2 + Python 3.10
+- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.2 + Python 3.10
 - **`privileged: true`**: para loop mount
 - **Puerto**: 8090 → 8080 (configurable)
 - **Healthcheck**: `GET /api/health` cada 30s

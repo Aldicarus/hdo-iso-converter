@@ -243,41 +243,67 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
     - Si hay 1 pista HEVC (P8/P5 single-layer) usa la Base Layer (v:0).
     - Si no hay DV, ffmpeg/extract-rpu fallan y se devuelve None.
 
+    Usa ``dovi_tool extract-rpu --limit 720 mkv_path`` directamente — soporte
+    nativo de MKV + limit de frames desde 2.3.0. Evita la pre-extracción HEVC
+    con ffmpeg (antes 30s + fichero intermedio de ~300 MB).
+
+    Si el MKV tiene el EL en una pista separada (raro, pero ocurre en algunos
+    rips antiguos), dovi_tool puede fallar leyendo el MKV — en ese caso
+    fallback al flujo ffmpeg + extract-rpu sobre HEVC intermedio.
+
     Reutiliza el parser de ``phases.phase_a._parse_dovi_summary``.
     """
     from phases.phase_a import _parse_dovi_summary
 
     pid = os.getpid()
-    tmp_hevc = str(Path(TMP_DIR) / f"_mkv_hevc_{pid}.hevc")
-    tmp_rpu  = str(Path(TMP_DIR) / f"_mkv_rpu_{pid}.bin")
-
-    map_arg = "0:v:1" if hevc_count >= 2 else "0:v:0"
+    tmp_rpu = str(Path(TMP_DIR) / f"_mkv_rpu_{pid}.bin")
+    # Limit de frames para muestreo: 720 ≈ 30s a 24fps, suficiente para
+    # identificar profile + CM version + niveles presentes.
+    _LIMIT_FRAMES = "720"
 
     try:
+        # Vía rápida: extract-rpu directo del MKV (sin intermedio HEVC)
         proc = await asyncio.create_subprocess_exec(
-            FFMPEG_BIN, "-y", "-i", mkv_path,
-            "-map", map_arg, "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
-            "-t", "30", "-f", "hevc", tmp_hevc,
+            DOVI_TOOL_BIN, "extract-rpu",
+            "--limit", _LIMIT_FRAMES,
+            mkv_path, "-o", tmp_rpu,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            _logger.info("ffmpeg HEVC extract falló (¿sin DV?): %s", stderr.decode()[:200])
-            return None
-        if not Path(tmp_hevc).exists() or Path(tmp_hevc).stat().st_size < 1000:
-            return None
 
-        proc = await asyncio.create_subprocess_exec(
-            DOVI_TOOL_BIN, "extract-rpu", tmp_hevc, "-o", tmp_rpu,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
         if proc.returncode != 0 or not Path(tmp_rpu).exists() or Path(tmp_rpu).stat().st_size < 10:
-            _logger.info("dovi_tool extract-rpu falló: %s", stderr.decode()[:200])
-            return None
+            # Fallback para MKVs con EL en pista separada: ffmpeg extrae el
+            # stream correcto y luego dovi_tool extract-rpu sobre el HEVC.
+            _logger.info("dovi_tool MKV direct falló, fallback a ffmpeg (%s): %s",
+                         "EL en pista separada" if hevc_count >= 2 else "estructura no estándar",
+                         stderr.decode()[:200])
+            tmp_hevc = str(Path(TMP_DIR) / f"_mkv_hevc_{pid}.hevc")
+            map_arg = "0:v:1" if hevc_count >= 2 else "0:v:0"
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    FFMPEG_BIN, "-y", "-i", mkv_path,
+                    "-map", map_arg, "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+                    "-t", "30", "-f", "hevc", tmp_hevc,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode != 0 or not Path(tmp_hevc).exists() or Path(tmp_hevc).stat().st_size < 1000:
+                    return None
 
+                proc = await asyncio.create_subprocess_exec(
+                    DOVI_TOOL_BIN, "extract-rpu", tmp_hevc, "-o", tmp_rpu,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode != 0 or not Path(tmp_rpu).exists() or Path(tmp_rpu).stat().st_size < 10:
+                    return None
+            finally:
+                Path(tmp_hevc).unlink(missing_ok=True)
+
+        # dovi_tool info --summary sobre el RPU (ambas vías dejan aquí tmp_rpu listo)
         proc = await asyncio.create_subprocess_exec(
             DOVI_TOOL_BIN, "info", "--summary", tmp_rpu,
             stdout=asyncio.subprocess.PIPE,
@@ -290,7 +316,6 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
 
         return _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
     finally:
-        Path(tmp_hevc).unlink(missing_ok=True)
         Path(tmp_rpu).unlink(missing_ok=True)
 
 

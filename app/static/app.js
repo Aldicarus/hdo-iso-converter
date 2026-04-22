@@ -1802,7 +1802,7 @@ const _CMV40_HELP_SECTIONS = {
     </table>
 
     <div class="help-callout help-callout-info">
-      <strong>Versión en uso:</strong> el contenedor incluye dovi_tool 2.1.2. La versión más reciente (2.3.x, abril 2025) incorpora mejoras relevantes en la inyección de RPUs — es una actualización pendiente cuando se valide su estabilidad en el pipeline.
+      <strong>Versión en uso:</strong> el contenedor incluye <strong>dovi_tool 2.3.2</strong>. Mejoras clave que aporta respecto a versiones 2.1.x: <em>inject-rpu</em> coloca el RPU como último NALU del access unit (corrige playback en reproductores basados en FFmpeg); <em>mux</em> maneja EOS/EOB NALUs por defecto sin flags manuales; <em>extract-rpu</em> acepta Matroska (MKV) como entrada directa — esto permite que el análisis de DV en las pestañas <strong>Blu-Ray ISO → MKV</strong> y <strong>Consultar / Editar MKV</strong> se haga sin pre-extraer el HEVC con ffmpeg; <em>editor</em> soporta oficialmente <code>allow_cmv4_transfer</code> para transferir trims L3/L8-L11 de un RPU CMv4.0 a uno CMv2.9 (lo usamos en Fase F para la rama de merge sobre P7 FEL); <em>info --summary</em> incluye estructuradamente offsets L5, trims L8 y primaries L9.
     </div>
 
     <h2 id="t-mkvmerge">📦 mkvmerge — el ensamblador final</h2>
@@ -1823,7 +1823,7 @@ const _CMV40_HELP_SECTIONS = {
     <div class="help-sources">
       <b>Fuentes</b>
       <a href="https://github.com/quietvoid/dovi_tool" target="_blank" rel="noreferrer">quietvoid/dovi_tool (GitHub)</a> ·
-      <a href="https://github.com/quietvoid/dovi_tool/releases/tag/2.3.1" target="_blank" rel="noreferrer">dovi_tool 2.3.1 — notas de versión</a> ·
+      <a href="https://github.com/quietvoid/dovi_tool/releases/tag/2.3.2" target="_blank" rel="noreferrer">dovi_tool 2.3.2 — notas de versión</a> ·
       <a href="https://mkvtoolnix.download/" target="_blank" rel="noreferrer">MKVToolNix — sitio oficial</a> ·
       <a href="https://mediaarea.net/en/MediaInfo" target="_blank" rel="noreferrer">MediaInfo — sitio oficial</a> ·
       <a href="https://ffmpeg.org/" target="_blank" rel="noreferrer">FFmpeg — sitio oficial</a>
@@ -1955,7 +1955,7 @@ const _CMV40_HELP_SECTIONS = {
     <h3>🛡️ Validación final — antes de Fase H</h3>
     <p>Igual que en el punto B→C, aquí hay otro <em>gate</em> entre G y H: la app verifica que el HEVC ensamblado contiene efectivamente CMv4.0, que el número de frames coincide con el BD original, y que la estructura del fichero Matroska es correcta. Si algo falla, el MKV se rechaza y el proyecto se marca con error (se puede rehacer desde la fase que quieras).</p>
     <div class="help-callout help-callout-info">
-      <strong>Detalle de implementación que te ahorra dolores:</strong> la validación extrae el RPU del HEVC en el directorio de trabajo, no del MKV final. La razón es un bug conocido de <code>dovi_tool</code> 2.1.x que fallaba al leer RPUs desde algunos MKVs por cómo se guardan los PPS. Aislando esa validación se evita falsos negativos.
+      <strong>Detalle de implementación histórico:</strong> la validación lee el RPU del HEVC en el directorio de trabajo, no del MKV final. Esto evitaba un bug conocido de <code>dovi_tool</code> 2.1.x que fallaba al leer RPUs desde algunos MKVs por cómo se almacenan los PPS en <code>CodecPrivate</code>. El contenedor ya usa 2.3.2, donde el bug está corregido y la lectura directa del MKV es estable; el workaround se mantiene como defensa adicional hasta validar la retirada en un proyecto real.
     </div>
 
     <h3>Fase H — Finalizar</h3>
@@ -2400,7 +2400,7 @@ const _CMV40_HELP_SECTIONS = {
     <table>
       <tr><th>Qué ves</th><th>Por qué pasa</th><th>Cómo resolverlo</th></tr>
       <tr><td>"El MKV final no existe" al abrir un proyecto que ya habías completado</td><td>Has borrado o movido el MKV de la carpeta de salida desde fuera de la app</td><td>La app rebobina automáticamente el proyecto al estado "RPU inyectado" y te permite volver a ensamblar el MKV en un clic, sin tener que rehacer las fases caras.</td></tr>
-      <tr><td>Error "Invalid PPS index" durante la validación</td><td>Es un bug conocido de una versión antigua de la herramienta que lee el RPU al final</td><td>La app lo esquiva automáticamente — valida el vídeo antes de ensamblar el MKV, no después. Si aparece, relanza la fase; suele ser transitorio.</td></tr>
+      <tr><td>Error "Invalid PPS index" durante la validación</td><td>Bug histórico de dovi_tool 2.1.x (corregido en 2.3.x, que es la que lleva el contenedor). Si aparece, probablemente es un fichero HEVC parcial o corrupto.</td><td>La app esquiva el bug leyendo desde el HEVC pre-mux y no del MKV final. Si aparece igualmente, relanza la fase — suele ser transitorio por I/O.</td></tr>
       <tr><td>Los trust gates pasan pero en Fase D detectas desfase de frames</td><td>El bin se generó a partir de una edición distinta (theatrical vs extended) o versión streaming recortada</td><td>Busca en la hoja DoviTools el bin de la edición exacta de tu disco. Si no hay, alinea manualmente en Fase D o reporta a la comunidad.</td></tr>
       <tr><td>Aviso "Divergencia L5 &gt; 30 píxeles"</td><td>El master del bin tiene otro aspect ratio o letterbox que tu Blu-ray (típico IMAX vs scope, o cortes específicos de streaming)</td><td>Busca en el repo un bin con la anotación IMAX/Generated que corresponda al ratio que quieres. Si el corte es el mismo pero el aviso aparece, puedes aceptarlo y continuar.</td></tr>
       <tr><td>La inyección se queda colgada o tarda demasiado</td><td>El NAS está saturado con otras tareas de I/O en paralelo</td><td>Cancela, espera a que terminen las otras tareas y relanza. Los proyectos guardan progreso — no pierdes nada.</td></tr>
