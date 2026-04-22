@@ -9769,12 +9769,19 @@ function _cmv40FaseSummary(key, s) {
   }
   if (key === 'D') return s.sync_config ? `Corrección aplicada (Δ = ${s.sync_delta})` : 'Sincronización verificada (Δ = 0)';
   if (key === 'F') {
-    const sz = arts['EL_injected.hevc'];
-    return sz ? `EL_injected.hevc generado (${_fmtBytes(sz)})` : 'EL_injected.hevc generado';
+    // En drop-in FEL el artefacto es source_injected.hevc (BL+EL intactos);
+    // en merge clasico es EL_injected.hevc (solo EL). Preferimos el que exista.
+    const dropIn = arts['source_injected.hevc'];
+    const merge  = arts['EL_injected.hevc'];
+    if (dropIn) return `source_injected.hevc generado (${_fmtBytes(dropIn)}, drop-in)`;
+    if (merge)  return `EL_injected.hevc generado (${_fmtBytes(merge)})`;
+    return 'HEVC con RPU inyectado generado';
   }
   if (key === 'G') {
-    const sz = arts['output.mkv'];
-    return sz ? `output.mkv generado (${_fmtBytes(sz)})` : 'output.mkv generado';
+    // El MKV se escribe en /mnt/output (fuera del workdir) por lo que no sale
+    // del scan de artifacts. Mostramos el nombre directo del session.
+    const name = s.output_mkv_name || '';
+    return name ? `MKV remuxado: ${name} (pre-validación)` : 'MKV remuxado (pre-validación)';
   }
   if (key === 'H') return s.output_mkv_path ? `Movido a: ${s.output_mkv_path}` : 'Validado';
   return '';
@@ -9870,13 +9877,36 @@ function _cmv40FaseDoneBody(key, pid, s) {
   if (key === 'C') {
     return _cmv40ArtifactsBody(s, ['BL.hevc', 'EL.hevc', 'per_frame_data.json']);
   }
-  // Fase F: EL_injected.hevc
+  // Fase F: drop-in FEL genera source_injected.hevc (BL+EL intactos);
+  // merge clasico genera EL_injected.hevc (solo EL). Mostramos el que exista.
   if (key === 'F') {
-    return _cmv40ArtifactsBody(s, ['EL_injected.hevc']);
+    const arts = s.artifacts || {};
+    const hasDropIn = arts['source_injected.hevc'] !== undefined;
+    const hasMerge  = arts['EL_injected.hevc']     !== undefined;
+    if (hasDropIn) return _cmv40ArtifactsBody(s, ['source_injected.hevc']);
+    if (hasMerge)  return _cmv40ArtifactsBody(s, ['EL_injected.hevc']);
+    // Nada encontrado: mostramos el esperado segun workflow
+    const wf = (s.workflow || '').toLowerCase();
+    const expected = wf === 'p7_fel' ? ['source_injected.hevc'] : ['EL_injected.hevc'];
+    return _cmv40ArtifactsBody(s, expected);
   }
-  // Fase G: output.mkv (antes de mover en Fase H)
+  // Fase G: el MKV final se escribe en /mnt/output/{nombre}.mkv.tmp (fuera del
+  // workdir), por eso no aparece en artifacts. Mostramos directamente el path.
   if (key === 'G') {
-    return _cmv40ArtifactsBody(s, ['output.mkv']);
+    const path = s.output_mkv_path || '';
+    const name = s.output_mkv_name || (path ? path.split('/').pop() : '');
+    if (!name) return '<div style="font-size:11px; color:var(--text-3)">—</div>';
+    return `
+      <div style="font-size:12px">
+        <div style="color:var(--text-3); margin-bottom:6px">MKV remuxado (pre-validación Fase H):</div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--sep); gap:8px">
+          <code style="font-size:11px; word-break:break-all">${escHtml(name)}</code>
+          <span style="font-size:11px; color:var(--text-3); white-space:nowrap">escrito en /mnt/output</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-3); margin-top:6px; line-height:1.4">
+          Sufijo <code>.mkv.tmp</code> mientras Fase H no valide. Tras validar se hace rename atómico al nombre final.
+        </div>
+      </div>`;
   }
   return '<div style="font-size:11px; color:var(--text-3)">—</div>';
 }
