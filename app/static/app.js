@@ -7520,9 +7520,25 @@ function _cmv40RenderTimeline(s, project) {
     </li>`;
   }).join('');
 
-  const trustBadge = s.target_trust_ok
-    ? '<span class="cmv40-tl-trust-badge trusted">🚀 Trusted</span>'
-    : '<span class="cmv40-tl-trust-badge manual">🔬 Manual</span>';
+  // Badge 3-estado del modo de ejecucion:
+  //   1. Automatico · pendiente de validaciones — antes de Fase B (aun no
+  //      se sabe si trusted) o durante Fase B (evaluando gates)
+  //   2. Automatico · trusted — gates OK, el pipeline encadena sin revision
+  //      manual (drop-in FEL, retail P8, etc)
+  //   3. Manual · revision visual — gates no pasan o usuario forzo force_interactive
+  //      (Fase D requiere revision en el chart)
+  const gatesEvaluated = !!(s.target_trust_gates && Object.keys(s.target_trust_gates).length);
+  const targetProvidedIdx = CMV40_PHASES_ORDER.indexOf('target_provided');
+  const curPhaseIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
+  const beforeGates = curPhaseIdx < targetProvidedIdx || !gatesEvaluated;
+  let trustBadge;
+  if (beforeGates) {
+    trustBadge = '<span class="cmv40-tl-trust-badge pending">⏳ Auto · pendiente validaciones</span>';
+  } else if (s.target_trust_ok && s.trust_override !== 'force_interactive') {
+    trustBadge = '<span class="cmv40-tl-trust-badge trusted">🚀 Auto · trusted</span>';
+  } else {
+    trustBadge = '<span class="cmv40-tl-trust-badge manual">🔬 Manual · revisión visual</span>';
+  }
 
   const progressCls = isTerminal && !s.error_message ? 'cmv40-tl-progress-done'
                     : s.error_message ? 'cmv40-tl-progress-error'
@@ -8251,6 +8267,10 @@ async function createCMv40Project() {
   // Arrancar cadena auto: A primero (backend). Cuando A termine,
   // _cmv40MaybeAutoAdvance detectará pendingTarget y disparará B automáticamente.
   if (autoOn) {
+    // Marca _autoChaining=true antes de disparar Fase A. Sin esto, entre
+    // que Fase A termina (running_phase=null) y el poll dispara _cmv40Maybe
+    // AutoAdvance hay un tick donde bridgingAuto=false → el overlay parpadea.
+    if (project) project._autoChaining = true;
     cmv40DoAnalyzeSource(data.id);
   }
 }
@@ -8543,15 +8563,20 @@ function _renderCMv40RunningOverlay(project) {
   let overlay = panel.querySelector('.cmv40-running-overlay');
 
   // Auto-pipeline "puente": entre una fase y la siguiente el backend pone
-  // running_phase=null brevemente. Para que el overlay no parpadee,
-  // mostramos overlay también cuando project._autoChaining está activo —
-  // flag que se enciende al disparar una fase desde _cmv40MaybeAutoAdvance
-  // y se apaga al llegar a terminal o intervenir manualmente. Esto evita
-  // que el overlay se quede "pillado" tras un reset/toggle cuando auto=ON
-  // pero no hay cadena real en curso.
+  // running_phase=null brevemente. Dos heurísticas para mantener el overlay
+  // sin parpadeo durante esa ventana:
+  //   (a) project._autoChaining — flag que se enciende al disparar una fase
+  //       desde _cmv40MaybeAutoAdvance o desde el arranque inicial de Fase A.
+  //   (b) "recent running" — hace menos de 15s vimos running_phase no-null.
+  //       Actúa como red de seguridad si _autoChaining no se seteo a tiempo
+  //       (ej. polling tarda en captar el cambio).
+  // Se apaga al llegar a terminal o al intervenir manualmente.
   const terminalPhase = (s.phase === 'done' || s.phase === 'error' || !!s.error_message);
   if (terminalPhase) project._autoChaining = false;
-  const bridgingAuto  = !s.running_phase && !!project._autoChaining && !terminalPhase;
+  if (s.running_phase) project._lastRunningPhaseAt = Date.now();
+  const recentRunning = (Date.now() - (project._lastRunningPhaseAt || 0)) < 15000;
+  const bridgingAuto  = !s.running_phase && project.autoContinue && !terminalPhase
+                        && (!!project._autoChaining || recentRunning);
   const shouldShow    = !!s.running_phase || bridgingAuto;
 
   if (shouldShow) {
@@ -9946,20 +9971,13 @@ function _cmv40MaybeAutoAdvance(project) {
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
   const pid = project.id;
-  // Debounce: evita doble-fire cuando dos polls back-to-back ven el mismo
-  // phase=X, running_phase=null entre que el backend confirma una fase y
-  // arranca la siguiente. Dos guardas:
-  //   (a) dedup por phase — si ya disparamos para esta fase, no repetir
-  //   (b) dedup por tiempo — aunque la fase parezca nueva, si disparamos
-  //       hace <3s es muy probable una carrera (poll + WS + render chain
-  //       viendo el mismo estado transiente). El backend rechaza con
-  //       "ya hay otra fase en curso" pero aqui evitamos enviarlo siquiera.
+  // Dedup por phase: JS es single-threaded, asi que dos callers que vean
+  // el MISMO phase en el mismo tick procesaran secuencialmente — el segundo
+  // encontrara _lastAutoFiredFor ya actualizado y se bloqueara. Simple y
+  // efectivo. Un time-based guard adicional se probo y rompia el fast-chain
+  // cuando varias fases completan en <3s seguidas (drop-in Fase C=0s).
   if (project._lastAutoFiredFor === s.phase) return;
-  const now = Date.now();
-  const lastFiredAt = project._lastAutoFiredAt || 0;
-  if (now - lastFiredAt < 3000) return;
   project._lastAutoFiredFor = s.phase;
-  project._lastAutoFiredAt = now;
   // Marca que la cadena auto está encadenando en este momento — usado por
   // el overlay para mostrarse durante el "puente" entre dos fases. Se limpia
   // al alcanzar un estado terminal o al intervenir manualmente (toggle,

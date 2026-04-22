@@ -3474,9 +3474,15 @@ select { appearance: none; cursor: pointer;
   border-color: rgba(52, 199, 89, 0.45);
 }
 .cmv40-tl-trust-badge.manual {
-  background: rgba(0, 122, 255, 0.10);
-  color: #005fb8;
-  border-color: rgba(0, 122, 255, 0.35);
+  background: rgba(255, 149, 0, 0.14);
+  color: #8a4a00;
+  border-color: rgba(255, 149, 0, 0.50);
+}
+.cmv40-tl-trust-badge.pending {
+  background: rgba(142, 142, 147, 0.15);
+  color: var(--text-2);
+  border-color: rgba(142, 142, 147, 0.40);
+  border-style: dashed;
 }
 .cmv40-tl-total {
   color: var(--text-2);
