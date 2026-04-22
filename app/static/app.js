@@ -7066,13 +7066,13 @@ const CMV40_ETA = {
   r_extract_rpu: 0.84,   // 157/186 observado (antes 0.92)
   r_demux:       1.30,   // (sin medir en drop-in, valor legacy)
   r_export:      0.19,   // (sin medir en drop-in, valor legacy)
-  r_inject:      1.55,   // 283/186 observado SIN contaminacion (antes 2.25 con pfd concurrente)
+  r_inject:      2.15,   // 388/180 observado en drop-in FEL (2 runs: 387s, 388s). Antes 1.55 era subestimacion
   r_mux:         2.00,   // 373/186 observado (antes 2.15)
   // FPS de cada tool (fallback cuando no hay anchor)
   fps_extract:   1550,   // 155001/100 ≈ 1550
   fps_demux:     1100,
   fps_export:    7000,
-  fps_inject:    545,    // 155001/283 (antes 395 por contaminacion pfd)
+  fps_inject:    400,    // 155001/388 observado en drop-in (antes 545 era subestimacion)
   fps_mux:       415,    // 155001/373 ≈ 415 (antes 711)
   // Fallback inicial cuando aun no tenemos ffmpeg_wall_seconds. Un UHD BD
   // tipico de ~2h / 35-50 GB HEVC rinde ffmpeg extract ~180s en NAS ZFS.
