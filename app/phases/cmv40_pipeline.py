@@ -1065,24 +1065,60 @@ async def _analyze_target_rpu(
             await log_callback(
                 f"[Fase B] ⚠ Gates que NO pasan: {', '.join(failing)}"
             )
-        # Resultado con implicación para las siguientes fases
+        # Resultado con implicación para las siguientes fases — depende del
+        # source_workflow + target_type porque Fase F elige ruta segun la
+        # combinacion (drop-in / direct-inject / merge).
+        sw = session.source_workflow or "p7_fel"
         if session.target_trust_ok:
             if session.target_type == "trusted_p7_fel_final":
-                implication = (
-                    "bin P7 FEL CMv4.0 drop-in — Fase C saltará demux, Fase D saltará "
-                    "revisión visual, Fase F hará inject-rpu directo sobre source.hevc. "
-                    "Ahorro ~90 GB de I/O."
-                )
+                if sw == "p7_fel":
+                    implication = (
+                        "bin P7 FEL CMv4.0 + source P7 FEL → drop-in. Fase C saltará demux, "
+                        "Fase D saltará revisión visual, Fase F hará inject-rpu directo "
+                        "sobre source.hevc (BL+EL intactos). Ahorro ~90 GB de I/O."
+                    )
+                else:
+                    implication = (
+                        f"bin P7 FEL CMv4.0 + source {sw.upper()} → no drop-in (profiles "
+                        f"distintos). Fase D saltará revisión visual; Fase F mergeará los "
+                        f"levels CMv4.0 del target en el RPU del source preservando su "
+                        f"estructura single-layer. Resultado: P8.1 CMv4.0."
+                    )
             elif session.target_type == "trusted_p7_mel_final":
-                implication = (
-                    "bin P7 MEL CMv4.0 retail — Fase D saltará revisión visual. "
-                    "Fase F inyectará el RPU directamente sobre la BL descartando el EL."
-                )
+                if sw == "p7_mel":
+                    implication = (
+                        "bin P7 MEL CMv4.0 + source P7 MEL → mismo profile. Fase D saltará "
+                        "revisión visual. Fase F descarta el EL MEL e inyecta el RPU target "
+                        "en BL directamente → P8.1 CMv4.0."
+                    )
+                elif sw == "p7_fel":
+                    implication = (
+                        "bin P7 MEL CMv4.0 + source P7 FEL → Fase F mergeará CMv4.0 en el "
+                        "RPU P7 del source preservando la FEL. Resultado: P7 FEL CMv4.0."
+                    )
+                else:  # p8
+                    implication = (
+                        "bin P7 MEL CMv4.0 + source P8.1 → Fase F mergeará los levels "
+                        "CMv4.0 del target en el RPU P8 del source (via dovi_tool editor "
+                        "allow_cmv4_transfer). Resultado: P8.1 CMv4.0."
+                    )
             elif session.target_type == "trusted_p8_source":
-                implication = (
-                    "bin P8 retail con CMv4.0 completo — Fase D saltará revisión visual. "
-                    "Fase F hará merge del CMv4.0 en el RPU P7 preservando la FEL."
-                )
+                if sw == "p7_fel":
+                    implication = (
+                        "bin P8 retail CMv4.0 + source P7 FEL → Fase F mergeará CMv4.0 "
+                        "en el RPU P7 preservando la FEL. Resultado: P7 FEL CMv4.0."
+                    )
+                elif sw == "p7_mel":
+                    implication = (
+                        "bin P8 retail CMv4.0 + source P7 MEL → Fase F descartará EL e "
+                        "inyectará el RPU P8 directamente sobre BL. Resultado: P8.1 CMv4.0."
+                    )
+                else:  # p8
+                    implication = (
+                        "bin P8 retail CMv4.0 + source P8.1 → mismo profile. Fase F "
+                        "inyectará el RPU target directamente sobre source.hevc. "
+                        "Resultado: P8.1 CMv4.0 refinado."
+                    )
             else:
                 implication = "se salta revisión manual."
             await log_callback(
@@ -1146,26 +1182,18 @@ async def _analyze_target_rpu(
 def _check_source_target_compat(source_workflow: str, target_type: str) -> tuple[bool, str]:
     """Valida compatibilidad estructural source + target.
 
-    Algunas combinaciones son imposibles por estructura de RPU:
-      - Source single-layer (p7_mel post-discard EL, o p8) + target P7 dual-layer
-        (trusted_p7_fel_final o trusted_p7_mel_final) → el target RPU declara
-        profile 7 dual-layer pero se inyectaría en HEVC single-layer, resultando
-        en un MKV con metadata de P7 sin EL que los players interpretarían mal
-        (fallback a HDR10 o vídeo roto).
+    Ya no aborta para `source single-layer + target P7 dual-layer`: aunque el
+    target no se puede aplicar como drop-in, su RPU sirve como DONANTE de
+    metadata CMv4.0 (levels L1-L11) via merge. `dovi_tool editor` con
+    `allow_cmv4_transfer` copia los levels entre RPUs independientemente del
+    profile; el profile de SALIDA hereda del source (P8.1 o MEL), que es lo
+    que el HEVC del BD ya tiene. La Fase F decide entre drop-in / merge /
+    direct-inject segun source y target_type.
 
-    Devuelve (ok, mensaje). Si ok=False, el mensaje explica por qué aborta.
+    Actualmente no hay combinaciones estructuralmente imposibles — siempre
+    hay un camino via merge. Devuelve (True, "") siempre, pero mantenemos la
+    firma por si aparece un caso futuro que justifique abort aqui.
     """
-    p7_drop_in = ("trusted_p7_fel_final", "trusted_p7_mel_final")
-    if source_workflow in ("p7_mel", "p8") and target_type in p7_drop_in:
-        target_label = "P7 FEL CMv4.0 (drop-in)" if target_type == "trusted_p7_fel_final" else "P7 MEL CMv4.0 (drop-in)"
-        source_label = "P7 MEL (descarta EL al inyectar)" if source_workflow == "p7_mel" else "P8.1 (single-layer)"
-        return False, (
-            f"Combinación incompatible: source {source_label} + target {target_label}. "
-            f"El target está pensado para reemplazar capas BL+EL de un BD FEL original; "
-            f"aplicado sobre un source single-layer produce un MKV con metadata P7 dual-layer "
-            f"pero sin EL, que los reproductores interpretan incorrectamente. "
-            f"Elige un bin target de tipo P8.x retail, P5→P8 transfer, o generated."
-        )
     return True, ""
 
 
@@ -1825,18 +1853,33 @@ async def run_phase_f_inject(
                 "Resultado: P7 FEL con trims CMv4.0."
             )
         elif workflow == "p7_mel":
-            await log_callback(
-                "[Fase F] 📋 Plan: source P7 MEL → descartamos EL (no aporta calidad "
-                "frente al target CMv4.0) e inyectamos el RPU target directamente en "
-                "BL.hevc. Resultado: MKV single-layer P8.1 CMv4.0 — más ligero que el "
-                "origen y visualmente equivalente."
-            )
+            if session.target_type in ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic"):
+                await log_callback(
+                    "[Fase F] 📋 Plan: source P7 MEL + target P7/generic → descartamos "
+                    "el EL MEL del source y mergeamos los levels CMv4.0 del target "
+                    "en el RPU del source preservando profile. Inyectamos el RPU "
+                    "merged en BL.hevc. Resultado: MKV single-layer P8.1 CMv4.0."
+                )
+            else:
+                await log_callback(
+                    "[Fase F] 📋 Plan: source P7 MEL + target P8 retail → descartamos "
+                    "EL MEL e inyectamos el RPU target directamente en BL.hevc. "
+                    "Resultado: MKV single-layer P8.1 CMv4.0 — mismo profile, sin merge."
+                )
         else:  # p8
-            await log_callback(
-                "[Fase F] 📋 Plan: source ya es P8.1 single-layer → inyectamos el RPU "
-                "target directamente en source.hevc (reemplaza el RPU existente sin "
-                "tocar las capas). Resultado: P8.1 con CMv4.0 refinado."
-            )
+            if session.target_type in ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic"):
+                await log_callback(
+                    "[Fase F] 📋 Plan: source P8.1 + target P7/generic → mergeamos los "
+                    "levels CMv4.0 del target (L1-L11) en el RPU P8 del source. El output "
+                    "hereda el profile P8.1 del source (no se mezclan capas, solo metadata). "
+                    "Inyectamos el RPU merged en source.hevc. Resultado: P8.1 CMv4.0."
+                )
+            else:
+                await log_callback(
+                    "[Fase F] 📋 Plan: source P8.1 + target P8 retail → mismo profile, "
+                    "inyectamos el RPU target directamente en source.hevc (reemplaza el "
+                    "RPU CMv2.9 existente). Resultado: P8.1 con CMv4.0 refinado."
+                )
 
     # ── Determinar qué RPU inyectar y en qué HEVC ────────────────────
     # p7_fel + target NO trusted (o user forzó interactivo):
@@ -1876,23 +1919,72 @@ async def run_phase_f_inject(
         hevc_output   = el_injected
         inject_label  = "Inyectando RPU merged en EL (preserva FEL)"
     elif workflow == "p7_mel":
-        rpu_to_inject = rpu_target_effective
+        # P7 MEL: tras demux quedamos con BL single-layer (EL MEL descartada).
+        # Si el target es P8 (trusted_p8_source): inject directo — el P8 RPU
+        # encaja sobre el BL y produce un HEVC P8.1 CMv4.0.
+        # Si el target es P7 (fel o mel) o generic: mergeamos los levels CMv4.0
+        # del target en el RPU P7 MEL del source — el output hereda la profile
+        # P7 MEL pero al inyectarlo en BL single-layer el reproductor lo lee
+        # como P8.1-equivalente con CMv4.0 completo.
+        target_needs_merge = session.target_type in (
+            "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
+        )
+        if target_needs_merge:
+            if log_callback:
+                await log_callback(
+                    f"[Fase F] P7 MEL + target {session.target_type}: merge CMv4.0 "
+                    f"del target en RPU P7 MEL del source (dovi_tool allow_cmv4_transfer)…"
+                )
+            await _merge_cmv40_into_p7(
+                rpu_source_p7=rpu_source,
+                rpu_target_v40=rpu_target_effective,
+                output=rpu_merged,
+                log_callback=log_callback,
+            )
+            rpu_to_inject = rpu_merged
+            inject_label  = "Inyectando RPU merged en BL (MEL descartado → P8.1 CMv4.0)"
+        else:
+            rpu_to_inject = rpu_target_effective
+            inject_label  = "Inyectando RPU target en BL (MEL descartado → P8.1)"
+            if log_callback:
+                await log_callback(
+                    "[Fase F] P7 MEL + target P8 retail: inject directo sobre BL → P8.1 CMv4.0"
+                )
         hevc_input    = bl_hevc
         hevc_output   = bl_injected
-        inject_label  = "Inyectando RPU target en BL (descartando EL MEL → P8.1)"
-        if log_callback:
-            await log_callback(
-                "[Fase F] P7 MEL: EL descartado, inyección directa en BL → P8.1 CMv4.0"
-            )
     else:  # workflow == "p8"
-        rpu_to_inject = rpu_target_effective
-        hevc_input    = source_hevc
-        hevc_output   = bl_injected  # reutilizamos el mismo slot de artefacto
-        inject_label  = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
-        if log_callback:
-            await log_callback(
-                "[Fase F] P8: sin demux, inject directo sobre source HEVC"
+        # P8 source single-layer: si el target es P8 CMv4.0 (mismo profile),
+        # inject directo. Si el target es P7 (fel o mel) o generic, mergeamos
+        # los levels CMv4.0 del target en el RPU P8 del source — el output
+        # hereda el profile P8.1 del source con los levels CMv4.0 copiados
+        # del target. Evita que un RPU P7 dual-layer acabe inyectado en un
+        # HEVC single-layer con metadata incoherente.
+        target_needs_merge = session.target_type in (
+            "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
+        )
+        if target_needs_merge:
+            if log_callback:
+                await log_callback(
+                    f"[Fase F] P8 + target {session.target_type}: merge CMv4.0 "
+                    f"del target en RPU P8 del source (dovi_tool allow_cmv4_transfer)…"
+                )
+            await _merge_cmv40_into_p7(
+                rpu_source_p7=rpu_source,
+                rpu_target_v40=rpu_target_effective,
+                output=rpu_merged,
+                log_callback=log_callback,
             )
+            rpu_to_inject = rpu_merged
+            inject_label  = "Inyectando RPU merged en source.hevc (P8.1 CMv4.0)"
+        else:
+            rpu_to_inject = rpu_target_effective
+            inject_label  = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
+            if log_callback:
+                await log_callback(
+                    "[Fase F] P8 + target P8 retail: inject directo sobre source HEVC"
+                )
+        hevc_input    = source_hevc
+        hevc_output   = bl_injected  # reutilizamos el slot de artefacto
 
     # Validación de frame count antes de inyectar
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_to_inject)], timeout=30)
