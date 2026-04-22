@@ -8474,13 +8474,64 @@ function _appendLogLine(containerEl, line) {
   if (!containerEl) return;
   const wasAtBottom = _isScrolledNearBottom(containerEl);
   const div = document.createElement('div');
-  div.className = 'log-line';
-  if (line.includes('✓')) div.classList.add('log-success');
-  if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
-  if (line.includes('━━━')) div.classList.add('log-phase');
+  div.className = 'log-line ' + _classifyLogLine(line);
   div.textContent = line;
   containerEl.appendChild(div);
   if (wasAtBottom) containerEl.scrollTop = containerEl.scrollHeight;
+}
+
+/** Clasifica una linea de log por patrones textuales para aplicar color.
+ *  Paleta rica (user-friendly) — todas las clases se definen en style.css
+ *  con buena legibilidad sobre fondo oscuro del log-viewer.
+ *
+ *  Orden de prioridad importa: la primera regla que matchea gana.
+ *  Errores > warnings > markers de fase > sub-pasos > resultado > plan >
+ *  success > skip > command > default.
+ */
+function _classifyLogLine(line) {
+  const low = line.toLowerCase();
+  // Errores explicitos (fallo duro)
+  if (line.includes('✗') || line.includes('⛔') || line.includes('❌')
+      || low.includes('error') || low.includes('fallo') || low.includes('aborta')) {
+    return 'log-error';
+  }
+  // Warnings (soft alerts)
+  if (line.includes('⚠') || low.includes('warning') || low.includes('aviso')) {
+    return 'log-warning';
+  }
+  // Separadores entre fases
+  if (line.includes('━━━')) {
+    return 'log-phase';
+  }
+  // Sub-pasos con box-drawing chars: ├─ ┌─ └─
+  if (/[├┌└]─/.test(line)) {
+    return 'log-step';
+  }
+  // Plan (intencion antes de actuar): "📋 Plan:" o "Voy a ..."
+  if (line.includes('📋 Plan:') || /\[Fase [A-H]\] Voy a /.test(line)) {
+    return 'log-plan';
+  }
+  // Resultado / conclusion con implicacion para siguientes fases
+  if (line.includes('🎯 Resultado:') || line.includes('🎯 Result:')) {
+    return 'log-result';
+  }
+  // Success checkmark
+  if (line.includes('✓')) {
+    return 'log-success';
+  }
+  // Skipped steps
+  if (line.includes('⏭')) {
+    return 'log-skip';
+  }
+  // Drop-in special case (exito destacado)
+  if (line.includes('🚀')) {
+    return 'log-highlight';
+  }
+  // Comando shell ejecutado (transparencia)
+  if (/^\s*\$ /.test(line) || /\] \$ /.test(line)) {
+    return 'log-command';
+  }
+  return '';
 }
 
 function _appendCMv40Log(project, line) {

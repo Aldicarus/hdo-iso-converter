@@ -3151,9 +3151,29 @@ select { appearance: none; cursor: pointer;
   white-space: pre-wrap;
 }
 .cmv40-log .log-line { padding: 1px 0; }
-.cmv40-log .log-success { color: #86efac; }
-.cmv40-log .log-error   { color: #f87171; }
-.cmv40-log .log-phase   { color: #93c5fd; font-weight: 600; margin-top: 4px; }
+/* Paleta del log CMv4.0 — optimizada para lectura sobre fondo oscuro
+   (#0d0d0d). Elegida para tener ~5 tonos distintos sin saturar:
+     · success  — verde claro (completo, ok)
+     · error    — rojo (fallo duro o abort)
+     · warning  — ambar (aviso soft, no bloquea)
+     · phase    — azul claro · bold (separador ━━━ de fase)
+     · step     — cian tenue (sub-paso interno con ├─ ┌─)
+     · plan     — azul grisaceo · italic (intencion "voy a hacer X")
+     · result   — turquesa · bold (conclusion "resultado: Y")
+     · skip     — gris · italic (fase o paso omitido)
+     · highlight— dorado · bold (exito destacado, p.ej. 🚀 drop-in)
+     · command  — gris-verdoso · monospace (echo de $ cmd)
+*/
+.cmv40-log .log-success   { color: #86efac; }
+.cmv40-log .log-error     { color: #f87171; font-weight: 600; }
+.cmv40-log .log-warning   { color: #fbbf24; }
+.cmv40-log .log-phase     { color: #93c5fd; font-weight: 700; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(147, 197, 253, 0.20); }
+.cmv40-log .log-step      { color: #67e8f9; }
+.cmv40-log .log-plan      { color: #a5b4fc; font-style: italic; }
+.cmv40-log .log-result    { color: #5eead4; font-weight: 600; }
+.cmv40-log .log-skip      { color: #9ca3af; font-style: italic; }
+.cmv40-log .log-highlight { color: #fcd34d; font-weight: 600; }
+.cmv40-log .log-command   { color: #8fb87b; opacity: 0.75; }
 
 /* Chart de sincronización */
 .cmv40-chart-wrap {

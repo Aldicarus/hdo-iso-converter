@@ -654,7 +654,16 @@ async def run_phase_a_analyze_source(
     # Paso 1: Extraer HEVC del MKV origen
     await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV origen")
     if log_callback:
-        await log_callback("[Fase A] Extrayendo stream HEVC del MKV origen (ffmpeg)…")
+        await log_callback(
+            "[Fase A] 📋 Plan: extraer el stream HEVC del MKV del Blu-ray, "
+            "sacar el RPU Dolby Vision (la metadata que le dice al TV cómo "
+            "hacer tone-mapping escena a escena) y detectar el profile. El "
+            "RPU extraído es la referencia que luego usaremos para comparar "
+            "contra el target y decidir si el upgrade es posible."
+        )
+        await log_callback(
+            "[Fase A] ┌─ Paso 1/3: Extrayendo stream HEVC del MKV origen con ffmpeg…"
+        )
     ffmpeg_elapsed = 0.0
     if not source_hevc.exists() or source_hevc.stat().st_size < 1_000_000:
         t0 = time.monotonic()
@@ -682,7 +691,7 @@ async def run_phase_a_analyze_source(
 
     # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
     if log_callback:
-        await log_callback("[Fase A] Extrayendo RPU del HEVC (dovi_tool extract-rpu)…")
+        await log_callback("[Fase A] ├─ Paso 2/3: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
     # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
     if ffmpeg_elapsed > 5:
         est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
@@ -701,7 +710,7 @@ async def run_phase_a_analyze_source(
 
     # Paso 3: Info del RPU
     if log_callback:
-        await log_callback("[Fase A] Analizando RPU (dovi_tool info)…")
+        await log_callback("[Fase A] └─ Paso 3/3: Analizando metadata del RPU con dovi_tool info --summary…")
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_source),
     ], timeout=30)
@@ -726,10 +735,22 @@ async def run_phase_a_analyze_source(
     await _emit_progress(log_callback, 100, "Análisis completado")
     if log_callback:
         await log_callback(
-            f"[Fase A] OK — Profile {dovi_info.profile} ({dovi_info.el_type}), "
+            f"[Fase A] ✓ RPU analizado — Profile {dovi_info.profile} ({dovi_info.el_type}), "
             f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames"
         )
-        await log_callback(f"[Fase A] Workflow detectado: {workflow_label}")
+        # Resumen con implicación para las siguientes fases
+        next_fase_hint = {
+            "p7_fel": ("En Fase B obtendremos un RPU CMv4.0 target; si pasa los trust gates "
+                      "usaremos drop-in (sin demux) o merge (preservando FEL)."),
+            "p7_mel": ("El MEL no aporta frente a un target CMv4.0 → en Fase F descartaremos "
+                      "el EL y dejaremos un MKV single-layer P8.1."),
+            "p8":     ("Source ya es single-layer → en Fase F sustituiremos el RPU directamente "
+                      "sin tocar las capas."),
+        }.get(session.source_workflow, "")
+        await log_callback(
+            f"[Fase A] 🎯 Resultado: workflow {workflow_label}. {next_fase_hint} "
+            f"El RPU source queda guardado como referencia para los trust gates de Fase B."
+        )
 
 
 def _detect_workflow(dovi_info: DoviInfo) -> str:
@@ -842,7 +863,13 @@ async def run_phase_b_target_from_path(
 
     await _emit_progress(log_callback, 0, f"Copiando RPU target: {src.name}")
     if log_callback:
-        await log_callback(f"[Fase B] Copiando RPU target: {src.name}")
+        await log_callback(
+            "[Fase B] 📋 Plan: copiar el RPU target desde carpeta local al "
+            "workdir del proyecto, analizar su metadata y compararla con el "
+            "RPU del Blu-ray (trust gates). Si pasa → auto-pipeline sin "
+            "revisión manual. Si falla → pausa en Fase D para revisar a mano."
+        )
+        await log_callback(f"[Fase B] ┌─ Copiando RPU target local: {src.name}")
     shutil.copy2(src, rpu_target)
     await _emit_progress(log_callback, 70, "Analizando RPU")
 
@@ -867,7 +894,14 @@ async def run_phase_b_target_from_drive(
 
     await _emit_progress(log_callback, 0, f"Descargando del repositorio: {file_name}")
     if log_callback:
-        await log_callback(f"[Fase B] Descargando RPU de REC_9999 (Drive): {file_name}")
+        await log_callback(
+            "[Fase B] 📋 Plan: descargar el RPU target del repositorio público "
+            "DoviTools (Google Drive), analizar su metadata y compararla con el "
+            "RPU del Blu-ray (trust gates). Si pasa → auto-pipeline sin revisión "
+            "manual (ruta más rápida). Si algún gate crítico falla → pausa en "
+            "Fase D para revisar a mano."
+        )
+        await log_callback(f"[Fase B] ┌─ Descargando RPU target del repo DoviTools: {file_name}")
 
     last_emit = 0.0
 
@@ -924,7 +958,14 @@ async def run_phase_b_target_from_mkv(
     try:
         await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV target")
         if log_callback:
-            await log_callback(f"[Fase B] Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}")
+            await log_callback(
+                "[Fase B] 📋 Plan: extraer el RPU CMv4.0 de un MKV propio que ya "
+                "tiene el grading que quieres aplicar (p. ej. WEB-DL moderno), "
+                "analizar su metadata y comparar contra el RPU del Blu-ray. "
+                "Esta ruta siempre pasa por Fase D manual — no hay pre-validación "
+                "comunitaria que garantice la alineación."
+            )
+            await log_callback(f"[Fase B] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}")
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", source_mkv_path,
@@ -1013,20 +1054,51 @@ async def _analyze_target_rpu(
 
     if log_callback:
         await log_callback(
-            f"[Fase B] RPU target: Profile {dovi_info.profile}"
+            f"[Fase B] ✓ RPU target analizado — Profile {dovi_info.profile}"
             f"{' (' + dovi_info.el_type + ')' if dovi_info.el_type else ''}, "
             f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames "
-            f"(Δ = {session.sync_delta:+d} vs source)"
-        )
-        await log_callback(
-            f"[Fase B] Clasificación: {session.target_type}"
-            f"{' — TRUSTED ✓ gates OK' if session.target_trust_ok else ''}"
+            f"(Δ = {session.sync_delta:+d} frames vs source)"
         )
         # Log detallado de gates que fallan (útil para diagnóstico)
         failing = [k for k, v in gates.items() if isinstance(v, dict) and not v.get("ok", True)]
         if failing:
             await log_callback(
-                f"[Fase B] Gates que NO pasan: {', '.join(failing)}"
+                f"[Fase B] ⚠ Gates que NO pasan: {', '.join(failing)}"
+            )
+        # Resultado con implicación para las siguientes fases
+        if session.target_trust_ok:
+            if session.target_type == "trusted_p7_fel_final":
+                implication = (
+                    "bin P7 FEL CMv4.0 drop-in — Fase C saltará demux, Fase D saltará "
+                    "revisión visual, Fase F hará inject-rpu directo sobre source.hevc. "
+                    "Ahorro ~90 GB de I/O."
+                )
+            elif session.target_type == "trusted_p7_mel_final":
+                implication = (
+                    "bin P7 MEL CMv4.0 retail — Fase D saltará revisión visual. "
+                    "Fase F inyectará el RPU directamente sobre la BL descartando el EL."
+                )
+            elif session.target_type == "trusted_p8_source":
+                implication = (
+                    "bin P8 retail con CMv4.0 completo — Fase D saltará revisión visual. "
+                    "Fase F hará merge del CMv4.0 en el RPU P7 preservando la FEL."
+                )
+            else:
+                implication = "se salta revisión manual."
+            await log_callback(
+                f"[Fase B] 🎯 Resultado: target clasificado como {session.target_type} "
+                f"— TRUSTED ✓ gates OK. {implication}"
+            )
+        else:
+            crit_fail = any(gates.get(k, {}).get("critical") and not gates.get(k, {}).get("ok")
+                            for k in gates if isinstance(gates.get(k), dict))
+            if crit_fail:
+                implication = "algún gate crítico ha fallado — el pipeline pasará por Fase D obligatoriamente y podrá requerir corrección de sync manual en Fase E."
+            else:
+                implication = "gates soft con avisos (divergencias no críticas) — Fase D obligatoria para revisar el chart pero sin abortar."
+            await log_callback(
+                f"[Fase B] 🎯 Resultado: target clasificado como {session.target_type} "
+                f"— NO trusted. {implication}"
             )
 
     # Validación de compatibilidad estructural source × target. Se aborta
@@ -1265,6 +1337,19 @@ async def run_phase_c_extract(
     else:
         W_DEMUX, W_PFD = 0.0, 0.0  # no-op (poco frecuente: p8 + trusted)
 
+    # Plan de la fase segun lo que realmente vamos a hacer
+    if log_callback:
+        plan_parts = []
+        if needs_demux:
+            plan_parts.append("separar el HEVC dual-layer en BL.hevc + EL.hevc (dovi_tool demux)")
+        if not skip_pfd:
+            plan_parts.append("generar per_frame_data.json con la luminancia por frame de source y target (para el chart de Fase D)")
+        if not plan_parts:
+            plan_parts.append("no hacer nada — tanto el demux como el per-frame se saltan porque el target es trusted drop-in")
+        await log_callback(
+            "[Fase C] 📋 Plan: " + " y ".join(plan_parts) + "."
+        )
+
     if needs_demux:
         est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
         await _emit_progress(log_callback, 0, "Separando BL + EL")
@@ -1350,6 +1435,19 @@ async def run_phase_c_extract(
                 await log_callback(f"[Fase C] No pude borrar EL.hevc: {e}")
 
     await _emit_progress(log_callback, 100, "Completado")
+
+    # Resultado de la fase: qué ha quedado preparado para Fase F/G
+    if log_callback:
+        result_parts = []
+        if needs_demux:
+            result_parts.append("BL.hevc" + (" + EL.hevc" if workflow == "p7_fel" else ""))
+        if not skip_pfd:
+            result_parts.append("per_frame_data.json para el chart")
+        if not result_parts:
+            result_parts.append("sin artefactos intermedios — la cadena drop-in usará directamente source.hevc")
+        await log_callback(
+            "[Fase C] 🎯 Resultado: " + ", ".join(result_parts) + "."
+        )
 
 
 async def _generate_per_frame_data(
@@ -1682,6 +1780,36 @@ async def run_phase_f_inject(
     if not rpu_target_effective.exists():
         raise RuntimeError("No hay RPU target disponible")
 
+    # Plan de la fase — elige estrategia según workflow y trust
+    if log_callback:
+        if drop_in_fel:
+            await log_callback(
+                "[Fase F] 📋 Plan: target P7 FEL CMv4.0 ya cocinado y gates trusted → "
+                "ruta DROP-IN. Inyectamos el RPU target directamente en source.hevc "
+                "(BL+EL intactos, sin demux previo ni mux posterior). Es la vía más "
+                "rápida y limpia — el byte-identical del RPU queda garantizado."
+            )
+        elif workflow == "p7_fel":
+            await log_callback(
+                "[Fase F] 📋 Plan: source P7 FEL + target P8.x (retail/generated) → "
+                "MERGE clásico. Transferimos L3/L8-L11 del target al RPU P7 del source "
+                "preservando la FEL, luego inyectamos el RPU merged en EL.hevc. "
+                "Resultado: P7 FEL con trims CMv4.0."
+            )
+        elif workflow == "p7_mel":
+            await log_callback(
+                "[Fase F] 📋 Plan: source P7 MEL → descartamos EL (no aporta calidad "
+                "frente al target CMv4.0) e inyectamos el RPU target directamente en "
+                "BL.hevc. Resultado: MKV single-layer P8.1 CMv4.0 — más ligero que el "
+                "origen y visualmente equivalente."
+            )
+        else:  # p8
+            await log_callback(
+                "[Fase F] 📋 Plan: source ya es P8.1 single-layer → inyectamos el RPU "
+                "target directamente en source.hevc (reemplaza el RPU existente sin "
+                "tocar las capas). Resultado: P8.1 con CMv4.0 refinado."
+            )
+
     # ── Determinar qué RPU inyectar y en qué HEVC ────────────────────
     # p7_fel + target NO trusted (o user forzó interactivo):
     #   → merge CMv4.0 en RPU P7 del source (rama A/B de la spec)
@@ -1769,7 +1897,21 @@ async def run_phase_f_inject(
 
     await _emit_progress(log_callback, 100, "RPU inyectado")
     if log_callback:
-        await log_callback(f"[Fase F] {hevc_output.name} generado ({workflow})")
+        await log_callback(f"[Fase F] ✓ HEVC con RPU inyectado generado: {hevc_output.name} (workflow {workflow})")
+        # Resultado con implicación para Fase G
+        if drop_in_fel:
+            impl = ("El HEVC conserva BL+EL intactos — Fase G puede saltarse el "
+                    "dovi_tool mux y usar mkvmerge directamente.")
+        elif workflow == "p7_fel":
+            impl = ("Mantenemos la FEL original — Fase G combinará BL.hevc + "
+                    "EL_injected.hevc con dovi_tool mux y luego mkvmerge añadirá "
+                    "audio/subs/capítulos.")
+        elif workflow == "p7_mel":
+            impl = ("MKV final será single-layer P8.1 — Fase G solo hará mkvmerge, "
+                    "no necesita mux dual-layer (más rápido y archivo más pequeño).")
+        else:  # p8
+            impl = ("Source ya era single-layer — Fase G hará mkvmerge directo.")
+        await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {impl}")
 
 
 async def _merge_cmv40_into_p7(
@@ -1943,6 +2085,34 @@ async def run_phase_g_remux(
     frames = session.source_frame_count or 0
     est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
 
+    # Plan de la fase
+    if log_callback:
+        if drop_in_fel:
+            await log_callback(
+                "[Fase G] 📋 Plan: ensamblar el MKV final. source_injected.hevc ya es "
+                "BL+EL dual-layer con el RPU CMv4.0 inyectado (drop-in) — solo "
+                "necesitamos mkvmerge para añadir audio/subs/capítulos del origen. "
+                "Saltamos el dovi_tool mux (innecesario, el stream ya está íntegro)."
+            )
+        elif workflow == "p7_fel":
+            await log_callback(
+                "[Fase G] 📋 Plan: ensamblar el MKV final. Workflow P7 FEL con merge "
+                "— primero dovi_tool mux combina BL.hevc + EL_injected.hevc en un "
+                "HEVC dual-layer, luego mkvmerge añade audio/subs/capítulos del origen."
+            )
+        elif workflow == "p7_mel":
+            await log_callback(
+                "[Fase G] 📋 Plan: ensamblar el MKV final single-layer. El EL MEL "
+                "se descarta (no aporta) → mkvmerge directo sobre BL_injected.hevc "
+                "con audio/subs/capítulos del origen. Resultado: P8.1 CMv4.0 ligero."
+            )
+        else:  # p8
+            await log_callback(
+                "[Fase G] 📋 Plan: ensamblar el MKV final. Source era P8.1 single-layer "
+                "→ mkvmerge directo sobre source_injected.hevc con audio/subs/"
+                "capítulos del origen."
+            )
+
     # ── Determinar qué HEVC multiplexar según workflow/modo ──────────
     if drop_in_fel:
         # Drop-in: source_injected.hevc ya es BL+EL con el RPU CMv4.0 inyectado.
@@ -1953,8 +2123,8 @@ async def run_phase_g_remux(
             )
         if log_callback:
             await log_callback(
-                "[Fase G] 🚀 Drop-in FEL: mkvmerge directo sobre source_injected.hevc "
-                "(sin dovi_tool mux — el BL+EL ya está intacto)"
+                "[Fase G] ┌─ Ruta drop-in: mkvmerge directo sobre source_injected.hevc "
+                "(sin dovi_tool mux, el BL+EL ya está intacto)"
             )
         hevc_for_mkv = source_injected
         remux_offset = 0.0
@@ -2038,7 +2208,12 @@ async def run_phase_g_remux(
     if log_callback:
         size_gb = output_mkv.stat().st_size / 1e9
         await log_callback(
-            f"[Fase G] output.mkv generado ({size_gb:.2f} GB, workflow={workflow})"
+            f"[Fase G] ✓ MKV ensamblado: {output_mkv.name} ({size_gb:.2f} GB, workflow {workflow})"
+        )
+        await log_callback(
+            "[Fase G] 🎯 Resultado: MKV completo escrito con sufijo .tmp. "
+            "Fase H validará que el RPU del resultante es CMv4.0 antes de "
+            "renombrar al nombre final (rename atómico)."
         )
     return str(output_mkv)
 
@@ -2074,7 +2249,14 @@ async def run_phase_h_validate(
 
     if log_callback:
         mkv_gb = output_mkv.stat().st_size / 1e9
-        await log_callback(f"[Fase H] Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
+        await log_callback(
+            "[Fase H] 📋 Plan: validar el resultado antes de mover el MKV al output "
+            "final. Leemos el RPU del HEVC resultante, confirmamos que tiene CMv4.0 "
+            "y que el frame count coincide con el source. Si todo OK, rename atómico "
+            ".tmp → .mkv (instantáneo, mismo filesystem) y cleanup de artefactos "
+            "intermedios."
+        )
+        await log_callback(f"[Fase H] ┌─ Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
 
     # Validación completa: extract-rpu DIRECTO sobre el MKV final (escanea todo
     # el stream HEVC, ~segundos-minutos según tamaño, mucho más barato que
@@ -2265,8 +2447,13 @@ async def run_phase_h_validate(
 
     if log_callback:
         await log_callback(
-            f"[Fase H] OK — MKV movido a {final_path} "
-            f"(Profile {result_info.profile} {result_info.el_type}, CM {result_info.cm_version})"
+            f"[Fase H] ✓ MKV validado y movido a ubicación final: {final_path}"
+        )
+        await log_callback(
+            f"[Fase H] 🎯 Resultado: upgrade CMv4.0 completado con éxito — "
+            f"Profile {result_info.profile}{' ' + result_info.el_type if result_info.el_type else ''}, "
+            f"CM {result_info.cm_version}, {result_info.frame_count} frames. "
+            f"El fichero está listo para reproducir en cualquier cadena DV compatible."
         )
 
     return {
