@@ -8517,9 +8517,18 @@ function _appendLogLine(containerEl, line) {
  *  Paleta rica (user-friendly) — todas las clases se definen en style.css
  *  con buena legibilidad sobre fondo oscuro del log-viewer.
  *
+ *  Principio: distinguir claramente 2 tipos de linea:
+ *    · Feedback de la APP (semantico, colorido): marcadores como
+ *      [Fase X], 🎯 Resultado, 📋 Plan, ├─ sub-pasos, ✓ ok, ✗ error
+ *    · Output crudo de las HERRAMIENTAS (muted): ffmpeg frame=X,
+ *      mkvmerge Progress, dovi_tool Parsing RPU, Input #0/Stream #0,
+ *      banners de version, stderr ruidoso. Todo lo que no empieza con
+ *      [ o ━━━ o $ y no tiene marcadores semanticos se considera output
+ *      crudo de tool y se renderiza muted + indentado.
+ *
  *  Orden de prioridad importa: la primera regla que matchea gana.
  *  Errores > warnings > markers de fase > sub-pasos > resultado > plan >
- *  success > skip > command > default.
+ *  success > skip > command > tool-output (fallback).
  */
 function _classifyLogLine(line) {
   const low = line.toLowerCase();
@@ -8563,6 +8572,16 @@ function _classifyLogLine(line) {
   // Comando shell ejecutado (transparencia)
   if (/^\s*\$ /.test(line) || /\] \$ /.test(line)) {
     return 'log-command';
+  }
+  // Fallback: si la linea NO empieza con [Algo] (prefijo de nuestro feedback)
+  // y no tiene marcadores semanticos, es output crudo de una herramienta
+  // externa (ffmpeg, mkvmerge, dovi_tool, ffprobe) — rendereizar muted.
+  // El regex permite prefijo opcional de timestamp "[HH:MM:SS] " que mete
+  // _cmv40_log antes del contenido.
+  const hasAppPrefix = /^\[\d{2}:\d{2}:\d{2}\]\s*\[(?:Fase|Pipeline|Montando|Desmontando|Preflight|Validaci|sync-data)/i.test(line)
+                       || /^\[(?:Fase|Pipeline|Montando|Desmontando|Preflight|Validaci|sync-data)/i.test(line);
+  if (!hasAppPrefix) {
+    return 'log-tool-output';
   }
   return '';
 }

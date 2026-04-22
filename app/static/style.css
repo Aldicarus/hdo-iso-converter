@@ -1415,6 +1415,14 @@ select { appearance: none; cursor: pointer;
 .log-viewer-content .log-skip      { color: #9ca3af; font-style: italic; }
 .log-viewer-content .log-highlight { color: #fcd34d; font-weight: 600; }
 .log-viewer-content .log-command   { color: #8fb87b; opacity: 0.75; }
+/* Raw tool output (ffmpeg/mkvmerge/dovi_tool/ffprobe) — muted + indent para separarlo del feedback semantico de la app */
+.log-viewer-content .log-tool-output {
+  color: rgba(255,255,255,0.42);
+  font-size: 10.5px;
+  padding-left: 14px;
+  border-left: 2px solid rgba(255,255,255,0.08);
+  margin-left: 2px;
+}
 
 .modal-title {
   font-size: 16px;
@@ -2237,6 +2245,14 @@ select { appearance: none; cursor: pointer;
 .pc-console-viewer .log-skip      { color: #9ca3af; font-style: italic; }
 .pc-console-viewer .log-highlight { color: #fcd34d; font-weight: 600; }
 .pc-console-viewer .log-command   { color: #8fb87b; opacity: 0.75; }
+/* Raw tool output (ffmpeg/mkvmerge/dovi_tool/ffprobe) — muted + indent para separarlo del feedback semantico */
+.pc-console-viewer .log-tool-output {
+  color: rgba(255,255,255,0.42);
+  font-size: 10.5px;
+  padding-left: 14px;
+  border-left: 2px solid rgba(255,255,255,0.08);
+  margin-left: 2px;
+}
 
 /* ── Sub-tab content area — contenedor flex horizontal ───────── */
 #subtab-content {
@@ -2690,6 +2706,13 @@ select { appearance: none; cursor: pointer;
 .csb-log-viewer .log-highlight { color: #fcd34d; font-weight: 600; }
 .csb-log-viewer .log-command   { color: #8fb87b; opacity: 0.75; }
 .csb-log-viewer .log-progress  { color: #4ec9b0; opacity: 0.70; }
+/* Raw tool output — compacto para sidebar, pero diferenciado */
+.csb-log-viewer .log-tool-output {
+  color: rgba(255,255,255,0.40);
+  font-size: 9.5px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(255,255,255,0.08);
+}
 
 /* Vista expandida — reutiliza .cola-content */
 .cola-content {
@@ -3209,6 +3232,16 @@ select { appearance: none; cursor: pointer;
 .cmv40-log .log-skip      { color: #9ca3af; font-style: italic; }
 .cmv40-log .log-highlight { color: #fcd34d; font-weight: 600; }
 .cmv40-log .log-command   { color: #8fb87b; opacity: 0.75; }
+/* Raw tool output (ffmpeg/mkvmerge/dovi_tool/ffprobe) — muted + indent para separarlo del feedback semantico
+   El classifier (_classifyLogLine) aplica esta clase cuando la linea NO empieza con [Fase]/[Pipeline]/[Montando]/etc,
+   que son los prefijos del feedback de la app. Asi el ojo distingue de un vistazo "lo que digo yo" vs "lo que escupe el subprocess". */
+.cmv40-log .log-tool-output {
+  color: rgba(255,255,255,0.42);
+  font-size: 10.5px;
+  padding-left: 14px;
+  border-left: 2px solid rgba(255,255,255,0.08);
+  margin-left: 2px;
+}
 
 /* Chart de sincronización */
 .cmv40-chart-wrap {
