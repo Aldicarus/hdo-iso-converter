@@ -2567,11 +2567,16 @@ async def cmv40_reset_sync(session_id: str):
 
 @app.post("/api/cmv40/{session_id}/mark-synced", summary="Marca sync OK sin corrección")
 async def cmv40_mark_synced(session_id: str):
-    """Usuario confirma que no hace falta corrección (Δ=0 y curvas alineadas)."""
+    """Usuario confirma que no hace falta corrección (Δ=0 y curvas alineadas).
+    Si el target es trusted, anotamos `sync_verification_pause` en phases_skipped
+    para que la UI muestre Fase D como "omitida" incluso tras recargar."""
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     session.phase = CMv40Phase.SYNC_VERIFIED
+    trusted_auto = session.target_trust_ok and session.trust_override != "force_interactive"
+    if trusted_auto and "sync_verification_pause" not in session.phases_skipped:
+        session.phases_skipped.append("sync_verification_pause")
     save_cmv40_session(session)
     return session.model_dump()
 

@@ -9345,8 +9345,15 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
                       && skipped.includes('demux_dual_layer')
                       && (skipped.includes('per_frame_data_skipped') || skipped.includes('mux_dual_layer'))
                       && state === 'done';
-  // Fase D: omitida cuando hubo sync_verification_pause (trusted auto).
-  const isSkippedD = fase.key === 'D' && skipped.includes('sync_verification_pause') && state === 'done';
+  // Fase D: omitida cuando el target es trusted y no hay override manual.
+  // Usamos la misma condicion que el body (_cmv40FaseDoneBody key==='D') —
+  // asi es robusta a reload del proyecto (phases_skipped no se persiste
+  // desde el frontend y solo estaria disponible mid-sesion).
+  const trustedSkippedD = !!s.target_trust_ok
+                           && (s.trust_override || 'auto') !== 'force_interactive';
+  const isSkippedD = fase.key === 'D'
+                     && (skipped.includes('sync_verification_pause') || trustedSkippedD)
+                     && state === 'done';
   // Fase F: en drop-in se salta SOLO el merge, pero el inject SI se ejecuta.
   // NO marcamos la fase como omitida (seria engañoso) — se anotara el "sin
   // merge" en el summary pero el stateIcon sigue siendo ✅ Completado.
@@ -9767,7 +9774,12 @@ function _cmv40FaseSummary(key, s) {
     const total = sizes.reduce((a, b) => a + b, 0);
     return total > 0 ? `BL.hevc, EL.hevc y per_frame_data (${_fmtBytes(total)} total)` : 'BL.hevc, EL.hevc y datos per-frame generados';
   }
-  if (key === 'D') return s.sync_config ? `Corrección aplicada (Δ = ${s.sync_delta})` : 'Sincronización verificada (Δ = 0)';
+  if (key === 'D') {
+    const trustedSkipped = !!s.target_trust_ok
+                            && (s.trust_override || 'auto') !== 'force_interactive';
+    if (trustedSkipped) return 'Omitida — target trusted: sync validado por gates';
+    return s.sync_config ? `Corrección aplicada (Δ = ${s.sync_delta})` : 'Sincronización verificada (Δ = 0)';
+  }
   if (key === 'F') {
     // En drop-in FEL el artefacto es source_injected.hevc (BL+EL intactos);
     // en merge clasico es EL_injected.hevc (solo EL). Preferimos el que exista.
@@ -9878,17 +9890,38 @@ function _cmv40FaseDoneBody(key, pid, s) {
     return _cmv40ArtifactsBody(s, ['BL.hevc', 'EL.hevc', 'per_frame_data.json']);
   }
   // Fase F: drop-in FEL genera source_injected.hevc (BL+EL intactos);
-  // merge clasico genera EL_injected.hevc (solo EL). Mostramos el que exista.
+  // merge clasico genera EL_injected.hevc (solo EL). Tras validacion exitosa
+  // (Fase H) el pipeline borra ambos ficheros — ya no son necesarios, el MKV
+  // final los contiene. Distinguimos 3 casos:
+  //   (a) artifact existe: mostramos size
+  //   (b) artifact no existe Y pipeline ya termino: mensaje de cleanup ok
+  //   (c) artifact no existe y pipeline a medias: "no encontrado" (bug)
   if (key === 'F') {
     const arts = s.artifacts || {};
     const hasDropIn = arts['source_injected.hevc'] !== undefined;
     const hasMerge  = arts['EL_injected.hevc']     !== undefined;
     if (hasDropIn) return _cmv40ArtifactsBody(s, ['source_injected.hevc']);
     if (hasMerge)  return _cmv40ArtifactsBody(s, ['EL_injected.hevc']);
-    // Nada encontrado: mostramos el esperado segun workflow
-    const wf = (s.workflow || '').toLowerCase();
-    const expected = wf === 'p7_fel' ? ['source_injected.hevc'] : ['EL_injected.hevc'];
-    return _cmv40ArtifactsBody(s, expected);
+    // Nada encontrado: decidimos segun fase global
+    const cleaned = ['validated', 'done'].includes(s.phase) || s.archived;
+    const wf = (s.workflow || s.source_workflow || '').toLowerCase();
+    const phSkipped = s.phases_skipped || [];
+    const isDropIn = phSkipped.includes('merge_cmv40_transfer') || wf === 'p7_fel';
+    const name = isDropIn ? 'source_injected.hevc' : 'EL_injected.hevc';
+    if (cleaned) {
+      return `
+        <div style="font-size:12px">
+          <div style="color:var(--text-3); margin-bottom:6px">Artefactos generados:</div>
+          <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--sep); opacity:0.7">
+            <code style="font-size:11px">${escHtml(name)}</code>
+            <span style="font-size:11px; color:var(--text-3)">consumido tras validación</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:6px; line-height:1.4">
+            El HEVC intermedio se borra automáticamente en Fase H una vez validado el MKV final — el resultado vive ahora en <code>/mnt/output</code>.
+          </div>
+        </div>`;
+    }
+    return _cmv40ArtifactsBody(s, [name]);
   }
   // Fase G: el MKV final se escribe en /mnt/output/{nombre}.mkv.tmp (fuera del
   // workdir), por eso no aparece en artifacts. Mostramos directamente el path.
