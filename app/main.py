@@ -1199,26 +1199,28 @@ async def analyze_mkv_endpoint(body: dict):
 
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
 async def mkv_light_profile_endpoint(body: dict):
-    """Extrae el perfil de luminancia por escena del RPU completo del MKV.
+    """Extrae el perfil de luminancia del MKV.
     Alimenta el sparkline + histograma de la Radiografía DV+HDR en Tab 2.
 
-    Body: ``{"file_path": "Movie.mkv"}``. Devuelve dos arrays:
-      - per_scene_max_cll: MaxCLL por escena
-      - per_scene_max_fall: MaxFALL por escena
+    Body: ``{"file_path": "Movie.mkv", "full": false}``.
+      - full=False (default): muestra los primeros 30 min del movie (~43200
+        frames a 24fps). Rapido (~60-90s), suficiente para dar una vista.
+      - full=True: extract RPU del movie completo. Mas preciso pero puede
+        tardar 4-8 min en UHD BDs en NAS.
 
-    Coste: ~30-60s (extract-rpu sobre stream completo + parseo JSON).
+    Devuelve dos arrays downsampleados a 240 buckets + total_frames.
     """
     import tempfile
     rel_path = body.get("file_path", "")
+    want_full = bool(body.get("full", False))
     if DEV_MODE:
-        # Serie sintetica con forma plausible (subida-meseta-picos-bajada)
         import math, random
         random.seed(42)
         n = 240
         series_cll = [int(300 + 500 * math.sin(i/15) + random.randint(-80, 120) + (i/n)*200) for i in range(n)]
         series_cll = [max(10, v) for v in series_cll]
         series_fall = [max(5, int(v * 0.12 + random.randint(-10, 20))) for v in series_cll]
-        return {"per_scene_max_cll": series_cll, "per_scene_max_fall": series_fall}
+        return {"per_scene_max_cll": series_cll, "per_scene_max_fall": series_fall, "total_frames": 186113}
 
     mkv_full = str(OUTPUT_DIR_MKV / rel_path)
     if not Path(mkv_full).exists():
@@ -1229,24 +1231,54 @@ async def mkv_light_profile_endpoint(body: dict):
     tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_"))
     rpu_path = tmp_dir / "rpu.bin"
     try:
-        # Paso 1: extract-rpu completo (sin --limit)
+        # Paso 1: extract-rpu con --limit para que no cuelgue en movies largos.
+        # 43200 frames ≈ 30 min a 24fps — muestra decente para visualizar.
+        # Timeout generoso por si el NAS tiene la cabeza lenta o esta montado
+        # via red.
+        extract_args = [DOVI_TOOL_BIN, "extract-rpu"]
+        if not want_full:
+            extract_args += ["--limit", "43200"]
+        extract_args += [mkv_full, "-o", str(rpu_path)]
+        extract_timeout = 900 if want_full else 300  # 15 min full / 5 min sample
+
+        _logger.info("light-profile: extract-rpu (full=%s) sobre %s", want_full, rel_path)
         proc = await asyncio.create_subprocess_exec(
-            DOVI_TOOL_BIN, "extract-rpu", mkv_full, "-o", str(rpu_path),
+            *extract_args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0 or not rpu_path.exists():
-            raise HTTPException(status_code=500, detail=f"extract-rpu falló: {stderr.decode()[:300]}")
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=extract_timeout)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+            raise HTTPException(
+                status_code=504,
+                detail=f"extract-rpu excedió {extract_timeout}s. Intenta con el modo sampling (full=false) o comprueba si el NAS tiene carga alta."
+            )
+        if proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
+            err = stderr.decode("utf-8", errors="replace")[:400]
+            _logger.warning("light-profile: extract-rpu falló rc=%s err=%s", proc.returncode, err)
+            raise HTTPException(status_code=500, detail=f"extract-rpu falló: {err}")
 
-        # Paso 2: export RPU a JSON para leer per-frame L1 MaxCLL/MaxFALL
+        _logger.info("light-profile: RPU extraido (%d bytes) — ahora export JSON",
+                     rpu_path.stat().st_size)
+
+        # Paso 2: export RPU a JSON (rapido, <30s en samples de 30 min)
         json_path = tmp_dir / "rpu.json"
         proc = await asyncio.create_subprocess_exec(
             DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+            raise HTTPException(status_code=504, detail="dovi_tool export excedió 3 min")
         if proc.returncode != 0 or not json_path.exists():
-            raise HTTPException(status_code=500, detail=f"export falló: {stderr.decode()[:300]}")
+            err = stderr.decode("utf-8", errors="replace")[:400]
+            _logger.warning("light-profile: export falló rc=%s err=%s", proc.returncode, err)
+            raise HTTPException(status_code=500, detail=f"export falló: {err}")
 
         # Paso 3: parsear JSON -> series por escena (shot boundaries via L1)
         try:

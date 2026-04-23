@@ -6866,7 +6866,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar el perfil de luminancia y la distribución. Proceso rápido, ~30-60s.</div>
+         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar la curva de luminancia y su distribución. Analiza una muestra de 30 min del movie (~60-90s).</div>
        </div>`;
   const actionBtn = hasLightProfile
     ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
@@ -7008,10 +7008,12 @@ async function _rgrfAnalyzeLight(evt) {
   }, 400);
 
   try {
+    // Timeout 7 min — sample de 30min tarda ~60-90s en NAS normales, pero
+    // dejamos margen si el HDD esta saturado o el MKV no esta cacheado.
     const data = await apiFetch('/api/mkv/light-profile', {
       method: 'POST',
-      body: JSON.stringify({ file_path: mkvProject.analysis.file_name }),
-    }, 300000);
+      body: JSON.stringify({ file_path: mkvProject.analysis.file_name, full: false }),
+    }, 420000);
     if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
 
     // Pinta los pasos como done + progress a 100
