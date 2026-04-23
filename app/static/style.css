@@ -6506,7 +6506,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-chart-action span { margin-right: 5px; display: inline-block; }
 
-/* ── Modal de análisis del perfil de luz ─────────────────────────── */
+/* ── Modal de análisis del perfil de luminancia ──────────────────── */
 .dv-light-modal-box {
   max-width: 520px;
   text-align: center;

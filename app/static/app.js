@@ -6855,7 +6855,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     </section>` : '';
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 6 · Perfil de luz (sparkline + distribución) + botón
+  // BLOQUE 6 · Perfil de luminancia (sparkline + distribución) + botón
   // ═══════════════════════════════════════════════════════════════
   const lightMeta = hasLightProfile
     ? `${dv.per_scene_max_cll.length} buckets · max ${Math.max(...dv.per_scene_max_cll)} nits`
@@ -6866,7 +6866,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar el perfil de luz y la distribución. Proceso rápido, ~30-60s.</div>
+         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar el perfil de luminancia y la distribución. Proceso rápido, ~30-60s.</div>
        </div>`;
   const actionBtn = hasLightProfile
     ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
@@ -6874,7 +6874,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const blockLight = `
     <section class="dv-block">
       <div class="dv-block-head">
-        <h5 class="dv-block-title">Perfil de luz por escena <span class="dv-block-sub">L1 dinámico completo</span></h5>
+        <h5 class="dv-block-title">Perfil de luminancia por escena <span class="dv-block-sub">L1 dinámico completo</span></h5>
         <div class="dv-block-action">
           ${lightMeta ? `<span class="dv-block-meta">${lightMeta}</span>` : ''}
           ${actionBtn}
@@ -6966,7 +6966,7 @@ function _rgrfCopyToClipboard(evt) {
   });
 }
 
-/** Lanza el análisis del perfil de luz con modal de progreso animado. */
+/** Lanza el análisis del perfil de luminancia con modal de progreso animado. */
 async function _rgrfAnalyzeLight(evt) {
   if (!mkvProject) return;
 
@@ -7029,7 +7029,7 @@ async function _rgrfAnalyzeLight(evt) {
     await new Promise(r => setTimeout(r, 600));
     closeModal('dv-light-modal');
     _renderMkvEditPanel();
-    showToast(`Perfil de luz extraído — ${data.per_scene_max_cll.length} buckets`, 'success');
+    showToast(`Perfil de luminancia extraído — ${data.per_scene_max_cll.length} buckets`, 'success');
   } catch (e) {
     const activeStep = document.querySelector('.dv-light-step.active');
     if (activeStep) {
@@ -7040,7 +7040,7 @@ async function _rgrfAnalyzeLight(evt) {
       if (marker) { marker.textContent = '✗'; marker.style.color = '#f87171'; marker.style.animation = 'none'; }
     }
     _dvLightSetMeta('parse-meta', String(e.message || e).slice(0, 80));
-    showToast(`No se pudo analizar el perfil de luz: ${e.message || e}`, 'error');
+    showToast(`No se pudo analizar el perfil de luminancia: ${e.message || e}`, 'error');
     await new Promise(r => setTimeout(r, 1800));
     closeModal('dv-light-modal');
   } finally {
