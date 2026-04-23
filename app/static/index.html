@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260423a">
+  <link rel="stylesheet" href="/static/style.css?v=20260423b">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -576,6 +576,38 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: Análisis de perfil de luz DV (Tab 2) ═══════════════ -->
+<div class="modal-overlay" id="dv-light-modal">
+  <div class="modal-box dv-light-modal-box">
+    <div class="dv-light-icon">📊</div>
+    <div class="modal-title">Análisis de perfil de luz</div>
+    <div class="modal-sub" id="dv-light-modal-file"></div>
+    <div class="dv-light-steps">
+      <div class="dv-light-step active" id="dv-light-step-extract">
+        <span class="dv-light-step-marker">⟳</span>
+        <span class="dv-light-step-label">Extrayendo RPU completo del HEVC</span>
+        <span class="dv-light-step-meta" id="dv-light-step-extract-meta"></span>
+      </div>
+      <div class="dv-light-step pending" id="dv-light-step-export">
+        <span class="dv-light-step-marker">○</span>
+        <span class="dv-light-step-label">Exportando metadata RPU a JSON</span>
+      </div>
+      <div class="dv-light-step pending" id="dv-light-step-parse">
+        <span class="dv-light-step-marker">○</span>
+        <span class="dv-light-step-label">Parseando MaxCLL/MaxFALL por frame</span>
+        <span class="dv-light-step-meta" id="dv-light-step-parse-meta"></span>
+      </div>
+    </div>
+    <div class="dv-light-progress">
+      <div class="dv-light-progress-bar" id="dv-light-progress-bar"></div>
+    </div>
+    <div class="dv-light-footer">
+      <span class="dv-light-elapsed" id="dv-light-elapsed">00:00</span>
+      <span class="dv-light-hint">Operación rápida — ~30-60s en movies de 2h</span>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Análisis MKV en curso (Tab 2) ═══════════════════ -->
 <div class="modal-overlay" id="mkv-analyze-modal">
   <div class="modal-box" style="max-width:460px; text-align:center">
@@ -994,6 +1026,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260423a"></script>
+<script src="/static/app.js?v=20260423b"></script>
 </body>
 </html>

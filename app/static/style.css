@@ -6160,100 +6160,340 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .help-pill-samsung { background: rgba(142, 142, 147, 0.20); color: var(--text-2); }
 
 /* ══════════════════════════════════════════════════════════════════
-   RADIOGRAFÍA DV+HDR — Tab 2 (section-card .rgrf-card)
-   Punto de entrada factual para entender un MKV: 8 secciones con
-   parámetros Dolby Vision y HDR10 + visualizadores (L5, L8, CIE,
-   sparkline). Reemplaza a los badges heurísticos de procedencia.
+   INFO DETALLADA HDR / DOLBY VISION — Tab 2
+   Bloque compacto insertado dentro del card de Vídeo. Tipografía densa,
+   paleta neutra con acento teal. Visualizadores inline.
    ══════════════════════════════════════════════════════════════════ */
-.rgrf-card { margin-top: 16px; }
-.rgrf-body {
+
+/* Header del card Vídeo — badges y hint inline */
+.video-header-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.video-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.3;
+}
+.video-badge-hdr { background: rgba(251, 191, 36, 0.14); color: #b47613; }
+.video-badge-dv  { background: rgba(94, 234, 212, 0.14); color: #0e6b5a; }
+.video-hint { font-size: 11px; color: var(--text-3); }
+.video-summary-line {
+  font-size: 12.5px;
+  color: var(--text-1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.video-summary-line strong { font-weight: 600; letter-spacing: 0.1px; }
+.video-el { color: var(--text-3); font-size: 11.5px; }
+
+/* Contenedor raiz del bloque detallado */
+.dv-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--sep);
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 20px;
+  gap: 14px;
 }
-.rgrf-section {
-  border-left: 3px solid rgba(94, 234, 212, 0.35);
-  padding: 10px 0 10px 14px;
+.dv-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
-.rgrf-section-title {
-  font-size: 12px;
+.dv-detail-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+  letter-spacing: 0.1px;
+}
+
+/* Bloques temáticos */
+.dv-block {
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.dv-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.dv-block-title {
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-1);
   margin: 0 0 10px 0;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.6px;
   text-transform: uppercase;
 }
-.rgrf-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 6px 20px;
+.dv-block-head .dv-block-title { margin: 0; }
+.dv-block-sub {
+  font-weight: 500;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  margin-left: 8px;
 }
-.rgrf-row {
+.dv-block-action { display: flex; align-items: center; gap: 10px; }
+.dv-block-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Grids de celdas label+value */
+.dv-grid-1 { display: grid; grid-template-columns: 1fr; gap: 4px 14px; }
+.dv-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 14px; }
+.dv-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 4px 18px; }
+@media (max-width: 640px) {
+  .dv-grid-2 { grid-template-columns: 1fr; }
+  .dv-grid-3 { grid-template-columns: 1fr; }
+}
+
+/* Celda individual */
+.dv-cell {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
+  gap: 10px;
   padding: 4px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
-  font-size: 12px;
   min-width: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
-.rgrf-row:hover { background: rgba(255, 255, 255, 0.02); }
-.rgrf-label {
+.dv-cell:last-child { border-bottom: none; }
+.dv-cell-label {
   color: var(--text-3);
+  font-size: 11px;
   font-weight: 500;
   flex-shrink: 0;
 }
-.rgrf-value {
+.dv-cell-value {
   font-family: 'SF Mono', 'Menlo', monospace;
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text-1);
   text-align: right;
   word-break: break-word;
   min-width: 0;
 }
-.rgrf-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
+.dv-cell-ok .dv-cell-value { color: #5eead4; }
+.dv-cell-warn .dv-cell-value { color: #fbbf24; }
+.dv-cell-absent .dv-cell-value { color: var(--text-3); opacity: 0.7; }
+
+/* Pills de niveles (CMv4.0 L3/L4/L8/…) */
+.dv-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
-.rgrf-pill-icon { font-weight: 700; }
-.rgrf-split {
+.dv-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  border: 1px solid transparent;
+}
+.dv-pill-ok {
+  background: rgba(94, 234, 212, 0.10);
+  color: #5eead4;
+  border-color: rgba(94, 234, 212, 0.25);
+}
+.dv-pill-off {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-3);
+  opacity: 0.55;
+}
+.dv-pill-name { font-weight: 700; letter-spacing: 0.3px; }
+.dv-pill-val {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.dv-pill-ok .dv-pill-val { color: #93efe0; }
+
+/* Split: datos izquierda + visualizador derecha */
+.dv-split {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 20px;
+  gap: 18px;
   align-items: start;
 }
 @media (max-width: 720px) {
-  .rgrf-split { grid-template-columns: 1fr; }
+  .dv-split { grid-template-columns: 1fr; }
 }
-.rgrf-viz {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.25);
+.dv-viz-side {
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
-.rgrf-viz-label {
-  font-size: 10px;
+.dv-viz-inline {
+  margin-top: 10px;
+  padding: 10px 12px 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.dv-viz-caption {
+  font-size: 10.5px;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 6px;
   font-weight: 600;
 }
-.rgrf-placeholder {
+
+/* Charts grandes (sparkline + distribución en bloque perfil de luz) */
+.dv-chart-large {
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  margin-bottom: 10px;
+}
+.dv-chart-large:last-child { margin-bottom: 0; }
+.dv-chart-empty {
+  padding: 28px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+.dv-chart-empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.6; }
+.dv-chart-empty-text {
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.dv-chart-empty-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.dv-chart-action {
+  white-space: nowrap;
+}
+.dv-chart-action span { margin-right: 4px; }
+
+/* ── Modal de análisis del perfil de luz ─────────────────────────── */
+.dv-light-modal-box {
+  max-width: 520px;
+  text-align: center;
+  padding: 28px 24px 22px;
+}
+.dv-light-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+  line-height: 1;
+}
+.dv-light-steps {
+  margin: 20px 0 12px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dv-light-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+.dv-light-step.active {
+  background: rgba(94, 234, 212, 0.08);
+  border-color: rgba(94, 234, 212, 0.3);
+  color: var(--text-1);
+}
+.dv-light-step.done {
+  color: var(--text-2);
+  opacity: 0.7;
+}
+.dv-light-step.done .dv-light-step-marker { color: #5eead4; }
+.dv-light-step.pending {
+  color: var(--text-3);
+  opacity: 0.5;
+}
+.dv-light-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.dv-light-step.active .dv-light-step-marker {
+  color: #5eead4;
+  animation: dv-spin 1.2s linear infinite;
+}
+@keyframes dv-spin { 100% { transform: rotate(360deg); } }
+.dv-light-step-label { flex: 1; }
+.dv-light-step-meta {
+  font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 11px;
   color: var(--text-3);
-  font-style: italic;
-  padding: 18px 12px;
-  text-align: center;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 4px;
-  border: 1px dashed rgba(255, 255, 255, 0.08);
+  font-variant-numeric: tabular-nums;
 }
+.dv-light-progress {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.dv-light-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #5eead4, #93efe0);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.dv-light-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.dv-light-elapsed {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.dv-light-hint { font-style: italic; }

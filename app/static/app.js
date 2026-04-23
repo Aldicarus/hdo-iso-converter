@@ -6369,11 +6369,12 @@ function _rgrfPresence(present, label, { tooltip = '' } = {}) {
   return `<span class="rgrf-pill" style="color:${color}; background:${bg}"${tip}><span class="rgrf-pill-icon">${icon}</span> ${escHtml(label)}</span>`;
 }
 
-/** Visualizador L5: SVG con el frame + active area + barras negras. */
+/** Visualizador L5: SVG del frame con active area resaltada. */
 function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
   const t = dv.l5_top || 0, b = dv.l5_bottom || 0;
   const l = dv.l5_left || 0, r = dv.l5_right || 0;
-  const ratio = 300 / frameW;  // ancho svg = 300px
+  const targetW = 220;
+  const ratio = targetW / frameW;
   const svgW = Math.round(frameW * ratio);
   const svgH = Math.round(frameH * ratio);
   const activeX = Math.round(l * ratio);
@@ -6385,9 +6386,9 @@ function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
          style="display:block; background:#000; border-radius:4px"
          xmlns="http://www.w3.org/2000/svg">
       <rect x="${activeX}" y="${activeY}" width="${activeW}" height="${activeH}"
-            fill="#1a4d7a" stroke="#4da3ff" stroke-width="1" />
-      <text x="${svgW/2}" y="${svgH/2 + 4}" fill="#8bbfea" font-size="10" font-family="SF Mono,monospace"
-            text-anchor="middle">${frameW - l - r}×${frameH - t - b}</text>
+            fill="rgba(94,234,212,0.18)" stroke="#5eead4" stroke-width="1.5" />
+      <text x="${svgW/2}" y="${svgH/2 + 5}" fill="#93efe0" font-size="13" font-family="SF Mono,monospace"
+            text-anchor="middle" font-weight="600">${frameW - l - r} × ${frameH - t - b}</text>
     </svg>`;
 }
 
@@ -6416,26 +6417,23 @@ function _rgrfAspectLabel(dv, frameW = 3840, frameH = 2160) {
 /** Visualizador L8: trims en escala log con dots + label de nits. */
 function _rgrfL8Svg(nits) {
   if (!Array.isArray(nits) || !nits.length) return '';
-  const svgW = 300, svgH = 40, padL = 20, padR = 20;
+  const svgW = 460, svgH = 56, padL = 28, padR = 28, axisY = 36;
   const usableW = svgW - padL - padR;
-  // Escala log 10 → 10000 nits
   const logMin = Math.log10(10), logMax = Math.log10(10000);
   const xOf = (n) => padL + ((Math.log10(Math.max(n, 1)) - logMin) / (logMax - logMin)) * usableW;
   const ticks = [10, 100, 1000, 10000];
   let html = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
     style="display:block" xmlns="http://www.w3.org/2000/svg">`;
-  // Eje
-  html += `<line x1="${padL}" y1="25" x2="${svgW - padR}" y2="25" stroke="rgba(255,255,255,0.15)" />`;
+  html += `<line x1="${padL}" y1="${axisY}" x2="${svgW - padR}" y2="${axisY}" stroke="rgba(255,255,255,0.2)" stroke-width="1" />`;
   ticks.forEach(t => {
     const x = xOf(t);
-    html += `<line x1="${x}" y1="22" x2="${x}" y2="28" stroke="rgba(255,255,255,0.25)" />`;
-    html += `<text x="${x}" y="38" fill="var(--text-3)" font-size="9" font-family="SF Mono,monospace" text-anchor="middle">${t}</text>`;
+    html += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}" stroke="rgba(255,255,255,0.3)" />`;
+    html += `<text x="${x}" y="${axisY + 15}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="middle">${t}</text>`;
   });
-  // Dots
   nits.forEach(n => {
     const x = xOf(n);
-    html += `<circle cx="${x}" cy="25" r="4.5" fill="#5eead4" stroke="#0e6b2a" stroke-width="1" />`;
-    html += `<text x="${x}" y="14" fill="#5eead4" font-size="9" font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${n}</text>`;
+    html += `<circle cx="${x}" cy="${axisY}" r="5.5" fill="#5eead4" stroke="#0f3a33" stroke-width="1.5" />`;
+    html += `<text x="${x}" y="${axisY - 10}" fill="#5eead4" font-size="11" font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${n}</text>`;
   });
   html += `</svg>`;
   return html;
@@ -6443,25 +6441,24 @@ function _rgrfL8Svg(nits) {
 
 /** Visualizador CIE 1931: triángulos Rec.709, DCI-P3, Rec.2020 + D65. */
 function _rgrfGamutSvg(l9Primaries, l10Primaries) {
-  const svgSize = 280, pad = 20;
-  // Coords CIE (x, y) → SVG (con eje Y invertido)
+  const svgSize = 260, pad = 22;
   const cieToSvg = (x, y) => {
     const sx = pad + x * (svgSize - 2 * pad) / 0.8;
     const sy = svgSize - pad - y * (svgSize - 2 * pad) / 0.9;
     return [sx, sy];
   };
-  const triangle = (pts, stroke, fill) => {
+  const triangle = (pts, stroke, fill, highlight = false) => {
     const d = pts.map(([x, y]) => cieToSvg(x, y).join(',')).join(' ');
-    return `<polygon points="${d}" stroke="${stroke}" fill="${fill}" stroke-width="1.5" fill-opacity="0.08" />`;
+    const op = highlight ? 0.28 : 0.10;
+    const sw = highlight ? 2.2 : 1.4;
+    return `<polygon points="${d}" stroke="${stroke}" fill="${fill}" stroke-width="${sw}" fill-opacity="${op}" />`;
   };
-  // Primaries
-  const rec709   = [[0.640, 0.330], [0.300, 0.600], [0.150, 0.060]];
-  const dciP3    = [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]];
-  const rec2020  = [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046]];
-  const d65      = [0.3127, 0.3290];
+  const rec709  = [[0.640, 0.330], [0.300, 0.600], [0.150, 0.060]];
+  const dciP3   = [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]];
+  const rec2020 = [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046]];
+  const d65     = [0.3127, 0.3290];
   const [d65x, d65y] = cieToSvg(d65[0], d65[1]);
 
-  // Detectar qué gamut es L9 / L10 para resaltar
   const gamutMatch = (s) => {
     const low = (s || '').toLowerCase();
     if (low.includes('2020')) return 'rec2020';
@@ -6469,297 +6466,335 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
     if (low.includes('709'))  return 'rec709';
     return null;
   };
-  const l9Match  = gamutMatch(l9Primaries);
-  const l10Match = gamutMatch(l10Primaries);
+  const l9Match = gamutMatch(l9Primaries);
 
   return `
     <svg viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}"
          style="display:block; background:rgba(255,255,255,0.02); border-radius:4px"
          xmlns="http://www.w3.org/2000/svg">
-      <!-- Ejes CIE -->
       <line x1="${pad}" y1="${svgSize - pad}" x2="${svgSize - pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
       <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
-      <!-- Triángulos gamut -->
-      ${triangle(rec2020, '#5eead4', '#5eead4')}
-      ${triangle(dciP3,   '#fbbf24', '#fbbf24')}
-      ${triangle(rec709,  '#f87171', '#f87171')}
-      <!-- Resaltado L9 (source primaries) -->
-      ${l9Match === 'rec2020' ? triangle(rec2020, '#67e8f9', '#67e8f9') : ''}
-      ${l9Match === 'p3'      ? triangle(dciP3,   '#67e8f9', '#67e8f9') : ''}
-      ${l9Match === 'rec709'  ? triangle(rec709,  '#67e8f9', '#67e8f9') : ''}
-      <!-- D65 white point -->
-      <circle cx="${d65x}" cy="${d65y}" r="3" fill="#fff" stroke="#000" />
-      <text x="${d65x + 6}" y="${d65y - 4}" fill="#fff" font-size="9" font-family="SF Mono,monospace">D65</text>
-      <!-- Leyenda -->
-      <g font-size="9" font-family="SF Mono,monospace">
-        <rect x="${svgSize - 80}" y="${pad}" width="70" height="46" fill="rgba(0,0,0,0.55)" rx="3"/>
-        <circle cx="${svgSize - 72}" cy="${pad + 10}" r="3" fill="#5eead4"/>
-        <text x="${svgSize - 66}" y="${pad + 13}" fill="#5eead4">Rec.2020</text>
-        <circle cx="${svgSize - 72}" cy="${pad + 23}" r="3" fill="#fbbf24"/>
-        <text x="${svgSize - 66}" y="${pad + 26}" fill="#fbbf24">DCI-P3</text>
-        <circle cx="${svgSize - 72}" cy="${pad + 36}" r="3" fill="#f87171"/>
-        <text x="${svgSize - 66}" y="${pad + 39}" fill="#f87171">Rec.709</text>
+      ${triangle(rec2020, '#5eead4', '#5eead4', l9Match === 'rec2020')}
+      ${triangle(dciP3,   '#fbbf24', '#fbbf24', l9Match === 'p3')}
+      ${triangle(rec709,  '#f87171', '#f87171', l9Match === 'rec709')}
+      <circle cx="${d65x}" cy="${d65y}" r="3.5" fill="#fff" stroke="#000" stroke-width="1" />
+      <text x="${d65x + 7}" y="${d65y + 4}" fill="#fff" font-size="11" font-family="SF Mono,monospace" font-weight="600">D65</text>
+      <g font-size="11" font-family="SF Mono,monospace">
+        <rect x="${svgSize - 86}" y="${pad - 4}" width="78" height="56" fill="rgba(0,0,0,0.65)" rx="4" stroke="rgba(255,255,255,0.08)" />
+        <circle cx="${svgSize - 78}" cy="${pad + 8}" r="3" fill="#5eead4"/>
+        <text x="${svgSize - 72}" y="${pad + 12}" fill="#5eead4" font-weight="600">Rec.2020</text>
+        <circle cx="${svgSize - 78}" cy="${pad + 24}" r="3" fill="#fbbf24"/>
+        <text x="${svgSize - 72}" y="${pad + 28}" fill="#fbbf24" font-weight="600">DCI-P3</text>
+        <circle cx="${svgSize - 78}" cy="${pad + 40}" r="3" fill="#f87171"/>
+        <text x="${svgSize - 72}" y="${pad + 44}" fill="#f87171" font-weight="600">Rec.709</text>
       </g>
     </svg>`;
 }
 
-/** Sparkline SVG para per-scene MaxCLL. */
+/** Sparkline SVG para per-scene MaxCLL — con gradient area + labels legibles. */
 function _rgrfSparklineSvg(series, labelMax) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 400, svgH = 60, pad = 6;
+  const svgW = 680, svgH = 140, padL = 44, padR = 16, padT = 14, padB = 26;
   const maxV = Math.max(...series);
-  const usableW = svgW - 2 * pad;
-  const usableH = svgH - 2 * pad;
-  const pts = series.map((v, i) => {
-    const x = pad + (i / (series.length - 1)) * usableW;
-    const y = svgH - pad - (v / maxV) * usableH;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  const minV = Math.min(...series);
+  const usableW = svgW - padL - padR;
+  const usableH = svgH - padT - padB;
+  const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
+  const yOf = (v) => padT + usableH - (v / maxV) * usableH;
+  const pts = series.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
+  const areaPts = `${padL},${padT + usableH} ${pts} ${xOf(series.length - 1)},${padT + usableH}`;
+
+  // Grid horizontal en 0%, 50%, 100% del max
+  const gridLines = [0, 0.5, 1.0].map(pct => {
+    const y = padT + usableH - pct * usableH;
+    const val = Math.round(maxV * pct);
+    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,3" />
+            <text x="${padL - 6}" y="${y + 4}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">${val}</text>`;
+  }).join('');
+
   return `
-    <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
-         style="display:block" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="${pts}" fill="none" stroke="#5eead4" stroke-width="1.2" />
-      <text x="${svgW - 4}" y="${pad + 10}" fill="var(--text-3)" font-size="10"
-            font-family="SF Mono,monospace" text-anchor="end">max ${labelMax}</text>
+    <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
+         style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="rgrf-sparkline-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="#5eead4" stop-opacity="0.38"/>
+          <stop offset="100%" stop-color="#5eead4" stop-opacity="0.03"/>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <polygon points="${areaPts}" fill="url(#rgrf-sparkline-grad)" />
+      <polyline points="${pts}" fill="none" stroke="#5eead4" stroke-width="1.6" stroke-linejoin="round" />
+      <text x="${padL}" y="${svgH - 8}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace">0:00</text>
+      <text x="${svgW - padR}" y="${svgH - 8}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">final</text>
+      <text x="${svgW - padR}" y="${padT + 11}" fill="#5eead4" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="600">pico ${labelMax}</text>
     </svg>`;
 }
 
-/** Histograma de distribución de luminancia. */
+/** Histograma de distribución de luminancia — barras log con % y labels grandes. */
 function _rgrfDistributionSvg(series) {
   if (!Array.isArray(series) || series.length < 1) return '';
-  const svgW = 400, svgH = 120, padL = 30, padR = 10, padT = 10, padB = 25;
+  const svgW = 680, svgH = 180, padL = 50, padR = 16, padT = 14, padB = 40;
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
-  // Bins logarítmicos: 10-30-100-300-1000-3000-10000
   const bins = [10, 30, 100, 300, 1000, 3000, 10000];
+  const binLabels = ['10', '30', '100', '300', '1K', '3K', '10K'];
   const counts = new Array(bins.length).fill(0);
   series.forEach(v => {
     for (let i = bins.length - 1; i >= 0; i--) {
       if (v >= bins[i]) { counts[i]++; break; }
     }
   });
-  const maxCount = Math.max(...counts, 1);
+  const total = Math.max(counts.reduce((a, b) => a + b, 0), 1);
+  const maxPct = Math.max(...counts.map(c => c / total * 100), 1);
   const barW = usableW / bins.length;
   let bars = '';
+  // Escala Y: grid 0-25-50-75-100% de maxPct
+  [0, 0.25, 0.5, 0.75, 1.0].forEach(r => {
+    const y = padT + usableH - r * usableH;
+    const lbl = Math.round(maxPct * r);
+    bars += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,3" />`;
+    bars += `<text x="${padL - 6}" y="${y + 4}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">${lbl}%</text>`;
+  });
   counts.forEach((c, i) => {
-    const h = (c / maxCount) * usableH;
+    const pct = (c / total) * 100;
+    const h = (pct / maxPct) * usableH;
     const x = padL + i * barW;
     const y = padT + usableH - h;
-    // Color frío→caliente según nits
-    const hue = 200 - (i / (bins.length - 1)) * 200;  // de 200 (azul) a 0 (rojo)
-    bars += `<rect x="${x + 2}" y="${y}" width="${barW - 4}" height="${h}" fill="hsl(${hue}, 70%, 55%)" />`;
-    bars += `<text x="${x + barW/2}" y="${padT + usableH + 14}" fill="var(--text-3)" font-size="9"
-               font-family="SF Mono,monospace" text-anchor="middle">${bins[i]}</text>`;
+    // Gradiente azul→ambar→rojo segun nits (cold→warm)
+    const colors = ['#3b82f6', '#0ea5e9', '#06b6d4', '#22c55e', '#eab308', '#f97316', '#ef4444'];
+    const color = colors[i] || '#5eead4';
+    bars += `<rect x="${x + 6}" y="${y}" width="${barW - 12}" height="${Math.max(h, 0.5)}" fill="${color}" fill-opacity="0.85" rx="2" />`;
+    bars += `<text x="${x + barW/2}" y="${padT + usableH + 16}" fill="var(--text-2)" font-size="11"
+               font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">${binLabels[i]}</text>`;
     if (c > 0) {
-      bars += `<text x="${x + barW/2}" y="${y - 2}" fill="var(--text-2)" font-size="9"
-                 font-family="SF Mono,monospace" text-anchor="middle">${c}</text>`;
+      bars += `<text x="${x + barW/2}" y="${y - 4}" fill="var(--text-1)" font-size="11"
+                 font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${Math.round(pct)}%</text>`;
     }
   });
   return `
-    <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
-         style="display:block" xmlns="http://www.w3.org/2000/svg">
-      <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}" stroke="rgba(255,255,255,0.15)" />
+    <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
+         style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
       ${bars}
-      <text x="${padL / 2}" y="${padT + usableH / 2}" fill="var(--text-3)" font-size="9"
-            font-family="SF Mono,monospace" text-anchor="middle"
-            transform="rotate(-90 ${padL / 2} ${padT + usableH / 2})">% escenas</text>
-      <text x="${svgW / 2}" y="${svgH - 3}" fill="var(--text-3)" font-size="9"
-            font-family="SF Mono,monospace" text-anchor="middle">nits (log)</text>
+      <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}" stroke="rgba(255,255,255,0.2)" />
+      <text x="${padL + usableW/2}" y="${svgH - 6}" fill="var(--text-3)" font-size="11"
+            font-family="SF Mono,monospace" text-anchor="middle">pico de luz por escena (nits · escala log)</text>
     </svg>`;
 }
 
-/** Render completo de la radiografía DV+HDR. */
+/** Render del bloque "Información detallada HDR / Dolby Vision".
+ *  Diseño compacto, profesional — se inserta DENTRO del card de Vídeo.
+ *  Agrupa todos los parámetros DV+HDR en bloques temáticos densos con
+ *  visualizadores inline. */
 function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const hdr = a.hdr || {};
   const fps = a.duration_seconds && dv.frame_count
     ? (dv.frame_count / a.duration_seconds).toFixed(3)
     : (a.fps ? a.fps.toFixed(3) : '23.976');
 
-  // ── S1 — Identidad del stream
+  // Helper inline: celda label+valor compacta
+  const cell = (label, value, opts = {}) => {
+    const tip = opts.tooltip ? ` data-tooltip="${escHtml(opts.tooltip)}"` : '';
+    const cls = opts.status ? ` dv-cell-${opts.status}` : '';
+    const v = (value == null || value === '') ? '—' : value;
+    return `<div class="dv-cell${cls}"${tip}><span class="dv-cell-label">${label}</span><strong class="dv-cell-value">${v}</strong></div>`;
+  };
+  const pill = (present, label, value) => {
+    const st = present ? 'ok' : 'off';
+    const content = value && present
+      ? `<span class="dv-pill-name">${label}</span><span class="dv-pill-val">${value}</span>`
+      : `<span class="dv-pill-name">${label}</span>`;
+    return `<div class="dv-pill dv-pill-${st}">${content}</div>`;
+  };
+
+  // ── DATA
   const el = dv.el_type ? ` ${dv.el_type}` : '';
-  const profile = dv.profile ? `${dv.profile}${el}${dv.profile_compatibility_id ? ` · compat ID ${dv.profile_compatibility_id}` : ''}` : '—';
-  const framesTotal = mainVideo?.frame_count || dv.frame_count || 0;  // preferimos MediaInfo (movie-scoped)
+  const profile = dv.profile ? `P${dv.profile}${el}${dv.profile_compatibility_id ? ` · compat ${dv.profile_compatibility_id}` : ''}` : '—';
+  const framesTotal = mainVideo?.frame_count || dv.frame_count || 0;
   const durationStr = a.duration_seconds ? _fmtDuration(a.duration_seconds) : '—';
   const avgShot = dv.scene_avg_length_frames
-    ? `${dv.scene_avg_length_frames} frames (${(dv.scene_avg_length_frames / parseFloat(fps || 24)).toFixed(1)}s)`
+    ? `${dv.scene_avg_length_frames}f · ${(dv.scene_avg_length_frames / parseFloat(fps || 24)).toFixed(1)}s`
     : '—';
   const rpuSize = dv.rpu_size_bytes
-    ? `${_fmtBytes(dv.rpu_size_bytes)} (~${Math.round(dv.rpu_size_bytes / Math.max(framesTotal, 1))} B/frame)`
+    ? `${_fmtBytes(dv.rpu_size_bytes)} · ${Math.round(dv.rpu_size_bytes / Math.max(framesTotal, 1))} B/f`
     : '—';
+  const cmLabel = dv.cm_version ? dv.cm_version.toUpperCase() : '—';
 
-  const s1 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">1 · Identidad del stream</h4>
-      <div class="rgrf-grid">
-        ${_rgrfRow('Profile', profile, { tooltip: 'Perfil DV. P5 = IPTPQc2 (streaming legacy). P7 = dual-layer Blu-ray (FEL/MEL). P8 = single-layer (retail/streaming moderno).' })}
-        ${_rgrfRow('CM version', dv.cm_version || '—', { tooltip: 'Content Mapping. v2.9 = legacy (L1/L2/L5/L6). v4.0 = L8-L11 añadidos (tone-mapping avanzado).' })}
-        ${_rgrfRow('Frames', framesTotal ? framesTotal.toLocaleString() : '—')}
-        ${_rgrfRow('Duración', durationStr)}
-        ${_rgrfRow('FPS', fps)}
-        ${_rgrfRow('Escenas', dv.scene_count ? dv.scene_count.toLocaleString() : '—', { tooltip: 'Shot boundaries detectadas por el RPU (L1 scene metadata).' })}
-        ${_rgrfRow('Long. media escena', avgShot, { tooltip: 'frame_count / scene_count' })}
-        ${_rgrfRow('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
-        ${_rgrfRow('Codec', mainVideo?.codec || '—')}
-        ${_rgrfRow('Tamaño RPU', rpuSize, { tooltip: 'Tamaño del fichero RPU extraído. Más bytes/frame típicamente = metadata más rica.' })}
-        ${elVideo ? _rgrfRow('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
-      </div>
-    </div>`;
-
-  // ── S2 — HDR10 base
-  const s2 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">2 · HDR10 base (container, estático)</h4>
-      <div class="rgrf-grid">
-        ${_rgrfRow('Formato', hdr.hdr_format || '—', { tooltip: 'Formato HDR declarado en el container MKV.' })}
-        ${_rgrfRow('Color primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
-        ${_rgrfRow('Transfer', hdr.transfer_characteristics || mainVideo?.transfer_characteristics || '—', { tooltip: 'Curva de transferencia opto-eléctrica. PQ (SMPTE 2084) = HDR10/DV. HLG = Hybrid Log-Gamma.' })}
-        ${_rgrfRow('MaxCLL', hdr.max_cll != null ? `${hdr.max_cll} nits` : '—', { tooltip: 'Maximum Content Light Level — valor máximo de luz en todo el movie. Estático.' })}
-        ${_rgrfRow('MaxFALL', hdr.max_fall != null ? `${hdr.max_fall} nits` : '—', { tooltip: 'Maximum Frame Average Light Level — promedio más alto en un frame.' })}
-        ${_rgrfRow('Mastering display', hdr.mastering_display_luminance || '—', { tooltip: 'Luminancia mín/máx del display de masterizado.' })}
-      </div>
-    </div>`;
-
-  // ── S3 — L1 dinámico
+  // L1 dinámico
   const deltaCll = (dv.l1_max_cll && hdr.max_cll) ? Math.round(dv.l1_max_cll - hdr.max_cll) : null;
   const deltaFall = (dv.l1_max_fall && hdr.max_fall) ? Math.round(dv.l1_max_fall - hdr.max_fall) : null;
-  const deltaStr = (dv.l1_max_cll && hdr.max_cll) ? `${deltaCll > 0 ? '+' : ''}${deltaCll} / ${deltaFall > 0 ? '+' : ''}${deltaFall} nits` : '—';
+  const deltaStr = (deltaCll != null) ? `${deltaCll > 0 ? '+' : ''}${deltaCll} / ${deltaFall > 0 ? '+' : ''}${deltaFall} nits` : '—';
   const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
-  const sparklineHtml = hasLightProfile
-    ? _rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits')
-    : `<div class="rgrf-placeholder">Haz click en "🔬 Analizar perfil de luz" arriba para generar la curva de MaxCLL por escena.</div>`;
-  const s3 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">3 · L1 — Content light dinámico (por escena)</h4>
-      <div class="rgrf-grid">
-        ${_rgrfRow('L1 MaxCLL (avg RPU)', dv.l1_max_cll ? `${dv.l1_max_cll.toFixed(2)} nits` : '—', { tooltip: 'Promedio del MaxCLL de las escenas dentro del RPU.' })}
-        ${_rgrfRow('L1 MaxFALL (avg RPU)', dv.l1_max_fall ? `${dv.l1_max_fall.toFixed(2)} nits` : '—')}
-        ${_rgrfRow('Δ vs HDR10 estático', deltaStr, { tooltip: 'Diferencia entre L1 dinámico y MaxCLL/MaxFALL estático de HDR10.' })}
-      </div>
-      <div class="rgrf-viz">
-        <div class="rgrf-viz-label">Perfil de luz por escena</div>
-        ${sparklineHtml}
-      </div>
-    </div>`;
 
-  // ── S4 — L5 Active area + visualizador
+  // L5
   const frameW = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[0]) || 3840 : 3840;
   const frameH = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[1]) || 2160 : 2160;
   const activeW = frameW - (dv.l5_left || 0) - (dv.l5_right || 0);
   const activeH = frameH - (dv.l5_top || 0) - (dv.l5_bottom || 0);
-  const symVertical = (dv.l5_top || 0) === (dv.l5_bottom || 0);
-  const symHorizontal = (dv.l5_left || 0) === (dv.l5_right || 0);
-  const s4 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">4 · L5 — Active area (letterbox)</h4>
-      <div class="rgrf-split">
-        <div class="rgrf-grid">
-          ${_rgrfRow('Top / Bottom', `${dv.l5_top || 0} / ${dv.l5_bottom || 0} px`)}
-          ${_rgrfRow('Left / Right', `${dv.l5_left || 0} / ${dv.l5_right || 0} px`)}
-          ${_rgrfRow('Área activa', `${activeW} × ${activeH}`)}
-          ${_rgrfRow('Aspect ratio', _rgrfAspectLabel(dv, frameW, frameH))}
-          ${_rgrfRow('Simetría vertical', symVertical ? '✓ top == bottom' : `⚠ top ≠ bottom (${Math.abs((dv.l5_top || 0) - (dv.l5_bottom || 0))} px)`, { status: symVertical ? 'ok' : 'warn' })}
-          ${_rgrfRow('Simetría horizontal', symHorizontal ? '✓ left == right' : `⚠ left ≠ right (${Math.abs((dv.l5_left || 0) - (dv.l5_right || 0))} px)`, { status: symHorizontal ? 'ok' : 'warn' })}
-        </div>
-        <div class="rgrf-viz">${_rgrfL5Svg(dv, frameW, frameH)}</div>
-      </div>
-    </div>`;
+  const aspectLabel = _rgrfAspectLabel(dv, frameW, frameH);
 
-  // ── S5 — L6 Mastering
+  // L6
   const hdrCllMatch = (hdr.max_cll != null && dv.l6_max_cll) && Math.abs(hdr.max_cll - dv.l6_max_cll) <= 50;
-  const s5 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">5 · L6 — Mastering display fallback</h4>
-      <div class="rgrf-grid">
-        ${_rgrfRow('L6 MaxCLL', dv.l6_max_cll ? `${dv.l6_max_cll} nits` : '—')}
-        ${_rgrfRow('L6 MaxFALL', dv.l6_max_fall ? `${dv.l6_max_fall} nits` : '—')}
-        ${_rgrfRow('Coherencia con HDR10', (hdr.max_cll != null && dv.l6_max_cll) ? (hdrCllMatch ? '✓ match (<50 nits)' : '⚠ diverge') : '—', { status: hdrCllMatch ? 'ok' : 'warn' })}
-      </div>
-    </div>`;
 
-  // ── S6 — CMv4.0 levels
+  // CMv4.0
   const cm = (dv.cm_version || '').toLowerCase();
   const isV40 = cm.includes('4.0') || cm.includes('v4');
-  let s6 = '';
+
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 1 · Stream (profile + timing + structure)
+  // ═══════════════════════════════════════════════════════════════
+  const blockStream = `
+    <section class="dv-block">
+      <h5 class="dv-block-title">Stream</h5>
+      <div class="dv-grid-3">
+        ${cell('Profile', profile)}
+        ${cell('CM version', cmLabel)}
+        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—')}
+        ${cell('Duración', durationStr)}
+        ${cell('FPS', fps)}
+        ${cell('Escenas', dv.scene_count ? `${dv.scene_count.toLocaleString()} · avg ${avgShot}` : '—')}
+        ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
+        ${cell('Codec', mainVideo?.codec || '—')}
+        ${cell('RPU', rpuSize)}
+        ${elVideo ? cell('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
+      </div>
+    </section>`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 2 · HDR10 container + DV L1/L6 (todo lo relativo a luminancia)
+  // ═══════════════════════════════════════════════════════════════
+  const blockLum = `
+    <section class="dv-block">
+      <h5 class="dv-block-title">Luminancia <span class="dv-block-sub">HDR10 · L1 · L6</span></h5>
+      <div class="dv-grid-3">
+        ${cell('Formato container', hdr.hdr_format || '—')}
+        ${cell('Primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
+        ${cell('Transfer', hdr.transfer_characteristics || mainVideo?.transfer_characteristics || '—')}
+        ${cell('HDR10 MaxCLL', hdr.max_cll != null ? `${hdr.max_cll} nits` : '—')}
+        ${cell('HDR10 MaxFALL', hdr.max_fall != null ? `${hdr.max_fall} nits` : '—')}
+        ${cell('Mastering display', hdr.mastering_display_luminance || '—')}
+        ${cell('L1 MaxCLL (RPU)', dv.l1_max_cll ? `${dv.l1_max_cll.toFixed(1)} nits` : '—', { tooltip: 'Promedio del MaxCLL dinámico por escena del RPU.' })}
+        ${cell('L1 MaxFALL (RPU)', dv.l1_max_fall ? `${dv.l1_max_fall.toFixed(1)} nits` : '—')}
+        ${cell('Δ L1 vs HDR10', deltaStr)}
+        ${cell('L6 MaxCLL', dv.l6_max_cll ? `${dv.l6_max_cll} nits` : '—')}
+        ${cell('L6 MaxFALL', dv.l6_max_fall ? `${dv.l6_max_fall} nits` : '—')}
+        ${cell('L6 vs HDR10', hdr.max_cll != null && dv.l6_max_cll ? (hdrCllMatch ? 'coherente (±50 nits)' : 'diverge') : '—', { status: hdrCllMatch ? 'ok' : (hdr.max_cll && dv.l6_max_cll ? 'warn' : '') })}
+      </div>
+    </section>`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 3 · Active area (L5) con visualizador lateral
+  // ═══════════════════════════════════════════════════════════════
+  const symV = (dv.l5_top || 0) === (dv.l5_bottom || 0);
+  const symH = (dv.l5_left || 0) === (dv.l5_right || 0);
+  const blockActiveArea = `
+    <section class="dv-block">
+      <h5 class="dv-block-title">Active area <span class="dv-block-sub">L5</span></h5>
+      <div class="dv-split">
+        <div class="dv-grid-2">
+          ${cell('Offsets T / B', `${dv.l5_top || 0} / ${dv.l5_bottom || 0} px`)}
+          ${cell('Offsets L / R', `${dv.l5_left || 0} / ${dv.l5_right || 0} px`)}
+          ${cell('Área activa', `${activeW} × ${activeH}`)}
+          ${cell('Aspect ratio', aspectLabel)}
+          ${cell('Simetría vertical', symV ? 'T = B' : `Δ ${Math.abs((dv.l5_top || 0) - (dv.l5_bottom || 0))} px`, { status: symV ? 'ok' : 'warn' })}
+          ${cell('Simetría horizontal', symH ? 'L = R' : `Δ ${Math.abs((dv.l5_left || 0) - (dv.l5_right || 0))} px`, { status: symH ? 'ok' : 'warn' })}
+        </div>
+        <div class="dv-viz-side">${_rgrfL5Svg(dv, frameW, frameH)}</div>
+      </div>
+    </section>`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 4 · CMv4.0 levels (solo si v4.0)
+  // ═══════════════════════════════════════════════════════════════
+  let blockCmv4 = '';
   if (isV40) {
     const nitsLabel = (dv.l8_trim_nits && dv.l8_trim_nits.length)
-      ? dv.l8_trim_nits.join(' · ') + ' nits'
-      : (dv.l8_trim_count ? `${dv.l8_trim_count} trims (lista no parseada)` : '—');
+      ? dv.l8_trim_nits.join('·') + ' nits'
+      : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
     const l11Label = dv.l11_content_type
       ? `${dv.l11_content_type}${dv.l11_intended_application ? ` · ${dv.l11_intended_application}` : ''}`
-      : (dv.has_l11 ? '(presente, tipo no parseado)' : '—');
-    s6 = `
-      <div class="rgrf-section">
-        <h4 class="rgrf-section-title">6 · CMv4.0 levels</h4>
-        <div class="rgrf-grid">
-          ${_rgrfRow('L3 — Local scene trim', dv.has_l3 ? '✓ presente' : '✗ ausente', { status: dv.has_l3 ? 'ok' : 'absent', tooltip: 'Ajuste fino tonal local por escena. Presente en grading nativo de colorista.' })}
-          ${_rgrfRow('L4 — Legacy CMv2.9 trim', dv.has_l4 ? '✓ presente (compat)' : '✗ ausente', { status: dv.has_l4 ? 'ok' : 'absent', tooltip: 'Trim legacy heredado de v2.9. A veces coexiste con v4.0 para compatibilidad con decoders antiguos.' })}
-          ${_rgrfRow('L8 — Target display trims', dv.has_l8 ? `✓ ${nitsLabel}` : '✗ ausente', { status: dv.has_l8 ? 'ok' : 'absent', tooltip: 'Trims específicos para displays de distintos nits objetivo (100, 600, 1000, 2000...). Más trims = grading más preciso.' })}
-          ${_rgrfRow('L9 — Source primaries', dv.l9_primaries || (dv.has_l9 ? '(presente, no parseado)' : '✗ ausente'), { status: dv.has_l9 ? 'ok' : 'absent', tooltip: 'Color primaries del master origen (Rec.709 / DCI-P3 / Rec.2020).' })}
-          ${_rgrfRow('L10 — Target display primaries', dv.l10_primaries || (dv.has_l10 ? '(presente, no parseado)' : '✗ ausente'), { status: dv.has_l10 ? 'ok' : 'absent', tooltip: 'Color primaries objetivo del display de reproducción.' })}
-          ${_rgrfRow('L11 — Content type', l11Label, { status: dv.has_l11 ? 'ok' : 'absent', tooltip: 'Tipo de contenido (Cinema/Sports/Animation/HDR Game) — activa Dolby Vision IQ en TVs 2020+.' })}
-          ${_rgrfRow('L254 — CMv4.0 marker', dv.has_l254 ? '✓ presente' : '✗ ausente', { status: dv.has_l254 ? 'ok' : 'absent', tooltip: 'Sentinel de CMv4.0 correctamente marcado en el RPU.' })}
+      : (dv.has_l11 ? 'presente' : '');
+    blockCmv4 = `
+      <section class="dv-block">
+        <h5 class="dv-block-title">CMv4.0 levels extendidos</h5>
+        <div class="dv-pill-row">
+          ${pill(dv.has_l3,  'L3',  dv.has_l3 ? 'local scene trim' : '')}
+          ${pill(dv.has_l4,  'L4',  dv.has_l4 ? 'legacy compat' : '')}
+          ${pill(dv.has_l8,  'L8',  nitsLabel)}
+          ${pill(dv.has_l9,  'L9',  dv.l9_primaries || (dv.has_l9 ? 'source primaries' : ''))}
+          ${pill(dv.has_l10, 'L10', dv.l10_primaries || (dv.has_l10 ? 'target primaries' : ''))}
+          ${pill(dv.has_l11, 'L11', l11Label)}
+          ${pill(dv.has_l254,'L254', dv.has_l254 ? 'CMv4.0 marker' : '')}
         </div>
         ${dv.l8_trim_nits && dv.l8_trim_nits.length ? `
-          <div class="rgrf-viz">
-            <div class="rgrf-viz-label">L8 trims (escala log)</div>
+          <div class="dv-viz-inline">
+            <div class="dv-viz-caption">L8 target displays · escala logarítmica de nits</div>
             ${_rgrfL8Svg(dv.l8_trim_nits)}
           </div>` : ''}
-      </div>`;
+      </section>`;
   }
 
-  // ── S7 — Gamut visualizer (solo si hay L9 o L10)
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 5 · Gamut CIE 1931 (si hay L9/L10)
+  // ═══════════════════════════════════════════════════════════════
   const showGamut = dv.l9_primaries || dv.l10_primaries || dv.has_l9 || dv.has_l10;
-  const s7 = showGamut ? `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">7 · Gamut CIE 1931</h4>
-      <div class="rgrf-split">
-        <div class="rgrf-grid">
-          ${_rgrfRow('L9 source', dv.l9_primaries || '—')}
-          ${_rgrfRow('L10 target', dv.l10_primaries || '—')}
-          ${_rgrfRow('Container primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
+  const blockGamut = showGamut ? `
+    <section class="dv-block">
+      <h5 class="dv-block-title">Gamut de color <span class="dv-block-sub">CIE 1931</span></h5>
+      <div class="dv-split">
+        <div class="dv-grid-1">
+          ${cell('Source primaries (L9)', dv.l9_primaries || '—')}
+          ${cell('Target primaries (L10)', dv.l10_primaries || '—')}
+          ${cell('Container primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
         </div>
-        <div class="rgrf-viz">${_rgrfGamutSvg(dv.l9_primaries, dv.l10_primaries)}</div>
+        <div class="dv-viz-side">${_rgrfGamutSvg(dv.l9_primaries, dv.l10_primaries)}</div>
       </div>
-    </div>` : '';
+    </section>` : '';
 
-  // ── S8 — Distribución de luminancia
-  const s8 = `
-    <div class="rgrf-section">
-      <h4 class="rgrf-section-title">8 · Distribución de luminancia por escena</h4>
-      <div class="rgrf-viz">
-        ${hasLightProfile
-          ? _rgrfDistributionSvg(dv.per_scene_max_cll)
-          : `<div class="rgrf-placeholder">Haz click en "🔬 Analizar perfil de luz" arriba para generar el histograma.</div>`}
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 6 · Perfil de luz (sparkline + distribución) + botón
+  // ═══════════════════════════════════════════════════════════════
+  const lightMeta = hasLightProfile
+    ? `${dv.per_scene_max_cll.length} buckets · max ${Math.max(...dv.per_scene_max_cll)} nits`
+    : '';
+  const sparklineArea = hasLightProfile
+    ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits')}</div>
+       <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
+    : `<div class="dv-chart-empty">
+         <div class="dv-chart-empty-icon">📊</div>
+         <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
+         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar el perfil de luz y la distribución. Proceso rápido, ~30-60s.</div>
+       </div>`;
+  const actionBtn = hasLightProfile
+    ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
+    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)"><span>▶</span> Analizar ahora</button>`;
+  const blockLight = `
+    <section class="dv-block">
+      <div class="dv-block-head">
+        <h5 class="dv-block-title">Perfil de luz por escena <span class="dv-block-sub">L1 dinámico completo</span></h5>
+        <div class="dv-block-action">
+          ${lightMeta ? `<span class="dv-block-meta">${lightMeta}</span>` : ''}
+          ${actionBtn}
+        </div>
       </div>
-    </div>`;
+      ${sparklineArea}
+    </section>`;
 
-  // ── Toolbar superior
-  const lightAnalyzed = hasLightProfile ? '✓ Analizado' : '🔬 Analizar perfil de luz';
-  const lightDisabled = hasLightProfile ? ' disabled' : '';
+  // ═══════════════════════════════════════════════════════════════
+  //  Ensamblaje con toolbar superior compacta
+  // ═══════════════════════════════════════════════════════════════
   return `
-    <div class="section-card rgrf-card">
-      <div class="section-header">
-        <div style="flex:1">
-          <div class="section-title">🔬 Radiografía DV + HDR</div>
-          <div class="section-subtitle">Punto de entrada — todos los parámetros Dolby Vision y HDR10 del fichero</div>
-        </div>
-        <div style="display:flex; gap:6px">
-          <button class="btn btn-ghost btn-sm" onclick="_rgrfAnalyzeLight(event)"${lightDisabled}
-                  data-tooltip="Extrae MaxCLL/MaxFALL por escena del RPU completo (~30-60s)">${lightAnalyzed}</button>
-          <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
-                  data-tooltip="Copia toda la radiografía como Markdown al portapapeles">📋 Copiar</button>
-        </div>
+    <div class="dv-detail">
+      <div class="dv-detail-header">
+        <h4 class="dv-detail-title">Información detallada HDR / Dolby Vision</h4>
+        <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
+                data-tooltip="Copia toda la información como Markdown">📋 Copiar</button>
       </div>
-      <div class="section-body rgrf-body" id="rgrf-body">
-        ${s1}
-        ${s2}
-        ${s3}
-        ${s4}
-        ${s5}
-        ${s6}
-        ${s7}
-        ${s8}
-      </div>
+      ${blockStream}
+      ${blockLum}
+      ${blockActiveArea}
+      ${blockCmv4}
+      ${blockGamut}
+      ${blockLight}
     </div>`;
 }
 
@@ -6827,31 +6862,107 @@ function _rgrfCopyToClipboard(evt) {
   });
 }
 
-/** Lanza el análisis del perfil de luz (per-scene MaxCLL/MaxFALL). */
+/** Lanza el análisis del perfil de luz con modal de progreso animado. */
 async function _rgrfAnalyzeLight(evt) {
   if (!mkvProject) return;
-  const btn = evt?.currentTarget;
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ Analizando… (~30-60s)';
-  }
+
+  // Abre modal + inicializa steps
+  const fileEl = document.getElementById('dv-light-modal-file');
+  if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  _dvLightStepState('extract', 'active');
+  _dvLightStepState('export', 'pending');
+  _dvLightStepState('parse', 'pending');
+  _dvLightSetMeta('extract-meta', '');
+  _dvLightSetMeta('parse-meta', '');
+  _dvLightSetProgress(5);
+  openModal('dv-light-modal');
+
+  // Ticker de tiempo transcurrido
+  const startTs = Date.now();
+  const elapsedEl = document.getElementById('dv-light-elapsed');
+  const ticker = setInterval(() => {
+    const s = Math.floor((Date.now() - startTs) / 1000);
+    if (elapsedEl) elapsedEl.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }, 500);
+  // Simulación de progreso que va avanzando suavemente (el backend no tiene
+  // streaming de progreso real — el endpoint es síncrono). La barra avanza
+  // hasta 90% como "bayesian update" y se completa al recibir respuesta.
+  let fakePct = 5;
+  const progressTicker = setInterval(() => {
+    if (fakePct < 88) {
+      fakePct += Math.max(0.4, (90 - fakePct) * 0.04);
+      _dvLightSetProgress(fakePct);
+      // Actualizar step activo segun porcentaje aproximado
+      if (fakePct > 55 && fakePct < 75) {
+        _dvLightStepState('extract', 'done');
+        _dvLightStepState('export', 'active');
+      } else if (fakePct >= 75) {
+        _dvLightStepState('export', 'done');
+        _dvLightStepState('parse', 'active');
+      }
+    }
+  }, 400);
+
   try {
     const data = await apiFetch('/api/mkv/light-profile', {
       method: 'POST',
       body: JSON.stringify({ file_path: mkvProject.analysis.file_name }),
     }, 300000);
-    if (data?.per_scene_max_cll) {
-      mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
-      mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
-      _renderMkvEditPanel();
-      showToast(`✓ Perfil de luz extraído (${data.per_scene_max_cll.length} escenas)`, 'success');
-    } else {
-      throw new Error('respuesta vacía');
-    }
+    if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
+
+    // Pinta los pasos como done + progress a 100
+    _dvLightStepState('extract', 'done');
+    _dvLightStepState('export', 'done');
+    _dvLightStepState('parse', 'done');
+    _dvLightSetMeta('parse-meta', `${data.per_scene_max_cll.length} buckets · ${data.total_frames?.toLocaleString() || '?'} frames`);
+    _dvLightSetProgress(100);
+
+    // Actualiza datos y re-renderiza
+    mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
+    mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
+
+    // Pausa breve para que el usuario vea el "✓ done" antes de cerrar
+    await new Promise(r => setTimeout(r, 600));
+    closeModal('dv-light-modal');
+    _renderMkvEditPanel();
+    showToast(`Perfil de luz extraído — ${data.per_scene_max_cll.length} buckets`, 'success');
   } catch (e) {
+    const activeStep = document.querySelector('.dv-light-step.active');
+    if (activeStep) {
+      activeStep.classList.remove('active');
+      activeStep.style.borderColor = 'rgba(255,59,48,0.35)';
+      activeStep.style.background = 'rgba(255,59,48,0.08)';
+      const marker = activeStep.querySelector('.dv-light-step-marker');
+      if (marker) { marker.textContent = '✗'; marker.style.color = '#f87171'; marker.style.animation = 'none'; }
+    }
+    _dvLightSetMeta('parse-meta', String(e.message || e).slice(0, 80));
     showToast(`No se pudo analizar el perfil de luz: ${e.message || e}`, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '🔬 Analizar perfil de luz'; }
+    await new Promise(r => setTimeout(r, 1800));
+    closeModal('dv-light-modal');
+  } finally {
+    clearInterval(ticker);
+    clearInterval(progressTicker);
   }
+}
+
+function _dvLightStepState(id, state) {
+  const el = document.getElementById(`dv-light-step-${id}`);
+  if (!el) return;
+  el.classList.remove('active', 'pending', 'done');
+  el.classList.add(state);
+  const marker = el.querySelector('.dv-light-step-marker');
+  if (marker) {
+    marker.style.animation = '';
+    marker.textContent = state === 'done' ? '✓' : (state === 'active' ? '⟳' : '○');
+  }
+}
+function _dvLightSetMeta(id, text) {
+  const el = document.getElementById(`dv-light-step-${id}`);
+  if (el) el.textContent = text;
+}
+function _dvLightSetProgress(pct) {
+  const bar = document.getElementById('dv-light-progress-bar');
+  if (bar) bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
 // ── Render del panel de edición ──────────────────────────────────
@@ -6954,34 +7065,28 @@ function _renderMkvEditPanel() {
         </div>
       </div>
 
-      <!-- Info del vídeo (solo lectura) -->
+      <!-- Vídeo: resumen compacto + bloque detallado HDR/DV inline -->
       ${mainVideo ? `
       <div class="section-card">
-        <div class="section-header"><div><div class="section-title">🎞️ Vídeo</div></div></div>
-        <div class="section-body">
-          <div style="font-size:12px; color:var(--text-2); display:flex; flex-direction:column; gap:4px; line-height:1.55">
-            <div><strong style="color:var(--text-1)">${escHtml(videoCodecLine)}</strong></div>
-            ${elVideo ? `<div style="color:var(--text-3)">Enhancement Layer: ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString() + ' kbps' : ''}</div>` : ''}
-            ${hdrBadge || hdrSpace ? `<div><span style="color:var(--orange); font-weight:600">${hdrBadge || 'HDR'}</span>${hdrSpace ? ` <span style="color:var(--text-3)">· ${escHtml(hdrSpace)}</span>` : ''}</div>` : ''}
-            ${hdrMaxCll || hdrMaxFall ? `<div style="color:var(--text-3)">${[hdrMaxCll, hdrMaxFall].filter(Boolean).join(' · ')}</div>` : ''}
-            ${hdrLuminance ? `<div style="color:var(--text-3)">Mastering display: ${escHtml(hdrLuminance)}</div>` : ''}
-            ${dvDetected ? `
-              <div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--sep)">
-                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px">
-                  <span style="color:var(--teal); font-weight:700">✨ Dolby Vision</span>
-                  ${dvProfileLine ? `<span style="color:var(--text-1); font-weight:500">${escHtml(dvProfileLine)}</span>` : ''}
-                  ${cmBadgeHtml}
-                </div>
-                ${cmHintHtml ? `<div style="margin-top:4px">${cmHintHtml}</div>` : ''}
-                ${!dv ? `<div style="color:var(--text-3); margin-top:2px; font-style:italic">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : ''}
-              </div>
-            ` : ''}
+        <div class="section-header">
+          <div style="flex:1">
+            <div class="section-title">🎞️ Vídeo</div>
+          </div>
+          <div class="video-header-badges">
+            ${hdrBadge ? `<span class="video-badge video-badge-hdr">${hdrBadge}</span>` : ''}
+            ${dvDetected && dvProfileLine ? `<span class="video-badge video-badge-dv">✨ DV ${escHtml(dvProfileLine.replace('Profile ', 'P'))}</span>` : ''}
+            ${cmBadgeHtml}
+            ${cmHintHtml ? `<span class="video-hint">${cmHintHtml}</span>` : ''}
           </div>
         </div>
+        <div class="section-body">
+          <div class="video-summary-line">
+            <strong>${escHtml(videoCodecLine)}</strong>
+            ${elVideo ? `<span class="video-el">+EL ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString() + ' kbps' : ''}</span>` : ''}
+          </div>
+          ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : '')}
+        </div>
       </div>` : ''}
-
-      <!-- Radiografía DV+HDR — tabla factual completa -->
-      ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo) : ''}
 
       <!-- Pistas de Audio -->
       <div class="section-card">
