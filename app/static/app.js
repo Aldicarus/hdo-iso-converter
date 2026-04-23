@@ -6331,6 +6331,529 @@ function undoMkvEdits() {
   showToast('Cambios revertidos', 'info');
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  RADIOGRAFÍA DV+HDR — Tab 2 "Consultar / Editar MKV"
+//  Sustituye a los badges heurísticos de procedencia (nativo/retail/…).
+//  8 secciones con datos factuales + visualizadores.
+//  Datos provienen de `a.dovi` (DoviInfo via dovi_tool info) y `a.hdr`
+//  (HdrMetadata via MediaInfo).
+// ══════════════════════════════════════════════════════════════════
+
+/** Fila factual de la tabla: label + valor + tooltip opcional.
+ *  `status`: 'ok' (verde), 'warn' (ámbar), 'absent' (gris tenue), 'neutral' */
+function _rgrfRow(label, value, { tooltip = '', status = 'neutral' } = {}) {
+  if (value == null || value === '' || value === undefined) {
+    value = '<span style="color:var(--text-3); font-style:italic">—</span>';
+  }
+  const colorMap = {
+    ok:      '#0e6b2a',
+    warn:    '#8a4a00',
+    absent:  'var(--text-3)',
+    neutral: 'var(--text-1)',
+  };
+  const valColor = colorMap[status] || colorMap.neutral;
+  const tipAttr = tooltip ? ` data-tooltip="${escHtml(tooltip)}"` : '';
+  return `
+    <div class="rgrf-row"${tipAttr}>
+      <span class="rgrf-label">${label}</span>
+      <span class="rgrf-value" style="color:${valColor}">${value}</span>
+    </div>`;
+}
+
+/** Icono ✓/✗ según presencia, con tooltip explicativo opcional. */
+function _rgrfPresence(present, label, { tooltip = '' } = {}) {
+  const icon  = present ? '✓' : '✗';
+  const color = present ? '#0e6b2a' : 'var(--text-3)';
+  const bg    = present ? 'rgba(52,199,89,0.10)' : 'transparent';
+  const tip   = tooltip ? ` data-tooltip="${escHtml(tooltip)}"` : '';
+  return `<span class="rgrf-pill" style="color:${color}; background:${bg}"${tip}><span class="rgrf-pill-icon">${icon}</span> ${escHtml(label)}</span>`;
+}
+
+/** Visualizador L5: SVG con el frame + active area + barras negras. */
+function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
+  const t = dv.l5_top || 0, b = dv.l5_bottom || 0;
+  const l = dv.l5_left || 0, r = dv.l5_right || 0;
+  const ratio = 300 / frameW;  // ancho svg = 300px
+  const svgW = Math.round(frameW * ratio);
+  const svgH = Math.round(frameH * ratio);
+  const activeX = Math.round(l * ratio);
+  const activeY = Math.round(t * ratio);
+  const activeW = Math.round((frameW - l - r) * ratio);
+  const activeH = Math.round((frameH - t - b) * ratio);
+  return `
+    <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
+         style="display:block; background:#000; border-radius:4px"
+         xmlns="http://www.w3.org/2000/svg">
+      <rect x="${activeX}" y="${activeY}" width="${activeW}" height="${activeH}"
+            fill="#1a4d7a" stroke="#4da3ff" stroke-width="1" />
+      <text x="${svgW/2}" y="${svgH/2 + 4}" fill="#8bbfea" font-size="10" font-family="SF Mono,monospace"
+            text-anchor="middle">${frameW - l - r}×${frameH - t - b}</text>
+    </svg>`;
+}
+
+/** Aspect ratio inferido a partir de active area de L5. */
+function _rgrfAspectLabel(dv, frameW = 3840, frameH = 2160) {
+  const activeW = frameW - (dv.l5_left || 0) - (dv.l5_right || 0);
+  const activeH = frameH - (dv.l5_top || 0) - (dv.l5_bottom || 0);
+  if (activeH === 0) return '—';
+  const ratio = activeW / activeH;
+  const candidates = [
+    { val: 2.39, label: '2.39 : 1 (CinemaScope)' },
+    { val: 2.35, label: '2.35 : 1' },
+    { val: 2.20, label: '2.20 : 1 (Todd-AO)' },
+    { val: 1.85, label: '1.85 : 1 (Widescreen)' },
+    { val: 1.78, label: '1.78 : 1 (16:9)' },
+    { val: 1.66, label: '1.66 : 1' },
+    { val: 1.33, label: '1.33 : 1 (4:3)' },
+  ];
+  const match = candidates.reduce((best, c) =>
+    Math.abs(c.val - ratio) < Math.abs(best.val - ratio) ? c : best
+  );
+  const close = Math.abs(match.val - ratio) < 0.03;
+  return close ? match.label : `${ratio.toFixed(2)} : 1`;
+}
+
+/** Visualizador L8: trims en escala log con dots + label de nits. */
+function _rgrfL8Svg(nits) {
+  if (!Array.isArray(nits) || !nits.length) return '';
+  const svgW = 300, svgH = 40, padL = 20, padR = 20;
+  const usableW = svgW - padL - padR;
+  // Escala log 10 → 10000 nits
+  const logMin = Math.log10(10), logMax = Math.log10(10000);
+  const xOf = (n) => padL + ((Math.log10(Math.max(n, 1)) - logMin) / (logMax - logMin)) * usableW;
+  const ticks = [10, 100, 1000, 10000];
+  let html = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
+    style="display:block" xmlns="http://www.w3.org/2000/svg">`;
+  // Eje
+  html += `<line x1="${padL}" y1="25" x2="${svgW - padR}" y2="25" stroke="rgba(255,255,255,0.15)" />`;
+  ticks.forEach(t => {
+    const x = xOf(t);
+    html += `<line x1="${x}" y1="22" x2="${x}" y2="28" stroke="rgba(255,255,255,0.25)" />`;
+    html += `<text x="${x}" y="38" fill="var(--text-3)" font-size="9" font-family="SF Mono,monospace" text-anchor="middle">${t}</text>`;
+  });
+  // Dots
+  nits.forEach(n => {
+    const x = xOf(n);
+    html += `<circle cx="${x}" cy="25" r="4.5" fill="#5eead4" stroke="#0e6b2a" stroke-width="1" />`;
+    html += `<text x="${x}" y="14" fill="#5eead4" font-size="9" font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${n}</text>`;
+  });
+  html += `</svg>`;
+  return html;
+}
+
+/** Visualizador CIE 1931: triángulos Rec.709, DCI-P3, Rec.2020 + D65. */
+function _rgrfGamutSvg(l9Primaries, l10Primaries) {
+  const svgSize = 280, pad = 20;
+  // Coords CIE (x, y) → SVG (con eje Y invertido)
+  const cieToSvg = (x, y) => {
+    const sx = pad + x * (svgSize - 2 * pad) / 0.8;
+    const sy = svgSize - pad - y * (svgSize - 2 * pad) / 0.9;
+    return [sx, sy];
+  };
+  const triangle = (pts, stroke, fill) => {
+    const d = pts.map(([x, y]) => cieToSvg(x, y).join(',')).join(' ');
+    return `<polygon points="${d}" stroke="${stroke}" fill="${fill}" stroke-width="1.5" fill-opacity="0.08" />`;
+  };
+  // Primaries
+  const rec709   = [[0.640, 0.330], [0.300, 0.600], [0.150, 0.060]];
+  const dciP3    = [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]];
+  const rec2020  = [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046]];
+  const d65      = [0.3127, 0.3290];
+  const [d65x, d65y] = cieToSvg(d65[0], d65[1]);
+
+  // Detectar qué gamut es L9 / L10 para resaltar
+  const gamutMatch = (s) => {
+    const low = (s || '').toLowerCase();
+    if (low.includes('2020')) return 'rec2020';
+    if (low.includes('p3'))   return 'p3';
+    if (low.includes('709'))  return 'rec709';
+    return null;
+  };
+  const l9Match  = gamutMatch(l9Primaries);
+  const l10Match = gamutMatch(l10Primaries);
+
+  return `
+    <svg viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}"
+         style="display:block; background:rgba(255,255,255,0.02); border-radius:4px"
+         xmlns="http://www.w3.org/2000/svg">
+      <!-- Ejes CIE -->
+      <line x1="${pad}" y1="${svgSize - pad}" x2="${svgSize - pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
+      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
+      <!-- Triángulos gamut -->
+      ${triangle(rec2020, '#5eead4', '#5eead4')}
+      ${triangle(dciP3,   '#fbbf24', '#fbbf24')}
+      ${triangle(rec709,  '#f87171', '#f87171')}
+      <!-- Resaltado L9 (source primaries) -->
+      ${l9Match === 'rec2020' ? triangle(rec2020, '#67e8f9', '#67e8f9') : ''}
+      ${l9Match === 'p3'      ? triangle(dciP3,   '#67e8f9', '#67e8f9') : ''}
+      ${l9Match === 'rec709'  ? triangle(rec709,  '#67e8f9', '#67e8f9') : ''}
+      <!-- D65 white point -->
+      <circle cx="${d65x}" cy="${d65y}" r="3" fill="#fff" stroke="#000" />
+      <text x="${d65x + 6}" y="${d65y - 4}" fill="#fff" font-size="9" font-family="SF Mono,monospace">D65</text>
+      <!-- Leyenda -->
+      <g font-size="9" font-family="SF Mono,monospace">
+        <rect x="${svgSize - 80}" y="${pad}" width="70" height="46" fill="rgba(0,0,0,0.55)" rx="3"/>
+        <circle cx="${svgSize - 72}" cy="${pad + 10}" r="3" fill="#5eead4"/>
+        <text x="${svgSize - 66}" y="${pad + 13}" fill="#5eead4">Rec.2020</text>
+        <circle cx="${svgSize - 72}" cy="${pad + 23}" r="3" fill="#fbbf24"/>
+        <text x="${svgSize - 66}" y="${pad + 26}" fill="#fbbf24">DCI-P3</text>
+        <circle cx="${svgSize - 72}" cy="${pad + 36}" r="3" fill="#f87171"/>
+        <text x="${svgSize - 66}" y="${pad + 39}" fill="#f87171">Rec.709</text>
+      </g>
+    </svg>`;
+}
+
+/** Sparkline SVG para per-scene MaxCLL. */
+function _rgrfSparklineSvg(series, labelMax) {
+  if (!Array.isArray(series) || series.length < 2) return '';
+  const svgW = 400, svgH = 60, pad = 6;
+  const maxV = Math.max(...series);
+  const usableW = svgW - 2 * pad;
+  const usableH = svgH - 2 * pad;
+  const pts = series.map((v, i) => {
+    const x = pad + (i / (series.length - 1)) * usableW;
+    const y = svgH - pad - (v / maxV) * usableH;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `
+    <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
+         style="display:block" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="${pts}" fill="none" stroke="#5eead4" stroke-width="1.2" />
+      <text x="${svgW - 4}" y="${pad + 10}" fill="var(--text-3)" font-size="10"
+            font-family="SF Mono,monospace" text-anchor="end">max ${labelMax}</text>
+    </svg>`;
+}
+
+/** Histograma de distribución de luminancia. */
+function _rgrfDistributionSvg(series) {
+  if (!Array.isArray(series) || series.length < 1) return '';
+  const svgW = 400, svgH = 120, padL = 30, padR = 10, padT = 10, padB = 25;
+  const usableW = svgW - padL - padR;
+  const usableH = svgH - padT - padB;
+  // Bins logarítmicos: 10-30-100-300-1000-3000-10000
+  const bins = [10, 30, 100, 300, 1000, 3000, 10000];
+  const counts = new Array(bins.length).fill(0);
+  series.forEach(v => {
+    for (let i = bins.length - 1; i >= 0; i--) {
+      if (v >= bins[i]) { counts[i]++; break; }
+    }
+  });
+  const maxCount = Math.max(...counts, 1);
+  const barW = usableW / bins.length;
+  let bars = '';
+  counts.forEach((c, i) => {
+    const h = (c / maxCount) * usableH;
+    const x = padL + i * barW;
+    const y = padT + usableH - h;
+    // Color frío→caliente según nits
+    const hue = 200 - (i / (bins.length - 1)) * 200;  // de 200 (azul) a 0 (rojo)
+    bars += `<rect x="${x + 2}" y="${y}" width="${barW - 4}" height="${h}" fill="hsl(${hue}, 70%, 55%)" />`;
+    bars += `<text x="${x + barW/2}" y="${padT + usableH + 14}" fill="var(--text-3)" font-size="9"
+               font-family="SF Mono,monospace" text-anchor="middle">${bins[i]}</text>`;
+    if (c > 0) {
+      bars += `<text x="${x + barW/2}" y="${y - 2}" fill="var(--text-2)" font-size="9"
+                 font-family="SF Mono,monospace" text-anchor="middle">${c}</text>`;
+    }
+  });
+  return `
+    <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
+         style="display:block" xmlns="http://www.w3.org/2000/svg">
+      <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}" stroke="rgba(255,255,255,0.15)" />
+      ${bars}
+      <text x="${padL / 2}" y="${padT + usableH / 2}" fill="var(--text-3)" font-size="9"
+            font-family="SF Mono,monospace" text-anchor="middle"
+            transform="rotate(-90 ${padL / 2} ${padT + usableH / 2})">% escenas</text>
+      <text x="${svgW / 2}" y="${svgH - 3}" fill="var(--text-3)" font-size="9"
+            font-family="SF Mono,monospace" text-anchor="middle">nits (log)</text>
+    </svg>`;
+}
+
+/** Render completo de la radiografía DV+HDR. */
+function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
+  const hdr = a.hdr || {};
+  const fps = a.duration_seconds && dv.frame_count
+    ? (dv.frame_count / a.duration_seconds).toFixed(3)
+    : (a.fps ? a.fps.toFixed(3) : '23.976');
+
+  // ── S1 — Identidad del stream
+  const el = dv.el_type ? ` ${dv.el_type}` : '';
+  const profile = dv.profile ? `${dv.profile}${el}${dv.profile_compatibility_id ? ` · compat ID ${dv.profile_compatibility_id}` : ''}` : '—';
+  const framesTotal = mainVideo?.frame_count || dv.frame_count || 0;  // preferimos MediaInfo (movie-scoped)
+  const durationStr = a.duration_seconds ? _fmtDuration(a.duration_seconds) : '—';
+  const avgShot = dv.scene_avg_length_frames
+    ? `${dv.scene_avg_length_frames} frames (${(dv.scene_avg_length_frames / parseFloat(fps || 24)).toFixed(1)}s)`
+    : '—';
+  const rpuSize = dv.rpu_size_bytes
+    ? `${_fmtBytes(dv.rpu_size_bytes)} (~${Math.round(dv.rpu_size_bytes / Math.max(framesTotal, 1))} B/frame)`
+    : '—';
+
+  const s1 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">1 · Identidad del stream</h4>
+      <div class="rgrf-grid">
+        ${_rgrfRow('Profile', profile, { tooltip: 'Perfil DV. P5 = IPTPQc2 (streaming legacy). P7 = dual-layer Blu-ray (FEL/MEL). P8 = single-layer (retail/streaming moderno).' })}
+        ${_rgrfRow('CM version', dv.cm_version || '—', { tooltip: 'Content Mapping. v2.9 = legacy (L1/L2/L5/L6). v4.0 = L8-L11 añadidos (tone-mapping avanzado).' })}
+        ${_rgrfRow('Frames', framesTotal ? framesTotal.toLocaleString() : '—')}
+        ${_rgrfRow('Duración', durationStr)}
+        ${_rgrfRow('FPS', fps)}
+        ${_rgrfRow('Escenas', dv.scene_count ? dv.scene_count.toLocaleString() : '—', { tooltip: 'Shot boundaries detectadas por el RPU (L1 scene metadata).' })}
+        ${_rgrfRow('Long. media escena', avgShot, { tooltip: 'frame_count / scene_count' })}
+        ${_rgrfRow('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
+        ${_rgrfRow('Codec', mainVideo?.codec || '—')}
+        ${_rgrfRow('Tamaño RPU', rpuSize, { tooltip: 'Tamaño del fichero RPU extraído. Más bytes/frame típicamente = metadata más rica.' })}
+        ${elVideo ? _rgrfRow('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
+      </div>
+    </div>`;
+
+  // ── S2 — HDR10 base
+  const s2 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">2 · HDR10 base (container, estático)</h4>
+      <div class="rgrf-grid">
+        ${_rgrfRow('Formato', hdr.hdr_format || '—', { tooltip: 'Formato HDR declarado en el container MKV.' })}
+        ${_rgrfRow('Color primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
+        ${_rgrfRow('Transfer', hdr.transfer_characteristics || mainVideo?.transfer_characteristics || '—', { tooltip: 'Curva de transferencia opto-eléctrica. PQ (SMPTE 2084) = HDR10/DV. HLG = Hybrid Log-Gamma.' })}
+        ${_rgrfRow('MaxCLL', hdr.max_cll != null ? `${hdr.max_cll} nits` : '—', { tooltip: 'Maximum Content Light Level — valor máximo de luz en todo el movie. Estático.' })}
+        ${_rgrfRow('MaxFALL', hdr.max_fall != null ? `${hdr.max_fall} nits` : '—', { tooltip: 'Maximum Frame Average Light Level — promedio más alto en un frame.' })}
+        ${_rgrfRow('Mastering display', hdr.mastering_display_luminance || '—', { tooltip: 'Luminancia mín/máx del display de masterizado.' })}
+      </div>
+    </div>`;
+
+  // ── S3 — L1 dinámico
+  const deltaCll = (dv.l1_max_cll && hdr.max_cll) ? Math.round(dv.l1_max_cll - hdr.max_cll) : null;
+  const deltaFall = (dv.l1_max_fall && hdr.max_fall) ? Math.round(dv.l1_max_fall - hdr.max_fall) : null;
+  const deltaStr = (dv.l1_max_cll && hdr.max_cll) ? `${deltaCll > 0 ? '+' : ''}${deltaCll} / ${deltaFall > 0 ? '+' : ''}${deltaFall} nits` : '—';
+  const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
+  const sparklineHtml = hasLightProfile
+    ? _rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits')
+    : `<div class="rgrf-placeholder">Haz click en "🔬 Analizar perfil de luz" arriba para generar la curva de MaxCLL por escena.</div>`;
+  const s3 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">3 · L1 — Content light dinámico (por escena)</h4>
+      <div class="rgrf-grid">
+        ${_rgrfRow('L1 MaxCLL (avg RPU)', dv.l1_max_cll ? `${dv.l1_max_cll.toFixed(2)} nits` : '—', { tooltip: 'Promedio del MaxCLL de las escenas dentro del RPU.' })}
+        ${_rgrfRow('L1 MaxFALL (avg RPU)', dv.l1_max_fall ? `${dv.l1_max_fall.toFixed(2)} nits` : '—')}
+        ${_rgrfRow('Δ vs HDR10 estático', deltaStr, { tooltip: 'Diferencia entre L1 dinámico y MaxCLL/MaxFALL estático de HDR10.' })}
+      </div>
+      <div class="rgrf-viz">
+        <div class="rgrf-viz-label">Perfil de luz por escena</div>
+        ${sparklineHtml}
+      </div>
+    </div>`;
+
+  // ── S4 — L5 Active area + visualizador
+  const frameW = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[0]) || 3840 : 3840;
+  const frameH = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[1]) || 2160 : 2160;
+  const activeW = frameW - (dv.l5_left || 0) - (dv.l5_right || 0);
+  const activeH = frameH - (dv.l5_top || 0) - (dv.l5_bottom || 0);
+  const symVertical = (dv.l5_top || 0) === (dv.l5_bottom || 0);
+  const symHorizontal = (dv.l5_left || 0) === (dv.l5_right || 0);
+  const s4 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">4 · L5 — Active area (letterbox)</h4>
+      <div class="rgrf-split">
+        <div class="rgrf-grid">
+          ${_rgrfRow('Top / Bottom', `${dv.l5_top || 0} / ${dv.l5_bottom || 0} px`)}
+          ${_rgrfRow('Left / Right', `${dv.l5_left || 0} / ${dv.l5_right || 0} px`)}
+          ${_rgrfRow('Área activa', `${activeW} × ${activeH}`)}
+          ${_rgrfRow('Aspect ratio', _rgrfAspectLabel(dv, frameW, frameH))}
+          ${_rgrfRow('Simetría vertical', symVertical ? '✓ top == bottom' : `⚠ top ≠ bottom (${Math.abs((dv.l5_top || 0) - (dv.l5_bottom || 0))} px)`, { status: symVertical ? 'ok' : 'warn' })}
+          ${_rgrfRow('Simetría horizontal', symHorizontal ? '✓ left == right' : `⚠ left ≠ right (${Math.abs((dv.l5_left || 0) - (dv.l5_right || 0))} px)`, { status: symHorizontal ? 'ok' : 'warn' })}
+        </div>
+        <div class="rgrf-viz">${_rgrfL5Svg(dv, frameW, frameH)}</div>
+      </div>
+    </div>`;
+
+  // ── S5 — L6 Mastering
+  const hdrCllMatch = (hdr.max_cll != null && dv.l6_max_cll) && Math.abs(hdr.max_cll - dv.l6_max_cll) <= 50;
+  const s5 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">5 · L6 — Mastering display fallback</h4>
+      <div class="rgrf-grid">
+        ${_rgrfRow('L6 MaxCLL', dv.l6_max_cll ? `${dv.l6_max_cll} nits` : '—')}
+        ${_rgrfRow('L6 MaxFALL', dv.l6_max_fall ? `${dv.l6_max_fall} nits` : '—')}
+        ${_rgrfRow('Coherencia con HDR10', (hdr.max_cll != null && dv.l6_max_cll) ? (hdrCllMatch ? '✓ match (<50 nits)' : '⚠ diverge') : '—', { status: hdrCllMatch ? 'ok' : 'warn' })}
+      </div>
+    </div>`;
+
+  // ── S6 — CMv4.0 levels
+  const cm = (dv.cm_version || '').toLowerCase();
+  const isV40 = cm.includes('4.0') || cm.includes('v4');
+  let s6 = '';
+  if (isV40) {
+    const nitsLabel = (dv.l8_trim_nits && dv.l8_trim_nits.length)
+      ? dv.l8_trim_nits.join(' · ') + ' nits'
+      : (dv.l8_trim_count ? `${dv.l8_trim_count} trims (lista no parseada)` : '—');
+    const l11Label = dv.l11_content_type
+      ? `${dv.l11_content_type}${dv.l11_intended_application ? ` · ${dv.l11_intended_application}` : ''}`
+      : (dv.has_l11 ? '(presente, tipo no parseado)' : '—');
+    s6 = `
+      <div class="rgrf-section">
+        <h4 class="rgrf-section-title">6 · CMv4.0 levels</h4>
+        <div class="rgrf-grid">
+          ${_rgrfRow('L3 — Local scene trim', dv.has_l3 ? '✓ presente' : '✗ ausente', { status: dv.has_l3 ? 'ok' : 'absent', tooltip: 'Ajuste fino tonal local por escena. Presente en grading nativo de colorista.' })}
+          ${_rgrfRow('L4 — Legacy CMv2.9 trim', dv.has_l4 ? '✓ presente (compat)' : '✗ ausente', { status: dv.has_l4 ? 'ok' : 'absent', tooltip: 'Trim legacy heredado de v2.9. A veces coexiste con v4.0 para compatibilidad con decoders antiguos.' })}
+          ${_rgrfRow('L8 — Target display trims', dv.has_l8 ? `✓ ${nitsLabel}` : '✗ ausente', { status: dv.has_l8 ? 'ok' : 'absent', tooltip: 'Trims específicos para displays de distintos nits objetivo (100, 600, 1000, 2000...). Más trims = grading más preciso.' })}
+          ${_rgrfRow('L9 — Source primaries', dv.l9_primaries || (dv.has_l9 ? '(presente, no parseado)' : '✗ ausente'), { status: dv.has_l9 ? 'ok' : 'absent', tooltip: 'Color primaries del master origen (Rec.709 / DCI-P3 / Rec.2020).' })}
+          ${_rgrfRow('L10 — Target display primaries', dv.l10_primaries || (dv.has_l10 ? '(presente, no parseado)' : '✗ ausente'), { status: dv.has_l10 ? 'ok' : 'absent', tooltip: 'Color primaries objetivo del display de reproducción.' })}
+          ${_rgrfRow('L11 — Content type', l11Label, { status: dv.has_l11 ? 'ok' : 'absent', tooltip: 'Tipo de contenido (Cinema/Sports/Animation/HDR Game) — activa Dolby Vision IQ en TVs 2020+.' })}
+          ${_rgrfRow('L254 — CMv4.0 marker', dv.has_l254 ? '✓ presente' : '✗ ausente', { status: dv.has_l254 ? 'ok' : 'absent', tooltip: 'Sentinel de CMv4.0 correctamente marcado en el RPU.' })}
+        </div>
+        ${dv.l8_trim_nits && dv.l8_trim_nits.length ? `
+          <div class="rgrf-viz">
+            <div class="rgrf-viz-label">L8 trims (escala log)</div>
+            ${_rgrfL8Svg(dv.l8_trim_nits)}
+          </div>` : ''}
+      </div>`;
+  }
+
+  // ── S7 — Gamut visualizer (solo si hay L9 o L10)
+  const showGamut = dv.l9_primaries || dv.l10_primaries || dv.has_l9 || dv.has_l10;
+  const s7 = showGamut ? `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">7 · Gamut CIE 1931</h4>
+      <div class="rgrf-split">
+        <div class="rgrf-grid">
+          ${_rgrfRow('L9 source', dv.l9_primaries || '—')}
+          ${_rgrfRow('L10 target', dv.l10_primaries || '—')}
+          ${_rgrfRow('Container primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
+        </div>
+        <div class="rgrf-viz">${_rgrfGamutSvg(dv.l9_primaries, dv.l10_primaries)}</div>
+      </div>
+    </div>` : '';
+
+  // ── S8 — Distribución de luminancia
+  const s8 = `
+    <div class="rgrf-section">
+      <h4 class="rgrf-section-title">8 · Distribución de luminancia por escena</h4>
+      <div class="rgrf-viz">
+        ${hasLightProfile
+          ? _rgrfDistributionSvg(dv.per_scene_max_cll)
+          : `<div class="rgrf-placeholder">Haz click en "🔬 Analizar perfil de luz" arriba para generar el histograma.</div>`}
+      </div>
+    </div>`;
+
+  // ── Toolbar superior
+  const lightAnalyzed = hasLightProfile ? '✓ Analizado' : '🔬 Analizar perfil de luz';
+  const lightDisabled = hasLightProfile ? ' disabled' : '';
+  return `
+    <div class="section-card rgrf-card">
+      <div class="section-header">
+        <div style="flex:1">
+          <div class="section-title">🔬 Radiografía DV + HDR</div>
+          <div class="section-subtitle">Punto de entrada — todos los parámetros Dolby Vision y HDR10 del fichero</div>
+        </div>
+        <div style="display:flex; gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="_rgrfAnalyzeLight(event)"${lightDisabled}
+                  data-tooltip="Extrae MaxCLL/MaxFALL por escena del RPU completo (~30-60s)">${lightAnalyzed}</button>
+          <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
+                  data-tooltip="Copia toda la radiografía como Markdown al portapapeles">📋 Copiar</button>
+        </div>
+      </div>
+      <div class="section-body rgrf-body" id="rgrf-body">
+        ${s1}
+        ${s2}
+        ${s3}
+        ${s4}
+        ${s5}
+        ${s6}
+        ${s7}
+        ${s8}
+      </div>
+    </div>`;
+}
+
+/** Copia la radiografía como Markdown al portapapeles. */
+function _rgrfCopyToClipboard(evt) {
+  if (!mkvProject) return;
+  const a = mkvProject.analysis;
+  const dv = a.dovi;
+  const hdr = a.hdr || {};
+  if (!dv) return;
+
+  const fmt = (v, suf = '') => (v != null && v !== '') ? `${v}${suf}` : '—';
+  const el = dv.el_type ? ` ${dv.el_type}` : '';
+  const levels = [];
+  [['L1', dv.has_l1], ['L2', dv.has_l2], ['L3', dv.has_l3], ['L4', dv.has_l4],
+   ['L5', dv.has_l5], ['L6', dv.has_l6], ['L8', dv.has_l8], ['L9', dv.has_l9],
+   ['L10', dv.has_l10], ['L11', dv.has_l11], ['L254', dv.has_l254]]
+    .forEach(([k, v]) => { if (v) levels.push(k); });
+
+  const md = [
+    `# Radiografía DV+HDR — ${a.file_name}`,
+    ``,
+    `**Tamaño:** ${_fmtBytes(a.file_size_bytes)} · **Duración:** ${_fmtDuration(a.duration_seconds)}`,
+    ``,
+    `## 1. Identidad`,
+    `- Profile: **${fmt(dv.profile)}${el}**`,
+    `- CM version: **${fmt(dv.cm_version)}**`,
+    `- Frames: ${fmt(dv.frame_count?.toLocaleString())}`,
+    `- Escenas: ${fmt(dv.scene_count?.toLocaleString())}`,
+    `- Long. media escena: ${fmt(dv.scene_avg_length_frames, ' frames')}`,
+    `- Bit depth: ${fmt(a.tracks?.find(t=>t.type==='video')?.bit_depth, '-bit')}`,
+    `- Niveles detectados: ${levels.join(' · ')}`,
+    ``,
+    `## 2. HDR10 base`,
+    `- Formato: ${fmt(hdr.hdr_format)}`,
+    `- Primaries: ${fmt(hdr.color_primaries)}`,
+    `- Transfer: ${fmt(hdr.transfer_characteristics)}`,
+    `- MaxCLL / MaxFALL: ${fmt(hdr.max_cll, ' nits')} / ${fmt(hdr.max_fall, ' nits')}`,
+    `- Mastering: ${fmt(hdr.mastering_display_luminance)}`,
+    ``,
+    `## 3. L1 dinámico`,
+    `- MaxCLL avg: ${fmt(dv.l1_max_cll?.toFixed(2), ' nits')}`,
+    `- MaxFALL avg: ${fmt(dv.l1_max_fall?.toFixed(2), ' nits')}`,
+    ``,
+    `## 4. L5 Active area`,
+    `- Offsets: top ${dv.l5_top||0} · bottom ${dv.l5_bottom||0} · left ${dv.l5_left||0} · right ${dv.l5_right||0} px`,
+    `- Aspect: ${_rgrfAspectLabel(dv)}`,
+    ``,
+    `## 5. L6 Mastering`,
+    `- MaxCLL / MaxFALL: ${fmt(dv.l6_max_cll, ' nits')} / ${fmt(dv.l6_max_fall, ' nits')}`,
+    ``,
+    `## 6. CMv4.0 levels`,
+    `- L3: ${dv.has_l3 ? '✓' : '✗'} · L4: ${dv.has_l4 ? '✓' : '✗'} · L8: ${dv.has_l8 ? '✓' : '✗'} · L9: ${dv.has_l9 ? '✓' : '✗'} · L10: ${dv.has_l10 ? '✓' : '✗'} · L11: ${dv.has_l11 ? '✓' : '✗'} · L254: ${dv.has_l254 ? '✓' : '✗'}`,
+    `- L8 trims: ${dv.l8_trim_nits?.length ? dv.l8_trim_nits.join(' · ') + ' nits' : (dv.l8_trim_count || '—')}`,
+    `- L9 primaries: ${fmt(dv.l9_primaries)}`,
+    `- L10 primaries: ${fmt(dv.l10_primaries)}`,
+    `- L11 content: ${fmt(dv.l11_content_type)}${dv.l11_intended_application ? ` (${dv.l11_intended_application})` : ''}`,
+    ``,
+  ].join('\n');
+
+  navigator.clipboard.writeText(md).then(() => {
+    showToast('✓ Radiografía copiada como Markdown', 'success');
+  }).catch(() => {
+    showToast('No se pudo copiar al portapapeles', 'error');
+  });
+}
+
+/** Lanza el análisis del perfil de luz (per-scene MaxCLL/MaxFALL). */
+async function _rgrfAnalyzeLight(evt) {
+  if (!mkvProject) return;
+  const btn = evt?.currentTarget;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Analizando… (~30-60s)';
+  }
+  try {
+    const data = await apiFetch('/api/mkv/light-profile', {
+      method: 'POST',
+      body: JSON.stringify({ file_path: mkvProject.analysis.file_name }),
+    }, 300000);
+    if (data?.per_scene_max_cll) {
+      mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
+      mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
+      _renderMkvEditPanel();
+      showToast(`✓ Perfil de luz extraído (${data.per_scene_max_cll.length} escenas)`, 'success');
+    } else {
+      throw new Error('respuesta vacía');
+    }
+  } catch (e) {
+    showToast(`No se pudo analizar el perfil de luz: ${e.message || e}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🔬 Analizar perfil de luz'; }
+  }
+}
+
 // ── Render del panel de edición ──────────────────────────────────
 
 function _renderMkvEditPanel() {
@@ -6397,31 +6920,9 @@ function _renderMkvEditPanel() {
     const isV29 = cm.includes('2.9') || cm.includes('v2');
     if (isV40) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)">✓ CMv4.0</span>`;
-      // Procedencia: nativo vs transferred vs generado
-      // — Nativo: typicamente L11 (content type) + L9/L10 (gamut primaries) + L8 con varios trims
-      // — Generated: L8 presente pero sin L9/L10/L11, trims mínimos
-      // — Transferred: L8+L9/L10 pueden estar, pero L5 frame-coincidente con otro master
-      const authorSignals = [dv.has_l3, dv.has_l9, dv.has_l10, dv.has_l11].filter(Boolean).length;
-      const l8Trims = dv.l8_trim_count || 0;
-      let origin, originColor, originBg, originTip;
-      if (dv.has_l11 && dv.has_l9 && dv.has_l10 && l8Trims >= 3) {
-        origin = '👨‍🎨 Nativo (colorista)';
-        originColor = '#0a5cab'; originBg = 'rgba(0,122,255,0.15)';
-        originTip = `Grading CMv4.0 nativo — firmado por colorista:\n• L11 (content type) presente\n• L9/L10 (primaries) presentes\n• L8 con ${l8Trims} target displays\nCalidad máxima disponible.`;
-      } else if (authorSignals >= 2 && l8Trims >= 2) {
-        origin = '🎬 Retail / transferido';
-        originColor = '#0a5cab'; originBg = 'rgba(0,122,255,0.12)';
-        originTip = `CMv4.0 retail o transferido desde un master nativo:\n• ${authorSignals}/4 niveles de autoría (L3/L9/L10/L11)\n• L8 con ${l8Trims} target displays\nCalidad alta. Típico de upgrades desde WEB-DL o drop-ins del repo DoviTools.`;
-      } else if (dv.has_l8 && authorSignals === 0 && l8Trims <= 1) {
-        origin = '⚙️ Generado (algorítmico)';
-        originColor = '#8a4a00'; originBg = 'rgba(255,149,0,0.15)';
-        originTip = `CMv4.0 sintético, generado algorítmicamente a partir del HDR10 del disco:\n• Sin L3/L9/L10/L11 (niveles de autoría ausentes)\n• L8 con ${l8Trims || '0'} target displays\nMejor que v2.9 en TVs CMv4.0-aware, pero calidad inferior a retail.`;
-      } else {
-        origin = '❓ Procedencia incierta';
-        originColor = 'var(--text-2)'; originBg = 'rgba(142,142,147,0.18)';
-        originTip = `No se pueden distinguir con seguridad los indicadores de procedencia:\n• ${authorSignals}/4 niveles de autoría detectados\n• L8 con ${l8Trims} target displays\nPuede ser retail limitado o generated con algunos niveles añadidos.`;
-      }
-      cmBadgeHtml += ` <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:${originBg}; color:${originColor}; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="${escHtml(originTip)}">${origin}</span>`;
+      // Los badges heuristicos de procedencia (nativo/retail/generado/incierto)
+      // se reemplazaron por la tabla detallada "Radiografia DV+HDR" que muestra
+      // los datos factuales sin interpretacion.
     } else if (isV29) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11">⚡ CMv2.9</span>`;
       cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500">→ Upgradeable a CMv4.0 (pestaña "Upgrade Dolby Vision CMv4.0")</span>`;
@@ -6472,14 +6973,15 @@ function _renderMkvEditPanel() {
                   ${cmBadgeHtml}
                 </div>
                 ${cmHintHtml ? `<div style="margin-top:4px">${cmHintHtml}</div>` : ''}
-                ${dvLevelsLine ? `<div style="color:var(--text-3); margin-top:2px">${escHtml(dvLevelsLine)}</div>` : ''}
-                ${dvCountsLine ? `<div style="color:var(--text-3); margin-top:2px">${escHtml(dvCountsLine)}</div>` : ''}
                 ${!dv ? `<div style="color:var(--text-3); margin-top:2px; font-style:italic">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : ''}
               </div>
             ` : ''}
           </div>
         </div>
       </div>` : ''}
+
+      <!-- Radiografía DV+HDR — tabla factual completa -->
+      ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo) : ''}
 
       <!-- Pistas de Audio -->
       <div class="section-card">

@@ -318,7 +318,15 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
             _logger.warning("dovi_tool info falló: %s", stderr.decode()[:200])
             return None
 
-        return _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
+        dovi = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
+        # Guardamos el tamaño del RPU para la radiografia (indicador de
+        # metadata richness). Nota: con --limit 720 es sample-scoped, no
+        # movie-scoped — util igualmente para calcular bytes/frame.
+        try:
+            dovi.rpu_size_bytes = Path(tmp_rpu).stat().st_size
+        except Exception:
+            pass
+        return dovi
     finally:
         Path(tmp_rpu).unlink(missing_ok=True)
 

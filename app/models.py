@@ -127,6 +127,46 @@ class DoviInfo(BaseModel):
     scene_count: int = 0
     frame_count: int = 0
 
+    # ── Campos extra para Radiografía DV+HDR (Tab 2) ───────────────
+    l8_trim_nits: list[int] = []
+    """Lista de nits de cada trim L8 (ej: [100, 600, 1000, 2000])."""
+
+    l9_primaries: str = ""
+    """Source color primaries (ej: 'BT.2020', 'DCI-P3', 'BT.709')."""
+
+    l10_primaries: str = ""
+    """Target display primaries (ej: 'BT.2020', 'DCI-P3 D65', 'BT.709')."""
+
+    l11_content_type: str = ""
+    """Content Type del L11 (ej: 'Cinema', 'Sports', 'Animation', 'HDR Game')."""
+
+    l11_intended_application: str = ""
+    """Intended viewing (ej: 'Reference', 'Bright', 'Dark')."""
+
+    has_l4: bool = False
+    """L4: Legacy CMv2.9 trim — a veces coexiste con v4.0 como compat."""
+
+    has_l254: bool = False
+    """L254: DV metadata version marker. Sentinel de CMv4.0 correctamente marcado."""
+
+    profile_compatibility_id: int = 0
+    """Profile compatibility ID del RPU header (útil en multi-profile fallback)."""
+
+    scene_avg_length_frames: int = 0
+    """Longitud media de escena (frame_count / scene_count)."""
+
+    rpu_size_bytes: int = 0
+    """Tamaño del fichero RPU en bytes — indicador de riqueza de metadata."""
+
+    duration_seconds: float = 0.0
+    """Duración del stream (para cálculos derivados — se rellena desde fuera de dovi_tool)."""
+
+    per_scene_max_cll: list[int] = []
+    """MaxCLL por escena extraído via dovi_tool export --data (opcional, on-demand)."""
+
+    per_scene_max_fall: list[int] = []
+    """MaxFALL por escena (opcional, on-demand)."""
+
     raw_summary: str = ""
     """Output completo de dovi_tool info --summary."""
 

@@ -1197,6 +1197,152 @@ async def analyze_mkv_endpoint(body: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
+async def mkv_light_profile_endpoint(body: dict):
+    """Extrae el perfil de luminancia por escena del RPU completo del MKV.
+    Alimenta el sparkline + histograma de la Radiografía DV+HDR en Tab 2.
+
+    Body: ``{"file_path": "Movie.mkv"}``. Devuelve dos arrays:
+      - per_scene_max_cll: MaxCLL por escena
+      - per_scene_max_fall: MaxFALL por escena
+
+    Coste: ~30-60s (extract-rpu sobre stream completo + parseo JSON).
+    """
+    import tempfile
+    rel_path = body.get("file_path", "")
+    if DEV_MODE:
+        # Serie sintetica con forma plausible (subida-meseta-picos-bajada)
+        import math, random
+        random.seed(42)
+        n = 240
+        series_cll = [int(300 + 500 * math.sin(i/15) + random.randint(-80, 120) + (i/n)*200) for i in range(n)]
+        series_cll = [max(10, v) for v in series_cll]
+        series_fall = [max(5, int(v * 0.12 + random.randint(-10, 20))) for v in series_cll]
+        return {"per_scene_max_cll": series_cll, "per_scene_max_fall": series_fall}
+
+    mkv_full = str(OUTPUT_DIR_MKV / rel_path)
+    if not Path(mkv_full).exists():
+        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+
+    from phases.phase_a import DOVI_TOOL_BIN
+    import json as _json
+    tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_"))
+    rpu_path = tmp_dir / "rpu.bin"
+    try:
+        # Paso 1: extract-rpu completo (sin --limit)
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "extract-rpu", mkv_full, "-o", str(rpu_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0 or not rpu_path.exists():
+            raise HTTPException(status_code=500, detail=f"extract-rpu falló: {stderr.decode()[:300]}")
+
+        # Paso 2: export RPU a JSON para leer per-frame L1 MaxCLL/MaxFALL
+        json_path = tmp_dir / "rpu.json"
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0 or not json_path.exists():
+            raise HTTPException(status_code=500, detail=f"export falló: {stderr.decode()[:300]}")
+
+        # Paso 3: parsear JSON -> series por escena (shot boundaries via L1)
+        try:
+            with open(json_path) as f:
+                data = _json.load(f)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
+
+        # El formato de dovi_tool export varia entre versiones. Intentamos dos
+        # layouts comunes: (a) data.rpus: [{..,'vdr_dm_data':{'ext_blocks':[...]}}]
+        # (b) data: [{..}]  Leemos L1 (MaxCLL/MaxFALL) por frame.
+        rpus = data.get("rpus") if isinstance(data, dict) else data
+        if not isinstance(rpus, list):
+            raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
+
+        per_frame_cll, per_frame_fall = [], []
+        for rpu in rpus:
+            vdr = (rpu or {}).get("vdr_dm_data", {})
+            ext_blocks = vdr.get("ext_blocks") or vdr.get("ext_metadata_blocks") or []
+            cll, fall = None, None
+            for b in ext_blocks:
+                if not isinstance(b, dict):
+                    continue
+                # L1: level=1 o block_type=1
+                lvl = b.get("level") or b.get("block_type") or b.get("ext_block_level")
+                if lvl == 1 or str(lvl) == "1":
+                    # MaxCLL y MaxFALL: campos posibles 'max_pq' y 'avg_pq' (PQ) o 'max_cll'/'max_fall'
+                    cll = b.get("max_cll") or b.get("max_pq") or b.get("max")
+                    fall = b.get("max_fall") or b.get("avg_pq") or b.get("avg")
+                    break
+            if cll is not None:
+                # Si el valor viene en PQ codificado (0-4095), convertimos a nits via PQ EOTF
+                try:
+                    v = float(cll)
+                    if v > 4096:  # ya es nits
+                        pass
+                    elif v < 1:  # 0-1 normalized
+                        v = _pq_code_to_nits(v * 4095)
+                    else:  # codigo PQ 0-4095
+                        v = _pq_code_to_nits(v)
+                    per_frame_cll.append(int(round(v)))
+                except Exception:
+                    per_frame_cll.append(0)
+            if fall is not None:
+                try:
+                    v = float(fall)
+                    if v > 4096:
+                        pass
+                    elif v < 1:
+                        v = _pq_code_to_nits(v * 4095)
+                    else:
+                        v = _pq_code_to_nits(v)
+                    per_frame_fall.append(int(round(v)))
+                except Exception:
+                    per_frame_fall.append(0)
+
+        # Downsample a ~240 buckets para la sparkline (no tiene sentido mostrar
+        # 186k frames uno a uno)
+        MAX_POINTS = 240
+        def _downsample(xs):
+            if len(xs) <= MAX_POINTS:
+                return xs
+            step = len(xs) / MAX_POINTS
+            return [max(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
+
+        return {
+            "per_scene_max_cll":  _downsample(per_frame_cll),
+            "per_scene_max_fall": _downsample(per_frame_fall),
+            "total_frames": len(per_frame_cll),
+        }
+    finally:
+        for p in (rpu_path, tmp_dir / "rpu.json"):
+            try: p.unlink(missing_ok=True)
+            except Exception: pass
+        try: tmp_dir.rmdir()
+        except Exception: pass
+
+
+def _pq_code_to_nits(code_value: float) -> float:
+    """Convierte valor PQ (0-4095) a nits via SMPTE ST 2084 EOTF inverse."""
+    # PQ inverse EOTF: L = 10000 * ((max(0, V^(1/m2) - c1)) / (c2 - c3 * V^(1/m2)))^(1/m1)
+    # V = code_value / 4095
+    v = max(0.0, min(1.0, code_value / 4095.0))
+    m1 = 2610.0 / 16384.0
+    m2 = 2523.0 / 4096.0 * 128.0
+    c1 = 3424.0 / 4096.0
+    c2 = 2413.0 / 4096.0 * 32.0
+    c3 = 2392.0 / 4096.0 * 32.0
+    vm2 = v ** (1.0 / m2)
+    num = max(0.0, vm2 - c1)
+    den = c2 - c3 * vm2
+    if den <= 0:
+        return 0.0
+    return 10000.0 * (num / den) ** (1.0 / m1)
+
+
 @app.post("/api/mkv/apply", summary="Aplica ediciones a un MKV")
 async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     """

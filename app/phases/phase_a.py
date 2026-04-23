@@ -1099,14 +1099,59 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     info.has_l10 = bool(re.search(r"L10\b|Level 10|target (?:primaries|display primaries)", summary, re.I))
     info.has_l11 = bool(re.search(r"L11\b|Level 11|content type", summary, re.I))
 
-    # Número de target displays distintos con trim L8 (ej: "L8 trims: 100, 600, 1000, 2000")
-    # Nativo: ≥3 típico. Generated: 1-2.
-    m = re.search(r"L8 trims:\s*([0-9,\s]+)", summary, re.I)
+    # L4 (legacy CMv2.9 trim, a veces coexiste con v4.0) y L254 (marker CMv4.0)
+    info.has_l4   = bool(re.search(r"L4\b|Level 4\b", summary, re.I))
+    info.has_l254 = bool(re.search(r"L254\b|Level 254\b|CMv4\.0 marker", summary, re.I))
+
+    # Lista de nits de cada trim L8 (ej: "L8 trims: 100, 600, 1000, 2000")
+    # Guardamos el conteo (legacy) + la lista explicita (nueva, para UI detallada).
+    m = re.search(r"L8 trims:\s*([0-9,\s]+(?:nits?)?)", summary, re.I)
     if m:
         try:
-            info.l8_trim_count = len([v for v in m.group(1).split(",") if v.strip().isdigit()])
+            raw = m.group(1).replace("nits", "").replace("nit", "")
+            nits = [int(v.strip()) for v in raw.split(",") if v.strip().isdigit()]
+            info.l8_trim_nits = nits
+            info.l8_trim_count = len(nits)
         except Exception:
             pass
+
+    # L9 source primaries: "L9 source primaries: BT.2020" / "L9: DCI-P3" / etc.
+    m = re.search(
+        r"L9(?:\s+source(?:\s+(?:primaries|colou?r(?:\s+primaries)?))?)?:\s*([A-Za-z0-9\.\- ]+?)(?:\n|$|,)",
+        summary, re.I,
+    )
+    if m:
+        info.l9_primaries = m.group(1).strip()
+
+    # L10 target primaries: "L10 target display primaries: DCI-P3 D65"
+    m = re.search(
+        r"L10(?:\s+target(?:\s+display)?(?:\s+primaries)?)?:\s*([A-Za-z0-9\.\- ]+?)(?:\n|$|,)",
+        summary, re.I,
+    )
+    if m:
+        info.l10_primaries = m.group(1).strip()
+
+    # L11 content type — formato: "L11 content type: Cinema" o "L11: Cinema (Reference)"
+    m = re.search(
+        r"L11(?:\s+content\s+type)?:\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)(?:\s*\(([^)]+)\))?",
+        summary, re.I,
+    )
+    if m:
+        info.l11_content_type = m.group(1).strip()
+        if m.group(2):
+            info.l11_intended_application = m.group(2).strip()
+
+    # Profile compatibility ID (en header del RPU, ej: "Profile compatibility: 1")
+    m = re.search(r"Profile compatibility(?:\s+ID)?:\s*(\d+)", summary, re.I)
+    if m:
+        try:
+            info.profile_compatibility_id = int(m.group(1))
+        except ValueError:
+            pass
+
+    # Avg shot length derivable: frame_count / scene_count
+    if info.scene_count > 0 and info.frame_count > 0:
+        info.scene_avg_length_frames = info.frame_count // info.scene_count
 
     # Valores numéricos para gates de trust
     # L1: "content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 92.36 nits"
