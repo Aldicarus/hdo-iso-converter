@@ -1226,48 +1226,84 @@ async def mkv_light_profile_endpoint(body: dict):
     if not Path(mkv_full).exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
-    from phases.phase_a import DOVI_TOOL_BIN
-    import json as _json
+    from phases.phase_a import DOVI_TOOL_BIN, FFMPEG_BIN
+    import json as _json, time as _time
     tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_"))
     rpu_path = tmp_dir / "rpu.bin"
+    hevc_path = tmp_dir / "sample.hevc"
     try:
-        # Paso 1: extract-rpu con --limit para que no cuelgue en movies largos.
-        # 43200 frames ≈ 30 min a 24fps — muestra decente para visualizar.
-        # Timeout generoso por si el NAS tiene la cabeza lenta o esta montado
-        # via red.
-        extract_args = [DOVI_TOOL_BIN, "extract-rpu"]
-        if not want_full:
-            extract_args += ["--limit", "43200"]
-        extract_args += [mkv_full, "-o", str(rpu_path)]
-        extract_timeout = 900 if want_full else 300  # 15 min full / 5 min sample
+        # dovi_tool extract-rpu directo sobre MKV con matroska-rs parser es
+        # MUY lento en NAS con HDD: medido 98% CPU durante 80s+ en un UHD BD
+        # de 60GB con --limit 43200 sin acabar. Solución: ffmpeg hace demux
+        # del MKV (muy eficiente con stream-copy, sin reencodar) y escribe
+        # HEVC annex-B local; luego dovi_tool corre sobre el HEVC que es un
+        # stream plano sin contenedor — extracción rápida.
+        sample_minutes = 30
+        ff_timeout = 900 if want_full else 240   # 15 min full / 4 min sample
+        dt_timeout = 600 if want_full else 180   # 10 min full / 3 min sample
 
-        _logger.info("light-profile: extract-rpu (full=%s) sobre %s", want_full, rel_path)
+        ff_cmd = [FFMPEG_BIN, "-y", "-v", "error",
+                  "-i", mkv_full,
+                  "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb"]
+        if not want_full:
+            ff_cmd += ["-t", str(sample_minutes * 60)]
+        ff_cmd += ["-f", "hevc", str(hevc_path)]
+
+        _logger.warning("light-profile: Paso 1/3 — ffmpeg extrae %s HEVC (full=%s)",
+                        f"{sample_minutes}min" if not want_full else "movie completo", want_full)
+        t0 = _time.monotonic()
         proc = await asyncio.create_subprocess_exec(
-            *extract_args,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            *ff_cmd,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=extract_timeout)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=ff_timeout)
         except asyncio.TimeoutError:
             try: proc.kill()
             except Exception: pass
             raise HTTPException(
                 status_code=504,
-                detail=f"extract-rpu excedió {extract_timeout}s. Intenta con el modo sampling (full=false) o comprueba si el NAS tiene carga alta."
+                detail=f"ffmpeg excedió {ff_timeout}s extrayendo HEVC del MKV. NAS saturado?"
             )
+        if proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
+            err = stderr.decode("utf-8", errors="replace")[:400]
+            _logger.warning("light-profile: ffmpeg falló rc=%s err=%s", proc.returncode, err)
+            raise HTTPException(status_code=500, detail=f"ffmpeg falló: {err}")
+        ff_elapsed = _time.monotonic() - t0
+        _logger.warning("light-profile: Paso 1/3 ✓ ffmpeg OK en %.1fs (%.2f GB HEVC)",
+                        ff_elapsed, hevc_path.stat().st_size / 1e9)
+
+        # Paso 2: dovi_tool extract-rpu sobre HEVC local (≫ rápido que sobre MKV)
+        _logger.warning("light-profile: Paso 2/3 — dovi_tool extract-rpu sobre HEVC local")
+        t1 = _time.monotonic()
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=dt_timeout)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+            raise HTTPException(status_code=504, detail=f"dovi_tool extract-rpu excedió {dt_timeout}s")
         if proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
             err = stderr.decode("utf-8", errors="replace")[:400]
             _logger.warning("light-profile: extract-rpu falló rc=%s err=%s", proc.returncode, err)
             raise HTTPException(status_code=500, detail=f"extract-rpu falló: {err}")
+        _logger.warning("light-profile: Paso 2/3 ✓ RPU en %.1fs (%d bytes)",
+                        _time.monotonic() - t1, rpu_path.stat().st_size)
 
-        _logger.info("light-profile: RPU extraido (%d bytes) — ahora export JSON",
-                     rpu_path.stat().st_size)
+        # HEVC intermedio ya no hace falta
+        try: hevc_path.unlink(missing_ok=True)
+        except Exception: pass
 
-        # Paso 2: export RPU a JSON (rapido, <30s en samples de 30 min)
+        # Paso 3: export RPU a JSON
+        _logger.warning("light-profile: Paso 3/3 — dovi_tool export a JSON + parseo")
+        t2 = _time.monotonic()
         json_path = tmp_dir / "rpu.json"
         proc = await asyncio.create_subprocess_exec(
             DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
@@ -1280,12 +1316,14 @@ async def mkv_light_profile_endpoint(body: dict):
             _logger.warning("light-profile: export falló rc=%s err=%s", proc.returncode, err)
             raise HTTPException(status_code=500, detail=f"export falló: {err}")
 
-        # Paso 3: parsear JSON -> series por escena (shot boundaries via L1)
+        # Parse JSON
         try:
             with open(json_path) as f:
                 data = _json.load(f)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
+        _logger.warning("light-profile: export+parse JSON OK en %.1fs",
+                        _time.monotonic() - t2)
 
         # El formato de dovi_tool export varia entre versiones. Intentamos dos
         # layouts comunes: (a) data.rpus: [{..,'vdr_dm_data':{'ext_blocks':[...]}}]
@@ -1350,7 +1388,7 @@ async def mkv_light_profile_endpoint(body: dict):
             "total_frames": len(per_frame_cll),
         }
     finally:
-        for p in (rpu_path, tmp_dir / "rpu.json"):
+        for p in (rpu_path, hevc_path, tmp_dir / "rpu.json"):
             try: p.unlink(missing_ok=True)
             except Exception: pass
         try: tmp_dir.rmdir()
