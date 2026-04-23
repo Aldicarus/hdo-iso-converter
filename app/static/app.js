@@ -6708,22 +6708,22 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   let blockCmv4 = '';
   if (isV40) {
     const nitsLabel = (dv.l8_trim_nits && dv.l8_trim_nits.length)
-      ? dv.l8_trim_nits.join('·') + ' nits'
+      ? dv.l8_trim_nits.join(' · ') + ' nits'
       : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
     const l11Label = dv.l11_content_type
       ? `${dv.l11_content_type}${dv.l11_intended_application ? ` · ${dv.l11_intended_application}` : ''}`
-      : (dv.has_l11 ? 'presente' : '');
+      : '';
     blockCmv4 = `
       <section class="dv-block">
         <h5 class="dv-block-title">CMv4.0 levels extendidos</h5>
         <div class="dv-pill-row">
-          ${pill(dv.has_l3,  'L3',  dv.has_l3 ? 'local scene trim' : '')}
-          ${pill(dv.has_l4,  'L4',  dv.has_l4 ? 'legacy compat' : '')}
+          ${pill(dv.has_l3,  'L3',  'local scene trim')}
+          ${pill(dv.has_l4,  'L4',  'legacy compat trim')}
           ${pill(dv.has_l8,  'L8',  nitsLabel)}
-          ${pill(dv.has_l9,  'L9',  dv.l9_primaries || (dv.has_l9 ? 'source primaries' : ''))}
-          ${pill(dv.has_l10, 'L10', dv.l10_primaries || (dv.has_l10 ? 'target primaries' : ''))}
-          ${pill(dv.has_l11, 'L11', l11Label)}
-          ${pill(dv.has_l254,'L254', dv.has_l254 ? 'CMv4.0 marker' : '')}
+          ${pill(dv.has_l9,  'L9',  dv.l9_primaries || 'source primaries')}
+          ${pill(dv.has_l10, 'L10', dv.l10_primaries || 'target primaries')}
+          ${pill(dv.has_l11, 'L11', l11Label || 'content type')}
+          ${pill(dv.has_l254,'L254', 'CMv4.0 marker')}
         </div>
         ${dv.l8_trim_nits && dv.l8_trim_nits.length ? `
           <div class="dv-viz-inline">

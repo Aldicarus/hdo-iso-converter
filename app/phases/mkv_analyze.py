@@ -326,9 +326,231 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
             dovi.rpu_size_bytes = Path(tmp_rpu).stat().st_size
         except Exception:
             pass
+        # Enriquecimiento via `dovi_tool export` a JSON — mucho mas fiable que
+        # parsear el texto de info --summary (formato varia entre versiones).
+        # De aqui obtenemos L8 target_display_index/nits, L9/L10 primaries y
+        # L11 content_type+intended_white+reference_mode de forma estructurada.
+        try:
+            await _enrich_dovi_from_json_export(dovi, tmp_rpu)
+        except Exception as e:
+            _logger.info("Enriquecimiento JSON falló (no bloquea): %s", e)
         return dovi
     finally:
         Path(tmp_rpu).unlink(missing_ok=True)
+
+
+async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
+    """Rellena campos granulares de DoviInfo leyendo el JSON export del RPU.
+
+    Formato producido por `dovi_tool export -i rpu.bin -o rpu.json` (v2.3.x):
+    lista de RPUs, cada una con `vdr_dm_data.ext_metadata_blocks` (o
+    `ext_blocks`) con los niveles L1-L11. Para L8/L9/L10/L11 el JSON tiene
+    los campos concretos que texto --summary no siempre expone.
+    """
+    import tempfile, json as _json
+    from pathlib import Path as _Path
+    tmpdir = _Path(tempfile.mkdtemp(prefix="dovi_export_"))
+    json_path = tmpdir / "rpu.json"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "export", "-i", rpu_path, "-o", str(json_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0 or not json_path.exists():
+            _logger.info("dovi_tool export falló: %s", stderr.decode()[:200])
+            return
+        with open(json_path) as f:
+            data = _json.load(f)
+        rpus = data.get("rpus") if isinstance(data, dict) else data
+        if not isinstance(rpus, list) or not rpus:
+            return
+
+        # Escaneamos TODOS los RPUs (no solo el primero) para capturar L8/L10
+        # con target_display_index diferente — cada frame puede tener su bloque.
+        l8_indices: set[int] = set()
+        l8_trim_data: dict[int, dict] = {}   # {index: {min_nits, max_nits, ...}}
+        l10_by_index: dict[int, dict] = {}   # {target_display_index: primaries + lum}
+        l9_primaries_idx: int | None = None
+        l11_content_type: int | None = None
+        l11_intended_white: int | None = None
+        l11_reference_mode: int | None = None
+
+        for rpu in rpus:
+            vdr = (rpu or {}).get("vdr_dm_data", {}) if isinstance(rpu, dict) else {}
+            ext = vdr.get("ext_metadata_blocks") or vdr.get("ext_blocks") or []
+            # En algunas versiones estan en un subobject
+            if isinstance(ext, dict):
+                ext = ext.get("blocks") or ext.get("level1") or []
+            if not isinstance(ext, list):
+                continue
+            for b in ext:
+                if not isinstance(b, dict):
+                    continue
+                lvl = b.get("level") or b.get("block_type") or b.get("ext_block_level")
+                try: lvl = int(lvl)
+                except Exception: continue
+
+                if lvl == 8:
+                    tdi = b.get("target_display_index") or b.get("l8_target_display_index")
+                    if tdi is not None:
+                        try:
+                            tdi = int(tdi)
+                            l8_indices.add(tdi)
+                            if tdi not in l8_trim_data:
+                                l8_trim_data[tdi] = b
+                        except Exception:
+                            pass
+                elif lvl == 9:
+                    if l9_primaries_idx is None:
+                        idx = b.get("source_primaries_index") or b.get("source_primaries") or b.get("primaries_index")
+                        try: l9_primaries_idx = int(idx)
+                        except Exception: pass
+                elif lvl == 10:
+                    tdi = b.get("target_display_index") or b.get("l10_target_display_index")
+                    try: tdi = int(tdi) if tdi is not None else None
+                    except Exception: tdi = None
+                    if tdi is not None and tdi not in l10_by_index:
+                        l10_by_index[tdi] = b
+                elif lvl == 11:
+                    if l11_content_type is None:
+                        ct = b.get("content_type") or b.get("l11_content_type")
+                        try: l11_content_type = int(ct)
+                        except Exception: pass
+                    if l11_intended_white is None:
+                        iw = b.get("intended_white_point") or b.get("intended_white") or b.get("whitepoint") or b.get("white_point")
+                        try: l11_intended_white = int(iw)
+                        except Exception: pass
+                    if l11_reference_mode is None:
+                        rm = b.get("reference_mode_flag")
+                        try: l11_reference_mode = int(rm)
+                        except Exception: pass
+
+        # ── Construir L8 trim nits desde L10 blocks (cuando referencian target
+        # displays) o desde los índices estándar de Dolby ──
+        L8_STANDARD_NITS = {
+            # Indices predefinidos segun Dolby Vision spec (subset comun)
+            0: 100, 1: 350, 2: 600, 3: 1000, 4: 2000, 5: 4000,
+            32: 100, 33: 350, 34: 600, 35: 1000, 36: 2000, 37: 4000,
+            48: 1000, 49: 600, 50: 350,
+            64: 2000, 65: 4000,
+        }
+        nits_list: list[int] = []
+        for idx in sorted(l8_indices):
+            nits = None
+            # (a) Si hay L10 con mismo target_display_index, lee max_lum
+            l10 = l10_by_index.get(idx)
+            if l10:
+                maxl = (l10.get("target_max_pq") or l10.get("max_display_mastering_luminance")
+                        or l10.get("target_max_luminance"))
+                if maxl:
+                    try:
+                        v = float(maxl)
+                        # Si viene en PQ code (0-4095), convertir. Si viene en nits directos (>4096), usar.
+                        if v > 4096: nits = int(v)
+                        elif v > 1:  nits = int(_pq_code_to_nits_local(v))
+                        else:        nits = int(_pq_code_to_nits_local(v * 4095))
+                    except Exception: pass
+            # (b) Fallback a mapping estandar de Dolby
+            if nits is None:
+                nits = L8_STANDARD_NITS.get(idx)
+            if nits is not None:
+                nits_list.append(nits)
+
+        if nits_list:
+            # Reemplazamos el posible parseo aproximado del summary con datos JSON
+            dovi.l8_trim_nits = sorted(set(nits_list))
+            dovi.l8_trim_count = len(dovi.l8_trim_nits)
+            dovi.has_l8 = True
+
+        # ── L9 source primaries ──
+        PRIMARIES_MAP = {
+            0: "BT.709", 1: "Reserved", 2: "Reserved", 3: "Reserved",
+            4: "BT.470M", 5: "BT.470BG", 6: "BT.601", 7: "SMPTE 240M",
+            8: "Generic",
+            9: "BT.2020", 10: "SMPTE ST 428",
+            11: "DCI-P3", 12: "DCI-P3 D65",
+        }
+        if l9_primaries_idx is not None:
+            dovi.l9_primaries = PRIMARIES_MAP.get(l9_primaries_idx, f"Index {l9_primaries_idx}")
+            dovi.has_l9 = True
+
+        # ── L10 target primaries (primer target display con primaries utiles) ──
+        if l10_by_index:
+            for tdi, blk in l10_by_index.items():
+                pidx = (blk.get("target_primaries_index") or blk.get("primaries_index")
+                        or blk.get("target_primary_index"))
+                if pidx is not None:
+                    try:
+                        dovi.l10_primaries = PRIMARIES_MAP.get(int(pidx), f"Index {pidx}")
+                        dovi.has_l10 = True
+                        break
+                    except Exception: continue
+
+        # ── L11 content type + intended white + reference mode ──
+        CONTENT_TYPE_MAP = {
+            0: "Reserved", 1: "Cinema", 2: "Games",
+            3: "Sport", 4: "User Generated",
+            5: "Movies", 6: "TV",
+        }
+        INTENDED_WHITE_MAP = {
+            0: "D65 Reference",
+            1: "D65 Enhanced",
+            2: "D93",
+        }
+        if l11_content_type is not None:
+            dovi.l11_content_type = CONTENT_TYPE_MAP.get(l11_content_type, f"Type {l11_content_type}")
+            dovi.has_l11 = True
+            if l11_intended_white is not None:
+                dovi.l11_intended_application = INTENDED_WHITE_MAP.get(
+                    l11_intended_white, f"White {l11_intended_white}"
+                )
+                if l11_reference_mode == 1:
+                    dovi.l11_intended_application += " · Reference"
+
+        # L4 presence — check si hay bloques level=4 en el JSON
+        for rpu in rpus:
+            vdr = (rpu or {}).get("vdr_dm_data", {}) if isinstance(rpu, dict) else {}
+            ext = vdr.get("ext_metadata_blocks") or vdr.get("ext_blocks") or []
+            if isinstance(ext, list):
+                for b in ext:
+                    if isinstance(b, dict):
+                        lvl = b.get("level") or b.get("block_type")
+                        try:
+                            if int(lvl) == 4:
+                                dovi.has_l4 = True
+                                break
+                        except Exception:
+                            continue
+            if dovi.has_l4: break
+
+        # L254 presence: en JSON export puede no aparecer explicitamente; lo
+        # detectamos por la presencia de CMv4.0 (v4.0) y L8+L11, que juntos son
+        # el sentinel de CMv4.0 bien marcado.
+        if (dovi.cm_version and "4.0" in dovi.cm_version
+                and dovi.has_l8 and dovi.has_l11):
+            dovi.has_l254 = True
+
+    finally:
+        try: json_path.unlink(missing_ok=True)
+        except Exception: pass
+        try: tmpdir.rmdir()
+        except Exception: pass
+
+
+def _pq_code_to_nits_local(code_value: float) -> float:
+    """PQ inverse EOTF — copia local para no depender de main.py."""
+    v = max(0.0, min(1.0, code_value / 4095.0))
+    m1 = 2610.0 / 16384.0
+    m2 = 2523.0 / 4096.0 * 128.0
+    c1 = 3424.0 / 4096.0
+    c2 = 2413.0 / 4096.0 * 32.0
+    c3 = 2392.0 / 4096.0 * 32.0
+    vm2 = v ** (1.0 / m2)
+    num = max(0.0, vm2 - c1)
+    den = c2 - c3 * vm2
+    if den <= 0: return 0.0
+    return 10000.0 * (num / den) ** (1.0 / m1)
 
 
 def _extract_chapters(mkv_path: str) -> list[Chapter]:
