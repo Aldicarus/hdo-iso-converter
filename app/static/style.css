@@ -6161,246 +6161,350 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 /* ══════════════════════════════════════════════════════════════════
    INFO DETALLADA HDR / DOLBY VISION — Tab 2
-   Bloque compacto insertado dentro del card de Vídeo. Tipografía densa,
-   paleta neutra con acento teal. Visualizadores inline.
+   Light mode first. Paleta propia contenida aqui para no interferir
+   con el resto de la app. Acento teal-slate con contraste WCAG AA+.
+   Efectos modernos: glassmorphism sutil, sombras multi-capa, micro-
+   transiciones suaves tipo macOS Sonoma.
    ══════════════════════════════════════════════════════════════════ */
 
-/* Header del card Vídeo — badges y hint inline */
+.dv-detail {
+  /* ── Tokens scoped al bloque ──────────────────────────────────── */
+  --dv-accent:          #0d9488;                   /* teal-600 — foreground on light */
+  --dv-accent-soft:     #14b8a6;                   /* teal-500 — mid tone */
+  --dv-accent-bright:   #2dd4bf;                   /* teal-400 — chart lines on light */
+  --dv-accent-bg:       rgba(13, 148, 136, 0.08);
+  --dv-accent-bg-2:     rgba(13, 148, 136, 0.14);
+  --dv-accent-border:   rgba(13, 148, 136, 0.22);
+  --dv-accent-text:     #115e59;                   /* teal-800 — max contrast text */
+
+  --dv-amber:           #d97706;
+  --dv-amber-bg:        rgba(217, 119, 6, 0.09);
+  --dv-amber-border:    rgba(217, 119, 6, 0.22);
+  --dv-amber-text:      #92400e;
+
+  --dv-red:             #dc2626;
+  --dv-red-bg:          rgba(220, 38, 38, 0.08);
+  --dv-red-text:        #991b1b;
+
+  --dv-block-bg:        #fbfcfd;
+  --dv-block-bg-hover:  #fafafb;
+  --dv-block-border:    rgba(15, 23, 42, 0.06);
+  --dv-separator:       rgba(15, 23, 42, 0.06);
+
+  --dv-chart-bg:        #ffffff;
+  --dv-chart-bg-alt:    #fafbfc;
+  --dv-chart-border:    rgba(15, 23, 42, 0.07);
+  --dv-grid:            rgba(15, 23, 42, 0.08);
+
+  /* Texto — mayor contraste que los defaults para info densa */
+  --dv-text-1:          #0f172a;                    /* slate-900 */
+  --dv-text-2:          #475569;                    /* slate-600 */
+  --dv-text-3:          #64748b;                    /* slate-500 */
+  --dv-text-4:          #94a3b8;                    /* slate-400 — muy muted */
+
+  /* Sombras multi-capa estilo macOS */
+  --dv-shadow-sm:
+    0 1px 2px rgba(15, 23, 42, 0.035),
+    0 1px 3px rgba(15, 23, 42, 0.04);
+  --dv-shadow-md:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 4px 12px rgba(15, 23, 42, 0.05);
+  --dv-shadow-chart:
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.02);
+
+  --dv-ease:            cubic-bezier(0.4, 0, 0.2, 1);
+
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--dv-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Header del card Vídeo — badges en la cabecera ──────────────── */
 .video-header-badges {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .video-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
-  border-radius: 10px;
+  padding: 4px 11px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.2px;
-  line-height: 1.3;
+  letter-spacing: 0.1px;
+  line-height: 1.35;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
 }
-.video-badge-hdr { background: rgba(251, 191, 36, 0.14); color: #b47613; }
-.video-badge-dv  { background: rgba(94, 234, 212, 0.14); color: #0e6b5a; }
-.video-hint { font-size: 11px; color: var(--text-3); }
+.video-badge-hdr {
+  background: linear-gradient(180deg, rgba(234, 179, 8, 0.09), rgba(234, 179, 8, 0.06));
+  color: #854d0e;
+  border-color: rgba(234, 179, 8, 0.25);
+}
+.video-badge-dv {
+  background: linear-gradient(180deg, rgba(13, 148, 136, 0.09), rgba(13, 148, 136, 0.06));
+  color: #115e59;
+  border-color: rgba(13, 148, 136, 0.25);
+}
+.video-hint { font-size: 11px; color: var(--text-3); margin-left: 2px; }
 .video-summary-line {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-1);
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  gap: 6px 16px;
   align-items: baseline;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
-.video-summary-line strong { font-weight: 600; letter-spacing: 0.1px; }
-.video-el { color: var(--text-3); font-size: 11.5px; }
+.video-summary-line strong { font-weight: 600; letter-spacing: 0.05px; }
+.video-el { color: var(--text-3); font-size: 12px; }
 
-/* Contenedor raiz del bloque detallado */
-.dv-detail {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--sep);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* ── Header del bloque de informacion ──────────────────────────── */
 .dv-detail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 2px;
 }
 .dv-detail-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-1);
+  color: var(--dv-text-1);
   margin: 0;
-  letter-spacing: 0.1px;
+  letter-spacing: -0.1px;
 }
 
-/* Bloques temáticos */
+/* ── Bloques temáticos ──────────────────────────────────────────── */
 .dv-block {
-  background: rgba(255, 255, 255, 0.018);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 12px 14px;
+  background: var(--dv-block-bg);
+  border: 1px solid var(--dv-block-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: var(--dv-shadow-sm);
+  transition: box-shadow 0.25s var(--dv-ease), background 0.2s var(--dv-ease);
+}
+.dv-block:hover {
+  box-shadow: var(--dv-shadow-md);
+  background: var(--dv-block-bg-hover);
 }
 .dv-block-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .dv-block-title {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  color: var(--text-1);
-  margin: 0 0 10px 0;
-  letter-spacing: 0.6px;
+  color: var(--dv-accent-text);
+  margin: 0 0 12px 0;
+  letter-spacing: 0.9px;
   text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dv-block-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--dv-accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px var(--dv-accent-bg);
 }
 .dv-block-head .dv-block-title { margin: 0; }
 .dv-block-sub {
   font-weight: 500;
-  color: var(--text-3);
+  color: var(--dv-text-3);
   text-transform: none;
   letter-spacing: 0;
-  font-size: 10.5px;
-  margin-left: 8px;
+  font-size: 11px;
+  margin-left: 2px;
 }
 .dv-block-action { display: flex; align-items: center; gap: 10px; }
 .dv-block-meta {
   font-size: 11px;
-  color: var(--text-3);
+  color: var(--dv-text-3);
   font-family: 'SF Mono', 'Menlo', monospace;
   font-variant-numeric: tabular-nums;
 }
 
-/* Grids de celdas label+value */
-.dv-grid-1 { display: grid; grid-template-columns: 1fr; gap: 4px 14px; }
-.dv-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 14px; }
-.dv-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 4px 18px; }
+/* ── Grids de celdas ─────────────────────────────────────────────── */
+.dv-grid-1 { display: grid; grid-template-columns: 1fr; gap: 2px 16px; }
+.dv-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 20px; }
+.dv-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2px 22px; }
 @media (max-width: 640px) {
   .dv-grid-2 { grid-template-columns: 1fr; }
   .dv-grid-3 { grid-template-columns: 1fr; }
 }
 
-/* Celda individual */
+/* ── Celda label+value ───────────────────────────────────────────── */
 .dv-cell {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 10px;
-  padding: 4px 0;
+  gap: 12px;
+  padding: 7px 0 7px 0;
   min-width: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--dv-separator);
+  transition: background 0.15s var(--dv-ease);
 }
 .dv-cell:last-child { border-bottom: none; }
+.dv-cell:hover { background: rgba(13, 148, 136, 0.018); }
 .dv-cell-label {
-  color: var(--text-3);
-  font-size: 11px;
+  color: var(--dv-text-3);
+  font-size: 11.5px;
   font-weight: 500;
   flex-shrink: 0;
+  letter-spacing: 0.1px;
 }
 .dv-cell-value {
   font-family: 'SF Mono', 'Menlo', monospace;
-  font-size: 12px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
-  color: var(--text-1);
+  color: var(--dv-text-1);
   text-align: right;
   word-break: break-word;
   min-width: 0;
+  letter-spacing: -0.1px;
 }
-.dv-cell-ok .dv-cell-value { color: #5eead4; }
-.dv-cell-warn .dv-cell-value { color: #fbbf24; }
-.dv-cell-absent .dv-cell-value { color: var(--text-3); opacity: 0.7; }
+.dv-cell-ok .dv-cell-value { color: var(--dv-accent-text); }
+.dv-cell-warn .dv-cell-value { color: var(--dv-amber-text); }
+.dv-cell-absent .dv-cell-value { color: var(--dv-text-4); }
 
-/* Pills de niveles (CMv4.0 L3/L4/L8/…) */
+/* ── Pills de niveles ────────────────────────────────────────────── */
 .dv-pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 .dv-pill {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.3;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
   border: 1px solid transparent;
+  transition: all 0.2s var(--dv-ease);
+  cursor: default;
 }
 .dv-pill-ok {
-  background: rgba(94, 234, 212, 0.10);
-  color: #5eead4;
-  border-color: rgba(94, 234, 212, 0.25);
+  background: var(--dv-accent-bg);
+  color: var(--dv-accent-text);
+  border-color: var(--dv-accent-border);
+  box-shadow: var(--dv-shadow-sm);
+}
+.dv-pill-ok:hover {
+  background: var(--dv-accent-bg-2);
+  transform: translateY(-1px);
+  box-shadow: var(--dv-shadow-md);
 }
 .dv-pill-off {
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-3);
-  opacity: 0.55;
+  background: rgba(15, 23, 42, 0.025);
+  color: var(--dv-text-4);
+  border-color: rgba(15, 23, 42, 0.06);
+  opacity: 0.65;
 }
-.dv-pill-name { font-weight: 700; letter-spacing: 0.3px; }
+.dv-pill-name { font-weight: 700; letter-spacing: 0.4px; }
 .dv-pill-val {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
-  color: var(--text-2);
+  font-size: 11px;
   font-weight: 500;
 }
-.dv-pill-ok .dv-pill-val { color: #93efe0; }
+.dv-pill-ok .dv-pill-val { color: var(--dv-accent); opacity: 0.85; }
 
-/* Split: datos izquierda + visualizador derecha */
+/* ── Split: datos + visualizador ────────────────────────────────── */
 .dv-split {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 18px;
+  gap: 20px;
   align-items: start;
 }
 @media (max-width: 720px) {
   .dv-split { grid-template-columns: 1fr; }
 }
 .dv-viz-side {
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 12px;
+  background: var(--dv-chart-bg);
+  border-radius: 10px;
+  border: 1px solid var(--dv-chart-border);
+  box-shadow: var(--dv-shadow-chart);
 }
 .dv-viz-inline {
-  margin-top: 10px;
-  padding: 10px 12px 6px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  margin-top: 12px;
+  padding: 14px 16px 10px;
+  background: var(--dv-chart-bg);
+  border-radius: 10px;
+  border: 1px solid var(--dv-chart-border);
+  box-shadow: var(--dv-shadow-chart);
 }
 .dv-viz-caption {
   font-size: 10.5px;
-  color: var(--text-3);
+  color: var(--dv-text-3);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
+  letter-spacing: 0.7px;
+  margin-bottom: 10px;
   font-weight: 600;
 }
 
-/* Charts grandes (sparkline + distribución en bloque perfil de luz) */
+/* ── Charts grandes (sparkline + distribución) ───────────────────── */
 .dv-chart-large {
-  padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  margin-bottom: 10px;
+  padding: 16px 18px;
+  background: var(--dv-chart-bg);
+  border-radius: 12px;
+  border: 1px solid var(--dv-chart-border);
+  box-shadow: var(--dv-shadow-chart);
+  margin-bottom: 12px;
 }
 .dv-chart-large:last-child { margin-bottom: 0; }
 .dv-chart-empty {
-  padding: 28px 20px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  border: 1px dashed rgba(255, 255, 255, 0.08);
+  padding: 40px 24px;
+  background: linear-gradient(180deg, #fafbfc 0%, #f5f6f8 100%);
+  border-radius: 12px;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
   text-align: center;
+  transition: background 0.25s var(--dv-ease);
 }
-.dv-chart-empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.6; }
+.dv-chart-empty:hover {
+  background: linear-gradient(180deg, #f5f6f8 0%, #eff1f4 100%);
+}
+.dv-chart-empty-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+  filter: grayscale(0.3);
+  opacity: 0.75;
+}
 .dv-chart-empty-text {
-  font-size: 13px;
-  color: var(--text-2);
-  font-weight: 500;
-  margin-bottom: 4px;
+  font-size: 14px;
+  color: var(--dv-text-2);
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: -0.1px;
 }
 .dv-chart-empty-hint {
-  font-size: 11.5px;
-  color: var(--text-3);
-  line-height: 1.5;
-  max-width: 440px;
+  font-size: 12px;
+  color: var(--dv-text-3);
+  line-height: 1.55;
+  max-width: 460px;
   margin: 0 auto;
 }
 .dv-chart-action {
   white-space: nowrap;
+  font-weight: 600;
 }
-.dv-chart-action span { margin-right: 4px; }
+.dv-chart-action span { margin-right: 5px; display: inline-block; }
 
 /* ── Modal de análisis del perfil de luz ─────────────────────────── */
 .dv-light-modal-box {

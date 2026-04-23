@@ -6369,11 +6369,13 @@ function _rgrfPresence(present, label, { tooltip = '' } = {}) {
   return `<span class="rgrf-pill" style="color:${color}; background:${bg}"${tip}><span class="rgrf-pill-icon">${icon}</span> ${escHtml(label)}</span>`;
 }
 
-/** Visualizador L5: SVG del frame con active area resaltada. */
+/** Visualizador L5: frame con active area resaltada.
+ *  Metafora de pantalla: fondo negro (barras letterbox), área activa teal
+ *  con gradient sutil + borde brillante. Texto blanco centrado. */
 function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
   const t = dv.l5_top || 0, b = dv.l5_bottom || 0;
   const l = dv.l5_left || 0, r = dv.l5_right || 0;
-  const targetW = 220;
+  const targetW = 240;
   const ratio = targetW / frameW;
   const svgW = Math.round(frameW * ratio);
   const svgH = Math.round(frameH * ratio);
@@ -6381,14 +6383,25 @@ function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
   const activeY = Math.round(t * ratio);
   const activeW = Math.round((frameW - l - r) * ratio);
   const activeH = Math.round((frameH - t - b) * ratio);
+  const gid = `l5g-${Math.random().toString(36).slice(2, 7)}`;
   return `
     <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
-         style="display:block; background:#000; border-radius:4px"
+         style="display:block; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(15,23,42,0.15)"
          xmlns="http://www.w3.org/2000/svg">
-      <rect x="${activeX}" y="${activeY}" width="${activeW}" height="${activeH}"
-            fill="rgba(94,234,212,0.18)" stroke="#5eead4" stroke-width="1.5" />
-      <text x="${svgW/2}" y="${svgH/2 + 5}" fill="#93efe0" font-size="13" font-family="SF Mono,monospace"
-            text-anchor="middle" font-weight="600">${frameW - l - r} × ${frameH - t - b}</text>
+      <defs>
+        <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#2dd4bf" stop-opacity="0.38" />
+          <stop offset="100%" stop-color="#0d9488" stop-opacity="0.28" />
+        </linearGradient>
+      </defs>
+      <rect width="${svgW}" height="${svgH}" fill="#0a0a0c" />
+      <rect x="${activeX + 0.5}" y="${activeY + 0.5}"
+            width="${activeW - 1}" height="${activeH - 1}"
+            fill="url(#${gid})" stroke="#5eead4" stroke-width="1.5"
+            rx="2" />
+      <text x="${svgW/2}" y="${svgH/2 + 5}" fill="#ccfbf1" font-size="13"
+            font-family="SF Mono,monospace" text-anchor="middle" font-weight="600"
+            style="letter-spacing:0.3px">${frameW - l - r} × ${frameH - t - b}</text>
     </svg>`;
 }
 
@@ -6414,44 +6427,58 @@ function _rgrfAspectLabel(dv, frameW = 3840, frameH = 2160) {
   return close ? match.label : `${ratio.toFixed(2)} : 1`;
 }
 
-/** Visualizador L8: trims en escala log con dots + label de nits. */
+/** Visualizador L8: trims en escala log — dots con halo radial + labels encima. */
 function _rgrfL8Svg(nits) {
   if (!Array.isArray(nits) || !nits.length) return '';
-  const svgW = 460, svgH = 56, padL = 28, padR = 28, axisY = 36;
+  const svgW = 500, svgH = 68, padL = 32, padR = 32, axisY = 46;
   const usableW = svgW - padL - padR;
   const logMin = Math.log10(10), logMax = Math.log10(10000);
   const xOf = (n) => padL + ((Math.log10(Math.max(n, 1)) - logMin) / (logMax - logMin)) * usableW;
   const ticks = [10, 100, 1000, 10000];
+  const gid = `l8g-${Math.random().toString(36).slice(2, 7)}`;
   let html = `<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}"
-    style="display:block" xmlns="http://www.w3.org/2000/svg">`;
-  html += `<line x1="${padL}" y1="${axisY}" x2="${svgW - padR}" y2="${axisY}" stroke="rgba(255,255,255,0.2)" stroke-width="1" />`;
+    style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">`;
+  html += `<defs>
+    <radialGradient id="${gid}" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </radialGradient>
+  </defs>`;
+  // Eje horizontal con grosor sutil
+  html += `<line x1="${padL}" y1="${axisY}" x2="${svgW - padR}" y2="${axisY}"
+             stroke="rgba(15,23,42,0.15)" stroke-width="1" />`;
   ticks.forEach(t => {
     const x = xOf(t);
-    html += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}" stroke="rgba(255,255,255,0.3)" />`;
-    html += `<text x="${x}" y="${axisY + 15}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="middle">${t}</text>`;
+    html += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}"
+               stroke="rgba(15,23,42,0.28)" stroke-width="1.2" />`;
+    html += `<text x="${x}" y="${axisY + 18}" fill="#64748b" font-size="11.5"
+               font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">${t}</text>`;
   });
+  // Dots con halo (shadow SVG)
   nits.forEach(n => {
     const x = xOf(n);
-    html += `<circle cx="${x}" cy="${axisY}" r="5.5" fill="#5eead4" stroke="#0f3a33" stroke-width="1.5" />`;
-    html += `<text x="${x}" y="${axisY - 10}" fill="#5eead4" font-size="11" font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${n}</text>`;
+    html += `<circle cx="${x}" cy="${axisY}" r="10" fill="#0d9488" fill-opacity="0.12" />`;
+    html += `<circle cx="${x}" cy="${axisY}" r="6.5" fill="url(#${gid})" stroke="#ffffff" stroke-width="2" />`;
+    html += `<text x="${x}" y="${axisY - 14}" fill="#115e59" font-size="12"
+               font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${n}</text>`;
   });
   html += `</svg>`;
   return html;
 }
 
-/** Visualizador CIE 1931: triángulos Rec.709, DCI-P3, Rec.2020 + D65. */
+/** Visualizador CIE 1931: triángulos gamut con legenda glassmorphism. */
 function _rgrfGamutSvg(l9Primaries, l10Primaries) {
-  const svgSize = 260, pad = 22;
+  const svgSize = 280, pad = 24;
   const cieToSvg = (x, y) => {
     const sx = pad + x * (svgSize - 2 * pad) / 0.8;
     const sy = svgSize - pad - y * (svgSize - 2 * pad) / 0.9;
     return [sx, sy];
   };
-  const triangle = (pts, stroke, fill, highlight = false) => {
+  const triangle = (pts, color, highlight = false) => {
     const d = pts.map(([x, y]) => cieToSvg(x, y).join(',')).join(' ');
-    const op = highlight ? 0.28 : 0.10;
-    const sw = highlight ? 2.2 : 1.4;
-    return `<polygon points="${d}" stroke="${stroke}" fill="${fill}" stroke-width="${sw}" fill-opacity="${op}" />`;
+    const op = highlight ? 0.22 : 0.08;
+    const sw = highlight ? 2.5 : 1.5;
+    return `<polygon points="${d}" stroke="${color}" fill="${color}" stroke-width="${sw}" fill-opacity="${op}" />`;
   };
   const rec709  = [[0.640, 0.330], [0.300, 0.600], [0.150, 0.060]];
   const dciP3   = [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]];
@@ -6468,72 +6495,122 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
   };
   const l9Match = gamutMatch(l9Primaries);
 
+  // Paleta para light mode — más saturada, alto contraste
+  const cRec2020 = '#0d9488';   // teal-600
+  const cP3      = '#f59e0b';   // amber-500
+  const cRec709  = '#e11d48';   // rose-600
+
   return `
     <svg viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}"
-         style="display:block; background:rgba(255,255,255,0.02); border-radius:4px"
+         style="display:block; background:#fafbfc; border-radius:8px; border:1px solid rgba(15,23,42,0.05)"
          xmlns="http://www.w3.org/2000/svg">
-      <line x1="${pad}" y1="${svgSize - pad}" x2="${svgSize - pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
-      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${svgSize - pad}" stroke="rgba(255,255,255,0.15)" />
-      ${triangle(rec2020, '#5eead4', '#5eead4', l9Match === 'rec2020')}
-      ${triangle(dciP3,   '#fbbf24', '#fbbf24', l9Match === 'p3')}
-      ${triangle(rec709,  '#f87171', '#f87171', l9Match === 'rec709')}
-      <circle cx="${d65x}" cy="${d65y}" r="3.5" fill="#fff" stroke="#000" stroke-width="1" />
-      <text x="${d65x + 7}" y="${d65y + 4}" fill="#fff" font-size="11" font-family="SF Mono,monospace" font-weight="600">D65</text>
+      <!-- grid sutil -->
+      <g stroke="rgba(15,23,42,0.05)" stroke-width="1">
+        ${[0.2, 0.4, 0.6].map(v => {
+          const [, y] = cieToSvg(0, v);
+          return `<line x1="${pad}" y1="${y}" x2="${svgSize - pad}" y2="${y}" />`;
+        }).join('')}
+        ${[0.2, 0.4, 0.6].map(v => {
+          const [x,] = cieToSvg(v, 0);
+          return `<line x1="${x}" y1="${pad}" x2="${x}" y2="${svgSize - pad}" />`;
+        }).join('')}
+      </g>
+      <!-- ejes -->
+      <line x1="${pad}" y1="${svgSize - pad}" x2="${svgSize - pad}" y2="${svgSize - pad}" stroke="rgba(15,23,42,0.3)" stroke-width="1.3" />
+      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${svgSize - pad}" stroke="rgba(15,23,42,0.3)" stroke-width="1.3" />
+      <!-- triangulos gamut (de mayor a menor para que queden bien stacked) -->
+      ${triangle(rec2020, cRec2020, l9Match === 'rec2020')}
+      ${triangle(dciP3,   cP3,      l9Match === 'p3')}
+      ${triangle(rec709,  cRec709,  l9Match === 'rec709')}
+      <!-- D65 white point con halo -->
+      <circle cx="${d65x}" cy="${d65y}" r="8" fill="rgba(15,23,42,0.08)" />
+      <circle cx="${d65x}" cy="${d65y}" r="4" fill="#ffffff" stroke="#0f172a" stroke-width="1.5" />
+      <text x="${d65x + 9}" y="${d65y + 4}" fill="#0f172a" font-size="11" font-family="SF Mono,monospace" font-weight="700">D65</text>
+      <!-- Leyenda glassmorphism -->
       <g font-size="11" font-family="SF Mono,monospace">
-        <rect x="${svgSize - 86}" y="${pad - 4}" width="78" height="56" fill="rgba(0,0,0,0.65)" rx="4" stroke="rgba(255,255,255,0.08)" />
-        <circle cx="${svgSize - 78}" cy="${pad + 8}" r="3" fill="#5eead4"/>
-        <text x="${svgSize - 72}" y="${pad + 12}" fill="#5eead4" font-weight="600">Rec.2020</text>
-        <circle cx="${svgSize - 78}" cy="${pad + 24}" r="3" fill="#fbbf24"/>
-        <text x="${svgSize - 72}" y="${pad + 28}" fill="#fbbf24" font-weight="600">DCI-P3</text>
-        <circle cx="${svgSize - 78}" cy="${pad + 40}" r="3" fill="#f87171"/>
-        <text x="${svgSize - 72}" y="${pad + 44}" fill="#f87171" font-weight="600">Rec.709</text>
+        <rect x="${svgSize - 94}" y="${pad - 4}" width="84" height="62" rx="6"
+              fill="rgba(255,255,255,0.92)" stroke="rgba(15,23,42,0.08)" stroke-width="1" />
+        <circle cx="${svgSize - 85}" cy="${pad + 8}" r="4" fill="${cRec2020}"/>
+        <text x="${svgSize - 77}" y="${pad + 12}" fill="#115e59" font-weight="700">Rec.2020</text>
+        <circle cx="${svgSize - 85}" cy="${pad + 26}" r="4" fill="${cP3}"/>
+        <text x="${svgSize - 77}" y="${pad + 30}" fill="#92400e" font-weight="700">DCI-P3</text>
+        <circle cx="${svgSize - 85}" cy="${pad + 44}" r="4" fill="${cRec709}"/>
+        <text x="${svgSize - 77}" y="${pad + 48}" fill="#9f1239" font-weight="700">Rec.709</text>
       </g>
     </svg>`;
 }
 
-/** Sparkline SVG para per-scene MaxCLL — con gradient area + labels legibles. */
+/** Sparkline MaxCLL — smooth curve con gradient fill + shadow filter + grid. */
 function _rgrfSparklineSvg(series, labelMax) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 680, svgH = 140, padL = 44, padR = 16, padT = 14, padB = 26;
+  const svgW = 720, svgH = 150, padL = 48, padR = 18, padT = 16, padB = 26;
   const maxV = Math.max(...series);
-  const minV = Math.min(...series);
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
   const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
   const yOf = (v) => padT + usableH - (v / maxV) * usableH;
-  const pts = series.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
-  const areaPts = `${padL},${padT + usableH} ${pts} ${xOf(series.length - 1)},${padT + usableH}`;
 
-  // Grid horizontal en 0%, 50%, 100% del max
-  const gridLines = [0, 0.5, 1.0].map(pct => {
+  // Path con curvas suaves (Catmull-Rom → Bezier) para look más natural
+  const pts = series.map((v, i) => [xOf(i), yOf(v)]);
+  let linePath = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    linePath += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  const areaPath = `${linePath} L ${pts[pts.length-1][0].toFixed(1)},${padT + usableH} L ${pts[0][0].toFixed(1)},${padT + usableH} Z`;
+
+  // Grid en 0/25/50/75/100% del max
+  const gridLines = [0, 0.25, 0.5, 0.75, 1.0].map(pct => {
     const y = padT + usableH - pct * usableH;
     const val = Math.round(maxV * pct);
-    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,3" />
-            <text x="${padL - 6}" y="${y + 4}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">${val}</text>`;
+    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />
+            <text x="${padL - 8}" y="${y + 4}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${val}</text>`;
   }).join('');
 
+  const gid = `sp-${Math.random().toString(36).slice(2, 7)}`;
   return `
     <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="rgrf-sparkline-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"  stop-color="#5eead4" stop-opacity="0.38"/>
-          <stop offset="100%" stop-color="#5eead4" stop-opacity="0.03"/>
+        <linearGradient id="${gid}-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="#2dd4bf" stop-opacity="0.40"/>
+          <stop offset="60%" stop-color="#2dd4bf" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0.00"/>
         </linearGradient>
+        <linearGradient id="${gid}-line" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#0d9488"/>
+          <stop offset="100%" stop-color="#14b8a6"/>
+        </linearGradient>
+        <filter id="${gid}-shadow" x="-2%" y="-10%" width="104%" height="120%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+          <feOffset dy="1.5"/>
+          <feComponentTransfer><feFuncA type="linear" slope="0.22"/></feComponentTransfer>
+          <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
       </defs>
       ${gridLines}
-      <polygon points="${areaPts}" fill="url(#rgrf-sparkline-grad)" />
-      <polyline points="${pts}" fill="none" stroke="#5eead4" stroke-width="1.6" stroke-linejoin="round" />
-      <text x="${padL}" y="${svgH - 8}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace">0:00</text>
-      <text x="${svgW - padR}" y="${svgH - 8}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">final</text>
-      <text x="${svgW - padR}" y="${padT + 11}" fill="#5eead4" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="600">pico ${labelMax}</text>
+      <path d="${areaPath}" fill="url(#${gid}-area)" />
+      <path d="${linePath}" fill="none" stroke="url(#${gid}-line)" stroke-width="2.2"
+            stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
+      <!-- Eje X labels -->
+      <text x="${padL}" y="${svgH - 6}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" font-weight="500">inicio</text>
+      <text x="${svgW - padR}" y="${svgH - 6}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">final</text>
+      <!-- Pico destacado -->
+      <text x="${svgW - padR}" y="${padT + 12}" fill="#115e59" font-size="12" font-family="SF Mono,monospace" text-anchor="end" font-weight="700">pico ${labelMax}</text>
     </svg>`;
 }
 
-/** Histograma de distribución de luminancia — barras log con % y labels grandes. */
+/** Histograma distribución luminancia — barras con gradient vertical + ticks. */
 function _rgrfDistributionSvg(series) {
   if (!Array.isArray(series) || series.length < 1) return '';
-  const svgW = 680, svgH = 180, padL = 50, padR = 16, padT = 14, padB = 40;
+  const svgW = 720, svgH = 200, padL = 52, padR = 18, padT = 16, padB = 48;
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
   const bins = [10, 30, 100, 300, 1000, 3000, 10000];
@@ -6547,37 +6624,64 @@ function _rgrfDistributionSvg(series) {
   const total = Math.max(counts.reduce((a, b) => a + b, 0), 1);
   const maxPct = Math.max(...counts.map(c => c / total * 100), 1);
   const barW = usableW / bins.length;
-  let bars = '';
-  // Escala Y: grid 0-25-50-75-100% de maxPct
+
+  // Paleta cold → warm (light-mode friendly, contrastes WCAG AA)
+  const colors = [
+    ['#2563eb', '#3b82f6'],   // blue
+    ['#0891b2', '#06b6d4'],   // cyan
+    ['#059669', '#10b981'],   // emerald
+    ['#65a30d', '#84cc16'],   // lime
+    ['#d97706', '#f59e0b'],   // amber
+    ['#ea580c', '#f97316'],   // orange
+    ['#dc2626', '#ef4444'],   // red
+  ];
+
+  let defs = '<defs>';
+  colors.forEach((c, i) => {
+    defs += `<linearGradient id="hist-${i}" x1="0" y1="0" x2="0" y2="1">
+               <stop offset="0%" stop-color="${c[1]}" stop-opacity="0.95"/>
+               <stop offset="100%" stop-color="${c[0]}" stop-opacity="0.80"/>
+             </linearGradient>`;
+  });
+  defs += '</defs>';
+
+  let grid = '';
   [0, 0.25, 0.5, 0.75, 1.0].forEach(r => {
     const y = padT + usableH - r * usableH;
     const lbl = Math.round(maxPct * r);
-    bars += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,3" />`;
-    bars += `<text x="${padL - 6}" y="${y + 4}" fill="var(--text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end">${lbl}%</text>`;
+    grid += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />`;
+    grid += `<text x="${padL - 8}" y="${y + 4}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${lbl}%</text>`;
   });
+
+  let bars = '';
   counts.forEach((c, i) => {
     const pct = (c / total) * 100;
     const h = (pct / maxPct) * usableH;
     const x = padL + i * barW;
     const y = padT + usableH - h;
-    // Gradiente azul→ambar→rojo segun nits (cold→warm)
-    const colors = ['#3b82f6', '#0ea5e9', '#06b6d4', '#22c55e', '#eab308', '#f97316', '#ef4444'];
-    const color = colors[i] || '#5eead4';
-    bars += `<rect x="${x + 6}" y="${y}" width="${barW - 12}" height="${Math.max(h, 0.5)}" fill="${color}" fill-opacity="0.85" rx="2" />`;
-    bars += `<text x="${x + barW/2}" y="${padT + usableH + 16}" fill="var(--text-2)" font-size="11"
-               font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">${binLabels[i]}</text>`;
+    // Barra con radius top + shadow sutil
+    bars += `<rect x="${x + 8}" y="${y}" width="${barW - 16}" height="${Math.max(h, 1)}"
+               fill="url(#hist-${i})" rx="3" />`;
+    bars += `<text x="${x + barW/2}" y="${padT + usableH + 18}" fill="#475569" font-size="12"
+               font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${binLabels[i]}</text>`;
     if (c > 0) {
-      bars += `<text x="${x + barW/2}" y="${y - 4}" fill="var(--text-1)" font-size="11"
-                 font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${Math.round(pct)}%</text>`;
+      bars += `<text x="${x + barW/2}" y="${y - 6}" fill="#0f172a" font-size="12"
+                 font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${Math.round(pct)}%</text>`;
     }
   });
+
   return `
     <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
+      ${defs}
+      ${grid}
       ${bars}
-      <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}" stroke="rgba(255,255,255,0.2)" />
-      <text x="${padL + usableW/2}" y="${svgH - 6}" fill="var(--text-3)" font-size="11"
-            font-family="SF Mono,monospace" text-anchor="middle">pico de luz por escena (nits · escala log)</text>
+      <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}"
+            stroke="rgba(15,23,42,0.25)" stroke-width="1" />
+      <text x="${padL + usableW/2}" y="${svgH - 10}" fill="#64748b" font-size="11"
+            font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">
+        pico de luz por escena · nits (escala logarítmica)
+      </text>
     </svg>`;
 }
 
