@@ -1325,53 +1325,83 @@ async def mkv_light_profile_endpoint(body: dict):
         _logger.warning("light-profile: export+parse JSON OK en %.1fs",
                         _time.monotonic() - t2)
 
-        # El formato de dovi_tool export varia entre versiones. Intentamos dos
-        # layouts comunes: (a) data.rpus: [{..,'vdr_dm_data':{'ext_blocks':[...]}}]
-        # (b) data: [{..}]  Leemos L1 (MaxCLL/MaxFALL) por frame.
+        # El formato de dovi_tool export varia entre versiones. Soportamos:
+        #   (a) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{level:1, ...}, ...]
+        #       (array de bloques con clave 'level')
+        #   (b) data.rpus[*].vdr_dm_data.ext_metadata_blocks = {level1:{...}, ...}
+        #       (dict keyed por nombre de nivel)
+        #   (c) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{Level1:{...}}, ...]
+        #       (tagged enum de serde — variante más común en dovi_tool 2.3.x)
         rpus = data.get("rpus") if isinstance(data, dict) else data
         if not isinstance(rpus, list):
             raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
 
+        # Debug: dump keys del primer RPU para diagnosticar formato
+        if rpus and isinstance(rpus[0], dict):
+            vdr0 = rpus[0].get("vdr_dm_data", {})
+            ext0 = vdr0.get("ext_metadata_blocks") or vdr0.get("ext_blocks")
+            _logger.warning("light-profile: RPU[0].vdr_dm_data keys=%s, ext type=%s",
+                            list(vdr0.keys())[:10], type(ext0).__name__)
+            if isinstance(ext0, list) and ext0:
+                _logger.warning("light-profile: ext[0] keys=%s", list(ext0[0].keys())[:10] if isinstance(ext0[0], dict) else "(not dict)")
+            elif isinstance(ext0, dict):
+                _logger.warning("light-profile: ext dict keys=%s", list(ext0.keys())[:10])
+
+        def _extract_l1(ext_blocks_raw):
+            """Devuelve (max_pq, avg_pq) del bloque L1 o (None, None)."""
+            # Caso (a) + (c): lista de bloques
+            if isinstance(ext_blocks_raw, list):
+                for b in ext_blocks_raw:
+                    if not isinstance(b, dict): continue
+                    # (c) tagged enum: {"Level1": {...}} o {"level1": {...}}
+                    for key in ("Level1", "level1", "L1"):
+                        if key in b and isinstance(b[key], dict):
+                            blk = b[key]
+                            return blk.get("max_pq") or blk.get("max"), \
+                                   blk.get("avg_pq") or blk.get("avg")
+                    # (a) flat: {"level": 1, "max_pq": ..., "avg_pq": ...}
+                    lvl = b.get("level") or b.get("block_type") or b.get("ext_block_level")
+                    if lvl == 1 or str(lvl) == "1":
+                        return b.get("max_pq") or b.get("max_cll") or b.get("max"), \
+                               b.get("avg_pq") or b.get("max_fall") or b.get("avg")
+            # Caso (b): dict keyed por nombre
+            elif isinstance(ext_blocks_raw, dict):
+                for key in ("level1", "Level1", "L1", "1"):
+                    blk = ext_blocks_raw.get(key)
+                    if isinstance(blk, dict):
+                        return blk.get("max_pq") or blk.get("max"), \
+                               blk.get("avg_pq") or blk.get("avg")
+                    if isinstance(blk, list) and blk and isinstance(blk[0], dict):
+                        return blk[0].get("max_pq"), blk[0].get("avg_pq")
+            return None, None
+
+        def _to_nits(v):
+            """PQ code → nits. Detecta formato automáticamente."""
+            v = float(v)
+            if v > 4096: return v   # ya es nits
+            if v < 1:    return _pq_code_to_nits(v * 4095)  # normalized
+            return _pq_code_to_nits(v)
+
         per_frame_cll, per_frame_fall = [], []
         for rpu in rpus:
             vdr = (rpu or {}).get("vdr_dm_data", {})
-            ext_blocks = vdr.get("ext_blocks") or vdr.get("ext_metadata_blocks") or []
-            cll, fall = None, None
-            for b in ext_blocks:
-                if not isinstance(b, dict):
-                    continue
-                # L1: level=1 o block_type=1
-                lvl = b.get("level") or b.get("block_type") or b.get("ext_block_level")
-                if lvl == 1 or str(lvl) == "1":
-                    # MaxCLL y MaxFALL: campos posibles 'max_pq' y 'avg_pq' (PQ) o 'max_cll'/'max_fall'
-                    cll = b.get("max_cll") or b.get("max_pq") or b.get("max")
-                    fall = b.get("max_fall") or b.get("avg_pq") or b.get("avg")
-                    break
+            ext_blocks_raw = vdr.get("ext_metadata_blocks") or vdr.get("ext_blocks")
+            cll, fall = _extract_l1(ext_blocks_raw)
             if cll is not None:
-                # Si el valor viene en PQ codificado (0-4095), convertimos a nits via PQ EOTF
-                try:
-                    v = float(cll)
-                    if v > 4096:  # ya es nits
-                        pass
-                    elif v < 1:  # 0-1 normalized
-                        v = _pq_code_to_nits(v * 4095)
-                    else:  # codigo PQ 0-4095
-                        v = _pq_code_to_nits(v)
-                    per_frame_cll.append(int(round(v)))
-                except Exception:
-                    per_frame_cll.append(0)
+                try: per_frame_cll.append(int(round(_to_nits(cll))))
+                except Exception: per_frame_cll.append(0)
             if fall is not None:
-                try:
-                    v = float(fall)
-                    if v > 4096:
-                        pass
-                    elif v < 1:
-                        v = _pq_code_to_nits(v * 4095)
-                    else:
-                        v = _pq_code_to_nits(v)
-                    per_frame_fall.append(int(round(v)))
-                except Exception:
-                    per_frame_fall.append(0)
+                try: per_frame_fall.append(int(round(_to_nits(fall))))
+                except Exception: per_frame_fall.append(0)
+
+        _logger.warning("light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs",
+                        len(per_frame_cll), len(per_frame_fall), len(rpus))
+
+        if not per_frame_cll:
+            raise HTTPException(
+                status_code=500,
+                detail=f"El JSON de dovi_tool export ({len(rpus)} RPUs) no contiene bloques L1 parseables. Revisa los logs del contenedor para ver la estructura detectada."
+            )
 
         # Downsample a ~240 buckets para la sparkline (no tiene sentido mostrar
         # 186k frames uno a uno)
