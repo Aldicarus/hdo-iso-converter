@@ -6887,21 +6887,47 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 5 · Gamut CIE 1931 (si hay L9/L10)
+  // BLOQUE 5 · Gamut CIE 1931
+  // Si el RPU trae L9 (source) o L10 (target): se resaltan esos gamuts
+  // especificos (preciso). Si no, se usa el container primaries como
+  // highlight — siempre hay dato porque el stream HDR10/DV tiene un
+  // color space declarado (BT.2020 en UHD). Si todo esta vacio (raro),
+  // omitimos el bloque entero (la viz generica no aporta).
   // ═══════════════════════════════════════════════════════════════
-  const showGamut = dv.l9_primaries || dv.l10_primaries || dv.has_l9 || dv.has_l10;
-  const blockGamut = showGamut ? `
-    <section class="dv-block">
-      <h5 class="dv-block-title">Gamut de color <span class="dv-block-sub">CIE 1931</span></h5>
-      <div class="dv-split">
-        <div class="dv-grid-1">
-          ${cell('Source primaries (L9)', dv.l9_primaries || '—')}
-          ${cell('Target primaries (L10)', dv.l10_primaries || '—')}
-          ${cell('Container primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
+  const containerPrimaries = hdr.color_primaries || mainVideo?.color_primaries || '';
+  const hasAnyGamutData = dv.l9_primaries || dv.l10_primaries || containerPrimaries;
+  const blockGamut = hasAnyGamutData ? (() => {
+    // Preferencia para el highlight: L9 (source) > L10 (target) > container
+    const highlightPrimaries = dv.l9_primaries || dv.l10_primaries || containerPrimaries;
+    const highlightSource = dv.l9_primaries ? 'L9 (master origen)'
+                          : dv.l10_primaries ? 'L10 (display objetivo)'
+                          : 'container HDR';
+    // Construir grid de celdas — solo las que tienen datos reales.
+    const cells = [];
+    if (dv.has_l9 || dv.l9_primaries) {
+      cells.push(cell('Source primaries (L9)', dv.l9_primaries || 'presente'));
+    }
+    if (dv.has_l10 || dv.l10_primaries) {
+      cells.push(cell('Target primaries (L10)', dv.l10_primaries || 'presente'));
+    }
+    if (containerPrimaries) {
+      cells.push(cell('Container primaries', containerPrimaries,
+        { tooltip: 'Primaries declarados en el stream HDR10/DV (metadata estatica del container).' }));
+    }
+    // Si no hay ni L9 ni L10, explicar brevemente que vemos en el diagrama
+    const isGenericOnly = !(dv.has_l9 || dv.l9_primaries || dv.has_l10 || dv.l10_primaries);
+    if (isGenericOnly) {
+      cells.push(`<div class="dv-gamut-note">El RPU no incluye L9/L10 (metadata opcional de CMv4.0). El diagrama resalta el gamut del <strong>container HDR</strong> como referencia del espacio de color de este stream.</div>`);
+    }
+    return `
+      <section class="dv-block">
+        <h5 class="dv-block-title">Gamut de color <span class="dv-block-sub">CIE 1931 · highlight desde ${escHtml(highlightSource)}</span></h5>
+        <div class="dv-split">
+          <div class="dv-grid-1">${cells.join('')}</div>
+          <div class="dv-viz-side">${_rgrfGamutSvg(highlightPrimaries, dv.l10_primaries)}</div>
         </div>
-        <div class="dv-viz-side">${_rgrfGamutSvg(dv.l9_primaries, dv.l10_primaries)}</div>
-      </div>
-    </section>` : '';
+      </section>`;
+  })() : '';
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 6 · Perfil de luminancia (sparkline + distribución) + botón

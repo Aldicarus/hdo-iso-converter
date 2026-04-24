@@ -6509,6 +6509,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-chart-action span { margin-right: 5px; display: inline-block; }
 
+/* Nota explicativa cuando no hay datos L9/L10 en el bloque Gamut */
+.dv-gamut-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(13, 148, 136, 0.05);
+  border-left: 3px solid rgba(13, 148, 136, 0.4);
+  border-radius: 4px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dv-text-2);
+}
+.dv-gamut-note strong { color: var(--dv-accent-text); font-weight: 600; }
+
 /* ── Modal de análisis del perfil de luminancia ─────────────────
    Light-mode first. Paleta teal slate con contraste WCAG AA+.
    Layout: header (icon+titulo) + steps + progreso + mini log + hint.
