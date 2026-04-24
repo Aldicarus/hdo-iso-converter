@@ -1336,57 +1336,60 @@ async def mkv_light_profile_endpoint(body: dict):
         if not isinstance(rpus, list):
             raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
 
-        # Debug: dump keys del primer RPU para diagnosticar formato
+        # Busqueda recursiva del bloque L1. dovi_tool 2.3.2 anida el nivel 1
+        # dentro de varias estructuras posibles (vdr_dm_data.cmv29_metadata,
+        # .dm_data.V40.cmv29_metadata, .metadata.level1, etc.). En vez de
+        # adivinar el path exacto, buscamos recursivamente una subestructura
+        # que tenga las 3 claves min_pq/max_pq/avg_pq = bloque L1.
+        def _find_l1_block(obj, max_depth=8):
+            """Busca recursivamente un dict con max_pq + avg_pq (L1 de CMv2.9/v4.0).
+            Devuelve (max_pq, avg_pq) o (None, None)."""
+            if max_depth <= 0: return None, None
+            if isinstance(obj, dict):
+                # Es este el bloque L1?
+                if "max_pq" in obj and "avg_pq" in obj:
+                    return obj.get("max_pq"), obj.get("avg_pq")
+                # Buscar por clave conocida primero (fast path)
+                for key in ("level1", "Level1", "L1"):
+                    if key in obj:
+                        cll, fall = _find_l1_block(obj[key], max_depth - 1)
+                        if cll is not None: return cll, fall
+                # Recurrir en valores
+                for v in obj.values():
+                    cll, fall = _find_l1_block(v, max_depth - 1)
+                    if cll is not None: return cll, fall
+            elif isinstance(obj, list):
+                for item in obj:
+                    cll, fall = _find_l1_block(item, max_depth - 1)
+                    if cll is not None: return cll, fall
+            return None, None
+
+        # Debug del primer RPU — dump estructura completa de vdr_dm_data
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
-            ext0 = vdr0.get("ext_metadata_blocks") or vdr0.get("ext_blocks")
-            _logger.warning("light-profile: RPU[0].vdr_dm_data keys=%s, ext type=%s",
-                            list(vdr0.keys())[:10], type(ext0).__name__)
-            if isinstance(ext0, list) and ext0:
-                _logger.warning("light-profile: ext[0] keys=%s", list(ext0[0].keys())[:10] if isinstance(ext0[0], dict) else "(not dict)")
-            elif isinstance(ext0, dict):
-                _logger.warning("light-profile: ext dict keys=%s", list(ext0.keys())[:10])
-
-        def _extract_l1(ext_blocks_raw):
-            """Devuelve (max_pq, avg_pq) del bloque L1 o (None, None)."""
-            # Caso (a) + (c): lista de bloques
-            if isinstance(ext_blocks_raw, list):
-                for b in ext_blocks_raw:
-                    if not isinstance(b, dict): continue
-                    # (c) tagged enum: {"Level1": {...}} o {"level1": {...}}
-                    for key in ("Level1", "level1", "L1"):
-                        if key in b and isinstance(b[key], dict):
-                            blk = b[key]
-                            return blk.get("max_pq") or blk.get("max"), \
-                                   blk.get("avg_pq") or blk.get("avg")
-                    # (a) flat: {"level": 1, "max_pq": ..., "avg_pq": ...}
-                    lvl = b.get("level") or b.get("block_type") or b.get("ext_block_level")
-                    if lvl == 1 or str(lvl) == "1":
-                        return b.get("max_pq") or b.get("max_cll") or b.get("max"), \
-                               b.get("avg_pq") or b.get("max_fall") or b.get("avg")
-            # Caso (b): dict keyed por nombre
-            elif isinstance(ext_blocks_raw, dict):
-                for key in ("level1", "Level1", "L1", "1"):
-                    blk = ext_blocks_raw.get(key)
-                    if isinstance(blk, dict):
-                        return blk.get("max_pq") or blk.get("max"), \
-                               blk.get("avg_pq") or blk.get("avg")
-                    if isinstance(blk, list) and blk and isinstance(blk[0], dict):
-                        return blk[0].get("max_pq"), blk[0].get("avg_pq")
-            return None, None
+            _logger.warning("light-profile: RPU[0] top keys=%s", list(rpus[0].keys())[:12])
+            _logger.warning("light-profile: vdr_dm_data ALL keys=%s", list(vdr0.keys()))
+            for k, v in vdr0.items():
+                if isinstance(v, dict):
+                    _logger.warning("light-profile:   vdr.%s keys=%s", k, list(v.keys())[:15])
+                elif isinstance(v, list) and v and isinstance(v[0], dict):
+                    _logger.warning("light-profile:   vdr.%s[0] keys=%s", k, list(v[0].keys())[:15])
+            # Intento de localizar L1 en el primer RPU (con path)
+            test_cll, test_fall = _find_l1_block(vdr0)
+            _logger.warning("light-profile: L1 search en RPU[0] → max_pq=%s, avg_pq=%s",
+                            test_cll, test_fall)
 
         def _to_nits(v):
             """PQ code → nits. Detecta formato automáticamente."""
             v = float(v)
-            if v > 4096: return v   # ya es nits
-            if v < 1:    return _pq_code_to_nits(v * 4095)  # normalized
+            if v > 4096: return v
+            if v < 1:    return _pq_code_to_nits(v * 4095)
             return _pq_code_to_nits(v)
 
         per_frame_cll, per_frame_fall = [], []
         for rpu in rpus:
             vdr = (rpu or {}).get("vdr_dm_data", {})
-            ext_blocks_raw = vdr.get("ext_metadata_blocks") or vdr.get("ext_blocks")
-            cll, fall = _extract_l1(ext_blocks_raw)
+            cll, fall = _find_l1_block(vdr)
             if cll is not None:
                 try: per_frame_cll.append(int(round(_to_nits(cll))))
                 except Exception: per_frame_cll.append(0)
@@ -1400,7 +1403,7 @@ async def mkv_light_profile_endpoint(body: dict):
         if not per_frame_cll:
             raise HTTPException(
                 status_code=500,
-                detail=f"El JSON de dovi_tool export ({len(rpus)} RPUs) no contiene bloques L1 parseables. Revisa los logs del contenedor para ver la estructura detectada."
+                detail=f"El JSON de dovi_tool export ({len(rpus)} RPUs) no contiene bloques L1 con max_pq+avg_pq. Revisa los logs del contenedor para ver la estructura real de vdr_dm_data."
             )
 
         # Downsample a ~240 buckets para la sparkline (no tiene sentido mostrar
