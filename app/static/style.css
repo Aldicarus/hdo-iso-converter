@@ -171,9 +171,12 @@ body {
   font-size: 12px;
   color: var(--text-3);
   line-height: 1.35;
-  max-width: 420px;
   font-style: italic;
-  /* Una sola línea; si no cabe se trunca con ellipsis en vez de wrappear */
+  /* Una sola línea; si el viewport no da para todo el texto, se trunca con
+     ellipsis. Subo max-width a 620px para caber el texto completo de v1.10+
+     a 12px (~540px de ancho real). flex-shrink:1 permite que colapse en
+     viewports pequenos donde el breakpoint 780px ya lo oculta del todo. */
+  max-width: 620px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
