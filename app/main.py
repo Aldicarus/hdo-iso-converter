@@ -1364,20 +1364,24 @@ async def mkv_light_profile_endpoint(body: dict):
                     if cll is not None: return cll, fall
             return None, None
 
-        # Debug del primer RPU — dump estructura completa de vdr_dm_data
+        # Sanity check sobre el primer RPU — loggea los valores L1 encontrados
+        # (util para diagnostico si la estructura cambia en futuras versiones
+        # de dovi_tool; el volcado completo solo se activa si no se encuentra).
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
-            _logger.warning("light-profile: RPU[0] top keys=%s", list(rpus[0].keys())[:12])
-            _logger.warning("light-profile: vdr_dm_data ALL keys=%s", list(vdr0.keys()))
-            for k, v in vdr0.items():
-                if isinstance(v, dict):
-                    _logger.warning("light-profile:   vdr.%s keys=%s", k, list(v.keys())[:15])
-                elif isinstance(v, list) and v and isinstance(v[0], dict):
-                    _logger.warning("light-profile:   vdr.%s[0] keys=%s", k, list(v[0].keys())[:15])
-            # Intento de localizar L1 en el primer RPU (con path)
             test_cll, test_fall = _find_l1_block(vdr0)
-            _logger.warning("light-profile: L1 search en RPU[0] → max_pq=%s, avg_pq=%s",
-                            test_cll, test_fall)
+            if test_cll is not None:
+                _logger.info("light-profile: L1 en RPU[0] max_pq=%s avg_pq=%s", test_cll, test_fall)
+            else:
+                # Dump completo para diagnosticar — solo cuando falla
+                _logger.warning("light-profile: NO L1 en RPU[0]. Dump estructura:")
+                _logger.warning("  top keys=%s", list(rpus[0].keys())[:12])
+                _logger.warning("  vdr keys=%s", list(vdr0.keys()))
+                for k, v in vdr0.items():
+                    if isinstance(v, dict):
+                        _logger.warning("    vdr.%s keys=%s", k, list(v.keys())[:15])
+                    elif isinstance(v, list) and v and isinstance(v[0], dict):
+                        _logger.warning("    vdr.%s[0] keys=%s", k, list(v[0].keys())[:15])
 
         def _to_nits(v):
             """PQ code → nits. Detecta formato automáticamente."""
@@ -1397,8 +1401,8 @@ async def mkv_light_profile_endpoint(body: dict):
                 try: per_frame_fall.append(int(round(_to_nits(fall))))
                 except Exception: per_frame_fall.append(0)
 
-        _logger.warning("light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs",
-                        len(per_frame_cll), len(per_frame_fall), len(rpus))
+        _logger.info("light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs",
+                     len(per_frame_cll), len(per_frame_fall), len(rpus))
 
         if not per_frame_cll:
             raise HTTPException(
