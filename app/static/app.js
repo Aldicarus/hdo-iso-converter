@@ -6866,7 +6866,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL de cada escena para visualizar la curva de luminancia y su distribución. Analiza una muestra de 30 min del movie (~60-90s).</div>
+         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL frame-a-frame del movie completo para visualizar la curva de luminancia y su distribución. ~3-5 min en UHD BDs.</div>
        </div>`;
   const actionBtn = hasLightProfile
     ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
@@ -6966,109 +6966,116 @@ function _rgrfCopyToClipboard(evt) {
   });
 }
 
-/** Lanza el análisis del perfil de luminancia con modal de progreso animado. */
+/** Lanza el análisis del perfil de luminancia del movie completo.
+ *  Polling del endpoint /progress cada 1.5s para barra + mini log en vivo. */
 async function _rgrfAnalyzeLight(evt) {
   if (!mkvProject) return;
 
-  // Abre modal + inicializa steps
+  // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
-  _dvLightStepState('extract', 'active');
-  _dvLightStepState('export', 'pending');
-  _dvLightStepState('parse', 'pending');
-  _dvLightSetMeta('extract-meta', '');
-  _dvLightSetMeta('parse-meta', '');
-  _dvLightSetProgress(5);
+  _dvLightSetStep(1);
+  _dvLightSetProgress(0);
+  _dvLightSetElapsed(0);
+  const logEl = document.getElementById('dv-light-log');
+  if (logEl) logEl.innerHTML = '';
   openModal('dv-light-modal');
 
-  // Ticker de tiempo transcurrido
-  const startTs = Date.now();
-  const elapsedEl = document.getElementById('dv-light-elapsed');
-  const ticker = setInterval(() => {
-    const s = Math.floor((Date.now() - startTs) / 1000);
-    if (elapsedEl) elapsedEl.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
-  }, 500);
-  // Simulación de progreso que va avanzando suavemente (el backend no tiene
-  // streaming de progreso real — el endpoint es síncrono). La barra avanza
-  // hasta 90% como "bayesian update" y se completa al recibir respuesta.
-  let fakePct = 5;
-  const progressTicker = setInterval(() => {
-    if (fakePct < 88) {
-      fakePct += Math.max(0.4, (90 - fakePct) * 0.04);
-      _dvLightSetProgress(fakePct);
-      // Actualizar step activo segun porcentaje aproximado
-      if (fakePct > 55 && fakePct < 75) {
-        _dvLightStepState('extract', 'done');
-        _dvLightStepState('export', 'active');
-      } else if (fakePct >= 75) {
-        _dvLightStepState('export', 'done');
-        _dvLightStepState('parse', 'active');
+  // Polling del backend para el estado real
+  let lastLogCount = 0;
+  const pollTicker = setInterval(async () => {
+    try {
+      const st = await apiFetch('/api/mkv/light-profile/progress');
+      if (!st) return;
+      if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
+      _dvLightSetProgress(st.global_pct || 0);
+      _dvLightSetElapsed(st.elapsed_s || 0);
+      const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
+      if (lines.length > lastLogCount && logEl) {
+        const newLines = lines.slice(lastLogCount);
+        const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
+        for (const line of newLines) {
+          const div = document.createElement('div');
+          div.className = 'dv-light-log-line';
+          if (/Paso \d\/3/.test(line)) div.classList.add('step');
+          if (line.includes('✓ Listo') || line.includes('✓ export') || line.includes('✓ ffmpeg') || line.includes('✓ RPU')) div.classList.add('done');
+          if (st.error && line.includes(st.error)) div.classList.add('error');
+          div.textContent = line;
+          logEl.appendChild(div);
+        }
+        if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+        lastLogCount = lines.length;
       }
-    }
-  }, 400);
+    } catch (_) { /* silencioso */ }
+  }, 1500);
 
   try {
-    // Timeout 7 min — sample de 30min tarda ~60-90s en NAS normales, pero
-    // dejamos margen si el HDD esta saturado o el MKV no esta cacheado.
+    // Timeout 25 min — UHD BD 60GB full tarda 3-5 min normalmente
     const data = await apiFetch('/api/mkv/light-profile', {
       method: 'POST',
-      body: JSON.stringify({ file_path: mkvProject.analysis.file_name, full: false }),
-    }, 420000);
+      body: JSON.stringify({ file_path: mkvProject.analysis.file_name }),
+    }, 1500000);
     if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
 
-    // Pinta los pasos como done + progress a 100
-    _dvLightStepState('extract', 'done');
-    _dvLightStepState('export', 'done');
-    _dvLightStepState('parse', 'done');
-    _dvLightSetMeta('parse-meta', `${data.per_scene_max_cll.length} buckets · ${data.total_frames?.toLocaleString() || '?'} frames`);
+    _dvLightSetStep(4);
     _dvLightSetProgress(100);
 
-    // Actualiza datos y re-renderiza
     mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
     mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
 
-    // Pausa breve para que el usuario vea el "✓ done" antes de cerrar
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 700));
     closeModal('dv-light-modal');
     _renderMkvEditPanel();
-    showToast(`Perfil de luminancia extraído — ${data.per_scene_max_cll.length} buckets`, 'success');
+    showToast(
+      `Perfil extraído — ${data.total_frames?.toLocaleString() || data.per_scene_max_cll.length} frames · ${data.per_scene_max_cll.length} buckets`,
+      'success'
+    );
   } catch (e) {
     const activeStep = document.querySelector('.dv-light-step.active');
     if (activeStep) {
       activeStep.classList.remove('active');
-      activeStep.style.borderColor = 'rgba(255,59,48,0.35)';
-      activeStep.style.background = 'rgba(255,59,48,0.08)';
+      activeStep.classList.add('error');
       const marker = activeStep.querySelector('.dv-light-step-marker');
-      if (marker) { marker.textContent = '✗'; marker.style.color = '#f87171'; marker.style.animation = 'none'; }
+      if (marker) marker.textContent = '✗';
     }
-    _dvLightSetMeta('parse-meta', String(e.message || e).slice(0, 80));
-    showToast(`No se pudo analizar el perfil de luminancia: ${e.message || e}`, 'error');
-    await new Promise(r => setTimeout(r, 1800));
+    showToast(`Error: ${e.message || e}`, 'error');
+    await new Promise(r => setTimeout(r, 2200));
     closeModal('dv-light-modal');
   } finally {
-    clearInterval(ticker);
-    clearInterval(progressTicker);
+    clearInterval(pollTicker);
   }
 }
 
-function _dvLightStepState(id, state) {
-  const el = document.getElementById(`dv-light-step-${id}`);
-  if (!el) return;
-  el.classList.remove('active', 'pending', 'done');
-  el.classList.add(state);
-  const marker = el.querySelector('.dv-light-step-marker');
-  if (marker) {
-    marker.style.animation = '';
-    marker.textContent = state === 'done' ? '✓' : (state === 'active' ? '⟳' : '○');
+function _dvLightSetStep(activeStep) {
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById(`dv-light-step-${i}`);
+    if (!el) continue;
+    el.classList.remove('active', 'pending', 'done', 'error');
+    const marker = el.querySelector('.dv-light-step-marker');
+    if (activeStep >= 4 || i < activeStep) {
+      el.classList.add('done');
+      if (marker) marker.textContent = '✓';
+    } else if (i === activeStep) {
+      el.classList.add('active');
+      if (marker) marker.textContent = '⟳';
+    } else {
+      el.classList.add('pending');
+      if (marker) marker.textContent = '○';
+    }
   }
-}
-function _dvLightSetMeta(id, text) {
-  const el = document.getElementById(`dv-light-step-${id}`);
-  if (el) el.textContent = text;
 }
 function _dvLightSetProgress(pct) {
   const bar = document.getElementById('dv-light-progress-bar');
-  if (bar) bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  const txt = document.getElementById('dv-light-pct');
+  const clamped = Math.max(0, Math.min(100, pct));
+  if (bar) bar.style.width = `${clamped}%`;
+  if (txt) txt.textContent = `${Math.round(clamped)}%`;
+}
+function _dvLightSetElapsed(secs) {
+  const el = document.getElementById('dv-light-elapsed');
+  if (!el) return;
+  const s = Math.max(0, Math.floor(secs));
+  el.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 }
 
 // ── Render del panel de edición ──────────────────────────────────

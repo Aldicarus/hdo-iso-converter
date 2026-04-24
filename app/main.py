@@ -1197,22 +1197,77 @@ async def analyze_mkv_endpoint(body: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Estado global del analisis de perfil de luminancia — lo consume el endpoint
+# de progreso /api/mkv/light-profile/progress (polling desde frontend).
+# Single-writer (solo hay un analisis activo a la vez en la UI).
+_light_profile_state: dict = {
+    "active": False,
+    "step": 0,           # 0=idle, 1=ffmpeg, 2=extract-rpu, 3=export+parse, 4=done
+    "step_label": "",
+    "step_pct": 0,       # 0-100 dentro del paso actual
+    "global_pct": 0,     # 0-100 total
+    "elapsed_s": 0,
+    "log_lines": [],     # rolling log (max 60 lineas)
+    "error": None,
+    "started_at": 0.0,
+}
+
+
+def _lp_reset():
+    _light_profile_state.update({
+        "active": True,
+        "step": 0, "step_label": "", "step_pct": 0, "global_pct": 0,
+        "elapsed_s": 0, "log_lines": [], "error": None,
+        "started_at": __import__("time").monotonic(),
+    })
+
+
+def _lp_log(msg: str):
+    import time as _t
+    ts = _t.strftime("%H:%M:%S")
+    _light_profile_state["log_lines"].append(f"[{ts}] {msg}")
+    if len(_light_profile_state["log_lines"]) > 60:
+        _light_profile_state["log_lines"] = _light_profile_state["log_lines"][-60:]
+    started = _light_profile_state.get("started_at") or _t.monotonic()
+    _light_profile_state["elapsed_s"] = int(_t.monotonic() - started)
+    _logger.info("light-profile: %s", msg)
+
+
+def _lp_set_step(step: int, label: str, global_pct_base: int):
+    _light_profile_state["step"] = step
+    _light_profile_state["step_label"] = label
+    _light_profile_state["step_pct"] = 0
+    _light_profile_state["global_pct"] = global_pct_base
+    _lp_log(f"Paso {step}/3 — {label}")
+
+
+def _lp_set_step_pct(step_pct: float, global_pct: float):
+    _light_profile_state["step_pct"] = int(max(0, min(100, step_pct)))
+    _light_profile_state["global_pct"] = int(max(0, min(100, global_pct)))
+    import time as _t
+    _light_profile_state["elapsed_s"] = int(_t.monotonic() - (_light_profile_state.get("started_at") or _t.monotonic()))
+
+
+@app.get("/api/mkv/light-profile/progress")
+async def mkv_light_profile_progress_endpoint():
+    """Estado actual del analisis de perfil de luminancia (polling)."""
+    return dict(_light_profile_state)
+
+
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
 async def mkv_light_profile_endpoint(body: dict):
-    """Extrae el perfil de luminancia del MKV.
+    """Extrae el perfil de luminancia del MOVIE COMPLETO del MKV.
     Alimenta el sparkline + histograma de la Radiografía DV+HDR en Tab 2.
 
-    Body: ``{"file_path": "Movie.mkv", "full": false}``.
-      - full=False (default): muestra los primeros 30 min del movie (~43200
-        frames a 24fps). Rapido (~60-90s), suficiente para dar una vista.
-      - full=True: extract RPU del movie completo. Mas preciso pero puede
-        tardar 4-8 min en UHD BDs en NAS.
+    Body: ``{"file_path": "Movie.mkv"}``.
+    Duracion tipica en UHD BD 60GB: 3-5 min (ffmpeg ~120-180s + extract-rpu
+    ~60-120s + export+parse ~15s).
 
     Devuelve dos arrays downsampleados a 240 buckets + total_frames.
     """
     import tempfile
     rel_path = body.get("file_path", "")
-    want_full = bool(body.get("full", False))
+    _lp_reset()
     if DEV_MODE:
         import math, random
         random.seed(42)
@@ -1220,10 +1275,12 @@ async def mkv_light_profile_endpoint(body: dict):
         series_cll = [int(300 + 500 * math.sin(i/15) + random.randint(-80, 120) + (i/n)*200) for i in range(n)]
         series_cll = [max(10, v) for v in series_cll]
         series_fall = [max(5, int(v * 0.12 + random.randint(-10, 20))) for v in series_cll]
+        _light_profile_state["active"] = False
         return {"per_scene_max_cll": series_cll, "per_scene_max_fall": series_fall, "total_frames": 186113}
 
     mkv_full = str(OUTPUT_DIR_MKV / rel_path)
     if not Path(mkv_full).exists():
+        _light_profile_state["active"] = False
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
     from phases.phase_a import DOVI_TOOL_BIN, FFMPEG_BIN
@@ -1231,74 +1288,125 @@ async def mkv_light_profile_endpoint(body: dict):
     tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_"))
     rpu_path = tmp_dir / "rpu.bin"
     hevc_path = tmp_dir / "sample.hevc"
+
+    # Estimacion del HEVC final segun bitrate del MKV (para el pct de ffmpeg)
     try:
-        # dovi_tool extract-rpu directo sobre MKV con matroska-rs parser es
-        # MUY lento en NAS con HDD: medido 98% CPU durante 80s+ en un UHD BD
-        # de 60GB con --limit 43200 sin acabar. Solución: ffmpeg hace demux
-        # del MKV (muy eficiente con stream-copy, sin reencodar) y escribe
-        # HEVC annex-B local; luego dovi_tool corre sobre el HEVC que es un
-        # stream plano sin contenedor — extracción rápida.
-        sample_minutes = 30
-        ff_timeout = 900 if want_full else 240   # 15 min full / 4 min sample
-        dt_timeout = 600 if want_full else 180   # 10 min full / 3 min sample
+        mkv_size = Path(mkv_full).stat().st_size
+        # HEVC suele ser 70-85% del MKV (excluyendo audio/subs). Usamos 75%.
+        expected_hevc_size = int(mkv_size * 0.75)
+    except Exception:
+        expected_hevc_size = 0
+
+    try:
+        # Estrategia: ffmpeg hace demux eficiente del MKV (stream-copy sin
+        # reencodar) → HEVC annex-B local → dovi_tool extract-rpu sobre HEVC.
+        # Mucho más rápido que dovi_tool directo sobre MKV (matroska-rs
+        # lento en NAS con HDD).
+        ff_timeout = 1200  # 20 min max para full movie
+        dt_timeout = 900   # 15 min max para extract-rpu
 
         ff_cmd = [FFMPEG_BIN, "-y", "-v", "error",
                   "-i", mkv_full,
-                  "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb"]
-        if not want_full:
-            ff_cmd += ["-t", str(sample_minutes * 60)]
-        ff_cmd += ["-f", "hevc", str(hevc_path)]
+                  "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+                  "-f", "hevc", str(hevc_path)]
 
-        _logger.warning("light-profile: Paso 1/3 — ffmpeg extrae %s HEVC (full=%s)",
-                        f"{sample_minutes}min" if not want_full else "movie completo", want_full)
+        # ═══════ Paso 1 · ffmpeg con monitor de progreso por file size ═══
+        _lp_set_step(1, "Extrayendo HEVC del MKV con ffmpeg", 0)
         t0 = _time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             *ff_cmd,
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
+        # Monitor task: cada 1s leemos el tamaño del HEVC y actualizamos pct.
+        # Paso 1 ocupa 55% del pct global (55/35/10 aprox para las 3 fases).
+        stop_mon = asyncio.Event()
+
+        async def _ff_monitor():
+            while not stop_mon.is_set():
+                try:
+                    if hevc_path.exists() and expected_hevc_size > 0:
+                        size = hevc_path.stat().st_size
+                        pct = min(99, size * 100 / expected_hevc_size)
+                        _lp_set_step_pct(pct, pct * 0.55)
+                        if int(pct) % 10 == 0 and int(pct) > 0:
+                            pass  # evitamos spam del log
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
+                except asyncio.TimeoutError:
+                    pass
+
+        mon_task = asyncio.create_task(_ff_monitor())
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=ff_timeout)
         except asyncio.TimeoutError:
             try: proc.kill()
             except Exception: pass
-            raise HTTPException(
-                status_code=504,
-                detail=f"ffmpeg excedió {ff_timeout}s extrayendo HEVC del MKV. NAS saturado?"
-            )
+            stop_mon.set()
+            _light_profile_state["error"] = f"ffmpeg excedió {ff_timeout}s"
+            raise HTTPException(status_code=504,
+                                detail=f"ffmpeg excedió {ff_timeout}s extrayendo HEVC del MKV.")
+        finally:
+            stop_mon.set()
+            try: await mon_task
+            except Exception: pass
+
         if proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
             err = stderr.decode("utf-8", errors="replace")[:400]
-            _logger.warning("light-profile: ffmpeg falló rc=%s err=%s", proc.returncode, err)
+            _light_profile_state["error"] = f"ffmpeg falló: {err}"
             raise HTTPException(status_code=500, detail=f"ffmpeg falló: {err}")
-        ff_elapsed = _time.monotonic() - t0
-        _logger.warning("light-profile: Paso 1/3 ✓ ffmpeg OK en %.1fs (%.2f GB HEVC)",
-                        ff_elapsed, hevc_path.stat().st_size / 1e9)
+        ff_gb = hevc_path.stat().st_size / 1e9
+        _lp_log(f"Paso 1/3 ✓ ffmpeg OK en {_time.monotonic()-t0:.1f}s ({ff_gb:.2f} GB HEVC)")
 
-        # Paso 2: dovi_tool extract-rpu sobre HEVC local (≫ rápido que sobre MKV)
-        _logger.warning("light-profile: Paso 2/3 — dovi_tool extract-rpu sobre HEVC local")
+        # ═══════ Paso 2 · dovi_tool extract-rpu ═══════════════════════════
+        _lp_set_step(2, "Extrayendo RPU del HEVC con dovi_tool", 55)
         t1 = _time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
+        # dovi_tool no expone progreso estructurado; estimamos linealmente
+        # con ETA basada en tiempo de ffmpeg (aprox ratio 0.5x ffmpeg time).
+        expected_dt_s = max(20, int((_time.monotonic() - t0) * 0.5))
+        stop_mon2 = asyncio.Event()
+
+        async def _dt_monitor():
+            while not stop_mon2.is_set():
+                elapsed = _time.monotonic() - t1
+                pct = min(99, elapsed * 100 / expected_dt_s)
+                _lp_set_step_pct(pct, 55 + pct * 0.35)
+                try:
+                    await asyncio.wait_for(stop_mon2.wait(), timeout=1.5)
+                except asyncio.TimeoutError:
+                    pass
+
+        mon_task2 = asyncio.create_task(_dt_monitor())
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=dt_timeout)
         except asyncio.TimeoutError:
             try: proc.kill()
             except Exception: pass
+            stop_mon2.set()
+            _light_profile_state["error"] = f"dovi_tool excedió {dt_timeout}s"
             raise HTTPException(status_code=504, detail=f"dovi_tool extract-rpu excedió {dt_timeout}s")
+        finally:
+            stop_mon2.set()
+            try: await mon_task2
+            except Exception: pass
+
         if proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
             err = stderr.decode("utf-8", errors="replace")[:400]
-            _logger.warning("light-profile: extract-rpu falló rc=%s err=%s", proc.returncode, err)
+            _light_profile_state["error"] = f"extract-rpu falló: {err}"
             raise HTTPException(status_code=500, detail=f"extract-rpu falló: {err}")
-        _logger.warning("light-profile: Paso 2/3 ✓ RPU en %.1fs (%d bytes)",
-                        _time.monotonic() - t1, rpu_path.stat().st_size)
+        _lp_log(f"Paso 2/3 ✓ RPU extraído en {_time.monotonic()-t1:.1f}s ({rpu_path.stat().st_size/1e6:.2f} MB)")
 
-        # HEVC intermedio ya no hace falta
+        # HEVC intermedio ya no hace falta (libera ~10-20 GB)
         try: hevc_path.unlink(missing_ok=True)
         except Exception: pass
 
-        # Paso 3: export RPU a JSON
-        _logger.warning("light-profile: Paso 3/3 — dovi_tool export a JSON + parseo")
+        # ═══════ Paso 3 · export JSON + parseo ════════════════════════════
+        _lp_set_step(3, "Exportando metadata a JSON + parseo", 90)
         t2 = _time.monotonic()
         json_path = tmp_dir / "rpu.json"
         proc = await asyncio.create_subprocess_exec(
@@ -1306,14 +1414,15 @@ async def mkv_light_profile_endpoint(body: dict):
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         except asyncio.TimeoutError:
             try: proc.kill()
             except Exception: pass
-            raise HTTPException(status_code=504, detail="dovi_tool export excedió 3 min")
+            _light_profile_state["error"] = "dovi_tool export excedió 5 min"
+            raise HTTPException(status_code=504, detail="dovi_tool export excedió 5 min")
         if proc.returncode != 0 or not json_path.exists():
             err = stderr.decode("utf-8", errors="replace")[:400]
-            _logger.warning("light-profile: export falló rc=%s err=%s", proc.returncode, err)
+            _light_profile_state["error"] = f"export falló: {err}"
             raise HTTPException(status_code=500, detail=f"export falló: {err}")
 
         # Parse JSON
@@ -1322,8 +1431,8 @@ async def mkv_light_profile_endpoint(body: dict):
                 data = _json.load(f)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
-        _logger.warning("light-profile: export+parse JSON OK en %.1fs",
-                        _time.monotonic() - t2)
+        _lp_log(f"Paso 3/3 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
+        _lp_set_step_pct(100, 98)
 
         # El formato de dovi_tool export varia entre versiones. Soportamos:
         #   (a) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{level:1, ...}, ...]
@@ -1419,6 +1528,11 @@ async def mkv_light_profile_endpoint(body: dict):
             step = len(xs) / MAX_POINTS
             return [max(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
 
+        _lp_log(f"✓ Listo — {len(per_frame_cll):,} frames analizados, downsample a {MAX_POINTS} buckets")
+        _light_profile_state["step"] = 4
+        _light_profile_state["step_label"] = "Listo"
+        _light_profile_state["step_pct"] = 100
+        _light_profile_state["global_pct"] = 100
         return {
             "per_scene_max_cll":  _downsample(per_frame_cll),
             "per_scene_max_fall": _downsample(per_frame_fall),
@@ -1430,6 +1544,7 @@ async def mkv_light_profile_endpoint(body: dict):
             except Exception: pass
         try: tmp_dir.rmdir()
         except Exception: pass
+        _light_profile_state["active"] = False
 
 
 def _pq_code_to_nits(code_value: float) -> float:

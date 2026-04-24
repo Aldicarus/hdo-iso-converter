@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260423d">
+  <link rel="stylesheet" href="/static/style.css?v=20260424a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -579,32 +579,39 @@
 <!-- ═══ MODAL: Análisis de perfil de luminancia DV (Tab 2) ═══════════════ -->
 <div class="modal-overlay" id="dv-light-modal">
   <div class="modal-box dv-light-modal-box">
-    <div class="dv-light-icon">📊</div>
-    <div class="modal-title">Análisis de perfil de luminancia</div>
-    <div class="modal-sub" id="dv-light-modal-file"></div>
+    <div class="dv-light-header">
+      <div class="dv-light-icon">📊</div>
+      <div>
+        <div class="modal-title">Análisis de perfil de luminancia</div>
+        <div class="modal-sub" id="dv-light-modal-file"></div>
+      </div>
+    </div>
     <div class="dv-light-steps">
-      <div class="dv-light-step active" id="dv-light-step-extract">
+      <div class="dv-light-step active" id="dv-light-step-1">
         <span class="dv-light-step-marker">⟳</span>
-        <span class="dv-light-step-label">Extrayendo RPU (muestra de 30 min)</span>
-        <span class="dv-light-step-meta" id="dv-light-step-extract-meta"></span>
+        <span class="dv-light-step-label">Extrayendo HEVC del MKV con ffmpeg</span>
       </div>
-      <div class="dv-light-step pending" id="dv-light-step-export">
+      <div class="dv-light-step pending" id="dv-light-step-2">
         <span class="dv-light-step-marker">○</span>
-        <span class="dv-light-step-label">Exportando metadata RPU a JSON</span>
+        <span class="dv-light-step-label">Extrayendo RPU del HEVC con dovi_tool</span>
       </div>
-      <div class="dv-light-step pending" id="dv-light-step-parse">
+      <div class="dv-light-step pending" id="dv-light-step-3">
         <span class="dv-light-step-marker">○</span>
-        <span class="dv-light-step-label">Parseando MaxCLL/MaxFALL por escena</span>
-        <span class="dv-light-step-meta" id="dv-light-step-parse-meta"></span>
+        <span class="dv-light-step-label">Exportando JSON + parseo per-frame</span>
       </div>
     </div>
-    <div class="dv-light-progress">
-      <div class="dv-light-progress-bar" id="dv-light-progress-bar"></div>
+    <div class="dv-light-progress-wrap">
+      <div class="dv-light-progress-meta">
+        <span class="dv-light-progress-pct" id="dv-light-pct">0%</span>
+        <span class="dv-light-elapsed" id="dv-light-elapsed">00:00</span>
+      </div>
+      <div class="dv-light-progress">
+        <div class="dv-light-progress-bar" id="dv-light-progress-bar"></div>
+      </div>
     </div>
-    <div class="dv-light-footer">
-      <span class="dv-light-elapsed" id="dv-light-elapsed">00:00</span>
-      <span class="dv-light-hint">~60-90s · muestra 30 min a 24fps</span>
-    </div>
+    <div class="dv-light-log-label">Actividad</div>
+    <div class="dv-light-log" id="dv-light-log"></div>
+    <div class="dv-light-hint">Extracción del movie completo · 3-5 min en UHD BDs</div>
   </div>
 </div>
 
@@ -1026,6 +1033,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260423f"></script>
+<script src="/static/app.js?v=20260424a"></script>
 </body>
 </html>
