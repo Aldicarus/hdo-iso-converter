@@ -6540,15 +6540,30 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
     </svg>`;
 }
 
-/** Sparkline MaxCLL — smooth curve con gradient fill + shadow filter + grid. */
-function _rgrfSparklineSvg(series, labelMax) {
+/** Formatea segundos a "MM:SS" (< 1h) o "H:MM:SS" (>= 1h). */
+function _rgrfFmtTime(secs) {
+  secs = Math.max(0, Math.round(secs || 0));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+/** Sparkline MaxCLL — smooth curve con gradient fill + shadow filter + grid +
+ *  EJE DE TIEMPO con 5 ticks + marcador del pico con su timestamp. */
+function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 720, svgH = 150, padL = 48, padR = 18, padT = 16, padB = 26;
+  const svgW = 720, svgH = 170, padL = 48, padR = 18, padT = 18, padB = 44;
   const maxV = Math.max(...series);
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
   const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
   const yOf = (v) => padT + usableH - (v / maxV) * usableH;
+  // Mapa index-del-bucket → segundo del movie (proporcional a duracion)
+  const tOf = (i) => (durationSeconds && durationSeconds > 0)
+    ? durationSeconds * (i / (series.length - 1))
+    : null;
 
   // Path con curvas suaves (Catmull-Rom → Bezier) para look más natural
   const pts = series.map((v, i) => [xOf(i), yOf(v)]);
@@ -6575,6 +6590,43 @@ function _rgrfSparklineSvg(series, labelMax) {
   }).join('');
 
   const gid = `sp-${Math.random().toString(36).slice(2, 7)}`;
+
+  // Eje X con 5 ticks de tiempo (0%, 25%, 50%, 75%, 100%) + linea base
+  const TICK_FRACS = [0, 0.25, 0.5, 0.75, 1.0];
+  const axisY = padT + usableH;
+  let timeTicks = `<line x1="${padL}" y1="${axisY}" x2="${svgW - padR}" y2="${axisY}"
+                         stroke="rgba(15,23,42,0.15)" stroke-width="1" />`;
+  TICK_FRACS.forEach(frac => {
+    const x = padL + frac * usableW;
+    const t = durationSeconds ? durationSeconds * frac : null;
+    const label = t !== null ? _rgrfFmtTime(t) : (frac === 0 ? 'inicio' : (frac === 1 ? 'final' : ''));
+    timeTicks += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}"
+                         stroke="rgba(15,23,42,0.3)" stroke-width="1.2" />`;
+    if (label) {
+      const anchor = frac === 0 ? 'start' : (frac === 1 ? 'end' : 'middle');
+      timeTicks += `<text x="${x}" y="${axisY + 18}" fill="#475569" font-size="11"
+                          font-family="SF Mono,monospace" text-anchor="${anchor}" font-weight="500">${label}</text>`;
+    }
+  });
+
+  // Marcador del pico: busca el índice del valor máximo y dibuja círculo + línea + label
+  const peakIdx = series.indexOf(maxV);
+  const peakX = xOf(peakIdx);
+  const peakY = yOf(maxV);
+  const peakTime = tOf(peakIdx);
+  const peakLabelText = peakTime !== null ? `${maxV} nits @ ${_rgrfFmtTime(peakTime)}` : `pico ${labelMax}`;
+  // Decidir lado del label (izq si el pico está en la mitad derecha, para no salirse)
+  const peakOnRight = peakIdx / series.length > 0.5;
+  const peakLabelX = peakOnRight ? peakX - 8 : peakX + 8;
+  const peakLabelAnchor = peakOnRight ? 'end' : 'start';
+  const peakMarker = `
+    <line x1="${peakX}" y1="${peakY}" x2="${peakX}" y2="${axisY}"
+          stroke="#0d9488" stroke-width="1" stroke-dasharray="2,3" opacity="0.45" />
+    <circle cx="${peakX}" cy="${peakY}" r="9" fill="#0d9488" fill-opacity="0.15" />
+    <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#0d9488" stroke="#ffffff" stroke-width="2" />
+    <text x="${peakLabelX}" y="${peakY + 4}" fill="#115e59" font-size="11.5"
+          font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
+
   return `
     <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
@@ -6599,11 +6651,8 @@ function _rgrfSparklineSvg(series, labelMax) {
       <path d="${areaPath}" fill="url(#${gid}-area)" />
       <path d="${linePath}" fill="none" stroke="url(#${gid}-line)" stroke-width="2.2"
             stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
-      <!-- Eje X labels -->
-      <text x="${padL}" y="${svgH - 6}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" font-weight="500">inicio</text>
-      <text x="${svgW - padR}" y="${svgH - 6}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">final</text>
-      <!-- Pico destacado -->
-      <text x="${svgW - padR}" y="${padT + 12}" fill="#115e59" font-size="12" font-family="SF Mono,monospace" text-anchor="end" font-weight="700">pico ${labelMax}</text>
+      ${timeTicks}
+      ${peakMarker}
     </svg>`;
 }
 
@@ -6861,7 +6910,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     ? `${dv.per_scene_max_cll.length} buckets · max ${Math.max(...dv.per_scene_max_cll)} nits`
     : '';
   const sparklineArea = hasLightProfile
-    ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits')}</div>
+    ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits', a.duration_seconds)}</div>
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
