@@ -1100,6 +1100,107 @@ from models import MkvEditRequest
 from phases.mkv_analyze import analyze_mkv, apply_mkv_edits
 
 OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
+LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
+
+
+# Directorios "no peliculas" que NUNCA queremos exponer en el browser:
+#   - .zfs/snapshot — ZFS snapshots ocultos en QuTS hero (recursivos eternos)
+#   - @eaDir, .DS_Store, Thumbs.db — metadata de Synology/macOS/Windows
+#   - .Recycle, #recycle, $RECYCLE.BIN — papeleras varias
+#   - dotfiles — ocultos en general
+_LIBRARY_HIDDEN_DIRS = {
+    ".zfs", "@eaDir", ".DS_Store", ".Recycle", "#recycle",
+    "$RECYCLE.BIN", "@Recycle", ".Trash", "lost+found",
+}
+
+def _safe_library_path(rel_path: str) -> Path:
+    """Resuelve `rel_path` relativo a LIBRARY_DIR validando que no escape.
+    Lanza HTTPException 400 si intenta acceder fuera de LIBRARY_DIR.
+    Devuelve la Path resuelta absoluta.
+    """
+    rel = (rel_path or "").strip().lstrip("/")
+    candidate = (LIBRARY_DIR / rel).resolve()
+    base_resolved = LIBRARY_DIR.resolve()
+    try:
+        candidate.relative_to(base_resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Ruta fuera de la biblioteca")
+    return candidate
+
+
+@app.get("/api/library/browse", summary="Navega la biblioteca de MKVs (Tab 3)")
+async def library_browse(path: str = ""):
+    """Lista subdirectorios + ficheros .mkv en LIBRARY_DIR/<path>.
+
+    Devuelve:
+      - path: ruta relativa actual (vacío = raíz)
+      - parent: ruta relativa del padre (None si en raíz)
+      - entries: list[{name, type, size_bytes}] ordenadas por dirs primero
+                 y luego alfabéticamente
+
+    Solo se muestran .mkv (case-insensitive) y carpetas no-ocultas. Filtra
+    .zfs/snapshot, @eaDir, papeleras, dotfiles, etc. para mantener la lista
+    legible en bibliotecas grandes.
+    """
+    if DEV_MODE:
+        # Dev: devuelve un par de carpetas + MKVs fake
+        return {
+            "path": path,
+            "parent": "" if path else None,
+            "base": "/mnt/library",
+            "entries": [
+                {"name": "Action", "type": "dir", "size_bytes": 0},
+                {"name": "Drama", "type": "dir", "size_bytes": 0},
+                {"name": "Movie 1 (2024) [DV FEL].mkv", "type": "file", "size_bytes": 52_000_000_000},
+                {"name": "Movie 2 (2023) [DV FEL].mkv", "type": "file", "size_bytes": 48_000_000_000},
+            ],
+        }
+    if not LIBRARY_DIR.exists() or not LIBRARY_DIR.is_dir():
+        return {"path": path, "parent": None, "base": str(LIBRARY_DIR),
+                "entries": [], "error": "Biblioteca no configurada o inaccesible"}
+
+    target = _safe_library_path(path)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail=f"Directorio no encontrado: {path}")
+
+    entries: list[dict] = []
+    try:
+        for child in target.iterdir():
+            name = child.name
+            # Skip ocultos y especiales
+            if name.startswith(".") and name not in {".", ".."}:
+                if name == ".zfs" or name in _LIBRARY_HIDDEN_DIRS:
+                    continue
+                # Otros dotfiles también ocultos
+                continue
+            if name in _LIBRARY_HIDDEN_DIRS:
+                continue
+            if child.is_dir():
+                entries.append({"name": name, "type": "dir", "size_bytes": 0})
+            elif child.is_file() and name.lower().endswith(".mkv"):
+                try:
+                    size = child.stat().st_size
+                except OSError:
+                    size = 0
+                entries.append({"name": name, "type": "file", "size_bytes": size})
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Sin permisos para listar este directorio")
+
+    # Sort: dirs primero, luego files; todo case-insensitive alfabético
+    entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
+
+    rel_current = str(target.relative_to(LIBRARY_DIR.resolve())) if target != LIBRARY_DIR.resolve() else ""
+    parent = None
+    if rel_current:
+        parent_path = "/".join(rel_current.split("/")[:-1])
+        parent = parent_path  # vacío si el padre es la raíz, valor válido
+
+    return {
+        "path": rel_current,
+        "parent": parent,
+        "base": str(LIBRARY_DIR),
+        "entries": entries,
+    }
 
 
 @app.get("/api/mkv/files", summary="Lista MKVs disponibles en /mnt/output")

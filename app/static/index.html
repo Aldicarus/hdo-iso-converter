@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260424c">
+  <link rel="stylesheet" href="/static/style.css?v=20260429a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -576,6 +576,33 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: File browser de la biblioteca de MKVs (Tab 3) ═════════ -->
+<div class="modal-overlay" id="file-browser-modal">
+  <div class="modal-box file-browser-modal-box">
+    <div class="file-browser-header">
+      <div>
+        <div class="modal-title" id="file-browser-title">Seleccionar MKV</div>
+        <div class="modal-sub" id="file-browser-sub">Navega tu biblioteca y elige el fichero a procesar</div>
+      </div>
+      <button class="file-browser-close" onclick="closeModal('file-browser-modal')" aria-label="Cerrar">×</button>
+    </div>
+    <div class="file-browser-toolbar">
+      <button class="file-browser-up" id="file-browser-up-btn" onclick="fileBrowserUp()" title="Subir un nivel">⬆</button>
+      <div class="file-browser-breadcrumb" id="file-browser-breadcrumb"></div>
+    </div>
+    <div class="file-browser-search-row">
+      <input type="text" id="file-browser-search" class="file-browser-search-input"
+             placeholder="🔍 Filtrar por nombre…" oninput="fileBrowserFilter(this.value)" />
+      <span class="file-browser-stats" id="file-browser-stats"></span>
+    </div>
+    <div class="file-browser-list" id="file-browser-list"></div>
+    <div class="file-browser-footer">
+      <span class="file-browser-base" id="file-browser-base"></span>
+      <button class="btn btn-secondary" onclick="closeModal('file-browser-modal')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Análisis de perfil de luminancia DV (Tab 2) ═══════════════ -->
 <div class="modal-overlay" id="dv-light-modal">
   <div class="modal-box dv-light-modal-box">
@@ -715,12 +742,15 @@
 
     <div class="cmv40-new-body">
     <label class="modal-field-label">MKV origen (CMv2.9)</label>
-    <div class="iso-select-row">
-      <select id="cmv40-source-select" class="iso-select" onchange="onCMv40SourceChange(this.value)">
-        <option value="">— Seleccionar MKV origen —</option>
-      </select>
+    <div class="cmv40-source-picker">
+      <button type="button" class="cmv40-source-btn" onclick="openCMv40SourceBrowser()"
+        data-tooltip="Navega tu biblioteca y selecciona el MKV origen">
+        <span class="cmv40-source-btn-icon">🎬</span>
+        <span class="cmv40-source-btn-label placeholder" id="cmv40-source-btn-label">Selecciona MKV…</span>
+        <span class="cmv40-source-btn-chevron">▾</span>
+      </button>
       <button class="btn btn-secondary btn-md" onclick="loadCMv40SourceList()"
-        data-tooltip="Recargar lista de MKVs en /mnt/output">↺</button>
+        data-tooltip="Limpiar selección">✕</button>
     </div>
 
     <div id="cmv40-recommendation-banner" class="cmv40-rec-banner" style="display:none"></div>
@@ -1033,6 +1063,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260424c"></script>
+<script src="/static/app.js?v=20260429a"></script>
 </body>
 </html>

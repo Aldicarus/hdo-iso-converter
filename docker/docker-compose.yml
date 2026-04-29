@@ -36,6 +36,12 @@ services:
       # ISOs de origen (solo lectura)
       - ${ISOS_PATH:?Define ISOS_PATH en .env}:/mnt/isos:ro
 
+      # Biblioteca de MKVs (raíz con subdirectorios) — read-only. La UI
+      # de Tab 3 navega este árbol con un file browser. Si LIBRARY_PATH
+      # no se define, se usa /mnt/library como dir vacío (Tab 3 usa
+      # /mnt/output como fallback).
+      - ${LIBRARY_PATH:-/var/empty}:/mnt/library:ro
+
       # MKVs finales
       - ${OUTPUT_PATH:?Define OUTPUT_PATH en .env}:/mnt/output:rw
 
