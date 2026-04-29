@@ -2852,9 +2852,11 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
 }
 
 function _cmv40LookupTagMeta(pt) {
-  if (pt === 'trusted_p7_fel_final') return { icon: '🎯', label: 'Drop-in FEL', cls: 'tag-ok' };
-  if (pt === 'trusted_p7_mel_final') return { icon: '🎯', label: 'Drop-in MEL', cls: 'tag-ok' };
-  if (pt === 'trusted_p8_source')    return { icon: '📦', label: 'P5→P8 Transfer', cls: 'tag-info' };
+  if (pt === 'trusted_p7_fel_final') return { icon: '🎯', label: 'Bin P7 FEL', cls: 'tag-ok' };
+  if (pt === 'trusted_p7_mel_final') return { icon: '🎯', label: 'Bin P7 MEL', cls: 'tag-ok' };
+  // trusted_p8_source cubre tanto P8 retail nativo como P5→P8 transfer.
+  // Etiqueta neutra para no asumir uno u otro.
+  if (pt === 'trusted_p8_source')    return { icon: '📦', label: 'Bin P8 retail', cls: 'tag-info' };
   return { icon: '❓', label: 'Tipo desconocido', cls: 'tag-warn' };
 }
 
@@ -8808,51 +8810,71 @@ function _cmv40ComputeTargetTypeETA(targetType) {
 // mod: etiqueta opcional bajo el pill (ej. "sin demux"). autoEndsAt: fase tras
 // la cual el auto-pipeline se detiene (null = corre hasta H).
 // El campo `tiempo` se calcula dinámicamente — ver _cmv40PipelinePreviewHTML.
+// IMPORTANTE: el preview se muestra ANTES de Fase A (no conocemos aun el
+// profile del source — puede ser P7 FEL, P7 MEL, o P8.1 venido de un MEL
+// convertido). Los blurbs cubren las 3 posibilidades para no ser engañosos.
+// Las phases pills muestran el caso "trusted-fast-path": cuando los gates
+// pasan y el source coincide en estructura con el bin, el flujo es el
+// optimo descrito; en las otras combinaciones Fase F hace merge en lugar
+// de drop-in (ver matriz completa en cmv40_pipeline.py _execute_fase_f).
 const _CMV40_PIPELINE_PREVIEW = {
   trusted_p7_fel_final: {
     icon: '🎯',
-    title: 'Drop-in P7 FEL · CMv4.0 ya cocinado',
-    blurb: 'El bin ya es un RPU P7 FEL CMv4.0 final. Se inyecta directo sobre BL+EL.',
+    title: 'Bin P7 FEL · CMv4.0 ya cocinado',
+    blurb: 'Bin con BL+EL+RPU CMv4.0 listo para drop-in. ' +
+           'Comportamiento según tu BD: ' +
+           '· P7 FEL → drop-in directo (sin demux, sin merge — máxima velocidad, preserva BL+EL). ' +
+           '· P7 MEL → merge de los levels CMv4.0 en el RPU del source, descarta EL del source → P8.1 CMv4.0. ' +
+           '· P8.1 (MEL convertido) → merge de los levels CMv4.0 en el RPU P8 del source → P8.1 CMv4.0.',
     cls: 'ok',
     autoEndsAt: null,
     phases: [
       { k: 'A', label: 'Analizar BD',    state: 'run' },
       { k: 'B', label: 'Descargar bin',  state: 'run' },
-      { k: 'C', label: 'Demux',          state: 'skip', mod: 'no hace falta' },
+      { k: 'C', label: 'Demux',          state: 'skip', mod: 'si BD es FEL' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
       { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
-      { k: 'F', label: 'Inyectar',       state: 'run',  mod: 'sin merge' },
-      { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'sin mux dual' },
+      { k: 'F', label: 'Inyectar',       state: 'run',  mod: 'drop-in o merge' },
+      { k: 'G', label: 'Remux MKV',      state: 'run' },
       { k: 'H', label: 'Validar',        state: 'run' },
     ],
   },
   trusted_p7_mel_final: {
     icon: '🎯',
-    title: 'Drop-in P7 MEL · CMv4.0 ya cocinado',
-    blurb: 'El bin ya es un RPU P7 MEL CMv4.0. Se descarta EL → P8.1 final.',
+    title: 'Bin P7 MEL · CMv4.0 ya cocinado',
+    blurb: 'Bin con BL+EL(MEL)+RPU CMv4.0 listo. El EL del bin (MEL) no aporta calidad, ' +
+           'siempre se descarta. Comportamiento según tu BD: ' +
+           '· P7 MEL → inyección directa del RPU del bin sobre la BL del source → P8.1 CMv4.0. ' +
+           '· P7 FEL → merge de los levels CMv4.0 en el RPU del source, preservando FEL → P7 FEL CMv4.0. ' +
+           '· P8.1 (MEL convertido) → merge en el RPU P8 del source → P8.1 CMv4.0.',
     cls: 'ok',
     autoEndsAt: null,
     phases: [
       { k: 'A', label: 'Analizar BD',    state: 'run' },
       { k: 'B', label: 'Descargar bin',  state: 'run' },
-      { k: 'C', label: 'Demux BL',       state: 'run', mod: 'EL descartado' },
+      { k: 'C', label: 'Demux',          state: 'run', mod: 'según BD' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
       { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
-      { k: 'F', label: 'Inyectar en BL', state: 'run',  mod: 'sin merge' },
-      { k: 'G', label: 'Remux MKV',      state: 'run',  mod: 'single-layer' },
+      { k: 'F', label: 'Inyectar',       state: 'run',  mod: 'directo o merge' },
+      { k: 'G', label: 'Remux MKV',      state: 'run' },
       { k: 'H', label: 'Validar',        state: 'run' },
     ],
   },
   trusted_p8_source: {
     icon: '📦',
-    title: 'Source P5→P8 · transfer CMv4.0',
-    blurb: 'Fuente P8 con L8 trims — se hace merge del CMv4.0 al RPU P7 preservando FEL.',
+    title: 'Bin P8 retail · CMv4.0 completo',
+    blurb: 'Bin P8 con CMv4.0 completo (L8 trims + L9/L10/L11). Sirve como donante ' +
+           'de metadata CMv4.0 vía dovi_tool editor (allow_cmv4_transfer). ' +
+           'Comportamiento según tu BD: ' +
+           '· P7 FEL → merge de los levels CMv4.0 en el RPU del source preservando FEL → P7 FEL CMv4.0. ' +
+           '· P7 MEL → descarta EL e inyecta el RPU del bin directamente en BL → P8.1 CMv4.0. ' +
+           '· P8.1 (MEL convertido) → inyección directa (mismo profile, sin merge) → P8.1 CMv4.0 refinado.',
     cls: 'info',
     autoEndsAt: null,
     phases: [
       { k: 'A', label: 'Analizar BD',    state: 'run' },
       { k: 'B', label: 'Descargar bin',  state: 'run' },
-      { k: 'C', label: 'Demux BL+EL',    state: 'run' },
+      { k: 'C', label: 'Demux',          state: 'run', mod: 'según BD' },
       { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
       { k: 'E', label: 'Corrección sync', state: 'skip', mod: 'Δ=0 por gates' },
       { k: 'F', label: 'Merge + inyectar', state: 'run' },
@@ -8863,7 +8885,9 @@ const _CMV40_PIPELINE_PREVIEW = {
   unknown: {
     icon: '❓',
     title: 'Tipo por clasificar',
-    blurb: 'La clasificación real se hará en Fase B tras descargar. Si los gates pasan → drop-in; si no → pausa en D para revisión visual.',
+    blurb: 'La clasificación real se hará en Fase B tras descargar el bin. Si los trust gates ' +
+           '(frames + L5 + CM v4.0 + has_l8) pasan → flujo automático trusted. Si no → pausa en ' +
+           'Fase D para revisión visual de la sincronización antes de inyectar.',
     cls: 'warn',
     autoEndsAt: 'D',
     phases: [
@@ -9091,9 +9115,9 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
     const pt = c.predicted_type || 'unknown';
     const prov = c.provenance || '';
-    const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: '🎯', label: 'drop-in FEL',    cls: 'tag-ok' }
-                  : pt === 'trusted_p7_mel_final' ? { icon: '🎯', label: 'drop-in MEL',    cls: 'tag-ok' }
-                  : pt === 'trusted_p8_source'    ? { icon: '📦', label: 'P5→P8 transfer', cls: 'tag-info' }
+    const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: '🎯', label: 'bin P7 FEL',  cls: 'tag-ok' }
+                  : pt === 'trusted_p7_mel_final' ? { icon: '🎯', label: 'bin P7 MEL',  cls: 'tag-ok' }
+                  : pt === 'trusted_p8_source'    ? { icon: '📦', label: 'bin P8 retail', cls: 'tag-info' }
                   : { icon: '❓', label: 'tipo desconocido', cls: 'tag-warn' };
     const provTag = prov === 'retail'
       ? '<span class="cmv40-repo-card-tag tag-ok">🏛 Retail</span>'
