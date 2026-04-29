@@ -6145,17 +6145,23 @@ function _openMkvBrowserNow() {
       { key: 'output',  label: 'Output',     icon: '📦' },
     ],
     onSelect: async (absPath, name) => {
-      await _doAnalyzeMkvFromPickerPath(absPath, name);
+      // 1) Sync: setup + abrir modal analisis (queda BAJO el browser por z-index).
+      const fileEl = document.getElementById('mkv-analyze-modal-file');
+      if (fileEl) fileEl.textContent = name;
+      _resetMkvAnalyzeSteps();
+      openModal('mkv-analyze-modal');
+      // 2) Async (NO await): el fetch de analisis tarda 1-3 min. Lo lanzamos en
+      //    background para que onSelect resuelva inmediatamente y _fileBrowserSelect
+      //    cierre el browser → quedando solo el modal de analisis visible.
+      _doAnalyzeMkvFromPickerPath(absPath, name).catch(e => {
+        console.error('analyze MKV error:', e);
+        showToast(`Error en analisis: ${e.message || e}`, 'error');
+      });
     },
   });
 }
 
 async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
-  // Abrir modal de progreso ANTES de cerrar el browser para no dejar gap
-  const fileEl = document.getElementById('mkv-analyze-modal-file');
-  if (fileEl) fileEl.textContent = fileName;
-  _resetMkvAnalyzeSteps();
-  openModal('mkv-analyze-modal');
 
   // Polling de progreso real del backend — reusa /api/analyze/progress
   const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
@@ -12067,6 +12073,12 @@ const _fileBrowser = {
   entries: [],
   filter: '',
   onSelect: null,
+  // Selección actual — null hasta que el usuario haga click en una fila
+  // de fichero. El boton "Seleccionar" del footer queda disabled hasta
+  // entonces; click sobre otra fila reemplaza la seleccion. Doble-click
+  // sobre una fila confirma directamente (atajo power-user).
+  selectedRel: null,
+  selectedName: null,
 };
 
 const _DEFAULT_FB_ROOTS = [
@@ -12088,6 +12100,8 @@ const _FB_ROOT_LABELS = {
 async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   _fileBrowser.onSelect = onSelect || null;
   _fileBrowser.filter = '';
+  _fileBrowser.selectedRel = null;
+  _fileBrowser.selectedName = null;
   _fileBrowser.roots = (roots && roots.length) ? roots : _DEFAULT_FB_ROOTS;
   _fileBrowser.rootKey = _fileBrowser.roots[0].key;
 
@@ -12140,8 +12154,13 @@ function _renderFileBrowserRoots() {
   });
 }
 
-/** Carga el contenido de `relPath` (relativo al root activo) y re-renderiza. */
+/** Carga el contenido de `relPath` (relativo al root activo) y re-renderiza.
+ *  Limpia la seleccion previa: cambiar de directorio implica reset, igual
+ *  que hace Finder/Explorer. */
 async function fileBrowserNavigate(relPath) {
+  _fileBrowser.selectedRel = null;
+  _fileBrowser.selectedName = null;
+  _updateFileBrowserConfirmBtn();
   const listEl = document.getElementById('file-browser-list');
   if (listEl) listEl.innerHTML = '<div class="file-browser-loading">⏳ Cargando…</div>';
   try {
@@ -12251,6 +12270,9 @@ function _renderFileBrowser() {
     const childRel = path ? `${path}/${e.name}` : e.name;
     const row = document.createElement('div');
     row.className = `file-browser-row ${e.type}`;
+    if (e.type === 'file' && _fileBrowser.selectedRel === childRel) {
+      row.classList.add('selected');
+    }
     row.tabIndex = 0;
     row.innerHTML = `
       <span class="fb-icon">${e.type === 'dir' ? '📁' : '🎬'}</span>
@@ -12258,11 +12280,16 @@ function _renderFileBrowser() {
       ${e.type === 'file' ? `<span class="fb-size">${_fmtBytes(e.size_bytes)}</span>` : ''}
     `;
     if (e.type === 'dir') {
+      // Carpetas: click navega (entrar es la unica accion posible)
       row.addEventListener('click', () => fileBrowserNavigate(childRel));
     } else {
-      row.addEventListener('click', () => _fileBrowserSelect(childRel, e.name));
+      // Ficheros: click SELECCIONA (visual highlight + boton "Seleccionar"
+      // habilitado). Confirmar requiere clicar el boton del footer o
+      // doble-click sobre la fila (atajo power-user).
+      row.addEventListener('click', () => _fileBrowserSelectRow(childRel, e.name));
+      row.addEventListener('dblclick', () => _fileBrowserConfirmSelection());
     }
-    // Soporte teclado: Enter activa la fila
+    // Soporte teclado: Enter activa la fila (mismo flujo que click)
     row.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
@@ -12271,6 +12298,28 @@ function _renderFileBrowser() {
     });
     listEl.appendChild(row);
   });
+  _updateFileBrowserConfirmBtn();
+}
+
+/** Marca una fila de fichero como seleccionada (sin confirmar). */
+function _fileBrowserSelectRow(rel, name) {
+  _fileBrowser.selectedRel = rel;
+  _fileBrowser.selectedName = name;
+  // Re-render para refrescar el highlight visual + estado del boton
+  _renderFileBrowser();
+}
+
+/** Confirma la seleccion actual: llama a onSelect y cierra el modal. */
+function _fileBrowserConfirmSelection() {
+  if (!_fileBrowser.selectedRel) return;
+  _fileBrowserSelect(_fileBrowser.selectedRel, _fileBrowser.selectedName);
+}
+
+/** Habilita/deshabilita el boton "Seleccionar" segun haya seleccion. */
+function _updateFileBrowserConfirmBtn() {
+  const btn = document.getElementById('file-browser-confirm-btn');
+  if (!btn) return;
+  btn.disabled = !_fileBrowser.selectedRel;
 }
 
 /** Confirma selección de un fichero. Espera a que onSelect termine (puede

@@ -6942,6 +6942,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 12px;
 }
+/* Fila seleccionada (click sobre un MKV) — distintivo claro pero no
+   exagerado. Confirmar requiere boton "Seleccionar" o doble-click. */
+.file-browser-row.selected {
+  background: var(--fb-accent-bg) !important;
+  border-bottom-color: var(--fb-accent-border);
+  box-shadow: inset 3px 0 0 var(--fb-accent);
+}
+.file-browser-row.selected .fb-name {
+  color: var(--fb-accent);
+  font-weight: 600;
+}
+.file-browser-row.selected .fb-icon { filter: saturate(1.4); }
 .fb-icon {
   font-size: 16px;
   width: 22px;
@@ -6979,15 +6991,25 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 12px 22px;
   border-top: 1px solid var(--fb-border);
   flex-shrink: 0;
   background: #fbfcfd;
 }
 .file-browser-base {
+  flex: 1;
   font-size: 11px;
   color: var(--fb-text-3);
   font-family: 'SF Mono', 'Menlo', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-browser-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Botón de selector que reemplaza el <select> de MKV origen */
