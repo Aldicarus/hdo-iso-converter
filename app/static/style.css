@@ -5830,6 +5830,16 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
+/* Centrado vertical del icono 📖 — los emoji tienen baseline propia que
+   no coincide con la del texto. Forzamos line-height:1 + flex centering
+   en el span para que el libro quede al mismo nivel que "Ayuda / Manual". */
+.cmv40-help-btn > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 14px;
+}
 .cmv40-help-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.32) !important;
   border-color: rgba(255, 255, 255, 0.65) !important;
@@ -6739,15 +6749,17 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  /* Tokens locales */
-  --fb-accent:        #0d9488;
-  --fb-accent-bg:     rgba(13, 148, 136, 0.10);
-  --fb-accent-border: rgba(13, 148, 136, 0.28);
+  /* Tokens locales — alineados con la paleta azul de la app
+     (var(--blue) = #007AFF) en vez del teal de la radiografía DV/HDR */
+  --fb-accent:        #007AFF;
+  --fb-accent-bg:     rgba(0, 122, 255, 0.10);
+  --fb-accent-bg-2:   rgba(0, 122, 255, 0.16);
+  --fb-accent-border: rgba(0, 122, 255, 0.30);
   --fb-text-1:        #0f172a;
   --fb-text-2:        #475569;
   --fb-text-3:        #64748b;
   --fb-border:        rgba(15, 23, 42, 0.07);
-  --fb-row-hover:     rgba(13, 148, 136, 0.06);
+  --fb-row-hover:     rgba(0, 122, 255, 0.05);
 }
 .file-browser-header {
   display: flex;
@@ -6810,7 +6822,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: var(--fb-accent);
   color: #ffffff;
   border-color: var(--fb-accent);
-  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 122, 255, 0.30);
 }
 .fb-root-icon { font-size: 14px; line-height: 1; }
 .fb-root-label { letter-spacing: 0.1px; }
