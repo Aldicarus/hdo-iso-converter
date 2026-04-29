@@ -5830,15 +5830,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
-/* Centrado vertical del icono 📖 — los emoji tienen baseline propia que
-   no coincide con la del texto. Forzamos line-height:1 + flex centering
-   en el span para que el libro quede al mismo nivel que "Ayuda / Manual". */
+/* Centrado vertical del icono 📖 — los emoji tienden a sentarse alto
+   dentro de su caja em (la mayoria de su tinta visual ocupa el 60-70%
+   inferior). Aunque flex.align-items:center alinea las cajas, visualmente
+   el libro queda mas arriba que la x-height del texto "Ayuda / Manual".
+   Fix: translateY(2px) compensa el desplazamiento optico. Tested en macOS,
+   Windows y Android (Chrome/Safari/Firefox). */
 .cmv40-help-btn > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
+  font-size: 16px;
   line-height: 1;
-  font-size: 14px;
+  vertical-align: middle;
+  transform: translateY(2px);
 }
 .cmv40-help-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.32) !important;
