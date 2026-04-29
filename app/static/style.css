@@ -6721,15 +6721,24 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 /* ══════════════════════════════════════════════════════════════════
    FILE BROWSER MODAL — Tab 3 selector de MKV origen
-   Navegador del árbol /mnt/library con breadcrumb + filtro + lista.
-   Diseño: blanco profesional, accent teal, separadores hairline.
+   Hereda de .modal-box (border-radius, shadow, slide-up anim, surface-1
+   bg). Solo ajustamos: layout flex column con secciones, padding=0 a
+   nivel modal-box (cada seccion tiene su propio padding), max-height
+   para que no desborde el viewport, overflow:hidden para que las
+   esquinas redondeadas funcionen con el contenido interno.
+   z-index 220 (sobre 200 estándar) para que cuando se invoque desde
+   dentro del wizard quede por encima — aunque el flujo cierra el wizard
+   antes, mantenemos el bump como red de seguridad.
    ══════════════════════════════════════════════════════════════════ */
+#file-browser-modal { z-index: 220; }
 .file-browser-modal-box {
-  max-width: 720px;
+  width: 720px;
+  max-width: 94vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
   padding: 0;
+  overflow: hidden;
   /* Tokens locales */
   --fb-accent:        #0d9488;
   --fb-accent-bg:     rgba(13, 148, 136, 0.10);

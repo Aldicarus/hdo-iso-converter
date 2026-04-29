@@ -8422,20 +8422,46 @@ const CMV40_PHASE_LABELS = {
 let _cmv40NewTargetTab = 'repo';  // 'repo' | 'path' | 'mkv'
 let _cmv40NewTargetSelected = null;  // { kind, value }
 
+/** Punto de entrada al wizard "Nuevo proyecto CMv4.0".
+ *  Flujo: file browser primero (paso obligatorio) → al seleccionar MKV se
+ *  abre el modal con todo lo demás (target RPU, opciones de auto-pipeline).
+ *  Si el usuario cancela el browser sin elegir nada, no se abre nada más. */
 async function openNewCMv40Modal() {
   _cmv40SourceSelected = null;
   _cmv40SourceFilename = null;
   _cmv40NewTargetTab = 'repo';
   _cmv40NewTargetSelected = null;
+  // Paso 1: file browser. Es la única forma de elegir source MKV ahora.
+  openFileBrowser({
+    title: 'Nuevo proyecto CMv4.0 · paso 1 de 2',
+    subtitle: 'Selecciona el MKV origen (CMv2.9) que quieres procesar',
+    onSelect: async (absPath, name) => {
+      _cmv40SourceSelected = absPath;
+      _cmv40SourceFilename = name;
+      // Paso 2: abre el wizard con MKV preseleccionado
+      await _showCMv40NewProjectWizard();
+    }
+  });
+}
+
+/** Abre el modal del wizard CMv4.0 ya con el MKV seleccionado.
+ *  Llamado desde openNewCMv40Modal (paso 2) o desde "Cambiar MKV"
+ *  cuando el usuario quiere reabrir el browser desde dentro del wizard. */
+async function _showCMv40NewProjectWizard() {
   const btn = document.getElementById('cmv40-create-btn');
   if (btn) btn.disabled = true;
   const autoCb = document.getElementById('cmv40-new-auto');
   if (autoCb) autoCb.checked = true;
-  // Reset del boton de MKV origen
+  // Pinta el nombre del MKV seleccionado en el botón de la fila "MKV origen"
   const labelEl = document.getElementById('cmv40-source-btn-label');
   if (labelEl) {
-    labelEl.textContent = 'Selecciona MKV…';
-    labelEl.classList.add('placeholder');
+    if (_cmv40SourceFilename) {
+      labelEl.textContent = _cmv40SourceFilename;
+      labelEl.classList.remove('placeholder');
+    } else {
+      labelEl.textContent = 'Selecciona MKV…';
+      labelEl.classList.add('placeholder');
+    }
   }
   // Reset visual de la sección del repo: preview del pipeline + info de
   // candidatos. Sin esto, al reabrir el modal se queda el match anterior.
@@ -8449,12 +8475,16 @@ async function openNewCMv40Modal() {
   // Label del auto-pipeline al estado neutro (sin fases conocidas todavía)
   _cmv40NewUpdateAutoLabel(null);
   _cmv40NewSwitchTargetTab('repo');
-  _cmv40LoadRecommendation('');
-  _cmv40NewResetRepoList('— Selecciona primero el MKV origen —');
-  await Promise.all([
-    loadCMv40SourceList(),
-    _cmv40NewLoadRpus(),
-  ]);
+  // Si ya hay MKV origen, dispara el lookup de recomendación + repo
+  if (_cmv40SourceFilename) {
+    _cmv40LoadRecommendation(_cmv40SourceFilename);
+    _cmv40NewLoadRepoCandidates();
+    _cmv40NewUpdateCreateBtn();
+  } else {
+    _cmv40LoadRecommendation('');
+    _cmv40NewResetRepoList('— Selecciona primero el MKV origen —');
+  }
+  await _cmv40NewLoadRpus();
   openModal('cmv40-new-modal');
 }
 
@@ -8466,13 +8496,23 @@ async function openNewCMv40Modal() {
 //  y match contra el sheet de DoviTools (que matchea por nombre, no path).
 let _cmv40SourceFilename = null;
 
-/** Abre el file browser para que el usuario seleccione el MKV origen.
- *  Sustituye al antiguo <select> que listaba /mnt/output plano. */
+/** Reabre el file browser desde dentro del wizard CMv4.0 (botón "Cambiar MKV").
+ *  Cierra el wizard temporalmente para que el browser quede en primer plano
+ *  (evita el bug de modales solapados con z-index igual). Tras seleccionar,
+ *  reabre el wizard con el nuevo MKV preseleccionado. Si el usuario cancela
+ *  el browser, el wizard se reabre sin cambios para no perder el contexto. */
 function openCMv40SourceBrowser() {
+  // El wizard puede estar abierto (cambio de MKV) o cerrado (entrada inicial,
+  // pero ese caso lo cubre openNewCMv40Modal directamente). Aquí asumimos
+  // que el usuario está editando el MKV desde el wizard.
+  const wizardWasOpen = document.getElementById('cmv40-new-modal')?.classList.contains('open');
+  if (wizardWasOpen) closeModal('cmv40-new-modal');
+  let didSelect = false;
   openFileBrowser({
-    title: 'Seleccionar MKV origen (CMv2.9)',
-    subtitle: 'Navega tu biblioteca y elige el MKV a procesar',
-    onSelect: (absPath, name) => {
+    title: 'Cambiar MKV origen',
+    subtitle: 'Selecciona otro MKV para reemplazar el actual',
+    onSelect: async (absPath, name) => {
+      didSelect = true;
       _cmv40SourceSelected = absPath;
       _cmv40SourceFilename = name;
       // Pintar nombre en el botón
@@ -8481,10 +8521,23 @@ function openCMv40SourceBrowser() {
         labelEl.textContent = name;
         labelEl.classList.remove('placeholder');
       }
-      // Disparar la lógica downstream (recomendación + repo candidates)
+      // Reabre el wizard con el nuevo source y dispara matching/recomendación
       onCMv40SourceChange(absPath, name);
+      if (wizardWasOpen) openModal('cmv40-new-modal');
     }
   });
+  // Si el usuario cierra el browser sin seleccionar, reabrir el wizard
+  // tras un tick (cuando closeModal del browser termina su animación)
+  const browserModal = document.getElementById('file-browser-modal');
+  if (browserModal && wizardWasOpen) {
+    const observer = new MutationObserver(() => {
+      if (!browserModal.classList.contains('open')) {
+        observer.disconnect();
+        if (!didSelect) openModal('cmv40-new-modal');
+      }
+    });
+    observer.observe(browserModal, { attributes: true, attributeFilter: ['class'] });
+  }
 }
 
 /** Mantenida por compatibilidad (botón ↺ en HTML lo invoca).
@@ -12102,34 +12155,51 @@ function _renderFileBrowser() {
   const statsEl = document.getElementById('file-browser-stats');
   if (!listEl || !bcEl) return;
 
-  // Breadcrumb: Library > parts > current
+  // ── Breadcrumb (DOM, no strings con encoding) ───────────────────
   const path = _fileBrowser.currentPath || '';
   const parts = path.split('/').filter(Boolean);
-  let bcHtml = `<a onclick="fileBrowserNavigate('')">📚 Library</a>`;
+  bcEl.innerHTML = '';
+  const rootLink = document.createElement('a');
+  rootLink.textContent = '📚 Library';
+  rootLink.addEventListener('click', () => fileBrowserNavigate(''));
+  bcEl.appendChild(rootLink);
   parts.forEach((part, i) => {
     const subPath = parts.slice(0, i + 1).join('/');
     const isLast = i === parts.length - 1;
-    bcHtml += `<span class="fb-bc-sep">›</span>`;
+    const sep = document.createElement('span');
+    sep.className = 'fb-bc-sep';
+    sep.textContent = '›';
+    bcEl.appendChild(sep);
     if (isLast) {
-      bcHtml += `<span class="fb-bc-current">${escHtml(part)}</span>`;
+      const cur = document.createElement('span');
+      cur.className = 'fb-bc-current';
+      cur.textContent = part;
+      bcEl.appendChild(cur);
     } else {
-      bcHtml += `<a onclick="fileBrowserNavigate('${encodeURIComponent(subPath)}')">${escHtml(part)}</a>`;
+      const link = document.createElement('a');
+      link.textContent = part;
+      link.addEventListener('click', () => fileBrowserNavigate(subPath));
+      bcEl.appendChild(link);
     }
   });
-  bcEl.innerHTML = bcHtml;
   if (baseEl) baseEl.textContent = _fileBrowser.base + (path ? '/' + path : '');
   if (upBtn) upBtn.disabled = _fileBrowser.parent === null || _fileBrowser.parent === undefined;
 
-  // Filtro in-memory
+  // ── Filtro in-memory ────────────────────────────────────────────
   const filter = _fileBrowser.filter;
   const filtered = filter
     ? _fileBrowser.entries.filter(e => e.name.toLowerCase().includes(filter))
     : _fileBrowser.entries;
 
+  // ── Lista (DOM, no innerHTML con paths encoded) ─────────────────
+  listEl.innerHTML = '';
   if (!filtered.length) {
-    listEl.innerHTML = filter
-      ? `<div class="file-browser-empty">Sin coincidencias para "${escHtml(filter)}"</div>`
-      : `<div class="file-browser-empty">📭 Esta carpeta no contiene MKVs ni subcarpetas.</div>`;
+    const empty = document.createElement('div');
+    empty.className = 'file-browser-empty';
+    empty.textContent = filter
+      ? `Sin coincidencias para "${filter}"`
+      : '📭 Esta carpeta no contiene MKVs ni subcarpetas.';
+    listEl.appendChild(empty);
     if (statsEl) statsEl.textContent = '';
     return;
   }
@@ -12142,29 +12212,40 @@ function _renderFileBrowser() {
                         + (files ? `${files} ${files === 1 ? 'MKV' : 'MKVs'}` : '');
   }
 
-  listEl.innerHTML = filtered.map(e => {
+  filtered.forEach(e => {
+    // childRel: ruta RELATIVA al base, sin encoding (lo encoda
+    // fileBrowserNavigate en su fetch — antes había doble encoding
+    // que rompía paths con espacios o tildes)
     const childRel = path ? `${path}/${e.name}` : e.name;
-    const childRelEsc = encodeURIComponent(childRel);
+    const row = document.createElement('div');
+    row.className = `file-browser-row ${e.type}`;
+    row.tabIndex = 0;
+    row.innerHTML = `
+      <span class="fb-icon">${e.type === 'dir' ? '📁' : '🎬'}</span>
+      <span class="fb-name">${escHtml(e.name)}</span>
+      ${e.type === 'file' ? `<span class="fb-size">${_fmtBytes(e.size_bytes)}</span>` : ''}
+    `;
     if (e.type === 'dir') {
-      return `<div class="file-browser-row dir" onclick="fileBrowserNavigate('${childRelEsc}')">
-                <span class="fb-icon">📁</span>
-                <span class="fb-name">${escHtml(e.name)}</span>
-              </div>`;
+      row.addEventListener('click', () => fileBrowserNavigate(childRel));
+    } else {
+      row.addEventListener('click', () => _fileBrowserSelect(childRel, e.name));
     }
-    return `<div class="file-browser-row file" onclick="_fileBrowserSelect('${childRelEsc}', ${JSON.stringify(e.name).replace(/'/g, '&#39;')})">
-              <span class="fb-icon">🎬</span>
-              <span class="fb-name">${escHtml(e.name)}</span>
-              <span class="fb-size">${_fmtBytes(e.size_bytes)}</span>
-            </div>`;
-  }).join('');
+    // Soporte teclado: Enter activa la fila
+    row.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        row.click();
+      }
+    });
+    listEl.appendChild(row);
+  });
 }
 
-function _fileBrowserSelect(relPathEnc, name) {
-  const relPath = decodeURIComponent(relPathEnc);
+function _fileBrowserSelect(relPath, name) {
   const absPath = `${_fileBrowser.base.replace(/\/$/, '')}/${relPath}`;
+  closeModal('file-browser-modal');
   if (typeof _fileBrowser.onSelect === 'function') {
     try { _fileBrowser.onSelect(absPath, name); } catch (e) { console.error('FileBrowser onSelect error:', e); }
   }
-  closeModal('file-browser-modal');
 }
 
