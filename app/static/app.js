@@ -8496,48 +8496,26 @@ async function _showCMv40NewProjectWizard() {
 //  y match contra el sheet de DoviTools (que matchea por nombre, no path).
 let _cmv40SourceFilename = null;
 
-/** Reabre el file browser desde dentro del wizard CMv4.0 (botón "Cambiar MKV").
- *  Cierra el wizard temporalmente para que el browser quede en primer plano
- *  (evita el bug de modales solapados con z-index igual). Tras seleccionar,
- *  reabre el wizard con el nuevo MKV preseleccionado. Si el usuario cancela
- *  el browser, el wizard se reabre sin cambios para no perder el contexto. */
+/** Reabre el file browser desde dentro del wizard CMv4.0 (boton "Cambiar MKV").
+ *  El browser tiene z-index 220 (vs wizard 200), por lo que se monta ENCIMA
+ *  cubriendo el wizard sin necesidad de cerrarlo. Si el usuario selecciona,
+ *  actualizamos el state del wizard in-place; si cancela, el browser se
+ *  cierra y el wizard re-emerge tal cual estaba. Sin gaps de cobertura modal. */
 function openCMv40SourceBrowser() {
-  // El wizard puede estar abierto (cambio de MKV) o cerrado (entrada inicial,
-  // pero ese caso lo cubre openNewCMv40Modal directamente). Aquí asumimos
-  // que el usuario está editando el MKV desde el wizard.
-  const wizardWasOpen = document.getElementById('cmv40-new-modal')?.classList.contains('open');
-  if (wizardWasOpen) closeModal('cmv40-new-modal');
-  let didSelect = false;
   openFileBrowser({
     title: 'Cambiar MKV origen',
     subtitle: 'Selecciona otro MKV para reemplazar el actual',
     onSelect: async (absPath, name) => {
-      didSelect = true;
       _cmv40SourceSelected = absPath;
       _cmv40SourceFilename = name;
-      // Pintar nombre en el botón
       const labelEl = document.getElementById('cmv40-source-btn-label');
       if (labelEl) {
         labelEl.textContent = name;
         labelEl.classList.remove('placeholder');
       }
-      // Reabre el wizard con el nuevo source y dispara matching/recomendación
       onCMv40SourceChange(absPath, name);
-      if (wizardWasOpen) openModal('cmv40-new-modal');
     }
   });
-  // Si el usuario cierra el browser sin seleccionar, reabrir el wizard
-  // tras un tick (cuando closeModal del browser termina su animación)
-  const browserModal = document.getElementById('file-browser-modal');
-  if (browserModal && wizardWasOpen) {
-    const observer = new MutationObserver(() => {
-      if (!browserModal.classList.contains('open')) {
-        observer.disconnect();
-        if (!didSelect) openModal('cmv40-new-modal');
-      }
-    });
-    observer.observe(browserModal, { attributes: true, attributeFilter: ['class'] });
-  }
 }
 
 /** Mantenida por compatibilidad (botón ↺ en HTML lo invoca).
@@ -12098,20 +12076,34 @@ const _fileBrowser = {
   onSelect: null,      // callback(absPath, name)
 };
 
-/** Abre el modal del file browser. opts: { title, subtitle, onSelect } */
+/** Abre el modal del file browser. opts: { title, subtitle, onSelect }
+ *  CRUCIAL: el modal se abre ANTES de hacer el fetch — si invertimos el
+ *  orden, durante el fetch (~50-300ms) el usuario veria la app de fondo
+ *  y podria interactuar. La lista muestra "⏳ Cargando…" hasta que el
+ *  fetch termina. */
 async function openFileBrowser({ title, subtitle, onSelect } = {}) {
   _fileBrowser.onSelect = onSelect || null;
   _fileBrowser.filter = '';
   const titleEl = document.getElementById('file-browser-title');
   const subEl = document.getElementById('file-browser-sub');
   const searchEl = document.getElementById('file-browser-search');
+  const listEl = document.getElementById('file-browser-list');
+  const bcEl = document.getElementById('file-browser-breadcrumb');
+  const baseEl = document.getElementById('file-browser-base');
+  const statsEl = document.getElementById('file-browser-stats');
   if (titleEl) titleEl.textContent = title || 'Seleccionar MKV';
   if (subEl) subEl.textContent = subtitle || 'Navega tu biblioteca y elige el fichero';
   if (searchEl) searchEl.value = '';
-  await fileBrowserNavigate('');
+  // Limpiar restos de aperturas anteriores ANTES de mostrar para no flashear datos viejos
+  if (listEl) listEl.innerHTML = '<div class="file-browser-loading">⏳ Cargando…</div>';
+  if (bcEl) bcEl.innerHTML = '';
+  if (baseEl) baseEl.textContent = '';
+  if (statsEl) statsEl.textContent = '';
+  // Modal arriba YA — antes de cualquier await. Mantiene cobertura modal
+  // sin gaps cuando se invoca durante una transicion (close→open de otro modal).
   openModal('file-browser-modal');
-  // Focus en el search tras un tick (modal anim)
-  setTimeout(() => searchEl?.focus(), 100);
+  setTimeout(() => searchEl?.focus(), 80);
+  await fileBrowserNavigate('');
 }
 
 /** Carga el contenido de `relPath` y re-renderiza la lista. */
@@ -12241,11 +12233,25 @@ function _renderFileBrowser() {
   });
 }
 
-function _fileBrowserSelect(relPath, name) {
+/** Confirma selección de un fichero. Espera a que onSelect termine (puede
+ *  abrir otro modal con su propio fetch) ANTES de cerrar el browser → asi
+ *  el usuario nunca ve la app de fondo: el browser cubre la transicion
+ *  hasta que el siguiente modal este renderizado. Mientras espera, el
+ *  browser se "congela" deshabilitando pointer events para que el usuario
+ *  no pueda lanzar otro click sobre filas. */
+async function _fileBrowserSelect(relPath, name) {
   const absPath = `${_fileBrowser.base.replace(/\/$/, '')}/${relPath}`;
-  closeModal('file-browser-modal');
-  if (typeof _fileBrowser.onSelect === 'function') {
-    try { _fileBrowser.onSelect(absPath, name); } catch (e) { console.error('FileBrowser onSelect error:', e); }
+  const modal = document.getElementById('file-browser-modal');
+  if (modal) modal.style.pointerEvents = 'none';
+  try {
+    if (typeof _fileBrowser.onSelect === 'function') {
+      await _fileBrowser.onSelect(absPath, name);
+    }
+  } catch (e) {
+    console.error('FileBrowser onSelect error:', e);
+  } finally {
+    if (modal) modal.style.pointerEvents = '';
+    closeModal('file-browser-modal');
   }
 }
 
