@@ -9227,15 +9227,79 @@ async function createCMv40Project() {
   }
   await refreshCMv40Sidebar();
 
-  // Arrancar cadena auto: A primero (backend). Cuando A termine,
-  // _cmv40MaybeAutoAdvance detectará pendingTarget y disparará B automáticamente.
+  // Arrancar cadena auto: pre-flight del bin PRIMERO (rápido <5s para drive/path,
+  // ~30s-2min para mkv), luego Fase A (~12 min). Si el bin no aporta CMv4.0 el
+  // pre-flight aborta SIN gastar Fase A (ahorra ~12 min). Cuando A termine,
+  // _cmv40MaybeAutoAdvance detectará pendingTarget y disparará B automáticamente
+  // (B reusa el bin del workdir → no re-descarga, solo re-evalúa trust gates).
   if (autoOn) {
-    // Marca _autoChaining=true antes de disparar Fase A. Sin esto, entre
-    // que Fase A termina (running_phase=null) y el poll dispara _cmv40Maybe
-    // AutoAdvance hay un tick donde bridgingAuto=false → el overlay parpadea.
+    // Marca _autoChaining=true antes de disparar el preflight. Sin esto, entre
+    // que el preflight termina y el poll dispara _cmv40MaybeAutoAdvance hay
+    // un tick donde bridgingAuto=false → el overlay parpadea.
     if (project) project._autoChaining = true;
-    cmv40DoAnalyzeSource(data.id);
+    _cmv40RunPreflightThenAnalyze(data.id, target);
   }
+}
+
+/**
+ * Pre-flight del bin target ANTES de Fase A (~12 min).
+ * - Si el bin tiene CMv4.0 → procede con Fase A normalmente.
+ * - Si el bin NO tiene CMv4.0 → toast con mensaje claro, apaga auto,
+ *   no se gasta Fase A. El usuario puede elegir otro bin desde la UI.
+ */
+async function _cmv40RunPreflightThenAnalyze(pid, target) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+
+  const body = { kind: target.kind === 'repo' ? 'drive' : target.kind };
+  if (target.kind === 'repo') {
+    body.file_id = target.value.file_id;
+    body.file_name = target.value.file_name || '';
+  } else if (target.kind === 'path') {
+    body.rpu_path = target.value;
+  } else if (target.kind === 'mkv') {
+    body.source_mkv_path = target.value;
+  }
+
+  // Usamos fetch directo para capturar el detail del 422 (apiFetch lo
+  // consume y solo deja un toast genérico).
+  let resp;
+  try {
+    resp = await fetch(`/api/cmv40/${pid}/preflight-target`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    showToast(`Pre-flight del bin falló (red): ${e.message || e}`, 'error');
+    project.autoContinue = false;
+    project._autoChaining = false;
+    _updateCMv40Panel(project);
+    return;
+  }
+
+  if (resp.status === 422) {
+    // Bin incompatible (CM v2.9 / sin CMv4.0). Toast largo con el motivo
+    // explícito para que el usuario sepa qué bin alternativo buscar.
+    const data = await resp.json().catch(() => ({ detail: 'bin incompatible' }));
+    showToast(`⛔ ${data.detail}`, 'error', 15000);
+    project.autoContinue = false;
+    project._autoChaining = false;
+    project.pendingTarget = null;
+    _updateCMv40Panel(project);
+    return;
+  }
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({ detail: resp.statusText }));
+    showToast(`Pre-flight falló: ${data.detail || resp.statusText}`, 'error');
+    project.autoContinue = false;
+    project._autoChaining = false;
+    _updateCMv40Panel(project);
+    return;
+  }
+
+  // Pre-flight OK → arranca Fase A. Fase B reusará el bin del workdir.
+  cmv40DoAnalyzeSource(pid);
 }
 
 // ── Proyecto CMv4.0 ──────────────────────────────────────────────

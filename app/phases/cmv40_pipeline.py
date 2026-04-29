@@ -846,6 +846,248 @@ def list_available_rpus() -> list[dict]:
     return result
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  PRE-FLIGHT — Validación rápida del bin antes de Fase A (~12 min)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Las funciones run_phase_b_target_from_* solo se invocan después de Fase A
+# (extracción del HEVC del BD, ~12 min en discos UHD). Si el bin elegido no
+# tiene CMv4.0 (caso típico: bins "P5 to P8 transfer" del repo DoviTools que
+# solo cambian profile sin upgrade de CM) el pipeline aborta DESPUÉS de
+# haber gastado los 12 min.
+#
+# Estas funciones ejecutan exactamente la misma descarga/copia/extracción +
+# dovi_tool info que Fase B, pero ANTES de Fase A — para cortar fast cuando
+# el bin es estructuralmente incompatible (CM v2.9). El bin queda guardado
+# en RPU_target.bin del workdir, así que cuando Fase B se ejecute después de
+# Fase A no necesita re-descargar (short-circuit en run_phase_b_target_*).
+
+async def preflight_target_drive(
+    session: CMv40Session,
+    file_id: str,
+    file_name: str,
+    log_callback=None,
+) -> None:
+    """Pre-flight: descarga un .bin del repo DoviTools y aborta si no
+    tiene CMv4.0. Reutiliza el fichero en workdir para Fase B posterior."""
+    from services.rec999_drive import download_file
+
+    wd = get_workdir(session)
+    rpu_target = wd / "RPU_target.bin"
+
+    if log_callback:
+        await log_callback(
+            "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
+            "el HEVC del BD. Fase A tarda ~12 min en discos UHD; el pre-flight "
+            "tarda <5s y aborta si el bin no aporta CMv4.0."
+        )
+        await log_callback(
+            f"[Pre-flight] ┌─ Descargando bin del repo DoviTools: {file_name}"
+        )
+
+    try:
+        written = await download_file(file_id, rpu_target, progress_cb=None)
+    except Exception as e:
+        raise RuntimeError(f"Descarga del repo DoviTools falló: {e}")
+
+    if log_callback:
+        await log_callback(
+            f"[Pre-flight] Descargados {written/1024/1024:.1f} MB a {rpu_target.name}"
+        )
+
+    session.target_rpu_source = "drive"
+    session.target_rpu_path = f"drive://{file_id}/{file_name}"
+    await _preflight_validate_bin(session, rpu_target, log_callback)
+
+
+async def preflight_target_path(
+    session: CMv40Session,
+    rpu_path: str,
+    log_callback=None,
+) -> None:
+    """Pre-flight: copia un .bin local al workdir y aborta si no tiene CMv4.0."""
+    wd = get_workdir(session)
+    rpu_target = wd / "RPU_target.bin"
+
+    src = Path(rpu_path)
+    if not src.exists():
+        raise RuntimeError(f"RPU no encontrado: {rpu_path}")
+    if not src.is_file() or src.suffix != ".bin":
+        raise RuntimeError(f"Fichero no es un .bin válido: {rpu_path}")
+
+    if log_callback:
+        await log_callback(
+            "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
+            "el HEVC del BD."
+        )
+        await log_callback(f"[Pre-flight] ┌─ Copiando bin local: {src.name}")
+
+    shutil.copy2(src, rpu_target)
+
+    session.target_rpu_source = "path"
+    session.target_rpu_path = str(src)
+    await _preflight_validate_bin(session, rpu_target, log_callback)
+
+
+async def preflight_target_mkv(
+    session: CMv40Session,
+    source_mkv_path: str,
+    log_callback=None,
+    proc_callback=None,
+) -> None:
+    """Pre-flight: extrae el RPU de otro MKV y aborta si no tiene CMv4.0.
+    Más lento que drive/path (~30s-2min) pero igual ahorra los ~12 min de
+    Fase A si el MKV no tiene CMv4.0."""
+    wd = get_workdir(session)
+    rpu_target = wd / "RPU_target.bin"
+    temp_hevc = wd / "_target_source.hevc"
+
+    if not Path(source_mkv_path).exists():
+        raise RuntimeError(f"MKV no encontrado: {source_mkv_path}")
+
+    duration = await _probe_duration(source_mkv_path)
+    W_FFMPEG, W_RPU = 60.0, 35.0
+
+    try:
+        if log_callback:
+            await log_callback(
+                "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
+                "el HEVC del BD."
+            )
+            await log_callback(
+                f"[Pre-flight] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}"
+            )
+
+        rc = await _run_streaming([
+            FFMPEG_BIN, "-y", "-i", source_mkv_path,
+            "-map", "0:v:0", "-c:v", "copy",
+            "-bsf:v", "hevc_mp4toannexb",
+            "-f", "hevc", str(temp_hevc),
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
+               "label": "Pre-flight: extrayendo HEVC del MKV target",
+           })
+        if rc != 0:
+            raise RuntimeError(f"ffmpeg falló (código {rc})")
+
+        if log_callback:
+            await log_callback("[Pre-flight] Extrayendo RPU del HEVC target…")
+        rc, out, err = await _run([
+            DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
+        ], timeout=600)
+        if rc != 0:
+            raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+
+        session.target_rpu_source = "mkv"
+        session.target_rpu_path = source_mkv_path
+        await _preflight_validate_bin(session, rpu_target, log_callback)
+    finally:
+        temp_hevc.unlink(missing_ok=True)
+
+
+async def _preflight_validate_bin(
+    session: CMv40Session,
+    rpu_path: Path,
+    log_callback=None,
+) -> None:
+    """Ejecuta dovi_tool info, clasifica el bin y aborta si target_type ==
+    'incompatible' (sin CMv4.0). NO evalúa los gates de trust — esos
+    requieren source_dv_info que aún no existe en este punto del pipeline.
+    Solo el check 'tiene CMv4.0' que es estructural y rápido. Fase B
+    re-correrá el análisis completo con los gates después de Fase A."""
+    try:
+        session.target_rpu_sha256 = await asyncio.to_thread(compute_file_sha256, rpu_path)
+        if log_callback:
+            await log_callback(
+                f"[Pre-flight] SHA-256 del bin: {session.target_rpu_sha256[:12]}…"
+            )
+    except Exception as e:
+        _logger.warning("No se pudo calcular SHA-256 del bin target: %s", e)
+        session.target_rpu_sha256 = ""
+
+    rc, summary, err = await _run([
+        DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
+    ], timeout=30)
+    if rc != 0:
+        raise RuntimeError(f"dovi_tool info falló sobre RPU target: {err[:300]}")
+
+    dovi_info = _parse_dovi_summary(summary)
+    session.target_dv_info = dovi_info
+    session.target_frame_count = dovi_info.frame_count
+    session.target_type = _classify_target_type(dovi_info)
+
+    if log_callback:
+        await log_callback(
+            f"[Pre-flight] Bin analizado — Profile {dovi_info.profile}"
+            f"{' (' + dovi_info.el_type + ')' if dovi_info.el_type else ''}, "
+            f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames, "
+            f"L8={'sí' if dovi_info.has_l8 else 'no'}"
+        )
+
+    # Hard abort: bin sin CMv4.0 — punto muerto absoluto. Limpia el .bin
+    # descargado para no dejar basura y para forzar re-download si el
+    # usuario reintenta con el mismo target.
+    if session.target_type == "incompatible":
+        cm = dovi_info.cm_version or "desconocido"
+        abort_msg = (
+            f"El bin target no aporta CMv4.0 (CM {cm}). No hay metadata "
+            f"L8-L11 que transferir al RPU del BD — este pipeline solo "
+            f"puede inyectar CMv4.0 sobre CMv2.9, no v2.9 sobre v2.9. "
+            f"Causa típica: bins 'P5 to P8 transfer' del repo DoviTools que "
+            f"solo cambian de profile sin upgrade de CM. Busca otro bin con "
+            f"'CMv4.0' / 'v4.0' / 'CMv4 transfer' en el nombre, o extrae de "
+            f"un MKV cuyo mkvinfo muestre 'dv_cm_version: v4.0'. Pre-flight "
+            f"ha ahorrado la extracción del HEVC del BD (~12 min)."
+        )
+        session.compat_warning = abort_msg
+        if log_callback:
+            await log_callback(f"[Pre-flight] ⛔ {abort_msg}")
+        try:
+            rpu_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        session.target_dv_info = None
+        session.target_frame_count = 0
+        session.target_rpu_sha256 = ""
+        session.target_rpu_source = ""
+        session.target_rpu_path = ""
+        session.target_type = ""
+        raise RuntimeError(abort_msg)
+
+    if log_callback:
+        if session.target_type.startswith("trusted_"):
+            await log_callback(
+                f"[Pre-flight] ✓ Bin válido — clasificado como {session.target_type}. "
+                f"Procediendo con extracción del BD (Fase A)."
+            )
+        else:
+            await log_callback(
+                f"[Pre-flight] ✓ Bin válido (CM v4.0) pero clasificado como "
+                f"{session.target_type} — los gates completos se evaluarán en "
+                f"Fase B tras conocer el source."
+            )
+
+
+def _bin_already_cached(
+    session: CMv40Session,
+    expected_source: str,
+    expected_path: str,
+    rpu_target: Path,
+) -> bool:
+    """True si el bin ya fue descargado/copiado/extraído por un preflight
+    previo y coincide con la petición actual. Permite que Fase B salte el
+    paso lento (download/copy/extract) y solo re-corra la analyze para
+    obtener los trust gates con datos del source ya disponibles."""
+    if not rpu_target.exists() or rpu_target.stat().st_size < 1024:
+        return False
+    if session.target_rpu_source != expected_source:
+        return False
+    if session.target_rpu_path != expected_path:
+        return False
+    return True
+
+
 async def run_phase_b_target_from_path(
     session: CMv40Session,
     rpu_path: str,
@@ -860,6 +1102,17 @@ async def run_phase_b_target_from_path(
         raise RuntimeError(f"RPU no encontrado: {rpu_path}")
     if not src.is_file() or src.suffix != ".bin":
         raise RuntimeError(f"Fichero no es un .bin válido: {rpu_path}")
+
+    if _bin_already_cached(session, "path", str(src), rpu_target):
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ✓ Bin ya copiado por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
+                f"— evaluando trust gates con datos del source."
+            )
+        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _analyze_target_rpu(session, rpu_target, log_callback)
+        await _emit_progress(log_callback, 100, "Completado")
+        return
 
     await _emit_progress(log_callback, 0, f"Copiando RPU target: {src.name}")
     if log_callback:
@@ -891,6 +1144,18 @@ async def run_phase_b_target_from_drive(
 
     wd = get_workdir(session)
     rpu_target = wd / "RPU_target.bin"
+
+    expected_path = f"drive://{file_id}/{file_name}"
+    if _bin_already_cached(session, "drive", expected_path, rpu_target):
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ✓ Bin ya descargado por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
+                f"— evaluando trust gates con datos del source."
+            )
+        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _analyze_target_rpu(session, rpu_target, log_callback)
+        await _emit_progress(log_callback, 100, "Completado")
+        return
 
     await _emit_progress(log_callback, 0, f"Descargando del repositorio: {file_name}")
     if log_callback:
@@ -949,6 +1214,17 @@ async def run_phase_b_target_from_mkv(
 
     if not Path(source_mkv_path).exists():
         raise RuntimeError(f"MKV no encontrado: {source_mkv_path}")
+
+    if _bin_already_cached(session, "mkv", source_mkv_path, rpu_target):
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ✓ RPU ya extraído por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
+                f"— evaluando trust gates con datos del source."
+            )
+        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _analyze_target_rpu(session, rpu_target, log_callback)
+        await _emit_progress(log_callback, 100, "Completado")
+        return
 
     # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
     W_FFMPEG, W_RPU = 50.0, 45.0

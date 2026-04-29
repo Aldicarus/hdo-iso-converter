@@ -1768,6 +1768,7 @@ from phases.cmv40_pipeline import (
     list_available_rpus,
     run_phase_a_analyze_source, run_phase_b_target_from_path,
     run_phase_b_target_from_mkv, run_phase_b_target_from_drive,
+    preflight_target_path, preflight_target_mkv, preflight_target_drive,
     run_phase_c_extract,
     run_phase_e_correct_sync, run_phase_f_inject,
     run_phase_g_remux, run_phase_h_validate,
@@ -2863,6 +2864,116 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}
+
+
+class CMv40PreflightRequest(BaseModel):
+    """Pre-flight rápido del bin target antes de Fase A.
+    Uno y solo uno de los tres conjuntos de campos:
+      - kind=path:  rpu_path
+      - kind=mkv:   source_mkv_path
+      - kind=drive: file_id (+ opcional file_name solo para el log)
+    """
+    kind: str  # "path" | "mkv" | "drive"
+    rpu_path: str | None = None
+    source_mkv_path: str | None = None
+    file_id: str | None = None
+    file_name: str = ""
+
+
+@app.post(
+    "/api/cmv40/{session_id}/preflight-target",
+    summary="Pre-flight: descarga/copia/extrae el bin target y aborta si no aporta CMv4.0 (ahorra Fase A)",
+)
+async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
+    """
+    Pre-flight síncrono: descarga/copia/extrae el bin target en el workdir y
+    valida que tenga CMv4.0. Si no la tiene, aborta con mensaje claro y NO
+    se ejecuta Fase A (~12 min de ahorro). El bin queda guardado en
+    RPU_target.bin para que Fase B lo reuse sin re-descargar.
+
+    Devuelve:
+      - {ok: true, target_type, cm_version, has_l8, frame_count}  → seguir con Fase A
+      - HTTP 422 con detail = mensaje del abort                    → bin inservible
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # ⚠️ DEV MODE: simula un bin trusted (CMv4.0) sin descargar nada
+    if DEV_MODE:
+        from models import DoviInfo
+        src_frames = session.source_frame_count or 137992
+        session.target_dv_info = DoviInfo(
+            profile=7, el_type="FEL", cm_version="v4.0",
+            frame_count=src_frames, has_l8=True,
+        )
+        session.target_frame_count = src_frames
+        session.target_type = "trusted_p7_fel_final"
+        if body.kind == "drive":
+            session.target_rpu_source = "drive"
+            session.target_rpu_path = f"drive://{body.file_id}/{body.file_name}"
+        elif body.kind == "path":
+            session.target_rpu_source = "path"
+            session.target_rpu_path = body.rpu_path or ""
+        else:
+            session.target_rpu_source = "mkv"
+            session.target_rpu_path = body.source_mkv_path or ""
+        save_cmv40_session(session)
+        await _cmv40_log(session, f"[DEV] Pre-flight OK simulado · {body.kind}")
+        return {
+            "ok": True,
+            "target_type": session.target_type,
+            "cm_version": "v4.0",
+            "has_l8": True,
+            "frame_count": src_frames,
+        }
+
+    async def _log_cb(msg: str):
+        await _cmv40_log(session, msg)
+
+    await _cmv40_log(session, "━━━ Inicio: pre-flight target ━━━")
+    try:
+        if body.kind == "drive":
+            if not body.file_id:
+                raise HTTPException(status_code=400, detail="file_id requerido para kind=drive")
+            await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
+        elif body.kind == "path":
+            if not body.rpu_path:
+                raise HTTPException(status_code=400, detail="rpu_path requerido para kind=path")
+            await preflight_target_path(session, body.rpu_path, _log_cb)
+        elif body.kind == "mkv":
+            if not body.source_mkv_path:
+                raise HTTPException(status_code=400, detail="source_mkv_path requerido para kind=mkv")
+
+            def _proc_cb(proc):
+                _cmv40_proc_register(session.id, proc)
+
+            await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
+        else:
+            raise HTTPException(status_code=400, detail=f"kind desconocido: {body.kind}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Abort de bin incompatible u otro fallo: limpiamos error_message
+        # de la sesión y devolvemos 422 con el mensaje legible. NO usamos
+        # session.error_message porque eso bloquea la UI con un banner; el
+        # frontend muestra un toast contextual y permite elegir otro bin.
+        await _cmv40_log(session, f"✗ Pre-flight FALLÓ: {e}")
+        save_cmv40_session(session)
+        raise HTTPException(status_code=422, detail=str(e))
+    finally:
+        _cmv40_active_procs.pop(session.id, None)
+
+    save_cmv40_session(session)
+    info = session.target_dv_info
+    await _cmv40_log(session, f"✓ Pre-flight target completado — bin válido, procediendo con Fase A")
+    return {
+        "ok": True,
+        "target_type": session.target_type,
+        "cm_version": info.cm_version if info else "",
+        "has_l8": bool(info.has_l8) if info else False,
+        "frame_count": info.frame_count if info else 0,
+    }
 
 
 @app.post("/api/cmv40/{session_id}/extract", summary="Fase C: demux BL/EL + per-frame data")
