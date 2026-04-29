@@ -6778,6 +6778,43 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .file-browser-close:hover { color: var(--fb-text-1); }
 
+/* Selector de root (Library / Output) — visible cuando hay 2+ roots */
+.file-browser-roots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--fb-border);
+  flex-shrink: 0;
+}
+.fb-root-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--fb-border);
+  background: #ffffff;
+  color: var(--fb-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fb-root-btn:hover {
+  border-color: var(--fb-accent-border);
+  background: var(--fb-accent-bg);
+  color: var(--fb-accent);
+}
+.fb-root-btn.active {
+  background: var(--fb-accent);
+  color: #ffffff;
+  border-color: var(--fb-accent);
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.25);
+}
+.fb-root-icon { font-size: 14px; line-height: 1; }
+.fb-root-label { letter-spacing: 0.1px; }
+
 .file-browser-toolbar {
   display: flex;
   align-items: center;

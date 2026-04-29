@@ -6114,61 +6114,44 @@ document.head.appendChild(spinStyle);
 let mkvProject = null;  // {fileName, filePath, analysis, originalAnalysis, dirty}
 let _mkvPickerSelected = null;
 
-// ── MKV Picker Modal ─────────────────────────────────────────────
+// ── MKV Picker — usa el file browser con roots Library + Output ───
+// El antiguo modal #mkv-picker-modal con <select> queda como fallback
+// pero ya no se invoca desde la UI. El flujo nuevo es:
+//   1. openMkvPickerModal() → openFileBrowser con roots [biblioteca, output]
+//   2. Al seleccionar MKV, _doAnalyzeMkvFromPickerPath(absPath, name) lanza
+//      /api/mkv/analyze con la ruta absoluta. El backend valida que la
+//      ruta cae bajo un root permitido.
 
 async function openMkvPickerModal() {
-  _mkvPickerSelected = null;
-  const btn = document.getElementById('mkv-picker-analyze-btn');
-  if (btn) btn.disabled = true;
-  await loadMkvPickerList();
-  openModal('mkv-picker-modal');
-}
-
-async function loadMkvPickerList() {
-  const select = document.getElementById('mkv-picker-select');
-  if (!select) return;
-  select.innerHTML = '<option value="">— Cargando… —</option>';
-  const data = await apiFetch('/api/mkv/files');
-  select.innerHTML = '<option value="">— Seleccionar MKV —</option>';
-  if (data?.files) {
-    data.files.forEach(f => {
-      const opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      select.appendChild(opt);
-    });
-  }
-}
-
-function onMkvPickerChange(val) {
-  _mkvPickerSelected = val || null;
-  const btn = document.getElementById('mkv-picker-analyze-btn');
-  if (btn) btn.disabled = !val;
-}
-
-async function analyzeMkvFromPicker() {
-  if (!_mkvPickerSelected) return;
-
-  // Si hay un MKV abierto con cambios pendientes, confirmar
+  // Si hay MKV abierto con cambios pendientes, confirmar antes de abrir
   if (mkvProject?.dirty) {
     showConfirm(
       'Cambios sin guardar',
       'Hay cambios sin guardar en el MKV actual. ¿Descartar y abrir otro?',
-      () => _doAnalyzeMkvFromPicker(),
+      () => _openMkvBrowserNow(),
       'Descartar y abrir',
     );
     return;
   }
-  await _doAnalyzeMkvFromPicker();
+  _openMkvBrowserNow();
 }
 
-async function _doAnalyzeMkvFromPicker() {
-  const fileName = _mkvPickerSelected;
-  const btn = document.getElementById('mkv-picker-analyze-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analizando…'; }
+function _openMkvBrowserNow() {
+  openFileBrowser({
+    title: 'Abrir MKV para inspeccionar / editar',
+    subtitle: 'Selecciona el MKV en tu biblioteca o en el output del converter',
+    roots: [
+      { key: 'library', label: 'Biblioteca', icon: '📚' },
+      { key: 'output',  label: 'Output',     icon: '📦' },
+    ],
+    onSelect: async (absPath, name) => {
+      await _doAnalyzeMkvFromPickerPath(absPath, name);
+    },
+  });
+}
 
-  // Cerrar picker y abrir modal de progreso
-  closeModal('mkv-picker-modal');
+async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
+  // Abrir modal de progreso ANTES de cerrar el browser para no dejar gap
   const fileEl = document.getElementById('mkv-analyze-modal-file');
   if (fileEl) fileEl.textContent = fileName;
   _resetMkvAnalyzeSteps();
@@ -6222,9 +6205,12 @@ async function _doAnalyzeMkvFromPicker() {
     } catch (_) { /* silenciar errores de polling */ }
   }, 500);
 
+  // Enviamos absPath (ruta absoluta resuelta por el file browser). El
+  // backend valida que cae bajo un root permitido (Library / Output) y
+  // ya no asume /mnt/output como prefijo automatico.
   const data = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
-    body: JSON.stringify({ file_path: fileName }),
+    body: JSON.stringify({ file_path: absPath }),
   }, 600000);  // 10 min timeout — el PGS puede tardar 1-3 min
 
   clearInterval(pollId);
@@ -6234,8 +6220,6 @@ async function _doAnalyzeMkvFromPicker() {
   });
   await new Promise(r => setTimeout(r, 300));
   closeModal('mkv-analyze-modal');
-
-  if (btn) { btn.disabled = false; btn.textContent = '🔍 Abrir y analizar'; }
 
   if (!data) {
     showToast('Error al analizar el MKV.', 'error');
@@ -7086,9 +7070,13 @@ async function _rgrfAnalyzeLight(evt) {
 
   try {
     // Timeout 25 min — UHD BD 60GB full tarda 3-5 min normalmente
+    // Enviamos la ruta ABSOLUTA (file_path), no el filename. Antes el
+    // backend prefijaba /mnt/output asumiendo que solo se inspeccionaban
+    // ficheros del converter; con el browser de Library/Output ahora la
+    // ruta completa la determina el frontend en analyze_mkv.
     const data = await apiFetch('/api/mkv/light-profile', {
       method: 'POST',
-      body: JSON.stringify({ file_path: mkvProject.analysis.file_name }),
+      body: JSON.stringify({ file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name }),
     }, 1500000);
     if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
 
@@ -7786,10 +7774,12 @@ async function applyMkvEdits() {
 
   statusEl.innerHTML = '<span style="color:var(--green)">✓ Cambios aplicados correctamente</span>';
 
-  // Re-analizar para refrescar estado
+  // Re-analizar para refrescar estado — usamos la ruta ABSOLUTA del MKV
+  // (filePath), no el filename. El backend valida que cae bajo un root
+  // permitido (Library / Output).
   const fresh = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
-    body: JSON.stringify({ file_path: mkvProject.fileName }),
+    body: JSON.stringify({ file_path: mkvProject.filePath || mkvProject.fileName }),
   });
 
   if (fresh) {
@@ -12068,22 +12058,39 @@ function _renderCMv40Chart(project) {
 // ══════════════════════════════════════════════════════════════════════
 
 const _fileBrowser = {
-  base: '/mnt/library',
-  currentPath: '',     // relativa a base, vacía = raíz
-  parent: null,        // ruta del padre (string), null si en raíz
+  // Roots disponibles. 1 root = sin selector visible. 2+ = pills arriba.
+  roots: [],            // [{key, label, icon}]
+  rootKey: 'library',   // key del root activo
+  base: '/mnt/library', // ruta absoluta del root activo (devuelta por backend)
+  currentPath: '',      // relativa al root activo
+  parent: null,
   entries: [],
   filter: '',
-  onSelect: null,      // callback(absPath, name)
+  onSelect: null,
 };
 
-/** Abre el modal del file browser. opts: { title, subtitle, onSelect }
- *  CRUCIAL: el modal se abre ANTES de hacer el fetch — si invertimos el
- *  orden, durante el fetch (~50-300ms) el usuario veria la app de fondo
- *  y podria interactuar. La lista muestra "⏳ Cargando…" hasta que el
- *  fetch termina. */
-async function openFileBrowser({ title, subtitle, onSelect } = {}) {
+const _DEFAULT_FB_ROOTS = [
+  { key: 'library', label: 'Biblioteca', icon: '📚' },
+];
+const _FB_ROOT_LABELS = {
+  library: 'Biblioteca',
+  output:  'Output',
+};
+
+/** Abre el modal del file browser.
+ *  opts: { title, subtitle, roots, onSelect }
+ *    - roots: array de {key, label, icon}. Default = [Biblioteca].
+ *      Si hay 2+ roots, se muestra un selector de pills arriba.
+ *      El primer root del array es el que se carga al abrir.
+ *  CRUCIAL: el modal se abre ANTES de hacer el fetch para evitar gaps
+ *  visuales (la app de fondo no debe ser interactuable). La lista
+ *  muestra "⏳ Cargando…" hasta que el fetch termina. */
+async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   _fileBrowser.onSelect = onSelect || null;
   _fileBrowser.filter = '';
+  _fileBrowser.roots = (roots && roots.length) ? roots : _DEFAULT_FB_ROOTS;
+  _fileBrowser.rootKey = _fileBrowser.roots[0].key;
+
   const titleEl = document.getElementById('file-browser-title');
   const subEl = document.getElementById('file-browser-sub');
   const searchEl = document.getElementById('file-browser-search');
@@ -12099,6 +12106,7 @@ async function openFileBrowser({ title, subtitle, onSelect } = {}) {
   if (bcEl) bcEl.innerHTML = '';
   if (baseEl) baseEl.textContent = '';
   if (statsEl) statsEl.textContent = '';
+  _renderFileBrowserRoots();
   // Modal arriba YA — antes de cualquier await. Mantiene cobertura modal
   // sin gaps cuando se invoca durante una transicion (close→open de otro modal).
   openModal('file-browser-modal');
@@ -12106,18 +12114,45 @@ async function openFileBrowser({ title, subtitle, onSelect } = {}) {
   await fileBrowserNavigate('');
 }
 
-/** Carga el contenido de `relPath` y re-renderiza la lista. */
+/** Pinta el selector de roots (pills arriba del breadcrumb). Solo visible
+ *  cuando hay 2+ roots configurados; con 1 solo se oculta. */
+function _renderFileBrowserRoots() {
+  const el = document.getElementById('file-browser-roots');
+  if (!el) return;
+  if (!_fileBrowser.roots || _fileBrowser.roots.length < 2) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'flex';
+  el.innerHTML = '';
+  _fileBrowser.roots.forEach(r => {
+    const btn = document.createElement('button');
+    btn.className = `fb-root-btn ${r.key === _fileBrowser.rootKey ? 'active' : ''}`;
+    btn.innerHTML = `<span class="fb-root-icon">${r.icon || '📁'}</span><span class="fb-root-label">${escHtml(r.label)}</span>`;
+    btn.addEventListener('click', () => {
+      if (r.key === _fileBrowser.rootKey) return;
+      _fileBrowser.rootKey = r.key;
+      _renderFileBrowserRoots();
+      fileBrowserNavigate('');
+    });
+    el.appendChild(btn);
+  });
+}
+
+/** Carga el contenido de `relPath` (relativo al root activo) y re-renderiza. */
 async function fileBrowserNavigate(relPath) {
   const listEl = document.getElementById('file-browser-list');
   if (listEl) listEl.innerHTML = '<div class="file-browser-loading">⏳ Cargando…</div>';
   try {
-    const data = await apiFetch(`/api/library/browse?path=${encodeURIComponent(relPath || '')}`);
+    const url = `/api/library/browse?root=${encodeURIComponent(_fileBrowser.rootKey)}&path=${encodeURIComponent(relPath || '')}`;
+    const data = await apiFetch(url);
     if (!data) throw new Error('Sin respuesta');
     if (data.error) {
       if (listEl) listEl.innerHTML = `<div class="file-browser-empty">${escHtml(data.error)}</div>`;
       return;
     }
-    _fileBrowser.base = data.base || '/mnt/library';
+    _fileBrowser.base = data.base || '';
     _fileBrowser.currentPath = data.path || '';
     _fileBrowser.parent = data.parent;
     _fileBrowser.entries = data.entries || [];
@@ -12152,7 +12187,12 @@ function _renderFileBrowser() {
   const parts = path.split('/').filter(Boolean);
   bcEl.innerHTML = '';
   const rootLink = document.createElement('a');
-  rootLink.textContent = '📚 Library';
+  // Etiqueta del root activo en el inicio del breadcrumb. Buscar en
+  // los roots configurados; fallback al mapping de defaults.
+  const activeRoot = (_fileBrowser.roots || []).find(r => r.key === _fileBrowser.rootKey);
+  const rootIcon = activeRoot?.icon || '📁';
+  const rootLabel = activeRoot?.label || _FB_ROOT_LABELS[_fileBrowser.rootKey] || _fileBrowser.rootKey;
+  rootLink.textContent = `${rootIcon} ${rootLabel}`;
   rootLink.addEventListener('click', () => fileBrowserNavigate(''));
   bcEl.appendChild(rootLink);
   parts.forEach((part, i) => {

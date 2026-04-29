@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260429b">
+  <link rel="stylesheet" href="/static/style.css?v=20260429c">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -586,6 +586,7 @@
       </div>
       <button class="file-browser-close" onclick="closeModal('file-browser-modal')" aria-label="Cerrar">×</button>
     </div>
+    <div class="file-browser-roots" id="file-browser-roots" style="display:none"></div>
     <div class="file-browser-toolbar">
       <button class="file-browser-up" id="file-browser-up-btn" onclick="fileBrowserUp()" title="Subir un nivel">⬆</button>
       <div class="file-browser-breadcrumb" id="file-browser-breadcrumb"></div>
@@ -680,26 +681,8 @@
   </div>
 </div>
 
-<!-- ═══ MODAL: MKV Picker (Tab 2) ════════════════════════════════ -->
-<div class="modal-overlay" id="mkv-picker-modal" onclick="onModalOverlayClick(event,'mkv-picker-modal')">
-  <div class="modal-box">
-    <div class="modal-title">✏️ Abrir MKV</div>
-    <div class="modal-sub">Selecciona un fichero MKV de /mnt/output para editar sus propiedades.</div>
-    <label class="modal-field-label">Fichero MKV</label>
-    <div class="iso-select-row">
-      <select id="mkv-picker-select" class="iso-select" onchange="onMkvPickerChange(this.value)">
-        <option value="">— Seleccionar MKV —</option>
-      </select>
-      <button class="btn btn-secondary btn-md" onclick="loadMkvPickerList()"
-        data-tooltip="Recargar la lista de MKVs disponibles">↺</button>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal('mkv-picker-modal')">Cancelar</button>
-      <button class="btn btn-primary btn-sm" id="mkv-picker-analyze-btn" disabled
-        onclick="analyzeMkvFromPicker()">🔍 Abrir y analizar</button>
-    </div>
-  </div>
-</div>
+<!-- (Modal #mkv-picker-modal eliminado: reemplazado por el file browser
+     unificado #file-browser-modal con roots [biblioteca, output]) -->
 
 <!-- ═══ MODAL: Aplicar cambios MKV (Tab 2) ═══════════════════════ -->
 <div class="modal-overlay" id="mkv-apply-modal">
@@ -1063,6 +1046,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260429c"></script>
+<script src="/static/app.js?v=20260429d"></script>
 </body>
 </html>

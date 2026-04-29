@@ -1103,6 +1103,17 @@ OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
 LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
 
 
+# Roots disponibles para el file browser (Tab 2 y Tab 3).
+# Cada key apunta a una Path mountada en el contenedor. El frontend pide
+# `?root=library` o `?root=output` para conmutar entre arboles. Solo paths
+# bajo estos roots son aceptados por endpoints downstream (analyze,
+# light-profile) — proteccion contra path traversal arbitrario.
+LIBRARY_ROOTS: dict[str, Path] = {
+    "library": LIBRARY_DIR,
+    "output":  OUTPUT_DIR_MKV,
+}
+
+
 # Directorios "no peliculas" que NUNCA queremos exponer en el browser:
 #   - .zfs/snapshot — ZFS snapshots ocultos en QuTS hero (recursivos eternos)
 #   - @eaDir, .DS_Store, Thumbs.db — metadata de Synology/macOS/Windows
@@ -1113,40 +1124,79 @@ _LIBRARY_HIDDEN_DIRS = {
     "$RECYCLE.BIN", "@Recycle", ".Trash", "lost+found",
 }
 
-def _safe_library_path(rel_path: str) -> Path:
-    """Resuelve `rel_path` relativo a LIBRARY_DIR validando que no escape.
-    Lanza HTTPException 400 si intenta acceder fuera de LIBRARY_DIR.
-    Devuelve la Path resuelta absoluta.
+def _safe_library_path(rel_path: str, root_key: str = "library") -> tuple[Path, Path]:
+    """Resuelve `rel_path` relativo al root indicado validando que no escape.
+    Lanza HTTPException 400 si root es desconocido o si la path escapa.
+    Devuelve (path_absoluta_resuelta, path_base_resuelta).
     """
+    base = LIBRARY_ROOTS.get(root_key)
+    if base is None:
+        raise HTTPException(status_code=400, detail=f"Root desconocido: {root_key}")
     rel = (rel_path or "").strip().lstrip("/")
-    candidate = (LIBRARY_DIR / rel).resolve()
-    base_resolved = LIBRARY_DIR.resolve()
+    candidate = (base / rel).resolve()
+    base_resolved = base.resolve()
     try:
         candidate.relative_to(base_resolved)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Ruta fuera de la biblioteca")
-    return candidate
+        raise HTTPException(status_code=400, detail="Ruta fuera del root permitido")
+    return candidate, base_resolved
 
 
-@app.get("/api/library/browse", summary="Navega la biblioteca de MKVs (Tab 3)")
-async def library_browse(path: str = ""):
-    """Lista subdirectorios + ficheros .mkv en LIBRARY_DIR/<path>.
+def _resolve_mkv_path_safe(input_path: str) -> Path:
+    """Resuelve una ruta de MKV (absoluta o relativa) validando que cae bajo
+    un root permitido. Usado por endpoints que reciben file_path desde el
+    frontend (analyze, light-profile, etc.) — antes asumian /mnt/output como
+    prefijo, ahora aceptan cualquier root para soportar el browser de Library.
+    """
+    p = (input_path or "").strip()
+    if not p:
+        raise HTTPException(status_code=400, detail="file_path vacío")
+    candidate = Path(p) if p.startswith("/") else (OUTPUT_DIR_MKV / p)
+    candidate = candidate.resolve()
+    # Acepta si cae bajo CUALQUIER root configurado
+    for root in LIBRARY_ROOTS.values():
+        try:
+            candidate.relative_to(root.resolve())
+            return candidate
+        except ValueError:
+            continue
+    raise HTTPException(
+        status_code=400,
+        detail=f"Ruta fuera de los directorios permitidos: {p}"
+    )
+
+
+@app.get("/api/library/browse", summary="Navega árboles de MKVs (Tab 2 y Tab 3)")
+async def library_browse(root: str = "library", path: str = ""):
+    """Lista subdirectorios + ficheros .mkv bajo LIBRARY_ROOTS[root]/<path>.
+
+    Roots soportados (configurables via env LIBRARY_DIR / OUTPUT_DIR):
+      - "library": /mnt/library — biblioteca de MKVs origen
+      - "output":  /mnt/output  — MKVs creados por la app (Tab 1)
 
     Devuelve:
+      - root: clave del root activo
       - path: ruta relativa actual (vacío = raíz)
       - parent: ruta relativa del padre (None si en raíz)
-      - entries: list[{name, type, size_bytes}] ordenadas por dirs primero
-                 y luego alfabéticamente
+      - base: ruta absoluta del root
+      - entries: list[{name, type, size_bytes}] dirs primero, alfabético
 
     Solo se muestran .mkv (case-insensitive) y carpetas no-ocultas. Filtra
-    .zfs/snapshot, @eaDir, papeleras, dotfiles, etc. para mantener la lista
-    legible en bibliotecas grandes.
+    .zfs/snapshot, @eaDir, papeleras, dotfiles, etc.
     """
     if DEV_MODE:
-        # Dev: devuelve un par de carpetas + MKVs fake
+        # Fixtures distintas según el root seleccionado
+        if root == "output":
+            return {
+                "root": root, "path": path, "parent": "" if path else None,
+                "base": "/mnt/output",
+                "entries": [
+                    {"name": "Movie A [DV FEL CMv4.0].mkv", "type": "file", "size_bytes": 78_000_000_000},
+                    {"name": "Movie B [DV FEL CMv4.0].mkv", "type": "file", "size_bytes": 65_000_000_000},
+                ],
+            }
         return {
-            "path": path,
-            "parent": "" if path else None,
+            "root": root, "path": path, "parent": "" if path else None,
             "base": "/mnt/library",
             "entries": [
                 {"name": "Action", "type": "dir", "size_bytes": 0},
@@ -1155,11 +1205,15 @@ async def library_browse(path: str = ""):
                 {"name": "Movie 2 (2023) [DV FEL].mkv", "type": "file", "size_bytes": 48_000_000_000},
             ],
         }
-    if not LIBRARY_DIR.exists() or not LIBRARY_DIR.is_dir():
-        return {"path": path, "parent": None, "base": str(LIBRARY_DIR),
-                "entries": [], "error": "Biblioteca no configurada o inaccesible"}
 
-    target = _safe_library_path(path)
+    base_dir = LIBRARY_ROOTS.get(root)
+    if base_dir is None:
+        raise HTTPException(status_code=400, detail=f"Root desconocido: {root}")
+    if not base_dir.exists() or not base_dir.is_dir():
+        return {"root": root, "path": path, "parent": None, "base": str(base_dir),
+                "entries": [], "error": f"Root '{root}' no configurado o inaccesible"}
+
+    target, base_resolved = _safe_library_path(path, root_key=root)
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail=f"Directorio no encontrado: {path}")
 
@@ -1189,16 +1243,17 @@ async def library_browse(path: str = ""):
     # Sort: dirs primero, luego files; todo case-insensitive alfabético
     entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
 
-    rel_current = str(target.relative_to(LIBRARY_DIR.resolve())) if target != LIBRARY_DIR.resolve() else ""
+    rel_current = str(target.relative_to(base_resolved)) if target != base_resolved else ""
     parent = None
     if rel_current:
         parent_path = "/".join(rel_current.split("/")[:-1])
-        parent = parent_path  # vacío si el padre es la raíz, valor válido
+        parent = parent_path
 
     return {
+        "root": root,
         "path": rel_current,
         "parent": parent,
-        "base": str(LIBRARY_DIR),
+        "base": str(base_dir),
         "entries": entries,
     }
 
@@ -1268,8 +1323,12 @@ async def analyze_mkv_endpoint(body: dict):
         _analyze_progress = {"step": "", "done": True}
         return build_fake_mkv_analysis(rel_path)
 
-    mkv_full = str(OUTPUT_DIR_MKV / rel_path)
-    if not Path(mkv_full).exists():
+    # Acepta tanto rutas absolutas (file browser nuevo de Tab 2/3) como
+    # filenames relativos a /mnt/output (compat legacy). Valida que la ruta
+    # cae bajo un root permitido (LIBRARY_ROOTS).
+    mkv_path_obj = _resolve_mkv_path_safe(rel_path)
+    mkv_full = str(mkv_path_obj)
+    if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
     async def _mkv_progress_callback(step: str):
@@ -1379,8 +1438,14 @@ async def mkv_light_profile_endpoint(body: dict):
         _light_profile_state["active"] = False
         return {"per_scene_max_cll": series_cll, "per_scene_max_fall": series_fall, "total_frames": 186113}
 
-    mkv_full = str(OUTPUT_DIR_MKV / rel_path)
-    if not Path(mkv_full).exists():
+    # Acepta rutas absolutas (file browser) o filenames relativos a /mnt/output (legacy)
+    try:
+        mkv_path_obj = _resolve_mkv_path_safe(rel_path)
+    except HTTPException:
+        _light_profile_state["active"] = False
+        raise
+    mkv_full = str(mkv_path_obj)
+    if not mkv_path_obj.exists():
         _light_profile_state["active"] = False
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
