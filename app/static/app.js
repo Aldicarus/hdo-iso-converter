@@ -7091,6 +7091,15 @@ async function _rgrfAnalyzeLight(evt) {
     _dvLightSetStep(4);
     _dvLightSetProgress(100);
 
+    // Guard: si el analyze inicial detecto dovi=null (raro pero posible si
+    // _run_dovi_on_mkv fallo silenciosamente), inicializamos el dict para no
+    // crashear al asignar. Antes este TypeError se tragaba en el catch que
+    // cerraba el modal sin error visible — el usuario veia "parado sin
+    // resultado" cuando en realidad el backend habia devuelto 200 OK.
+    if (!mkvProject || !mkvProject.analysis) {
+      throw new Error('El MKV se cerró durante el análisis — vuelve a abrirlo');
+    }
+    if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
     mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
     mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
 
@@ -7102,6 +7111,10 @@ async function _rgrfAnalyzeLight(evt) {
       'success'
     );
   } catch (e) {
+    // No cerramos el modal automaticamente — antes lo haciamos a los 2.2s y
+    // si el usuario no estaba mirando perdia el error y veia "parado sin
+    // resultado". Ahora lo dejamos abierto con el error inyectado al log
+    // del modal y un boton "Cerrar" explicito para descartar.
     const activeStep = document.querySelector('.dv-light-step.active');
     if (activeStep) {
       activeStep.classList.remove('active');
@@ -7109,9 +7122,34 @@ async function _rgrfAnalyzeLight(evt) {
       const marker = activeStep.querySelector('.dv-light-step-marker');
       if (marker) marker.textContent = '✗';
     }
-    showToast(`Error: ${e.message || e}`, 'error');
-    await new Promise(r => setTimeout(r, 2200));
-    closeModal('dv-light-modal');
+    const errMsg = e?.message || String(e);
+    if (logEl) {
+      const div = document.createElement('div');
+      div.className = 'dv-light-log-line error';
+      div.textContent = `✗ Error: ${errMsg}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    showToast(`Error perfil luminancia: ${errMsg}`, 'error', 8000);
+    // Sustituimos el progreso por un boton de cerrar para que el usuario
+    // pueda leer el error con calma. Idempotente: si ya existe, no lo
+    // duplicamos.
+    if (!document.getElementById('dv-light-error-close-btn')) {
+      const footer = document.querySelector('#dv-light-modal .modal-foot, #dv-light-modal .dv-light-foot');
+      const host = footer || document.querySelector('#dv-light-modal .modal-box') || document.getElementById('dv-light-modal');
+      if (host) {
+        const btn = document.createElement('button');
+        btn.id = 'dv-light-error-close-btn';
+        btn.className = 'btn btn-ghost btn-sm';
+        btn.textContent = 'Cerrar';
+        btn.style.marginTop = '12px';
+        btn.onclick = () => {
+          closeModal('dv-light-modal');
+          btn.remove();
+        };
+        host.appendChild(btn);
+      }
+    }
   } finally {
     clearInterval(pollTicker);
   }
