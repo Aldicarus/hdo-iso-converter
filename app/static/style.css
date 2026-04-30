@@ -6589,6 +6589,25 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-shrink: 0;
 }
 
+/* Tooltip del hover sobre el sparkline de luminancia. Caja absoluta
+   posicionada por JS cerca del cursor, formato `1234 nits · 01:23:45`. */
+.dv-sparkline-host { position: relative; cursor: crosshair; }
+.dv-sparkline-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 5px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  letter-spacing: 0.02em;
+}
+
 /* Lista de pasos */
 .dv-light-steps {
   display: flex;

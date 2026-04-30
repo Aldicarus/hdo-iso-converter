@@ -6619,8 +6619,27 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
     <text x="${peakLabelX}" y="${peakY + 4}" fill="#115e59" font-size="11.5"
           font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
 
+  // Crosshair y dot del hover — ocultos hasta que el usuario mueva el mouse
+  // sobre el chart. La hidratación se hace en _attachSparklineHover().
+  // Usamos vector-effect="non-scaling-stroke" para que el grosor se
+  // mantenga aunque el SVG estire en X (preserveAspectRatio="none").
+  const hoverCursor = `
+    <line class="dv-sparkline-cursor" x1="0" y1="${padT}" x2="0" y2="${axisY}"
+          stroke="#0d9488" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"
+          style="display:none" vector-effect="non-scaling-stroke" />
+    <circle class="dv-sparkline-dot" cx="0" cy="0" r="4.5" fill="#0d9488"
+            stroke="#ffffff" stroke-width="2" style="display:none" />`;
+
+  // Datos serializados para el handler de mouse (no se renderizan visualmente).
+  const seriesAttr = JSON.stringify(series).replace(/"/g, '&quot;');
+  const dur = durationSeconds || 0;
+
   return `
-    <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
+    <div class="dv-sparkline-host" style="position:relative">
+    <svg class="dv-sparkline-svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
+         data-series="${seriesAttr}" data-duration="${dur}"
+         data-pad-l="${padL}" data-pad-r="${padR}" data-pad-t="${padT}" data-pad-b="${padB}"
+         data-svg-w="${svgW}" data-svg-h="${svgH}"
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="${gid}-area" x1="0" y1="0" x2="0" y2="1">
@@ -6645,7 +6664,10 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
             stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
       ${timeTicks}
       ${peakMarker}
-    </svg>`;
+      ${hoverCursor}
+    </svg>
+    <div class="dv-sparkline-tooltip" style="display:none"></div>
+    </div>`;
 }
 
 /** Histograma distribución luminancia — barras con gradient vertical + ticks. */
@@ -7429,6 +7451,89 @@ function _renderMkvEditPanel() {
 
   _renderMkvTracks();
   _renderMkvChapters();
+  _attachSparklineHover();
+}
+
+/**
+ * Attach de mousemove al sparkline de luminancia: muestra crosshair vertical
+ * + dot en la curva + tooltip con valor (nits) y timestamp en hh:mm:ss.
+ * Idempotente — recorre todos los .dv-sparkline-host del documento (en
+ * principio solo hay uno en Tab 2 a la vez). Los datos se leen via
+ * data-series del SVG → no necesita acceso a mkvProject.
+ */
+function _attachSparklineHover() {
+  document.querySelectorAll('.dv-sparkline-host').forEach(host => {
+    const svg = host.querySelector('.dv-sparkline-svg');
+    if (!svg || svg._hoverWired) return;
+    svg._hoverWired = true;
+
+    let series;
+    try { series = JSON.parse(svg.dataset.series); }
+    catch (_) { return; }
+    if (!Array.isArray(series) || series.length < 2) return;
+
+    const dur   = parseFloat(svg.dataset.duration) || 0;
+    const padL  = parseFloat(svg.dataset.padL);
+    const padR  = parseFloat(svg.dataset.padR);
+    const padT  = parseFloat(svg.dataset.padT);
+    const padB  = parseFloat(svg.dataset.padB);
+    const svgW  = parseFloat(svg.dataset.svgW);
+    const svgH  = parseFloat(svg.dataset.svgH);
+    const usableW = svgW - padL - padR;
+    const usableH = svgH - padT - padB;
+    const maxV = Math.max(...series);
+
+    const cursor  = svg.querySelector('.dv-sparkline-cursor');
+    const dot     = svg.querySelector('.dv-sparkline-dot');
+    const tooltip = host.querySelector('.dv-sparkline-tooltip');
+    if (!cursor || !dot || !tooltip) return;
+
+    svg.addEventListener('mousemove', (e) => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const px = e.clientX - rect.left;        // pixel X relativo al SVG
+      const sx = (px / rect.width) * svgW;     // viewBox X
+      // Solo mostrar tooltip cuando el mouse esta dentro del area de chart
+      if (sx < padL || sx > svgW - padR) {
+        cursor.style.display = 'none';
+        dot.style.display = 'none';
+        tooltip.style.display = 'none';
+        return;
+      }
+      const i = Math.max(0, Math.min(series.length - 1,
+        Math.round(((sx - padL) / usableW) * (series.length - 1))));
+      const v = series[i];
+      const t = dur * (i / (series.length - 1));
+      const x = padL + (i / (series.length - 1)) * usableW;
+      const y = padT + usableH - (v / maxV) * usableH;
+
+      cursor.setAttribute('x1', x);
+      cursor.setAttribute('x2', x);
+      cursor.style.display = '';
+      dot.setAttribute('cx', x);
+      dot.setAttribute('cy', y);
+      dot.style.display = '';
+
+      tooltip.textContent = dur > 0
+        ? `${v.toLocaleString()} nits · ${_rgrfFmtTime(t)}`
+        : `${v.toLocaleString()} nits`;
+      tooltip.style.display = '';
+      // Posiciona el tooltip cerca del cursor; si está en la mitad derecha
+      // del chart, mostrar a la izquierda para no salirse.
+      const tipPxX = (x / svgW) * rect.width;
+      const tipPxY = (y / svgH) * rect.height;
+      const onRight = px > rect.width / 2;
+      tooltip.style.left  = onRight ? '' : `${tipPxX + 14}px`;
+      tooltip.style.right = onRight ? `${rect.width - tipPxX + 14}px` : '';
+      tooltip.style.top   = `${Math.max(0, tipPxY - 34)}px`;
+    });
+
+    svg.addEventListener('mouseleave', () => {
+      cursor.style.display = 'none';
+      dot.style.display = 'none';
+      tooltip.style.display = 'none';
+    });
+  });
 }
 
 // ── Render helpers ───────────────────────────────────────────────
