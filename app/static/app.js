@@ -7093,15 +7093,39 @@ async function _rgrfAnalyzeLight(evt) {
   _pollLoop();
 
   try {
-    // Timeout 25 min — UHD BD 60GB full tarda 3-5 min normalmente
+    // Timeout 60 min — antes era 25 min y un MKV de 63 GB con 238k frames
+    // puede tardar ~25 min (ffmpeg ~6 min + extract-rpu ~6 min + dovi_tool
+    // export ~13 min). El abort llegaba segundos antes de que el backend
+    // respondiera. Si el caso real supera 60 min, el polling puede recoger
+    // el resultado del state.result via fallback (ver catch).
     // Enviamos la ruta ABSOLUTA (file_path), no el filename. Antes el
     // backend prefijaba /mnt/output asumiendo que solo se inspeccionaban
     // ficheros del converter; con el browser de Library/Output ahora la
     // ruta completa la determina el frontend en analyze_mkv.
-    const data = await apiFetch('/api/mkv/light-profile', {
+    let data = await apiFetch('/api/mkv/light-profile', {
       method: 'POST',
       body: JSON.stringify({ file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name }),
-    }, 1500000);
+    }, 3600000);
+    // Fallback: si apiFetch devolvio null (HTTP error, abort, timeout) pero
+    // el backend pudo terminar igualmente, el resultado vive en state.result.
+    // Polling unas veces para darle al backend tiempo de finalizar.
+    if (!data?.per_scene_max_cll) {
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        const st = await apiFetch('/api/mkv/light-profile/progress');
+        if (st && st.result && st.result.per_scene_max_cll) {
+          data = st.result;
+          break;
+        }
+        if (st && !st.active && st.error) {
+          throw new Error(st.error);
+        }
+        if (st && !st.active && st.step === 4) {
+          // Backend marca terminado pero no hay result — caso raro
+          break;
+        }
+      }
+    }
     if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
 
     _dvLightSetStep(4);

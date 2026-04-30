@@ -1378,6 +1378,7 @@ def _lp_reset():
         "active": True,
         "step": 0, "step_label": "", "step_pct": 0, "global_pct": 0,
         "elapsed_s": 0, "log_lines": [], "error": None,
+        "result": None,
         "started_at": __import__("time").monotonic(),
     })
 
@@ -1699,11 +1700,17 @@ async def mkv_light_profile_endpoint(body: dict):
         _light_profile_state["step_label"] = "Listo"
         _light_profile_state["step_pct"] = 100
         _light_profile_state["global_pct"] = 100
-        return {
+        # Resultado tambien guardado en el state para que el frontend pueda
+        # recuperarlo via polling si el POST aborta (timeout en MKVs muy
+        # grandes que tardan >60 min). El POST sigue devolviendo el dato
+        # como antes — esto es solo un "buffer" para fallback.
+        result = {
             "per_scene_max_cll":  _downsample(per_frame_cll),
             "per_scene_max_fall": _downsample(per_frame_fall),
             "total_frames": len(per_frame_cll),
         }
+        _light_profile_state["result"] = result
+        return result
     finally:
         for p in (rpu_path, hevc_path, tmp_dir / "rpu.json"):
             try: p.unlink(missing_ok=True)
