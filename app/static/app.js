@@ -6546,7 +6546,7 @@ function _rgrfFmtTime(secs) {
  *  EJE DE TIEMPO con 5 ticks + marcador del pico con su timestamp. */
 function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 720, svgH = 200, padL = 56, padR = 80, padT = 18, padB = 44;
+  const svgW = 720, svgH = 200, padL = 56, padR = 118, padT = 18, padB = 44;
   // Curvas opcionales (mismo length que series) + referencias en nits.
   const avgSeries = Array.isArray(opts.avgSeries) && opts.avgSeries.length === series.length
     ? opts.avgSeries : null;
@@ -6654,8 +6654,8 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     refs.l2_trim_targets_nits.forEach(n =>
       _addRef(n, `Trim ${n}n`, '#f59e0b')); // amber
   }
-  _addRef(refs.hdr10_max_cll, `HDR10 ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
-  _addRef(refs.hdr10_max_fall, `HDR10 FALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
+  _addRef(refs.hdr10_max_cll, `MaxCLL ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
+  _addRef(refs.hdr10_max_fall, `MaxFALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
   _addRef(refs.l6_master_max_nits, `Master ${refs.l6_master_max_nits}n`, '#64748b'); // slate
   _addRef(refs.l6_max_cll, `L6 CLL ${refs.l6_max_cll}n`, '#dc2626'); // red
 
