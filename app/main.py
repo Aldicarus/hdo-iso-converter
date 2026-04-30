@@ -1625,28 +1625,28 @@ async def mkv_light_profile_endpoint(body: dict):
         # incoherentes.
 
         def _l1_from_block(b):
-            """Devuelve (max_pq, avg_pq) si b parece un bloque L1 valido."""
+            """Devuelve (max_pq, avg_pq, min_pq) si b parece un bloque L1 valido."""
             if not isinstance(b, dict):
-                return None, None
+                return None, None, None
             if "max_pq" not in b or "avg_pq" not in b:
-                return None, None
+                return None, None, None
             try:
                 mx = int(b.get("max_pq", 0))
                 av = int(b.get("avg_pq", 0))
                 mn = int(b.get("min_pq", 0))
             except Exception:
-                return None, None
+                return None, None, None
             # Sanity: min<=avg<=max y todos en rango 12-bit.
             if not (0 <= mn <= av <= mx <= 8191):
-                return None, None
-            return mx, av
+                return None, None, None
+            return mx, av, mn
 
-        def _find_l1_block(obj, max_depth=8):
-            """Busca el bloque L1 en obj. Probamos paths explicitos
-            (rapidos, especificos) y caemos al fallback recursivo. Retorna
-            (max_pq, avg_pq) en 12-bit PQ, o (None, None)."""
+        def _find_l1_block_full(obj, max_depth=8):
+            """Busca el bloque L1 en obj. Probamos paths explicitos primero
+            y caemos al fallback recursivo. Retorna (max_pq, avg_pq, min_pq)
+            en 12-bit PQ, o (None, None, None)."""
             if not isinstance(obj, dict):
-                return None, None
+                return None, None, None
             # 1) Paths explicitos conocidos (dovi_tool 2.x estables)
             cm29 = obj.get("cmv29_metadata") or {}
             cm40 = obj.get("cmv40_metadata") or {}
@@ -1656,9 +1656,9 @@ async def mkv_light_profile_endpoint(body: dict):
                 for key in ("level1", "Level1", "L1"):
                     blk = parent.get(key)
                     if isinstance(blk, dict):
-                        cll, fall = _l1_from_block(blk)
-                        if cll is not None:
-                            return cll, fall
+                        mx, av, mn = _l1_from_block(blk)
+                        if mx is not None:
+                            return mx, av, mn
             # 2) ext_metadata_blocks list (formato tagged enum CMv4.0)
             for src in (obj, cm29, cm40):
                 if not isinstance(src, dict):
@@ -1671,58 +1671,44 @@ async def mkv_light_profile_endpoint(body: dict):
                         for key in ("Level1", "level1", "L1"):
                             inner = item.get(key)
                             if isinstance(inner, dict):
-                                cll, fall = _l1_from_block(inner)
-                                if cll is not None:
-                                    return cll, fall
+                                mx, av, mn = _l1_from_block(inner)
+                                if mx is not None:
+                                    return mx, av, mn
                         # Quiza el item ES directamente el L1
-                        cll, fall = _l1_from_block(item)
-                        if cll is not None:
-                            return cll, fall
+                        mx, av, mn = _l1_from_block(item)
+                        if mx is not None:
+                            return mx, av, mn
             # 3) Fallback recursivo (defensivo — versiones futuras)
             def _walk(o, d):
                 if d <= 0:
-                    return None, None
+                    return None, None, None
                 if isinstance(o, dict):
-                    cll, fall = _l1_from_block(o)
-                    if cll is not None:
-                        return cll, fall
+                    mx, av, mn = _l1_from_block(o)
+                    if mx is not None:
+                        return mx, av, mn
                     for v in o.values():
-                        cll, fall = _walk(v, d - 1)
-                        if cll is not None:
-                            return cll, fall
+                        mx, av, mn = _walk(v, d - 1)
+                        if mx is not None:
+                            return mx, av, mn
                 elif isinstance(o, list):
                     for v in o:
-                        cll, fall = _walk(v, d - 1)
-                        if cll is not None:
-                            return cll, fall
-                return None, None
+                        mx, av, mn = _walk(v, d - 1)
+                        if mx is not None:
+                            return mx, av, mn
+                return None, None, None
             return _walk(obj, max_depth)
 
-        # Sanity check ligero sobre el primer RPU — log estructura solo si NO
-        # se encuentra el L1 (caso de error). El dump completo via stderr +
-        # comparativa contra dovi_tool --summary que existian aqui se quitaron
-        # tras confirmar (commit 8726762) que el parser es correcto: en
-        # Blade Runner 2049 nuestro JSON peak coincide exactamente con el L1
-        # MaxCLL que reporta dovi_tool info --summary (176.40 nits), o sea
-        # los valores son fieles a la metadata DV del disco — el peak bajo es
-        # porque el colorista etiqueto conservadoramente.
+        # Sanity check ligero — log si no se encuentra el L1 en RPU[0]. El
+        # parser ya esta validado (BR2049: nuestro peak coincide exacto con
+        # dovi_tool info --summary), asi que el sample/dump diagnostico se
+        # quito tras commit 5023c3e.
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
-            test_cll, test_fall = _find_l1_block(vdr0)
+            test_cll, _test_avg, _test_min = _find_l1_block_full(vdr0)
             if test_cll is None:
                 _logger.warning("light-profile: NO L1 en RPU[0]. top keys=%s",
                                 list(rpus[0].keys())[:12])
                 _logger.warning("  vdr keys=%s", list(vdr0.keys()))
-
-            # Sample de RPUs distintos para ver si el max_pq varia
-            mid = len(rpus) // 2
-            for sample_idx in (10, mid - 100, mid, mid + 100, len(rpus) - 100):
-                if 0 <= sample_idx < len(rpus):
-                    smp = rpus[sample_idx]
-                    if isinstance(smp, dict):
-                        v = smp.get("vdr_dm_data", {})
-                        cll, fall = _find_l1_block(v)
-                        _stderr(f"RPU[{sample_idx}] L1: max_pq={cll} avg_pq={fall}")
 
         def _to_nits(v):
             """PQ code → nits. Detecta formato automáticamente."""
@@ -1731,15 +1717,14 @@ async def mkv_light_profile_endpoint(body: dict):
             if v < 1:    return _pq_code_to_nits(v * 4095)
             return _pq_code_to_nits(v)
 
-        per_frame_cll, per_frame_fall = [], []
-        # Tracking del max_pq raw para diagnostico — sirve para detectar si
-        # estamos leyendo el bloque correcto (BR2049 deberia llegar a ~3079).
+        per_frame_cll, per_frame_fall, per_frame_min = [], [], []
+        # Tracking de stats raw del max_pq (12-bit) para el log
         raw_max_pq_max = 0
         raw_max_pq_sum = 0
         raw_max_pq_count = 0
         for rpu in rpus:
             vdr = (rpu or {}).get("vdr_dm_data", {})
-            cll, fall = _find_l1_block(vdr)
+            cll, fall, mn = _find_l1_block_full(vdr)
             if cll is not None:
                 if cll > raw_max_pq_max:
                     raw_max_pq_max = cll
@@ -1750,6 +1735,9 @@ async def mkv_light_profile_endpoint(body: dict):
             if fall is not None:
                 try: per_frame_fall.append(int(round(_to_nits(fall))))
                 except Exception: per_frame_fall.append(0)
+            if mn is not None:
+                try: per_frame_min.append(int(round(_to_nits(mn))))
+                except Exception: per_frame_min.append(0)
 
         raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
         _logger.info(
@@ -1765,14 +1753,95 @@ async def mkv_light_profile_endpoint(body: dict):
                 detail=f"El JSON de dovi_tool export ({len(rpus)} RPUs) no contiene bloques L1 con max_pq+avg_pq. Revisa los logs del contenedor para ver la estructura real de vdr_dm_data."
             )
 
+        # ── Referencias del RPU para overlay del chart ────────────────
+        # L2 trim targets (target_max_pq) → nits. Estos son los "displays
+        # objetivo" para los que el colorista hizo trims (tipico: 100/600/1000).
+        # Coleccionamos todos los unicos (en target_max_pq 12-bit) y los
+        # convertimos a nits.
+        l2_targets_pq = set()
+        # L6 mastering display (rango del display master)
+        l6_master_max_nits = 0
+        l6_master_min_nits = 0.0
+        # L6 max_content_light_level (raramente seteado pero util si lo esta)
+        l6_max_cll = 0
+        l6_max_fall = 0
+        # source_max_pq del top-level vdr_dm_data — peak del display master
+        # en PQ; suele coincidir con L6.max_display_mastering_luminance pero
+        # se mantiene por separado por si difieren.
+        if rpus and isinstance(rpus[0], dict):
+            vdr0 = rpus[0].get("vdr_dm_data", {})
+            # Recorrer ext_metadata_blocks para encontrar L2 + L6
+            cm29 = vdr0.get("cmv29_metadata", {}) or {}
+            for src in (cm29, vdr0.get("cmv40_metadata", {}) or {}):
+                blocks = src.get("ext_metadata_blocks") if isinstance(src, dict) else None
+                if not isinstance(blocks, list):
+                    continue
+                for item in blocks:
+                    if not isinstance(item, dict):
+                        continue
+                    # L2 trims: target_max_pq en 12-bit
+                    l2 = item.get("Level2") or item.get("level2")
+                    if isinstance(l2, dict) and "target_max_pq" in l2:
+                        try:
+                            l2_targets_pq.add(int(l2["target_max_pq"]))
+                        except Exception:
+                            pass
+                    # L6 mastering display (en NITS directos, no PQ)
+                    l6 = item.get("Level6") or item.get("level6")
+                    if isinstance(l6, dict):
+                        try:
+                            l6_master_max_nits = int(l6.get("max_display_mastering_luminance", 0))
+                            l6_master_min_nits = float(l6.get("min_display_mastering_luminance", 0)) / 10000.0
+                            l6_max_cll = int(l6.get("max_content_light_level", 0))
+                            l6_max_fall = int(l6.get("max_frame_average_light_level", 0))
+                        except Exception:
+                            pass
+
+        l2_targets_nits = sorted({int(round(_to_nits(pq))) for pq in l2_targets_pq})
+
+        # ── Stats: percentiles + buckets de clasificacion ─────────────
+        sorted_cll = sorted(per_frame_cll)
+
+        def _percentile(xs, p):
+            if not xs: return 0
+            idx = max(0, min(len(xs) - 1, int(round(p / 100.0 * (len(xs) - 1)))))
+            return xs[idx]
+
+        peak = max(per_frame_cll) if per_frame_cll else 0
+        p50 = _percentile(sorted_cll, 50)
+        p95 = _percentile(sorted_cll, 95)
+        p99 = _percentile(sorted_cll, 99)
+        avg_of_max = sum(per_frame_cll) / len(per_frame_cll) if per_frame_cll else 0
+        # Buckets sobre per_frame_cll (peak por escena/frame)
+        bucket_dim = sum(1 for v in per_frame_cll if v < 100)
+        bucket_mid = sum(1 for v in per_frame_cll if 100 <= v < 300)
+        bucket_high = sum(1 for v in per_frame_cll if v >= 300)
+        total = max(1, len(per_frame_cll))
+
         # Downsample a ~240 buckets para la sparkline (no tiene sentido mostrar
         # 186k frames uno a uno)
         MAX_POINTS = 240
-        def _downsample(xs):
+        def _downsample_max(xs):
             if len(xs) <= MAX_POINTS:
                 return xs
             step = len(xs) / MAX_POINTS
             return [max(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
+
+        def _downsample_avg(xs):
+            if len(xs) <= MAX_POINTS:
+                return xs
+            step = len(xs) / MAX_POINTS
+            out = []
+            for i in range(MAX_POINTS):
+                seg = xs[int(i * step):int((i + 1) * step)]
+                out.append(int(round(sum(seg) / len(seg))) if seg else 0)
+            return out
+
+        def _downsample_min(xs):
+            if len(xs) <= MAX_POINTS:
+                return xs
+            step = len(xs) / MAX_POINTS
+            return [min(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
 
         _lp_log(f"✓ Listo — {len(per_frame_cll):,} frames analizados, downsample a {MAX_POINTS} buckets")
         _light_profile_state["step"] = 4
@@ -1784,9 +1853,32 @@ async def mkv_light_profile_endpoint(body: dict):
         # grandes que tardan >60 min). El POST sigue devolviendo el dato
         # como antes — esto es solo un "buffer" para fallback.
         result = {
-            "per_scene_max_cll":  _downsample(per_frame_cll),
-            "per_scene_max_fall": _downsample(per_frame_fall),
+            "per_scene_max_cll":  _downsample_max(per_frame_cll),
+            # avg_pq por escena (anteriormente per_scene_max_fall, mantenemos
+            # nombre por compat) — promediado en cada bucket
+            "per_scene_max_fall": _downsample_avg(per_frame_fall) if per_frame_fall else [],
+            "per_scene_min":      _downsample_min(per_frame_min) if per_frame_min else [],
             "total_frames": len(per_frame_cll),
+            # Stats globales (sobre per_frame_cll antes del downsample)
+            "stats": {
+                "peak":        peak,
+                "p99":         p99,
+                "p95":         p95,
+                "p50":         p50,
+                "avg_of_max":  int(round(avg_of_max)),
+                "bucket_dim":  bucket_dim,
+                "bucket_mid":  bucket_mid,
+                "bucket_high": bucket_high,
+                "total":       total,
+            },
+            # Referencias del RPU para overlay y leyenda
+            "references": {
+                "l2_trim_targets_nits":  l2_targets_nits,        # ej. [100, 600, 1000]
+                "l6_master_max_nits":    l6_master_max_nits,     # ej. 4000
+                "l6_master_min_nits":    l6_master_min_nits,     # ej. 0.005
+                "l6_max_cll":            l6_max_cll,              # ej. 0 (no seteado en BR2049)
+                "l6_max_fall":           l6_max_fall,
+            },
         }
         _light_profile_state["result"] = result
         return result

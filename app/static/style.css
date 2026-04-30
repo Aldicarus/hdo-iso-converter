@@ -6609,6 +6609,181 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   letter-spacing: 0.02em;
+  line-height: 1.45;
+}
+
+/* Leyenda compacta debajo del sparkline (peak/avg/min + refs visibles) */
+.dv-sparkline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #475569;
+  font-family: SF Mono, Menlo, monospace;
+  font-weight: 600;
+}
+.dv-sl-leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dv-sl-leg-item::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  background: var(--c, #007AFF);
+  border-radius: 1px;
+}
+.dv-sl-leg-item.dashed::before {
+  background: transparent;
+  border-top: 2px dashed var(--c, #f59e0b);
+  height: 0;
+}
+
+/* Chips para refs que exceden el rango Y del chart (ej. trim 1000 nits
+   en una peli con peak L1 de 176 nits) */
+.dv-sparkline-out-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+.dv-sparkline-out-label {
+  font-weight: 600;
+  font-style: italic;
+}
+.dv-sparkline-out-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px dashed var(--chip-c, #64748b);
+  color: var(--chip-c, #64748b);
+  font-family: SF Mono, Menlo, monospace;
+  font-weight: 600;
+  font-size: 10.5px;
+}
+
+/* Mini-card de stats L1 (percentiles + clasificacion por brillo) */
+.dv-l1-stats {
+  margin: 16px 0 8px;
+  padding: 12px 14px;
+  background: rgba(0, 122, 255, 0.025);
+  border: 1px solid rgba(0, 122, 255, 0.10);
+  border-radius: 8px;
+}
+.dv-l1-stats-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .dv-l1-stats-row { grid-template-columns: 1fr; }
+}
+.dv-l1-stats-block-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+.dv-l1-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px 10px;
+}
+.dv-l1-stats-grid > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 6px 0;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 5px;
+}
+.dv-l1-stats-grid .lbl {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+.dv-l1-stats-grid .val {
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #003e8a;
+  margin-top: 1px;
+}
+.dv-l1-stats-grid .u {
+  font-size: 9px;
+  color: #94a3b8;
+  margin-left: 2px;
+  font-weight: 500;
+}
+.dv-l1-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dv-l1-bar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 50px 80px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.dv-l1-bar-label {
+  font-weight: 600;
+  color: #334155;
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 11px;
+}
+.dv-l1-bar-track {
+  height: 14px;
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.dv-l1-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dv-l1-bar-pct {
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  text-align: right;
+}
+.dv-l1-bar-count {
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+.dv-l1-stats-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  font-size: 11px;
+  color: #475569;
+  font-family: SF Mono, Menlo, monospace;
+}
+.dv-l1-stats-foot-note {
+  color: #94a3b8;
+  font-style: italic;
+  margin-left: 4px;
+  font-family: -apple-system, system-ui, sans-serif;
 }
 
 /* Lista de pasos */

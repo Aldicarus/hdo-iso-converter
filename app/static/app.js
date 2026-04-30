@@ -6544,39 +6544,60 @@ function _rgrfFmtTime(secs) {
 
 /** Sparkline MaxCLL — smooth curve con gradient fill + shadow filter + grid +
  *  EJE DE TIEMPO con 5 ticks + marcador del pico con su timestamp. */
-function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
+function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 720, svgH = 170, padL = 48, padR = 18, padT = 18, padB = 44;
-  const maxV = Math.max(...series);
+  const svgW = 720, svgH = 200, padL = 56, padR = 80, padT = 18, padB = 44;
+  // Curvas opcionales (mismo length que series) + referencias en nits.
+  const avgSeries = Array.isArray(opts.avgSeries) && opts.avgSeries.length === series.length
+    ? opts.avgSeries : null;
+  const minSeries = Array.isArray(opts.minSeries) && opts.minSeries.length === series.length
+    ? opts.minSeries : null;
+  const refs = (opts.refs && typeof opts.refs === 'object') ? opts.refs : {};
+  const peakV = Math.max(...series);
+  // Y-axis: peak con 10% headroom. Las referencias que caigan dentro se
+  // pintan como lineas; las que excedan se listan como chips a la derecha.
+  const yMax = Math.max(1, Math.ceil(peakV * 1.15 / 10) * 10);
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
   const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
-  const yOf = (v) => padT + usableH - (v / maxV) * usableH;
+  const yOf = (v) => padT + usableH - Math.max(0, Math.min(1, v / yMax)) * usableH;
   // Mapa index-del-bucket → segundo del movie (proporcional a duracion)
   const tOf = (i) => (durationSeconds && durationSeconds > 0)
     ? durationSeconds * (i / (series.length - 1))
     : null;
 
-  // Path con curvas suaves (Catmull-Rom → Bezier) para look más natural
-  const pts = series.map((v, i) => [xOf(i), yOf(v)]);
-  let linePath = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(pts.length - 1, i + 2)];
-    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
-    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
-    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
-    linePath += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
-  }
-  const areaPath = `${linePath} L ${pts[pts.length-1][0].toFixed(1)},${padT + usableH} L ${pts[0][0].toFixed(1)},${padT + usableH} Z`;
+  // Helper: genera path Catmull-Rom suavizado para una serie de [x, y] points
+  const _smoothPath = (pts) => {
+    if (pts.length < 2) return '';
+    let p = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+      const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+      const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+      p += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return p;
+  };
 
-  // Grid en 0/25/50/75/100% del max
+  const peakPts = series.map((v, i) => [xOf(i), yOf(v)]);
+  const linePath = _smoothPath(peakPts);
+  const areaPath = `${linePath} L ${peakPts[peakPts.length-1][0].toFixed(1)},${padT + usableH} L ${peakPts[0][0].toFixed(1)},${padT + usableH} Z`;
+  const avgPath = avgSeries
+    ? _smoothPath(avgSeries.map((v, i) => [xOf(i), yOf(v)]))
+    : '';
+  const minPath = minSeries
+    ? _smoothPath(minSeries.map((v, i) => [xOf(i), yOf(v)]))
+    : '';
+
+  // Grid en 0/25/50/75/100% del yMax
   const gridLines = [0, 0.25, 0.5, 0.75, 1.0].map(pct => {
     const y = padT + usableH - pct * usableH;
-    const val = Math.round(maxV * pct);
+    const val = Math.round(yMax * pct);
     return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />
             <text x="${padL - 8}" y="${y + 4}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${val}</text>`;
   }).join('');
@@ -6602,11 +6623,11 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
   });
 
   // Marcador del pico: busca el índice del valor máximo y dibuja círculo + línea + label
-  const peakIdx = series.indexOf(maxV);
+  const peakIdx = series.indexOf(peakV);
   const peakX = xOf(peakIdx);
-  const peakY = yOf(maxV);
+  const peakY = yOf(peakV);
   const peakTime = tOf(peakIdx);
-  const peakLabelText = peakTime !== null ? `${maxV} nits @ ${_rgrfFmtTime(peakTime)}` : `pico ${labelMax}`;
+  const peakLabelText = peakTime !== null ? `${peakV} nits @ ${_rgrfFmtTime(peakTime)}` : `pico ${labelMax}`;
   // Decidir lado del label (izq si el pico está en la mitad derecha, para no salirse)
   const peakOnRight = peakIdx / series.length > 0.5;
   const peakLabelX = peakOnRight ? peakX - 8 : peakX + 8;
@@ -6618,6 +6639,53 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
     <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#007AFF" stroke="#ffffff" stroke-width="2" />
     <text x="${peakLabelX}" y="${peakY + 4}" fill="#003e8a" font-size="11.5"
           font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
+
+  // ── Líneas de referencia (L2 trims, HDR10 MaxCLL, L6 master) ─────
+  // Las que caben dentro del yMax se dibujan como líneas dasheadas con
+  // label a la derecha. Las que exceden se listan abajo como chips.
+  const refsToDraw = [];
+  const refsOutOfRange = [];
+  const _addRef = (val, label, color) => {
+    if (!val || val <= 0) return;
+    if (val <= yMax) refsToDraw.push({ val, label, color });
+    else refsOutOfRange.push({ val, label, color });
+  };
+  if (Array.isArray(refs.l2_trim_targets_nits)) {
+    refs.l2_trim_targets_nits.forEach(n =>
+      _addRef(n, `Trim ${n}n`, '#f59e0b')); // amber
+  }
+  _addRef(refs.hdr10_max_cll, `HDR10 ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
+  _addRef(refs.hdr10_max_fall, `HDR10 FALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
+  _addRef(refs.l6_master_max_nits, `Master ${refs.l6_master_max_nits}n`, '#64748b'); // slate
+  _addRef(refs.l6_max_cll, `L6 CLL ${refs.l6_max_cll}n`, '#dc2626'); // red
+
+  const refLines = refsToDraw.map(r => {
+    const y = yOf(r.val);
+    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}"
+                  stroke="${r.color}" stroke-width="1" stroke-dasharray="4,3" opacity="0.55" />
+            <text x="${svgW - padR + 4}" y="${y + 4}" fill="${r.color}"
+                  font-size="10" font-family="SF Mono,monospace" font-weight="600"
+                  text-anchor="start">${r.label}</text>`;
+  }).join('');
+  // Chips para refs fuera de rango — se renderizan abajo del SVG
+  const outOfRangeChips = refsOutOfRange.length > 0
+    ? `<div class="dv-sparkline-out-chips">
+         <span class="dv-sparkline-out-label">Fuera del chart:</span>
+         ${refsOutOfRange.map(r =>
+            `<span class="dv-sparkline-out-chip" style="--chip-c:${r.color}">${r.label}</span>`
+         ).join('')}
+       </div>`
+    : '';
+
+  // Leyenda compacta: peak / avg / min cuando aplica + refs (max 3)
+  const legendParts = [
+    `<span class="dv-sl-leg-item" style="--c:#007AFF">Peak (max_pq)</span>`,
+  ];
+  if (avgPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#22c55e">Avg (avg_pq)</span>`);
+  if (minPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#94a3b8">Min (min_pq)</span>`);
+  refsToDraw.slice(0, 4).forEach(r =>
+    legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:${r.color}">${r.label}</span>`));
+  const legendHtml = `<div class="dv-sparkline-legend">${legendParts.join('')}</div>`;
 
   // Crosshair y dot del hover — ocultos hasta que el usuario mueva el mouse
   // sobre el chart. La hidratación se hace en _attachSparklineHover().
@@ -6632,12 +6700,15 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
 
   // Datos serializados para el handler de mouse (no se renderizan visualmente).
   const seriesAttr = JSON.stringify(series).replace(/"/g, '&quot;');
+  const avgAttr = avgSeries ? JSON.stringify(avgSeries).replace(/"/g, '&quot;') : '';
+  const minAttr = minSeries ? JSON.stringify(minSeries).replace(/"/g, '&quot;') : '';
   const dur = durationSeconds || 0;
 
   return `
     <div class="dv-sparkline-host" style="position:relative">
     <svg class="dv-sparkline-svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
-         data-series="${seriesAttr}" data-duration="${dur}"
+         data-series="${seriesAttr}" data-avg-series="${avgAttr}" data-min-series="${minAttr}"
+         data-duration="${dur}" data-y-max="${yMax}"
          data-pad-l="${padL}" data-pad-r="${padR}" data-pad-t="${padT}" data-pad-b="${padB}"
          data-svg-w="${svgW}" data-svg-h="${svgH}"
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
@@ -6659,7 +6730,12 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
         </filter>
       </defs>
       ${gridLines}
+      ${refLines}
       <path d="${areaPath}" fill="url(#${gid}-area)" />
+      ${minPath ? `<path d="${minPath}" fill="none" stroke="#94a3b8" stroke-width="1.2"
+            stroke-dasharray="4,3" opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />` : ''}
+      ${avgPath ? `<path d="${avgPath}" fill="none" stroke="#22c55e" stroke-width="1.6"
+            stroke-linejoin="round" stroke-linecap="round" opacity="0.85" />` : ''}
       <path d="${linePath}" fill="none" stroke="url(#${gid}-line)" stroke-width="2.2"
             stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
       ${timeTicks}
@@ -6667,6 +6743,64 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
       ${hoverCursor}
     </svg>
     <div class="dv-sparkline-tooltip" style="display:none"></div>
+    ${legendHtml}
+    ${outOfRangeChips}
+    </div>`;
+}
+
+/** Mini-card con percentiles + clasificacion de escenas por rango de brillo.
+ *  stats: { peak, p99, p95, p50, avg_of_max, bucket_dim, bucket_mid, bucket_high, total }
+ *  hdr:   info HDR10 del container (a.hdr) para mostrar comparativa MaxCLL/MaxFALL.
+ */
+function _rgrfL1StatsCard(stats, hdr) {
+  if (!stats || !stats.total) return '';
+  const pct = (n) => stats.total > 0 ? (n / stats.total) * 100 : 0;
+  const p1 = pct(stats.bucket_dim).toFixed(1);
+  const p2 = pct(stats.bucket_mid).toFixed(1);
+  const p3 = pct(stats.bucket_high).toFixed(1);
+  const hdr10 = hdr ? [
+    hdr.max_cll  ? `MaxCLL ${hdr.max_cll} nits`   : '',
+    hdr.max_fall ? `MaxFALL ${hdr.max_fall} nits` : '',
+  ].filter(Boolean).join(' · ') : '';
+
+  return `
+    <div class="dv-l1-stats">
+      <div class="dv-l1-stats-row">
+        <div class="dv-l1-stats-block">
+          <div class="dv-l1-stats-block-title">Percentiles · DV L1 max_pq</div>
+          <div class="dv-l1-stats-grid">
+            <div><span class="lbl">peak</span><span class="val">${stats.peak}<span class="u">nits</span></span></div>
+            <div><span class="lbl">p99</span><span class="val">${stats.p99}<span class="u">nits</span></span></div>
+            <div><span class="lbl">p95</span><span class="val">${stats.p95}<span class="u">nits</span></span></div>
+            <div><span class="lbl">p50</span><span class="val">${stats.p50}<span class="u">nits</span></span></div>
+            <div><span class="lbl">avg</span><span class="val">${stats.avg_of_max}<span class="u">nits</span></span></div>
+          </div>
+        </div>
+        <div class="dv-l1-stats-block">
+          <div class="dv-l1-stats-block-title">Distribución por brillo de escena</div>
+          <div class="dv-l1-bars">
+            <div class="dv-l1-bar-row">
+              <span class="dv-l1-bar-label">SDR-like &lt;100n</span>
+              <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p1}%; background:#94a3b8"></div></div>
+              <span class="dv-l1-bar-pct">${p1}%</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_dim.toLocaleString()})</span>
+            </div>
+            <div class="dv-l1-bar-row">
+              <span class="dv-l1-bar-label">Midtone 100–300n</span>
+              <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p2}%; background:#3395ff"></div></div>
+              <span class="dv-l1-bar-pct">${p2}%</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_mid.toLocaleString()})</span>
+            </div>
+            <div class="dv-l1-bar-row">
+              <span class="dv-l1-bar-label">Highlight ≥300n</span>
+              <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p3}%; background:#f59e0b"></div></div>
+              <span class="dv-l1-bar-pct">${p3}%</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_high.toLocaleString()})</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      ${hdr10 ? `<div class="dv-l1-stats-foot">HDR10 container: ${hdr10}<span class="dv-l1-stats-foot-note">— métrica estática del SEI, distinta de DV L1 (puede diferir ampliamente del peak L1)</span></div>` : ''}
     </div>`;
 }
 
@@ -6949,8 +7083,26 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const lightMeta = hasLightProfile
     ? `${dv.per_scene_max_cll.length} buckets · max ${Math.max(...dv.per_scene_max_cll)} nits`
     : '';
+  // Referencias del RPU + HDR10 del container para overlay
+  const sparkRefs = hasLightProfile ? {
+    ...((dv.l1_references || {})),
+    hdr10_max_cll:  a.hdr?.max_cll  || 0,
+    hdr10_max_fall: a.hdr?.max_fall || 0,
+  } : {};
+  const sparkOpts = hasLightProfile ? {
+    avgSeries: dv.per_scene_max_fall && dv.per_scene_max_fall.length === dv.per_scene_max_cll.length
+      ? dv.per_scene_max_fall : null,
+    minSeries: dv.per_scene_min && dv.per_scene_min.length === dv.per_scene_max_cll.length
+      ? dv.per_scene_min : null,
+    refs: sparkRefs,
+  } : {};
+  // Mini-card de stats (percentiles + clasificacion por brillo)
+  const statsCardHtml = hasLightProfile && dv.l1_stats
+    ? _rgrfL1StatsCard(dv.l1_stats, a.hdr)
+    : '';
   const sparklineArea = hasLightProfile
-    ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits', a.duration_seconds)}</div>
+    ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits', a.duration_seconds, sparkOpts)}</div>
+       ${statsCardHtml}
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
@@ -7206,6 +7358,9 @@ async function _rgrfAnalyzeLight(evt) {
     if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
     mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
     mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
+    mkvProject.analysis.dovi.per_scene_min     = data.per_scene_min || [];
+    mkvProject.analysis.dovi.l1_stats          = data.stats || null;
+    mkvProject.analysis.dovi.l1_references     = data.references || null;
 
     await new Promise(r => setTimeout(r, 700));
     closeModal('dv-light-modal');
@@ -7509,10 +7664,14 @@ function _attachSparklineHover() {
     if (!svg || svg._hoverWired) return;
     svg._hoverWired = true;
 
-    let series;
+    let series, avgSer = null, minSer = null;
     try { series = JSON.parse(svg.dataset.series); }
     catch (_) { return; }
     if (!Array.isArray(series) || series.length < 2) return;
+    try { if (svg.dataset.avgSeries) avgSer = JSON.parse(svg.dataset.avgSeries); }
+    catch (_) { avgSer = null; }
+    try { if (svg.dataset.minSeries) minSer = JSON.parse(svg.dataset.minSeries); }
+    catch (_) { minSer = null; }
 
     const dur   = parseFloat(svg.dataset.duration) || 0;
     const padL  = parseFloat(svg.dataset.padL);
@@ -7523,7 +7682,9 @@ function _attachSparklineHover() {
     const svgH  = parseFloat(svg.dataset.svgH);
     const usableW = svgW - padL - padR;
     const usableH = svgH - padT - padB;
-    const maxV = Math.max(...series);
+    // yMax = escala efectiva del chart (peak con headroom). Lo lee el SVG
+    // del data-attribute para que coincida con el render.
+    const yMax = parseFloat(svg.dataset.yMax) || Math.max(...series) || 1;
 
     const cursor  = svg.querySelector('.dv-sparkline-cursor');
     const dot     = svg.querySelector('.dv-sparkline-dot');
@@ -7545,9 +7706,11 @@ function _attachSparklineHover() {
       const i = Math.max(0, Math.min(series.length - 1,
         Math.round(((sx - padL) / usableW) * (series.length - 1))));
       const v = series[i];
+      const av = avgSer ? avgSer[i] : null;
+      const mn = minSer ? minSer[i] : null;
       const t = dur * (i / (series.length - 1));
       const x = padL + (i / (series.length - 1)) * usableW;
-      const y = padT + usableH - (v / maxV) * usableH;
+      const y = padT + usableH - Math.max(0, Math.min(1, v / yMax)) * usableH;
 
       cursor.setAttribute('x1', x);
       cursor.setAttribute('x2', x);
@@ -7556,9 +7719,13 @@ function _attachSparklineHover() {
       dot.setAttribute('cy', y);
       dot.style.display = '';
 
-      tooltip.textContent = dur > 0
-        ? `${v.toLocaleString()} nits · ${_rgrfFmtTime(t)}`
-        : `${v.toLocaleString()} nits`;
+      // Tooltip: peak / avg / min en filas con codigo de color matching las curvas.
+      const lines = [];
+      lines.push(`<span style="color:#7cc4ff">peak</span> ${v.toLocaleString()} nits`);
+      if (av != null) lines.push(`<span style="color:#86efac">avg</span> ${av.toLocaleString()} nits`);
+      if (mn != null) lines.push(`<span style="color:#cbd5e1">min</span> ${mn.toLocaleString()} nits`);
+      if (dur > 0) lines.push(`<span style="color:#94a3b8">@</span> ${_rgrfFmtTime(t)}`);
+      tooltip.innerHTML = lines.join('<br>');
       tooltip.style.display = '';
       // Posiciona el tooltip cerca del cursor; si está en la mitad derecha
       // del chart, mostrar a la izquierda para no salirse.
@@ -7567,7 +7734,7 @@ function _attachSparklineHover() {
       const onRight = px > rect.width / 2;
       tooltip.style.left  = onRight ? '' : `${tipPxX + 14}px`;
       tooltip.style.right = onRight ? `${rect.width - tipPxX + 14}px` : '';
-      tooltip.style.top   = `${Math.max(0, tipPxY - 34)}px`;
+      tooltip.style.top   = `${Math.max(0, tipPxY - 56)}px`;
     });
 
     svg.addEventListener('mouseleave', () => {
