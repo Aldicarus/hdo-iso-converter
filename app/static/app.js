@@ -6804,6 +6804,123 @@ function _rgrfL1StatsCard(stats, hdr) {
     </div>`;
 }
 
+/** Cadena de mastering — sustituye al bloque "Gamut CIE 1931" + parte
+ *  del bloque "Luminancia". Muestra textualmente con chips toda la
+ *  ficha del color/master del MKV, que es donde realmente varia entre
+ *  discos UHD (el container BT.2020 es constante asi que el diagrama
+ *  CIE no aportaba info). Distingue 3 etapas: master donde se grade,
+ *  container del stream, target del DV.
+ *
+ *  dv         — analysis.dovi (puede ser null)
+ *  hdr        — analysis.hdr (HdrMetadata)
+ *  mainVideo  — pista video principal (para bit_depth)
+ */
+function _rgrfMasteringChain(dv, hdr, mainVideo) {
+  const masterPrim = (hdr?.mastering_display_primaries || '').trim();
+  const masterLum  = (hdr?.mastering_display_luminance || '').trim();
+  const cont = {
+    primaries: hdr?.color_primaries || mainVideo?.color_primaries || '',
+    transfer:  hdr?.transfer_characteristics || mainVideo?.transfer_characteristics || '',
+    bitDepth:  hdr?.bit_depth || mainVideo?.bit_depth || 0,
+  };
+  const l9     = dv?.l9_primaries  || '';   // source primaries (donde se grade)
+  const l10    = dv?.l10_primaries || '';   // target display primaries
+  const l11Type = dv?.l11_content_type || '';
+  const l11App  = dv?.l11_intended_application || '';
+  // L2 trim targets (refs ya extraidas durante el light profile, si se corrio)
+  const l2Trims = dv?.l1_references?.l2_trim_targets_nits;
+  // L6 master peak — del light profile O parseando hdr.mastering_display_luminance
+  const l6MasterMax = dv?.l1_references?.l6_master_max_nits || 0;
+
+  // El master "real" donde se hizo el grade: prioridad L9 (si DV lo declara)
+  // luego mastering_display_primaries del HDR10 SEI.
+  const masterPrimResolved = l9 || masterPrim || '—';
+  const masterSource = l9 ? 'desde L9' : (masterPrim ? 'desde HDR10 SEI' : '');
+
+  // Master peak/min: si tenemos L6 numerico lo usamos; si no parseamos el
+  // string del HDR10 (formato 'min: X cd/m2, max: Y cd/m2').
+  let masterPeakStr = '—';
+  let masterMinStr = '—';
+  if (l6MasterMax > 0) {
+    masterPeakStr = `${l6MasterMax} nits`;
+    const mn = dv?.l1_references?.l6_master_min_nits;
+    if (mn != null && mn > 0) masterMinStr = `${mn.toFixed(3)} nits`;
+  } else if (masterLum) {
+    // 'min: 0.0050 cd/m2, max: 4000.0000 cd/m2'
+    const mxM = masterLum.match(/max:\s*([\d.]+)\s*cd/i);
+    const mnM = masterLum.match(/min:\s*([\d.]+)\s*cd/i);
+    if (mxM) masterPeakStr = `${Math.round(parseFloat(mxM[1]))} nits`;
+    if (mnM) masterMinStr = `${parseFloat(mnM[1]).toFixed(3)} nits`;
+  }
+
+  // Diferencia gamut master vs container — si master es P3 y container BT.2020
+  // es un grading P3 expandido a BT.2020 container (caso muy comun).
+  const isP3Master = /p3|dci/i.test(masterPrimResolved);
+  const is2020Container = /2020/i.test(cont.primaries);
+  const showExpansionChip = isP3Master && is2020Container;
+
+  // Trim chips ordenados ASC. Si no se ha corrido el light profile no
+  // tenemos l2Trims aun — mostramos placeholder apuntando a "analizar".
+  const trimChips = (Array.isArray(l2Trims) && l2Trims.length > 0)
+    ? l2Trims.map(n => `<span class="dv-mc-trim-chip">${n}n</span>`).join('')
+    : '<span class="dv-mc-empty">analiza el perfil de luminancia para extraer los trim targets</span>';
+
+  // HDR10 metadata footer
+  const hdr10Cll  = hdr?.max_cll  != null ? `MaxCLL ${hdr.max_cll} nits` : '';
+  const hdr10Fall = hdr?.max_fall != null ? `MaxFALL ${hdr.max_fall} nits` : '';
+  const hdr10Line = [hdr10Cll, hdr10Fall].filter(Boolean).join(' · ');
+
+  return `
+    <section class="dv-block">
+      <h5 class="dv-block-title">Cadena de mastering
+        <span class="dv-block-sub">grade source → container → DV targets</span>
+      </h5>
+      <div class="dv-mc-grid">
+        <div class="dv-mc-card">
+          <div class="dv-mc-card-title">Master display
+            ${masterSource ? `<span class="dv-mc-card-src">· ${masterSource}</span>` : ''}
+          </div>
+          <div class="dv-mc-card-primary">${escHtml(masterPrimResolved)}</div>
+          <div class="dv-mc-card-meta">peak <strong>${masterPeakStr}</strong> · min ${masterMinStr}</div>
+        </div>
+        <div class="dv-mc-card">
+          <div class="dv-mc-card-title">Container HEVC</div>
+          <div class="dv-mc-card-primary">${escHtml(cont.primaries || '—')}</div>
+          <div class="dv-mc-card-meta">
+            ${cont.transfer ? `<strong>${escHtml(cont.transfer)}</strong>` : '—'}
+            ${cont.bitDepth ? ` · ${cont.bitDepth}-bit` : ''}
+          </div>
+          ${showExpansionChip ? `<div class="dv-mc-flow-hint">P3 ↑ BT.2020 (gamut expandido al container)</div>` : ''}
+        </div>
+        <div class="dv-mc-card">
+          <div class="dv-mc-card-title">DV target display
+            ${l10 ? '<span class="dv-mc-card-src">· L10</span>' : ''}
+          </div>
+          <div class="dv-mc-card-primary">${l10 ? escHtml(l10) : '—'}</div>
+          <div class="dv-mc-card-meta">
+            ${l10
+              ? 'gamut objetivo del grade DV'
+              : '<span class="dv-mc-empty">L10 no presente — DV targeting genérico</span>'}
+          </div>
+        </div>
+      </div>
+      <div class="dv-mc-row-trims">
+        <div class="dv-mc-row-label">DV trim targets <span class="dv-mc-row-sub">L2 target_max_pq</span></div>
+        <div class="dv-mc-row-content">${trimChips}</div>
+      </div>
+      ${hdr10Line ? `
+        <div class="dv-mc-row-hdr10">
+          <div class="dv-mc-row-label">HDR10 metadata <span class="dv-mc-row-sub">SEI estática</span></div>
+          <div class="dv-mc-row-content"><span class="dv-mc-hdr10-val">${hdr10Line}</span></div>
+        </div>` : ''}
+      ${(l11Type || l11App) ? `
+        <div class="dv-mc-row-l11">
+          <div class="dv-mc-row-label">L11 content type</div>
+          <div class="dv-mc-row-content">${escHtml(l11Type)}${l11App ? ` <span class="dv-mc-row-sub">(${escHtml(l11App)})</span>` : ''}</div>
+        </div>` : ''}
+    </section>`;
+}
+
 /** Histograma distribución luminancia — barras con gradient vertical + ticks. */
 function _rgrfDistributionSvg(series) {
   if (!Array.isArray(series) || series.length < 1) return '';
@@ -6920,21 +7037,14 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : '—';
   const cmLabel = dv.cm_version ? dv.cm_version.toUpperCase() : '—';
 
-  // L1 dinámico
-  const deltaCll = (dv.l1_max_cll && hdr.max_cll) ? Math.round(dv.l1_max_cll - hdr.max_cll) : null;
-  const deltaFall = (dv.l1_max_fall && hdr.max_fall) ? Math.round(dv.l1_max_fall - hdr.max_fall) : null;
-  const deltaStr = (deltaCll != null) ? `${deltaCll > 0 ? '+' : ''}${deltaCll} / ${deltaFall > 0 ? '+' : ''}${deltaFall} nits` : '—';
   const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
 
-  // L5
+  // L5 (active area)
   const frameW = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[0]) || 3840 : 3840;
   const frameH = mainVideo?.pixel_dimensions ? parseInt(mainVideo.pixel_dimensions.split('x')[1]) || 2160 : 2160;
   const activeW = frameW - (dv.l5_left || 0) - (dv.l5_right || 0);
   const activeH = frameH - (dv.l5_top || 0) - (dv.l5_bottom || 0);
   const aspectLabel = _rgrfAspectLabel(dv, frameW, frameH);
-
-  // L6
-  const hdrCllMatch = (hdr.max_cll != null && dv.l6_max_cll) && Math.abs(hdr.max_cll - dv.l6_max_cll) <= 50;
 
   // CMv4.0
   const cm = (dv.cm_version || '').toLowerCase();
@@ -6961,26 +7071,14 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     </section>`;
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 2 · HDR10 container + DV L1/L6 (todo lo relativo a luminancia)
+  // BLOQUE 2 · Cadena de mastering (sustituye al antiguo bloque
+  // "Luminancia" + bloque "Gamut CIE 1931"). Toda la info de primaries,
+  // mastering display, container HEVC, DV L9/L10 y trim targets en una
+  // sola ficha escaneable. La luminancia DV L1 dinámica vive en el
+  // bloque del sparkline donde hay graficos + stats card; la HDR10
+  // estatica se muestra aqui como dato del SEI.
   // ═══════════════════════════════════════════════════════════════
-  const blockLum = `
-    <section class="dv-block">
-      <h5 class="dv-block-title">Luminancia <span class="dv-block-sub">HDR10 · L1 · L6</span></h5>
-      <div class="dv-grid-3">
-        ${cell('Formato container', hdr.hdr_format || '—')}
-        ${cell('Primaries', hdr.color_primaries || mainVideo?.color_primaries || '—')}
-        ${cell('Transfer', hdr.transfer_characteristics || mainVideo?.transfer_characteristics || '—')}
-        ${cell('HDR10 MaxCLL', hdr.max_cll != null ? `${hdr.max_cll} nits` : '—')}
-        ${cell('HDR10 MaxFALL', hdr.max_fall != null ? `${hdr.max_fall} nits` : '—')}
-        ${cell('Mastering display', hdr.mastering_display_luminance || '—')}
-        ${cell('L1 MaxCLL (RPU)', dv.l1_max_cll ? `${dv.l1_max_cll.toFixed(1)} nits` : '—', { tooltip: 'Promedio del MaxCLL dinámico por escena del RPU.' })}
-        ${cell('L1 MaxFALL (RPU)', dv.l1_max_fall ? `${dv.l1_max_fall.toFixed(1)} nits` : '—')}
-        ${cell('Δ L1 vs HDR10', deltaStr)}
-        ${cell('L6 MaxCLL', dv.l6_max_cll ? `${dv.l6_max_cll} nits` : '—')}
-        ${cell('L6 MaxFALL', dv.l6_max_fall ? `${dv.l6_max_fall} nits` : '—')}
-        ${cell('L6 vs HDR10', hdr.max_cll != null && dv.l6_max_cll ? (hdrCllMatch ? 'coherente (±50 nits)' : 'diverge') : '—', { status: hdrCllMatch ? 'ok' : (hdr.max_cll && dv.l6_max_cll ? 'warn' : '') })}
-      </div>
-    </section>`;
+  const blockMastering = _rgrfMasteringChain(dv, hdr, mainVideo);
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 3 · Active area (L5) con visualizador lateral
@@ -7004,26 +7102,29 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     </section>`;
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 4 · CMv4.0 levels (solo si v4.0)
+  // BLOQUE 4 · CMv4.0 levels (solo si v4.0).
+  // Slim: solo presencia de los levels — los datos concretos (L9/L10
+  // primaries, L11 content type) ya estan en la cadena de mastering.
+  // L8 trim targets en nits se mantienen aqui con su visualizacion
+  // logarítmica porque es un grafico especifico del L8.
   // ═══════════════════════════════════════════════════════════════
   let blockCmv4 = '';
   if (isV40) {
     const nitsLabel = (dv.l8_trim_nits && dv.l8_trim_nits.length)
       ? dv.l8_trim_nits.join(' · ') + ' nits'
       : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
-    const l11Label = dv.l11_content_type
-      ? `${dv.l11_content_type}${dv.l11_intended_application ? ` · ${dv.l11_intended_application}` : ''}`
-      : '';
     blockCmv4 = `
       <section class="dv-block">
-        <h5 class="dv-block-title">CMv4.0 levels extendidos</h5>
+        <h5 class="dv-block-title">CMv4.0 levels extendidos
+          <span class="dv-block-sub">presencia · L9/L10/L11 detallados en cadena de mastering</span>
+        </h5>
         <div class="dv-pill-row">
           ${pill(dv.has_l3,  'L3',  'local scene trim')}
           ${pill(dv.has_l4,  'L4',  'legacy compat trim')}
           ${pill(dv.has_l8,  'L8',  nitsLabel)}
-          ${pill(dv.has_l9,  'L9',  dv.l9_primaries || 'source primaries')}
-          ${pill(dv.has_l10, 'L10', dv.l10_primaries || 'target primaries')}
-          ${pill(dv.has_l11, 'L11', l11Label || 'content type')}
+          ${pill(dv.has_l9,  'L9',  'source primaries')}
+          ${pill(dv.has_l10, 'L10', 'target primaries')}
+          ${pill(dv.has_l11, 'L11', 'content type')}
           ${pill(dv.has_l254,'L254', 'CMv4.0 marker')}
         </div>
         ${dv.l8_trim_nits && dv.l8_trim_nits.length ? `
@@ -7034,48 +7135,10 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       </section>`;
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 5 · Gamut CIE 1931
-  // Si el RPU trae L9 (source) o L10 (target): se resaltan esos gamuts
-  // especificos (preciso). Si no, se usa el container primaries como
-  // highlight — siempre hay dato porque el stream HDR10/DV tiene un
-  // color space declarado (BT.2020 en UHD). Si todo esta vacio (raro),
-  // omitimos el bloque entero (la viz generica no aporta).
-  // ═══════════════════════════════════════════════════════════════
-  const containerPrimaries = hdr.color_primaries || mainVideo?.color_primaries || '';
-  const hasAnyGamutData = dv.l9_primaries || dv.l10_primaries || containerPrimaries;
-  const blockGamut = hasAnyGamutData ? (() => {
-    // Preferencia para el highlight: L9 (source) > L10 (target) > container
-    const highlightPrimaries = dv.l9_primaries || dv.l10_primaries || containerPrimaries;
-    const highlightSource = dv.l9_primaries ? 'L9 (master origen)'
-                          : dv.l10_primaries ? 'L10 (display objetivo)'
-                          : 'container HDR';
-    // Construir grid de celdas — solo las que tienen datos reales.
-    const cells = [];
-    if (dv.has_l9 || dv.l9_primaries) {
-      cells.push(cell('Source primaries (L9)', dv.l9_primaries || 'presente'));
-    }
-    if (dv.has_l10 || dv.l10_primaries) {
-      cells.push(cell('Target primaries (L10)', dv.l10_primaries || 'presente'));
-    }
-    if (containerPrimaries) {
-      cells.push(cell('Container primaries', containerPrimaries,
-        { tooltip: 'Primaries declarados en el stream HDR10/DV (metadata estatica del container).' }));
-    }
-    // Si no hay ni L9 ni L10, explicar brevemente que vemos en el diagrama
-    const isGenericOnly = !(dv.has_l9 || dv.l9_primaries || dv.has_l10 || dv.l10_primaries);
-    if (isGenericOnly) {
-      cells.push(`<div class="dv-gamut-note">El RPU no incluye L9/L10 (metadata opcional de CMv4.0). El diagrama resalta el gamut del <strong>container HDR</strong> como referencia del espacio de color de este stream.</div>`);
-    }
-    return `
-      <section class="dv-block">
-        <h5 class="dv-block-title">Gamut de color <span class="dv-block-sub">CIE 1931 · highlight desde ${escHtml(highlightSource)}</span></h5>
-        <div class="dv-split">
-          <div class="dv-grid-1">${cells.join('')}</div>
-          <div class="dv-viz-side">${_rgrfGamutSvg(highlightPrimaries, dv.l10_primaries)}</div>
-        </div>
-      </section>`;
-  })() : '';
+  // BLOQUE 5 ELIMINADO — la antigua "Gamut CIE 1931" se sustituyo por la
+  // cadena de mastering (BLOQUE 2) que muestra textualmente toda la info de
+  // primaries y trim targets. El diagrama CIE no aportaba info nueva en UHD
+  // BD donde casi siempre coincide BT.2020 container + P3/2020 master.
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 6 · Perfil de luminancia (sparkline + distribución) + botón
@@ -7143,10 +7206,9 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
                 data-tooltip="Copia toda la información como Markdown">📋 Copiar</button>
       </div>
       ${blockStream}
-      ${blockLum}
+      ${blockMastering}
       ${blockActiveArea}
       ${blockCmv4}
-      ${blockGamut}
       ${blockLight}
     </div>`;
 }

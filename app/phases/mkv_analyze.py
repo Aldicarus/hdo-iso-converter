@@ -160,6 +160,7 @@ async def analyze_mkv(
                             except (ValueError, TypeError):
                                 pass
                             hdr_meta.mastering_display_luminance = rt.get("MasteringDisplay_Luminance", "")
+                            hdr_meta.mastering_display_primaries = rt.get("MasteringDisplay_ColorPrimaries", "")
                             break
 
         # Enriquecer pistas de audio

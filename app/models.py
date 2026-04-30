@@ -54,6 +54,11 @@ class HdrMetadata(BaseModel):
     mastering_display_luminance: str = ""
     """Luminancia del display de masterizado (ej: 'min: 0.0001 cd/m2, max: 1000 cd/m2')."""
 
+    mastering_display_primaries: str = ""
+    """Primarios del display de masterizado (ej: 'Display P3', 'BT.2020').
+    Este es el gamut donde el colorista hizo el grade — distinto del
+    container_primaries (que es el espacio del stream HDR10/DV)."""
+
 
 class DoviInfo(BaseModel):
     """Análisis RPU de Dolby Vision via dovi_tool."""
