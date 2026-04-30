@@ -1818,13 +1818,44 @@ async def mkv_light_profile_endpoint(body: dict):
         raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
         _logger.info(
             "light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs · "
-            "raw max_pq peak=%d avg=%.1f (rango esperado 12-bit: peak 2500-3500 para UHD HDR)",
+            "raw max_pq peak=%d avg=%.1f",
             len(per_frame_cll), len(per_frame_fall), len(rpus),
             raw_max_pq_max, raw_avg,
         )
+
+        # Sanity-check: corre tambien dovi_tool info --summary que reporta el
+        # peak L1 en NITS directos. Si nuestra conversion no matchea (ej. 173
+        # nits via JSON vs 600 nits via summary), sabemos que el JSON usa una
+        # escala distinta o computa L1 de forma distinta.
+        try:
+            from phases.phase_a import _parse_dovi_summary as _phase_a_parse
+            sum_proc = await asyncio.create_subprocess_exec(
+                DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            sum_stdout, _ = await asyncio.wait_for(sum_proc.communicate(), timeout=60)
+            sum_text = sum_stdout.decode("utf-8", errors="replace")
+            _stderr("=== dovi_tool info --summary ===")
+            for ln in sum_text.split("\n")[:80]:
+                _stderr(f"  | {ln}")
+            _stderr("=== fin summary ===")
+            sum_info = _phase_a_parse(sum_text)
+            if sum_info.l1_max_cll or sum_info.l1_max_fall:
+                _stderr(f"summary L1: MaxCLL={sum_info.l1_max_cll} nits, "
+                        f"MaxFALL={sum_info.l1_max_fall} nits")
+                # Convertir nuestro peak max_pq a nits para comparar
+                our_peak_nits = _to_nits(raw_max_pq_max) if raw_max_pq_max else 0
+                _stderr(f"comparacion: nuestro peak via JSON = {our_peak_nits:.1f} nits, "
+                        f"dovi_tool summary peak = {sum_info.l1_max_cll} nits")
+                _lp_log(
+                    f"L1 peak — via JSON: {our_peak_nits:.0f} nits · "
+                    f"via dovi_tool summary: {sum_info.l1_max_cll:.0f} nits"
+                )
+        except Exception as _e:
+            _stderr(f"dovi_tool info --summary fallo: {_e}")
+
         _lp_log(
-            f"raw max_pq peak={raw_max_pq_max} avg={raw_avg:.0f} (12-bit, "
-            f"esperado UHD HDR ~2500-3500)"
+            f"raw max_pq peak={raw_max_pq_max} avg={raw_avg:.0f} (12-bit PQ codes)"
         )
 
         if not per_frame_cll:
