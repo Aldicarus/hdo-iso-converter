@@ -66,7 +66,7 @@ ISO2MKVFEL/
     │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
     │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
     │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync)
-    ├── dev_fixtures.py      ← ⚠️ TEMPORAL (DEV_MODE=1): ISOs fake + sesiones fake
+    ├── dev_fixtures.py      ← Fixtures (DEV_MODE=1): ISOs/MKVs/RPUs fake para devel UI sin discos reales
     ├── services/            ← Integraciones externas (v1.8)
     │   ├── settings_store.py    ← Persistencia de API keys en /config/app_settings.json
     │   ├── tmdb.py              ← TMDb search + details (poster, sinopsis, géneros, rating)

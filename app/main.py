@@ -118,7 +118,10 @@ def _recover_interrupted_sessions() -> None:
 _recover_interrupted_sessions()
 
 # ── DEV MODE ──────────────────────────────────────────────────────────────────
-# ⚠️  TEMPORAL — eliminar junto con dev_fixtures.py una vez validado.
+# Activado con DEV_MODE=1 (ver dev_fixtures.py). Cuando está apagado (default
+# en producción), los bloques `if DEV_MODE:` no se ejecutan y los fixtures
+# quedan inertes — no hay impacto runtime. Mantener: util para iterar UI sin
+# discos reales y para demos.
 from dev_fixtures import (
     DEV_MODE, DEV_FAKE_ISOS, build_fake_session, seed_dev_sessions,
     DEV_FAKE_MKV_FILES, build_fake_mkv_analysis, build_fake_mkv_apply,
@@ -186,7 +189,7 @@ async def list_isos():
 
     Respuesta: ``{"isos": ["Movie (2025).iso", "subdir/Movie2 (2024).iso", ...]}``
     """
-    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return {"isos": DEV_FAKE_ISOS}
     if not ISOS_DIR.exists():
@@ -337,7 +340,7 @@ async def analyze_iso(body: AnalyzeRequest):
     """
     global _analyze_progress
 
-    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         session = build_fake_session(str(ISOS_DIR / body.iso_path))
         return session.model_dump()
@@ -1259,7 +1262,7 @@ async def library_browse(root: str = "library", path: str = ""):
 @app.get("/api/mkv/files", summary="Lista MKVs disponibles en /mnt/output")
 async def list_mkv_files():
     """Devuelve la lista de ficheros .mkv en el directorio de salida."""
-    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return {"files": DEV_FAKE_MKV_FILES}
     if not OUTPUT_DIR_MKV.exists():
@@ -1303,7 +1306,7 @@ async def analyze_mkv_endpoint(body: dict):
     """
     global _analyze_progress
     rel_path = body.get("file_path", "")
-    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         # Simulación de progreso para que el modal se vea en dev — incluye
         # barra PGS animada del 0 al 100% para probar la UX.
@@ -1914,7 +1917,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
 
     Soporta: nombres de pistas, flags default/forced, capítulos.
     """
-    # ⚠️ DEV MODE — eliminar bloque junto con dev_fixtures.py
+    # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return build_fake_mkv_apply(body)
     if not Path(body.file_path).exists():
@@ -3568,7 +3571,9 @@ async def cmv40_ws(websocket: WebSocket, session_id: str):
 
 
 # ── DEV MODE: simulación de ejecución fake ────────────────────────────────────
-# ⚠️  TEMPORAL — eliminar junto con dev_fixtures.py una vez validado.
+# Bloque solo definido cuando DEV_MODE=1. En producción no se importa nada
+# de aquí — la indentación if-DEV_MODE asegura que ni siquiera se compila el
+# random ni las helpers _run_fake_pipeline.
 if DEV_MODE:
     import random
 

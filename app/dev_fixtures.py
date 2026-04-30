@@ -1,14 +1,25 @@
 """
-dev_fixtures.py — Datos de prueba para desarrollo local (DEV_MODE=1)
+dev_fixtures.py — Fixtures para desarrollo local (DEV_MODE=1)
 
-⚠️  SOLO PARA DESARROLLO — eliminar o ignorar en producción.
+Permite iterar la UI sin tener acceso a ISOs reales, dovi_tool, ffmpeg o
+mkvmerge. Cuando DEV_MODE!=1 (default en producción), todo el módulo
+queda inerte: las funciones siguen importables pero los endpoints del
+backend no las invocan, así que cero impacto runtime.
 
-Activa con: DEV_MODE=1 en el entorno (o en .env.local).
+Activación:
+  - Variable de entorno DEV_MODE=1 en .env.local
+  - Lanzar con ./run_local.sh (que carga .env.local antes de uvicorn)
 
-Proporciona:
-  - Lista de ISOs fake para GET /api/isos
-  - Análisis fake para POST /api/analyze (evita BDInfoCLI y QTS)
-  - Función seed_dev_sessions() para poblar la lista de proyectos al arrancar
+Proporciona fixtures para los 3 tabs:
+  - Tab 1 (ISO→MKV): DEV_FAKE_ISOS, build_fake_session, seed_dev_sessions
+  - Tab 2 (Editar MKV): DEV_FAKE_MKV_FILES, build_fake_mkv_analysis,
+    build_fake_mkv_apply
+  - Tab 3 (CMv4.0): DEV_FAKE_RPU_FILES, build_fake_per_frame_data,
+    build_fake_cmv40_session
+
+NOTA v2.0: este módulo es feature estable, no temporal. Permite demos
+sin discos físicos y testing rápido de UI changes. Si quieres una build
+de producción 100% pelada, simplemente no setees DEV_MODE.
 """
 import os
 import time
