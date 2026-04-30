@@ -9265,30 +9265,26 @@ async function createCMv40Project() {
   }
   await refreshCMv40Sidebar();
 
-  // Arrancar cadena auto: pre-flight del bin PRIMERO (rápido <5s para drive/path,
-  // ~30s-2min para mkv), luego Fase A (~12 min). Si el bin no aporta CMv4.0 el
-  // pre-flight aborta SIN gastar Fase A (ahorra ~12 min). Cuando A termine,
-  // _cmv40MaybeAutoAdvance detectará pendingTarget y disparará B automáticamente
-  // (B reusa el bin del workdir → no re-descarga, solo re-evalúa trust gates).
+  // Arrancar cadena auto: el polling + _cmv40MaybeAutoAdvance se encarga del
+  // pipeline completo. Para que el primer paso (preflight) arranque sin esperar
+  // al siguiente tick, llamamos directamente a la lógica del auto-advance —
+  // que decide internamente: si pendingTarget && !target_preflight_ok → preflight,
+  // si target_preflight_ok || !pendingTarget → Fase A.
   if (autoOn) {
-    // Marca _autoChaining=true antes de disparar el preflight. Sin esto, entre
-    // que el preflight termina y el poll dispara _cmv40MaybeAutoAdvance hay
-    // un tick donde bridgingAuto=false → el overlay parpadea.
     if (project) project._autoChaining = true;
-    _cmv40RunPreflightThenAnalyze(data.id, target);
+    _cmv40MaybeAutoAdvance(project);
   }
 }
 
 /**
- * Pre-flight del bin target ANTES de Fase A (~12 min).
- * - Si el bin tiene CMv4.0 → procede con Fase A normalmente.
- * - Si el bin NO tiene CMv4.0 → toast con mensaje claro, apaga auto,
- *   no se gasta Fase A. El usuario puede elegir otro bin desde la UI.
+ * Dispara el pre-flight del bin target en background. Backend responde
+ * inmediatamente con {started:true} y setea running_phase="preflight". El
+ * polling se encarga del resto: si OK → target_preflight_ok=True y el
+ * próximo tick dispara Fase A. Si KO → error_message se setea y el
+ * pipeline se detiene (el motivo queda en el log de la sesión via WS,
+ * sin toast).
  */
-async function _cmv40RunPreflightThenAnalyze(pid, target) {
-  const project = openCMv40Projects.find(p => p.id === pid);
-  if (!project) return;
-
+async function _cmv40FirePreflight(pid, target) {
   const body = { kind: target.kind === 'repo' ? 'drive' : target.kind };
   if (target.kind === 'repo') {
     body.file_id = target.value.file_id;
@@ -9298,46 +9294,10 @@ async function _cmv40RunPreflightThenAnalyze(pid, target) {
   } else if (target.kind === 'mkv') {
     body.source_mkv_path = target.value;
   }
-
-  // Usamos fetch directo para capturar el detail del 422 (apiFetch lo
-  // consume y solo deja un toast genérico).
-  let resp;
-  try {
-    resp = await fetch(`/api/cmv40/${pid}/preflight-target`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    showToast(`Pre-flight del bin falló (red): ${e.message || e}`, 'error');
-    project.autoContinue = false;
-    project._autoChaining = false;
-    _updateCMv40Panel(project);
-    return;
-  }
-
-  if (resp.status === 422) {
-    // Bin incompatible (CM v2.9 / sin CMv4.0). Toast largo con el motivo
-    // explícito para que el usuario sepa qué bin alternativo buscar.
-    const data = await resp.json().catch(() => ({ detail: 'bin incompatible' }));
-    showToast(`⛔ ${data.detail}`, 'error', 15000);
-    project.autoContinue = false;
-    project._autoChaining = false;
-    project.pendingTarget = null;
-    _updateCMv40Panel(project);
-    return;
-  }
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({ detail: resp.statusText }));
-    showToast(`Pre-flight falló: ${data.detail || resp.statusText}`, 'error');
-    project.autoContinue = false;
-    project._autoChaining = false;
-    _updateCMv40Panel(project);
-    return;
-  }
-
-  // Pre-flight OK → arranca Fase A. Fase B reusará el bin del workdir.
-  cmv40DoAnalyzeSource(pid);
+  await apiFetch(`/api/cmv40/${pid}/preflight-target`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 // ── Proyecto CMv4.0 ──────────────────────────────────────────────
@@ -11218,13 +11178,14 @@ function _cmv40MaybeAutoAdvance(project) {
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
   const pid = project.id;
-  // Dedup por phase: JS es single-threaded, asi que dos callers que vean
-  // el MISMO phase en el mismo tick procesaran secuencialmente — el segundo
-  // encontrara _lastAutoFiredFor ya actualizado y se bloqueara. Simple y
-  // efectivo. Un time-based guard adicional se probo y rompia el fast-chain
-  // cuando varias fases completan en <3s seguidas (drop-in Fase C=0s).
-  if (project._lastAutoFiredFor === s.phase) return;
-  project._lastAutoFiredFor = s.phase;
+  // Dedup key: phase + estado de target_preflight_ok. Necesitamos sensibilidad
+  // al flag de preflight porque para la fase 'created' hay dos acciones
+  // distintas: si !target_preflight_ok → disparar preflight; si OK → Fase A.
+  // Sin esto, _lastAutoFiredFor === 'created' nos bloquearía la transición
+  // preflight → Fase A.
+  const stateKey = s.phase + ':pf=' + (s.target_preflight_ok ? '1' : '0');
+  if (project._lastAutoFiredFor === stateKey) return;
+  project._lastAutoFiredFor = stateKey;
   // Marca que la cadena auto está encadenando en este momento — usado por
   // el overlay para mostrarse durante el "puente" entre dos fases. Se limpia
   // al alcanzar un estado terminal o al intervenir manualmente (toggle,
@@ -11237,7 +11198,15 @@ function _cmv40MaybeAutoAdvance(project) {
   // cmv40ToggleAuto y el de fin (done) lo emitimos al final del switch.
   switch (s.phase) {
     case 'created':
-      cmv40DoAnalyzeSource(pid);
+      // Pre-flight bloqueante: si hay pendingTarget y aun no se ha validado,
+      // disparamos preflight PRIMERO. Setea running_phase="preflight" y bloquea
+      // el resto del pipeline. Solo cuando target_preflight_ok=true, el
+      // siguiente tick de auto-advance dispara Fase A.
+      if (project.pendingTarget && !s.target_preflight_ok) {
+        _cmv40FirePreflight(pid, project.pendingTarget);
+      } else {
+        cmv40DoAnalyzeSource(pid);
+      }
       break;
     case 'source_analyzed':
       // Si el usuario preseleccionó el target en el modal, aplicarlo automático

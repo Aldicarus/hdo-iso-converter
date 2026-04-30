@@ -1029,6 +1029,13 @@ class CMv40Session(BaseModel):
     """True si los gates de trust (frame count + L5/L6/L1 divergence) pasaron.
     Si True, Fase D no pausa para revisión visual y Fase F puede saltar el merge."""
 
+    target_preflight_ok: bool = False
+    """True si el pre-flight (validación rápida del bin antes de Fase A) pasó.
+    El pre-flight descarga/copia/extrae el bin target y verifica que tenga
+    CMv4.0 ANTES de gastar Fase A (~12 min). Si el bin no aporta CMv4.0,
+    error_message se setea y el pipeline NO arranca. Cuando True, el
+    auto-pipeline procede con Fase A reusando el bin del workdir."""
+
     compat_warning: str = ""
     """Mensaje de warning si la combinación (source_workflow, target_type) es
     estructuralmente incompatible (p.ej. source P8 + target P7 FEL drop-in).

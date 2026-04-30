@@ -2882,18 +2882,27 @@ class CMv40PreflightRequest(BaseModel):
 
 @app.post(
     "/api/cmv40/{session_id}/preflight-target",
-    summary="Pre-flight: descarga/copia/extrae el bin target y aborta si no aporta CMv4.0 (ahorra Fase A)",
+    summary="Pre-flight asíncrono: valida bin target antes de Fase A (ahorra ~12 min si bin sin CMv4.0)",
 )
 async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     """
-    Pre-flight síncrono: descarga/copia/extrae el bin target en el workdir y
-    valida que tenga CMv4.0. Si no la tiene, aborta con mensaje claro y NO
-    se ejecuta Fase A (~12 min de ahorro). El bin queda guardado en
-    RPU_target.bin para que Fase B lo reuse sin re-descargar.
+    Pre-flight asíncrono. Devuelve {ok:true, started:true} de inmediato y
+    corre en background con `running_phase="preflight"` (que bloquea el
+    auto-pipeline hasta que termine — el frontend ve el estado vía polling
+    y respeta running_phase como cualquier otra fase).
 
-    Devuelve:
-      - {ok: true, target_type, cm_version, has_l8, frame_count}  → seguir con Fase A
-      - HTTP 422 con detail = mensaje del abort                    → bin inservible
+    En el background:
+      1. running_phase="preflight", target_preflight_ok=False
+      2. download/copy/extract del bin target → workdir/RPU_target.bin
+      3. dovi_tool info → clasifica
+      4a. Si CMv4.0 OK → target_preflight_ok=True → polling dispara Fase A
+      4b. Si bin sin CMv4.0 → error_message=<motivo> → polling NO dispara
+          Fase A (auto-pipeline se detiene)
+      5. running_phase=None
+
+    Errores van al log de la sesión vía WS (igual que cualquier fase) — no
+    hay toast en frontend. El usuario ve el motivo escrito en el log del
+    proyecto y puede elegir otro bin.
     """
     session = load_cmv40_session(session_id)
     if not session:
@@ -2909,6 +2918,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
         )
         session.target_frame_count = src_frames
         session.target_type = "trusted_p7_fel_final"
+        session.target_preflight_ok = True
         if body.kind == "drive":
             session.target_rpu_source = "drive"
             session.target_rpu_path = f"drive://{body.file_id}/{body.file_name}"
@@ -2920,60 +2930,68 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             session.target_rpu_path = body.source_mkv_path or ""
         save_cmv40_session(session)
         await _cmv40_log(session, f"[DEV] Pre-flight OK simulado · {body.kind}")
-        return {
-            "ok": True,
-            "target_type": session.target_type,
-            "cm_version": "v4.0",
-            "has_l8": True,
-            "frame_count": src_frames,
-        }
+        return {"ok": True, "started": True}
 
-    async def _log_cb(msg: str):
-        await _cmv40_log(session, msg)
+    # Validación temprana del body antes de arrancar el task
+    if body.kind == "drive" and not body.file_id:
+        raise HTTPException(status_code=400, detail="file_id requerido para kind=drive")
+    if body.kind == "path" and not body.rpu_path:
+        raise HTTPException(status_code=400, detail="rpu_path requerido para kind=path")
+    if body.kind == "mkv" and not body.source_mkv_path:
+        raise HTTPException(status_code=400, detail="source_mkv_path requerido para kind=mkv")
+    if body.kind not in ("drive", "path", "mkv"):
+        raise HTTPException(status_code=400, detail=f"kind desconocido: {body.kind}")
 
-    await _cmv40_log(session, "━━━ Inicio: pre-flight target ━━━")
-    try:
-        if body.kind == "drive":
-            if not body.file_id:
-                raise HTTPException(status_code=400, detail="file_id requerido para kind=drive")
-            await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
-        elif body.kind == "path":
-            if not body.rpu_path:
-                raise HTTPException(status_code=400, detail="rpu_path requerido para kind=path")
-            await preflight_target_path(session, body.rpu_path, _log_cb)
-        elif body.kind == "mkv":
-            if not body.source_mkv_path:
-                raise HTTPException(status_code=400, detail="source_mkv_path requerido para kind=mkv")
+    # Si ya hay otra fase corriendo para esta sesión, no disparamos
+    lock = _get_cmv40_phase_lock(session.id)
+    if lock.locked():
+        return {"ok": True, "started": False, "reason": "ya hay otra fase en curso"}
+
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _run():
+        async with lock:
+            session.running_phase = "preflight"
+            session.error_message = ""
+            session.target_preflight_ok = False
+            save_cmv40_session(session)
+            await _cmv40_log(session, "━━━ Inicio fase: preflight ━━━")
+
+            async def _log_cb(msg: str):
+                await _cmv40_log(session, msg)
 
             def _proc_cb(proc):
                 _cmv40_proc_register(session.id, proc)
 
-            await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
-        else:
-            raise HTTPException(status_code=400, detail=f"kind desconocido: {body.kind}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Abort de bin incompatible u otro fallo: limpiamos error_message
-        # de la sesión y devolvemos 422 con el mensaje legible. NO usamos
-        # session.error_message porque eso bloquea la UI con un banner; el
-        # frontend muestra un toast contextual y permite elegir otro bin.
-        await _cmv40_log(session, f"✗ Pre-flight FALLÓ: {e}")
-        save_cmv40_session(session)
-        raise HTTPException(status_code=422, detail=str(e))
-    finally:
-        _cmv40_active_procs.pop(session.id, None)
+            try:
+                if body.kind == "drive":
+                    await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
+                elif body.kind == "path":
+                    await preflight_target_path(session, body.rpu_path, _log_cb)
+                else:  # mkv
+                    await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
 
-    save_cmv40_session(session)
-    info = session.target_dv_info
-    await _cmv40_log(session, f"✓ Pre-flight target completado — bin válido, procediendo con Fase A")
-    return {
-        "ok": True,
-        "target_type": session.target_type,
-        "cm_version": info.cm_version if info else "",
-        "has_l8": bool(info.has_l8) if info else False,
-        "frame_count": info.frame_count if info else 0,
-    }
+                session.target_preflight_ok = True
+                await _cmv40_log(
+                    session,
+                    "✓ Fase preflight completada — bin válido, procediendo con Fase A"
+                )
+            except Exception as e:
+                # Igual que el resto de fases: error al log de la sesión +
+                # error_message para que la UI lo muestre como banner. SIN
+                # toast (es ruido — el log del proyecto ya tiene el motivo).
+                msg = str(e)
+                await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
+                session.error_message = msg
+                session.target_preflight_ok = False
+            finally:
+                _cmv40_active_procs.pop(session.id, None)
+                _cmv40_cancel_flags.pop(session.id, None)
+                session.running_phase = None
+                save_cmv40_session(session)
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
 
 
 @app.post("/api/cmv40/{session_id}/extract", summary="Fase C: demux BL/EL + per-frame data")
