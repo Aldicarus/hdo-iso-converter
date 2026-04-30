@@ -6382,8 +6382,8 @@ function _rgrfL5Svg(dv, frameW = 3840, frameH = 2160) {
          xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stop-color="#2dd4bf" stop-opacity="0.38" />
-          <stop offset="100%" stop-color="#0d9488" stop-opacity="0.28" />
+          <stop offset="0%"   stop-color="#66b0ff" stop-opacity="0.38" />
+          <stop offset="100%" stop-color="#007AFF" stop-opacity="0.28" />
         </linearGradient>
       </defs>
       <rect width="${svgW}" height="${svgH}" fill="#0a0a0c" />
@@ -6433,7 +6433,7 @@ function _rgrfL8Svg(nits) {
   html += `<defs>
     <radialGradient id="${gid}" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#5eead4"/>
-      <stop offset="100%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#007AFF"/>
     </radialGradient>
   </defs>`;
   // Eje horizontal con grosor sutil
@@ -6449,9 +6449,9 @@ function _rgrfL8Svg(nits) {
   // Dots con halo (shadow SVG)
   nits.forEach(n => {
     const x = xOf(n);
-    html += `<circle cx="${x}" cy="${axisY}" r="10" fill="#0d9488" fill-opacity="0.12" />`;
+    html += `<circle cx="${x}" cy="${axisY}" r="10" fill="#007AFF" fill-opacity="0.12" />`;
     html += `<circle cx="${x}" cy="${axisY}" r="6.5" fill="url(#${gid})" stroke="#ffffff" stroke-width="2" />`;
-    html += `<text x="${x}" y="${axisY - 14}" fill="#115e59" font-size="12"
+    html += `<text x="${x}" y="${axisY - 14}" fill="#003e8a" font-size="12"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${n}</text>`;
   });
   html += `</svg>`;
@@ -6488,7 +6488,7 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
   const l9Match = gamutMatch(l9Primaries);
 
   // Paleta para light mode — más saturada, alto contraste
-  const cRec2020 = '#0d9488';   // teal-600
+  const cRec2020 = '#007AFF';   // app blue (--blue)
   const cP3      = '#f59e0b';   // amber-500
   const cRec709  = '#e11d48';   // rose-600
 
@@ -6523,7 +6523,7 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
         <rect x="${svgSize - 94}" y="${pad - 4}" width="84" height="62" rx="6"
               fill="rgba(255,255,255,0.92)" stroke="rgba(15,23,42,0.08)" stroke-width="1" />
         <circle cx="${svgSize - 85}" cy="${pad + 8}" r="4" fill="${cRec2020}"/>
-        <text x="${svgSize - 77}" y="${pad + 12}" fill="#115e59" font-weight="700">Rec.2020</text>
+        <text x="${svgSize - 77}" y="${pad + 12}" fill="#003e8a" font-weight="700">Rec.2020</text>
         <circle cx="${svgSize - 85}" cy="${pad + 26}" r="4" fill="${cP3}"/>
         <text x="${svgSize - 77}" y="${pad + 30}" fill="#92400e" font-weight="700">DCI-P3</text>
         <circle cx="${svgSize - 85}" cy="${pad + 44}" r="4" fill="${cRec709}"/>
@@ -6613,10 +6613,10 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
   const peakLabelAnchor = peakOnRight ? 'end' : 'start';
   const peakMarker = `
     <line x1="${peakX}" y1="${peakY}" x2="${peakX}" y2="${axisY}"
-          stroke="#0d9488" stroke-width="1" stroke-dasharray="2,3" opacity="0.45" />
-    <circle cx="${peakX}" cy="${peakY}" r="9" fill="#0d9488" fill-opacity="0.15" />
-    <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#0d9488" stroke="#ffffff" stroke-width="2" />
-    <text x="${peakLabelX}" y="${peakY + 4}" fill="#115e59" font-size="11.5"
+          stroke="#007AFF" stroke-width="1" stroke-dasharray="2,3" opacity="0.45" />
+    <circle cx="${peakX}" cy="${peakY}" r="9" fill="#007AFF" fill-opacity="0.15" />
+    <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#007AFF" stroke="#ffffff" stroke-width="2" />
+    <text x="${peakLabelX}" y="${peakY + 4}" fill="#003e8a" font-size="11.5"
           font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
 
   // Crosshair y dot del hover — ocultos hasta que el usuario mueva el mouse
@@ -6625,9 +6625,9 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
   // mantenga aunque el SVG estire en X (preserveAspectRatio="none").
   const hoverCursor = `
     <line class="dv-sparkline-cursor" x1="0" y1="${padT}" x2="0" y2="${axisY}"
-          stroke="#0d9488" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"
+          stroke="#007AFF" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"
           style="display:none" vector-effect="non-scaling-stroke" />
-    <circle class="dv-sparkline-dot" cx="0" cy="0" r="4.5" fill="#0d9488"
+    <circle class="dv-sparkline-dot" cx="0" cy="0" r="4.5" fill="#007AFF"
             stroke="#ffffff" stroke-width="2" style="display:none" />`;
 
   // Datos serializados para el handler de mouse (no se renderizan visualmente).
@@ -6643,13 +6643,13 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds) {
          style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="${gid}-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"  stop-color="#2dd4bf" stop-opacity="0.40"/>
-          <stop offset="60%" stop-color="#2dd4bf" stop-opacity="0.16"/>
-          <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0.00"/>
+          <stop offset="0%"  stop-color="#66b0ff" stop-opacity="0.40"/>
+          <stop offset="60%" stop-color="#66b0ff" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#66b0ff" stop-opacity="0.00"/>
         </linearGradient>
         <linearGradient id="${gid}-line" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%"   stop-color="#0d9488"/>
-          <stop offset="100%" stop-color="#14b8a6"/>
+          <stop offset="0%"   stop-color="#007AFF"/>
+          <stop offset="100%" stop-color="#3395ff"/>
         </linearGradient>
         <filter id="${gid}-shadow" x="-2%" y="-10%" width="104%" height="120%">
           <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>

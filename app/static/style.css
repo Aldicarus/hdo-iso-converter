@@ -6185,13 +6185,15 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 .dv-detail {
   /* ── Tokens scoped al bloque ──────────────────────────────────── */
-  --dv-accent:          #0d9488;                   /* teal-600 — foreground on light */
-  --dv-accent-soft:     #14b8a6;                   /* teal-500 — mid tone */
-  --dv-accent-bright:   #2dd4bf;                   /* teal-400 — chart lines on light */
-  --dv-accent-bg:       rgba(13, 148, 136, 0.08);
-  --dv-accent-bg-2:     rgba(13, 148, 136, 0.14);
-  --dv-accent-border:   rgba(13, 148, 136, 0.22);
-  --dv-accent-text:     #115e59;                   /* teal-800 — max contrast text */
+  /* Paleta alineada con el azul de la app (#007AFF). Antes era teal y
+     no encajaba con el resto. */
+  --dv-accent:          #007AFF;                   /* blue (app primary) */
+  --dv-accent-soft:     #3395ff;                   /* blue-400 — mid tone */
+  --dv-accent-bright:   #66b0ff;                   /* blue-300 — chart bright */
+  --dv-accent-bg:       rgba(0, 122, 255, 0.08);
+  --dv-accent-bg-2:     rgba(0, 122, 255, 0.14);
+  --dv-accent-border:   rgba(0, 122, 255, 0.22);
+  --dv-accent-text:     #003e8a;                   /* blue-800 — max contrast */
 
   --dv-amber:           #d97706;
   --dv-amber-bg:        rgba(217, 119, 6, 0.09);
@@ -6264,9 +6266,9 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-color: rgba(234, 179, 8, 0.25);
 }
 .video-badge-dv {
-  background: linear-gradient(180deg, rgba(13, 148, 136, 0.09), rgba(13, 148, 136, 0.06));
-  color: #115e59;
-  border-color: rgba(13, 148, 136, 0.25);
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.09), rgba(0, 122, 255, 0.06));
+  color: #003e8a;
+  border-color: rgba(0, 122, 255, 0.25);
 }
 .video-hint { font-size: 11px; color: var(--text-3); margin-left: 2px; }
 .video-summary-line {
@@ -6374,7 +6376,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   transition: background 0.15s var(--dv-ease);
 }
 .dv-cell:last-child { border-bottom: none; }
-.dv-cell:hover { background: rgba(13, 148, 136, 0.018); }
+.dv-cell:hover { background: rgba(0, 122, 255, 0.018); }
 .dv-cell-label {
   color: var(--dv-text-3);
   font-size: 11.5px;
@@ -6526,8 +6528,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-gamut-note {
   margin-top: 10px;
   padding: 10px 12px;
-  background: rgba(13, 148, 136, 0.05);
-  border-left: 3px solid rgba(13, 148, 136, 0.4);
+  background: rgba(0, 122, 255, 0.05);
+  border-left: 3px solid rgba(0, 122, 255, 0.4);
   border-radius: 4px;
   font-size: 11.5px;
   line-height: 1.5;
@@ -6542,12 +6544,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-light-modal-box {
   max-width: 560px;
   padding: 22px 22px 18px;
-  /* Tokens locales — mismos que .dv-detail para coherencia */
-  --dvl-accent:         #0d9488;
-  --dvl-accent-bright:  #14b8a6;
-  --dvl-accent-text:    #115e59;
-  --dvl-accent-bg:      rgba(13, 148, 136, 0.10);
-  --dvl-accent-border:  rgba(13, 148, 136, 0.32);
+  /* Tokens locales — mismos que .dv-detail para coherencia. Paleta azul
+     alineada con #007AFF (app primary), antes era teal. */
+  --dvl-accent:         #007AFF;
+  --dvl-accent-bright:  #3395ff;
+  --dvl-accent-text:    #003e8a;
+  --dvl-accent-bg:      rgba(0, 122, 255, 0.10);
+  --dvl-accent-border:  rgba(0, 122, 255, 0.32);
   --dvl-surface:        #fbfcfd;
   --dvl-border:         rgba(15, 23, 42, 0.08);
   --dvl-text-1:         #0f172a;
@@ -6631,11 +6634,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: var(--dvl-accent-bg);
   border-color: var(--dvl-accent-border);
   color: var(--dvl-accent-text);
-  box-shadow: 0 1px 4px rgba(13, 148, 136, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 122, 255, 0.08);
 }
 .dv-light-step.done {
-  background: rgba(13, 148, 136, 0.04);
-  border-color: rgba(13, 148, 136, 0.15);
+  background: rgba(0, 122, 255, 0.04);
+  border-color: rgba(0, 122, 255, 0.15);
   color: var(--dvl-text-2);
 }
 .dv-light-step.pending {
@@ -6713,7 +6716,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: linear-gradient(90deg, var(--dvl-accent), var(--dvl-accent-bright));
   border-radius: 4px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 8px rgba(13, 148, 136, 0.25);
+  box-shadow: 0 0 8px rgba(0, 122, 255, 0.25);
 }
 
 /* Mini log */
@@ -6871,7 +6874,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
-.file-browser-up:hover { background: rgba(13, 148, 136, 0.15); }
+.file-browser-up:hover { background: rgba(0, 122, 255, 0.15); }
 .file-browser-up:disabled { opacity: 0.4; cursor: not-allowed; }
 .file-browser-breadcrumb {
   flex: 1;
@@ -7059,8 +7062,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   min-width: 0;
 }
 .cmv40-source-btn:hover {
-  border-color: rgba(13, 148, 136, 0.4);
-  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.08);
+  border-color: rgba(0, 122, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.08);
 }
 .cmv40-source-btn-icon {
   font-size: 16px;
