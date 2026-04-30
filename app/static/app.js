@@ -7041,6 +7041,8 @@ async function _rgrfAnalyzeLight(evt) {
   // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  _dvLightLastStep = 0;       // monotonic step guard — reset por sesión
+  _dvLightLastPct = 0;        // idem para progreso global
   _dvLightSetStep(1);
   _dvLightSetProgress(0);
   _dvLightSetElapsed(0);
@@ -7048,33 +7050,47 @@ async function _rgrfAnalyzeLight(evt) {
   if (logEl) logEl.innerHTML = '';
   openModal('dv-light-modal');
 
-  // Polling del backend para el estado real
+  // Polling del backend para el estado real. Usamos chained await (no
+  // setInterval) para evitar que se solapen peticiones en vuelo: bajo
+  // carga del NAS una petición lenta podía responder DESPUÉS de una más
+  // reciente, y la respuesta vieja con step=2 pisaba la actual con step=3.
+  // Resultado: el modal se quedaba "Extrayendo RPU" mientras el log
+  // mostraba ya "Exportando JSON". Con chained await solo hay 1 fetch
+  // en vuelo a la vez → orden monotónico garantizado.
   let lastLogCount = 0;
-  const pollTicker = setInterval(async () => {
-    try {
-      const st = await apiFetch('/api/mkv/light-profile/progress');
-      if (!st) return;
-      if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
-      _dvLightSetProgress(st.global_pct || 0);
-      _dvLightSetElapsed(st.elapsed_s || 0);
-      const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
-      if (lines.length > lastLogCount && logEl) {
-        const newLines = lines.slice(lastLogCount);
-        const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
-        for (const line of newLines) {
-          const div = document.createElement('div');
-          div.className = 'dv-light-log-line';
-          if (/Paso \d\/3/.test(line)) div.classList.add('step');
-          if (line.includes('✓ Listo') || line.includes('✓ export') || line.includes('✓ ffmpeg') || line.includes('✓ RPU')) div.classList.add('done');
-          if (st.error && line.includes(st.error)) div.classList.add('error');
-          div.textContent = line;
-          logEl.appendChild(div);
+  let polling = true;
+  const pollTicker = { _stop: () => { polling = false; } };
+  async function _pollLoop() {
+    while (polling) {
+      try {
+        const st = await apiFetch('/api/mkv/light-profile/progress');
+        if (!polling) return;
+        if (st) {
+          if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
+          _dvLightSetProgress(st.global_pct || 0);
+          _dvLightSetElapsed(st.elapsed_s || 0);
+          const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
+          if (lines.length > lastLogCount && logEl) {
+            const newLines = lines.slice(lastLogCount);
+            const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
+            for (const line of newLines) {
+              const div = document.createElement('div');
+              div.className = 'dv-light-log-line';
+              if (/Paso \d\/3/.test(line)) div.classList.add('step');
+              if (line.includes('✓ Listo') || line.includes('✓ export') || line.includes('✓ ffmpeg') || line.includes('✓ RPU')) div.classList.add('done');
+              if (st.error && line.includes(st.error)) div.classList.add('error');
+              div.textContent = line;
+              logEl.appendChild(div);
+            }
+            if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+            lastLogCount = lines.length;
+          }
         }
-        if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
-        lastLogCount = lines.length;
-      }
-    } catch (_) { /* silencioso */ }
-  }, 1500);
+      } catch (_) { /* silencioso */ }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  _pollLoop();
 
   try {
     // Timeout 25 min — UHD BD 60GB full tarda 3-5 min normalmente
@@ -7151,11 +7167,21 @@ async function _rgrfAnalyzeLight(evt) {
       }
     }
   } finally {
-    clearInterval(pollTicker);
+    pollTicker._stop();
   }
 }
 
+// Guard monotónico: ignora actualizaciones que llegan con un step inferior
+// al actual (orden de mensajes garantizado por el chained await del polling,
+// pero esto ofrece doble red por si el codigo manda updates desordenados
+// desde otros sitios — p.ej. el success path llama _dvLightSetStep(4) y
+// luego una respuesta vieja en vuelo querría volver a step=3).
+let _dvLightLastStep = 0;
+let _dvLightLastPct = 0;
+
 function _dvLightSetStep(activeStep) {
+  if (activeStep < _dvLightLastStep) return;
+  _dvLightLastStep = activeStep;
   for (let i = 1; i <= 3; i++) {
     const el = document.getElementById(`dv-light-step-${i}`);
     if (!el) continue;
@@ -7174,9 +7200,12 @@ function _dvLightSetStep(activeStep) {
   }
 }
 function _dvLightSetProgress(pct) {
+  // Mismo guard monotonico que _dvLightSetStep
+  const clamped = Math.max(0, Math.min(100, pct));
+  if (clamped < _dvLightLastPct) return;
+  _dvLightLastPct = clamped;
   const bar = document.getElementById('dv-light-progress-bar');
   const txt = document.getElementById('dv-light-pct');
-  const clamped = Math.max(0, Math.min(100, pct));
   if (bar) bar.style.width = `${clamped}%`;
   if (txt) txt.textContent = `${Math.round(clamped)}%`;
 }
