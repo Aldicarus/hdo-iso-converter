@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v1.10)
+# HDO ISO Converter — Reglas del proyecto (v2.0)
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -10,7 +10,7 @@ La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
 El nombre interno del repositorio y ficheros puede seguir siendo `ISO2MKVFEL` por compatibilidad.
 
 ## Descripción
-Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs (orden visual v1.10):
+Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs (orden visual v1.10, mantenido en v2.0):
 
 | Pos. visual | Label UI | Panel interno | Propósito |
 |---|----------|---|-----------|
@@ -526,3 +526,55 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - No añadir abstracción para un solo uso
 - **No cambiar `--active-hub` sin recalcular la interpolación** — romperá la continuidad del gradiente del hub
 - **No usar `idx + 1` sobre los `.tab` principales** para activar tabs — usar IDs (`tab-btn-N`) porque el orden visual no coincide con la numeración interna
+
+---
+
+## Cambios en v2.0 (sobre v1.10)
+
+### File browser unificado multi-root
+- Reemplaza el antiguo `<select>` plano de Tab 2 ("Abrir MKV") y Tab 3 ("MKV origen del proyecto CMv4.0").
+- Endpoint único `GET /api/library/browse?root={library|output}&path=...` con dos roots: `/mnt/library` (definido por `LIBRARY_PATH`) y `/mnt/output`.
+- Modal de browser con breadcrumb navegable, búsqueda incremental, root pills cuando hay 2+, selección por click + botón "Seleccionar" o doble-click.
+- z-index 220 para overlay encima de otros modales (wizard CMv4.0 = 200).
+- Validación path-traversal (`_safe_library_path`, `_resolve_mkv_path_safe`) — el frontend manda ruta absoluta, backend valida que cae bajo un root permitido.
+
+### Pre-flight bloqueante del bin CMv4.0
+- Endpoint `POST /api/cmv40/{id}/preflight-target` (asíncrono, devuelve `{started:true}` inmediato).
+- Background task setea `running_phase="preflight"` durante toda la operación → bloquea el auto-pipeline (otros endpoints respetan el lock por session_id).
+- Tres kinds: `drive` (descarga del repo DoviTools), `path` (copia de carpeta local), `mkv` (extrae RPU de otro MKV).
+- Si el bin no aporta CMv4.0 (caso típico: bins "P5 to P8 transfer") → setea `error_message` con mensaje legible y `target_preflight_ok=False`. Frontend lo ve via polling y detiene el auto-pipeline.
+- Si pasa → `target_preflight_ok=True`, el bin queda en `RPU_target.bin` del workdir y Fase B reutiliza sin re-descargar (helper `_bin_already_cached`).
+- Ahorra ~12 min de extracción HEVC inútil cuando el bin es incompatible.
+- Errores van al log de la sesión via WS (igual que cualquier fase) — sin toast prematuro.
+
+### Perfil de luminancia DV L1 (Tab 2 expandido)
+- Endpoint `POST /api/mkv/light-profile` extrae L1 metadata (max_pq, avg_pq, min_pq) por frame del RPU del MKV completo.
+- Pipeline: ffmpeg copy → HEVC → dovi_tool extract-rpu → dovi_tool export → JSON parse.
+- Parser específico vía paths conocidos (`cmv29_metadata.level1`, `cmv40_metadata.level1`, `ext_metadata_blocks[].Level1`) con fallback recursivo + sanity check (`min_pq <= avg_pq <= max_pq`).
+- Conversión PQ→nits via SMPTE ST 2084 EOTF inverse (`_pq_code_to_nits`).
+- Polling resiliente (`/api/mkv/light-profile/progress`) — chained-await en frontend (no setInterval, evita races out-of-order), guard monotónico anti-rollback.
+- Resultado guardado en `_light_profile_state["result"]` para fallback si el POST aborta por timeout (frontend 60min timeout, backend hasta 35min).
+- Sparkline SVG con 3 curvas superpuestas (peak/avg/min) + líneas de referencia (HDR10 MaxCLL/MaxFALL del SEI, L2 trim targets ámbar, L6 master display) + tooltip hover crosshair + chips de refs out-of-range.
+- Mini-card de stats: percentiles (peak/p99/p95/p50/avg) + clasificación de escenas por brillo (SDR-like <100n / midtone 100-300n / highlight ≥300n).
+
+> **Distinción clave para usuarios**: L1 max_pq es la metadata DV codificada por el colorista, NO la luminancia real en pantalla tras tone-mapping. BR2049 etiqueta conservadoramente: peak L1 ~176 nits aunque medidas reales muestren ~600 nits. Confirmado: nuestro parser coincide al 100% con `dovi_tool info --summary`.
+
+### Cadena de mastering (reemplaza diagrama CIE 1931)
+- Bloque "Gamut de color" eliminado (en UHD BD casi siempre coincide BT.2020 container + P3/2020 master → diagrama no aportaba info).
+- Bloque "Luminancia HDR10/L1/L6" también disuelto: la info se distribuye entre la cadena de mastering y la stats card del sparkline → cero duplicación.
+- Nuevo bloque "Cadena de mastering" con 3 cards: Master display (primaries de L9 o HDR10 SEI + peak/min nits) · Container HEVC (primaries + transfer + bit depth) · DV target display (L10 si presente).
+- Chip ámbar "P3 ↑ BT.2020" cuando hay expansión de gamut master→container (caso muy común).
+- Filas auxiliares: trim targets DV (chips ámbar de L2 target_max_pq) · HDR10 metadata (MaxCLL/MaxFALL SEI) · L11 content type.
+- Nuevo campo backend `mastering_display_primaries` en `HdrMetadata` extraído de mediainfo `MasteringDisplay_ColorPrimaries`.
+
+### Polling resiliente (Tab 2 light-profile)
+- `setInterval` → chained-await en `_pollLoop()` con flag `polling`. Solo 1 fetch en vuelo a la vez → orden monotónico garantizado a nivel de transporte.
+- `_dvLightSetStep` y `_dvLightSetProgress` ignoran updates con valor inferior al actual (guard monotónico, doble red).
+- En error: modal NO se cierra automáticamente. Inyecta el error al log del modal + botón "Cerrar" explícito. Toast de 8s en vez de 3.5s.
+- Fallback: si POST falla (red/abort) y `state.result` está poblado → recuperar el dato sin volver a procesar.
+
+### Limpieza de código pre-release v2.0
+- Eliminado `app/phases/qts.py` (huérfano desde v1.4 cuando se reemplazó la integración QTS File Station por loop mount directo).
+- Limpiados 6 imports unused en `main.py`.
+- Añadidos `/mnt/library` y `/mnt/cmv40_rpus` al `VOLUME` del Dockerfile (compose ya los tenía).
+- Documentado `GOOGLE_API_KEY` en `.env.example`.
