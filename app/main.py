@@ -65,15 +65,13 @@ from fastapi.staticfiles import StaticFiles
 from models import (
     AnalyzeRequest,
     ExecutionRecord,
-    IncludedAudioTrack,
-    IncludedSubtitleTrack,
     QueueReorderRequest,
     Session,
     SessionUpdateRequest,
 )
 from phases.phase_a import run_full_analysis
 from phases.phase_b import apply_rules, generate_auto_chapters
-from phases.phase_d import extract_chapters_from_mkv, find_main_mpls, run_phase_d
+from phases.phase_d import find_main_mpls, run_phase_d
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
 from queue_manager import queue_manager
@@ -124,7 +122,7 @@ _recover_interrupted_sessions()
 from dev_fixtures import (
     DEV_MODE, DEV_FAKE_ISOS, build_fake_session, seed_dev_sessions,
     DEV_FAKE_MKV_FILES, build_fake_mkv_analysis, build_fake_mkv_apply,
-    DEV_FAKE_RPU_FILES, build_fake_per_frame_data, build_fake_cmv40_session,
+    DEV_FAKE_RPU_FILES, build_fake_per_frame_data,
 )
 if DEV_MODE:
     seed_dev_sessions(CONFIG_DIR)
@@ -1942,7 +1940,6 @@ from storage import (
 )
 from phases.cmv40_pipeline import (
     get_workdir as cmv40_get_workdir,
-    artifact_exists as cmv40_artifact_exists,
     list_available_rpus,
     run_phase_a_analyze_source, run_phase_b_target_from_path,
     run_phase_b_target_from_mkv, run_phase_b_target_from_drive,
@@ -1953,7 +1950,7 @@ from phases.cmv40_pipeline import (
     detect_sync_offset, compute_sync_confidence,
     validate_artifacts as _validate_cmv40_artifacts,
     cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
-    CMV40_WORK_BASE, CMV40_RPU_DIR,
+    CMV40_WORK_BASE,
 )
 
 # Conexiones WebSocket específicas de CMv4.0
