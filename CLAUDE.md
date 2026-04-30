@@ -1,4 +1,4 @@
-# HDO ISO Converter — Reglas del proyecto (v2.0)
+# HDO ISO Converter — Reglas del proyecto
 
 ## Nombre de la aplicación
 La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
@@ -10,7 +10,7 @@ La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
 El nombre interno del repositorio y ficheros puede seguir siendo `ISO2MKVFEL` por compatibilidad.
 
 ## Descripción
-Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs (orden visual v1.10, mantenido en v2.0):
+Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs:
 
 | Pos. visual | Label UI | Panel interno | Propósito |
 |---|----------|---|-----------|
@@ -18,7 +18,7 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
 | 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original (sync visual frame-a-frame, multi-proyecto) |
 | 3 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspección profunda de la metadata del MKV (codecs comerciales, bitrate, HDR10 MaxCLL/MaxFALL, Dolby Vision profile + CM version + niveles L1-L11, procedencia CMv4.0, paquetes PGS, etc.) y edición in-place de nombres de pistas, flags default/forced y capítulos sin re-encoding |
 
-**Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** se reordenan con la rename de v1.10 — `switchTab(1)` sigue abriendo el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
+**Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** coinciden con el orden visual — `switchTab(1)` abre el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
 
 ---
 
@@ -30,32 +30,30 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
   - `mkvmerge` — análisis de MPLS + extracción a MKV
   - `mkvpropedit` — edición in-place de metadatos (Tab 2)
   - `mkvextract` — extracción de capítulos
-  - `mediainfo` — metadata extendida: bitrate real, HDR10, codecs comerciales (v1.6+)
+  - `mediainfo` — metadata extendida: bitrate real, HDR10, codecs comerciales
   - `ffmpeg` — extracción de Enhancement Layer para análisis DV
-  - `dovi_tool` — análisis RPU Dolby Vision: Profile, FEL/MEL, CM version (v1.6+)
+  - `dovi_tool` — análisis RPU Dolby Vision: Profile, FEL/MEL, CM version
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
-- **Integraciones externas (v1.8):**
+- **Integraciones externas:**
   - **TMDb API** — traducción ES→EN de títulos + ficha extendida (poster, sinopsis, géneros, rating) en la cabecera de proyectos de los 3 tabs. Opcional (key en ⚙︎ Configuración)
   - **Google Drive API v3** — listado + descarga de RPUs del repositorio público **DoviTools** (compartido por R3S3T_9999). Opcional (key en ⚙︎ Configuración)
   - **Google Sheets (XLSX export)** — lectura live de la hoja de recomendaciones de DoviTools con extracción de hyperlinks vía openpyxl. Sin auth (endpoint público)
-- **~~BDInfoCLI~~:** eliminado en v1.5 — crasheaba con ISOs custom/stripped. Reemplazado por `mkvmerge -J`
-- **~~API QTS File Station~~:** eliminada en v1.4
-- **~~makemkvcon~~:** eliminado en v1.3
-
 ## Estructura del proyecto
 ```
 ISO2MKVFEL/
+├── .github/workflows/
+│   └── publish-docker.yml      ← Publica imagen a ghcr.io en cada push a main
 ├── CLAUDE.md
-├── spec_paso1_iso_to_mkv_v1.3.md   ← especificación de referencia (v1.3)
+├── archive/                    ← Specs históricas (no spec activa)
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   └── entrypoint.sh
 └── app/
-    ├── main.py              ← FastAPI app + WebSocket + endpoints Tab 1 y Tab 2
+    ├── main.py              ← FastAPI app + WebSocket + endpoints (3 tabs)
     ├── requirements.txt
-    ├── models.py            ← Pydantic models (Session, BDInfoResult, MkvAnalysisResult...)
+    ├── models.py            ← Pydantic models (Session, BDInfoResult, MkvAnalysisResult, CMv40Session...)
     ├── storage.py           ← Persistencia JSON en /config + fingerprint ISO
     ├── queue_manager.py     ← Cola FIFO asyncio para Fases D+E
     ├── phases/
@@ -64,10 +62,10 @@ ISO2MKVFEL/
     │   ├── phase_b.py         ← Motor de reglas automáticas (audio, subs, capítulos, nombre)
     │   ├── phase_d.py         ← Extracción: mkvmerge desde MPLS montado
     │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
-    │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo)
-    │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync)
+    │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo + light-profile DV L1)
+    │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync + pre-flight)
     ├── dev_fixtures.py      ← Fixtures (DEV_MODE=1): ISOs/MKVs/RPUs fake para devel UI sin discos reales
-    ├── services/            ← Integraciones externas (v1.8)
+    ├── services/            ← Integraciones externas
     │   ├── settings_store.py    ← Persistencia de API keys en /config/app_settings.json
     │   ├── tmdb.py              ← TMDb search + details (poster, sinopsis, géneros, rating)
     │   ├── rec999_sheet.py      ← Sheet DoviTools: XLSX (con hyperlinks) > HTML > CSV
@@ -275,7 +273,7 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 
 ---
 
-## Integraciones externas (v1.8)
+## Integraciones externas
 
 ### Settings UI (⚙︎ Configuración)
 - Botón engranaje arriba-derecha abre el modal de configuración
@@ -312,19 +310,17 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 - Caché en memoria + disco (`/config/rec999_drive_cache.json`, TTL 24h)
 - Match fuzzy de filename → candidatos rankeados por score (reusa lógica de `cmv40_recommend`)
 - Descarga streaming vía `files.get?alt=media&key=...` al workdir del proyecto
-- Nueva Fase B3 en el pipeline: `target-rpu-from-drive` (hermana de B1-path / B2-mkv)
+- Endpoint `target-rpu-from-drive` (hermana de B1-path / B2-mkv)
 
 ### Modal "Nuevo proyecto CMv4.0"
 - Ancho 980px, responsive hasta viewport-48
-- 3 tabs de target (v1.9 reordenados): **📦 Repo DoviTools** (default) · **🎬 Extraer de MKV** · **📁 Carpeta local** (residual)
+- 3 tabs de target: **📦 Repo DoviTools** (default) · **🎬 Extraer de MKV** · **📁 Carpeta local** (residual)
 - Banner de recomendación con status-badge pill + chips en fila (Fuente · Sync · Verificación) + note con botón "Abrir ↗"
 - Footer compacto en 1 línea: toggle auto-pipeline + Cancelar/Crear
 
 ---
 
-## Sistema de Trust para bins pre-validados (v1.9)
-
-Spec base: [spec_bins_reset9999_integration_v3.md](spec_bins_reset9999_integration_v3.md).
+## Sistema de Trust para bins pre-validados
 
 ### Clasificación del target RPU
 
@@ -372,7 +368,7 @@ Se registra en `session.phases_skipped` para UI (phase-strip muestra las fases o
 - Strings de UI, mensajes de lógica y comentarios en **español**
 - Los literales de pistas siguen exactamente la spec: "Castellano TrueHD Atmos 7.1", "Inglés DTS-HD MA 5.1", etc.
 
-### Análisis del disco (Fase A — pipeline extendido v1.6)
+### Análisis del disco (Fase A — pipeline extendido)
 
 Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
@@ -441,7 +437,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - **MOUNT_BASE**: `/mnt/bd` (creado en entrypoint.sh)
 - `unmount_iso()`: umount normal, fallback lazy, limpia directorio
 
-### Pipeline optimizado (v1.4+) — 1 sola copia de datos
+### Pipeline optimizado — 1 sola copia de datos
 - **Ruta directa** (con reordenación/exclusión): mkvmerge lee MPLS → MKV final en `/mnt/output`. Mapeo de pistas por idioma+codec (no posicional).
 - **Ruta intermedio** (sin reordenación): Phase D → MKV intermedio → mkvpropedit in-place → `mv` al output.
 - **`--gui-mode`**: fuerza output de progreso en mkvmerge. Traducido de `#GUI#progress XX%` a `Progress: XX%`.
@@ -483,7 +479,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - Paleta oscura, acentos azul/teal, radios generosos, transiciones fluidas
 - Variables CSS centralizadas en `:root`
 
-### Hub activo — franja superior (v1.10)
+### Hub activo — franja superior
 Todas las pestañas comparten una **franja navy** en la parte superior que unifica visualmente la "zona de acción" (tabs principales + botón primary de la herramienta).
 
 - Variable principal `--active-hub: #22436c` — es **la interpolación lineal exacta** entre `--active-hub-top` (`#264a78`) y `--active-hub-bottom` (`#1a3557`) al 35.7% (proporción tab height / total hub height). Este valor NO debe cambiarse arbitrariamente: si se toca, hay que recalcular para mantener la continuidad de slope entre los dos tramos de gradiente.
@@ -495,7 +491,7 @@ Todas las pestañas comparten una **franja navy** en la parte superior que unifi
 - **Botón primary en franja navy**: `.sidebar-new-project-btn` lleva `box-shadow: 0 1px 6px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.08) inset` para destacar sobre el azul oscuro. Tab 2 reutiliza literalmente esa clase (no crea `.mkv-action-btn` duplicada).
 
 ### Switching de tabs principales
-`switchTab(n)` debe marcar el active **por ID** (`tab-btn-N`), nunca por posición DOM — el orden visual fue reordenado en v1.10 y no coincide con la numeración interna.
+`switchTab(n)` debe marcar el active **por ID** (`tab-btn-N`), nunca por posición DOM — el orden visual no coincide con la numeración interna.
 
 ### Scroll horizontal de sub-tabs de proyecto
 Tab 1 y Tab 3 comparten el patrón. Arquitectura:
@@ -529,25 +525,30 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 
 ---
 
-## Cambios en v2.0 (sobre v1.10)
+## File browser unificado multi-root
 
-### File browser unificado multi-root
-- Reemplaza el antiguo `<select>` plano de Tab 2 ("Abrir MKV") y Tab 3 ("MKV origen del proyecto CMv4.0").
+Tab 2 ("Abrir MKV") y Tab 3 ("MKV origen del proyecto CMv4.0") usan un browser modal con dos roots:
+
 - Endpoint único `GET /api/library/browse?root={library|output}&path=...` con dos roots: `/mnt/library` (definido por `LIBRARY_PATH`) y `/mnt/output`.
-- Modal de browser con breadcrumb navegable, búsqueda incremental, root pills cuando hay 2+, selección por click + botón "Seleccionar" o doble-click.
+- Modal con breadcrumb navegable, búsqueda incremental, root pills cuando hay 2+, selección por click + botón "Seleccionar" o doble-click.
 - z-index 220 para overlay encima de otros modales (wizard CMv4.0 = 200).
 - Validación path-traversal (`_safe_library_path`, `_resolve_mkv_path_safe`) — el frontend manda ruta absoluta, backend valida que cae bajo un root permitido.
 
-### Pre-flight bloqueante del bin CMv4.0
+## Pre-flight bloqueante del bin CMv4.0
+
+Antes de gastar Fase A (~12 min de extracción HEVC en discos UHD), un pre-flight rápido valida que el bin target tenga CMv4.0. Si no, aborta con mensaje claro sin tocar el HEVC.
+
 - Endpoint `POST /api/cmv40/{id}/preflight-target` (asíncrono, devuelve `{started:true}` inmediato).
 - Background task setea `running_phase="preflight"` durante toda la operación → bloquea el auto-pipeline (otros endpoints respetan el lock por session_id).
 - Tres kinds: `drive` (descarga del repo DoviTools), `path` (copia de carpeta local), `mkv` (extrae RPU de otro MKV).
 - Si el bin no aporta CMv4.0 (caso típico: bins "P5 to P8 transfer") → setea `error_message` con mensaje legible y `target_preflight_ok=False`. Frontend lo ve via polling y detiene el auto-pipeline.
 - Si pasa → `target_preflight_ok=True`, el bin queda en `RPU_target.bin` del workdir y Fase B reutiliza sin re-descargar (helper `_bin_already_cached`).
-- Ahorra ~12 min de extracción HEVC inútil cuando el bin es incompatible.
 - Errores van al log de la sesión via WS (igual que cualquier fase) — sin toast prematuro.
 
-### Perfil de luminancia DV L1 (Tab 2 expandido)
+## Perfil de luminancia DV L1 (Tab 2)
+
+Análisis on-demand del MKV completo que extrae el L1 metadata frame-a-frame del RPU para visualización en sparkline + stats.
+
 - Endpoint `POST /api/mkv/light-profile` extrae L1 metadata (max_pq, avg_pq, min_pq) por frame del RPU del MKV completo.
 - Pipeline: ffmpeg copy → HEVC → dovi_tool extract-rpu → dovi_tool export → JSON parse.
 - Parser específico vía paths conocidos (`cmv29_metadata.level1`, `cmv40_metadata.level1`, `ext_metadata_blocks[].Level1`) con fallback recursivo + sanity check (`min_pq <= avg_pq <= max_pq`).
@@ -559,22 +560,18 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 
 > **Distinción clave para usuarios**: L1 max_pq es la metadata DV codificada por el colorista, NO la luminancia real en pantalla tras tone-mapping. BR2049 etiqueta conservadoramente: peak L1 ~176 nits aunque medidas reales muestren ~600 nits. Confirmado: nuestro parser coincide al 100% con `dovi_tool info --summary`.
 
-### Cadena de mastering (reemplaza diagrama CIE 1931)
-- Bloque "Gamut de color" eliminado (en UHD BD casi siempre coincide BT.2020 container + P3/2020 master → diagrama no aportaba info).
-- Bloque "Luminancia HDR10/L1/L6" también disuelto: la info se distribuye entre la cadena de mastering y la stats card del sparkline → cero duplicación.
-- Nuevo bloque "Cadena de mastering" con 3 cards: Master display (primaries de L9 o HDR10 SEI + peak/min nits) · Container HEVC (primaries + transfer + bit depth) · DV target display (L10 si presente).
-- Chip ámbar "P3 ↑ BT.2020" cuando hay expansión de gamut master→container (caso muy común).
-- Filas auxiliares: trim targets DV (chips ámbar de L2 target_max_pq) · HDR10 metadata (MaxCLL/MaxFALL SEI) · L11 content type.
-- Nuevo campo backend `mastering_display_primaries` en `HdrMetadata` extraído de mediainfo `MasteringDisplay_ColorPrimaries`.
+## Cadena de mastering (Tab 2 — radiografía DV+HDR)
 
-### Polling resiliente (Tab 2 light-profile)
-- `setInterval` → chained-await en `_pollLoop()` con flag `polling`. Solo 1 fetch en vuelo a la vez → orden monotónico garantizado a nivel de transporte.
+El panel "Radiografía DV+HDR" del tab "Editar MKV" tiene una sección "Cadena de mastering" que centraliza toda la info de primaries y trim targets sin repetir datos en otros bloques.
+
+- 3 cards: Master display (primaries de L9 o HDR10 SEI + peak/min nits) · Container HEVC (primaries + transfer + bit depth) · DV target display (L10 si presente).
+- Chip ámbar "P3 ↑ BT.2020" cuando hay expansión de gamut master→container (caso muy común en UHD BD).
+- Filas auxiliares: trim targets DV (chips ámbar de L2 target_max_pq) · HDR10 metadata (MaxCLL/MaxFALL SEI) · L11 content type.
+- Campo backend `mastering_display_primaries` en `HdrMetadata` extraído de mediainfo `MasteringDisplay_ColorPrimaries`.
+
+## Polling resiliente (Tab 2 light-profile)
+
+- `setInterval` evitado: en su lugar chained-await en `_pollLoop()` con flag `polling`. Solo 1 fetch en vuelo a la vez → orden monotónico garantizado a nivel de transporte.
 - `_dvLightSetStep` y `_dvLightSetProgress` ignoran updates con valor inferior al actual (guard monotónico, doble red).
 - En error: modal NO se cierra automáticamente. Inyecta el error al log del modal + botón "Cerrar" explícito. Toast de 8s en vez de 3.5s.
 - Fallback: si POST falla (red/abort) y `state.result` está poblado → recuperar el dato sin volver a procesar.
-
-### Limpieza de código pre-release v2.0
-- Eliminado `app/phases/qts.py` (huérfano desde v1.4 cuando se reemplazó la integración QTS File Station por loop mount directo).
-- Limpiados 6 imports unused en `main.py`.
-- Añadidos `/mnt/library` y `/mnt/cmv40_rpus` al `VOLUME` del Dockerfile (compose ya los tenía).
-- Documentado `GOOGLE_API_KEY` en `.env.example`.

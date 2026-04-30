@@ -6,7 +6,7 @@ Responsabilidad:
   el orden deseado, los nombres de pista, los flags y los capítulos.
 
 ─────────────────────────────────────────────────────────────────────
-FLUJO BIFURCADO OPTIMIZADO (v1.4)
+FLUJO BIFURCADO OPTIMIZADO
 ─────────────────────────────────────────────────────────────────────
 
 La decisión se toma ANTES de la extracción, no después:
@@ -20,10 +20,10 @@ La decisión se toma ANTES de la extracción, no después:
     Phase D: SE SALTA (no se genera intermedio)
     Phase E: mkvmerge MPLS → MKV final directamente
     con selección + reorden + metadatos + capítulos
-    Total: 1 copia de datos (antes eran 2)
+    Total: 1 copia de datos
 
 ─────────────────────────────────────────────────────────────────────
-MAPEO DE PISTAS (v1.5)
+MAPEO DE PISTAS
 ─────────────────────────────────────────────────────────────────────
 
 Las pistas incluidas se mapean a IDs del source por contenido

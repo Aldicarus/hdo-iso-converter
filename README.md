@@ -2,8 +2,6 @@
 
 Aplicación web en contenedor Docker para procesar contenido UHD Blu-ray. Diseñada para correr en NAS QNAP x86 (amd64) pero compatible con cualquier host Linux con Docker.
 
-**Release v2.0** — incluye file browser de biblioteca multi-root, pre-flight bloqueante del bin CMv4.0, perfil de luminancia DV L1 con 3 curvas + percentiles + clasificación, cadena de mastering reorganizada y polling resiliente para análisis largos.
-
 ## Herramientas
 
 Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. El **orden visual** y los labels de la UI son:
@@ -16,41 +14,63 @@ Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. E
 
 ## Inicio rápido
 
-### Opción A — Imagen pre-construida (recomendado)
+La imagen oficial está publicada en GitHub Container Registry: `ghcr.io/aldicarus/hdo-iso-converter:latest` (linux/amd64). No hay que compilar nada — descargas y arrancas.
+
+### Opción A — Línea de comandos (recomendado)
 
 ```bash
-# 1. Pull de la imagen
-docker pull ghcr.io/aldicarus/hdo-iso-converter:latest
-
-# 2. Descargar docker-compose.yml y .env.example
+# 1. Crear directorio de trabajo
 mkdir hdo-iso-converter && cd hdo-iso-converter
+
+# 2. Descargar docker-compose.yml y .env de ejemplo
 curl -LO https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/docker-compose.yml
-curl -LO https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/.env.example
+curl -L https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/.env.example -o .env
 
-# 3. Configurar rutas (ver tabla en sección Configuración)
-cp .env.example .env
-# Editar .env con las rutas de tu sistema
+# 3. Editar .env con las rutas de tu host
+nano .env   # o tu editor favorito (ver tabla "Configuración" abajo)
 
-# 4. Arrancar
+# 4. Tirar la imagen y arrancar (sin build, usa la pre-construida)
+docker compose pull
 docker compose up -d
 ```
 
-### Opción B — Build local
+Acceder a **http://localhost:8090** (o `HDO_PORT` si lo cambiaste).
+
+Para actualizar a una versión más reciente:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+### Opción B — Container Station (QNAP) / Portainer
+
+Apps con UI gráfica para gestionar containers Docker. Ambas soportan `docker-compose.yml`:
+
+1. **Descargar** `docker-compose.yml` y `.env.example` desde el repo:
+   - https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/docker-compose.yml
+   - https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/.env.example
+2. **Renombrar** `.env.example` a `.env` y editar las rutas de tu host (ver tabla "Configuración" abajo).
+3. **En Container Station / Portainer**:
+   - Crear nueva aplicación de tipo "Docker Compose" (Container Station: *Aplicación → Crear → Personalizado* · Portainer: *Stacks → Add stack → Web editor*).
+   - Pegar el contenido de `docker-compose.yml`.
+   - Subir el `.env` (Container Station lo pide al final · Portainer: pestaña *Environment variables → Advanced mode → Load variables from .env file*).
+   - Crear / Deploy.
+
+La imagen se descarga de `ghcr.io/aldicarus/hdo-iso-converter:latest` automáticamente.
+
+### Opción C — Build desde fuente (devs)
+
+Solo si quieres modificar el código:
 
 ```bash
 git clone https://github.com/Aldicarus/hdo-iso-converter.git
 cd hdo-iso-converter
-
-# Configurar rutas
 cp docker/.env.example docker/.env
-# Editar docker/.env con las rutas de tu sistema
+# Editar docker/.env
 
-# Build y arrancar
 cd docker
-docker compose up -d --build
+docker compose -f docker-compose.dev.yml up -d --build
 ```
-
-Acceder a **http://localhost:8090** (o `HDO_PORT` si lo cambiaste).
 
 ### Smoke test
 
@@ -130,7 +150,7 @@ MediaInfo y dovi_tool son opcionales: si fallan, el análisis sigue con datos de
 
 ## Tab "Consultar / Editar MKV"
 
-### File browser unificado (v2.0)
+### File browser unificado
 
 El tab abre un browser modal con dos roots:
 
@@ -151,7 +171,7 @@ Solo se modifica metadata via `mkvpropedit` (instantáneo, O(1)):
 
 ### Radiografía DV+HDR
 
-Panel detallado con secciones reorganizadas (v2.0):
+Panel detallado con cinco secciones:
 
 1. **Stream técnico** — profile, CM version, frames, duración, FPS, escenas, bit depth, codec, RPU size, EL info.
 2. **Cadena de mastering** — 3 cards (Master display / Container HEVC / DV target L10) con primaries, peak/min nits, transfer + bit-depth. Chip "P3 ↑ BT.2020" cuando hay expansión de gamut. Filas auxiliares: trim targets DV (chips ámbar de L2 target_max_pq), HDR10 metadata (MaxCLL/MaxFALL del SEI), L11 content type.
@@ -177,7 +197,7 @@ Pipeline para inyectar un RPU Dolby Vision CMv4.0 (de DoviTools u otras fuentes)
 
 ### Modal "Nuevo proyecto"
 
-Flujo en 3 tabs de target source (v2.0 reordenados):
+Flujo en 3 tabs de target source:
 
 - **📦 Repo DoviTools** (default) — listado live del Drive público de DoviTools con fuzzy-match contra el filename del MKV. Descarga directa al workdir.
 - **🎬 Extraer de MKV** — extrae el RPU de otro MKV propio que ya tenga CMv4.0.
@@ -185,7 +205,7 @@ Flujo en 3 tabs de target source (v2.0 reordenados):
 
 Banner de recomendación con clasificación del bin (factible / no factible / Not Sure!) según el sheet live de DoviTools.
 
-### Pre-flight bloqueante (v2.0)
+### Pre-flight bloqueante
 
 Antes de gastar Fase A (~12 min para extraer el HEVC de UHD), un pre-flight rápido (~5s para drive/path, ~30s-2min para extraer de otro MKV) descarga el bin y valida que tenga CMv4.0:
 
@@ -205,7 +225,7 @@ Es asíncrono (running_phase="preflight"), bloqueante (otras fases no arrancan e
 7. **Remux final** — `dovi_tool mux` + mkvmerge preservando audio/subs/capítulos.
 8. **Validar** — extracción del RPU del MKV resultante + verificación CM v4.0.
 
-### Sistema de trust (v1.9+)
+### Sistema de trust
 
 Tras Fase B, el bin se clasifica en `target_type`:
 
@@ -240,6 +260,8 @@ Override manual: `trust_override = "force_interactive"` fuerza ruta A completa a
 
 ```
 hdo-iso-converter/
+├── .github/workflows/
+│   └── publish-docker.yml       ← Publica imagen a ghcr.io en cada push a main
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
@@ -270,7 +292,7 @@ hdo-iso-converter/
 │       ├── index.html
 │       ├── app.js
 │       └── style.css
-├── archive/                     ← Specs históricas (v1.2/v1.3)
+├── archive/                     ← Specs históricas
 ├── CLAUDE.md
 ├── README.md
 └── run_local.sh

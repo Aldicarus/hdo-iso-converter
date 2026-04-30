@@ -1881,7 +1881,7 @@ const _CMV40_HELP_SECTIONS = {
 
     <h2 id="p-phases">📋 Qué hace cada fase (y qué ves tú)</h2>
 
-    <h3>Pre-flight (v2.0) — validación rápida del bin antes de empezar</h3>
+    <h3>Pre-flight — validación rápida del bin antes de empezar</h3>
     <p>Cuando arrancas un proyecto con un bin pre-seleccionado y modo auto activado, hay un <strong>pre-check del bin que se ejecuta antes de Fase A</strong>. Su objetivo es simple: si el bin no aporta CMv4.0, abortar inmediatamente con mensaje claro <em>antes</em> de gastar los ~12 min que tarda Fase A en extraer el HEVC del Blu-ray.</p>
     <ul>
       <li><strong>Drive (repo DoviTools)</strong>: descarga el .bin (~5s, son 30-50 MB típicos) y corre <code>dovi_tool info --summary</code> sobre él.</li>
@@ -8364,7 +8364,7 @@ const CMV40_ETA = {
   fps_inject:    400,    // 155001/388 observado en drop-in (antes 545 era subestimacion)
   fps_mux:       415,    // 155001/373 ≈ 415 (antes 711)
   // Fallback inicial cuando aun no tenemos ffmpeg_wall_seconds ni tamaño
-  // del fichero (sesiones pre-v1.10.3). Los usuarios tipicos de UHD BD manejan
+  // del fichero (sesiones legacy sin parser de tracks). Los usuarios típicos de UHD BD manejan
   // 60-70 GB — ffmpeg extract ~280-330s en NAS ZFS a ~220 MB/s. Antes era 180
   // (caso 35-42 GB) que subestimaba. Con tamaño en session usamos scaling en
   // _cmv40FallbackAnchor; este valor solo aplica a sesiones viejas sin size.
@@ -8492,8 +8492,8 @@ function _cmv40PlanAutoSteps(s) {
   const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
   const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
   // Fase H: extract-rpu del HEVC pre-mux (~r_extract_rpu × anchor) + mkvmerge -J (~2s).
-  // Antes era constante 15s pero tras el fix de v1.10.1 (extract-rpu sobre pre-mux
-  // para evitar "Invalid PPS index" en el MKV) tarda mucho más. En el NAS real:
+  // Antes era constante 15s pero tras el fix de extract-rpu sobre pre-mux
+  // (para evitar "Invalid PPS index" en el MKV) tarda mucho más. En el NAS real:
   // 152s para 155k frames sobre el HEVC de 34 GB.
   const etaH = _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
 

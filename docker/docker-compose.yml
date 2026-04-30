@@ -1,10 +1,17 @@
+# docker-compose.yml — usa la imagen pre-construida de GHCR.
+#
+# Para usar este compose tal cual:
+#   1. Copia este fichero + .env.example al host (no hace falta clonar el repo)
+#   2. Renombra .env.example a .env y edita las rutas
+#   3. docker compose pull && docker compose up -d
+#
+# Para BUILD desde código fuente (devs), usar docker-compose.dev.yml en su
+# lugar — incluye la directiva `build:` apuntando al Dockerfile local.
+#
+# Imagen oficial: https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter
+
 services:
   hdo-iso-converter:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        DOVI_TOOL_VERSION: "2.3.2"
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter
@@ -36,22 +43,22 @@ services:
       # ISOs de origen (solo lectura)
       - ${ISOS_PATH:?Define ISOS_PATH en .env}:/mnt/isos:ro
 
-      # Biblioteca de MKVs (raíz con subdirectorios) — read-only. La UI
-      # de Tab 3 navega este árbol con un file browser. Si LIBRARY_PATH
-      # no se define, se usa /mnt/library como dir vacío (Tab 3 usa
-      # /mnt/output como fallback).
+      # Biblioteca de MKVs (raíz con subdirectorios) — read-only. Tabs 2 y 3
+      # navegan este árbol con un file browser. Si LIBRARY_PATH no se define,
+      # se usa /var/empty como dir vacío (los tabs solo verán /mnt/output).
       - ${LIBRARY_PATH:-/var/empty}:/mnt/library:ro
 
       # MKVs finales
       - ${OUTPUT_PATH:?Define OUTPUT_PATH en .env}:/mnt/output:rw
 
-      # MKV intermedios (SSD recomendado)
+      # MKV intermedios + workdir CMv4.0 (SSD recomendado)
       - ${TMP_PATH:?Define TMP_PATH en .env}:/mnt/tmp:rw
 
-      # Sesiones persistentes + cola
+      # Sesiones persistentes + cola + app_settings.json (API keys)
       - ${CONFIG_PATH:?Define CONFIG_PATH en .env}:/config:rw
 
-      # RPUs CMv4.0 externos (read-only, Tab 3).
+      # RPUs CMv4.0 externos legacy (read-only, Tab 3).
       # OBLIGATORIO: si no usas esta funcionalidad, apunta a un dir vacío cualquiera.
-      # NUNCA dejar fallback a /tmp — en QNAP tmpfs vuelca basura del sistema (.qcloud*, smart/, sockets).
+      # NUNCA dejar fallback a /tmp — en QNAP el tmpfs vuelca basura del sistema
+      # (.qcloud*, smart/, sockets) que aparecerían como ficheros RPU en la UI.
       - ${CMV40_RPU_PATH:?Define CMV40_RPU_PATH en .env (apunta a un dir vacio si no usas Tab 3 con RPUs externos)}:/mnt/cmv40_rpus:ro

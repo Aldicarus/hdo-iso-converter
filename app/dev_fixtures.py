@@ -17,9 +17,9 @@ Proporciona fixtures para los 3 tabs:
   - Tab 3 (CMv4.0): DEV_FAKE_RPU_FILES, build_fake_per_frame_data,
     build_fake_cmv40_session
 
-NOTA v2.0: este módulo es feature estable, no temporal. Permite demos
-sin discos físicos y testing rápido de UI changes. Si quieres una build
-de producción 100% pelada, simplemente no setees DEV_MODE.
+Este módulo es feature estable, no temporal. Permite demos sin discos
+físicos y testing rápido de UI changes. Si quieres una build de
+producción 100% pelada, simplemente no setees DEV_MODE.
 """
 import os
 import time

@@ -568,7 +568,7 @@ async def _run_pipeline(session_id: str) -> None:
     Corutina interna que ejecuta el pipeline de extracción en background.
     Llamada por queue_manager cuando le toca el turno al trabajo.
 
-    Flujo optimizado (v1.4):
+    Flujo optimizado:
       1. Monta el ISO (loop mount UDF)
       2. Localiza el MPLS principal
       3. Decide ruta según reordenación:

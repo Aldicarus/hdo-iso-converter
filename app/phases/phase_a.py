@@ -1,5 +1,5 @@
 """
-phase_a.py — Fase A: Análisis del disco (pipeline extendido v1.6)
+phase_a.py — Fase A: Análisis del disco (pipeline extendido)
 
 Pipeline de 4 herramientas ejecutadas mientras el ISO está montado:
 

@@ -1021,7 +1021,7 @@ class CMv40Session(BaseModel):
     """Info extendida de TMDb (poster, sinopsis, géneros, rating…) si
     hubo match. Dict libre para flexibilidad — estructura en services/tmdb.py."""
 
-    # ── Clasificación del RPU target (v1.9 — integración DoviTools bins) ──
+    # ── Clasificación del RPU target (integración DoviTools bins) ──
     target_type: str = "generic"
     """Clasificación del target RPU tras `_analyze_target_rpu`. Valores:
       - 'generic': P5/P8 genérico (bbeny123-style) → requiere merge en Fase F
