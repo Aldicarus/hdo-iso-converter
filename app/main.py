@@ -1612,44 +1612,100 @@ async def mkv_light_profile_endpoint(body: dict):
         if not isinstance(rpus, list):
             raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
 
-        # Busqueda recursiva del bloque L1. dovi_tool 2.3.2 anida el nivel 1
-        # dentro de varias estructuras posibles (vdr_dm_data.cmv29_metadata,
-        # .dm_data.V40.cmv29_metadata, .metadata.level1, etc.). En vez de
-        # adivinar el path exacto, buscamos recursivamente una subestructura
-        # que tenga las 3 claves min_pq/max_pq/avg_pq = bloque L1.
-        def _find_l1_block(obj, max_depth=8):
-            """Busca recursivamente un dict con max_pq + avg_pq (L1 de CMv2.9/v4.0).
-            Devuelve (max_pq, avg_pq) o (None, None)."""
-            if max_depth <= 0: return None, None
-            if isinstance(obj, dict):
-                # Es este el bloque L1?
-                if "max_pq" in obj and "avg_pq" in obj:
-                    return obj.get("max_pq"), obj.get("avg_pq")
-                # Buscar por clave conocida primero (fast path)
-                for key in ("level1", "Level1", "L1"):
-                    if key in obj:
-                        cll, fall = _find_l1_block(obj[key], max_depth - 1)
-                        if cll is not None: return cll, fall
-                # Recurrir en valores
-                for v in obj.values():
-                    cll, fall = _find_l1_block(v, max_depth - 1)
-                    if cll is not None: return cll, fall
-            elif isinstance(obj, list):
-                for item in obj:
-                    cll, fall = _find_l1_block(item, max_depth - 1)
-                    if cll is not None: return cll, fall
-            return None, None
+        # Busqueda del bloque L1 de CMv2.9/v4.0. Antes era recursiva ciega
+        # buscando "max_pq + avg_pq" → en BR2049 devolvia ~2329 (peak ~176
+        # nits) cuando el peak real es ~3079 (~1000 nits). Causa probable:
+        # algun bloque hermano (L8, L2 con "target_max_pq" alias en alguna
+        # version de dovi_tool, o un fallback con datos historicos) tenia
+        # esos campos y se encontraba antes en el orden de iteracion.
+        #
+        # Ahora intentamos paths conocidos primero (rapido y especifico) y
+        # solo caemos al fallback recursivo si no encontramos nada. Validamos
+        # min_pq <= avg_pq <= max_pq para descartar bloques con datos
+        # incoherentes.
 
-        # Sanity check sobre el primer RPU — loggea los valores L1 encontrados
-        # (util para diagnostico si la estructura cambia en futuras versiones
-        # de dovi_tool; el volcado completo solo se activa si no se encuentra).
+        def _l1_from_block(b):
+            """Devuelve (max_pq, avg_pq) si b parece un bloque L1 valido."""
+            if not isinstance(b, dict):
+                return None, None
+            if "max_pq" not in b or "avg_pq" not in b:
+                return None, None
+            try:
+                mx = int(b.get("max_pq", 0))
+                av = int(b.get("avg_pq", 0))
+                mn = int(b.get("min_pq", 0))
+            except Exception:
+                return None, None
+            # Sanity: min<=avg<=max y todos en rango 12-bit.
+            if not (0 <= mn <= av <= mx <= 8191):
+                return None, None
+            return mx, av
+
+        def _find_l1_block(obj, max_depth=8):
+            """Busca el bloque L1 en obj. Probamos paths explicitos
+            (rapidos, especificos) y caemos al fallback recursivo. Retorna
+            (max_pq, avg_pq) en 12-bit PQ, o (None, None)."""
+            if not isinstance(obj, dict):
+                return None, None
+            # 1) Paths explicitos conocidos (dovi_tool 2.x estables)
+            cm29 = obj.get("cmv29_metadata") or {}
+            cm40 = obj.get("cmv40_metadata") or {}
+            for parent in (cm29, cm40, obj):
+                if not isinstance(parent, dict):
+                    continue
+                for key in ("level1", "Level1", "L1"):
+                    blk = parent.get(key)
+                    if isinstance(blk, dict):
+                        cll, fall = _l1_from_block(blk)
+                        if cll is not None:
+                            return cll, fall
+            # 2) ext_metadata_blocks list (formato tagged enum CMv4.0)
+            for src in (obj, cm29, cm40):
+                if not isinstance(src, dict):
+                    continue
+                blocks = src.get("ext_metadata_blocks")
+                if isinstance(blocks, list):
+                    for item in blocks:
+                        if not isinstance(item, dict):
+                            continue
+                        for key in ("Level1", "level1", "L1"):
+                            inner = item.get(key)
+                            if isinstance(inner, dict):
+                                cll, fall = _l1_from_block(inner)
+                                if cll is not None:
+                                    return cll, fall
+                        # Quiza el item ES directamente el L1
+                        cll, fall = _l1_from_block(item)
+                        if cll is not None:
+                            return cll, fall
+            # 3) Fallback recursivo (defensivo — versiones futuras)
+            def _walk(o, d):
+                if d <= 0:
+                    return None, None
+                if isinstance(o, dict):
+                    cll, fall = _l1_from_block(o)
+                    if cll is not None:
+                        return cll, fall
+                    for v in o.values():
+                        cll, fall = _walk(v, d - 1)
+                        if cll is not None:
+                            return cll, fall
+                elif isinstance(o, list):
+                    for v in o:
+                        cll, fall = _walk(v, d - 1)
+                        if cll is not None:
+                            return cll, fall
+                return None, None
+            return _walk(obj, max_depth)
+
+        # Sanity check sobre el primer RPU — loggea los valores L1 encontrados.
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
             test_cll, test_fall = _find_l1_block(vdr0)
             if test_cll is not None:
-                _logger.info("light-profile: L1 en RPU[0] max_pq=%s avg_pq=%s", test_cll, test_fall)
+                _logger.info("light-profile: L1 en RPU[0] max_pq=%s avg_pq=%s",
+                             test_cll, test_fall)
             else:
-                # Dump completo para diagnosticar — solo cuando falla
                 _logger.warning("light-profile: NO L1 en RPU[0]. Dump estructura:")
                 _logger.warning("  top keys=%s", list(rpus[0].keys())[:12])
                 _logger.warning("  vdr keys=%s", list(vdr0.keys()))
@@ -1667,18 +1723,36 @@ async def mkv_light_profile_endpoint(body: dict):
             return _pq_code_to_nits(v)
 
         per_frame_cll, per_frame_fall = [], []
+        # Tracking del max_pq raw para diagnostico — sirve para detectar si
+        # estamos leyendo el bloque correcto (BR2049 deberia llegar a ~3079).
+        raw_max_pq_max = 0
+        raw_max_pq_sum = 0
+        raw_max_pq_count = 0
         for rpu in rpus:
             vdr = (rpu or {}).get("vdr_dm_data", {})
             cll, fall = _find_l1_block(vdr)
             if cll is not None:
+                if cll > raw_max_pq_max:
+                    raw_max_pq_max = cll
+                raw_max_pq_sum += cll
+                raw_max_pq_count += 1
                 try: per_frame_cll.append(int(round(_to_nits(cll))))
                 except Exception: per_frame_cll.append(0)
             if fall is not None:
                 try: per_frame_fall.append(int(round(_to_nits(fall))))
                 except Exception: per_frame_fall.append(0)
 
-        _logger.info("light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs",
-                     len(per_frame_cll), len(per_frame_fall), len(rpus))
+        raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
+        _logger.info(
+            "light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs · "
+            "raw max_pq peak=%d avg=%.1f (rango esperado 12-bit: peak 2500-3500 para UHD HDR)",
+            len(per_frame_cll), len(per_frame_fall), len(rpus),
+            raw_max_pq_max, raw_avg,
+        )
+        _lp_log(
+            f"raw max_pq peak={raw_max_pq_max} avg={raw_avg:.0f} (12-bit, "
+            f"esperado UHD HDR ~2500-3500)"
+        )
 
         if not per_frame_cll:
             raise HTTPException(
