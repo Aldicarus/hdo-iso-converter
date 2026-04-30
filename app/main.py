@@ -1699,6 +1699,9 @@ async def mkv_light_profile_endpoint(body: dict):
             return _walk(obj, max_depth)
 
         # Sanity check sobre el primer RPU — loggea los valores L1 encontrados.
+        # Tambien dumpea el vdr_dm_data completo (truncado) para diagnostico:
+        # si max_pq sale fuera del rango esperado para UHD HDR, queremos ver
+        # que estructura tiene la metadata para identificar el bloque correcto.
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
             test_cll, test_fall = _find_l1_block(vdr0)
@@ -1714,6 +1717,32 @@ async def mkv_light_profile_endpoint(body: dict):
                         _logger.warning("    vdr.%s keys=%s", k, list(v.keys())[:15])
                     elif isinstance(v, list) and v and isinstance(v[0], dict):
                         _logger.warning("    vdr.%s[0] keys=%s", k, list(v[0].keys())[:15])
+            # Dump JSON completo de vdr_dm_data del PRIMER RPU al log
+            # (truncado a 6KB) — solo se loga al INFO normalmente, sirve para
+            # diagnostico cuando los valores no encajan.
+            try:
+                import json as _dbg_json
+                vdr_str = _dbg_json.dumps(vdr0, indent=2, ensure_ascii=False)
+                if len(vdr_str) > 6000:
+                    vdr_str = vdr_str[:6000] + "\n... [truncado]"
+                _logger.info("light-profile: RPU[0].vdr_dm_data dump:\n%s", vdr_str)
+                _lp_log("Estructura RPU[0] dumpeada al log del contenedor (docker logs).")
+            except Exception as _e:
+                _logger.warning("dump vdr_dm_data fallo: %s", _e)
+
+            # Tambien probemos a buscar OTROS RPUs con max_pq alto — si el
+            # max_pq peak global es 2318 en una peli mastered HDR, quiza la
+            # estructura del bloque candidato cambia segun el frame.
+            _logger.info("light-profile: probando frames del medio de la peli")
+            mid = len(rpus) // 2
+            for sample_idx in (mid - 100, mid, mid + 100, len(rpus) - 100):
+                if 0 <= sample_idx < len(rpus):
+                    smp = rpus[sample_idx]
+                    if isinstance(smp, dict):
+                        v = smp.get("vdr_dm_data", {})
+                        cll, fall = _find_l1_block(v)
+                        _logger.info("light-profile: RPU[%d] max_pq=%s avg_pq=%s",
+                                     sample_idx, cll, fall)
 
         def _to_nits(v):
             """PQ code → nits. Detecta formato automáticamente."""
