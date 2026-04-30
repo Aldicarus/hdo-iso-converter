@@ -50,7 +50,15 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY app/ .
 
 # ── Volumes ───────────────────────────────────────────────────────────────────
-VOLUME ["/mnt/isos", "/mnt/output", "/mnt/tmp", "/config"]
+# Declaracion para `docker run` standalone. Con docker-compose los binds del
+# .env tienen prioridad (ver docker-compose.yml). Incluye:
+# - /mnt/isos       ISOs UHD origen (Tab 1, ro)
+# - /mnt/library    biblioteca de MKVs (Tabs 2 y 3, ro)
+# - /mnt/output     MKVs finales (rw)
+# - /mnt/tmp        temporales + workdir CMv4.0 (rw)
+# - /mnt/cmv40_rpus RPUs externos legacy (Tab 3, ro)
+# - /config         sesiones + cola + app_settings.json (rw)
+VOLUME ["/mnt/isos", "/mnt/library", "/mnt/output", "/mnt/tmp", "/mnt/cmv40_rpus", "/config"]
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY docker/entrypoint.sh /entrypoint.sh
