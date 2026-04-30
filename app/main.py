@@ -1698,85 +1698,21 @@ async def mkv_light_profile_endpoint(body: dict):
                 return None, None
             return _walk(obj, max_depth)
 
-        # Sanity check sobre el primer RPU + dump al stderr para diagnostico.
-        # Usamos sys.stderr.write directo porque _logger.info no aparece en
-        # docker logs (root logger esta en WARNING por defecto).
-        import sys as _sys
-        def _stderr(msg):
-            try: _sys.stderr.write(f"[light-profile] {msg}\n"); _sys.stderr.flush()
-            except Exception: pass
-
+        # Sanity check ligero sobre el primer RPU — log estructura solo si NO
+        # se encuentra el L1 (caso de error). El dump completo via stderr +
+        # comparativa contra dovi_tool --summary que existian aqui se quitaron
+        # tras confirmar (commit 8726762) que el parser es correcto: en
+        # Blade Runner 2049 nuestro JSON peak coincide exactamente con el L1
+        # MaxCLL que reporta dovi_tool info --summary (176.40 nits), o sea
+        # los valores son fieles a la metadata DV del disco — el peak bajo es
+        # porque el colorista etiqueto conservadoramente.
         if rpus and isinstance(rpus[0], dict):
             vdr0 = rpus[0].get("vdr_dm_data", {})
             test_cll, test_fall = _find_l1_block(vdr0)
-            if test_cll is not None:
-                _stderr(f"RPU[0] L1 encontrado: max_pq={test_cll} avg_pq={test_fall}")
-            else:
-                _stderr("RPU[0] NO L1.")
-            _stderr(f"  top keys={list(rpus[0].keys())[:12]}")
-            _stderr(f"  vdr keys={list(vdr0.keys())}")
-            for k, v in vdr0.items():
-                if isinstance(v, dict):
-                    _stderr(f"    vdr.{k} keys={list(v.keys())[:20]}")
-                elif isinstance(v, list) and v and isinstance(v[0], dict):
-                    _stderr(f"    vdr.{k}[0] keys={list(v[0].keys())[:20]}")
-                elif isinstance(v, list):
-                    _stderr(f"    vdr.{k} list len={len(v)}")
-
-            # Dump JSON del primer RPU al stderr (truncado). Emitimos linea
-            # a linea con el prefijo [light-profile] para que el grep las
-            # coja todas (antes solo la primera linea tenia prefijo).
-            try:
-                import json as _dbg_json
-                # Solo dumpeamos cmv29_metadata (donde esta el L1) — el
-                # resto de vdr_dm_data son matrices YCC/RGB irrelevantes.
-                cm29 = vdr0.get("cmv29_metadata", vdr0)
-                vdr_str = _dbg_json.dumps(cm29, indent=2, ensure_ascii=False)
-                if len(vdr_str) > 12000:
-                    vdr_str = vdr_str[:12000] + "\n... [truncado]"
-                _stderr("RPU[0].cmv29_metadata dump START >>>")
-                for ln in vdr_str.split("\n"):
-                    _stderr(f"  | {ln}")
-                _stderr("<<< dump END")
-                # Tambien los source_*_pq del top
-                for k in ("source_min_pq", "source_max_pq",
-                          "signal_eotf", "signal_bit_depth",
-                          "signal_full_range_flag"):
-                    if k in vdr0:
-                        _stderr(f"  vdr.{k} = {vdr0[k]}")
-                _lp_log("Estructura cmv29_metadata dumpeada al stderr.")
-            except Exception as _e:
-                _stderr(f"dump fallo: {_e}")
-
-            # Buscar L6 (que tiene max_content_light_level en NITS directos)
-            # para tener un valor de referencia. Si HDR10 MaxCLL del bin es
-            # ~1188 nits y nuestra conversion del L1 max_pq da 165 nits, sabemos
-            # que la escala que usamos para max_pq esta mal.
-            def _find_l6(obj, depth=8):
-                if depth <= 0 or not isinstance(obj, (dict, list)):
-                    return None
-                if isinstance(obj, dict):
-                    for k in ("Level6", "level6", "L6"):
-                        if k in obj and isinstance(obj[k], dict):
-                            return obj[k]
-                    if ("max_content_light_level" in obj
-                        and "max_pic_average_light_level" in obj):
-                        return obj
-                    if "max_display_mastering_luminance" in obj:
-                        return obj
-                    for v in obj.values():
-                        r = _find_l6(v, depth - 1)
-                        if r: return r
-                else:
-                    for v in obj:
-                        r = _find_l6(v, depth - 1)
-                        if r: return r
-                return None
-            l6 = _find_l6(vdr0)
-            if l6:
-                _stderr(f"RPU[0] L6 = {l6}")
-            else:
-                _stderr("RPU[0] L6 no encontrado")
+            if test_cll is None:
+                _logger.warning("light-profile: NO L1 en RPU[0]. top keys=%s",
+                                list(rpus[0].keys())[:12])
+                _logger.warning("  vdr keys=%s", list(vdr0.keys()))
 
             # Sample de RPUs distintos para ver si el max_pq varia
             mid = len(rpus) // 2
@@ -1818,44 +1754,9 @@ async def mkv_light_profile_endpoint(body: dict):
         raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
         _logger.info(
             "light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs · "
-            "raw max_pq peak=%d avg=%.1f",
+            "L1 peak max_pq=%d avg max_pq=%.0f",
             len(per_frame_cll), len(per_frame_fall), len(rpus),
             raw_max_pq_max, raw_avg,
-        )
-
-        # Sanity-check: corre tambien dovi_tool info --summary que reporta el
-        # peak L1 en NITS directos. Si nuestra conversion no matchea (ej. 173
-        # nits via JSON vs 600 nits via summary), sabemos que el JSON usa una
-        # escala distinta o computa L1 de forma distinta.
-        try:
-            from phases.phase_a import _parse_dovi_summary as _phase_a_parse
-            sum_proc = await asyncio.create_subprocess_exec(
-                DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            )
-            sum_stdout, _ = await asyncio.wait_for(sum_proc.communicate(), timeout=60)
-            sum_text = sum_stdout.decode("utf-8", errors="replace")
-            _stderr("=== dovi_tool info --summary ===")
-            for ln in sum_text.split("\n")[:80]:
-                _stderr(f"  | {ln}")
-            _stderr("=== fin summary ===")
-            sum_info = _phase_a_parse(sum_text)
-            if sum_info.l1_max_cll or sum_info.l1_max_fall:
-                _stderr(f"summary L1: MaxCLL={sum_info.l1_max_cll} nits, "
-                        f"MaxFALL={sum_info.l1_max_fall} nits")
-                # Convertir nuestro peak max_pq a nits para comparar
-                our_peak_nits = _to_nits(raw_max_pq_max) if raw_max_pq_max else 0
-                _stderr(f"comparacion: nuestro peak via JSON = {our_peak_nits:.1f} nits, "
-                        f"dovi_tool summary peak = {sum_info.l1_max_cll} nits")
-                _lp_log(
-                    f"L1 peak — via JSON: {our_peak_nits:.0f} nits · "
-                    f"via dovi_tool summary: {sum_info.l1_max_cll:.0f} nits"
-                )
-        except Exception as _e:
-            _stderr(f"dovi_tool info --summary fallo: {_e}")
-
-        _lp_log(
-            f"raw max_pq peak={raw_max_pq_max} avg={raw_avg:.0f} (12-bit PQ codes)"
         )
 
         if not per_frame_cll:

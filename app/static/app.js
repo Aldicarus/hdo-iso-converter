@@ -6960,10 +6960,18 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const actionBtn = hasLightProfile
     ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
     : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)"><span>▶</span> Analizar ahora</button>`;
+  // Tooltip explicando que estos valores son metadata DV L1 (no medidas
+  // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
+  // medidas reales tras tone-mapping sean 500-600 nits — porque el
+  // colorista etiqueto conservadoramente. Confirmado: dovi_tool info
+  // --summary reporta el mismo MaxCLL.
+  const lightHint = hasLightProfile
+    ? `<span class="dv-block-hint" data-tooltip="Valores extraídos del bloque L1 del RPU Dolby Vision (peak/avg de PQ por escena, según etiquetó el colorista). No son medidas reales en pantalla — un disco conservadoramente mastered (BR2049, p.ej.) puede mostrar peaks de metadata bajos aunque la imagen real alcance valores mayores tras tone-mapping. Coincide exactamente con dovi_tool info --summary.">ℹ︎</span>`
+    : '';
   const blockLight = `
     <section class="dv-block">
       <div class="dv-block-head">
-        <h5 class="dv-block-title">Perfil de luminancia por escena <span class="dv-block-sub">L1 dinámico completo</span></h5>
+        <h5 class="dv-block-title">Perfil de luminancia DV L1 por escena ${lightHint} <span class="dv-block-sub">metadata max_pq · no luminancia real en pantalla</span></h5>
         <div class="dv-block-action">
           ${lightMeta ? `<span class="dv-block-meta">${lightMeta}</span>` : ''}
           ${actionBtn}
