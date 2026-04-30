@@ -1337,6 +1337,10 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Qué revisa la app de estos niveles:</strong> antes de empezar el upgrade, la app compara automáticamente los niveles <strong>L1, L5 y L6</strong> entre tu Blu-ray y el bin target. Si coinciden lo suficiente, el upgrade se hace en modo automático. Si no, te lleva a revisión visual (lo verás con detalle en la sección <em>Pipelines</em>).
     </div>
 
+    <div class="help-callout help-callout-warning">
+      <strong>L1 max_pq ≠ luminancia que verás en pantalla.</strong> El gráfico "Perfil de luminancia DV L1" del tab <em>Consultar / Editar MKV</em> muestra el <code>max_pq</code> codificado por el colorista en la metadata DV — es lo que el RPU dice que tiene la escena, no lo que efectivamente se reproduce. Algunos discos están etiquetados muy conservadoramente (Blade Runner 2049 reporta peak L1 ~176 nits aunque medidas reales en pantalla muestren ~600 nits). El TV aplica tone-mapping y los trims L2/L8 antes de mostrar cada frame. Por eso la cifra del gráfico puede parecer baja para un máster HDR — está reflejando fielmente la metadata, no es un bug.
+    </div>
+
     <div class="help-sources">
       <b>Fuentes</b>
       <a href="https://en.wikipedia.org/wiki/Dolby_Vision" target="_blank" rel="noreferrer">Wikipedia: Dolby Vision</a> ·
@@ -1876,6 +1880,18 @@ const _CMV40_HELP_SECTIONS = {
     </div>
 
     <h2 id="p-phases">📋 Qué hace cada fase (y qué ves tú)</h2>
+
+    <h3>Pre-flight (v2.0) — validación rápida del bin antes de empezar</h3>
+    <p>Cuando arrancas un proyecto con un bin pre-seleccionado y modo auto activado, hay un <strong>pre-check del bin que se ejecuta antes de Fase A</strong>. Su objetivo es simple: si el bin no aporta CMv4.0, abortar inmediatamente con mensaje claro <em>antes</em> de gastar los ~12 min que tarda Fase A en extraer el HEVC del Blu-ray.</p>
+    <ul>
+      <li><strong>Drive (repo DoviTools)</strong>: descarga el .bin (~5s, son 30-50 MB típicos) y corre <code>dovi_tool info --summary</code> sobre él.</li>
+      <li><strong>MKV (extraer de otro MKV)</strong>: extrae el RPU del MKV que indiques con ffmpeg + dovi_tool extract-rpu (~30s-2min según tamaño).</li>
+      <li><strong>Carpeta local</strong>: copia el .bin al workdir y lo analiza.</li>
+    </ul>
+    <p>Si el bin <strong>no es CMv4.0</strong> (caso típico: bins "P5 to P8 transfer" del repo, que solo cambian profile sin upgrade de CM) → aborta antes de Fase A con mensaje en el log explicando exactamente por qué y qué buscar como alternativa. Si <strong>pasa</strong> → Fase A arranca y Fase B reutiliza el bin del workdir sin re-descargar.</p>
+    <div class="help-callout help-callout-info">
+      <strong>Bloqueante por diseño</strong>: durante el pre-flight la sesión está en <code>running_phase="preflight"</code>, lo que impide que el auto-pipeline lance Fase A en paralelo. Cancelable como cualquier otra fase. Si se aborta, no se gasta nada del análisis pesado.
+    </div>
 
     <h3>Fase A — Analizar el Blu-ray de origen</h3>
     <p>Fase A hace más de lo que su nombre sugiere: no es solo "detectar qué tienes", es también <strong>extraer el material que servirá de referencia para todas las validaciones posteriores</strong>. En concreto:</p>
