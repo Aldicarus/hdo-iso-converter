@@ -1723,16 +1723,60 @@ async def mkv_light_profile_endpoint(body: dict):
                 elif isinstance(v, list):
                     _stderr(f"    vdr.{k} list len={len(v)}")
 
-            # Dump JSON del primer RPU al stderr (truncado).
+            # Dump JSON del primer RPU al stderr (truncado). Emitimos linea
+            # a linea con el prefijo [light-profile] para que el grep las
+            # coja todas (antes solo la primera linea tenia prefijo).
             try:
                 import json as _dbg_json
-                vdr_str = _dbg_json.dumps(vdr0, indent=2, ensure_ascii=False)
-                if len(vdr_str) > 8000:
-                    vdr_str = vdr_str[:8000] + "\n... [truncado]"
-                _stderr(f"RPU[0].vdr_dm_data dump:\n{vdr_str}")
-                _lp_log("Estructura RPU[0] dumpeada al stderr del contenedor.")
+                # Solo dumpeamos cmv29_metadata (donde esta el L1) — el
+                # resto de vdr_dm_data son matrices YCC/RGB irrelevantes.
+                cm29 = vdr0.get("cmv29_metadata", vdr0)
+                vdr_str = _dbg_json.dumps(cm29, indent=2, ensure_ascii=False)
+                if len(vdr_str) > 12000:
+                    vdr_str = vdr_str[:12000] + "\n... [truncado]"
+                _stderr("RPU[0].cmv29_metadata dump START >>>")
+                for ln in vdr_str.split("\n"):
+                    _stderr(f"  | {ln}")
+                _stderr("<<< dump END")
+                # Tambien los source_*_pq del top
+                for k in ("source_min_pq", "source_max_pq",
+                          "signal_eotf", "signal_bit_depth",
+                          "signal_full_range_flag"):
+                    if k in vdr0:
+                        _stderr(f"  vdr.{k} = {vdr0[k]}")
+                _lp_log("Estructura cmv29_metadata dumpeada al stderr.")
             except Exception as _e:
-                _stderr(f"dump vdr_dm_data fallo: {_e}")
+                _stderr(f"dump fallo: {_e}")
+
+            # Buscar L6 (que tiene max_content_light_level en NITS directos)
+            # para tener un valor de referencia. Si HDR10 MaxCLL del bin es
+            # ~1188 nits y nuestra conversion del L1 max_pq da 165 nits, sabemos
+            # que la escala que usamos para max_pq esta mal.
+            def _find_l6(obj, depth=8):
+                if depth <= 0 or not isinstance(obj, (dict, list)):
+                    return None
+                if isinstance(obj, dict):
+                    for k in ("Level6", "level6", "L6"):
+                        if k in obj and isinstance(obj[k], dict):
+                            return obj[k]
+                    if ("max_content_light_level" in obj
+                        and "max_pic_average_light_level" in obj):
+                        return obj
+                    if "max_display_mastering_luminance" in obj:
+                        return obj
+                    for v in obj.values():
+                        r = _find_l6(v, depth - 1)
+                        if r: return r
+                else:
+                    for v in obj:
+                        r = _find_l6(v, depth - 1)
+                        if r: return r
+                return None
+            l6 = _find_l6(vdr0)
+            if l6:
+                _stderr(f"RPU[0] L6 = {l6}")
+            else:
+                _stderr("RPU[0] L6 no encontrado")
 
             # Sample de RPUs distintos para ver si el max_pq varia
             mid = len(rpus) // 2
