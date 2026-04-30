@@ -7124,13 +7124,43 @@ async function _rgrfAnalyzeLight(evt) {
     // backend prefijaba /mnt/output asumiendo que solo se inspeccionaban
     // ficheros del converter; con el browser de Library/Output ahora la
     // ruta completa la determina el frontend en analyze_mkv.
-    let data = await apiFetch('/api/mkv/light-profile', {
-      method: 'POST',
-      body: JSON.stringify({ file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name }),
-    }, 3600000);
-    // Fallback: si apiFetch devolvio null (HTTP error, abort, timeout) pero
-    // el backend pudo terminar igualmente, el resultado vive en state.result.
-    // Polling unas veces para darle al backend tiempo de finalizar.
+    //
+    // Usamos fetch() crudo (no apiFetch) porque apiFetch dispara un toast
+    // automatico si la respuesta falla. Como tenemos fallback via polling,
+    // el toast prematuro confunde al usuario ("Error de red" mientras el
+    // perfil se renderiza correctamente). Manejamos el error in-line.
+    const POST_TIMEOUT_MS = 3600000;
+    let data = null;
+    let postError = null;
+    {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
+      try {
+        const resp = await fetch('/api/mkv/light-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name }),
+          signal: ctrl.signal,
+        });
+        if (resp.ok) {
+          data = await resp.json();
+        } else {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          postError = err.detail || resp.statusText;
+        }
+      } catch (e) {
+        // Aborto, fallo de red, etc. Guardamos el motivo pero no toasteamos
+        // todavia — vamos a intentar recuperar via polling antes.
+        postError = e.name === 'AbortError'
+          ? `Timeout tras ${POST_TIMEOUT_MS / 1000}s`
+          : (e.message || String(e));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    // Fallback: si el POST fallo o devolvio sin datos, el backend pudo
+    // terminar igualmente y el resultado vive en state.result. Polling
+    // unas veces para darle tiempo a finalizar.
     if (!data?.per_scene_max_cll) {
       for (let i = 0; i < 20; i++) {
         await new Promise(r => setTimeout(r, 1500));
@@ -7148,7 +7178,11 @@ async function _rgrfAnalyzeLight(evt) {
         }
       }
     }
-    if (!data?.per_scene_max_cll) throw new Error('respuesta vacía del servidor');
+    // Si tras el fallback seguimos sin datos, ahora SI fallamos con el
+    // motivo del POST original.
+    if (!data?.per_scene_max_cll) {
+      throw new Error(postError || 'respuesta vacía del servidor');
+    }
 
     _dvLightSetStep(4);
     _dvLightSetProgress(100);
