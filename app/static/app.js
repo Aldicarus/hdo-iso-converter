@@ -8960,7 +8960,6 @@ function _cmv40RenderTimeline(s, project) {
     <aside class="cmv40-running-timeline">
       <div class="cmv40-tl-header">
         <div class="cmv40-tl-header-top">
-          <div class="cmv40-tl-title-main">Pipeline automático</div>
           ${trustBadge}
         </div>
         <div class="cmv40-tl-progress ${progressCls}">
