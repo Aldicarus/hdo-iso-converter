@@ -6118,13 +6118,22 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 /* Fix definitivo del flick al scrollear: WebKit tiene un bug conocido por el
    que backdrop-filter en un ancestro se re-evalua por frame cuando un hijo
    scrollea, pese a contain:paint/isolation/translateZ en el scroll child
-   (probados con y sin — NO solucionan el flick en este modal concreto por
-   su tamaño + cantidad de contenido en el content area).
+   (probados con y sin — NO solucionan el flick en estos modales concretos
+   por su tamaño + cantidad de contenido en el content area).
 
-   Solución: deshabilitar backdrop-filter SOLO en este overlay y reforzar la
-   opacidad del overlay para mantener la separacion visual. El resto de
-   modales (mas pequeños y con menos scroll) mantienen el blur. */
-#cmv40-help-modal {
+   Solución: deshabilitar backdrop-filter SOLO en estos overlays y reforzar
+   la opacidad del overlay para mantener la separacion visual. El resto de
+   modales (mas pequeños y con menos scroll) mantienen el blur.
+
+   Modales aplicados:
+   - cmv40-help-modal: el manual con varias secciones largas
+   - cmv40-new-modal: wizard de "Nuevo proyecto CMv4.0" (recomendaciones,
+     selector de target, banner extenso)
+   - file-browser-modal: lista de ficheros, especialmente cuando se abre
+     APILADO sobre cmv40-new-modal (doble backdrop-filter chained = peor) */
+#cmv40-help-modal,
+#cmv40-new-modal,
+#file-browser-modal {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background: rgba(0, 0, 0, 0.78);
