@@ -13,6 +13,7 @@ from services.cmv40_recommend import (
     _similarity,
     _tokens,
     _STOP_WORDS,
+    parse_mkv_filename,
 )
 from services.rec999_sheet import _extract_year
 from services.rec999_drive import DriveFile, list_bin_files
@@ -164,9 +165,26 @@ def _candidate_year(name: str) -> int | None:
 
 
 def _filename_slug(name: str) -> str:
-    """Quita la extensión y normaliza."""
-    stem = name.rsplit(".", 1)[0] if "." in name else name
-    return _normalize_title(stem)
+    """Slug del filename para fuzzy match: trunca todos los tags de encoding
+    que vienen DESPUES del año (UHD, BluRay, 2160p, codec, HDR, DV FEL,
+    Retail, cmv4.0 added, etc) usando parse_mkv_filename, y luego normaliza.
+
+    Antes la implementacion solo quitaba la extension. Resultado para
+    'Deadpool.and.Wolverine.2024.UHD.BluRay.2160p.TrueHD.Atmos.x265.HEVC-
+    FraMeSToR Retail P7 FEL (cmv4.0 added).bin':
+      slug ANTES = 'deadpool and wolverine uhd bluray 2160p truehd atmos
+                    x265 hevc framestor retail p7 fel'  (~17 tokens)
+      slug DESPUES = 'deadpool and wolverine'  (3 tokens, año truncado)
+    Esto mejora dramaticamente el Jaccard score con titulos cortos como
+    'Deadpool & Wolverine' (la union dejaba de ser ~17, ahora es 3 → 2/3).
+    """
+    title_only, _year = parse_mkv_filename(name)
+    if not title_only:
+        # Fallback al comportamiento previo si parse_mkv_filename no
+        # encuentra titulo (filenames sin patron tipico)
+        stem = name.rsplit(".", 1)[0] if "." in name else name
+        return _normalize_title(stem)
+    return _normalize_title(title_only)
 
 
 def rank_candidates(title_en: str, title_es: str, year: int | None,
