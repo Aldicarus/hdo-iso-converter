@@ -69,8 +69,10 @@ cp docker/.env.example docker/.env
 # Editar docker/.env
 
 cd docker
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose up -d --build
 ```
+
+El mismo `docker-compose.yml` sirve para ambos casos: con `--build` reconstruye localmente, sin él usa la imagen pre-construida.
 
 ### Smoke test
 

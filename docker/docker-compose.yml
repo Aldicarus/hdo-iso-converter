@@ -1,17 +1,26 @@
-# docker-compose.yml — usa la imagen pre-construida de GHCR.
+# docker-compose.yml — sirve para los DOS casos de uso:
 #
-# Para usar este compose tal cual:
-#   1. Copia este fichero + .env.example al host (no hace falta clonar el repo)
-#   2. Renombra .env.example a .env y edita las rutas
-#   3. docker compose pull && docker compose up -d
+#   1. End user: `docker compose pull && docker compose up -d`
+#      → usa la imagen ghcr.io/aldicarus/hdo-iso-converter:latest
+#      → la directiva `build:` se ignora (no se invoca sin --build)
+#      → funciona sin el codigo fuente. Ideal para Container Station,
+#        Portainer, QNAP, o cualquier host con solo este fichero + .env
 #
-# Para BUILD desde código fuente (devs), usar docker-compose.dev.yml en su
-# lugar — incluye la directiva `build:` apuntando al Dockerfile local.
+#   2. Dev: `docker compose up -d --build`
+#      → reconstruye la imagen desde el Dockerfile local
+#      → tagea como ghcr.io/aldicarus/hdo-iso-converter:latest (overrides
+#        cualquier pull previo). Util para iterar cambios de codigo en
+#        un host con clone del repo.
 #
-# Imagen oficial: https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter
+# Imagen oficial publicada: https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter
 
 services:
   hdo-iso-converter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        DOVI_TOOL_VERSION: "2.3.2"
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter
