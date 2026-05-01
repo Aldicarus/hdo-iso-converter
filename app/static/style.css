@@ -1369,6 +1369,15 @@ select { appearance: none; cursor: pointer;
 }
 .modal-overlay.open { display: flex; }
 
+/* Confirm modals (showConfirm + cmv40-confirm-modal) son meta-modales:
+   piden confirmacion de una accion lanzada DESDE otro modal. Si tienen
+   el mismo z-index que un modal regular abierto, quedan detras y no se
+   ven. Subimos su stacking explicitamente para garantizar que siempre
+   aparezcan encima — incluso del file browser (z-index 220). */
+#confirm-modal, #cmv40-confirm-modal {
+  z-index: 300;
+}
+
 .modal-box {
   background: var(--surface-1);
   border: 1px solid var(--sep-strong);
