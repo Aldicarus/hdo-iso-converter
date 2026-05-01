@@ -1141,6 +1141,129 @@ async function clearAllKeys() {
   showToast('Claves y URLs borradas', 'info');
 }
 
+// ── Mantenimiento: scan + cleanup de huerfanos ──────────────────────
+// Flujo: escanear → tabla con checkboxes → confirmar → toast con resumen.
+// Solo paths bajo prefixes whitelisted (validacion adicional en backend).
+
+function _cleanupFmtBytes(bytes) {
+  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+  const KB = 1024, MB = KB * 1024, GB = MB * 1024;
+  if (bytes < MB) return `${(bytes / KB).toFixed(1)} KB`;
+  if (bytes < GB) return `${(bytes / MB).toFixed(1)} MB`;
+  return `${(bytes / GB).toFixed(2)} GB`;
+}
+
+function _cleanupFmtAge(secs) {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+  return `${Math.floor(secs / 86400)}d`;
+}
+
+async function cleanupScanAndShow() {
+  const btn = document.getElementById('settings-cleanup-scan-btn');
+  const resultEl = document.getElementById('settings-cleanup-result');
+  if (!btn || !resultEl) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Escaneando…';
+  resultEl.innerHTML = '';
+
+  const data = await apiFetch('/api/cleanup/scan');
+  btn.disabled = false;
+  btn.innerHTML = '🔍 Escanear huérfanos';
+
+  if (!data) return;
+  if (!data.items || !data.items.length) {
+    resultEl.innerHTML = '<div class="settings-cleanup-empty">✓ No se encontraron huérfanos. Todo limpio.</div>';
+    return;
+  }
+
+  // Render tabla con checkboxes (default: marcado solo si safe=true)
+  const rows = data.items.map((it, i) => {
+    const checked = it.safe ? 'checked' : '';
+    const warnIcon = it.safe ? '' : '<span class="cleanup-warn" data-tooltip="Reciente o potencialmente activo — revisa antes de borrar">⚠️</span>';
+    return `
+      <tr class="cleanup-row${it.safe ? '' : ' cleanup-row-warn'}">
+        <td><input type="checkbox" class="cleanup-cb" data-path="${escHtml(it.path)}" ${checked}></td>
+        <td>${warnIcon}${escHtml(it.label)}</td>
+        <td class="cleanup-path" title="${escHtml(it.path)}">${escHtml(it.path)}</td>
+        <td class="cleanup-size">${_cleanupFmtBytes(it.size_bytes)}</td>
+        <td class="cleanup-age">${_cleanupFmtAge(it.age_seconds)}</td>
+        <td class="cleanup-reason">${escHtml(it.reason)}</td>
+      </tr>`;
+  }).join('');
+
+  resultEl.innerHTML = `
+    <div class="cleanup-summary">
+      <strong>${data.total_count}</strong> elementos · liberables ${_cleanupFmtBytes(data.total_bytes)}
+      ${data.safe_count < data.total_count
+        ? ` · <span class="cleanup-warn-text">${data.total_count - data.safe_count} requieren revisión</span>`
+        : ''}
+    </div>
+    <table class="cleanup-table">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="cleanup-select-all" title="Seleccionar todo"></th>
+          <th>Tipo</th>
+          <th>Ruta</th>
+          <th>Tamaño</th>
+          <th>Edad</th>
+          <th>Motivo</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="cleanup-actions">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('settings-cleanup-result').innerHTML=''">Cancelar</button>
+      <button class="btn btn-danger btn-sm" onclick="cleanupExecuteSelected()">🗑 Borrar seleccionados</button>
+    </div>
+  `;
+
+  // Wire select-all
+  const selectAll = document.getElementById('cleanup-select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      resultEl.querySelectorAll('.cleanup-cb').forEach(cb => { cb.checked = checked; });
+    });
+  }
+}
+
+async function cleanupExecuteSelected() {
+  const resultEl = document.getElementById('settings-cleanup-result');
+  if (!resultEl) return;
+  const checked = Array.from(resultEl.querySelectorAll('.cleanup-cb:checked'));
+  const paths = checked.map(cb => cb.dataset.path).filter(Boolean);
+  if (!paths.length) {
+    showToast('No hay nada seleccionado', 'info');
+    return;
+  }
+  // Confirmacion via modal nativo del proyecto
+  showConfirm(
+    `¿Borrar ${paths.length} elemento(s)?`,
+    'Esta operación es irreversible. Asegúrate de no tener jobs activos sobre estos paths.',
+    async () => {
+      const data = await apiFetch('/api/cleanup/execute', {
+        method: 'POST',
+        body: JSON.stringify({ paths }),
+      });
+      if (!data) return;
+      const okCount = (data.deleted || []).length;
+      const koCount = (data.failed || []).length;
+      const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
+      if (koCount === 0) {
+        showToast(`✓ Borrados ${okCount} elementos · liberados ${freed}`, 'success');
+      } else {
+        showToast(`Borrados ${okCount} · ${koCount} fallaron · liberados ${freed}`, 'warning');
+      }
+      // Re-escanear para refrescar el listado
+      cleanupScanAndShow();
+    },
+    'Borrar',
+  );
+}
+
 // Banner explicativo cuando el Repo DoviTools no está accesible. Cubre 3
 // casos: falta folder URL (paywall), falta Google API key, o ambos. El
 // primero es el más importante — el acceso al repo es privado (donación al

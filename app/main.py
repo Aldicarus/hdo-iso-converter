@@ -117,6 +117,74 @@ def _recover_interrupted_sessions() -> None:
 
 _recover_interrupted_sessions()
 
+
+# ── Auto-cleanup de huérfanos obvios al arrancar ─────────────────────────────
+# Limpia ficheros/dirs que claramente NO deben existir tras un reinicio del
+# contenedor: tmps de light-profile mayores de 1h y mount points de ISO que
+# no están realmente montados según /proc/mounts. Otros tipos (workdirs CMv4.0,
+# .mkv.tmp grandes) se dejan para limpieza manual con preview en la UI.
+
+def _cleanup_obvious_orphans_at_startup() -> None:
+    """Borra silenciosamente huérfanos triviales (tmps cortos, mount points
+    sin entry en /proc/mounts). Logging info por cada item borrado."""
+    import shutil as _shutil_so
+    import time as _time_so
+    from pathlib import Path as _Path_so
+
+    # 1. /tmp/lightprof_* mayores de 1 hora
+    try:
+        for lp in _Path_so("/tmp").glob("lightprof_*"):
+            if not lp.is_dir():
+                continue
+            try:
+                age = _time_so.time() - lp.stat().st_mtime
+            except OSError:
+                continue
+            if age > 3600:
+                try:
+                    _shutil_so.rmtree(lp)
+                    _logger.info("[Startup cleanup] light-profile tmp removed: %s (age %ds)", lp, int(age))
+                except Exception as e:
+                    _logger.warning("[Startup cleanup] failed to remove %s: %s", lp, e)
+    except Exception as e:
+        _logger.warning("[Startup cleanup] lightprof scan failed: %s", e)
+
+    # 2. /mnt/bd/* sin entry en /proc/mounts (mount points zombies)
+    try:
+        mount_base = _Path_so("/mnt/bd")
+        if mount_base.exists():
+            mounted_paths: set[str] = set()
+            try:
+                with open("/proc/mounts") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) > 1:
+                            mounted_paths.add(parts[1])
+            except Exception:
+                pass
+            for mp in mount_base.iterdir():
+                if not mp.is_dir():
+                    continue
+                if str(mp) in mounted_paths:
+                    continue
+                # Solo borramos si está vacío (sino podría ser un montaje
+                # detectado mal — preferimos no tocar)
+                try:
+                    is_empty = not any(mp.iterdir())
+                except OSError:
+                    is_empty = False
+                if is_empty:
+                    try:
+                        mp.rmdir()
+                        _logger.info("[Startup cleanup] iso mount point removed: %s", mp)
+                    except Exception as e:
+                        _logger.warning("[Startup cleanup] failed to rmdir %s: %s", mp, e)
+    except Exception as e:
+        _logger.warning("[Startup cleanup] mount points scan failed: %s", e)
+
+
+_cleanup_obvious_orphans_at_startup()
+
 # ── DEV MODE ──────────────────────────────────────────────────────────────────
 # Activado con DEV_MODE=1 (ver dev_fixtures.py). Cuando está apagado (default
 # en producción), los bloques `if DEV_MODE:` no se ejecutan y los fixtures
@@ -3850,6 +3918,228 @@ async def test_sheet_url(body: SettingsUpdate):
     url = body.cmv40_sheet_url or ""
     ok, msg, rows = await test_sheet_access(url)
     return {"ok": ok, "message": msg, "row_count": rows}
+
+
+# ── Mantenimiento: scan + cleanup de huérfanos ───────────────────────────────
+# Complementa al auto-cleanup de arranque (_cleanup_obvious_orphans_at_startup)
+# para los casos donde el usuario quiere ver y aprobar la limpieza antes de
+# borrar (workdirs CMv4.0 grandes, .mkv.tmp del remux, etc).
+
+def _scan_orphans() -> list[dict]:
+    """Devuelve la lista de huérfanos categorizados con tamaño + edad."""
+    import time as _t
+    import shutil as _sh
+
+    out: list[dict] = []
+
+    def _dir_size(p: Path) -> int:
+        total = 0
+        try:
+            for f in p.rglob("*"):
+                if f.is_file():
+                    try: total += f.stat().st_size
+                    except OSError: pass
+        except Exception:
+            pass
+        return total
+
+    now = _t.time()
+
+    # 1. Workdirs CMv4.0 sin sesión JSON correspondiente
+    cmv40_work = Path("/mnt/tmp/cmv40")
+    cmv40_cfg = Path("/config/cmv40")
+    if cmv40_work.exists() and cmv40_work.is_dir():
+        valid_ids: set[str] = set()
+        if cmv40_cfg.exists():
+            try:
+                for jf in cmv40_cfg.glob("*.json"):
+                    valid_ids.add(jf.stem)
+            except Exception:
+                pass
+        try:
+            for wd in cmv40_work.iterdir():
+                if not wd.is_dir():
+                    continue
+                if wd.name in valid_ids:
+                    continue
+                size = _dir_size(wd)
+                try: age = int(now - wd.stat().st_mtime)
+                except OSError: age = 0
+                out.append({
+                    "category": "cmv40_workdir",
+                    "label": "Workdir CMv4.0 sin sesión",
+                    "path": str(wd),
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": True,
+                    "reason": f"No existe /config/cmv40/{wd.name}.json — sesión borrada o nunca persistida",
+                })
+        except Exception:
+            pass
+
+    # 2. Mount points de ISO sin entry en /proc/mounts
+    mount_base = Path("/mnt/bd")
+    if mount_base.exists():
+        mounted: set[str] = set()
+        try:
+            with open("/proc/mounts") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) > 1:
+                        mounted.add(parts[1])
+        except Exception:
+            pass
+        try:
+            for mp in mount_base.iterdir():
+                if not mp.is_dir() or str(mp) in mounted:
+                    continue
+                size = _dir_size(mp)
+                try: age = int(now - mp.stat().st_mtime)
+                except OSError: age = 0
+                out.append({
+                    "category": "iso_mount_zombie",
+                    "label": "Mount point ISO huérfano",
+                    "path": str(mp),
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": True,
+                    "reason": "Directorio sin montaje activo (umount falló o nunca se hizo)",
+                })
+        except Exception:
+            pass
+
+    # 3. Light-profile tmps en /tmp
+    try:
+        for lp in Path("/tmp").glob("lightprof_*"):
+            if not lp.is_dir():
+                continue
+            size = _dir_size(lp)
+            try: age = int(now - lp.stat().st_mtime)
+            except OSError: age = 0
+            out.append({
+                "category": "lightprofile_tmp",
+                "label": "Tmp del análisis de luminancia",
+                "path": str(lp),
+                "size_bytes": size,
+                "age_seconds": age,
+                "safe": age > 3600,
+                "reason": "Cancelación o crash durante extracción de luminancia (Tab 2)"
+                          + ("" if age > 3600 else " — RECIENTE, podría estar activo"),
+            })
+    except Exception:
+        pass
+
+    # 4. .mkv.tmp del remux (Fase G)
+    output_base = Path("/mnt/output")
+    if output_base.exists():
+        try:
+            for tf in output_base.glob("*.mkv.tmp"):
+                if not tf.is_file():
+                    continue
+                try: size = tf.stat().st_size
+                except OSError: continue
+                try: age = int(now - tf.stat().st_mtime)
+                except OSError: age = 0
+                out.append({
+                    "category": "remux_mkv_tmp",
+                    "label": "Remux .mkv.tmp incompleto",
+                    "path": str(tf),
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": age > 3600,
+                    "reason": "Fase G de CMv4.0 abortada o aún en curso"
+                              + ("" if age > 3600 else " — RECIENTE, podría estar siendo escrito"),
+                })
+        except Exception:
+            pass
+
+    return out
+
+
+def _delete_orphan_path(path_str: str, allowed_prefixes: list[str]) -> tuple[bool, int, str]:
+    """Borra un huérfano con validación de prefix (whitelist). Devuelve
+    (ok, bytes_freed, error_msg)."""
+    import shutil as _sh
+
+    # Validación: el path tiene que estar bajo uno de los roots permitidos
+    if not any(path_str.startswith(prefix) for prefix in allowed_prefixes):
+        return (False, 0, "path fuera de los roots permitidos")
+    p = Path(path_str)
+    if not p.exists():
+        return (False, 0, "path no existe")
+    try:
+        if p.is_file():
+            try: size = p.stat().st_size
+            except OSError: size = 0
+            p.unlink()
+            return (True, size, "")
+        if p.is_dir():
+            size = 0
+            try:
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        try: size += f.stat().st_size
+                        except OSError: pass
+            except Exception:
+                pass
+            _sh.rmtree(p, ignore_errors=False)
+            return (True, size, "")
+    except Exception as e:
+        return (False, 0, str(e))
+    return (False, 0, "tipo de path desconocido")
+
+
+@app.get("/api/cleanup/scan", summary="Scan de huérfanos sin borrar nada")
+async def cleanup_scan_endpoint():
+    """Devuelve la lista de huérfanos detectados (workdirs CMv4.0 sin sesión,
+    mount points ISO zombies, lightprof tmps, .mkv.tmp incompletos). Solo
+    lectura — para borrar usar POST /api/cleanup/execute."""
+    items = _scan_orphans()
+    return {
+        "items": items,
+        "total_count": len(items),
+        "total_bytes": sum(i["size_bytes"] for i in items),
+        "safe_count": sum(1 for i in items if i["safe"]),
+        "safe_bytes": sum(i["size_bytes"] for i in items if i["safe"]),
+    }
+
+
+class CleanupExecuteRequest(BaseModel):
+    paths: list[str]
+
+
+@app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados")
+async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
+    """Borra los paths indicados. Solo se aceptan paths bajo prefixes
+    conocidos (/mnt/tmp/cmv40/, /mnt/bd/, /tmp/lightprof_, /mnt/output/*.mkv.tmp).
+    Cada item devuelve {ok, freed, error}."""
+    ALLOWED_PREFIXES = [
+        "/mnt/tmp/cmv40/",
+        "/mnt/bd/",
+        "/tmp/lightprof_",
+        "/mnt/output/",  # solo .mkv.tmp, validamos abajo
+    ]
+    deleted = []
+    failed = []
+    total_freed = 0
+    for path in body.paths or []:
+        # Salvaguarda extra para /mnt/output/: solo .mkv.tmp
+        if path.startswith("/mnt/output/") and not path.endswith(".mkv.tmp"):
+            failed.append({"path": path, "error": "/mnt/output/ solo permite borrar *.mkv.tmp"})
+            continue
+        ok, freed, err = _delete_orphan_path(path, ALLOWED_PREFIXES)
+        if ok:
+            deleted.append({"path": path, "freed_bytes": freed})
+            total_freed += freed
+            _logger.info("[Cleanup] removed %s (%d bytes)", path, freed)
+        else:
+            failed.append({"path": path, "error": err})
+            _logger.warning("[Cleanup] failed %s: %s", path, err)
+    return {
+        "deleted": deleted,
+        "failed": failed,
+        "total_freed_bytes": total_freed,
+    }
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

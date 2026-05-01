@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260501d">
+  <link rel="stylesheet" href="/static/style.css?v=20260501e">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1033,6 +1033,21 @@
       </div>
       <div id="settings-sheet-feedback" class="settings-feedback"></div>
     </div>
+
+    <!-- ─── Mantenimiento — limpieza de huérfanos ─────────────────── -->
+    <div class="settings-section">
+      <div class="settings-section-title">
+        🧹 Mantenimiento
+      </div>
+      <div class="settings-section-desc">
+        Limpieza de archivos y directorios huérfanos: workdirs CMv4.0 sin sesión asociada, mount points de ISO sin desmontar, tmps de análisis de luminancia, .mkv.tmp incompletos del remux. Primero escanea, te muestra qué hay; tú decides qué borrar.
+      </div>
+      <div class="settings-field-row">
+        <button class="btn btn-secondary btn-sm" id="settings-cleanup-scan-btn"
+          onclick="cleanupScanAndShow()">🔍 Escanear huérfanos</button>
+      </div>
+      <div id="settings-cleanup-result" class="settings-cleanup-result"></div>
+    </div>
     </div><!-- /settings-body -->
 
     <div class="settings-foot">
@@ -1050,6 +1065,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260501d"></script>
+<script src="/static/app.js?v=20260501e"></script>
 </body>
 </html>
