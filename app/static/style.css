@@ -5687,7 +5687,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .settings-modal-box {
   max-width: 860px;
   width: calc(100vw - 48px);
-  max-height: 88vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -5755,7 +5755,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .settings-section-desc a:hover { text-decoration: underline; }
 
 /* ── Mantenimiento: tabla de huérfanos en Settings ─────────────────── */
-.settings-cleanup-result { margin-top: 10px; }
+.settings-cleanup-result {
+  margin-top: 10px;
+  /* Limita la altura del bloque del scan para que no empuje todo el resto
+     del body fuera del viewport visible cuando hay muchos items. Scroll
+     interno propio del bloque, independiente del scroll general del body. */
+  max-height: 50vh;
+  overflow-y: auto;
+  /* Aislar scroll del overlay con backdrop-filter (mismo patrón) */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
+}
 .settings-cleanup-empty {
   padding: 14px;
   background: rgba(48, 209, 88, 0.08);

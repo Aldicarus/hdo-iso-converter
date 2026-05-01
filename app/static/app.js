@@ -1228,6 +1228,10 @@ async function cleanupScanAndShow() {
       resultEl.querySelectorAll('.cleanup-cb').forEach(cb => { cb.checked = checked; });
     });
   }
+
+  // Asegurar que el resultado es visible — la seccion puede quedar abajo del
+  // body del modal y el usuario no verla si no hace scroll manualmente.
+  resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function cleanupExecuteSelected() {
