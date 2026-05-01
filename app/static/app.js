@@ -10551,6 +10551,14 @@ function _renderCMv40RunningOverlay(project) {
         <div class="cmv40-running-box">
           <div class="cmv40-running-timeline-wrap" id="cmv40-running-timeline-${pid}"></div>
           <div class="cmv40-running-main">
+            <!-- Mini cabecera con la pelicula que se esta procesando — hidratada con TMDb -->
+            <div class="cmv40-running-movie" id="cmv40-running-movie-${pid}">
+              <div class="cmv40-running-movie-poster" id="cmv40-running-movie-poster-${pid}">🎬</div>
+              <div class="cmv40-running-movie-info">
+                <div class="cmv40-running-movie-title" id="cmv40-running-movie-title-${pid}"></div>
+                <div class="cmv40-running-movie-meta" id="cmv40-running-movie-meta-${pid}"></div>
+              </div>
+            </div>
             <div class="cmv40-running-header">
               <div class="cmv40-running-spinner"></div>
               <div style="flex:1">
@@ -10588,6 +10596,10 @@ function _renderCMv40RunningOverlay(project) {
       // Suscribe al WebSocket para actualizar el log en tiempo real
       _cmv40BindRunningLog(project);
     }
+    // Hidratar la mini cabecera de pelicula (poster + titulo). Si la sesion
+    // ya tiene tmdb_info cacheado, usarlo directo; si no, usar source_mkv_name
+    // como fallback de texto y disparar lookup TMDb async.
+    _cmv40HydrateRunningMovieHeader(project);
     // Actualizar título + subtítulo según estemos en una fase o "puente"
     const titleEl    = document.getElementById(`cmv40-running-title-${pid}`);
     const subtitleEl = document.getElementById(`cmv40-running-subtitle-${pid}`);
@@ -10809,6 +10821,51 @@ function _cmv40UpdateProgressUI(pid, prog) {
     }
   }
 }
+
+/** Hidrata la mini cabecera del overlay con la pelicula que se procesa.
+ *  Pinta poster (de tmdb_info si existe, fallback emoji) + titulo + año.
+ *  Si la sesion no tiene tmdb_info, dispara hydrateTmdbCard logica
+ *  tras un pequeño defer (no bloquea el render del overlay). */
+function _cmv40HydrateRunningMovieHeader(project) {
+  const pid = project.id;
+  const posterEl = document.getElementById(`cmv40-running-movie-poster-${pid}`);
+  const titleEl  = document.getElementById(`cmv40-running-movie-title-${pid}`);
+  const metaEl   = document.getElementById(`cmv40-running-movie-meta-${pid}`);
+  if (!posterEl || !titleEl || !metaEl) return;
+
+  const s = project.session || {};
+  const t = s.tmdb_info || null;
+
+  // Poster: usa tmdb si tenemos URL, sino emoji 🎬 placeholder
+  if (t && t.poster_url) {
+    posterEl.innerHTML = `<img src="${escHtml(t.poster_url)}" alt="${escHtml(t.title || '')}" loading="lazy">`;
+  } else {
+    posterEl.textContent = '🎬';
+  }
+
+  // Titulo: tmdb.title > source_mkv_name limpio > id
+  let titleText = '';
+  if (t && t.title) titleText = t.title;
+  else if (s.source_mkv_name) {
+    // Limpia .mkv y reemplaza separadores comunes por espacios para
+    // hacer el filename mas legible mientras llega tmdb_info.
+    titleText = s.source_mkv_name.replace(/\.mkv$/i, '').replace(/[\._]+/g, ' ');
+  }
+  else titleText = s.id || '—';
+  titleEl.textContent = titleText;
+
+  // Meta: año + runtime + génenros (si tmdb), si no nada
+  if (t) {
+    const parts = [];
+    if (t.year) parts.push(String(t.year));
+    if (t.runtime_minutes) parts.push(`${Math.floor(t.runtime_minutes/60)}h ${t.runtime_minutes%60}min`);
+    if (t.genres && t.genres.length) parts.push(t.genres.slice(0, 2).join(' · '));
+    metaEl.textContent = parts.join(' · ');
+  } else {
+    metaEl.textContent = '';
+  }
+}
+
 
 function _cmv40BindRunningLog(project) {
   // Replica TODO el log backend acumulado (no solo -200: entre fases puede

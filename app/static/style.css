@@ -3472,6 +3472,61 @@ select { appearance: none; cursor: pointer;
   flex-direction: column;
   overflow: hidden;
 }
+/* Mini cabecera con la pelicula que se esta procesando — visible siempre
+   sobre el header de la fase, asi el usuario ve de un vistazo de que
+   peli es el job en curso (antes solo veias 'Ejecutando: Fase A' sin
+   contexto del titulo). */
+.cmv40-running-movie {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--sep);
+  flex-shrink: 0;
+}
+.cmv40-running-movie-poster {
+  flex-shrink: 0;
+  width: 38px;
+  height: 56px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.cmv40-running-movie-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cmv40-running-movie-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmv40-running-movie-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmv40-running-movie-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cmv40-running-header {
   display: flex;
   align-items: center;
