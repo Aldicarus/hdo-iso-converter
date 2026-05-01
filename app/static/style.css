@@ -6054,6 +6054,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  gap: 8px;
   height: 100%;
   padding: 0 16px 0 8px;
 }
