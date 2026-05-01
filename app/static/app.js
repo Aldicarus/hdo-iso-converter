@@ -8723,6 +8723,37 @@ function _cmv40FmtClock(totalSecs) {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+/** Devuelve el started_at del proyecto en ms (epoch). Cacheado en
+ *  project._resolvedStartedMs para que los tres lugares que computan el
+ *  elapsed (full render, incremental update, tick por segundo) usen
+ *  EXACTAMENTE el mismo valor.
+ *
+ *  Sin este cache el render puede usar server-time
+ *  (phase_history[0].started_at) mientras el tick lee data-started-at
+ *  cacheado en cliente — al alternar uno y otro el contador "salta 3
+ *  segundos" y luego "resta 2" porque server clock != client clock por
+ *  la latencia de la API. Bug visible al usuario como timer no lineal.
+ *
+ *  Prioridad para el primer cache:
+ *    1. phase_history[0].started_at (autoritativo, server time)
+ *    2. Date.now() (solo si hay running o auto activo)
+ *  Una vez cacheado, NO se recalcula — la fuente queda fija. */
+function _cmv40ResolveStartedMs(s, project) {
+  if (project && project._resolvedStartedMs) return project._resolvedStartedMs;
+  const hist = (s && s.phase_history) || [];
+  const firstWithTime = hist.find(h => h.started_at);
+  let startedMs = firstWithTime ? Date.parse(firstWithTime.started_at) : 0;
+  if (!startedMs && project) {
+    if (s.running_phase || (project.autoContinue && !s.error_message && s.phase !== 'done')) {
+      startedMs = Date.now();
+    }
+  }
+  if (startedMs && project) {
+    project._resolvedStartedMs = startedMs;
+  }
+  return startedMs || 0;
+}
+
 // Ticker único global que actualiza todos los timers vivos cada segundo.
 // Re-calcula elapsed y remaining cada segundo. Elapsed = now - started_at.
 // Remaining = baseRemaining (snapshot en render) - (now - baseAt). Así
@@ -8783,19 +8814,12 @@ function _cmv40RenderTimeline(s, project) {
   const totalCount = steps.length;
   const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  // Timer — arranque del pipeline. Tres fuentes en orden de preferencia:
-  //   1. phase_history[0].started_at (autoridad si llega del backend)
-  //   2. project._pipelineStartMs (cacheado la primera vez que vimos fase activa)
-  //   3. Date.now() como último recurso (solo si running activo)
+  // Timer — arranque del pipeline cacheado por proyecto via _cmv40ResolveStartedMs.
+  // Imprescindible que sea el MISMO valor en full render, incremental update y
+  // tick por segundo: si difieren (p.ej. cache cliente vs server timestamp) el
+  // contador alterna entre dos valores → "salta 3 / resta 2" visible al usuario.
+  const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
-  const firstWithTime = hist.find(h => h.started_at);
-  let startedMs = firstWithTime ? Date.parse(firstWithTime.started_at) : 0;
-  if (!startedMs && project) {
-    if (!project._pipelineStartMs && (s.running_phase || (project.autoContinue && !s.error_message && s.phase !== 'done'))) {
-      project._pipelineStartMs = Date.now();
-    }
-    if (project._pipelineStartMs) startedMs = project._pipelineStartMs;
-  }
 
   const isTerminal = (s.phase === 'done' || !!s.error_message);
   let elapsedLabel  = '—';
@@ -10292,16 +10316,11 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   const totalCount = steps.length;
   const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  // Timer: elapsed / remaining (mismos cálculos que en _cmv40RenderTimeline)
+  // Timer: elapsed / remaining (mismo helper que el full render — garantiza
+  // que ambos rendered + tick usan el MISMO startedMs cacheado, sin saltos
+  // entre fuentes server-time vs client-cached).
+  const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
-  const firstWithTime = hist.find(h => h.started_at);
-  let startedMs = firstWithTime ? Date.parse(firstWithTime.started_at) : 0;
-  if (!startedMs && project) {
-    if (!project._pipelineStartMs && (s.running_phase || (project.autoContinue && !s.error_message && s.phase !== 'done'))) {
-      project._pipelineStartMs = Date.now();
-    }
-    if (project._pipelineStartMs) startedMs = project._pipelineStartMs;
-  }
   const isTerminal = (s.phase === 'done' || !!s.error_message);
   let elapsedLabel  = '—';
   let remainingText = '';
@@ -10329,6 +10348,12 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   const pctEl       = tlWrap.querySelector('.cmv40-tl-progress-pct');
   const fillEl      = tlWrap.querySelector('.cmv40-tl-progress-fill');
   const progressBox = tlWrap.querySelector('.cmv40-tl-progress');
+  // Sincroniza data-started-at del DOM con el cache canónico — el tick lee
+  // de ahí, y debe coincidir con el startedMs que usa este render. Sin
+  // esto el contador alterna entre dos valores cuando la fuente cambia.
+  if (elapsedEl && startedMs && elapsedEl.dataset.startedAt !== String(startedMs)) {
+    elapsedEl.dataset.startedAt = String(startedMs);
+  }
   if (elapsedEl   && elapsedEl.textContent   !== elapsedLabel)   elapsedEl.textContent   = elapsedLabel;
   if (remainingEl && remainingEl.textContent !== remainingText)  remainingEl.textContent = remainingText;
   // Refrescar snapshot del remaining — el tick de 1s decrementa desde aquí.
@@ -11535,6 +11560,7 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         project._lastAutoFiredFor = null;
         project._lastAutoFiredAt = 0;
         project._pipelineStartMs = null;
+        project._resolvedStartedMs = null;
         project._autoChaining = false;
         _updateCMv40Panel(project);
       }
