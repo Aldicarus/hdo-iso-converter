@@ -134,25 +134,25 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * Tras Mac sleep / cambio de pestaña / suspend de red, los WebSockets
  * mueren y los timers de polling pueden quedarse sin actualizar la UI.
- * Cuando el documento vuelve a ser visible, fuerza un refresh de los
- * proyectos CMv4.0 abiertos vía API (estado verídico) y reconecta los
- * WS si la sesión sigue corriendo.
+ * Cuando el documento vuelve a ser visible, fuerza un refresh del estado
+ * vía API y reconecta los WS si las sesiones siguen corriendo. Cubre
+ * los tres tabs:
+ *   - Tab 1 (ISO→MKV): sessions list + queue WS + executionWs activo
+ *   - Tab 2 (Editar MKV): light-profile chained-await ya es resiliente
+ *   - Tab 3 (CMv4.0): proyectos abiertos + WS log por proyecto
  *
- * Sin esto, tras el wake el log de Tab 3 se queda congelado en el último
- * mensaje recibido (típicamente "Progress: 37%" del mux) aunque el job
+ * Sin esto, tras el wake los logs se quedan congelados aunque el job
  * en backend haya terminado correctamente.
  */
 function _installVisibilityRecovery() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
-    // Refrescar todos los proyectos CMv4.0 abiertos
+
+    // ── Tab 3 — proyectos CMv4.0 abiertos ─────────────────────────
     if (Array.isArray(openCMv40Projects)) {
       for (const project of openCMv40Projects) {
         if (!project || project._closed) continue;
-        // Refresh del estado vía API
         _refreshCMv40Session(project.id);
-        // Si el WS está cerrado o cerrándose, reconectar (solo si la
-        // sesión sigue viva — _connectCMv40WebSocket ya tiene la lógica)
         const ws = project.ws;
         const wsAlive = ws && (ws.readyState === WebSocket.OPEN
                               || ws.readyState === WebSocket.CONNECTING);
@@ -164,6 +164,36 @@ function _installVisibilityRecovery() {
         }
       }
     }
+
+    // ── Tab 1 — sessions list + queue + executionWs ──────────────
+    // Refrescar lista para que cualquier cambio de estado durante el
+    // sleep (running→done, queued→running, etc) se vea reflejado.
+    if (typeof loadSessions === 'function') {
+      try { loadSessions(); } catch (_) {}
+    }
+    // Queue WS — su backoff propio puede tardar 30s; forzamos reconnect
+    // inmediato si está cerrado para que el wake sea instantáneo.
+    const queueWsAlive = typeof queueWs !== 'undefined' && queueWs
+      && (queueWs.readyState === WebSocket.OPEN
+          || queueWs.readyState === WebSocket.CONNECTING);
+    if (!queueWsAlive && typeof connectQueueWebSocket === 'function') {
+      try { connectQueueWebSocket(); } catch (_) {}
+    }
+    // ExecutionWs — si hay un job running en la cola pero el WS está
+    // cerrado tras el wake, reconectar para retomar streaming de log.
+    if (typeof queueState !== 'undefined' && queueState
+        && queueState.running
+        && typeof connectExecutionWebSocket === 'function') {
+      const execAlive = typeof executionWs !== 'undefined' && executionWs
+        && (executionWs.readyState === WebSocket.OPEN
+            || executionWs.readyState === WebSocket.CONNECTING);
+      if (!execAlive) {
+        connectExecutionWebSocket(queueState.running);
+      }
+    }
+    // Tab 2 — el polling del light-profile usa chained-await con flag
+    // `polling`. Si el modal está abierto, el await reanuda solo tras
+    // wake y no necesita intervención. No hacemos nada explícito aquí.
   });
 }
 
@@ -5340,14 +5370,30 @@ function connectQueueWebSocket() {
  * @param {string} sessionId
  */
 function connectExecutionWebSocket(sessionId) {
-  if (executionWs) executionWs.close();
+  if (executionWs) {
+    executionWs._closedByUser = true;  // evita reconnect en el onclose siguiente
+    executionWs.close();
+  }
   _colaLogLines = [];  // Limpiar log del trabajo anterior
   document.getElementById('csb-log-viewer') && (document.getElementById('csb-log-viewer').innerHTML = '');
   document.getElementById('pc-log-viewer')  && (document.getElementById('pc-log-viewer').innerHTML  = '');
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   executionWs = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
   executionWs.onmessage = (e) => handleExecutionWsMessage(e.data, sessionId);
-  executionWs.onclose = () => { executionWs = null; };
+  // Auto-reconnect tras Mac sleep / pestaña suspendida / red caida — solo si
+  // la sesion sigue running segun el queueState. Los mensajes __DONE__/
+  // __CANCELLED__/__ERROR__ ya marcan _closedByUser=true antes de cerrar
+  // manualmente, asi que no se reconectan tras finalizacion legitima.
+  executionWs.onclose = (ev) => {
+    const wasIntentional = ev.target && ev.target._closedByUser;
+    executionWs = null;
+    if (wasIntentional) return;
+    setTimeout(() => {
+      if (queueState && queueState.running === sessionId && !executionWs) {
+        connectExecutionWebSocket(sessionId);
+      }
+    }, 2000);
+  };
 }
 
 /**
@@ -5359,7 +5405,7 @@ function connectExecutionWebSocket(sessionId) {
 function handleExecutionWsMessage(msg) {
   if (msg === '__DONE__') {
     const finishedId = queueState.running;
-    if (executionWs) { executionWs.close(); executionWs = null; }
+    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'done');
     updateSubtabQueuePill();
     showToast('Ejecución completada.', 'success');
@@ -5371,7 +5417,7 @@ function handleExecutionWsMessage(msg) {
 
   if (msg === '__CANCELLED__') {
     const cancelledId = queueState.running;
-    if (executionWs) { executionWs.close(); executionWs = null; }
+    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'pending');
     updateSubtabQueuePill();
     showToast('Ejecución cancelada. Temporales limpiados.', 'info');
@@ -5382,7 +5428,7 @@ function handleExecutionWsMessage(msg) {
 
   if (msg.startsWith('__ERROR__')) {
     const failedId = queueState.running;
-    if (executionWs) { executionWs.close(); executionWs = null; }
+    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'error');
     updateSubtabQueuePill();
     showToast('Error en la ejecución. Revisa el historial del proyecto.', 'error');
