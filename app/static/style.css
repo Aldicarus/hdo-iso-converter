@@ -1389,9 +1389,10 @@ select { appearance: none; cursor: pointer;
    piden confirmacion de una accion lanzada DESDE otro modal. Si tienen
    el mismo z-index que un modal regular abierto, quedan detras y no se
    ven. Subimos su stacking explicitamente para garantizar que siempre
-   aparezcan encima — incluso del file browser (z-index 220). */
+   aparezcan encima — incluso del file browser (z-index 220) y del
+   overlay de ejecucion CMv4.0 (z-index 2000). */
 #confirm-modal, #cmv40-confirm-modal {
-  z-index: 300;
+  z-index: 3000;
 }
 
 .modal-box {

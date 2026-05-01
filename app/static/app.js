@@ -10893,21 +10893,37 @@ function _cmv40BindRunningLog(project) {
 }
 
 async function cmv40CancelRunning(pid) {
-  if (!confirm('¿Cancelar la ejecución en curso?')) return;
-  await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
-  // Cancelar también desactiva el auto-pipeline (evita que re-arranque la siguiente)
   const project = openCMv40Projects.find(p => p.id === pid);
-  if (project) {
-    project._lastAutoFiredFor = null;  // resetea debounce para futuros arranques
-    project._lastAutoFiredAt = 0;
-    project._autoChaining = false;     // intervencion manual: apaga bridging
-    if (project.autoContinue) {
-      project.autoContinue = false;
-      showToast('Cancelado — auto-avance desactivado', 'info');
-    } else {
-      showToast('Cancelando…', 'info');
-    }
-  }
+  const phaseLabel = project && project.session && project.session.running_phase
+    ? (CMV40_RUNNING_LABELS[project.session.running_phase] || project.session.running_phase)
+    : 'la fase actual';
+  const isAuto = project && project.autoContinue;
+  // Mensaje contextual: explica que cancela el subprocess en curso y, si
+  // el auto-pipeline esta activo, que tambien se desactiva el auto-avance
+  // (no lanza la siguiente fase).
+  const message = isAuto
+    ? `Se matará el subprocess de "${phaseLabel}", se limpiarán los temporales generados y se desactivará el auto-avance del pipeline. Las fases ya completadas se conservan; podrás relanzar manualmente la fase cuando quieras.`
+    : `Se matará el subprocess de "${phaseLabel}" y se limpiarán los temporales generados. Las fases ya completadas se conservan; podrás relanzar manualmente la fase cuando quieras.`;
+  showConfirm(
+    '¿Cancelar la ejecución en curso?',
+    message,
+    async () => {
+      await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
+      const proj = openCMv40Projects.find(p => p.id === pid);
+      if (proj) {
+        proj._lastAutoFiredFor = null;
+        proj._lastAutoFiredAt = 0;
+        proj._autoChaining = false;
+        if (proj.autoContinue) {
+          proj.autoContinue = false;
+          showToast('Cancelado — auto-avance desactivado', 'info');
+        } else {
+          showToast('Cancelando…', 'info');
+        }
+      }
+    },
+    'Cancelar fase',
+  );
 }
 
 // Hidrata una ficha TMDb en el DOM (container dado) a partir de un
