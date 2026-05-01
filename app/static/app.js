@@ -1339,6 +1339,161 @@ function openCMv40HelpModal() {
   _cmv40HelpSwitch(last);
 }
 
+// ── Limpieza masiva de artefactos CMv4.0 ────────────────────────────
+// Modal accesible desde el header del tab CMv4.0 (boton al lado de
+// Manual). Lista todos los proyectos con tamaño de workdir + estado y
+// permite borrar varios a la vez. Tras el borrado los proyectos quedan
+// archived (modo solo lectura) — no desaparecen del listado.
+
+async function openCMv40CleanupModal() {
+  openModal('cmv40-cleanup-modal');
+  const body = document.getElementById('cmv40-cleanup-body');
+  const foot = document.getElementById('cmv40-cleanup-foot');
+  if (body) body.innerHTML = '<div class="cmv40-cleanup-loading">⏳ Escaneando proyectos…</div>';
+  if (foot) foot.style.display = 'none';
+
+  const data = await apiFetch('/api/cmv40/cleanup/preview');
+  if (!data) return;
+  if (!data.items || !data.items.length) {
+    if (body) body.innerHTML = '<div class="cmv40-cleanup-empty">No hay proyectos CMv4.0 todavía.</div>';
+    return;
+  }
+  if (data.deletable_count === 0) {
+    if (body) {
+      body.innerHTML = `
+        <div class="cmv40-cleanup-empty">
+          ✓ Nada que limpiar — los ${data.total_count} proyectos ya están archivados o tienen una fase en curso.
+        </div>`;
+    }
+    return;
+  }
+
+  // Tabla con filas: checkbox, título, fase/estado, tamaño, motivo
+  const rows = data.items.map((it) => {
+    // Estado visual
+    let stateBadge = '';
+    if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running">⏳ En curso</span>';
+    else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived">🗃️ Archivado</span>';
+    else if (it.state === 'done') stateBadge = '<span class="cleanup-state-pill done">✓ Done</span>';
+    else if (it.state === 'error') stateBadge = '<span class="cleanup-state-pill error">⚠ Error</span>';
+    else stateBadge = `<span class="cleanup-state-pill in-progress">⏸ ${escHtml(it.phase)}</span>`;
+
+    const cb = it.safe_to_delete
+      ? `<input type="checkbox" class="cmv40-cleanup-cb" data-id="${escHtml(it.id)}" data-size="${it.size_bytes}" checked>`
+      : `<input type="checkbox" class="cmv40-cleanup-cb" data-id="${escHtml(it.id)}" data-size="${it.size_bytes}" disabled title="${escHtml(it.reason)}">`;
+
+    const sizeStr = it.size_bytes > 0 ? _cleanupFmtBytes(it.size_bytes) : '—';
+    const filesStr = it.files_count > 0 ? `${it.files_count} fichero${it.files_count === 1 ? '' : 's'}` : '';
+
+    return `
+      <tr class="cmv40-cleanup-row${it.safe_to_delete ? '' : ' cmv40-cleanup-row-disabled'}">
+        <td>${cb}</td>
+        <td class="cmv40-cleanup-title-cell">
+          <div class="cmv40-cleanup-title">${escHtml(it.title)}</div>
+          <div class="cmv40-cleanup-subline">${stateBadge}</div>
+        </td>
+        <td class="cmv40-cleanup-size-cell">
+          <div class="cleanup-size">${sizeStr}</div>
+          ${filesStr ? `<div class="cmv40-cleanup-files">${filesStr}</div>` : ''}
+        </td>
+        <td class="cmv40-cleanup-reason">${escHtml(it.reason)}</td>
+      </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="cmv40-cleanup-warn">
+      <strong>⚠️ Atención:</strong> esta acción es <strong>irreversible</strong>. Tras borrar los artefactos, los proyectos quedan en modo <strong>solo lectura</strong> — no se podrán rehacer fases ni reanudar pipelines abiertos. El JSON de la sesión y el log se preservan; solo se borran los HEVC/RPU/MKV.tmp del workdir.
+    </div>
+    <table class="cmv40-cleanup-table">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="cmv40-cleanup-select-all" title="Seleccionar todo"></th>
+          <th>Proyecto</th>
+          <th>Tamaño</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+
+  // Wire select-all (solo afecta a checkboxes habilitados)
+  const selectAll = document.getElementById('cmv40-cleanup-select-all');
+  if (selectAll) {
+    // Estado inicial: marcado si todos los habilitados están marcados
+    const enabledCbs = body.querySelectorAll('.cmv40-cleanup-cb:not(:disabled)');
+    selectAll.checked = enabledCbs.length > 0 &&
+      Array.from(enabledCbs).every(cb => cb.checked);
+    selectAll.addEventListener('change', (e) => {
+      body.querySelectorAll('.cmv40-cleanup-cb:not(:disabled)').forEach(cb => {
+        cb.checked = e.target.checked;
+      });
+      _cmv40CleanupUpdateSummary();
+    });
+  }
+  // Refresh summary cuando cambia cualquier checkbox
+  body.querySelectorAll('.cmv40-cleanup-cb').forEach(cb => {
+    cb.addEventListener('change', _cmv40CleanupUpdateSummary);
+  });
+
+  foot.style.display = '';
+  _cmv40CleanupUpdateSummary();
+}
+
+function _cmv40CleanupUpdateSummary() {
+  const cbs = document.querySelectorAll('.cmv40-cleanup-cb:checked');
+  const count = cbs.length;
+  let totalBytes = 0;
+  cbs.forEach(cb => { totalBytes += parseInt(cb.dataset.size || '0', 10) || 0; });
+  const summaryEl = document.getElementById('cmv40-cleanup-summary');
+  const btn = document.getElementById('cmv40-cleanup-execute-btn');
+  if (summaryEl) {
+    summaryEl.innerHTML = count > 0
+      ? `<strong>${count}</strong> proyecto${count === 1 ? '' : 's'} · liberables <strong>${_cleanupFmtBytes(totalBytes)}</strong>`
+      : '<span style="color:var(--text-3)">Selecciona al menos un proyecto</span>';
+  }
+  if (btn) {
+    btn.disabled = count === 0;
+  }
+}
+
+async function cmv40BulkCleanupExecute() {
+  const cbs = Array.from(document.querySelectorAll('.cmv40-cleanup-cb:checked'));
+  const ids = cbs.map(cb => cb.dataset.id).filter(Boolean);
+  if (!ids.length) {
+    showToast('No hay nada seleccionado', 'info');
+    return;
+  }
+  showConfirm(
+    `Borrar artefactos de ${ids.length} proyecto${ids.length === 1 ? '' : 's'}?`,
+    'Esta acción es irreversible. Los proyectos pasarán a modo SOLO LECTURA — no se podrán rehacer fases ni reanudar pipelines abiertos. El JSON de la sesión y el log se conservan; solo se borra el workdir intermedio (HEVC, RPU.bin, .mkv.tmp).',
+    async () => {
+      const data = await apiFetch('/api/cmv40/cleanup/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ session_ids: ids }),
+      });
+      if (!data) return;
+      const okCount = (data.deleted || []).length;
+      const skipCount = (data.skipped || []).length;
+      const koCount = (data.failed || []).length;
+      const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
+      let msg = `🗃️ ${okCount} proyecto${okCount === 1 ? '' : 's'} archivado${okCount === 1 ? '' : 's'} · liberados ${freed}`;
+      if (skipCount > 0) msg += ` · ${skipCount} omitido${skipCount === 1 ? '' : 's'} (en curso)`;
+      if (koCount > 0)   msg += ` · ${koCount} fallido${koCount === 1 ? '' : 's'}`;
+      showToast(msg, koCount === 0 ? 'success' : 'warning');
+      // Refrescar el sidebar y los proyectos abiertos para reflejar el nuevo
+      // estado archived (banner solo-lectura, etc).
+      try { refreshCMv40Sidebar(); } catch (_) {}
+      for (const id of (data.deleted || []).map(d => d.id)) {
+        try { _refreshCMv40Session(id); } catch (_) {}
+      }
+      // Re-escanear preview para refrescar la tabla del modal
+      openCMv40CleanupModal();
+    },
+    'Borrar',
+  );
+}
+
 function _cmv40HelpSwitch(section) {
   sessionStorage.setItem('cmv40HelpSection', section);
   document.querySelectorAll('.cmv40-help-nav-item').forEach(el => {
@@ -11016,7 +11171,29 @@ function _renderCMv40ActivePhase(project) {
       </div>`;
   }
 
-  container.innerHTML = errorHtml + archivedHtml + doneHtml + cards.join('');
+  // Footer de acciones: botón "Limpiar artefactos" siempre visible mientras
+  // el proyecto NO esté archived ni tenga running_phase activo. Permite
+  // limpiar tras un fallo de fase sin tener que esperar a que el pipeline
+  // termine entero.
+  let actionsFooterHtml = '';
+  if (!s.archived && !s.running_phase) {
+    actionsFooterHtml = `
+      <div class="section-card cmv40-actions-footer" style="margin-top:16px">
+        <div class="section-body" style="display:flex; align-items:center; gap:12px">
+          <span style="font-size:18px; opacity:0.7">🗑️</span>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:12.5px; font-weight:600">Limpiar artefactos del workdir</div>
+            <div style="font-size:11px; color:var(--text-3); margin-top:2px">
+              Libera el espacio del workdir intermedio (HEVC, RPU, .mkv.tmp). Disponible siempre que no haya una fase en curso — útil tras un fallo para liberar espacio sin esperar al final del pipeline. <strong>Pasa el proyecto a modo solo lectura.</strong>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')"
+            style="flex-shrink:0">Limpiar artefactos</button>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
 
   // Lanzar cargas asíncronas donde aplique
   if (_cmv40PhaseState(s.phase, 'target_provided', 'source_analyzed') === 'active') {

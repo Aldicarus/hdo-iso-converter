@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260501f">
+  <link rel="stylesheet" href="/static/style.css?v=20260501g">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -486,6 +486,10 @@
               data-tooltip="Desplazar pestañas a la derecha">›</button>
           </div>
           <div class="cmv40-help-area">
+            <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40CleanupModal()"
+              data-tooltip="Limpieza masiva de artefactos: revisa el espacio que ocupa cada proyecto y borra los seleccionados">
+              <span>🗑️</span> Limpiar artefactos
+            </button>
             <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40HelpModal()"
               data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas">
               <span>📖</span> Ayuda / Manual
@@ -949,6 +953,28 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: Limpieza masiva de artefactos CMv4.0 ═════════════════ -->
+<div class="modal-overlay" id="cmv40-cleanup-modal" onclick="onModalOverlayClick(event,'cmv40-cleanup-modal')">
+  <div class="modal-box cmv40-cleanup-modal-box">
+    <div class="cmv40-cleanup-head">
+      <div class="modal-title">🗑️ Limpieza masiva de artefactos CMv4.0</div>
+      <div class="modal-sub">Revisa el espacio que ocupa cada proyecto y selecciona los que quieres limpiar. Borra solo los artefactos intermedios del workdir; los proyectos permanecen visibles en modo solo lectura (archived).</div>
+      <button class="btn btn-ghost btn-xs cmv40-cleanup-close"
+        onclick="closeModal('cmv40-cleanup-modal')" data-tooltip="Cerrar">✕</button>
+    </div>
+    <div class="cmv40-cleanup-body" id="cmv40-cleanup-body">
+      <div class="cmv40-cleanup-loading">⏳ Escaneando proyectos…</div>
+    </div>
+    <div class="cmv40-cleanup-foot" id="cmv40-cleanup-foot" style="display:none">
+      <span class="cmv40-cleanup-summary" id="cmv40-cleanup-summary"></span>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-cleanup-modal')">Cancelar</button>
+      <button class="btn btn-danger btn-sm" id="cmv40-cleanup-execute-btn"
+        onclick="cmv40BulkCleanupExecute()">🗑 Borrar seleccionados</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Configuración (API keys, integraciones) ════════════ -->
 <div class="modal-overlay" id="settings-modal" onclick="onModalOverlayClick(event,'settings-modal')">
   <div class="modal-box settings-modal-box">
@@ -1065,6 +1091,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260501f"></script>
+<script src="/static/app.js?v=20260501g"></script>
 </body>
 </html>

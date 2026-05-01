@@ -2745,6 +2745,159 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+# ── Limpieza masiva de artefactos CMv4.0 ─────────────────────────────────────
+
+@app.get(
+    "/api/cmv40/cleanup/preview",
+    summary="Preview de artefactos CMv4.0 con tamaños y estado por proyecto",
+)
+async def cmv40_cleanup_preview():
+    """Devuelve la lista de proyectos CMv4.0 con info necesaria para decidir
+    qué limpiar: tamaño del workdir, fase actual, estado (done/error/archived/
+    en progreso), si hay running_phase. NO borra nada — solo lectura."""
+    sessions = list_cmv40_sessions()
+    items: list[dict] = []
+    total_bytes = 0
+    for s in sessions:
+        wd = Path(s.artifacts_dir) if s.artifacts_dir else None
+        size = 0
+        files_count = 0
+        wd_exists = bool(wd and wd.exists())
+        if wd_exists:
+            try:
+                for f in wd.rglob("*"):
+                    if f.is_file():
+                        try:
+                            size += f.stat().st_size
+                            files_count += 1
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+        # Determinar estado y si es seguro borrar
+        running = bool(s.running_phase)
+        if running:
+            state = "running"
+            safe = False
+            reason = f"Fase {s.running_phase} en curso — no borrar"
+        elif s.archived:
+            state = "archived"
+            safe = False
+            reason = "Ya archivado (sin artefactos)"
+        elif s.phase == "done":
+            state = "done"
+            safe = True
+            reason = "Pipeline terminado, listo para limpiar"
+        elif s.error_message:
+            state = "error"
+            safe = True
+            reason = f"Última fase falló: {s.error_message[:80]}"
+        else:
+            state = "in_progress"
+            safe = True
+            reason = f"Pipeline detenido en fase {s.phase}"
+
+        items.append({
+            "id": s.id,
+            # Titulo legible para la UI: el output_mkv_name ya viene formateado
+            # ("Title (Year) [DV FEL CMv4.0].mkv") cuando hay datos; si no,
+            # caemos al source_mkv_name; si tampoco, al id.
+            "title": s.output_mkv_name or s.source_mkv_name or s.id,
+            "phase": s.phase,
+            "running_phase": s.running_phase,
+            "state": state,
+            "size_bytes": size,
+            "files_count": files_count,
+            "wd_exists": wd_exists,
+            "artifacts_dir": str(wd) if wd else "",
+            "safe_to_delete": safe,
+            "reason": reason,
+            "error_message": s.error_message,
+            "output_mkv_name": s.output_mkv_name,
+            "output_mkv_path": s.output_mkv_path,
+        })
+        total_bytes += size
+    return {
+        "items": items,
+        "total_count": len(items),
+        "total_bytes": total_bytes,
+        "deletable_count": sum(1 for i in items if i["safe_to_delete"]),
+        "deletable_bytes": sum(i["size_bytes"] for i in items if i["safe_to_delete"]),
+    }
+
+
+class CMv40CleanupBulkRequest(BaseModel):
+    session_ids: list[str]
+
+
+@app.post(
+    "/api/cmv40/cleanup/bulk",
+    summary="Limpia artefactos de varios proyectos CMv4.0 a la vez",
+)
+async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
+    """Borra los artefactos del workdir de cada session_id de la lista. Marca
+    cada uno como archived=True (modo solo lectura). NO borra el JSON de
+    sesión — el proyecto sigue visible en el listado, solo en estado archivado.
+    Saltea proyectos con running_phase activo (no se puede borrar mientras
+    una fase corre)."""
+    deleted = []
+    skipped = []
+    failed = []
+    total_freed = 0
+    for sid in body.session_ids or []:
+        session = load_cmv40_session(sid)
+        if not session:
+            failed.append({"id": sid, "error": "Proyecto no encontrado"})
+            continue
+        if session.running_phase:
+            skipped.append({
+                "id": sid,
+                "reason": f"Fase {session.running_phase} en curso",
+            })
+            continue
+        wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+        freed = 0
+        if wd and wd.exists():
+            for arts in _CMV40_PHASE_ARTIFACTS.values():
+                for name in arts:
+                    f = wd / name
+                    if f.exists() and f.is_file():
+                        try:
+                            freed += f.stat().st_size
+                            f.unlink()
+                        except Exception as e:
+                            _logger.warning("[Bulk cleanup] %s: %s", f, e)
+            for extra in ["RPU_synced.bin", "editor_config.json"]:
+                f = wd / extra
+                if f.exists() and f.is_file():
+                    try:
+                        freed += f.stat().st_size
+                        f.unlink()
+                    except Exception:
+                        pass
+        # .mkv.tmp en /mnt/output
+        try:
+            tmp_path = OUTPUT_DIR_MKV / f"{session.output_mkv_name}.tmp"
+            if tmp_path.exists() and tmp_path.is_file():
+                freed += tmp_path.stat().st_size
+                tmp_path.unlink()
+        except Exception as e:
+            _logger.warning("[Bulk cleanup] .mkv.tmp %s: %s", sid, e)
+        session.archived = True
+        save_cmv40_session(session)
+        await _cmv40_log(session,
+            f"🗃️ Artefactos borrados via cleanup masivo ({freed / 1e9:.2f} GB). "
+            f"Proyecto archivado.")
+        deleted.append({"id": sid, "freed_bytes": freed})
+        total_freed += freed
+    return {
+        "deleted": deleted,
+        "skipped": skipped,
+        "failed": failed,
+        "total_freed_bytes": total_freed,
+    }
+
+
 # Mapa de artefactos producidos por cada fase (se borran al rehacer esa fase o anterior)
 _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
     "source_analyzed": ["source.hevc", "RPU_source.bin"],
