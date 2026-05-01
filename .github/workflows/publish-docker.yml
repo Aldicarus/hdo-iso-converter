@@ -8,6 +8,11 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Opt-in a Node.js 24 en los runners — GitHub fuerza este cambio el
+  # 2 de junio de 2026; activarlo ahora elimina el warning sin esperar a
+  # que cada action publique versiones nuevas. Las actions siguen siendo
+  # actions/checkout@v4 + docker/*@v3-v5, solo cambia el Node runtime.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build-and-push:
