@@ -7246,6 +7246,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: #ffffff;
   min-height: 240px;
   scrollbar-width: thin;
+  /* Aislar el scroll del .modal-overlay con backdrop-filter:blur(8px) —
+     sin esto cada tick de scroll re-evalúa el blur de TODO el viewport,
+     causando flicker visible mientras se navega la lista. Mismo patrón
+     que .raw-analysis-pre y otros scrollers dentro de modales. */
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  overscroll-behavior: contain;
 }
 .file-browser-row {
   display: flex;

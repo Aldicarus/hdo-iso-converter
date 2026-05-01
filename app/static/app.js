@@ -128,7 +128,44 @@ document.addEventListener('DOMContentLoaded', () => {
   connectQueueWebSocket();
   switchSubTab(null);
   _installSubtabScrollBindings();
+  _installVisibilityRecovery();
 });
+
+/**
+ * Tras Mac sleep / cambio de pestaña / suspend de red, los WebSockets
+ * mueren y los timers de polling pueden quedarse sin actualizar la UI.
+ * Cuando el documento vuelve a ser visible, fuerza un refresh de los
+ * proyectos CMv4.0 abiertos vía API (estado verídico) y reconecta los
+ * WS si la sesión sigue corriendo.
+ *
+ * Sin esto, tras el wake el log de Tab 3 se queda congelado en el último
+ * mensaje recibido (típicamente "Progress: 37%" del mux) aunque el job
+ * en backend haya terminado correctamente.
+ */
+function _installVisibilityRecovery() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    // Refrescar todos los proyectos CMv4.0 abiertos
+    if (Array.isArray(openCMv40Projects)) {
+      for (const project of openCMv40Projects) {
+        if (!project || project._closed) continue;
+        // Refresh del estado vía API
+        _refreshCMv40Session(project.id);
+        // Si el WS está cerrado o cerrándose, reconectar (solo si la
+        // sesión sigue viva — _connectCMv40WebSocket ya tiene la lógica)
+        const ws = project.ws;
+        const wsAlive = ws && (ws.readyState === WebSocket.OPEN
+                              || ws.readyState === WebSocket.CONNECTING);
+        if (!wsAlive) {
+          const s = project.session || {};
+          if (s.running_phase) {
+            _connectCMv40WebSocket(project);
+          }
+        }
+      }
+    }
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  TOOLTIP MANAGER
@@ -9824,6 +9861,12 @@ function closeCMv40Project(pid) {
   const idx = openCMv40Projects.findIndex(p => p.id === pid);
   if (idx === -1) return;
   const project = openCMv40Projects[idx];
+  // Marca para que onclose del WS NO intente reconectar.
+  project._closed = true;
+  if (project._wsReconnectTimer) {
+    clearTimeout(project._wsReconnectTimer);
+    project._wsReconnectTimer = null;
+  }
   try { project.ws?.close(); } catch (_) {}
   document.getElementById(`cmv40-stab-${pid}`)?.remove();
   document.getElementById(`cmv40-panel-${pid}`)?.remove();
@@ -9875,6 +9918,11 @@ function _createCMv40SubTab(project) {
 
 function _connectCMv40WebSocket(project) {
   try { project.ws?.close(); } catch (_) {}
+  // Limpia timer de reconnect previo si lo hubiera (defensivo).
+  if (project._wsReconnectTimer) {
+    clearTimeout(project._wsReconnectTimer);
+    project._wsReconnectTimer = null;
+  }
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${wsProto}//${location.host}/ws/cmv40/${project.id}`);
   ws.onmessage = (ev) => {
@@ -9885,6 +9933,30 @@ function _connectCMv40WebSocket(project) {
     }
   };
   ws.onerror = () => {};
+  // Reconnect automatico con backoff cuando el WS se cierra (Mac sleep,
+  // pestaña en background con sleep agresivo, perdida temporal de red...).
+  // SIN esto, tras el wake del Mac el log se queda congelado y la UI no se
+  // actualiza aunque el job haya terminado en backend.
+  ws.onclose = () => {
+    if (project._closed) return;
+    if (project._wsReconnectTimer) clearTimeout(project._wsReconnectTimer);
+    project._wsReconnectTimer = setTimeout(() => {
+      project._wsReconnectTimer = null;
+      // Refrescar sesion ANTES de reconectar — si el job ya termino en
+      // backend mientras dormiamos, esto pone la UI al dia inmediatamente.
+      _refreshCMv40Session(project.id);
+      // Solo reconectar si el proyecto sigue abierto y la sesion esta
+      // viva (running_phase != null o estado no terminal). Si el job
+      // termino, no hace falta WS — el refresh ya pinto el estado final.
+      const stillOpen = openCMv40Projects.find(p => p.id === project.id);
+      if (stillOpen && !stillOpen._closed) {
+        const s = stillOpen.session || {};
+        if (s.running_phase) {
+          _connectCMv40WebSocket(stillOpen);
+        }
+      }
+    }, 2000);
+  };
   project.ws = ws;
 }
 
