@@ -5260,6 +5260,32 @@ select { appearance: none; cursor: pointer;
 .btn-lookup:active { transform: scale(0.92); }
 .btn-lookup-icon { font-size: 16px; line-height: 1; }
 
+/* Botón de Ayuda / Manual del header — homogeneo con .btn-lookup y
+   .btn-settings (mismo tamaño 34x34 + radius 8). Color naranja/ambar
+   para diferenciar del verde (lookup) y azul (settings). */
+.btn-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: rgba(255, 159, 10, 0.10);
+  border: 1px solid rgba(255, 159, 10, 0.40);
+  border-radius: 8px;
+  color: #f0b160;
+  cursor: pointer;
+  margin-right: 8px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
+}
+.btn-help:hover {
+  background: rgba(255, 159, 10, 0.22);
+  color: #ffcb83;
+  border-color: rgba(255, 159, 10, 0.75);
+  transform: scale(1.08);
+}
+.btn-help:active { transform: scale(0.92); }
+.btn-help-icon { font-size: 16px; line-height: 1; }
+
 /* ── Modal de Consulta rápida CMv4.0 ─────────────────────────────── */
 /* Modal "tool-like": header + form fijos arriba, body con scroll interno,
    footer fijo abajo. Evita que el scrollbar salga del border-radius y

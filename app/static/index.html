@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260502h">
+  <link rel="stylesheet" href="/static/style.css?v=20260503a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -28,6 +28,11 @@
     </div>
 
     <div class="header-right">
+      <button class="btn-help" onclick="openCMv40HelpModal()"
+        data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas"
+        aria-label="Ayuda / Manual">
+        <span class="btn-help-icon">📖</span>
+      </button>
       <button class="btn-lookup" onclick="openCMv40LookupModal()"
         data-tooltip="Consulta rápida — comprueba si una película tiene bin en DoviTools y qué pipeline se aplicaría (sin crear proyecto)"
         aria-label="Consulta rápida CMv4.0">
@@ -489,10 +494,6 @@
             <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40CleanupModal()"
               data-tooltip="Limpieza masiva de artefactos: revisa el espacio que ocupa cada proyecto y borra los seleccionados">
               <span>🗑️</span> Limpiar artefactos
-            </button>
-            <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40HelpModal()"
-              data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas">
-              <span>📖</span> Ayuda / Manual
             </button>
           </div>
         </div>
@@ -1091,6 +1092,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260502h"></script>
+<script src="/static/app.js?v=20260503a"></script>
 </body>
 </html>
