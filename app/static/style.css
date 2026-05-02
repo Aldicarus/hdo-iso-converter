@@ -3479,7 +3479,7 @@ select { appearance: none; cursor: pointer;
    contexto del titulo). */
 .cmv40-running-movie {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 16px;
   /* Poster flush con bordes top/bottom/left del header — sin padding ni
      margenes. Solo padding derecho para separar el texto del borde. */
@@ -3489,7 +3489,10 @@ select { appearance: none; cursor: pointer;
      blanco/gris claro — coherencia visual entre ambos sitios donde
      aparece la peli con poster + datos. */
   background: #14171f;
-  border-bottom: 1px solid var(--sep);
+  /* Sin border-bottom — la transicion al cmv40-running-header siguiente
+     ya queda visible por el cambio de fondo (#14171f -> var(--surface-2)).
+     El border anterior generaba una linea fina visible entre la base del
+     poster y la siguiente seccion. */
   flex-shrink: 0;
 }
 .cmv40-running-movie-poster {
