@@ -9201,7 +9201,7 @@ function _cmv40RenderTimeline(s, project) {
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     const gateCls = st.isGate ? ' cmv40-tl-is-gate' : '';
-    return `<li class="cmv40-tl-step cmv40-tl-${status}${gateCls}">
+    return `<li class="cmv40-tl-step cmv40-tl-${status}${gateCls}" data-step-key="${escHtml(st.key)}">
       <div class="cmv40-tl-rail">${iconMap[status] || iconMap.pending}</div>
       <div class="cmv40-tl-body">
         <div class="cmv40-tl-title">
@@ -10649,6 +10649,19 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   // Si el timeline aun no existe (primera vez), render completo.
   if (!tlWrap.querySelector('.cmv40-tl-steps')) {
     tlWrap.innerHTML = _cmv40RenderTimeline(s, project);
+    // Posiciona la fase activa centrada al abrir el modal — sin animación
+    // (estamos en frame 0, smooth se vería como un salto).
+    const stepsElInit = tlWrap.querySelector('.cmv40-tl-steps');
+    const stepsInit = _cmv40PlanAutoSteps(s);
+    const statusesInit = stepsInit.map(st => _cmv40StepStatus(st, s));
+    const activeIdxInit = statusesInit.findIndex(st => st === 'running');
+    const activeKeyInit = activeIdxInit >= 0
+      ? stepsInit[activeIdxInit].key
+      : (stepsInit[stepsInit.length - 1] && stepsInit[stepsInit.length - 1].key);
+    if (stepsElInit && activeKeyInit) {
+      _cmv40ScrollActiveStepIntoView(stepsElInit, activeKeyInit, 'auto');
+      tlWrap.dataset.activeStepKey = activeKeyInit;
+    }
     return;
   }
 
@@ -10760,6 +10773,24 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     stepsEl.scrollTop = savedScroll;
     stepsEl.dataset.hash = newStepsHash;
   }
+
+  // Auto-scroll dinámico: cuando avanza la fase en curso, traer la nueva
+  // fase activa al centro del panel lateral con scroll suave. Solo se
+  // dispara cuando cambia la KEY (no en cada tick) — así el usuario puede
+  // hacer scroll manual dentro de una fase sin que el timeline rebote.
+  // Si ya no hay fase running (terminal: done o error), apuntamos a la
+  // última fase con estado distinto de pending para mantener el contexto.
+  const activeIdx = stepStatuses.findIndex(st => st === 'running');
+  let activeKey = activeIdx >= 0 ? steps[activeIdx].key : null;
+  if (!activeKey) {
+    for (let i = stepStatuses.length - 1; i >= 0; i--) {
+      if (stepStatuses[i] !== 'pending') { activeKey = steps[i].key; break; }
+    }
+  }
+  if (stepsEl && activeKey && tlWrap.dataset.activeStepKey !== activeKey) {
+    _cmv40ScrollActiveStepIntoView(stepsEl, activeKey, 'smooth');
+    tlWrap.dataset.activeStepKey = activeKey;
+  }
 }
 
 /** Genera solo el contenido interno (<li>...</li>) de la lista de steps.
@@ -10783,7 +10814,7 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
                        : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
-    return `<li class="cmv40-tl-step cmv40-tl-${status}">
+    return `<li class="cmv40-tl-step cmv40-tl-${status}" data-step-key="${escHtml(st.key)}">
       <div class="cmv40-tl-rail">${iconMap[status]}</div>
       <div class="cmv40-tl-body">
         <div class="cmv40-tl-title">
@@ -10795,6 +10826,24 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
       </div>
     </li>`;
   }).join('');
+}
+
+/** Auto-scroll del timeline lateral para mantener visible la fase activa.
+ *  Se ejecuta solo cuando cambia la fase running (no en cada tick) — así no
+ *  pelea contra el scroll manual del usuario dentro de una misma fase.
+ *  Si no hay fase running (todo done), se hace scroll a la última fase
+ *  completada para que el usuario vea el final del recorrido. */
+function _cmv40ScrollActiveStepIntoView(stepsEl, activeKey, behavior = 'smooth') {
+  if (!stepsEl || !activeKey) return;
+  const li = stepsEl.querySelector(`li.cmv40-tl-step[data-step-key="${activeKey}"]`);
+  if (!li) return;
+  const containerH = stepsEl.clientHeight;
+  const liTop      = li.offsetTop;
+  const liH        = li.offsetHeight;
+  // Centra el step activo verticalmente dentro del contenedor scrollable.
+  const target = liTop - (containerH / 2) + (liH / 2);
+  const max = stepsEl.scrollHeight - containerH;
+  stepsEl.scrollTo({ top: Math.max(0, Math.min(max, target)), behavior });
 }
 
 function _cmv40ParseProgress(line) {
