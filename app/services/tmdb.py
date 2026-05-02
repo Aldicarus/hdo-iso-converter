@@ -161,7 +161,12 @@ async def search_movies(title_es: str, year: int | None,
     hit = cache.get(key)
     if hit and (time.time() - hit.get("fetched_at", 0)) < CACHE_TTL_SECONDS:
         cached = hit.get("results") or []
-        return [TmdbMatch(**r) for r in cached]
+        # Si el cache trae [] (de antes del fallback sin año), tratamos
+        # como miss para que el flujo nuevo reintente sin filtro de año.
+        # Sin esto, cualquier titulo que ya haya fallado una vez con
+        # filtro estricto se quedaria sin traduccion 30 dias.
+        if cached:
+            return [TmdbMatch(**r) for r in cached]
 
     api_key = get_tmdb_api_key()
     if not api_key:
