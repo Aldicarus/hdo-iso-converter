@@ -167,24 +167,44 @@ async def search_movies(title_es: str, year: int | None,
     if not api_key:
         return []
 
-    params: dict[str, str] = {
+    base_params: dict[str, str] = {
         "api_key": api_key,
         "query": title_es,
         "language": "es-ES",
         "include_adult": "false",
     }
-    if year:
-        params["year"] = str(year)
 
     matches: list[TmdbMatch] = []
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
+            # Primer intento: si tenemos año, filtramos por él.
+            # TMDb usa filtro estricto sobre primary_release_year — útil para
+            # desambiguar remakes pero peligroso si el año del filename
+            # discrepa del release_date oficial (estrenos en festivales,
+            # diferencia ES vs original, etc).
+            params = {**base_params}
+            if year:
+                params["year"] = str(year)
             resp = await client.get(
                 "https://api.themoviedb.org/3/search/movie", params=params,
             )
             resp.raise_for_status()
             data = resp.json()
             results = (data.get("results") or [])[:limit]
+            # Fallback sin año si el filtro estricto devolvio vacio. La
+            # tolerancia ±1 año vive en _best_match / rank_candidates, no
+            # aqui — asi que si luego el match real no cuadra, igualmente
+            # se descarta. Pero si cuadra (caso "Devuelvemela 2024" vs
+            # "Bring Her Back" 2025 en TMDb), recuperamos la traduccion.
+            if not results and year:
+                params_noy = {**base_params}
+                resp2 = await client.get(
+                    "https://api.themoviedb.org/3/search/movie",
+                    params=params_noy,
+                )
+                resp2.raise_for_status()
+                data2 = resp2.json()
+                results = (data2.get("results") or [])[:limit]
             for r in results:
                 tmdb_id = int(r.get("id") or 0)
                 release = r.get("release_date") or ""
@@ -213,11 +233,16 @@ async def search_movies(title_es: str, year: int | None,
         _logger.warning("TMDb search falló: %s", e)
         return []
 
-    cache[key] = {
-        "fetched_at": time.time(),
-        "results": [m.model_dump() for m in matches],
-    }
-    _save_cache()
+    # No cachear resultados vacios — el fallback sin año puede recuperar
+    # traducciones que el filtro estricto perdió (caso "Devuelvemela 2024" /
+    # "Bring Her Back 2025"). Si el cache se quedó con [], la siguiente
+    # llamada saltaría a la API y reintentaría sola sin esperar 30 días.
+    if matches:
+        cache[key] = {
+            "fetched_at": time.time(),
+            "results": [m.model_dump() for m in matches],
+        }
+        _save_cache()
     return matches
 
 
