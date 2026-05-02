@@ -3480,8 +3480,10 @@ select { appearance: none; cursor: pointer;
 .cmv40-running-movie {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 20px;
+  gap: 16px;
+  /* Poster flush con bordes top/bottom/left del header — sin padding ni
+     margenes. Solo padding derecho para separar el texto del borde. */
+  padding: 0 20px 0 0;
   background: var(--surface-1);
   border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
@@ -3490,14 +3492,14 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
   width: 50px;
   height: 75px;
-  border-radius: 5px;
+  /* Sin border-radius ni box-shadow — el poster toca top/bottom/left del
+     header (esquinas redondeadas chocarian con esos bordes). */
   background: var(--surface-3);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
 .cmv40-running-movie-poster img {
   width: 100%;
@@ -3513,7 +3515,7 @@ select { appearance: none; cursor: pointer;
   gap: 4px;
 }
 .cmv40-running-movie-title {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 700;
   color: var(--text-1);
   overflow: hidden;
@@ -3522,7 +3524,7 @@ select { appearance: none; cursor: pointer;
   line-height: 1.25;
 }
 .cmv40-running-movie-meta {
-  font-size: 13px;
+  font-size: 14.5px;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
