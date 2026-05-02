@@ -3484,7 +3484,11 @@ select { appearance: none; cursor: pointer;
   /* Poster flush con bordes top/bottom/left del header — sin padding ni
      margenes. Solo padding derecho para separar el texto del borde. */
   padding: 0 20px 0 0;
-  background: var(--surface-1);
+  /* Mismo fondo + paleta de texto que la ficha TMDb (.cmv40-tmdb-card)
+     que se ve en el panel del proyecto: fondo solido oscuro y texto
+     blanco/gris claro — coherencia visual entre ambos sitios donde
+     aparece la peli con poster + datos. */
+  background: #14171f;
   border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
 }
@@ -3517,7 +3521,9 @@ select { appearance: none; cursor: pointer;
 .cmv40-running-movie-title {
   font-size: 19px;
   font-weight: 700;
-  color: var(--text-1);
+  /* Mismo blanco que .cmv40-tmdb-title */
+  color: #ffffff;
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3525,7 +3531,9 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-running-movie-meta {
   font-size: 14.5px;
-  color: var(--text-2);
+  /* Mismo gris claro que .cmv40-tmdb-meta */
+  color: #c9ccd3;
+  letter-spacing: 0.2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
