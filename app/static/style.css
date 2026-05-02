@@ -3473,26 +3473,25 @@ select { appearance: none; cursor: pointer;
   flex-direction: column;
   overflow: hidden;
 }
-/* Mini cabecera con la pelicula que se esta procesando — visible siempre
-   sobre el header de la fase, asi el usuario ve de un vistazo de que
-   peli es el job en curso (antes solo veias 'Ejecutando: Fase A' sin
-   contexto del titulo). */
+/* Mini cabecera con la pelicula que se esta procesando — vive en el TOP
+   de la columna izquierda (.cmv40-running-timeline-wrap, 330px), encima
+   del timeline. Asi el usuario ve de un vistazo que peli es el job en
+   curso sin que la cabecera ocupe todo el ancho del modal. */
 .cmv40-running-movie {
   display: flex;
   align-items: center;
-  gap: 16px;
-  /* Poster flush con bordes top/bottom/left del header — sin padding ni
-     margenes. Solo padding derecho para separar el texto del borde. */
-  padding: 0 20px 0 0;
+  gap: 12px;
+  /* Poster flush con borde izquierdo de la columna — sin padding-left.
+     Padding-right reducido (14px) por ser una columna estrecha (330px). */
+  padding: 0 14px 0 0;
   /* Mismo fondo + paleta de texto que la ficha TMDb (.cmv40-tmdb-card)
      que se ve en el panel del proyecto: fondo solido oscuro y texto
      blanco/gris claro — coherencia visual entre ambos sitios donde
      aparece la peli con poster + datos. */
   background: #14171f;
-  /* Sin border-bottom — la transicion al cmv40-running-header siguiente
-     ya queda visible por el cambio de fondo (#14171f -> var(--surface-2)).
-     El border anterior generaba una linea fina visible entre la base del
-     poster y la siguiente seccion. */
+  /* Border-bottom fino para separar la cabecera del timeline siguiente,
+     en el mismo tono que el resto de separadores de la columna. */
+  border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
 }
 .cmv40-running-movie-poster {
@@ -3522,7 +3521,7 @@ select { appearance: none; cursor: pointer;
   gap: 4px;
 }
 .cmv40-running-movie-title {
-  font-size: 16px;
+  font-size: 14.5px;
   font-weight: 700;
   /* Mismo blanco que .cmv40-tmdb-title */
   color: #ffffff;
@@ -3533,7 +3532,7 @@ select { appearance: none; cursor: pointer;
   line-height: 1.25;
 }
 .cmv40-running-movie-meta {
-  font-size: 12.5px;
+  font-size: 12px;
   /* Mismo gris claro que .cmv40-tmdb-meta */
   color: #c9ccd3;
   letter-spacing: 0.2px;
@@ -3620,6 +3619,17 @@ select { appearance: none; cursor: pointer;
   overflow: hidden;               /* nada scrolla aquí — el scroll lo gestiona .cmv40-tl-steps */
   display: flex;
   flex-direction: column;
+}
+/* Wrapper interno que ocupa el espacio restante bajo la cabecera de la
+   peli (.cmv40-running-movie). El JS escribe innerHTML aqui con todo el
+   timeline (.cmv40-running-timeline + sus hijos), por eso necesitamos
+   flex:1 + min-height:0 para que el scroll de .cmv40-tl-steps funcione. */
+.cmv40-running-timeline-inner {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .cmv40-running-timeline {
   display: flex;

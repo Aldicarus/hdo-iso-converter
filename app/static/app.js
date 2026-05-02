@@ -10549,9 +10549,10 @@ function _renderCMv40RunningOverlay(project) {
       overlay.className = 'cmv40-running-overlay';
       overlay.innerHTML = `
         <div class="cmv40-running-box">
-          <div class="cmv40-running-timeline-wrap" id="cmv40-running-timeline-${pid}"></div>
-          <div class="cmv40-running-main">
-            <!-- Mini cabecera con la pelicula que se esta procesando — hidratada con TMDb -->
+          <div class="cmv40-running-timeline-wrap">
+            <!-- Mini cabecera con la pelicula que se esta procesando — vive en
+                 el TOP de la columna izquierda, encima del timeline. Solo ocupa
+                 el ancho de la columna (330px), no el de todo el modal. -->
             <div class="cmv40-running-movie" id="cmv40-running-movie-${pid}">
               <div class="cmv40-running-movie-poster" id="cmv40-running-movie-poster-${pid}">🎬</div>
               <div class="cmv40-running-movie-info">
@@ -10559,6 +10560,9 @@ function _renderCMv40RunningOverlay(project) {
                 <div class="cmv40-running-movie-meta" id="cmv40-running-movie-meta-${pid}"></div>
               </div>
             </div>
+            <div class="cmv40-running-timeline-inner" id="cmv40-running-timeline-${pid}"></div>
+          </div>
+          <div class="cmv40-running-main">
             <div class="cmv40-running-header">
               <div class="cmv40-running-spinner"></div>
               <div style="flex:1">
