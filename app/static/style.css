@@ -3479,7 +3479,7 @@ select { appearance: none; cursor: pointer;
    contexto del titulo). */
 .cmv40-running-movie {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 16px;
   /* Poster flush con bordes top/bottom/left del header — sin padding ni
      margenes. Solo padding derecho para separar el texto del borde. */
@@ -3522,7 +3522,7 @@ select { appearance: none; cursor: pointer;
   gap: 4px;
 }
 .cmv40-running-movie-title {
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 700;
   /* Mismo blanco que .cmv40-tmdb-title */
   color: #ffffff;
@@ -3533,7 +3533,7 @@ select { appearance: none; cursor: pointer;
   line-height: 1.25;
 }
 .cmv40-running-movie-meta {
-  font-size: 14.5px;
+  font-size: 12.5px;
   /* Mismo gris claro que .cmv40-tmdb-meta */
   color: #c9ccd3;
   letter-spacing: 0.2px;
