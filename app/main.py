@@ -2435,19 +2435,56 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
             "error": err,
         }
 
+    # Top-5 candidatos TMDb en vez de solo el primero. Caso real:
+    # 'Devuélvemela 2024' (ES) → TMDb por popularidad puede devolver como
+    # #1 un cortometraje no relacionado, y la peli real ('Bring Her Back'
+    # 2025) queda en posicion #2-3. Si nos quedamos con el #1, title_en
+    # es incorrecto y el match contra el repo Drive falla.
+    # Probamos cada candidato (ES + EN) y nos quedamos con el que produzca
+    # mejor score contra el repo. Mismo patron que cmv40_recommend.recommend.
     title_en = title
+    tmdb_candidates: list[tuple[str, int | None]] = []  # (title_en, year)
     if tmdb_configured():
         try:
-            matches = await search_movies(title, year, limit=1)
+            matches = await search_movies(title, year, limit=5)
             if matches:
                 title_en = matches[0].title_en
                 if year is None:
                     year = matches[0].year
+                for m in matches:
+                    tmdb_candidates.append((m.title_en, m.year or year))
         except Exception:
             pass
 
+    # Si no tenemos candidatos TMDb (sin clave o sin matches), intentamos
+    # solo con el titulo crudo del filename (en ES). title_en == title.
+    if not tmdb_candidates:
+        tmdb_candidates.append((title_en, year))
+
     try:
-        candidates = await find_candidates(title_en, title, year)
+        # Probamos cada candidato y agregamos resultados. Dedup por file.id
+        # (un mismo bin puede ganar con varios candidatos del mismo film).
+        seen_files: dict[str, object] = {}
+        best_title_en = title_en
+        best_year = year
+        best_count = -1
+        for cand_title_en, cand_year in tmdb_candidates:
+            cands = await find_candidates(cand_title_en, title, cand_year)
+            # El "ganador" para la response es el candidato TMDb que mas
+            # bins matchea — asi title_en/year en la respuesta refleja la
+            # peli real (no el cortometraje irrelevante de #1).
+            if len(cands) > best_count:
+                best_count = len(cands)
+                best_title_en = cand_title_en
+                best_year = cand_year
+            for c in cands:
+                fid = c.file.id
+                if fid not in seen_files or c.score > seen_files[fid].score:
+                    seen_files[fid] = c
+        candidates = sorted(seen_files.values(), key=lambda c: c.score, reverse=True)[:8]
+        if best_count > 0:
+            title_en = best_title_en
+            year = best_year
     except PermissionError as e:
         return {
             "drive_configured": True,
