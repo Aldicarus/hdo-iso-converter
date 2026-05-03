@@ -1930,10 +1930,12 @@ async def _refine_l5_gate_with_sampling(gates: dict,
     body_matches = body_total - zone_mismatches["body"]
     body_coverage = (body_matches / body_total) if body_total > 0 else 1.0
 
-    # Variabilidad detectada (sets distintos por lado)
-    src_variable = len({s["src"][0:4] if isinstance(s["src"], list) else s["src"] for s in per_sample}) > 1
-    src_distinct = {tuple(s["src"]) if isinstance(s["src"], list) else s["src"] for s in per_sample}
-    tgt_distinct = {tuple(s["tgt"]) if isinstance(s["tgt"], list) else s["tgt"] for s in per_sample}
+    # Variabilidad detectada — convertimos a tuplas (s["src"]/s["tgt"] ya
+    # vienen como list de la asignación previa por compatibilidad JSON).
+    # Antes había una linea adicional que hacia s["src"][0:4] (list slice,
+    # no hashable) y reventaba el set con 'unhashable type: list'.
+    src_distinct = {tuple(s["src"]) for s in per_sample}
+    tgt_distinct = {tuple(s["tgt"]) for s in per_sample}
 
     g["sampled_total"] = total
     g["sampled_matches"] = matches
