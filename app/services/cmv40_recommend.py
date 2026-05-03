@@ -167,10 +167,31 @@ def _containment_score(a: str, b: str) -> float:
 
 
 def _similarity(a: str, b: str) -> float:
-    """Score compuesto: max(seq-matcher, token-set Jaccard, containment)."""
+    """Score compuesto: max(seq-matcher, token-set Jaccard, containment).
+
+    Cap anti-falso-positivo: si el token-set Jaccard es 0 (sin overlap real
+    de palabras significativas tras quitar stop words) Y no hay containment
+    (ningún slug está incluido en el otro), capamos a 0.5 — la similitud
+    de SequenceMatcher en ese caso viene solo del esqueleto compartido (ej.
+    'the ', espacios, letras sueltas) y NO del contenido. Caso real:
+        'the pianist' vs 'the ring' → seq_ratio 0.63 (comparten 'the ' +
+        4 letras) → +0.05 año = 0.68 → pasaba el umbral 0.65 incorrectamente.
+    Con el cap: 0.5 → no pasa.
+
+    No afecta a casos legítimos:
+      - 'deadpool & wolverine' vs 'deadpool wolverine' → ts > 0 (palabras
+        compartidas), sin cap.
+      - 'dark knight' vs 'the dark knight' → containment > 0, sin cap.
+    """
     if not a or not b:
         return 0.0
-    return max(_seq_ratio(a, b), _token_set_ratio(a, b), _containment_score(a, b))
+    seq  = _seq_ratio(a, b)
+    ts   = _token_set_ratio(a, b)
+    cont = _containment_score(a, b)
+    score = max(seq, ts, cont)
+    if ts == 0 and cont == 0:
+        score = min(score, 0.5)
+    return score
 
 
 def _best_match(title_slug: str, year: int | None,
