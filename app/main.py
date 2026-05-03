@@ -3120,6 +3120,10 @@ async def cmv40_verify_artifacts(session_id: str):
             session.error_message = result["message"]
         save_cmv40_session(session)
         await _cmv40_log(session, f"⚠ {result['message']}")
+    elif result.get("message") and session.phase == "done":
+        # Done con MKV movido: solo log informativo, sin tocar el estado
+        # ni disparar warning en UI (el usuario lo movio a proposito).
+        await _cmv40_log(session, f"ℹ {result['message']}")
     result["session"] = session.model_dump()
     return result
 

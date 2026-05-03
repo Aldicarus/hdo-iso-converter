@@ -217,13 +217,19 @@ def validate_artifacts(session: CMv40Session) -> dict:
         result["message"] = "Proyecto archivado — artefactos borrados intencionadamente."
         return result
     if session.phase == "done":
-        # Validar que el MKV final sigue existiendo en /mnt/output
-        if session.output_mkv_path and Path(session.output_mkv_path).exists():
-            return result
-        result["valid_phase"] = "remuxed"
-        result["changed"] = True
-        result["missing"] = [session.output_mkv_path or "output.mkv"]
-        result["message"] = "El MKV final no existe en /mnt/output — revertido a fase remuxed."
+        # NO revertir done → remuxed automáticamente: mover/renombrar el MKV
+        # final tras done es una accion legitima del usuario (ej. archivar a
+        # biblioteca permanente). Si ademas autoContinue sigue activo, la
+        # reversion disparaba auto-pipeline → re-ejecucion de validate, que
+        # fallaba porque los artefactos intermedios (BL.hevc, EL_injected.hevc)
+        # ya los habia borrado el housekeeping de Fase H.
+        # Solo informamos: el proyecto sigue como done.
+        if not session.output_mkv_path or not Path(session.output_mkv_path).exists():
+            result["missing"] = [session.output_mkv_path or "output.mkv"]
+            result["message"] = (
+                "El MKV final ya no esta en su ubicacion original — probablemente "
+                "lo moviste a tu biblioteca. El proyecto sigue completo."
+            )
         return result
     if session.phase == "created":
         return result
