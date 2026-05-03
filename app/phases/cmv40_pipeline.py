@@ -434,14 +434,35 @@ async def _run_streaming(
     time_est = float(progress_ctx.get("time_estimate_s", 0.0)) if progress_ctx else 0.0
     step_start = time.monotonic()
     has_real_progress = False  # se pone True si detectamos ffmpeg time= o mkvmerge Progress:
+    # Contador de warnings ruidosos suprimidos. Algunos HEVC bitstreams
+    # generan cientos de "non monotonically increasing dts" por segundo
+    # — el bitstream filter copia bien igualmente, pero el log se infla.
+    suppressed_dts_warnings = 0
+    suppressed_other_warnings: dict[str, int] = {}
 
     async def _emit(text: str) -> None:
         nonlocal last_throttle, last_progress_push, duration, has_real_progress
+        nonlocal suppressed_dts_warnings
         if not text:
             return
         if text.startswith("#GUI#progress "):
             text = "Progress: " + text.removeprefix("#GUI#progress ")
         elif text.startswith("#GUI#"):
+            return
+
+        # Filtro: warning DTS no monotonico de ffmpeg. Cosmetic — el
+        # bitstream filter (hevc_mp4toannexb) copia correctamente. Suprimimos
+        # todas excepto la primera (avisa al usuario que ocurre) + un
+        # resumen al final con el conteo total.
+        if "non monotonically increasing dts to muxer" in text:
+            suppressed_dts_warnings += 1
+            if suppressed_dts_warnings == 1:
+                if log_callback:
+                    await log_callback(
+                        "[ffmpeg] ⚠ DTS no monotonicos detectados en el HEVC source — "
+                        "warning cosmetico del bitstream filter, la copia es correcta. "
+                        "Mensajes posteriores suprimidos; resumen al final del comando."
+                    )
             return
 
         # mkvmerge "Progress: XX%" — progreso real
@@ -545,6 +566,14 @@ async def _run_streaming(
             pass
 
     await proc.wait()
+
+    # Resumen de warnings suprimidos (si los hubo)
+    if suppressed_dts_warnings > 1 and log_callback:
+        await log_callback(
+            f"[ffmpeg] ℹ Total de warnings DTS no monotonicos suprimidos: "
+            f"{suppressed_dts_warnings - 1} (cosmeticos; el HEVC se copio bien)."
+        )
+
     return proc.returncode
 
 
