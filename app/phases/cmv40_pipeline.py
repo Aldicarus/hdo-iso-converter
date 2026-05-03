@@ -1718,35 +1718,94 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
     return gates, trust_ok
 
 
+def _extract_l5_from_frame(frame: dict) -> tuple[int, int, int, int] | None:
+    """Devuelve (top, bottom, left, right) en pixels, o None si el frame
+    no tiene Level5. L5 vive en:
+      frame.vdr_dm_data.cmv29_metadata.ext_metadata_blocks[].Level5  (CMv2.9)
+      frame.vdr_dm_data.cmv40_metadata.ext_metadata_blocks[].Level5  (CMv4.0)
+    Mismo patrón que _extract_l1_from_frame para L1.
+    """
+    if not isinstance(frame, dict):
+        return None
+    vdr = frame.get("vdr_dm_data")
+    if not isinstance(vdr, dict):
+        # Algunas versiones de dovi_tool exportan directamente vdr_dm_data
+        vdr = frame
+    for key in ("cmv29_metadata", "cmv40_metadata"):
+        meta = vdr.get(key)
+        if not isinstance(meta, dict):
+            continue
+        blocks = meta.get("ext_metadata_blocks") or []
+        for block in blocks:
+            if isinstance(block, dict) and "Level5" in block:
+                l5 = block["Level5"]
+                if isinstance(l5, dict):
+                    try:
+                        top   = int(l5.get("active_area_top_offset")    or 0)
+                        bot   = int(l5.get("active_area_bottom_offset") or 0)
+                        left  = int(l5.get("active_area_left_offset")   or 0)
+                        right = int(l5.get("active_area_right_offset")  or 0)
+                        return (top, bot, left, right)
+                    except (ValueError, TypeError):
+                        pass
+    return None
+
+
 async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
                                  samples: int = 24,
-                                 timeout: int = 10) -> list[tuple[int, tuple[int, int, int, int]]]:
-    """Muestrea N frames distribuidos uniformemente en el RPU y devuelve
-    una lista de (frame_number, l5_tuple) para los samples donde
-    dovi_tool info --frame se ejecutó OK y reportó L5.
+                                 timeout: int = 180) -> list[tuple[int, tuple[int, int, int, int]]]:
+    """Exporta el RPU completo a JSON via `dovi_tool export -d all=…` y
+    muestrea L5 en N frames distribuidos uniformemente.
 
-    24 muestras es un compromiso: cuesta ~24s por RPU pero detecta cambios
-    incluso en escenas cortas (~5 min entre samples para una peli de 2h).
+    Usamos export en vez de `info --frame` porque el formato texto de
+    --frame NO incluye 'L5 offsets:' en muchas versiones de dovi_tool —
+    esa línea solo aparece en `info --summary`. Con export+JSON tenemos
+    L5 fiable frame-a-frame, mismo enfoque que L1 (_extract_l1_from_frame).
+
+    Coste: ~30-60s una sola vez por RPU (no 24 calls); el JSON puede ser
+    grande (~50 MB para una peli de 2h) pero se borra inmediatamente.
     """
     if frame_count <= 0:
         return []
-    out_list: list[tuple[int, tuple[int, int, int, int]]] = []
-    step = max(1, frame_count // max(2, samples))
-    pat = re.compile(
-        r"L5 offsets:\s*top=(\d+),\s*bottom=(\d+),\s*left=(\d+),\s*right=(\d+)"
-    )
-    for i in range(0, frame_count, step):
+    export_json = rpu_path.parent / f"_l5_export_{rpu_path.stem}.json"
+    try:
         try:
-            rc, info_out, _err = await _run([
-                DOVI_TOOL_BIN, "info", "-i", str(rpu_path), "--frame", str(i),
+            rc, _out, _err = await _run([
+                DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
+                "-d", f"all={export_json}",
             ], timeout=timeout)
-        except Exception:
-            continue
-        if rc != 0:
-            continue
-        m = pat.search(info_out)
-        if m:
-            out_list.append((i, tuple(int(g) for g in m.groups())))
+        except Exception as e:
+            _logger.warning("dovi_tool export para L5 falló: %s", e)
+            return []
+        if rc != 0 or not export_json.exists():
+            return []
+        try:
+            data = json.loads(export_json.read_text(encoding="utf-8"))
+        except Exception as e:
+            _logger.warning("L5 export JSON ilegible: %s", e)
+            return []
+    finally:
+        export_json.unlink(missing_ok=True)
+
+    # Normalizar a lista de frames (puede venir como list o dict.frames)
+    if isinstance(data, list):
+        frames = data
+    elif isinstance(data, dict):
+        frames = data.get("frames") or data.get("vdr_dm_data") or []
+        if not isinstance(frames, list):
+            frames = []
+    else:
+        frames = []
+    if not frames:
+        return []
+
+    actual = len(frames)
+    step = max(1, actual // max(2, samples))
+    out_list: list[tuple[int, tuple[int, int, int, int]]] = []
+    for i in range(0, actual, step):
+        l5 = _extract_l5_from_frame(frames[i])
+        if l5 is not None:
+            out_list.append((i, l5))
     return out_list
 
 
