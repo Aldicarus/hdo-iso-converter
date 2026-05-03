@@ -1718,38 +1718,36 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
     return gates, trust_ok
 
 
-async def _sample_l5_distinct_values(rpu_path: Path, frame_count: int,
-                                       samples: int = 24,
-                                       timeout: int = 10) -> set[tuple[int, int, int, int]]:
-    """Muestrea N frames distribuidos uniformemente en el RPU y devuelve el
-    SET de valores L5 distintos encontrados. Si todos los samples comparten
-    el mismo L5 → set de tamaño 1 (RPU estático). Si hay variabilidad real
-    (iMAX, split-aspect, REPACK) → set con varias tuplas distintas.
+async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
+                                 samples: int = 24,
+                                 timeout: int = 10) -> list[tuple[int, tuple[int, int, int, int]]]:
+    """Muestrea N frames distribuidos uniformemente en el RPU y devuelve
+    una lista de (frame_number, l5_tuple) para los samples donde
+    dovi_tool info --frame se ejecutó OK y reportó L5.
 
     24 muestras es un compromiso: cuesta ~24s por RPU pero detecta cambios
-    incluso en escenas cortas (movie de 2h ≈ 5 min entre samples). Suficiente
-    para ver el patrón sin ser exhaustivo.
+    incluso en escenas cortas (~5 min entre samples para una peli de 2h).
     """
     if frame_count <= 0:
-        return set()
-    distinct: set[tuple[int, int, int, int]] = set()
+        return []
+    out_list: list[tuple[int, tuple[int, int, int, int]]] = []
     step = max(1, frame_count // max(2, samples))
     pat = re.compile(
         r"L5 offsets:\s*top=(\d+),\s*bottom=(\d+),\s*left=(\d+),\s*right=(\d+)"
     )
     for i in range(0, frame_count, step):
         try:
-            rc, out, _err = await _run([
+            rc, info_out, _err = await _run([
                 DOVI_TOOL_BIN, "info", "-i", str(rpu_path), "--frame", str(i),
             ], timeout=timeout)
         except Exception:
             continue
         if rc != 0:
             continue
-        m = pat.search(out)
+        m = pat.search(info_out)
         if m:
-            distinct.add(tuple(int(g) for g in m.groups()))
-    return distinct
+            out_list.append((i, tuple(int(g) for g in m.groups())))
+    return out_list
 
 
 def _l5_tuple_max_diff(a: tuple[int, int, int, int],
@@ -1758,31 +1756,51 @@ def _l5_tuple_max_diff(a: tuple[int, int, int, int],
     return max(abs(a[i] - b[i]) for i in range(4))
 
 
+def _l5_zone_for_frame(frame: int, total: int) -> str:
+    """Clasifica un frame en zona del timeline:
+      - 'intro'  → primer 5% (logos, avisos del estudio)
+      - 'outro'  → último 5% (créditos)
+      - 'body'   → 90% central (la pelicula real)
+    Las zonas intro/outro son cosméticas: divergencias de L5 ahí no
+    impactan la experiencia (logos suelen tener letterbox propio que el
+    transfer no respeta, y los créditos no usan tone-mapping crítico).
+    """
+    if total <= 0:
+        return "body"
+    pct = frame / total
+    if pct < 0.05:
+        return "intro"
+    if pct >= 0.95:
+        return "outro"
+    return "body"
+
+
 async def _refine_l5_gate_with_sampling(gates: dict,
                                           rpu_source: Path, rpu_target: Path,
                                           source_frames: int, target_frames: int,
                                           log_callback) -> None:
     """Si el gate L5 estático disparó ack_required, refina la decisión
-    muestreando 24 frames de cada RPU y comparando los SETS de L5 distintos.
+    muestreando 24 frames de cada RPU AL MISMO frame_number en ambos lados
+    y comparando frame-a-frame.
 
-    Reclasificación:
-      - Ambos estáticos (1 valor cada uno) e iguales → ya no debería pasar
-        por aquí (el gate estático lo habría marcado ok). Defensa.
-      - Ambos estáticos pero distintos → mantener ack_required (real).
-      - Al menos uno variable Y todos los valores del menor están en el
-        mayor (≤30 px de tolerancia) → reclasificar a 'warn' con nota
-        "L5 variable, patrones coinciden". Pasa el gate.
-      - Variabilidad sin solapamiento → ack_required pero con detalle real
-        (qué valores tiene cada uno).
+    Estrategia:
+      1. Sample N frames distribuidos uniformemente en cada RPU.
+      2. Pair samples por frame_number → lista de (frame, src_l5, tgt_l5, diff).
+      3. Cada par marcado match (diff ≤30 px) o mismatch.
+      4. Mismatches clasificados por zona: intro (primer 5%) / body (90% central) /
+         outro (último 5%). Las zonas cosméticas no bloquean; solo body cuenta.
+      5. Decisión:
+         - body_coverage ≥ 90% → reclasifica a 'warn' (gate pasa).
+         - body_coverage ≥ 70% → reclasifica a 'warn' con aviso suave.
+         - body_coverage < 70% → mantiene ack_required.
 
-    Mutates `gates["l5_div"]` in-place. Si no hay l5_div en gates (porque
-    no había source_info) no hace nada.
+    Mutates `gates["l5_div"]` in-place.
     """
     g = gates.get("l5_div")
     if not isinstance(g, dict):
         return
     if g.get("severity") != "ack_required":
-        return  # solo refinamos cuando el static check fue bloqueante
+        return
 
     if log_callback:
         await log_callback(
@@ -1790,15 +1808,12 @@ async def _refine_l5_gate_with_sampling(gates: dict,
             "en ambos RPUs para descartar falso positivo por L5 variable…"
         )
 
-    src_set = await _sample_l5_distinct_values(rpu_source, source_frames)
-    tgt_set = await _sample_l5_distinct_values(rpu_target, target_frames)
+    src_samples = await _sample_l5_per_frame(rpu_source, source_frames)
+    tgt_samples = await _sample_l5_per_frame(rpu_target, target_frames)
 
-    g["sampled_source_distinct"] = [list(t) for t in src_set]
-    g["sampled_target_distinct"] = [list(t) for t in tgt_set]
-    g["sampled_method"] = "per_frame_24_samples"
+    g["sampled_method"] = "per_frame_zoned_24"
 
-    if not src_set or not tgt_set:
-        # Muestreo falló (RPU no accesible) — preservar el ack original
+    if not src_samples or not tgt_samples:
         if log_callback:
             await log_callback(
                 "[Fase B] ⚠ Muestreo L5 no produjo datos — gate L5 sigue como "
@@ -1806,50 +1821,145 @@ async def _refine_l5_gate_with_sampling(gates: dict,
             )
         return
 
-    src_variable = len(src_set) > 1
-    tgt_variable = len(tgt_set) > 1
-    g["src_variable_l5"] = src_variable
-    g["tgt_variable_l5"] = tgt_variable
+    # Indexar por frame_number y emparejar samples comunes (mismo step en
+    # ambos lados normalmente coloca los samples en frames idénticos).
+    src_by_frame = dict(src_samples)
+    tgt_by_frame = dict(tgt_samples)
+    common_frames = sorted(set(src_by_frame.keys()) & set(tgt_by_frame.keys()))
 
-    # Para cada valor del set más pequeño, ver si existe un equivalente
-    # (≤30 px Chebyshev) en el otro set.
-    smaller, larger = (src_set, tgt_set) if len(src_set) <= len(tgt_set) else (tgt_set, src_set)
-    matched = 0
-    for s in smaller:
-        if any(_l5_tuple_max_diff(s, l) <= 30 for l in larger):
-            matched += 1
-    coverage = matched / len(smaller) if smaller else 0.0
-    g["sampled_coverage"] = round(coverage, 3)
+    if not common_frames:
+        if log_callback:
+            await log_callback(
+                "[Fase B] ⚠ Muestreo L5: no hay frames comunes entre source y target "
+                "(frame counts muy distintos) — gate L5 sigue como ack_required."
+            )
+        return
 
-    if coverage >= 0.80:
-        # Patrones de L5 coinciden — falso positivo del summary estático
+    # Comparar frame-a-frame
+    total_frames_for_zone = max(source_frames, target_frames)
+    per_sample: list[dict] = []
+    for f in common_frames:
+        s = src_by_frame[f]
+        t = tgt_by_frame[f]
+        diff = _l5_tuple_max_diff(s, t)
+        per_sample.append({
+            "frame": f,
+            "src": list(s),
+            "tgt": list(t),
+            "diff_px": diff,
+            "ok": diff <= 30,
+            "zone": _l5_zone_for_frame(f, total_frames_for_zone),
+        })
+
+    total = len(per_sample)
+    matches = sum(1 for s in per_sample if s["ok"])
+    mismatches = total - matches
+
+    # Conteos por zona
+    zone_counts = {"intro": 0, "body": 0, "outro": 0}
+    zone_mismatches = {"intro": 0, "body": 0, "outro": 0}
+    body_mismatch_frames: list[int] = []
+    for s in per_sample:
+        z = s["zone"]
+        zone_counts[z] += 1
+        if not s["ok"]:
+            zone_mismatches[z] += 1
+            if z == "body":
+                body_mismatch_frames.append(s["frame"])
+
+    body_total = zone_counts["body"]
+    body_matches = body_total - zone_mismatches["body"]
+    body_coverage = (body_matches / body_total) if body_total > 0 else 1.0
+
+    # Variabilidad detectada (sets distintos por lado)
+    src_variable = len({s["src"][0:4] if isinstance(s["src"], list) else s["src"] for s in per_sample}) > 1
+    src_distinct = {tuple(s["src"]) if isinstance(s["src"], list) else s["src"] for s in per_sample}
+    tgt_distinct = {tuple(s["tgt"]) if isinstance(s["tgt"], list) else s["tgt"] for s in per_sample}
+
+    g["sampled_total"] = total
+    g["sampled_matches"] = matches
+    g["sampled_mismatches"] = mismatches
+    g["sampled_zone_counts"] = zone_counts
+    g["sampled_zone_mismatches"] = zone_mismatches
+    g["sampled_body_coverage"] = round(body_coverage, 3)
+    g["sampled_overall_coverage"] = round(matches / total, 3) if total > 0 else 0.0
+    g["src_variable_l5"] = len(src_distinct) > 1
+    g["tgt_variable_l5"] = len(tgt_distinct) > 1
+    g["sampled_per_frame"] = per_sample  # detalle completo para UI
+
+    # Construir explicación human-friendly
+    parts: list[str] = []
+    parts.append(
+        f"Muestreo de {total} frames: {matches} coinciden ({round(matches/total*100)}%) "
+        f"y {mismatches} divergen."
+    )
+    zone_msg_parts: list[str] = []
+    if zone_mismatches["intro"] > 0:
+        zone_msg_parts.append(
+            f"{zone_mismatches['intro']}/{zone_counts['intro']} en el principio (logos/avisos, primer 5%)"
+        )
+    if zone_mismatches["body"] > 0:
+        zone_msg_parts.append(
+            f"{zone_mismatches['body']}/{zone_counts['body']} en el cuerpo principal (90% central)"
+        )
+    if zone_mismatches["outro"] > 0:
+        zone_msg_parts.append(
+            f"{zone_mismatches['outro']}/{zone_counts['outro']} al final (créditos, último 5%)"
+        )
+    if zone_msg_parts:
+        parts.append("Discrepancias: " + " · ".join(zone_msg_parts) + ".")
+
+    body_pct = round(body_coverage * 100)
+
+    if body_coverage >= 0.90:
         g["ok"] = True
         g["severity"] = "warn"
-        g["why"] = (
-            f"L5 variable detectada — el summary estático mostraba divergencia, "
-            f"pero el muestreo per-frame revela {len(src_set)} valor(es) en source "
-            f"y {len(tgt_set)} en target con ≥80% de solapamiento (≤30 px). "
-            f"Los masters comparten el mismo patrón de active area dinámica "
-            f"(IMAX, split-aspect o REPACK). Sin riesgo real."
+        if mismatches == 0:
+            extra = "El muestreo per-frame confirma que el patrón de active area es idéntico en ambos masters."
+        elif zone_mismatches["body"] == 0:
+            extra = (
+                "Las discrepancias caen exclusivamente en zonas cosméticas "
+                "(logos/intro y créditos) — el cuerpo principal coincide al 100%. "
+                "Sin riesgo real."
+            )
+        else:
+            extra = (
+                f"El cuerpo principal coincide en {body_pct}%; las pocas discrepancias "
+                "no comprometen la experiencia."
+            )
+        g["why"] = " ".join(parts) + " " + extra
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ✓ L5 reclasificado a 'warn' — body_coverage={body_pct}% "
+                f"(matches {matches}/{total} total · body {body_matches}/{body_total})."
+            )
+    elif body_coverage >= 0.70:
+        g["ok"] = True
+        g["severity"] = "warn"
+        g["why"] = " ".join(parts) + (
+            f" El cuerpo principal coincide en {body_pct}% — tolerable pero "
+            "merece la pena revisar visualmente la Fase D si quieres confirmar."
         )
         if log_callback:
             await log_callback(
-                f"[Fase B] ✓ L5 reclasificado a 'warn' — variable real, patrones "
-                f"coinciden ({matched}/{len(smaller)} valores con match)."
+                f"[Fase B] ⚠ L5 reclasificado a 'warn' tolerable — "
+                f"body_coverage={body_pct}% (umbral 90% para silenciar)."
             )
     else:
-        # Variabilidad real Y patrones distintos → ack legítimo
-        g["why"] = (
-            f"L5 diverge realmente — muestreo per-frame: source {len(src_set)} "
-            f"valor(es), target {len(tgt_set)} valor(es), solapamiento "
-            f"{coverage*100:.0f}% (umbral 80%). El target tiene un patrón de "
-            f"active area distinto al BD; el TV calculará bandas y tone-mapping "
-            f"con datos del target → resultado degradado."
+        # body_coverage < 70% → ack legítimo, masters distintos en lo que importa
+        sample_frames_str = ", ".join(str(f) for f in body_mismatch_frames[:6])
+        if len(body_mismatch_frames) > 6:
+            sample_frames_str += f" y {len(body_mismatch_frames) - 6} más"
+        g["why"] = " ".join(parts) + (
+            f" El cuerpo principal coincide solo en {body_pct}% (umbral 70%) — "
+            f"el target tiene un patrón de active area distinto del BD en escenas "
+            f"críticas (frames de ejemplo: {sample_frames_str}). "
+            f"El TV calculará bandas y tone-mapping mal → resultado degradado."
         )
         if log_callback:
             await log_callback(
-                f"[Fase B] ⚠ L5 confirmado divergente: solapamiento {coverage*100:.0f}% "
-                f"(<80%). Source values={sorted(src_set)} · Target values={sorted(tgt_set)}"
+                f"[Fase B] ⚠ L5 confirmado divergente: body_coverage={body_pct}%. "
+                f"Source distinct={sorted(src_distinct)} · Target distinct={sorted(tgt_distinct)}"
             )
 
 

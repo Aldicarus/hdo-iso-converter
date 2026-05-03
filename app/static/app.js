@@ -11816,22 +11816,28 @@ function _cmv40RenderTrustPanel(s) {
   }
   if (gates.l5_div) {
     const l5 = gates.l5_div;
-    // Si el muestreo per-frame se ejecutó, prioriza esa narrativa: muestra
-    // "L5 variable, patrones coinciden" en vez del Δpx estático del summary,
-    // que en pelis con L5 variable es engañoso.
-    const sampled = l5.sampled_method === 'per_frame_24_samples';
-    const isVariable = sampled && (l5.src_variable_l5 || l5.tgt_variable_l5);
+    // Si el muestreo per-frame con zonas se ejecutó, prioriza esa narrativa
+    // (matches por zona) sobre el Δpx estático del summary — en pelis con
+    // L5 variable este último engaña.
+    const sampled = l5.sampled_method === 'per_frame_zoned_24';
     let okText, failText, tip;
-    if (isVariable && l5.ok) {
-      const cov = Math.round((l5.sampled_coverage || 0) * 100);
-      okText = `L5 variable · ${cov}% match`;
-      tip = l5.why || `L5 variable detectada en ambos RPUs — ${cov}% de los valores muestreados coinciden (umbral 80%).`;
-      failText = okText; // no se usa, ok=true
-    } else if (isVariable && !l5.ok) {
-      const cov = Math.round((l5.sampled_coverage || 0) * 100);
-      failText = `L5 variable · solo ${cov}% match`;
-      tip = l5.why || `L5 variable real con patrones distintos: solapamiento ${cov}% (<80%).`;
-      okText = failText;
+    if (sampled) {
+      const total = l5.sampled_total || 0;
+      const matches = l5.sampled_matches || 0;
+      const bodyCov = Math.round((l5.sampled_body_coverage || 0) * 100);
+      const zm = l5.sampled_zone_mismatches || {};
+      // Etiqueta corta con la métrica clave: matches del cuerpo principal
+      if (matches === total) {
+        okText = `L5 ${matches}/${total} idéntico`;
+      } else if ((zm.body || 0) === 0) {
+        okText = `L5 cuerpo OK · ${matches}/${total}`;
+      } else if (l5.ok) {
+        okText = `L5 cuerpo ${bodyCov}% · ${matches}/${total}`;
+      } else {
+        okText = `L5 cuerpo solo ${bodyCov}%`;
+      }
+      failText = okText;
+      tip = l5.why || `Muestreo per-frame con zonas (intro/body/outro).`;
     } else {
       okText = `L5 div ${l5.px_max}px`;
       failText = `L5 div ${l5.px_max}px (>30)`;
