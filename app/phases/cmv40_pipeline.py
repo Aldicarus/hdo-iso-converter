@@ -1413,33 +1413,54 @@ async def _analyze_target_rpu(
                 f"— NO trusted. {implication}"
             )
 
-    # Hard aborts tras evaluar gates — evitan gastar Fase C/D/etc. en targets
-    # estructuralmente inservibles. El usuario puede elegir otro bin en lugar
-    # de perder tiempo con una revisión manual condenada al fracaso.
+    # Hard aborts + ACK required tras evaluar gates — evitan gastar Fase C/D
+    # en targets estructuralmente inservibles, y detienen el auto-pipeline
+    # cuando hay degradación previsible que el usuario debe reconocer.
     #
-    # (a0) Target sin CMv4.0: no hay metadata que transferir — ni el chart ni
-    #      correcciones manuales pueden materializarla. Es punto muerto absoluto.
-    if session.target_type == "incompatible":
-        cm = (dovi_info.cm_version or "desconocido")
-        abort_msg = (
-            f"Target sin CMv4.0 (CM {cm}). No hay metadata L8-L11 que transferir "
-            f"al RPU del BD — este pipeline solo puede inyectar CMv4.0 sobre CMv2.9. "
-            f"Usa un bin del repo DoviTools o extrae de un MKV que SÍ tenga CMv4.0 "
-            f"(mkvinfo mostrará 'dv_cm_version: v4.0' o dovi_tool info 'CM v4.0')."
-        )
+    # Tres salidas:
+    #   1. hard_abort  → raise RuntimeError; no hay continuación útil
+    #      (target sin CMv4.0, target sin L8). El usuario solo puede
+    #      cambiar de target.
+    #   2. ack_required → guardamos failures en sesión, awaiting_critical_ack
+    #      = True, RETURN sin error. El auto-pipeline detecta el flag y
+    #      no avanza; la UI muestra banner pidiendo confirmación.
+    #   3. nada bloqueante → continuamos al check de compat_source_target.
+    has_hard, ack_failures, hard_failures = _classify_gate_failures(gates)
+
+    if has_hard:
+        # Caso 1: Hard abort — concatenar todos los motivos
+        msgs = [f["why"] for f in hard_failures if f.get("why")]
+        abort_msg = " · ".join(msgs) if msgs else "Target estructuralmente inservible."
         session.compat_warning = abort_msg
+        session.pipeline_aborted = True
         if log_callback:
-            await log_callback(f"[Fase B] ⛔ {abort_msg}")
+            for f in hard_failures:
+                await log_callback(f"[Fase B] ⛔ Gate '{f['gate']}': {f['why']}")
+            await log_callback(
+                f"[Fase B] ⛔ Pipeline abortado — cambia el target para continuar."
+            )
         raise RuntimeError(abort_msg)
 
-    # NOTA: el spec define "L5 div >30 aborta" pero en la practica hay casos
-    # legitimos donde L5 diverge sin que el bin sea inservible: fuentes
-    # convertidas (MEL→P8.1 con dovi_tool) pueden tener L5 con variaciones
-    # vs retail bins limpios aun siendo del mismo master. En lugar de abortar,
-    # marcamos trust_ok=False (ya hecho por el gate) -> pausa en Fase D, el
-    # usuario ve el chart y decide. Para el caso claro de edicion distinta
-    # (WEB-DL scope vs BD, ~276 px) el chart tambien muestra la incompatibilidad
-    # y el usuario puede cancelar sin haber inyectado nada irrecuperable.
+    # Si una etapa ya quedó reconocida por el usuario en una iteración previa
+    # (cambió el target, re-evaluó gates), no volvemos a pedir ACK.
+    if ack_failures and not session.user_acknowledged_degradation:
+        session.awaiting_critical_ack = True
+        session.critical_gate_failures = ack_failures
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ⚠ Gates con degradación previsible: "
+                f"{', '.join(f['gate'] for f in ack_failures)}. "
+                f"El pipeline se detiene a la espera de confirmación del usuario."
+            )
+            for f in ack_failures:
+                await log_callback(f"[Fase B]   • {f['gate']}: {f['why']}")
+        # No raise: la sesión queda en estado válido (target_provided), pero
+        # awaiting_critical_ack=True le dice al auto-pipeline que se detenga.
+        return
+    else:
+        # Limpiar flags si veníamos de un re-análisis tras ACK previa
+        session.awaiting_critical_ack = False
+        session.critical_gate_failures = []
 
     # (b) Compatibilidad estructural source × target (ej. source single-layer
     #     + target P7 dual-layer drop-in). En Fase F hay un safety net por
@@ -1511,41 +1532,71 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
       - dict con resultado de cada gate
       - bool `trust_ok`: True si todos los críticos pasan
 
-    Umbrales (spec §5):
-      - frames: 0 tolerancia (crítico)
-      - cm_version: debe ser v4.0 (crítico)
-      - has_l8: requerido para trusted_p8_source (crítico en ese caso)
-      - L5 div: ≤5 px = ok, 5-30 = warn, >30 = crítico abort
-      - L6 MaxCLL: diff ≤ 50 nits = ok, soft warn si más
-      - L1 MaxCLL: diff ≤ 5% = ok, soft warn
+    Cada gate lleva un campo `severity` que resume el impacto si falla:
+      - 'hard_abort'   → no hay forma de continuar útil; el bin se rechaza
+                          (target sin CMv4.0, target sin L8). Solo permite
+                          al usuario cambiar de target.
+      - 'ack_required' → técnicamente se puede inyectar pero el resultado
+                          quedará degradado de forma observable (L5 grande,
+                          L6 >200 nits, L1 >20%). Pide ACK al usuario antes
+                          de continuar — Fase D no puede arreglar nada.
+      - 'sync_review'  → Fase D normal puede arreglarlo o el chart ayuda
+                          a decidir (frames mismatch, L5 5-30 px).
+      - 'warn'         → divergencia tolerable; solo informativa (L6 50-200,
+                          L1 5-20%).
+      - 'ok'           → gate pasa.
+
+    `critical: True` se mantiene por compatibilidad — equivale a "severity
+    distinta de 'ok'/'warn'" para gates que rompen target_trust_ok.
     """
     gates: dict = {}
 
-    # Frame count — crítico, sin tolerancia
+    # Frame count — mismatch lo arregla Fase D (sync correction)
+    frames_ok = source_frames > 0 and source_frames == target_frames
     gates["frames"] = {
-        "ok": source_frames > 0 and source_frames == target_frames,
+        "ok": frames_ok,
         "bd": source_frames,
         "target": target_frames,
         "critical": True,
+        "severity": "ok" if frames_ok else "sync_review",
+        "why": "" if frames_ok else (
+            f"Δ {target_frames - source_frames:+d} frames vs source — "
+            f"Fase D usa cross-correlation y permite corregir manualmente."
+        ),
     }
 
-    # CM version — crítico, debe ser v4.0
+    # CM version — sin v4.0 no hay nada que transferir, hard abort
     cm = (target_info.cm_version or "").lower()
+    cm_ok = cm in ("v4.0", "4.0")
     gates["cm_version"] = {
-        "ok": cm in ("v4.0", "4.0"),
+        "ok": cm_ok,
         "value": target_info.cm_version or "(desconocido)",
         "critical": True,
+        "severity": "ok" if cm_ok else "hard_abort",
+        "why": "" if cm_ok else (
+            "El bin no es CMv4.0; el pipeline solo puede inyectar metadata "
+            "CMv4.0 sobre source CMv2.9. Cambia de target."
+        ),
     }
 
-    # L8 presente — crítico para transfer útil
+    # L8 presente — sin L8 el resultado sería CMv4.0-stamped pero
+    # funcionalmente CMv2.9 (cero beneficio). Hard abort.
+    has_l8 = bool(target_info.has_l8)
     gates["has_l8"] = {
-        "ok": bool(target_info.has_l8),
+        "ok": has_l8,
         "critical": True,
+        "severity": "ok" if has_l8 else "hard_abort",
+        "why": "" if has_l8 else (
+            "El bin dice CMv4.0 pero no tiene trims L8 — el MKV resultante "
+            "sería CMv4.0-stamped sin contenido CMv4.0 real (idéntico al "
+            "original CMv2.9). El bin está mal etiquetado; cambia de target."
+        ),
     }
 
     # Gates comparativos (solo si tenemos source_info)
     if source_info is not None:
         # L5 divergencia — distancia Chebyshev en los 4 offsets
+        # ≤5 ok · 5-30 warn (Fase D para inspección) · >30 ack_required
         l5_diffs = [
             abs(source_info.l5_top    - target_info.l5_top),
             abs(source_info.l5_bottom - target_info.l5_bottom),
@@ -1553,34 +1604,89 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
             abs(source_info.l5_right  - target_info.l5_right),
         ]
         l5_max = max(l5_diffs) if any(l5_diffs) else 0
+        if l5_max <= 5:
+            l5_sev, l5_why = "ok", ""
+        elif l5_max <= 30:
+            l5_sev = "sync_review"
+            l5_why = (
+                f"Letterbox del target diverge {l5_max} px del BD — Fase D "
+                f"permite revisar el chart antes de continuar."
+            )
+        else:
+            l5_sev = "ack_required"
+            l5_why = (
+                f"Letterbox del target distinto en {l5_max} px (umbral 30). "
+                f"El TV calculará active-area y bandas negras según los datos "
+                f"del target → tone-mapping desviado en bordes. Fase D no "
+                f"puede corregir L5: solo arregla sincronización temporal."
+            )
         gates["l5_div"] = {
-            "ok": l5_max <= 30,          # crítico si >30
+            "ok": l5_max <= 30,
             "px_max": l5_max,
             "soft_px": 5,
             "critical_px": 30,
             "warn": 5 < l5_max <= 30,
-            "critical": True,            # crítico si >30
+            "critical": True,
+            "severity": l5_sev,
+            "why": l5_why,
         }
 
-        # L6 MaxCLL diff — soft
+        # L6 MaxCLL diff — ≤50 ok · 50-200 warn · >200 ack_required
         l6_diff = abs((source_info.l6_max_cll or 0) - (target_info.l6_max_cll or 0))
+        if l6_diff <= 50:
+            l6_sev, l6_why = "ok", ""
+        elif l6_diff <= 200:
+            l6_sev = "warn"
+            l6_why = (
+                f"MaxCLL estático diverge {l6_diff} nits (50-200 = master "
+                f"regradeado para streaming/HDR distinto, pero usable)."
+            )
+        else:
+            l6_sev = "ack_required"
+            l6_why = (
+                f"MaxCLL estático diverge {l6_diff} nits (umbral 200). El "
+                f"target fue gradeado para un display de pico muy distinto; "
+                f"el resultado puede mostrar highlights aplastados o sobre-"
+                f"saturados respecto al original."
+            )
         gates["l6_div"] = {
             "ok": l6_diff <= 50,
             "nits_diff": l6_diff,
             "threshold": 50,
-            "critical": False,           # soft
+            "warn_threshold": 200,
+            "critical": False,
+            "severity": l6_sev,
+            "why": l6_why,
         }
 
-        # L1 MaxCLL diff %
+        # L1 MaxCLL diff % — ≤5 ok · 5-20 warn · >20 ack_required
         src_l1 = source_info.l1_max_cll or 0
         tgt_l1 = target_info.l1_max_cll or 0
         if src_l1 > 0 and tgt_l1 > 0:
             pct = abs(src_l1 - tgt_l1) / max(src_l1, tgt_l1) * 100.0
+            if pct <= 5.0:
+                l1_sev, l1_why = "ok", ""
+            elif pct <= 20.0:
+                l1_sev = "warn"
+                l1_why = (
+                    f"Brillo medio escena-a-escena diverge {pct:.1f}% (5-20% "
+                    f"normal en remasters / regrade)."
+                )
+            else:
+                l1_sev = "ack_required"
+                l1_why = (
+                    f"Brillo medio diverge {pct:.1f}% (umbral 20%). El master "
+                    f"target representa un grading muy distinto; el resultado "
+                    f"puede sentirse plano o demasiado contrastado."
+                )
             gates["l1_div"] = {
                 "ok": pct <= 5.0,
                 "pct_diff": round(pct, 2),
                 "threshold_pct": 5.0,
-                "critical": False,       # soft
+                "warn_threshold_pct": 20.0,
+                "critical": False,
+                "severity": l1_sev,
+                "why": l1_why,
             }
 
     # trust_ok: TODOS los críticos deben pasar
@@ -1589,6 +1695,40 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
         if isinstance(g, dict) and g.get("critical", False)
     )
     return gates, trust_ok
+
+
+def _classify_gate_failures(gates: dict) -> tuple[bool, list[dict], list[dict]]:
+    """Recorre los gates y devuelve:
+      - has_hard_abort: True si algún gate tiene severity 'hard_abort'
+      - ack_required: lista de gates con severity 'ack_required' (cada item
+        es un dict con gate/value/threshold/why para el banner)
+      - hard_aborts: lista de gates con severity 'hard_abort' (mismo formato)
+
+    Útil para que Fase B decida si abortar el pipeline (hard) o detenerse
+    pidiendo ACK (recoverable).
+    """
+    hard_aborts: list[dict] = []
+    ack_required: list[dict] = []
+    for key, g in gates.items():
+        if not isinstance(g, dict):
+            continue
+        sev = g.get("severity", "ok")
+        if sev not in ("hard_abort", "ack_required"):
+            continue
+        item = {
+            "gate": key,
+            "severity": sev,
+            "why": g.get("why", ""),
+        }
+        # Adjuntar valores específicos del gate para que el banner los muestre
+        for f in ("px_max", "nits_diff", "pct_diff", "value", "bd", "target"):
+            if f in g:
+                item[f] = g[f]
+        if sev == "hard_abort":
+            hard_aborts.append(item)
+        else:
+            ack_required.append(item)
+    return bool(hard_aborts), ack_required, hard_aborts
 
 
 # ══════════════════════════════════════════════════════════════════════

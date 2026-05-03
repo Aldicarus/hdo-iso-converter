@@ -11207,6 +11207,88 @@ function _cmv40PhaseState(sessionPhase, produces, startsFrom) {
   return 'pending';
 }
 
+/** Banner ámbar que aparece encima del proyecto cuando Fase B detectó
+ *  gates con degradación previsible y pide ACK explícita al usuario.
+ *  Contiene la lista de gates fallados + botones "Cambiar target" /
+ *  "Continuar igualmente". */
+function _cmv40RenderCriticalAckBanner(pid, s) {
+  if (!s.awaiting_critical_ack) return '';
+  const failures = s.critical_gate_failures || [];
+  if (!failures.length) return '';
+  const itemsHtml = failures.map(f => {
+    const label = ({
+      l5_div: 'L5 — letterbox / active area',
+      l6_div: 'L6 — MaxCLL/MaxFALL estático',
+      l1_div: 'L1 — brillo medio dinámico',
+    })[f.gate] || f.gate;
+    return `
+      <li class="cmv40-ack-item">
+        <span class="cmv40-ack-item-name">${escHtml(label)}</span>
+        <span class="cmv40-ack-item-why">${escHtml(f.why || '')}</span>
+      </li>`;
+  }).join('');
+  return `
+    <div class="section-card cmv40-card-ack-required" style="margin-top:12px">
+      <div class="section-body cmv40-ack-body">
+        <div class="cmv40-ack-head">
+          <span class="cmv40-ack-icon">⚠️</span>
+          <div class="cmv40-ack-title-block">
+            <div class="cmv40-ack-title">Divergencias detectadas — confirma cómo continuar</div>
+            <div class="cmv40-ack-sub">
+              El bin pasa los gates estructurales (CMv4.0, L8, frames) pero hay divergencias
+              que <strong>Fase D no puede corregir</strong>. Si continúas, el resultado puede
+              tener artefactos visibles. Decide cómo seguir:
+            </div>
+          </div>
+        </div>
+        <ul class="cmv40-ack-list">${itemsHtml}</ul>
+        <div class="cmv40-ack-actions">
+          <button class="btn btn-ghost btn-md"
+            onclick="_cmv40ChangeTarget('${pid}')"
+            data-tooltip="Vuelve a Fase B para escoger otro bin del repo o de carpeta local">
+            ↩ Cambiar target
+          </button>
+          <button class="btn btn-warning btn-md"
+            onclick="_cmv40AcknowledgeCriticalGates('${pid}')"
+            data-tooltip="Reconoces que el resultado puede ser degradado y autorizas continuar — Fase D se saltará automáticamente">
+            ⚠ Continuar igualmente (resultado degradado)
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/** Handler del botón "Continuar igualmente" — POST al endpoint de ack y
+ *  refresca el panel para que el auto-pipeline pueda avanzar. */
+async function _cmv40AcknowledgeCriticalGates(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/acknowledge-critical-gates`, { method: 'POST' });
+  if (!data) return;
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project) {
+    _cmv40AssignSession(project, data);
+    // Reset del dedup del orquestador para que en el siguiente tick auto
+    // detecte el cambio de estado (awaiting_critical_ack: true → false).
+    project._lastAutoFiredFor = null;
+    _updateCMv40Panel(project);
+  }
+  showToast('⚠️ Degradación reconocida — pipeline continúa, Fase D omitida', 'info');
+}
+
+/** Handler del botón "Cambiar target" — reset a 'source_analyzed' para
+ *  que el usuario seleccione otro bin. Reusa el endpoint reset-to. */
+async function _cmv40ChangeTarget(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/reset-to/source_analyzed`, { method: 'POST' });
+  if (!data) return;
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project) {
+    _cmv40AssignSession(project, data);
+    project._lastAutoFiredFor = null;
+    project._autoChaining = false;
+    _updateCMv40Panel(project);
+  }
+  showToast('Listo para escoger otro target — abre la card de Fase B', 'info');
+}
+
 function _renderCMv40ActivePhase(project) {
   const s = project.session;
   const pid = project.id;
@@ -11319,7 +11401,11 @@ function _renderCMv40ActivePhase(project) {
       </div>`;
   }
 
-  container.innerHTML = errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
+  // Banner ACK (gates críticos pendientes) por encima de todo lo demás —
+  // pause-point bloqueante: hasta que el usuario decida, el auto-pipeline
+  // no avanza. Ver _cmv40MaybeAutoAdvance.
+  const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
+  container.innerHTML = ackBannerHtml + errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
 
   // Lanzar cargas asíncronas donde aplique
   if (_cmv40PhaseState(s.phase, 'target_provided', 'source_analyzed') === 'active') {
@@ -12195,6 +12281,13 @@ function _cmv40MaybeAutoAdvance(project) {
   if (!project.autoContinue) return;
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
+  // Pause point por gates críticos pendientes de ACK del usuario. Banner
+  // ámbar en el panel pide confirmación; sin ack no se progresa. Apagamos
+  // _autoChaining para que el overlay se oculte y se vea el banner.
+  if (s.awaiting_critical_ack) {
+    project._autoChaining = false;
+    return;
+  }
   const pid = project.id;
   // Dedup key: phase + estado de target_preflight_ok. Necesitamos sensibilidad
   // al flag de preflight porque para la fase 'created' hay dos acciones
@@ -12252,8 +12345,12 @@ function _cmv40MaybeAutoAdvance(project) {
     case 'extracted': {
       // Trusted target: los gates automáticos ya validaron frame count,
       // CM v4.0, L5/L6 — saltar la revisión visual manual.
+      // user_acknowledged_degradation: el usuario reconocio que algun gate
+      // critico (L5 grande, L6/L1 muy grandes) genera resultado degradado
+      // pero aceptó continuar — Fase D no puede arreglar nada en ese caso,
+      // saltamos directamente a inject/remux/validate.
       const s = project.session;
-      const trustedAuto = s.target_trust_ok === true
+      const trustedAuto = (s.target_trust_ok === true || s.user_acknowledged_degradation === true)
         && s.trust_override !== 'force_interactive';
       if (trustedAuto) {
         if (!s.phases_skipped) s.phases_skipped = [];

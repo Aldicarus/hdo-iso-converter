@@ -4164,6 +4164,88 @@ select { appearance: none; cursor: pointer;
   border: 1px solid var(--red) !important;
 }
 
+/* ── Banner ACK (gates críticos pendientes de confirmación) ────────── */
+/* Aparece encima del proyecto cuando Fase B detectó divergencias que
+   Fase D no puede corregir (L5 grande, L6/L1 muy grandes). El usuario
+   debe escoger entre cambiar el target o aceptar el resultado degradado. */
+.cmv40-card-ack-required {
+  border: 1px solid #f0b160 !important;
+  background: rgba(255, 159, 10, 0.06) !important;
+}
+.cmv40-ack-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cmv40-ack-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.cmv40-ack-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.cmv40-ack-title-block {
+  flex: 1;
+  min-width: 0;
+}
+.cmv40-ack-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+.cmv40-ack-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.cmv40-ack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cmv40-ack-item {
+  background: rgba(255, 159, 10, 0.10);
+  border-left: 3px solid #f0b160;
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmv40-ack-item-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cmv40-ack-item-why {
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.cmv40-ack-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.btn.btn-warning {
+  background: #f0b160;
+  color: #1a1d24;
+  border: 1px solid #d99440;
+}
+.btn.btn-warning:hover:not(:disabled) {
+  background: #ffcb83;
+  border-color: #f0b160;
+}
+
 /* Target tabs — switcher para Fase B */
 .cmv40-tab-switcher {
   display: flex;

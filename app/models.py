@@ -1068,6 +1068,31 @@ class CMv40Session(BaseModel):
       - 'auto': respeta target_trust_ok (skip si trusted)
       - 'force_interactive': fuerza rama A completa aunque el target sea trusted"""
 
+    awaiting_critical_ack: bool = False
+    """True si Fase B detectó gates críticos fallados que NO se pueden corregir
+    en Fase D (L5 div >30 px, L6 >200 nits, L1 >20%). El auto-pipeline se
+    detiene; la UI muestra banner ámbar pidiendo confirmación. El usuario
+    puede cambiar el target o reconocer la degradación y continuar.
+    Se libera con POST /acknowledge-critical-gates."""
+
+    critical_gate_failures: list[dict] = []
+    """Detalle de los gates que dispararon awaiting_critical_ack. Cada item:
+      {gate: str, value: any, threshold: any, why: str}
+    'gate' es la clave del gate ('l5_div', 'l6_div', 'l1_div', 'has_l8').
+    'why' es una explicación legible del impacto en el resultado."""
+
+    user_acknowledged_degradation: bool = False
+    """True cuando el usuario clickó 'Continuar igualmente' tras ver el banner
+    de gates críticos fallados. Marca en el log que el resultado puede ser
+    degradado y que el usuario lo aceptó conscientemente. Habilita skip
+    automático de Fase D (no hay nada corregible: D no arregla L5/L6/L1)."""
+
+    pipeline_aborted: bool = False
+    """True si Fase B abortó por hard-abort no recuperable (target sin CMv4.0,
+    target sin L8). El proyecto queda en estado de error con error_message
+    explicando el motivo y solo se puede cambiar el target o cancelar — no
+    hay opción 'continuar'."""
+
     running_phase: str | None = None
     """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').
     Cuando != None, la UI muestra modo modal con log + cancelar. Al terminar se limpia."""

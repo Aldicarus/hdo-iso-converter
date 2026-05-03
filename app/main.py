@@ -2782,6 +2782,36 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+@app.post("/api/cmv40/{session_id}/acknowledge-critical-gates",
+          summary="El usuario reconoce gates críticos fallados y autoriza continuar el pipeline")
+async def cmv40_acknowledge_critical_gates(session_id: str):
+    """Liberación del pause-point por gates críticos no corregibles. Marca
+    user_acknowledged_degradation=True y limpia awaiting_critical_ack para que
+    el auto-pipeline pueda continuar. El frontend, en el siguiente tick,
+    saltará Fase D explícitamente porque user_acknowledged_degradation hace
+    que la rama trustedAuto se active aunque target_trust_ok sea False.
+
+    No borra critical_gate_failures — se preserva como histórico para que
+    la UI siga pudiendo mostrar el aviso (en otro estilo, ya reconocido)
+    en el panel del proyecto y en el log."""
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if not session.awaiting_critical_ack:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay confirmación pendiente para este proyecto.",
+        )
+    session.awaiting_critical_ack = False
+    session.user_acknowledged_degradation = True
+    if session.phases_skipped is None:
+        session.phases_skipped = []
+    if "sync_verification_pause" not in session.phases_skipped:
+        session.phases_skipped.append("sync_verification_pause")
+    save_cmv40_session(session)
+    return session.model_dump()
+
+
 # ── Limpieza masiva de artefactos CMv4.0 ─────────────────────────────────────
 
 @app.get(
