@@ -3687,16 +3687,33 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
 
     # Sustituimos el editor_config del request por el acumulado
     body.editor_config = combined_cfg
+    # Persistimos sync_config aqui para que el frontend lo vea inmediatamente
+    # (la respuesta sale antes de que termine la fase real). El backend lo
+    # escribira de nuevo al finalizar — idempotente.
+    session.sync_config = combined_cfg or None
+    save_cmv40_session(session)
+
+    _cmv40_cancel_flags.pop(session_id, None)
+
+    captured_phase = session.phase  # mantenemos fase D activa
 
     async def _coro(log_cb, proc_cb):
         await run_phase_e_correct_sync(session, body.editor_config, log_cb)
 
-    try:
-        # new_phase = session.phase: mantenemos la fase actual (Fase D sigue activa)
-        await _run_cmv40_phase(session, "correct_sync", _coro, session.phase)
-        return session.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async def _run():
+        try:
+            # new_phase = session.phase capturado: Fase D sigue activa, no
+            # avanzamos automaticamente — el usuario confirma manualmente.
+            await _run_cmv40_phase(session, "correct_sync", _coro, captured_phase)
+        except Exception:
+            pass
+
+    # Fire-and-forget como extract/inject/remux: la respuesta vuelve al
+    # instante, el log fluye via WebSocket. Antes hacia await sobre la fase
+    # entera (1-5 min para dovi_tool editor) y el frontend disparaba el
+    # toast 'el servidor no responde en 30s' aunque el backend trabajaba ok.
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
 
 
 @app.post("/api/cmv40/{session_id}/reset-sync", summary="Descarta la corrección y vuelve al target original")

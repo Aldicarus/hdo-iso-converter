@@ -6453,11 +6453,16 @@ const API_FETCH_TIMEOUT = 30000;
  * Wrapper de fetch con Content-Type JSON, timeout y manejo centralizado de errores.
  *
  * @param {string} url              - URL relativa del endpoint.
- * @param {RequestInit} [opts={}]   - Opciones de fetch.
+ * @param {RequestInit} [opts={}]   - Opciones de fetch. opts.silent=true suprime el toast
+ *                                     de timeout/error (util para polling rutinario donde
+ *                                     timeouts transitorios bajo carga I/O son normales y
+ *                                     el siguiente tick los resuelve).
  * @param {number} [timeoutMs]      - Timeout en ms (default: API_FETCH_TIMEOUT).
  * @returns {Promise<Object|null>}  - JSON parseado, o null si hubo error.
  */
 async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
+  const silent = !!opts.silent;
+  delete opts.silent;
   opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -6466,7 +6471,7 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     const resp = await fetch(url, opts);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      showToast(`Error: ${err.detail || resp.statusText}`, 'error');
+      if (!silent) showToast(`Error: ${err.detail || resp.statusText}`, 'error');
       appendConsole(`[Error API] ${url}: ${err.detail || resp.statusText}`);
       return null;
     }
@@ -6475,7 +6480,7 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     const msg = e.name === 'AbortError'
       ? `Timeout: el servidor no respondió en ${timeoutMs / 1000}s`
       : `Error de red: ${e.message}`;
-    showToast(msg, 'error');
+    if (!silent) showToast(msg, 'error');
     appendConsole(`[Error red] ${url}: ${msg}`);
     return null;
   } finally {
@@ -10456,7 +10461,11 @@ function _appendCMv40Log(project, line) {
 }
 
 async function _refreshCMv40Session(pid) {
-  const data = await apiFetch(`/api/cmv40/${pid}`);
+  // silent: timeouts transitorios bajo carga I/O pesada (Fase C/E/F escribiendo
+  // 40+ GB) no son utiles al usuario — el siguiente tick los resuelve y el WS
+  // sigue trayendo el log. Sin silent, el toast 'el servidor no respondio en 30s'
+  // aparecia repetidamente durante extract/inject/remux pesados.
+  const data = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
   if (!data) return;
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
@@ -12311,7 +12320,9 @@ async function cmv40DoAnalyzeSource(pid) {
 async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
   for (let i = 0; i < maxTries; i++) {
     await new Promise(r => setTimeout(r, 500));
-    const data = await apiFetch(`/api/cmv40/${pid}`);
+    // silent: ver _refreshCMv40Session — polling rutinario suprime toasts
+    // de timeout transitorio bajo carga I/O.
+    const data = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
     if (!data) continue;
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
