@@ -1321,7 +1321,28 @@ async def _analyze_target_rpu(
     gates, trust_ok = _evaluate_trust_gates(session.source_dv_info, dovi_info,
                                              session.source_frame_count,
                                              session.target_frame_count)
+
+    # Refinamiento del gate L5 con muestreo per-frame: el summary de
+    # dovi_tool reporta una sola entrada L5 (frame 0 típicamente), lo que
+    # genera falsos positivos en pelis con L5 variable (iMAX expanded,
+    # split-aspect, REPACK). Si el gate estático dispara ack_required,
+    # muestreamos N frames en ambos RPUs y reclasificamos según patrones
+    # reales de active area. RPU_source.bin vive en el mismo workdir que
+    # RPU_target.bin (rpu_path.parent), generado en Fase A.
+    rpu_source_path = rpu_path.parent / "RPU_source.bin"
+    if rpu_source_path.exists():
+        await _refine_l5_gate_with_sampling(
+            gates, rpu_source_path, rpu_path,
+            session.source_frame_count, session.target_frame_count,
+            log_callback,
+        )
+
     session.target_trust_gates = gates
+    # trust_ok se recalcula tras el refinamiento (puede haber cambiado l5_div)
+    trust_ok = all(
+        g.get("ok", False) for g in gates.values()
+        if isinstance(g, dict) and g.get("critical", False)
+    )
     # Solo confiamos si tipo permite skip Y todos los gates críticos pasaron
     trusted_types = (
         "trusted_p7_fel_final", "trusted_p7_mel_final", "trusted_p8_source",
@@ -1695,6 +1716,141 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
         if isinstance(g, dict) and g.get("critical", False)
     )
     return gates, trust_ok
+
+
+async def _sample_l5_distinct_values(rpu_path: Path, frame_count: int,
+                                       samples: int = 24,
+                                       timeout: int = 10) -> set[tuple[int, int, int, int]]:
+    """Muestrea N frames distribuidos uniformemente en el RPU y devuelve el
+    SET de valores L5 distintos encontrados. Si todos los samples comparten
+    el mismo L5 → set de tamaño 1 (RPU estático). Si hay variabilidad real
+    (iMAX, split-aspect, REPACK) → set con varias tuplas distintas.
+
+    24 muestras es un compromiso: cuesta ~24s por RPU pero detecta cambios
+    incluso en escenas cortas (movie de 2h ≈ 5 min entre samples). Suficiente
+    para ver el patrón sin ser exhaustivo.
+    """
+    if frame_count <= 0:
+        return set()
+    distinct: set[tuple[int, int, int, int]] = set()
+    step = max(1, frame_count // max(2, samples))
+    pat = re.compile(
+        r"L5 offsets:\s*top=(\d+),\s*bottom=(\d+),\s*left=(\d+),\s*right=(\d+)"
+    )
+    for i in range(0, frame_count, step):
+        try:
+            rc, out, _err = await _run([
+                DOVI_TOOL_BIN, "info", "-i", str(rpu_path), "--frame", str(i),
+            ], timeout=timeout)
+        except Exception:
+            continue
+        if rc != 0:
+            continue
+        m = pat.search(out)
+        if m:
+            distinct.add(tuple(int(g) for g in m.groups()))
+    return distinct
+
+
+def _l5_tuple_max_diff(a: tuple[int, int, int, int],
+                        b: tuple[int, int, int, int]) -> int:
+    """Distancia Chebyshev entre dos tuplas L5 (top/bottom/left/right)."""
+    return max(abs(a[i] - b[i]) for i in range(4))
+
+
+async def _refine_l5_gate_with_sampling(gates: dict,
+                                          rpu_source: Path, rpu_target: Path,
+                                          source_frames: int, target_frames: int,
+                                          log_callback) -> None:
+    """Si el gate L5 estático disparó ack_required, refina la decisión
+    muestreando 24 frames de cada RPU y comparando los SETS de L5 distintos.
+
+    Reclasificación:
+      - Ambos estáticos (1 valor cada uno) e iguales → ya no debería pasar
+        por aquí (el gate estático lo habría marcado ok). Defensa.
+      - Ambos estáticos pero distintos → mantener ack_required (real).
+      - Al menos uno variable Y todos los valores del menor están en el
+        mayor (≤30 px de tolerancia) → reclasificar a 'warn' con nota
+        "L5 variable, patrones coinciden". Pasa el gate.
+      - Variabilidad sin solapamiento → ack_required pero con detalle real
+        (qué valores tiene cada uno).
+
+    Mutates `gates["l5_div"]` in-place. Si no hay l5_div en gates (porque
+    no había source_info) no hace nada.
+    """
+    g = gates.get("l5_div")
+    if not isinstance(g, dict):
+        return
+    if g.get("severity") != "ack_required":
+        return  # solo refinamos cuando el static check fue bloqueante
+
+    if log_callback:
+        await log_callback(
+            "[Fase B] L5 estático sospechoso (>30 px) — muestreando 24 frames "
+            "en ambos RPUs para descartar falso positivo por L5 variable…"
+        )
+
+    src_set = await _sample_l5_distinct_values(rpu_source, source_frames)
+    tgt_set = await _sample_l5_distinct_values(rpu_target, target_frames)
+
+    g["sampled_source_distinct"] = [list(t) for t in src_set]
+    g["sampled_target_distinct"] = [list(t) for t in tgt_set]
+    g["sampled_method"] = "per_frame_24_samples"
+
+    if not src_set or not tgt_set:
+        # Muestreo falló (RPU no accesible) — preservar el ack original
+        if log_callback:
+            await log_callback(
+                "[Fase B] ⚠ Muestreo L5 no produjo datos — gate L5 sigue como "
+                "ack_required basándose en el summary."
+            )
+        return
+
+    src_variable = len(src_set) > 1
+    tgt_variable = len(tgt_set) > 1
+    g["src_variable_l5"] = src_variable
+    g["tgt_variable_l5"] = tgt_variable
+
+    # Para cada valor del set más pequeño, ver si existe un equivalente
+    # (≤30 px Chebyshev) en el otro set.
+    smaller, larger = (src_set, tgt_set) if len(src_set) <= len(tgt_set) else (tgt_set, src_set)
+    matched = 0
+    for s in smaller:
+        if any(_l5_tuple_max_diff(s, l) <= 30 for l in larger):
+            matched += 1
+    coverage = matched / len(smaller) if smaller else 0.0
+    g["sampled_coverage"] = round(coverage, 3)
+
+    if coverage >= 0.80:
+        # Patrones de L5 coinciden — falso positivo del summary estático
+        g["ok"] = True
+        g["severity"] = "warn"
+        g["why"] = (
+            f"L5 variable detectada — el summary estático mostraba divergencia, "
+            f"pero el muestreo per-frame revela {len(src_set)} valor(es) en source "
+            f"y {len(tgt_set)} en target con ≥80% de solapamiento (≤30 px). "
+            f"Los masters comparten el mismo patrón de active area dinámica "
+            f"(IMAX, split-aspect o REPACK). Sin riesgo real."
+        )
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ✓ L5 reclasificado a 'warn' — variable real, patrones "
+                f"coinciden ({matched}/{len(smaller)} valores con match)."
+            )
+    else:
+        # Variabilidad real Y patrones distintos → ack legítimo
+        g["why"] = (
+            f"L5 diverge realmente — muestreo per-frame: source {len(src_set)} "
+            f"valor(es), target {len(tgt_set)} valor(es), solapamiento "
+            f"{coverage*100:.0f}% (umbral 80%). El target tiene un patrón de "
+            f"active area distinto al BD; el TV calculará bandas y tone-mapping "
+            f"con datos del target → resultado degradado."
+        )
+        if log_callback:
+            await log_callback(
+                f"[Fase B] ⚠ L5 confirmado divergente: solapamiento {coverage*100:.0f}% "
+                f"(<80%). Source values={sorted(src_set)} · Target values={sorted(tgt_set)}"
+            )
 
 
 def _classify_gate_failures(gates: dict) -> tuple[bool, list[dict], list[dict]]:

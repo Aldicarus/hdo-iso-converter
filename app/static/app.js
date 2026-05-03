@@ -11815,11 +11815,29 @@ function _cmv40RenderTrustPanel(s) {
     );
   }
   if (gates.l5_div) {
-    pushGate('l5_div',
-      `L5 div ${gates.l5_div.px_max}px`,
-      `L5 div ${gates.l5_div.px_max}px (>30)`,
-      `Divergencia L5 (active area). ≤5 ok · 5-30 warn · >30 aborta — posible edición distinta del disco`
-    );
+    const l5 = gates.l5_div;
+    // Si el muestreo per-frame se ejecutó, prioriza esa narrativa: muestra
+    // "L5 variable, patrones coinciden" en vez del Δpx estático del summary,
+    // que en pelis con L5 variable es engañoso.
+    const sampled = l5.sampled_method === 'per_frame_24_samples';
+    const isVariable = sampled && (l5.src_variable_l5 || l5.tgt_variable_l5);
+    let okText, failText, tip;
+    if (isVariable && l5.ok) {
+      const cov = Math.round((l5.sampled_coverage || 0) * 100);
+      okText = `L5 variable · ${cov}% match`;
+      tip = l5.why || `L5 variable detectada en ambos RPUs — ${cov}% de los valores muestreados coinciden (umbral 80%).`;
+      failText = okText; // no se usa, ok=true
+    } else if (isVariable && !l5.ok) {
+      const cov = Math.round((l5.sampled_coverage || 0) * 100);
+      failText = `L5 variable · solo ${cov}% match`;
+      tip = l5.why || `L5 variable real con patrones distintos: solapamiento ${cov}% (<80%).`;
+      okText = failText;
+    } else {
+      okText = `L5 div ${l5.px_max}px`;
+      failText = `L5 div ${l5.px_max}px (>30)`;
+      tip = l5.why || `Divergencia L5 (active area). ≤5 ok · 5-30 warn · >30 aborta — posible edición distinta del disco`;
+    }
+    pushGate('l5_div', okText, failText, tip);
   }
   if (gates.l6_div) {
     pushGate('l6_div',
