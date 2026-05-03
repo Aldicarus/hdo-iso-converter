@@ -3126,20 +3126,77 @@ async def cmv40_verify_artifacts(session_id: str):
 
 @app.post("/api/cmv40/{session_id}/cancel", summary="Cancela la fase en curso")
 async def cmv40_cancel(session_id: str):
+    """Cancelación en escalada:
+      1. Setea cancel_flag (los puntos de chequeo en código pueden hacer
+         raise antes de necesitar tocar el proceso).
+      2. SIGTERM al subprocess activo: ffmpeg/dovi_tool/mkvmerge tienen
+         handlers que cierran ficheros y dejan el estado consistente.
+      3. Espera hasta 5s a que salga limpio.
+      4. Si sigue vivo → SIGKILL forzoso (con espera adicional de 2s).
+      5. Intenta también killpg (process group) por si el subprocess
+         lanzó hijos (algunos ffmpeg lo hacen con hwaccel).
+      6. Limpia running_phase y registro de procs en cualquier caso —
+         así el pipeline puede arrancar otra fase sin estado zombi.
+    """
+    import os
+    import signal
     _cmv40_cancel_flags[session_id] = True
     proc = _cmv40_active_procs.get(session_id)
+    log_lines: list[str] = []
+
     if proc:
+        # Paso 1: SIGTERM
         try:
-            proc.kill()
-        except Exception:
-            pass
-    # Forzar limpieza del running_phase
+            proc.terminate()
+            log_lines.append("🛑 SIGTERM enviado al proceso, esperando salida limpia (máx. 5s)…")
+        except ProcessLookupError:
+            log_lines.append("ℹ El proceso ya había terminado antes del cancel.")
+        except Exception as e:
+            log_lines.append(f"⚠ SIGTERM falló ({e}); intentando SIGKILL directo.")
+
+        # Paso 2: esperar hasta 5s a que salga limpio
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            log_lines.append(f"✓ Proceso terminado limpiamente (rc={proc.returncode}).")
+        except asyncio.TimeoutError:
+            # Paso 3: SIGKILL
+            log_lines.append("⏱ El proceso no respondió a SIGTERM en 5s — escalando a SIGKILL…")
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            except Exception as e:
+                log_lines.append(f"⚠ SIGKILL falló ({e}).")
+
+            # Paso 4: si sigue vivo, intentar killpg al grupo de procesos
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+                log_lines.append("✓ Proceso terminado por SIGKILL.")
+            except asyncio.TimeoutError:
+                log_lines.append("⚠ Proceso no muere ni con SIGKILL — intentando matar el grupo de procesos…")
+                try:
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                    log_lines.append("✓ Grupo de procesos terminado (killpg).")
+                except (ProcessLookupError, PermissionError, asyncio.TimeoutError) as e:
+                    log_lines.append(f"⚠ killpg también falló ({e}); el proceso queda como zombi pero la sesión se libera.")
+                except Exception as e:
+                    log_lines.append(f"⚠ killpg error inesperado ({e}).")
+        except Exception as e:
+            log_lines.append(f"⚠ Error esperando salida del proceso: {e}")
+
+    # Limpieza del estado de sesión — siempre, incluso si el kill falló:
+    # mejor sesión liberada con proceso zombi que UI bloqueada esperando.
     session = load_cmv40_session(session_id)
     if session:
         session.running_phase = None
+        for line in log_lines:
+            await _cmv40_log(session, line)
         await _cmv40_log(session, "🛑 Cancelado por el usuario")
         save_cmv40_session(session)
-    return {"ok": True}
+    _cmv40_active_procs.pop(session_id, None)
+    return {"ok": True, "log": log_lines}
 
 
 # ── Endpoints de fases ───────────────────────────────────────────────────────

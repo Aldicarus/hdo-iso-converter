@@ -275,10 +275,13 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
     """Ejecuta un comando y devuelve (returncode, stdout, stderr)."""
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
+    # start_new_session=True para que cancel pueda hacer killpg si el
+    # proc no responde a SIGTERM/SIGKILL directo (ver cmv40_cancel).
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -390,6 +393,10 @@ async def _run_streaming(
     proc_callback=None,
     progress_ctx: dict | None = None,
 ) -> int:
+    # start_new_session=True: el subprocess arranca como lider de su propio
+    # process group (setsid). Permite que cmv40_cancel use os.killpg para
+    # alcanzar tambien procesos hijos (algunos ffmpeg con hwaccel lanzan
+    # workers; sin esto un kill al padre los dejaria zombis).
     """Ejecuta un comando con streaming de stdout+stderr al log_callback.
 
     Divide por ``\\n`` y ``\\r`` (ffmpeg usa ``\\r`` en sus líneas de progreso).
@@ -412,6 +419,7 @@ async def _run_streaming(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
     )
     if proc_callback:
         proc_callback(proc)
@@ -577,10 +585,12 @@ async def _run_with_time_estimate(
     try:
         if log_callback:
             await log_callback(f"$ {' '.join(cmd)}")
+        # start_new_session=True para que cancel pueda usar killpg
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         if proc_callback:
             proc_callback(proc)
