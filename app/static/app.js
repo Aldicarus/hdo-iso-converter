@@ -11602,16 +11602,49 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
             ? 'El bin contiene trims L8 auténticos — el nivel que aporta el tone-mapping fino de CMv4.0.'
             : 'Bin "CMv4.0 vacío" sin L8. No añade valor sobre el v2.9 original — rechazado.'));
       }
-      // L5 divergence
+      // L5 divergence — usa el muestreo zoneado si se ejecutó (Fase B
+      // refina con dovi_tool export cuando el static check supera el umbral).
+      // En ese caso el `why` dinámico ya describe matches/mismatches por
+      // zona; el resultado visual refleja el veredicto final (warn/ack/ok).
       if (g.l5_div) {
-        const px = g.l5_div.px_max || 0;
-        const st = px <= 5 ? 'ok' : (px <= 30 ? 'warn' : 'ko');
-        const result = px <= 5 ? `div ≤ 5 px` : (px <= 30 ? `div ${px} px · warn` : `div ${px} px · aborta`);
-        const explanation = st === 'ok'
-          ? 'Los offsets de letterbox del target están a ≤5 px de los del BD — misma edición o recorte equivalente.'
-          : st === 'warn'
-          ? 'Divergencia moderada del active area (5-30 px). Puede ser la misma edición con recorte ligeramente distinto. La app avanza pero conviene revisar visualmente.'
-          : 'Divergencia crítica de active area (>30 px). Target es un master con corte radicalmente distinto — rechazado automáticamente.';
+        const l5 = g.l5_div;
+        const px = l5.px_max || 0;
+        const sampled = l5.sampled_method === 'per_frame_zoned_24';
+        let st, result, explanation;
+        if (sampled) {
+          const total = l5.sampled_total || 0;
+          const matches = l5.sampled_matches || 0;
+          const bodyCov = Math.round((l5.sampled_body_coverage || 0) * 100);
+          const zm = l5.sampled_zone_mismatches || {};
+          const sev = l5.severity || (l5.ok ? 'warn' : 'ack_required');
+          // Estado visual: ok si todos coinciden, warn si pasa con muestreo,
+          // ko si el muestreo confirmó divergencia legítima (ack_required).
+          if (sev === 'ack_required') st = 'ko';
+          else if (matches === total) st = 'ok';
+          else st = 'warn';
+          // Etiqueta corta: usa la métrica del muestreo en vez del Δpx
+          // estático (que en variable L5 confunde).
+          if (matches === total) {
+            result = `${total}/${total} muestras coinciden`;
+          } else if ((zm.body || 0) === 0) {
+            result = `${matches}/${total} · cuerpo OK`;
+          } else if (sev === 'ack_required') {
+            result = `cuerpo solo ${bodyCov}% · ack`;
+          } else {
+            result = `cuerpo ${bodyCov}% · ${matches}/${total}`;
+          }
+          // El `why` ya trae el desglose completo intro/body/outro generado
+          // en backend (_refine_l5_gate_with_sampling).
+          explanation = l5.why || `Muestreo per-frame: ${matches}/${total} coinciden, cuerpo principal ${bodyCov}%.`;
+        } else {
+          // Sin muestreo: gate estático puro (≤30 px). Solo aplica cuando
+          // el static check no necesitó refinamiento, así que st nunca es ko aquí.
+          st = px <= 5 ? 'ok' : 'warn';
+          result = px <= 5 ? `div ≤ 5 px` : `div ${px} px · warn`;
+          explanation = st === 'ok'
+            ? 'Los offsets de letterbox del target están a ≤5 px de los del BD — misma edición o recorte equivalente.'
+            : 'Divergencia moderada del active area (5-30 px). Puede ser la misma edición con recorte ligeramente distinto. La app avanza pero conviene revisar visualmente.';
+        }
         rows.push(_cmv40GateRowHtml(st, 'L5 — letterbox (active area)', result, explanation));
       }
       // L6 divergence
