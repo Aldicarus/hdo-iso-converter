@@ -6006,12 +6006,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .settings-update-banner {
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 14px 16px;
   border-radius: 8px;
   font-size: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  line-height: 1.5;
 }
 .settings-update-banner.ok {
   background: rgba(52, 199, 89, 0.10);
@@ -6028,44 +6029,67 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border: 1px solid rgba(255, 69, 58, 0.45);
   color: var(--text-1);
 }
-.settings-update-head { font-weight: 600; font-size: 13px; }
+.settings-update-head {
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.settings-update-msg {
+  line-height: 1.5;
+}
 .settings-update-msg-sub {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-3);
-  margin-top: 4px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .settings-update-notes {
   font-size: 11.5px;
   color: var(--text-2);
+  margin-top: 2px;
 }
-.settings-update-notes summary { cursor: pointer; user-select: none; padding: 2px 0; }
+.settings-update-notes summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+  font-weight: 500;
+}
 .settings-update-notes pre {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 11px;
   background: rgba(0, 0, 0, 0.25);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 4px;
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 220px;
   overflow-y: auto;
+  line-height: 1.5;
+}
+.settings-update-cmd {
+  margin: 2px 0;
 }
 .settings-update-cmd pre {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 11.5px;
   background: rgba(0, 0, 0, 0.30);
   color: var(--text-1);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 4px;
   margin: 0;
   white-space: pre;
   overflow-x: auto;
+  line-height: 1.55;
 }
 .settings-update-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
 .settings-update-sim-badge {
   display: inline-block;
