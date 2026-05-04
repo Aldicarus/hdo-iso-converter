@@ -4603,16 +4603,82 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
         except Exception:
             cached_data = None
 
-    # Fetch fresh desde GitHub
+    # Fetch fresh desde GitHub. Estrategia:
+    # 1. /releases/latest — preferido por traer release_notes, pero solo
+    #    funciona si el usuario formalizó releases (no solo tags).
+    # 2. /tags fallback — siempre devuelve los tags push'eados via git.
+    # Combinado: probamos releases primero, si vacio/404 caemos a tags y
+    # opcionalmente intentamos /releases/tags/{name} para conseguir notas.
     import httpx
     repo = "Aldicarus/hdo-iso-converter"
-    api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+    data = {}
+    release_notes_str = ""
+    release_url_str = ""
+    published_at_str = ""
+    latest_tag = ""
+    fetch_error = None
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(api_url, headers={"Accept": "application/vnd.github+json"})
-            resp.raise_for_status()
-            data = resp.json()
+            headers = {"Accept": "application/vnd.github+json"}
+
+            # Intento 1: /releases/latest
+            try:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{repo}/releases/latest",
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    rdata = resp.json()
+                    latest_tag = rdata.get("tag_name", "") or ""
+                    release_url_str = rdata.get("html_url", "") or ""
+                    release_notes_str = rdata.get("body", "") or ""
+                    published_at_str = rdata.get("published_at", "") or ""
+            except Exception:
+                pass
+
+            # Intento 2: /tags si /releases/latest no dio nada (lo más comun
+            # para repos que solo tagean via `git tag` sin crear Releases)
+            if not latest_tag:
+                resp_tags = await client.get(
+                    f"https://api.github.com/repos/{repo}/tags?per_page=30",
+                    headers=headers,
+                )
+                resp_tags.raise_for_status()
+                tags_list = resp_tags.json() or []
+                # Filtrar a semver tags y ordenar desc
+                semver_tags = []
+                for t in tags_list:
+                    name = (t.get("name") or "").strip()
+                    if _re_version.match(r"^v?\d+\.\d+\.\d+$", name):
+                        semver_tags.append(name)
+                semver_tags.sort(key=_semver_tuple, reverse=True)
+                if semver_tags:
+                    latest_tag = semver_tags[0]
+                    release_url_str = f"https://github.com/{repo}/releases/tag/{latest_tag}"
+
+                    # Bonus: si hay un Release formal para ESE tag, extraer notas
+                    try:
+                        rn_resp = await client.get(
+                            f"https://api.github.com/repos/{repo}/releases/tags/{latest_tag}",
+                            headers=headers,
+                        )
+                        if rn_resp.status_code == 200:
+                            rn_data = rn_resp.json()
+                            release_notes_str = rn_data.get("body", "") or ""
+                            published_at_str = rn_data.get("published_at", "") or ""
+                    except Exception:
+                        pass
+
+            data = {
+                "tag_name": latest_tag,
+                "html_url": release_url_str,
+                "body": release_notes_str,
+                "published_at": published_at_str,
+            }
     except Exception as e:
+        fetch_error = e
+
+    if fetch_error is not None:
         # Si falla la API, devolvemos cached (aunque expirado) o nada
         if cached_data:
             return {
@@ -4625,7 +4691,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                 "checked_at": cached_data.get("checked_at", ""),
                 "cached": True,
                 "stale": True,
-                "error": str(e),
+                "error": str(fetch_error),
                 "ignored_version": ignored_version,
             }
         return {
@@ -4637,7 +4703,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
             "published_at": "",
             "checked_at": "",
             "cached": False,
-            "error": str(e),
+            "error": str(fetch_error),
             "ignored_version": ignored_version,
         }
 

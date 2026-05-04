@@ -1033,12 +1033,20 @@ async function checkForUpdates(force) {
   }
   if (!data.update_available) {
     banner.style.display = 'block';
+    if (!data.latest) {
+      // No conseguimos resolver la version remota — no es 'al dia',
+      // es 'no se pudo comprobar'. Banner gris/error informativo.
+      banner.className = 'settings-update-banner err';
+      banner.innerHTML = `<div class="settings-update-msg">⚠ No se pudo determinar la última versión publicada. Comprueba que el repo tenga al menos un tag <code>vX.Y.Z</code> o un Release publicado.</div>`;
+      return;
+    }
     banner.className = 'settings-update-banner ok';
-    const latest = data.latest ? ` · última publicada: <strong>${escHtml(data.latest)}</strong>` : '';
+    const simBadge = data.simulated ? ` <span class="settings-update-sim-badge">🧪 simulado</span>` : '';
+    const latestPart = ` · última publicada: <strong>${escHtml(data.latest)}</strong>${simBadge}`;
     const ignored = data.ignored_version
       ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')">Reactivar avisos</button></div>`
       : '';
-    banner.innerHTML = `<div class="settings-update-msg">✓ Estás al día${latest}.</div>${ignored}`;
+    banner.innerHTML = `<div class="settings-update-msg">✓ Estás al día (current: <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
     return;
   }
   // Hay update — banner ámbar con notas + botones
