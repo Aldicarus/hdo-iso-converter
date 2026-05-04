@@ -4266,9 +4266,17 @@ function renderIncludedTracks(tracks) {
         '',
         `Razón: ${track.selection_reason || '—'}`,
       ].filter(Boolean).join('\n');
-      // Orden: descripción (canales + kHz) + bitrate siempre visible (aunque caiga ellipsis).
-      // Omitimos raw.codec porque ya aparece en el label (DD+, TrueHD Atmos, etc.).
-      const rawLine = [raw.description, raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null].filter(Boolean).join(' · ');
+      // Línea informativa idéntica a la de descartadas: idioma · codec ·
+      // descripción · bitrate. Antes omitíamos idioma+codec asumiendo que el
+      // label editable los cubría, pero el usuario puede renombrarlo y
+      // perder esa información — dejarla siempre visible es más util.
+      const langLit = langLiteral(raw.language) || raw.language || '';
+      const rawLine = [
+        langLit,
+        raw.codec,
+        raw.description,
+        raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+      ].filter(Boolean).join(' · ');
       const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
       const li = document.createElement('li');
