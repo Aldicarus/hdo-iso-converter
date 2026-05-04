@@ -1015,10 +1015,12 @@ body {
   font-size: 10px;
   color: var(--text-3);
   font-family: 'SF Mono', 'Menlo', monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 460px;
+  /* Permite wrap a 2 lineas cuando la info completa (idioma · codec ·
+     descripcion · bitrate) no entra en una. Antes max-width:460px + nowrap
+     forzaba ellipsis aunque hubiera espacio horizontal disponible. */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
 }
 
 .track-flags {
