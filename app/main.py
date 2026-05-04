@@ -4539,10 +4539,14 @@ def _semver_gt(a: str, b: str) -> bool:
 
 
 @app.get("/api/version/check-updates", summary="Comprueba si hay una versión más reciente en GHCR (via GitHub releases)")
-async def app_version_check_updates(force: bool = False):
+async def app_version_check_updates(force: bool = False, simulate_current: str = ""):
     """Consulta la API publica de GitHub releases (sin auth, 60 req/h por IP).
     Cachea el resultado en /config/update_check_cache.json con TTL 1h. El
     parametro `force=true` ignora el cache y refresca.
+
+    `simulate_current` (modo dev): override de la version actual para probar
+    la UI de update available. Ej. con simulate_current=v2.0.0 y la peli ya
+    en v2.1.3 publicada, el banner aparece como si el usuario tuviera v2.0.0.
 
     Devuelve:
       {
@@ -4560,6 +4564,10 @@ async def app_version_check_updates(force: bool = False):
     import time as _time
     current_info = _resolve_app_version()
     current = current_info["version"]
+    simulated = False
+    if simulate_current.strip():
+        current = simulate_current.strip()
+        simulated = True
 
     # Lee version ignorada por el usuario en settings
     from services.settings_store import get_settings_value
@@ -4571,7 +4579,9 @@ async def app_version_check_updates(force: bool = False):
 
     # Cache lookup
     cached_data = None
-    if not force and _UPDATE_CHECK_CACHE_PATH.exists():
+    # En modo simulado siempre saltamos cache (queremos ver el resultado
+    # exacto con la version overrideada) y NO persistimos el cache nuevo.
+    if not force and not simulated and _UPDATE_CHECK_CACHE_PATH.exists():
         try:
             cached_data = json.loads(_UPDATE_CHECK_CACHE_PATH.read_text(encoding="utf-8"))
             age = _time.time() - cached_data.get("fetched_at", 0)
@@ -4587,6 +4597,7 @@ async def app_version_check_updates(force: bool = False):
                     "published_at": cached_data.get("published_at", ""),
                     "checked_at": cached_data.get("checked_at", ""),
                     "cached": True,
+                    "simulated": simulated,
                     "ignored_version": ignored_version,
                 }
         except Exception:
@@ -4637,19 +4648,21 @@ async def app_version_check_updates(force: bool = False):
     checked_at = datetime.now(timezone.utc).isoformat()
     update_available = bool(latest) and _semver_gt(latest, current)
 
-    # Persiste cache
-    try:
-        _UPDATE_CHECK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _UPDATE_CHECK_CACHE_PATH.write_text(json.dumps({
-            "fetched_at": _time.time(),
-            "latest": latest,
-            "release_url": release_url,
-            "release_notes": release_notes,
-            "published_at": published_at,
-            "checked_at": checked_at,
-        }), encoding="utf-8")
-    except Exception:
-        pass
+    # Persiste cache solo si no estamos simulando (evita contaminar el cache
+    # real con valores mock)
+    if not simulated:
+        try:
+            _UPDATE_CHECK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _UPDATE_CHECK_CACHE_PATH.write_text(json.dumps({
+                "fetched_at": _time.time(),
+                "latest": latest,
+                "release_url": release_url,
+                "release_notes": release_notes,
+                "published_at": published_at,
+                "checked_at": checked_at,
+            }), encoding="utf-8")
+        except Exception:
+            pass
 
     return {
         "current": current,
@@ -4660,6 +4673,7 @@ async def app_version_check_updates(force: bool = False):
         "published_at": published_at,
         "checked_at": checked_at,
         "cached": False,
+        "simulated": simulated,
         "ignored_version": ignored_version,
     }
 

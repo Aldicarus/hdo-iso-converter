@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260504f">
+  <link rel="stylesheet" href="/static/style.css?v=20260504g">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -996,6 +996,15 @@
         <button class="btn btn-secondary btn-sm" id="settings-version-check-btn"
           onclick="checkForUpdates(true)">🔄 Comprobar actualizaciones</button>
       </div>
+      <!-- Modo dev: simular versión actual para probar la UI del banner -->
+      <div class="settings-version-simulate" id="settings-version-simulate" style="display:none">
+        <span class="settings-version-simulate-label">🧪 Simular versión actual:</span>
+        <input type="text" id="settings-version-simulate-input"
+          class="settings-input settings-version-simulate-input"
+          placeholder="ej. v2.0.0 (vacío = sin simular)" autocomplete="off">
+        <button class="btn btn-ghost btn-xs" onclick="applySimulatedVersion()">Aplicar</button>
+        <button class="btn btn-ghost btn-xs" onclick="clearSimulatedVersion()">Limpiar</button>
+      </div>
       <div id="settings-update-banner" class="settings-update-banner" style="display:none"></div>
     </div>
 
@@ -1106,6 +1115,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260504f"></script>
+<script src="/static/app.js?v=20260504g"></script>
 </body>
 </html>

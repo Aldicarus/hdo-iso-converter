@@ -973,6 +973,38 @@ async function _renderVersionInfo() {
     <strong>${escHtml(versionLabel)}</strong><span style="color:var(--text-3); font-size:11.5px">${escHtml(commitTxt + dirtyTxt)}</span>`;
   pill.className = 'settings-version-pill ' + pillCls;
   pill.textContent = pillTxt;
+  // Mostrar input de simulación SOLO en dev (cuando no es release tagged)
+  const simBox = document.getElementById('settings-version-simulate');
+  if (simBox) {
+    simBox.style.display = data.is_dev ? 'flex' : 'none';
+    const simInput = document.getElementById('settings-version-simulate-input');
+    if (simInput) simInput.value = localStorage.getItem('hdo_simulate_version') || '';
+  }
+}
+
+function _getSimulatedVersion() {
+  return (localStorage.getItem('hdo_simulate_version') || '').trim();
+}
+
+function applySimulatedVersion() {
+  const inp = document.getElementById('settings-version-simulate-input');
+  const v = (inp?.value || '').trim();
+  if (v) {
+    localStorage.setItem('hdo_simulate_version', v);
+    showToast(`🧪 Simulando versión actual: ${v}`, 'info');
+  } else {
+    localStorage.removeItem('hdo_simulate_version');
+    showToast('🧪 Simulación desactivada', 'info');
+  }
+  checkForUpdates(true);
+}
+
+function clearSimulatedVersion() {
+  localStorage.removeItem('hdo_simulate_version');
+  const inp = document.getElementById('settings-version-simulate-input');
+  if (inp) inp.value = '';
+  showToast('🧪 Simulación desactivada', 'info');
+  checkForUpdates(true);
 }
 
 async function checkForUpdates(force) {
@@ -983,7 +1015,11 @@ async function checkForUpdates(force) {
     btn.disabled = true;
     btn.textContent = '🔄 Consultando…';
   }
-  const url = '/api/version/check-updates' + (force ? '?force=true' : '');
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  const sim = _getSimulatedVersion();
+  if (sim) params.set('simulate_current', sim);
+  const url = '/api/version/check-updates' + (params.toString() ? '?' + params.toString() : '');
   const data = await apiFetch(url, { silent: true });
   if (btn) {
     btn.disabled = false;
@@ -1010,9 +1046,10 @@ async function checkForUpdates(force) {
   banner.className = 'settings-update-banner warn';
   const cmds = `docker compose pull\ndocker compose up -d`;
   const notesShort = (data.release_notes || '').split('\n').slice(0, 6).join('\n');
+  const simBadge = data.simulated ? `<span class="settings-update-sim-badge">🧪 simulado</span>` : '';
   banner.innerHTML = `
     <div class="settings-update-head">
-      🔔 Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong>
+      🔔 Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
     </div>
     ${notesShort ? `<details class="settings-update-notes"><summary>Ver notas del release</summary><pre>${escHtml(notesShort)}${data.release_notes && data.release_notes.split('\n').length > 6 ? '\n…' : ''}</pre></details>` : ''}
     <div class="settings-update-cmd">
