@@ -336,16 +336,27 @@ Tras `_analyze_target_rpu` en Fase B, el bin se clasifica automáticamente en `s
 
 ### Gates de trust
 
-`_evaluate_trust_gates` compara source BD vs target:
+`_evaluate_trust_gates` compara source BD vs target. Cada gate lleva un campo `severity` que decide cómo se ramifica el flujo si falla:
 
-- **Críticos** (deben pasar para `target_trust_ok=True`):
-  - `frames`: coincidencia exacta (0 tolerancia)
-  - `cm_version`: debe ser v4.0
-  - `has_l8`: requerido para transfer útil
-  - `l5_div`: ≤5 px ok · 5-30 warn · >30 aborta (edición distinta del disco)
-- **Soft** (no bloquean):
-  - `l6_div`: ±50 nits MaxCLL
-  - `l1_div`: ±5% MaxCLL avg
+| severity | Comportamiento |
+|---|---|
+| `ok` | Gate pasa — no requiere acción |
+| `warn` | Mensaje informativo, no bloquea |
+| `sync_review` | Fase D (revisión visual) puede arreglarlo o dar pistas — no se salta D |
+| `ack_required` | Técnicamente inyectable pero el resultado se degrada — Fase B setea `session.awaiting_critical_ack=True` y guarda `critical_gate_failures`. La UI muestra banner de confirmación. `POST /api/cmv40/{id}/acknowledge-critical-gates` desbloquea + añade `sync_verification_pause` a `phases_skipped` (Fase D no puede arreglar el problema) |
+| `hard_abort` | Bin rechazado — `_run_phase_b` raise RuntimeError, el usuario debe cambiar de target o cancelar |
+
+Escalas por gate:
+- `frames` → exacto OK · cualquier diff = `sync_review`
+- `cm_version` → v4.0 OK · resto = `hard_abort`
+- `has_l8` → presente OK · ausente = `hard_abort`
+- `l5_div` → ≤5 px OK · 5-30 = `sync_review` · >30 = `ack_required` (edición distinta, D no la arregla)
+- `l6_div` → ≤50 nits OK · 50-200 = `warn` · >200 = `ack_required` (peak muy distinto)
+- `l1_div` → ≤5% OK · 5-20 = `warn` · >20 = `ack_required`
+
+El gate L5 tiene además un refinamiento per-frame **zoneado** (intro/body/outro) usando `dovi_tool export` JSON. El `why` calculado del muestreo se propaga al banner del frontend en lugar de un texto estático. Esto descarta falsos positivos en pelis con L5 variable a lo largo del runtime.
+
+Campos relacionados en `CMv40Session`: `awaiting_critical_ack`, `critical_gate_failures`, `user_acknowledged_degradation`, `pipeline_aborted`. La flag `target_trust_ok` se mantiene como resumen booleano (true sólo si todos los gates son `ok`/`warn`).
 
 ### Skip automático de fases
 
@@ -358,6 +369,44 @@ Se registra en `session.phases_skipped` para UI (phase-strip muestra las fases o
 ### Override manual
 
 `session.trust_override = "force_interactive"` fuerza rama A completa incluso con target trusted — todas las validaciones manuales vuelven a ejecutarse.
+
+---
+
+## Versión de la app + chequeo de actualizaciones
+
+La aplicación expone su versión y comprueba si hay una más reciente publicada en GitHub.
+
+### Resolución de versión
+
+`GET /api/version` devuelve la versión actual. La resuelve con prioridad:
+1. **Docker (build con args)**: lee `APP_VERSION` + `APP_COMMIT` del entorno (los pasa el workflow de CI al construir la imagen GHCR)
+2. **Dev local**: ejecuta `git describe --tags --always --dirty` desde el working tree
+
+Cachea el resultado en memoria (`_VERSION_CACHE`) — la versión no cambia en runtime. Devuelve también `is_tagged`, `is_dirty`, `is_dev` para que la UI sepa si está en un release puro (`vX.Y.Z`), en un commit posterior a un tag (`vX.Y.Z-N-gHASH`) o en `dev`.
+
+### Chequeo de actualizaciones
+
+`GET /api/version/check-updates?force=&simulate_current=` consulta la API pública de GitHub:
+1. Intenta `/repos/Aldicarus/hdo-iso-converter/releases/latest` (preferido — trae `release_notes` markdown)
+2. Si vacío → fallback a `/tags?per_page=30`, filtra a semver tags y elige el mayor (común si el repo solo tagea via `git tag` sin formalizar Releases)
+
+Cachea en `/config/update_check_cache.json` con TTL **1h** (la API pública limita a 60 req/h por IP sin auth). `force=true` ignora cache.
+
+`simulate_current=v2.0.0` (modo dev): override de la versión actual para probar la UI del banner sin publicar release nueva. Nunca persiste cache cuando se simula.
+
+Respuesta:
+```
+{
+  current, latest, update_available, release_url, release_notes,
+  published_at, checked_at, cached, simulated, ignored_version
+}
+```
+
+`update_available` se calcula como `_semver_gt(latest, current)` Y `latest != ignored_version`. La UI permite al usuario marcar una versión como "ignorar" — se guarda en `app_settings.json` como `update_ignored_version` y silencia el banner para ese tag concreto.
+
+### UI
+
+Pill de aviso de nueva versión aparece en el header global (al lado de Help/Lookup/Settings) cuando `update_available=true`. La pill enlaza al `release_url` en GitHub. Clic en "ignorar" persiste `update_ignored_version` y oculta la pill hasta que haya un tag posterior.
 
 ---
 
