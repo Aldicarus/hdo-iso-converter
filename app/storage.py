@@ -82,7 +82,14 @@ def list_sessions() -> list[Session]:
         reverse=True,
     ):
         # Ficheros conocidos que no son sesiones
-        if path.name in ("settings.json", "queue_state.json"):
+        if path.name in (
+            "settings.json",
+            "queue_state.json",
+            "app_settings.json",
+            "tmdb_cache.json",
+            "rec999_drive_cache.json",
+            "rec999_sheet_cache.json",
+        ):
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
