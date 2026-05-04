@@ -4270,16 +4270,17 @@ function renderIncludedTracks(tracks) {
       // descripción · bitrate. Antes omitíamos idioma+codec asumiendo que el
       // label editable los cubría, pero el usuario puede renombrarlo y
       // perder esa información — dejarla siempre visible es más util.
-      // Evitamos duplicar bitrate: raw.description (de mkvmerge) ya suele
-      // incluir 'XXXX kbps' — si lo tiene, no añadimos raw.bitrate_kbps
-      // (de MediaInfo) por encima, que generaba '4871 kbps · 5511 kbps'.
+      // Bitrate: SIEMPRE el de MediaInfo (raw.bitrate_kbps) — es el real
+      // medido (bytes/duración). El que viene en raw.description es el
+      // nominal de mkvmerge y en VBR (TrueHD) discrepa hasta ~15% del real.
+      // Limpiamos del description el tramo de kbps para no duplicarlo.
       const langLit = langLiteral(raw.language) || raw.language || '';
-      const descHasKbps = /\bkbps\b/i.test(raw.description || '');
+      const desc = (raw.description || '').replace(/\s*\/\s*\d[\d,.]*\s*kbps\s*/i, ' / ').replace(/\/\s*\//g, '/').replace(/^\s*\/|\/\s*$/g, '').trim();
       const rawLine = [
         langLit,
         raw.codec,
-        raw.description,
-        (!descHasKbps && raw.bitrate_kbps) ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+        desc,
+        raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null,
       ].filter(Boolean).join(' · ');
       const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
@@ -4531,12 +4532,12 @@ function renderDiscardedTracks(tracks) {
       let codecInfo;
       const langLit = langLiteral(raw.language) || raw.language || '';
       if (isAudio) {
-        // Mismo dedup que en included: si description ya incluye kbps
-        // (mkvmerge lo pone en 'description'), no añadir el bitrate_kbps
-        // de MediaInfo encima.
-        const descHasKbps = /\bkbps\b/i.test(raw.description || '');
-        codecInfo = [langLit, raw.codec, raw.description,
-          (!descHasKbps && raw.bitrate_kbps) ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null
+        // Mismo criterio que en included: SOLO bitrate de MediaInfo (real
+        // medido). Limpiamos el kbps nominal de mkvmerge dentro de
+        // raw.description para no duplicar.
+        const desc = (raw.description || '').replace(/\s*\/\s*\d[\d,.]*\s*kbps\s*/i, ' / ').replace(/\/\s*\//g, '/').replace(/^\s*\/|\/\s*$/g, '').trim();
+        codecInfo = [langLit, raw.codec, desc,
+          raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null
         ].filter(Boolean).join(' · ');
       } else {
         const packets = raw.packet_count || 0;
