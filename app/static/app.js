@@ -945,8 +945,106 @@ async function openSettingsModal() {
   // El sheet NO se borra — pre-populamos con la URL actual para que el
   // usuario vea qué está usando y pueda editarlo directamente.
   await _loadSettings();
+  // Versión + chequeo de updates (no force, usa cache 1h)
+  _renderVersionInfo();
+  checkForUpdates(false);
   openModal('settings-modal');
   setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
+}
+
+async function _renderVersionInfo() {
+  const data = await apiFetch('/api/version', { silent: true });
+  if (!data) return;
+  const cur = document.getElementById('settings-version-current');
+  const pill = document.getElementById('settings-version-pill');
+  if (!cur || !pill) return;
+  const versionLabel = data.version || 'desconocida';
+  let pillCls = 'dev', pillTxt = '⚠ desarrollo';
+  if (data.is_tagged) {
+    pillCls = 'tagged'; pillTxt = '✓ release';
+  } else if (data.commit) {
+    pillCls = 'dev'; pillTxt = '⚙ desarrollo';
+  } else {
+    pillCls = 'unknown'; pillTxt = '? desconocida';
+  }
+  const commitTxt = data.commit ? ` · ${data.commit}` : '';
+  const dirtyTxt  = data.is_dirty ? ' · dirty' : '';
+  cur.innerHTML = `
+    <strong>${escHtml(versionLabel)}</strong><span style="color:var(--text-3); font-size:11.5px">${escHtml(commitTxt + dirtyTxt)}</span>`;
+  pill.className = 'settings-version-pill ' + pillCls;
+  pill.textContent = pillTxt;
+}
+
+async function checkForUpdates(force) {
+  const banner = document.getElementById('settings-update-banner');
+  const btn = document.getElementById('settings-version-check-btn');
+  if (!banner) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '🔄 Consultando…';
+  }
+  const url = '/api/version/check-updates' + (force ? '?force=true' : '');
+  const data = await apiFetch(url, { silent: true });
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '🔄 Comprobar actualizaciones';
+  }
+  if (!data) {
+    banner.style.display = 'block';
+    banner.className = 'settings-update-banner err';
+    banner.innerHTML = `<div class="settings-update-msg">⚠ No se pudo consultar la API de GitHub. Reintenta en unos minutos.</div>`;
+    return;
+  }
+  if (!data.update_available) {
+    banner.style.display = 'block';
+    banner.className = 'settings-update-banner ok';
+    const latest = data.latest ? ` · última publicada: <strong>${escHtml(data.latest)}</strong>` : '';
+    const ignored = data.ignored_version
+      ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')">Reactivar avisos</button></div>`
+      : '';
+    banner.innerHTML = `<div class="settings-update-msg">✓ Estás al día${latest}.</div>${ignored}`;
+    return;
+  }
+  // Hay update — banner ámbar con notas + botones
+  banner.style.display = 'block';
+  banner.className = 'settings-update-banner warn';
+  const cmds = `docker compose pull\ndocker compose up -d`;
+  const notesShort = (data.release_notes || '').split('\n').slice(0, 6).join('\n');
+  banner.innerHTML = `
+    <div class="settings-update-head">
+      🔔 Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong>
+    </div>
+    ${notesShort ? `<details class="settings-update-notes"><summary>Ver notas del release</summary><pre>${escHtml(notesShort)}${data.release_notes && data.release_notes.split('\n').length > 6 ? '\n…' : ''}</pre></details>` : ''}
+    <div class="settings-update-cmd">
+      <pre id="settings-update-cmd-pre">${escHtml(cmds)}</pre>
+    </div>
+    <div class="settings-update-actions">
+      <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()">📋 Copiar comandos</button>
+      ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer">↗ Release en GitHub</a>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')">Ignorar esta versión</button>
+    </div>`;
+}
+
+function copyUpdateCommands() {
+  const pre = document.getElementById('settings-update-cmd-pre');
+  if (!pre) return;
+  const txt = pre.textContent || '';
+  navigator.clipboard.writeText(txt).then(() => {
+    showToast('📋 Comandos copiados al portapapeles', 'success');
+  }, () => {
+    showToast('No se pudo copiar al portapapeles', 'error');
+  });
+}
+
+async function ignoreUpdate(version) {
+  await apiFetch('/api/version/ignore-update', {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  });
+  showToast(version
+    ? `⏭ Aviso de ${version} silenciado`
+    : '🔔 Avisos de actualización reactivados', 'info');
+  checkForUpdates(false);
 }
 
 async function _loadSettings() {

@@ -4448,6 +4448,232 @@ async def health():
     return {"status": "ok"}
 
 
+# ── Versión de la app + chequeo de actualizaciones ───────────────────────────
+
+import re as _re_version
+
+_VERSION_CACHE: dict = {"value": None}
+
+def _resolve_app_version() -> dict:
+    """Resuelve la version actual de la app:
+      - En Docker (build con args): lee APP_VERSION + APP_COMMIT del env.
+      - En dev local: ejecuta `git describe --tags --always --dirty`.
+    Cachea el resultado en memoria — la version no cambia en runtime.
+
+    Devuelve:
+      {
+        version: str,         # 'v2.1.3' | 'v2.1.3-5-g7d3e8cb' | 'dev-abc1234' | 'dev'
+        commit: str,          # SHA full o '' si no disponible
+        is_tagged: bool,      # True si version es exactamente un tag (no past-tag, no dev)
+        is_dirty: bool,       # True si tree dirty (solo dev local)
+        is_dev: bool,         # True si version no se resolvio a un tag
+      }
+    """
+    if _VERSION_CACHE["value"] is not None:
+        return _VERSION_CACHE["value"]
+
+    env_version = os.environ.get("APP_VERSION", "").strip()
+    env_commit  = os.environ.get("APP_COMMIT", "").strip()
+
+    version = env_version or "dev"
+    commit  = env_commit
+    is_dirty = False
+
+    # Si el env no tiene version utilizable, intenta git describe
+    if version in ("", "dev", "unknown"):
+        try:
+            import subprocess
+            git_root = Path(__file__).resolve().parent.parent
+            result = subprocess.run(
+                ["git", "describe", "--tags", "--always", "--dirty"],
+                cwd=git_root, capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                version = result.stdout.strip()
+            if not commit:
+                sha_result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=git_root, capture_output=True, text=True, timeout=5,
+                )
+                if sha_result.returncode == 0:
+                    commit = sha_result.stdout.strip()
+        except Exception:
+            pass
+
+    is_dirty = version.endswith("-dirty")
+    # Tagged exacto: 'vX.Y.Z' (semver puro, sin sufijo de commits/dirty)
+    is_tagged = bool(_re_version.match(r"^v?\d+\.\d+\.\d+$", version))
+    is_dev = not is_tagged
+
+    info = {
+        "version": version,
+        "commit": commit[:12] if commit else "",
+        "commit_full": commit,
+        "is_tagged": is_tagged,
+        "is_dirty": is_dirty,
+        "is_dev": is_dev,
+    }
+    _VERSION_CACHE["value"] = info
+    return info
+
+
+@app.get("/api/version", summary="Versión actual de la app")
+async def app_version():
+    return _resolve_app_version()
+
+
+_UPDATE_CHECK_CACHE_PATH = Path(os.environ.get("CONFIG_DIR", "/config")) / "update_check_cache.json"
+_UPDATE_CHECK_TTL_S = 3600  # 1 hora — la API publica de GitHub limita a 60 req/h sin auth
+
+def _semver_tuple(v: str) -> tuple[int, int, int]:
+    """Extrae (major, minor, patch) de un tag tipo 'v2.1.3' o '2.1.3'."""
+    m = _re_version.match(r"^v?(\d+)\.(\d+)\.(\d+)", v.strip())
+    if not m:
+        return (0, 0, 0)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _semver_gt(a: str, b: str) -> bool:
+    """True si a > b (semver). 'dev'/inválido se considera < cualquier tag."""
+    return _semver_tuple(a) > _semver_tuple(b)
+
+
+@app.get("/api/version/check-updates", summary="Comprueba si hay una versión más reciente en GHCR (via GitHub releases)")
+async def app_version_check_updates(force: bool = False):
+    """Consulta la API publica de GitHub releases (sin auth, 60 req/h por IP).
+    Cachea el resultado en /config/update_check_cache.json con TTL 1h. El
+    parametro `force=true` ignora el cache y refresca.
+
+    Devuelve:
+      {
+        current: str,            # version actual ('v2.1.3' o 'dev-...')
+        latest: str | null,      # tag del ultimo release publicado en GH
+        update_available: bool,
+        release_url: str,        # URL del release en GitHub
+        release_notes: str,      # body del release (markdown)
+        published_at: str,
+        checked_at: str,
+        cached: bool,            # True si vino del disco, False si fresh
+        ignored_version: str,    # version que el usuario marco como 'ignorar' (si aplica)
+      }
+    """
+    import time as _time
+    current_info = _resolve_app_version()
+    current = current_info["version"]
+
+    # Lee version ignorada por el usuario en settings
+    from services.settings_store import get_settings_value
+    ignored_version = ""
+    try:
+        ignored_version = get_settings_value("update_ignored_version", "") or ""
+    except Exception:
+        pass
+
+    # Cache lookup
+    cached_data = None
+    if not force and _UPDATE_CHECK_CACHE_PATH.exists():
+        try:
+            cached_data = json.loads(_UPDATE_CHECK_CACHE_PATH.read_text(encoding="utf-8"))
+            age = _time.time() - cached_data.get("fetched_at", 0)
+            if age < _UPDATE_CHECK_TTL_S:
+                latest = cached_data.get("latest", "")
+                update_available = bool(latest) and _semver_gt(latest, current)
+                return {
+                    "current": current,
+                    "latest": latest,
+                    "update_available": update_available and latest != ignored_version,
+                    "release_url": cached_data.get("release_url", ""),
+                    "release_notes": cached_data.get("release_notes", ""),
+                    "published_at": cached_data.get("published_at", ""),
+                    "checked_at": cached_data.get("checked_at", ""),
+                    "cached": True,
+                    "ignored_version": ignored_version,
+                }
+        except Exception:
+            cached_data = None
+
+    # Fetch fresh desde GitHub
+    import httpx
+    repo = "Aldicarus/hdo-iso-converter"
+    api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(api_url, headers={"Accept": "application/vnd.github+json"})
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        # Si falla la API, devolvemos cached (aunque expirado) o nada
+        if cached_data:
+            return {
+                "current": current,
+                "latest": cached_data.get("latest", ""),
+                "update_available": False,
+                "release_url": cached_data.get("release_url", ""),
+                "release_notes": cached_data.get("release_notes", ""),
+                "published_at": cached_data.get("published_at", ""),
+                "checked_at": cached_data.get("checked_at", ""),
+                "cached": True,
+                "stale": True,
+                "error": str(e),
+                "ignored_version": ignored_version,
+            }
+        return {
+            "current": current,
+            "latest": None,
+            "update_available": False,
+            "release_url": "",
+            "release_notes": "",
+            "published_at": "",
+            "checked_at": "",
+            "cached": False,
+            "error": str(e),
+            "ignored_version": ignored_version,
+        }
+
+    latest = data.get("tag_name", "") or ""
+    release_url = data.get("html_url", "") or ""
+    release_notes = data.get("body", "") or ""
+    published_at = data.get("published_at", "") or ""
+    checked_at = datetime.now(timezone.utc).isoformat()
+    update_available = bool(latest) and _semver_gt(latest, current)
+
+    # Persiste cache
+    try:
+        _UPDATE_CHECK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _UPDATE_CHECK_CACHE_PATH.write_text(json.dumps({
+            "fetched_at": _time.time(),
+            "latest": latest,
+            "release_url": release_url,
+            "release_notes": release_notes,
+            "published_at": published_at,
+            "checked_at": checked_at,
+        }), encoding="utf-8")
+    except Exception:
+        pass
+
+    return {
+        "current": current,
+        "latest": latest,
+        "update_available": update_available and latest != ignored_version,
+        "release_url": release_url,
+        "release_notes": release_notes,
+        "published_at": published_at,
+        "checked_at": checked_at,
+        "cached": False,
+        "ignored_version": ignored_version,
+    }
+
+
+@app.post("/api/version/ignore-update", summary="Marca una versión como ignorada (no avisar más sobre ella)")
+async def app_version_ignore_update(body: dict):
+    """Body: {version: 'v2.1.4'}. Persiste en app_settings.json. Para 'dejar de
+    ignorar', enviar {version: ''} o llamar /unignore."""
+    from services.settings_store import set_settings_value
+    version = (body or {}).get("version", "") or ""
+    set_settings_value("update_ignored_version", version)
+    return {"ignored_version": version}
+
+
 # ── Estado general de la app ──────────────────────────────────────────────────
 
 @app.get("/api/status", summary="Estado de la aplicación")

@@ -119,6 +119,23 @@ def _save(data: dict[str, Any]) -> None:
         raise
 
 
+# ── Getters/setters genéricos para campos no-secret ─────────────────────
+
+def get_settings_value(key: str, default: Any = None) -> Any:
+    """Lee un campo arbitrario del store. Para secrets usa los getters
+    dedicados (que también consideran env como fallback)."""
+    with _lock:
+        return _load().get(key, default)
+
+
+def set_settings_value(key: str, value: Any) -> None:
+    """Escribe un campo arbitrario en el store con persistencia atómica."""
+    with _lock:
+        data = dict(_load())
+        data[key] = value
+        _save(data)
+
+
 # ── Getters con fallback a env ──────────────────────────────────────────
 
 def get_tmdb_api_key() -> str:

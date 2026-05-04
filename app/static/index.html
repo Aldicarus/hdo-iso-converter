@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260504e">
+  <link rel="stylesheet" href="/static/style.css?v=20260504f">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -985,6 +985,20 @@
     </div>
 
     <div class="settings-body">
+    <!-- ─── Versión + comprobación de actualizaciones ─────────────── -->
+    <div class="settings-section settings-version-section">
+      <div class="settings-section-title">
+        ℹ Versión de la app
+        <span id="settings-version-pill" class="settings-version-pill"></span>
+      </div>
+      <div class="settings-version-row">
+        <div class="settings-version-current" id="settings-version-current">—</div>
+        <button class="btn btn-secondary btn-sm" id="settings-version-check-btn"
+          onclick="checkForUpdates(true)">🔄 Comprobar actualizaciones</button>
+      </div>
+      <div id="settings-update-banner" class="settings-update-banner" style="display:none"></div>
+    </div>
+
     <div class="settings-section">
       <div class="settings-section-title">
         🎬 TMDb — Clave de la API
@@ -1092,6 +1106,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260504e"></script>
+<script src="/static/app.js?v=20260504f"></script>
 </body>
 </html>

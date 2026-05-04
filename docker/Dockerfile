@@ -4,6 +4,14 @@ LABEL org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-conve
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DOVI_TOOL_VERSION=2.3.2
+# Version e info de commit baked al build. El workflow GHCR los pasa como
+# build-args (APP_VERSION = tag git o 'dev-<sha>'; APP_COMMIT = SHA completo).
+# El backend los lee de env y los expone en /api/version. En dev local sin
+# build-args se queda como 'dev' y el backend ejecuta `git describe` al iniciar.
+ARG APP_VERSION=dev
+ARG APP_COMMIT=unknown
+ENV APP_VERSION=${APP_VERSION}
+ENV APP_COMMIT=${APP_COMMIT}
 
 # ── MKVToolNix oficial (v81+ requerido para Dolby Vision dual-layer) ──────────
 # Ubuntu 22.04 trae mkvtoolnix v65 que NO soporta DV. El repo oficial
@@ -38,9 +46,13 @@ RUN wget -q \
     && chmod +x /usr/local/bin/dovi_tool \
     && rm /tmp/dovi_tool.tar.gz
 
-# Label con la version bakeada — inspecciona con:
-#   docker image inspect hdo-iso-converter --format '{{index .Config.Labels "dovi_tool.version"}}'
+# Labels con metadata bakeada — inspecciona con:
+#   docker image inspect hdo-iso-converter --format '{{index .Config.Labels "app.version"}}'
 LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
+LABEL app.version="${APP_VERSION}"
+LABEL app.commit="${APP_COMMIT}"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
+LABEL org.opencontainers.image.revision="${APP_COMMIT}"
 
 # ── Python app ────────────────────────────────────────────────────────────────
 WORKDIR /app
