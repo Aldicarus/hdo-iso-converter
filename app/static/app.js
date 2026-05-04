@@ -129,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
   switchSubTab(null);
   _installSubtabScrollBindings();
   _installVisibilityRecovery();
+  _initUpdateCheckHeader();
 });
 
 /**
@@ -952,6 +953,34 @@ async function openSettingsModal() {
   setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
 }
 
+/** Comprobacion silenciosa de updates al arrancar la app. Sin force (usa
+ *  cache 1h) para no machacar la API de GitHub. Si hay update: pinta el
+ *  pill ambar en el header. La comprobacion respeta la version simulada
+ *  para que el modo dev test sea coherente con el header. */
+async function _initUpdateCheckHeader() {
+  // Esperamos un tick para que el modal Settings/UI ya esté inicializado
+  // y para no competir con cargas críticas de arranque.
+  await new Promise(r => setTimeout(r, 1500));
+  await _refreshHeaderUpdatePill();
+}
+
+async function _refreshHeaderUpdatePill() {
+  const pill = document.getElementById('header-update-pill');
+  if (!pill) return;
+  const params = new URLSearchParams();
+  const sim = _getSimulatedVersion();
+  if (sim) params.set('simulate_current', sim);
+  const url = '/api/version/check-updates' + (params.toString() ? '?' + params.toString() : '');
+  const data = await apiFetch(url, { silent: true });
+  const txtEl = document.getElementById('header-update-pill-text');
+  if (!data || !data.update_available || !data.latest) {
+    pill.style.display = 'none';
+    return;
+  }
+  pill.style.display = 'inline-flex';
+  if (txtEl) txtEl.textContent = `Nueva versión: ${data.latest}`;
+}
+
 async function _renderVersionInfo() {
   const data = await apiFetch('/api/version', { silent: true });
   if (!data) return;
@@ -1021,6 +1050,19 @@ async function checkForUpdates(force) {
   if (sim) params.set('simulate_current', sim);
   const url = '/api/version/check-updates' + (params.toString() ? '?' + params.toString() : '');
   const data = await apiFetch(url, { silent: true });
+  // Sync el pill del header con el resultado actual (ej. tras ignorar
+  // version o cambiar simulacion, el header refleja el cambio sin esperar
+  // a otro tick automatico).
+  const pill = document.getElementById('header-update-pill');
+  const pillTxt = document.getElementById('header-update-pill-text');
+  if (pill) {
+    if (data && data.update_available && data.latest) {
+      pill.style.display = 'inline-flex';
+      if (pillTxt) pillTxt.textContent = `Nueva versión: ${data.latest}`;
+    } else {
+      pill.style.display = 'none';
+    }
+  }
   if (btn) {
     btn.disabled = false;
     btn.textContent = '🔄 Comprobar actualizaciones';

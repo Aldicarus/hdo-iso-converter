@@ -5344,6 +5344,40 @@ select { appearance: none; cursor: pointer;
 .btn-lookup:active { transform: scale(0.92); }
 .btn-lookup-icon { font-size: 16px; line-height: 1; }
 
+/* Pill de aviso de nueva versión disponible — junto a los botones del
+   header. Color ámbar (mismo lenguaje visual que el banner update warn
+   en Configuración). Click abre el modal de Configuración donde el
+   usuario ve detalles + comandos. Hidden por defecto, JS lo muestra. */
+.header-update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.45);
+  border-radius: 17px;
+  color: #f0b160;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: 8px;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.2s;
+  animation: header-update-pulse 2.4s ease-in-out infinite;
+}
+.header-update-pill:hover {
+  background: rgba(255, 159, 10, 0.26);
+  border-color: rgba(255, 159, 10, 0.75);
+  color: #ffcb83;
+  transform: scale(1.04);
+}
+.header-update-pill-icon { font-size: 14px; line-height: 1; }
+@keyframes header-update-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 159, 10, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(255, 159, 10, 0); }
+}
+
 /* Botón de Ayuda / Manual del header — homogeneo con .btn-lookup y
    .btn-settings (mismo tamaño 34x34 + radius 8). Color naranja/ambar
    para diferenciar del verde (lookup) y azul (settings). */

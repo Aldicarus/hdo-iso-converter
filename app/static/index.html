@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO ISO Converter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260504i">
+  <link rel="stylesheet" href="/static/style.css?v=20260504j">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -28,6 +28,13 @@
     </div>
 
     <div class="header-right">
+      <button class="header-update-pill" id="header-update-pill"
+        onclick="openSettingsModal()"
+        data-tooltip="Hay una nueva versión publicada — abre Configuración para ver detalles"
+        style="display:none">
+        <span class="header-update-pill-icon">🔔</span>
+        <span class="header-update-pill-text" id="header-update-pill-text">Nueva versión</span>
+      </button>
       <button class="btn-help" onclick="openCMv40HelpModal()"
         data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas"
         aria-label="Ayuda / Manual">
@@ -1115,6 +1122,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260504i"></script>
+<script src="/static/app.js?v=20260504j"></script>
 </body>
 </html>
