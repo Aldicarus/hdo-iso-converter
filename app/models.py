@@ -1047,6 +1047,12 @@ class CMv40Session(BaseModel):
     error_message se setea y el pipeline NO arranca. Cuando True, el
     auto-pipeline procede con Fase A reusando el bin del workdir."""
 
+    source_preflight_ok: bool = False
+    """True si el sniff de DV del MKV origen (30s ffmpeg + dovi_tool extract-rpu)
+    detectó RPU. Validación independiente del target — confirma que el origen
+    tiene Dolby Vision antes de gastar la extracción HEVC completa de Fase A.
+    Cuando True, Fase A skipea su sniff interno (ya hecho)."""
+
     compat_warning: str = ""
     """Mensaje de warning si la combinación (source_workflow, target_type) es
     estructuralmente incompatible (p.ej. source P8 + target P7 FEL drop-in).

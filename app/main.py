@@ -3506,6 +3506,12 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 _cmv40_proc_register(session.id, proc)
 
             try:
+                # Source preflight primero (idempotente — skip si ya hecho).
+                # Validar el origen ANTES del target evita descargar el bin si
+                # el MKV no tiene DV.
+                from phases.cmv40_pipeline import preflight_source
+                await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+
                 if body.kind == "drive":
                     await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
                 elif body.kind == "path":
@@ -3516,7 +3522,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 session.target_preflight_ok = True
                 await _cmv40_log(
                     session,
-                    "✓ Fase preflight completada — bin válido, procediendo con Fase A"
+                    "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
                 )
             except Exception as e:
                 # Igual que el resto de fases: error al log de la sesión +
@@ -3526,6 +3532,69 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
                 session.error_message = msg
                 session.target_preflight_ok = False
+            finally:
+                _cmv40_active_procs.pop(session.id, None)
+                _cmv40_cancel_flags.pop(session.id, None)
+                session.running_phase = None
+                save_cmv40_session(session)
+
+    asyncio.create_task(_run())
+    return {"ok": True, "started": True}
+
+
+@app.post(
+    "/api/cmv40/{session_id}/preflight-source",
+    summary="Pre-flight asíncrono: valida que el MKV origen tenga DV (sin target)",
+)
+async def cmv40_preflight_source(session_id: str):
+    """Sniff de 30s del MKV origen + dovi_tool extract-rpu. Aborta si no hay
+    DV. ~10s. Independiente del target — útil cuando el usuario crea un
+    proyecto sin elegir target en el modal y quiere validar el origen antes
+    de gastar Fase A.
+
+    Devuelve {ok:true, started:true} de inmediato. Background task setea
+    running_phase="preflight" hasta terminar."""
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    if DEV_MODE:
+        session.source_preflight_ok = True
+        save_cmv40_session(session)
+        await _cmv40_log(session, "[DEV] Pre-flight source OK simulado")
+        return {"ok": True, "started": True}
+
+    lock = _get_cmv40_phase_lock(session.id)
+    if lock.locked():
+        return {"ok": True, "started": False, "reason": "ya hay otra fase en curso"}
+
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _run():
+        async with lock:
+            session.running_phase = "preflight"
+            session.error_message = ""
+            save_cmv40_session(session)
+            await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
+
+            async def _log_cb(msg: str):
+                await _cmv40_log(session, msg)
+
+            def _proc_cb(proc):
+                _cmv40_proc_register(session.id, proc)
+
+            try:
+                from phases.cmv40_pipeline import preflight_source
+                await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+                await _cmv40_log(
+                    session,
+                    "✓ Fase preflight (source) completada — origen valido"
+                )
+            except Exception as e:
+                msg = str(e)
+                await _cmv40_log(session, f"✗ Fase preflight (source) FALLÓ: {msg}")
+                session.error_message = msg
+                session.source_preflight_ok = False
             finally:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
