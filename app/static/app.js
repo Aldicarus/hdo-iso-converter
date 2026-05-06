@@ -12415,13 +12415,24 @@ function _cmv40FaseBBody(pid, s) {
     <div class="section-body">
       <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Elige una fuente del RPU CMv4.0 a inyectar.</div>
       <div class="cmv40-tab-switcher">
-        <button class="cmv40-tab-btn active" id="cmv40-tab-btn-path-${pid}"
-          onclick="_cmv40SwitchTargetTab('${pid}','path')">📂 Desde carpeta NAS</button>
+        <button class="cmv40-tab-btn active" id="cmv40-tab-btn-repo-${pid}"
+          onclick="_cmv40SwitchTargetTab('${pid}','repo')">📦 Repo DoviTools</button>
         <button class="cmv40-tab-btn" id="cmv40-tab-btn-mkv-${pid}"
           onclick="_cmv40SwitchTargetTab('${pid}','mkv')">🎬 Extraer de otro MKV</button>
+        <button class="cmv40-tab-btn" id="cmv40-tab-btn-path-${pid}"
+          onclick="_cmv40SwitchTargetTab('${pid}','path')">📂 Carpeta NAS</button>
       </div>
 
-      <div id="cmv40-target-path-${pid}" class="cmv40-target-tab">
+      <div id="cmv40-target-repo-${pid}" class="cmv40-target-tab">
+        <div id="cmv40-repo-info-${pid}" style="font-size:12px;color:var(--text-3);margin-bottom:8px">— Cargando candidatos del repositorio… —</div>
+        <div id="cmv40-repo-list-${pid}" class="cmv40-repo-list" style="max-height:280px;overflow-y:auto"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+          <button class="btn btn-primary btn-md" onclick="cmv40DoTargetFromDrive('${pid}')">⬇ Descargar y usar</button>
+          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRepoForPanel('${pid}')">↺ Refrescar</button>
+        </div>
+      </div>
+
+      <div id="cmv40-target-path-${pid}" class="cmv40-target-tab" style="display:none">
         <label class="modal-field-label">RPU disponible en /mnt/cmv40_rpus/</label>
         <div class="iso-select-row">
           <select id="cmv40-rpu-select-${pid}" class="iso-select">
@@ -12721,14 +12732,133 @@ async function cmv40ToggleAuto(pid) {
 }
 
 function _cmv40SwitchTargetTab(pid, tab) {
-  document.getElementById(`cmv40-target-path-${pid}`).style.display = (tab === 'path') ? '' : 'none';
-  document.getElementById(`cmv40-target-mkv-${pid}`).style.display = (tab === 'mkv') ? '' : 'none';
+  const repoEl = document.getElementById(`cmv40-target-repo-${pid}`);
+  const pathEl = document.getElementById(`cmv40-target-path-${pid}`);
+  const mkvEl  = document.getElementById(`cmv40-target-mkv-${pid}`);
+  if (repoEl) repoEl.style.display = (tab === 'repo') ? '' : 'none';
+  if (pathEl) pathEl.style.display = (tab === 'path') ? '' : 'none';
+  if (mkvEl)  mkvEl.style.display  = (tab === 'mkv')  ? '' : 'none';
+  const btnRepo = document.getElementById(`cmv40-tab-btn-repo-${pid}`);
   const btnPath = document.getElementById(`cmv40-tab-btn-path-${pid}`);
   const btnMkv  = document.getElementById(`cmv40-tab-btn-mkv-${pid}`);
+  if (btnRepo) btnRepo.classList.toggle('active', tab === 'repo');
   if (btnPath) btnPath.classList.toggle('active', tab === 'path');
   if (btnMkv)  btnMkv.classList.toggle('active',  tab === 'mkv');
-  if (tab === 'path') _cmv40LoadRpus(pid);
-  else _cmv40LoadTargetMkvs(pid);
+  if (tab === 'repo')      _cmv40LoadRepoForPanel(pid);
+  else if (tab === 'path') _cmv40LoadRpus(pid);
+  else                     _cmv40LoadTargetMkvs(pid);
+}
+
+// Token anti-race por proyecto (igual que en el modal pero scopeado al pid)
+const _cmv40PanelRepoReqIds = {};
+
+/**
+ * Carga candidatos de bin del repo DoviTools para un proyecto en Fase B.
+ * Usa el filename del MKV origen del proyecto (no estado del modal).
+ */
+async function _cmv40LoadRepoForPanel(pid) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  const list = document.getElementById(`cmv40-repo-list-${pid}`);
+  const info = document.getElementById(`cmv40-repo-info-${pid}`);
+  if (!list) return;
+  const sourcePath = project.session?.source_mkv_path || '';
+  const filename = sourcePath.split('/').pop() || '';
+  if (!filename) {
+    list.innerHTML = '<div class="cmv40-repo-empty">Sin MKV origen — imposible matchear.</div>';
+    if (info) info.textContent = '';
+    return;
+  }
+  list.innerHTML = '<div class="cmv40-repo-empty">⏳ Buscando en Drive…</div>';
+  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
+  const reqId = (_cmv40PanelRepoReqIds[pid] || 0) + 1;
+  _cmv40PanelRepoReqIds[pid] = reqId;
+  const qs = '?filename=' + encodeURIComponent(filename);
+  const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
+  if (_cmv40PanelRepoReqIds[pid] !== reqId) return;
+  if (!data) {
+    list.innerHTML = '<div class="cmv40-repo-empty">Error consultando el repositorio.</div>';
+    if (info) info.textContent = '';
+    return;
+  }
+  if (!data.drive_configured) {
+    list.innerHTML = '<div class="cmv40-repo-empty">Repositorio DoviTools no configurado — abre ⚙︎ Configuración para añadir Google API key + URL del repo.</div>';
+    if (info) info.textContent = '';
+    return;
+  }
+  const cands = data.candidates || [];
+  if (!cands.length) {
+    const t = data.title_en || data.title_es || filename;
+    list.innerHTML = `<div class="cmv40-repo-empty">Sin coincidencias para "${escHtml(t)}". Prueba otra pestaña.</div>`;
+    if (info) info.textContent = '';
+    return;
+  }
+  project._panelRepoCands = cands;
+  const topId = cands[0]?.file?.id || '';
+  const renderCard = (c) => {
+    const sizeMb = (c.file.size_bytes / 1024 / 1024).toFixed(1);
+    const pt = c.predicted_type || 'unknown';
+    const prov = c.provenance || '';
+    const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: '🎯', label: 'bin P7 FEL',  cls: 'tag-ok' }
+                  : pt === 'trusted_p7_mel_final' ? { icon: '🎯', label: 'bin P7 MEL',  cls: 'tag-ok' }
+                  : pt === 'trusted_p8_source'    ? { icon: '📦', label: 'bin P8 retail', cls: 'tag-info' }
+                  : { icon: '❓', label: 'tipo desconocido', cls: 'tag-warn' };
+    const provTag = prov === 'retail'
+      ? '<span class="cmv40-repo-card-tag tag-ok">🏛 Retail</span>'
+      : prov === 'generated'
+      ? '<span class="cmv40-repo-card-tag tag-warn">⚠ Generated</span>'
+      : '';
+    const isBest = c.file.id === topId;
+    return `
+      <div class="cmv40-repo-card" data-file-id="${escHtml(c.file.id)}"
+           role="button" tabindex="0"
+           onclick="_cmv40SelectRepoForPanel('${escHtml(pid)}','${escHtml(c.file.id)}')"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40SelectRepoForPanel('${escHtml(pid)}','${escHtml(c.file.id)}')}">
+        <div class="cmv40-repo-card-head">
+          <span class="cmv40-repo-card-tag ${tagMeta.cls}">${tagMeta.icon} ${tagMeta.label}</span>
+          ${provTag}
+          ${isBest ? '<span class="cmv40-repo-card-best">🏆 mejor match</span>' : ''}
+          <span class="cmv40-repo-card-score">${Math.round(c.score * 100)}%</span>
+          <span class="cmv40-repo-card-size">${sizeMb} MB</span>
+        </div>
+        <div class="cmv40-repo-card-path">${escHtml(c.file.path)}</div>
+      </div>`;
+  };
+  list.innerHTML = cands.map(renderCard).join('');
+  if (info) {
+    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} · top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Click para seleccionar.`;
+  }
+  if (topId) _cmv40SelectRepoForPanel(pid, topId);
+}
+
+function _cmv40SelectRepoForPanel(pid, fileId) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  const list = document.getElementById(`cmv40-repo-list-${pid}`);
+  if (!list) return;
+  const card = list.querySelector(`.cmv40-repo-card[data-file-id="${fileId}"]`);
+  if (!card) return;
+  list.querySelectorAll('.cmv40-repo-card.selected').forEach(el => el.classList.remove('selected'));
+  card.classList.add('selected');
+  const cand = (project._panelRepoCands || []).find(c => c.file.id === fileId);
+  if (!cand) return;
+  project._panelSelectedRepo = { file_id: cand.file.id, file_name: cand.file.name };
+}
+
+async function cmv40DoTargetFromDrive(pid) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project) return;
+  const sel = project._panelSelectedRepo;
+  if (!sel || !sel.file_id) {
+    showToast('Selecciona un candidato del repositorio', 'warning');
+    return;
+  }
+  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
+    method: 'POST',
+    body: JSON.stringify({ file_id: sel.file_id, file_name: sel.file_name || '' }),
+  });
+  _cmv40PhaseToast(pid, 'Descargando RPU del repositorio…');
+  _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function _cmv40LoadRpus(pid) {
