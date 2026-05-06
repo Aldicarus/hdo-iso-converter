@@ -439,14 +439,22 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
    - **Subtítulos**: resolución (ej: 1920x1080)
    - Los cores AC-3 embebidos en TrueHD se filtran por PID compartido
 
-3. **dovi_tool** (opcional, solo si hay EL, no bloquea si falla) — análisis RPU Dolby Vision
+3. **PGS packet counting** (opcional, no bloquea si falla) — proxy fiable forzado/completo/AD
+   - `parse_mpls_pg_streams()`: parser MPLS binario en Python puro (~150 líneas, sin deps). Lee la STN_table del primer PlayItem y devuelve PIDs PGS + language code en orden mkvmerge. Crítico: `UO_mask_table` son **8 bytes**, no 12.
+   - `count_pgs_packets_ts_parse()`: parser TS directo del m2ts. Lee 4 GB (~5 min de vídeo, sample estadístico) y cuenta paquetes por PID. NO usa ffprobe (incompatible con UDF: `-read_intervals` devuelve `nb_read_packets=N/A` o stdout vacío en m2ts montado por loop).
+   - **Robustez**: bytearray buffer con leftover entre reads → inmune a short reads (NAS bajo contención). Auto-detect 192-byte BDAV vs 188-byte standard TS por sync bytes consecutivos.
+   - **Rangos PIDs**: spec BDA-016 dice 0x1200-0x121F pero discos modernos usan hasta 0x12FF (visto 0x12A0-0x12AA). El parser MPLS da los PIDs reales; fallback al rango extendido 0x1200-0x12FF.
+   - **Inicialización a 0**: si MPLS aporta lista de PIDs, todos se inicializan a 0 antes del scan. Forzados con eventos tardíos (no en sample) siguen apareciendo en el resultado posicional → phase_b clasifica por ratio relativo.
+   - **Progreso**: monitor task asyncio cada 0.5s lee `progress_state["bytes_read"]` (actualizado por el thread de parsing) y emite pct + ETA al modal.
+
+4. **dovi_tool** (opcional, solo si hay EL, no bloquea si falla) — análisis RPU Dolby Vision
    - ffmpeg extrae 30s del EL: `-map 0:v:1 -c:v copy -bsf:v hevc_mp4toannexb -t 30`
    - `dovi_tool extract-rpu` → RPU.bin
    - `dovi_tool info --summary` → parseo regex
    - **Resultado**: Profile (4/5/7/8), FEL/MEL (definitivo), CM version (v2.9/v4.0), L1/L2/L5/L6 metadata
    - Ficheros temporales limpiados en `finally`
 
-4. **Enriquecimiento** — los datos de MediaInfo y dovi_tool se inyectan en BDInfoResult
+5. **Enriquecimiento** — los datos de MediaInfo y dovi_tool se inyectan en BDInfoResult
    - `enrich_tracks_with_mediainfo()`: bitrate, format_commercial, HDR, channel_layout en cada pista
    - `enrich_dovi()`: actualiza `has_fel` y `fel_reason` con dato definitivo de dovi_tool
    - Orquestado por `run_full_analysis()` que ejecuta todo secuencialmente
