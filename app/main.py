@@ -457,11 +457,6 @@ async def analyze_iso(body: AnalyzeRequest):
     # ── Fase A: análisis completo (mkvmerge + MediaInfo + dovi_tool) ─
     mount_point = None
     mpls_chapters_raw = []
-    # Si hay un job de extraccion corriendo en cola, el conteo de paquetes
-    # PGS sufre contencion de I/O brutal sobre la NAS (>10 min y suele
-    # timeout). Phase A lo detecta y lo skipea — el bitrate sintetico
-    # genera labels correctos sin tocar disco.
-    concurrent_job_active = bool(queue_manager.get_status().get("running"))
     try:
         mount_point = await mount_iso(iso_full_path)
         _analyze_progress = {"step": "identify", "done": False}
@@ -469,7 +464,6 @@ async def analyze_iso(body: AnalyzeRequest):
             mount_point,
             log_callback=_progress_callback,
             pgs_progress_callback=_pgs_progress_callback,
-            concurrent_job_active=concurrent_job_active,
         )
     except Exception as e:
         _logger.exception("Error en Fase A para ISO %s", iso_full_path)

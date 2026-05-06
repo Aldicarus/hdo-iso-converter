@@ -766,6 +766,105 @@ def find_main_m2ts(share_path: str) -> str | None:
     return str(max(m2ts_files, key=lambda p: p.stat().st_size))
 
 
+async def count_pgs_packets_ts_parse(
+    m2ts_path: str,
+    sample_bytes: int = 1024 * 1024 * 1024,  # 1 GB por defecto
+    log_callback=None,
+    progress_callback=None,
+) -> dict[int, int]:
+    """Cuenta paquetes TS por PID PGS leyendo el m2ts directamente.
+
+    Por qué este approach en vez de ffprobe:
+        - ffprobe + -read_intervals sobre m2ts UDF (loop mount) tiene un bug:
+          devuelve nb_read_packets=N/A (con -count_packets) o stdout vacio
+          (con -show_packets). Confirmado en multiples repros.
+        - ffprobe full read tarda 1-3 min sin contencion y >10 min bajo
+          contencion de I/O — y suele timeout.
+        - Parsear TS packets directamente es trivial (formato BDAV bien
+          definido), funciona en cualquier FS, y solo necesita leer una
+          fraccion del m2ts (1 GB ~= 80s de video, suficiente muestra
+          estadistica para distinguir forzados de completos).
+
+    Formato BDAV m2ts:
+        - Cada paquete = 192 bytes = 4 bytes ATC timecode + 188 bytes TS
+        - Sync byte 0x47 al offset 4 de cada paquete
+        - PID = ((byte 5 & 0x1F) << 8) | byte 6  (bits 13-25 del header TS)
+
+    Rango de PIDs PGS en BDAV: 0x1200-0x121F.
+
+    Devuelve {idx: count} con idx en orden ascendente de PID — coincide con
+    el orden que mkvmerge usa para enumerar subtitle_tracks. La asignacion
+    posicional al raw_sub.packet_count en el caller funciona como antes.
+
+    Performance: ~5-20s para 1 GB segun contencion. Sin contencion ~5s.
+    Bajo extraccion concurrente fuerte ~20-30s en NAS lentos.
+    """
+    PGS_PID_START = 0x1200
+    PGS_PID_END   = 0x121F
+    M2TS_PACKET   = 192
+    TS_PACKET     = 188
+    SYNC_BYTE     = 0x47
+
+    def _parse_blocking() -> tuple[dict[int, int], int]:
+        counts: dict[int, int] = {}
+        total_read = 0
+        # Leemos en chunks alineados a packet (1024 paquetes = 192 KB).
+        # Buffer mas grande no ayuda (es disk-bound, no CPU-bound).
+        chunk_size = M2TS_PACKET * 1024
+        try:
+            with open(m2ts_path, "rb") as f:
+                while total_read < sample_bytes:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    total_read += len(chunk)
+                    # Parseamos paquete a paquete dentro del chunk
+                    for off in range(0, len(chunk) - M2TS_PACKET + 1, M2TS_PACKET):
+                        # Sync byte al offset +4 (despues del ATC)
+                        if chunk[off + 4] != SYNC_BYTE:
+                            continue
+                        # PID en bytes 5-6 (despues de los 4 bytes de timecode)
+                        pid = ((chunk[off + 5] & 0x1F) << 8) | chunk[off + 6]
+                        if PGS_PID_START <= pid <= PGS_PID_END:
+                            counts[pid] = counts.get(pid, 0) + 1
+        except Exception as e:
+            _logger.warning("TS parse falló sobre %s: %s", m2ts_path, e)
+            return ({}, total_read)
+        return (counts, total_read)
+
+    import time
+    t0 = time.monotonic()
+    counts_by_pid, bytes_read = await asyncio.to_thread(_parse_blocking)
+    elapsed = time.monotonic() - t0
+
+    if log_callback:
+        mb = bytes_read / (1024 * 1024)
+        if counts_by_pid:
+            preview = ", ".join(
+                f"PID 0x{pid:04X}={c}" for pid, c in sorted(counts_by_pid.items())
+            )
+            await log_callback(
+                f"[Fase A] ├─   ✓ TS parse: {len(counts_by_pid)} streams PGS, "
+                f"{mb:.0f} MB leídos en {elapsed:.1f}s — {preview}"
+            )
+        else:
+            await log_callback(
+                f"[Fase A] ├─   ⚠️ TS parse: 0 paquetes PGS encontrados en "
+                f"{mb:.0f} MB ({elapsed:.1f}s) — m2ts sin subtítulos PGS o "
+                "PIDs fuera del rango 0x1200-0x121F"
+            )
+
+    if not counts_by_pid:
+        return {}
+
+    # Mapear PID -> indice posicional. mkvmerge enumera subtitle_tracks en
+    # orden ascendente de PID (verificado en multiples ISOs). Devolvemos
+    # {0: count_pid_min, 1: count_next, ...} para que el caller asigne via
+    # zip() a subtitle_tracks en orden.
+    sorted_pids = sorted(counts_by_pid.keys())
+    return {i: counts_by_pid[pid] for i, pid in enumerate(sorted_pids)}
+
+
 async def run_pgs_packet_counts(
     m2ts_path: str,
     progress_callback=None,
@@ -1317,7 +1416,6 @@ async def run_full_analysis(
     share_path: str,
     log_callback=None,
     pgs_progress_callback=None,
-    concurrent_job_active: bool = False,
 ) -> tuple[BDInfoResult, str, list[dict]]:
     """
     Análisis completo del disco montado:
@@ -1370,48 +1468,32 @@ async def run_full_analysis(
             if log_callback:
                 await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
-        # 3b. Contar paquetes PES de cada subtítulo PGS (ffprobe -show_packets).
-        # Proxy fiable del volumen de subtítulo — permite distinguir forzado,
-        # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de
-        # 60GB con disco libre; bajo contencion de I/O (job de extraccion
-        # corriendo en cola) >10 min y suele timeout. Por eso lo skipeamos
-        # cuando hay job activo — el bitrate sintetico ya genera labels
-        # correctos sin tocar disco.
-        #
-        # Nota: el sampling con -read_intervals no funciona en m2ts UDF
-        # (loop mount), siempre devuelve vacio. Asi que solo usamos full
-        # read y la unica via para no esperar bajo contencion es saltar.
+        # 3b. Contar paquetes TS de cada subtítulo PGS parseando el m2ts
+        # directamente. Reemplaza la antigua llamada a ffprobe que fallaba
+        # con UDF + loop mount (devolvia N/A con -count_packets, vacio con
+        # -show_packets, y bajo contencion de I/O tardaba >10 min).
+        # El TS parser lee solo 1 GB del m2ts (~80s de video, suficiente
+        # muestra), funciona en cualquier FS, sin demux, completa en
+        # 5-20s incluso bajo contencion fuerte.
         pgs_packets: dict[int, int] = {}
-        if concurrent_job_active:
+        try:
             if log_callback:
                 await log_callback(
-                    "[Fase A] ├─   ⏭️  Saltando conteo de paquetes PGS — hay otro job "
-                    "extrayendo ahora (evita 10+ min de contencion de I/O). La "
-                    "heuristica caera al bitrate sintetico, los labels saldran "
-                    "correctos igualmente."
+                    "[Fase A] ├─   Contando paquetes PGS parseando TS del m2ts "
+                    "(1 GB sample, 5-20s)…"
                 )
-        else:
-            try:
-                if log_callback:
-                    await log_callback(
-                        "[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe "
-                        "(read completo, ~1-3 min)…"
-                    )
-                pgs_packets = await run_pgs_packet_counts(
-                    m2ts_path,
-                    progress_callback=pgs_progress_callback,
-                    sample_seconds=None,  # sampling con -read_intervals roto en UDF
-                    total_duration_seconds=bdinfo.duration_seconds or 0,
-                    log_callback=log_callback,
-                )
-            except Exception as e:
-                _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
-                if log_callback:
-                    await log_callback(f"[Fase A] ├─   ⚠️ ffprobe packet count falló (no bloquea): {e}")
+            pgs_packets = await count_pgs_packets_ts_parse(
+                m2ts_path,
+                log_callback=log_callback,
+            )
+        except Exception as e:
+            _logger.warning("TS parse PGS falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] ├─   ⚠️ TS parse falló (no bloquea): {e}")
 
         if pgs_packets:
-            # ffprobe devuelve índices ascendentes; asignamos por posición
-            # a subtitle_tracks (ambos en el mismo orden del m2ts).
+            # Indices ya devueltos en orden ascendente de PID (= orden mkvmerge);
+            # asignamos por posicion a subtitle_tracks.
             sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
             for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
                 raw_sub.packet_count = pc
@@ -1420,18 +1502,7 @@ async def run_full_analysis(
                     f"{s.language[:3]}={s.packet_count}"
                     for s in bdinfo.subtitle_tracks[:12]
                 )
-                await log_callback(f"[Fase A] ├─   ✓ PGS packet counts — {preview}…")
-        elif not concurrent_job_active:
-            # Si saltamos por concurrent_job_active no es un error, ya logueamos
-            # el motivo arriba. Si llegamos aqui con dict vacio sin haber
-            # saltado, el counting se ejecuto pero devolvio nada — caso
-            # silencioso, log diagnostico.
-            if log_callback:
-                await log_callback(
-                    "[Fase A] ├─   ⚠️ ffprobe packet count devolvió vacío "
-                    "— los subtítulos PGS se quedan sin info (heurística de "
-                    "forzados caerá al bitrate). Revisa los logs del container."
-                )
+                await log_callback(f"[Fase A] ├─   ✓ PGS packet counts asignados — {preview}…")
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
