@@ -3842,7 +3842,10 @@ let _sessionsCache = [];
 
 /** Carga todas las sesiones desde GET /api/sessions y las renderiza en el sidebar. */
 async function loadSessions() {
-  const data = await apiFetch('/api/sessions');
+  // silent: refresh background invocado desde WS callbacks, visibilitychange,
+  // tras acciones, etc. Bajo VPN/red flaky un timeout transitorio no es
+  // accionable — el siguiente refresh automatico lo corrige.
+  const data = await apiFetch('/api/sessions', { silent: true });
   if (!data) return;
   _sessionsCache = [...data.sessions];
   // Siempre aplica sort + filter + búsqueda activa
@@ -13132,7 +13135,10 @@ async function cmv40Cleanup(pid) {
 // ── Sidebar Tab 3 ────────────────────────────────────────────────
 
 async function refreshCMv40Sidebar() {
-  const data = await apiFetch('/api/cmv40');
+  // silent: invocado desde WS handlers, _refreshCMv40Session, _cmv40PollPhase
+  // y tras cada accion de fase. Bajo VPN un timeout transitorio no es util —
+  // el siguiente tick (otro mensaje WS o accion del usuario) lo corrige.
+  const data = await apiFetch('/api/cmv40', { silent: true });
   _cmv40SidebarList = data?.sessions || [];
   // Capturar cambio del select de ordenación
   const sortSel = document.getElementById('cmv40-sidebar-sort');
