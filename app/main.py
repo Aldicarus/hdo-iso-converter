@@ -434,17 +434,19 @@ async def analyze_iso(body: AnalyzeRequest):
             analysis_log.append(f"[{ts}] {msg}")
         except Exception:
             analysis_log.append(msg)
-        # Mapear mensajes de log a pasos del modal
+        # Mapear mensajes de log a pasos del modal. Matches especificos
+        # para evitar falsos positivos (ej. el resumen final menciona
+        # "packet_count" pero NO debe disparar el step pgs otra vez).
         msg_l = msg.lower()
-        if "mkvmerge" in msg_l or "identificando" in msg_l:
+        if "paso 1/4" in msg_l or "identificando mpls" in msg_l:
             _analyze_progress = {"step": "identify", "done": False}
-        elif "capítulo" in msg_l:
+        elif "paso 2/4" in msg_l or "extrayendo capítulos" in msg_l:
             _analyze_progress = {"step": "chapters", "done": False}
-        elif "mediainfo" in msg_l:
+        elif "ejecutando mediainfo" in msg_l:
             _analyze_progress = {"step": "mediainfo", "done": False}
-        elif "packet" in msg_l or "paquetes pgs" in msg_l:
+        elif "contando paquetes pgs" in msg_l:
             _analyze_progress = {"step": "pgs", "done": False, "pct": 0, "eta_s": 0}
-        elif "dovi_tool" in msg_l or "dolby vision" in msg_l:
+        elif "paso 4/4" in msg_l or "analizando dolby vision" in msg_l:
             _analyze_progress = {"step": "dovi", "done": False}
 
     # Callback de progreso granular para el step PGS (bytes leídos por ffprobe)

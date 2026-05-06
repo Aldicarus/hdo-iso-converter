@@ -967,6 +967,10 @@ async def count_pgs_packets_ts_parse(
                 return size
         return 192
 
+    # Estado compartido thread<->async para la barra de progreso. Python's
+    # GIL hace los read/write atomicos para tipos simples — no necesita lock.
+    progress_state = {"bytes_read": 0}
+
     def _parse_blocking() -> tuple[dict[int, int], int, int, dict[int, int]]:
         try:
             with open(m2ts_path, "rb") as f:
@@ -1001,6 +1005,7 @@ async def count_pgs_packets_ts_parse(
                 # guardamos remainder para juntar con el siguiente read.
                 buffer = bytearray(first)
                 total_read = len(first)
+                progress_state["bytes_read"] = total_read
                 chunk_size = packet_size * 1024
 
                 while True:
@@ -1015,6 +1020,7 @@ async def count_pgs_packets_ts_parse(
                     if not chunk:
                         break
                     total_read += len(chunk)
+                    progress_state["bytes_read"] = total_read
                     buffer.extend(chunk)
 
                 return (pgs_counts, total_read, packet_size, all_non_av)
@@ -1024,7 +1030,48 @@ async def count_pgs_packets_ts_parse(
 
     import time
     t0 = time.monotonic()
-    pgs_counts, bytes_read, packet_size, all_non_av = await asyncio.to_thread(_parse_blocking)
+
+    # Monitor task: cada 0.5s lee progress_state y emite progress_callback
+    # con el % aproximado. Se cancela cuando _parse_blocking termina.
+    async def _monitor() -> None:
+        while True:
+            try:
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                return
+            if not progress_callback:
+                continue
+            br = progress_state.get("bytes_read", 0)
+            if br <= 0:
+                continue
+            pct = min(99.0, (br / sample_bytes) * 100.0)
+            elapsed_s = time.monotonic() - t0
+            eta = 0
+            if pct > 1:
+                eta = int((elapsed_s / pct) * (100.0 - pct))
+            try:
+                await progress_callback(pct, eta)
+            except Exception:
+                pass
+
+    monitor_task = asyncio.create_task(_monitor()) if progress_callback else None
+    try:
+        pgs_counts, bytes_read, packet_size, all_non_av = await asyncio.to_thread(_parse_blocking)
+    finally:
+        if monitor_task:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    # Emitir 100% al terminar para que la barra cierre limpiamente
+    if progress_callback:
+        try:
+            await progress_callback(100.0, 0)
+        except Exception:
+            pass
+
     elapsed = time.monotonic() - t0
 
     # ¿Encontramos al menos un paquete? (counts inicializados a 0 cuentan
@@ -1723,6 +1770,7 @@ async def run_full_analysis(
             pgs_packets = await count_pgs_packets_ts_parse(
                 m2ts_path,
                 log_callback=log_callback,
+                progress_callback=pgs_progress_callback,
                 pid_list=pid_list,
             )
         except Exception as e:

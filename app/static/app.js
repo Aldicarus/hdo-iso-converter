@@ -3617,11 +3617,15 @@ async function _doAnalyzeISO(isoPath, isoName) {
       if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
         const prevIdx = steps.indexOf(lastStep);
         const newIdx = steps.indexOf(prog.step);
-        for (let i = prevIdx; i < newIdx; i++) {
-          _advanceAnalyzeStep(steps[i], steps[i + 1]);
+        // Solo avanzar — ignorar backward transitions (pueden ocurrir si un
+        // log tardio contiene una keyword que matchea un step anterior).
+        if (newIdx > prevIdx) {
+          for (let i = prevIdx; i < newIdx; i++) {
+            _advanceAnalyzeStep(steps[i], steps[i + 1]);
+          }
+          lastStep = prog.step;
+          stepStartTs = Date.now();
         }
-        lastStep = prog.step;
-        stepStartTs = Date.now();
       }
       // Paso PGS: barra de progreso real basada en bytes leídos por ffprobe
       if (lastStep === 'pgs') {
