@@ -805,21 +805,21 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
         if pi_end > len(data):
             return [], f"PlayItem length {pi_length} excede file"
 
-        # PlayItem header layout:
+        # PlayItem header layout (segun spec BDA-016 + lerks/BluRay wiki):
         # +0..4   Clip_Information_file_name (5)
         # +5..8   Clip_codec_identifier (4)
         # +9..10  flags16: bits[15..5]=reserved, [4]=is_multi_angle, [3..0]=connection_cond
         # +11     ref_to_STC_id (1)
         # +12..15 IN_time (4)
         # +16..19 OUT_time (4)
-        # +20..31 UO_mask_table (12)
-        # +32     flags8
-        # +33     still_mode
-        # +34..35 still_time (2)
-        # Total fixed: 36 bytes
+        # +20..27 UO_mask_table (8)  ← 8 bytes (no 12), bug critico anterior
+        # +28     flags8 (random_access + reserved)
+        # +29     still_mode
+        # +30..31 still_time (2)
+        # Total fixed: 32 bytes
         flags16 = int.from_bytes(data[p + 9:p + 11], "big")
         is_multi_angle = (flags16 >> 4) & 0x1
-        p += 36
+        p += 32
 
         if is_multi_angle:
             n_angles = data[p]
@@ -926,9 +926,11 @@ async def count_pgs_packets_ts_parse(
     SYNC_BYTE = 0x47
 
     # Si MPLS nos da la lista de PIDs, usamos esa (autoritativa). Si no,
-    # caemos al rango BDAV PGS por defecto.
+    # caemos al rango PGS extendido. Spec BDA-016 dice 0x1200-0x121F (32
+    # max) pero discos reales usan PIDs hasta 0x12FF — verificado con
+    # disco "28 anos despues" que usa 0x12A0-0x12AA. Ampliamos fallback.
     PGS_PID_START_FALLBACK = 0x1200
-    PGS_PID_END_FALLBACK   = 0x121F
+    PGS_PID_END_FALLBACK   = 0x12FF
 
     has_pid_list = bool(pid_list)
     target_pids = set(pid_list or [])
@@ -1056,7 +1058,7 @@ async def count_pgs_packets_ts_parse(
             top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
             await log_callback(
                 f"[Fase A] ├─   ⚠️ TS parse ({packet_size}B/pkt): 0 paquetes en "
-                f"PGS range (0x1200-0x121F) tras {mb:.0f} MB ({elapsed:.1f}s). "
+                f"PGS range (0x1200-0x12FF) tras {mb:.0f} MB ({elapsed:.1f}s). "
                 f"Top PIDs no-AV detectados: {top_str}. Si los subtítulos están "
                 "ahí pero en otro rango, hay que ampliar AV_PID_RANGES o el rango PGS."
             )
@@ -1704,7 +1706,7 @@ async def run_full_analysis(
                 else:
                     await log_callback(
                         f"[Fase A] ├─   ⚠️ MPLS sin streams PGS (motivo: {mpls_err or 'n_pg=0'}) "
-                        "— TS parser caerá al rango por defecto 0x1200-0x121F."
+                        "— TS parser caerá al rango por defecto 0x1200-0x12FF."
                     )
         except Exception as e:
             _logger.warning("MPLS parse falló (no bloquea): %s", e)
