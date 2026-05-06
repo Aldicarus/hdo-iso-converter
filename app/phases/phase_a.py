@@ -1312,6 +1312,7 @@ async def run_full_analysis(
     share_path: str,
     log_callback=None,
     pgs_progress_callback=None,
+    concurrent_job_active: bool = False,
 ) -> tuple[BDInfoResult, str, list[dict]]:
     """
     Análisis completo del disco montado:
@@ -1364,54 +1365,68 @@ async def run_full_analysis(
             if log_callback:
                 await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
-        # 3b. Contar paquetes PES de cada subtítulo PGS (ffprobe -count_packets).
+        # 3b. Contar paquetes PES de cada subtítulo PGS (ffprobe -show_packets).
         # Proxy fiable del volumen de subtítulo — permite distinguir forzado,
-        # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de 60GB.
-        try:
+        # completo y audiodescripción con precisión. Tarda 1-3 min en m2ts de
+        # 60GB con disco libre; bajo contencion de I/O (job de extraccion
+        # corriendo en cola) >10 min y suele timeout. Por eso lo skipeamos
+        # cuando hay job activo — el bitrate sintetico ya genera labels
+        # correctos sin tocar disco.
+        #
+        # Nota: el sampling con -read_intervals no funciona en m2ts UDF
+        # (loop mount), siempre devuelve vacio. Asi que solo usamos full
+        # read y la unica via para no esperar bajo contencion es saltar.
+        pgs_packets: dict[int, int] = {}
+        if concurrent_job_active:
             if log_callback:
-                dur_min = (bdinfo.duration_seconds or 0) / 60.0
-                if dur_min > 25:
-                    await log_callback(
-                        f"[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe "
-                        f"(muestra 20 min de {dur_min:.0f} min, ~15-30s)…"
-                    )
-                else:
-                    await log_callback("[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe…")
-            pgs_packets = await run_pgs_packet_counts(
-                m2ts_path,
-                progress_callback=pgs_progress_callback,
-                total_duration_seconds=bdinfo.duration_seconds or 0,
-                log_callback=log_callback,
-            )
-            if pgs_packets:
-                # ffprobe devuelve índices ascendentes; asignamos por posición
-                # a subtitle_tracks (ambos en el mismo orden del m2ts).
-                sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
-                for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
-                    raw_sub.packet_count = pc
-                if log_callback:
-                    preview = ", ".join(
-                        f"{s.language[:3]}={s.packet_count}"
-                        for s in bdinfo.subtitle_tracks[:12]
-                    )
-                    await log_callback(f"[Fase A] ├─   ✓ PGS packet counts — {preview}…")
-            else:
-                # Caso silencioso: ffprobe devolvió {} pero el caller no se entera
-                # — la lista de subtítulos se queda con packet_count=0 y la
-                # heurística forzados/completos cae al fallback por bitrate.
-                # Logueamos explícitamente para diagnóstico.
+                await log_callback(
+                    "[Fase A] ├─   ⏭️  Saltando conteo de paquetes PGS — hay otro job "
+                    "extrayendo ahora (evita 10+ min de contencion de I/O). La "
+                    "heuristica caera al bitrate sintetico, los labels saldran "
+                    "correctos igualmente."
+                )
+        else:
+            try:
                 if log_callback:
                     await log_callback(
-                        "[Fase A] ├─   ⚠️ ffprobe packet count devolvió vacío "
-                        "— los subtítulos PGS se quedan sin info (heurística de "
-                        "forzados caerá al bitrate). Posibles causas: ffprobe "
-                        "abortado, contención de I/O con otro job, m2ts no "
-                        "legible. Revisa los logs del container."
+                        "[Fase A] ├─   Contando paquetes PGS por subtítulo con ffprobe "
+                        "(read completo, ~1-3 min)…"
                     )
-        except Exception as e:
-            _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
+                pgs_packets = await run_pgs_packet_counts(
+                    m2ts_path,
+                    progress_callback=pgs_progress_callback,
+                    sample_seconds=None,  # sampling con -read_intervals roto en UDF
+                    total_duration_seconds=bdinfo.duration_seconds or 0,
+                    log_callback=log_callback,
+                )
+            except Exception as e:
+                _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
+                if log_callback:
+                    await log_callback(f"[Fase A] ├─   ⚠️ ffprobe packet count falló (no bloquea): {e}")
+
+        if pgs_packets:
+            # ffprobe devuelve índices ascendentes; asignamos por posición
+            # a subtitle_tracks (ambos en el mismo orden del m2ts).
+            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
+            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
+                raw_sub.packet_count = pc
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ⚠️ ffprobe packet count falló (no bloquea): {e}")
+                preview = ", ".join(
+                    f"{s.language[:3]}={s.packet_count}"
+                    for s in bdinfo.subtitle_tracks[:12]
+                )
+                await log_callback(f"[Fase A] ├─   ✓ PGS packet counts — {preview}…")
+        elif not concurrent_job_active:
+            # Si saltamos por concurrent_job_active no es un error, ya logueamos
+            # el motivo arriba. Si llegamos aqui con dict vacio sin haber
+            # saltado, el counting se ejecuto pero devolvio nada — caso
+            # silencioso, log diagnostico.
+            if log_callback:
+                await log_callback(
+                    "[Fase A] ├─   ⚠️ ffprobe packet count devolvió vacío "
+                    "— los subtítulos PGS se quedan sin info (heurística de "
+                    "forzados caerá al bitrate). Revisa los logs del container."
+                )
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
