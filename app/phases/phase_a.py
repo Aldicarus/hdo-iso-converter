@@ -906,16 +906,21 @@ async def run_pgs_packet_counts(
                 )
             return {}
         # Output de -show_packets: una linea por paquete con su stream_index.
-        # Tally en codigo evita depender del bug de -count_packets+UDF.
+        # En m2ts el csv=p=0 concatena stream_index + side_data_list inline
+        # ("10MPEGTS Stream ID" en vez de solo "10"), asi que extraemos solo
+        # los digitos iniciales de cada linea con regex. Tally en codigo
+        # evita el bug de -count_packets+UDF (devolvia N/A).
+        import re as _re
+        _idx_re = _re.compile(r"^(\d+)")
         result: dict[int, int] = {}
         for line in stdout_text.splitlines():
             s = line.strip()
             if not s:
                 continue
-            try:
-                idx = int(s)
-            except ValueError:
+            m = _idx_re.match(s)
+            if not m:
                 continue
+            idx = int(m.group(1))
             result[idx] = result.get(idx, 0) + 1
         # Aplicar escalado al final (una pasada). Sampling preserva la
         # cadencia (pkts/sec) y mantiene los umbrales absolutos de phase_b
