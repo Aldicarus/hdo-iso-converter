@@ -4542,6 +4542,12 @@ def _resolve_app_version() -> dict:
     # Tagged exacto: 'vX.Y.Z' (semver puro, sin sufijo de commits/dirty)
     is_tagged = bool(_re_version.match(r"^v?\d+\.\d+\.\d+$", version))
     is_dev = not is_tagged
+    # Distinto de is_dev: refleja el flag DEV_MODE de runtime (fixtures
+    # activos, ./run_local.sh, etc.). Builds en NAS post-tag (commits despues
+    # del ultimo release) tienen is_dev=True pero NO is_dev_mode=True — ahi
+    # NO queremos exponer tooling de simulacion de versiones.
+    from dev_fixtures import DEV_MODE as _DEV_MODE_FLAG
+    is_dev_mode = bool(_DEV_MODE_FLAG)
 
     info = {
         "version": version,
@@ -4550,6 +4556,7 @@ def _resolve_app_version() -> dict:
         "is_tagged": is_tagged,
         "is_dirty": is_dirty,
         "is_dev": is_dev,
+        "is_dev_mode": is_dev_mode,
     }
     _VERSION_CACHE["value"] = info
     return info

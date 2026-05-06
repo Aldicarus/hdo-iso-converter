@@ -1002,10 +1002,12 @@ async function _renderVersionInfo() {
     <strong>${escHtml(versionLabel)}</strong><span style="color:var(--text-3); font-size:11.5px">${escHtml(commitTxt + dirtyTxt)}</span>`;
   pill.className = 'settings-version-pill ' + pillCls;
   pill.textContent = pillTxt;
-  // Mostrar input de simulación SOLO en dev (cuando no es release tagged)
+  // Mostrar input de simulación SOLO con DEV_MODE=1 en runtime (no basta
+  // con que la version sea post-tag tipo v2.1.6-1-gXXXX — eso pasa en
+  // builds de produccion en NAS si rebuilds despues del ultimo tag).
   const simBox = document.getElementById('settings-version-simulate');
   if (simBox) {
-    simBox.style.display = data.is_dev ? 'flex' : 'none';
+    simBox.style.display = data.is_dev_mode ? 'flex' : 'none';
     const simInput = document.getElementById('settings-version-simulate-input');
     if (simInput) simInput.value = localStorage.getItem('hdo_simulate_version') || '';
   }
