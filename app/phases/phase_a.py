@@ -768,7 +768,7 @@ def find_main_m2ts(share_path: str) -> str | None:
 
 async def count_pgs_packets_ts_parse(
     m2ts_path: str,
-    sample_bytes: int = 1024 * 1024 * 1024,  # 1 GB por defecto
+    sample_bytes: int = 4 * 1024 * 1024 * 1024,  # 4 GB por defecto (~5 min de video)
     log_callback=None,
     progress_callback=None,
 ) -> dict[int, int]:
@@ -780,89 +780,134 @@ async def count_pgs_packets_ts_parse(
           (con -show_packets). Confirmado en multiples repros.
         - ffprobe full read tarda 1-3 min sin contencion y >10 min bajo
           contencion de I/O — y suele timeout.
-        - Parsear TS packets directamente es trivial (formato BDAV bien
-          definido), funciona en cualquier FS, y solo necesita leer una
-          fraccion del m2ts (1 GB ~= 80s de video, suficiente muestra
-          estadistica para distinguir forzados de completos).
+        - Parsear TS packets directamente es trivial, funciona en cualquier
+          FS, sin demux, sin deps externas, y muestra fija pequeña (~4 GB).
 
-    Formato BDAV m2ts:
-        - Cada paquete = 192 bytes = 4 bytes ATC timecode + 188 bytes TS
-        - Sync byte 0x47 al offset 4 de cada paquete
-        - PID = ((byte 5 & 0x1F) << 8) | byte 6  (bits 13-25 del header TS)
+    Formatos soportados:
+        - BDAV m2ts (192 bytes/paquete): 4 bytes ATC + 188 bytes TS
+        - Standard TS (188 bytes/paquete): sync byte directo en offset 0
+        Auto-detectado mirando los primeros 4 KB.
 
-    Rango de PIDs PGS en BDAV: 0x1200-0x121F.
+    PID en TS header bits 13-25: ((byte1 & 0x1F) << 8) | byte2.
+
+    Rango PGS en BDAV: 0x1200-0x121F. Si no encuentra nada en ese rango
+    devuelve los top N PIDs no-AV detectados (para que el caller pueda
+    decidir o que el log muestre que es lo que hay).
 
     Devuelve {idx: count} con idx en orden ascendente de PID — coincide con
-    el orden que mkvmerge usa para enumerar subtitle_tracks. La asignacion
-    posicional al raw_sub.packet_count en el caller funciona como antes.
+    el orden que mkvmerge usa para enumerar subtitle_tracks.
 
-    Performance: ~5-20s para 1 GB segun contencion. Sin contencion ~5s.
-    Bajo extraccion concurrente fuerte ~20-30s en NAS lentos.
+    Performance: ~5-30s para 4 GB segun contencion.
     """
     PGS_PID_START = 0x1200
     PGS_PID_END   = 0x121F
-    M2TS_PACKET   = 192
-    TS_PACKET     = 188
     SYNC_BYTE     = 0x47
+    # PIDs que NO queremos contar como subtitle (video, audio, IG, PCR, etc.)
+    # Asi si tenemos que listar top no-AV, excluimos bien.
+    AV_PID_RANGES = [
+        (0x0000, 0x000F),  # PAT/PMT/CAT
+        (0x0100, 0x010F),  # bdmv overlay
+        (0x1000, 0x101F),  # video (BL+EL)
+        (0x1100, 0x111F),  # primary audio
+        (0x1A00, 0x1A1F),  # secondary audio
+        (0x1B00, 0x1B1F),  # secondary video
+        (0x1FFF, 0x1FFF),  # null
+    ]
 
-    def _parse_blocking() -> tuple[dict[int, int], int]:
-        counts: dict[int, int] = {}
-        total_read = 0
-        # Leemos en chunks alineados a packet (1024 paquetes = 192 KB).
-        # Buffer mas grande no ayuda (es disk-bound, no CPU-bound).
-        chunk_size = M2TS_PACKET * 1024
+    def _is_av_pid(pid: int) -> bool:
+        return any(lo <= pid <= hi for lo, hi in AV_PID_RANGES)
+
+    def _detect_packet_size(buf: bytes) -> int:
+        """Devuelve 192 (BDAV) o 188 (standard TS) buscando sync bytes
+        consecutivos. Si no se encuentra ninguno fiable, asume 192."""
+        for size in (192, 188):
+            sync_off = 4 if size == 192 else 0
+            # Necesitamos al menos 3 paquetes consecutivos con sync correcto
+            ok = True
+            for i in range(3):
+                pos = sync_off + i * size
+                if pos >= len(buf) or buf[pos] != SYNC_BYTE:
+                    ok = False
+                    break
+            if ok:
+                return size
+        return 192  # fallback
+
+    def _parse_blocking() -> tuple[dict[int, int], int, int, dict[int, int]]:
+        """Devuelve (pgs_counts, bytes_read, packet_size, all_non_av_counts)."""
         try:
             with open(m2ts_path, "rb") as f:
+                head = f.read(4096)
+                packet_size = _detect_packet_size(head)
+                sync_off = 4 if packet_size == 192 else 0
+
+                pgs_counts: dict[int, int] = {}
+                all_non_av: dict[int, int] = {}
+                total_read = len(head)
+
+                # Procesa el head ya leido
+                def _scan(buf: bytes):
+                    for off in range(0, len(buf) - packet_size + 1, packet_size):
+                        if buf[off + sync_off] != SYNC_BYTE:
+                            continue
+                        b1 = buf[off + sync_off + 1]
+                        b2 = buf[off + sync_off + 2]
+                        pid = ((b1 & 0x1F) << 8) | b2
+                        if _is_av_pid(pid):
+                            continue
+                        all_non_av[pid] = all_non_av.get(pid, 0) + 1
+                        if PGS_PID_START <= pid <= PGS_PID_END:
+                            pgs_counts[pid] = pgs_counts.get(pid, 0) + 1
+
+                _scan(head)
+
+                # Lectura iterativa del resto, alineado a packet
+                chunk_size = packet_size * 1024  # ~192 KB
                 while total_read < sample_bytes:
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
                     total_read += len(chunk)
-                    # Parseamos paquete a paquete dentro del chunk
-                    for off in range(0, len(chunk) - M2TS_PACKET + 1, M2TS_PACKET):
-                        # Sync byte al offset +4 (despues del ATC)
-                        if chunk[off + 4] != SYNC_BYTE:
-                            continue
-                        # PID en bytes 5-6 (despues de los 4 bytes de timecode)
-                        pid = ((chunk[off + 5] & 0x1F) << 8) | chunk[off + 6]
-                        if PGS_PID_START <= pid <= PGS_PID_END:
-                            counts[pid] = counts.get(pid, 0) + 1
+                    _scan(chunk)
+                return (pgs_counts, total_read, packet_size, all_non_av)
         except Exception as e:
             _logger.warning("TS parse falló sobre %s: %s", m2ts_path, e)
-            return ({}, total_read)
-        return (counts, total_read)
+            return ({}, 0, 0, {})
 
     import time
     t0 = time.monotonic()
-    counts_by_pid, bytes_read = await asyncio.to_thread(_parse_blocking)
+    pgs_counts, bytes_read, packet_size, all_non_av = await asyncio.to_thread(_parse_blocking)
     elapsed = time.monotonic() - t0
 
     if log_callback:
         mb = bytes_read / (1024 * 1024)
-        if counts_by_pid:
+        if pgs_counts:
             preview = ", ".join(
-                f"PID 0x{pid:04X}={c}" for pid, c in sorted(counts_by_pid.items())
+                f"PID 0x{pid:04X}={c}" for pid, c in sorted(pgs_counts.items())
             )
             await log_callback(
-                f"[Fase A] ├─   ✓ TS parse: {len(counts_by_pid)} streams PGS, "
-                f"{mb:.0f} MB leídos en {elapsed:.1f}s — {preview}"
+                f"[Fase A] ├─   ✓ TS parse ({packet_size}B/pkt): "
+                f"{len(pgs_counts)} streams PGS en {mb:.0f} MB ({elapsed:.1f}s) "
+                f"— {preview}"
             )
         else:
+            # Diagnostico: top 10 PIDs no-AV detectados (los reales subs estan ahi)
+            top_pids = sorted(all_non_av.items(), key=lambda kv: -kv[1])[:10]
+            top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
             await log_callback(
-                f"[Fase A] ├─   ⚠️ TS parse: 0 paquetes PGS encontrados en "
-                f"{mb:.0f} MB ({elapsed:.1f}s) — m2ts sin subtítulos PGS o "
-                "PIDs fuera del rango 0x1200-0x121F"
+                f"[Fase A] ├─   ⚠️ TS parse ({packet_size}B/pkt): 0 paquetes en "
+                f"PGS range (0x1200-0x121F) tras {mb:.0f} MB ({elapsed:.1f}s). "
+                f"Top PIDs no-AV detectados: {top_str}. Si los subtítulos están "
+                "ahí pero en otro rango, hay que ampliar AV_PID_RANGES o el rango PGS."
             )
 
-    if not counts_by_pid:
+    if not pgs_counts:
         return {}
 
     # Mapear PID -> indice posicional. mkvmerge enumera subtitle_tracks en
-    # orden ascendente de PID (verificado en multiples ISOs). Devolvemos
-    # {0: count_pid_min, 1: count_next, ...} para que el caller asigne via
-    # zip() a subtitle_tracks en orden.
-    sorted_pids = sorted(counts_by_pid.keys())
-    return {i: counts_by_pid[pid] for i, pid in enumerate(sorted_pids)}
+    # orden ascendente de PID. Devolvemos {0: count_pid_min, 1: count_next, ...}
+    sorted_pids = sorted(pgs_counts.keys())
+    return {i: pgs_counts[pid] for i, pid in enumerate(sorted_pids)}
 
 
 async def run_pgs_packet_counts(
