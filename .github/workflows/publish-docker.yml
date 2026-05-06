@@ -75,6 +75,10 @@ jobs:
             org.opencontainers.image.description=${{ steps.rel.outputs.description }}
             org.opencontainers.image.title=HDO ISO Converter
             org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
+          annotations: |
+            manifest:org.opencontainers.image.description=${{ steps.rel.outputs.description }}
+            manifest:org.opencontainers.image.title=HDO ISO Converter
+            manifest:org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -85,6 +89,7 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           # Bake version y commit en la imagen para que /api/version
           # reporte el tag real en vez de 'dev / unknown'.
           build-args: |
