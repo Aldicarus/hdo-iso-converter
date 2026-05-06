@@ -891,8 +891,10 @@ async def run_pgs_packet_counts(
                 except Exception:
                     pass
 
+        stdout_text = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace").strip()
         if proc.returncode != 0:
-            stderr_msg = stderr.decode()[:200].strip() or "(stderr vacío)"
+            stderr_msg = stderr_text[:200] or "(stderr vacío)"
             _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr_msg)
             if log_callback:
                 await log_callback(
@@ -900,7 +902,7 @@ async def run_pgs_packet_counts(
                 )
             return {}
         result: dict[int, int] = {}
-        for line in stdout.decode("utf-8", errors="replace").splitlines():
+        for line in stdout_text.splitlines():
             parts = line.strip().split(",")
             if len(parts) >= 2:
                 try:
@@ -917,6 +919,21 @@ async def run_pgs_packet_counts(
                 "PGS count sampling: %ds de %ds (scale ×%.2f), resultados extrapolados",
                 sample_seconds, int(total_duration_seconds), scale_factor,
             )
+        # Caso silencioso: rc=0 pero result vacio. Suele pasar bajo contencion
+        # de I/O en la NAS — ffprobe no encuentra streams o el seek al sample
+        # no devuelve nada, sin que esto cuente como error formal. Logueamos
+        # stdout/stderr para que la siguiente repro tenga datos accionables.
+        if not result:
+            stdout_preview = stdout_text[:300].replace("\n", "\\n") or "(vacio)"
+            stderr_preview = stderr_text[:300] or "(vacio)"
+            _logger.warning(
+                "ffprobe packet count rc=0 pero result vacio. stdout=%r stderr=%r",
+                stdout_preview, stderr_preview,
+            )
+            if log_callback:
+                await log_callback(
+                    f"[Fase A] ├─   diag: rc=0, stdout={stdout_preview}, stderr={stderr_preview}"
+                )
         return result
     except asyncio.TimeoutError:
         _logger.warning("ffprobe packet count: timeout tras 10 min")
