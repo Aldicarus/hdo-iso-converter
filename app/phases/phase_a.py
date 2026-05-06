@@ -919,10 +919,13 @@ async def run_pgs_packet_counts(
                 "PGS count sampling: %ds de %ds (scale ×%.2f), resultados extrapolados",
                 sample_seconds, int(total_duration_seconds), scale_factor,
             )
-        # Caso silencioso: rc=0 pero result vacio. Suele pasar bajo contencion
-        # de I/O en la NAS — ffprobe no encuentra streams o el seek al sample
-        # no devuelve nada, sin que esto cuente como error formal. Logueamos
-        # stdout/stderr para que la siguiente repro tenga datos accionables.
+        # Caso silencioso: rc=0 pero result vacio. Causa diagnosticada en
+        # repro: cuando do_sample=True con -read_intervals 0%N, ffprobe
+        # imprime las streams pero deja nb_read_packets=N/A para todas
+        # — el demux dentro del intervalo no se ejecuta correctamente con
+        # PGS en m2ts UDF (bug conocido de ffprobe 4.4 + loop mount). Si
+        # la lectura completa estaba en juego, retry una sola vez sin
+        # sampling. Mas lento (~3 min en m2ts de 60GB) pero fiable.
         if not result:
             stdout_preview = stdout_text[:300].replace("\n", "\\n") or "(vacio)"
             stderr_preview = stderr_text[:300] or "(vacio)"
@@ -933,6 +936,19 @@ async def run_pgs_packet_counts(
             if log_callback:
                 await log_callback(
                     f"[Fase A] ├─   diag: rc=0, stdout={stdout_preview}, stderr={stderr_preview}"
+                )
+            if do_sample:
+                if log_callback:
+                    await log_callback(
+                        "[Fase A] ├─   retry: sampling devolvió N/A (bug ffprobe + UDF), "
+                        "reintentando con read completo (~1-3 min)…"
+                    )
+                return await run_pgs_packet_counts(
+                    m2ts_path=m2ts_path,
+                    progress_callback=progress_callback,
+                    sample_seconds=None,  # desactiva sampling
+                    total_duration_seconds=total_duration_seconds,
+                    log_callback=log_callback,
                 )
         return result
     except asyncio.TimeoutError:
