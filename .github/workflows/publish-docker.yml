@@ -65,22 +65,14 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
-        # Hace que los labels custom se propaguen como annotations en el
-        # manifest. Sin esto, las annotations se generan con la repo
-        # description default y la nuestra del label se ignora a nivel
-        # manifiesto (que es lo que GHCR muestra en la pagina del package).
-        env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.rel.outputs.tag }}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest
-          # Override de defaults: estos labels reemplazan los auto-generados
-          # del action (description default = repo description). Al estar
-          # habilitado DOCKER_METADATA_ANNOTATIONS_LEVELS=manifest, tambien
-          # se exponen como annotations del manifiesto OCI.
+          # Override defaults: el label description usa nuestras notas en
+          # vez de la descripcion del repo.
           labels: |
             org.opencontainers.image.description=${{ steps.rel.outputs.description }}
             org.opencontainers.image.title=HDO ISO Converter
@@ -95,7 +87,14 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          annotations: ${{ steps.meta.outputs.annotations }}
+          # Bypass del annotation auto-gen del metadata-action (siempre
+          # forzaba la repo description). Pasamos annotations explicitas
+          # al build-push-action — gana lo ultimo definido.
+          annotations: |
+            manifest:org.opencontainers.image.description=${{ steps.rel.outputs.description }}
+            manifest:org.opencontainers.image.title=HDO ISO Converter
+            manifest:org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
+            manifest:org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
           # Bake version y commit en la imagen para que /api/version
           # reporte el tag real en vez de 'dev / unknown'.
           build-args: |
