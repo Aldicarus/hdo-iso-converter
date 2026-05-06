@@ -4702,12 +4702,21 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
             if age < _UPDATE_CHECK_TTL_S:
                 latest = cached_data.get("latest", "")
                 update_available = bool(latest) and _semver_gt(latest, current)
+                # Filtra pending_releases del cache para los > current
+                # (porque el cache se hizo en otro momento, current cambia)
+                cached_pending = cached_data.get("pending_releases", []) or []
+                cur_t = _semver_tuple(current)
+                pending_releases_filtered = [
+                    r for r in cached_pending
+                    if _semver_tuple(r.get("tag", "")) > cur_t
+                ]
                 return {
                     "current": current,
                     "latest": latest,
                     "update_available": update_available and latest != ignored_version,
                     "release_url": cached_data.get("release_url", ""),
                     "release_notes": cached_data.get("release_notes", ""),
+                    "pending_releases": pending_releases_filtered,
                     "published_at": cached_data.get("published_at", ""),
                     "checked_at": cached_data.get("checked_at", ""),
                     "cached": True,
@@ -4718,11 +4727,11 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
             cached_data = None
 
     # Fetch fresh desde GitHub. Estrategia:
-    # 1. /releases/latest — preferido por traer release_notes, pero solo
-    #    funciona si el usuario formalizó releases (no solo tags).
-    # 2. /tags fallback — siempre devuelve los tags push'eados via git.
-    # Combinado: probamos releases primero, si vacio/404 caemos a tags y
-    # opcionalmente intentamos /releases/tags/{name} para conseguir notas.
+    # 1. /releases?per_page=30 — preferido. Una sola llamada trae notas
+    #    de TODOS los releases publicados, incluyendo intermedios entre
+    #    current y latest. Permite mostrar el changelog completo pendiente.
+    # 2. /tags fallback — si no hay releases formales, listamos tags y
+    #    no hay notas que mostrar.
     import httpx
     repo = "Aldicarus/hdo-iso-converter"
     data = {}
@@ -4730,28 +4739,55 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
     release_url_str = ""
     published_at_str = ""
     latest_tag = ""
+    pending_releases: list[dict] = []
     fetch_error = None
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {"Accept": "application/vnd.github+json"}
 
-            # Intento 1: /releases/latest
+            # Intento 1: /releases (lista completa con notas)
             try:
                 resp = await client.get(
-                    f"https://api.github.com/repos/{repo}/releases/latest",
+                    f"https://api.github.com/repos/{repo}/releases?per_page=30",
                     headers=headers,
                 )
                 if resp.status_code == 200:
-                    rdata = resp.json()
-                    latest_tag = rdata.get("tag_name", "") or ""
-                    release_url_str = rdata.get("html_url", "") or ""
-                    release_notes_str = rdata.get("body", "") or ""
-                    published_at_str = rdata.get("published_at", "") or ""
+                    releases_list = resp.json() or []
+                    # Filtrar a tags semver, no draft, no prerelease
+                    semver_releases = []
+                    for r in releases_list:
+                        if r.get("draft") or r.get("prerelease"):
+                            continue
+                        tag = (r.get("tag_name") or "").strip()
+                        if _re_version.match(r"^v?\d+\.\d+\.\d+$", tag):
+                            semver_releases.append({
+                                "tag": tag,
+                                "body": r.get("body", "") or "",
+                                "url": r.get("html_url", "") or "",
+                                "published_at": r.get("published_at", "") or "",
+                            })
+                    semver_releases.sort(key=lambda r: _semver_tuple(r["tag"]), reverse=True)
+                    if semver_releases:
+                        top = semver_releases[0]
+                        latest_tag = top["tag"]
+                        release_url_str = top["url"]
+                        release_notes_str = top["body"]
+                        published_at_str = top["published_at"]
+
+                        # Pending = todos los releases > current. Persistimos
+                        # los TOP 30 (el filtro por current se aplica en cada
+                        # call al cache para que sirva a clientes con distintas
+                        # versiones instaladas).
+                        cur_t = _semver_tuple(current)
+                        pending_releases = [
+                            r for r in semver_releases
+                            if _semver_tuple(r["tag"]) > cur_t
+                        ]
             except Exception:
                 pass
 
-            # Intento 2: /tags si /releases/latest no dio nada (lo más comun
-            # para repos que solo tagean via `git tag` sin crear Releases)
+            # Intento 2: /tags si /releases no dio nada (lo más comun para
+            # repos que solo tagean via `git tag` sin crear Releases)
             if not latest_tag:
                 resp_tags = await client.get(
                     f"https://api.github.com/repos/{repo}/tags?per_page=30",
@@ -4759,7 +4795,6 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                 )
                 resp_tags.raise_for_status()
                 tags_list = resp_tags.json() or []
-                # Filtrar a semver tags y ordenar desc
                 semver_tags = []
                 for t in tags_list:
                     name = (t.get("name") or "").strip()
@@ -4770,24 +4805,12 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                     latest_tag = semver_tags[0]
                     release_url_str = f"https://github.com/{repo}/releases/tag/{latest_tag}"
 
-                    # Bonus: si hay un Release formal para ESE tag, extraer notas
-                    try:
-                        rn_resp = await client.get(
-                            f"https://api.github.com/repos/{repo}/releases/tags/{latest_tag}",
-                            headers=headers,
-                        )
-                        if rn_resp.status_code == 200:
-                            rn_data = rn_resp.json()
-                            release_notes_str = rn_data.get("body", "") or ""
-                            published_at_str = rn_data.get("published_at", "") or ""
-                    except Exception:
-                        pass
-
             data = {
                 "tag_name": latest_tag,
                 "html_url": release_url_str,
                 "body": release_notes_str,
                 "published_at": published_at_str,
+                "pending_releases": pending_releases,
             }
     except Exception as e:
         fetch_error = e
@@ -4825,19 +4848,35 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
     release_url = data.get("html_url", "") or ""
     release_notes = data.get("body", "") or ""
     published_at = data.get("published_at", "") or ""
+    pending_releases_resp = data.get("pending_releases", []) or []
     checked_at = datetime.now(timezone.utc).isoformat()
     update_available = bool(latest) and _semver_gt(latest, current)
 
     # Persiste cache solo si no estamos simulando (evita contaminar el cache
-    # real con valores mock)
+    # real con valores mock). Cache TODOS los releases recientes (no solo
+    # pending) para que clientes con distintos current puedan filtrar luego.
     if not simulated:
         try:
+            # Para el cache, almacenamos TODOS los releases recientes — no
+            # solo los pending. Asi el filtro por current se hace en lectura
+            # (un mismo cache sirve a NAS con v2.1.5 y v2.1.7).
+            cache_pending_full: list[dict] = []
+            try:
+                # Reusa la lista que obtuvimos arriba si esta poblada (la
+                # filtramos por > current al rellenar pending_releases_resp,
+                # pero queremos guardar TODOS los semver_releases). Como el
+                # cache se leera con filtro, esta bien guardar lo que tengamos.
+                cache_pending_full = pending_releases_resp
+            except Exception:
+                cache_pending_full = []
+
             _UPDATE_CHECK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             _UPDATE_CHECK_CACHE_PATH.write_text(json.dumps({
                 "fetched_at": _time.time(),
                 "latest": latest,
                 "release_url": release_url,
                 "release_notes": release_notes,
+                "pending_releases": cache_pending_full,
                 "published_at": published_at,
                 "checked_at": checked_at,
             }), encoding="utf-8")
@@ -4850,6 +4889,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
         "update_available": update_available and latest != ignored_version,
         "release_url": release_url,
         "release_notes": release_notes,
+        "pending_releases": pending_releases_resp,
         "published_at": published_at,
         "checked_at": checked_at,
         "cached": False,

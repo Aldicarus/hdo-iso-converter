@@ -1093,17 +1093,56 @@ async function checkForUpdates(force) {
     banner.innerHTML = `<div class="settings-update-msg">✓ Estás al día (current: <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
     return;
   }
-  // Hay update — banner ámbar con notas + botones
+  // Hay update — banner ámbar con notas (todas las pendientes) + botones
   banner.style.display = 'block';
   banner.className = 'settings-update-banner warn';
   const cmds = `docker compose pull\ndocker compose up -d`;
-  const notesShort = (data.release_notes || '').split('\n').slice(0, 6).join('\n');
   const simBadge = data.simulated ? `<span class="settings-update-sim-badge">🧪 simulado</span>` : '';
+
+  // Lista de releases pendientes (todas entre current y latest, newest first).
+  // Si solo viene release_notes (fallback antiguo), construye un pseudo-release
+  // con la latest para mantener el formato uniforme.
+  let pending = Array.isArray(data.pending_releases) ? data.pending_releases.slice() : [];
+  if (!pending.length && data.release_notes) {
+    pending = [{
+      tag: data.latest,
+      body: data.release_notes,
+      url: data.release_url || '',
+      published_at: data.published_at || '',
+    }];
+  }
+
+  let notesHtml = '';
+  if (pending.length) {
+    const sectionsHtml = pending.map(rel => {
+      const dateStr = rel.published_at
+        ? new Date(rel.published_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+        : '';
+      const linkBtn = rel.url
+        ? `<a class="settings-update-rel-link" href="${escHtml(rel.url)}" target="_blank" rel="noreferrer">↗</a>`
+        : '';
+      const body = (rel.body || '').trim() || '_(release sin notas)_';
+      return `
+        <div class="settings-update-rel">
+          <div class="settings-update-rel-head">
+            <strong>${escHtml(rel.tag)}</strong>
+            ${dateStr ? `<span class="settings-update-rel-date">· ${escHtml(dateStr)}</span>` : ''}
+            ${linkBtn}
+          </div>
+          <div class="settings-update-rel-body">${_renderReleaseMarkdown(body)}</div>
+        </div>`;
+    }).join('');
+    const summaryTxt = pending.length === 1
+      ? `Notas de la release pendiente`
+      : `Notas de las ${pending.length} releases pendientes`;
+    notesHtml = `<details class="settings-update-notes" open><summary>${summaryTxt}</summary>${sectionsHtml}</details>`;
+  }
+
   banner.innerHTML = `
     <div class="settings-update-head">
       🔔 Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
     </div>
-    ${notesShort ? `<details class="settings-update-notes"><summary>Ver notas del release</summary><pre>${escHtml(notesShort)}${data.release_notes && data.release_notes.split('\n').length > 6 ? '\n…' : ''}</pre></details>` : ''}
+    ${notesHtml}
     <div class="settings-update-cmd">
       <pre id="settings-update-cmd-pre">${escHtml(cmds)}</pre>
     </div>
@@ -1112,6 +1151,49 @@ async function checkForUpdates(force) {
       ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer">↗ Release en GitHub</a>` : ''}
       <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')">Ignorar esta versión</button>
     </div>`;
+}
+
+/** Renderiza markdown ligero (headings ##, ###, bullets, **bold**, `code`)
+ *  a HTML. Suficiente para las release notes que generamos con plantilla
+ *  fija. NO es un parser markdown completo — no hace falta. */
+function _renderReleaseMarkdown(md) {
+  const lines = md.split('\n');
+  const out = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { closeList(); continue; }
+    // Heading H2 (## Título)
+    let m = line.match(/^##\s+(.+)$/);
+    if (m) { closeList(); out.push(`<h4 class="settings-update-rel-h">${_inlineMd(m[1])}</h4>`); continue; }
+    // Heading H3
+    m = line.match(/^###\s+(.+)$/);
+    if (m) { closeList(); out.push(`<h5 class="settings-update-rel-h">${_inlineMd(m[1])}</h5>`); continue; }
+    // Bullet (- texto)
+    m = line.match(/^\s*[-*]\s+(.+)$/);
+    if (m) {
+      if (!inList) { out.push('<ul class="settings-update-rel-list">'); inList = true; }
+      out.push(`<li>${_inlineMd(m[1])}</li>`);
+      continue;
+    }
+    // Texto suelto = párrafo
+    closeList();
+    out.push(`<p>${_inlineMd(line)}</p>`);
+  }
+  closeList();
+  return out.join('');
+}
+
+/** Formato inline básico: **bold**, `code`, escape de < > & */
+function _inlineMd(text) {
+  let s = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return s;
 }
 
 async function copyUpdateCommands() {
