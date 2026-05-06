@@ -810,10 +810,18 @@ async def run_pgs_packet_counts(
         and total_duration_seconds > sample_seconds * 1.5
     )
     scale_factor = 1.0
+    # Estrategia: -show_packets en lugar de -count_packets.
+    # Motivo: -count_packets + -read_intervals sobre PGS en m2ts UDF (loop
+    # mount) tiene un bug conocido en ffprobe 4.4: imprime nb_read_packets=N/A
+    # para todas las pistas. Con -show_packets emitimos una linea por
+    # paquete (solo el stream_index) y contamos en codigo. Funciona con o
+    # sin sampling y no depende del contador interno de ffprobe.
     ffprobe_args = [
         "ffprobe", "-v", "error",
         "-select_streams", "s",
-        "-count_packets",
+        "-show_packets",
+        "-show_entries", "packet=stream_index",
+        "-of", "csv=p=0",
     ]
     if do_sample:
         ffprobe_args += ["-read_intervals", f"0%{sample_seconds}"]
@@ -821,11 +829,7 @@ async def run_pgs_packet_counts(
         # Bytes esperados del tramo muestreado — aprox. proporcional al tiempo
         if total_bytes > 0 and total_duration_seconds > 0:
             total_bytes = int(total_bytes * sample_seconds / total_duration_seconds)
-    ffprobe_args += [
-        "-show_entries", "stream=index,nb_read_packets",
-        "-of", "csv=p=0",
-        m2ts_path,
-    ]
+    ffprobe_args.append(m2ts_path)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -901,31 +905,28 @@ async def run_pgs_packet_counts(
                     f"[Fase A] ├─   ✗ ffprobe packet count rc={proc.returncode}: {stderr_msg}"
                 )
             return {}
+        # Output de -show_packets: una linea por paquete con su stream_index.
+        # Tally en codigo evita depender del bug de -count_packets+UDF.
         result: dict[int, int] = {}
         for line in stdout_text.splitlines():
-            parts = line.strip().split(",")
-            if len(parts) >= 2:
-                try:
-                    idx, pkt = int(parts[0]), int(parts[1])
-                    # Escalar por duracion si hubo sampling — preserva la
-                    # cadencia (pkts/sec) y mantiene los umbrales absolutos
-                    # de phase_b compatibles (<500 forzado, etc.).
-                    scaled = int(round(pkt * scale_factor)) if scale_factor != 1.0 else pkt
-                    result[idx] = scaled
-                except ValueError:
-                    continue
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                idx = int(s)
+            except ValueError:
+                continue
+            result[idx] = result.get(idx, 0) + 1
+        # Aplicar escalado al final (una pasada). Sampling preserva la
+        # cadencia (pkts/sec) y mantiene los umbrales absolutos de phase_b
+        # compatibles (<500 forzado, etc.).
+        if scale_factor != 1.0:
+            result = {k: int(round(v * scale_factor)) for k, v in result.items()}
         if do_sample and result:
             _logger.info(
                 "PGS count sampling: %ds de %ds (scale ×%.2f), resultados extrapolados",
                 sample_seconds, int(total_duration_seconds), scale_factor,
             )
-        # Caso silencioso: rc=0 pero result vacio. Causa diagnosticada en
-        # repro: cuando do_sample=True con -read_intervals 0%N, ffprobe
-        # imprime las streams pero deja nb_read_packets=N/A para todas
-        # — el demux dentro del intervalo no se ejecuta correctamente con
-        # PGS en m2ts UDF (bug conocido de ffprobe 4.4 + loop mount). Si
-        # la lectura completa estaba en juego, retry una sola vez sin
-        # sampling. Mas lento (~3 min en m2ts de 60GB) pero fiable.
         if not result:
             stdout_preview = stdout_text[:300].replace("\n", "\\n") or "(vacio)"
             stderr_preview = stderr_text[:300] or "(vacio)"
@@ -936,19 +937,6 @@ async def run_pgs_packet_counts(
             if log_callback:
                 await log_callback(
                     f"[Fase A] ├─   diag: rc=0, stdout={stdout_preview}, stderr={stderr_preview}"
-                )
-            if do_sample:
-                if log_callback:
-                    await log_callback(
-                        "[Fase A] ├─   retry: sampling devolvió N/A (bug ffprobe + UDF), "
-                        "reintentando con read completo (~1-3 min)…"
-                    )
-                return await run_pgs_packet_counts(
-                    m2ts_path=m2ts_path,
-                    progress_callback=progress_callback,
-                    sample_seconds=None,  # desactiva sampling
-                    total_duration_seconds=total_duration_seconds,
-                    log_callback=log_callback,
                 )
         return result
     except asyncio.TimeoutError:
