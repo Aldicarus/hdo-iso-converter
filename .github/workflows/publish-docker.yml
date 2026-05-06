@@ -65,20 +65,26 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
+        # Hace que los labels custom se propaguen como annotations en el
+        # manifest. Sin esto, las annotations se generan con la repo
+        # description default y la nuestra del label se ignora a nivel
+        # manifiesto (que es lo que GHCR muestra en la pagina del package).
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.rel.outputs.tag }}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest
+          # Override de defaults: estos labels reemplazan los auto-generados
+          # del action (description default = repo description). Al estar
+          # habilitado DOCKER_METADATA_ANNOTATIONS_LEVELS=manifest, tambien
+          # se exponen como annotations del manifiesto OCI.
           labels: |
             org.opencontainers.image.description=${{ steps.rel.outputs.description }}
             org.opencontainers.image.title=HDO ISO Converter
             org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
-          annotations: |
-            manifest:org.opencontainers.image.description=${{ steps.rel.outputs.description }}
-            manifest:org.opencontainers.image.title=HDO ISO Converter
-            manifest:org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
