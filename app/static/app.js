@@ -10313,14 +10313,20 @@ async function createCMv40Project() {
   }
   await refreshCMv40Sidebar();
 
-  // Arrancar cadena auto: el polling + _cmv40MaybeAutoAdvance se encarga del
-  // pipeline completo. Para que el primer paso (preflight) arranque sin esperar
-  // al siguiente tick, llamamos directamente a la lógica del auto-advance —
-  // que decide internamente: si pendingTarget && !target_preflight_ok → preflight,
-  // si target_preflight_ok || !pendingTarget → Fase A.
-  if (autoOn) {
-    if (project) project._autoChaining = true;
-    _cmv40MaybeAutoAdvance(project);
+  // Disparar preflight INMEDIATAMENTE si hay target seleccionado, sin importar
+  // si auto mode esta on. Sin auto, esto evita que el usuario gaste 12 min de
+  // Fase A si el bin target no aporta CMv4.0 — el preflight tarda <5s y aborta
+  // con mensaje claro. Con auto, _cmv40MaybeAutoAdvance se encarga del flujo
+  // completo (preflight → Fase A → ...).
+  if (target && project) {
+    if (autoOn) {
+      project._autoChaining = true;
+      _cmv40MaybeAutoAdvance(project);
+    } else {
+      // Auto OFF: solo el preflight, no encadena Fase A. El usuario lanza
+      // Fase A manualmente cuando vea preflight OK.
+      _cmv40FirePreflight(project.id, target);
+    }
   }
 }
 
