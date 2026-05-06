@@ -4479,7 +4479,30 @@ def _resolve_app_version() -> dict:
     commit  = env_commit
     is_dirty = False
 
-    # Si el env no tiene version utilizable, intenta git describe
+    # Si el env no tiene version utilizable, prueba ficheros bakeados en
+    # build (Docker multi-stage version-detector escribe /app/VERSION +
+    # /app/COMMIT con datos de .git del build context). Cubre el caso
+    # `compose up -d --build` sin pasar APP_VERSION como build-arg.
+    if version in ("", "dev", "unknown"):
+        try:
+            vfile = Path(__file__).resolve().parent / "VERSION"
+            if vfile.exists():
+                v = vfile.read_text().strip()
+                if v and v not in ("dev", "unknown"):
+                    version = v
+        except Exception:
+            pass
+        if not commit:
+            try:
+                cfile = Path(__file__).resolve().parent / "COMMIT"
+                if cfile.exists():
+                    c = cfile.read_text().strip()
+                    if c and c != "unknown":
+                        commit = c
+            except Exception:
+                pass
+
+    # Ultimo fallback: git describe directo (dev local con .git accesible).
     if version in ("", "dev", "unknown"):
         try:
             import subprocess

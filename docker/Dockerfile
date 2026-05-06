@@ -1,3 +1,17 @@
+# ── Stage 1 — version-detector ────────────────────────────────────────────────
+# Lee .git del build context y deriva version+commit. Permite que builds
+# locales (sin pasar APP_VERSION/APP_COMMIT como build-args) tengan version
+# correcta sin instalar git en la imagen final ni dejar .git dentro.
+# Si .git no existe (build context sin repo) escribe los defaults.
+FROM alpine/git AS version-detector
+WORKDIR /repo
+COPY .git ./.git
+RUN sh -c 'git describe --tags --always 2>/dev/null > /VERSION || true; \
+    [ -s /VERSION ] || echo dev > /VERSION; \
+    git rev-parse HEAD 2>/dev/null > /COMMIT || true; \
+    [ -s /COMMIT ] || echo unknown > /COMMIT'
+
+# ── Stage 2 — runtime ─────────────────────────────────────────────────────────
 FROM ubuntu:22.04
 
 LABEL org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
@@ -62,6 +76,12 @@ LABEL app.version="${APP_VERSION}"
 LABEL app.commit="${APP_COMMIT}"
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 LABEL org.opencontainers.image.revision="${APP_COMMIT}"
+
+# Fallback files: si APP_VERSION llega como 'dev' (build local sin args) el
+# backend lee /app/VERSION para mostrar la version derivada del git context.
+# Stage version-detector escribio estos ficheros leyendo .git del build ctx.
+COPY --from=version-detector /VERSION /app/VERSION
+COPY --from=version-detector /COMMIT /app/COMMIT
 
 COPY app/ .
 

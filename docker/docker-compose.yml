@@ -21,6 +21,12 @@ services:
       dockerfile: docker/Dockerfile
       args:
         DOVI_TOOL_VERSION: "2.3.2"
+        # Bakeable solo si quien ejecuta `compose up --build` tiene los env
+        # vars APP_VERSION/APP_COMMIT seteados (lo hace el workflow GHA).
+        # En builds locales se queda en los defaults del Dockerfile (dev /
+        # unknown) y la app aparece en "modo desarrollo".
+        APP_VERSION: ${APP_VERSION:-}
+        APP_COMMIT: ${APP_COMMIT:-}
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter

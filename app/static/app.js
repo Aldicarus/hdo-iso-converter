@@ -11618,9 +11618,11 @@ function _renderCMv40ActivePhase(project) {
   const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
   container.innerHTML = ackBannerHtml + errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
 
-  // Lanzar cargas asíncronas donde aplique
+  // Lanzar cargas asíncronas donde aplique. En Fase B el tab default es
+  // "Repo DoviTools" — disparamos su loader; los otros tabs (path / MKV)
+  // se cargan lazy al hacer click via _cmv40SwitchTargetTab.
   if (_cmv40PhaseState(s.phase, 'target_provided', 'source_analyzed') === 'active') {
-    _cmv40LoadRpus(pid);
+    _cmv40LoadRepoForPanel(pid);
   }
   // Chart: cargar si Fase D activa o completada y está expandida.
   // Guards para NO disparar per_frame_data.json on-demand durante auto:
