@@ -696,6 +696,54 @@ async def run_phase_a_analyze_source(
     duration   = await _probe_duration(session.source_mkv_path)
     frame_count = await _probe_frame_count(session.source_mkv_path)
 
+    # Paso 0: Sniff DV del source — extrae 30s y verifica que hay RPU NALs.
+    # Coste ~10s; ahorra los ~5 min de Fase A completa cuando el MKV esta
+    # mal etiquetado como DV pero no contiene la metadata embebida.
+    if log_callback:
+        await log_callback(
+            "[Fase A] ⏵ Paso 0/3: Sniff rapido del origen (30s) — "
+            "verificando que el HEVC contiene Dolby Vision RPU…"
+        )
+    sniff_hevc = wd / "_sniff.hevc"
+    sniff_rpu  = wd / "_sniff.rpu"
+    try:
+        rc = await _run_streaming([
+            FFMPEG_BIN, "-y", "-t", "30", "-i", session.source_mkv_path,
+            "-map", "0:v:0", "-c:v", "copy",
+            "-bsf:v", "hevc_mp4toannexb",
+            "-f", "hevc", str(sniff_hevc),
+        ], log_callback=None, proc_callback=proc_callback)
+        if rc != 0 or not sniff_hevc.exists() or sniff_hevc.stat().st_size == 0:
+            raise RuntimeError("ffmpeg no pudo extraer el sniff HEVC del source MKV")
+        rc, _out, _err = await _run([
+            DOVI_TOOL_BIN, "extract-rpu", str(sniff_hevc), "-o", str(sniff_rpu),
+        ], timeout=60)
+        # extract-rpu sale rc=0 incluso sin NALs DV — verificamos size del bin
+        if rc != 0 or not sniff_rpu.exists() or sniff_rpu.stat().st_size == 0:
+            raise RuntimeError(
+                "El MKV origen no contiene Dolby Vision RPU (sniff de 30s sin "
+                "NALs DV detectados). Causas tipicas: (1) el MKV esta etiquetado "
+                "como DV pero el video real es solo HDR10/SDR; (2) la conversion "
+                "P7 -> P8 que generaste perdio el RPU al remuxar (mkvmerge solo "
+                "no preserva el EL ni el RPU — usa dovi_tool demux + inject-rpu); "
+                "(3) re-encode sin preservar la metadata DV. Verifica con "
+                "`dovi_tool info -i <mkv>` antes de relanzar Fase A."
+            )
+        if log_callback:
+            await log_callback(
+                f"[Fase A] ✓ Sniff OK — RPU detectado ({sniff_rpu.stat().st_size} bytes "
+                "en 30s). Procediendo con extraccion completa."
+            )
+    finally:
+        # Cleanup del sniff — si falla, los ficheros quedan pero get_workdir
+        # se limpia en cleanup() del proyecto de todas formas.
+        for p in (sniff_hevc, sniff_rpu):
+            try:
+                if p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+
     # Paso 1: Extraer HEVC del MKV origen
     await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV origen")
     if log_callback:
