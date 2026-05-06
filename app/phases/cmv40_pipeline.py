@@ -751,6 +751,22 @@ async def run_phase_a_analyze_source(
        offset=W_FFMPEG, weight=W_RPU)
     if rc != 0:
         raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+
+    # extract-rpu sale rc=0 incluso cuando no encuentra ni un solo NAL DV en
+    # el HEVC — solo deja el fichero vacio o inexistente. info --summary
+    # daria "Error: No RPU found" pero ese mensaje es opaco. Detectamos aqui
+    # para dar un error util que apunte al origen real del problema (MKV
+    # marcado como DV pero sin RPU embebido).
+    if not rpu_source.exists() or rpu_source.stat().st_size == 0:
+        raise RuntimeError(
+            "El MKV origen no contiene Dolby Vision RPU. dovi_tool extract-rpu "
+            "no encontro ningun NAL DV en el HEVC. Causas tipicas: (1) el MKV "
+            "esta etiquetado como DV pero el video real es solo HDR10/SDR; "
+            "(2) la conversion P7 -> P8 que generaste perdio el RPU al "
+            "remuxar; (3) el video se re-encodeo sin preservar la metadata DV. "
+            "Verifica el origen con `mediainfo` o `dovi_tool info -i <mkv>` "
+            "antes de relanzar Fase A."
+        )
     await _emit_progress(log_callback, W_FFMPEG + W_RPU, "RPU extraído")
 
     # Paso 3: Info del RPU
