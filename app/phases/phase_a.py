@@ -766,11 +766,147 @@ def find_main_m2ts(share_path: str) -> str | None:
     return str(max(m2ts_files, key=lambda p: p.stat().st_size))
 
 
+def parse_mpls_pg_streams(mpls_path: str) -> list[dict]:
+    """Parsea un fichero MPLS binario y devuelve la lista de streams PGS
+    (PG/Presentation Graphics) en orden, con su PID y language code.
+
+    El orden coincide con el orden que mkvmerge usa al enumerar
+    subtitle_tracks (mkvmerge lee del mismo MPLS).
+
+    Spec MPLS resumida:
+        - Header (40 bytes): "MPLS" + version + offsets a PlayList/Mark/Ext
+        - At PlayList_start_addr: PlayList con N PlayItems
+        - Cada PlayItem tiene una STN_table al final con stream entries
+          en orden: primary video, primary audio, PG, IG, sec audio,
+          sec video, PIP_PG.
+        - Cada stream tiene StreamEntry (length-prefixed) +
+          StreamAttributes (length-prefixed).
+        - Para PG: StreamEntry contiene PID, StreamAttributes contiene
+          language_code (3 bytes ASCII).
+
+    Devuelve [] si el parser falla o no hay PG streams. Nunca raise.
+    """
+    try:
+        data = Path(mpls_path).read_bytes()
+    except Exception as e:
+        _logger.warning("MPLS read falló %s: %s", mpls_path, e)
+        return []
+
+    if len(data) < 40 or data[:4] != b"MPLS":
+        _logger.warning("MPLS magic incorrecto en %s", mpls_path)
+        return []
+
+    try:
+        pl_start = int.from_bytes(data[8:12], "big")
+        if pl_start + 10 > len(data):
+            return []
+
+        # PlayList header
+        # length(4) + reserved(2) + n_playitems(2) + n_subpaths(2)
+        p = pl_start + 4 + 2  # saltamos length y reserved
+        n_playitems = int.from_bytes(data[p:p + 2], "big")
+        p += 2 + 2  # n_playitems + n_subpaths
+
+        if n_playitems == 0:
+            return []
+
+        # Tomamos solo el PRIMER PlayItem (el principal del film).
+        pi_length = int.from_bytes(data[p:p + 2], "big")
+        p += 2
+        pi_end = p + pi_length
+
+        # PlayItem header (todos los campos fijos hasta llegar a STN_table)
+        # +0  Clip_Information_file_name (5)
+        # +5  Clip_codec_identifier (4)
+        # +9  flags16: bits[15..5] reserved, [4] is_multi_angle, [3..0] connection_cond
+        # +11 ref_to_STC_id (1)
+        # +12 IN_time (4)
+        # +16 OUT_time (4)
+        # +20 UO_mask_table (12)
+        # +32 flags8 (1)
+        # +33 still_mode (1)
+        # +34 still_time (2)
+        # if multi_angle: +36 n_angles(1) + flags(1) + (n_angles-1)*10
+        flags16 = int.from_bytes(data[p + 9:p + 11], "big")
+        is_multi_angle = (flags16 >> 4) & 0x1
+        p += 36
+
+        if is_multi_angle:
+            n_angles = data[p]
+            p += 2  # n_angles + flags
+            p += max(0, (n_angles - 1) * 10)
+
+        # STN_table
+        if p + 16 > pi_end:
+            return []
+        # length(2) + reserved(2) + counts(7) + reserved(5) = 16
+        p += 2 + 2  # length + reserved
+        n_pv = data[p]; p += 1
+        n_pa = data[p]; p += 1
+        n_pg = data[p]; p += 1
+        # n_ig, n_sa, n_sv, n_pip_pg los saltamos — solo nos interesan PG
+        p += 1 + 1 + 1 + 1  # ig, sa, sv, pip_pg
+        p += 5  # reserved
+
+        # Skip primary video y primary audio (cada uno: StreamEntry + StreamAttribute)
+        for _ in range(n_pv + n_pa):
+            if p >= pi_end:
+                return []
+            se_len = data[p]; p += 1 + se_len
+            if p >= pi_end:
+                return []
+            sa_len = data[p]; p += 1 + sa_len
+
+        # Read PG streams
+        pg_streams: list[dict] = []
+        for _ in range(n_pg):
+            if p >= pi_end:
+                break
+            # StreamEntry
+            se_len = data[p]
+            se = data[p + 1:p + 1 + se_len]
+            p += 1 + se_len
+            if len(se) < 3:
+                continue
+            stream_type = se[0]
+            if stream_type == 1 and len(se) >= 3:
+                # primary stream: stream_type(1) + PID(2) + reserved
+                pid = int.from_bytes(se[1:3], "big")
+            elif stream_type == 2 and len(se) >= 5:
+                # subpath stream: type(1) + ref_subpath(1) + ref_subclip(1) + PID(2)
+                pid = int.from_bytes(se[3:5], "big")
+            else:
+                pid = 0
+
+            # StreamAttributes
+            if p >= pi_end:
+                pg_streams.append({"pid": pid, "language": ""})
+                continue
+            sa_len = data[p]
+            sa = data[p + 1:p + 1 + sa_len]
+            p += 1 + sa_len
+
+            lang = ""
+            if len(sa) >= 4 and sa[0] == 0x90:  # PG coding type
+                try:
+                    lang = sa[1:4].decode("ascii", errors="ignore").strip("\x00 ")
+                except Exception:
+                    lang = ""
+
+            pg_streams.append({"pid": pid, "language": lang})
+
+        return pg_streams
+    except Exception as e:
+        _logger.warning("MPLS parse falló %s: %s", mpls_path, e)
+        return []
+
+
 async def count_pgs_packets_ts_parse(
     m2ts_path: str,
     sample_bytes: int = 4 * 1024 * 1024 * 1024,  # 4 GB por defecto (~5 min de video)
     log_callback=None,
     progress_callback=None,
+    pid_list: list[int] | None = None,
 ) -> dict[int, int]:
     """Cuenta paquetes TS por PID PGS leyendo el m2ts directamente.
 
@@ -799,11 +935,17 @@ async def count_pgs_packets_ts_parse(
 
     Performance: ~5-30s para 4 GB segun contencion.
     """
-    PGS_PID_START = 0x1200
-    PGS_PID_END   = 0x121F
-    SYNC_BYTE     = 0x47
-    # PIDs que NO queremos contar como subtitle (video, audio, IG, PCR, etc.)
-    # Asi si tenemos que listar top no-AV, excluimos bien.
+    SYNC_BYTE = 0x47
+
+    # Si MPLS nos da la lista de PIDs, usamos esa (autoritativa). Si no,
+    # caemos al rango BDAV PGS por defecto.
+    PGS_PID_START_FALLBACK = 0x1200
+    PGS_PID_END_FALLBACK   = 0x121F
+
+    has_pid_list = bool(pid_list)
+    target_pids = set(pid_list or [])
+
+    # PIDs que NO queremos listar en el diagnostico (video, audio, etc.)
     AV_PID_RANGES = [
         (0x0000, 0x000F),  # PAT/PMT/CAT
         (0x0100, 0x010F),  # bdmv overlay
@@ -817,12 +959,14 @@ async def count_pgs_packets_ts_parse(
     def _is_av_pid(pid: int) -> bool:
         return any(lo <= pid <= hi for lo, hi in AV_PID_RANGES)
 
+    def _is_target_pid(pid: int) -> bool:
+        if has_pid_list:
+            return pid in target_pids
+        return PGS_PID_START_FALLBACK <= pid <= PGS_PID_END_FALLBACK
+
     def _detect_packet_size(buf: bytes) -> int:
-        """Devuelve 192 (BDAV) o 188 (standard TS) buscando sync bytes
-        consecutivos. Si no se encuentra ninguno fiable, asume 192."""
         for size in (192, 188):
             sync_off = 4 if size == 192 else 0
-            # Necesitamos al menos 3 paquetes consecutivos con sync correcto
             ok = True
             for i in range(3):
                 pos = sync_off + i * size
@@ -831,10 +975,9 @@ async def count_pgs_packets_ts_parse(
                     break
             if ok:
                 return size
-        return 192  # fallback
+        return 192
 
     def _parse_blocking() -> tuple[dict[int, int], int, int, dict[int, int]]:
-        """Devuelve (pgs_counts, bytes_read, packet_size, all_non_av_counts)."""
         try:
             with open(m2ts_path, "rb") as f:
                 head = f.read(4096)
@@ -842,10 +985,16 @@ async def count_pgs_packets_ts_parse(
                 sync_off = 4 if packet_size == 192 else 0
 
                 pgs_counts: dict[int, int] = {}
+                # Inicializamos a 0 para los PIDs conocidos del MPLS — asi
+                # los streams sin paquetes en el sample (forzados raros que
+                # aparecen tarde) siguen apareciendo en el resultado y el
+                # caller los puede asignar posicionalmente.
+                if has_pid_list:
+                    for p in target_pids:
+                        pgs_counts[p] = 0
                 all_non_av: dict[int, int] = {}
                 total_read = len(head)
 
-                # Procesa el head ya leido
                 def _scan(buf: bytes):
                     for off in range(0, len(buf) - packet_size + 1, packet_size):
                         if buf[off + sync_off] != SYNC_BYTE:
@@ -853,15 +1002,13 @@ async def count_pgs_packets_ts_parse(
                         b1 = buf[off + sync_off + 1]
                         b2 = buf[off + sync_off + 2]
                         pid = ((b1 & 0x1F) << 8) | b2
-                        if _is_av_pid(pid):
-                            continue
-                        all_non_av[pid] = all_non_av.get(pid, 0) + 1
-                        if PGS_PID_START <= pid <= PGS_PID_END:
+                        if not _is_av_pid(pid):
+                            all_non_av[pid] = all_non_av.get(pid, 0) + 1
+                        if _is_target_pid(pid):
                             pgs_counts[pid] = pgs_counts.get(pid, 0) + 1
 
                 _scan(head)
 
-                # Lectura iterativa del resto, alineado a packet
                 chunk_size = packet_size * 1024  # ~192 KB
                 while total_read < sample_bytes:
                     chunk = f.read(chunk_size)
@@ -879,19 +1026,33 @@ async def count_pgs_packets_ts_parse(
     pgs_counts, bytes_read, packet_size, all_non_av = await asyncio.to_thread(_parse_blocking)
     elapsed = time.monotonic() - t0
 
+    # ¿Encontramos al menos un paquete? (counts inicializados a 0 cuentan
+    # como "encontrados" si la lista MPLS los aporta).
+    found_any = any(v > 0 for v in pgs_counts.values())
+
     if log_callback:
         mb = bytes_read / (1024 * 1024)
-        if pgs_counts:
+        if found_any:
+            # Preserve el orden del pid_list si lo tenemos; si no, sort ascendente
+            order = pid_list if has_pid_list else sorted(pgs_counts.keys())
             preview = ", ".join(
-                f"PID 0x{pid:04X}={c}" for pid, c in sorted(pgs_counts.items())
+                f"0x{pid:04X}={pgs_counts.get(pid, 0)}" for pid in order
             )
             await log_callback(
                 f"[Fase A] ├─   ✓ TS parse ({packet_size}B/pkt): "
                 f"{len(pgs_counts)} streams PGS en {mb:.0f} MB ({elapsed:.1f}s) "
                 f"— {preview}"
             )
+        elif has_pid_list:
+            # Tenemos lista del MPLS pero ningun PID acumulo paquetes en el sample
+            await log_callback(
+                f"[Fase A] ├─   ⚠️ TS parse: 0 paquetes para los {len(target_pids)} "
+                f"PIDs del MPLS en {mb:.0f} MB ({elapsed:.1f}s). Posibles causas: "
+                "intro larga sin diálogo o subs muy esparcidos. Los counts se "
+                "mantienen a 0 — phase_b distinguirá forzados/completos por "
+                "ratio relativo."
+            )
         else:
-            # Diagnostico: top 10 PIDs no-AV detectados (los reales subs estan ahi)
             top_pids = sorted(all_non_av.items(), key=lambda kv: -kv[1])[:10]
             top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
             await log_callback(
@@ -904,10 +1065,15 @@ async def count_pgs_packets_ts_parse(
     if not pgs_counts:
         return {}
 
-    # Mapear PID -> indice posicional. mkvmerge enumera subtitle_tracks en
-    # orden ascendente de PID. Devolvemos {0: count_pid_min, 1: count_next, ...}
-    sorted_pids = sorted(pgs_counts.keys())
-    return {i: pgs_counts[pid] for i, pid in enumerate(sorted_pids)}
+    # Devolvemos {idx: count} con idx = posicion en el orden de pid_list
+    # (autoritativo desde MPLS) o, si no hay lista, en orden ascendente de
+    # PID (asume que coincide con el orden de mkvmerge — verdadero en
+    # discos BDAV estandar).
+    if has_pid_list:
+        order = list(pid_list)
+    else:
+        order = sorted(pgs_counts.keys())
+    return {i: pgs_counts.get(pid, 0) for i, pid in enumerate(order)}
 
 
 async def run_pgs_packet_counts(
@@ -1513,23 +1679,49 @@ async def run_full_analysis(
             if log_callback:
                 await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
-        # 3b. Contar paquetes TS de cada subtítulo PGS parseando el m2ts
-        # directamente. Reemplaza la antigua llamada a ffprobe que fallaba
-        # con UDF + loop mount (devolvia N/A con -count_packets, vacio con
-        # -show_packets, y bajo contencion de I/O tardaba >10 min).
-        # El TS parser lee solo 1 GB del m2ts (~80s de video, suficiente
-        # muestra), funciona en cualquier FS, sin demux, completa en
-        # 5-20s incluso bajo contencion fuerte.
+        # 3b. Contar paquetes TS de cada subtítulo PGS.
+        # Pipeline: parsea MPLS para obtener la lista autoritativa de PIDs
+        # PGS en orden, luego cuenta paquetes TS por PID en un sample de
+        # 4 GB del m2ts. El MPLS aporta:
+        #   - Mapping PID ↔ stream order (sin asumir rango 0x1200-0x121F)
+        #   - Inicializacion de counts a 0 incluso para streams que no
+        #     aparecen en el sample (forzados raros con eventos tardios) —
+        #     phase_b los distinguira por ratio relativo vs el resto
         pgs_packets: dict[int, int] = {}
+        mpls_pg_streams: list[dict] = []
+        try:
+            mpls_pg_streams = parse_mpls_pg_streams(mpls_path)
+            if log_callback and mpls_pg_streams:
+                preview_pids = ", ".join(
+                    f"0x{s['pid']:04X}({s.get('language','?')})"
+                    for s in mpls_pg_streams[:8]
+                )
+                more = f" +{len(mpls_pg_streams)-8} mas" if len(mpls_pg_streams) > 8 else ""
+                await log_callback(
+                    f"[Fase A] ├─   MPLS: {len(mpls_pg_streams)} streams PGS detectados "
+                    f"— {preview_pids}{more}"
+                )
+            elif log_callback:
+                await log_callback(
+                    "[Fase A] ├─   ⚠️ MPLS no devolvió streams PGS — TS parser "
+                    "caerá al rango por defecto 0x1200-0x121F."
+                )
+        except Exception as e:
+            _logger.warning("MPLS parse falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] ├─   ⚠️ MPLS parse falló (no bloquea): {e}")
+
         try:
             if log_callback:
                 await log_callback(
                     "[Fase A] ├─   Contando paquetes PGS parseando TS del m2ts "
-                    "(1 GB sample, 5-20s)…"
+                    "(4 GB sample, 5-30s)…"
                 )
+            pid_list = [s["pid"] for s in mpls_pg_streams] if mpls_pg_streams else None
             pgs_packets = await count_pgs_packets_ts_parse(
                 m2ts_path,
                 log_callback=log_callback,
+                pid_list=pid_list,
             )
         except Exception as e:
             _logger.warning("TS parse PGS falló (no bloquea): %s", e)
