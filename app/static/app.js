@@ -1112,15 +1112,12 @@ async function checkForUpdates(force) {
     </div>`;
 }
 
-function copyUpdateCommands() {
+async function copyUpdateCommands() {
   const pre = document.getElementById('settings-update-cmd-pre');
   if (!pre) return;
   const txt = pre.textContent || '';
-  navigator.clipboard.writeText(txt).then(() => {
-    showToast('📋 Comandos copiados al portapapeles', 'success');
-  }, () => {
-    showToast('No se pudo copiar al portapapeles', 'error');
-  });
+  const ok = await _copyTextToClipboardWithFallback(txt);
+  showToast(ok ? '📋 Comandos copiados al portapapeles' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
 async function ignoreUpdate(version) {
@@ -4949,12 +4946,11 @@ function showRawAnalysisData() {
 }
 
 /** Copia los datos de análisis al portapapeles. */
-function _copyRawAnalysis() {
+async function _copyRawAnalysis() {
   const pre = document.getElementById('raw-analysis-content');
   if (!pre) return;
-  navigator.clipboard.writeText(pre.textContent).then(() => {
-    showToast('Datos copiados al portapapeles.', 'success');
-  });
+  const ok = await _copyTextToClipboardWithFallback(pre.textContent);
+  showToast(ok ? 'Datos copiados al portapapeles.' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
 
@@ -7802,7 +7798,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
 }
 
 /** Copia la radiografía como Markdown al portapapeles. */
-function _rgrfCopyToClipboard(evt) {
+async function _rgrfCopyToClipboard(evt) {
   if (!mkvProject) return;
   const a = mkvProject.analysis;
   const dv = a.dovi;
@@ -7858,11 +7854,8 @@ function _rgrfCopyToClipboard(evt) {
     ``,
   ].join('\n');
 
-  navigator.clipboard.writeText(md).then(() => {
-    showToast('✓ Radiografía copiada como Markdown', 'success');
-  }).catch(() => {
-    showToast('No se pudo copiar al portapapeles', 'error');
-  });
+  const ok = await _copyTextToClipboardWithFallback(md);
+  showToast(ok ? '✓ Radiografía copiada como Markdown' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
 /** Lanza el análisis del perfil de luminancia del movie completo.
@@ -10521,6 +10514,29 @@ function _connectCMv40WebSocket(project) {
 // Copia al portapapeles el texto plano de un elemento que contiene líneas de
 // log (div.log-line). Muestra un toast de confirmación; fallback a
 // document.execCommand para contextos inseguros (file://, http en IP).
+/** Copia texto al portapapeles con fallback a execCommand para HTTP (no
+ *  secure context). Devuelve true/false; el caller muestra toasts. */
+async function _copyTextToClipboardWithFallback(text) {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* cae al fallback */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
 async function copyLogToClipboard(containerId, btn) {
   const el = document.getElementById(containerId);
   if (!el) return;
