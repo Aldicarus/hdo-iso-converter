@@ -1133,9 +1133,11 @@ async function checkForUpdates(force) {
         </div>`;
     }).join('');
     const summaryTxt = pending.length === 1
-      ? `Notas de la release pendiente`
-      : `Notas de las ${pending.length} releases pendientes`;
-    notesHtml = `<details class="settings-update-notes" open><summary>${summaryTxt}</summary>${sectionsHtml}</details>`;
+      ? `📋 Ver notas de versión (1 release pendiente)`
+      : `📋 Ver notas de versión (${pending.length} releases pendientes)`;
+    // Cerrado por defecto — el triángulo nativo es poco intuitivo;
+    // usamos un botón visible con icono + texto explícito.
+    notesHtml = `<details class="settings-update-notes"><summary class="settings-update-notes-toggle">${summaryTxt}</summary>${sectionsHtml}</details>`;
   }
 
   banner.innerHTML = `

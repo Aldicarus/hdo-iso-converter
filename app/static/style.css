@@ -6091,6 +6091,40 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 4px 0;
   font-weight: 500;
 }
+/* Toggle explícito para las release notes — botón con texto + icono claro,
+   sin el triángulo nativo poco intuitivo. */
+.settings-update-notes-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-1);
+  list-style: none;            /* oculta marker estándar */
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.settings-update-notes-toggle::-webkit-details-marker { display: none; }
+.settings-update-notes-toggle::marker { content: ''; }
+.settings-update-notes-toggle:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+/* Indicador propio: chevron que rota al abrir */
+.settings-update-notes-toggle::after {
+  content: '▸';
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 0.15s ease;
+}
+.settings-update-notes[open] .settings-update-notes-toggle::after {
+  transform: rotate(90deg);
+}
 .settings-update-notes pre {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 11px;
