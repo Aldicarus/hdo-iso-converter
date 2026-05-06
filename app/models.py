@@ -665,6 +665,12 @@ class Session(BaseModel):
     """Advertencia cuando la VO no puede determinarse automáticamente (disco sin inglés ni español).
     Si no está vacío, se muestra en la pantalla de revisión y se requiere selección manual."""
 
+    analysis_log: list[str] = []
+    """Líneas del log emitidas durante Fase A al crear el proyecto. Capturadas
+    via _progress_callback. Se exponen en el modal "Datos ISO" para diagnóstico
+    de problemas de análisis (PGS counting vacío, MediaInfo fallando, etc.)
+    sin tener que pedir el log del docker."""
+
     # ── Estado de ejecución ───────────────────────────────────────
     last_executed: datetime | None = None
     """Timestamp de la última ejecución exitosa (UTC)."""

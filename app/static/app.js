@@ -4940,6 +4940,15 @@ function showRawAnalysisData() {
     lines.push(`  ${ch.number}. ${ch.timestamp} — "${ch.name}"${ch.name_custom ? ' (editado)' : ''}`);
   });
 
+  // ── SECCIÓN 4: Log del modal de análisis (capturado al crear) ──
+  if (s.analysis_log && s.analysis_log.length) {
+    lines.push('');
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  LOG DE ANÁLISIS (Fase A — capturado al crear)`);
+    lines.push(`═══════════════════════════════════════════════`);
+    s.analysis_log.forEach(l => lines.push(l));
+  }
+
   const text = lines.join('\n');
   document.getElementById('raw-analysis-content').textContent = text;
   openModal('raw-analysis-modal');

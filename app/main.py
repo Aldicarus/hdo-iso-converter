@@ -419,9 +419,21 @@ async def analyze_iso(body: AnalyzeRequest):
 
     audio_dcp = "audio dcp" in body.iso_path.lower()
 
+    # Captura el log emitido durante Fase A para guardarlo en la sesión.
+    # Sirve para diagnóstico desde el modal "Datos ISO" sin tener que pedir
+    # el log del container (PGS counting vacío, MediaInfo fallando, etc.).
+    analysis_log: list[str] = []
+
     # Callback de progreso para el modal del frontend
     async def _progress_callback(msg: str):
         global _analyze_progress
+        # Capturamos cada línea — barata, ~unas decenas por análisis.
+        try:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            analysis_log.append(f"[{ts}] {msg}")
+        except Exception:
+            analysis_log.append(msg)
         # Mapear mensajes de log a pasos del modal
         msg_l = msg.lower()
         if "mkvmerge" in msg_l or "identificando" in msg_l:
@@ -504,6 +516,7 @@ async def analyze_iso(body: AnalyzeRequest):
         chapters=chapters,
         chapters_auto_generated=chapters_auto,
         chapters_auto_reason=chapters_reason,
+        analysis_log=analysis_log,
     )
     save_session(session)
     _analyze_progress = {"step": "done", "done": True}

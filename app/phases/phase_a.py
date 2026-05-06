@@ -771,6 +771,7 @@ async def run_pgs_packet_counts(
     progress_callback=None,
     sample_seconds: int | None = 1200,
     total_duration_seconds: float = 0.0,
+    log_callback=None,
 ) -> dict[int, int]:
     """Cuenta paquetes por pista PGS del m2ts usando ffprobe -count_packets.
 
@@ -891,7 +892,12 @@ async def run_pgs_packet_counts(
                     pass
 
         if proc.returncode != 0:
-            _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr.decode()[:200])
+            stderr_msg = stderr.decode()[:200].strip() or "(stderr vacío)"
+            _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr_msg)
+            if log_callback:
+                await log_callback(
+                    f"[Fase A] ├─   ✗ ffprobe packet count rc={proc.returncode}: {stderr_msg}"
+                )
             return {}
         result: dict[int, int] = {}
         for line in stdout.decode("utf-8", errors="replace").splitlines():
@@ -914,9 +920,13 @@ async def run_pgs_packet_counts(
         return result
     except asyncio.TimeoutError:
         _logger.warning("ffprobe packet count: timeout tras 10 min")
+        if log_callback:
+            await log_callback("[Fase A] ├─   ✗ ffprobe packet count timeout (>10 min)")
         return {}
     except Exception as e:
         _logger.warning("ffprobe packet count error: %s", e)
+        if log_callback:
+            await log_callback(f"[Fase A] ├─   ✗ ffprobe packet count exception: {e}")
         return {}
 
 
@@ -1350,6 +1360,7 @@ async def run_full_analysis(
                 m2ts_path,
                 progress_callback=pgs_progress_callback,
                 total_duration_seconds=bdinfo.duration_seconds or 0,
+                log_callback=log_callback,
             )
             if pgs_packets:
                 # ffprobe devuelve índices ascendentes; asignamos por posición
@@ -1363,6 +1374,19 @@ async def run_full_analysis(
                         for s in bdinfo.subtitle_tracks[:12]
                     )
                     await log_callback(f"[Fase A] ├─   ✓ PGS packet counts — {preview}…")
+            else:
+                # Caso silencioso: ffprobe devolvió {} pero el caller no se entera
+                # — la lista de subtítulos se queda con packet_count=0 y la
+                # heurística forzados/completos cae al fallback por bitrate.
+                # Logueamos explícitamente para diagnóstico.
+                if log_callback:
+                    await log_callback(
+                        "[Fase A] ├─   ⚠️ ffprobe packet count devolvió vacío "
+                        "— los subtítulos PGS se quedan sin info (heurística de "
+                        "forzados caerá al bitrate). Posibles causas: ffprobe "
+                        "abortado, contención de I/O con otro job, m2ts no "
+                        "legible. Revisa los logs del container."
+                    )
         except Exception as e:
             _logger.warning("ffprobe packet count falló (no bloquea): %s", e)
             if log_callback:
