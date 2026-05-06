@@ -624,3 +624,25 @@ El panel "Radiografía DV+HDR" del tab "Editar MKV" tiene una sección "Cadena d
 - `_dvLightSetStep` y `_dvLightSetProgress` ignoran updates con valor inferior al actual (guard monotónico, doble red).
 - En error: modal NO se cierra automáticamente. Inyecta el error al log del modal + botón "Cerrar" explícito. Toast de 8s en vez de 3.5s.
 - Fallback: si POST falla (red/abort) y `state.result` está poblado → recuperar el dato sin volver a procesar.
+
+---
+
+## Comandos de despliegue al NAS — REGLA FIJA
+
+Estos son los 3 comandos exactos que se usan en el NAS. **No inventar variantes** (no añadir `--no-cache`, no usar `pull` sobre `:latest`, no sugerir `force-recreate`, etc.). Si algo falla, revisar el log antes de proponer otro comando.
+
+```bash
+# 1. (Solo cuando hace falta) Limpiar cache de Docker — corrige el bug ZFS
+#    de "no such file or directory" al construir.
+sudo docker system prune -f
+
+# 2. Pull del repo (alpine/git container — el repo fue clonado como root y git
+#    rechaza la operación sin safe.directory).
+docker run --rm -v /share/Container/hdo-iso-converter:/repo -w /repo alpine/git -c safe.directory=/repo pull
+
+# 3. Rebuild + up del contenedor (TMPDIR a ZFS porque /tmp en QNAP es tmpfs
+#    pequeño y el build agota espacio).
+sudo TMPDIR=/share/ZFS20_DATA/Container/tmp docker compose up -d --build
+```
+
+Cuando el usuario pida "comandos del NAS" o "deploy al NAS", responder con los comandos 2 y 3 en bloque. El 1 solo si pide explícitamente limpieza o si hay evidencia de bug ZFS en el log.
