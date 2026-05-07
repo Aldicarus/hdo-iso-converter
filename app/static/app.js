@@ -5055,6 +5055,108 @@ async function _copyRawAnalysis() {
   showToast(ok ? 'Datos copiados al portapapeles.' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
+/**
+ * Tab 2: vista de diagnóstico del análisis del MKV — paridad con "Datos ISO".
+ * Muestra el log capturado durante el análisis + tracks crudos de mkvmerge -J +
+ * resumen de MediaInfo + DV. Reusa el modal raw-analysis-modal.
+ */
+function showRawMkvData() {
+  if (!mkvProject || !mkvProject.analysis) return;
+  const a = mkvProject.analysis;
+  const lines = [];
+
+  lines.push(`═══════════════════════════════════════════════`);
+  lines.push(`  DATOS DE ANÁLISIS DEL MKV`);
+  lines.push(`═══════════════════════════════════════════════`);
+  lines.push(`Fichero: ${a.file_name || '—'}`);
+  lines.push(`Ruta: ${a.file_path || '—'}`);
+  lines.push(`Tamaño: ${_fmtBytes(a.file_size_bytes || 0)}`);
+  lines.push(`Duración: ${_fmtDuration(a.duration_seconds || 0)}`);
+  if (a.title) lines.push(`Título contenedor: ${a.title}`);
+  lines.push(`FEL: ${!!a.has_fel}`);
+  lines.push('');
+
+  // ── PISTAS (mkvmerge -J → MkvTrackInfo) ──
+  lines.push(`═══════════════════════════════════════════════`);
+  lines.push(`  PISTAS (${a.tracks?.length || 0})`);
+  lines.push(`═══════════════════════════════════════════════`);
+  (a.tracks || []).forEach(t => {
+    const parts = [`id=${t.id}`, `type=${t.type}`, `codec="${t.codec}"`];
+    if (t.language) parts.push(`lang=${t.language}`);
+    if (t.name) parts.push(`name="${t.name}"`);
+    if (t.pixel_dimensions) parts.push(`res=${t.pixel_dimensions}`);
+    if (t.channels) parts.push(`ch=${t.channels}`);
+    if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps}kbps`);
+    if (t.format_commercial) parts.push(`fmt="${t.format_commercial}"`);
+    if (t.flag_default) parts.push('default=true');
+    if (t.flag_forced) parts.push('forced=true');
+    if (t.packet_count) parts.push(`packets=${t.packet_count}`);
+    lines.push(`  ${parts.join(' | ')}`);
+  });
+  lines.push('');
+
+  // ── HDR ──
+  if (a.hdr) {
+    const h = a.hdr;
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  HDR METADATA`);
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`Formato: ${h.hdr_format || '—'}`);
+    if (h.color_primaries) lines.push(`Color primaries: ${h.color_primaries}`);
+    if (h.transfer_characteristics) lines.push(`Transfer: ${h.transfer_characteristics}`);
+    if (h.bit_depth) lines.push(`Bit depth: ${h.bit_depth}`);
+    if (h.max_cll != null) lines.push(`MaxCLL: ${h.max_cll} cd/m²`);
+    if (h.max_fall != null) lines.push(`MaxFALL: ${h.max_fall} cd/m²`);
+    if (h.mastering_display_luminance) lines.push(`Mastering: ${h.mastering_display_luminance}`);
+    lines.push('');
+  }
+
+  // ── DOLBY VISION ──
+  if (a.dovi) {
+    const d = a.dovi;
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  DOLBY VISION`);
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`Profile: ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}`);
+    lines.push(`CM version: ${d.cm_version || '—'}`);
+    if (d.frame_count) lines.push(`Frames: ${d.frame_count}`);
+    if (d.scene_count) lines.push(`Scenes: ${d.scene_count}`);
+    const lvls = [];
+    ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l8', 'l9', 'l10', 'l11', 'l254'].forEach(k => {
+      if (d[`has_${k}`]) lvls.push(k.toUpperCase());
+    });
+    if (lvls.length) lines.push(`Niveles: ${lvls.join(' · ')}`);
+    if (d.raw_summary) {
+      lines.push('');
+      lines.push(d.raw_summary.trim());
+    }
+    lines.push('');
+  }
+
+  // ── CAPÍTULOS ──
+  if (a.chapters?.length) {
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  CAPÍTULOS (${a.chapters.length})`);
+    lines.push(`═══════════════════════════════════════════════`);
+    a.chapters.forEach(ch => {
+      lines.push(`  ${ch.number}. ${ch.timestamp} — "${ch.name}"${ch.name_custom ? ' (editado)' : ''}`);
+    });
+    lines.push('');
+  }
+
+  // ── LOG DE ANÁLISIS (paralelo al de Tab 1) ──
+  if (a.analysis_log && a.analysis_log.length) {
+    lines.push(`═══════════════════════════════════════════════`);
+    lines.push(`  LOG DE ANÁLISIS (capturado al abrir MKV)`);
+    lines.push(`═══════════════════════════════════════════════`);
+    a.analysis_log.forEach(l => lines.push(l));
+  }
+
+  const text = lines.join('\n');
+  document.getElementById('raw-analysis-content').textContent = text;
+  openModal('raw-analysis-modal');
+}
+
 
 // Extrae canales (7.1 / 5.1 / 2.0…) del primer campo de description.
 function _extractAudioChannels(description) {
@@ -6861,11 +6963,15 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
       if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
         const prevIdx = steps.indexOf(lastStep);
         const newIdx = steps.indexOf(prog.step);
-        for (let i = prevIdx; i < newIdx; i++) {
-          _advanceMkvAnalyzeStep(steps[i], steps[i + 1]);
+        // Solo avanzar — ignorar backward transitions (defense-in-depth,
+        // mismo guard que en Tab 1's _doAnalyzeISO).
+        if (newIdx > prevIdx) {
+          for (let i = prevIdx; i < newIdx; i++) {
+            _advanceMkvAnalyzeStep(steps[i], steps[i + 1]);
+          }
+          lastStep = prog.step;
+          stepStartTs = Date.now();
         }
-        lastStep = prog.step;
-        stepStartTs = Date.now();
       }
       // En el paso PGS mostrar barra de progreso real basada en bytes leídos
       // por ffprobe (vía /proc/{pid}/io, emitido desde phase_a.run_pgs_packet_counts).
@@ -8377,6 +8483,9 @@ function _renderMkvEditPanel() {
 
       <!-- Barra de botones -->
       <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-bottom:12px">
+        <button class="btn btn-ghost btn-md" onclick="showRawMkvData()"
+          data-tooltip="Ver datos crudos del análisis (mkvmerge -J + MediaInfo + log)"
+          style="color:var(--text-2); margin-right:auto">🔬 Datos MKV</button>
         <button class="btn btn-ghost btn-md" onclick="undoMkvEdits()"
           data-tooltip="Revertir todos los cambios al estado original"
           style="color:var(--text-2)">↩️ Deshacer cambios</button>

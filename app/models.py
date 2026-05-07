@@ -823,6 +823,12 @@ class MkvAnalysisResult(BaseModel):
     mediainfo_raw: dict | None = None
     """JSON completo de MediaInfo para diagnóstico."""
 
+    analysis_log: list[str] = []
+    """Líneas del log emitidas durante el análisis del MKV (mkvmerge -J,
+    MediaInfo, ffprobe packet counts, dovi_tool). Se exponen en el modal
+    "Datos MKV" para diagnóstico de problemas sin tener que pedir el log
+    del container. Paralelo a Session.analysis_log de Tab 1."""
+
 
 class MkvEditTrack(BaseModel):
     """Edición de una pista individual en el MKV."""

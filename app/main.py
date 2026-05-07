@@ -1415,8 +1415,26 @@ async def analyze_mkv_endpoint(body: dict):
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
+    # Captura el log emitido durante el análisis para guardarlo en el
+    # resultado. Sirve para diagnóstico desde el modal "Datos MKV" sin pedir
+    # el log del container — paridad con Tab 1's Session.analysis_log.
+    analysis_log: list[str] = []
+    _MKV_STEP_LABELS = {
+        "identify": "Identificando pistas con mkvmerge -J",
+        "mediainfo": "Analizando metadata extendida con MediaInfo",
+        "pgs": "Contando paquetes PGS por subtítulo (ffprobe)",
+        "dovi": "Analizando Dolby Vision (dovi_tool)",
+    }
+
     async def _mkv_progress_callback(step: str):
         global _analyze_progress
+        try:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            label = _MKV_STEP_LABELS.get(step, step)
+            analysis_log.append(f"[{ts}] [Análisis MKV] {label}…")
+        except Exception:
+            analysis_log.append(step)
         if step == "pgs":
             _analyze_progress = {"step": "pgs", "done": False, "pct": 0, "eta_s": 0}
         else:
@@ -1433,6 +1451,7 @@ async def analyze_mkv_endpoint(body: dict):
             progress_callback=_mkv_progress_callback,
             pgs_progress_callback=_mkv_pgs_progress_callback,
         )
+        result.analysis_log = analysis_log
         _analyze_progress = {"step": "", "done": True}
         return result.model_dump()
     except Exception as e:
