@@ -9320,6 +9320,7 @@ function _cmv40GuessNextPhase(s) {
 
 // Mapeo de running_phase backend → step key del timeline
 const CMV40_RUNNING_TO_STEP = {
+  'preflight':        'PREFLIGHT',
   'analyze_source':   'A',
   'target_rpu_path':  'B',
   'target_rpu_mkv':   'B',
@@ -9425,6 +9426,31 @@ function _cmv40PlanAutoSteps(s) {
   const etaH = _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
 
   const steps = [];
+
+  // Pre-flight: sniff DV del origen + dovi_tool info del bin target.
+  // Backend: running_phase='preflight'. Phase backend NO cambia (sigue
+  // 'created'); el progreso se trackea via source_preflight_ok flag.
+  // Edge cases manejados en _cmv40StepStatus mapping de PREFLIGHT.
+  const phasePastSource = CMV40_PHASES_ORDER.indexOf(s.phase) >= CMV40_PHASES_ORDER.indexOf('source_analyzed');
+  let preflightStatus;
+  if (s.running_phase === 'preflight') {
+    preflightStatus = 'running';
+  } else if (s.source_preflight_ok === true || phasePastSource) {
+    preflightStatus = 'done';
+  } else if (s.running_phase === 'analyze_source') {
+    // Sesion legacy o pre-flight saltado: Fase A corriendo sin flag de
+    // preflight. Lo marcamos como skipped para no confundir.
+    preflightStatus = 'skipped';
+  } else {
+    preflightStatus = 'pending';
+  }
+  steps.push({
+    key: 'PREFLIGHT', icon: '🔬', title: 'Pre-flight · Validación rápida',
+    what: 'Sniff DV del MKV origen + dovi_tool info del bin target (~10-15s, aborta si algo no cuadra antes de gastar Fase A)',
+    etaSecs: 15,
+    forcedStatus: preflightStatus,
+  });
+
   steps.push({
     key: 'A', icon: '🔍', title: 'Fase A · Analizar MKV origen',
     what: 'ffmpeg copia el HEVC + dovi_tool extract-rpu + info',
@@ -9530,7 +9556,7 @@ function _cmv40PlanAutoSteps(s) {
     ? 'dovi_tool editor — remove/duplicate frames según config'
     : (trust || pastSyncVerified
         ? 'No requerida — el RPU target alinea con el source'
-        : 'Por determinar tras revisión de sync en Fase D');
+        : 'Solo si Fase D detecta desfase de frames');
   steps.push({
     key: 'E', icon: '🔧', title: 'Fase E · Corrección de sync',
     what: eWhat,
@@ -9551,23 +9577,6 @@ function _cmv40PlanAutoSteps(s) {
   steps.push({
     key: 'G', icon: '📦', title: 'Fase G · Remux MKV final',
     what: gWhat, etaSecs: etaG,
-  });
-
-  // Gate G→H: decisión instantanea sobre el resultado de Fase H (profile + CM
-  // v4.0 + frames). La etaSecs es 0 — es solo la trazabilidad del veredicto;
-  // el trabajo real de validacion vive dentro de Fase H. Antes etaSecs=etaH
-  // duplicaba el tiempo mostrado en el timeline.
-  const validatedIdx = CMV40_PHASES_ORDER.indexOf('validated');
-  const gateGHStatus = (curIdxForGate < validatedIdx) ? 'pending' : 'done';
-  const gateGHLabel = (curIdxForGate < validatedIdx)
-    ? (s.running_phase === 'validate' ? 'en curso…' : 'pendiente')
-    : 'validación OK';
-  steps.push({
-    key: 'GATE_GH', icon: '🛡️', title: 'Validación final pre-finalizar',
-    what: 'dovi_tool info + mkvmerge -J verifican profile + CM v4.0 + frame count del MKV resultante',
-    etaSecs: 0,
-    forcedStatus: gateGHStatus, customLabel: gateGHLabel,
-    isGate: true,
   });
 
   // Fase H = validar + finalizar. El backend unifica en running_phase='validate'
