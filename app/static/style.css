@@ -7441,6 +7441,35 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex: 1 1 320px;
   min-width: 0;  /* permite que el contenido haga shrink correcto */
 }
+
+/* Tabla de zonas L5 (films con active area dinamica) */
+.dv-l5-zones-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.dv-l5-zones-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+}
+.dv-l5-zones-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+  color: var(--text-1);
+}
+.dv-l5-zones-table tbody tr:last-child td { border-bottom: none; }
+.dv-l5-zones-table code {
+  font-family: SF Mono, Menlo, monospace;
+  font-size: 10.5px;
+  color: #475569;
+}
 .dv-l1-stats-block-title {
   font-size: 10.5px;
   font-weight: 700;

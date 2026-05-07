@@ -7910,21 +7910,71 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // ═══════════════════════════════════════════════════════════════
   const symV = (dv.l5_top || 0) === (dv.l5_bottom || 0);
   const symH = (dv.l5_left || 0) === (dv.l5_right || 0);
-  const blockActiveArea = `
-    <section class="dv-block">
-      <h5 class="dv-block-title">Active area <span class="dv-block-sub">L5</span></h5>
-      <div class="dv-split">
-        <div class="dv-grid-2">
-          ${cell('Offsets T / B', `${dv.l5_top || 0} / ${dv.l5_bottom || 0} px`)}
-          ${cell('Offsets L / R', `${dv.l5_left || 0} / ${dv.l5_right || 0} px`)}
-          ${cell('Área activa', `${activeW} × ${activeH}`)}
-          ${cell('Aspect ratio', aspectLabel)}
-          ${cell('Simetría vertical', symV ? 'T = B' : `Δ ${Math.abs((dv.l5_top || 0) - (dv.l5_bottom || 0))} px`, { status: symV ? 'ok' : 'warn' })}
-          ${cell('Simetría horizontal', symH ? 'L = R' : `Δ ${Math.abs((dv.l5_left || 0) - (dv.l5_right || 0))} px`, { status: symH ? 'ok' : 'warn' })}
+  // L5 zones del light profile: lista de zonas detectadas a lo largo del
+  // film. Si hay >1 zona, el film tiene active area dinamica (letterbox
+  // cambiante por escena, ej. partes IMAX en 1.43:1 vs 2.40:1 cinema).
+  // Si solo hay 1 zona o no hay light profile, mostramos el L5 estatico
+  // del sample como antes.
+  const l5Zones = dv?.l1_references?.l5_zones || [];
+  const hasZonedL5 = l5Zones.length > 1;
+
+  let blockActiveArea;
+  if (hasZonedL5) {
+    // Render multi-zona: tabla con cada zona y su % de frames
+    const zonesHtml = l5Zones.map((z, i) => {
+      const aw = frameW - (z.left || 0) - (z.right || 0);
+      const ah = frameH - (z.top || 0) - (z.bottom || 0);
+      const ratio = ah > 0 ? (aw / ah).toFixed(2) : '—';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><code>T${z.top}/B${z.bottom}/L${z.left}/R${z.right}</code></td>
+          <td>${aw} × ${ah}</td>
+          <td>${ratio}:1</td>
+          <td>${z.frames.toLocaleString()}</td>
+          <td><strong>${z.pct}%</strong></td>
+        </tr>`;
+    }).join('');
+    blockActiveArea = `
+      <section class="dv-block">
+        <h5 class="dv-block-title">Active area
+          <span class="dv-block-sub">L5 · ${l5Zones.length} zonas detectadas (letterbox dinámico)</span>
+        </h5>
+        <table class="dv-l5-zones-table">
+          <thead><tr><th>#</th><th>Offsets (px)</th><th>Área activa</th><th>Ratio</th><th>Frames</th><th>%</th></tr></thead>
+          <tbody>${zonesHtml}</tbody>
+        </table>
+      </section>`;
+  } else {
+    // Caso clasico: una sola zona (uniform letterbox). Si tenemos light
+    // profile, usamos los offsets de la zona dominante; si no, los del
+    // sample del extract-rpu.
+    const z0 = l5Zones[0];
+    const lTop = z0 ? z0.top : (dv.l5_top || 0);
+    const lBot = z0 ? z0.bottom : (dv.l5_bottom || 0);
+    const lLft = z0 ? z0.left : (dv.l5_left || 0);
+    const lRgt = z0 ? z0.right : (dv.l5_right || 0);
+    const aWi = frameW - lLft - lRgt;
+    const aHi = frameH - lTop - lBot;
+    const sV = lTop === lBot;
+    const sH = lLft === lRgt;
+    const subLabel = z0 ? 'L5 · validado en todo el film' : 'L5 · sample 30s (corre el perfil de luminancia para validar)';
+    blockActiveArea = `
+      <section class="dv-block">
+        <h5 class="dv-block-title">Active area <span class="dv-block-sub">${subLabel}</span></h5>
+        <div class="dv-split">
+          <div class="dv-grid-2">
+            ${cell('Offsets T / B', `${lTop} / ${lBot} px`)}
+            ${cell('Offsets L / R', `${lLft} / ${lRgt} px`)}
+            ${cell('Área activa', `${aWi} × ${aHi}`)}
+            ${cell('Aspect ratio', aspectLabel)}
+            ${cell('Simetría vertical', sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
+            ${cell('Simetría horizontal', sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
+          </div>
+          <div class="dv-viz-side">${_rgrfL5Svg(dv, frameW, frameH)}</div>
         </div>
-        <div class="dv-viz-side">${_rgrfL5Svg(dv, frameW, frameH)}</div>
-      </div>
-    </section>`;
+      </section>`;
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 4 · CMv4.0 levels (solo si v4.0).
@@ -7935,8 +7985,15 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // ═══════════════════════════════════════════════════════════════
   let blockCmv4 = '';
   if (isV40) {
-    const nitsLabel = (dv.l8_trim_nits && dv.l8_trim_nits.length)
-      ? dv.l8_trim_nits.join(' · ') + ' nits'
+    // Preferir L8 trims del light profile (full movie) sobre los del
+    // sample. Capta target_display_index distintos que solo aparecen
+    // en frames mid/late del film.
+    const l8FromLightProfile = dv?.l1_references?.l8_trim_nits_full;
+    const l8Effective = (Array.isArray(l8FromLightProfile) && l8FromLightProfile.length)
+      ? l8FromLightProfile
+      : (dv.l8_trim_nits || []);
+    const nitsLabel = (l8Effective && l8Effective.length)
+      ? l8Effective.join(' · ') + ' nits'
       : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
     blockCmv4 = `
       <section class="dv-block">
@@ -7952,10 +8009,10 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
           ${pill(dv.has_l11, 'L11', 'content type')}
           ${pill(dv.has_l254,'L254', 'CMv4.0 marker')}
         </div>
-        ${dv.l8_trim_nits && dv.l8_trim_nits.length ? `
+        ${l8Effective && l8Effective.length ? `
           <div class="dv-viz-inline">
-            <div class="dv-viz-caption">L8 target displays · escala logarítmica de nits</div>
-            ${_rgrfL8Svg(dv.l8_trim_nits)}
+            <div class="dv-viz-caption">L8 target displays · escala logarítmica de nits${l8FromLightProfile && l8FromLightProfile.length ? ' · validado film completo' : ' · sample 30s'}</div>
+            ${_rgrfL8Svg(l8Effective)}
           </div>` : ''}
       </section>`;
   }

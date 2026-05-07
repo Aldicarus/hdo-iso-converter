@@ -1896,6 +1896,57 @@ async def mkv_light_profile_endpoint(body: dict):
         raw_max_pq_max = 0
         raw_max_pq_sum = 0
         raw_max_pq_count = 0
+        # L5 zonas: tupla (top, bottom, left, right) por frame para detectar
+        # cambios de active area a lo largo del film (caso "L5 zoneado": films
+        # con barras dinamicas tipo IMAX 1.43:1 ↔ 2.40:1).
+        per_frame_l5: list[tuple] = []
+        # L8 trims a lo largo del film: target_display_index → max_pq.
+        # Iteramos TODOS los frames (vs solo el sample del extract-rpu --limit
+        # del flow original), capturamos cualquier target adicional.
+        l8_targets_full: dict[int, int] = {}  # {target_display_index: max_pq_seen}
+
+        def _scan_blocks_l5l8(vdr_obj: dict) -> tuple[tuple, dict]:
+            """Devuelve (l5_offsets|None, l8_trims_dict) del frame."""
+            l5 = None
+            l8_local: dict[int, int] = {}
+            for src_key in ("cmv29_metadata", "cmv40_metadata"):
+                src = vdr_obj.get(src_key) if isinstance(vdr_obj, dict) else None
+                if not isinstance(src, dict):
+                    continue
+                blocks = src.get("ext_metadata_blocks") or src.get("ext_blocks")
+                if not isinstance(blocks, list):
+                    continue
+                for item in blocks:
+                    if not isinstance(item, dict):
+                        continue
+                    # L5 active area
+                    l5_obj = item.get("Level5") or item.get("level5")
+                    if isinstance(l5_obj, dict) and l5 is None:
+                        try:
+                            l5 = (
+                                int(l5_obj.get("active_area_top_offset", 0)),
+                                int(l5_obj.get("active_area_bottom_offset", 0)),
+                                int(l5_obj.get("active_area_left_offset", 0)),
+                                int(l5_obj.get("active_area_right_offset", 0)),
+                            )
+                        except Exception:
+                            pass
+                    # L8 saturation/tone-mapping per target display
+                    l8_obj = item.get("Level8") or item.get("level8")
+                    if isinstance(l8_obj, dict):
+                        try:
+                            tdi = int(l8_obj.get("target_display_index", 0))
+                            mxpq = int(l8_obj.get("target_mid_pq", 0)) or int(l8_obj.get("trim_slope", 0))
+                            # target_max_pq es el field clave para L8 (peak nits del display objetivo)
+                            mxpq2 = int(l8_obj.get("target_max_pq", 0))
+                            if mxpq2:
+                                mxpq = mxpq2
+                            if tdi:
+                                l8_local[tdi] = mxpq or l8_local.get(tdi, 0)
+                        except Exception:
+                            pass
+            return l5, l8_local
+
         for rpu in rpus:
             vdr = (rpu or {}).get("vdr_dm_data", {})
             cll, fall, mn = _find_l1_block_full(vdr)
@@ -1912,6 +1963,13 @@ async def mkv_light_profile_endpoint(body: dict):
             if mn is not None:
                 try: per_frame_min.append(int(round(_to_nits(mn))))
                 except Exception: per_frame_min.append(0)
+            l5_frame, l8_frame = _scan_blocks_l5l8(vdr)
+            if l5_frame is not None:
+                per_frame_l5.append(l5_frame)
+            for tdi, mxpq in l8_frame.items():
+                # Guarda el max_pq mas alto visto para cada target_display_index
+                if mxpq > l8_targets_full.get(tdi, 0):
+                    l8_targets_full[tdi] = mxpq
 
         raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
         _logger.info(
@@ -1972,6 +2030,30 @@ async def mkv_light_profile_endpoint(body: dict):
                             pass
 
         l2_targets_nits = sorted({int(round(_to_nits(pq))) for pq in l2_targets_pq})
+
+        # ── L5 zonas: agrupar offsets unicos a lo largo del film ──────
+        # Si el film tiene letterbox dinamico (IMAX 1.43 ↔ 2.40, etc.), aqui
+        # detectamos las distintas zonas. Devolvemos la lista ordenada por
+        # frequencia (la mas comun primero) con conteo de frames.
+        from collections import Counter
+        l5_zones_counter = Counter(per_frame_l5)
+        l5_zones_list = []
+        for offsets, count in l5_zones_counter.most_common():
+            l5_zones_list.append({
+                "top": offsets[0],
+                "bottom": offsets[1],
+                "left": offsets[2],
+                "right": offsets[3],
+                "frames": count,
+                "pct": round(count / max(1, len(per_frame_l5)) * 100, 1),
+            })
+
+        # ── L8 trims: convertir target_max_pq a nits, ordenar ASC ────
+        # l8_targets_full = {target_display_index: target_max_pq}. Convertimos
+        # max_pq → nits y devolvemos lista unica ordenada.
+        l8_trim_nits_full = sorted({
+            int(round(_to_nits(mxpq))) for mxpq in l8_targets_full.values() if mxpq
+        })
 
         # ── Stats: percentiles + buckets de clasificacion ─────────────
         sorted_cll = sorted(per_frame_cll)
@@ -2052,6 +2134,14 @@ async def mkv_light_profile_endpoint(body: dict):
                 "l6_master_min_nits":    l6_master_min_nits,     # ej. 0.005
                 "l6_max_cll":            l6_max_cll,              # ej. 0 (no seteado en BR2049)
                 "l6_max_fall":           l6_max_fall,
+                # L5 zonas detectadas a lo largo del film. Si len > 1,
+                # el film tiene active area dinamica (letterbox cambiante).
+                # Si len == 1, el active area es uniforme (caso normal).
+                "l5_zones":              l5_zones_list,
+                # L8 trim nits del film completo (reemplaza al sample).
+                # Usar este array en vez del DoviInfo.l8_trim_nits si esta
+                # presente — captura targets que solo aparecen en frames mid/late.
+                "l8_trim_nits_full":     l8_trim_nits_full,
             },
         }
         _light_profile_state["result"] = result
