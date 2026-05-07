@@ -1476,7 +1476,16 @@ _light_profile_state: dict = {
 }
 
 
+# Tracking del subprocess activo (ffmpeg/dovi_tool) para cancelacion +
+# flag de cancelacion. Single-job singleton igual que el state. Patron
+# similar al _cmv40_active_procs de Tab 3.
+_lp_active_proc: dict = {"proc": None}
+_lp_cancel: dict = {"requested": False}
+
+
 def _lp_reset():
+    _lp_active_proc["proc"] = None
+    _lp_cancel["requested"] = False
     _light_profile_state.update({
         "active": True,
         "step": 0, "step_label": "", "step_pct": 0, "global_pct": 0,
@@ -1484,6 +1493,17 @@ def _lp_reset():
         "result": None,
         "started_at": __import__("time").monotonic(),
     })
+
+
+def _lp_register_proc(proc):
+    """Registra el subprocess activo para que cancel() pueda matarlo."""
+    _lp_active_proc["proc"] = proc
+
+
+def _lp_check_cancel():
+    """Lanza RuntimeError si el usuario cancelo. Llamar en cada paso."""
+    if _lp_cancel["requested"]:
+        raise RuntimeError("Cancelado por el usuario")
 
 
 def _lp_log(msg: str):
@@ -1516,6 +1536,35 @@ def _lp_set_step_pct(step_pct: float, global_pct: float):
 async def mkv_light_profile_progress_endpoint():
     """Estado actual del analisis de perfil de luminancia (polling)."""
     return dict(_light_profile_state)
+
+
+@app.post("/api/mkv/light-profile/cancel")
+async def mkv_light_profile_cancel_endpoint():
+    """Cancela el analisis activo: SIGTERM al subprocess + cancel flag.
+    El endpoint principal detecta el flag entre pasos y aborta limpio.
+    Si no hay analisis activo, no-op.
+    """
+    if not _light_profile_state.get("active"):
+        return {"ok": False, "reason": "no hay analisis activo"}
+    _lp_cancel["requested"] = True
+    proc = _lp_active_proc.get("proc")
+    if proc:
+        try:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                # No respondio a SIGTERM en 2s — escalamos a SIGKILL
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        except Exception as e:
+            _logger.warning("light-profile cancel: kill subprocess fallo: %s", e)
+    _lp_log("✗ Cancelado por el usuario")
+    _light_profile_state["error"] = "Cancelado por el usuario"
+    _light_profile_state["active"] = False
+    return {"ok": True}
 
 
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
@@ -1581,12 +1630,14 @@ async def mkv_light_profile_endpoint(body: dict):
                   "-f", "hevc", str(hevc_path)]
 
         # ═══════ Paso 1 · ffmpeg con monitor de progreso por file size ═══
+        _lp_check_cancel()
         _lp_set_step(1, "Extrayendo HEVC del MKV con ffmpeg", 0)
         t0 = _time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             *ff_cmd,
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
+        _lp_register_proc(proc)
         # Monitor task: cada 1s leemos el tamaño del HEVC y actualizamos pct.
         # Paso 1 ocupa 55% del pct global (55/35/10 aprox para las 3 fases).
         stop_mon = asyncio.Event()
@@ -1630,12 +1681,14 @@ async def mkv_light_profile_endpoint(body: dict):
         _lp_log(f"Paso 1/3 ✓ ffmpeg OK en {_time.monotonic()-t0:.1f}s ({ff_gb:.2f} GB HEVC)")
 
         # ═══════ Paso 2 · dovi_tool extract-rpu ═══════════════════════════
+        _lp_check_cancel()
         _lp_set_step(2, "Extrayendo RPU del HEVC con dovi_tool", 55)
         t1 = _time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
+        _lp_register_proc(proc)
         # dovi_tool no expone progreso estructurado; estimamos linealmente
         # con ETA basada en tiempo de ffmpeg (aprox ratio 0.5x ffmpeg time).
         expected_dt_s = max(20, int((_time.monotonic() - t0) * 0.5))
@@ -1676,6 +1729,7 @@ async def mkv_light_profile_endpoint(body: dict):
         except Exception: pass
 
         # ═══════ Paso 3 · export JSON + parseo ════════════════════════════
+        _lp_check_cancel()
         _lp_set_step(3, "Exportando metadata a JSON + parseo", 90)
         t2 = _time.monotonic()
         json_path = tmp_dir / "rpu.json"
@@ -1683,6 +1737,7 @@ async def mkv_light_profile_endpoint(body: dict):
             DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
+        _lp_register_proc(proc)
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         except asyncio.TimeoutError:

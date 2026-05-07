@@ -192,9 +192,19 @@ function _installVisibilityRecovery() {
         connectExecutionWebSocket(queueState.running);
       }
     }
-    // Tab 2 — el polling del light-profile usa chained-await con flag
-    // `polling`. Si el modal está abierto, el await reanuda solo tras
-    // wake y no necesita intervención. No hacemos nada explícito aquí.
+    // Tab 2 — light-profile: el chained-await reanuda tras wake, pero si
+    // el POST quedo colgado y el backend ya termino, el polling lo abortara
+    // automaticamente (ver _pollLoop). Aqui forzamos un tick inmediato del
+    // polling consultando state — si esta inactivo con result, abortamos
+    // el POST sin esperar al siguiente sleep(1500) del loop.
+    if (window._dvLightSession?.ctrl) {
+      apiFetch('/api/mkv/light-profile/progress', { silent: true }).then(st => {
+        if (st && st.active === false && (st.result || st.error)) {
+          window._dvLightSession.polledResult = st.result || null;
+          try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
+        }
+      }).catch(() => {});
+    }
   });
 }
 
@@ -8092,11 +8102,16 @@ async function _rgrfAnalyzeLight(evt) {
   // en vuelo a la vez → orden monotónico garantizado.
   let lastLogCount = 0;
   let polling = true;
+  // AbortController del POST se expone via _dvLightSession para que el
+  // handler de cancel y el polling lo aborten cuando el backend ya
+  // termino (recuperacion tras Mac sleep — el POST pendiente puede
+  // quedar colgado pero el polling ve el resultado).
+  window._dvLightSession = { ctrl: null, polledResult: null };
   const pollTicker = { _stop: () => { polling = false; } };
   async function _pollLoop() {
     while (polling) {
       try {
-        const st = await apiFetch('/api/mkv/light-profile/progress');
+        const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
         if (!polling) return;
         if (st) {
           if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
@@ -8117,6 +8132,17 @@ async function _rgrfAnalyzeLight(evt) {
             }
             if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
             lastLogCount = lines.length;
+          }
+          // Recuperacion tras sleep: si el backend ya termino (active=false
+          // con result o error) pero el POST sigue colgado, abortamos el
+          // POST para desbloquear el await — el catch path usa el resultado
+          // del polling como fallback. Esto cubre el caso "Mac sleep durante
+          // analisis → wake → POST nunca resuelve aunque backend ya acabo".
+          if (st.active === false && (st.result || st.error)) {
+            window._dvLightSession.polledResult = st.result || null;
+            try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
+            polling = false;
+            return;
           }
         }
       } catch (_) { /* silencioso */ }
@@ -8145,6 +8171,9 @@ async function _rgrfAnalyzeLight(evt) {
     let postError = null;
     {
       const ctrl = new AbortController();
+      // Expone el ctrl al polling para que pueda abortar cuando vea el
+      // backend completado (Mac sleep recovery) y al handler de cancel.
+      window._dvLightSession.ctrl = ctrl;
       const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
       try {
         const resp = await fetch('/api/mkv/light-profile', {
@@ -8170,22 +8199,28 @@ async function _rgrfAnalyzeLight(evt) {
       }
     }
     // Fallback: si el POST fallo o devolvio sin datos, el backend pudo
-    // terminar igualmente y el resultado vive en state.result. Polling
-    // unas veces para darle tiempo a finalizar.
+    // terminar igualmente y el resultado vive en state.result.
+    // 1) Si el polling ya capturo el resultado (recuperacion sleep), usalo.
+    // 2) Si no, sondea unas veces mas para darle tiempo a finalizar.
     if (!data?.per_scene_max_cll) {
-      for (let i = 0; i < 20; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        const st = await apiFetch('/api/mkv/light-profile/progress');
-        if (st && st.result && st.result.per_scene_max_cll) {
-          data = st.result;
-          break;
-        }
-        if (st && !st.active && st.error) {
-          throw new Error(st.error);
-        }
-        if (st && !st.active && st.step === 4) {
-          // Backend marca terminado pero no hay result — caso raro
-          break;
+      const polled = window._dvLightSession?.polledResult;
+      if (polled && polled.per_scene_max_cll) {
+        data = polled;
+      } else {
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 1500));
+          const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
+          if (st && st.result && st.result.per_scene_max_cll) {
+            data = st.result;
+            break;
+          }
+          if (st && !st.active && st.error) {
+            throw new Error(st.error);
+          }
+          if (st && !st.active && st.step === 4) {
+            // Backend marca terminado pero no hay result — caso raro
+            break;
+          }
         }
       }
     }
@@ -8262,7 +8297,27 @@ async function _rgrfAnalyzeLight(evt) {
     }
   } finally {
     pollTicker._stop();
+    // Limpia la session global por higiene; futuros analisis crearan una nueva.
+    if (window._dvLightSession) {
+      window._dvLightSession.ctrl = null;
+      window._dvLightSession.polledResult = null;
+    }
   }
+}
+
+/** Cancela el análisis de perfil de luminancia activo. Llamado desde el
+ *  botón "🛑 Cancelar análisis" del modal. POST al backend para matar el
+ *  subprocess + abort del fetch local. El catch del POST cierra el modal. */
+async function _dvLightCancel() {
+  const btn = document.getElementById('dv-light-cancel-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
+  try {
+    await apiFetch('/api/mkv/light-profile/cancel', { method: 'POST', silent: true });
+  } catch (_) { /* el aborto local + state del backend bastan */ }
+  // Aborta el POST local — el catch path mostrará el error "Cancelado por el usuario"
+  // que vendrá del backend (state.error tras la cancelación).
+  try { window._dvLightSession?.ctrl?.abort(); } catch (_) {}
+  if (btn) { btn.disabled = false; btn.textContent = '🛑 Cancelar análisis'; }
 }
 
 // Guard monotónico: ignora actualizaciones que llegan con un step inferior

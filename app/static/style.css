@@ -7799,6 +7799,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   text-align: center;
   font-style: italic;
 }
+.dv-light-foot {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 12px;
+}
 
 /* ══════════════════════════════════════════════════════════════════
    FILE BROWSER MODAL — Tab 3 selector de MKV origen
