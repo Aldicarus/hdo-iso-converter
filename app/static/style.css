@@ -7427,13 +7427,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-radius: 8px;
 }
 .dv-l1-stats-row {
-  display: grid;
-  grid-template-columns: 220px 1fr;
+  /* Flex-wrap en vez de grid de 220px fijo: las 5 celdas de percentiles
+     necesitan ~350px ("192 nits" en 14px monospace × 5) y se solapaban
+     con la columna derecha cuando el grid forzaba 220px.
+     Cada bloque tiene min-width 320px y wrappean si el contenedor es
+     demasiado estrecho. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 18px;
-  align-items: start;
+  align-items: flex-start;
 }
-@media (max-width: 720px) {
-  .dv-l1-stats-row { grid-template-columns: 1fr; }
+.dv-l1-stats-row > .dv-l1-stats-block {
+  flex: 1 1 320px;
+  min-width: 0;  /* permite que el contenido haga shrink correcto */
 }
 .dv-l1-stats-block-title {
   font-size: 10.5px;
