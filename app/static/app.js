@@ -8256,6 +8256,14 @@ async function _rgrfAnalyzeLight(evt) {
       'success'
     );
   } catch (e) {
+    // Cancelación explícita por el usuario — cierre directo sin tratar
+    // como error. Toast informativo + closeModal. NO inyectamos el botón
+    // "Cerrar" (sería redundante: el usuario ya cliqueó Cancelar).
+    if (window._dvLightSession?.cancelledByUser) {
+      closeModal('dv-light-modal');
+      showToast('🛑 Análisis cancelado', 'info');
+      return;
+    }
     // No cerramos el modal automaticamente — antes lo haciamos a los 2.2s y
     // si el usuario no estaba mirando perdia el error y veia "parado sin
     // resultado". Ahora lo dejamos abierto con el error inyectado al log
@@ -8301,23 +8309,26 @@ async function _rgrfAnalyzeLight(evt) {
     if (window._dvLightSession) {
       window._dvLightSession.ctrl = null;
       window._dvLightSession.polledResult = null;
+      window._dvLightSession.cancelledByUser = false;
     }
   }
 }
 
 /** Cancela el análisis de perfil de luminancia activo. Llamado desde el
- *  botón "🛑 Cancelar análisis" del modal. POST al backend para matar el
- *  subprocess + abort del fetch local. El catch del POST cierra el modal. */
+ *  botón "🛑 Cancelar análisis" del modal. Marca la sesión como cancelada
+ *  por el usuario (para que el catch del POST cierre el modal sin
+ *  mostrarlo como error), POST al backend para matar el subprocess y
+ *  aborta el fetch local. */
 async function _dvLightCancel() {
   const btn = document.getElementById('dv-light-cancel-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
+  // Flag para que el catch path NO muestre error ni boton Cerrar — fue
+  // intencional, cierre directo + toast informativo.
+  if (window._dvLightSession) window._dvLightSession.cancelledByUser = true;
   try {
     await apiFetch('/api/mkv/light-profile/cancel', { method: 'POST', silent: true });
   } catch (_) { /* el aborto local + state del backend bastan */ }
-  // Aborta el POST local — el catch path mostrará el error "Cancelado por el usuario"
-  // que vendrá del backend (state.error tras la cancelación).
   try { window._dvLightSession?.ctrl?.abort(); } catch (_) {}
-  if (btn) { btn.disabled = false; btn.textContent = '🛑 Cancelar análisis'; }
 }
 
 // Guard monotónico: ignora actualizaciones que llegan con un step inferior
