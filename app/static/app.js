@@ -7661,11 +7661,24 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const is2020Container = /2020/i.test(cont.primaries);
   const showExpansionChip = isP3Master && is2020Container;
 
-  // Trim chips ordenados ASC. Si no se ha corrido el light profile no
-  // tenemos l2Trims aun — mostramos placeholder apuntando a "analizar".
-  const trimChips = (Array.isArray(l2Trims) && l2Trims.length > 0)
-    ? l2Trims.map(n => `<span class="dv-mc-trim-chip">${n}n</span>`).join('')
-    : '<span class="dv-mc-empty">analiza el perfil de luminancia para extraer los trim targets</span>';
+  // Trim chips ordenados ASC. Distinguimos 3 estados:
+  //   1. Hay L2 trims → mostrar chips
+  //   2. Light profile YA corrido pero sin L2 trims → RPU CMv4.0 (usa L8)
+  //   3. Light profile NO corrido → invitacion a analizar
+  const lightProfileRun = !!dv?.l1_references;
+  const hasL8Trims = Array.isArray(dv?.l8_trim_nits) && dv.l8_trim_nits.length > 0;
+  let trimChips;
+  if (Array.isArray(l2Trims) && l2Trims.length > 0) {
+    trimChips = l2Trims.map(n => `<span class="dv-mc-trim-chip">${n}n</span>`).join('');
+  } else if (lightProfileRun) {
+    // Light profile corrido pero sin L2 trims — caso normal en RPUs CMv4.0
+    // que solo tienen L8. No es un error, solo informativo.
+    trimChips = hasL8Trims
+      ? '<span class="dv-mc-empty">sin L2 trims · este RPU usa L8 (ver fila inferior)</span>'
+      : '<span class="dv-mc-empty">sin L2 trims declarados en el RPU</span>';
+  } else {
+    trimChips = '<span class="dv-mc-empty">analiza el perfil de luminancia para extraer los trim targets</span>';
+  }
 
   // HDR10 metadata footer
   const hdr10Cll  = hdr?.max_cll  != null ? `MaxCLL ${hdr.max_cll} nits` : '';
