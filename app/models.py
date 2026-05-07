@@ -786,6 +786,16 @@ class MkvTrackInfo(BaseModel):
     forzado vs completo: <500 paquetes ≈ forzados, ≥500 ≈ completos.
     0 si no calculado o no aplicable."""
 
+    fps: float = 0.0
+    """FPS de la pista (solo vídeo). Calculado desde default_duration de
+    mkvmerge: fps = 1e9 / default_duration_ns. 0 si no aplicable o no
+    detectado."""
+
+    frame_count: int = 0
+    """Número TOTAL de frames de la pista de vídeo (computed = duration × fps).
+    Distinto de DoviInfo.frame_count que es muestreado (--limit en
+    extract-rpu). 0 si no aplicable."""
+
 
 class MkvAnalysisResult(BaseModel):
     """Resultado del análisis de un MKV existente con mkvmerge -J + MediaInfo."""

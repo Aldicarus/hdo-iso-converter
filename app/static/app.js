@@ -7807,9 +7807,11 @@ function _rgrfDistributionSvg(series) {
  *  visualizadores inline. */
 function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const hdr = a.hdr || {};
-  const fps = a.duration_seconds && dv.frame_count
-    ? (dv.frame_count / a.duration_seconds).toFixed(3)
-    : (a.fps ? a.fps.toFixed(3) : '23.976');
+  // FPS real desde el track de vídeo (mkvmerge default_duration → fps).
+  // NO computamos fps = dv.frame_count / duration porque dv.frame_count
+  // viene del extract-rpu --limit 720 (sample de ~30s, NO el total).
+  const fpsNum = mainVideo?.fps || a.fps || 23.976;
+  const fps = fpsNum.toFixed(3);
 
   // Helper inline: celda label+valor compacta
   const cell = (label, value, opts = {}) => {
@@ -7829,14 +7831,25 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // ── DATA
   const el = dv.el_type ? ` ${dv.el_type}` : '';
   const profile = dv.profile ? `P${dv.profile}${el}${dv.profile_compatibility_id ? ` · compat ${dv.profile_compatibility_id}` : ''}` : '—';
-  const framesTotal = mainVideo?.frame_count || dv.frame_count || 0;
+  // framesTotal: prioridad al track de vídeo (real, derivado de duration×fps).
+  // dv.frame_count es sample-scoped (--limit 720) — solo lo usamos como
+  // último recurso si no tenemos ni duración ni fps.
+  const framesTotal = mainVideo?.frame_count
+    || (a.duration_seconds && fpsNum ? Math.round(a.duration_seconds * fpsNum) : 0)
+    || dv.frame_count
+    || 0;
   const durationStr = a.duration_seconds ? _fmtDuration(a.duration_seconds) : '—';
+  // Escenas / avg shot length también viene del sample del dovi_tool —
+  // no representa la película completa. Lo etiquetamos para evitar confusión.
   const avgShot = dv.scene_avg_length_frames
-    ? `${dv.scene_avg_length_frames}f · ${(dv.scene_avg_length_frames / parseFloat(fps || 24)).toFixed(1)}s`
+    ? `${dv.scene_avg_length_frames}f · ${(dv.scene_avg_length_frames / fpsNum).toFixed(1)}s`
     : '—';
-  const rpuSize = dv.rpu_size_bytes
-    ? `${_fmtBytes(dv.rpu_size_bytes)} · ${Math.round(dv.rpu_size_bytes / Math.max(framesTotal, 1))} B/f`
-    : '—';
+  // RPU bytes/frame también es relativo al sample (rpu_size_bytes y
+  // dv.frame_count son ambos del sample) — el ratio es válido aunque los
+  // absolutos no lo sean.
+  const rpuSize = dv.rpu_size_bytes && dv.frame_count
+    ? `${_fmtBytes(dv.rpu_size_bytes)} · ${Math.round(dv.rpu_size_bytes / dv.frame_count)} B/f`
+    : (dv.rpu_size_bytes ? _fmtBytes(dv.rpu_size_bytes) : '—');
   const cmLabel = dv.cm_version ? dv.cm_version.toUpperCase() : '—';
 
   const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
@@ -7861,13 +7874,13 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       <div class="dv-grid-3">
         ${cell('Profile', profile)}
         ${cell('CM version', cmLabel)}
-        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—')}
+        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: 'Total de frames del MKV (duración × FPS)' })}
         ${cell('Duración', durationStr)}
-        ${cell('FPS', fps)}
-        ${cell('Escenas', dv.scene_count ? `${dv.scene_count.toLocaleString()} · avg ${avgShot}` : '—')}
+        ${cell('FPS', fps, { tooltip: 'FPS del track de vídeo (de mkvmerge default_duration)' })}
+        ${cell('Escenas', dv.scene_count ? `${dv.scene_count.toLocaleString()} · avg ${avgShot}` : '—', { tooltip: 'Sample-scoped: detección de escenas en los primeros ~30s del MKV (dovi_tool extract-rpu --limit 720). No refleja el total del film.' })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
-        ${cell('RPU', rpuSize)}
+        ${cell('RPU', rpuSize, { tooltip: 'Tamaño y bytes/frame del RPU sample (extract-rpu --limit 720, ~30s del inicio)' })}
         ${elVideo ? cell('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
       </div>
     </section>`;

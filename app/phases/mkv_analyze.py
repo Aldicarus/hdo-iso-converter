@@ -84,6 +84,18 @@ async def analyze_mkv(
     tracks = []
     for t in data.get("tracks", []):
         props = t.get("properties", {})
+        # FPS desde default_duration (nanosegundos por frame) — solo vídeo.
+        # mkvmerge la expone para tracks de video con framerate constante.
+        fps_val = 0.0
+        default_dur = props.get("default_duration")
+        if t.get("type") == "video" and default_dur:
+            try:
+                # default_duration en ns; fps = 1e9 / dur. Redondeo a 3
+                # decimales para coincidir con valores estandar (23.976,
+                # 24.000, 25.000, 29.970, etc.).
+                fps_val = round(1_000_000_000.0 / float(default_dur), 3)
+            except (TypeError, ValueError, ZeroDivisionError):
+                fps_val = 0.0
         tracks.append(MkvTrackInfo(
             id=t.get("id", 0),
             type=t.get("type", "video"),
@@ -95,6 +107,7 @@ async def analyze_mkv(
             channels=props.get("audio_channels"),
             sample_rate=props.get("audio_sampling_frequency"),
             pixel_dimensions=props.get("pixel_dimensions", ""),
+            fps=fps_val,
         ))
 
     # ── Metadatos del contenedor ─────────────────────────────────
@@ -102,6 +115,14 @@ async def analyze_mkv(
     title = container.get("title", "")
     duration_ns = container.get("duration")
     duration_s = (duration_ns / 1_000_000_000) if duration_ns else 0.0
+
+    # ── Frame count total = duration × fps (solo vídeo) ──────────
+    # mkvmerge no siempre expone NUMBER_OF_FRAMES como propiedad simple;
+    # lo derivamos de duration × fps que es exacto para CFR.
+    if duration_s > 0:
+        for t in tracks:
+            if t.type == "video" and t.fps > 0:
+                t.frame_count = int(round(duration_s * t.fps))
 
     # ── FEL: segundo track HEVC a 1080p ──────────────────────────
     hevc_count = 0
