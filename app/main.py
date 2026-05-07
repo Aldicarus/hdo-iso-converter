@@ -1540,9 +1540,12 @@ async def mkv_light_profile_progress_endpoint():
 
 @app.post("/api/mkv/light-profile/cancel")
 async def mkv_light_profile_cancel_endpoint():
-    """Cancela el analisis activo: SIGTERM al subprocess + cancel flag.
-    El endpoint principal detecta el flag entre pasos y aborta limpio.
-    Si no hay analisis activo, no-op.
+    """Cancela el analisis activo: SIGTERM → SIGKILL al subprocess +
+    cancel flag. CRITICO: esperar a que el subprocess sea totalmente
+    reaped antes de retornar — sino el siguiente analisis puede chocar
+    con file handles/locks del NAS aun no liberados (especialmente sobre
+    VPN), causando que el nuevo ffmpeg se cuelgue al intentar leer el
+    mismo MKV.
     """
     if not _light_profile_state.get("active"):
         return {"ok": False, "reason": "no hay analisis activo"}
@@ -1552,15 +1555,28 @@ async def mkv_light_profile_cancel_endpoint():
         try:
             proc.terminate()
             try:
-                await asyncio.wait_for(proc.wait(), timeout=2.0)
+                await asyncio.wait_for(proc.wait(), timeout=3.0)
             except asyncio.TimeoutError:
-                # No respondio a SIGTERM en 2s — escalamos a SIGKILL
+                # No respondio a SIGTERM en 3s — escalamos a SIGKILL.
                 try:
                     proc.kill()
                 except Exception:
                     pass
+                # Espera bloqueante a que SIGKILL sea procesado y el
+                # subprocess sea reaped por el kernel. Sin esto, el
+                # cancel handler retorna mientras el proceso sigue en
+                # estado D (uninterruptible sleep) con file handles
+                # abiertos sobre el NAS — colgando el siguiente run.
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    _logger.warning(
+                        "light-profile cancel: subprocess no reaped tras 10s "
+                        "(zombie probable)"
+                    )
         except Exception as e:
             _logger.warning("light-profile cancel: kill subprocess fallo: %s", e)
+    _lp_active_proc["proc"] = None
     _lp_log("✗ Cancelado por el usuario")
     _light_profile_state["error"] = "Cancelado por el usuario"
     _light_profile_state["active"] = False
