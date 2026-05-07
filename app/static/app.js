@@ -7852,17 +7852,15 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     || dv.frame_count
     || 0;
   const durationStr = a.duration_seconds ? _fmtDuration(a.duration_seconds) : '—';
-  // Escenas / avg shot length también viene del sample del dovi_tool —
-  // no representa la película completa. Lo etiquetamos para evitar confusión.
-  const avgShot = dv.scene_avg_length_frames
-    ? `${dv.scene_avg_length_frames}f · ${(dv.scene_avg_length_frames / fpsNum).toFixed(1)}s`
-    : '—';
-  // RPU bytes/frame también es relativo al sample (rpu_size_bytes y
-  // dv.frame_count son ambos del sample) — el ratio es válido aunque los
-  // absolutos no lo sean.
-  const rpuSize = dv.rpu_size_bytes && dv.frame_count
-    ? `${_fmtBytes(dv.rpu_size_bytes)} · ${Math.round(dv.rpu_size_bytes / dv.frame_count)} B/f`
-    : (dv.rpu_size_bytes ? _fmtBytes(dv.rpu_size_bytes) : '—');
+  // RPU: el bytes/frame del sample es estable y aplica al film completo.
+  // Extrapolamos el tamano TOTAL como B/f × frames_total para tener un
+  // valor representativo del MKV entero, no del sample de 30s.
+  const rpuBytesPerFrame = dv.rpu_size_bytes && dv.frame_count
+    ? Math.round(dv.rpu_size_bytes / dv.frame_count)
+    : 0;
+  const rpuSize = rpuBytesPerFrame && framesTotal
+    ? `~${_fmtBytes(rpuBytesPerFrame * framesTotal)} · ${rpuBytesPerFrame} B/f`
+    : (rpuBytesPerFrame ? `${rpuBytesPerFrame} B/f` : '—');
   const cmLabel = dv.cm_version ? dv.cm_version.toUpperCase() : '—';
 
   const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
@@ -7890,10 +7888,9 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: 'Total de frames del MKV (duración × FPS)' })}
         ${cell('Duración', durationStr)}
         ${cell('FPS', fps, { tooltip: 'FPS del track de vídeo (de mkvmerge default_duration)' })}
-        ${cell('Escenas', dv.scene_count ? `${dv.scene_count.toLocaleString()} · avg ${avgShot}` : '—', { tooltip: 'Sample-scoped: detección de escenas en los primeros ~30s del MKV (dovi_tool extract-rpu --limit 720). No refleja el total del film.' })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
-        ${cell('RPU', rpuSize, { tooltip: 'Tamaño y bytes/frame del RPU sample (extract-rpu --limit 720, ~30s del inicio)' })}
+        ${cell('RPU', rpuSize, { tooltip: 'Tamaño total estimado del RPU del MKV completo (bytes/frame medido en sample × frames totales). El bytes/frame es estable entre sample y total.' })}
         ${elVideo ? cell('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
       </div>
     </section>`;
@@ -8057,6 +8054,11 @@ async function _rgrfCopyToClipboard(evt) {
    ['L10', dv.has_l10], ['L11', dv.has_l11], ['L254', dv.has_l254]]
     .forEach(([k, v]) => { if (v) levels.push(k); });
 
+  // Frames y FPS reales del track de video (no del sample de 30s del dovi)
+  const mainV = a.tracks?.find(t => t.type === 'video');
+  const realFrames = mainV?.frame_count;
+  const realFps = mainV?.fps;
+
   const md = [
     `# Radiografía DV+HDR — ${a.file_name}`,
     ``,
@@ -8065,10 +8067,9 @@ async function _rgrfCopyToClipboard(evt) {
     `## 1. Identidad`,
     `- Profile: **${fmt(dv.profile)}${el}**`,
     `- CM version: **${fmt(dv.cm_version)}**`,
-    `- Frames: ${fmt(dv.frame_count?.toLocaleString())}`,
-    `- Escenas: ${fmt(dv.scene_count?.toLocaleString())}`,
-    `- Long. media escena: ${fmt(dv.scene_avg_length_frames, ' frames')}`,
-    `- Bit depth: ${fmt(a.tracks?.find(t=>t.type==='video')?.bit_depth, '-bit')}`,
+    `- Frames totales: ${fmt(realFrames?.toLocaleString())}`,
+    `- FPS: ${fmt(realFps?.toFixed(3))}`,
+    `- Bit depth: ${fmt(mainV?.bit_depth, '-bit')}`,
     `- Niveles detectados: ${levels.join(' · ')}`,
     ``,
     `## 2. HDR10 base`,
@@ -8457,10 +8458,11 @@ function _renderMkvEditPanel() {
     if (dv.has_l10) lvls.push('L10');
     if (dv.has_l11) lvls.push('L11');
     dvLevelsLine = lvls.length ? `Niveles: ${lvls.join(' · ')}` : '';
-    const counts = [];
-    if (dv.scene_count) counts.push(`${dv.scene_count.toLocaleString()} escenas`);
-    if (dv.frame_count) counts.push(`${dv.frame_count.toLocaleString()} frames`);
-    dvCountsLine = counts.join(' · ');
+    // dv.scene_count y dv.frame_count vienen del sample de 30s
+    // (extract-rpu --limit 720), no del film completo. Los omitimos para
+    // no engañar al usuario; los frames totales reales se muestran en el
+    // bloque "Stream" de la radiografía via duration × fps.
+    dvCountsLine = '';
 
     // Badge CM version — v2.9 naranja (upgradeable), v4.0 verde (ya CMv4.0)
     const cm = (dv.cm_version || '').toLowerCase();
