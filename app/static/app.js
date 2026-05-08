@@ -9875,6 +9875,10 @@ async function openNewCMv40Modal() {
   openFileBrowser({
     title: 'Nuevo proyecto CMv4.0 · paso 1 de 2',
     subtitle: 'Selecciona el MKV origen (CMv2.9) que quieres procesar',
+    roots: [
+      { key: 'library', label: 'Biblioteca', icon: '📚' },
+      { key: 'output',  label: 'Output',     icon: '📦' },
+    ],
     onSelect: async (absPath, name) => {
       _cmv40SourceSelected = absPath;
       _cmv40SourceFilename = name;
@@ -9945,6 +9949,10 @@ function openCMv40SourceBrowser() {
   openFileBrowser({
     title: 'Cambiar MKV origen',
     subtitle: 'Selecciona otro MKV para reemplazar el actual',
+    roots: [
+      { key: 'library', label: 'Biblioteca', icon: '📚' },
+      { key: 'output',  label: 'Output',     icon: '📦' },
+    ],
     onSelect: async (absPath, name) => {
       _cmv40SourceSelected = absPath;
       _cmv40SourceFilename = name;
