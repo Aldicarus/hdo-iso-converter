@@ -3250,6 +3250,50 @@ async def run_phase_g_remux(
 #  FASE H — Validación final
 # ══════════════════════════════════════════════════════════════════════
 
+# Tolerancia para la comparación de frame count en Fase H.
+# ffprobe `nb_frames` en MKVs muxados con mkvmerge se calcula como
+# `duration × fps` cuando el contenedor no lleva el tag NUMBER_OF_FRAMES
+# (mkvmerge no lo escribe por defecto). Para 23.976 fps × ~6700 s eso
+# puede dar off-by-one ocasional vs el frame count real del HEVC.
+# Diferencias ≤ esta tolerancia son ruido del mux/probe, no corrupción.
+# Se ha visto 1-frame de desfase en Kill Bill Vol 1 con 159930 frames.
+_FRAME_COUNT_TOLERANCE = 2
+
+
+async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
+    """Verifica frame count del MKV final contra el esperado. Lanza
+    RuntimeError si el desfase es claramente corrupción; loggea warning si
+    está dentro de la tolerancia conocida (ruido de ffprobe en mkv)."""
+    if expected <= 0:
+        return  # No hay referencia, nada que comparar
+    if actual <= 0:
+        raise RuntimeError(
+            f"ffprobe no pudo determinar el frame count del MKV final — "
+            f"posible corrupción tras Fase G (esperado {expected})."
+        )
+    diff = abs(actual - expected)
+    if diff == 0:
+        if log_callback:
+            await log_callback(
+                f"[Fase H] ✓ Frame count: {actual} (coincide con target_frame_count)"
+            )
+        return
+    if diff <= _FRAME_COUNT_TOLERANCE:
+        if log_callback:
+            await log_callback(
+                f"[Fase H] ⚠ Frame count {actual} vs {expected} esperados (Δ={diff}) — "
+                "tolerable. ffprobe estima nb_frames como duration × fps cuando "
+                "mkvmerge no escribe NUMBER_OF_FRAMES; off-by-one en redondeo es "
+                "ruido conocido, no corrupción."
+            )
+        return
+    raise RuntimeError(
+        f"Frame count del MKV final ({actual}) distinto del esperado "
+        f"({expected}, Δ={diff} > {_FRAME_COUNT_TOLERANCE}) — indica "
+        "corrupción en mux o inject-rpu."
+    )
+
+
 async def run_phase_h_validate(
     session: CMv40Session,
     log_callback=None,
@@ -3315,20 +3359,7 @@ async def run_phase_h_validate(
             await log_callback("[Fase H] Paso 1/2: leyendo frame count del MKV final (ffprobe)…")
         await _emit_progress(log_callback, 30, "Frame count del MKV final")
         actual_frames = await _probe_frame_count(str(output_mkv))
-        if expected_frames > 0 and actual_frames == 0:
-            raise RuntimeError(
-                "ffprobe no pudo determinar el frame count del MKV final — posible "
-                f"corrupción tras Fase G (esperado {expected_frames})."
-            )
-        if expected_frames and actual_frames and actual_frames != expected_frames:
-            raise RuntimeError(
-                f"Frame count del MKV final ({actual_frames}) distinto del esperado "
-                f"({expected_frames}) — indica corrupción en mux o inject-rpu."
-            )
-        if log_callback and actual_frames:
-            await log_callback(
-                f"[Fase H] ✓ Frame count: {actual_frames} (coincide con target_frame_count)"
-            )
+        await _check_frame_count(actual_frames, expected_frames, log_callback)
         result_info = DoviInfo(
             profile=7,
             el_type="FEL",
@@ -3352,17 +3383,7 @@ async def run_phase_h_validate(
         # frame_count del RPU del sample no es comparable contra
         # target_frame_count porque solo son 30s.
         actual_frames = await _probe_frame_count(str(output_mkv))
-        if expected_frames > 0 and actual_frames == 0:
-            raise RuntimeError(
-                "ffprobe no pudo determinar el frame count del MKV final — "
-                f"posible corrupción tras Fase G (esperado {expected_frames})."
-            )
-        if expected_frames and actual_frames and actual_frames != expected_frames:
-            raise RuntimeError(
-                f"Frame count del MKV final ({actual_frames}) distinto del "
-                f"esperado ({expected_frames}) — indica corrupción o "
-                "desincronización."
-            )
+        await _check_frame_count(actual_frames, expected_frames, log_callback)
 
         head_hevc = wd / "_validate_head.hevc"
         head_rpu  = wd / "_validate_head_rpu.bin"
