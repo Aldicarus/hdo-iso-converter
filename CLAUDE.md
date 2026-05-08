@@ -589,9 +589,9 @@ Tab 2 ("Abrir MKV") y Tab 3 ("MKV origen del proyecto CMv4.0") usan el mismo bro
 | Tab | Roots expuestos | Por qué |
 |---|---|---|
 | Tab 2 (Editar MKV) | 📚 Biblioteca (`/mnt/library`) + 📦 Output (`/mnt/output`) | Inspecciona MKVs ya consolidados o el output del propio converter |
-| Tab 3 (CMv4.0) | 📚 Biblioteca (`/mnt/library`) + 🧲 Torrent (`/mnt/isos`) | El MKV origen suele venir directo del torrent (mismo directorio que las ISOs); no tiene sentido procesar nuestro propio output como source CMv4.0 |
+| Tab 3 (CMv4.0) | 📚 Biblioteca (`/mnt/library`) + 📥 Downloaded (`/mnt/isos`) | El MKV origen suele venir directo de la carpeta de descargas (mismo directorio que las ISOs); no tiene sentido procesar nuestro propio output como source CMv4.0 |
 
-- Endpoint único `GET /api/library/browse?root={library|output|torrent}&path=...`. Los 3 roots viven en `LIBRARY_ROOTS` (backend) — qué subset expone cada tab lo decide el frontend en su llamada a `openFileBrowser({ roots: [...] })`.
+- Endpoint único `GET /api/library/browse?root={library|output|downloaded}&path=...`. Los 3 roots viven en `LIBRARY_ROOTS` (backend) — qué subset expone cada tab lo decide el frontend en su llamada a `openFileBrowser({ roots: [...] })`.
 - Modal con breadcrumb navegable, búsqueda incremental, root pills cuando hay 2+, selección por click + botón "Seleccionar" o doble-click.
 - z-index 220 para overlay encima de otros modales (wizard CMv4.0 = 200).
 - Validación path-traversal (`_safe_library_path`, `_resolve_mkv_path_safe`) — el frontend manda ruta absoluta, backend valida que cae bajo un root permitido.

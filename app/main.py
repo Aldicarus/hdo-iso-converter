@@ -1189,15 +1189,15 @@ LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
 
 # Roots disponibles para el file browser (Tab 2 y Tab 3).
 # Cada key apunta a una Path mountada en el contenedor. El frontend pide
-# `?root=library`, `?root=output` o `?root=torrent` para conmutar entre
-# arboles. Tab 2 expone library + output; Tab 3 expone library + torrent
-# (carpeta de descargas/ISOs, que tambien contiene MKVs sueltos).
+# `?root=library`, `?root=output` o `?root=downloaded` para conmutar entre
+# arboles. Tab 2 expone library + output; Tab 3 expone library + downloaded
+# (carpeta de descargas, que contiene ISOs y tambien MKVs sueltos).
 # Solo paths bajo estos roots son aceptados por endpoints downstream
 # (analyze, light-profile) — proteccion contra path traversal arbitrario.
 LIBRARY_ROOTS: dict[str, Path] = {
-    "library": LIBRARY_DIR,
-    "output":  OUTPUT_DIR_MKV,
-    "torrent": ISOS_DIR,
+    "library":    LIBRARY_DIR,
+    "output":     OUTPUT_DIR_MKV,
+    "downloaded": ISOS_DIR,
 }
 
 
