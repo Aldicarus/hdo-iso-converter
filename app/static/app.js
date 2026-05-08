@@ -9187,7 +9187,40 @@ function setMkvGenericChapterNames() {
 
 // ── Aplicar cambios ──────────────────────────────────────────────
 
+/**
+ * Detecta si el path está bajo /mnt/library (read-only) y por tanto requiere
+ * que el backend lo copie a /mnt/output antes de editar. Lógica replicada
+ * del helper backend `_mkv_needs_copy_to_output`.
+ */
+function _mkvFileIsInLibrary(filePath) {
+  if (!filePath) return false;
+  return filePath.startsWith('/mnt/library/');
+}
+
 async function applyMkvEdits() {
+  if (!mkvProject) return;
+  const a = mkvProject.analysis;
+  const filePath = mkvProject.filePath;
+
+  // Si el MKV está en Biblioteca read-only → confirmación previa.
+  // Tras "Aceptar", el backend copia a /mnt/output y luego edita.
+  if (_mkvFileIsInLibrary(filePath)) {
+    const sizeGb = (a.file_size_bytes || 0) / 1e9;
+    showConfirm(
+      'MKV en Biblioteca (read-only)',
+      `Este MKV está en la biblioteca read-only y no se puede modificar in-place. ` +
+      `La app copiará el fichero (${sizeGb.toFixed(1)} GB) a /mnt/output y aplicará ` +
+      `los cambios sobre la copia. La biblioteca queda intacta. ` +
+      `Esto puede tardar varios minutos para MKVs grandes.`,
+      () => _doApplyMkvEdits(true),
+      'Copiar y aplicar',
+    );
+    return;
+  }
+  _doApplyMkvEdits(false);
+}
+
+async function _doApplyMkvEdits(copyToOutput) {
   if (!mkvProject) return;
   const a = mkvProject.analysis;
 
@@ -9204,28 +9237,55 @@ async function applyMkvEdits() {
     audio_tracks: audioEdits,
     subtitle_tracks: subEdits,
     chapters: a.chapters,
+    copy_to_output: copyToOutput,
   };
 
   // Mostrar modal de progreso
-  const modal = document.getElementById('mkv-apply-modal');
   const titleEl = document.getElementById('mkv-apply-modal-title');
   const subEl = document.getElementById('mkv-apply-modal-sub');
   const logEl = document.getElementById('mkv-apply-modal-log');
   const statusEl = document.getElementById('mkv-apply-modal-status');
   const closeBtn = document.getElementById('mkv-apply-modal-close-btn');
 
-  titleEl.textContent = 'Aplicando cambios…';
+  titleEl.textContent = copyToOutput ? 'Copiando MKV a Output…' : 'Aplicando cambios…';
   subEl.textContent = `${audioEdits.length} pistas de audio · ${subEdits.length} pistas de subtítulos · ${a.chapters.length} capítulos`;
   logEl.style.display = 'none';
   logEl.textContent = '';
-  statusEl.innerHTML = '<span class="spinner-inline"></span> Ejecutando mkvpropedit…';
+  statusEl.innerHTML = copyToOutput
+    ? '<div style="text-align:left"><div class="progress-bar-wrap"><div id="mkv-apply-progress-fill" class="progress-bar-fill" style="width:0%"></div></div><div id="mkv-apply-progress-text" style="font-size:12px; color:var(--text-3)">Iniciando copia…</div></div>'
+    : '<span class="spinner-inline"></span> Ejecutando mkvpropedit…';
   closeBtn.style.display = 'none';
   openModal('mkv-apply-modal');
 
-  const result = await apiFetch('/api/mkv/apply', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  // Polling de progreso (solo cuando hay copia que monitorizar). El POST
+  // sigue corriendo en paralelo — el polling solo lee estado, no espera al
+  // POST. Cuando el POST resuelve, paramos el polling.
+  let pollHandle = null;
+  let polling = copyToOutput;
+  if (copyToOutput) {
+    const tick = async () => {
+      if (!polling) return;
+      try {
+        const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
+        if (st && polling) {
+          _renderMkvApplyProgress(st);
+        }
+      } catch (_) { /* ignora errores de poll */ }
+      if (polling) pollHandle = setTimeout(tick, 1000);
+    };
+    pollHandle = setTimeout(tick, 500);
+  }
+
+  let result;
+  try {
+    result = await apiFetch('/api/mkv/apply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } finally {
+    polling = false;
+    if (pollHandle) clearTimeout(pollHandle);
+  }
 
   if (!result?.ok) {
     titleEl.textContent = 'Error';
@@ -9240,14 +9300,23 @@ async function applyMkvEdits() {
     logEl.style.display = '';
   }
 
+  // Si se copió a /mnt/output, actualizar el estado del proyecto al nuevo
+  // path para que ediciones posteriores trabajen sobre la copia editable.
+  let newFilePath = mkvProject.filePath;
+  if (result.copied_from_library && result.new_file_path) {
+    newFilePath = result.new_file_path;
+    mkvProject.filePath = newFilePath;
+    showToast(`✓ MKV copiado a Output con tus cambios: ${newFilePath.split('/').pop()}`, 'success');
+  }
+
   statusEl.innerHTML = '<span style="color:var(--green)">✓ Cambios aplicados correctamente</span>';
 
-  // Re-analizar para refrescar estado — usamos la ruta ABSOLUTA del MKV
-  // (filePath), no el filename. El backend valida que cae bajo un root
-  // permitido (Library / Output).
+  // Re-analizar para refrescar estado — usamos el path ABSOLUTO del MKV
+  // (potencialmente actualizado tras copia). El backend valida que cae
+  // bajo un root permitido (Library / Output).
   const fresh = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
-    body: JSON.stringify({ file_path: mkvProject.filePath || mkvProject.fileName }),
+    body: JSON.stringify({ file_path: newFilePath || mkvProject.fileName }),
   });
 
   if (fresh) {
@@ -9259,6 +9328,43 @@ async function applyMkvEdits() {
 
   titleEl.textContent = 'Cambios aplicados';
   closeBtn.style.display = '';
+}
+
+/** Pinta la barra de progreso de la copia + texto con bytes/ETA. */
+function _renderMkvApplyProgress(st) {
+  const fill = document.getElementById('mkv-apply-progress-fill');
+  const text = document.getElementById('mkv-apply-progress-text');
+  const titleEl = document.getElementById('mkv-apply-modal-title');
+  if (!fill || !text) return;
+  if (st.step === 'copying') {
+    if (titleEl) titleEl.textContent = 'Copiando MKV a Output…';
+    fill.style.width = `${st.pct || 0}%`;
+    const copiedGb = (st.bytes_copied || 0) / 1e9;
+    const totalGb  = (st.total_bytes  || 0) / 1e9;
+    const eta = st.eta_s > 0 ? ` · ETA ${_fmtSecs(st.eta_s)}` : '';
+    text.textContent = `${copiedGb.toFixed(1)} / ${totalGb.toFixed(1)} GB (${st.pct || 0}%)${eta}`;
+  } else if (st.step === 'applying') {
+    if (titleEl) titleEl.textContent = 'Aplicando cambios…';
+    fill.style.width = '100%';
+    text.textContent = '✓ Copia completada — ejecutando mkvpropedit…';
+  } else if (st.step === 'done') {
+    fill.style.width = '100%';
+    text.textContent = '✓ Cambios aplicados';
+  } else if (st.step === 'error') {
+    text.textContent = `⚠ ${st.error || 'Error desconocido'}`;
+  }
+}
+
+/** Formatea segundos como "Xh Ym" o "Ym Ks" o "Ks". */
+function _fmtSecs(s) {
+  if (!s || s < 0) return '0s';
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  const ss = Math.round(s % 60);
+  if (m < 60) return `${m}m ${ss}s`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm}m`;
 }
 
 // ── Utility ──────────────────────────────────────────────────────

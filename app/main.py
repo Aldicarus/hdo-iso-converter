@@ -2176,21 +2176,175 @@ def _pq_code_to_nits(code_value: float) -> float:
     return 10000.0 * (num / den) ** (1.0 / m1)
 
 
+# Estado global de la operación de apply (single-job singleton). Permite
+# polling de progreso mientras la copia/edición está en curso. Solo se
+# usa cuando el MKV está en /mnt/library y necesita copia previa a
+# /mnt/output (operación que puede tardar minutos para UHD ~50-70 GB).
+_mkv_apply_state: dict = {
+    "active": False,
+    "step": "",          # "copying" | "applying" | "done" | "error"
+    "step_label": "",
+    "bytes_copied": 0,
+    "total_bytes": 0,
+    "pct": 0,            # 0-100 (de la copia)
+    "eta_s": 0,
+    "elapsed_s": 0,
+    "started_at": 0.0,
+    "error": None,
+}
+
+
+def _mkv_needs_copy_to_output(file_path: str) -> bool:
+    """True si el path cae bajo LIBRARY_DIR — read-only, hay que copiar."""
+    try:
+        Path(file_path).resolve().relative_to(LIBRARY_DIR.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _mkv_apply_reset(total_bytes: int = 0):
+    import time as _t
+    _mkv_apply_state.update({
+        "active": True, "step": "", "step_label": "",
+        "bytes_copied": 0, "total_bytes": total_bytes,
+        "pct": 0, "eta_s": 0, "elapsed_s": 0,
+        "started_at": _t.monotonic(), "error": None,
+    })
+
+
+def _mkv_apply_set_step(step: str, label: str = ""):
+    import time as _t
+    _mkv_apply_state["step"] = step
+    _mkv_apply_state["step_label"] = label
+    started = _mkv_apply_state.get("started_at") or _t.monotonic()
+    _mkv_apply_state["elapsed_s"] = int(_t.monotonic() - started)
+
+
+async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
+    """Copia src → dst en chunks, actualizando _mkv_apply_state en vivo.
+
+    Usa un thread para no bloquear el event loop durante la copia. Lee/escribe
+    en chunks de 8 MB. Cada update del estado sucede al terminar cada chunk
+    (~10-50 veces por segundo en disco rápido). El frontend hace polling cada
+    1s, así que ve un progreso suave sin spam.
+    """
+    import time as _t
+    total = src.stat().st_size
+    _mkv_apply_state["total_bytes"] = total
+    _mkv_apply_set_step("copying", f"Copiando MKV a /mnt/output ({total / 1e9:.1f} GB)…")
+
+    CHUNK = 8 * 1024 * 1024  # 8 MB
+
+    def _copy_thread():
+        copied = 0
+        with src.open("rb") as fin, dst.open("wb") as fout:
+            while True:
+                buf = fin.read(CHUNK)
+                if not buf:
+                    break
+                fout.write(buf)
+                copied += len(buf)
+                _mkv_apply_state["bytes_copied"] = copied
+                _mkv_apply_state["pct"] = min(99, int(copied * 100 / total)) if total else 0
+                started = _mkv_apply_state.get("started_at") or _t.monotonic()
+                elapsed = max(0.001, _t.monotonic() - started)
+                _mkv_apply_state["elapsed_s"] = int(elapsed)
+                if copied > 0:
+                    rate = copied / elapsed
+                    remaining = total - copied
+                    _mkv_apply_state["eta_s"] = int(remaining / rate) if rate > 0 else 0
+
+    try:
+        await asyncio.to_thread(_copy_thread)
+    except Exception as e:
+        # Best-effort cleanup: borra destino parcial para no dejar basura
+        try:
+            if dst.exists():
+                dst.unlink()
+        except Exception:
+            pass
+        raise RuntimeError(f"Error copiando MKV: {e}") from e
+    _mkv_apply_state["bytes_copied"] = total
+    _mkv_apply_state["pct"] = 100
+
+
+@app.get("/api/mkv/apply/progress", summary="Progreso de la operación apply (copia + edición)")
+async def mkv_apply_progress():
+    """Polling endpoint para el modal de aplicar cambios. El frontend lo
+    consulta cada 1s mientras espera la respuesta del POST /api/mkv/apply."""
+    return dict(_mkv_apply_state)
+
+
 @app.post("/api/mkv/apply", summary="Aplica ediciones a un MKV")
 async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     """
     Aplica ediciones de metadatos a un MKV vía mkvpropedit (instantáneo).
 
     Soporta: nombres de pistas, flags default/forced, capítulos.
+
+    Si el MKV está en /mnt/library (read-only), requiere `copy_to_output=true`:
+    la app primero copia el fichero a /mnt/output (con monitoreo de progreso
+    via /api/mkv/apply/progress) y aplica los cambios sobre la copia.
     """
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return build_fake_mkv_apply(body)
-    if not Path(body.file_path).exists():
+    src_path = Path(body.file_path)
+    if not src_path.exists():
         raise HTTPException(status_code=400, detail="MKV no encontrado")
+
+    # Detección de library read-only — exige confirmación explícita del usuario
+    needs_copy = _mkv_needs_copy_to_output(body.file_path)
+    if needs_copy and not body.copy_to_output:
+        raise HTTPException(
+            status_code=409,
+            detail="MKV en biblioteca read-only — confirma `copy_to_output=true` "
+                   "para copiarlo a /mnt/output antes de editar."
+        )
+
     try:
+        if needs_copy and body.copy_to_output:
+            dst_path = OUTPUT_DIR_MKV / src_path.name
+            if dst_path.exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Ya existe un MKV con ese nombre en /mnt/output: "
+                           f"{src_path.name}. Renómbralo o muévelo antes de continuar."
+                )
+            OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
+            _mkv_apply_reset(src_path.stat().st_size)
+            try:
+                await _mkv_copy_to_output_with_progress(src_path, dst_path)
+                _mkv_apply_set_step("applying", "Aplicando cambios con mkvpropedit…")
+                body.file_path = str(dst_path)
+                result = await apply_mkv_edits(body)
+                _mkv_apply_set_step("done", "Cambios aplicados correctamente")
+                # Devolvemos el nuevo path para que el frontend actualice el state
+                if isinstance(result, dict):
+                    result["new_file_path"] = str(dst_path)
+                    result["copied_from_library"] = True
+                return result
+            except HTTPException:
+                raise
+            except Exception as e:
+                _mkv_apply_state["error"] = str(e)
+                _mkv_apply_set_step("error", f"Error: {e}")
+                raise
+            finally:
+                # Mantenemos active=True hasta done/error → el frontend cierra el
+                # modal en el siguiente poll. Limpiamos a los 5s para que un poll
+                # tardío no se confunda con el job siguiente.
+                async def _delayed_clear():
+                    await asyncio.sleep(5)
+                    _mkv_apply_state["active"] = False
+                asyncio.create_task(_delayed_clear())
+
+        # Ruta directa (MKV en /mnt/output u otro root editable)
         result = await apply_mkv_edits(body)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         _logger.exception("Error aplicando ediciones a %s", body.file_path)
         raise HTTPException(status_code=500, detail=str(e))

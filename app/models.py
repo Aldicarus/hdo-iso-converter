@@ -869,6 +869,12 @@ class MkvEditRequest(BaseModel):
     chapters: list[Chapter] | None = None
     """Nuevos capítulos (None = no cambiar)."""
 
+    copy_to_output: bool = False
+    """Si el MKV está en /mnt/library (read-only), confirmar que se copie
+    primero a /mnt/output antes de editar. Sin este flag, el endpoint
+    devuelve 409 cuando el path está en library — protege contra una
+    aplicación accidental sobre un fichero no editable."""
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  TAB 3 — CMV4.0 BD (inyección de RPU Dolby Vision CMv4.0)

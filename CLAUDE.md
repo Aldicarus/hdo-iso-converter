@@ -137,22 +137,35 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 - **Sin sidebar**: Tab 2 ocupa todo el ancho. Botón "Abrir MKV" centrado.
 
 ### Flujo
-1. "Abrir MKV" → modal picker lista MKVs de `/mnt/output`
+1. "Abrir MKV" → file browser unificado con roots Library + Output
 2. `mkvmerge -J` + `mkvextract chapters` + MediaInfo → panel de edición
-3. Editar → "Aplicar cambios" → modal informado con output de mkvpropedit
+3. Editar → "Aplicar cambios". Si el MKV está en Library (read-only) modal de confirmación → backend copia a /mnt/output con barra de progreso real, luego `mkvpropedit`. Si está en /mnt/output, edita in-place.
 4. "Deshacer cambios" revierte al estado original del análisis
 5. "Cerrar" avisa si hay cambios pendientes
+
+### Library read-only — copia bajo demanda
+- `/mnt/library` está montada `read-only` en docker-compose. Editar in-place no es posible (mkvpropedit fallaría con permission denied).
+- Al pulsar "Aplicar cambios" sobre un MKV de Library, el frontend muestra un `showConfirm` advirtiendo que se copiará a /mnt/output. Tras "Copiar y aplicar" envía `copy_to_output: true` en el payload.
+- Backend `POST /api/mkv/apply`:
+  - Detecta library con helper `_mkv_needs_copy_to_output`. Sin `copy_to_output=true` → HTTP 409.
+  - Con `copy_to_output=true`: copia src → `/mnt/output/{mismo_nombre}.mkv` en chunks de 8 MB con `asyncio.to_thread`, emitiendo progreso (`bytes_copied`, `total_bytes`, `pct`, `eta_s`) al estado global `_mkv_apply_state`.
+  - Si ya existe ese nombre en /mnt/output → HTTP 409 (no sobrescribe).
+  - Tras copia exitosa, ejecuta `apply_mkv_edits` sobre la copia + devuelve `new_file_path` + `copied_from_library: true`.
+  - Frontend actualiza `mkvProject.filePath` al nuevo path para ediciones posteriores.
+- Polling: `GET /api/mkv/apply/progress` devuelve `_mkv_apply_state`. Frontend hace polling cada 1s mientras el POST está en curso → barra de progreso real con bytes/ETA. Single-job singleton (mismo patrón que `_light_profile_state`).
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
-- `POST /api/mkv/apply` — aplica ediciones (solo mkvpropedit)
+- `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
+- `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
 
 ### Editable
 - Pistas audio: nombre, flag default
 - Pistas subtítulos: nombre, flags default/forced
 - Capítulos: timeline interactiva, añadir/eliminar, editar nombres/timestamps
 - Botón "Nombres genéricos": reemplaza nombres custom por "Capítulo XX"
+- Botón "📑 Generar cada 10 min": visible cuando el MKV no tiene capítulos (banner amarillo) — replica el algoritmo `generate_auto_chapters` de Tab 1
 
 ### Info mostrada (read-only)
 - Fichero: nombre, tamaño, duración
