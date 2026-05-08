@@ -648,9 +648,11 @@ sudo docker system prune -f
 #    rechaza la operación sin safe.directory).
 docker run --rm -v /share/Container/hdo-iso-converter:/repo -w /repo alpine/git -c safe.directory=/repo pull
 
-# 3. Rebuild + up del contenedor (TMPDIR a ZFS porque /tmp en QNAP es tmpfs
-#    pequeño y el build agota espacio).
+# 3. Rebuild + up del contenedor. REQUIERE `cd` al subdirectorio `docker/`
+#    porque docker-compose.yml vive ahí, no en la raíz del repo. TMPDIR a ZFS
+#    porque /tmp en QNAP es tmpfs pequeño y el build agota espacio.
+cd /share/Container/hdo-iso-converter/docker
 sudo TMPDIR=/share/ZFS20_DATA/Container/tmp docker compose up -d --build
 ```
 
-Cuando el usuario pida "comandos del NAS" o "deploy al NAS", responder con los comandos 2 y 3 en bloque. El 1 solo si pide explícitamente limpieza o si hay evidencia de bug ZFS en el log.
+Cuando el usuario pida "comandos del NAS" o "deploy al NAS", responder con los comandos 2 y 3 en bloque, y el `cd` SIEMPRE va incluido (no asumir que el usuario lo hace por su cuenta). El 1 solo si pide explícitamente limpieza o si hay evidencia de bug ZFS en el log.
