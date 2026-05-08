@@ -153,12 +153,15 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
   - Tras copia exitosa, ejecuta `apply_mkv_edits` sobre la copia + devuelve `new_file_path` + `copied_from_library: true`.
   - Frontend actualiza `mkvProject.filePath` al nuevo path para ediciones posteriores.
 - Polling: `GET /api/mkv/apply/progress` devuelve `_mkv_apply_state`. Frontend hace polling cada 1s mientras el POST está en curso → barra de progreso real con bytes/ETA. Single-job singleton (mismo patrón que `_light_profile_state`).
+- **Cancelación cooperativa**: botón "🛑 Cancelar copia" en el modal mientras `step=copying`. Llama a `POST /api/mkv/apply/cancel` que setea `_mkv_apply_cancel["requested"]=True`. El thread de copia chequea el flag al inicio de cada chunk (<1s detección), aborta limpiamente y borra el destino parcial. El endpoint principal raise `MkvApplyCancelled` → HTTP 499. Frontend muestra "Cancelado — biblioteca intacta y destino parcial borrado". El botón se oculta al pasar a `step=applying` (mkvpropedit es ms, no aporta cancelar).
+- **Timeout largo**: `apiFetch` para el POST usa `MKV_APPLY_LONG_TIMEOUT_MS = 4h` cuando hay copia. Sin esto el fetch abortaba a los 30s y el modal mostraba "timeout" mientras la copia seguía en background — confusión total. Polling es la fuente de verdad del progreso visible.
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
 - `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
+- `POST /api/mkv/apply/cancel` — solicita la cancelación cooperativa de la copia. Solo efectiva durante `step=copying`.
 
 ### Editable
 - Pistas audio: nombre, flag default

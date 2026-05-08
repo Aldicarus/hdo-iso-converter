@@ -2182,7 +2182,7 @@ def _pq_code_to_nits(code_value: float) -> float:
 # /mnt/output (operación que puede tardar minutos para UHD ~50-70 GB).
 _mkv_apply_state: dict = {
     "active": False,
-    "step": "",          # "copying" | "applying" | "done" | "error"
+    "step": "",          # "copying" | "applying" | "done" | "error" | "cancelled"
     "step_label": "",
     "bytes_copied": 0,
     "total_bytes": 0,
@@ -2192,6 +2192,11 @@ _mkv_apply_state: dict = {
     "started_at": 0.0,
     "error": None,
 }
+
+# Flag de cancelación cooperativa. El usuario lo setea via POST
+# /api/mkv/apply/cancel. El thread de copia lo chequea antes de cada chunk
+# y aborta limpiamente, dejando la app borrar el destino parcial.
+_mkv_apply_cancel = {"requested": False}
 
 
 def _mkv_needs_copy_to_output(file_path: str) -> bool:
@@ -2211,6 +2216,7 @@ def _mkv_apply_reset(total_bytes: int = 0):
         "pct": 0, "eta_s": 0, "elapsed_s": 0,
         "started_at": _t.monotonic(), "error": None,
     })
+    _mkv_apply_cancel["requested"] = False
 
 
 def _mkv_apply_set_step(step: str, label: str = ""):
@@ -2221,6 +2227,10 @@ def _mkv_apply_set_step(step: str, label: str = ""):
     _mkv_apply_state["elapsed_s"] = int(_t.monotonic() - started)
 
 
+class MkvApplyCancelled(Exception):
+    """Levantada cuando el usuario cancela la copia via /api/mkv/apply/cancel."""
+
+
 async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
     """Copia src → dst en chunks, actualizando _mkv_apply_state en vivo.
 
@@ -2228,6 +2238,10 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
     en chunks de 8 MB. Cada update del estado sucede al terminar cada chunk
     (~10-50 veces por segundo en disco rápido). El frontend hace polling cada
     1s, así que ve un progreso suave sin spam.
+
+    Cancelación cooperativa: el thread chequea `_mkv_apply_cancel["requested"]`
+    al inicio de cada chunk. Si está set, raise MkvApplyCancelled y la rutina
+    superior limpia el destino parcial.
     """
     import time as _t
     total = src.stat().st_size
@@ -2240,6 +2254,8 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
         copied = 0
         with src.open("rb") as fin, dst.open("wb") as fout:
             while True:
+                if _mkv_apply_cancel["requested"]:
+                    raise MkvApplyCancelled()
                 buf = fin.read(CHUNK)
                 if not buf:
                     break
@@ -2257,6 +2273,16 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
 
     try:
         await asyncio.to_thread(_copy_thread)
+    except MkvApplyCancelled:
+        # Cancelación: borra destino parcial y propaga. La rutina superior
+        # marca step="cancelled" en el estado para que el frontend cierre el
+        # modal con el mensaje correcto en el siguiente poll.
+        try:
+            if dst.exists():
+                dst.unlink()
+        except Exception:
+            pass
+        raise
     except Exception as e:
         # Best-effort cleanup: borra destino parcial para no dejar basura
         try:
@@ -2274,6 +2300,20 @@ async def mkv_apply_progress():
     """Polling endpoint para el modal de aplicar cambios. El frontend lo
     consulta cada 1s mientras espera la respuesta del POST /api/mkv/apply."""
     return dict(_mkv_apply_state)
+
+
+@app.post("/api/mkv/apply/cancel", summary="Cancela la copia en curso de un MKV de Library")
+async def mkv_apply_cancel():
+    """Solicita la cancelación cooperativa de la copia. El thread la detecta
+    al inicio del siguiente chunk (típicamente <1s) y aborta limpiamente,
+    borrando el destino parcial. No tiene efecto si el step actual no es
+    'copying' (mkvpropedit es instantáneo, no hay nada útil que cancelar)."""
+    if not _mkv_apply_state.get("active"):
+        return {"ok": False, "reason": "no_active_job"}
+    if _mkv_apply_state.get("step") != "copying":
+        return {"ok": False, "reason": "not_in_copying_step"}
+    _mkv_apply_cancel["requested"] = True
+    return {"ok": True}
 
 
 @app.post("/api/mkv/apply", summary="Aplica ediciones a un MKV")
@@ -2325,6 +2365,12 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                     result["new_file_path"] = str(dst_path)
                     result["copied_from_library"] = True
                 return result
+            except MkvApplyCancelled:
+                _mkv_apply_set_step("cancelled", "Copia cancelada por el usuario")
+                raise HTTPException(
+                    status_code=499,  # Client closed request
+                    detail="Copia cancelada por el usuario antes de completar."
+                )
             except HTTPException:
                 raise
             except Exception as e:
@@ -2332,12 +2378,14 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 _mkv_apply_set_step("error", f"Error: {e}")
                 raise
             finally:
-                # Mantenemos active=True hasta done/error → el frontend cierra el
-                # modal en el siguiente poll. Limpiamos a los 5s para que un poll
-                # tardío no se confunda con el job siguiente.
+                # Mantenemos active=True hasta done/error/cancelled → el
+                # frontend cierra el modal en el siguiente poll. Limpiamos a
+                # los 5s para que un poll tardío no se confunda con el
+                # próximo job.
                 async def _delayed_clear():
                     await asyncio.sleep(5)
                     _mkv_apply_state["active"] = False
+                    _mkv_apply_cancel["requested"] = False
                 asyncio.create_task(_delayed_clear())
 
         # Ruta directa (MKV en /mnt/output u otro root editable)

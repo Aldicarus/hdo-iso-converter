@@ -9220,6 +9220,18 @@ async function applyMkvEdits() {
   _doApplyMkvEdits(false);
 }
 
+// Tiempo máximo para el POST de apply cuando hay copia (4 h). El polling
+// es la fuente de verdad del progreso; el fetch solo se quedaría abierto
+// más tiempo si la copia tarda muchísimo. 30s default era inviable porque
+// abortaba el modal aunque la copia siguiera en background.
+const MKV_APPLY_LONG_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+
+// Estado del job actual de apply. Permite que el botón "Cancelar copia"
+// llame al endpoint del backend y que el flujo principal sepa que el
+// usuario inició la cancelación (para mostrar mensaje correcto en lugar
+// de "error genérico" cuando el POST devuelve 499).
+let _mkvApplyUserCancelled = false;
+
 async function _doApplyMkvEdits(copyToOutput) {
   if (!mkvProject) return;
   const a = mkvProject.analysis;
@@ -9246,6 +9258,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   const logEl = document.getElementById('mkv-apply-modal-log');
   const statusEl = document.getElementById('mkv-apply-modal-status');
   const closeBtn = document.getElementById('mkv-apply-modal-close-btn');
+  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
 
   titleEl.textContent = copyToOutput ? 'Copiando MKV a Output…' : 'Aplicando cambios…';
   subEl.textContent = `${audioEdits.length} pistas de audio · ${subEdits.length} pistas de subtítulos · ${a.chapters.length} capítulos`;
@@ -9255,6 +9268,8 @@ async function _doApplyMkvEdits(copyToOutput) {
     ? '<div style="text-align:left"><div class="progress-bar-wrap"><div id="mkv-apply-progress-fill" class="progress-bar-fill" style="width:0%"></div></div><div id="mkv-apply-progress-text" style="font-size:12px; color:var(--text-3)">Iniciando copia…</div></div>'
     : '<span class="spinner-inline"></span> Ejecutando mkvpropedit…';
   closeBtn.style.display = 'none';
+  if (cancelBtn) cancelBtn.style.display = copyToOutput ? '' : 'none';
+  _mkvApplyUserCancelled = false;
   openModal('mkv-apply-modal');
 
   // Polling de progreso (solo cuando hay copia que monitorizar). El POST
@@ -9269,6 +9284,11 @@ async function _doApplyMkvEdits(copyToOutput) {
         const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
         if (st && polling) {
           _renderMkvApplyProgress(st);
+          // Cuando entra en step="applying", la copia ha terminado y
+          // mkvpropedit está corriendo (instantáneo). Ocultamos el botón
+          // de cancelar — ya no aplica, y la copia ya no es lo que va a
+          // tardar.
+          if (st.step === 'applying' && cancelBtn) cancelBtn.style.display = 'none';
         }
       } catch (_) { /* ignora errores de poll */ }
       if (polling) pollHandle = setTimeout(tick, 1000);
@@ -9278,13 +9298,25 @@ async function _doApplyMkvEdits(copyToOutput) {
 
   let result;
   try {
-    result = await apiFetch('/api/mkv/apply', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+    // Para copia: silent + timeout largo. El polling cuenta el progreso
+    // visualmente; el modal sabe interpretar 499 (cancelado) y otros
+    // errores via el último estado del polling, sin necesidad del toast
+    // genérico de apiFetch.
+    const opts = { method: 'POST', body: JSON.stringify(body) };
+    if (copyToOutput) opts.silent = true;
+    result = await apiFetch('/api/mkv/apply', opts, copyToOutput ? MKV_APPLY_LONG_TIMEOUT_MS : API_FETCH_TIMEOUT);
   } finally {
     polling = false;
     if (pollHandle) clearTimeout(pollHandle);
+    if (cancelBtn) cancelBtn.style.display = 'none';
+  }
+
+  // Cancelación por el usuario: prima sobre cualquier otro estado.
+  if (_mkvApplyUserCancelled) {
+    titleEl.textContent = 'Cancelado';
+    statusEl.innerHTML = '<span style="color:var(--orange)">⚠ Copia cancelada — la biblioteca queda intacta y el destino parcial se borró</span>';
+    closeBtn.style.display = '';
+    return;
   }
 
   if (!result?.ok) {
@@ -9330,6 +9362,30 @@ async function _doApplyMkvEdits(copyToOutput) {
   closeBtn.style.display = '';
 }
 
+/**
+ * Botón "🛑 Cancelar copia": llama al backend para abortar la copia
+ * cooperativamente. El thread de copia detecta el flag al inicio del
+ * siguiente chunk (<1s) y borra el destino parcial. El POST de apply
+ * eventualmente devuelve 499 — el flujo principal lo trata como
+ * cancelación del usuario y muestra el mensaje correcto.
+ */
+async function cancelMkvApply() {
+  _mkvApplyUserCancelled = true;
+  // Feedback inmediato: deshabilita el botón mientras esperamos al backend
+  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
+  if (cancelBtn) {
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Cancelando…';
+  }
+  await apiFetch('/api/mkv/apply/cancel', { method: 'POST', silent: true });
+  // Restauramos el botón al estado base por si el flujo se reabre después
+  // — el `display:none` lo gestiona el flujo principal en el finally.
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = '🛑 Cancelar copia';
+  }
+}
+
 /** Pinta la barra de progreso de la copia + texto con bytes/ETA. */
 function _renderMkvApplyProgress(st) {
   const fill = document.getElementById('mkv-apply-progress-fill');
@@ -9350,6 +9406,8 @@ function _renderMkvApplyProgress(st) {
   } else if (st.step === 'done') {
     fill.style.width = '100%';
     text.textContent = '✓ Cambios aplicados';
+  } else if (st.step === 'cancelled') {
+    text.textContent = '⚠ Copia cancelada — destino parcial borrado';
   } else if (st.step === 'error') {
     text.textContent = `⚠ ${st.error || 'Error desconocido'}`;
   }
