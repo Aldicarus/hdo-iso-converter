@@ -8623,6 +8623,9 @@ function _renderMkvEditPanel() {
           <div id="mkv-chapters-banner" class="banner info" style="display:none">
             <span class="banner-icon" id="mkv-chapters-icon">💿</span>
             <span id="mkv-chapters-text"></span>
+            <button class="btn btn-xs" id="mkv-chapters-autogen-btn" style="display:none; margin-left:auto"
+              onclick="generateMkvAutoChapters()"
+              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)">📑 Generar cada 10 min</button>
           </div>
           <div id="mkv-chapter-timeline-wrap" class="chapter-timeline-wrap"
             onclick="onMkvTimelineClick(event)"
@@ -8912,13 +8915,21 @@ function _renderMkvChapters() {
   const a = mkvProject.analysis;
   const banner = document.getElementById('mkv-chapters-banner');
   const text   = document.getElementById('mkv-chapters-text');
+  const autogenBtn = document.getElementById('mkv-chapters-autogen-btn');
 
   if (a.chapters.length > 0) {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner info'; }
     if (text) text.textContent = `${a.chapters.length} capítulos`;
+    if (autogenBtn) autogenBtn.style.display = 'none';
   } else {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner warning'; }
     if (text) text.textContent = 'Sin capítulos en este MKV';
+    // Botón "Generar cada 10 min" visible sólo si la duración permite al menos
+    // un capítulo (necesita > 10 min de duración total).
+    if (autogenBtn) {
+      const dur = a.duration_seconds || 0;
+      autogenBtn.style.display = (dur > 600) ? '' : 'none';
+    }
   }
 
   // Botón nombres genéricos: visible solo si algún capítulo tiene nombre custom
@@ -8930,6 +8941,41 @@ function _renderMkvChapters() {
 
   _renderMkvChapterMarks();
   _renderMkvChapterList();
+}
+
+/**
+ * Genera capítulos automáticos cada 10 min desde el minuto 10. Mismo
+ * algoritmo que `generate_auto_chapters` del backend (phases/phase_b.py)
+ * que se usa en Tab 1 cuando el disco no trae capítulos. Marca el proyecto
+ * dirty para que aparezca el botón "Aplicar cambios" (el backend escribe
+ * los capítulos via mkvpropedit con --chapters).
+ */
+function generateMkvAutoChapters() {
+  if (!mkvProject) return;
+  const a = mkvProject.analysis;
+  const dur = a.duration_seconds || 0;
+  if (dur <= 600) {
+    showToast('La duración del MKV es menor de 10 min — no hay donde poner capítulos', 'warning');
+    return;
+  }
+  const interval = 600;
+  const chapters = [];
+  let t = interval;     // empieza en 00:10:00 (no en 00:00:00)
+  let num = 1;
+  while (t < dur) {
+    chapters.push({
+      number: num,
+      timestamp: secsToTs(t),
+      name: `Capítulo ${String(num).padStart(2, '0')}`,
+      name_custom: false,
+    });
+    t += interval;
+    num += 1;
+  }
+  a.chapters = chapters;
+  mkvProject.dirty = true;
+  _renderMkvChapters();
+  showToast(`✓ ${chapters.length} capítulos generados — pulsa "Aplicar cambios" para escribirlos al MKV`, 'success');
 }
 
 function _renderMkvChapterMarks() {
