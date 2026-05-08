@@ -2865,6 +2865,40 @@ async def cmv40_get(session_id: str):
                 f"fase retrocedida a 'injected' para re-ejecutar desde Fase G"
             )
 
+    # Forward-roll: complementario al auto-rewind. Si la sesión está en una
+    # fase ≤ injected pero existe un .mkv.tmp con el nombre esperado Y el
+    # historial de fases tiene un 'remux' completado con éxito, adelantamos
+    # a 'remuxed'. Cubre el escenario donde el auto-rewind disparó por
+    # error (p.ej. .mkv.tmp temporalmente invisible por glitch del NAS) y
+    # luego el .mkv.tmp reaparece — el usuario quedaría atascado en
+    # injected sin saber que el remux ya está hecho. Sin esto, tendría que
+    # rehacer Fase G (~7 min, ~70 GB) para nada.
+    # No se aplica si session.phase >= remuxed (ya está alineado) ni a
+    # archivadas/DEV.
+    if (not DEV_MODE and not session.archived
+            and session.phase in ("created", "source_analyzed", "target_provided",
+                                  "extracted", "sync_verified", "sync_corrected",
+                                  "injected")
+            and session.output_mkv_name):
+        tmp_path = OUTPUT_DIR_MKV / f"{session.output_mkv_name}.tmp"
+        had_successful_remux = any(
+            (rec.phase == "remux" and rec.status == "done")
+            for rec in (session.phase_history or [])
+        )
+        if tmp_path.exists() and had_successful_remux:
+            _logger.info(
+                "Forward-roll de sesión %s: phase=%s pero .mkv.tmp existe + remux done en historial → remuxed",
+                session.id, session.phase,
+            )
+            session.phase = "remuxed"
+            save_cmv40_session(session)
+            await _cmv40_log(
+                session,
+                f"ℹ️ Forward-roll: el .mkv.tmp del remux ya está escrito en "
+                f"/mnt/output ({tmp_path.stat().st_size / 1e9:.2f} GB) — "
+                f"fase adelantada a 'remuxed' para validar sin re-mux."
+            )
+
     data = session.model_dump()
     if DEV_MODE:
         # En DEV simulamos tamaños de artefactos según la fase alcanzada
