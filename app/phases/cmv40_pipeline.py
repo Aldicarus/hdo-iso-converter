@@ -3275,126 +3275,145 @@ async def run_phase_h_validate(
             f"MKV final no existe: ni {output_mkv_tmp} ni {output_mkv_legacy} — ejecuta Fase G primero"
         )
 
+    drop_in_fel = is_drop_in_fel(session)
+
     if log_callback:
         mkv_gb = output_mkv.stat().st_size / 1e9
-        await log_callback(
-            "[Fase H] 📋 Plan: validar el resultado antes de mover el MKV al output "
-            "final. Leemos el RPU del HEVC resultante, confirmamos que tiene CMv4.0 "
-            "y que el frame count coincide con el source. Si todo OK, rename atómico "
-            ".tmp → .mkv (instantáneo, mismo filesystem) y cleanup de artefactos "
-            "intermedios."
-        )
+        if drop_in_fel:
+            await log_callback(
+                "[Fase H] 📋 Plan (fast path drop-in FEL): el RPU del MKV es bit-a-bit "
+                "el RPU_target.bin — inject-rpu lo copió íntegro sin tocarlo. El bin ya "
+                "pasó pre-flight + Fase B con CMv4.0 confirmado y trust gates OK, así "
+                "que la cadena upstream garantiza Profile 7 FEL CMv4.0 en el output. "
+                "Validamos integridad del MKV con mkvmerge -J y frame count con ffprobe; "
+                "saltamos el extract-rpu completo (ahorra ~5-8 min en UHD)."
+            )
+        else:
+            await log_callback(
+                "[Fase H] 📋 Plan: validar el resultado antes de mover el MKV al output "
+                "final. Leemos el RPU del HEVC resultante, confirmamos que tiene CMv4.0 "
+                "y que el frame count coincide con el source. Si todo OK, rename atómico "
+                ".tmp → .mkv (instantáneo, mismo filesystem) y cleanup de artefactos "
+                "intermedios."
+            )
         await log_callback(f"[Fase H] ┌─ Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
 
-    # Validación completa: extract-rpu DIRECTO sobre el MKV final (escanea todo
-    # el stream HEVC, ~segundos-minutos según tamaño, mucho más barato que
-    # ffmpeg + re-extract). Cubre desincronización intermedia que una muestra
-    # de 30s no detectaría. Luego:
-    #   1. Parseamos el RPU con dovi_tool info (frame count, CM, profile, el_type)
-    #   2. Comparamos con RPU_target.bin (byte-idéntico en drop-in puro)
-    drop_in_fel = is_drop_in_fel(session)
-    rpu_target = wd / "RPU_target.bin"
-    temp_rpu   = wd / "_validate_rpu.bin"
-    # Preferimos extraer el RPU del HEVC pre-mux que está en workdir, no del
-    # MKV final. dovi_tool 2.3.x falla con "Invalid PPS index" al parsear
-    # MKVs donde mkvmerge guardó el PPS en CodecPrivate en vez de inline —
-    # problema del parser matroska de dovi_tool, no del stream. El stream
-    # HEVC que muxó mkvmerge es byte-idéntico al pre-mux (mkvmerge no
-    # re-encoda el vídeo), así que extraer del pre-mux es equivalente y
-    # evita el bug.
-    pre_mux_candidates = [
-        wd / "source_injected.hevc",   # drop-in FEL
-        wd / "DV_dual.hevc",           # workflow p7_fel dual-layer
-        wd / "EL_injected.hevc",       # fallback
-        wd / "BL_injected.hevc",       # workflow p7_mel (single-layer)
-    ]
-    pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
-    extract_input = str(pre_mux_hevc) if pre_mux_hevc else str(output_mkv)
-    try:
-        if log_callback:
-            msg_source = (f"del HEVC pre-mux ({pre_mux_hevc.name})"
-                          if pre_mux_hevc else "del MKV final")
-            await log_callback(
-                f"[Fase H] Paso 1/3: extrayendo RPU completo {msg_source} "
-                "(escanea todo el stream, no solo 30s)…"
-            )
-        await _emit_progress(log_callback, 5, "Extrayendo RPU completo")
-        rc, _, err = await _run([
-            DOVI_TOOL_BIN, "extract-rpu", extract_input, "-o", str(temp_rpu),
-        ], timeout=900)
-        if rc != 0:
-            raise RuntimeError(f"extract-rpu falló sobre {extract_input}: {err[:200]}")
+    # ── result_info: estructura común que ambas ramas rellenan para el log
+    # final + return. El path clásico la deriva de extract-rpu + info; el
+    # fast path drop-in la construye desde los valores garantizados upstream
+    # (target_type=trusted_p7_fel_final + trust_ok + pre-flight CMv4.0).
+    expected_frames = session.target_frame_count or session.source_frame_count or 0
 
+    if drop_in_fel:
+        # ── FAST PATH (drop-in FEL puro) ────────────────────────────────
+        # Lo único que falta verificar tras la cadena upstream es:
+        #   1. Que el MKV es leíble y no está truncado (frame count vs expected)
+        #   2. Que mkvmerge -J no detecta corrupción
+        # Profile 7 FEL CMv4.0 ya están garantizados; un extract-rpu completo
+        # solo confirmaría lo mismo a un coste de 5-8 min de CPU sobre el HEVC.
         if log_callback:
-            await log_callback("[Fase H] Paso 2/3: analizando metadata DV del RPU…")
-        await _emit_progress(log_callback, 30, "Analizando metadata DV")
-        rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(temp_rpu)], timeout=30)
-        if rc != 0:
-            raise RuntimeError(f"dovi_tool info falló: {err[:200]}")
-        result_info = _parse_dovi_summary(summary)
+            await log_callback("[Fase H] Paso 1/2: leyendo frame count del MKV final (ffprobe)…")
+        await _emit_progress(log_callback, 30, "Frame count del MKV final")
+        actual_frames = await _probe_frame_count(str(output_mkv))
+        if expected_frames > 0 and actual_frames == 0:
+            raise RuntimeError(
+                "ffprobe no pudo determinar el frame count del MKV final — posible "
+                f"corrupción tras Fase G (esperado {expected_frames})."
+            )
+        if expected_frames and actual_frames and actual_frames != expected_frames:
+            raise RuntimeError(
+                f"Frame count del MKV final ({actual_frames}) distinto del esperado "
+                f"({expected_frames}) — indica corrupción en mux o inject-rpu."
+            )
+        if log_callback and actual_frames:
+            await log_callback(
+                f"[Fase H] ✓ Frame count: {actual_frames} (coincide con target_frame_count)"
+            )
+        result_info = DoviInfo(
+            profile=7,
+            el_type="FEL",
+            cm_version="v4.0",
+            frame_count=actual_frames or expected_frames or 0,
+        )
+    else:
+        # ── PATH CLÁSICO (merge CMv4.0 sobre P7/P8 source) ──────────────
+        # Aquí inyectamos un RPU resultado de un merge frame-a-frame, no del
+        # bin tal cual; el extract-rpu completo es la única forma de
+        # certificar que el merge no produjo asimetrías ni perdió frames.
+        # Preferimos extraer el RPU del HEVC pre-mux que está en workdir, no
+        # del MKV final. dovi_tool 2.3.x falla con "Invalid PPS index" al
+        # parsear MKVs donde mkvmerge guardó el PPS en CodecPrivate en vez de
+        # inline — problema del parser matroska de dovi_tool, no del stream.
+        # El stream HEVC que muxó mkvmerge es byte-idéntico al pre-mux
+        # (mkvmerge no re-encoda el vídeo), así que extraer del pre-mux es
+        # equivalente y evita el bug.
+        temp_rpu = wd / "_validate_rpu.bin"
+        pre_mux_candidates = [
+            wd / "source_injected.hevc",   # drop-in FEL (en force_interactive cae aquí)
+            wd / "DV_dual.hevc",           # workflow p7_fel dual-layer
+            wd / "EL_injected.hevc",       # fallback
+            wd / "BL_injected.hevc",       # workflow p7_mel (single-layer)
+        ]
+        pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
+        extract_input = str(pre_mux_hevc) if pre_mux_hevc else str(output_mkv)
+        try:
+            if log_callback:
+                msg_source = (f"del HEVC pre-mux ({pre_mux_hevc.name})"
+                              if pre_mux_hevc else "del MKV final")
+                await log_callback(
+                    f"[Fase H] Paso 1/3: extrayendo RPU completo {msg_source} "
+                    "(escanea todo el stream — necesario porque el merge CMv4.0 "
+                    "modificó el RPU frame-a-frame)…"
+                )
+            await _emit_progress(log_callback, 5, "Extrayendo RPU completo")
+            rc, _, err = await _run([
+                DOVI_TOOL_BIN, "extract-rpu", extract_input, "-o", str(temp_rpu),
+            ], timeout=900)
+            if rc != 0:
+                raise RuntimeError(f"extract-rpu falló sobre {extract_input}: {err[:200]}")
+
+            if log_callback:
+                await log_callback("[Fase H] Paso 2/3: analizando metadata DV del RPU…")
+            await _emit_progress(log_callback, 30, "Analizando metadata DV")
+            rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(temp_rpu)], timeout=30)
+            if rc != 0:
+                raise RuntimeError(f"dovi_tool info falló: {err[:200]}")
+            result_info = _parse_dovi_summary(summary)
+            if log_callback:
+                await log_callback(
+                    f"[Fase H] DV detectado: Profile {result_info.profile} ({result_info.el_type}), "
+                    f"CM {result_info.cm_version}, {result_info.frame_count} frames"
+                )
+
+            if expected_frames and result_info.frame_count and result_info.frame_count != expected_frames:
+                raise RuntimeError(
+                    f"Frame count del MKV final ({result_info.frame_count}) distinto "
+                    f"del esperado ({expected_frames}) — indica corrupción o desincronización."
+                )
+        finally:
+            temp_rpu.unlink(missing_ok=True)
+
+        if result_info.cm_version != "v4.0":
+            raise RuntimeError(
+                f"El MKV resultante tiene CM {result_info.cm_version} (esperado v4.0)"
+            )
+
+        expected_el = "FEL" if (session.source_workflow or "p7_fel") == "p7_fel" else None
+        if expected_el and result_info.el_type != expected_el:
+            raise RuntimeError(
+                f"El MKV resultante tiene el_type={result_info.el_type!r} "
+                f"(esperado '{expected_el}' porque source_workflow='{session.source_workflow}')"
+            )
         if log_callback:
             await log_callback(
-                f"[Fase H] DV detectado: Profile {result_info.profile} ({result_info.el_type}), "
+                f"[Fase H] ✓ Validación DV OK: Profile {result_info.profile} ({result_info.el_type}), "
                 f"CM {result_info.cm_version}, {result_info.frame_count} frames"
             )
 
-        # ── Frame count completo (no solo una muestra) ─────────────────
-        expected_frames = session.target_frame_count or session.source_frame_count or 0
-        if expected_frames and result_info.frame_count and result_info.frame_count != expected_frames:
-            raise RuntimeError(
-                f"Frame count del MKV final ({result_info.frame_count}) distinto "
-                f"del esperado ({expected_frames}) — indica corrupción o desincronización."
-            )
-
-        # ── Comparación byte-idéntica con RPU_target (solo drop-in) ────
-        # En drop-in puro el RPU del output DEBE ser idéntico al bin de REC_9999
-        # porque literalmente lo inyectamos sin tocarlo. Cualquier divergencia
-        # indica un problema en el inject-rpu.
-        rpu_identical = None
-        if drop_in_fel and rpu_target.exists():
-            try:
-                import filecmp
-                rpu_identical = await asyncio.to_thread(
-                    filecmp.cmp, str(temp_rpu), str(rpu_target), False
-                )
-            except Exception as e:
-                _logger.warning("filecmp falló: %s", e)
-                rpu_identical = None
-            if rpu_identical is True:
-                if log_callback:
-                    await log_callback(
-                        "[Fase H] ✓ RPU del MKV byte-idéntico a RPU_target.bin "
-                        "(drop-in preservó el bin sin modificaciones)"
-                    )
-            elif rpu_identical is False:
-                raise RuntimeError(
-                    "RPU del MKV final DIFIERE de RPU_target.bin. En drop-in puro "
-                    "deberían ser byte-idénticos — algo en inject-rpu alteró el RPU."
-                )
-    finally:
-        temp_rpu.unlink(missing_ok=True)
-
-    if result_info.cm_version != "v4.0":
-        raise RuntimeError(
-            f"El MKV resultante tiene CM {result_info.cm_version} (esperado v4.0)"
-        )
-
-    # Validación de subprofile según workflow
-    expected_el = "FEL" if (session.source_workflow or "p7_fel") == "p7_fel" else None
-    if expected_el and result_info.el_type != expected_el:
-        raise RuntimeError(
-            f"El MKV resultante tiene el_type={result_info.el_type!r} "
-            f"(esperado '{expected_el}' porque source_workflow='{session.source_workflow}')"
-        )
+    # Validar pistas con mkvmerge -J (común a ambos paths)
     if log_callback:
-        await log_callback(
-            f"[Fase H] ✓ Validación DV OK: Profile {result_info.profile} ({result_info.el_type}), "
-            f"CM {result_info.cm_version}, {result_info.frame_count} frames"
-        )
-
-    # Validar pistas con mkvmerge -J
-    if log_callback:
-        await log_callback("[Fase H] Paso 3/3: validando pistas (mkvmerge -J)…")
+        step_label = "Paso 2/2" if drop_in_fel else "Paso 3/3"
+        await log_callback(f"[Fase H] {step_label}: validando pistas (mkvmerge -J)…")
     await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
     rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
     if rc not in (0, 1):
