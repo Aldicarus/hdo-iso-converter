@@ -9423,17 +9423,16 @@ function _cmv40PlanAutoSteps(s) {
   const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
   const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
   const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
-  // Fase H: depende del modo.
-  // - Drop-in FEL: solo ffprobe (frame count) + mkvmerge -J + rename. ~5-10s.
-  //   La cadena upstream (pre-flight CMv4.0 + Fase B trust_ok + inject-rpu
-  //   determinista) ya garantiza Profile 7 FEL CMv4.0 — no hace falta
-  //   re-extraer el RPU.
-  // - Path clásico (merge CMv4.0): sample HEAD (30s) + sample TAIL (30s),
-  //   extract-rpu sobre cada uno + dovi_tool info, valida que ambos chunks
-  //   tengan CMv4.0 (detecta asimetrías del merge frame-a-frame). ~25-35s.
-  //   Antes era extract-rpu completo (~150s); ahora ~5x más rápido sin
-  //   perder cobertura para los modos típicos de fallo.
-  const etaH = dropIn ? 8 : 35;
+  // Fase H: depende del modo. Calibrado con runs reales en NAS UHD BD:
+  // - Drop-in FEL (caso típico): ffprobe + mkvmerge -J + rename atómico.
+  //   ffprobe sobre MKV 71 GB → ~1s; mkvmerge -J → ~1s; rename mismo
+  //   filesystem instantáneo; cleanup unlinks <1s. Total real ~3-5s; 5s
+  //   con margen. Antes 8s.
+  // - Path clásico (merge CMv4.0): 2× (ffmpeg copy 30s + extract-rpu del
+  //   chunk + info) + ffprobe + mkvmerge -J. extract-rpu sobre 30s de
+  //   HEVC (~300 MB) en CPU del NAS ~1-2s por chunk. Total real ~10-15s;
+  //   20s con margen. Antes 35s.
+  const etaH = dropIn ? 5 : 20;
 
   const steps = [];
 
