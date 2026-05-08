@@ -239,6 +239,15 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 - `sync_config`: dict con la corrección acumulada (remove/duplicate ranges)
 - `sync_delta`: diferencia de frames actual (target - source)
 
+### Auto-rewind y forward-roll en GET /api/cmv40/{id}
+
+Al abrir un proyecto, el endpoint reconcilia el estado persistido con la realidad del filesystem:
+
+- **Auto-rewind** — si `phase ∈ {remuxed, validated}` pero el MKV esperado (`.mkv.tmp` o `.mkv`) no existe en /mnt/output, retrocede a `phase=injected` para que la UI muestre Fase G como siguiente. Sin esto, el usuario era llevado a Fase H y la ejecución fallaba con "MKV final no existe — ejecuta Fase G primero". **No se aplica a `phase=done`**: una vez el job terminó, el MKV es responsabilidad del usuario (workflow normal: mover a biblioteca externa). Para regenerar, el usuario tiene "Rehacer Fase G" en la card done del panel.
+- **Forward-roll** — complementario: si `phase ≤ injected` pero hay un `.mkv.tmp` en /mnt/output Y `phase_history` tiene un `remux` con `status='done'`, adelanta a `remuxed`. Recupera proyectos atascados sin re-mux cuando el auto-rewind disparó por error.
+
+Ambos saltan en sesiones archivadas y en DEV_MODE.
+
 ### UI
 
 - **Multi-proyecto con sidebar** (como Tab 1): búsqueda, ordenación (por modificado/nombre/fase), filtros (todos / en progreso / completados / errores), iconos por fase en el badge

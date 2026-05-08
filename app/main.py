@@ -3035,22 +3035,29 @@ async def cmv40_get(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
 
-    # Auto-rewind: si la sesión dice "remuxed/validated/done" pero el MKV
-    # esperado (.mkv.tmp para remuxed, .mkv para validated/done) no existe
-    # físicamente en OUTPUT_DIR, retrocedemos la fase a `injected` para que
-    # la UI muestre Fase G (remux) como siguiente en vez de H (validate).
-    # Sin esto, el usuario era llevado a Fase H y la ejecución fallaba con
-    # "MKV final no existe — ejecuta Fase G primero".
+    # Auto-rewind: si la sesión dice "remuxed/validated" pero el MKV esperado
+    # (.mkv.tmp para remuxed, .mkv para validated) no existe físicamente en
+    # OUTPUT_DIR, retrocedemos la fase a `injected` para que la UI muestre
+    # Fase G (remux) como siguiente en vez de H (validate). Sin esto, el
+    # usuario era llevado a Fase H y la ejecución fallaba con "MKV final no
+    # existe — ejecuta Fase G primero".
+    #
+    # NO se aplica a phase="done": una vez que el job terminó con éxito, el
+    # MKV es responsabilidad del usuario. Si lo mueve a su biblioteca final
+    # (workflow normal) el proyecto debe seguir mostrándose como completado.
+    # Para volver a generar el MKV, el usuario tiene el botón "Rehacer Fase G"
+    # en la card done del panel — eso resetea phase a injected explícitamente.
+    #
     # No se aplica a sesiones archivadas (modo solo lectura) ni a DEV_MODE.
     if (not DEV_MODE and not session.archived
-            and session.phase in ("remuxed", "validated", "done")
+            and session.phase in ("remuxed", "validated")
             and session.output_mkv_name):
         tmp_path   = OUTPUT_DIR_MKV / f"{session.output_mkv_name}.tmp"
         final_path = OUTPUT_DIR_MKV / session.output_mkv_name
         if session.phase == "remuxed":
             missing = not tmp_path.exists() and not final_path.exists()
         else:
-            # validated / done: el archivo final debería existir (tmp ya renombrado)
+            # validated: el archivo final debería existir (tmp ya renombrado)
             missing = not final_path.exists()
         if missing:
             _logger.info(
