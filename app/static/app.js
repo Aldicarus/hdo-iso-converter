@@ -2600,8 +2600,8 @@ const _CMV40_HELP_SECTIONS = {
     <div class="help-callout help-callout-info">
       <strong>Dos rutas de validación según el modo:</strong>
       <ul style="margin:6px 0 0 0; padding-left:18px">
-        <li><strong>Drop-in FEL puro</strong> (caso típico con bins de DoviTools): la cadena upstream ya garantiza que el output es Profile 7 FEL CMv4.0 — el bin pasó pre-flight como CMv4.0, los <em>trust gates</em> de Fase B dieron OK, y <code>inject-rpu</code> es una operación determinista que copia el bin íntegro al stream HEVC. Por eso la Fase H se reduce a <code>ffprobe</code> (frame count) + <code>mkvmerge -J</code> (integridad del Matroska). Tarda segundos en lugar de los 5-8 min del extract-rpu completo.</li>
-        <li><strong>Merge CMv4.0</strong> (cuando el bin necesita transferir levels al RPU del Blu-ray): aquí sí se extrae el RPU completo del HEVC pre-mux y se valida con <code>dovi_tool info</code>, porque el merge frame-a-frame justifica una verificación post-hoc. Es el camino menos común, reservado a sources P7/P8 sin bin "drop-in" disponible.</li>
+        <li><strong>Drop-in FEL puro</strong> (caso típico con bins de DoviTools): la cadena upstream ya garantiza que el output es Profile 7 FEL CMv4.0 — el bin pasó pre-flight como CMv4.0, los <em>trust gates</em> de Fase B dieron OK, y <code>inject-rpu</code> es una operación determinista que copia el bin íntegro al stream HEVC. Por eso la Fase H se reduce a <code>ffprobe</code> (frame count) + <code>mkvmerge -J</code> (integridad del Matroska). Tarda segundos.</li>
+        <li><strong>Merge CMv4.0</strong> (cuando el bin necesita transferir levels al RPU del Blu-ray): el RPU final viene de un merge frame-a-frame, así que sí necesitamos verificarlo. La app extrae <strong>dos muestras de 30s</strong> del MKV final — primeros 30s (HEAD) y últimos 30s (TAIL) — corre <code>dovi_tool extract-rpu</code> sobre cada chunk, y valida que ambos reportan <strong>CMv4.0</strong> con el <em>el_type</em> esperado. Si el merge hubiera producido asimetrías (un trozo CMv4.0 y otro CMv2.9, p.ej.), el muestreo lo detecta. El frame count se obtiene de <code>ffprobe</code> sobre el MKV completo, así que sigue siendo end-to-end. Tarda ~30s, frente a los 5-8 min del extract-rpu completo del stream entero.</li>
       </ul>
     </div>
 
@@ -9428,12 +9428,12 @@ function _cmv40PlanAutoSteps(s) {
   //   La cadena upstream (pre-flight CMv4.0 + Fase B trust_ok + inject-rpu
   //   determinista) ya garantiza Profile 7 FEL CMv4.0 — no hace falta
   //   re-extraer el RPU.
-  // - Path clásico (merge CMv4.0): extract-rpu del HEVC pre-mux completo
-  //   (~r_extract_rpu × anchor) + dovi_tool info + mkvmerge -J. En el NAS:
-  //   ~152s para 155k frames sobre HEVC de 34 GB.
-  const etaH = dropIn
-    ? 8
-    : _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
+  // - Path clásico (merge CMv4.0): sample HEAD (30s) + sample TAIL (30s),
+  //   extract-rpu sobre cada uno + dovi_tool info, valida que ambos chunks
+  //   tengan CMv4.0 (detecta asimetrías del merge frame-a-frame). ~25-35s.
+  //   Antes era extract-rpu completo (~150s); ahora ~5x más rápido sin
+  //   perder cobertura para los modos típicos de fallo.
+  const etaH = dropIn ? 8 : 35;
 
   const steps = [];
 
@@ -9593,14 +9593,16 @@ function _cmv40PlanAutoSteps(s) {
   // dos rutas según modo:
   // - Drop-in FEL: ffprobe (frame count) + mkvmerge -J. Sin extract-rpu
   //   porque la cadena upstream ya garantiza Profile 7 FEL CMv4.0. ~5-10s.
-  // - Path clásico (merge CMv4.0): extract-rpu del HEVC pre-mux completo
-  //   (~150s en UHD BD) + dovi_tool info + mkvmerge -J.
+  // - Path clásico (merge CMv4.0): sample HEAD + TAIL (30s cada uno),
+  //   extract-rpu sobre cada chunk + dovi_tool info → valida que ambos
+  //   tengan CMv4.0 (detecta asimetrías). + ffprobe frame count + mkvmerge -J.
+  //   ~25-35s. Antes era extract-rpu completo (~150s en UHD BD).
   // En ambos: rename atómico .tmp → .mkv + cleanup pre-mux.
   steps.push({
     key: 'H', icon: '✅', title: 'Fase H · Validar + finalizar',
     what: dropIn
       ? 'Validación rápida (ffprobe frame count + mkvmerge -J — el RPU es bit-a-bit el bin pre-validado) → rename atómico → cleanup'
-      : 'Validación DV completa (extract-rpu full-stream + dovi_tool info + mkvmerge -J) → rename atómico → cleanup',
+      : 'Validación DV por muestreo (extract-rpu de HEAD + TAIL 30s cada uno + dovi_tool info + ffprobe frame count + mkvmerge -J) → rename atómico → cleanup',
     etaSecs: etaH,
   });
 

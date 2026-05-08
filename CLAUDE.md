@@ -211,7 +211,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Solo verifica integridad del MKV con `mkvmerge -J` y frame count con `ffprobe`. ~segundos.
-   - **Merge CMv4.0** (rama merge sobre P7/P8 source): path clásico. `dovi_tool extract-rpu` completo sobre el HEVC pre-mux + `info --summary` para certificar `cm_version == v4.0`, `el_type` y frame count tras el merge frame-a-frame. ~5-8 min en UHD.
+   - **Merge CMv4.0** (rama merge sobre P7/P8 source): muestreo HEAD + TAIL. `ffmpeg -t 30` (head) + `ffmpeg -sseof -30 -t 30` (tail) extraen dos chunks HEVC del MKV final. `dovi_tool extract-rpu` + `info --summary` sobre cada chunk; ambos deben reportar `cm_version == v4.0` y `el_type` esperado (detecta asimetrías del merge frame-a-frame). Frame count del MKV completo via `ffprobe` (no del RPU del sample). ~25-35s. Antes era extract-rpu completo (~5-8 min).
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
 ### Estados de la sesión
