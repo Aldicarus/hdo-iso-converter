@@ -2596,9 +2596,13 @@ const _CMV40_HELP_SECTIONS = {
     <p>El vídeo con el RPU CMv4.0 se junta con el audio, subtítulos y capítulos del Blu-ray original. El MKV resultante se escribe con una barra de progreso real (no estimada). Se escribe con sufijo temporal y se renombra atómicamente al nombre final al acabar — si la app se corta a mitad, nunca queda un MKV a medias con el nombre definitivo.</p>
 
     <h3>🛡️ Validación final — antes de Fase H</h3>
-    <p>Igual que en el punto B→C, aquí hay otro <em>gate</em> entre G y H: la app verifica que el HEVC ensamblado contiene efectivamente CMv4.0, que el número de frames coincide con el BD original, y que la estructura del fichero Matroska es correcta. Si algo falla, el MKV se rechaza y el proyecto se marca con error (se puede rehacer desde la fase que quieras).</p>
+    <p>Igual que en el punto B→C, aquí hay otro <em>gate</em> entre G y H: la app verifica que el MKV final tiene el número de frames esperado y que la estructura del fichero Matroska es correcta. Si algo falla, el MKV se rechaza y el proyecto se marca con error (se puede rehacer desde la fase que quieras).</p>
     <div class="help-callout help-callout-info">
-      <strong>Detalle de implementación histórico:</strong> la validación lee el RPU del HEVC en el directorio de trabajo, no del MKV final. Esto evitaba un bug conocido de <code>dovi_tool</code> 2.1.x que fallaba al leer RPUs desde algunos MKVs por cómo se almacenan los PPS en <code>CodecPrivate</code>. El contenedor ya usa 2.3.2, donde el bug está corregido y la lectura directa del MKV es estable; el workaround se mantiene como defensa adicional hasta validar la retirada en un proyecto real.
+      <strong>Dos rutas de validación según el modo:</strong>
+      <ul style="margin:6px 0 0 0; padding-left:18px">
+        <li><strong>Drop-in FEL puro</strong> (caso típico con bins de DoviTools): la cadena upstream ya garantiza que el output es Profile 7 FEL CMv4.0 — el bin pasó pre-flight como CMv4.0, los <em>trust gates</em> de Fase B dieron OK, y <code>inject-rpu</code> es una operación determinista que copia el bin íntegro al stream HEVC. Por eso la Fase H se reduce a <code>ffprobe</code> (frame count) + <code>mkvmerge -J</code> (integridad del Matroska). Tarda segundos en lugar de los 5-8 min del extract-rpu completo.</li>
+        <li><strong>Merge CMv4.0</strong> (cuando el bin necesita transferir levels al RPU del Blu-ray): aquí sí se extrae el RPU completo del HEVC pre-mux y se valida con <code>dovi_tool info</code>, porque el merge frame-a-frame justifica una verificación post-hoc. Es el camino menos común, reservado a sources P7/P8 sin bin "drop-in" disponible.</li>
+      </ul>
     </div>
 
     <h3>Fase H — Finalizar</h3>
@@ -9419,11 +9423,17 @@ function _cmv40PlanAutoSteps(s) {
   const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
   const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
   const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
-  // Fase H: extract-rpu del HEVC pre-mux (~r_extract_rpu × anchor) + mkvmerge -J (~2s).
-  // Antes era constante 15s pero tras el fix de extract-rpu sobre pre-mux
-  // (para evitar "Invalid PPS index" en el MKV) tarda mucho más. En el NAS real:
-  // 152s para 155k frames sobre el HEVC de 34 GB.
-  const etaH = _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
+  // Fase H: depende del modo.
+  // - Drop-in FEL: solo ffprobe (frame count) + mkvmerge -J + rename. ~5-10s.
+  //   La cadena upstream (pre-flight CMv4.0 + Fase B trust_ok + inject-rpu
+  //   determinista) ya garantiza Profile 7 FEL CMv4.0 — no hace falta
+  //   re-extraer el RPU.
+  // - Path clásico (merge CMv4.0): extract-rpu del HEVC pre-mux completo
+  //   (~r_extract_rpu × anchor) + dovi_tool info + mkvmerge -J. En el NAS:
+  //   ~152s para 155k frames sobre HEVC de 34 GB.
+  const etaH = dropIn
+    ? 8
+    : _cmv40EstimateSecs(s, CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract) + 5;
 
   const steps = [];
 
@@ -9580,13 +9590,17 @@ function _cmv40PlanAutoSteps(s) {
   });
 
   // Fase H = validar + finalizar. El backend unifica en running_phase='validate'
-  // tanto el extract-rpu del HEVC pre-mux (~150s en UHD BD) como el mkvmerge -J
-  // (~2s) y el rename atomico (instantaneo). El ETA visible debe reflejar todo
-  // el trabajo, no solo el rename — antes etaSecs=2 hacia que el timeline dijera
-  // "ETA 2s" cuando quedaban 2min 30s reales.
+  // dos rutas según modo:
+  // - Drop-in FEL: ffprobe (frame count) + mkvmerge -J. Sin extract-rpu
+  //   porque la cadena upstream ya garantiza Profile 7 FEL CMv4.0. ~5-10s.
+  // - Path clásico (merge CMv4.0): extract-rpu del HEVC pre-mux completo
+  //   (~150s en UHD BD) + dovi_tool info + mkvmerge -J.
+  // En ambos: rename atómico .tmp → .mkv + cleanup pre-mux.
   steps.push({
     key: 'H', icon: '✅', title: 'Fase H · Validar + finalizar',
-    what: 'Validación DV completa (extract-rpu full-stream + dovi_tool info + mkvmerge -J) → rename atómico → cleanup',
+    what: dropIn
+      ? 'Validación rápida (ffprobe frame count + mkvmerge -J — el RPU es bit-a-bit el bin pre-validado) → rename atómico → cleanup'
+      : 'Validación DV completa (extract-rpu full-stream + dovi_tool info + mkvmerge -J) → rename atómico → cleanup',
     etaSecs: etaH,
   });
 
