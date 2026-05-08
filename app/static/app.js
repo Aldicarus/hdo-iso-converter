@@ -9877,7 +9877,7 @@ async function openNewCMv40Modal() {
     subtitle: 'Selecciona el MKV origen (CMv2.9) que quieres procesar',
     roots: [
       { key: 'library', label: 'Biblioteca', icon: '📚' },
-      { key: 'output',  label: 'Output',     icon: '📦' },
+      { key: 'torrent', label: 'Torrent',    icon: '🧲' },
     ],
     onSelect: async (absPath, name) => {
       _cmv40SourceSelected = absPath;
@@ -9951,7 +9951,7 @@ function openCMv40SourceBrowser() {
     subtitle: 'Selecciona otro MKV para reemplazar el actual',
     roots: [
       { key: 'library', label: 'Biblioteca', icon: '📚' },
-      { key: 'output',  label: 'Output',     icon: '📦' },
+      { key: 'torrent', label: 'Torrent',    icon: '🧲' },
     ],
     onSelect: async (absPath, name) => {
       _cmv40SourceSelected = absPath;
@@ -14103,6 +14103,7 @@ const _DEFAULT_FB_ROOTS = [
 const _FB_ROOT_LABELS = {
   library: 'Biblioteca',
   output:  'Output',
+  torrent: 'Torrent',
 };
 
 /** Abre el modal del file browser.
