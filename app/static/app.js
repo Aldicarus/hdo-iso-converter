@@ -11930,11 +11930,17 @@ function _renderCMv40ActivePhase(project) {
   // Renderizar todas las fases como cards — intercalando los gates entre
   // Fase B y Fase C (trust gates) y entre Fase G y Fase H (validación final).
   const cards = [];
+  // Si hay error_message poblado, forzamos que la fase active se renderize
+  // siempre expandida — aunque el usuario hubiera colapsado la card antes.
+  // Sin esto, el botón "Reintentar" puede quedar oculto bajo el chevrón ▸ y
+  // el usuario solo ve el banner rojo + la card "done" de la fase anterior.
+  const forceExpandActiveOnError = !!s.error_message;
   CMV40_FASES_DEF.forEach(fase => {
     const state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
-    const isExpanded = project.expandedPhases[fase.key] !== undefined
+    let isExpanded = project.expandedPhases[fase.key] !== undefined
       ? project.expandedPhases[fase.key]
       : (state === 'active');
+    if (forceExpandActiveOnError && state === 'active') isExpanded = true;
     cards.push(_cmv40RenderFaseCard(pid, s, fase, state, isExpanded));
     // Inyectar gate card tras Fase B — trust gates + compatibilidad
     if (fase.key === 'B') {
@@ -11955,6 +11961,16 @@ function _renderCMv40ActivePhase(project) {
   // Banner de error de la última acción intentada (no bloquea el flujo)
   let errorHtml = '';
   if (s.error_message) {
+    // Detectar la fase active actual para ofrecer "Reintentar" directo desde
+    // el banner. Sin esto, el usuario tenía que ir a buscar la card de la
+    // fase (que podría estar colapsada) para encontrar el botón equivalente.
+    const activeFase = CMV40_FASES_DEF.find(f =>
+      _cmv40PhaseState(s.phase, f.produces, f.startsFrom) === 'active'
+    );
+    const retryBtn = activeFase
+      ? `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryActivePhase('${pid}','${activeFase.key}')"
+            data-tooltip="Vuelve a ejecutar ${escHtml(activeFase.title)}">🔄 Reintentar</button>`
+      : '';
     errorHtml = `
       <div class="section-card cmv40-card-error" style="margin-top:12px">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
@@ -11963,6 +11979,7 @@ function _renderCMv40ActivePhase(project) {
             <div style="font-weight:600; color:var(--red); margin-bottom:2px">Error en la última acción</div>
             <div style="font-size:12px; color:var(--text-2)">${escHtml(s.error_message)}</div>
           </div>
+          ${retryBtn}
           <button class="btn btn-ghost btn-sm" onclick="_cmv40ClearError('${pid}')"
             data-tooltip="Descartar este mensaje">✕</button>
         </div>
@@ -12756,6 +12773,32 @@ async function _cmv40ClearError(pid) {
     if (project) {
       _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
+    }
+  }
+}
+
+/** Botón "🔄 Reintentar" del banner de error: descarta el error_message y
+ *  dispara la fase active actual. Mapeado por key (A..H) → función do*. */
+async function _cmv40RetryActivePhase(pid, faseKey) {
+  await apiFetch(`/api/cmv40/${pid}/clear-error`, { method: 'POST' });
+  const launcher = {
+    A: () => cmv40DoAnalyzeSource(pid),
+    F: () => cmv40DoInject(pid),
+    G: () => cmv40DoRemux(pid),
+    H: () => cmv40DoValidate(pid),
+  }[faseKey];
+  if (launcher) {
+    launcher();
+  } else {
+    // Las fases B (target), C (extract) y D (sync) tienen flujos manuales —
+    // refrescamos el panel para que el usuario vea la card active expandida.
+    const data = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
+    if (data) {
+      const project = openCMv40Projects.find(p => p.id === pid);
+      if (project) {
+        _cmv40AssignSession(project, data);
+        _updateCMv40Panel(project);
+      }
     }
   }
 }
