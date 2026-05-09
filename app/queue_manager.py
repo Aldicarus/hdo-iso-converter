@@ -46,13 +46,15 @@ class QueueManager:
                 self._queue = []
 
     def _persist_state(self) -> None:
-        """Guarda el estado actual de la cola a disco."""
+        """Guarda el estado actual de la cola a disco con escritura atómica
+        (.tmp + rename) — sin esto, un kill mid-write dejaba la cola
+        truncada y al rearrancar la cola entera se perdía."""
         try:
             _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             data = {"running": self._running, "queue": list(self._queue)}
-            _QUEUE_STATE_FILE.write_text(
-                json.dumps(data, indent=2), encoding="utf-8"
-            )
+            tmp = _QUEUE_STATE_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            os.replace(tmp, _QUEUE_STATE_FILE)
         except Exception as e:
             logger.warning("[QueueManager] No se pudo guardar queue_state.json: %s", e)
 

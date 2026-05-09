@@ -37,18 +37,42 @@ def _session_path(session_id: str) -> Path:
     return CONFIG_DIR / f"{session_id}.json"
 
 
+def _atomic_write_json(path: Path, content: str) -> None:
+    """Escritura atómica: vuelca a un .tmp en el mismo directorio y rename
+    al destino final. Garantiza que el fichero objetivo nunca queda en
+    estado parcial — incluso si el server cae mid-write (kill -9, panic
+    del kernel, apagón). El rename dentro del mismo filesystem es atómico
+    en POSIX/Linux por contrato.
+
+    Usado para todas las persistencias críticas (Sessions, CMv40Session,
+    queue_state, mkv_apply_state). Sin esto, las escrituras de output_log
+    a 500 KB+ por línea durante un job intenso eran candidato perfecto
+    para corrupción si el contenedor se reiniciaba a medias.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        os.replace(tmp_path, path)  # atomic on POSIX same-filesystem
+    except Exception:
+        # Best-effort cleanup del .tmp si rename falló
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+
 def save_session(session: Session) -> None:
     """
     Persiste una sesión en disco como JSON con indentación.
 
     Actualiza updated_at al momento actual antes de escribir.
-    Crea el directorio CONFIG_DIR si no existe. Sobreescribe el fichero
-    si ya existe (cada guardado es atómico a nivel de write_text).
+    Escritura atómica via _atomic_write_json — garantiza que un kill -9
+    durante el write no deja un JSON corrupto.
     """
     session.updated_at = datetime.now(timezone.utc)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    path = _session_path(session.id)
-    path.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+    _atomic_write_json(_session_path(session.id), session.model_dump_json(indent=2))
 
 
 def load_session(session_id: str) -> Session | None:
@@ -180,11 +204,15 @@ def _cmv40_session_path(session_id: str) -> Path:
 
 
 def save_cmv40_session(session: CMv40Session) -> None:
-    """Persiste una CMv40Session en /config/cmv40/{id}.json."""
+    """Persiste una CMv40Session en /config/cmv40/{id}.json (atómico).
+
+    Atomicidad importante porque cada línea de output_log dispara un save
+    durante un job intenso (CMv4.0 con UHD genera miles de líneas). Sin
+    `.tmp + rename`, un kill mid-write dejaba el JSON corrupto y la sesión
+    se perdía al cargar.
+    """
     session.updated_at = datetime.now(timezone.utc)
-    CMV40_DIR.mkdir(parents=True, exist_ok=True)
-    path = _cmv40_session_path(session.id)
-    path.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+    _atomic_write_json(_cmv40_session_path(session.id), session.model_dump_json(indent=2))
 
 
 def load_cmv40_session(session_id: str) -> CMv40Session | None:

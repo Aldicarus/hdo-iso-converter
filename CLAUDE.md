@@ -239,6 +239,23 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 - `sync_config`: dict con la corrección acumulada (remove/duplicate ranges)
 - `sync_delta`: diferencia de frames actual (target - source)
 
+### Resiliencia frente a desconexiones de cliente y reinicios de servidor
+
+La app está diseñada para que el frontend pueda cerrarse (cierre de pestaña, Mac dormido, server reinicia) sin perder estado ni log de los jobs en curso. Sistema de robustez en 5 capas:
+
+1. **Watermark de log frontend** (`project._renderedLogCount` y `_renderedRunningLogCount`) — el log permanente de cada proyecto CMv4.0 (card "📜 Log") se hidrata desde `session.output_log` al cargar y se incrementa con cada línea WS. Garantiza que tras un Mac dormido toda la noche, al reabrir el proyecto se ve TODO el log (no solo lo que llegó por WS antes del sleep). Sin esto, la card permanente quedaba vacía cuando `running_phase=null` porque el WS no se conectaba. El backend YA NO envía replay de las últimas 500 líneas del WS (era duplicación contra la hidratación REST).
+2. **Auto-resume del overlay Tab 3** — al entrar al Tab 3 con un proyecto en `running_phase != null` y sin proyectos abiertos, la app abre automáticamente el proyecto con su modal de ejecución y log en vivo. Toast informativo "🤖 Reanudando seguimiento". 1-shot por entrada al tab (`_cmv40AutoResumeAttempted`). Mismo mecanismo aplicado a Tab 2 con `_mkvCheckActiveApply` cuando hay copia desde Library en curso.
+3. **Atomicidad de escritura** — `_atomic_write_json` en `storage.py` (escribe a `.tmp` + `os.replace`) usado por `save_session`, `save_cmv40_session`, `_persist_mkv_apply_state` y `queue_state`. Sobrevive a kill -9 mid-write sin dejar JSON corrupto.
+4. **Throttle de saves del log CMv4.0** — `_cmv40_maybe_persist_log` evita reescribir el JSON entero por cada línea ruidosa de ffmpeg/dovi_tool. Persistencia inmediata en marcadores clave (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, etc.), throttled a 2s o 25 líneas para output crudo. `_cmv40_flush_log` fuerza save al terminar cada fase. Reduce I/O del NAS de ~1 GB/job a ~10 MB sin perder más de 2s de log ante crash.
+5. **Recovery startup** — al arrancar el server:
+   - `_recover_interrupted_sessions` resetea Tab 1 sesiones running/queued a pending con error.
+   - `_recover_interrupted_cmv40_sessions` limpia `running_phase` fantasma y marca el último `phase_history` running como error.
+   - `_recover_interrupted_mkv_apply` borra el `.mkv` parcial en /mnt/output si una copia desde Library quedó interrumpida, y marca `_mkv_apply_state` como error.
+
+Indicadores visuales:
+- **Punto verde animado** en cada tab principal (`tab-running-dot-{1,2,3}`) cuando ese tab tiene jobs activos. Polling cada 5s al backend (`/api/mkv/apply/progress`, `/api/cmv40`, `queueState` en memoria). Visible aunque el usuario esté en otro tab.
+- **Spinner animado en cards del sidebar CMv4.0** cuando `running_phase != null` — sustituye al icono estático de fase. Card con `border-left` verde + halo pulsante.
+
 ### Auto-rewind y forward-roll en GET /api/cmv40/{id}
 
 Al abrir un proyecto, el endpoint reconcilia el estado persistido con la realidad del filesystem:

@@ -130,7 +130,54 @@ document.addEventListener('DOMContentLoaded', () => {
   _installSubtabScrollBindings();
   _installVisibilityRecovery();
   _initUpdateCheckHeader();
+  // Auto-detect de operaciones de Tab 2 en curso en el backend tras un
+  // refresh de pestaña (caso: usuario cierra navegador con copia activa,
+  // reabre y debería ver el modal con el progreso). El check es silencioso
+  // — si no hay nada activo, no abre nada.
+  setTimeout(() => {
+    if (typeof _mkvCheckActiveApply === 'function') _mkvCheckActiveApply();
+  }, 500);
+  // Polling global de "jobs activos" para los dots verdes en los tabs.
+  // Cada 5s pregunta al backend qué tabs tienen actividad y enciende /
+  // apaga los indicadores. Coste mínimo (3 endpoints livianos) pero da al
+  // usuario visibilidad inmediata de cualquier job, esté o no en el tab
+  // del que viene.
+  _refreshTabRunningDots();
+  setInterval(_refreshTabRunningDots, 5000);
 });
+
+/**
+ * Refresca los indicadores "punto verde animado" de cada tab principal
+ * según el estado real del backend:
+ *   - Tab 1: alguna sesión con status='running' o cola con jobs queued.
+ *   - Tab 2: _mkv_apply_state.active=true (copia/edición desde Library).
+ *   - Tab 3: alguna sesión CMv4.0 con running_phase != null.
+ *
+ * Silent: estos checks corren en background, sin toasts si fallan. La UI
+ * tiene fuentes de verdad redundantes para el estado de cada tab; este
+ * indicador es solo un "atajo visual" — no hay riesgo de mostrar info
+ * incorrecta y borrarla en el siguiente tick.
+ */
+async function _refreshTabRunningDots() {
+  const setDot = (n, on) => {
+    const el = document.getElementById(`tab-running-dot-${n}`);
+    if (el) el.style.display = on ? '' : 'none';
+  };
+  // Tab 1: queueState (ya en memoria, lleno por queueWs) + sesiones
+  const t1 = !!(queueState && (queueState.running || (queueState.queue && queueState.queue.length)));
+  setDot(1, t1);
+  // Tab 2: apply progress
+  try {
+    const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
+    setDot(2, !!(st && st.active));
+  } catch (_) { setDot(2, false); }
+  // Tab 3: cualquier sesión con running_phase
+  try {
+    const data = await apiFetch('/api/cmv40', { silent: true });
+    const t3 = !!(data?.sessions || []).some(s => s.running_phase);
+    setDot(3, t3);
+  } catch (_) { setDot(3, false); }
+}
 
 /**
  * Tras Mac sleep / cambio de pestaña / suspend de red, los WebSockets
@@ -322,9 +369,19 @@ function switchTab(n) {
     el.style.display = (i === 1) ? 'flex' : (i === 2) ? 'flex' : (i === 3) ? 'flex' : 'block';
   });
 
-  // Refrescar sidebar Tab 3 al entrar
+  // Refrescar sidebar Tab 3 al entrar. Reset del flag de auto-resume:
+  // cada vez que el usuario entra al Tab 3, volvemos a evaluar si hay un
+  // proyecto running para abrirlo automáticamente (1-shot por entrada,
+  // no spam si refrescamos varias veces el sidebar).
   if (n === 3 && typeof refreshCMv40Sidebar === 'function') {
+    _cmv40AutoResumeAttempted = false;
     refreshCMv40Sidebar();
+  }
+  // Tab 2: detectar si hay una operación de apply (copia + edición) en
+  // curso desde otra sesión del navegador o un refresh de pestaña — si la
+  // hay, reabrir el modal de progreso para que el usuario pueda seguirla.
+  if (n === 2 && typeof _mkvCheckActiveApply === 'function') {
+    _mkvCheckActiveApply();
   }
 }
 
@@ -6075,6 +6132,40 @@ function connectExecutionWebSocket(sessionId) {
   _colaLogLines = [];  // Limpiar log del trabajo anterior
   document.getElementById('csb-log-viewer') && (document.getElementById('csb-log-viewer').innerHTML = '');
   document.getElementById('pc-log-viewer')  && (document.getElementById('pc-log-viewer').innerHTML  = '');
+
+  // Hidratación REST del log antes de conectar el WS — clave para el caso
+  // "Mac dormido / pestaña recargada con job en curso". Sin esto, el panel
+  // Cola arrancaba vacío y solo se llenaba con líneas nuevas tras reconectar
+  // el WS — el histórico se perdía visualmente aunque seguía en
+  // session.output_log del backend. Hacemos fetch sin bloquear: si tarda,
+  // el WS streaming ya empieza a llenar lineas mientras tanto y el dedupe
+  // del watermark evita duplicación cuando el fetch termina.
+  let _hydratedCount = 0;
+  apiFetch(`/api/sessions/${sessionId}`, { silent: true }).then(sess => {
+    if (!sess || !sess.output_log) return;
+    // Si el WS ya añadió líneas mientras esperábamos el fetch, mantenemos
+    // las que ya están al final y prefijamos las históricas. _colaLogLines
+    // tiene el ringbuffer de 500; si el histórico es enorme, mostramos solo
+    // últimas 500-N donde N son las que ya entraron via WS.
+    const wsLines = _colaLogLines.slice();
+    const historic = sess.output_log;
+    // Combinamos sin duplicar: el WS pudo haber traído alguna de las
+    // líneas finales del histórico si llegó simultáneo. Detectamos por
+    // contenido — si las últimas K líneas de historic coinciden con las
+    // primeras K de wsLines, no las repetimos.
+    let overlap = 0;
+    for (let k = Math.min(historic.length, wsLines.length, 50); k > 0; k--) {
+      const tail = historic.slice(historic.length - k).join('\n');
+      const head = wsLines.slice(0, k).join('\n');
+      if (tail === head) { overlap = k; break; }
+    }
+    const merged = historic.concat(wsLines.slice(overlap));
+    // Trim a últimas 500 (el ringbuffer) preservando el final
+    _colaLogLines = merged.length > 500 ? merged.slice(merged.length - 500) : merged;
+    _hydratedCount = _colaLogLines.length;
+    _renderCsbLog();
+  }).catch(() => { /* fetch silencioso, no rompe el flujo si falla */ });
+
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   executionWs = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
   executionWs.onmessage = (e) => handleExecutionWsMessage(e.data, sessionId);
@@ -9369,6 +9460,80 @@ async function _doApplyMkvEdits(copyToOutput) {
  * eventualmente devuelve 499 — el flujo principal lo trata como
  * cancelación del usuario y muestra el mensaje correcto.
  */
+/**
+ * Auto-detect: al entrar a Tab 2 (o al recargar la pestaña con Tab 2 ya
+ * activo), comprobar si hay una operación de apply activa en el backend
+ * (caso típico: el usuario lanzó una copia de MKV de Library, cerró la
+ * pestaña sin esperar, y ahora reabre). Si hay job activo, abrimos el
+ * modal con el progreso al que va el backend, polling normal y botón
+ * cancelar funcional. Si está terminado/error/cancelled, también lo
+ * mostramos brevemente para que el usuario sepa el resultado.
+ */
+async function _mkvCheckActiveApply() {
+  const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
+  if (!st || !st.active) {
+    // Si hay un step terminal pero active=false, no abrimos modal
+    // (probablemente el usuario ya vio el resultado en una sesión previa).
+    return;
+  }
+  // Hay un job activo. Reabrir el modal en estado coherente con el
+  // backend, sin volver a lanzar el apply (ya está corriendo).
+  const titleEl = document.getElementById('mkv-apply-modal-title');
+  const subEl = document.getElementById('mkv-apply-modal-sub');
+  const logEl = document.getElementById('mkv-apply-modal-log');
+  const statusEl = document.getElementById('mkv-apply-modal-status');
+  const closeBtn = document.getElementById('mkv-apply-modal-close-btn');
+  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
+  if (!titleEl) return;  // DOM no listo aún; el siguiente entrar a Tab 2 reintentará.
+  titleEl.textContent = 'Reanudando seguimiento del apply…';
+  const fileLabel = st.file_name ? ` · ${st.file_name}` : '';
+  subEl.textContent = `Operación en curso${fileLabel} (lanzada en otra sesión)`;
+  logEl.style.display = 'none';
+  logEl.textContent = '';
+  statusEl.innerHTML = (st.step === 'copying')
+    ? '<div style="text-align:left"><div class="progress-bar-wrap"><div id="mkv-apply-progress-fill" class="progress-bar-fill" style="width:0%"></div></div><div id="mkv-apply-progress-text" style="font-size:12px; color:var(--text-3)">Sincronizando con el progreso…</div></div>'
+    : '<span class="spinner-inline"></span> Sincronizando con el backend…';
+  if (cancelBtn) cancelBtn.style.display = (st.step === 'copying') ? '' : 'none';
+  closeBtn.style.display = 'none';
+  _mkvApplyUserCancelled = false;
+  openModal('mkv-apply-modal');
+  showToast('🔄 Hay una copia/edición de MKV en curso desde otra sesión — reanudando seguimiento', 'info');
+  // Pinta el primer estado inmediatamente
+  _renderMkvApplyProgress(st);
+  // Lanzar polling local que sigue hasta que step sea terminal. Sin POST
+  // que esperar — el backend ya está procesando.
+  let polling = true;
+  let lastStep = st.step;
+  const tick = async () => {
+    if (!polling) return;
+    try {
+      const stNew = await apiFetch('/api/mkv/apply/progress', { silent: true });
+      if (stNew && polling) {
+        _renderMkvApplyProgress(stNew);
+        if (stNew.step === 'applying' && cancelBtn) cancelBtn.style.display = 'none';
+        if (stNew.step === 'done' || stNew.step === 'error' || stNew.step === 'cancelled') {
+          polling = false;
+          if (cancelBtn) cancelBtn.style.display = 'none';
+          if (stNew.step === 'done') {
+            titleEl.textContent = 'Cambios aplicados';
+            statusEl.innerHTML = '<span style="color:var(--green)">✓ Operación completada</span>';
+          } else if (stNew.step === 'cancelled') {
+            titleEl.textContent = 'Cancelado';
+            statusEl.innerHTML = '<span style="color:var(--orange)">⚠ Copia cancelada — destino parcial borrado</span>';
+          } else {
+            titleEl.textContent = 'Error';
+            statusEl.innerHTML = `<span style="color:var(--red)">⚠ ${escHtml(stNew.error || 'Error desconocido')}</span>`;
+          }
+          closeBtn.style.display = '';
+        }
+        lastStep = stNew.step;
+      }
+    } catch (_) { /* ignora errores de poll */ }
+    if (polling) setTimeout(tick, 1000);
+  };
+  setTimeout(tick, 500);
+}
+
 async function cancelMkvApply() {
   _mkvApplyUserCancelled = true;
   // Feedback inmediato: deshabilita el botón mientras esperamos al backend
@@ -9452,6 +9617,12 @@ let _cmv40SidebarList = [];
 let _cmv40SelectedSidebarId = null;
 let _cmv40SortKey = 'modified';
 let _cmv40SortDir = 'desc';
+// Flag de "auto-resume hecho" — solo intentamos abrir automáticamente el
+// proyecto running una vez por sesión de Tab 3 (al primer load). Si el
+// usuario cierra el proyecto manualmente, NO reabrimos. Se reset al cambiar
+// de tab principal (ver switchTab) para que la siguiente entrada al Tab 3
+// vuelva a evaluarlo.
+let _cmv40AutoResumeAttempted = false;
 let _cmv40Filter = 'all';
 
 // Icono por fase (para el badge del sidebar)
@@ -11279,13 +11450,94 @@ function _classifyLogLine(line) {
   return '';
 }
 
-function _appendCMv40Log(project, line) {
+// ── Sistema de hidratación de logs CMv4.0 con watermark anti-duplicados ──
+//
+// ARQUITECTURA: cada proyecto trackea cuántas líneas de session.output_log
+// ya están pintadas en cada uno de sus contenedores DOM (log permanente
+// "📜 Log" + log running del overlay). Esto permite:
+//
+//  1. Hidratar el log permanente al cargar el proyecto (incluso si no hay
+//     WS conectado porque running_phase=null) — fix del bug "log incompleto
+//     al volver del Mac dormido".
+//  2. Actualización incremental al refrescar la sesión: pinta solo las
+//     líneas nuevas desde el último watermark.
+//  3. WS streaming en vivo: cada línea recibida hace append + watermark++.
+//     Cuando luego llega el refresh con la sesión completa, el watermark
+//     evita duplicar las líneas que ya entraron por WS.
+//
+// El estado se guarda en `project._renderedLogCount` (permanente) y
+// `project._renderedRunningLogCount` (overlay running, se reinicia al
+// crear el overlay). Funciona porque session.output_log es append-only en
+// el backend — nunca se borran líneas en mid-flight.
+
+function _cmv40SyncPermanentLog(project) {
+  if (!project || !project.session) return;
   const pid = project.id;
-  // Marcador de progreso: no se añade al log visual, solo actualiza la barra
+  const containerEl = document.getElementById(`cmv40-log-${pid}`);
+  if (!containerEl) return;
+  const logArr = project.session.output_log || [];
+  const watermark = project._renderedLogCount || 0;
+  if (watermark > logArr.length) {
+    // Defensivo: el backend devolvió menos líneas que las pintadas. Reset.
+    containerEl.innerHTML = '';
+    project._renderedLogCount = 0;
+  }
+  if ((project._renderedLogCount || 0) >= logArr.length) return;
+  const newLines = logArr.slice(project._renderedLogCount || 0);
+  for (const line of newLines) {
+    // Filtrar marcadores §§PROGRESS§§ (no se muestran como log, solo
+    // alimentan la barra de progreso del overlay).
+    const prog = _cmv40ParseProgress(line);
+    if (prog) continue;
+    _appendLogLine(containerEl, line);
+  }
+  project._renderedLogCount = logArr.length;
+}
+
+function _cmv40SyncRunningLog(project) {
+  if (!project || !project.session) return;
+  const pid = project.id;
+  const containerEl = document.getElementById(`cmv40-running-log-${pid}`);
+  if (!containerEl) return;
+  const logArr = project.session.output_log || [];
+  const watermark = project._renderedRunningLogCount || 0;
+  if (watermark > logArr.length) {
+    containerEl.innerHTML = '';
+    project._renderedRunningLogCount = 0;
+  }
+  if ((project._renderedRunningLogCount || 0) >= logArr.length) return;
+  let lastProg = null;
+  const newLines = logArr.slice(project._renderedRunningLogCount || 0);
+  for (const line of newLines) {
+    const prog = _cmv40ParseProgress(line);
+    if (prog) { lastProg = prog; continue; }
+    _appendLogLine(containerEl, line);
+  }
+  project._renderedRunningLogCount = logArr.length;
+  if (lastProg) _cmv40UpdateProgressUI(pid, lastProg);
+}
+
+function _appendCMv40Log(project, line) {
+  if (!project || !project.session) return;
+  const pid = project.id;
+  // Marcador de progreso: no se añade al log visual, solo actualiza la barra.
+  // Nota: la línea se persiste en session.output_log también, así que el
+  // watermark debe contarla aunque no se renderice — sino el próximo sync
+  // intentaría re-pintarla.
   const prog = _cmv40ParseProgress(line);
-  if (prog) { _cmv40UpdateProgressUI(pid, prog); return; }
-  _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
-  _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
+  if (prog) {
+    _cmv40UpdateProgressUI(pid, prog);
+  } else {
+    _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
+    _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
+  }
+  // Watermark++: el WS acaba de entregar una línea que también está
+  // (o estará en milisegundos) en session.output_log. Sin este incremento,
+  // un refresh posterior intentaría pintarla de nuevo.
+  project._renderedLogCount = (project._renderedLogCount || 0) + 1;
+  if (document.getElementById(`cmv40-running-log-${pid}`)) {
+    project._renderedRunningLogCount = (project._renderedRunningLogCount || 0) + 1;
+  }
 }
 
 async function _refreshCMv40Session(pid) {
@@ -11353,6 +11605,13 @@ function _updateCMv40Panel(project) {
   _renderCMv40PhaseStrip(s, pid);
   _renderCMv40ActivePhase(project);
   _renderCMv40RunningOverlay(project);
+  // Hidrata el log permanente (card "📜 Log" del panel del proyecto) con
+  // las líneas que aún no estén pintadas. CRÍTICO para el caso "Mac dormido
+  // toda la noche": el job sigue en backend, output_log crece a miles de
+  // líneas, y al volver el frontend tiene que ver el log completo aunque
+  // running_phase=null y no haya WS activo. Sin esta llamada el container
+  // solo recibía líneas via WS streaming y se quedaba vacío post-mortem.
+  _cmv40SyncPermanentLog(project);
 }
 
 function _renderCMv40RunningOverlay(project) {
@@ -11758,26 +12017,15 @@ function _cmv40HydrateRunningMovieHeader(project) {
 
 
 function _cmv40BindRunningLog(project) {
-  // Replica TODO el log backend acumulado (no solo -200: entre fases puede
-  // acumular miles de líneas y queremos ver el histórico completo si el
-  // usuario scrolla arriba). Actualiza la barra con el último progreso.
+  // El overlay running se acaba de crear → reset del watermark del running
+  // log y delega la hidratación al helper centralizado, que pinta toda la
+  // sesión y trackea el contador para futuras incrementales.
   const pid = project.id;
   const logEl = document.getElementById(`cmv40-running-log-${pid}`);
   if (!logEl) return;
   logEl.innerHTML = '';
-  let lastProg = null;
-  (project.session.output_log || []).forEach(line => {
-    const prog = _cmv40ParseProgress(line);
-    if (prog) { lastProg = prog; return; }  // no añadir al log
-    const div = document.createElement('div');
-    div.className = 'log-line';
-    if (line.includes('✓')) div.classList.add('log-success');
-    if (line.includes('✗') || line.toLowerCase().includes('error')) div.classList.add('log-error');
-    if (line.includes('━━━')) div.classList.add('log-phase');
-    div.textContent = line;
-    logEl.appendChild(div);
-  });
-  if (lastProg) _cmv40UpdateProgressUI(pid, lastProg);
+  project._renderedRunningLogCount = 0;
+  _cmv40SyncRunningLog(project);
   // Primera hidratación: al fondo (el usuario aún no ha scrolleado)
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -13685,6 +13933,31 @@ async function refreshCMv40Sidebar() {
   // el siguiente tick (otro mensaje WS o accion del usuario) lo corrige.
   const data = await apiFetch('/api/cmv40', { silent: true });
   _cmv40SidebarList = data?.sessions || [];
+
+  // Auto-resume del overlay: si hay un proyecto con running_phase != null,
+  // no archivado, y NO hay nada abierto en Tab 3, abrirlo automáticamente
+  // para que el usuario vea el modal de ejecución y el log en vivo. Cubre
+  // el caso "Mac dormido toda la noche, hoy abro pestaña" — sin esto el
+  // usuario tendría que recordar qué proyecto estaba corriendo y abrirlo
+  // desde el sidebar manualmente.
+  if (!_cmv40AutoResumeAttempted && openCMv40Projects.length === 0) {
+    const running = _cmv40SidebarList.find(
+      s => s.running_phase && !s.archived
+    );
+    if (running) {
+      _cmv40AutoResumeAttempted = true;
+      openCMv40Project(running);
+      const niceName = running.source_mkv_name || running.id;
+      const phaseLabel = (typeof CMV40_RUNNING_LABELS === 'object' && CMV40_RUNNING_LABELS)
+        ? (CMV40_RUNNING_LABELS[running.running_phase] || running.running_phase)
+        : running.running_phase;
+      showToast(`🤖 Reanudando seguimiento: ${niceName} · ${phaseLabel}`, 'info');
+    } else {
+      // No hay nada que reanudar — marcamos el intento hecho para no
+      // reevaluar en cada refresh del sidebar (es 1-shot por entrada al tab).
+      _cmv40AutoResumeAttempted = true;
+    }
+  }
   // Capturar cambio del select de ordenación
   const sortSel = document.getElementById('cmv40-sidebar-sort');
   if (sortSel) {
@@ -13759,8 +14032,14 @@ function _renderCMv40Sidebar() {
   }
 
   filtered.forEach(s => {
+    const isRunning  = !!s.running_phase;
     const phaseLabel = s.archived ? 'Archivado' : (CMV40_PHASE_LABELS[s.phase] || s.phase);
-    const phaseIcon  = s.archived ? '🗃️' : (s.error_message ? '⚠️' : (CMV40_PHASE_ICONS[s.phase] || '🎨'));
+    const runningLabel = isRunning
+      ? (CMV40_RUNNING_LABELS[s.running_phase] || s.running_phase)
+      : null;
+    const phaseIcon = s.archived
+      ? '🗃️'
+      : (s.error_message ? '⚠️' : (CMV40_PHASE_ICONS[s.phase] || '🎨'));
     const isOpen = openCMv40Projects.find(p => p.id === s.id);
     const isSelected = _cmv40SelectedSidebarId === s.id;
     const name = s.source_mkv_name.replace(/\.mkv$/i, '');
@@ -13772,11 +14051,20 @@ function _renderCMv40Sidebar() {
     });
 
     const card = document.createElement('div');
-    card.className = `session-card${isSelected ? ' selected' : ''}`;
+    card.className = `session-card${isSelected ? ' selected' : ''}${isRunning ? ' is-running' : ''}`;
     card.dataset.sid = s.id;
+    // Tooltip distinto cuando running_phase: indica claramente la fase
+    // activa, no la última fase completada (que es lo que da phaseLabel).
+    const badgeTooltip = isRunning ? `${runningLabel}` : phaseLabel;
+    // Cuando está running, sustituimos el icono estático por un spinner
+    // animado para que sea visualmente obvio en la lista que algo está
+    // corriendo, sin necesidad de pasar el ratón.
+    const badgeContent = isRunning
+      ? `<span class="cmv40-card-spinner" aria-label="${escHtml(runningLabel)}"></span>`
+      : phaseIcon;
     card.innerHTML = `
       <div class="session-card-row">
-        <div class="session-card-status-badge" data-tooltip="${escHtml(phaseLabel)}">${phaseIcon}</div>
+        <div class="session-card-status-badge${isRunning ? ' running' : ''}" data-tooltip="${escHtml(badgeTooltip)}">${badgeContent}</div>
         <div class="session-card-body">
           <div class="session-card-title" data-tooltip="${escHtml(name)}">${escHtml(name)}</div>
           <div class="session-card-meta">

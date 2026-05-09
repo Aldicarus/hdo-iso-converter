@@ -115,7 +115,49 @@ def _recover_interrupted_sessions() -> None:
     if count:
         _logger.info("[Startup] %d sesión(es) interrumpida(s) reseteada(s) a 'pending'", count)
 
+
+def _recover_interrupted_cmv40_sessions() -> None:
+    """Limpia sesiones CMv4.0 con running_phase != null tras un reinicio.
+
+    Sin esto, un proyecto que estaba en mid-fase cuando el contenedor cae
+    queda con running_phase persistido — la UI lo muestra eternamente como
+    "fase ejecutándose" cuando en realidad no hay ningún proceso vivo
+    corriendo. El usuario solo puede deshacerlo manualmente con cancelar
+    (que falla porque no hay proc) o forzando un reset de fase.
+
+    Estrategia (paralela a _recover_interrupted_sessions de Tab 1):
+      - running_phase=None
+      - El último phase_history record con status="running" → status="error"
+        + error_message="Sesión interrumpida por reinicio del servidor"
+      - session.error_message también poblado para que el banner rojo de la
+        UI sea visible al cargar
+      - phase NO se modifica — el rebobinado/forward-roll del GET decidirán
+        a qué punto llevar al usuario en función de los artefactos en disco
+    """
+    from storage import list_cmv40_sessions, save_cmv40_session
+    count = 0
+    msg = "Sesión interrumpida por reinicio del servidor"
+    for s in list_cmv40_sessions():
+        if not s.running_phase:
+            continue
+        s.running_phase = None
+        s.error_message = msg
+        # Marcar el último phase_history en running como error
+        if s.phase_history:
+            last = s.phase_history[-1]
+            if getattr(last, "status", "") == "running":
+                last.status = "error"
+                last.error_message = msg
+                from datetime import datetime as _dt, timezone as _tz
+                last.finished_at = _dt.now(_tz.utc)
+        save_cmv40_session(s)
+        count += 1
+    if count:
+        _logger.info("[Startup] %d sesión(es) CMv4.0 interrumpida(s) limpiada(s)", count)
+
+
 _recover_interrupted_sessions()
+_recover_interrupted_cmv40_sessions()
 
 
 # ── Auto-cleanup de huérfanos obvios al arrancar ─────────────────────────────
@@ -2180,6 +2222,17 @@ def _pq_code_to_nits(code_value: float) -> float:
 # polling de progreso mientras la copia/edición está en curso. Solo se
 # usa cuando el MKV está en /mnt/library y necesita copia previa a
 # /mnt/output (operación que puede tardar minutos para UHD ~50-70 GB).
+#
+# Persistido en /config/mkv_apply_state.json para sobrevivir a:
+#   - Refresh de pestaña en cliente (Tab 2 lo carga al abrir y reabre el
+#     modal si hay un job activo).
+#   - Restart del contenedor (al arrancar, recovery: si hay job "active"
+#     pero no hay subprocess vivo → marcar error + cleanup destino parcial).
+#
+# Se incluye `src_path` y `dst_path` para que tras un restart sepamos qué
+# fichero parcial limpiar y qué nombre/destino tenía la operación. NO
+# necesitamos el subprocess en sí — el reset de state al cargar deja el
+# job en estado "error" que el frontend muestra correctamente.
 _mkv_apply_state: dict = {
     "active": False,
     "step": "",          # "copying" | "applying" | "done" | "error" | "cancelled"
@@ -2191,12 +2244,95 @@ _mkv_apply_state: dict = {
     "elapsed_s": 0,
     "started_at": 0.0,
     "error": None,
+    "src_path": "",
+    "dst_path": "",
+    "file_name": "",
 }
 
 # Flag de cancelación cooperativa. El usuario lo setea via POST
 # /api/mkv/apply/cancel. El thread de copia lo chequea antes de cada chunk
 # y aborta limpiamente, dejando la app borrar el destino parcial.
 _mkv_apply_cancel = {"requested": False}
+
+# Path donde persistimos el estado. Lo cargamos al arrancar para auto-resume
+# (cliente) o cleanup (server restart).
+_MKV_APPLY_STATE_FILE = Path(os.environ.get("CONFIG_DIR", "/config")) / "mkv_apply_state.json"
+
+
+def _persist_mkv_apply_state() -> None:
+    """Escribe el estado a disco con atomicidad .tmp + rename. Throttled
+    durante 'copying' a 1 update/segundo (escribir 8MB/chunk × N chunks
+    sería ~3MB/seg de I/O innecesaria — el cliente polea cada 1s, así que
+    suficiente granularidad). En transiciones de step (done/error/cancelled)
+    se persiste inmediatamente."""
+    import json as _json
+    try:
+        _MKV_APPLY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MKV_APPLY_STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(_json.dumps(_mkv_apply_state, indent=2), encoding="utf-8")
+        os.replace(tmp, _MKV_APPLY_STATE_FILE)
+    except Exception as e:
+        _logger.warning("[mkv_apply_state] persist falló: %s", e)
+
+
+def _load_mkv_apply_state() -> dict | None:
+    """Carga el estado persistido del último apply al arrancar. Devuelve
+    None si no existe o está corrupto."""
+    import json as _json
+    if not _MKV_APPLY_STATE_FILE.exists():
+        return None
+    try:
+        return _json.loads(_MKV_APPLY_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        _logger.warning("[mkv_apply_state] load falló: %s", e)
+        return None
+
+
+def _recover_interrupted_mkv_apply() -> None:
+    """Si al arrancar encontramos _mkv_apply_state con active=True (señal
+    de que el server cayó mid-copia), limpiar:
+      - Marcar step="error" con mensaje claro
+      - Borrar el destino parcial (.mkv en /mnt/output) si existe
+      - Persistir el estado actualizado para que el frontend lo vea
+    """
+    persisted = _load_mkv_apply_state()
+    if not persisted or not persisted.get("active"):
+        return
+    if persisted.get("step") in ("done", "cancelled", "error"):
+        # Estado terminal previo, nada que recuperar — aún así limpiamos
+        # active=False para que el próximo arranque no se confunda.
+        _mkv_apply_state.update(persisted)
+        _mkv_apply_state["active"] = False
+        _persist_mkv_apply_state()
+        return
+    dst = persisted.get("dst_path") or ""
+    file_name = persisted.get("file_name") or "(desconocido)"
+    freed = 0
+    if dst:
+        try:
+            dst_path = Path(dst)
+            if dst_path.exists() and dst_path.is_file():
+                freed = dst_path.stat().st_size
+                dst_path.unlink()
+                _logger.info(
+                    "[Startup] Cleanup .mkv parcial (%s GB) tras interrupción de apply: %s",
+                    f"{freed / 1e9:.2f}", dst,
+                )
+        except Exception as e:
+            _logger.warning("[Startup] no se pudo borrar destino parcial %s: %s", dst, e)
+    # Estado en error con info útil para el frontend
+    _mkv_apply_state.update(persisted)
+    _mkv_apply_state["active"] = False
+    _mkv_apply_state["step"] = "error"
+    _mkv_apply_state["error"] = (
+        f"Operación interrumpida por reinicio del servidor. Destino parcial "
+        f"borrado ({freed / 1e9:.2f} GB liberados). Vuelve a aplicar los cambios "
+        f"sobre {file_name}."
+    )
+    _persist_mkv_apply_state()
+
+
+_recover_interrupted_mkv_apply()
 
 
 def _mkv_needs_copy_to_output(file_path: str) -> bool:
@@ -2208,15 +2344,17 @@ def _mkv_needs_copy_to_output(file_path: str) -> bool:
         return False
 
 
-def _mkv_apply_reset(total_bytes: int = 0):
+def _mkv_apply_reset(total_bytes: int = 0, src_path: str = "", dst_path: str = "", file_name: str = ""):
     import time as _t
     _mkv_apply_state.update({
         "active": True, "step": "", "step_label": "",
         "bytes_copied": 0, "total_bytes": total_bytes,
         "pct": 0, "eta_s": 0, "elapsed_s": 0,
         "started_at": _t.monotonic(), "error": None,
+        "src_path": src_path, "dst_path": dst_path, "file_name": file_name,
     })
     _mkv_apply_cancel["requested"] = False
+    _persist_mkv_apply_state()
 
 
 def _mkv_apply_set_step(step: str, label: str = ""):
@@ -2225,6 +2363,9 @@ def _mkv_apply_set_step(step: str, label: str = ""):
     _mkv_apply_state["step_label"] = label
     started = _mkv_apply_state.get("started_at") or _t.monotonic()
     _mkv_apply_state["elapsed_s"] = int(_t.monotonic() - started)
+    # Persistir inmediatamente cualquier transición de step — son eventos
+    # que el frontend NO debe perder ante crash (especialmente done/error).
+    _persist_mkv_apply_state()
 
 
 class MkvApplyCancelled(Exception):
@@ -2242,6 +2383,10 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
     Cancelación cooperativa: el thread chequea `_mkv_apply_cancel["requested"]`
     al inicio de cada chunk. Si está set, raise MkvApplyCancelled y la rutina
     superior limpia el destino parcial.
+
+    Persistencia: el estado se persiste a /config/mkv_apply_state.json
+    throttled a 1/s — sobrevive reinicios del cliente y permite recovery
+    al arrancar el server (cleanup del .mkv parcial).
     """
     import time as _t
     total = src.stat().st_size
@@ -2252,6 +2397,7 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
 
     def _copy_thread():
         copied = 0
+        last_persist = _t.monotonic()
         with src.open("rb") as fin, dst.open("wb") as fout:
             while True:
                 if _mkv_apply_cancel["requested"]:
@@ -2270,6 +2416,13 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
                     rate = copied / elapsed
                     remaining = total - copied
                     _mkv_apply_state["eta_s"] = int(remaining / rate) if rate > 0 else 0
+                # Persistir cada 1s mientras copia. El frontend polea a 1s
+                # también, así que es la granularidad útil. El polling REST
+                # devuelve el state in-memory, no el persistido — la
+                # persistencia es solo para survival ante crash.
+                if _t.monotonic() - last_persist > 1.0:
+                    _persist_mkv_apply_state()
+                    last_persist = _t.monotonic()
 
     try:
         await asyncio.to_thread(_copy_thread)
@@ -2353,7 +2506,12 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                            f"{src_path.name}. Renómbralo o muévelo antes de continuar."
                 )
             OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
-            _mkv_apply_reset(src_path.stat().st_size)
+            _mkv_apply_reset(
+                total_bytes=src_path.stat().st_size,
+                src_path=str(src_path),
+                dst_path=str(dst_path),
+                file_name=src_path.name,
+            )
             try:
                 await _mkv_copy_to_output_with_progress(src_path, dst_path)
                 _mkv_apply_set_step("applying", "Aplicando cambios con mkvpropedit…")
@@ -2386,6 +2544,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                     await asyncio.sleep(5)
                     _mkv_apply_state["active"] = False
                     _mkv_apply_cancel["requested"] = False
+                    _persist_mkv_apply_state()
                 asyncio.create_task(_delayed_clear())
 
         # Ruta directa (MKV en /mnt/output u otro root editable)
@@ -2472,17 +2631,85 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
 
 
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
-    """Añade un log a la sesión CMv4.0 y lo emite por WebSocket."""
+    """Añade un log a la sesión CMv4.0, lo persiste con throttling y lo
+    emite por WebSocket inmediatamente.
+
+    Throttling: en jobs intensos (CMv4.0 con UHD 50+ GB) `_cmv40_log` se
+    llama miles de veces. Cada save reescribe el JSON completo, que con
+    miles de líneas son cientos de KB. Sin throttle, esto es ~1 GB+ de I/O
+    por job y mata el throughput del NAS bajo contención.
+
+    Estrategia: cuando llega una línea importante (cambio de fase, error,
+    success marker) → save inmediato. Líneas "ruidosas" (output crudo de
+    ffmpeg/dovi_tool) → save throttled cada 2s o cada 25 líneas, lo que
+    llegue antes. Garantía: máximo 2s de pérdida ante kill -9. Plus, hay
+    flush al final de cada fase (en `_run_cmv40_phase`) que asegura que
+    todo está en disco antes de hacer transición.
+
+    El WebSocket SÍ se notifica inmediatamente — el frontend ve el log
+    en tiempo real aunque la persistencia esté throttled.
+    """
     # Timestamp en hora local del contenedor (TZ env, ej: Europe/Madrid)
     ts_msg = f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
     session.output_log.append(ts_msg)
-    save_cmv40_session(session)
-    # Broadcast a clientes WS conectados
+    _cmv40_maybe_persist_log(session, ts_msg)
+    # Broadcast a clientes WS conectados (sin throttle — UX en vivo)
     for ws in _cmv40_ws_connections.get(session.id, []):
         try:
             await ws.send_text(ts_msg)
         except Exception:
             pass
+
+
+# Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int} }
+_cmv40_log_throttle: dict[str, dict] = {}
+
+# Marcadores que fuerzan persistencia inmediata (no se pueden perder).
+_CMV40_LOG_FORCE_PERSIST_MARKERS = (
+    "━━━",       # separador inicio/fin de fase
+    "✓ Fase",    # fase completada
+    "✗ Fase",    # fase fallida
+    "🎯 Resultado",
+    "📋 Plan",
+    "Cancelado",
+    "Error",
+    "FALLÓ",
+    "ℹ️ Auto",   # auto-rewind / forward-roll
+    "ℹ️ Forward",
+)
+
+
+def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
+    """Decide si reescribir el JSON ahora o postponer al siguiente flush.
+
+    Reglas:
+      1. Si la línea contiene un marker de evento clave → persist inmediato
+      2. Si han pasado >2s desde el último save → persist
+      3. Si hay >=25 líneas pendientes desde el último save → persist
+      4. Si el save anterior falló por algún motivo → forzar nuevo intento
+    """
+    import time as _t
+    sid = session.id
+    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
+    state["lines_since"] += 1
+    is_marker = any(m in line for m in _CMV40_LOG_FORCE_PERSIST_MARKERS)
+    elapsed = _t.monotonic() - state["last_save_ts"]
+    should_save = is_marker or elapsed > 2.0 or state["lines_since"] >= 25
+    if should_save:
+        save_cmv40_session(session)
+        state["last_save_ts"] = _t.monotonic()
+        state["lines_since"] = 0
+
+
+def _cmv40_flush_log(session: CMv40Session) -> None:
+    """Fuerza un save inmediato ignorando el throttle. Llamado al
+    completar cada fase (éxito o error) para garantizar que el log
+    queda persistido antes de cualquier transición de estado."""
+    import time as _t
+    save_cmv40_session(session)
+    state = _cmv40_log_throttle.setdefault(session.id, {"last_save_ts": 0.0, "lines_since": 0})
+    state["last_save_ts"] = _t.monotonic()
+    state["lines_since"] = 0
 
 
 def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
@@ -2591,6 +2818,11 @@ async def _run_cmv40_phase(
         finally:
             _cmv40_active_procs.pop(session.id, None)
             session.running_phase = None  # ← desbloquea la UI
+            # Flush garantizado del log al terminar fase: cualquier línea
+            # que el throttle hubiera dejado en buffer se vuelca a disco
+            # ANTES del save final del estado. Sin esto, las últimas N
+            # líneas del log podrían perderse si el server cae justo aquí.
+            _cmv40_flush_log(session)
             save_cmv40_session(session)
 
 
@@ -4424,18 +4656,15 @@ async def cmv40_validate(session_id: str):
 
 @app.websocket("/ws/cmv40/{session_id}")
 async def cmv40_ws(websocket: WebSocket, session_id: str):
+    """Stream de líneas de log en vivo. NO envía replay histórico — el
+    frontend hidrata el log permanente desde `session.output_log` via el
+    GET REST que carga el proyecto, y trackea un watermark para que cada
+    línea recibida por el WS se añada exactamente una vez al DOM. Con
+    replay aquí se duplicarían las líneas que ya estaban hidratadas (visible
+    como repetición al final del log al reconectar tras Mac sleep).
+    """
     await websocket.accept()
     _cmv40_ws_connections.setdefault(session_id, []).append(websocket)
-
-    # Enviar log histórico al conectar
-    session = load_cmv40_session(session_id)
-    if session:
-        for line in session.output_log[-500:]:  # últimas 500 líneas
-            try:
-                await websocket.send_text(line)
-            except Exception:
-                break
-
     try:
         while True:
             await websocket.receive_text()  # keep-alive (ignoramos mensajes del cliente)

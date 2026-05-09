@@ -249,6 +249,52 @@ body {
 
 .tab-icon { font-size: 16px; }
 
+/* Indicador de "job en curso" en cada tab principal. Punto verde animado
+   con halo pulsante. Visible cuando el backend reporta actividad asociada
+   a ese tab (jobs Tab 1, copias Tab 2, fases Tab 3) — independiente del
+   tab activo actualmente. Permite al usuario saber a primera vista que
+   tiene algo corriendo aunque esté en otra vista. */
+.tab-running-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1ed760;
+  margin-left: 6px;
+  vertical-align: middle;
+  position: relative;
+  box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25);
+  animation: tab-running-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tab-running-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25); }
+  50%      { box-shadow: 0 0 0 5px rgba(30, 215, 96, 0.0);  }
+}
+
+/* Spinner del badge en la card del sidebar CMv4.0 cuando running_phase != null.
+   Sustituye al icono estático de fase para que el usuario vea de un vistazo
+   qué proyectos están corriendo activamente. La card también gana borde
+   sutil verde + halo pulsante via .session-card.is-running. */
+.cmv40-card-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(30, 215, 96, 0.25);
+  border-top-color: #1ed760;
+  border-radius: 50%;
+  animation: cmv40-card-spin 0.9s linear infinite;
+  vertical-align: middle;
+}
+@keyframes cmv40-card-spin {
+  to { transform: rotate(360deg); }
+}
+.session-card.is-running {
+  border-left: 3px solid #1ed760;
+}
+.session-card.is-running .session-card-status-badge.running {
+  background: rgba(30, 215, 96, 0.12);
+}
+
 /* ── header-brand legacy (ocultar) ─────────────────────────────── */
 .header-brand { display: none; }
 .header-phase-mini { display: none; }

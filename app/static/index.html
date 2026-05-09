@@ -61,14 +61,17 @@
     <button class="tab active" onclick="switchTab(1)" id="tab-btn-1"
       data-tooltip="Convierte un ISO UHD Blu-ray en un MKV con pistas filtradas y Dolby Vision FEL">
       <span class="tab-icon">💿</span> Blu-Ray ISO → MKV
+      <span class="tab-running-dot" id="tab-running-dot-1" style="display:none" data-tooltip="Hay un job en curso"></span>
     </button>
     <button class="tab" onclick="switchTab(3)" id="tab-btn-3"
       data-tooltip="Inyecta RPU Dolby Vision CMv4.0 sobre un MKV con CMv2.9 del Blu-ray original">
       <span class="tab-icon">✨</span> Upgrade Dolby Vision CMv4.0
+      <span class="tab-running-dot" id="tab-running-dot-3" style="display:none" data-tooltip="Hay un job en curso"></span>
     </button>
     <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
       data-tooltip="Inspecciona metadata detallada (codecs, HDR, Dolby Vision, CM version, subs) y edita nombres, flags y capítulos de ficheros MKV existentes">
       <span class="tab-icon">✏️</span> Consultar / Editar MKV
+      <span class="tab-running-dot" id="tab-running-dot-2" style="display:none" data-tooltip="Hay una copia/edición en curso"></span>
     </button>
   </nav>
 
