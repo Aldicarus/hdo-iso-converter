@@ -193,66 +193,97 @@ async function _refreshTabRunningDots() {
  * en backend haya terminado correctamente.
  */
 function _installVisibilityRecovery() {
-  document.addEventListener('visibilitychange', () => {
+  // El recovery se dispara desde 3 fuentes:
+  //  1. visibilitychange → visible (cambio de pestaña, foco)
+  //  2. focus de la ventana (alt-tab, click en el navegador)
+  //  3. online (red vuelve tras pérdida temporal)
+  //  4. pageshow con persisted=true (bfcache restore en mobile/desktop)
+  //
+  // Macos cerrar tapa por <60s NO siempre dispara visibilitychange —
+  // depende de la versión de macOS, Chrome y la app. Por eso necesitamos
+  // múltiples triggers. Tras 1 dispare, no spamear: dedup con throttle 1s.
+  let _lastRecoveryAt = 0;
+  const _doRecovery = () => {
+    const now = Date.now();
+    if (now - _lastRecoveryAt < 1000) return;  // throttle 1s
+    _lastRecoveryAt = now;
     if (document.hidden) return;
+    _runRecoveryTasks();
+  };
+  document.addEventListener('visibilitychange', _doRecovery);
+  window.addEventListener('focus', _doRecovery);
+  window.addEventListener('online', _doRecovery);
+  window.addEventListener('pageshow', (e) => { if (e.persisted) _doRecovery(); });
+}
 
-    // ── Tab 3 — proyectos CMv4.0 abiertos ─────────────────────────
-    if (Array.isArray(openCMv40Projects)) {
-      for (const project of openCMv40Projects) {
-        if (!project || project._closed) continue;
-        _refreshCMv40Session(project.id);
-        const ws = project.ws;
-        const wsAlive = ws && (ws.readyState === WebSocket.OPEN
-                              || ws.readyState === WebSocket.CONNECTING);
-        if (!wsAlive) {
-          const s = project.session || {};
-          if (s.running_phase) {
-            _connectCMv40WebSocket(project);
-          }
+/**
+ * Ejecuta las tareas de recovery (refresh + reconnect WS) de los 3 tabs.
+ * Estrategia AGRESIVA: cierra y reconecta todos los WS sin chequear
+ * readyState — un WS zombie tras Mac sleep puede reportar OPEN aunque los
+ * datos ya no fluyan, y la red TCP no se entera hasta que un keepalive
+ * falla (puede tardar 60-120s). Reconectar es barato (handshake <100ms),
+ * preferimos garantizar datos al ahorrar conexión.
+ */
+function _runRecoveryTasks() {
+  // ── Tab 3 — proyectos CMv4.0 abiertos ─────────────────────────
+  if (Array.isArray(openCMv40Projects)) {
+    for (const project of openCMv40Projects) {
+      if (!project || project._closed) continue;
+      _refreshCMv40Session(project.id);
+      const s = project.session || {};
+      // Reconnect AGRESIVO: cierra WS actual sin importar readyState y
+      // abre uno nuevo. Si project.ws era zombie tras Mac sleep, esto es
+      // lo que destraba el log. Solo reconectamos si la sesión tiene
+      // running_phase (sino no hay nada que streamar).
+      if (s.running_phase) {
+        try { project.ws?.close(); } catch (_) {}
+        if (project._wsReconnectTimer) {
+          clearTimeout(project._wsReconnectTimer);
+          project._wsReconnectTimer = null;
         }
+        // Pequeño delay para dejar al ws.onclose handler ejecutarse y
+        // limpiar referencias antes de abrir el nuevo.
+        setTimeout(() => {
+          if (!project._closed) _connectCMv40WebSocket(project);
+        }, 50);
       }
     }
+  }
 
-    // ── Tab 1 — sessions list + queue + executionWs ──────────────
-    // Refrescar lista para que cualquier cambio de estado durante el
-    // sleep (running→done, queued→running, etc) se vea reflejado.
-    if (typeof loadSessions === 'function') {
-      try { loadSessions(); } catch (_) {}
+  // ── Tab 1 — sessions list + queue + executionWs ──────────────
+  if (typeof loadSessions === 'function') {
+    try { loadSessions(); } catch (_) {}
+  }
+  // Queue WS — reconnect agresivo (no chequea readyState).
+  if (typeof queueWs !== 'undefined' && queueWs) {
+    try { queueWs.close(); } catch (_) {}
+  }
+  if (typeof connectQueueWebSocket === 'function') {
+    try { connectQueueWebSocket(); } catch (_) {}
+  }
+  // ExecutionWs — si hay un job running en la cola, reconectar siempre.
+  if (typeof queueState !== 'undefined' && queueState
+      && queueState.running
+      && typeof connectExecutionWebSocket === 'function') {
+    if (typeof executionWs !== 'undefined' && executionWs) {
+      try { executionWs._closedByUser = true; executionWs.close(); } catch (_) {}
     }
-    // Queue WS — su backoff propio puede tardar 30s; forzamos reconnect
-    // inmediato si está cerrado para que el wake sea instantáneo.
-    const queueWsAlive = typeof queueWs !== 'undefined' && queueWs
-      && (queueWs.readyState === WebSocket.OPEN
-          || queueWs.readyState === WebSocket.CONNECTING);
-    if (!queueWsAlive && typeof connectQueueWebSocket === 'function') {
-      try { connectQueueWebSocket(); } catch (_) {}
-    }
-    // ExecutionWs — si hay un job running en la cola pero el WS está
-    // cerrado tras el wake, reconectar para retomar streaming de log.
-    if (typeof queueState !== 'undefined' && queueState
-        && queueState.running
-        && typeof connectExecutionWebSocket === 'function') {
-      const execAlive = typeof executionWs !== 'undefined' && executionWs
-        && (executionWs.readyState === WebSocket.OPEN
-            || executionWs.readyState === WebSocket.CONNECTING);
-      if (!execAlive) {
-        connectExecutionWebSocket(queueState.running);
+    setTimeout(() => connectExecutionWebSocket(queueState.running), 50);
+  }
+  // Tab 2 — light-profile resilience (sin cambios)
+  if (window._dvLightSession?.ctrl) {
+    apiFetch('/api/mkv/light-profile/progress', { silent: true }).then(st => {
+      if (st && st.active === false && (st.result || st.error)) {
+        window._dvLightSession.polledResult = st.result || null;
+        try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
       }
-    }
-    // Tab 2 — light-profile: el chained-await reanuda tras wake, pero si
-    // el POST quedo colgado y el backend ya termino, el polling lo abortara
-    // automaticamente (ver _pollLoop). Aqui forzamos un tick inmediato del
-    // polling consultando state — si esta inactivo con result, abortamos
-    // el POST sin esperar al siguiente sleep(1500) del loop.
-    if (window._dvLightSession?.ctrl) {
-      apiFetch('/api/mkv/light-profile/progress', { silent: true }).then(st => {
-        if (st && st.active === false && (st.result || st.error)) {
-          window._dvLightSession.polledResult = st.result || null;
-          try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
-        }
-      }).catch(() => {});
-    }
-  });
+    }).catch(() => {});
+  }
+  // Tab 2 — apply (copia desde Library): si hay job activo en backend,
+  // el modal puede estar congelado en "esperando" — forzar tick.
+  if (typeof _mkvCheckActiveApply === 'function') {
+    _mkvCheckActiveApply();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -11165,10 +11196,68 @@ function openCMv40Project(session) {
   _createCMv40Panel(project);
   switchCMv40SubTab(pid);
   _connectCMv40WebSocket(project);
+  // Polling REST de seguridad: independiente del WS, refresca la sesión
+  // cada 4s mientras haya running_phase. Garantiza que el log avanza
+  // aunque el WS quede zombie tras Mac sleep (caso real visto: tras
+  // cerrar tapa del Mac >1min y reabrir, el WS reportaba OPEN pero los
+  // datos ya no fluían — el polling los trae via REST y la hidratación
+  // con watermark añade las líneas nuevas al DOM sin duplicar).
+  _cmv40StartSafetyPoller(project);
   // Validar artefactos en disco — detecta ficheros borrados manualmente
   // y retrocede la fase automáticamente si hace falta.
   _cmv40VerifyArtifacts(project);
   return project;
+}
+
+/**
+ * Polling REST de seguridad cada 4s mientras haya running_phase. Llama
+ * _refreshCMv40Session, que actualiza session + panel + log permanente
+ * (via watermark, sin duplicados con líneas que llegaron por WS).
+ *
+ * Watchdog del WS: si el último mensaje WS llegó hace más de 30s pero
+ * sigue habiendo running_phase, asumimos zombie y forzamos reconexión.
+ * Sin esto, un usuario con la tapa cerrada >5min y la pestaña visible
+ * podría tardar 60-120s en ver actualizaciones (timeout del TCP).
+ *
+ * Se autoapaga cuando running_phase=null o cuando el proyecto se cierra.
+ */
+function _cmv40StartSafetyPoller(project) {
+  if (project._safetyPoller) clearInterval(project._safetyPoller);
+  project._lastWsMessageAt = Date.now();
+  project._safetyPoller = setInterval(() => {
+    if (!project || project._closed) {
+      clearInterval(project._safetyPoller);
+      project._safetyPoller = null;
+      return;
+    }
+    const s = project.session || {};
+    if (!s.running_phase) {
+      // Job terminó — paramos el poller. Si vuelve a haber running_phase
+      // (rehacer una fase), _connectCMv40WebSocket reabre el WS y al
+      // refrescar la sesión el siguiente openCMv40Project (o la propia
+      // _runRecoveryTasks) puede reactivar el poller si hace falta.
+      clearInterval(project._safetyPoller);
+      project._safetyPoller = null;
+      return;
+    }
+    // Refresh REST: actualiza session.output_log (entre otros). El
+    // _updateCMv40Panel posterior pinta las líneas nuevas via el watermark.
+    if (!document.hidden) {
+      _refreshCMv40Session(project.id);
+    }
+    // Watchdog: detectar zombie WS por silencio prolongado.
+    const silentMs = Date.now() - (project._lastWsMessageAt || 0);
+    const ws = project.ws;
+    const looksOpen = ws && ws.readyState === WebSocket.OPEN;
+    if (silentMs > 30000 && looksOpen && !document.hidden) {
+      // Más de 30s sin mensaje pero el WS dice OPEN → zombie probable.
+      // Reconectamos sin esperar al próximo visibilitychange.
+      try { project.ws?.close(); } catch (_) {}
+      setTimeout(() => {
+        if (!project._closed) _connectCMv40WebSocket(project);
+      }, 50);
+    }
+  }, 4000);
 }
 
 async function _cmv40VerifyArtifacts(project) {
@@ -11198,6 +11287,10 @@ function closeCMv40Project(pid) {
   if (project._wsReconnectTimer) {
     clearTimeout(project._wsReconnectTimer);
     project._wsReconnectTimer = null;
+  }
+  if (project._safetyPoller) {
+    clearInterval(project._safetyPoller);
+    project._safetyPoller = null;
   }
   try { project.ws?.close(); } catch (_) {}
   document.getElementById(`cmv40-stab-${pid}`)?.remove();
@@ -11259,6 +11352,9 @@ function _connectCMv40WebSocket(project) {
   const ws = new WebSocket(`${wsProto}//${location.host}/ws/cmv40/${project.id}`);
   ws.onmessage = (ev) => {
     _appendCMv40Log(project, ev.data);
+    // Marca timestamp del último mensaje recibido — el watchdog usa esto
+    // para detectar conexiones zombie (WS reporta OPEN pero no llega data).
+    project._lastWsMessageAt = Date.now();
     // Refrescar sesión periódicamente
     if (ev.data.includes('━━━') || ev.data.includes('✓') || ev.data.includes('✗')) {
       _refreshCMv40Session(project.id);
