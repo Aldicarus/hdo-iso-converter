@@ -2774,24 +2774,43 @@ _CMV40_LOG_FORCE_PERSIST_MARKERS = (
 
 
 async def _save_cmv40_session_async(session: CMv40Session) -> None:
-    """Serializa la sesión en async (rápido, ~ms incluso con miles de
-    líneas) y delega solo el WRITE al thread (que puede ser lento por
-    NAS contention).
+    """Save no-bloqueante para el event loop.
 
-    CRÍTICO: separar serialización del write evita race condition donde
-    el thread serializa output_log mientras otra coroutine la muta con
-    `append`. La serialización aquí captura un snapshot consistente —
-    Pydantic itera la lista mientras el GIL bloquea otros threads.
+    Diseño:
+      1. En async (event loop): captura snapshot del session via
+         `model_copy(deep=True)`. Esto es CPU-bound pero RÁPIDO (~ms para
+         sesiones de tamaño normal — copia listas via Python slice). NO
+         se hace `model_dump_json` aquí: es mucho más caro y bloquearía
+         el event loop varios cientos de ms para sesiones con miles de
+         líneas en output_log.
+      2. En thread (asyncio.to_thread): serialización JSON + write atómico.
+         El thread es CPU/IO-bound pero NO afecta al event loop. Mientras
+         el thread serializa+escribe, el reader del subprocess sigue
+         procesando líneas y los WS broadcasts siguen entregando.
+
+    El snapshot deep-copy garantiza consistencia: el thread serializa una
+    copia inmutable, mientras el async puede seguir mutando `session`
+    (output_log.append, etc) sin afectar al snapshot.
+
+    Esto elimina el último cuello de botella conocido del event loop.
+    Antes, model_dump_json corría en async y bloqueaba 100-500ms por
+    save (depende del tamaño del output_log). Cada bloqueo causaba que
+    el reader del subprocess no leyera, ffmpeg llenara el pipe y el
+    throttle de 500ms en _run_streaming descartara las líneas en burst
+    cuando el event loop se desbloqueara → gaps visibles al usuario.
     """
     from storage import _atomic_write_json, _cmv40_session_path
-    # Captura updated_at + serializa snapshot consistente en el event loop.
-    # Mientras esto corre, ninguna otra coroutine puede mutar `session`
-    # (una sola coroutine ejecuta a la vez en async). Tras esto, el thread
-    # solo recibe el string ya serializado.
     session.updated_at = datetime.now(timezone.utc)
-    json_str = session.model_dump_json(indent=2)
+    # Snapshot consistente en async — RAPIDO (no incluye serialización).
+    snapshot = session.model_copy(deep=True)
     path = _cmv40_session_path(session.id)
-    await asyncio.to_thread(_atomic_write_json, path, json_str)
+
+    def _serialize_and_write():
+        # Serialización + write COMPLETOS en el thread. Event loop libre.
+        json_str = snapshot.model_dump_json(indent=2)
+        _atomic_write_json(path, json_str)
+
+    await asyncio.to_thread(_serialize_and_write)
 
 
 async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
