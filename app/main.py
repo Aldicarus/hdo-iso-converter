@@ -83,6 +83,7 @@ from storage import (
     load_session,
     make_session_id,
     save_session,
+    save_session_async,
 )
 
 # ── Constantes de entorno ─────────────────────────────────────────────────────
@@ -102,6 +103,66 @@ _logger = _logging.getLogger(__name__)
 # Tracking de cancelación — permite matar el subprocess activo de un pipeline
 _cancel_flags: dict[str, bool] = {}          # session_id → True si cancelado
 _active_processes: dict[str, asyncio.subprocess.Process] = {}  # session_id → proc
+
+# Throttle + lock por sesión Tab 1 — mismo patrón que CMv4.0 para no
+# bloquear el event loop con model_dump_json y serializar saves al
+# mismo JSON. Ver doc en _cmv40_maybe_persist_log para detalles.
+_session_save_throttle: dict[str, dict] = {}
+_session_save_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_session_save_lock(sid: str) -> asyncio.Lock:
+    if sid not in _session_save_locks:
+        _session_save_locks[sid] = asyncio.Lock()
+    return _session_save_locks[sid]
+
+
+async def _maybe_save_session_throttled(session) -> None:
+    """Persistencia non-blocking con throttle para Tab 1.
+
+    Reglas (igual que CMv4.0):
+      - >1s desde último save → trigger
+      - >=20 líneas pendientes → trigger
+      - Si lock libre, lanza task background con `save_session_async`.
+      - Si lock ocupado, descarta — la línea ya está en RAM, el save en
+        curso o el siguiente trigger la persistirá.
+    """
+    import time as _t
+    sid = session.id
+    state = _session_save_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
+    state["lines_since"] += 1
+    elapsed = _t.monotonic() - state["last_save_ts"]
+    should_save = elapsed > 1.0 or state["lines_since"] >= 20
+    if not should_save:
+        return
+    lock = _get_session_save_lock(sid)
+    if lock.locked():
+        return
+    state["last_save_ts"] = _t.monotonic()
+    state["lines_since"] = 0
+
+    async def _bg_save():
+        try:
+            async with lock:
+                await save_session_async(session)
+        except Exception as e:
+            _logger.warning("[session throttled save] sid=%s error: %s", sid, e)
+
+    asyncio.create_task(_bg_save())
+
+
+async def _flush_session_save(session) -> None:
+    """Fuerza save inmediato para Tab 1 al terminar la fase. Espera al
+    lock para garantizar durabilidad antes de avanzar el estado."""
+    import time as _t
+    sid = session.id
+    state = _session_save_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
+    lock = _get_session_save_lock(sid)
+    async with lock:
+        await save_session_async(session)
+        state["last_save_ts"] = _t.monotonic()
+        state["lines_since"] = 0
+
 
 def _recover_interrupted_sessions() -> None:
     """Resetea sesiones zombie (running/queued) a pending tras un reinicio."""
@@ -762,7 +823,12 @@ async def _run_pipeline(session_id: str) -> None:
             ts = datetime.now().strftime("%H:%M:%S")  # hora local (TZ del contenedor)
             msg = f"[{ts}] {msg}"
         session.output_log.append(msg)
-        save_session(session)
+        # Persist NON-BLOCKING con throttle + lock — mismo patrón que
+        # _cmv40_maybe_persist_log para evitar:
+        #   1. Bloqueo del event loop por model_dump_json (movido a thread).
+        #   2. Saves concurrentes que corromperían el JSON (lock serializa).
+        #   3. Demasiados writes al disco con NAS lento (throttle 1s/20 líneas).
+        await _maybe_save_session_throttled(session)
         # Fire-and-forget broadcast con timeout corto — un cliente zombie
         # NO debe bloquear este log loop (mismo razonamiento que en Tab 3
         # _cmv40_log: TCP send buffer lleno bloquea minutos hasta timeout
@@ -927,7 +993,11 @@ async def _run_pipeline(session_id: str) -> None:
         # Registrar ejecución en historial (no registrar cancelaciones)
         if session.status != "pending":
             _append_execution_record(session, _phase_starts, _phase_ends)
-        save_session(session)
+        # Flush garantizado del log antes de marcar terminada la sesión:
+        # cualquier línea que el throttle hubiera dejado en buffer se
+        # vuelca a disco AHORA. Sin esto, las últimas N líneas del log
+        # podrían perderse si el server cae justo aquí.
+        await _flush_session_save(session)
         sig = "__DONE__" if session.status == "done" else "__CANCELLED__" if session.status == "pending" else "__ERROR__"
         # Fire-and-forget con timeout — los señalizadores terminales son
         # importantes pero no debemos bloquear si un cliente está zombie.
@@ -2773,44 +2843,9 @@ _CMV40_LOG_FORCE_PERSIST_MARKERS = (
 )
 
 
-async def _save_cmv40_session_async(session: CMv40Session) -> None:
-    """Save no-bloqueante para el event loop.
-
-    Diseño:
-      1. En async (event loop): captura snapshot del session via
-         `model_copy(deep=True)`. Esto es CPU-bound pero RÁPIDO (~ms para
-         sesiones de tamaño normal — copia listas via Python slice). NO
-         se hace `model_dump_json` aquí: es mucho más caro y bloquearía
-         el event loop varios cientos de ms para sesiones con miles de
-         líneas en output_log.
-      2. En thread (asyncio.to_thread): serialización JSON + write atómico.
-         El thread es CPU/IO-bound pero NO afecta al event loop. Mientras
-         el thread serializa+escribe, el reader del subprocess sigue
-         procesando líneas y los WS broadcasts siguen entregando.
-
-    El snapshot deep-copy garantiza consistencia: el thread serializa una
-    copia inmutable, mientras el async puede seguir mutando `session`
-    (output_log.append, etc) sin afectar al snapshot.
-
-    Esto elimina el último cuello de botella conocido del event loop.
-    Antes, model_dump_json corría en async y bloqueaba 100-500ms por
-    save (depende del tamaño del output_log). Cada bloqueo causaba que
-    el reader del subprocess no leyera, ffmpeg llenara el pipe y el
-    throttle de 500ms en _run_streaming descartara las líneas en burst
-    cuando el event loop se desbloqueara → gaps visibles al usuario.
-    """
-    from storage import _atomic_write_json, _cmv40_session_path
-    session.updated_at = datetime.now(timezone.utc)
-    # Snapshot consistente en async — RAPIDO (no incluye serialización).
-    snapshot = session.model_copy(deep=True)
-    path = _cmv40_session_path(session.id)
-
-    def _serialize_and_write():
-        # Serialización + write COMPLETOS en el thread. Event loop libre.
-        json_str = snapshot.model_dump_json(indent=2)
-        _atomic_write_json(path, json_str)
-
-    await asyncio.to_thread(_serialize_and_write)
+# Reexporta el helper centralizado de storage. Mantenemos el nombre
+# `_save_cmv40_session_async` por compatibilidad con tests existentes.
+from storage import save_cmv40_session_async as _save_cmv40_session_async  # noqa: E402
 
 
 async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:

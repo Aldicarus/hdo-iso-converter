@@ -256,6 +256,25 @@ Indicadores visuales:
 - **Punto verde animado** en cada tab principal (`tab-running-dot-{1,2,3}`) cuando ese tab tiene jobs activos. Polling cada 5s al backend (`/api/mkv/apply/progress`, `/api/cmv40`, `queueState` en memoria). Visible aunque el usuario esté en otro tab.
 - **Spinner animado en cards del sidebar CMv4.0** cuando `running_phase != null` — sustituye al icono estático de fase. Card con `border-left` verde + halo pulsante.
 
+### Patrón crítico: NO bloquear el event loop con `model_dump_json` síncrono
+
+**Regla absoluta** para cualquier código async que se ejecute en hot paths (log callbacks de subprocess, broadcasts WS, polling intensivo): **NUNCA llamar `save_session()` o `save_cmv40_session()` síncronos**. Usar las versiones async (`save_session_async`, `save_cmv40_session_async`) que mueven la serialización JSON + write atómico al thread pool.
+
+**Por qué importa**: `session.model_dump_json(indent=2)` es CPU-bound y se ejecuta DENTRO del event loop si se llama desde un coroutine. Para sesiones con miles de líneas en `output_log` (CMv4.0 ffmpeg extract genera 5K-10K líneas, JSON ~500KB-1MB), cada serialización tarda 100-500ms y bloquea el event loop completo durante ese tiempo. Síntomas:
+- Reader del subprocess (`_run_streaming` / Tab 1 log loop) deja de leer del pipe → el pipe del subprocess se llena → ffmpeg/mkvmerge se bloquea en write → procesamiento del frame se detiene.
+- Cuando el event loop se desbloquea, el reader procesa todas las líneas del pipe en burst. El throttle de 500ms en `_run_streaming` descarta TODAS excepto la primera (porque tienen `now` ≈ mismo).
+- Resultado: gaps de varios segundos en el log visible al usuario aunque el subprocess esté funcionando normal.
+
+**Solución estándar**:
+1. **Helpers en `storage.py`**: `save_session_async` y `save_cmv40_session_async` hacen `model_copy(deep=True)` en async (rápido, ms) para snapshot consistente, luego `asyncio.to_thread(serialize + write)` para no bloquear.
+2. **Throttle + lock por sesión** en main.py: `_maybe_save_session_throttled` (Tab 1) y `_cmv40_maybe_persist_log` (Tab 3). Reglas: trigger si >1s o >=20 líneas; si lock libre → fire-and-forget task; si lock ocupado → descartar trigger (la línea sigue en `output_log` RAM y se persistirá con el siguiente). Garantía: el callback `await` retorna en <1ms siempre.
+3. **Flush al terminar fase**: `_flush_session_save` (Tab 1) y `_cmv40_flush_log` (Tab 3) esperan al lock para garantizar durabilidad antes de marcar la sesión como done.
+4. **Broadcasts WS**: `_send_ws_with_timeout` con `asyncio.wait_for(timeout=2s)` en `asyncio.create_task` — un cliente zombie nunca bloquea el log loop.
+
+**Cuándo usar la versión síncrona**: solo en endpoints REST one-shot donde el bloqueo de 100-500ms es aceptable (la respuesta tarda eso pero no afecta a otras corutinas en hot loops).
+
+**Tests de validación**: con session de 10K líneas (JSON ~1MB), el event loop debe quedarse bloqueado <50ms p95 incluso bajo cascadas de saves. Ver `test_eventloop.py` y `test_tab1_loop.py` (en commits históricos).
+
 ### Auto-rewind y forward-roll en GET /api/cmv40/{id}
 
 Al abrir un proyecto, el endpoint reconcilia el estado persistido con la realidad del filesystem:

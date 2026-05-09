@@ -70,9 +70,59 @@ def save_session(session: Session) -> None:
     Actualiza updated_at al momento actual antes de escribir.
     Escritura atómica via _atomic_write_json — garantiza que un kill -9
     durante el write no deja un JSON corrupto.
+
+    NOTA: VERSIÓN SÍNCRONA. Solo usar en endpoints REST one-shot donde
+    un bloqueo de 100-500ms es aceptable. En LOOPS de async (callbacks
+    de log, streaming), usar `save_session_async` para NO bloquear el
+    event loop con la serialización de output_log grandes.
     """
     session.updated_at = datetime.now(timezone.utc)
     _atomic_write_json(_session_path(session.id), session.model_dump_json(indent=2))
+
+
+async def save_session_async(session: Session) -> None:
+    """
+    Versión async no-bloqueante de `save_session`.
+
+    Mueve la serialización JSON + write atómico al thread pool. El event
+    loop NUNCA queda bloqueado por session.model_dump_json (que con
+    output_log de miles de líneas tarda 100-500ms y bloquea reads del
+    subprocess, broadcasts WS y otros endpoints).
+
+    Snapshot consistente: `model_copy(deep=True)` en el async (rápido,
+    ~ms) garantiza que el thread serializa una versión inmutable mientras
+    otras corutinas pueden seguir mutando `session.output_log` etc.
+
+    REGLA: usar SIEMPRE en lugar de `save_session` cuando el llamador
+    está dentro de un loop async (callback de log, stream de subprocess,
+    polling). Para REST endpoints one-shot, `save_session` está bien.
+    """
+    import asyncio as _asyncio
+    session.updated_at = datetime.now(timezone.utc)
+    snapshot = session.model_copy(deep=True)
+    path = _session_path(session.id)
+
+    def _serialize_and_write():
+        json_str = snapshot.model_dump_json(indent=2)
+        _atomic_write_json(path, json_str)
+
+    await _asyncio.to_thread(_serialize_and_write)
+
+
+async def save_cmv40_session_async(session: CMv40Session) -> None:
+    """Versión async no-bloqueante de `save_cmv40_session`. Mismo
+    contrato que `save_session_async` (snapshot en async, serialización
+    + write en thread). Ver doc de `save_session_async` para detalles."""
+    import asyncio as _asyncio
+    session.updated_at = datetime.now(timezone.utc)
+    snapshot = session.model_copy(deep=True)
+    path = _cmv40_session_path(session.id)
+
+    def _serialize_and_write():
+        json_str = snapshot.model_dump_json(indent=2)
+        _atomic_write_json(path, json_str)
+
+    await _asyncio.to_thread(_serialize_and_write)
 
 
 def load_session(session_id: str) -> Session | None:
