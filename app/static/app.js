@@ -11198,12 +11198,27 @@ function openCMv40Project(session) {
   }
 
   const pid = session.id;
-  // Si abrimos un proyecto que YA está ejecutando una fase y no es terminal,
-  // asumimos que estaba en modo auto (si no, el overlay parpadearía entre
-  // fases al perder autoContinue tras recargar la página).
-  const resumeAuto = !!session.running_phase
+  // Reanudar autoContinue al reabrir un proyecto si estaba en auto-pipeline.
+  // Antes solo se reanudaba si había running_phase, pero eso fallaba para
+  // proyectos atascados en "modo puente" (running_phase=null entre fases).
+  // Caso real: usuario perdió el foco → cadena se atascó en phase='extracted'
+  // → cerró pestaña → al reabrir el proyecto aparecía como esperando
+  // verificación manual de Fase D, imposible con drop-in target trusted.
+  //
+  // Heurística ampliada: reanudar si la sesión está en mid-pipeline (no
+  // terminal, no error, no archivada) Y o bien hay fase corriendo (clásico)
+  // o bien el target era trusted (auto-pipeline drop-in que debería seguir
+  // su curso). Esto hace que el safety poller se mantenga activo y
+  // _cmv40MaybeAutoAdvance reintente las transiciones perdidas (con el
+  // retry de 5s del flag _lastAutoFiredFor).
+  const isMidPipeline = session.phase
     && session.phase !== 'done'
-    && !session.error_message;
+    && session.phase !== 'created'
+    && !session.error_message
+    && !session.archived;
+  const wasInAutoFlow = !!session.running_phase
+    || (session.target_trust_ok === true);
+  const resumeAuto = isMidPipeline && wasInAutoFlow;
   const project = {
     id: pid,
     subTabId: pid,
@@ -11228,6 +11243,17 @@ function openCMv40Project(session) {
   // Validar artefactos en disco — detecta ficheros borrados manualmente
   // y retrocede la fase automáticamente si hace falta.
   _cmv40VerifyArtifacts(project);
+  // Si reanudamos auto-pipeline y la sesión NO tiene fase corriendo (modo
+  // "puente" tras una fase atascada), disparar _cmv40MaybeAutoAdvance
+  // INMEDIATAMENTE en lugar de esperar al primer tick del safety poller
+  // (4s). Caso real: el usuario reabre un proyecto que se quedó atascado
+  // en phase='extracted' tras perder foco — queremos arrancar la
+  // transición a sync_verified en cuanto el panel termine de pintar.
+  if (resumeAuto && !session.running_phase) {
+    setTimeout(() => {
+      if (!project._closed) _cmv40MaybeAutoAdvance(project);
+    }, 100);
+  }
   return project;
 }
 
