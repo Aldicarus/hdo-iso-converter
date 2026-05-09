@@ -11619,7 +11619,19 @@ function _classifyLogLine(line) {
  */
 function _cmv40LogIsConsistent(containerEl, logArr, watermark) {
   if (watermark === 0) return true;            // nada pintado: trivialmente consistente
-  if (watermark > logArr.length) return false; // backend tiene MENOS líneas → desync
+  if (watermark > logArr.length) {
+    // Backend devolvió MENOS líneas que las pintadas. Caso común:
+    //   - El WS entregó L1001 al frontend mientras un fetch REST estaba
+    //     en vuelo. El backend respondió ese fetch con un snapshot que
+    //     aún no incluía L1001 (throttle del save retrasó el JSON).
+    //   - El frontend ya tiene L1001 pintada legítimamente.
+    // NO es inconsistencia estructural: solo la session.output_log que
+    // recibimos está atrasada. Si reseteáramos el DOM, perderíamos las
+    // líneas WS legítimas. Devolvemos true → caller no resetea, y como
+    // watermark >= logArr.length el sync simplemente no añade líneas.
+    // El próximo fetch (4s) traerá más líneas y se reconciliará.
+    return true;
+  }
   // Buscar el último elemento .log-line del DOM (puede haber otros nodes).
   const lastEl = containerEl.lastElementChild;
   if (!lastEl) return false;  // DOM vacío pero watermark > 0 → desync
@@ -11903,6 +11915,14 @@ function _renderCMv40RunningOverlay(project) {
     // el scroll de .cmv40-tl-steps a 0 (nuevo DOM).
     const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
     if (tlWrap) _cmv40UpdateTimelineIncremental(tlWrap, s, project);
+    // CRÍTICO: sincronizar el running log desde session.output_log en cada
+    // tick (no solo cuando se crea el overlay). Antes el running log solo
+    // se actualizaba via WS messages — si el cliente WS estaba zombie tras
+    // Mac sleep, las líneas que llegaban via REST refresh NO aparecían en
+    // el running overlay (solo en el log permanente). El watermark +
+    // consistency check del helper evita duplicados con las líneas que SÍ
+    // llegaron por WS.
+    _cmv40SyncRunningLog(project);
   } else if (overlay) {
     // Quitar overlay con animación — solo cuando SEGURO que no hay más fases
     overlay.classList.add('closing');

@@ -2750,17 +2750,26 @@ def _get_cmv40_save_lock(sid: str) -> asyncio.Lock:
 
 
 # Marcadores que fuerzan persistencia inmediata (no se pueden perder).
+#
+# CRÍTICO: deben ser strings que SOLO emitamos NOSOTROS, nunca ffmpeg ni
+# dovi_tool. Si un patrón es demasiado genérico (ej. "Error", "FALLÓ"),
+# cualquier línea de stderr de ffmpeg con esa palabra dispararía un save
+# AWAIT bloqueante. Con NAS lento, ese save bloquea el reader del
+# subprocess durante segundos → pipe lleno → ffmpeg detenido → gap visible.
+#
+# Por eso TODOS los markers ahora llevan emoji o frase única:
+#   - "━━━" no aparece nunca en stdout/stderr de ffmpeg/dovi_tool
+#   - "✓ Fase" / "✗ Fase" — "Fase" en español, ffmpeg habla inglés
+#   - Resto: emoji distintivos
 _CMV40_LOG_FORCE_PERSIST_MARKERS = (
-    "━━━",       # separador inicio/fin de fase
-    "✓ Fase",    # fase completada
-    "✗ Fase",    # fase fallida
+    "━━━",          # separador inicio/fin de fase
+    "✓ Fase",       # fase completada (cubre tambien "✗ Fase ... FALLO")
+    "✗ Fase",       # fase fallida
     "🎯 Resultado",
     "📋 Plan",
-    "Cancelado",
-    "Error",
-    "FALLÓ",
-    "ℹ️ Auto",   # auto-rewind / forward-roll
-    "ℹ️ Forward",
+    "🛑 Cancelado",  # con emoji para evitar match accidental
+    "ℹ️ Auto",       # auto-rewind
+    "ℹ️ Forward",    # forward-roll
 )
 
 
@@ -2788,22 +2797,25 @@ async def _save_cmv40_session_async(session: CMv40Session) -> None:
 async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
     """Decide si persistir ahora o postponer.
 
-    Diseño nuevo (post-bug del lock atascado):
-      - Lock asyncio por sesión serializa saves (evita corrupción JSON).
-      - Sin "flag save_in_flight" manual — el lock lo gestiona.
-      - Markers críticos: await el lock + save (garantía durabilidad).
-      - Líneas ruidosas: si el lock está libre, save async sin bloquear
-        a `_cmv40_log` (lanza task, retorna). Si el lock está ocupado,
-        DESCARTAMOS el trigger (las líneas están en session.output_log
-        RAM, el save en curso o el siguiente trigger las pillará).
-      - El próximo line con timeout cumplido (>1s) volverá a intentar.
+    Diseño FIRE-AND-FORGET para TODOS los triggers (markers + ruidosos):
 
-    Reglas (umbrales más agresivos que la versión anterior porque ya no
-    hay riesgo de saves concurrentes y queremos minimizar la ventana
-    de líneas en RAM no persistidas):
-      1. Marker → save inmediato (await)
-      2. >1s desde último save → save async
-      3. >=20 líneas pendientes → save async
+    Antes los markers hacían `await save` bloqueante para garantizar
+    durabilidad. PROBLEMA: si había un bg_save en curso (NAS lento), el
+    marker esperaba al lock que tardaba segundos. Mientras tanto el
+    reader del subprocess (`_run_streaming`) estaba bloqueado en
+    `await log_callback(...)` → ffmpeg llenaba el pipe → ffmpeg se
+    detenía → gap visible al usuario.
+
+    La durabilidad la garantiza `_cmv40_flush_log` que se invoca con
+    `await` al terminar cada fase desde `_run_cmv40_phase`. Entre saves,
+    las líneas viven en `session.output_log` RAM y el WS las entrega en
+    vivo al cliente.
+
+    Reglas:
+      1. Marker o >1s o >=20 líneas → trigger
+      2. Si lock libre → lanza task background, retorna inmediato (ms)
+      3. Si lock ocupado → descarta trigger, la línea queda en RAM y el
+         próximo trigger la captura
     """
     import time as _t
     sid = session.id
@@ -2816,20 +2828,13 @@ async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
         return
 
     lock = _get_cmv40_save_lock(sid)
-    if is_marker:
-        # Marker crítico: esperamos al lock (otras saves en vuelo terminan)
-        # y hacemos nuestro save. Garantía durabilidad antes de seguir.
-        async with lock:
-            state["last_save_ts"] = _t.monotonic()
-            state["lines_since"] = 0
-            await _save_cmv40_session_async(session)
+    if lock.locked():
+        # Save en curso. NO esperamos — la línea está en session.output_log
+        # RAM y el siguiente trigger la persistirá cuando el lock se libere.
+        # Esto es la diferencia crítica vs el código anterior: NUNCA
+        # bloqueamos el reader del subprocess esperando al disco.
         return
 
-    # Línea ruidosa: si el lock está libre, lanzamos save background sin
-    # esperar. Si está ocupado, descartamos — la línea ya está en RAM,
-    # el save en vuelo (o el próximo) la persistirá.
-    if lock.locked():
-        return
     state["last_save_ts"] = _t.monotonic()
     state["lines_since"] = 0
 
