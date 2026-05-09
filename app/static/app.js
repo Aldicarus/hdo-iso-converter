@@ -284,6 +284,28 @@ function _runRecoveryTasks() {
   if (typeof _mkvCheckActiveApply === 'function') {
     _mkvCheckActiveApply();
   }
+
+  // BURST refresh: la red Wi-Fi puede tardar varios segundos en
+  // estabilizarse tras un wake del Mac. Un solo refresh inmediato puede
+  // caer en una ventana donde la conexión aún está reconectando y el
+  // siguiente safety poll está a 4s. Disparamos 3 refreshes adicionales
+  // espaciados a 0.5s, 2s y 4s para acelerar el catchup hasta ~3-5s en
+  // el peor caso (vs 20s observado sin burst).
+  for (const delayMs of [500, 2000, 4000]) {
+    setTimeout(() => {
+      if (document.hidden) return;  // si se cierra otra vez, abortar
+      if (Array.isArray(openCMv40Projects)) {
+        for (const project of openCMv40Projects) {
+          if (project && !project._closed && project.session?.running_phase) {
+            _refreshCMv40Session(project.id);
+          }
+        }
+      }
+      if (typeof loadSessions === 'function') {
+        try { loadSessions(); } catch (_) {}
+      }
+    }, delayMs);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -11350,6 +11372,15 @@ function _connectCMv40WebSocket(project) {
   }
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${wsProto}//${location.host}/ws/cmv40/${project.id}`);
+  // Refresh REST inmediato al conectar el WS — sin esperar a que el backend
+  // emita la primera línea (que puede tardar segundos si la fase actual está
+  // en un paso silencioso de ffmpeg/dovi_tool). Garantiza que tras un wake
+  // del Mac, el log catchea hasta el momento actual en cuanto el WS se abre.
+  // También marca _lastWsMessageAt para que el watchdog cuente desde aquí.
+  ws.onopen = () => {
+    project._lastWsMessageAt = Date.now();
+    _refreshCMv40Session(project.id);
+  };
   ws.onmessage = (ev) => {
     _appendCMv40Log(project, ev.data);
     // Marca timestamp del último mensaje recibido — el watchdog usa esto
