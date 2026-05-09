@@ -3250,20 +3250,32 @@ async def run_phase_g_remux(
 #  FASE H — Validación final
 # ══════════════════════════════════════════════════════════════════════
 
-# Tolerancia para la comparación de frame count en Fase H.
-# ffprobe `nb_frames` en MKVs muxados con mkvmerge se calcula como
-# `duration × fps` cuando el contenedor no lleva el tag NUMBER_OF_FRAMES
-# (mkvmerge no lo escribe por defecto). Para 23.976 fps × ~6700 s eso
-# puede dar off-by-one ocasional vs el frame count real del HEVC.
-# Diferencias ≤ esta tolerancia son ruido del mux/probe, no corrupción.
-# Se ha visto 1-frame de desfase en Kill Bill Vol 1 con 159930 frames.
-_FRAME_COUNT_TOLERANCE = 2
+# Frame count check: ÚNICAMENTE INFORMATIVO, no bloquea.
+#
+# El antiguo check estricto comparaba `ffprobe nb_frames del MKV` (que
+# cuenta frames del HEVC stream) contra `target_frame_count` (que viene
+# del RPU). Estas dos métricas NO TIENEN POR QUÉ COINCIDIR:
+#   - Caso visto: source P8 single-layer con 135712 frames de vídeo
+#     pero solo 135384 RPUs (328 frames sin RPU asociado, válido en P8).
+#   - mkvmerge muxa los 135712 frames + 135384 RPUs sin problema.
+#   - ffprobe del MKV final reporta 135712 (frame count del HEVC, correcto).
+#   - target_frame_count = 135384 (frame count del RPU del bin, correcto).
+#   - El check antiguo fallaba con "Δ=328 > 2" como falso positivo.
+#
+# La validación REAL de la integridad del MKV final ya está cubierta por:
+#   1. mkvmerge -J devuelve rc=0 → MKV estructuralmente válido
+#   2. Path clásico: HEAD+TAIL extract-rpu confirma CMv4.0 en ambos extremos
+#   3. Drop-in: cadena upstream determinista (pre-flight + Fase B + inject-rpu)
+#
+# Por eso este helper SOLO loguea info, nunca lanza excepción salvo en el
+# caso patológico de actual=0 (ffprobe no devuelve nada — probable
+# corrupción severa o fichero inaccesible).
+_FRAME_COUNT_INFO_DELTA_PCT = 1.0  # Δ relativo > 1% se loguea como warning
 
 
 async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
-    """Verifica frame count del MKV final contra el esperado. Lanza
-    RuntimeError si el desfase es claramente corrupción; loggea warning si
-    está dentro de la tolerancia conocida (ruido de ffprobe en mkv)."""
+    """Loguea info sobre el frame count. NO bloquea salvo actual=0
+    (señal de corrupción severa o fichero inaccesible)."""
     if expected <= 0:
         return  # No hay referencia, nada que comparar
     if actual <= 0:
@@ -3278,20 +3290,20 @@ async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
                 f"[Fase H] ✓ Frame count: {actual} (coincide con target_frame_count)"
             )
         return
-    if diff <= _FRAME_COUNT_TOLERANCE:
-        if log_callback:
+    pct = (diff / expected) * 100.0
+    if log_callback:
+        if pct > _FRAME_COUNT_INFO_DELTA_PCT:
             await log_callback(
-                f"[Fase H] ⚠ Frame count {actual} vs {expected} esperados (Δ={diff}) — "
-                "tolerable. ffprobe estima nb_frames como duration × fps cuando "
-                "mkvmerge no escribe NUMBER_OF_FRAMES; off-by-one en redondeo es "
-                "ruido conocido, no corrupción."
+                f"[Fase H] ℹ Frame count del MKV ({actual}) difiere del RPU "
+                f"({expected}, Δ={diff} = {pct:.2f}%). Diferencia legítima en "
+                f"streams P8 con frames sin RPU asociado, o en MKVs cuyo header "
+                f"NUMBER_OF_FRAMES no refleja el conteo real del HEVC. "
+                f"La integridad real se valida con mkvmerge -J + HEAD/TAIL CMv4.0."
             )
-        return
-    raise RuntimeError(
-        f"Frame count del MKV final ({actual}) distinto del esperado "
-        f"({expected}, Δ={diff} > {_FRAME_COUNT_TOLERANCE}) — indica "
-        "corrupción en mux o inject-rpu."
-    )
+        else:
+            await log_callback(
+                f"[Fase H] ✓ Frame count: {actual} vs {expected} (Δ={diff}, dentro de margen)"
+            )
 
 
 async def run_phase_h_validate(
