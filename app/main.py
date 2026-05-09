@@ -258,22 +258,55 @@ _queue_ws_clients: set[WebSocket] = set()
 _broadcast_lock = None  # inicializado en startup (necesita event loop activo)
 
 
-async def _broadcast_queue(status: dict) -> None:
-    """Envía el estado de la cola a todos los clientes WebSocket suscritos."""
-    global _broadcast_lock
-    if _broadcast_lock is None:
-        import asyncio as _asyncio
-        _broadcast_lock = _asyncio.Lock()
+async def _send_ws_with_timeout(
+    connections: dict[str, list],
+    session_id: str,
+    ws,
+    msg: str,
+    timeout: float = 2.0,
+) -> None:
+    """Envía un mensaje a un WebSocket con timeout corto. Si tarda más
+    de `timeout` segundos asumimos cliente zombie (Mac dormido, red rota,
+    cliente muy lento): cerramos el WS y lo quitamos de la lista de
+    conexiones activas. El frontend reconectará al detectar el cierre.
 
+    Crítico para no bloquear el event loop. Si en `_run_streaming` la
+    coroutine de log esperara en `await ws.send_text(...)` minutos hasta
+    el timeout TCP del kernel, el subprocess reader se quedaba sin leer
+    el pipe → ffmpeg se bloqueaba en write → gap visible al usuario.
+    Con esta función lanzada en `asyncio.create_task`, el log loop sigue
+    sin esperar al cliente zombie."""
+    try:
+        await asyncio.wait_for(ws.send_text(msg), timeout=timeout)
+    except (asyncio.TimeoutError, Exception):
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        try:
+            connections.get(session_id, []).remove(ws)
+        except ValueError:
+            pass
+
+
+async def _broadcast_queue(status: dict) -> None:
+    """Envía el estado de la cola a todos los clientes WebSocket suscritos.
+
+    Cada send va en task paralela con timeout corto — un cliente zombie
+    NO debe bloquear los demás (mismo razonamiento que _send_ws_with_timeout).
+    """
     msg = json.dumps(status)
-    async with _broadcast_lock:
-        dead = set()
-        for ws in list(_queue_ws_clients):
+    async def _send_one(ws):
+        try:
+            await asyncio.wait_for(ws.send_text(msg), timeout=2.0)
+        except (asyncio.TimeoutError, Exception):
             try:
-                await ws.send_text(msg)
+                await ws.close()
             except Exception:
-                dead.add(ws)
-        _queue_ws_clients.difference_update(dead)
+                pass
+            _queue_ws_clients.discard(ws)
+    for ws in list(_queue_ws_clients):
+        asyncio.create_task(_send_one(ws))
 
 
 # ── Estáticos ─────────────────────────────────────────────────────────────────
@@ -730,11 +763,12 @@ async def _run_pipeline(session_id: str) -> None:
             msg = f"[{ts}] {msg}"
         session.output_log.append(msg)
         save_session(session)
-        for ws in _ws_connections.get(session_id, []):
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                pass
+        # Fire-and-forget broadcast con timeout corto — un cliente zombie
+        # NO debe bloquear este log loop (mismo razonamiento que en Tab 3
+        # _cmv40_log: TCP send buffer lleno bloquea minutos hasta timeout
+        # del kernel, congelando el event loop).
+        for ws in list(_ws_connections.get(session_id, [])):
+            asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, msg))
 
     mount_point      = None
     intermediate_mkv = None
@@ -895,11 +929,10 @@ async def _run_pipeline(session_id: str) -> None:
             _append_execution_record(session, _phase_starts, _phase_ends)
         save_session(session)
         sig = "__DONE__" if session.status == "done" else "__CANCELLED__" if session.status == "pending" else "__ERROR__"
-        for ws in _ws_connections.get(session_id, []):
-            try:
-                await ws.send_text(sig)
-            except Exception:
-                pass
+        # Fire-and-forget con timeout — los señalizadores terminales son
+        # importantes pero no debemos bloquear si un cliente está zombie.
+        for ws in list(_ws_connections.get(session_id, [])):
+            asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, sig))
 
 
 async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
@@ -2659,11 +2692,43 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     ts_msg = f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
     session.output_log.append(ts_msg)
     await _cmv40_maybe_persist_log(session, ts_msg)
-    # Broadcast a clientes WS conectados (sin throttle — UX en vivo)
-    for ws in _cmv40_ws_connections.get(session.id, []):
+    # Broadcast a clientes WS — en TASKS PARALELOS con timeout corto.
+    #
+    # CRÍTICO: NO usar `await ws.send_text(...)` directo en este loop.
+    # Si el cliente está zombie (Mac dormido, red caída), el TCP send
+    # buffer se llena y el `send_text` puede bloquear minutos hasta que
+    # el kernel detecte el timeout TCP. Ese bloqueo congelaba el event
+    # loop entero: ffmpeg seguía emitiendo líneas pero el subprocess
+    # reader de `_run_streaming` no las leía → buffer del pipe se llena
+    # → ffmpeg se bloquea en write → gap de log visible al usuario.
+    #
+    # Solución: cada send es una task aislada con `asyncio.wait_for(
+    # timeout=2)`. Si el cliente no responde en 2s, lo desconectamos y
+    # eliminamos de la lista — el `ws.onclose` del frontend hará el
+    # reconnect cuando vuelva a estar visible. Mientras tanto, el log
+    # sigue fluyendo a otros clientes y al disco sin atascos.
+    ws_list = list(_cmv40_ws_connections.get(session.id, []))
+    if ws_list:
+        sid = session.id
+        for ws in ws_list:
+            asyncio.create_task(_cmv40_send_with_timeout(sid, ws, ts_msg))
+
+
+async def _cmv40_send_with_timeout(sid: str, ws, msg: str) -> None:
+    """Envía un mensaje a un WebSocket con timeout corto. Si el send tarda
+    más de 2s asumimos zombie: cerramos el ws y lo quitamos de la lista
+    para no volver a intentarlo (el frontend reconectará al detectar el
+    cierre). Esto evita que un cliente lento congele el log para todos."""
+    try:
+        await asyncio.wait_for(ws.send_text(msg), timeout=2.0)
+    except (asyncio.TimeoutError, Exception):
         try:
-            await ws.send_text(ts_msg)
+            await ws.close()
         except Exception:
+            pass
+        try:
+            _cmv40_ws_connections.get(sid, []).remove(ws)
+        except ValueError:
             pass
 
 
@@ -4786,11 +4851,8 @@ if DEV_MODE:
                 msg = f"[{ts}] {msg}"
             session.output_log.append(msg)
             save_session(session)
-            for ws in _ws_connections.get(session_id, []):
-                try:
-                    await ws.send_text(msg)
-                except Exception:
-                    pass
+            for ws in list(_ws_connections.get(session_id, [])):
+                asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, msg))
 
         will_error   = random.random() < 0.20
         do_reorder   = random.random() < 0.50  # simular 50% reorder
@@ -4868,11 +4930,8 @@ if DEV_MODE:
             _append_execution_record(session, _ps, _pe)
             save_session(session)
             sig = "__DONE__" if session.status == "done" else "__ERROR__"
-            for ws in _ws_connections.get(session_id, []):
-                try:
-                    await ws.send_text(sig)
-                except Exception:
-                    pass
+            for ws in list(_ws_connections.get(session_id, [])):
+                asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, sig))
 
     # Registrar la función fake como pipeline del queue_manager
     queue_manager.set_run_fn(_run_fake_pipeline)
