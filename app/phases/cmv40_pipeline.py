@@ -182,7 +182,17 @@ PHASE_REQUIRED_ARTIFACTS: dict[str, list[tuple[str, int]]] = {
     "sync_verified":   [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
     # injected: uno de los dos outputs según workflow
     "injected":        [("RPU_source.bin", 1_000), ("RPU_target.bin", 1_000)],
-    "remuxed":         [("output.mkv", 1_000_000)],
+    # 'remuxed' deliberadamente AUSENTE de esta lista. El artefacto tras
+    # Fase G es el `.mkv.tmp` en /mnt/output (NO en el workdir). Antes
+    # listábamos 'output.mkv' en workdir como path legacy, pero hace
+    # tiempo que el remux escribe directo a /mnt/output, así que ese
+    # fichero NUNCA existe en workdir → la validación retrocedía
+    # spuriously a 'injected', luego el forward-roll del GET la subía
+    # de nuevo a 'remuxed' → flicker de mensajes contradictorios y
+    # potencial re-mux innecesario si autoContinue=true.
+    # La verificación real de la integridad post-Fase G la hace el
+    # auto-rewind/forward-roll en `cmv40_get` (chequea .mkv.tmp en
+    # /mnt/output).
 }
 
 
