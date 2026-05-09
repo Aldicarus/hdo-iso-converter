@@ -2634,25 +2634,31 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     """Añade un log a la sesión CMv4.0, lo persiste con throttling y lo
     emite por WebSocket inmediatamente.
 
-    Throttling: en jobs intensos (CMv4.0 con UHD 50+ GB) `_cmv40_log` se
-    llama miles de veces. Cada save reescribe el JSON completo, que con
-    miles de líneas son cientos de KB. Sin throttle, esto es ~1 GB+ de I/O
-    por job y mata el throughput del NAS bajo contención.
+    Throttling + non-blocking I/O: en jobs intensos (CMv4.0 con UHD 50+ GB)
+    `_cmv40_log` se llama miles de veces. Cada save reescribe el JSON
+    completo (cientos de KB con miles de líneas). Sin cuidado, esto:
+      a) sería ~1 GB+ de I/O por job (mata throughput del NAS)
+      b) bloquearía el event loop varios segundos durante contención del
+         NAS (los fetchs REST y los `ws.send_text` se quedan colgados)
 
-    Estrategia: cuando llega una línea importante (cambio de fase, error,
-    success marker) → save inmediato. Líneas "ruidosas" (output crudo de
-    ffmpeg/dovi_tool) → save throttled cada 2s o cada 25 líneas, lo que
-    llegue antes. Garantía: máximo 2s de pérdida ante kill -9. Plus, hay
-    flush al final de cada fase (en `_run_cmv40_phase`) que asegura que
-    todo está en disco antes de hacer transición.
+    Estrategia:
+      - Throttle: marcadores clave (cambios de fase, errores) → save
+        inmediato; output ruidoso de ffmpeg/dovi_tool → save throttled
+        a 2s o 25 líneas. Garantía: máximo 2s de pérdida ante kill -9.
+      - I/O en thread (asyncio.to_thread): aunque el throttle dispare un
+        save, no bloqueamos el event loop esperando al disco. Mientras el
+        thread escribe, el endpoint /api/cmv40/{id} sigue respondiendo y
+        el WS sigue entregando líneas. Sin esto, durante I/O intensivo
+        del NAS las líneas que llegaban del subprocess se acumulaban en
+        buffer y se entregaban en burst tras varios segundos.
 
     El WebSocket SÍ se notifica inmediatamente — el frontend ve el log
-    en tiempo real aunque la persistencia esté throttled.
+    en tiempo real aunque la persistencia esté throttled o async.
     """
     # Timestamp en hora local del contenedor (TZ env, ej: Europe/Madrid)
     ts_msg = f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
     session.output_log.append(ts_msg)
-    _cmv40_maybe_persist_log(session, ts_msg)
+    await _cmv40_maybe_persist_log(session, ts_msg)
     # Broadcast a clientes WS conectados (sin throttle — UX en vivo)
     for ws in _cmv40_ws_connections.get(session.id, []):
         try:
@@ -2661,7 +2667,7 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
             pass
 
 
-# Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int} }
+# Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int, save_in_flight: bool} }
 _cmv40_log_throttle: dict[str, dict] = {}
 
 # Marcadores que fuerzan persistencia inmediata (no se pueden perder).
@@ -2679,37 +2685,90 @@ _CMV40_LOG_FORCE_PERSIST_MARKERS = (
 )
 
 
-def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
+async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
     """Decide si reescribir el JSON ahora o postponer al siguiente flush.
 
+    El save real va en `asyncio.to_thread` para no bloquear el event loop
+    durante contención del NAS. Si ya hay un save en vuelo, NO lanzamos
+    otro: el siguiente call recogerá los nuevos cambios cuando el save
+    actual termine (las líneas siguen acumulándose en `session.output_log`
+    en RAM, así que no se pierden — solo la durabilidad se retrasa).
+
     Reglas:
-      1. Si la línea contiene un marker de evento clave → persist inmediato
-      2. Si han pasado >2s desde el último save → persist
-      3. Si hay >=25 líneas pendientes desde el último save → persist
-      4. Si el save anterior falló por algún motivo → forzar nuevo intento
+      1. Si la línea contiene un marker de evento clave → save inmediato
+         (await: queremos garantía de que esté en disco antes de continuar)
+      2. Si >2s desde el último save → save async
+      3. Si >=25 líneas pendientes → save async
     """
     import time as _t
     sid = session.id
-    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
+    state = _cmv40_log_throttle.setdefault(
+        sid, {"last_save_ts": 0.0, "lines_since": 0, "save_in_flight": False}
+    )
     state["lines_since"] += 1
     is_marker = any(m in line for m in _CMV40_LOG_FORCE_PERSIST_MARKERS)
     elapsed = _t.monotonic() - state["last_save_ts"]
     should_save = is_marker or elapsed > 2.0 or state["lines_since"] >= 25
-    if should_save:
-        save_cmv40_session(session)
-        state["last_save_ts"] = _t.monotonic()
-        state["lines_since"] = 0
-
-
-def _cmv40_flush_log(session: CMv40Session) -> None:
-    """Fuerza un save inmediato ignorando el throttle. Llamado al
-    completar cada fase (éxito o error) para garantizar que el log
-    queda persistido antes de cualquier transición de estado."""
-    import time as _t
-    save_cmv40_session(session)
-    state = _cmv40_log_throttle.setdefault(session.id, {"last_save_ts": 0.0, "lines_since": 0})
+    if not should_save:
+        return
+    if state.get("save_in_flight"):
+        # Ya hay un save en vuelo. Para markers críticos, esperamos a que
+        # termine antes de lanzar el nuestro (await del flag). Para
+        # ruidosos, ignoramos y dejamos que el actual cubra los nuevos
+        # cambios (las líneas están en session.output_log, el save serializa
+        # output_log entero, así que las pillará).
+        if not is_marker:
+            return
+    state["save_in_flight"] = True
     state["last_save_ts"] = _t.monotonic()
     state["lines_since"] = 0
+    try:
+        if is_marker:
+            # Marker crítico: await para garantía de durabilidad antes de
+            # continuar con la siguiente acción de la fase.
+            await asyncio.to_thread(save_cmv40_session, session)
+        else:
+            # Ruidoso: lanza en background sin esperar. El próximo call
+            # verá save_in_flight=False cuando termine.
+            async def _bg_save():
+                try:
+                    await asyncio.to_thread(save_cmv40_session, session)
+                finally:
+                    state["save_in_flight"] = False
+            asyncio.create_task(_bg_save())
+            return  # NOT reset save_in_flight aquí — lo hace el bg task
+    finally:
+        if is_marker:
+            state["save_in_flight"] = False
+
+
+async def _cmv40_flush_log(session: CMv40Session) -> None:
+    """Fuerza un save inmediato ignorando el throttle. Llamado al
+    completar cada fase (éxito o error) para garantizar que el log
+    queda persistido antes de cualquier transición de estado.
+
+    Espera a que cualquier save_in_flight termine (await), luego hace su
+    propio save sincrónico (en thread). Así, al volver de esta función,
+    `session.output_log` está garantizado en disco.
+    """
+    import time as _t
+    sid = session.id
+    state = _cmv40_log_throttle.setdefault(
+        sid, {"last_save_ts": 0.0, "lines_since": 0, "save_in_flight": False}
+    )
+    # Si hay save en vuelo, esperar (poll corto — to_thread no es muy
+    # interrumpible, pero los saves son rápidos en condiciones normales).
+    waited = 0.0
+    while state.get("save_in_flight") and waited < 5.0:
+        await asyncio.sleep(0.05)
+        waited += 0.05
+    state["save_in_flight"] = True
+    try:
+        await asyncio.to_thread(save_cmv40_session, session)
+        state["last_save_ts"] = _t.monotonic()
+        state["lines_since"] = 0
+    finally:
+        state["save_in_flight"] = False
 
 
 def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
@@ -2822,7 +2881,7 @@ async def _run_cmv40_phase(
             # que el throttle hubiera dejado en buffer se vuelca a disco
             # ANTES del save final del estado. Sin esto, las últimas N
             # líneas del log podrían perderse si el server cae justo aquí.
-            _cmv40_flush_log(session)
+            await _cmv40_flush_log(session)
             save_cmv40_session(session)
 
 

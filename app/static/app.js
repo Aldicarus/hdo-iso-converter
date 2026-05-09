@@ -11597,6 +11597,46 @@ function _classifyLogLine(line) {
 // crear el overlay). Funciona porque session.output_log es append-only en
 // el backend — nunca se borran líneas en mid-flight.
 
+/**
+ * Helper: detecta desincronización entre el log permanente del DOM y el
+ * `session.output_log` del backend.
+ *
+ * Caso típico de desincronización (visto en producción durante I/O
+ * intensivo del NAS):
+ *   - Backend tiene output_log RAM=[L1..L1000], JSON=[L1..L900] (throttle
+ *     retrasó los últimos saves).
+ *   - Frontend hace fetch → recibe 900 líneas → watermark sube a 900.
+ *   - WS entrega L1001 que se acababa de generar → frontend appendea +
+ *     watermark sube a 901, PERO esa línea es realmente la 1001ª, no la 901ª.
+ *   - Siguiente fetch trae 1001 líneas. _sync slice(901)=L902..L1001.
+ *     L1001 ya está en DOM (vino por WS), se pintaría duplicada, y
+ *     L901..L1000 quedan SIN pintar nunca → gap visible al usuario.
+ *
+ * Este helper compara la última línea del DOM con `output_log[watermark-1]`.
+ * Si no coinciden → desincronización detectada → caller resetea y repinta.
+ *
+ * Devuelve true si DOM y backend están sincronizados, false si hubo desync.
+ */
+function _cmv40LogIsConsistent(containerEl, logArr, watermark) {
+  if (watermark === 0) return true;            // nada pintado: trivialmente consistente
+  if (watermark > logArr.length) return false; // backend tiene MENOS líneas → desync
+  // Buscar el último elemento .log-line del DOM (puede haber otros nodes).
+  const lastEl = containerEl.lastElementChild;
+  if (!lastEl) return false;  // DOM vacío pero watermark > 0 → desync
+  // Comparamos con la línea backend que correspondería: output_log[watermark-1],
+  // saltando las §§PROGRESS§§ que NO se renderizan al DOM.
+  let backendIdx = watermark - 1;
+  while (backendIdx >= 0) {
+    const candidate = logArr[backendIdx];
+    if (!_cmv40ParseProgress(candidate)) {
+      return lastEl.textContent === candidate;
+    }
+    backendIdx--;
+  }
+  // Solo había progress markers — pintamos nada. El DOM debería estar vacío.
+  return !lastEl;
+}
+
 function _cmv40SyncPermanentLog(project) {
   if (!project || !project.session) return;
   const pid = project.id;
@@ -11604,8 +11644,13 @@ function _cmv40SyncPermanentLog(project) {
   if (!containerEl) return;
   const logArr = project.session.output_log || [];
   const watermark = project._renderedLogCount || 0;
-  if (watermark > logArr.length) {
-    // Defensivo: el backend devolvió menos líneas que las pintadas. Reset.
+  // Defensa contra desincronización (caso WS-vs-REST race durante I/O
+  // intensivo del NAS, ver doc en _cmv40LogIsConsistent). Si detectamos
+  // que la última línea del DOM no coincide con output_log[watermark-1],
+  // asumimos que el watermark está corrupto y reseteamos: borramos el
+  // DOM y re-pintamos desde cero. Coste: O(N) líneas, ms en miles.
+  // Beneficio: garantía de orden y completitud absolutas.
+  if (!_cmv40LogIsConsistent(containerEl, logArr, watermark)) {
     containerEl.innerHTML = '';
     project._renderedLogCount = 0;
   }
@@ -11628,7 +11673,7 @@ function _cmv40SyncRunningLog(project) {
   if (!containerEl) return;
   const logArr = project.session.output_log || [];
   const watermark = project._renderedRunningLogCount || 0;
-  if (watermark > logArr.length) {
+  if (!_cmv40LogIsConsistent(containerEl, logArr, watermark)) {
     containerEl.innerHTML = '';
     project._renderedRunningLogCount = 0;
   }
