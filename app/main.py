@@ -2667,8 +2667,22 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
             pass
 
 
-# Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int, save_in_flight: bool} }
+# Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int} }
 _cmv40_log_throttle: dict[str, dict] = {}
+
+# Lock por sesión para serializar saves concurrentes — sin esto dos saves
+# en paralelo pueden corromper el JSON (ambos escriben al mismo .tmp y
+# el rename ganador sobrescribe). El asyncio.Lock garantiza ejecución
+# secuencial sin bloquear el event loop (otras corutinas siguen).
+_cmv40_save_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_cmv40_save_lock(sid: str) -> asyncio.Lock:
+    """Lock dedicado por sesión. Singleton lazy."""
+    if sid not in _cmv40_save_locks:
+        _cmv40_save_locks[sid] = asyncio.Lock()
+    return _cmv40_save_locks[sid]
+
 
 # Marcadores que fuerzan persistencia inmediata (no se pueden perder).
 _CMV40_LOG_FORCE_PERSIST_MARKERS = (
@@ -2685,90 +2699,99 @@ _CMV40_LOG_FORCE_PERSIST_MARKERS = (
 )
 
 
+async def _save_cmv40_session_async(session: CMv40Session) -> None:
+    """Serializa la sesión en async (rápido, ~ms incluso con miles de
+    líneas) y delega solo el WRITE al thread (que puede ser lento por
+    NAS contention).
+
+    CRÍTICO: separar serialización del write evita race condition donde
+    el thread serializa output_log mientras otra coroutine la muta con
+    `append`. La serialización aquí captura un snapshot consistente —
+    Pydantic itera la lista mientras el GIL bloquea otros threads.
+    """
+    from storage import _atomic_write_json, _cmv40_session_path
+    # Captura updated_at + serializa snapshot consistente en el event loop.
+    # Mientras esto corre, ninguna otra coroutine puede mutar `session`
+    # (una sola coroutine ejecuta a la vez en async). Tras esto, el thread
+    # solo recibe el string ya serializado.
+    session.updated_at = datetime.now(timezone.utc)
+    json_str = session.model_dump_json(indent=2)
+    path = _cmv40_session_path(session.id)
+    await asyncio.to_thread(_atomic_write_json, path, json_str)
+
+
 async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
-    """Decide si reescribir el JSON ahora o postponer al siguiente flush.
+    """Decide si persistir ahora o postponer.
 
-    El save real va en `asyncio.to_thread` para no bloquear el event loop
-    durante contención del NAS. Si ya hay un save en vuelo, NO lanzamos
-    otro: el siguiente call recogerá los nuevos cambios cuando el save
-    actual termine (las líneas siguen acumulándose en `session.output_log`
-    en RAM, así que no se pierden — solo la durabilidad se retrasa).
+    Diseño nuevo (post-bug del lock atascado):
+      - Lock asyncio por sesión serializa saves (evita corrupción JSON).
+      - Sin "flag save_in_flight" manual — el lock lo gestiona.
+      - Markers críticos: await el lock + save (garantía durabilidad).
+      - Líneas ruidosas: si el lock está libre, save async sin bloquear
+        a `_cmv40_log` (lanza task, retorna). Si el lock está ocupado,
+        DESCARTAMOS el trigger (las líneas están en session.output_log
+        RAM, el save en curso o el siguiente trigger las pillará).
+      - El próximo line con timeout cumplido (>1s) volverá a intentar.
 
-    Reglas:
-      1. Si la línea contiene un marker de evento clave → save inmediato
-         (await: queremos garantía de que esté en disco antes de continuar)
-      2. Si >2s desde el último save → save async
-      3. Si >=25 líneas pendientes → save async
+    Reglas (umbrales más agresivos que la versión anterior porque ya no
+    hay riesgo de saves concurrentes y queremos minimizar la ventana
+    de líneas en RAM no persistidas):
+      1. Marker → save inmediato (await)
+      2. >1s desde último save → save async
+      3. >=20 líneas pendientes → save async
     """
     import time as _t
     sid = session.id
-    state = _cmv40_log_throttle.setdefault(
-        sid, {"last_save_ts": 0.0, "lines_since": 0, "save_in_flight": False}
-    )
+    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
     state["lines_since"] += 1
     is_marker = any(m in line for m in _CMV40_LOG_FORCE_PERSIST_MARKERS)
     elapsed = _t.monotonic() - state["last_save_ts"]
-    should_save = is_marker or elapsed > 2.0 or state["lines_since"] >= 25
+    should_save = is_marker or elapsed > 1.0 or state["lines_since"] >= 20
     if not should_save:
         return
-    if state.get("save_in_flight"):
-        # Ya hay un save en vuelo. Para markers críticos, esperamos a que
-        # termine antes de lanzar el nuestro (await del flag). Para
-        # ruidosos, ignoramos y dejamos que el actual cubra los nuevos
-        # cambios (las líneas están en session.output_log, el save serializa
-        # output_log entero, así que las pillará).
-        if not is_marker:
-            return
-    state["save_in_flight"] = True
+
+    lock = _get_cmv40_save_lock(sid)
+    if is_marker:
+        # Marker crítico: esperamos al lock (otras saves en vuelo terminan)
+        # y hacemos nuestro save. Garantía durabilidad antes de seguir.
+        async with lock:
+            state["last_save_ts"] = _t.monotonic()
+            state["lines_since"] = 0
+            await _save_cmv40_session_async(session)
+        return
+
+    # Línea ruidosa: si el lock está libre, lanzamos save background sin
+    # esperar. Si está ocupado, descartamos — la línea ya está en RAM,
+    # el save en vuelo (o el próximo) la persistirá.
+    if lock.locked():
+        return
     state["last_save_ts"] = _t.monotonic()
     state["lines_since"] = 0
-    try:
-        if is_marker:
-            # Marker crítico: await para garantía de durabilidad antes de
-            # continuar con la siguiente acción de la fase.
-            await asyncio.to_thread(save_cmv40_session, session)
-        else:
-            # Ruidoso: lanza en background sin esperar. El próximo call
-            # verá save_in_flight=False cuando termine.
-            async def _bg_save():
-                try:
-                    await asyncio.to_thread(save_cmv40_session, session)
-                finally:
-                    state["save_in_flight"] = False
-            asyncio.create_task(_bg_save())
-            return  # NOT reset save_in_flight aquí — lo hace el bg task
-    finally:
-        if is_marker:
-            state["save_in_flight"] = False
+
+    async def _bg_save():
+        try:
+            async with lock:
+                await _save_cmv40_session_async(session)
+        except Exception as e:
+            _logger.warning("[cmv40 throttled save] sid=%s error: %s", sid, e)
+
+    asyncio.create_task(_bg_save())
 
 
 async def _cmv40_flush_log(session: CMv40Session) -> None:
     """Fuerza un save inmediato ignorando el throttle. Llamado al
-    completar cada fase (éxito o error) para garantizar que el log
-    queda persistido antes de cualquier transición de estado.
-
-    Espera a que cualquier save_in_flight termine (await), luego hace su
-    propio save sincrónico (en thread). Así, al volver de esta función,
+    completar cada fase. Espera al lock (saves previos terminan), luego
+    hace su propio save bajo el mismo lock — al volver de esta función,
     `session.output_log` está garantizado en disco.
     """
     import time as _t
     sid = session.id
-    state = _cmv40_log_throttle.setdefault(
-        sid, {"last_save_ts": 0.0, "lines_since": 0, "save_in_flight": False}
-    )
-    # Si hay save en vuelo, esperar (poll corto — to_thread no es muy
-    # interrumpible, pero los saves son rápidos en condiciones normales).
-    waited = 0.0
-    while state.get("save_in_flight") and waited < 5.0:
-        await asyncio.sleep(0.05)
-        waited += 0.05
-    state["save_in_flight"] = True
-    try:
-        await asyncio.to_thread(save_cmv40_session, session)
+    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
+    lock = _get_cmv40_save_lock(sid)
+    async with lock:
+        await _save_cmv40_session_async(session)
         state["last_save_ts"] = _t.monotonic()
         state["lines_since"] = 0
-    finally:
-        state["save_in_flight"] = False
 
 
 def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
