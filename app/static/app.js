@@ -11253,17 +11253,25 @@ function _cmv40StartSafetyPoller(project) {
       return;
     }
     const s = project.session || {};
-    if (!s.running_phase) {
-      // Job terminó — paramos el poller. Si vuelve a haber running_phase
-      // (rehacer una fase), _connectCMv40WebSocket reabre el WS y al
-      // refrescar la sesión el siguiente openCMv40Project (o la propia
-      // _runRecoveryTasks) puede reactivar el poller si hace falta.
+    // Condición de salida: el job terminó completamente o entró en error.
+    // Antes salíamos cuando running_phase=null, pero eso paraba el poller
+    // durante el "puente" entre fases del auto-pipeline (running_phase=null
+    // mientras el frontend dispara la siguiente fase). Si el dispatch falla
+    // en background tab (Chrome throttle de setTimeout afecta el polling
+    // interno), nadie reintenta y la cadena se cuelga.
+    // Ahora seguimos activos mientras autoContinue=true y phase no es
+    // terminal, para vigilar el modo puente.
+    const isTerminal = (s.phase === 'done' || s.archived || !!s.error_message);
+    const isActive = !!s.running_phase || project.autoContinue;
+    if (isTerminal || !isActive) {
       clearInterval(project._safetyPoller);
       project._safetyPoller = null;
       return;
     }
-    // Refresh REST: actualiza session.output_log (entre otros). El
-    // _updateCMv40Panel posterior pinta las líneas nuevas via el watermark.
+    // Refresh REST: actualiza session.output_log (entre otros). Internamente
+    // dispara _cmv40MaybeAutoAdvance si autoContinue=true y phase no
+    // running — con el retry de 5s del flag, esto destraba cadenas
+    // atascadas en modo puente.
     if (!document.hidden) {
       _refreshCMv40Session(project.id);
     }
@@ -11271,9 +11279,9 @@ function _cmv40StartSafetyPoller(project) {
     const silentMs = Date.now() - (project._lastWsMessageAt || 0);
     const ws = project.ws;
     const looksOpen = ws && ws.readyState === WebSocket.OPEN;
-    if (silentMs > 30000 && looksOpen && !document.hidden) {
+    if (silentMs > 30000 && looksOpen && !document.hidden && s.running_phase) {
       // Más de 30s sin mensaje pero el WS dice OPEN → zombie probable.
-      // Reconectamos sin esperar al próximo visibilitychange.
+      // Solo aplica si hay running_phase (sino no hay líneas que esperar).
       try { project.ws?.close(); } catch (_) {}
       setTimeout(() => {
         if (!project._closed) _connectCMv40WebSocket(project);
@@ -13686,9 +13694,19 @@ function _cmv40MaybeAutoAdvance(project) {
   // distintas: si !target_preflight_ok → disparar preflight; si OK → Fase A.
   // Sin esto, _lastAutoFiredFor === 'created' nos bloquearía la transición
   // preflight → Fase A.
+  //
+  // RETRY ROBUSTO: el flag ahora trackea el timestamp del último trigger.
+  // Si el mismo stateKey lleva >5s sin haber avanzado (caso real: pestaña
+  // sin foco → setTimeout throttled → polling interno se cuelga → la
+  // siguiente fase nunca se dispara), volvemos a intentar. Sin esto, una
+  // sola falla silenciosa atasca el auto-pipeline indefinidamente.
   const stateKey = s.phase + ':pf=' + (s.target_preflight_ok ? '1' : '0');
-  if (project._lastAutoFiredFor === stateKey) return;
-  project._lastAutoFiredFor = stateKey;
+  const now = Date.now();
+  const lastFired = project._lastAutoFiredFor;
+  if (lastFired && lastFired.state === stateKey && (now - lastFired.at) < 5000) {
+    return;  // Mismo state, hace <5s — dedup normal, no spam
+  }
+  project._lastAutoFiredFor = { state: stateKey, at: now };
   // Marca que la cadena auto está encadenando en este momento — usado por
   // el overlay para mostrarse durante el "puente" entre dos fases. Se limpia
   // al alcanzar un estado terminal o al intervenir manualmente (toggle,
