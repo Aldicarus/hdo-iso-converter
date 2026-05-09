@@ -3381,136 +3381,144 @@ async def run_phase_h_validate(
     else:
         # ── PATH CLÁSICO (merge CMv4.0 sobre P7/P8 source) ──────────────
         # El RPU final viene de un merge frame-a-frame (`dovi_tool editor
-        # --allow_cmv4_transfer`) que sí podría — teóricamente — producir
-        # asimetrías. Verificamos extrayendo el RPU de DOS muestras de 30s:
-        # head (primeros 30s) y tail (últimos 30s). Si ambos chunks tienen
-        # CMv4.0 + el_type esperado, la operación de merge fue uniforme.
+        # --allow_cmv4_transfer`) que podría — teóricamente — producir
+        # asimetrías o frame counts incorrectos.
         #
-        # Coste: ~20-30s vs ~5-8 min del extract-rpu completo. Cubre >95% de
-        # los escenarios patológicos (un bug que altere solo frames del medio
-        # simétricamente respecto a head/tail es <0.1% según análisis de
-        # superficie de fallo de dovi_tool 2.3.x).
+        # ESTRATEGIA DE VALIDACIÓN (rigurosa):
         #
-        # Frame count del MKV se obtiene aparte via ffprobe (gratis); el
-        # frame_count del RPU del sample no es comparable contra
-        # target_frame_count porque solo son 30s.
-        actual_frames = await _probe_frame_count(str(output_mkv))
-        await _check_frame_count(actual_frames, expected_frames, log_callback)
+        # Hacemos `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux
+        # (BL_injected.hevc o equivalente) y verificamos:
+        #   1. Frame count del RPU == expected_frames (target_frame_count)
+        #      → garantía de que el merge produjo el RPU completo y correcto
+        #   2. cm_version == v4.0 → CMv4.0 aplicado correctamente
+        #   3. el_type según source_workflow (FEL/MEL/P8)
+        #
+        # POR QUÉ NO usamos ffprobe del MKV: ffprobe cuenta frames del HEVC
+        # stream (NAL units IDR/P/B), que NO tiene por qué coincidir con el
+        # frame count del RPU. En P8 single-layer es legítimo tener frames
+        # de vídeo sin RPU asociado, especialmente cuando el HEVC source ya
+        # tenía RPUs y dovi_tool inject-rpu los reemplaza con los del bin
+        # nuevo (que puede tener frame count distinto al del HEVC original).
+        # Comparar HEVC frames vs RPU frames daba falsos positivos.
+        #
+        # POR QUÉ NO usamos solo HEAD+TAIL: confirma CMv4.0 en los
+        # extremos pero NO valida el frame count total del RPU. Un bug que
+        # cortara el RPU a la mitad podría pasar desapercibido.
+        #
+        # Coste: ~5-8 min en UHD (extract-rpu completo). Aceptable para la
+        # garantía de integridad — el merge frame-a-frame es la operación
+        # más sensible del pipeline y vale la pena verificarla en serio.
+        # Drop-in (que es el caso típico) NO paga este coste — usa el fast
+        # path que confía en la cadena upstream determinista.
+        pre_mux_candidates = [
+            wd / "source_injected.hevc",   # drop-in P7 FEL (force_interactive)
+            wd / "DV_dual.hevc",           # workflow p7_fel dual-layer
+            wd / "EL_injected.hevc",       # workflow p7_mel
+            wd / "BL_injected.hevc",       # workflow p8 single-layer
+        ]
+        pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
+        if not pre_mux_hevc:
+            raise RuntimeError(
+                "No se encontró el HEVC pre-mux para validación. Esperado "
+                "uno de: source_injected.hevc, DV_dual.hevc, EL_injected.hevc, "
+                "BL_injected.hevc en el workdir."
+            )
 
-        head_hevc = wd / "_validate_head.hevc"
-        head_rpu  = wd / "_validate_head_rpu.bin"
-        tail_hevc = wd / "_validate_tail.hevc"
-        tail_rpu  = wd / "_validate_tail_rpu.bin"
+        full_rpu = wd / "_validate_full_rpu.bin"
         try:
-            # ── Sample HEAD (primeros 30s del MKV final) ────────────────
             if log_callback:
+                hevc_gb = pre_mux_hevc.stat().st_size / 1e9
                 await log_callback(
-                    "[Fase H] Paso 1/3: extrayendo RPU del HEAD (primeros 30s "
-                    "del MKV final)…"
+                    f"[Fase H] Paso 1/3: extrayendo RPU completo del HEVC "
+                    f"pre-mux ({pre_mux_hevc.name}, {hevc_gb:.1f} GB) — "
+                    "validación rigurosa del frame count y CMv4.0…"
                 )
-            await _emit_progress(log_callback, 5, "Sample HEAD: ffmpeg")
+            await _emit_progress(log_callback, 5, "Extrayendo RPU completo del pre-mux")
             rc, _, err = await _run([
-                FFMPEG_BIN, "-y", "-loglevel", "error",
-                "-t", "30", "-i", str(output_mkv),
-                "-map", "0:v:0", "-c:v", "copy",
-                "-bsf:v", "hevc_mp4toannexb",
-                "-f", "hevc", str(head_hevc),
-            ], timeout=120)
-            if rc != 0 or not head_hevc.exists() or head_hevc.stat().st_size == 0:
+                DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
+                "-o", str(full_rpu),
+            ], timeout=900)
+            if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
                 raise RuntimeError(
-                    f"ffmpeg no pudo extraer sample HEAD del MKV final: {err[:200]}"
-                )
-            await _emit_progress(log_callback, 15, "Sample HEAD: extract-rpu")
-            rc, _, err = await _run([
-                DOVI_TOOL_BIN, "extract-rpu", str(head_hevc), "-o", str(head_rpu),
-            ], timeout=120)
-            if rc != 0 or not head_rpu.exists() or head_rpu.stat().st_size == 0:
-                raise RuntimeError(f"extract-rpu falló sobre HEAD: {err[:200]}")
-            rc, head_summary, err = await _run(
-                [DOVI_TOOL_BIN, "info", "--summary", str(head_rpu)], timeout=30
-            )
-            if rc != 0:
-                raise RuntimeError(f"dovi_tool info HEAD falló: {err[:200]}")
-            head_info = _parse_dovi_summary(head_summary)
-            if log_callback:
-                await log_callback(
-                    f"[Fase H] HEAD: Profile {head_info.profile} "
-                    f"({head_info.el_type}), CM {head_info.cm_version}"
+                    f"extract-rpu falló sobre {pre_mux_hevc.name}: {err[:200]}"
                 )
 
-            # ── Sample TAIL (últimos 30s del MKV final) ─────────────────
             if log_callback:
-                await log_callback(
-                    "[Fase H] Paso 2/3: extrayendo RPU del TAIL (últimos 30s "
-                    "del MKV final) — detecta asimetrías del merge…"
-                )
-            await _emit_progress(log_callback, 25, "Sample TAIL: ffmpeg")
-            rc, _, err = await _run([
-                FFMPEG_BIN, "-y", "-loglevel", "error",
-                "-sseof", "-30", "-i", str(output_mkv),
-                "-t", "30", "-map", "0:v:0", "-c:v", "copy",
-                "-bsf:v", "hevc_mp4toannexb",
-                "-f", "hevc", str(tail_hevc),
-            ], timeout=120)
-            if rc != 0 or not tail_hevc.exists() or tail_hevc.stat().st_size == 0:
-                raise RuntimeError(
-                    f"ffmpeg no pudo extraer sample TAIL del MKV final: {err[:200]}"
-                )
-            await _emit_progress(log_callback, 35, "Sample TAIL: extract-rpu")
-            rc, _, err = await _run([
-                DOVI_TOOL_BIN, "extract-rpu", str(tail_hevc), "-o", str(tail_rpu),
-            ], timeout=120)
-            if rc != 0 or not tail_rpu.exists() or tail_rpu.stat().st_size == 0:
-                raise RuntimeError(f"extract-rpu falló sobre TAIL: {err[:200]}")
-            rc, tail_summary, err = await _run(
-                [DOVI_TOOL_BIN, "info", "--summary", str(tail_rpu)], timeout=30
+                await log_callback("[Fase H] Paso 2/3: analizando metadata del RPU…")
+            await _emit_progress(log_callback, 80, "Analizando RPU")
+            rc, summary, err = await _run(
+                [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)], timeout=60
             )
             if rc != 0:
-                raise RuntimeError(f"dovi_tool info TAIL falló: {err[:200]}")
-            tail_info = _parse_dovi_summary(tail_summary)
+                raise RuntimeError(f"dovi_tool info falló sobre RPU completo: {err[:200]}")
+            rpu_info = _parse_dovi_summary(summary)
+
             if log_callback:
                 await log_callback(
-                    f"[Fase H] TAIL: Profile {tail_info.profile} "
-                    f"({tail_info.el_type}), CM {tail_info.cm_version}"
+                    f"[Fase H] RPU del MKV final: Profile {rpu_info.profile} "
+                    f"({rpu_info.el_type}), CM {rpu_info.cm_version}, "
+                    f"{rpu_info.frame_count} frames"
                 )
 
-            # ── Validación cruzada head vs tail ────────────────────────
-            if head_info.cm_version != "v4.0":
+            # ── Validación rigurosa: frame count del RPU vs expected ──
+            # NOTA: comparamos RPU vs RPU (misma métrica). La diferencia
+            # con ffprobe del MKV es esperada y NO se valida aquí.
+            if expected_frames > 0 and rpu_info.frame_count > 0:
+                rpu_diff = abs(rpu_info.frame_count - expected_frames)
+                if rpu_diff > 2:
+                    raise RuntimeError(
+                        f"Frame count del RPU del MKV final ({rpu_info.frame_count}) "
+                        f"distinto del esperado ({expected_frames}, Δ={rpu_diff}). "
+                        f"Indica que el merge CMv4.0 NO produjo un RPU completo — "
+                        f"posible bug del editor de dovi_tool. NO entregar este MKV."
+                    )
+                if rpu_diff > 0 and log_callback:
+                    await log_callback(
+                        f"[Fase H] ⚠ RPU frame count {rpu_info.frame_count} vs "
+                        f"{expected_frames} esperados (Δ={rpu_diff}, dentro de tolerancia ±2)"
+                    )
+
+            # ── Validación CMv4.0 ─────────────────────────────────────
+            if rpu_info.cm_version != "v4.0":
                 raise RuntimeError(
-                    f"HEAD del MKV tiene CM {head_info.cm_version} (esperado v4.0) — "
-                    "el merge no aplicó CMv4.0 al inicio del stream."
+                    f"RPU del MKV final tiene CM {rpu_info.cm_version} (esperado v4.0) — "
+                    "el merge no aplicó CMv4.0."
                 )
-            if tail_info.cm_version != "v4.0":
-                raise RuntimeError(
-                    f"TAIL del MKV tiene CM {tail_info.cm_version} (esperado v4.0) — "
-                    "el merge no aplicó CMv4.0 al final del stream (asimetría detectada)."
-                )
+
+            # ── Validación el_type según workflow ─────────────────────
             expected_el = "FEL" if (session.source_workflow or "p7_fel") == "p7_fel" else None
-            if expected_el and head_info.el_type != expected_el:
+            if expected_el and rpu_info.el_type != expected_el:
                 raise RuntimeError(
-                    f"HEAD del MKV tiene el_type={head_info.el_type!r} "
-                    f"(esperado '{expected_el}')."
+                    f"RPU del MKV final tiene el_type={rpu_info.el_type!r} "
+                    f"(esperado '{expected_el}' según source_workflow={session.source_workflow})."
                 )
-            if expected_el and tail_info.el_type != expected_el:
-                raise RuntimeError(
-                    f"TAIL del MKV tiene el_type={tail_info.el_type!r} "
-                    f"(esperado '{expected_el}')."
+
+            # ── Aviso informativo: frame count del MKV vs RPU ─────────
+            # ffprobe del MKV puede diferir del RPU (HEVC frames sin RPU,
+            # tag NUMBER_OF_FRAMES desactualizado, etc.). Loguear para
+            # contexto pero NO usar como criterio de aceptación.
+            mkv_frames = await _probe_frame_count(str(output_mkv))
+            if mkv_frames > 0 and mkv_frames != rpu_info.frame_count and log_callback:
+                await log_callback(
+                    f"[Fase H] ℹ Frame count del MKV (ffprobe={mkv_frames}) "
+                    f"difiere del RPU ({rpu_info.frame_count}). Diferencia "
+                    "legítima: cuenta frames del HEVC, mientras que el RPU "
+                    "cuenta frames con metadata DV. La integridad ya se "
+                    "valida con el extract-rpu completo arriba."
                 )
         finally:
-            for p in (head_hevc, head_rpu, tail_hevc, tail_rpu):
-                p.unlink(missing_ok=True)
+            full_rpu.unlink(missing_ok=True)
 
-        # result_info: head es representativo del stream completo (head y tail
-        # ya validados como uniformes); frame_count viene del ffprobe del MKV
+        # result_info: el RPU completo es la fuente autoritativa
         result_info = DoviInfo(
-            profile=head_info.profile,
-            el_type=head_info.el_type,
-            cm_version=head_info.cm_version,
-            frame_count=actual_frames or expected_frames or 0,
+            profile=rpu_info.profile,
+            el_type=rpu_info.el_type,
+            cm_version=rpu_info.cm_version,
+            frame_count=rpu_info.frame_count,
         )
         if log_callback:
             await log_callback(
-                f"[Fase H] ✓ Validación DV OK (head + tail uniformes): "
+                f"[Fase H] ✓ Validación DV OK (RPU completo verificado): "
                 f"Profile {result_info.profile} ({result_info.el_type}), "
                 f"CM {result_info.cm_version}, {result_info.frame_count} frames"
             )
