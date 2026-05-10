@@ -13729,8 +13729,17 @@ function _cmv40MaybeAutoAdvance(project) {
   const stateKey = s.phase + ':pf=' + (s.target_preflight_ok ? '1' : '0');
   const now = Date.now();
   const lastFired = project._lastAutoFiredFor;
-  if (lastFired && lastFired.state === stateKey && (now - lastFired.at) < 5000) {
-    return;  // Mismo state, hace <5s — dedup normal, no spam
+  // Dedup: para fases NO terminales, retry tras 5s (recupera transiciones
+  // perdidas por throttling de background tab). Para fases TERMINALES
+  // (done), dedup ESTRICTO una sola vez — sino el toast "Pipeline
+  // completado" se re-disparaba cada 5s al volver el foco a la pestaña
+  // (visto: con un proyecto done abierto, el toast aparecía recurrente
+  // porque cada burst refresh / safety check llamaba a esta función).
+  const isTerminalPhase = (s.phase === 'done');
+  if (lastFired && lastFired.state === stateKey) {
+    if (isTerminalPhase || (now - lastFired.at) < 5000) {
+      return;
+    }
   }
   project._lastAutoFiredFor = { state: stateKey, at: now };
   // Marca que la cadena auto está encadenando en este momento — usado por
@@ -13817,7 +13826,12 @@ function _cmv40MaybeAutoAdvance(project) {
       break;
     case 'done':
       // Terminal: toast único de éxito cuando la pipeline completa el full run.
+      // Apagamos autoContinue para evitar que cualquier refresh subsecuente
+      // (burst post-wake, safety poller, ws.onopen, etc.) vuelva a entrar
+      // a esta función con phase='done' y re-dispare el toast. Combinado
+      // con el dedup estricto (isTerminalPhase) es belt-and-suspenders.
       showToast('✅ Pipeline CMv4.0 completado — MKV listo en /mnt/output', 'success');
+      project.autoContinue = false;
       break;
   }
 }
