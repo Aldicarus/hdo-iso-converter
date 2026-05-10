@@ -11108,7 +11108,13 @@ async function createCMv40Project() {
     : '/mnt/output/' + _cmv40SourceSelected;
   const data = await apiFetch('/api/cmv40/create', {
     method: 'POST',
-    body: JSON.stringify({ source_mkv_path: sourcePath }),
+    body: JSON.stringify({
+      source_mkv_path: sourcePath,
+      // CRÍTICO: auto_pipeline le dice al backend que encadene fases
+      // automáticamente sin esperar al frontend. Hace el job resiliente
+      // a Mac sleep, pestaña cerrada, navegador crashado, etc.
+      auto_pipeline: autoOn,
+    }),
   });
 
   closeModal('cmv40-new-modal');
@@ -11198,27 +11204,23 @@ function openCMv40Project(session) {
   }
 
   const pid = session.id;
-  // Reanudar autoContinue al reabrir un proyecto si estaba en auto-pipeline.
-  // Antes solo se reanudaba si había running_phase, pero eso fallaba para
-  // proyectos atascados en "modo puente" (running_phase=null entre fases).
-  // Caso real: usuario perdió el foco → cadena se atascó en phase='extracted'
-  // → cerró pestaña → al reabrir el proyecto aparecía como esperando
-  // verificación manual de Fase D, imposible con drop-in target trusted.
-  //
-  // Heurística ampliada: reanudar si la sesión está en mid-pipeline (no
-  // terminal, no error, no archivada) Y o bien hay fase corriendo (clásico)
-  // o bien el target era trusted (auto-pipeline drop-in que debería seguir
-  // su curso). Esto hace que el safety poller se mantenga activo y
-  // _cmv40MaybeAutoAdvance reintente las transiciones perdidas (con el
-  // retry de 5s del flag _lastAutoFiredFor).
+  // resumeAuto: refleja el estado persistente `session.auto_pipeline` del
+  // backend. Esta es ahora la FUENTE DE VERDAD del modo auto. El backend
+  // encadena fases automáticamente sin depender del frontend (resiliente
+  // a Mac sleep / pestaña cerrada / navegador crashado). Frontend solo
+  // necesita reflejar el flag para mostrar la UI correcta.
+  // Fallback heurístico para sesiones legacy (creadas antes del campo
+  // auto_pipeline): si está en mid-pipeline con target trusted o con
+  // running_phase, asumimos que estaba en auto.
   const isMidPipeline = session.phase
     && session.phase !== 'done'
     && session.phase !== 'created'
     && !session.error_message
     && !session.archived;
-  const wasInAutoFlow = !!session.running_phase
+  const wasInAutoFlowLegacy = !!session.running_phase
     || (session.target_trust_ok === true);
-  const resumeAuto = isMidPipeline && wasInAutoFlow;
+  const resumeAuto = (session.auto_pipeline === true)
+    || (isMidPipeline && wasInAutoFlowLegacy);
   const project = {
     id: pid,
     subTabId: pid,
@@ -13893,10 +13895,18 @@ async function cmv40ToggleAuto(pid) {
   // Toggling tambien apaga _autoChaining — limpia el estado de bridging.
   project._autoChaining = false;
   _updateCMv40Panel(project);
+  // Sincroniza con el backend (auto_pipeline persistente). Si lo activamos
+  // y la sesión está en una fase intermedia, el backend retoma la cadena
+  // inmediatamente — el job avanza solo aunque cierres el navegador.
+  apiFetch(`/api/cmv40/${pid}/auto-pipeline`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled: project.autoContinue }),
+    silent: true,
+  }).catch(() => {});
   if (project.autoContinue) {
-    showToast('🤖 Auto-avance activado · la siguiente fase se lanzara al terminar la actual', 'success');
+    showToast('🤖 Auto-pipeline activado · el backend encadenará las fases sin depender del cliente', 'success');
   } else {
-    showToast('Auto-avance desactivado · tendras que lanzar cada fase manualmente', 'info');
+    showToast('Auto-pipeline desactivado · tendrás que lanzar cada fase manualmente', 'info');
   }
 }
 

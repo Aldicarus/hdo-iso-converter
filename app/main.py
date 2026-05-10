@@ -3031,12 +3031,173 @@ async def _run_cmv40_phase(
             await _cmv40_flush_log(session)
             save_cmv40_session(session)
 
+    # ── AUTO-PIPELINE BACKEND-DRIVEN ──────────────────────────────────
+    # Tras completar una fase con éxito (sin error_message poblado en
+    # el except), si session.auto_pipeline=True el backend dispara
+    # automáticamente la siguiente fase SIN depender del frontend. Esto
+    # hace el pipeline resiliente al estado del cliente: Mac dormido,
+    # pestaña cerrada, navegador crashado — el job avanza solo hasta
+    # done. El orquestador respeta pausas legítimas (Fase D manual si no
+    # trusted, awaiting_critical_ack, error, archived).
+    if (session.auto_pipeline
+            and not session.error_message
+            and session.phase != previous_phase):  # solo si avanzó (no error)
+        asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
+
+
+async def _cmv40_dispatch_next_phase(session_id: str) -> None:
+    """Orquestador del auto-pipeline backend-driven.
+
+    Invocado tras cada fase exitosa si session.auto_pipeline=True. Determina
+    la siguiente acción según `session.phase` y la dispara como task asyncio.
+    Re-loadea la sesión desde disco para tener el estado más fresco (otra
+    coroutine puede haber modificado entre el finally y este dispatch).
+
+    Pausas legítimas (NO dispara, queda esperando acción manual del usuario):
+      - error_message poblado o archived
+      - awaiting_critical_ack=True (gates degradados pendientes de ACK)
+      - phase='extracted' y target NO trusted (Fase D manual visual)
+      - running_phase != null (otra fase ya en marcha — no doble-fire)
+      - phase='source_analyzed' (Fase B requiere acción manual del user)
+
+    Transiciones automáticas (dispara siguiente fase):
+      - target_provided  → Fase C (extract)
+      - extracted (trusted o user_acked) → marca sync_verified + Fase F (recursivo)
+      - sync_verified    → Fase F (inject)
+      - sync_corrected   → Fase F (inject) — tras correctión manual de Fase E
+      - injected         → Fase G (remux)
+      - remuxed          → Fase H (validate)
+      - validated/done   → terminal, no hace nada
+    """
+    fresh = load_cmv40_session(session_id)
+    if not fresh:
+        return
+    if not fresh.auto_pipeline:
+        return
+    if fresh.error_message or fresh.archived:
+        return
+    if fresh.awaiting_critical_ack:
+        return
+    if fresh.running_phase:
+        return  # otra fase ya corriendo, no doble-fire
+
+    phase = fresh.phase
+
+    if phase == CMv40Phase.TARGET_PROVIDED:
+        await _cmv40_dispatch_extract(fresh)
+    elif phase == CMv40Phase.EXTRACTED:
+        # Trusted target → auto mark-synced → seguir cadena
+        trusted_auto = (
+            fresh.target_trust_ok
+            and fresh.trust_override != "force_interactive"
+        )
+        user_acked = fresh.user_acknowledged_degradation
+        if trusted_auto or user_acked:
+            fresh.phase = CMv40Phase.SYNC_VERIFIED
+            if "sync_verification_pause" not in fresh.phases_skipped:
+                fresh.phases_skipped.append("sync_verification_pause")
+            save_cmv40_session(fresh)
+            await _cmv40_log(
+                fresh,
+                "🤖 Auto: target trusted — sync verification omitida, "
+                "avanzando directo a Fase F."
+            )
+            # Recursivo: ahora phase=sync_verified, lanzar Fase F
+            await _cmv40_dispatch_next_phase(session_id)
+        # else: pausa manual Fase D (no trusted) — espera acción del usuario
+    elif phase in (CMv40Phase.SYNC_VERIFIED, CMv40Phase.SYNC_CORRECTED):
+        await _cmv40_dispatch_inject(fresh)
+    elif phase == CMv40Phase.INJECTED:
+        await _cmv40_dispatch_remux(fresh)
+    elif phase == CMv40Phase.REMUXED:
+        await _cmv40_dispatch_validate(fresh)
+    # phase == VALIDATED / DONE → terminal, no hace nada
+    # phase == SOURCE_ANALYZED → requiere target manual, no avanzamos
+    # phase == CREATED → requiere target/source — flow normal Fase A
+    #   ya disparado por endpoint de creación
+
+
+async def _cmv40_dispatch_extract(session: CMv40Session) -> None:
+    """Dispara Fase C como task asyncio."""
+    from phases.cmv40_pipeline import run_phase_c_extract
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_c_extract(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "extract", _coro, CMv40Phase.EXTRACTED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
+async def _cmv40_dispatch_inject(session: CMv40Session) -> None:
+    """Dispara Fase F como task asyncio."""
+    from phases.cmv40_pipeline import run_phase_f_inject
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_f_inject(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "inject", _coro, CMv40Phase.INJECTED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
+async def _cmv40_dispatch_remux(session: CMv40Session) -> None:
+    """Dispara Fase G como task asyncio."""
+    from phases.cmv40_pipeline import run_phase_g_remux
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_g_remux(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "remux", _coro, CMv40Phase.REMUXED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
+async def _cmv40_dispatch_validate(session: CMv40Session) -> None:
+    """Dispara Fase H como task asyncio."""
+    from phases.cmv40_pipeline import run_phase_h_validate
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _coro(log_cb, proc_cb):
+        result = await run_phase_h_validate(session, log_cb, proc_cb)
+        session.output_log.append(f"Validación final: {result}")
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
 
 # ── Endpoints CRUD ────────────────────────────────────────────────────────────
 
 class CMv40CreateRequest(BaseModel):
     source_mkv_path: str
     output_mkv_name: str | None = None
+    auto_pipeline: bool = False
+    """Si True, el backend encadena fases automáticamente sin esperar al
+    frontend. Hace el job resiliente al estado del cliente (Mac sleep,
+    pestaña cerrada). Frontend lo activa al crear con auto-mode on."""
+
+
+class CMv40AutoPipelineRequest(BaseModel):
+    enabled: bool
 
 
 @app.get("/api/cmv40", summary="Lista proyectos CMv4.0")
@@ -3385,6 +3546,7 @@ async def cmv40_create(body: CMv40CreateRequest):
         artifacts_dir=str(artifacts_dir),
         phase=CMv40Phase.CREATED,
         source_file_size_bytes=source_size,
+        auto_pipeline=body.auto_pipeline,
     )
     save_cmv40_session(session)
     cmv40_get_workdir(session)  # crea el directorio
@@ -3661,6 +3823,30 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+@app.post("/api/cmv40/{session_id}/auto-pipeline",
+          summary="Activa/desactiva el auto-pipeline backend-driven para un proyecto")
+async def cmv40_set_auto_pipeline(session_id: str, body: CMv40AutoPipelineRequest):
+    """Cambia `session.auto_pipeline`. Cuando se activa Y la sesión está en una
+    fase intermedia (no done/error/archived/created), dispara INMEDIATAMENTE
+    el orquestador para que la cadena reanude desde donde quedó. Esto cubre
+    el caso "proyecto atascado: el frontend no avanzó por throttling/sleep,
+    el usuario activa auto y backend retoma".
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    session.auto_pipeline = body.enabled
+    save_cmv40_session(session)
+    if body.enabled:
+        await _cmv40_log(session, "🤖 Auto-pipeline backend ACTIVADO — el job avanzará automáticamente sin depender del cliente")
+        # Dispara orquestador inmediatamente — si la sesión está en una fase
+        # intermedia y no hay running_phase, retoma la cadena.
+        asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
+    else:
+        await _cmv40_log(session, "🤖 Auto-pipeline backend DESACTIVADO — las transiciones requerirán acción manual o frontend activo")
+    return session.model_dump()
+
+
 @app.post("/api/cmv40/{session_id}/acknowledge-critical-gates",
           summary="El usuario reconoce gates críticos fallados y autoriza continuar el pipeline")
 async def cmv40_acknowledge_critical_gates(session_id: str):
@@ -3688,6 +3874,10 @@ async def cmv40_acknowledge_critical_gates(session_id: str):
     if "sync_verification_pause" not in session.phases_skipped:
         session.phases_skipped.append("sync_verification_pause")
     save_cmv40_session(session)
+    # Si auto-pipeline backend activo, retoma la cadena (la sesión ya no
+    # tiene awaiting_critical_ack — el orquestador puede avanzar).
+    if session.auto_pipeline:
+        asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
     return session.model_dump()
 
 

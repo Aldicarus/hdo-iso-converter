@@ -1062,6 +1062,16 @@ class CMv40Session(BaseModel):
     """True si los gates de trust (frame count + L5/L6/L1 divergence) pasaron.
     Si True, Fase D no pausa para revisión visual y Fase F puede saltar el merge."""
 
+    auto_pipeline: bool = False
+    """True si el backend debe encadenar fases automáticamente (sin esperar al
+    frontend). Cuando una fase termina con éxito, el backend dispara la
+    siguiente (Fase C → D-skip → F → G → H) sin depender del cliente.
+    Pausas explícitas: si llega a 'extracted' y NO es trusted (Fase D manual),
+    o si awaiting_critical_ack=True, el orquestador pausa hasta que el usuario
+    actúe via REST. Esto hace el pipeline resiliente al estado del cliente
+    (Mac dormido, pestaña cerrada, navegador crashado): el job avanza solo
+    en backend hasta done."""
+
     target_preflight_ok: bool = False
     """True si el pre-flight (validación rápida del bin antes de Fase A) pasó.
     El pre-flight descarga/copia/extrae el bin target y verifica que tenga
