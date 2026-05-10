@@ -3503,19 +3503,13 @@ async def run_phase_h_validate(
                     f"(esperado '{expected_el}' según source_workflow={session.source_workflow})."
                 )
 
-            # ── Aviso informativo: frame count del MKV vs RPU ─────────
-            # ffprobe del MKV puede diferir del RPU (HEVC frames sin RPU,
-            # tag NUMBER_OF_FRAMES desactualizado, etc.). Loguear para
-            # contexto pero NO usar como criterio de aceptación.
-            mkv_frames = await _probe_frame_count(str(output_mkv))
-            if mkv_frames > 0 and mkv_frames != rpu_info.frame_count and log_callback:
-                await log_callback(
-                    f"[Fase H] ℹ Frame count del MKV (ffprobe={mkv_frames}) "
-                    f"difiere del RPU ({rpu_info.frame_count}). Diferencia "
-                    "legítima: cuenta frames del HEVC, mientras que el RPU "
-                    "cuenta frames con metadata DV. La integridad ya se "
-                    "valida con el extract-rpu completo arriba."
-                )
+            # NOTA: antes había aquí un ffprobe del MKV completo solo para
+            # log informativo ("frame count del MKV vs RPU"). Eliminado:
+            #   - Coste 5-15s extra sobre NAS bajo I/O en MKVs de 60+ GB
+            #   - Ruido visual: el modal quedaba sin actualizar mientras
+            #     ffprobe leía un MKV enorme, dando aspecto de "colgado"
+            #   - Información redundante: la integridad ya se valida con el
+            #     extract-rpu completo arriba (RPU vs RPU expected, ±2)
         finally:
             full_rpu.unlink(missing_ok=True)
 
@@ -3536,7 +3530,15 @@ async def run_phase_h_validate(
     # Validar pistas con mkvmerge -J (común a ambos paths)
     if log_callback:
         step_label = "Paso 2/2" if drop_in_fel else "Paso 3/3"
-        await log_callback(f"[Fase H] {step_label}: validando pistas (mkvmerge -J)…")
+        try:
+            mkv_gb_for_log = output_mkv.stat().st_size / 1e9
+            size_hint = f" sobre {mkv_gb_for_log:.1f} GB"
+        except Exception:
+            size_hint = ""
+        await log_callback(
+            f"[Fase H] {step_label}: validando estructura del MKV con mkvmerge -J"
+            f"{size_hint} (lee el contenedor entero, suele tardar unos segundos en NAS)…"
+        )
     await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
     rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
     if rc not in (0, 1):
