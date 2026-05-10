@@ -11204,6 +11204,44 @@ function _cmv40AssignSession(project, data) {
     }
   }
   project.session = Object.assign({}, data, preserved);
+  _cmv40RehydratePendingTarget(project);
+}
+
+// Reconstruye `project.pendingTarget` desde `session.pending_target_*` (que
+// el backend persiste al crear el proyecto). Crítico para que el frontend
+// no se confunda tras un reload (Mac sleep, pestaña cerrada): sin esto, el
+// case 'created' de _cmv40MaybeAutoAdvance saltaba el preflight y disparaba
+// Fase A directo, y el case 'source_analyzed' dejaba el flujo "pausado"
+// cuando el backend ya estaba corriendo Fase B.
+//
+// Solo hidratamos cuando phase ∈ {created, source_analyzed}: a partir de
+// target_provided el target ya está consumido en backend (target_rpu_source).
+function _cmv40RehydratePendingTarget(project) {
+  const s = project?.session;
+  if (!s) return;
+  const phase = s.phase;
+  if (phase !== 'created' && phase !== 'source_analyzed') {
+    project.pendingTarget = null;
+    return;
+  }
+  const kind = s.pending_target_kind;
+  if (!kind) return;  // nunca hubo target preseleccionado
+  // Idempotente: si ya está hidratado al mismo kind, preservar metadata
+  // adicional que el frontend pueda haber añadido (predicted_type, etc).
+  if (project.pendingTarget?.kind === kind) return;
+  let value = null;
+  if (kind === 'path') {
+    value = s.pending_target_rpu_path || '';
+  } else if (kind === 'mkv') {
+    value = s.pending_target_source_mkv_path || '';
+  } else if (kind === 'drive' || kind === 'repo') {
+    value = {
+      file_id: s.pending_target_file_id || '',
+      file_name: s.pending_target_file_name || '',
+    };
+  }
+  if (!value) return;
+  project.pendingTarget = { kind, value };
 }
 
 function openCMv40Project(session) {
@@ -11243,8 +11281,12 @@ function openCMv40Project(session) {
     ws: null,
     syncData: null,
     autoContinue: resumeAuto,  // off por defecto; createCMv40Project lo activa explícitamente
-    pendingTarget: null,       // { kind: 'path'|'mkv', value: string }
+    pendingTarget: null,       // { kind: 'path'|'mkv'|'repo', value }
   };
+  // Hidrata pendingTarget desde session.pending_target_* si aplica. Necesario
+  // para reanudar el auto-pipeline tras reload del cliente sin disparar Fase
+  // A sin preflight ni quedarse "pausado" en source_analyzed.
+  _cmv40RehydratePendingTarget(project);
   openCMv40Projects.push(project);
   _createCMv40SubTab(project);
   _createCMv40Panel(project);
@@ -13842,13 +13884,14 @@ function _cmv40MaybeAutoAdvance(project) {
       cmv40DoValidate(pid);
       break;
     case 'done':
-      // Terminal: toast único de éxito cuando la pipeline completa el full run.
-      // Apagamos autoContinue para evitar que cualquier refresh subsecuente
-      // (burst post-wake, safety poller, ws.onopen, etc.) vuelva a entrar
-      // a esta función con phase='done' y re-dispare el toast. Combinado
-      // con el dedup estricto (isTerminalPhase) es belt-and-suspenders.
+      // Terminal: toast único de éxito cuando la pipeline completa el full
+      // run. El dedup estricto por isTerminalPhase (línea ~13755) evita que
+      // bursts post-wake / safety poller / ws.onopen re-disparen el toast.
+      // NO apagamos `autoContinue` aquí: el backend mantiene
+      // `session.auto_pipeline=true` post-done y desincronizar el frontend
+      // confundiría futuros refreshes (resumeAuto leería true del backend
+      // y revertiría la flag local a true).
       showToast('✅ Pipeline CMv4.0 completado — MKV listo en /mnt/output', 'success');
-      project.autoContinue = false;
       break;
   }
 }

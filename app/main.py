@@ -4773,6 +4773,13 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 _cmv40_cancel_flags.pop(session.id, None)
                 session.running_phase = None
                 save_cmv40_session(session)
+        # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
+        # encadena Fase A automáticamente. Sin esto, si el cliente disparó
+        # este endpoint manualmente (en lugar del orquestador interno), Fase
+        # A no arrancaría sola — fragil ante cliente cerrado tras el POST.
+        # Mismo patrón que `_cmv40_dispatch_preflight`.
+        if session.auto_pipeline and not session.error_message and session.target_preflight_ok:
+            asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}
