@@ -1072,6 +1072,24 @@ class CMv40Session(BaseModel):
     (Mac dormido, pestaña cerrada, navegador crashado): el job avanza solo
     en backend hasta done."""
 
+    pending_target_kind: str = ""
+    """Tipo de target seleccionado en la creación del proyecto: 'path',
+    'drive' (alias 'repo'), 'mkv', o '' si no hay. Persistido para que el
+    orquestador backend pueda disparar Fase B automáticamente tras Fase A
+    sin depender del frontend (state que antes vivía solo en JS)."""
+
+    pending_target_rpu_path: str = ""
+    """Para kind='path': ruta absoluta al fichero RPU.bin local."""
+
+    pending_target_file_id: str = ""
+    """Para kind='drive': file_id de Google Drive."""
+
+    pending_target_file_name: str = ""
+    """Para kind='drive': nombre del fichero (informativo en logs)."""
+
+    pending_target_source_mkv_path: str = ""
+    """Para kind='mkv': ruta absoluta al MKV del que extraer el RPU."""
+
     target_preflight_ok: bool = False
     """True si el pre-flight (validación rápida del bin antes de Fase A) pasó.
     El pre-flight descarga/copia/extrae el bin target y verifica que tenga

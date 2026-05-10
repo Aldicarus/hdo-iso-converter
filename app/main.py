@@ -3083,7 +3083,24 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
 
     phase = fresh.phase
 
-    if phase == CMv40Phase.TARGET_PROVIDED:
+    if phase == CMv40Phase.CREATED:
+        # Recién creado. Si tiene pending_target, ejecutar preflight; si
+        # ya pasó preflight (target_preflight_ok=True), arrancar Fase A.
+        if not fresh.target_preflight_ok and fresh.pending_target_kind:
+            await _cmv40_dispatch_preflight(fresh)
+        elif fresh.target_preflight_ok or not fresh.pending_target_kind:
+            # Sin pending target O ya con preflight: arrancar Fase A.
+            # (el caso "sin pending target" pasaría si el usuario creó el
+            # proyecto sin elegir target — Fase A puede correr igualmente
+            # y luego Fase B requiere acción manual.)
+            await _cmv40_dispatch_analyze_source(fresh)
+    elif phase == CMv40Phase.SOURCE_ANALYZED:
+        # Fase A completada. Si hay pending_target persistido, dispara Fase B.
+        # Si NO hay pending_target, pausa — Fase B requiere acción manual
+        # del usuario (escoger target en el panel).
+        if fresh.pending_target_kind:
+            await _cmv40_dispatch_target_provision(fresh)
+    elif phase == CMv40Phase.TARGET_PROVIDED:
         await _cmv40_dispatch_extract(fresh)
     elif phase == CMv40Phase.EXTRACTED:
         # Trusted target → auto mark-synced → seguir cadena
@@ -3185,7 +3202,152 @@ async def _cmv40_dispatch_validate(session: CMv40Session) -> None:
     asyncio.create_task(_run())
 
 
+async def _cmv40_dispatch_analyze_source(session: CMv40Session) -> None:
+    """Dispara Fase A (analyze_source) como task asyncio."""
+    from phases.cmv40_pipeline import run_phase_a_analyze_source
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _coro(log_cb, proc_cb):
+        await run_phase_a_analyze_source(session, log_cb, proc_cb)
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, "analyze_source", _coro, CMv40Phase.SOURCE_ANALYZED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
+async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
+    """Dispara el preflight del bin target persistido en pending_target_*.
+    Tras éxito, el orquestador (en finally) detecta target_preflight_ok=True
+    y dispara Fase A automáticamente."""
+    from phases.cmv40_pipeline import (
+        preflight_source, preflight_target_drive,
+        preflight_target_path, preflight_target_mkv,
+    )
+    if not session.pending_target_kind:
+        return  # nada que validar
+
+    # Lock por sesión para no doble-fire
+    lock = _get_cmv40_phase_lock(session.id)
+    if lock.locked():
+        return
+
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    async def _run():
+        async with lock:
+            session.running_phase = "preflight"
+            session.error_message = ""
+            session.target_preflight_ok = False
+            save_cmv40_session(session)
+            await _cmv40_log(session, "━━━ Inicio fase: preflight ━━━")
+            await _cmv40_log(session, "🤖 Auto-pipeline backend: validando bin target persistido…")
+
+            async def _log_cb(msg: str):
+                await _cmv40_log(session, msg)
+
+            def _proc_cb(proc):
+                _cmv40_proc_register(session.id, proc)
+
+            try:
+                await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+
+                kind = session.pending_target_kind
+                if kind == "drive" or kind == "repo":
+                    await preflight_target_drive(
+                        session,
+                        session.pending_target_file_id,
+                        session.pending_target_file_name,
+                        _log_cb,
+                    )
+                elif kind == "path":
+                    await preflight_target_path(
+                        session, session.pending_target_rpu_path, _log_cb,
+                    )
+                elif kind == "mkv":
+                    await preflight_target_mkv(
+                        session, session.pending_target_source_mkv_path,
+                        _log_cb, _proc_cb,
+                    )
+                session.target_preflight_ok = True
+                await _cmv40_log(
+                    session,
+                    "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
+                )
+            except Exception as e:
+                msg = str(e)
+                await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
+                session.error_message = msg
+                session.target_preflight_ok = False
+            finally:
+                _cmv40_active_procs.pop(session.id, None)
+                _cmv40_cancel_flags.pop(session.id, None)
+                session.running_phase = None
+                save_cmv40_session(session)
+        # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
+        # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
+        # target_preflight_ok=True ahora.
+        if session.auto_pipeline and not session.error_message:
+            asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
+
+    asyncio.create_task(_run())
+
+
+async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
+    """Dispara Fase B usando el pending_target persistido. Tras éxito, el
+    orquestador detecta phase=TARGET_PROVIDED y dispara Fase C."""
+    from phases.cmv40_pipeline import (
+        run_phase_b_target_from_path, run_phase_b_target_from_drive,
+        run_phase_b_target_from_mkv,
+    )
+    kind = session.pending_target_kind
+    if not kind:
+        return
+
+    if kind == "path":
+        rpu_path = session.pending_target_rpu_path
+        async def _coro(log_cb, proc_cb):
+            await run_phase_b_target_from_path(session, rpu_path, log_cb)
+        phase_name = "target_rpu_path"
+    elif kind == "drive" or kind == "repo":
+        file_id = session.pending_target_file_id
+        file_name = session.pending_target_file_name
+        async def _coro(log_cb, proc_cb):
+            await run_phase_b_target_from_drive(session, file_id, file_name, log_cb)
+        phase_name = "target_rpu_drive"
+    elif kind == "mkv":
+        mkv_path = session.pending_target_source_mkv_path
+        async def _coro(log_cb, proc_cb):
+            await run_phase_b_target_from_mkv(session, mkv_path, log_cb, proc_cb)
+        phase_name = "target_rpu_mkv"
+    else:
+        await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
+        return
+
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, phase_name, _coro, CMv40Phase.TARGET_PROVIDED)
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
 # ── Endpoints CRUD ────────────────────────────────────────────────────────────
+
+class CMv40PendingTargetSpec(BaseModel):
+    """Target seleccionado en el modal de creación. Persistido en
+    session.pending_target_* para que el orquestador backend pueda disparar
+    Fase B automáticamente tras Fase A sin depender del frontend."""
+    kind: str
+    rpu_path: str = ""
+    file_id: str = ""
+    file_name: str = ""
+    source_mkv_path: str = ""
+
 
 class CMv40CreateRequest(BaseModel):
     source_mkv_path: str
@@ -3194,6 +3356,10 @@ class CMv40CreateRequest(BaseModel):
     """Si True, el backend encadena fases automáticamente sin esperar al
     frontend. Hace el job resiliente al estado del cliente (Mac sleep,
     pestaña cerrada). Frontend lo activa al crear con auto-mode on."""
+    pending_target: CMv40PendingTargetSpec | None = None
+    """Target seleccionado en el modal. Persistido en la sesión para que
+    el orquestador backend pueda continuar el pipeline (preflight + Fase B)
+    aunque el cliente desaparezca."""
 
 
 class CMv40AutoPipelineRequest(BaseModel):
@@ -3548,6 +3714,15 @@ async def cmv40_create(body: CMv40CreateRequest):
         source_file_size_bytes=source_size,
         auto_pipeline=body.auto_pipeline,
     )
+    # Persistir pending_target — clave para que el orquestador backend
+    # pueda continuar el pipeline tras Fase A sin depender del frontend.
+    if body.pending_target:
+        pt = body.pending_target
+        session.pending_target_kind = pt.kind
+        session.pending_target_rpu_path = pt.rpu_path
+        session.pending_target_file_id = pt.file_id
+        session.pending_target_file_name = pt.file_name
+        session.pending_target_source_mkv_path = pt.source_mkv_path
     save_cmv40_session(session)
     cmv40_get_workdir(session)  # crea el directorio
 
@@ -3563,6 +3738,13 @@ async def cmv40_create(body: CMv40CreateRequest):
     except (asyncio.TimeoutError, Exception):
         # Timeout o error: seguimos sin bloquear, tarea en background
         asyncio.create_task(_cmv40_hydrate_tmdb(sid))
+
+    # Si auto_pipeline=True, dispara el orquestador inmediatamente. El
+    # orquestador detectará phase=CREATED + pending_target y disparará
+    # preflight automático → tras éxito, Fase A → ... → done. Todo sin
+    # depender del frontend.
+    if session.auto_pipeline:
+        asyncio.create_task(_cmv40_dispatch_next_phase(sid))
 
     return session.model_dump()
 

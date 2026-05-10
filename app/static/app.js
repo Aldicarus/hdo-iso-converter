@@ -11106,6 +11106,20 @@ async function createCMv40Project() {
   const sourcePath = _cmv40SourceSelected.startsWith('/')
     ? _cmv40SourceSelected
     : '/mnt/output/' + _cmv40SourceSelected;
+
+  // Construir pending_target para que el backend lo persista. Crítico para
+  // que el orquestador pueda disparar preflight + Fase B aunque el cliente
+  // desaparezca tras Fase A (Mac sleep, pestaña cerrada, etc).
+  const pendingTargetPayload = { kind: target.kind };
+  if (target.kind === 'repo') {
+    pendingTargetPayload.file_id = target.value?.file_id || '';
+    pendingTargetPayload.file_name = target.value?.file_name || '';
+  } else if (target.kind === 'path') {
+    pendingTargetPayload.rpu_path = target.value || '';
+  } else if (target.kind === 'mkv') {
+    pendingTargetPayload.source_mkv_path = target.value || '';
+  }
+
   const data = await apiFetch('/api/cmv40/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -11114,6 +11128,7 @@ async function createCMv40Project() {
       // automáticamente sin esperar al frontend. Hace el job resiliente
       // a Mac sleep, pestaña cerrada, navegador crashado, etc.
       auto_pipeline: autoOn,
+      pending_target: pendingTargetPayload,
     }),
   });
 
