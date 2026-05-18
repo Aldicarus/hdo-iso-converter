@@ -2942,7 +2942,25 @@ async def _merge_cmv40_into_p7(
     los niveles especificados frame-a-frame desde ``source_rpu`` hacia el RPU
     input del editor. L254 se añade implícitamente con valor default.
 
-    Config JSON:
+    La lista de levels depende del source workflow (alineado con
+    bbeny123/remuxer.sh — la implementación de referencia más usada):
+
+      * **P7 FEL source** (línea 2090 de remuxer.sh, "FEL detected override"):
+        ``[1, 2, 3, 6, 8, 9, 10, 11, 254]``
+        Bbeny123 transfiere L1/L2/L6 deliberadamente cuando el source es FEL,
+        porque el L1 del BD captura las stats del BL+EL combinado y a veces
+        está desactualizado respecto al WEB grading restaurado. Los bins del
+        repo DoviTools "P7 FEL restored CMv4.0" están pensados para esto.
+
+      * **P7 MEL / P8 source** (default global remuxer.sh línea 31):
+        ``[3, 8, 9, 11, 254]``
+        Sin EL real que combinar, el L1/L2/L6 del BD describe correctamente
+        los píxeles y debe preservarse. Solo se transfieren los levels
+        EXCLUSIVOS de CMv4.0 (L8, L9, L11) + L3 (PQ adj) + L254 (marker).
+        Coincide con la docs oficial de dovi_tool: "Allows transferring
+        CM v4.0 levels (L3, L8, L9, L10, L11, L254) to CM v2.9 RPU".
+
+    Config JSON resultante (caso no-FEL):
         {
           "source_rpu": "/abs/path/RPU_target_v40.bin",
           "rpu_levels": [3, 8, 9, 11, 254],
@@ -2950,19 +2968,10 @@ async def _merge_cmv40_into_p7(
         }
 
     Resultado:
-      - Estructura P7 FEL preservada (header, mapping, BL/EL info del BD)
-      - L1/L2/L5/L6 originales del BD preservados (CMv2.9)
-      - L3/L8/L9/L11/L254 transferidos frame-a-frame desde el streaming CMv4.0
-      - L254 añadido implícitamente por dovi_tool (marca el CMv4.0)
-
-    IMPORTANTE — por qué exactamente estos levels: L1/L2/L5/L6 describen los
-    píxeles del BD (brightness por shot, trims para distintos peak displays,
-    aspect-ratio crops, master-display peak). Transferirlos desde el target
-    WEB — calibrado para un grading distinto al del BD — produce tone-mapping
-    visiblemente incorrecto en TVs HDR. Por eso solo transferimos los levels
-    EXCLUSIVOS de CMv4.0 (L8/L9/L11) + L3 (PQ adjustment) + L254 (marker).
-    Coincide con la lista canónica de la docs oficial de dovi_tool y con la
-    recomendación de REC999 en su tutorial DoviScripts (workflow MODE.F 2-3).
+      - Estructura del source preservada (profile + el_type + BL/EL info)
+      - L1/L2/L5/L6 del BD preservados si source es MEL/P8;
+        L1/L2/L6 transferidos del target si source es FEL
+      - L254 añadido implícitamente por dovi_tool (marca CMv4.0)
     """
     # ── Pre-check: frame count debe coincidir + capturar profile de entrada ─
     rc_s, sum_s, _ = await _run([
@@ -3000,21 +3009,38 @@ async def _merge_cmv40_into_p7(
         )
 
     # ── Merge CMv4.0 sobre RPU CMv2.9 (workflow MODE.F 2-3 de DoviScripts) ──
-    # Solo levels EXCLUSIVOS de CMv4.0 + L3 + marker. L1/L2/L5/L6 se quedan
-    # del BD source (describen sus píxeles). Ver docstring de la función
-    # para la justificación detallada.
-    #
+    # Lista de levels según source workflow (alineado con bbeny123/remuxer.sh).
+    # Detección por `expected_el_type` capturado del RPU source — es la marca
+    # autoritativa: el header del RPU dice si es FEL o no, independientemente
+    # del label que la sesión arrastre.
+    is_fel_source = (expected_el_type or "").upper() == "FEL"
+    if is_fel_source:
+        # Lista FEL: transferimos L1/L2/L6 también porque el L1 del BD FEL
+        # captura el BL+EL combinado y a veces está desactualizado respecto
+        # al WEB grading restaurado. Coincide con override FEL de
+        # bbeny123/remuxer.sh línea 2090.
+        levels = [1, 2, 3, 6, 8, 9, 10, 11, 254]
+        levels_label = "FEL [1,2,3,6,8,9,10,11,254]"
+        preserve_note = "L5 preservado del BD"
+    else:
+        # Lista default conservadora para MEL / P8: solo levels CMv4.0-exclusivos
+        # + L3 + marker. L1/L2/L5/L6 del BD se quedan (describen sus píxeles).
+        # Coincide con default global de bbeny123/remuxer.sh línea 31 y con la
+        # docs oficial de dovi_tool.
+        levels = [3, 8, 9, 11, 254]
+        levels_label = "[3,8,9,11,254]"
+        preserve_note = "L1/L2/L5/L6 preservados del BD"
+
     # Si el target carece de L11 (content type) — caso ocasional con bins
     # generados o restaurados parciales — añadimos el bloque por defecto vía
     # `add_cmv4_default_metadata` para que el RPU resultante sea un CMv4.0
-    # completo y no quede sin Content Type. dovi_tool docs lo recomiendan
-    # explícitamente para este caso.
+    # completo y no quede sin Content Type.
     wd = rpu_source_p7.parent
     cfg_path = wd / "_merge_cmv4_transfer.json"
     cfg: dict = {
         "allow_cmv4_transfer": True,
         "source_rpu": str(rpu_target_v40.resolve()),
-        "rpu_levels": [3, 8, 9, 11, 254],
+        "rpu_levels": levels,
     }
     target_lacks_l11 = bool(target_info and not target_info.has_l11)
     if target_lacks_l11:
@@ -3036,9 +3062,9 @@ async def _merge_cmv40_into_p7(
             if target_lacks_l11 else ""
         )
         await log_callback(
-            "[Fase F] Transferencia CMv4.0 levels [3,8,9,11,254] frame-a-frame "
+            f"[Fase F] Transferencia CMv4.0 levels {levels_label} frame-a-frame "
             f"desde {rpu_target_v40.name} → RPU {src_label} del source "
-            f"(L1/L2/L5/L6 preservados del BD{l11_note})…"
+            f"({preserve_note}{l11_note})…"
         )
 
     try:
