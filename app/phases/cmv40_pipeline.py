@@ -1652,7 +1652,7 @@ def _check_source_target_compat(source_workflow: str, target_type: str) -> tuple
 
     Ya no aborta para `source single-layer + target P7 dual-layer`: aunque el
     target no se puede aplicar como drop-in, su RPU sirve como DONANTE de
-    metadata CMv4.0 (levels L1-L11) via merge. `dovi_tool editor` con
+    metadata CMv4.0 (levels L3/L8/L9/L11) via merge. `dovi_tool editor` con
     `allow_cmv4_transfer` copia los levels entre RPUs independientemente del
     profile; el profile de SALIDA hereda del source (P8.1 o MEL), que es lo
     que el HEVC del BD ya tiene. La Fase F decide entre drop-in / merge /
@@ -2763,7 +2763,7 @@ async def run_phase_f_inject(
             if session.target_type in ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic"):
                 await log_callback(
                     "[Fase F] 📋 Plan: source P8.1 + target P7/generic → mergeamos los "
-                    "levels CMv4.0 del target (L1-L11) en el RPU P8 del source. El output "
+                    "levels CMv4.0 del target (L3/L8/L9/L11) en el RPU P8 del source. El output "
                     "hereda el profile P8.1 del source (no se mezclan capas, solo metadata). "
                     "Inyectamos el RPU merged en source.hevc. Resultado: P8.1 CMv4.0."
                 )
@@ -2945,15 +2945,24 @@ async def _merge_cmv40_into_p7(
     Config JSON:
         {
           "source_rpu": "/abs/path/RPU_target_v40.bin",
-          "rpu_levels": [3, 8, 9, 10, 11],
+          "rpu_levels": [3, 8, 9, 11, 254],
           "allow_cmv4_transfer": true
         }
 
     Resultado:
       - Estructura P7 FEL preservada (header, mapping, BL/EL info del BD)
       - L1/L2/L5/L6 originales del BD preservados (CMv2.9)
-      - L3/L8/L9/L10/L11 transferidos frame-a-frame desde el streaming CMv4.0
+      - L3/L8/L9/L11/L254 transferidos frame-a-frame desde el streaming CMv4.0
       - L254 añadido implícitamente por dovi_tool (marca el CMv4.0)
+
+    IMPORTANTE — por qué exactamente estos levels: L1/L2/L5/L6 describen los
+    píxeles del BD (brightness por shot, trims para distintos peak displays,
+    aspect-ratio crops, master-display peak). Transferirlos desde el target
+    WEB — calibrado para un grading distinto al del BD — produce tone-mapping
+    visiblemente incorrecto en TVs HDR. Por eso solo transferimos los levels
+    EXCLUSIVOS de CMv4.0 (L8/L9/L11) + L3 (PQ adjustment) + L254 (marker).
+    Coincide con la lista canónica de la docs oficial de dovi_tool y con la
+    recomendación de REC999 en su tutorial DoviScripts (workflow MODE.F 2-3).
     """
     # ── Pre-check: frame count debe coincidir + capturar profile de entrada ─
     rc_s, sum_s, _ = await _run([
@@ -2963,8 +2972,9 @@ async def _merge_cmv40_into_p7(
         DOVI_TOOL_BIN, "info", "-s", "-i", str(rpu_target_v40),
     ], timeout=30)
     source_info = _parse_dovi_summary(sum_s) if rc_s == 0 else None
+    target_info = _parse_dovi_summary(sum_t) if rc_t == 0 else None
     frames_bd = source_info.frame_count if source_info else 0
-    frames_tgt = _parse_dovi_summary(sum_t).frame_count if rc_t == 0 else 0
+    frames_tgt = target_info.frame_count if target_info else 0
     if frames_bd == 0 or frames_tgt == 0:
         raise RuntimeError("No se pudo leer frame count de uno de los RPUs con dovi_tool info")
     if frames_bd != frames_tgt:
@@ -2989,26 +2999,46 @@ async def _merge_cmv40_into_p7(
             f"Profile source: P{expected_profile}{el_label} (se preserva en el output)"
         )
 
-    # ── Merge según bbeny123/remuxer (PR #351 en dovi_tool 2.3.0+) ──
-    # Config exactamente como la genera remuxer.sh:
-    #   {"allow_cmv4_transfer": true, "source_rpu": "...", "rpu_levels": [...]}
-    # Levels para FEL según remuxer.sh línea 2090: 1,2,3,6,8,9,10,11,254
-    # L254 (no L255) — L254 es el Dolby Vision Metadata Version marker.
+    # ── Merge CMv4.0 sobre RPU CMv2.9 (workflow MODE.F 2-3 de DoviScripts) ──
+    # Solo levels EXCLUSIVOS de CMv4.0 + L3 + marker. L1/L2/L5/L6 se quedan
+    # del BD source (describen sus píxeles). Ver docstring de la función
+    # para la justificación detallada.
+    #
+    # Si el target carece de L11 (content type) — caso ocasional con bins
+    # generados o restaurados parciales — añadimos el bloque por defecto vía
+    # `add_cmv4_default_metadata` para que el RPU resultante sea un CMv4.0
+    # completo y no quede sin Content Type. dovi_tool docs lo recomiendan
+    # explícitamente para este caso.
     wd = rpu_source_p7.parent
     cfg_path = wd / "_merge_cmv4_transfer.json"
-    cfg = {
+    cfg: dict = {
         "allow_cmv4_transfer": True,
         "source_rpu": str(rpu_target_v40.resolve()),
-        "rpu_levels": [1, 2, 3, 6, 8, 9, 10, 11, 254],
+        "rpu_levels": [3, 8, 9, 11, 254],
     }
+    target_lacks_l11 = bool(target_info and not target_info.has_l11)
+    if target_lacks_l11:
+        # Defaults razonables para L11 (content type "Cinema" / reference mode).
+        # El display HDR aplicará el preset Movie/Cinema. dovi_tool rellena el
+        # resto de campos opcionales con valores por defecto sensatos.
+        cfg["add_cmv4_default_metadata"] = True
+        cfg["level11"] = {
+            "content_type": 1,        # 1 = Cinema (Movie)
+            "whitepoint": 0,          # 0 = D65 (estándar)
+            "reference_mode_flag": False,
+        }
     cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     if log_callback:
         src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
+        l11_note = (
+            " · target sin L11 → añadiendo default Cinema/D65"
+            if target_lacks_l11 else ""
+        )
         await log_callback(
-            "[Fase F] Transferencia CMv4.0 [1,2,3,6,8,9,10,11,254] frame-a-frame "
+            "[Fase F] Transferencia CMv4.0 levels [3,8,9,11,254] frame-a-frame "
             f"desde {rpu_target_v40.name} → RPU {src_label} del source "
-            "(allow_cmv4_transfer=true, según remuxer.sh de bbeny123)…"
+            f"(L1/L2/L5/L6 preservados del BD{l11_note})…"
         )
 
     try:
@@ -3033,7 +3063,7 @@ async def _merge_cmv40_into_p7(
         )
 
     # ── Verificación post-merge ──────────────────────────────────────
-    # El allow_cmv4_transfer copia levels (L1-L11) del target al source
+    # El allow_cmv4_transfer copia levels (L3/L8/L9/L11) del target al source
     # preservando la ESTRUCTURA del source (profile + el_type). Por eso
     # comparamos contra los valores capturados antes del merge, no contra
     # una expectativa fija como 'FEL'. Asi la funcion sirve para P7 FEL,
@@ -3503,6 +3533,22 @@ async def run_phase_h_validate(
                     f"(esperado '{expected_el}' según source_workflow={session.source_workflow})."
                 )
 
+            # ── Validación L8 presente (CMv4.0 trims target display) ───
+            # L8 es el marker real de CMv4.0: contiene los trim targets para
+            # peak displays distintos del master (100/600/1000/2000 nits).
+            # Si por algún bug de dovi_tool editor el merge dejara el RPU sin
+            # L8, cm_version=v4.0 podría seguir siendo true (el header lo
+            # marca) pero el output sería un CMv4.0 hueco — el HDR display no
+            # tendría nada que aplicar. Defensa en profundidad: abortar antes
+            # del rename atómico, preservar .mkv.tmp para inspección.
+            if not rpu_info.has_l8:
+                raise RuntimeError(
+                    "RPU del MKV final NO contiene bloques L8 (trims CMv4.0). "
+                    "El RPU está marcado como v4.0 pero sin los trim targets "
+                    "para peak displays — un display HDR no aplicará tone-mapping "
+                    "CMv4.0. Posible bug de dovi_tool editor al transferir."
+                )
+
             # NOTA: antes había aquí un ffprobe del MKV completo solo para
             # log informativo ("frame count del MKV vs RPU"). Eliminado:
             #   - Coste 5-15s extra sobre NAS bajo I/O en MKVs de 60+ GB
@@ -3519,6 +3565,8 @@ async def run_phase_h_validate(
             el_type=rpu_info.el_type,
             cm_version=rpu_info.cm_version,
             frame_count=rpu_info.frame_count,
+            has_l8=rpu_info.has_l8,
+            has_l11=rpu_info.has_l11,
         )
         if log_callback:
             await log_callback(
