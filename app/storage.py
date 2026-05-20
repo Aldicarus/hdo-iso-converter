@@ -293,6 +293,41 @@ def list_cmv40_sessions() -> list[CMv40Session]:
     return sessions
 
 
+def list_cmv40_sessions_summary() -> list[dict]:
+    """Lista resumida (sin output_log ni phase_history) — para el sidebar.
+
+    El sidebar y el indicador de "running" del header solo necesitan
+    metadatos: id, nombre, fase, running_phase, target_type, archived…
+    NO necesitan el `output_log` (que llega a MBs por sesión bajo jobs
+    largos) ni `phase_history` detallado.
+
+    Reduce el payload de GET /api/cmv40 de ~10-30 MB con 20-30 sesiones a
+    < 1 MB y elimina la causa principal de timeouts del sidebar bajo
+    carga I/O del NAS (visto: durante Fase H extract-rpu con varias
+    sesiones acumuladas, el sidebar tardaba >2 min en refrescar el
+    spinner). El detalle completo está disponible en GET /api/cmv40/{id}.
+    """
+    if not CMV40_DIR.exists():
+        return []
+    summaries: list[dict] = []
+    for path in sorted(
+        CMV40_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # Sustituimos por listas vacías para no romper consumidores
+            # que asumen el campo presente (frontend code defensive).
+            data["output_log"] = []
+            data["phase_history"] = []
+            summaries.append(data)
+        except Exception as e:
+            logger.warning("CMv40 sesión corrupta, omitida: %s — %s", path.name, e)
+            continue
+    return summaries
+
+
 def delete_cmv40_session(session_id: str) -> bool:
     """Elimina el JSON de una sesión CMv4.0. No borra los artefactos."""
     path = _cmv40_session_path(session_id)

@@ -3378,9 +3378,21 @@ class CMv40AutoPipelineRequest(BaseModel):
     enabled: bool
 
 
-@app.get("/api/cmv40", summary="Lista proyectos CMv4.0")
+@app.get("/api/cmv40", summary="Lista proyectos CMv4.0 (sidebar — sin output_log/phase_history)")
 async def list_cmv40():
-    return {"sessions": [s.model_dump() for s in list_cmv40_sessions()]}
+    """Devuelve metadatos de todas las sesiones para alimentar el sidebar.
+
+    Excluye `output_log` y `phase_history` por tamaño (cada sesión puede
+    tener MBs de log tras un job largo). Bajo carga I/O del NAS, devolver
+    todo causaba timeouts del sidebar de >30s. Para el detalle completo
+    (incluido el log) usar GET /api/cmv40/{id}.
+    """
+    from storage import list_cmv40_sessions_summary
+    # I/O bound: lectura de N JSON. Lo movemos al thread pool para no
+    # bloquear el event loop durante operaciones I/O lentas (NAS bajo
+    # carga, scan de docenas de ficheros).
+    sessions = await asyncio.to_thread(list_cmv40_sessions_summary)
+    return {"sessions": sessions}
 
 
 @app.get("/api/cmv40/rpu-files", summary="Lista RPUs disponibles en /mnt/cmv40_rpus")

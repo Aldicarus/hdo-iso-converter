@@ -3524,7 +3524,7 @@ async def run_phase_h_validate(
                 rc, _, err = await _run([
                     DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
                     "-o", str(full_rpu),
-                ], timeout=900)
+                ], log_callback=log_callback, timeout=900)
             finally:
                 hb_task.cancel()
                 try:
@@ -3541,7 +3541,8 @@ async def run_phase_h_validate(
                 await log_callback("[Fase H] Paso 2/3: analizando metadata del RPU…")
             await _emit_progress(log_callback, 80, "Analizando RPU")
             rc, summary, err = await _run(
-                [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)], timeout=60
+                [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)],
+                log_callback=log_callback, timeout=60,
             )
             if rc != 0:
                 raise RuntimeError(f"dovi_tool info falló sobre RPU completo: {err[:200]}")
@@ -3642,7 +3643,10 @@ async def run_phase_h_validate(
             f"{size_hint} (lee el contenedor entero, suele tardar unos segundos en NAS)…"
         )
     await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
-    rc, out, err = await _run([MKVMERGE_BIN, "-J", str(output_mkv)], timeout=60)
+    rc, out, err = await _run(
+        [MKVMERGE_BIN, "-J", str(output_mkv)],
+        log_callback=log_callback, timeout=60,
+    )
     if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge -J falló sobre MKV final: {err[:200]}")
 
