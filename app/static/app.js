@@ -11216,6 +11216,31 @@ function _cmv40AssignSession(project, data) {
       preserved[f] = project.session[f];
     }
   }
+  // running_phase: preservar el optimistic local si hay race condition
+  // con el GET. Caso concreto del bug: cuando "✓ Fase X completada" llega
+  // por WS, el frontend dispara GET /api/cmv40/{id}. Bajo carga I/O del
+  // NAS ese GET puede tardar 30s en responder. Mientras tanto:
+  //   T=0:    backend save running_phase=null (fin de fase X)
+  //   T=0.01: backend dispatch a siguiente fase Y → save running_phase=Y
+  //   T=0.02: WS broadcasta "━━━ Inicio fase: Y ━━━" → optimistic local Y
+  //   T=30:   GET de T=0 responde — pero load_cmv40_session leyó el JSON
+  //           en la ventana de ~10ms donde running_phase=null y devuelve
+  //           ese snapshot obsoleto. Sin este guard, _cmv40AssignSession
+  //           pisaba el optimistic Y con un null antiguo → spinner del
+  //           timeline desaparecía de la fase nueva hasta el SIGUIENTE
+  //           GET (el del "━━━ Inicio fase: Y" propio).
+  // Si el local tiene running_phase reciente y data lo trae null pero la
+  // sesión no es terminal, conservamos el local.
+  if (project.session && project.session.running_phase
+      && !data.running_phase
+      && data.phase !== 'done'
+      && !data.archived
+      && !data.error_message) {
+    const optimisticAt = project._optimisticRunningPhaseAt || 0;
+    if (Date.now() - optimisticAt < 60000) {
+      preserved.running_phase = project.session.running_phase;
+    }
+  }
   project.session = Object.assign({}, data, preserved);
   _cmv40RehydratePendingTarget(project);
 }
@@ -11505,6 +11530,9 @@ function _connectCMv40WebSocket(project) {
       const startMatch = ev.data.match(/━━━ Inicio fase:\s*([a-z_]+)\s*━━━/i);
       if (startMatch) {
         project.session.running_phase = startMatch[1];
+        // Timestamp para que _cmv40AssignSession sepa que este valor es
+        // reciente y NO debe pisarlo si un GET tardío trae null obsoleto.
+        project._optimisticRunningPhaseAt = Date.now();
         _updateCMv40Panel(project);
       } else if (/✓ Fase \w+ completada en/.test(ev.data) ||
                  /✗ Fase \w+ FALLÓ/.test(ev.data)) {
@@ -11512,6 +11540,7 @@ function _connectCMv40WebSocket(project) {
         // spinner desaparezca de la fase anterior mientras llega el GET
         // que dirá la fase nueva (si la hay) o el done definitivo.
         project.session.running_phase = null;
+        project._optimisticRunningPhaseAt = 0;
         _updateCMv40Panel(project);
       }
     }
