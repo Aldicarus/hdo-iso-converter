@@ -3031,10 +3031,13 @@ async def _merge_cmv40_into_p7(
         levels_label = "[3,8,9,11,254]"
         preserve_note = "L1/L2/L5/L6 preservados del BD"
 
-    # Si el target carece de L11 (content type) — caso ocasional con bins
-    # generados o restaurados parciales — añadimos el bloque por defecto vía
-    # `add_cmv4_default_metadata` para que el RPU resultante sea un CMv4.0
-    # completo y no quede sin Content Type.
+    # NOTA: el campo `add_cmv4_default_metadata` documentado en docs/editor.md
+    # de dovi_tool main está pendiente de liberar — no aparece en ninguna
+    # release publicada (la última es 2.3.2, que es la que el contenedor usa).
+    # En cuanto dovi_tool publique una release que lo soporte, podemos volver
+    # a añadir la rama que rellena L11 default cuando el target carece de él.
+    # Por ahora, si el target sin L11 → output sin L11 (CMv4.0 válido, sin
+    # Content Type explícito; los displays HDR aplican preset default).
     wd = rpu_source_p7.parent
     cfg_path = wd / "_merge_cmv4_transfer.json"
     cfg: dict = {
@@ -3042,23 +3045,14 @@ async def _merge_cmv40_into_p7(
         "source_rpu": str(rpu_target_v40.resolve()),
         "rpu_levels": levels,
     }
-    target_lacks_l11 = bool(target_info and not target_info.has_l11)
-    if target_lacks_l11:
-        # Defaults razonables para L11 (content type "Cinema" / reference mode).
-        # El display HDR aplicará el preset Movie/Cinema. dovi_tool rellena el
-        # resto de campos opcionales con valores por defecto sensatos.
-        cfg["add_cmv4_default_metadata"] = True
-        cfg["level11"] = {
-            "content_type": 1,        # 1 = Cinema (Movie)
-            "whitepoint": 0,          # 0 = D65 (estándar)
-            "reference_mode_flag": False,
-        }
     cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
+    target_lacks_l11 = bool(target_info and not target_info.has_l11)
     if log_callback:
         src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
         l11_note = (
-            " · target sin L11 → añadiendo default Cinema/D65"
+            " · ⚠ target sin L11 → el output quedará sin Content Type "
+            "(válido como CMv4.0; los displays HDR aplicarán preset default)"
             if target_lacks_l11 else ""
         )
         await log_callback(
