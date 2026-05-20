@@ -11492,7 +11492,30 @@ function _connectCMv40WebSocket(project) {
     // Marca timestamp del último mensaje recibido — el watchdog usa esto
     // para detectar conexiones zombie (WS reporta OPEN pero no llega data).
     project._lastWsMessageAt = Date.now();
-    // Refrescar sesión periódicamente
+    // ── Optimistic update del timeline ────────────────────────────────
+    // El GET /api/cmv40/{id} bajo carga I/O del NAS (extract-rpu en
+    // paralelo) puede tardar 30-60s en responder. Sin esto, el spinner
+    // del timeline lateral tardaba minutos en aparecer en la fase nueva
+    // (visto en Fase H tras un remux pesado). Aquí extraemos el nombre
+    // de la fase desde el marcador del log y actualizamos
+    // project.session.running_phase de inmediato — el timeline pinta el
+    // spinner correcto al instante. El GET posterior trae datos
+    // autoritativos y rectifica si hay discrepancia.
+    if (project.session) {
+      const startMatch = ev.data.match(/━━━ Inicio fase:\s*([a-z_]+)\s*━━━/i);
+      if (startMatch) {
+        project.session.running_phase = startMatch[1];
+        _updateCMv40Panel(project);
+      } else if (/✓ Fase \w+ completada en/.test(ev.data) ||
+                 /✗ Fase \w+ FALLÓ/.test(ev.data)) {
+        // Fase terminó: limpia running_phase localmente para que el
+        // spinner desaparezca de la fase anterior mientras llega el GET
+        // que dirá la fase nueva (si la hay) o el done definitivo.
+        project.session.running_phase = null;
+        _updateCMv40Panel(project);
+      }
+    }
+    // Refrescar sesión vía REST para tener phase/phase_history/etc al día
     if (ev.data.includes('━━━') || ev.data.includes('✓') || ev.data.includes('✗')) {
       _refreshCMv40Session(project.id);
     }
