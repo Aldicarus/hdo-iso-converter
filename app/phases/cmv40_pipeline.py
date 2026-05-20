@@ -3488,16 +3488,50 @@ async def run_phase_h_validate(
         try:
             if log_callback:
                 hevc_gb = pre_mux_hevc.stat().st_size / 1e9
+                # ETA orientativa: dovi_tool extract-rpu sobre NAS ronda
+                # ~3-5 min por cada 30 GB de HEVC (depende de carga I/O).
+                eta_min_lo = max(2, int(hevc_gb / 30 * 3))
+                eta_min_hi = max(5, int(hevc_gb / 30 * 5))
                 await log_callback(
                     f"[Fase H] Paso 1/3: extrayendo RPU completo del HEVC "
                     f"pre-mux ({pre_mux_hevc.name}, {hevc_gb:.1f} GB) — "
-                    "validación rigurosa del frame count y CMv4.0…"
+                    f"validación rigurosa del frame count y CMv4.0. "
+                    f"Operación pesada (lectura del HEVC entero por dovi_tool, "
+                    f"~{eta_min_lo}-{eta_min_hi} min sobre NAS)…"
                 )
             await _emit_progress(log_callback, 5, "Extrayendo RPU completo del pre-mux")
-            rc, _, err = await _run([
-                DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
-                "-o", str(full_rpu),
-            ], timeout=900)
+
+            # Heartbeat task: dovi_tool extract-rpu no streamea progreso al log
+            # (sale en stderr solo al final), así que sin esto el modal queda
+            # sin actividad ~5-8 min y parece colgado. Cada 30s emitimos el
+            # tiempo transcurrido para confirmar que sigue trabajando.
+            import time
+            hb_start = time.monotonic()
+            async def _heartbeat():
+                try:
+                    while True:
+                        await asyncio.sleep(30)
+                        elapsed = int(time.monotonic() - hb_start)
+                        if log_callback:
+                            await log_callback(
+                                f"[Fase H]  ⏱ extract-rpu en curso… "
+                                f"({elapsed // 60}min {elapsed % 60}s transcurridos)"
+                            )
+                except asyncio.CancelledError:
+                    return
+            hb_task = asyncio.create_task(_heartbeat())
+            try:
+                rc, _, err = await _run([
+                    DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
+                    "-o", str(full_rpu),
+                ], timeout=900)
+            finally:
+                hb_task.cancel()
+                try:
+                    await hb_task
+                except asyncio.CancelledError:
+                    pass
+
             if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
                 raise RuntimeError(
                     f"extract-rpu falló sobre {pre_mux_hevc.name}: {err[:200]}"

@@ -2964,8 +2964,20 @@ async def _run_cmv40_phase(
             "Fase %s ignorada para sesión %s: ya hay una fase en curso (lock)",
             phase_name, session.id,
         )
-        await _cmv40_log(session,
-            f"⏭ Fase {phase_name} ignorada — ya hay otra fase en curso para este proyecto")
+        # Si el intento es de la MISMA fase ya en curso, skip silente: el
+        # frontend re-dispara la siguiente fase en cada WS update (polling
+        # del safety + WS message del log), y todos los intentos durante
+        # una fase larga (extract-rpu de Fase H sobre 60+ GB) llegan aquí.
+        # Loguear cada intento llenaba el log con docenas de líneas de ruido.
+        # Solo logueamos si la fase intentada es DISTINTA de la que corre
+        # (caso anómalo — race de orquestadores).
+        fresh = load_cmv40_session(session.id)
+        running = (fresh.running_phase if fresh else "") or ""
+        if running and running != phase_name:
+            await _cmv40_log(
+                session,
+                f"⏭ Fase {phase_name} ignorada — ya hay otra fase ({running}) en curso para este proyecto"
+            )
         return
     async with lock:
         started = datetime.now(timezone.utc)
