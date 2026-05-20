@@ -2629,6 +2629,9 @@ const _CMV40_HELP_SECTIONS = {
     <div class="help-callout help-callout-info">
       <strong>Bloqueante por diseño</strong>: durante el pre-flight la sesión está en <code>running_phase="preflight"</code>, lo que impide que el auto-pipeline lance Fase A en paralelo. Cancelable como cualquier otra fase. Si se aborta, no se gasta nada del análisis pesado.
     </div>
+    <div class="help-callout help-callout-success">
+      <strong>Resiliente al cliente</strong>: el pre-flight (y todas las fases automáticas que vienen después) se ejecutan en el servidor de forma independiente del navegador. Aunque cierres la pestaña, se duerma el Mac o falle la red, el job continúa hasta el final. Al volver a la app verás el estado actualizado y el log completo en el panel del proyecto.
+    </div>
 
     <h3>Fase A — Analizar el Blu-ray de origen</h3>
     <p>Fase A hace más de lo que su nombre sugiere: no es solo "detectar qué tienes", es también <strong>extraer el material que servirá de referencia para todas las validaciones posteriores</strong>. En concreto:</p>
@@ -2697,10 +2700,14 @@ const _CMV40_HELP_SECTIONS = {
     <p>Aquí la app sustituye el RPU v2.9 original del Blu-ray por el CMv4.0 del target. La operación concreta varía según la combinación source/target:</p>
     <ul>
       <li><strong>Drop-in FEL</strong>: el bin es un RPU P7 FEL CMv4.0 compatible byte a byte — se inyecta directo sin separar capas. Caso más limpio.</li>
-      <li><strong>Merge con P7 clásico</strong>: el bin es P8.x retail (WEB-DL) pero tu BD es P7 FEL. La app transfiere los trims L8-L11 del bin al RPU P7 preservando todo el EL del Blu-ray. Resultado: P7 FEL CMv4.0 completo.</li>
-      <li><strong>P7 MEL → P8.1</strong>: tu BD es MEL, que aporta poco. La app descarta el EL y usa solo la BL + RPU CMv4.0. El resultado es un MKV P8.1 single-layer, más ligero y sin pérdida visual real.</li>
-      <li><strong>P8 directo</strong>: source y target son P8 — inyección limpia, single-layer.</li>
+      <li><strong>Merge con source P7 FEL</strong>: el RPU del Blu-ray tiene una capa de mejora real (BL+EL). La app transfiere los niveles <code>[1, 2, 3, 6, 8, 9, 10, 11, 254]</code> del bin al RPU FEL — incluye los niveles "comunes" L1/L2/L6 porque en FEL el grading WEB restaurado suele ser más afinado que el L1 legacy del disco. Preserva el corte/aspect ratio (L5) del BD. Resultado: P7 FEL CMv4.0 completo.</li>
+      <li><strong>Merge con source P7 MEL o P8</strong>: el RPU del Blu-ray ya describe los píxeles finales del disco (sin capa de mejora). La app transfiere SOLO los niveles exclusivos de CMv4.0 <code>[3, 8, 9, 11, 254]</code> — los brillos por escena (L1), trims por display (L2), corte (L5) y peak/max (L6) se quedan del BD porque describen tus píxeles, no los del WEB target. Resultado: P8.1 CMv4.0 sin alterar el carácter del disco.</li>
+      <li><strong>P7 MEL → P8.1 directo</strong>: si el bin coincide con la BL del MEL (drop-in P8), inyección limpia sin merge. Se descarta el EL del MEL (no aporta sobre un CMv4.0 moderno) y queda un single-layer ligero.</li>
+      <li><strong>P8 directo</strong>: source y target son P8 con CMv4.0 — inyección limpia, single-layer.</li>
     </ul>
+    <div class="help-callout help-callout-info">
+      <strong>Por qué dos listas de niveles distintas</strong>: en P7 FEL el contenido BL+EL combinado a veces diverge ligeramente del L1 "estático" del disco, así que el L1 restaurado del WEB ofrece tone-mapping más afinado escena a escena. En P7 MEL y P8 el L1 del BD <em>es</em> la verdad del contenido — sobreescribirlo con datos calibrados para otro master daría brillos incorrectos en TVs HDR. Las dos listas coinciden exactamente con la implementación de referencia <a href="https://github.com/bbeny123/remuxer" target="_blank" rel="noreferrer">bbeny123/remuxer</a> y con las recomendaciones de la docs oficial de <a href="https://github.com/quietvoid/dovi_tool/blob/main/docs/editor.md" target="_blank" rel="noreferrer">dovi_tool</a>.
+    </div>
 
     <h3>Fase G — Ensamblar el MKV final</h3>
     <p>El vídeo con el RPU CMv4.0 se junta con el audio, subtítulos y capítulos del Blu-ray original. El MKV resultante se escribe con una barra de progreso real (no estimada). Se escribe con sufijo temporal y se renombra atómicamente al nombre final al acabar — si la app se corta a mitad, nunca queda un MKV a medias con el nombre definitivo.</p>
@@ -2711,7 +2718,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Dos rutas de validación según el modo:</strong>
       <ul style="margin:6px 0 0 0; padding-left:18px">
         <li><strong>Drop-in FEL puro</strong> (caso típico con bins de DoviTools): la cadena upstream ya garantiza que el output es Profile 7 FEL CMv4.0 — el bin pasó pre-flight como CMv4.0, los <em>trust gates</em> de Fase B dieron OK, y <code>inject-rpu</code> es una operación determinista que copia el bin íntegro al stream HEVC. Por eso la Fase H se reduce a <code>ffprobe</code> (frame count) + <code>mkvmerge -J</code> (integridad del Matroska). Tarda segundos.</li>
-        <li><strong>Merge CMv4.0</strong> (cuando el bin necesita transferir levels al RPU del Blu-ray): el RPU final viene de un merge frame-a-frame, así que sí necesitamos verificarlo. La app extrae <strong>dos muestras de 30s</strong> del MKV final — primeros 30s (HEAD) y últimos 30s (TAIL) — corre <code>dovi_tool extract-rpu</code> sobre cada chunk, y valida que ambos reportan <strong>CMv4.0</strong> con el <em>el_type</em> esperado. Si el merge hubiera producido asimetrías (un trozo CMv4.0 y otro CMv2.9, p.ej.), el muestreo lo detecta. El frame count se obtiene de <code>ffprobe</code> sobre el MKV completo, así que sigue siendo end-to-end. Tarda ~30s, frente a los 5-8 min del extract-rpu completo del stream entero.</li>
+        <li><strong>Merge CMv4.0</strong> (cuando el bin necesita transferir levels al RPU del Blu-ray): el RPU final viene de un merge frame-a-frame, así que se valida con la máxima exigencia. La app extrae el <strong>RPU completo del HEVC pre-mux</strong> con <code>dovi_tool extract-rpu</code> y verifica frame a frame que: (1) el frame count del RPU coincide exactamente con el esperado (tolerancia ±2), (2) la metadata reporta <strong>CM v4.0</strong>, (3) el <em>el_type</em> es el esperado según el source workflow, (4) hay bloques <strong>L8</strong> presentes (los trims que hacen útil el upgrade). Si cualquiera falla se aborta antes del rename — el MKV temporal queda en disco con sufijo <code>.tmp</code> para inspección. Tarda 3-8 min según peli, comparable al tiempo de extract original.</li>
       </ul>
     </div>
 
@@ -2839,7 +2846,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
       </div>
-      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> El bin es un P8.1 retail típico (por ejemplo un WEB-DL reciente de la película). La app transfiere los trims L8-L11 del bin al RPU P7 del Blu-ray preservando el EL completo. Resultado final: P7 FEL CMv4.0 con toda la calidad del disco + los niveles nuevos.</div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> El bin es un P8.1 retail típico (por ejemplo un WEB-DL reciente). En FEL la app transfiere los niveles <code>[1,2,3,6,8,9,10,11,254]</code> al RPU P7 del Blu-ray — incluye L1/L2/L6 deliberadamente porque el grading WEB restaurado es más afinado que el legacy del disco. El EL del BD se preserva intacto. Resultado: P7 FEL CMv4.0 con toda la calidad del disco + los niveles refinados.</div>
     </div>
 
     <div class="help-pipeline-diagram">
@@ -2965,7 +2972,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
       </div>
-      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Hay bin P8.1 de otra edición (sin los marcadores del repo tipo 'trusted_p8_source') pero con CMv4.0 válido. Mismo flujo que los anteriores: descartar EL, inyectar target en BL → P8.1 CMv4.0.</div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Hay bin P8.1 retail (o P7 MEL/FEL del repo con CMv4.0) pero clasificado como "merge" porque no es match exacto de profile para drop-in directo. La app descarta el EL del MEL y mergea los niveles exclusivos de CMv4.0 <code>[3,8,9,11,254]</code> del bin en el RPU del source — los niveles que describen tus píxeles (L1/L2/L5/L6) se quedan del BD. Resultado: P8.1 CMv4.0 sin alterar el carácter del disco.</div>
     </div>
 
     <div class="help-pipeline-diagram">
@@ -3064,7 +3071,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
       </div>
-      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Variante del anterior con un bin P8.x de otra edición. Mismo flujo: reemplazo del RPU in-place sobre el HEVC existente → P8.1 CMv4.0 refinado.</div>
+      <div class="help-pipeline-diagram-sub"><span class="help-pill help-pill-retail">Retail</span> Bin P8.x retail de otra edición (o un P7 MEL/FEL clasificado como merge). La app transfiere los niveles exclusivos de CMv4.0 <code>[3,8,9,11,254]</code> al RPU del source P8 — el L1/L2/L5/L6 del MKV original se queda intacto. Reemplazo del RPU in-place sin tocar el HEVC. Resultado: P8.1 CMv4.0 refinado.</div>
     </div>
 
     <div class="help-pipeline-diagram">
@@ -3163,6 +3170,8 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td>La inyección se queda colgada o tarda demasiado</td><td>El NAS está saturado con otras tareas de I/O en paralelo</td><td>Cancela, espera a que terminen las otras tareas y relanza. Los proyectos guardan progreso — no pierdes nada.</td></tr>
       <tr><td>El MKV está upgradeado a CMv4.0 pero en tu TV se ve igual que antes</td><td>Tu TV o tu cadena de reproducción no entiende CMv4.0</td><td>Revisa la sección "Por qué upgrade" de este manual: la matriz de TV / firmware detalla qué modelos y reproductores muestran realmente los trims nuevos. No es un problema del MKV — es una limitación del display.</td></tr>
       <tr><td>El pipeline se detiene en Fase B con "CM version ≠ v4.0"</td><td>El bin que has elegido es CMv2.9 — no sirve para upgrade (sería sustituir lo mismo por lo mismo)</td><td>Elige otro bin marcado como CMv4.0. Si el repo solo tiene v2.9 para esta película, el upgrade no es posible por ahora.</td></tr>
+      <tr><td>Cerraste la tapa del Mac / la pestaña a mitad de un job y al volver no ves progreso al instante</td><td>El servidor seguía trabajando todo el tiempo. Cuando recarga la web, la app vuelve a engancharse al WebSocket de log y re-hidrata el panel del proyecto desde disco. El gap suele ser de 1-3 segundos.</td><td>Espera unos segundos a que el panel se actualice solo. El log es persistente — verás toda la actividad mientras estabas fuera. Si el job terminó por completo, lo verás como "done" con el MKV en <code>/mnt/output</code>.</td></tr>
+      <tr><td>Validación final aborta con "RPU del MKV final NO contiene bloques L8"</td><td>El merge produjo un RPU marcado como CMv4.0 pero sin los trims L8 que dan utilidad real al upgrade. Posible bug puntual de <code>dovi_tool editor</code> en ese título concreto.</td><td>El MKV temporal queda preservado con sufijo <code>.tmp</code> para que lo puedas inspeccionar manualmente. Relanza Fase F+G+H — si vuelve a pasar, el bin target puede estar corrupto: prueba otra fuente del repo.</td></tr>
     </table>
 
     <h2>🔄 Modo automático vs manual</h2>
@@ -3180,6 +3189,10 @@ const _CMV40_HELP_SECTIONS = {
 
     <div class="help-callout help-callout-success">
       <strong>Modo auto-pipeline:</strong> toggle en el modal "Nuevo proyecto" (activado por defecto cuando el target es pre-validado). Con auto on y un bin pre-validado el pipeline completo dura ~20-25 minutos sin que tengas que tocar nada. Con un bin no pre-validado (generated o MKV custom) el pipeline se detiene en Fase D y espera tu revisión — es lo esperado y correcto.
+    </div>
+
+    <div class="help-callout help-callout-success">
+      <strong>Resiliente al estado del cliente:</strong> el auto-pipeline encadena las fases en el servidor (no en el navegador). Eso significa que el job sigue avanzando aunque cierres la pestaña, cierres la tapa del Mac, el navegador se cuelgue o se vaya el WiFi. Al volver a la app verás el log entero y el estado actualizado del proyecto. La única forma de parar un job en curso es pulsar "Cancelar" en el modal de la fase activa o reiniciar el contenedor — un cierre accidental del cliente no afecta.
     </div>
 
     <div class="help-sources">

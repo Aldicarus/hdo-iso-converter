@@ -9,7 +9,7 @@ Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. E
 | Posición visual | Label UI | Panel interno | Descripción |
 |---|----------|---|-------------|
 | 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas (audio/subs/capítulos) y soporte Dolby Vision FEL. Loop mount directo del ISO sin copia previa |
-| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original. Pre-flight rápido del bin antes de la fase pesada, sync visual frame-a-frame con corrección de offset acumulativo, sistema de trust gates con drop-in para bins pre-validados |
+| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original. Pre-flight rápido del bin antes de la fase pesada, sync visual frame-a-frame con corrección de offset acumulativo, sistema de trust gates con drop-in para bins pre-validados, auto-pipeline backend-driven que sobrevive a cierre del cliente |
 | 3 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspección profunda (codecs comerciales, bitrate real, HDR10 MaxCLL/MaxFALL, cadena de mastering DV completa, perfil de luminancia DV L1 frame-a-frame) y edición in-place via mkvpropedit |
 
 ## Inicio rápido
@@ -216,6 +216,14 @@ Antes de gastar Fase A (~12 min para extraer el HEVC de UHD), un pre-flight ráp
 
 Es asíncrono (running_phase="preflight"), bloqueante (otras fases no arrancan en paralelo), y cancelable.
 
+### Auto-pipeline backend-driven
+
+Cuando el modo auto está activado (toggle del modal "Nuevo proyecto"), el servidor encadena por sí mismo todas las fases que no requieren intervención manual: pre-flight → Fase A → Fase B → trust gates → (Fase C/D solo si los gates no pasan) → Fase F → Fase G → Fase H → done. El cliente no participa en la orquestación.
+
+Consecuencia práctica: el job sobrevive a Mac sleep, cierre de pestaña, navegador crashado, pérdida de WiFi. El estado se persiste atómicamente en `/config/cmv40/{session_id}.json` tras cada fase y el log se escribe en disco con throttle (saves inmediatos en marcadores clave + flush al terminar cada fase). Al reabrir la app se hidrata el panel desde disco y se reengancha al WebSocket de log en ~1-3 segundos.
+
+Recovery tras reinicio del servidor: las sesiones que estaban con `running_phase != null` se marcan como error con mensaje "Sesión interrumpida por reinicio del servidor" (comportamiento intencional — no se reanudan auto-mágicamente para evitar reanudaciones no deseadas tras un kill).
+
 ### Fases del pipeline
 
 1. **Analizar origen** — ffmpeg + dovi_tool extract-rpu del MKV origen.
@@ -223,9 +231,11 @@ Es asíncrono (running_phase="preflight"), bloqueante (otras fases no arrancan e
 3. **Extraer BL/EL** — dovi_tool demux + per-frame data muestreado (saltada con bins drop-in).
 4. **Verificar sincronización** — gráfico interactivo con dos curvas, zoom, detección automática de offset, correcciones acumulativas, métrica de confianza (correlación Pearson sobre MaxCLL).
 5. **Aplicar corrección** — `dovi_tool editor` con `remove`/`duplicate` (parte de Fase D, no avanza fase).
-6. **Inyectar RPU** — `dovi_tool inject-rpu`.
+6. **Inyectar RPU** — drop-in con `inject-rpu` (sustitución íntegra del bin) o merge frame-a-frame con `dovi_tool editor --allow-cmv4-transfer`. Los niveles transferidos dependen del source workflow (alineado con la implementación de referencia [bbeny123/remuxer](https://github.com/bbeny123/remuxer)):
+   - **Source P7 FEL** → `[1, 2, 3, 6, 8, 9, 10, 11, 254]` (incluye L1/L2/L6 deliberadamente — el grading WEB restaurado refina la stats L1 legacy del BD)
+   - **Source P7 MEL / P8** → `[3, 8, 9, 11, 254]` (solo niveles CMv4.0-exclusivos + L3 + marker; L1/L2/L5/L6 del BD se preservan porque describen tus píxeles)
 7. **Remux final** — `dovi_tool mux` + mkvmerge preservando audio/subs/capítulos.
-8. **Validar** — extracción del RPU del MKV resultante + verificación CM v4.0.
+8. **Validar** — fast path para drop-in (ffprobe + mkvmerge -J, ~segundos) o extract-rpu COMPLETO del HEVC pre-mux con validación rigurosa para merge (frame count ±2 vs expected, CM v4.0, el_type según workflow, **L8 presente**). Si la validación falla el `.mkv.tmp` se preserva para inspección.
 
 ### Sistema de trust
 
@@ -242,6 +252,10 @@ Tras Fase B, el bin se clasifica en `target_type`:
 Gates críticos: `frames` (Δ=0), `cm_version` (v4.0), `has_l8`, `l5_div` (≤30 px). Soft: `l6_div` (±50 nits), `l1_div` (±5%).
 
 Override manual: `trust_override = "force_interactive"` fuerza ruta A completa aunque el bin sea trusted.
+
+### Validación L8 post-merge (Fase H)
+
+Cuando el path clásico (merge) llega a la fase de validación, se hace `dovi_tool extract-rpu` completo sobre el HEVC pre-mux y se exige `has_l8 == True` en el RPU resultante. Es defensa en profundidad contra un eventual bug de `dovi_tool editor` que dejara el RPU marcado como v4.0 pero sin los trims L8 que dan utilidad real al upgrade. Si falla, el `.mkv.tmp` queda preservado para inspección.
 
 ### Recomendación CMv4.0 (sheet live + Drive)
 
@@ -316,15 +330,16 @@ hdo-iso-converter/
 - `POST /api/mkv/apply` — aplicar ediciones (mkvpropedit)
 
 ### Tab 3 — CMv4.0
-- `GET /api/cmv40`, `POST /api/cmv40/create`, `GET/DELETE /api/cmv40/{id}`
-- `POST /api/cmv40/{id}/preflight-target` — pre-flight bloqueante (kind: drive | path | mkv)
+- `GET /api/cmv40`, `POST /api/cmv40/create` (acepta `auto_pipeline` + `pending_target` para que el backend orqueste solo), `GET/DELETE /api/cmv40/{id}`
+- `POST /api/cmv40/{id}/auto-pipeline` — toggle del modo automático mid-pipeline
+- `POST /api/cmv40/{id}/preflight-target` — pre-flight bloqueante (kind: drive | path | mkv); con auto on encadena Fase A al terminar
 - `POST /api/cmv40/{id}/analyze-source` — Fase A
 - `POST /api/cmv40/{id}/target-rpu-{path|mkv|from-drive}` — Fase B
 - `POST /api/cmv40/{id}/extract` — Fase C
 - `GET /api/cmv40/{id}/sync-data` — datos del chart de Fase D
 - `POST /api/cmv40/{id}/{apply-sync|reset-sync|mark-synced|inject|remux|validate|cleanup}` — fases siguientes
 - `POST /api/cmv40/{id}/cancel` — mata subprocess activo
-- `WS /ws/cmv40/{id}` — log en vivo
+- `WS /ws/cmv40/{id}` — log en vivo (replay automático desde watermark al reconectar)
 
 ### Settings + utilidades
 - `GET/PUT /api/settings` — configuración de API keys (TMDb / Google)
