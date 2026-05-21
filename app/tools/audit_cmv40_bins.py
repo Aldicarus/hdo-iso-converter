@@ -87,6 +87,56 @@ async def _download_bin_from_drive(file_id: str, dest: Path) -> bool:
         return False
 
 
+async def _extract_rpu_from_mkv(mkv: Path, tmp_hevc: Path, dest_rpu: Path) -> bool:
+    """Re-extrae el RPU de un MKV CMv4.0 (caso target_rpu_source='mkv').
+    Coste: 30-90s por MKV. Best-effort."""
+    try:
+        # ffmpeg -i MKV -map 0:v:0 -c:v copy -bsf:v hevc_mp4toannexb -f hevc tmp.hevc
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(mkv),
+            "-map", "0:v:0", "-c:v", "copy",
+            "-bsf:v", "hevc_mp4toannexb",
+            "-f", "hevc", str(tmp_hevc),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=300)
+        if proc.returncode != 0 or not tmp_hevc.exists():
+            return False
+        # dovi_tool extract-rpu tmp.hevc -o dest.bin
+        proc = await asyncio.create_subprocess_exec(
+            "dovi_tool", "extract-rpu", str(tmp_hevc), "-o", str(dest_rpu),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=300)
+        return proc.returncode == 0 and dest_rpu.exists() and dest_rpu.stat().st_size > 0
+    except Exception as e:
+        print(f"      ⚠ mkv re-extract failed: {e}", file=sys.stderr)
+        return False
+
+
+def _skip_reason(data: dict, redownload: bool) -> str:
+    """Devuelve un código de motivo legible para saber POR QUÉ se saltó
+    una sesión. Útil para diferenciar entre 'no bin info' vs 'bin info
+    pero descarga falló'."""
+    rpu_src = data.get("target_rpu_source", "")
+    rpu_path = data.get("target_rpu_path", "")
+    has_pending = bool(data.get("pending_target_file_id"))
+    if not rpu_src and not has_pending:
+        return "skip:no-bin-info"
+    if rpu_src == "drive" or has_pending:
+        if not redownload:
+            return "skip:need-redownload"
+        return "skip:drive-fail"
+    if rpu_src == "path":
+        return "skip:path-gone" if rpu_path else "skip:no-path"
+    if rpu_src == "mkv":
+        return "skip:mkv-gone" if rpu_path else "skip:no-mkv"
+    return f"skip:{rpu_src}" if rpu_src else "skip"
+
+
 async def _analyze_session(
     session_path: Path,
     workdir_base: Path | None,
@@ -155,9 +205,27 @@ async def _analyze_session(
                 bin_path = candidate
                 res["bin_origin"] = "workdir"
 
-        # Opción 3: re-descargar del Drive
+        # Opción 3: usar el bin local si la sesión apuntaba a una ruta
+        # (target_rpu_source="path") y el fichero aún existe en disco.
+        if bin_path is None:
+            rpu_src = data.get("target_rpu_source", "")
+            rpu_path_str = data.get("target_rpu_path", "")
+            if rpu_src == "path" and rpu_path_str and Path(rpu_path_str).exists():
+                bin_path = Path(rpu_path_str)
+                res["bin_origin"] = "path-cached"
+
+        # Opción 4: re-descargar del Drive. Buscamos el file_id en dos sitios:
+        #   - pending_target_file_id (sesiones post-Bloque pending_target)
+        #   - target_rpu_path con formato "drive://<FILE_ID>/<FILE_NAME>"
+        #     (sesiones antiguas — populadas por preflight_target_drive)
         if bin_path is None and redownload:
             file_id = data.get("pending_target_file_id", "")
+            if not file_id:
+                rpu_src = data.get("target_rpu_source", "")
+                rpu_path_str = data.get("target_rpu_path", "")
+                if rpu_src == "drive" and rpu_path_str.startswith("drive://"):
+                    after = rpu_path_str[len("drive://"):]
+                    file_id = after.split("/", 1)[0]
             if file_id:
                 tmp_path = Path(tempfile.gettempdir()) / f"audit_bin_{session_id}.bin"
                 ok = await _download_bin_from_drive(file_id, tmp_path)
@@ -165,8 +233,28 @@ async def _analyze_session(
                     bin_path = tmp_path
                     res["bin_origin"] = "redownload"
 
+        # Opción 5: el target vino de extraer el RPU de otro MKV
+        # (target_rpu_source="mkv"). Podemos re-extraer si el MKV aún
+        # existe. Caro pero opcional con --redownload.
+        if bin_path is None and redownload:
+            rpu_src = data.get("target_rpu_source", "")
+            mkv_path_str = data.get("target_rpu_path", "")
+            if rpu_src == "mkv" and mkv_path_str and Path(mkv_path_str).exists():
+                # Hacemos extract-rpu sobre el MKV original. Coste: 30-90s.
+                tmp_rpu = Path(tempfile.gettempdir()) / f"audit_bin_{session_id}.bin"
+                tmp_hevc = Path(tempfile.gettempdir()) / f"audit_hevc_{session_id}.hevc"
+                ok = await _extract_rpu_from_mkv(Path(mkv_path_str), tmp_hevc, tmp_rpu)
+                if ok:
+                    bin_path = tmp_rpu
+                    res["bin_origin"] = "mkv-reextract"
+                # Borrar HEVC intermedio (no necesario)
+                try:
+                    tmp_hevc.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
         if bin_path is None:
-            res["bin_origin"] = "skip"
+            res["bin_origin"] = _skip_reason(data, redownload)
             return res
 
         # Analizar bin
@@ -181,8 +269,8 @@ async def _analyze_session(
         res["scene_cuts"] = a.scene_cuts
         res["l2_unique_count"] = a.l2_unique_count
 
-        # Limpiar bin temporal si lo descargamos
-        if res["bin_origin"] == "redownload" and bin_path.exists():
+        # Limpiar bin temporal si lo descargamos o re-extrajimos
+        if res["bin_origin"] in ("redownload", "mkv-reextract") and bin_path.exists():
             try:
                 bin_path.unlink()
             except OSError:
