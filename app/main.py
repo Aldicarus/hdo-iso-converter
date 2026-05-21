@@ -3352,6 +3352,12 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     if not session.pending_target_kind:
         return  # nada que validar
 
+    # Guard contra re-disparo (defensa en profundidad — el llamador
+    # _cmv40_dispatch_next_phase ya lo chequea, pero protegemos por si en el
+    # futuro otro caller invoca este helper directamente).
+    if session.preflight_decision and session.preflight_decision != "ok":
+        return
+
     # Lock por sesión para no doble-fire
     lock = _get_cmv40_phase_lock(session.id)
     if lock.locked():
@@ -4825,6 +4831,22 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # Guard contra re-disparo: si el pre-flight ya emitió una decisión
+    # firme (keep_l8_default, keep_no_l8, abort_no_cmv40), NO re-ejecutar.
+    # La decisión queda esperando acción del usuario (cancelar proyecto
+    # o forzar Restore desde la UI). Sin este guard, el frontend con
+    # auto-pipeline puede caer en bucle: el poll cada 4s ve
+    # target_preflight_ok=False + autoContinue=true + phase=created y
+    # re-llama al endpoint indefinidamente.
+    if session.preflight_decision and session.preflight_decision != "ok":
+        return {
+            "ok": True, "started": False,
+            "reason": f"preflight_decision={session.preflight_decision} ya emitida — "
+                      f"esperando acción del usuario (cancelar o forzar Restore)",
+            "preflight_decision": session.preflight_decision,
+            "preflight_message": session.preflight_message,
+        }
 
     # ⚠️ DEV MODE: simula un bin trusted (CMv4.0) sin descargar nada
     if DEV_MODE:
