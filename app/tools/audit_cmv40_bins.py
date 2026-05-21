@@ -104,6 +104,7 @@ async def _analyze_session(
 
     res = {
         "name": name,
+        "output_mkv_name": data.get("output_mkv_name", ""),
         "phase": phase,
         "output_workflow": output_workflow,
         "source_workflow": data.get("source_workflow", ""),
@@ -120,6 +121,7 @@ async def _analyze_session(
         "l2_unique_count": 0,
         "tier": "",
         "label": "",
+        "suggested_filename": "",
         "should_have_been_keep": False,
     }
 
@@ -198,7 +200,44 @@ async def _analyze_session(
     if actually_processed and classification == "default":
         res["should_have_been_keep"] = True
 
+    # Calcular el filename que el MKV debería tener según el tier detectado.
+    # Solo si:
+    #   - el proyecto está done (hay MKV procesado)
+    #   - no es un caso "should be keep" (esos requieren acción distinta)
+    #   - el output_mkv_name actual NO contiene ya el label correcto
+    res["suggested_filename"] = _suggest_filename(
+        data.get("output_mkv_name", ""), label, classification, actually_processed,
+    )
+
     return res
+
+
+def _suggest_filename(current: str, label: str, classification: str,
+                      actually_processed: bool) -> str:
+    """Devuelve el filename que el MKV debería tener según la calidad
+    detectada. Cadena vacía si no aplica (proyecto no procesado, ya está
+    correcto, o caso 'should be keep' que no admite simple rename).
+    """
+    import re
+    if not actually_processed or not current:
+        return ""
+    if classification == "default":
+        # Si era sintético y se procesó, el rename no es la solución —
+        # el MKV en sí debería no existir. No sugerimos rename.
+        return ""
+    if not label:
+        return ""
+    # Si el current ya contiene el label correcto → sin cambio
+    expected_token = f"[{label}]"
+    if expected_token in current:
+        return ""
+    # Sustituir [CMv4.0] o [CMv4 XXX] viejo por el correcto
+    pattern = r"\[CMv4(?:\.0| (?:CORE\+?|FULL|MINIMAL))\]"
+    if re.search(pattern, current):
+        return re.sub(pattern, expected_token, current)
+    # No tiene bracket reconocible — el usuario habrá renombrado a mano,
+    # no tocamos.
+    return ""
 
 
 async def main() -> int:
@@ -254,21 +293,24 @@ async def main() -> int:
     print("=" * 100)
     print()
 
-    header = ("name", "src_wf", "tier", "L8 combos", "L8 trim%", "scene cuts",
+    header = ("name", "src_wf", "calidad", "L8 combos", "L8 trim%", "scene cuts",
               "origin", "phase", "wf_out", "desperdicio?")
-    print(f"  {header[0]:<60} {header[1]:<8} {header[2]:<10} "
+    print(f"  {header[0]:<60} {header[1]:<8} {header[2]:<14} "
           f"{header[3]:>10} {header[4]:>9} {header[5]:>11} "
           f"{header[6]:<12} {header[7]:<8} {header[8]:<16} {header[9]}")
-    print(f"  {'-' * 60} {'-' * 8} {'-' * 10} {'-' * 10} {'-' * 9} {'-' * 11} "
+    print(f"  {'-' * 60} {'-' * 8} {'-' * 14} {'-' * 10} {'-' * 9} {'-' * 11} "
           f"{'-' * 12} {'-' * 8} {'-' * 16} {'-' * 14}")
 
     for r in filtered:
         name = (r.get("name") or "")[:58]
         trim_pct = (1.0 - r.get("l8_neutral_pct", 0.0)) * 100
         waste = "  ⚠ SÍ" if r.get("should_have_been_keep") else ""
+        # Mostrar el label final que iría al filename (CMv4 CORE / CORE+ /
+        # FULL), o el motivo si no aplica (sintético / skip).
+        calidad = r.get("label") or (r.get("tier") or "?")
         print(f"  {name:<60} "
               f"{r.get('source_workflow','')[:8]:<8} "
-              f"{(r.get('tier') or '?')[:10]:<10} "
+              f"{calidad[:14]:<14} "
               f"{r.get('l8_unique_count', 0):>10} "
               f"{trim_pct:>8.1f}% "
               f"{r.get('scene_cuts', 0):>11} "
@@ -339,10 +381,52 @@ async def main() -> int:
             print(f"    L8 combos: {combos}")
             print(f"    % trim:    {[round(w, 1) for w in worked]}")
 
+    # ── Renombrados sugeridos ──────────────────────────────────────────
+    rename_candidates = [r for r in results if r.get("suggested_filename")]
+    if rename_candidates:
+        print()
+        print("=" * 100)
+        print(f"  RENOMBRADOS SUGERIDOS ({len(rename_candidates)} ficheros)")
+        print("  Los MKVs ya procesados no llevan el label de calidad correcto en su nombre.")
+        print("  Puedes renombrarlos manualmente con `mv` desde /mnt/output.")
+        print("=" * 100)
+        print()
+        # Mostramos cada par actual → sugerido en formato copy-paste friendly
+        for r in rename_candidates:
+            actual = r.get("output_mkv_name", "")
+            sugerido = r.get("suggested_filename", "")
+            calidad = r.get("label", "")
+            print(f"  📁 {actual}")
+            print(f"     → {sugerido}   ({calidad})")
+            print()
+        # Sugerencia: bloque de comandos mv para copiar-pegar
+        print("  Bloque de comandos mv (revisa antes de ejecutar):")
+        for r in rename_candidates:
+            actual = r.get("output_mkv_name", "").replace('"', '\\"')
+            sugerido = r.get("suggested_filename", "").replace('"', '\\"')
+            print(f'    mv "/mnt/output/{actual}" "/mnt/output/{sugerido}"')
+
+    # ── Sesiones desperdiciadas (Should-be-Keep procesadas) ────────────
+    wasted = [r for r in results if r.get("should_have_been_keep")]
+    if wasted:
+        print()
+        print("=" * 100)
+        print(f"  ⚠️ SESIONES DESPERDICIADAS ({len(wasted)})")
+        print("  Estos MKVs se procesaron pero su bin era sintético — el resultado visible es")
+        print("  equivalente a la conversión al vuelo del reproductor. Considera borrarlos y")
+        print("  mantener el MKV original en su lugar.")
+        print("=" * 100)
+        print()
+        for r in wasted:
+            print(f"  ⚠ {r.get('output_mkv_name') or r.get('name')}")
+            print(f"     bin sintético — L8 {r.get('l8_unique_count')} combos, "
+                  f"{(1.0 - r.get('l8_neutral_pct', 0.0)) * 100:.0f}% trim")
+
     # ── Volcar CSV opcional ────────────────────────────────────────────
     if args.csv:
-        cols = ["session_id", "name", "source_workflow", "target_type",
+        cols = ["session_id", "name", "output_mkv_name", "source_workflow", "target_type",
                 "phase", "output_workflow", "bin_origin", "tier", "label",
+                "suggested_filename",
                 "l8_unique_count", "l8_neutral_pct", "l8_has_mid_contrast",
                 "l8_has_clip_trim", "scene_cuts", "l2_unique_count",
                 "should_have_been_keep", "preflight_decision",
