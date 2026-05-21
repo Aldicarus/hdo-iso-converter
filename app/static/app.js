@@ -12586,14 +12586,15 @@ function _renderCMv40RecommendationCard(s, pid) {
   const isUnknown = action === 'unknown' || action === '';
   const projectDone = (s.phase === 'done' || s.archived);
 
-  // Color del badge según acción
+  // Badge alineado a la paleta de la app (light mode, variables CSS).
+  // Patrón estándar: dim background + border + color del nivel semántico.
   const badgeStyle = isKeep
-    ? 'background:#2a3d5c; color:#4da3ff; border:1px solid #4da3ff'
+    ? 'background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue-border)'
     : isDropIn
-    ? 'background:#1f3d2a; color:#5fcf7f; border:1px solid #5fcf7f'
+    ? 'background:var(--green-dim); color:var(--green); border:1px solid var(--green-border)'
     : isMerge
-    ? 'background:#3d2f1f; color:#e6a64a; border:1px solid #e6a64a'
-    : 'background:#2a2a2a; color:#999; border:1px solid #555';
+    ? 'background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border)'
+    : 'background:var(--surface-2); color:var(--text-2); border:1px solid var(--sep)';
 
   const label = s.recommended_action_label || (isUnknown ? '⏳ Esperando análisis' : '—');
   const reason = s.recommended_action_reason || '';
@@ -12606,59 +12607,52 @@ function _renderCMv40RecommendationCard(s, pid) {
     'CMv4 ?'
   );
 
-  // Comparación L2 — chip de color
+  // Chip comparación L2 (color semántico, paleta de la app)
   const l2Comp = s.l2_comparison || '';
   const l2Chip = l2Comp === 'identical'
-    ? '<span style="background:#1f3d2a; color:#5fcf7f; padding:2px 8px; border-radius:4px; font-size:11px">L2 idéntico al source</span>'
+    ? `<span style="background:var(--green-dim); color:var(--green); border:1px solid var(--green-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 idéntico al source</span>`
     : l2Comp === 'different'
-    ? '<span style="background:#3d2f1f; color:#e6a64a; padding:2px 8px; border-radius:4px; font-size:11px">L2 distinto del source</span>'
+    ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 distinto del source</span>`
     : '';
 
-  // Tabla de datos técnicos
+  // Datos técnicos en formato lista (grid 2-col label/value) — más legible
+  // que tabla HTML y sin riesgo de solape. Padding fijo + line-height claro.
   const techRows = [];
   if (s.target_l8_unique_count) {
-    techRows.push(
-      `<tr><td style="color:var(--text-3); font-size:11px">Combos L8</td><td style="font-size:12px">${s.target_l8_unique_count}</td></tr>`
-    );
+    techRows.push({ label: 'Combos L8', value: String(s.target_l8_unique_count) });
   }
   if (s.target_l8_neutral_frames_pct != null && s.target_frames_analyzed) {
     const worked = (1.0 - s.target_l8_neutral_frames_pct) * 100;
-    techRows.push(
-      `<tr><td style="color:var(--text-3); font-size:11px">Frames con trim</td><td style="font-size:12px">${worked.toFixed(0)}%</td></tr>`
-    );
+    techRows.push({ label: 'Frames con trim', value: `${worked.toFixed(0)}%` });
   }
   if (s.target_l8_has_mid_contrast || s.target_l8_has_clip_trim) {
     const extras = [];
     if (s.target_l8_has_mid_contrast) extras.push('target_mid_contrast');
     if (s.target_l8_has_clip_trim) extras.push('clip_trim');
-    techRows.push(
-      `<tr><td style="color:var(--text-3); font-size:11px">CMv4.0 extras</td><td style="font-size:12px">${extras.join(' · ')}</td></tr>`
-    );
+    techRows.push({ label: 'CMv4.0 extras', value: extras.join(' · ') });
   }
   if (s.target_l2_unique_count) {
-    techRows.push(
-      `<tr><td style="color:var(--text-3); font-size:11px">Combos L2 (bin)</td><td style="font-size:12px">${s.target_l2_unique_count}</td></tr>`
-    );
+    techRows.push({ label: 'Combos L2 (bin)', value: String(s.target_l2_unique_count) });
   }
   if (s.source_l2_unique_count) {
-    techRows.push(
-      `<tr><td style="color:var(--text-3); font-size:11px">Combos L2 (source)</td><td style="font-size:12px">${s.source_l2_unique_count}</td></tr>`
-    );
+    techRows.push({ label: 'Combos L2 (source)', value: String(s.source_l2_unique_count) });
   }
-  const techTable = techRows.length
-    ? `<table style="margin-top:12px; border-collapse:collapse; font-family:monospace">${techRows.join('')}</table>`
-    : '';
+  const techGrid = techRows.length ? `
+    <div style="margin-top:14px; display:grid; grid-template-columns:auto 1fr; gap:6px 16px; align-items:baseline">
+      ${techRows.map(r => `
+        <div style="font-size:11px; color:var(--text-3); font-weight:500">${escHtml(r.label)}</div>
+        <div style="font-size:12px; color:var(--text-1); font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(r.value)}</div>
+      `).join('')}
+    </div>` : '';
 
   // Botones de acción cuando la recomendación es KEEP y el proyecto no está
-  // cerrado todavía. Solo dos: aceptar Keep (cierra proyecto) o forzar
-  // Restore (despierta el pipeline). Si el proyecto ya está done/archived,
-  // no se muestran botones — es información solo.
+  // cerrado todavía. Si el proyecto ya está done/archived, no se muestran.
   let actionButtons = '';
   if (isKeep && !projectDone) {
     actionButtons = `
-      <div style="display:flex; gap:8px; margin-top:14px">
+      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
-          data-tooltip="Cierra el proyecto sin tocar el MKV original. El reproductor compatible con CMv4.0 (p3i T4 / Sony / LG) hará la conversión al vuelo en runtime.">
+          data-tooltip="Cierra el proyecto sin tocar el MKV original. El reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
           ✓ Aceptar Keep — cerrar proyecto
         </button>
         <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
@@ -12668,31 +12662,33 @@ function _renderCMv40RecommendationCard(s, pid) {
       </div>`;
   }
 
-  // Si el proyecto está done con output_workflow="keep_cmv29", mostramos un
-  // banner verde tipo "cerrado vía KEEP"
+  // Banner verde cuando el proyecto se cerró vía KEEP (output_workflow="keep_cmv29")
   let doneBanner = '';
   if (s.output_workflow === 'keep_cmv29') {
     doneBanner = `
-      <div style="margin-top:12px; padding:10px 12px; background:#1f3d2a; border:1px solid #5fcf7f; border-radius:6px; color:#5fcf7f; font-size:12px">
-        ✓ Proyecto cerrado vía KEEP — el MKV original quedó intacto.
-        Tu reproductor (p3i T4 / Sony / LG modernos) hace la conversión CMv4.0 al vuelo.
+      <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
+        <span style="color:var(--green); font-weight:600">✓ Proyecto cerrado vía KEEP</span>
+        — el MKV original quedó intacto. Tu reproductor (p3i T4 / Sony / LG modernos)
+        hace la conversión CMv4.0 al vuelo.
       </div>`;
   }
 
   return `
     <div class="section-card">
       <div class="section-header">
-        <div class="section-title">🎯 Análisis y recomendación</div>
-        <div class="section-subtitle">Modelo Keep/Drop-in/Merge basado en análisis del bin descargado del repo DoviTools.</div>
+        <div>
+          <div class="section-title">🎯 Análisis y recomendación</div>
+          <div class="section-subtitle">Modelo Keep/Drop-in/Merge basado en análisis del bin descargado del repo DoviTools</div>
+        </div>
       </div>
       <div class="section-body">
-        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
-          <span style="padding:6px 12px; border-radius:6px; font-weight:600; font-size:13px; ${badgeStyle}">${escHtml(label)}</span>
-          <span style="background:#2a3138; color:var(--text-1); padding:4px 10px; border-radius:4px; font-size:11px; font-family:monospace">${escHtml(qualityTag)}</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span style="padding:6px 12px; border-radius:var(--r-sm); font-weight:700; font-size:13px; ${badgeStyle}">${escHtml(label)}</span>
+          <span style="background:var(--surface-2); color:var(--text-2); border:1px solid var(--sep); padding:4px 10px; border-radius:10px; font-size:11px; font-weight:600; font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(qualityTag)}</span>
           ${l2Chip}
         </div>
-        ${reason ? `<div style="margin-top:10px; color:var(--text-2); font-size:12px; line-height:1.4">${escHtml(reason)}</div>` : ''}
-        ${techTable}
+        ${reason ? `<div style="margin-top:12px; color:var(--text-2); font-size:12px; line-height:1.5">${escHtml(reason)}</div>` : ''}
+        ${techGrid}
         ${actionButtons}
         ${doneBanner}
       </div>
