@@ -117,6 +117,118 @@ async def _extract_rpu_from_mkv(mkv: Path, tmp_hevc: Path, dest_rpu: Path) -> bo
         return False
 
 
+async def _dump_l8_combos_detail(result: dict, workdir_base: Path | None,
+                                 redownload: bool) -> None:
+    """Imprime TODOS los combos L8 únicos del bin con sus valores delta
+    respecto a 2048. Útil para discernir 'master real minimal' vs
+    'sintético con jitter' en casos indeterminate."""
+    import json as _json
+    session_id = result.get("session_id", "")
+    name = result.get("name", "?")
+    print(f"\n  ── {name}  ({session_id})")
+
+    # Localizar el bin
+    bin_path = None
+    config_dir = _find_first_existing(CONFIG_DIR_CANDIDATES)
+    if config_dir:
+        try:
+            session_data = _json.loads((config_dir / f"{session_id}.json").read_text(encoding="utf-8"))
+        except Exception:
+            session_data = {}
+    else:
+        session_data = {}
+
+    # Workdir
+    if workdir_base and session_id:
+        candidate = workdir_base / session_id / "RPU_target.bin"
+        if candidate.exists():
+            bin_path = candidate
+
+    # path local
+    if bin_path is None:
+        rpu_src = session_data.get("target_rpu_source", "")
+        rpu_path_str = session_data.get("target_rpu_path", "")
+        if rpu_src == "path" and rpu_path_str and Path(rpu_path_str).exists():
+            bin_path = Path(rpu_path_str)
+
+    # Re-descarga del Drive
+    needs_cleanup = False
+    if bin_path is None and redownload:
+        file_id = session_data.get("pending_target_file_id", "")
+        if not file_id:
+            rpu_path_str = session_data.get("target_rpu_path", "")
+            if rpu_path_str.startswith("drive://"):
+                file_id = rpu_path_str[len("drive://"):].split("/", 1)[0]
+        if file_id:
+            tmp_path = Path(tempfile.gettempdir()) / f"detail_{session_id}.bin"
+            ok = await _download_bin_from_drive(file_id, tmp_path)
+            if ok:
+                bin_path = tmp_path
+                needs_cleanup = True
+
+    if bin_path is None or not bin_path.exists():
+        print(f"     ✗ No se puede inspeccionar — añade --redownload o asegúrate del workdir.")
+        return
+
+    # Export + parseo de TODOS los combos L8
+    tmp_export = Path(tempfile.gettempdir()) / f"detail_export_{session_id}.json"
+    try:
+        from phases.rpu_analyze import _run_export, _parse_export
+        rc, stderr = await _run_export(bin_path, tmp_export)
+        if rc != 0 or not tmp_export.exists():
+            print(f"     ✗ export falló: {stderr[:200]}")
+            return
+        analysis = await asyncio.to_thread(_parse_export, tmp_export)
+
+        def hl(v):
+            if v is None: return "-"
+            if v == 2048: return "2048"
+            d = v - 2048
+            return f"{v}({d:+d})"
+
+        print(f"     L8 combos únicos: {len(analysis.l8_combos)}  · "
+              f"scene cuts: {analysis.scene_cuts}  · "
+              f"frames cmv40: {analysis.frames_with_cmv40}")
+        # Listar todos los combos en orden de frecuencia
+        for c in analysis.l8_combos:
+            print(f"       count={c.occurrence_count:>7}  "
+                  f"idx={c.target_display_index} "
+                  f"slope={hl(c.trim_slope)}  "
+                  f"off={hl(c.trim_offset)}  "
+                  f"pow={hl(c.trim_power)}  "
+                  f"chr={hl(c.trim_chroma_weight)}  "
+                  f"sat={hl(c.trim_saturation_gain)}  "
+                  f"msw={hl(c.ms_weight)}  "
+                  f"mid_c={c.target_mid_contrast}  clip={c.clip_trim}")
+
+        # Veredicto rápido: ¿hay combos con delta significativo (>50) en
+        # algún campo? Si todos están a delta ≤ 5 → sintético con jitter.
+        # Si alguno tiene delta significativo → real minimal.
+        significant_combos = sum(
+            1 for c in analysis.l8_combos
+            if abs((c.trim_slope or 2048) - 2048) > 50
+            or abs((c.trim_offset or 2048) - 2048) > 50
+            or abs((c.trim_power or 2048) - 2048) > 50
+            or abs((c.trim_saturation_gain or 2048) - 2048) > 50
+        )
+        verdict = (
+            "🟢 PROBABLE REAL minimal — al menos un combo tiene trim significativo"
+            if significant_combos > 0
+            else "🔴 PROBABLE SINTÉTICO — todos los combos están a ≤50 unidades del neutro"
+        )
+        print(f"     Veredicto: {verdict}")
+    finally:
+        try:
+            tmp_export.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if needs_cleanup:
+            try:
+                bin_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def _skip_reason(data: dict, redownload: bool) -> str:
     """Devuelve un código de motivo legible para saber POR QUÉ se saltó
     una sesión. Útil para diferenciar entre 'no bin info' vs 'bin info
@@ -341,6 +453,11 @@ async def main() -> int:
                         help="Override del directorio de sesiones (default: autodetectado).")
     parser.add_argument("--workdir-base", type=Path, default=None,
                         help="Override del workdir base de cmv40 (default: autodetectado).")
+    parser.add_argument("--detail", type=str, default=None,
+                        help="Patrón (substring) para mostrar todos los combos L8 con sus "
+                             "valores delta-respecto-a-2048 de las sesiones que matcheen. "
+                             "Útil para los casos 'indeterminate' donde hace falta decidir "
+                             "manualmente si el bin es real o sintético.")
     args = parser.parse_args()
 
     config_dir = args.config_dir or _find_first_existing(CONFIG_DIR_CANDIDATES)
@@ -359,6 +476,8 @@ async def main() -> int:
     print(f"# Sesiones a analizar: {len(session_files)}")
     print()
 
+    detail_pattern = (args.detail or "").lower()
+
     results = []
     for i, sf in enumerate(session_files, 1):
         print(f"  [{i}/{len(session_files)}] {sf.name}", flush=True)
@@ -368,6 +487,24 @@ async def main() -> int:
             results.append(r)
         except Exception as e:
             print(f"      ⚠ error: {e}", file=sys.stderr)
+
+    # ── Inspección detallada de los matches ────────────────────────────
+    # Si el usuario pasó --detail, descargamos/usamos el bin de cada
+    # sesión que matchea y mostramos TODOS los combos L8 con sus valores.
+    if detail_pattern:
+        print()
+        print("=" * 100)
+        print(f"  INSPECCIÓN DETALLADA — pattern: {args.detail!r}")
+        print("=" * 100)
+        matches = [
+            r for r in results
+            if detail_pattern in (r.get("name") or "").lower()
+            or detail_pattern in (r.get("session_id") or "").lower()
+        ]
+        if not matches:
+            print(f"\n  ✗ Ningún proyecto matchea el patrón.")
+        for r in matches:
+            await _dump_l8_combos_detail(r, workdir_base, args.redownload)
 
     # ── Reporte tabular ────────────────────────────────────────────────
     print()
