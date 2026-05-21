@@ -85,10 +85,75 @@ class TestClassifyL8(unittest.TestCase):
 
     def test_indeterminate_when_in_between(self):
         # Entre los dos umbrales: 5 combos (>= 2 y < 10), neutral 80% (< 95%)
+        # Sin mid_c/clip y sin l8_combos rehidratados → no salta a "real minimal"
         a = self._make(l8_count=5, neutral_pct=0.80)
         cls, reason = classify_l8(a)
         self.assertEqual(cls, "indeterminate")
         self.assertIn("límite", reason.lower())
+
+    def test_real_minimal_with_few_combos_and_significant_trim(self):
+        # Caso Black Phone 2: 3 combos, mid_c poblado, trims significativos
+        # (slope=2165 = +117 del neutro)
+        a = self._make(l8_count=3, neutral_pct=0.10, has_mid_contrast=True)
+        a.l8_combos = [
+            L8Combo(target_display_index=1, trim_slope=2048, trim_offset=2048,
+                    trim_power=2048, trim_chroma_weight=2048,
+                    trim_saturation_gain=2048, ms_weight=2048,
+                    target_mid_contrast=2048, clip_trim=None,
+                    occurrence_count=100),
+            L8Combo(target_display_index=1, trim_slope=2165, trim_offset=2048,
+                    trim_power=2183, trim_chroma_weight=2048,
+                    trim_saturation_gain=2066, ms_weight=2048,
+                    target_mid_contrast=2121, clip_trim=2503,
+                    occurrence_count=50),
+        ]
+        cls, reason = classify_l8(a)
+        self.assertEqual(cls, "real")
+        self.assertIn("minimal", reason.lower())
+        self.assertIn("mid_contrast", reason)
+
+    def test_real_minimal_with_clip_trim_and_negative_delta(self):
+        # Caso Expediente Warren: 5 combos, clip poblado, slope=-276
+        a = self._make(l8_count=5, neutral_pct=0.05, has_clip_trim=True)
+        a.l8_combos = [
+            L8Combo(target_display_index=1, trim_slope=1772, trim_offset=2096,
+                    trim_power=2239, trim_chroma_weight=2048,
+                    trim_saturation_gain=1843, ms_weight=2048,
+                    target_mid_contrast=2048, clip_trim=1901,
+                    occurrence_count=200),
+        ]
+        cls, reason = classify_l8(a)
+        self.assertEqual(cls, "real")
+        self.assertIn("minimal", reason.lower())
+        self.assertIn("clip_trim", reason)
+
+    def test_real_minimal_requires_significant_delta(self):
+        # 5 combos + mid_c poblado pero todos los trims a delta ≤ 50 → sigue
+        # siendo indeterminate (jitter, no master real)
+        a = self._make(l8_count=5, neutral_pct=0.20, has_mid_contrast=True)
+        a.l8_combos = [
+            L8Combo(target_display_index=1, trim_slope=2080, trim_offset=2050,
+                    trim_power=2070, trim_chroma_weight=2048,
+                    trim_saturation_gain=2055, ms_weight=2048,
+                    target_mid_contrast=2049, clip_trim=None,
+                    occurrence_count=100),
+        ]
+        cls, _ = classify_l8(a)
+        self.assertEqual(cls, "indeterminate")
+
+    def test_real_minimal_requires_extra_cmv4_field(self):
+        # 5 combos con trims significativos pero sin mid_c ni clip → no es
+        # "minimal" (sería un CORE incipiente, dejarlo en indeterminate)
+        a = self._make(l8_count=5, neutral_pct=0.20)
+        a.l8_combos = [
+            L8Combo(target_display_index=1, trim_slope=1800, trim_offset=2048,
+                    trim_power=2200, trim_chroma_weight=2048,
+                    trim_saturation_gain=2048, ms_weight=2048,
+                    target_mid_contrast=None, clip_trim=None,
+                    occurrence_count=100),
+        ]
+        cls, _ = classify_l8(a)
+        self.assertEqual(cls, "indeterminate")
 
 
 # ── _parse_export ────────────────────────────────────────────────────────────

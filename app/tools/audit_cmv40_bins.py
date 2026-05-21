@@ -54,6 +54,7 @@ from phases.rpu_analyze import (  # noqa: E402
     classify_l8_quality,
     RpuAnalysis,
 )
+from models import L8Combo  # noqa: E402
 
 
 # Detección del directorio config en el contenedor o local
@@ -307,6 +308,12 @@ async def _analyze_session(
         a.l2_unique_count = res["l2_unique_count"]
         a.frames_with_cmv40 = data.get("target_frames_analyzed", 0)
         a.total_frames = data.get("target_frames_analyzed", 0)
+        # Rehidratar combos para que la rama "real minimal" del classifier
+        # (que mira deltas por combo individual) tenga acceso a los datos.
+        a.l8_combos = [
+            L8Combo(**c) if isinstance(c, dict) else c
+            for c in (data.get("target_l8_combos") or [])
+        ]
     else:
         # Opción 2: workdir local con RPU_target.bin
         bin_path = None

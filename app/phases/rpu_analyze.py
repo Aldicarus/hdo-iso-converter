@@ -43,6 +43,15 @@ L8_REAL_MAX_NEUTRAL_PCT = 0.95
 L8_DEFAULT_MAX_UNIQUE_COMBOS = 2
 L8_DEFAULT_MIN_NEUTRAL_PCT = 0.95
 
+# Rama "real minimal": masters CMv4.0 con look global uniforme + brackets
+# de toning por shot. Pocos combos únicos pero con trabajo CMv4.0 real:
+# campos exclusivos (mid_contrast / clip_trim) poblados + al menos un
+# combo con delta > 50 unidades del neutro en alguno de los trims básicos.
+# Calibrados con Black Phone 2 (3 combos, slope +117, mid_c=2121) y
+# Expediente Warren (5 combos, slope -276, sat -410, clip=1901).
+L8_REAL_MINIMAL_MIN_COMBOS = 3
+L8_REAL_MINIMAL_SIGNIFICANT_DELTA = 50
+
 
 @dataclass
 class RpuAnalysis:
@@ -300,6 +309,35 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
                 f"L8 trabajado por colorista — {analysis.l8_unique_count} combos únicos, "
                 f"{(1.0 - analysis.l8_neutral_pct) * 100:.0f}% frames con trim ({profile}).")
 
+    # Rama "real minimal": pocos combos pero con campos CMv4.0-only poblados
+    # Y al menos un combo con trim significativo (>50 unidades del neutro).
+    # Casos validados: Black Phone 2 (3 combos, mid_c=2121, clip=2503,
+    # slope+117/+119), Expediente Warren (5 combos, clip=1901, slope=-276,
+    # sat=-410). Sin esta rama caerían en "indeterminate" y la UI los marcaba
+    # como ambiguos cuando son masters reales con look global uniforme.
+    if (analysis.l8_unique_count >= L8_REAL_MINIMAL_MIN_COMBOS
+            and (analysis.l8_has_mid_contrast or analysis.l8_has_clip_trim)
+            and analysis.l8_combos):
+        d = L8_REAL_MINIMAL_SIGNIFICANT_DELTA
+        significant = any(
+            abs((c.trim_slope or 2048) - 2048) > d
+            or abs((c.trim_offset or 2048) - 2048) > d
+            or abs((c.trim_power or 2048) - 2048) > d
+            or abs((c.trim_saturation_gain or 2048) - 2048) > d
+            for c in analysis.l8_combos
+        )
+        if significant:
+            extras = []
+            if analysis.l8_has_mid_contrast:
+                extras.append("mid_contrast")
+            if analysis.l8_has_clip_trim:
+                extras.append("clip_trim")
+            return ("real",
+                    f"L8 minimal trabajado — {analysis.l8_unique_count} combos únicos "
+                    f"con trims significativos, campos CMv4.0-only poblados "
+                    f"({', '.join(extras)}). Master con look global uniforme + "
+                    f"toning por brackets de shot.")
+
     if (analysis.l8_unique_count <= L8_DEFAULT_MAX_UNIQUE_COMBOS
             or analysis.l8_neutral_pct >= L8_DEFAULT_MIN_NEUTRAL_PCT):
         return ("default",
@@ -357,6 +395,19 @@ def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
             extras.append("target_mid_contrast")
         if analysis.l8_has_clip_trim:
             extras.append("clip_trim")
+        # Subtipo "minimal" si tiene pocos combos (look global) pero igual
+        # poblados los campos CMv4.0-only — masters tipo Black Phone 2,
+        # Expediente Warren: poca variación shot-a-shot, look uniforme.
+        if analysis.l8_unique_count < L8_REAL_MIN_UNIQUE_COMBOS:
+            return (
+                "full",
+                "CMv4 FULL",
+                f"Master CMv4.0 FULL minimal — {analysis.l8_unique_count} "
+                f"combos L8 con look global uniforme, campos exclusivos "
+                f"CMv4.0 poblados ({', '.join(extras)}). El colorista "
+                f"trabajó el toolkit completo pero con pocos brackets de "
+                f"toning (look unificado de la peli).",
+            )
         return (
             "full",
             "CMv4 FULL",
