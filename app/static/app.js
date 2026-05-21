@@ -11972,7 +11972,14 @@ function _renderCMv40RunningOverlay(project) {
   //       Actúa como red de seguridad si _autoChaining no se seteo a tiempo
   //       (ej. polling tarda en captar el cambio).
   // Se apaga al llegar a terminal o al intervenir manualmente.
-  const terminalPhase = (s.phase === 'done' || s.phase === 'error' || !!s.error_message);
+  //
+  // preflight_decision != "ok" (y no vacío) es estado terminal: el pre-flight
+  // decidió "Keep recomendado" y el pipeline no avanza más sin acción del
+  // usuario. Sin esto, el modal se quedaba colgado en "bridge auto" después
+  // de un keep_l8_default porque autoContinue=true seguía verdadero.
+  const isPreflightHalted = !!(s.preflight_decision && s.preflight_decision !== 'ok');
+  const terminalPhase = (s.phase === 'done' || s.phase === 'error'
+                          || !!s.error_message || isPreflightHalted);
   if (terminalPhase) project._autoChaining = false;
   if (s.running_phase) project._lastRunningPhaseAt = Date.now();
   const recentRunning = (Date.now() - (project._lastRunningPhaseAt || 0)) < 15000;
@@ -13835,6 +13842,16 @@ function _cmv40MaybeAutoAdvance(project) {
   // ámbar en el panel pide confirmación; sin ack no se progresa. Apagamos
   // _autoChaining para que el overlay se oculte y se vea el banner.
   if (s.awaiting_critical_ack) {
+    project._autoChaining = false;
+    return;
+  }
+  // Pause point por decisión del pre-flight: si el bin del repo fue
+  // clasificado como sintético (keep_l8_default) o sin CMv4.0, el backend
+  // detuvo el pipeline esperando que el usuario acepte Keep o fuerce
+  // Restore desde la UI. Sin este guard, el frontend re-disparaba el
+  // endpoint /preflight-target cada 4s (aunque el backend ya lo rechaza
+  // con 'started:false', generaba tráfico HTTP inútil).
+  if (s.preflight_decision && s.preflight_decision !== 'ok') {
     project._autoChaining = false;
     return;
   }
