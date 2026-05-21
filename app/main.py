@@ -3291,21 +3291,22 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     )
 
     if classification == "default":
-        # Recomendación firme: Keep. No avanzar.
+        # Recomendación firme: mantener MKV actual. No avanzar.
         session.preflight_decision = "keep_l8_default"
         session.preflight_message = reason
         session.target_preflight_ok = False
-        # Persistir la recomendación del modelo (modelo Bloque 2): KEEP
+        # Persistir la recomendación del modelo (modelo Bloque 2)
         from phases.rpu_analyze import recommend_action
         action, action_label, action_reason = recommend_action(session)
         session.recommended_action = action
         session.recommended_action_label = action_label
         session.recommended_action_reason = action_reason
         await log_cb(
-            f"🛑 Pre-flight: bin sin L8 trabajado real. {reason} "
-            f"Recomendación: KEEP (no procesar). Un reproductor compatible "
-            f"con CMv4.0 (p3i T4 / avdvplus / Sony/LG modernos) hará la "
-            f"conversión al vuelo con resultado equivalente."
+            f"🛑 Pre-flight: el bin no tiene un L8 trabajado real. {reason} "
+            f"Recomendación: mantener el MKV actual (no procesar). Un "
+            f"reproductor compatible con CMv4.0 (p3i T4 / avdvplus / Sony / "
+            f"LG modernos) hará la conversión al vuelo con el mismo resultado "
+            f"visible que el Restore."
         )
         return False
 
@@ -4159,17 +4160,18 @@ async def cmv40_clear_error(session_id: str):
 
 @app.post(
     "/api/cmv40/{session_id}/accept-keep",
-    summary="Acepta la recomendación KEEP — cierra el proyecto sin tocar el MKV",
+    summary="Acepta la recomendación de mantener el MKV actual — cierra el proyecto sin procesar",
 )
 async def cmv40_accept_keep(session_id: str):
-    """Cuando el modelo recomienda Keep (bin sintético, sin bin, no aporta),
-    el usuario puede aceptar la recomendación con este endpoint. El proyecto
-    se marca como `done` con `output_workflow="keep_cmv29"` — sin tocar el
-    MKV original. Aparece en el historial como completado vía Keep.
+    """Cuando el modelo recomienda mantener el MKV actual (bin sintético, sin
+    bin, no aporta), el usuario puede aceptar la recomendación con este
+    endpoint. El proyecto se marca como `done` con
+    `output_workflow="keep_cmv29"` — sin tocar el MKV original. Aparece en
+    el historial como completado vía "mantener MKV".
 
-    El usuario puede seguir teniendo el MKV original (con CMv2.9) y dejar
-    que su reproductor (p3i T4 / Sony / LG modernos) haga la conversión a
-    CMv4.0 al vuelo en runtime.
+    El usuario sigue teniendo el MKV original (con CMv2.9) y deja que su
+    reproductor (p3i T4 / Sony / LG modernos) haga la conversión a CMv4.0
+    al vuelo en runtime con el mismo resultado visible.
     """
     session = load_cmv40_session(session_id)
     if not session:
@@ -4191,22 +4193,24 @@ async def cmv40_accept_keep(session_id: str):
     save_cmv40_session(session)
     await _cmv40_log(
         session,
-        "✓ Proyecto cerrado vía KEEP — el MKV original queda sin tocar. "
-        "Reproductor compatible con CMv4.0 (p3i T4 / Sony / LG) hará la "
-        "conversión al vuelo en runtime con resultado equivalente al Restore."
+        "✓ Proyecto cerrado manteniendo el MKV actual — el fichero original "
+        "queda sin tocar. Un reproductor compatible con CMv4.0 (p3i T4 / Sony "
+        "/ LG modernos) hará la conversión al vuelo en runtime con el mismo "
+        "resultado visible que el Restore."
     )
     return session.model_dump()
 
 
 @app.post(
     "/api/cmv40/{session_id}/override-recommendation",
-    summary="Ignora la recomendación KEEP y fuerza el pipeline a continuar",
+    summary="Fuerza la inyección del RPU CMv4.0 ignorando la recomendación de mantener",
 )
 async def cmv40_override_recommendation(session_id: str):
     """El usuario decide procesar el proyecto aunque el modelo recomiende
-    Keep (bin sintético). Útil cuando quiere archivar la versión CMv4.0
-    "completa" por compatibilidad con otros reproductores, aunque el
-    resultado visible sea equivalente al Auto del p3i T4.
+    mantener el MKV actual (bin sintético). Útil cuando quiere archivar la
+    versión CMv4.0 "completa" por compatibilidad con otros reproductores,
+    aunque el resultado visible sea equivalente a la conversión al vuelo
+    del p3i T4.
 
     Resetea `preflight_decision` y `recommended_action` para desbloquear
     el orquestador, y dispara la siguiente fase si auto_pipeline=True.
@@ -4233,10 +4237,10 @@ async def cmv40_override_recommendation(session_id: str):
     save_cmv40_session(session)
     await _cmv40_log(
         session,
-        "🔬 Override usuario — ignorando recomendación KEEP. "
-        "El pipeline continuará con Restore aunque el bin sea sintético. "
-        "Resultado funcionalmente equivalente al Auto del p3i T4, pero "
-        "queda archivado como MKV CMv4.0 'completo'."
+        "🔬 Inyección forzada por el usuario — el pipeline continuará "
+        "procesando el MKV aunque el bin sea sintético. El resultado es "
+        "funcionalmente equivalente a la conversión al vuelo del reproductor, "
+        "pero queda archivado como MKV CMv4.0 'completo' para compatibilidad."
     )
     # Despierta el orquestador si auto está activo
     if session.auto_pipeline:

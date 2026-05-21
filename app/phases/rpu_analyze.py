@@ -495,17 +495,17 @@ def recommend_action(session) -> tuple[str, str, str]:
     if session.preflight_decision in ("keep_l8_default", "keep_no_l8", "abort_no_cmv40"):
         return (
             "keep",
-            "KEEP recomendado",
-            session.preflight_message or "Pre-flight decidió Keep.",
+            "Mantener MKV actual",
+            session.preflight_message or "El pre-flight detectó que procesar este bin no aporta mejora.",
         )
 
     # Sin bin descargado / sin pre-flight OK → KEEP por defecto
     if not session.target_preflight_ok:
         return (
             "keep",
-            "KEEP recomendado",
-            "El bin target no está validado (sin pre-flight OK). "
-            "Sin bin no hay nada que restaurar; mantener el BD original.",
+            "Mantener MKV actual",
+            "El bin no está validado (sin pre-flight OK). "
+            "Sin un RPU CMv4.0 que aportar, el MKV original ya tiene lo mejor disponible.",
         )
 
     # Si llegamos aquí el bin está validado y tiene L8 trabajado.
@@ -514,8 +514,8 @@ def recommend_action(session) -> tuple[str, str, str]:
         return (
             "unknown",
             "Análisis pendiente",
-            "Fase A no se ha ejecutado todavía — falta el análisis L2 del source "
-            "para decidir entre drop-in y merge.",
+            "Fase A no se ha ejecutado todavía — falta analizar el L2 del MKV original "
+            "para decidir entre inyección rápida o combinada.",
         )
 
     # Comparación L2 source vs target
@@ -543,25 +543,29 @@ def recommend_action(session) -> tuple[str, str, str]:
     if profile_match and l2_verdict == "identical":
         return (
             "drop_in",
-            "DROP-IN",
-            f"Profile match (source y bin son ambos {source_wf.upper().replace('_', ' ')}) "
-            f"y L2 idéntico → drop-in seguro (sustituir RPU del bin íntegro, ~30s). "
-            f"Calidad: {quality_label}.",
+            "Inyectar RPU CMv4.0 (rápido)",
+            f"El perfil del bin coincide con el del MKV original "
+            f"({source_wf.upper().replace('_', ' ')}) y el L2 es idéntico → "
+            f"sustituimos el RPU completo del bin sobre el MKV (~30 segundos). "
+            f"Calidad del bin: {quality_label}.",
         )
 
     # Cualquier otro caso real → merge selectivo
     if not profile_match:
         reason = (
-            f"Profile mismatch (source {source_wf or '?'} vs bin "
-            f"P{target.profile if target else '?'}"
-            f"{(' ' + target.el_type) if target and target.el_type else ''}) "
-            f"→ merge [3,8,9,11,254]. Calidad: {quality_label}."
+            f"El perfil del bin (P{target.profile if target else '?'}"
+            f"{(' ' + target.el_type) if target and target.el_type else ''}) no "
+            f"coincide con el del MKV original ({source_wf.upper().replace('_', ' ') if source_wf else '?'}) "
+            f"→ inyectamos solo los niveles CMv4.0 [3,8,9,11,254] preservando el "
+            f"L2 del MKV original. Calidad del bin: {quality_label}."
         )
     else:
         # profile match pero L2 different
         reason = (
-            f"Profile match pero L2 difiere ({l2_reason}) → merge [3,8,9,11,254] "
-            f"para preservar L2 del source. Calidad: {quality_label}."
+            f"El perfil coincide pero el L2 difiere ({l2_reason}) → inyectamos "
+            f"solo los niveles CMv4.0 [3,8,9,11,254] preservando el L2 del MKV "
+            f"original (regla de seguridad: nunca degradar el L2 existente). "
+            f"Calidad del bin: {quality_label}."
         )
 
-    return ("merge", "MERGE selectivo", reason)
+    return ("merge", "Inyectar RPU CMv4.0 (preserva L2)", reason)

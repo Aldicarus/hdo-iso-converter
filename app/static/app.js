@@ -12601,7 +12601,7 @@ function _renderCMv40RecommendationCard(s, pid) {
 
   // Tag de calidad del bin (la que va al filename)
   const qualityTag = s.target_l8_quality_label || (
-    s.target_l8_classification === 'default' ? 'CMv4 DEFAULT (sintético)' :
+    s.target_l8_classification === 'default' ? 'CMv4 sintético' :
     s.target_l8_classification === 'real' ? 'CMv4 (real)' :
     s.target_l8_classification === 'indeterminate' ? 'CMv4 (ambiguo)' :
     'CMv4 ?'
@@ -12610,9 +12610,9 @@ function _renderCMv40RecommendationCard(s, pid) {
   // Chip comparación L2 (color semántico, paleta de la app)
   const l2Comp = s.l2_comparison || '';
   const l2Chip = l2Comp === 'identical'
-    ? `<span style="background:var(--green-dim); color:var(--green); border:1px solid var(--green-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 idéntico al source</span>`
+    ? `<span style="background:var(--green-dim); color:var(--green); border:1px solid var(--green-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 idéntico al MKV original</span>`
     : l2Comp === 'different'
-    ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 distinto del source</span>`
+    ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 distinto del MKV original</span>`
     : '';
 
   // Datos técnicos en formato lista (grid 2-col label/value) — más legible
@@ -12635,7 +12635,7 @@ function _renderCMv40RecommendationCard(s, pid) {
     techRows.push({ label: 'Combos L2 (bin)', value: String(s.target_l2_unique_count) });
   }
   if (s.source_l2_unique_count) {
-    techRows.push({ label: 'Combos L2 (source)', value: String(s.source_l2_unique_count) });
+    techRows.push({ label: 'Combos L2 (MKV original)', value: String(s.source_l2_unique_count) });
   }
   const techGrid = techRows.length ? `
     <div style="margin-top:14px; display:grid; grid-template-columns:auto 1fr; gap:6px 16px; align-items:baseline">
@@ -12652,24 +12652,24 @@ function _renderCMv40RecommendationCard(s, pid) {
     actionButtons = `
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
-          data-tooltip="Cierra el proyecto sin tocar el MKV original. El reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
-          ✓ Aceptar Keep — cerrar proyecto
+          data-tooltip="Cierra el proyecto sin tocar el MKV original. Un reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
+          ✓ Mantener MKV actual
         </button>
         <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
-          data-tooltip="Procesa el proyecto vía Restore aunque el bin sea sintético. Resultado funcionalmente equivalente al Auto del reproductor pero quedará archivado como MKV CMv4.0 'completo'.">
-          🔬 Forzar Restore de todas formas
+          data-tooltip="Procesa el MKV inyectando el RPU CMv4.0 aunque el bin sea sintético. Resultado equivalente a la conversión al vuelo del reproductor pero quedará archivado como MKV CMv4.0 completo.">
+          🔬 Inyectar RPU igualmente
         </button>
       </div>`;
   }
 
-  // Banner verde cuando el proyecto se cerró vía KEEP (output_workflow="keep_cmv29")
+  // Banner verde cuando el proyecto se cerró manteniendo el MKV
   let doneBanner = '';
   if (s.output_workflow === 'keep_cmv29') {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600">✓ Proyecto cerrado vía KEEP</span>
-        — el MKV original quedó intacto. Tu reproductor (p3i T4 / Sony / LG modernos)
-        hace la conversión CMv4.0 al vuelo.
+        <span style="color:var(--green); font-weight:600">✓ Proyecto cerrado — MKV actual mantenido</span>
+        — el fichero original quedó intacto. Tu reproductor (p3i T4 / Sony /
+        LG modernos) hace la conversión CMv4.0 al vuelo en runtime.
       </div>`;
   }
 
@@ -12697,15 +12697,16 @@ function _renderCMv40RecommendationCard(s, pid) {
 
 function cmv40AcceptKeep(pid) {
   showConfirm(
-    'Aceptar KEEP y cerrar el proyecto',
-    'El proyecto se marca como completado sin procesar el MKV original. '
+    'Mantener el MKV actual y cerrar el proyecto',
+    'El proyecto se cierra como completado sin tocar el MKV original. '
       + 'Tu reproductor (p3i T4 / Sony / LG modernos compatibles con CMv4.0) '
-      + 'hará la conversión al vuelo en runtime — resultado equivalente al Restore '
-      + 'pero sin gastar tiempo de procesado ni disco.',
+      + 'hará la conversión al vuelo en runtime — el resultado visible es '
+      + 'equivalente al de inyectar el RPU, pero sin gastar ~25 min de '
+      + 'procesado ni ~50 GB de disco temporal.',
     async () => {
       const data = await apiFetch(`/api/cmv40/${pid}/accept-keep`, { method: 'POST' });
       if (!data) {
-        showToast('Error al cerrar el proyecto vía Keep', 'error');
+        showToast('Error al cerrar el proyecto', 'error');
         return;
       }
       const project = openCMv40Projects.find(p => p.id === pid);
@@ -12714,23 +12715,24 @@ function cmv40AcceptKeep(pid) {
         _updateCMv40Panel(project);
       }
       refreshCMv40Sidebar();
-      showToast('✓ Proyecto cerrado vía KEEP — MKV original intacto', 'success');
+      showToast('✓ Proyecto cerrado — MKV actual mantenido', 'success');
     },
-    'Aceptar Keep',
+    'Mantener MKV actual',
   );
 }
 
 function cmv40OverrideRecommendation(pid) {
   showConfirm(
-    'Forzar Restore aunque el bin sea sintético',
-    'El pipeline va a procesar el proyecto (~25 min de Fase A + extracción + remux) '
-      + 'aunque el bin del repo no aporte L8 trabajado real. '
-      + 'Resultado funcionalmente equivalente al Auto del reproductor, pero '
-      + 'quedará archivado como MKV CMv4.0 "completo".',
+    'Inyectar RPU CMv4.0 aunque el bin sea sintético',
+    'El pipeline va a procesar el MKV (~25 min de Fase A + extracción + remux) '
+      + 'aunque el bin del repo no aporte un L8 trabajado real. '
+      + 'El resultado visible es equivalente a la conversión al vuelo del '
+      + 'reproductor, pero el MKV queda archivado como CMv4.0 "completo" '
+      + 'para compatibilidad con otros equipos.',
     async () => {
       const data = await apiFetch(`/api/cmv40/${pid}/override-recommendation`, { method: 'POST' });
       if (!data) {
-        showToast('Error al forzar Restore', 'error');
+        showToast('Error al continuar el procesado', 'error');
         return;
       }
       const project = openCMv40Projects.find(p => p.id === pid);
@@ -12739,9 +12741,9 @@ function cmv40OverrideRecommendation(pid) {
         _updateCMv40Panel(project);
       }
       refreshCMv40Sidebar();
-      showToast('🔬 Restore forzado — el pipeline continuará', 'info');
+      showToast('🔬 Inyección forzada — el pipeline continuará', 'info');
     },
-    'Forzar Restore',
+    'Inyectar RPU CMv4.0',
   );
 }
 

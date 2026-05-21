@@ -407,7 +407,7 @@ class TestRecommendAction(unittest.TestCase):
         s.preflight_message = "Bin sintético"
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "keep")
-        self.assertIn("KEEP", label)
+        self.assertIn("Mantener", label)
 
     def test_keep_when_no_preflight_ok(self):
         s = self._base_session()
@@ -436,7 +436,8 @@ class TestRecommendAction(unittest.TestCase):
         s.target_l8_quality_label = "CMv4 FULL"
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "drop_in")
-        self.assertEqual(label, "DROP-IN")
+        self.assertIn("Inyectar RPU", label)
+        self.assertIn("rápido", label.lower())
         self.assertIn("idéntico", reason)
         self.assertIn("CMv4 FULL", reason)
 
@@ -452,8 +453,9 @@ class TestRecommendAction(unittest.TestCase):
         s.target_l8_quality_label = "CMv4 CORE"
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "merge")
-        self.assertIn("MERGE", label)
-        self.assertIn("mismatch", reason.lower())
+        self.assertIn("Inyectar RPU", label)
+        self.assertIn("preserva", label.lower())
+        self.assertIn("no coincide", reason.lower())
 
     def test_merge_when_l2_differs(self):
         s = self._base_session()
@@ -467,6 +469,7 @@ class TestRecommendAction(unittest.TestCase):
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "merge")
         self.assertIn("L2 difiere", reason)
+        self.assertIn("preserva", label.lower())
 
 
 if __name__ == "__main__":
