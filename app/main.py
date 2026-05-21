@@ -3098,6 +3098,12 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
     if phase == CMv40Phase.CREATED:
         # Recién creado. Si tiene pending_target, ejecutar preflight; si
         # ya pasó preflight (target_preflight_ok=True), arrancar Fase A.
+        # Si el preflight ya emitió una decisión NO-OK (keep_l8_default,
+        # keep_no_l8, abort_no_cmv40), respetar y NO re-disparar — la
+        # decisión queda esperando acción del usuario (aceptar Keep o
+        # forzar Restore).
+        if (fresh.preflight_decision and fresh.preflight_decision != "ok"):
+            return
         if not fresh.target_preflight_ok and fresh.pending_target_kind:
             await _cmv40_dispatch_preflight(fresh)
         elif fresh.target_preflight_ok or not fresh.pending_target_kind:
@@ -3231,6 +3237,72 @@ async def _cmv40_dispatch_analyze_source(session: CMv40Session) -> None:
     asyncio.create_task(_run())
 
 
+async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool:
+    """Análisis profundo del bin target (L2/L8 combos) + decisión Keep/continuar.
+
+    Llamado al final del preflight tras descargar/extraer el bin. Devuelve:
+      - True  → bin con L8 trabajado o ambiguo. Continuar pipeline (Fase A).
+      - False → bin sintético/default. Recomendar Keep. NO avanzar.
+
+    En el caso False, también puebla session.preflight_decision y
+    session.preflight_message para que el frontend muestre el motivo.
+    Si el análisis no se puede completar (dovi_tool falla), devuelve True
+    para no bloquear el pipeline — la decisión cae al modelo legacy.
+
+    Bloque 1 del modelo Keep/Drop-in/Merge.
+    """
+    from phases.rpu_analyze import analyze_rpu_combos, classify_l8
+
+    wd = cmv40_get_workdir(session)
+    target_bin = wd / "RPU_target.bin"
+    await log_cb("[Pre-flight] Analizando combos L2/L8 del bin (dovi_tool export)…")
+    analysis = await analyze_rpu_combos(target_bin)
+
+    if analysis.total_frames == 0:
+        await log_cb(
+            "[Pre-flight] ⚠ Análisis de combos no pudo completarse "
+            "(continuamos sin enriquecimiento)"
+        )
+        return True
+
+    # Persistir todos los datos del bin en la session
+    session.target_l2_combos = analysis.l2_combos
+    session.target_l2_unique_count = analysis.l2_unique_count
+    session.target_l2_target_pqs = analysis.l2_target_pqs
+    session.target_l8_combos = analysis.l8_combos
+    session.target_l8_unique_count = analysis.l8_unique_count
+    session.target_l8_target_indices = analysis.l8_target_indices
+    session.target_l8_neutral_frames_pct = analysis.l8_neutral_pct
+    session.target_l8_has_mid_contrast = analysis.l8_has_mid_contrast
+    session.target_l8_has_clip_trim = analysis.l8_has_clip_trim
+    session.target_frames_analyzed = analysis.total_frames
+
+    classification, reason = classify_l8(analysis)
+    session.target_l8_classification = classification
+
+    await log_cb(
+        f"[Pre-flight] L2: {analysis.l2_unique_count} combos únicos · "
+        f"L8: {analysis.l8_unique_count} combos únicos, "
+        f"{(1.0 - analysis.l8_neutral_pct) * 100:.0f}% frames con trim · "
+        f"clasificación: {classification.upper()}"
+    )
+
+    if classification == "default":
+        # Recomendación firme: Keep. No avanzar.
+        session.preflight_decision = "keep_l8_default"
+        session.preflight_message = reason
+        session.target_preflight_ok = False
+        await log_cb(
+            f"🛑 Pre-flight: bin sin L8 trabajado real. {reason} "
+            f"Recomendación: KEEP (no procesar). Un reproductor compatible "
+            f"con CMv4.0 (p3i T4 / avdvplus / Sony/LG modernos) hará la "
+            f"conversión al vuelo con resultado equivalente."
+        )
+        return False
+
+    return True
+
+
 async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     """Dispara el preflight del bin target persistido en pending_target_*.
     Tras éxito, el orquestador (en finally) detecta target_preflight_ok=True
@@ -3284,11 +3356,17 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                         session, session.pending_target_source_mkv_path,
                         _log_cb, _proc_cb,
                     )
-                session.target_preflight_ok = True
-                await _cmv40_log(
-                    session,
-                    "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
-                )
+                # Análisis profundo del bin + decisión Keep/continuar
+                avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
+                if avanzar:
+                    session.preflight_decision = "ok"
+                    session.preflight_message = ""
+                    session.target_preflight_ok = True
+                    await _cmv40_log(
+                        session,
+                        "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
+                    )
+                # Si NO avanzar, la helper ya pobló preflight_decision/message
             except Exception as e:
                 msg = str(e)
                 await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
@@ -4779,11 +4857,18 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 else:  # mkv
                     await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
 
-                session.target_preflight_ok = True
-                await _cmv40_log(
-                    session,
-                    "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
-                )
+                # Análisis profundo del bin + decisión Keep/continuar
+                avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
+                if avanzar:
+                    session.preflight_decision = "ok"
+                    session.preflight_message = ""
+                    session.target_preflight_ok = True
+                    await _cmv40_log(
+                        session,
+                        "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
+                    )
+                # Si NO avanzar, la helper ya pobló preflight_decision/message
+                # y dejó target_preflight_ok=False.
             except Exception as e:
                 # Igual que el resto de fases: error al log de la sesión +
                 # error_message para que la UI lo muestre como banner. SIN

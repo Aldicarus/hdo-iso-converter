@@ -882,6 +882,30 @@ async def run_phase_a_analyze_source(
     # Plot eliminado: generaba plot_source.png que la UI no consume.
     # Si se quiere reintroducir, añadir también el render en el panel.
 
+    # ── Bloque 1: análisis profundo del L2 del source ──
+    # `dovi_tool export -d all` + parseo de combos únicos. Alimenta el
+    # modelo de decisión Keep/Drop-in/Merge (comparación L2 source vs bin).
+    # Coste ~3-5s sobre Fase A que dura ~12 min — despreciable.
+    from phases.rpu_analyze import analyze_rpu_combos
+    if log_callback:
+        await log_callback("[Fase A] Analizando combos L2 del source (dovi_tool export)…")
+    source_analysis = await analyze_rpu_combos(rpu_source)
+    if source_analysis.total_frames > 0:
+        session.source_l2_combos = source_analysis.l2_combos
+        session.source_l2_unique_count = source_analysis.l2_unique_count
+        session.source_l2_target_pqs = source_analysis.l2_target_pqs
+        session.source_frames_analyzed = source_analysis.total_frames
+        if log_callback:
+            await log_callback(
+                f"[Fase A] L2 source: {source_analysis.l2_unique_count} combos únicos · "
+                f"peaks {source_analysis.l2_target_pqs}"
+            )
+    elif log_callback:
+        await log_callback(
+            "[Fase A] ⚠ Análisis de combos L2 del source no pudo completarse "
+            "(sin impacto en el pipeline, solo no se persisten datos para Bloque 2)"
+        )
+
     await _emit_progress(log_callback, 100, "Análisis completado")
     if log_callback:
         await log_callback(

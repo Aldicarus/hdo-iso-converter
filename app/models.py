@@ -919,6 +919,41 @@ class CMv40PhaseRecord(BaseModel):
     output_log: list[str] = []
 
 
+class L2Combo(BaseModel):
+    """Combinación única de valores de un bloque L2 (CMv2.9 trim).
+
+    Capturado por analyze_rpu_combos vía `dovi_tool export -d all`.
+    Sirve para comparar el L2 entre source y bin (drop-in vs merge) y
+    para detectar perfiles de master.
+    """
+    target_max_pq: int
+    trim_slope: int
+    trim_offset: int
+    trim_power: int
+    trim_chroma_weight: int
+    trim_saturation_gain: int
+    ms_weight: int
+    occurrence_count: int = 0  # cuántos frames usan exactamente este combo
+
+
+class L8Combo(BaseModel):
+    """Combinación única de valores de un bloque L8 (CMv4.0 trim).
+
+    Idéntica estructura que L2 + los campos nuevos de CMv4.0
+    (target_mid_contrast, clip_trim) que solo se pueblan en masters "full".
+    """
+    target_display_index: int
+    trim_slope: int
+    trim_offset: int
+    trim_power: int
+    trim_chroma_weight: int
+    trim_saturation_gain: int
+    ms_weight: int
+    target_mid_contrast: int | None = None  # CMv4.0 only — None si no poblado
+    clip_trim: int | None = None            # CMv4.0 only — None si no poblado
+    occurrence_count: int = 0
+
+
 class CMv40Session(BaseModel):
     """
     Proyecto CMv4.0 — convierte un MKV con CMv2.9 a CMv4.0 inyectando
@@ -1158,3 +1193,45 @@ class CMv40Session(BaseModel):
     running_phase: str | None = None
     """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').
     Cuando != None, la UI muestra modo modal con log + cancelar. Al terminar se limpia."""
+
+    # ── Bloque 1: análisis L2/L8 capturado vía dovi_tool export -d all ──
+    # Datos en bruto que alimentan el modelo de decisión Keep/Drop-in/Merge.
+    # El análisis del bin se hace en pre-flight (antes de Fase A); el del
+    # source en Fase A. Defaults vacíos: sesiones antiguas siguen funcionando.
+
+    # Análisis del L2 del source (RPU del BD CMv2.9) — poblado en Fase A
+    source_l2_combos: list[L2Combo] = []
+    source_l2_unique_count: int = 0
+    source_l2_target_pqs: list[int] = []
+    source_frames_analyzed: int = 0
+
+    # Análisis del L2 del bin target — poblado en pre-flight
+    target_l2_combos: list[L2Combo] = []
+    target_l2_unique_count: int = 0
+    target_l2_target_pqs: list[int] = []
+
+    # Análisis del L8 del bin target — poblado en pre-flight
+    target_l8_combos: list[L8Combo] = []
+    target_l8_unique_count: int = 0
+    target_l8_target_indices: list[int] = []
+    target_l8_neutral_frames_pct: float = 0.0
+    target_l8_has_mid_contrast: bool = False
+    target_l8_has_clip_trim: bool = False
+    target_l8_classification: str = ""  # "real" | "default" | "indeterminate" | ""
+
+    target_frames_analyzed: int = 0
+
+    # Decisión del pre-flight enriquecida (extiende target_preflight_ok)
+    preflight_decision: str = ""
+    """Resultado detallado del pre-flight:
+      - 'ok': bin OK con L8 trabajado → pipeline avanza a Fase A
+      - 'keep_l8_default': bin sintético sin L8 trabajado → recomendar Keep,
+        no avanzar a Fase A (target_preflight_ok=False)
+      - 'keep_no_l8': bin estructuralmente sin L8 → recomendar Keep
+      - 'abort_no_cmv40': bin no es CMv4.0 (caso ya existente)
+      - '': aún no se ha ejecutado pre-flight
+    """
+
+    preflight_message: str = ""
+    """Mensaje legible para mostrar al usuario explicando la decisión del
+    pre-flight. Solo poblado cuando preflight_decision != 'ok'."""
