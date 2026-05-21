@@ -269,7 +269,7 @@ Clasificación de calidad del bin (se aplica como sufijo al filename del MKV fin
 
 | Tier | Filename label | Criterio |
 |---|---|---|
-| FULL | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados (campos exclusivos CMv4.0) |
+| FULL | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados (campos exclusivos CMv4.0). Sub-variante "FULL minimal" cuando hay pocos combos únicos (≥3) pero con trims significativos (>50 unidades del neutro) — masters con look global uniforme + brackets de toning por shot |
 | CORE+ | `[CMv4 CORE+]` | Grading dinámico intenso (>=0.1 combos/shot o >=400 absolutos) |
 | CORE | `[CMv4 CORE]` | Master estándar streaming con trims básicos |
 | (sintético) | — | Bin no aporta sobre conversión al vuelo, recomendación: mantener |
@@ -284,6 +284,30 @@ El campo `output_workflow` de la sesión distingue cómo terminó cada proyecto:
 Endpoints relacionados:
 - `POST /api/cmv40/{id}/accept-keep` — acepta la recomendación de mantener
 - `POST /api/cmv40/{id}/override-recommendation` — fuerza la inyección ignorando la recomendación
+
+### Auditoría retroactiva (`tools.audit_cmv40_bins`)
+
+Herramienta CLI para revisar todas las sesiones CMv4.0 históricas y reclasificarlas con el modelo actual. Detecta:
+
+- **Jobs desperdiciados** — procesados con bins sintéticos (debería haber sido Mantener). Cuantifica el tiempo de procesado innecesario.
+- **Filenames desactualizados** — MKVs ya procesados que no llevan el bracket de calidad correcto. Sugiere comandos `mv` copy-paste.
+- **Distribución de calidad** — histograma CORE / CORE+ / FULL para calibrar umbrales.
+
+```bash
+# Análisis completo
+docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins
+
+# Solo jobs desperdiciados
+docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins --filter-keep
+
+# Re-descargar bins desde Drive si no quedan en workdir local
+docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins --redownload
+
+# Inspeccionar combos L8 individuales (deltas vs neutro) de un caso
+docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins --detail "Black Phone 2"
+```
+
+Modo `--detail` short-circuit: salta el análisis general y solo procesa las sesiones cuyo `source_mkv_name` matchee el substring. Útil para discriminar manualmente casos "indeterminate" (synthetic con jitter vs real minimal).
 
 ### Recomendación CMv4.0 (sheet live + Drive)
 

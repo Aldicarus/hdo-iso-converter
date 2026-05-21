@@ -671,6 +671,64 @@ Antes de gastar Fase A (~12 min de extracción HEVC en discos UHD), un pre-fligh
 - Si pasa → `target_preflight_ok=True`, el bin queda en `RPU_target.bin` del workdir y Fase B reutiliza sin re-descargar (helper `_bin_already_cached`).
 - Errores van al log de la sesión via WS (igual que cualquier fase) — sin toast prematuro.
 
+## Modelo Mantener / Inyectar — clasificación L8 + tiers de calidad
+
+Tras descargar el bin, el pre-flight ejecuta `dovi_tool export -d all` y analiza la riqueza real del L8 en `phases/rpu_analyze.py`. La clasificación L8 alimenta una decisión de 4 caminos visible al usuario en la card "Análisis y recomendación" del panel del proyecto.
+
+### Clasificación L8 (`classify_l8`)
+
+Tres categorías:
+
+- **`real`** — L8 trabajado por colorista. Restore aporta calidad. Dos sub-ramas:
+  - **CORE/CORE+/FULL estándar**: `combos_únicos >= 10` Y `frames_neutros < 95%`.
+  - **FULL minimal**: `combos_únicos >= 3` Y (`mid_contrast` OR `clip_trim` poblados) Y al menos un combo con delta>50 unidades del neutro en algún trim (slope/offset/power/saturation_gain). Detecta masters con look global uniforme + brackets de toning sutiles (Black Phone 2: 3 combos slope+117 mid_c=2121; Expediente Warren: 5 combos slope=-276 sat=-410 clip=1901). Sin esta rama caerían en "indeterminate".
+- **`default`** — Bin sintético: ≤2 combos únicos O ≥95% frames neutros. Restore == conversión al vuelo del p3i/avdvplus → recomendación: Mantener MKV actual.
+- **`indeterminate`** — Caso límite, avanzar y decidir tras Fase A.
+
+### Tiers de calidad (`classify_l8_quality`)
+
+Solo aplica cuando la clasificación L8 es "real":
+
+| Tier | Filename label | Criterio |
+|---|---|---|
+| `full` | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados. Sub-descripción "FULL minimal" cuando combos<10 (master uniforme con brackets) |
+| `core_rich` | `[CMv4 CORE+]` | `combos/scene_cuts >= 0.1` o `>= 400 absolutos` (grading dinámico shot-a-shot intenso) |
+| `core` | `[CMv4 CORE]` | Estándar streaming (Apple TV+/Disney+/Netflix) — trims básicos sin campos CMv4.0-only |
+
+El label se inyecta al `output_mkv_name` al terminar el pre-flight via `_cmv40_apply_quality_label_to_output_name`.
+
+### Decisión de 4 caminos (`recommend_action`)
+
+Árbol de decisión:
+
+```
+¿target_preflight_ok=True Y l8="real"?
+├─ NO  → Mantener MKV actual (keep)
+└─ SÍ  → ¿Profile source ↔ bin match (FEL↔FEL / MEL↔MEL / P8↔P8)?
+         ├─ NO  → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo [3,8,9,11,254]
+         └─ SÍ  → ¿L2 del source == L2 del bin?
+                  ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in, ~30s
+                  └─ NO → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo
+```
+
+Endpoints relacionados:
+- `POST /api/cmv40/{id}/accept-keep` — cierra el proyecto como `done` con `output_workflow="keep_cmv29"`.
+- `POST /api/cmv40/{id}/override-recommendation` — fuerza la inyección aunque la recomendación sea Mantener.
+
+`output_workflow` final: `keep_cmv29` | `restore_dropin` | `restore_merge`.
+
+### Auditoría retroactiva (`tools.audit_cmv40_bins`)
+
+Script CLI standalone que re-clasifica TODAS las sesiones CMv4.0 históricas con el modelo actual y reporta jobs desperdiciados + renombrados sugeridos. Útil para validar calibraciones nuevas del classifier.
+
+Modos:
+- Default: análisis completo + tabla + estadísticas + lista de renombrados sugeridos.
+- `--filter-keep`: solo muestra jobs que el modelo retroactivo dice deberían haber sido Mantener (procesados pero el bin era sintético).
+- `--redownload`: re-descarga el bin del Drive / re-extrae del MKV origen si no queda en workdir. Necesario para auditar sesiones antiguas con workdir limpiado.
+- `--detail <substring>`: short-circuit — salta el análisis general y vuelca todos los combos L8 únicos del bin con sus deltas vs neutro. Discrimina "synthetic con jitter" (todos los deltas ≤50) vs "real minimal" (al menos un combo con delta>50). Usado para confirmar manualmente los casos "indeterminate" antes de refinar los umbrales del classifier.
+
+Las re-clasificaciones desde stats persistidas reusan los `target_l8_combos` guardados en la session JSON para que la rama "real minimal" (que mira deltas por combo) funcione retroactivamente sin tocar el bin original.
+
 ## Perfil de luminancia DV L1 (Tab 2)
 
 Análisis on-demand del MKV completo que extrae el L1 metadata frame-a-frame del RPU para visualización en sparkline + stats.
