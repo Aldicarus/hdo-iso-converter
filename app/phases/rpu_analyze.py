@@ -49,6 +49,7 @@ class RpuAnalysis:
     """Resultado del análisis de un RPU."""
     total_frames: int = 0
     frames_with_cmv40: int = 0
+    scene_cuts: int = 0  # frames con scene_refresh_flag — ~ nº de shots de la peli
 
     l2_combos: list[L2Combo] = field(default_factory=list)
     l2_unique_count: int = 0
@@ -141,6 +142,8 @@ def _parse_export(json_path: Path) -> RpuAnalysis:
         cmv40 = vdr.get("cmv40_metadata") or {}
         if cmv40:
             analysis.frames_with_cmv40 += 1
+        if vdr.get("scene_refresh_flag"):
+            analysis.scene_cuts += 1
 
         # L2 (CMv2.9 metadata)
         cmv29 = vdr.get("cmv29_metadata") or {}
@@ -308,3 +311,94 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
             f"L8 ambiguo — {analysis.l8_unique_count} combos únicos, "
             f"{analysis.l8_neutral_pct * 100:.0f}% frames neutros. "
             f"Caso límite, mejor avanzar y decidir tras Fase A.")
+
+
+# Umbral combos-por-shot para distinguir "CORE+" de "CORE":
+# - Spider-Man: 69/2887 = 0.024 → CORE
+# - Karate Kid: 64/1720 = 0.037 → CORE
+# - Smashing Machine: 152/593 = 0.256 → pasa a FULL por mid_c/clip
+# - 28 después: 1119/2617 = 0.428 → CORE+ (master con cambios casi cada shot)
+# Umbral 0.1 separa claramente "core estándar" de "core rico".
+L8_RICH_COMBOS_PER_SCENE_CUT = 0.1
+# Fallback si no tenemos scene_cuts (raro pero posible): valor absoluto.
+L8_RICH_MIN_COMBOS = 400
+
+
+def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
+    """Subclasifica la calidad del CMv4.0 de un bin clasificado como "real".
+
+    Solo aplica si classify_l8(analysis) devolvió "real". Para "default" o
+    "indeterminate" devuelve tier vacío.
+
+    Devuelve (tier, label, description) donde:
+      - tier: "core" | "core_rich" | "full" | "" (no aplica)
+      - label: texto compacto para el filename ("CMv4 CORE", "CMv4 CORE+",
+        "CMv4 FULL"). Va dentro del bracket [CMv4 LABEL].mkv del MKV final.
+      - description: explicación legible para el log/UI.
+
+    Criterios:
+      - "full":      el L8 puebla `target_mid_contrast` o `clip_trim`
+                     (campos exclusivos de CMv4.0 que solo se rellenan en
+                     masters "full delivery" de estudios trabajados).
+      - "core_rich": L8 con muchos combos por shot (master con grading
+                     dinámico shot-a-shot intenso). Umbral: combos/scene_cuts
+                     >= 0.1 (1 combo nuevo cada 10 shots o más).
+      - "core":      L8 estándar de streaming — trabajado por shot pero con
+                     cambios poco frecuentes, sin campos extra.
+    """
+    classification, _ = classify_l8(analysis)
+    if classification != "real":
+        return ("", "", "")
+
+    # FULL: el master usa los campos CMv4.0-only
+    if analysis.l8_has_mid_contrast or analysis.l8_has_clip_trim:
+        extras = []
+        if analysis.l8_has_mid_contrast:
+            extras.append("target_mid_contrast")
+        if analysis.l8_has_clip_trim:
+            extras.append("clip_trim")
+        return (
+            "full",
+            "CMv4 FULL",
+            f"Master CMv4.0 FULL — {analysis.l8_unique_count} combos L8, "
+            f"campos exclusivos CMv4.0 poblados ({', '.join(extras)}). "
+            f"Calidad máxima: el colorista usó el toolkit completo de CMv4.0.",
+        )
+
+    # CORE+: muchos combos relativos a la longitud de la peli
+    combos_per_cut = (
+        analysis.l8_unique_count / analysis.scene_cuts
+        if analysis.scene_cuts > 0 else 0.0
+    )
+    is_rich = (
+        combos_per_cut >= L8_RICH_COMBOS_PER_SCENE_CUT
+        or analysis.l8_unique_count >= L8_RICH_MIN_COMBOS
+    )
+    if is_rich:
+        return (
+            "core_rich",
+            "CMv4 CORE+",
+            f"Master CMv4.0 CORE+ — {analysis.l8_unique_count} combos L8 "
+            f"({combos_per_cut:.2f} combos/shot). Grading dinámico shot-a-shot "
+            f"intenso; el colorista trabajó casi todas las escenas.",
+        )
+
+    # CORE: estándar streaming — funcional pero no excepcional
+    return (
+        "core",
+        "CMv4 CORE",
+        f"Master CMv4.0 CORE — {analysis.l8_unique_count} combos L8 "
+        f"({combos_per_cut:.2f} combos/shot). Trims básicos por shot, sin "
+        f"campos CMv4.0-only. Calidad típica de release streaming "
+        f"(Apple TV+, Disney+, Netflix).",
+    )
+
+
+def filename_label_from_tier(tier: str) -> str:
+    """Devuelve el texto para insertar en [CMv4 XXX] del filename.
+    Devuelve "" si tier no es válido (no aplica al filename)."""
+    return {
+        "core":      "CMv4 CORE",
+        "core_rich": "CMv4 CORE+",
+        "full":      "CMv4 FULL",
+    }.get(tier, "")

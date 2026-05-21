@@ -3251,7 +3251,9 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
 
     Bloque 1 del modelo Keep/Drop-in/Merge.
     """
-    from phases.rpu_analyze import analyze_rpu_combos, classify_l8
+    from phases.rpu_analyze import (
+        analyze_rpu_combos, classify_l8, classify_l8_quality,
+    )
 
     wd = cmv40_get_workdir(session)
     target_bin = wd / "RPU_target.bin"
@@ -3275,6 +3277,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     session.target_l8_neutral_frames_pct = analysis.l8_neutral_pct
     session.target_l8_has_mid_contrast = analysis.l8_has_mid_contrast
     session.target_l8_has_clip_trim = analysis.l8_has_clip_trim
+    session.target_l8_scene_cuts = analysis.scene_cuts
     session.target_frames_analyzed = analysis.total_frames
 
     classification, reason = classify_l8(analysis)
@@ -3300,7 +3303,42 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         )
         return False
 
+    # Sub-clasificación de calidad (CORE / CORE+ / FULL) para "real" e
+    # "indeterminate" (en indeterminate solo es informativo, pero se calcula
+    # igual por si avanzamos). Solo poblamos si tier != "" (i.e. real).
+    tier, label, description = classify_l8_quality(analysis)
+    if tier:
+        session.target_l8_quality_tier = tier
+        session.target_l8_quality_label = label
+        session.target_l8_quality_description = description
+        await log_cb(f"[Pre-flight] 🎯 Calidad del bin: {label} — {description}")
+        # Actualizar output_mkv_name con el label correcto si está en formato
+        # auto (contiene "[CMv4.0]" o "[CMv4 XXX]"). No tocamos si el usuario
+        # lo editó a algo personalizado.
+        _cmv40_apply_quality_label_to_output_name(session, label)
+
     return True
+
+
+def _cmv40_apply_quality_label_to_output_name(session: CMv40Session, new_label: str) -> None:
+    """Sustituye el `[CMv4...]` del output_mkv_name por `[<new_label>]`.
+
+    Patrones reconocidos como "formato auto" (editables sin avisar al usuario):
+      - `[CMv4.0]`
+      - `[CMv4 CORE]`, `[CMv4 CORE+]`, `[CMv4 FULL]`, `[CMv4 MINIMAL]`
+
+    Si el usuario lo cambió a algo distinto (ej. `[Hybrid DV4]` o sin
+    bracket alguno), NO se toca. La idea: mantener el label coherente con
+    la calidad detectada cuando el usuario no se ha metido a renombrar.
+    """
+    import re
+    if not session.output_mkv_name or not new_label:
+        return
+    pattern = r"\[CMv4(?:\.0| (?:CORE\+?|FULL|MINIMAL))\]"
+    new_token = f"[{new_label}]"
+    new_name = re.sub(pattern, new_token, session.output_mkv_name)
+    if new_name != session.output_mkv_name:
+        session.output_mkv_name = new_name
 
 
 async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:

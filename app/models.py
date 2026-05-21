@@ -1218,6 +1218,10 @@ class CMv40Session(BaseModel):
     target_l8_has_mid_contrast: bool = False
     target_l8_has_clip_trim: bool = False
     target_l8_classification: str = ""  # "real" | "default" | "indeterminate" | ""
+    target_l8_quality_tier: str = ""    # "core" | "core_rich" | "full" | ""
+    target_l8_quality_label: str = ""   # "CMv4 CORE" | "CMv4 CORE+" | "CMv4 FULL" | ""
+    target_l8_quality_description: str = ""  # texto legible para UI/log
+    target_l8_scene_cuts: int = 0       # nº de scene_refresh_flags del bin
 
     target_frames_analyzed: int = 0
 

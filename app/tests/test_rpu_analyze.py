@@ -19,6 +19,8 @@ from phases.rpu_analyze import (  # noqa: E402
     RpuAnalysis,
     _parse_export,
     classify_l8,
+    classify_l8_quality,
+    filename_label_from_tier,
 )
 
 
@@ -238,6 +240,97 @@ class TestParseExport(unittest.TestCase):
             self.assertEqual(res.frames_with_cmv40, 3)
         finally:
             path.unlink()
+
+    def test_scene_cuts_se_cuentan(self):
+        # 3 frames con scene_refresh_flag set + 2 sin → scene_cuts=3
+        f_cut = {"vdr_dm_data": {
+            "scene_refresh_flag": 1,
+            "cmv40_metadata": {"ext_metadata_blocks": []},
+        }}
+        f_norm = {"vdr_dm_data": {
+            "scene_refresh_flag": 0,
+            "cmv40_metadata": {"ext_metadata_blocks": []},
+        }}
+        path = _write_json([f_cut, f_norm, f_cut, f_norm, f_cut])
+        try:
+            res = _parse_export(path)
+            self.assertEqual(res.scene_cuts, 3)
+        finally:
+            path.unlink()
+
+
+# ── classify_l8_quality ──────────────────────────────────────────────────────
+
+class TestClassifyL8Quality(unittest.TestCase):
+
+    def _make_real(self, *, l8_count=64, neutral_pct=0.1, scene_cuts=2000,
+                   has_mid_contrast=False, has_clip_trim=False) -> RpuAnalysis:
+        a = RpuAnalysis()
+        a.l8_unique_count = l8_count
+        a.l8_neutral_pct = neutral_pct
+        a.frames_with_cmv40 = 100000
+        a.scene_cuts = scene_cuts
+        a.l8_has_mid_contrast = has_mid_contrast
+        a.l8_has_clip_trim = has_clip_trim
+        return a
+
+    def test_full_when_mid_contrast_populated(self):
+        # Caso Smashing Machine: mid_contrast poblado → FULL
+        a = self._make_real(l8_count=152, neutral_pct=0.001,
+                            scene_cuts=593, has_mid_contrast=True)
+        tier, label, desc = classify_l8_quality(a)
+        self.assertEqual(tier, "full")
+        self.assertEqual(label, "CMv4 FULL")
+        self.assertIn("FULL", desc)
+        self.assertIn("target_mid_contrast", desc)
+
+    def test_full_when_clip_trim_populated(self):
+        # Bin con clip_trim poblado (sin mid_contrast) también es FULL
+        a = self._make_real(l8_count=80, neutral_pct=0.05,
+                            scene_cuts=2000, has_clip_trim=True)
+        tier, label, _ = classify_l8_quality(a)
+        self.assertEqual(tier, "full")
+        self.assertEqual(label, "CMv4 FULL")
+
+    def test_core_rich_when_many_combos_per_shot(self):
+        # Caso 28 después: 1119/2617 = 0.43 combos/shot → CORE+
+        a = self._make_real(l8_count=1119, neutral_pct=0.08, scene_cuts=2617)
+        tier, label, desc = classify_l8_quality(a)
+        self.assertEqual(tier, "core_rich")
+        self.assertEqual(label, "CMv4 CORE+")
+        self.assertIn("CORE+", desc)
+
+    def test_core_when_standard_streaming(self):
+        # Spider-Man: 69/2887 = 0.024 → CORE estándar
+        a = self._make_real(l8_count=69, neutral_pct=0.30, scene_cuts=2887)
+        tier, label, desc = classify_l8_quality(a)
+        self.assertEqual(tier, "core")
+        self.assertEqual(label, "CMv4 CORE")
+        self.assertIn("CORE", desc)
+
+    def test_returns_empty_for_default_bins(self):
+        # Si classify_l8 devuelve "default" → no aplica quality
+        a = RpuAnalysis()
+        a.l8_unique_count = 1
+        a.l8_neutral_pct = 1.0
+        a.frames_with_cmv40 = 100
+        tier, label, desc = classify_l8_quality(a)
+        self.assertEqual(tier, "")
+        self.assertEqual(label, "")
+        self.assertEqual(desc, "")
+
+    def test_rich_fallback_when_no_scene_cuts(self):
+        # Si scene_cuts=0 (raro) usar umbral absoluto de 400 combos
+        a = self._make_real(l8_count=500, neutral_pct=0.1, scene_cuts=0)
+        tier, _, _ = classify_l8_quality(a)
+        self.assertEqual(tier, "core_rich")
+
+    def test_filename_label_helper(self):
+        self.assertEqual(filename_label_from_tier("core"), "CMv4 CORE")
+        self.assertEqual(filename_label_from_tier("core_rich"), "CMv4 CORE+")
+        self.assertEqual(filename_label_from_tier("full"), "CMv4 FULL")
+        self.assertEqual(filename_label_from_tier(""), "")
+        self.assertEqual(filename_label_from_tier("unknown"), "")
 
 
 if __name__ == "__main__":
