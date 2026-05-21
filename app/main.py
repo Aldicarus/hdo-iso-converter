@@ -4157,6 +4157,93 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+@app.post(
+    "/api/cmv40/{session_id}/accept-keep",
+    summary="Acepta la recomendación KEEP — cierra el proyecto sin tocar el MKV",
+)
+async def cmv40_accept_keep(session_id: str):
+    """Cuando el modelo recomienda Keep (bin sintético, sin bin, no aporta),
+    el usuario puede aceptar la recomendación con este endpoint. El proyecto
+    se marca como `done` con `output_workflow="keep_cmv29"` — sin tocar el
+    MKV original. Aparece en el historial como completado vía Keep.
+
+    El usuario puede seguir teniendo el MKV original (con CMv2.9) y dejar
+    que su reproductor (p3i T4 / Sony / LG modernos) haga la conversión a
+    CMv4.0 al vuelo en runtime.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if session.archived:
+        raise HTTPException(status_code=400, detail="Proyecto archivado")
+    if session.phase == "done":
+        raise HTTPException(status_code=400, detail="Proyecto ya está completado")
+    if session.recommended_action != "keep":
+        raise HTTPException(
+            status_code=400,
+            detail=f"La recomendación actual no es Keep (es '{session.recommended_action}')",
+        )
+    # Cierre formal del proyecto vía Keep
+    session.phase = "done"
+    session.output_workflow = "keep_cmv29"
+    session.error_message = ""
+    session.running_phase = None
+    save_cmv40_session(session)
+    await _cmv40_log(
+        session,
+        "✓ Proyecto cerrado vía KEEP — el MKV original queda sin tocar. "
+        "Reproductor compatible con CMv4.0 (p3i T4 / Sony / LG) hará la "
+        "conversión al vuelo en runtime con resultado equivalente al Restore."
+    )
+    return session.model_dump()
+
+
+@app.post(
+    "/api/cmv40/{session_id}/override-recommendation",
+    summary="Ignora la recomendación KEEP y fuerza el pipeline a continuar",
+)
+async def cmv40_override_recommendation(session_id: str):
+    """El usuario decide procesar el proyecto aunque el modelo recomiende
+    Keep (bin sintético). Útil cuando quiere archivar la versión CMv4.0
+    "completa" por compatibilidad con otros reproductores, aunque el
+    resultado visible sea equivalente al Auto del p3i T4.
+
+    Resetea `preflight_decision` y `recommended_action` para desbloquear
+    el orquestador, y dispara la siguiente fase si auto_pipeline=True.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if session.archived:
+        raise HTTPException(status_code=400, detail="Proyecto archivado")
+    if not session.recommended_action or session.recommended_action != "keep":
+        # No hay recomendación Keep que sobrescribir — no-op
+        return session.model_dump()
+
+    # Reset de la decisión Keep para desbloquear el pipeline
+    session.preflight_decision = "ok" if session.target_preflight_ok else ""
+    session.recommended_action = ""
+    session.recommended_action_label = ""
+    session.recommended_action_reason = ""
+    session.preflight_message = ""
+    # El bin pasó pre-flight como CMv4.0 (es real, no abort_no_cmv40);
+    # solo lo marcamos como apto para avanzar.
+    if session.target_dv_info and session.target_dv_info.cm_version == "v4.0":
+        session.target_preflight_ok = True
+    save_cmv40_session(session)
+    await _cmv40_log(
+        session,
+        "🔬 Override usuario — ignorando recomendación KEEP. "
+        "El pipeline continuará con Restore aunque el bin sea sintético. "
+        "Resultado funcionalmente equivalente al Auto del p3i T4, pero "
+        "queda archivado como MKV CMv4.0 'completo'."
+    )
+    # Despierta el orquestador si auto está activo
+    if session.auto_pipeline:
+        asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
+    return session.model_dump()
+
+
 @app.post("/api/cmv40/{session_id}/auto-pipeline",
           summary="Activa/desactiva el auto-pipeline backend-driven para un proyecto")
 async def cmv40_set_auto_pipeline(session_id: str, body: CMv40AutoPipelineRequest):

@@ -1271,3 +1271,13 @@ class CMv40Session(BaseModel):
       - 'unknown':   faltan datos
       - '':          aún no calculado
     """
+
+    output_workflow: str = ""
+    """Tipo de cierre del proyecto cuando phase='done':
+      - 'restore_dropin': MKV procesado vía drop-in (RPU bin inyectado)
+      - 'restore_merge':  MKV procesado vía merge selectivo [3,8,9,11,254]
+      - 'keep_cmv29':     usuario aceptó la recomendación Keep — proyecto
+                           cerrado sin tocar el MKV original. El reproductor
+                           hace la conversión CMv4.0 al vuelo en runtime.
+      - '':               proyecto aún no terminado o cierre legacy.
+    """

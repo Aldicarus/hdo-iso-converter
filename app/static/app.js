@@ -12554,7 +12554,8 @@ function _renderCMv40Info(s, pid) {
           </div>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${_renderCMv40RecommendationCard(s, pid)}`;
 
   // Si aún no tenemos tmdb_info, intentamos hidratarlo (puede haber fallado la
   // tarea background). Best-effort, sin bloquear UI.
@@ -12562,6 +12563,190 @@ function _renderCMv40Info(s, pid) {
     if (project) project._tmdbLookupTried = true;
     _cmv40HydrateTmdbClient(pid);
   }
+}
+
+/**
+ * Renderiza la card "🎯 Análisis y recomendación" del modelo Keep/Restore.
+ * Solo aparece si tenemos datos del análisis del bin (target_l8_classification
+ * != ''). Muestra:
+ *   - Calidad del bin (CMv4 CORE / CORE+ / FULL / DEFAULT)
+ *   - Comparación L2 source vs target (cuando Fase A ya corrió)
+ *   - Recomendación final con badge grande
+ *   - Botones de acción cuando recommended_action="keep"
+ */
+function _renderCMv40RecommendationCard(s, pid) {
+  // No mostrar la card si no hay análisis del bin todavía (típico antes de
+  // que termine el pre-flight, o sesiones legacy sin estos campos).
+  if (!s.target_l8_classification) return '';
+
+  const action = s.recommended_action || '';
+  const isKeep = action === 'keep';
+  const isDropIn = action === 'drop_in';
+  const isMerge = action === 'merge';
+  const isUnknown = action === 'unknown' || action === '';
+  const projectDone = (s.phase === 'done' || s.archived);
+
+  // Color del badge según acción
+  const badgeStyle = isKeep
+    ? 'background:#2a3d5c; color:#4da3ff; border:1px solid #4da3ff'
+    : isDropIn
+    ? 'background:#1f3d2a; color:#5fcf7f; border:1px solid #5fcf7f'
+    : isMerge
+    ? 'background:#3d2f1f; color:#e6a64a; border:1px solid #e6a64a'
+    : 'background:#2a2a2a; color:#999; border:1px solid #555';
+
+  const label = s.recommended_action_label || (isUnknown ? '⏳ Esperando análisis' : '—');
+  const reason = s.recommended_action_reason || '';
+
+  // Tag de calidad del bin (la que va al filename)
+  const qualityTag = s.target_l8_quality_label || (
+    s.target_l8_classification === 'default' ? 'CMv4 DEFAULT (sintético)' :
+    s.target_l8_classification === 'real' ? 'CMv4 (real)' :
+    s.target_l8_classification === 'indeterminate' ? 'CMv4 (ambiguo)' :
+    'CMv4 ?'
+  );
+
+  // Comparación L2 — chip de color
+  const l2Comp = s.l2_comparison || '';
+  const l2Chip = l2Comp === 'identical'
+    ? '<span style="background:#1f3d2a; color:#5fcf7f; padding:2px 8px; border-radius:4px; font-size:11px">L2 idéntico al source</span>'
+    : l2Comp === 'different'
+    ? '<span style="background:#3d2f1f; color:#e6a64a; padding:2px 8px; border-radius:4px; font-size:11px">L2 distinto del source</span>'
+    : '';
+
+  // Tabla de datos técnicos
+  const techRows = [];
+  if (s.target_l8_unique_count) {
+    techRows.push(
+      `<tr><td style="color:var(--text-3); font-size:11px">Combos L8</td><td style="font-size:12px">${s.target_l8_unique_count}</td></tr>`
+    );
+  }
+  if (s.target_l8_neutral_frames_pct != null && s.target_frames_analyzed) {
+    const worked = (1.0 - s.target_l8_neutral_frames_pct) * 100;
+    techRows.push(
+      `<tr><td style="color:var(--text-3); font-size:11px">Frames con trim</td><td style="font-size:12px">${worked.toFixed(0)}%</td></tr>`
+    );
+  }
+  if (s.target_l8_has_mid_contrast || s.target_l8_has_clip_trim) {
+    const extras = [];
+    if (s.target_l8_has_mid_contrast) extras.push('target_mid_contrast');
+    if (s.target_l8_has_clip_trim) extras.push('clip_trim');
+    techRows.push(
+      `<tr><td style="color:var(--text-3); font-size:11px">CMv4.0 extras</td><td style="font-size:12px">${extras.join(' · ')}</td></tr>`
+    );
+  }
+  if (s.target_l2_unique_count) {
+    techRows.push(
+      `<tr><td style="color:var(--text-3); font-size:11px">Combos L2 (bin)</td><td style="font-size:12px">${s.target_l2_unique_count}</td></tr>`
+    );
+  }
+  if (s.source_l2_unique_count) {
+    techRows.push(
+      `<tr><td style="color:var(--text-3); font-size:11px">Combos L2 (source)</td><td style="font-size:12px">${s.source_l2_unique_count}</td></tr>`
+    );
+  }
+  const techTable = techRows.length
+    ? `<table style="margin-top:12px; border-collapse:collapse; font-family:monospace">${techRows.join('')}</table>`
+    : '';
+
+  // Botones de acción cuando la recomendación es KEEP y el proyecto no está
+  // cerrado todavía. Solo dos: aceptar Keep (cierra proyecto) o forzar
+  // Restore (despierta el pipeline). Si el proyecto ya está done/archived,
+  // no se muestran botones — es información solo.
+  let actionButtons = '';
+  if (isKeep && !projectDone) {
+    actionButtons = `
+      <div style="display:flex; gap:8px; margin-top:14px">
+        <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
+          data-tooltip="Cierra el proyecto sin tocar el MKV original. El reproductor compatible con CMv4.0 (p3i T4 / Sony / LG) hará la conversión al vuelo en runtime.">
+          ✓ Aceptar Keep — cerrar proyecto
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
+          data-tooltip="Procesa el proyecto vía Restore aunque el bin sea sintético. Resultado funcionalmente equivalente al Auto del reproductor pero quedará archivado como MKV CMv4.0 'completo'.">
+          🔬 Forzar Restore de todas formas
+        </button>
+      </div>`;
+  }
+
+  // Si el proyecto está done con output_workflow="keep_cmv29", mostramos un
+  // banner verde tipo "cerrado vía KEEP"
+  let doneBanner = '';
+  if (s.output_workflow === 'keep_cmv29') {
+    doneBanner = `
+      <div style="margin-top:12px; padding:10px 12px; background:#1f3d2a; border:1px solid #5fcf7f; border-radius:6px; color:#5fcf7f; font-size:12px">
+        ✓ Proyecto cerrado vía KEEP — el MKV original quedó intacto.
+        Tu reproductor (p3i T4 / Sony / LG modernos) hace la conversión CMv4.0 al vuelo.
+      </div>`;
+  }
+
+  return `
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-title">🎯 Análisis y recomendación</div>
+        <div class="section-subtitle">Modelo Keep/Drop-in/Merge basado en análisis del bin descargado del repo DoviTools.</div>
+      </div>
+      <div class="section-body">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <span style="padding:6px 12px; border-radius:6px; font-weight:600; font-size:13px; ${badgeStyle}">${escHtml(label)}</span>
+          <span style="background:#2a3138; color:var(--text-1); padding:4px 10px; border-radius:4px; font-size:11px; font-family:monospace">${escHtml(qualityTag)}</span>
+          ${l2Chip}
+        </div>
+        ${reason ? `<div style="margin-top:10px; color:var(--text-2); font-size:12px; line-height:1.4">${escHtml(reason)}</div>` : ''}
+        ${techTable}
+        ${actionButtons}
+        ${doneBanner}
+      </div>
+    </div>`;
+}
+
+function cmv40AcceptKeep(pid) {
+  showConfirm(
+    'Aceptar KEEP y cerrar el proyecto',
+    'El proyecto se marca como completado sin procesar el MKV original. '
+      + 'Tu reproductor (p3i T4 / Sony / LG modernos compatibles con CMv4.0) '
+      + 'hará la conversión al vuelo en runtime — resultado equivalente al Restore '
+      + 'pero sin gastar tiempo de procesado ni disco.',
+    async () => {
+      const data = await apiFetch(`/api/cmv40/${pid}/accept-keep`, { method: 'POST' });
+      if (!data) {
+        showToast('Error al cerrar el proyecto vía Keep', 'error');
+        return;
+      }
+      const project = openCMv40Projects.find(p => p.id === pid);
+      if (project) {
+        _cmv40AssignSession(project, data);
+        _updateCMv40Panel(project);
+      }
+      refreshCMv40Sidebar();
+      showToast('✓ Proyecto cerrado vía KEEP — MKV original intacto', 'success');
+    },
+    'Aceptar Keep',
+  );
+}
+
+function cmv40OverrideRecommendation(pid) {
+  showConfirm(
+    'Forzar Restore aunque el bin sea sintético',
+    'El pipeline va a procesar el proyecto (~25 min de Fase A + extracción + remux) '
+      + 'aunque el bin del repo no aporte L8 trabajado real. '
+      + 'Resultado funcionalmente equivalente al Auto del reproductor, pero '
+      + 'quedará archivado como MKV CMv4.0 "completo".',
+    async () => {
+      const data = await apiFetch(`/api/cmv40/${pid}/override-recommendation`, { method: 'POST' });
+      if (!data) {
+        showToast('Error al forzar Restore', 'error');
+        return;
+      }
+      const project = openCMv40Projects.find(p => p.id === pid);
+      if (project) {
+        _cmv40AssignSession(project, data);
+        _updateCMv40Panel(project);
+      }
+      refreshCMv40Sidebar();
+      showToast('🔬 Restore forzado — el pipeline continuará', 'info');
+    },
+    'Forzar Restore',
+  );
 }
 
 async function _cmv40HydrateTmdbClient(pid) {
