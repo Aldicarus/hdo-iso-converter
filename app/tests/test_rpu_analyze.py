@@ -21,7 +21,10 @@ from phases.rpu_analyze import (  # noqa: E402
     classify_l8,
     classify_l8_quality,
     filename_label_from_tier,
+    compare_l2,
+    recommend_action,
 )
+from models import L2Combo, L8Combo, CMv40Session, DoviInfo  # noqa: E402
 
 
 def _write_json(data) -> Path:
@@ -331,6 +334,139 @@ class TestClassifyL8Quality(unittest.TestCase):
         self.assertEqual(filename_label_from_tier("full"), "CMv4 FULL")
         self.assertEqual(filename_label_from_tier(""), "")
         self.assertEqual(filename_label_from_tier("unknown"), "")
+
+
+# ── compare_l2 ───────────────────────────────────────────────────────────────
+
+def _make_l2(pq, slope=2048, off=2048, pow_=2048, chr_=2048, sat=2048, msw=2048):
+    return L2Combo(
+        target_max_pq=pq, trim_slope=slope, trim_offset=off, trim_power=pow_,
+        trim_chroma_weight=chr_, trim_saturation_gain=sat, ms_weight=msw,
+        occurrence_count=1,
+    )
+
+
+class TestCompareL2(unittest.TestCase):
+
+    def test_identical_when_same_set(self):
+        s = [_make_l2(2081, slope=2000), _make_l2(2851, slope=2100)]
+        t = [_make_l2(2081, slope=2000), _make_l2(2851, slope=2100)]
+        verdict, reason = compare_l2(s, t)
+        self.assertEqual(verdict, "identical")
+        self.assertIn("byte-a-byte", reason)
+
+    def test_identical_independente_del_orden(self):
+        # El orden de combos en la lista no importa — comparamos como SET
+        s = [_make_l2(2081, slope=2000), _make_l2(2851, slope=2100)]
+        t = [_make_l2(2851, slope=2100), _make_l2(2081, slope=2000)]
+        verdict, _ = compare_l2(s, t)
+        self.assertEqual(verdict, "identical")
+
+    def test_identical_independiente_del_occurrence_count(self):
+        # occurrence_count distinto pero mismos valores → identical
+        a = _make_l2(2081, slope=2000); a.occurrence_count = 100
+        b = _make_l2(2081, slope=2000); b.occurrence_count = 50
+        verdict, _ = compare_l2([a], [b])
+        self.assertEqual(verdict, "identical")
+
+    def test_different_when_value_differs(self):
+        s = [_make_l2(2081, slope=2000)]
+        t = [_make_l2(2081, slope=1500)]
+        verdict, reason = compare_l2(s, t)
+        self.assertEqual(verdict, "different")
+        self.assertIn("distinto", reason.lower())
+
+    def test_different_when_target_has_extra_combo(self):
+        s = [_make_l2(2081)]
+        t = [_make_l2(2081), _make_l2(2851)]
+        verdict, _ = compare_l2(s, t)
+        self.assertEqual(verdict, "different")
+
+    def test_unknown_if_empty(self):
+        verdict, reason = compare_l2([], [_make_l2(2081)])
+        self.assertEqual(verdict, "unknown")
+        self.assertIn("source", reason)
+
+
+# ── recommend_action ─────────────────────────────────────────────────────────
+
+class TestRecommendAction(unittest.TestCase):
+
+    def _base_session(self) -> CMv40Session:
+        s = CMv40Session(
+            id="test_id",
+            source_mkv_path="/tmp/x.mkv",
+            source_mkv_name="x.mkv",
+            output_mkv_name="x [CMv4.0].mkv",
+        )
+        return s
+
+    def test_keep_when_preflight_decision_default(self):
+        s = self._base_session()
+        s.preflight_decision = "keep_l8_default"
+        s.preflight_message = "Bin sintético"
+        action, label, reason = recommend_action(s)
+        self.assertEqual(action, "keep")
+        self.assertIn("KEEP", label)
+
+    def test_keep_when_no_preflight_ok(self):
+        s = self._base_session()
+        s.target_preflight_ok = False
+        action, _, _ = recommend_action(s)
+        self.assertEqual(action, "keep")
+
+    def test_unknown_when_phase_a_not_done(self):
+        s = self._base_session()
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        # source_l2_unique_count == 0 → Fase A no ejecutada
+        action, label, _ = recommend_action(s)
+        self.assertEqual(action, "unknown")
+        self.assertIn("pendiente", label.lower())
+
+    def test_drop_in_when_profile_match_and_l2_identical(self):
+        s = self._base_session()
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        s.source_workflow = "p7_fel"
+        s.source_l2_combos = [_make_l2(2081, slope=2000)]
+        s.source_l2_unique_count = 1
+        s.target_l2_combos = [_make_l2(2081, slope=2000)]
+        s.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0", frame_count=100)
+        s.target_l8_quality_label = "CMv4 FULL"
+        action, label, reason = recommend_action(s)
+        self.assertEqual(action, "drop_in")
+        self.assertEqual(label, "DROP-IN")
+        self.assertIn("idéntico", reason)
+        self.assertIn("CMv4 FULL", reason)
+
+    def test_merge_when_profile_mismatch(self):
+        s = self._base_session()
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        s.source_workflow = "p8"
+        s.source_l2_combos = [_make_l2(2081, slope=2000)]
+        s.source_l2_unique_count = 1
+        s.target_l2_combos = [_make_l2(2081, slope=2000)]  # idéntico pero da igual
+        s.target_dv_info = DoviInfo(profile=7, el_type="MEL", cm_version="v4.0", frame_count=100)
+        s.target_l8_quality_label = "CMv4 CORE"
+        action, label, reason = recommend_action(s)
+        self.assertEqual(action, "merge")
+        self.assertIn("MERGE", label)
+        self.assertIn("mismatch", reason.lower())
+
+    def test_merge_when_l2_differs(self):
+        s = self._base_session()
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        s.source_workflow = "p7_fel"
+        s.source_l2_combos = [_make_l2(2081, slope=2000)]
+        s.source_l2_unique_count = 1
+        s.target_l2_combos = [_make_l2(2081, slope=1500)]  # distinto
+        s.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0", frame_count=100)
+        action, label, reason = recommend_action(s)
+        self.assertEqual(action, "merge")
+        self.assertIn("L2 difiere", reason)
 
 
 if __name__ == "__main__":

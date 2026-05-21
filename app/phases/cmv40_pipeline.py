@@ -886,7 +886,7 @@ async def run_phase_a_analyze_source(
     # `dovi_tool export -d all` + parseo de combos únicos. Alimenta el
     # modelo de decisión Keep/Drop-in/Merge (comparación L2 source vs bin).
     # Coste ~3-5s sobre Fase A que dura ~12 min — despreciable.
-    from phases.rpu_analyze import analyze_rpu_combos
+    from phases.rpu_analyze import analyze_rpu_combos, compare_l2, recommend_action
     if log_callback:
         await log_callback("[Fase A] Analizando combos L2 del source (dovi_tool export)…")
     source_analysis = await analyze_rpu_combos(rpu_source)
@@ -899,6 +899,29 @@ async def run_phase_a_analyze_source(
             await log_callback(
                 f"[Fase A] L2 source: {source_analysis.l2_unique_count} combos únicos · "
                 f"peaks {source_analysis.l2_target_pqs}"
+            )
+
+        # ── Bloque 2: comparación L2 source vs L2 bin + recomendación ──
+        # Tras Fase A ya tenemos los datos necesarios. Computamos:
+        #   - l2_comparison: identical | different | unknown
+        #   - recommended_action: keep | drop_in | merge
+        # Solo informativo en este bloque — la lógica de Fase F NO se
+        # modifica todavía (eso es Bloque 3). El frontend leerá estos
+        # campos para mostrar el panel "🎯 Análisis y recomendación".
+        l2_verdict, l2_reason = compare_l2(
+            session.source_l2_combos, session.target_l2_combos
+        )
+        session.l2_comparison = l2_verdict
+        action, action_label, action_reason = recommend_action(session)
+        session.recommended_action = action
+        session.recommended_action_label = action_label
+        session.recommended_action_reason = action_reason
+        if log_callback:
+            await log_callback(
+                f"[Fase A] 🎯 Comparación L2: {l2_verdict.upper()} — {l2_reason}"
+            )
+            await log_callback(
+                f"[Fase A] 🎯 Recomendación del modelo: {action_label} — {action_reason}"
             )
     elif log_callback:
         await log_callback(

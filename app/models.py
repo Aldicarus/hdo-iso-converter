@@ -1239,3 +1239,35 @@ class CMv40Session(BaseModel):
     preflight_message: str = ""
     """Mensaje legible para mostrar al usuario explicando la decisión del
     pre-flight. Solo poblado cuando preflight_decision != 'ok'."""
+
+    # ── Bloque 2: recomendación del modelo de 4 caminos ──
+    # Calculada tras pre-flight (si keep_l8_default) o tras Fase A (cuando
+    # tenemos también source_l2_combos para comparar con target_l2_combos).
+    # NO ejecuta nada — solo informa al frontend para mostrar recomendación
+    # con razón. El usuario decide aceptar (Bloque 4) o forzar Restore
+    # manualmente (override).
+
+    recommended_action: str = ""
+    """Acción recomendada según el modelo:
+      - 'keep':     no procesar (bin sintético, sin bin, no aporta)
+      - 'drop_in':  inyección directa (profile match + L2 idéntico)
+      - 'merge':    merge selectivo [3,8,9,11,254] (preserva L2 source)
+      - 'unknown':  faltan datos (típicamente Fase A no ejecutada)
+      - '':         aún no calculada
+    """
+
+    recommended_action_label: str = ""
+    """Texto compacto para badge/título en UI ('DROP-IN', 'MERGE selectivo',
+    'KEEP recomendado')."""
+
+    recommended_action_reason: str = ""
+    """Justificación legible para el usuario, incluyendo los criterios que
+    aplicaron (profile match, comparación L2, calidad del bin)."""
+
+    l2_comparison: str = ""
+    """Resultado de compare_l2(source, target):
+      - 'identical': L2 byte-a-byte idéntico
+      - 'different': L2 distintos
+      - 'unknown':   faltan datos
+      - '':          aún no calculado
+    """

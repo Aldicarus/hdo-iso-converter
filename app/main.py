@@ -3295,6 +3295,12 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         session.preflight_decision = "keep_l8_default"
         session.preflight_message = reason
         session.target_preflight_ok = False
+        # Persistir la recomendación del modelo (modelo Bloque 2): KEEP
+        from phases.rpu_analyze import recommend_action
+        action, action_label, action_reason = recommend_action(session)
+        session.recommended_action = action
+        session.recommended_action_label = action_label
+        session.recommended_action_reason = action_reason
         await log_cb(
             f"🛑 Pre-flight: bin sin L8 trabajado real. {reason} "
             f"Recomendación: KEEP (no procesar). Un reproductor compatible "

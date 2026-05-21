@@ -402,3 +402,166 @@ def filename_label_from_tier(tier: str) -> str:
         "core_rich": "CMv4 CORE+",
         "full":      "CMv4 FULL",
     }.get(tier, "")
+
+
+def _combo_to_tuple_l2(combo) -> tuple:
+    """Convierte un L2Combo a tupla hasheable para comparación.
+    occurrence_count se excluye intencionalmente — comparamos VALORES, no
+    cuántas veces aparece cada combo (un colorista puede haber aplicado el
+    mismo trim a más o menos shots según el corte y aún ser "el mismo L2")."""
+    return (
+        combo.target_max_pq,
+        combo.trim_slope,
+        combo.trim_offset,
+        combo.trim_power,
+        combo.trim_chroma_weight,
+        combo.trim_saturation_gain,
+        combo.ms_weight,
+    )
+
+
+def compare_l2(source_combos: list, target_combos: list) -> tuple[str, str]:
+    """Compara el L2 del source RPU vs el L2 del bin target.
+
+    Devuelve (verdict, reason) donde verdict es:
+      - "identical": el SET de combinaciones únicas de valores es idéntico.
+        Implica que RESET_9999 preservó el L2 del BD al generar el bin
+        (caso de los 4+ bins reales analizados empíricamente).
+      - "different": los sets de combos difieren — el L2 del bin viene de
+        otro grading. La regla conservadora del modelo dice: preservar
+        L2 del source (merge selectivo [3,8,9,11,254], no transferir L2
+        del bin). "Nunca pegar un L2 peor".
+      - "unknown": falta uno de los dos análisis (no se puede comparar).
+        Tratar como "different" por seguridad.
+
+    Solo compara los VALORES de cada combo, no su frecuencia (occurrence_count).
+    Dos RPUs con los mismos sets de trim values son funcionalmente
+    equivalentes para chips CMv2.9 aunque las frecuencias difieran.
+    """
+    if not source_combos and not target_combos:
+        return ("unknown", "No hay datos L2 de ningún lado para comparar")
+    if not source_combos or not target_combos:
+        return ("unknown",
+                "Falta análisis L2 de "
+                + ("source" if not source_combos else "target")
+                + " — no se puede comparar")
+
+    source_set = {_combo_to_tuple_l2(c) for c in source_combos}
+    target_set = {_combo_to_tuple_l2(c) for c in target_combos}
+
+    if source_set == target_set:
+        return ("identical",
+                f"L2 byte-a-byte idéntico ({len(source_set)} combos únicos en ambos). "
+                f"El bin preservó el L2 del BD original.")
+
+    only_in_source = source_set - target_set
+    only_in_target = target_set - source_set
+    common = source_set & target_set
+    return ("different",
+            f"L2 distinto: {len(common)} combos comunes, "
+            f"{len(only_in_source)} solo en source, "
+            f"{len(only_in_target)} solo en target. "
+            f"El bin trae un L2 derivado de un grading distinto al del BD — "
+            f"preservar el L2 del source por seguridad (no degradar).")
+
+
+def recommend_action(session) -> tuple[str, str, str]:
+    """Calcula la recomendación del modelo de 4 caminos para una sesión CMv4.0.
+
+    Devuelve (action, label, reason) donde action es:
+      - "keep":     no procesar. El reproductor compatible con CMv4.0 (p3i T4
+                    con Auto append) hace la conversión al vuelo con resultado
+                    equivalente. Casos: bin sintético, sin bin, no aporta.
+      - "drop_in":  inyección directa del RPU del bin (rápido, ~30s).
+                    Solo posible si profile match + L2 idéntico.
+      - "merge":    merge selectivo con rpu_levels=[3,8,9,11,254].
+                    Cualquier otro caso "real" — preserva L2 source.
+      - "unknown":  faltan datos (Fase A no ejecutada o análisis vacío).
+
+    El árbol de decisión coincide con el modelo cerrado tras el chequeo
+    empírico (ver ESTUDIO en histórico de la conversación):
+
+        ¿Hay bin?
+        ├─ NO → KEEP
+        └─ SÍ → ¿L8 del bin trabajado?
+                ├─ NO → KEEP
+                └─ SÍ → ¿Profile match?
+                        ├─ NO → MERGE [3,8,9,11,254]
+                        └─ SÍ → ¿L2 idéntico?
+                                ├─ SÍ → DROP-IN
+                                └─ NO → MERGE [3,8,9,11,254]
+    """
+    # Decisión inmediata si pre-flight ya lo resolvió
+    if session.preflight_decision in ("keep_l8_default", "keep_no_l8", "abort_no_cmv40"):
+        return (
+            "keep",
+            "KEEP recomendado",
+            session.preflight_message or "Pre-flight decidió Keep.",
+        )
+
+    # Sin bin descargado / sin pre-flight OK → KEEP por defecto
+    if not session.target_preflight_ok:
+        return (
+            "keep",
+            "KEEP recomendado",
+            "El bin target no está validado (sin pre-flight OK). "
+            "Sin bin no hay nada que restaurar; mantener el BD original.",
+        )
+
+    # Si llegamos aquí el bin está validado y tiene L8 trabajado.
+    # Necesitamos Fase A completa para comparar L2.
+    if session.source_l2_unique_count == 0:
+        return (
+            "unknown",
+            "Análisis pendiente",
+            "Fase A no se ha ejecutado todavía — falta el análisis L2 del source "
+            "para decidir entre drop-in y merge.",
+        )
+
+    # Comparación L2 source vs target
+    l2_verdict, l2_reason = compare_l2(
+        session.source_l2_combos, session.target_l2_combos
+    )
+
+    # Profile match (source workflow vs bin)
+    source_wf = session.source_workflow or ""
+    source_is_fel = source_wf == "p7_fel"
+    source_is_mel = source_wf == "p7_mel"
+    source_is_p8  = source_wf == "p8"
+    target = session.target_dv_info
+    target_is_fel = bool(target and target.profile == 7 and target.el_type == "FEL")
+    target_is_mel = bool(target and target.profile == 7 and target.el_type == "MEL")
+    target_is_p8  = bool(target and target.profile == 8)
+    profile_match = (
+        (source_is_fel and target_is_fel)
+        or (source_is_mel and target_is_mel)
+        or (source_is_p8  and target_is_p8)
+    )
+
+    quality_label = session.target_l8_quality_label or "CMv4"
+
+    if profile_match and l2_verdict == "identical":
+        return (
+            "drop_in",
+            "DROP-IN",
+            f"Profile match (source y bin son ambos {source_wf.upper().replace('_', ' ')}) "
+            f"y L2 idéntico → drop-in seguro (sustituir RPU del bin íntegro, ~30s). "
+            f"Calidad: {quality_label}.",
+        )
+
+    # Cualquier otro caso real → merge selectivo
+    if not profile_match:
+        reason = (
+            f"Profile mismatch (source {source_wf or '?'} vs bin "
+            f"P{target.profile if target else '?'}"
+            f"{(' ' + target.el_type) if target and target.el_type else ''}) "
+            f"→ merge [3,8,9,11,254]. Calidad: {quality_label}."
+        )
+    else:
+        # profile match pero L2 different
+        reason = (
+            f"Profile match pero L2 difiere ({l2_reason}) → merge [3,8,9,11,254] "
+            f"para preservar L2 del source. Calidad: {quality_label}."
+        )
+
+    return ("merge", "MERGE selectivo", reason)
