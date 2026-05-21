@@ -2581,6 +2581,7 @@ const _CMV40_HELP_SECTIONS = {
     <div class="help-subtoc">
       <b>En esta sección</b>
       <a href="#p-overview">Flujo general</a>
+      <a href="#p-recommendation">Mantener MKV vs Inyectar RPU (recomendación automática)</a>
       <a href="#p-phases">Qué hace cada fase (y qué ves tú)</a>
       <a href="#p-gates">Cómo decide la app entre automático y manual</a>
       <a href="#p-casos">Casuísticas completas por tipo de source</a>
@@ -2614,6 +2615,41 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
       </div>
+    </div>
+
+    <h2 id="p-recommendation">🎯 Mantener MKV vs Inyectar RPU — recomendación automática</h2>
+    <p>Antes de gastar 25 minutos procesando, la app analiza si el bin del repo realmente aporta calidad sobre el MKV original. Si tu reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) puede hacer la conversión al vuelo en runtime con el mismo resultado visible, la app te lo dice y puedes cerrar el proyecto sin procesar nada. Esta decisión la toma un modelo que mira los datos del bin (no su nombre ni su tag).</p>
+
+    <h3>Calidad del bin — clasificación CORE / CORE+ / FULL</h3>
+    <p>Cuando descargas un bin del repo DoviTools, la app lo abre y analiza la <strong>riqueza real</strong> de su contenido CMv4.0 — no se fía del nombre del fichero ni del tag de la hoja. Mira cuántos trims únicos lleva, qué porcentaje de frames tienen trabajo del colorista y si usa los campos exclusivos de CMv4.0. Hay cuatro niveles:</p>
+    <table>
+      <tr><th>Calidad</th><th>Etiqueta del MKV</th><th>Qué significa</th></tr>
+      <tr><td><strong>FULL</strong></td><td><code>[CMv4 FULL]</code></td><td>Master CMv4.0 trabajado a fondo — el colorista usó el toolkit completo (target_mid_contrast, clip_trim). Calidad máxima posible. Típico de BDs UHD recientes de WB y estudios pulidos.</td></tr>
+      <tr><td><strong>CORE+</strong></td><td><code>[CMv4 CORE+]</code></td><td>Master con grading dinámico shot-a-shot intenso (combos altos relativos al número de escenas). Sin los campos extras de CMv4.0 pero con mucha intervención del colorista. Ej: 28 años después (2025).</td></tr>
+      <tr><td><strong>CORE</strong></td><td><code>[CMv4 CORE]</code></td><td>Master CMv4.0 estándar de streaming (Apple TV+, Disney+, Netflix). Trabajado pero con cambios poco frecuentes. Mejor que CMv2.9 puro pero sin los campos extras.</td></tr>
+      <tr><td><strong>Sintético</strong></td><td>— (no aplica)</td><td>El bin solo tiene el wrapper estructural CMv4.0 sin trims reales. Equivale a la conversión al vuelo que hace tu reproductor. Procesarlo no aporta visible. La app recomienda mantener el MKV actual.</td></tr>
+    </table>
+    <p>La etiqueta se aplica automáticamente al MKV de salida — por ejemplo <code>Predator Badlands (2025) [CMv4 FULL].mkv</code>. Si el bin no aporta sobre la conversión al vuelo, no se procesa nada y el nombre original se conserva.</p>
+
+    <h3>El árbol de decisión del modelo</h3>
+    <p>Tras descargar el bin, la app responde a 3 preguntas en orden:</p>
+    <ol>
+      <li><strong>¿El bin aporta L8 trabajado real?</strong> Si todos los trims L8 son neutros (sintético), recomendación: <strong>Mantener MKV actual</strong>. Sin discusión — procesarlo no daría diferencia visible.</li>
+      <li><strong>¿El perfil del bin coincide con el del MKV original?</strong> Source y bin del mismo profile/el_type (P7 FEL↔P7 FEL, P7 MEL↔P7 MEL, P8↔P8) → opción rápida de drop-in disponible. Mismatch (ej. BD P7 FEL + bin P7 MEL) → requiere merge frame-a-frame.</li>
+      <li><strong>¿El L2 del bin es idéntico al L2 del MKV original?</strong> Comparación byte-a-byte de todos los valores L2. Si idéntico → drop-in seguro (sustituir RPU del bin íntegro, ~30s). Si difiere → merge selectivo preservando el L2 del original (regla: nunca degradar metadata existente).</li>
+    </ol>
+
+    <h3>Las cuatro acciones posibles</h3>
+    <table>
+      <tr><th>Acción</th><th>Cuándo</th><th>Qué hace</th></tr>
+      <tr><td><strong>Mantener MKV actual</strong></td><td>Bin sintético, sin bin, o el bin no aporta sobre la conversión al vuelo</td><td>Cierra el proyecto sin tocar el MKV original. Tu reproductor compatible con CMv4.0 hace la conversión en runtime con el mismo resultado.</td></tr>
+      <tr><td><strong>Inyectar RPU CMv4.0 (rápido)</strong></td><td>Perfil coincide + L2 idéntico</td><td>Sustituye el RPU del MKV por el del bin, completo. Operación de ~30 segundos sin tocar el HEVC. Internamente: drop-in.</td></tr>
+      <tr><td><strong>Inyectar RPU CMv4.0 (preserva L2)</strong></td><td>Perfil distinto O L2 diferente</td><td>Inyecta solo los niveles CMv4.0 [3,8,9,11,254] del bin manteniendo intacto el L2 del MKV original (para compatibilidad con reproductores CMv2.9-only). Operación más lenta (~15-20 min).</td></tr>
+      <tr><td><strong>Forzar inyección</strong> <em>(override del usuario)</em></td><td>El usuario decide procesar aunque el modelo recomiende mantener</td><td>Útil para archivar la versión CMv4.0 "completa" por compatibilidad con otros equipos, aunque visualmente equivale a la conversión al vuelo. Botón "Inyectar RPU igualmente" cuando la recomendación es mantener.</td></tr>
+    </table>
+
+    <div class="help-callout help-callout-info">
+      <strong>Setup multi-reproductor:</strong> el modelo está pensado para que el resultado sea correcto en cualquier cadena (chip CMv4.0-aware, LLDV CMv2.9-only, etc.). Por eso "Inyectar RPU (preserva L2)" no transfiere el L2 del bin aunque el bin lo tenga — preservar el L2 del MKV original garantiza que las cadenas CMv2.9-only siguen viendo lo correcto. Resultado: ambas cadenas ven lo mejor disponible para su versión.
     </div>
 
     <h2 id="p-phases">📋 Qué hace cada fase (y qué ves tú)</h2>
@@ -12662,7 +12698,8 @@ function _renderCMv40RecommendationCard(s, pid) {
       </div>`;
   }
 
-  // Banner verde cuando el proyecto se cerró manteniendo el MKV
+  // Banner verde cuando el proyecto está cerrado — distinguimos por
+  // output_workflow para que el usuario sepa qué pasó realmente.
   let doneBanner = '';
   if (s.output_workflow === 'keep_cmv29') {
     doneBanner = `
@@ -12670,6 +12707,27 @@ function _renderCMv40RecommendationCard(s, pid) {
         <span style="color:var(--green); font-weight:600">✓ Proyecto cerrado — MKV actual mantenido</span>
         — el fichero original quedó intacto. Tu reproductor (p3i T4 / Sony /
         LG modernos) hace la conversión CMv4.0 al vuelo en runtime.
+      </div>`;
+  } else if (s.output_workflow === 'restore_dropin') {
+    doneBanner = `
+      <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
+        <span style="color:var(--green); font-weight:600">✓ MKV procesado — RPU CMv4.0 inyectado (rápido)</span>
+        — el bin del repo se inyectó directo sobre el MKV original, sin
+        merge frame-a-frame. Calidad: ${escHtml(qualityTag)}.
+      </div>`;
+  } else if (s.output_workflow === 'restore_merge') {
+    doneBanner = `
+      <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
+        <span style="color:var(--green); font-weight:600">✓ MKV procesado — RPU CMv4.0 inyectado (preserva L2)</span>
+        — niveles CMv4.0 [3,8,9,11,254] transferidos del bin al MKV
+        preservando el L2 del original. Calidad: ${escHtml(qualityTag)}.
+      </div>`;
+  } else if (projectDone) {
+    // Proyecto done sin output_workflow conocido (sesiones legacy procesadas
+    // antes del Bloque 4). Banner genérico.
+    doneBanner = `
+      <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
+        <span style="color:var(--green); font-weight:600">✓ Proyecto completado</span>
       </div>`;
   }
 

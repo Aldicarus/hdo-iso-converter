@@ -9,7 +9,7 @@ Los IDs internos de panel (`tab-panel-1/2/3`) se mantienen por compatibilidad. E
 | Posición visual | Label UI | Panel interno | Descripción |
 |---|----------|---|-------------|
 | 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas (audio/subs/capítulos) y soporte Dolby Vision FEL. Loop mount directo del ISO sin copia previa |
-| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original. Pre-flight rápido del bin antes de la fase pesada, sync visual frame-a-frame con corrección de offset acumulativo, sistema de trust gates con drop-in para bins pre-validados, auto-pipeline backend-driven que sobrevive a cierre del cliente |
+| 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original. Pre-flight rápido del bin antes de la fase pesada, modelo de decisión Mantener/Inyectar basado en la riqueza real del L8 (clasificación CMv4 CORE/CORE+/FULL), sync visual frame-a-frame con corrección de offset acumulativo, trust gates con drop-in para bins pre-validados, auto-pipeline backend-driven que sobrevive a cierre del cliente |
 | 3 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspección profunda (codecs comerciales, bitrate real, HDR10 MaxCLL/MaxFALL, cadena de mastering DV completa, perfil de luminancia DV L1 frame-a-frame) y edición in-place via mkvpropedit |
 
 ## Inicio rápido
@@ -256,6 +256,34 @@ Override manual: `trust_override = "force_interactive"` fuerza ruta A completa a
 ### Validación L8 post-merge (Fase H)
 
 Cuando el path clásico (merge) llega a la fase de validación, se hace `dovi_tool extract-rpu` completo sobre el HEVC pre-mux y se exige `has_l8 == True` en el RPU resultante. Es defensa en profundidad contra un eventual bug de `dovi_tool editor` que dejara el RPU marcado como v4.0 pero sin los trims L8 que dan utilidad real al upgrade. Si falla, el `.mkv.tmp` queda preservado para inspección.
+
+### Modelo de decisión Mantener MKV / Inyectar RPU
+
+Tras descargar el bin, la app ejecuta `dovi_tool export -d all` sobre él y analiza la riqueza real del L8 (no se fía del nombre del fichero ni del tag del repo). Decide entre 4 acciones según un árbol de 3 preguntas:
+
+1. **¿El bin tiene L8 trabajado?** Si todos los trims son neutros → bin sintético → **Mantener MKV actual** (el reproductor compatible con CMv4.0 hace la conversión al vuelo con el mismo resultado).
+2. **¿Profile match (source ↔ bin)?** P7 FEL↔P7 FEL, P7 MEL↔P7 MEL, P8↔P8 → drop-in posible. Mismatch → siempre merge.
+3. **¿L2 idéntico entre source y bin?** Comparación byte-a-byte. Idéntico → **Inyectar RPU (rápido)** sustituyendo el RPU del bin íntegro (~30s). Diferente → **Inyectar RPU (preserva L2)** transfiriendo solo niveles CMv4.0 `[3,8,9,11,254]` manteniendo el L2 original.
+
+Clasificación de calidad del bin (se aplica como sufijo al filename del MKV final):
+
+| Tier | Filename label | Criterio |
+|---|---|---|
+| FULL | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados (campos exclusivos CMv4.0) |
+| CORE+ | `[CMv4 CORE+]` | Grading dinámico intenso (>=0.1 combos/shot o >=400 absolutos) |
+| CORE | `[CMv4 CORE]` | Master estándar streaming con trims básicos |
+| (sintético) | — | Bin no aporta sobre conversión al vuelo, recomendación: mantener |
+
+El usuario ve la recomendación en una card en el panel del proyecto con badge de color (azul/verde/ámbar) + razón legible. Cuando la recomendación es "mantener", aparecen dos botones: `[✓ Mantener MKV actual]` (cierra el proyecto sin tocar el MKV) y `[🔬 Inyectar RPU igualmente]` (override del usuario para procesar igualmente, útil para archivar la versión CMv4.0 completa).
+
+El campo `output_workflow` de la sesión distingue cómo terminó cada proyecto:
+- `keep_cmv29`: cerrado vía "mantener MKV actual"
+- `restore_dropin`: procesado vía drop-in
+- `restore_merge`: procesado vía merge selectivo
+
+Endpoints relacionados:
+- `POST /api/cmv40/{id}/accept-keep` — acepta la recomendación de mantener
+- `POST /api/cmv40/{id}/override-recommendation` — fuerza la inyección ignorando la recomendación
 
 ### Recomendación CMv4.0 (sheet live + Drive)
 

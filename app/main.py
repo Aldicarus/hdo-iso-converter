@@ -3002,6 +3002,18 @@ async def _run_cmv40_phase(
             record.elapsed_seconds = (record.finished_at - started).total_seconds()
             session.phase = new_phase
             session.error_message = ""
+            # Si el pipeline alcanza DONE sin output_workflow ya marcado
+            # (caso Keep ya lo puso desde accept-keep), distinguimos en el
+            # historial entre los dos tipos de restore — drop-in (rápido,
+            # RPU del bin sustituido íntegro) vs merge (frame-a-frame con
+            # [3,8,9,11,254]). El marker "merge_cmv40_transfer" en
+            # phases_skipped lo deja Fase F cuando hace drop-in.
+            if new_phase == CMv40Phase.DONE and not session.output_workflow:
+                session.output_workflow = (
+                    "restore_dropin"
+                    if "merge_cmv40_transfer" in (session.phases_skipped or [])
+                    else "restore_merge"
+                )
             await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
         except Exception as e:
             record.status = "error"
