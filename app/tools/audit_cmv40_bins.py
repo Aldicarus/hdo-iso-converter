@@ -478,6 +478,43 @@ async def main() -> int:
 
     detail_pattern = (args.detail or "").lower()
 
+    # ── Modo --detail: solo inspeccionar matches, saltar análisis completo ──
+    # Cuando el usuario pasa --detail, asumimos que ya corrió la auditoría
+    # general antes y solo quiere el detalle de unos pocos casos. Evita
+    # re-descargar los 60+ bins en cada inspección.
+    if detail_pattern:
+        print(f"# Modo --detail (substring: {args.detail!r}) — saltando análisis general")
+        print()
+        # Filtrar sesiones cuyo filename o contenido (source_mkv_name) contenga el pattern
+        import json as _json
+        matched_files = []
+        for sf in session_files:
+            try:
+                data = _json.loads(sf.read_text(encoding="utf-8"))
+                name = (data.get("source_mkv_name") or "").lower()
+                if (detail_pattern in name) or (detail_pattern in sf.stem.lower()):
+                    matched_files.append((sf, data))
+            except Exception:
+                pass
+        print(f"# Sesiones matcheadas: {len(matched_files)}")
+        print()
+        print("=" * 100)
+        print(f"  INSPECCIÓN DETALLADA — pattern: {args.detail!r}")
+        print("=" * 100)
+        if not matched_files:
+            print(f"\n  ✗ Ningún proyecto matchea el patrón.")
+            return 0
+        for sf, data in matched_files:
+            # Construir un "result" mínimo para que _dump_l8_combos_detail
+            # pueda hacer su trabajo (necesita session_id + name).
+            r = {
+                "session_id": sf.stem,
+                "name": data.get("source_mkv_name") or sf.stem,
+            }
+            await _dump_l8_combos_detail(r, workdir_base, args.redownload)
+        return 0
+
+    # ── Análisis completo (default) ─────────────────────────────────────
     results = []
     for i, sf in enumerate(session_files, 1):
         print(f"  [{i}/{len(session_files)}] {sf.name}", flush=True)
@@ -487,24 +524,6 @@ async def main() -> int:
             results.append(r)
         except Exception as e:
             print(f"      ⚠ error: {e}", file=sys.stderr)
-
-    # ── Inspección detallada de los matches ────────────────────────────
-    # Si el usuario pasó --detail, descargamos/usamos el bin de cada
-    # sesión que matchea y mostramos TODOS los combos L8 con sus valores.
-    if detail_pattern:
-        print()
-        print("=" * 100)
-        print(f"  INSPECCIÓN DETALLADA — pattern: {args.detail!r}")
-        print("=" * 100)
-        matches = [
-            r for r in results
-            if detail_pattern in (r.get("name") or "").lower()
-            or detail_pattern in (r.get("session_id") or "").lower()
-        ]
-        if not matches:
-            print(f"\n  ✗ Ningún proyecto matchea el patrón.")
-        for r in matches:
-            await _dump_l8_combos_detail(r, workdir_base, args.redownload)
 
     # ── Reporte tabular ────────────────────────────────────────────────
     print()
