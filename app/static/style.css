@@ -8359,6 +8359,81 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   max-height: 88vh;
   display: flex;
   flex-direction: column;
+  /* Padding 0 — los hijos (header/body/footer) gestionan su propio
+     padding para poder hacer scroll del body sin que el header/footer
+     se muevan. */
+  padding: 0;
+  overflow: hidden;
+}
+
+.series-modal-header {
+  padding: 20px 24px 0;
+  flex-shrink: 0;
+}
+
+.series-modal-body {
+  /* Scrollable: cuando hay muchos episodios la lista crece pero el
+     modal mantiene altura fija (max-height: 88vh) y el body scrollea. */
+  flex: 1 1 auto;
+  min-height: 0;        /* indispensable para que flex respete el scroll */
+  overflow-y: auto;
+  padding: 0 24px 16px;
+}
+
+.series-modal-footer {
+  /* Footer fijo en la parte de abajo del modal — nunca scrolea con
+     el contenido. Visualmente separado con borde sup. */
+  padding: 16px 24px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--sep);
+  background: var(--surface-1);
+  margin-top: 0;
+}
+
+/* Toggle TMDb / Manual — pills horizontales coherentes con el resto */
+.series-mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 4px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  border: 1px solid var(--sep);
+}
+.series-mode-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.series-mode-btn:hover {
+  color: var(--text-1);
+  background: var(--surface-1);
+}
+.series-mode-btn.active {
+  background: var(--blue);
+  color: white;
+  font-weight: 600;
+}
+
+/* Grid para los inputs del modo manual */
+.series-manual-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+.series-manual-grid label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
 }
 
 /* Stepper visual: 3 pasos con número en pill y línea conectora */
@@ -8616,3 +8691,27 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-color: var(--blue);
 }
 .series-ep-row.unchecked { opacity: 0.55; }
+
+/* Inputs del modo manual en la tabla de episodios: número (60px) + título */
+.series-manual-ep-inputs {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 6px;
+  align-items: center;
+}
+.series-manual-ep-num,
+.series-manual-ep-title {
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 4px;
+  background: white;
+  color: var(--text-1);
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.series-manual-ep-num:focus,
+.series-manual-ep-title:focus {
+  outline: none;
+  border-color: var(--blue);
+}

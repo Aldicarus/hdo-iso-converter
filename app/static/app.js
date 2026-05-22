@@ -4405,11 +4405,13 @@ let _seriesState = null;
 function openSeriesModal(probe) {
   _seriesState = {
     probe,                       // {iso_path, episode_candidates[], suggested_*}
-    selectedSeries: null,        // {tmdb_id, name, year, ...}
+    mode: 'tmdb',                // 'tmdb' | 'manual' — afecta a render + payload
+    selectedSeries: null,        // {tmdb_id, name, year, ...}; en modo manual lo seteamos a mano
     selectedSeason: null,        // {season_number, episode_count, ...}
-    seasonEpisodes: [],          // [TvEpisode]
-    mplsMatches: [],             // [{suggested_episode_number, matched_episode, confidence}]
-    mapping: {},                 // {mpls_path: {include: bool, episode_number, episode_title, runtime_minutes}}
+    seasonEpisodes: [],          // [TvEpisode] — vacío en modo manual
+    mplsMatches: [],             // matches runtime; vacío en modo manual
+    candidates: {},              // cache de candidatos TMDb por id
+    mapping: {},                 // {mpls_path: {include, episode_number, episode_title, runtime_minutes}}
   };
 
   // Cabecera con conteo de candidatos
@@ -4419,19 +4421,26 @@ function openSeriesModal(probe) {
     const verdict = probe.media_type === 'series'
       ? `Detectados <strong>${n} MPLS candidatos a episodio</strong> con duración similar.`
       : `Detectados <strong>${n} MPLS</strong> con duración compatible con episodio (clasificación ambigua — confirma manualmente).`;
-    sub.innerHTML = `${verdict} Identifica la serie en TMDb y mapea cada episodio.`;
+    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y mapea cada episodio.`;
   }
 
-  // Prellenar query con título sugerido del nombre del ISO
+  // Prellenar inputs con título/año sugerido
   const q = document.getElementById('series-tmdb-query');
   const y = document.getElementById('series-tmdb-year');
   if (q) q.value = probe.suggested_title || '';
   if (y) y.value = probe.suggested_year || '';
+  const mn = document.getElementById('series-manual-name');
+  const my = document.getElementById('series-manual-year');
+  if (mn) mn.value = probe.suggested_title || '';
+  if (my) my.value = probe.suggested_year || '';
+  const ms = document.getElementById('series-manual-season');
+  if (ms) ms.value = 1;
 
-  // Reset secciones inferiores + stepper
+  // Reset secciones inferiores + stepper + modo TMDb por defecto
   document.getElementById('series-tmdb-results').innerHTML = '';
   document.getElementById('series-season-section').style.display = 'none';
   document.getElementById('series-episodes-section').style.display = 'none';
+  seriesSetMode('tmdb');
   _seriesUpdateStepper(1);
   _seriesUpdateCreateButton();
 
@@ -4441,6 +4450,79 @@ function openSeriesModal(probe) {
   if (probe.suggested_title) {
     seriesTmdbSearch();
   }
+}
+
+/** Cambia entre los dos modos de identificación: TMDb (con búsqueda y
+ *  match runtime) o manual (entrada libre — útil cuando TMDb no la
+ *  encuentra o el usuario prefiere nombres propios). */
+function seriesSetMode(mode) {
+  if (!_seriesState) return;
+  _seriesState.mode = mode;
+  // Reset de selección al cambiar de modo
+  _seriesState.selectedSeries = null;
+  _seriesState.selectedSeason = null;
+  _seriesState.seasonEpisodes = [];
+  _seriesState.mplsMatches = [];
+  _seriesState.mapping = {};
+  document.getElementById('series-mode-btn-tmdb').classList.toggle('active', mode === 'tmdb');
+  document.getElementById('series-mode-btn-manual').classList.toggle('active', mode === 'manual');
+  document.getElementById('series-mode-tmdb-panel').style.display = mode === 'tmdb' ? 'block' : 'none';
+  document.getElementById('series-mode-manual-panel').style.display = mode === 'manual' ? 'block' : 'none';
+  // Oculta secciones siguientes — el usuario tiene que re-confirmar
+  document.getElementById('series-season-section').style.display = 'none';
+  document.getElementById('series-episodes-section').style.display = 'none';
+  _seriesUpdateStepper(1);
+  _seriesUpdateCreateButton();
+}
+
+/** Confirma los datos manuales y salta directo al paso 3 (mapeo).
+ *  En modo manual no hay step 2 (temporada) — la pedimos arriba. */
+function seriesConfirmManual() {
+  if (!_seriesState) return;
+  const name = (document.getElementById('series-manual-name').value || '').trim();
+  const yearStr = (document.getElementById('series-manual-year').value || '').trim();
+  const seasonStr = (document.getElementById('series-manual-season').value || '').trim();
+  if (!name) {
+    showToast('Introduce el nombre de la serie', 'warning');
+    return;
+  }
+  const season = parseInt(seasonStr, 10);
+  if (isNaN(season) || season < 1) {
+    showToast('La temporada debe ser un número >= 1', 'warning');
+    return;
+  }
+  _seriesState.selectedSeries = {
+    tmdb_id: null,
+    name,
+    year: yearStr ? parseInt(yearStr, 10) : null,
+    manual: true,
+  };
+  _seriesState.selectedSeason = { season_number: season };
+  _seriesState.seasonEpisodes = [];  // sin TMDb → sin episodios pre-cargados
+  _seriesState.mplsMatches = [];
+
+  // Mapping inicial: asignación secuencial 1-based; sin título de episodio
+  // (el usuario puede teclear uno por fila si quiere).
+  const mapping = {};
+  _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
+    mapping[mpls.mpls_path] = {
+      include: true,
+      episode_number: idx + 1,
+      episode_title: '',
+      runtime_minutes: 0,
+    };
+  });
+  _seriesState.mapping = mapping;
+
+  // Salta direto a paso 3 (sin step 2)
+  _seriesUpdateStepper(3);
+  document.getElementById('series-season-section').style.display = 'none';
+  document.getElementById('series-episodes-section').style.display = 'block';
+  // Actualizar ayuda contextual
+  const help = document.getElementById('series-episodes-help');
+  if (help) help.textContent = 'Modo manual: edita el nº de episodio y, opcionalmente, el título de cada episodio. La asignación inicial es secuencial.';
+  _renderSeriesEpisodesTable();
+  _seriesUpdateCreateButton();
 }
 
 async function seriesTmdbSearch() {
@@ -4586,10 +4668,11 @@ function _renderSeriesEpisodesTable() {
   const matches = _seriesState.mplsMatches;
   const mapping = _seriesState.mapping;
   const episodes = _seriesState.seasonEpisodes;
+  const isManual = _seriesState.mode === 'manual';
 
-  // Opciones del select de episodio. Construimos por fila para poder
-  // marcar `selected` en la correcta (no usar replace string-based que
-  // es frágil con números de 2+ dígitos).
+  // En modo TMDb construimos un <select> con los episodios de la
+  // temporada. En modo manual usamos <input type="number"> para el
+  // episode_number + <input type="text"> para el título opcional.
   const buildSelect = (selectedNum, mplsPath) => {
     const opts = [`<option value="">—</option>`].concat(episodes.map(e => {
       const isSel = e.episode_number === selectedNum ? ' selected' : '';
@@ -4599,13 +4682,28 @@ function _renderSeriesEpisodesTable() {
     return `<select onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">${opts.join('')}</select>`;
   };
 
+  const buildManualInputs = (epNum, epTitle, mplsPath) => `
+    <div class="series-manual-ep-inputs">
+      <input type="number" class="series-manual-ep-num" min="1" value="${epNum || ''}"
+             placeholder="Nº"
+             onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">
+      <input type="text" class="series-manual-ep-title" value="${escHtml(epTitle || '')}"
+             placeholder="Título del episodio (opcional)"
+             onchange="seriesChangeEpisodeTitle('${escHtml(mplsPath)}', this.value)">
+    </div>
+  `;
+
   const rows = cands.map((c, idx) => {
     const m = matches[idx] || {};
     const map = mapping[c.mpls_path] || {};
-    const confEmoji = m.confidence === 'high' ? '🟢'
-                    : m.confidence === 'low'  ? '🟡'
-                    : '⚪';
-    const confTitle = m.confidence === 'high'
+    const confEmoji = isManual
+      ? '✏️'  // modo manual: sin match runtime
+      : m.confidence === 'high' ? '🟢'
+      : m.confidence === 'low'  ? '🟡'
+      : '⚪';
+    const confTitle = isManual
+      ? 'Modo manual · sin match runtime'
+      : m.confidence === 'high'
       ? `Match alto · MPLS ${c.duration_minutes.toFixed(1)} min · TMDb runtime Δ=${m.runtime_delta_min ?? '?'} min`
       : m.confidence === 'low'
       ? `Match bajo · MPLS ${c.duration_minutes.toFixed(1)} min vs TMDb (Δ=${m.runtime_delta_min ?? 'sin runtime'})`
@@ -4622,7 +4720,7 @@ function _renderSeriesEpisodesTable() {
         <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
         <div class="col-dur">${dur}</div>
         <div class="col-match" title="${escHtml(confTitle)}">${confEmoji}</div>
-        <div class="col-episode">${buildSelect(map.episode_number, c.mpls_path)}</div>
+        <div class="col-episode">${isManual ? buildManualInputs(map.episode_number, map.episode_title, c.mpls_path) : buildSelect(map.episode_number, c.mpls_path)}</div>
       </div>
     `;
   }).join('');
@@ -4632,11 +4730,18 @@ function _renderSeriesEpisodesTable() {
       <div></div>
       <div>MPLS / fichero</div>
       <div>Duración</div>
-      <div title="Confianza del match runtime MPLS ↔ TMDb">Match</div>
-      <div>Episodio TMDb</div>
+      <div title="${isManual ? 'Modo manual' : 'Confianza del match runtime MPLS ↔ TMDb'}">${isManual ? 'Modo' : 'Match'}</div>
+      <div>${isManual ? 'Nº episodio + título' : 'Episodio TMDb'}</div>
     </div>
     ${rows}
   `;
+}
+
+/** En modo manual el usuario puede editar el título del episodio. */
+function seriesChangeEpisodeTitle(mplsPath, title) {
+  if (!_seriesState || !_seriesState.mapping[mplsPath]) return;
+  _seriesState.mapping[mplsPath].episode_title = (title || '').trim();
+  _seriesUpdateCreateButton();
 }
 
 function seriesToggleEpisode(mplsPath, checked) {
@@ -4647,16 +4752,26 @@ function seriesToggleEpisode(mplsPath, checked) {
 
 function seriesChangeEpisode(mplsPath, episodeNumberStr) {
   if (!_seriesState.mapping[mplsPath]) return;
+  const isManual = _seriesState.mode === 'manual';
   const epNum = parseInt(episodeNumberStr, 10);
+  const map = _seriesState.mapping[mplsPath];
   if (isNaN(epNum)) {
-    _seriesState.mapping[mplsPath].episode_number = null;
-    _seriesState.mapping[mplsPath].episode_title = '';
-    _seriesState.mapping[mplsPath].runtime_minutes = 0;
+    map.episode_number = null;
+    // En modo manual no borramos el título — el usuario lo edita aparte.
+    if (!isManual) {
+      map.episode_title = '';
+      map.runtime_minutes = 0;
+    }
   } else {
-    const ep = _seriesState.seasonEpisodes.find(e => e.episode_number === epNum);
-    _seriesState.mapping[mplsPath].episode_number = epNum;
-    _seriesState.mapping[mplsPath].episode_title = ep ? ep.name : '';
-    _seriesState.mapping[mplsPath].runtime_minutes = ep ? ep.runtime_minutes : 0;
+    map.episode_number = epNum;
+    if (isManual) {
+      // Modo manual: NO sobreescribimos el título ni runtime — el usuario
+      // los teclea por separado en su input dedicado.
+    } else {
+      const ep = _seriesState.seasonEpisodes.find(e => e.episode_number === epNum);
+      map.episode_title = ep ? ep.name : '';
+      map.runtime_minutes = ep ? ep.runtime_minutes : 0;
+    }
   }
   _seriesUpdateCreateButton();
 }
