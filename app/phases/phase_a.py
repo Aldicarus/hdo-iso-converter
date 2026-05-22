@@ -458,10 +458,13 @@ async def identify_episode_candidates(
         1. MPLS sin pistas de audio (menús/navegación) → descartado.
         2. MPLS con duración fuera del rango episodio (15-90 min) →
            descartado.
-        3. MPLS apuntando a m2ts < 40% de la mediana del grupo → descartado.
-           Cubre el caso de MPLS de menús/featurettes que tienen
-           duración engañosa por 'still time' pero apuntan a un m2ts
-           pequeño (típicamente <500 MB vs episodios reales de 5+ GB).
+        3. Dedupe por m2ts referenciado. Varias MPLS pueden apuntar al
+           mismo fichero (Director's Cut, Theatrical Cut, Extended
+           Edition…). Mantenemos solo la de duración más larga.
+        4. MPLS apuntando a m2ts < max(40% mediana, 25% máximo) →
+           descartado. La parte de mediana cubre featurettes/menús con
+           still time; la del máximo cubre la distribución bimodal
+           (1 fichero grande + N pequeños) donde la mediana es engañosa.
 
     El orden de retorno es por nombre de MPLS ascendente (el patrón
     más común en discos de series — ver investigación TMDb, mpv, MakeMKV).
@@ -522,24 +525,52 @@ async def identify_episode_candidates(
             "duration_minutes": dur_min,
             "audio_track_count": audio_count,
             "m2ts_size_bytes": m2ts_size,
+            # Path del m2ts referenciado — útil para dedupe (varias MPLS
+            # apuntando al mismo m2ts = variantes del mismo título).
+            "m2ts_resolved_path": m2ts_path or "",
             "data": data,
         })
 
-    # Filtro adicional por tamaño del m2ts referenciado. Caso típico:
-    # un MPLS de featurette/menú con `still time` cumple duración 15-90
-    # min Y ≥1 audio, pero apunta a un m2ts de <500MB (vs episodios
-    # reales que son 5+ GB en HD, 25+ GB en UHD). Descartamos los
-    # candidatos cuyo m2ts está por debajo del 40% de la mediana del
-    # grupo — heurística empíricamente robusta.
-    #
-    # Solo aplica si tenemos >=3 candidatos con tamaño conocido —
-    # con menos no hay base estadística para la mediana.
+    # ── Dedupe por m2ts referenciado ──────────────────────────────
+    # Si varias MPLS apuntan al MISMO fichero m2ts, son variantes del
+    # mismo título (Director's Cut / Theatrical Cut / EE, o playlists
+    # de seamless branching). Mantenemos solo la más larga — típicamente
+    # la versión completa, que es lo que el usuario querría procesar.
+    # Sin esto, un disco de película con 4 variantes de MPLS al mismo
+    # m2ts aparece como "serie de 4 capítulos" (caso reportado).
+    discarded_by_dup: list[dict] = []
+    if any(c.get("m2ts_resolved_path") for c in candidates):
+        by_m2ts: dict[str, dict] = {}
+        for c in candidates:
+            key = c.get("m2ts_resolved_path") or c["mpls_path"]  # fallback
+            existing = by_m2ts.get(key)
+            if existing is None:
+                by_m2ts[key] = c
+            else:
+                # Conservamos la duración más larga; las otras al log
+                if c["duration_minutes"] > existing["duration_minutes"]:
+                    discarded_by_dup.append(existing)
+                    by_m2ts[key] = c
+                else:
+                    discarded_by_dup.append(c)
+        candidates = list(by_m2ts.values())
+
+    # ── Filtro por tamaño del m2ts referenciado ──────────────────
+    # Combina dos umbrales (se aplica el MÁS ALTO de los dos):
+    #   - 40% de la mediana → catches featurettes con still time
+    #     (caso clásico de muchos extras de tamaño similar).
+    #   - 25% del máximo → catches distribución bimodal (1 título
+    #     grande + N pequeños) donde la mediana se acerca al pequeño.
+    # Solo aplica si tenemos >=2 candidatos con tamaño conocido.
     sized = [c for c in candidates if c["m2ts_size_bytes"] > 0]
     discarded_by_size: list[dict] = []
-    if len(sized) >= 3:
-        sizes = sorted(c["m2ts_size_bytes"] for c in sized)
-        median = sizes[len(sizes) // 2]
-        size_threshold = int(median * 0.40)
+    if len(sized) >= 2:
+        sizes_sorted = sorted(c["m2ts_size_bytes"] for c in sized)
+        median = sizes_sorted[len(sizes_sorted) // 2]
+        max_size = sizes_sorted[-1]
+        threshold_median = int(median * 0.40)
+        threshold_max = int(max_size * 0.25)
+        size_threshold = max(threshold_median, threshold_max)
         kept = []
         for c in candidates:
             if c["m2ts_size_bytes"] > 0 and c["m2ts_size_bytes"] < size_threshold:
@@ -558,10 +589,9 @@ async def identify_episode_candidates(
     if log_callback:
         await log_callback(
             f"[Fase A] {len(candidates)} MPLS candidatos a episodio "
-            f"(duración 15-90 min, ≥1 audio, m2ts ≥ 40% mediana)"
+            f"(duración 15-90 min · ≥1 audio · dedupe por m2ts · "
+            f"m2ts ≥ max(40% mediana, 25% máximo))"
         )
-        # Log informativo con tamaños — útil para diagnosticar falsos
-        # positivos o falsos negativos.
         for c in candidates:
             gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
             await log_callback(
@@ -569,12 +599,18 @@ async def identify_episode_candidates(
                 f"{c['duration_minutes']:.1f} min · "
                 f"{gb:.2f} GB · {c['audio_track_count']} audio"
             )
+        for c in discarded_by_dup:
+            await log_callback(
+                f"[Fase A]   ⏭ descartado por dedupe: {c['mpls_name']} · "
+                f"{c['duration_minutes']:.1f} min "
+                f"(misma m2ts que otro MPLS con duración mayor — variante)"
+            )
         for c in discarded_by_size:
             gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
             await log_callback(
                 f"[Fase A]   ⏭ descartado por tamaño: {c['mpls_name']} · "
                 f"{c['duration_minutes']:.1f} min · "
-                f"{gb:.2f} GB (m2ts < 40% mediana — probable featurette/menú)"
+                f"{gb:.2f} GB (m2ts pequeño respecto al máximo — probable featurette)"
             )
 
     return candidates
