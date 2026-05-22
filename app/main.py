@@ -3302,6 +3302,19 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         f"clasificación: {classification.upper()}"
     )
 
+    # Veredicto visual con emoji por clasificación + el reason calculado por
+    # classify_l8 (incluye el por qué de la decisión). Permite al usuario
+    # entender la recomendación final sin abrir la card "Análisis y
+    # recomendación". El caso "default" emite su 🛑 propio más abajo.
+    if classification == "real":
+        await log_cb(f"[Pre-flight] 🟢 L8 real — {reason}")
+    elif classification == "indeterminate":
+        await log_cb(
+            f"[Pre-flight] 🟡 L8 ambiguo — {reason} El pipeline avanza "
+            f"igualmente; la decisión Mantener/Inyectar se afinará tras "
+            f"analizar el L2 del source en Fase A."
+        )
+
     if classification == "default":
         # Recomendación firme: mantener MKV actual. No avanzar.
         session.preflight_decision = "keep_l8_default"
