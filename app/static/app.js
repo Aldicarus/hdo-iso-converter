@@ -3725,79 +3725,206 @@ async function devSimulate() {
 //  MODAL NUEVO PROYECTO — ISO picker
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+//  Source selection (v2.6+) — 3 tipos: ISO, carpeta BDMV, ficheros M2TS
+//
+//  El modal tiene 3 tabs. Cada uno mantiene su propia selección.
+//  El estado global `_sourceTab` indica el tab activo; `pickerSelectedIso`
+//  (legacy) + `bdmvSelectedPath` + `m2tsSelectedPaths` los valores.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Tab activo en el modal "Nuevo proyecto". */
+let _sourceTab = 'iso';
+
 /** ISO seleccionado en el picker. @type {string|null} */
 let pickerSelectedIso = null;
 
-/** Abre el modal de nuevo proyecto y carga la lista de ISOs en el select. */
+/** Carpeta BDMV seleccionada. @type {string|null} */
+let bdmvSelectedPath = null;
+
+/** Lista de m2ts seleccionados (multi). @type {string[]} */
+let m2tsSelectedPaths = [];
+
+/** Cache del último listado completo de /api/sources. */
+let _sourcesCache = { iso: [], bdmv_folder: [], m2ts: [] };
+
+/** Abre el modal de nuevo proyecto y carga las fuentes disponibles. */
 async function openNewProjectModal() {
   if (openProjects.length >= MAX_PROJECTS) {
     showToast(`Máximo ${MAX_PROJECTS} proyectos abiertos. Cierra uno antes de crear otro.`, 'warning');
     return;
   }
   pickerSelectedIso = null;
+  bdmvSelectedPath = null;
+  m2tsSelectedPaths = [];
+  _sourceTab = 'iso';
+  onSourceTabSwitch('iso');  // muestra panel ISO por defecto
   document.getElementById('iso-picker-select').value = '';
   document.getElementById('new-project-analyze-btn').disabled = true;
   openModal('new-project-modal');
-  await loadIsoPickerList();
+  await loadSourcesList();
 }
 
-/** Almacena el último listado de ISOs cargado. @type {string[]} */
-let _isoPickerCache = [];
+/** Cambia entre tabs ISO / Carpeta BDMV / Ficheros M2TS. */
+function onSourceTabSwitch(tab) {
+  _sourceTab = tab;
+  ['iso', 'bdmv_folder', 'm2ts'].forEach(t => {
+    // El id del botón usa 'bdmv' como abreviatura del tipo bdmv_folder
+    const btnId = t === 'bdmv_folder' ? 'source-tab-btn-bdmv' : `source-tab-btn-${t}`;
+    const panelId = t === 'bdmv_folder' ? 'source-panel-bdmv' : `source-panel-${t}`;
+    const btn = document.getElementById(btnId);
+    const panel = document.getElementById(panelId);
+    if (btn) btn.classList.toggle('active', tab === t);
+    if (panel) panel.style.display = tab === t ? 'block' : 'none';
+  });
+  _updateAnalyzeButtonState();
+}
 
-/** Carga los ISOs disponibles vía /api/isos y rellena el select + status. */
+/** Habilita/deshabilita el botón Analizar según el tab activo + selección. */
+function _updateAnalyzeButtonState() {
+  const btn = document.getElementById('new-project-analyze-btn');
+  if (!btn) return;
+  let enabled = false;
+  if (_sourceTab === 'iso') enabled = !!pickerSelectedIso;
+  else if (_sourceTab === 'bdmv_folder') enabled = !!bdmvSelectedPath;
+  else if (_sourceTab === 'm2ts') enabled = m2tsSelectedPaths.length > 0;
+  btn.disabled = !enabled;
+}
+
+/** Backwards-compat alias — algunos callers antiguos invocan loadIsoPickerList. */
 async function loadIsoPickerList() {
-  const sel    = document.getElementById('iso-picker-select');
-  const status = document.getElementById('iso-picker-status');
-  sel.innerHTML = '<option value="">Cargando…</option>';
-  sel.disabled  = true;
-  status.className = 'iso-picker-status';
-  status.textContent = '⏳ Consultando /mnt/isos…';
+  await loadSourcesList();
+}
 
-  const data = await apiFetch('/api/isos');
+/** Carga las fuentes disponibles vía /api/sources (los 3 tipos) y rellena
+ *  los 3 paneles. */
+async function loadSourcesList() {
+  const isoSel    = document.getElementById('iso-picker-select');
+  const isoStatus = document.getElementById('iso-picker-status');
+  const bdmvSel   = document.getElementById('bdmv-picker-select');
+  const bdmvStatus= document.getElementById('bdmv-picker-status');
+  const m2tsList  = document.getElementById('m2ts-picker-list');
+  const m2tsStatus= document.getElementById('m2ts-picker-status');
 
-  if (!data) {
-    sel.innerHTML = '<option value="">Error al cargar</option>';
-    status.className = 'iso-picker-status error';
-    status.textContent = '❌ No se pudo conectar con el servidor. Comprueba que el backend está en marcha.';
-    sel.disabled = false;
+  if (isoSel) { isoSel.innerHTML = '<option value="">Cargando…</option>'; isoSel.disabled = true; }
+  if (isoStatus) { isoStatus.className = 'iso-picker-status'; isoStatus.textContent = '⏳ Consultando /mnt/isos…'; }
+  if (bdmvSel) { bdmvSel.innerHTML = '<option value="">Cargando…</option>'; bdmvSel.disabled = true; }
+  if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status'; bdmvStatus.textContent = '⏳ Buscando carpetas BDMV…'; }
+  if (m2tsList) m2tsList.innerHTML = '<div style="font-size:11px; color:var(--text-3); padding:8px">⏳ Cargando…</div>';
+  if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status'; m2tsStatus.textContent = '⏳ Buscando ficheros .m2ts…'; }
+
+  const data = await apiFetch('/api/sources');
+  if (!data || !Array.isArray(data.sources)) {
+    if (isoStatus) { isoStatus.className = 'iso-picker-status error'; isoStatus.textContent = '❌ Error al cargar fuentes'; }
+    if (bdmvStatus) bdmvStatus.textContent = '❌ Error al cargar';
+    if (m2tsStatus) m2tsStatus.textContent = '❌ Error al cargar';
     return;
   }
 
-  _isoPickerCache = data.isos;
-  sel.disabled = false;
-
-  if (!data.isos.length) {
-    sel.innerHTML = '<option value="">— No hay ISOs disponibles —</option>';
-    status.className = 'iso-picker-status warn';
-    status.textContent = '⚠️ No se encontraron ficheros .iso en /mnt/isos. Comprueba el volumen Docker.';
-    document.getElementById('new-project-analyze-btn').disabled = true;
-    return;
-  }
-
-  sel.innerHTML = '<option value="">— Seleccionar ISO —</option>';
-  data.isos.forEach(iso => {
-    const name = iso.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
-    const opt  = document.createElement('option');
-    opt.value  = iso;
-    opt.textContent = name;
-    sel.appendChild(opt);
+  // Particionar por tipo
+  _sourcesCache = { iso: [], bdmv_folder: [], m2ts: [] };
+  data.sources.forEach(s => {
+    if (_sourcesCache[s.type]) _sourcesCache[s.type].push(s);
   });
 
-  status.className = 'iso-picker-status ok';
-  status.textContent = `✅ ${data.isos.length} ISO${data.isos.length !== 1 ? 's' : ''} encontrado${data.isos.length !== 1 ? 's' : ''} en /mnt/isos`;
-
-  // Restaurar selección previa si sigue disponible
-  if (pickerSelectedIso && data.isos.includes(pickerSelectedIso)) {
-    sel.value = pickerSelectedIso;
-    document.getElementById('new-project-analyze-btn').disabled = false;
+  // Panel ISO
+  if (isoSel) {
+    isoSel.disabled = false;
+    if (!_sourcesCache.iso.length) {
+      isoSel.innerHTML = '<option value="">— No hay ISOs disponibles —</option>';
+      if (isoStatus) { isoStatus.className = 'iso-picker-status warn'; isoStatus.textContent = '⚠️ Sin ficheros .iso en /mnt/isos'; }
+    } else {
+      isoSel.innerHTML = '<option value="">— Seleccionar ISO —</option>';
+      _sourcesCache.iso.forEach(iso => {
+        const opt = document.createElement('option');
+        opt.value = iso.path;
+        opt.textContent = iso.path.replace(/\.iso$/i, '');
+        isoSel.appendChild(opt);
+      });
+      if (isoStatus) { isoStatus.className = 'iso-picker-status ok'; isoStatus.textContent = `✅ ${_sourcesCache.iso.length} ISO${_sourcesCache.iso.length !== 1 ? 's' : ''}`; }
+      // Restaurar selección previa
+      if (pickerSelectedIso && _sourcesCache.iso.some(s => s.path === pickerSelectedIso)) {
+        isoSel.value = pickerSelectedIso;
+      }
+    }
   }
+
+  // Panel BDMV
+  if (bdmvSel) {
+    bdmvSel.disabled = false;
+    if (!_sourcesCache.bdmv_folder.length) {
+      bdmvSel.innerHTML = '<option value="">— No hay carpetas BDMV disponibles —</option>';
+      if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status warn'; bdmvStatus.textContent = '⚠️ Sin carpetas BDMV en /mnt/isos'; }
+    } else {
+      bdmvSel.innerHTML = '<option value="">— Seleccionar carpeta —</option>';
+      _sourcesCache.bdmv_folder.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.path;
+        const sizeGb = b.size_bytes > 0 ? ` (${(b.size_bytes / 1e9).toFixed(1)} GB)` : '';
+        opt.textContent = `${b.path}${sizeGb}`;
+        bdmvSel.appendChild(opt);
+      });
+      if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status ok'; bdmvStatus.textContent = `✅ ${_sourcesCache.bdmv_folder.length} carpeta${_sourcesCache.bdmv_folder.length !== 1 ? 's' : ''} BDMV`; }
+      if (bdmvSelectedPath && _sourcesCache.bdmv_folder.some(s => s.path === bdmvSelectedPath)) {
+        bdmvSel.value = bdmvSelectedPath;
+      }
+    }
+  }
+
+  // Panel M2TS (multi-select con checkboxes)
+  if (m2tsList) {
+    if (!_sourcesCache.m2ts.length) {
+      m2tsList.innerHTML = '<div style="font-size:11px; color:var(--text-3); padding:8px">— No hay ficheros .m2ts sueltos en /mnt/isos —</div>';
+      if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status warn'; m2tsStatus.textContent = '⚠️ Sin ficheros .m2ts sueltos'; }
+    } else {
+      m2tsList.innerHTML = _sourcesCache.m2ts.map(m => {
+        const sizeGb = m.size_bytes > 0 ? `${(m.size_bytes / 1e9).toFixed(1)} GB` : '?';
+        const checked = m2tsSelectedPaths.includes(m.path) ? 'checked' : '';
+        return `
+          <label style="display:flex; gap:8px; padding:6px 8px; border-bottom:1px solid var(--sep); cursor:pointer; font-size:12px">
+            <input type="checkbox" value="${escHtml(m.path)}" ${checked} onchange="onM2tsToggle(this)">
+            <span style="flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(m.path)}</span>
+            <span style="color:var(--text-3); font-variant-numeric:tabular-nums">${sizeGb}</span>
+          </label>
+        `;
+      }).join('');
+      if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status ok'; m2tsStatus.textContent = `✅ ${_sourcesCache.m2ts.length} fichero${_sourcesCache.m2ts.length !== 1 ? 's' : ''} .m2ts`; }
+    }
+  }
+
+  _updateAnalyzeButtonState();
 }
 
-/** Actualiza pickerSelectedIso al cambiar el select nativo. */
+/** Actualiza pickerSelectedIso al cambiar el select del tab ISO. */
 function onIsoPickerChange() {
   const sel = document.getElementById('iso-picker-select');
   pickerSelectedIso = sel.value || null;
-  document.getElementById('new-project-analyze-btn').disabled = !pickerSelectedIso;
+  _updateAnalyzeButtonState();
+}
+
+/** Actualiza bdmvSelectedPath al cambiar el select del tab BDMV. */
+function onBdmvPickerChange() {
+  const sel = document.getElementById('bdmv-picker-select');
+  bdmvSelectedPath = sel.value || null;
+  _updateAnalyzeButtonState();
+}
+
+/** Actualiza m2tsSelectedPaths al togglear un checkbox del tab M2TS. */
+function onM2tsToggle(cb) {
+  const path = cb.value;
+  if (cb.checked) {
+    if (!m2tsSelectedPaths.includes(path)) m2tsSelectedPaths.push(path);
+  } else {
+    m2tsSelectedPaths = m2tsSelectedPaths.filter(p => p !== path);
+  }
+  // Indicador en el status del m2ts
+  const status = document.getElementById('m2ts-picker-status');
+  if (status && m2tsSelectedPaths.length > 0) {
+    const mode = m2tsSelectedPaths.length === 1 ? 'película' : `serie (${m2tsSelectedPaths.length} episodios)`;
+    status.className = 'iso-picker-status ok';
+    status.textContent = `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} seleccionado${m2tsSelectedPaths.length !== 1 ? 's' : ''} → modo ${mode}`;
+  }
+  _updateAnalyzeButtonState();
 }
 
 /**
@@ -3805,40 +3932,65 @@ function onIsoPickerChange() {
  * Cierra el modal, dispara Fase A+B y abre el proyecto resultante.
  */
 async function analyzeSelectedISO() {
-  if (!pickerSelectedIso) return;
   if (openProjects.length >= MAX_PROJECTS) {
     showToast(`Máximo ${MAX_PROJECTS} proyectos abiertos.`, 'warning');
     return;
   }
 
-  const isoPath = pickerSelectedIso;
-  const isoName = isoPath.split('/').pop();
+  // Construir payload según el tab activo
+  let sourceType, sourcePath, sourceName, payloadProbe;
+  if (_sourceTab === 'iso') {
+    if (!pickerSelectedIso) return;
+    sourceType = 'iso';
+    sourcePath = pickerSelectedIso;
+    sourceName = pickerSelectedIso.split('/').pop();
+    payloadProbe = { source_type: 'iso', source_path: pickerSelectedIso };
+  } else if (_sourceTab === 'bdmv_folder') {
+    if (!bdmvSelectedPath) return;
+    sourceType = 'bdmv_folder';
+    sourcePath = bdmvSelectedPath;
+    sourceName = bdmvSelectedPath.split('/').pop();
+    payloadProbe = { source_type: 'bdmv_folder', source_path: bdmvSelectedPath };
+  } else if (_sourceTab === 'm2ts') {
+    if (!m2tsSelectedPaths.length) return;
+    sourceType = 'm2ts';
+    sourcePath = m2tsSelectedPaths[0];
+    sourceName = m2tsSelectedPaths.length === 1
+      ? m2tsSelectedPaths[0].split('/').pop()
+      : `${m2tsSelectedPaths.length} ficheros M2TS`;
+    payloadProbe = {
+      source_type: 'm2ts',
+      source_path: m2tsSelectedPaths[0],
+      m2ts_paths: m2tsSelectedPaths,
+    };
+  } else {
+    return;
+  }
 
   // Deshabilitar botón dentro del modal mientras comprobamos
   const btn = document.getElementById('new-project-analyze-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Comprobando…'; }
 
-  // Comprobar si ya existe un proyecto para este ISO (por huella, no por nombre/ruta)
+  // Check duplicate (compatible con los 3 tipos vía /api/check-duplicate)
+  const checkPayload = sourceType === 'm2ts'
+    ? { source_type: 'm2ts', source_path: m2tsSelectedPaths[0] }
+    : { source_type: sourceType, source_path: sourcePath };
   const check = await apiFetch('/api/check-duplicate', {
     method: 'POST',
-    body: JSON.stringify({ iso_path: isoPath }),
+    body: JSON.stringify(checkPayload),
   });
 
-  // Restaurar botón por si se cancela
-  if (btn) { btn.disabled = false; btn.innerHTML = '💿 Analizar ISO'; }
+  if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Analizar'; }
 
   if (check?.duplicate && check.session) {
     closeModal('new-project-modal');
-    const existingName = check.session.mkv_name || isoName;
-    // Ofrecer abrir existente o re-analizar
-    const okBtn = document.getElementById('confirm-ok-btn');
+    const existingName = check.session.mkv_name || sourceName;
     showConfirm(
-      'Este disco ya tiene un proyecto',
-      `Se ha detectado el mismo disco en "${existingName}". Puedes abrir el proyecto existente o re-analizar el disco (se perderán las ediciones actuales).`,
-      () => _doAnalyzeISO(isoPath, isoName),
+      'Este origen ya tiene un proyecto',
+      `Se ha detectado el mismo origen en "${existingName}". Puedes abrir el proyecto existente o re-analizar (se perderán las ediciones actuales).`,
+      () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
       'Re-analizar',
     );
-    // Añadir botón extra "Abrir existente"
     const openBtn = document.createElement('button');
     openBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
     openBtn.textContent = '📂 Abrir existente';
@@ -3853,26 +4005,122 @@ async function analyzeSelectedISO() {
 
   closeModal('new-project-modal');
 
-  // Disc probe: detecta si el ISO es película o serie multi-episodio antes
-  // de entrar al pipeline completo. ~10-20s en discos pequeños.
-  // - movie → flujo normal (_doAnalyzeISO).
-  // - series / ambiguous → abrir modal de selección de episodios (el
-  //   usuario identifica la serie en TMDb y mapea los MPLS → episodios;
-  //   el endpoint /api/create-series-sessions crea N sesiones de un golpe).
-  if (btn) { btn.innerHTML = '⏳ Probando disco…'; }
+  // Disc probe: detecta serie vs película + candidatos para los 3 tipos
+  if (btn) { btn.innerHTML = '⏳ Probando origen…'; }
   const probe = await apiFetch('/api/disc-probe', {
     method: 'POST',
-    body: JSON.stringify({ iso_path: isoPath }),
+    body: JSON.stringify(payloadProbe),
   });
-  if (btn) { btn.innerHTML = '💿 Analizar ISO'; }
+  if (btn) { btn.innerHTML = '🔍 Analizar'; }
 
   if (probe && (probe.media_type === 'series' || probe.media_type === 'ambiguous')) {
+    // Series modal usa los m2ts_paths para identificar el origen al crear
+    // sesiones — los persistimos en el probe object.
+    if (sourceType === 'm2ts') {
+      probe.m2ts_paths = m2tsSelectedPaths;
+    }
+    probe.source_type = sourceType;
+    probe.source_path = sourcePath;
     openSeriesModal(probe);
     return;
   }
 
-  // Movie path (default): flujo de Fase A+B sin cambios.
-  await _doAnalyzeISO(isoPath, isoName);
+  // Movie path: pasa source_type/source_path al endpoint /api/analyze.
+  await _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe);
+}
+
+/** Wrapper de _doAnalyzeISO que envía el source_type al endpoint /api/analyze.
+ *  Reemplaza al wrapper antiguo solo-ISO. Mantiene la signature legacy
+ *  como alias para que cualquier caller antiguo siga funcionando. */
+async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProbe) {
+  // ── Modal de progreso ──────────────────────────────────────────
+  const isoEl = document.getElementById('analyze-modal-iso');
+  if (isoEl) isoEl.textContent = sourceName;
+  _resetAnalyzeSteps();
+  openModal('analyze-modal');
+
+  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
+  let lastStep = 'mount';
+  let stepStartTs = Date.now();
+  const pollId = setInterval(async () => {
+    try {
+      const prog = await apiFetch('/api/analyze/progress');
+      if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
+        const prevIdx = steps.indexOf(lastStep);
+        const newIdx = steps.indexOf(prog.step);
+        if (newIdx > prevIdx) {
+          for (let i = prevIdx; i < newIdx; i++) {
+            _advanceAnalyzeStep(steps[i], steps[i + 1]);
+          }
+          lastStep = prog.step;
+          stepStartTs = Date.now();
+        }
+      }
+      if (lastStep === 'pgs') {
+        const labelEl = document.getElementById('analyze-step-pgs-label');
+        const barWrap = document.getElementById('analyze-step-pgs-bar');
+        const barFill = document.getElementById('analyze-step-pgs-bar-fill');
+        const statsEl = document.getElementById('analyze-step-pgs-stats');
+        const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
+        const mm = Math.floor(elapsed / 60);
+        const ss = (elapsed % 60).toString().padStart(2, '0');
+        const pct = prog?.pct;
+        const eta = prog?.eta_s;
+        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (barWrap) barWrap.style.display = 'block';
+        if (statsEl) statsEl.style.display = 'block';
+        if (pct != null && barFill) {
+          barFill.style.width = pct + '%';
+        }
+        if (statsEl) {
+          let line = `${mm}:${ss} transcurridos`;
+          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
+          if (eta && eta > 0) {
+            const em = Math.floor(eta / 60);
+            const es = (eta % 60).toString().padStart(2, '0');
+            line += ` · ETA ${em}:${es}`;
+          }
+          statsEl.textContent = line;
+        }
+      }
+    } catch (_) { /* silenciar errores de polling */ }
+  }, 500);
+
+  const payload = {
+    source_type: sourceType,
+    source_path: sourcePath,
+  };
+  // Compat con endpoint antiguo: si es iso, mandar también iso_path
+  if (sourceType === 'iso') payload.iso_path = sourcePath;
+
+  const session = await apiFetch('/api/analyze', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, 900000);
+
+  clearInterval(pollId);
+  steps.forEach((s, i) => {
+    if (i < steps.length - 1) _advanceAnalyzeStep(s, steps[i + 1]);
+  });
+  await new Promise(r => setTimeout(r, 400));
+  closeModal('analyze-modal');
+
+  if (!session) {
+    showToast(`Error al analizar ${escHtml(sourceName)}. Comprueba el origen.`, 'error');
+    return;
+  }
+
+  // Si ya existía la sesión, re-renderizar pestaña; si no, abrir.
+  const existingProject = openProjects.find(p => p.subTab && p.session.id === session.id);
+  if (existingProject) {
+    existingProject.session = session;
+    showToast(`Proyecto re-analizado: ${session.mkv_name || sourceName}`, 'success');
+  } else {
+    showToast(`Proyecto creado: ${session.mkv_name || sourceName}`, 'success');
+    openProject(session);
+  }
+
+  await loadSessions();
 }
 
 /**

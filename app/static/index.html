@@ -529,25 +529,75 @@
 
 <!-- ═══ MODAL: Nuevo proyecto ════════════════════════════════════ -->
 <div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width:720px">
     <div class="modal-title">💿 Nuevo proyecto</div>
-    <div class="modal-sub">Selecciona el ISO que quieres analizar y convertir a MKV.</div>
+    <div class="modal-sub">Selecciona el origen (ISO, carpeta BDMV extraída o ficheros M2TS).</div>
 
-    <label class="modal-field-label">ISO de origen</label>
-    <div class="iso-select-row">
-      <select id="iso-picker-select" class="iso-picker-select" onchange="onIsoPickerChange()"
-        data-tooltip="Lista de ISOs disponibles en /mnt/isos">
-        <option value="">— Seleccionar ISO —</option>
-      </select>
-      <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadIsoPickerList()"
-        data-tooltip="Recargar la lista de ISOs desde /mnt/isos">↺ Actualizar</button>
+    <!-- Tabs de tipo de origen — sustituyen al select simple anterior.
+         Todos los orígenes viven en /mnt/isos para mantener una única
+         raíz de búsqueda (configurable vía ISOS_DIR). -->
+    <div class="cmv40-tab-switcher" style="margin-top:12px; margin-bottom:8px">
+      <button class="cmv40-tab-btn active" id="source-tab-btn-iso"
+        onclick="onSourceTabSwitch('iso')"
+        data-tooltip="Fichero .iso de UHD Blu-ray (mount loop automático)">
+        <span class="tab-icon">💿</span>
+        <span class="tab-label">ISO</span>
+      </button>
+      <button class="cmv40-tab-btn" id="source-tab-btn-bdmv"
+        onclick="onSourceTabSwitch('bdmv_folder')"
+        data-tooltip="Carpeta con BDMV/PLAYLIST/ dentro — disco extraído sin ISO">
+        <span class="tab-icon">📁</span>
+        <span class="tab-label">Carpeta BDMV</span>
+      </button>
+      <button class="cmv40-tab-btn" id="source-tab-btn-m2ts"
+        onclick="onSourceTabSwitch('m2ts')"
+        data-tooltip="Ficheros .m2ts sueltos (uno = película, varios = episodios de serie)">
+        <span class="tab-icon">🎞️</span>
+        <span class="tab-label">Ficheros M2TS</span>
+      </button>
     </div>
-    <div class="iso-picker-status" id="iso-picker-status">Cargando ISOs disponibles…</div>
+
+    <!-- Panel ISO -->
+    <div id="source-panel-iso" class="source-panel">
+      <div class="iso-select-row">
+        <select id="iso-picker-select" class="iso-picker-select" onchange="onIsoPickerChange()"
+          data-tooltip="Lista de ISOs disponibles en /mnt/isos">
+          <option value="">— Seleccionar ISO —</option>
+        </select>
+        <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadIsoPickerList()"
+          data-tooltip="Recargar la lista de ISOs desde /mnt/isos">↺ Actualizar</button>
+      </div>
+      <div class="iso-picker-status" id="iso-picker-status">Cargando ISOs disponibles…</div>
+    </div>
+
+    <!-- Panel Carpeta BDMV -->
+    <div id="source-panel-bdmv" class="source-panel" style="display:none">
+      <div class="iso-select-row">
+        <select id="bdmv-picker-select" class="iso-picker-select" onchange="onBdmvPickerChange()"
+          data-tooltip="Carpetas BDMV detectadas en /mnt/isos (con BDMV/PLAYLIST/ dentro)">
+          <option value="">— Seleccionar carpeta —</option>
+        </select>
+        <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadSourcesList()"
+          data-tooltip="Recargar la lista">↺ Actualizar</button>
+      </div>
+      <div class="iso-picker-status" id="bdmv-picker-status">Carpetas BDMV en /mnt/isos…</div>
+    </div>
+
+    <!-- Panel M2TS (multi-select) -->
+    <div id="source-panel-m2ts" class="source-panel" style="display:none">
+      <div class="iso-picker-status" id="m2ts-picker-status">Ficheros .m2ts en /mnt/isos…</div>
+      <div id="m2ts-picker-list" style="margin-top:8px; max-height:240px; overflow-y:auto; border:1px solid var(--sep); border-radius:6px; padding:4px">
+        <div style="font-size:11px; color:var(--text-3); padding:8px">⏳ Cargando…</div>
+      </div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:6px">
+        ℹ Marca <strong>1 fichero</strong> para procesar como película. Marca <strong>varios</strong> para tratarlos como episodios de una serie.
+      </div>
+    </div>
 
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('new-project-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="new-project-analyze-btn" onclick="analyzeSelectedISO()" disabled>
-        🔍 Analizar ISO
+        🔍 Analizar
       </button>
     </div>
   </div>
