@@ -1143,6 +1143,12 @@ _series_create_progress: dict = {
     "current_label": "",
     "completed": [],  # nombres de episodios ya procesados (success)
     "failed": [],
+    # Sub-progreso dentro del episodio en curso. step ∈ {identify, mediainfo,
+    # pgs, dovi, rules, save}. pgs_pct (0-100) granular para la fase larga.
+    "current_episode_step": "",
+    "current_episode_title": "",
+    "pgs_pct": 0,
+    "pgs_eta_s": 0,
 }
 
 
@@ -1231,14 +1237,47 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         "current_label": f"Montando origen ({stype})…",
         "completed": [],
         "failed": [],
+        "current_episode_step": "mount",
+        "current_episode_title": "",
+        "pgs_pct": 0,
+        "pgs_eta_s": 0,
     }
+
+    # Callback de progreso intra-episodio. Mapea líneas del log de
+    # phase_a a los sub-pasos del modal para que la barra avance gradual
+    # dentro de cada episodio (antes saltaba 33%/66%/100% sin detalle).
+    # El orden de los elif importa: lo más específico primero.
+    async def _ep_progress_callback(msg: str):
+        msg_l = msg.lower()
+        if "contando paquetes pgs" in msg_l:
+            _series_create_progress["current_episode_step"] = "pgs"
+            _series_create_progress["pgs_pct"] = 0
+            _series_create_progress["pgs_eta_s"] = 0
+        elif "paso 4/4" in msg_l or "analizando dolby vision" in msg_l or "dolby vision con dovi_tool" in msg_l:
+            _series_create_progress["current_episode_step"] = "dovi"
+        elif "paso 3/4" in msg_l or ("enriqueciendo con mediainfo" in msg_l) or ("analizando m2ts del episodio" in msg_l):
+            _series_create_progress["current_episode_step"] = "mediainfo"
+        elif "paso 2/4" in msg_l or ("extrayendo capítulos" in msg_l) or ("sin mpls" in msg_l and "auto-generarán" in msg_l):
+            _series_create_progress["current_episode_step"] = "chapters"
+        elif "paso 1/4" in msg_l or "identificando pistas" in msg_l:
+            _series_create_progress["current_episode_step"] = "identify"
+
+    async def _ep_pgs_progress_callback(pct: float, eta_s: int):
+        _series_create_progress["current_episode_step"] = "pgs"
+        _series_create_progress["pgs_pct"] = round(pct, 1)
+        _series_create_progress["pgs_eta_s"] = eta_s
+
     try:
         # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
         async with await Source.open(source_abs) as src:
             _series_create_progress["current_label"] = "Origen listo. Iniciando análisis por episodio…"
             for idx, ep in enumerate(body.episodes):
                 _series_create_progress["current_index"] = idx + 1
+                _series_create_progress["current_episode_step"] = "identify"
+                _series_create_progress["pgs_pct"] = 0
+                _series_create_progress["pgs_eta_s"] = 0
                 ep_label = ep.episode_title or f"Episodio S{body.season_number:02d}E{ep.episode_number:02d}"
+                _series_create_progress["current_episode_title"] = ep_label
                 _series_create_progress["current_label"] = (
                     f"Analizando episodio {idx+1}/{len(body.episodes)}: {ep_label}"
                 )
@@ -1278,15 +1317,21 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                         continue
 
                 # Análisis: para iso/bdmv usamos for_mpls (necesita bdmv_root);
-                # para m2ts usamos for_m2ts (sin BDMV).
+                # para m2ts usamos for_m2ts (sin BDMV). Los callbacks
+                # actualizan _series_create_progress["current_episode_step"]
+                # en tiempo real → la barra avanza gradual.
                 try:
                     if stype == "m2ts":
                         bdinfo, mpls_chapters_raw = await run_full_analysis_for_m2ts(
                             ep_source_path,
+                            log_callback=_ep_progress_callback,
+                            pgs_progress_callback=_ep_pgs_progress_callback,
                         )
                     else:
                         bdinfo, mpls_chapters_raw = await run_full_analysis_for_mpls(
                             src.bdmv_root, ep_source_path,
+                            log_callback=_ep_progress_callback,
+                            pgs_progress_callback=_ep_pgs_progress_callback,
                         )
                 except Exception as e:
                     _logger.warning(
@@ -1299,6 +1344,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                     })
                     continue
 
+                _series_create_progress["current_episode_step"] = "rules"
                 rules_result = apply_rules(bdinfo, spath, audio_dcp)
 
                 # Capítulos: igual que película — del MPLS si los hay, sino auto.
@@ -1406,9 +1452,11 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                     source_path=spath,
                     tmdb_info=ep_tmdb_info,
                 )
+                _series_create_progress["current_episode_step"] = "save"
                 save_session(session)
                 created_sessions.append(session.model_dump())
                 _series_create_progress["completed"].append(ep_label)
+                _series_create_progress["current_episode_step"] = "done"
     except SourceError as e:
         _series_create_progress["running"] = False
         raise HTTPException(status_code=400, detail=str(e))

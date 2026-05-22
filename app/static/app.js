@@ -4109,13 +4109,19 @@ function showProgressModal({ title, sub, icon, posterUrl } = {}) {
   if (barEl) { barEl.style.width = '0%'; barEl.classList.remove('done'); }
   document.getElementById('progress-modal-pct').textContent = '';
   const stepsEl = document.getElementById('progress-modal-steps');
-  if (stepsEl) { stepsEl.innerHTML = ''; stepsEl.style.display = 'none'; }
+  if (stepsEl) {
+    stepsEl.innerHTML = '';
+    stepsEl.style.display = 'none';
+    stepsEl.classList.remove('checklist');
+  }
+  const footnoteEl = document.getElementById('progress-modal-footnote');
+  if (footnoteEl) { footnoteEl.textContent = ''; footnoteEl.style.display = 'none'; }
   const footerEl = document.getElementById('progress-modal-footer');
   if (footerEl) footerEl.classList.remove('done');
   openModal('progress-modal');
 }
 
-function updateProgressModal({ current, pct, addStep, done } = {}) {
+function updateProgressModal({ current, pct, addStep, checklist, footnote, done } = {}) {
   if (current !== undefined) {
     document.getElementById('progress-modal-current').textContent = current;
   }
@@ -4134,6 +4140,41 @@ function updateProgressModal({ current, pct, addStep, done } = {}) {
       el.appendChild(div);
       el.scrollTop = el.scrollHeight;
     }
+  }
+  // `checklist`: array de {key, label, status: 'done'|'active'|'pending', detail}.
+  // Re-render completo de la lista en cada call (no append). Pensado para
+  // mostrar los sub-pasos del episodio en curso durante create-series.
+  if (checklist) {
+    const el = document.getElementById('progress-modal-steps');
+    if (el) {
+      el.style.display = 'block';
+      el.classList.add('checklist');
+      el.innerHTML = checklist.map(item => {
+        const icon = item.status === 'done' ? '✅'
+          : item.status === 'active' ? '⏳'
+          : '⬜';
+        const cls = item.status === 'active' ? 'checklist-row active'
+          : item.status === 'done' ? 'checklist-row done'
+          : 'checklist-row';
+        const detail = item.detail ? `<span class="checklist-detail">${escHtml(item.detail)}</span>` : '';
+        return `<div class="${cls}"><span class="checklist-icon">${icon}</span><span class="checklist-label">${escHtml(item.label)}</span>${detail}</div>`;
+      }).join('');
+    }
+  }
+  // `footnote`: texto pequeño al pie (ej. resumen de episodios anteriores).
+  if (footnote !== undefined) {
+    let el = document.getElementById('progress-modal-footnote');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'progress-modal-footnote';
+      el.className = 'progress-modal-footnote';
+      const steps = document.getElementById('progress-modal-steps');
+      if (steps && steps.parentNode) {
+        steps.parentNode.insertBefore(el, steps.nextSibling);
+      }
+    }
+    el.textContent = footnote;
+    el.style.display = footnote ? 'block' : 'none';
   }
   if (done) {
     // Estado completado: barra verde + sin spinner + tick verde
@@ -4887,6 +4928,95 @@ function _seriesUpdateCreateButton() {
   btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
 }
 
+/** Sub-pasos del análisis por episodio. Las "weights" son acumulativas
+ *  (0-100) y representan el % completado al ARRANCAR cada paso. La barra
+ *  avanza gradualmente entre `weight[i]` y `weight[i+1]` mientras el paso
+ *  está activo; el caso pgs usa pgs_pct para interpolación fina dado que
+ *  es el paso más largo y phase_a ya emite progreso (bytes leídos).
+ *
+ *  Las etiquetas son las que se ven en la checklist del modal.
+ */
+const _SERIES_EP_SUBSTEPS = [
+  { key: 'identify',  label: 'Identificación de pistas (mkvmerge -J)', weight: 0  },
+  { key: 'chapters',  label: 'Extracción de capítulos',                weight: 8  },
+  { key: 'mediainfo', label: 'Metadata extendida (MediaInfo)',         weight: 18 },
+  { key: 'pgs',       label: 'Paquetes PGS por subtítulo',             weight: 30 },
+  { key: 'dovi',      label: 'Dolby Vision (dovi_tool)',               weight: 75 },
+  { key: 'rules',     label: 'Reglas + capítulos auto',                weight: 90 },
+  { key: 'save',      label: 'Persistencia (JSON)',                    weight: 97 },
+];
+
+/** Construye el payload de updateProgressModal a partir del estado del
+ *  backend (progress) y la lista local de episodios elegidos. Calcula
+ *  la barra gradual, etiqueta legible y checklist del episodio en curso. */
+function _buildSeriesProgressUpdate(prog, episodes) {
+  const total = prog.total || 1;
+  const epIdx = Math.max(1, prog.current_index || 1);  // 1-based
+  const epLabel = prog.current_episode_title || '';
+  const step = prog.current_episode_step || 'identify';
+
+  // Posición del step actual y siguiente en _SERIES_EP_SUBSTEPS.
+  const stepIdx = _SERIES_EP_SUBSTEPS.findIndex(s => s.key === step);
+  const currentWeight = stepIdx >= 0 ? _SERIES_EP_SUBSTEPS[stepIdx].weight : 0;
+  const nextWeight = stepIdx >= 0 && stepIdx < _SERIES_EP_SUBSTEPS.length - 1
+    ? _SERIES_EP_SUBSTEPS[stepIdx + 1].weight
+    : 100;
+
+  // Interpolación dentro del paso. Solo PGS reporta % granular; el resto
+  // queda al inicio de su slot (avance discreto cada vez que cambia el step).
+  // Caso especial step='done': episodio cerrado → 100% del slot del episodio
+  // (el backend ya saltó al siguiente o terminó).
+  let inEpisodePct;
+  if (step === 'done') {
+    inEpisodePct = 100;
+  } else {
+    let withinPct = 0;
+    if (step === 'pgs' && prog.pgs_pct) {
+      withinPct = Math.min(1, Math.max(0, prog.pgs_pct / 100));
+    }
+    inEpisodePct = currentWeight + (nextWeight - currentWeight) * withinPct;
+  }
+  const totalPct = ((epIdx - 1) + inEpisodePct / 100) / total * 100;
+
+  // Checklist: marca como done los pasos anteriores, active el actual,
+  // pending los siguientes. Si stepIdx<0 (estado inicial / desconocido),
+  // todo queda pendiente excepto el primero como activo. Caso especial
+  // step='done' (episodio terminado): todos completados (transición a
+  // siguiente episodio o cierre del job).
+  const allDone = step === 'done';
+  const checklist = _SERIES_EP_SUBSTEPS.map((s, i) => {
+    let status;
+    if (allDone) status = 'done';
+    else if (stepIdx < 0) status = i === 0 ? 'active' : 'pending';
+    else if (i < stepIdx) status = 'done';
+    else if (i === stepIdx) status = 'active';
+    else status = 'pending';
+    let detail = '';
+    if (i === stepIdx && step === 'pgs' && prog.pgs_pct) {
+      const eta = prog.pgs_eta_s
+        ? `· ETA ${Math.floor(prog.pgs_eta_s / 60)}:${String(prog.pgs_eta_s % 60).padStart(2, '0')}`
+        : '';
+      detail = `${prog.pgs_pct.toFixed(0)}% ${eta}`.trim();
+    }
+    return { key: s.key, label: s.label, status, detail };
+  });
+
+  // Footnote: resumen compacto de episodios completados/pendientes.
+  const epsBefore = epIdx - 1;
+  const epsAfter = total - epIdx;
+  const parts = [];
+  if (epsBefore > 0) parts.push(`✓ ${epsBefore} completado${epsBefore === 1 ? '' : 's'}`);
+  parts.push(`⏳ E${String(epIdx).padStart(2, '0')}`);
+  if (epsAfter > 0) parts.push(`⏸ ${epsAfter} pendiente${epsAfter === 1 ? '' : 's'}`);
+  const footnote = parts.join(' · ');
+
+  const current = epLabel
+    ? `Episodio ${epIdx}/${total}: ${epLabel}`
+    : (prog.current_label || `Episodio ${epIdx}/${total}`);
+
+  return { current, pct: totalPct, checklist, footnote };
+}
+
 async function seriesCreateSessions() {
   if (!_seriesState) return;
   const s = _seriesState;
@@ -4926,14 +5056,15 @@ async function seriesCreateSessions() {
     posterUrl: s.selectedSeries.poster_url || '',
   });
 
-  // Polling del progreso. /api/series-create-progress devuelve current_index
-  // y current_label que actualizamos en el modal cada 500ms.
+  // Polling del progreso. /api/series-create-progress devuelve current_index,
+  // current_episode_step + pgs_pct para construir gradual progress + checklist.
+  // Sin esto la barra saltaba 33%/66%/100% sin detalle del trabajo interno.
   const pollId = setInterval(async () => {
     try {
       const prog = await apiFetch('/api/series-create-progress');
-      if (prog && prog.total > 0) {
-        const pct = (prog.current_index / prog.total) * 100;
-        updateProgressModal({ current: prog.current_label, pct });
+      if (prog && prog.running && prog.total > 0) {
+        const update = _buildSeriesProgressUpdate(prog, episodes);
+        updateProgressModal(update);
       }
     } catch (_) { /* silenciar errores de polling */ }
   }, 500);
