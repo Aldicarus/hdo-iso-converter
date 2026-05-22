@@ -1318,9 +1318,9 @@ async def run_phase_b_target_from_path(
     if log_callback:
         await log_callback(
             "[Fase B] 📋 Plan: copiar el RPU target desde carpeta local al "
-            "workdir del proyecto, analizar su metadata y compararla con el "
-            "RPU del Blu-ray (trust gates). Si pasa → auto-pipeline sin "
-            "revisión manual. Si falla → pausa en Fase D para revisar a mano."
+            "workdir y re-evaluar los trust gates ahora que tenemos los datos "
+            "del source (frame count, L5, L6). Si los gates pasan → auto-"
+            "pipeline; si divergen → pausa en Fase D para revisar el chart."
         )
         await log_callback(f"[Fase B] ┌─ Copiando RPU target local: {src.name}")
     shutil.copy2(src, rpu_target)
@@ -1361,10 +1361,9 @@ async def run_phase_b_target_from_drive(
     if log_callback:
         await log_callback(
             "[Fase B] 📋 Plan: descargar el RPU target del repositorio público "
-            "DoviTools (Google Drive), analizar su metadata y compararla con el "
-            "RPU del Blu-ray (trust gates). Si pasa → auto-pipeline sin revisión "
-            "manual (ruta más rápida). Si algún gate crítico falla → pausa en "
-            "Fase D para revisar a mano."
+            "DoviTools (Google Drive) y re-evaluar los trust gates ahora que "
+            "tenemos los datos del source. Si los gates pasan → auto-pipeline; "
+            "si algún crítico falla → pausa en Fase D para revisar el chart."
         )
         await log_callback(f"[Fase B] ┌─ Descargando RPU target del repo DoviTools: {file_name}")
 
@@ -1436,10 +1435,10 @@ async def run_phase_b_target_from_mkv(
         if log_callback:
             await log_callback(
                 "[Fase B] 📋 Plan: extraer el RPU CMv4.0 de un MKV propio que ya "
-                "tiene el grading que quieres aplicar (p. ej. WEB-DL moderno), "
-                "analizar su metadata y comparar contra el RPU del Blu-ray. "
-                "Esta ruta siempre pasa por Fase D manual — no hay pre-validación "
-                "comunitaria que garantice la alineación."
+                "tiene el grading que quieres aplicar (p. ej. WEB-DL moderno) y "
+                "evaluar los trust gates contra el source. Esta ruta suele pasar "
+                "por Fase D manual porque no hay pre-validación comunitaria que "
+                "garantice la alineación frame-a-frame con el Blu-ray."
             )
             await log_callback(f"[Fase B] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}")
         t0 = time.monotonic()
