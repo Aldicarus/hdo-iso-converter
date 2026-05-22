@@ -796,7 +796,7 @@ async def run_phase_a_analyze_source(
             "contra el target y decidir si el upgrade es posible."
         )
         await log_callback(
-            "[Fase A] ┌─ Paso 1/3: Extrayendo stream HEVC del MKV origen con ffmpeg…"
+            "[Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg…"
         )
     ffmpeg_elapsed = 0.0
     if not source_hevc.exists() or source_hevc.stat().st_size < 1_000_000:
@@ -825,7 +825,7 @@ async def run_phase_a_analyze_source(
 
     # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
     if log_callback:
-        await log_callback("[Fase A] ├─ Paso 2/3: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
+        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
     # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
     if ffmpeg_elapsed > 5:
         est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
@@ -860,7 +860,7 @@ async def run_phase_a_analyze_source(
 
     # Paso 3: Info del RPU
     if log_callback:
-        await log_callback("[Fase A] └─ Paso 3/3: Analizando metadata del RPU con dovi_tool info --summary…")
+        await log_callback("[Fase A] ├─ Paso 3/4: Analizando metadata del RPU con dovi_tool info --summary…")
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_source),
     ], timeout=30)
@@ -888,7 +888,10 @@ async def run_phase_a_analyze_source(
     # Coste ~3-5s sobre Fase A que dura ~12 min — despreciable.
     from phases.rpu_analyze import analyze_rpu_combos, compare_l2, recommend_action
     if log_callback:
-        await log_callback("[Fase A] Analizando combos L2 del source (dovi_tool export)…")
+        await log_callback(
+            "[Fase A] └─ Paso 4/4: Analizando combos L2 del source (dovi_tool export) "
+            "para comparar con el target y decidir Mantener/Inyectar…"
+        )
     source_analysis = await analyze_rpu_combos(rpu_source)
     if source_analysis.total_frames > 0:
         session.source_l2_combos = source_analysis.l2_combos
@@ -930,7 +933,6 @@ async def run_phase_a_analyze_source(
             "con datos parciales del bin)."
         )
 
-    await _emit_progress(log_callback, 100, "Análisis completado")
     if log_callback:
         await log_callback(
             f"[Fase A] ✓ RPU analizado — Profile {dovi_info.profile} ({dovi_info.el_type}), "
@@ -946,6 +948,10 @@ async def run_phase_a_analyze_source(
         await log_callback(
             f"[Fase A] 🎯 Resultado: workflow {workflow_label}. {workflow_summary}"
         )
+    # _emit_progress(100) AL FINAL: la barra solo llega al 100% cuando todo el
+    # log de cierre se ha emitido, evitando que el usuario vea "100%" antes
+    # del 🎯 Resultado y crea que la fase terminó silenciosa.
+    await _emit_progress(log_callback, 100, "Análisis completado")
 
 
 def _detect_workflow(dovi_info: DoviInfo) -> str:
@@ -2448,8 +2454,6 @@ async def run_phase_c_extract(
             if log_callback:
                 await log_callback(f"[Fase C] No pude borrar EL.hevc: {e}")
 
-    await _emit_progress(log_callback, 100, "Completado")
-
     # Resultado de la fase: qué ha quedado preparado para Fase F/G
     if log_callback:
         result_parts = []
@@ -2462,6 +2466,8 @@ async def run_phase_c_extract(
         await log_callback(
             "[Fase C] 🎯 Resultado: " + ", ".join(result_parts) + "."
         )
+    # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
+    await _emit_progress(log_callback, 100, "Completado")
 
 
 async def _generate_per_frame_data(
@@ -2967,7 +2973,6 @@ async def run_phase_f_inject(
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
 
-    await _emit_progress(log_callback, 100, "RPU inyectado")
     if log_callback:
         await log_callback(f"[Fase F] ✓ HEVC con RPU inyectado generado: {hevc_output.name} (workflow {workflow})")
         # Descripción del artefacto generado (sin prometer qué hará Fase G —
@@ -2994,6 +2999,8 @@ async def run_phase_f_inject(
                 "remuxar."
             )
         await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {artifact_desc}")
+    # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
+    await _emit_progress(log_callback, 100, "RPU inyectado")
 
 
 async def _merge_cmv40_into_p7(
@@ -3346,7 +3353,6 @@ async def run_phase_g_remux(
        })
     if rc not in (0, 1):
         raise RuntimeError(f"mkvmerge falló (código {rc})")
-    await _emit_progress(log_callback, 100, "Remux completado")
 
     # Cleanup intermedio: NO se borra aquí el pre-mux HEVC (source_injected /
     # dv_dual). Fase H los necesita para `extract-rpu` como alternativa al
@@ -3367,6 +3373,8 @@ async def run_phase_g_remux(
             "/mnt/output (pendiente de validar antes del rename atómico al "
             "nombre final)."
         )
+    # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
+    await _emit_progress(log_callback, 100, "Remux completado")
     return str(output_mkv)
 
 
