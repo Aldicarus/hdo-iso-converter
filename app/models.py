@@ -682,6 +682,47 @@ class Session(BaseModel):
     output_mkv_path: str | None = None
     """Ruta completa del MKV final generado. None hasta que Fase E completa."""
 
+    # ── Modo serie (v2.5+) ────────────────────────────────────────
+    # Soporte para ISOs de series TV con múltiples episodios. Cuando una
+    # sesión es de un episodio individual, los campos series_* la enriquecen
+    # con metadata de TMDb (Series → Season → Episode). El pipeline trata
+    # cada episodio como una sesión independiente para reutilizar toda la
+    # infraestructura existente (cola FIFO, validación, etc.).
+    media_type: str = "movie"
+    """Tipo de contenido: 'movie' o 'series'. Default 'movie' por
+    compatibilidad con sesiones legacy (anteriores a v2.5)."""
+
+    series_tmdb_id: int | None = None
+    """ID TMDb de la serie (endpoint /tv/{id}). Solo si media_type='series'."""
+
+    series_name: str = ""
+    """Nombre canónico de la serie en TMDb. Solo si media_type='series'."""
+
+    series_year: int | None = None
+    """Año del first_air_date de la serie (no del episodio).
+    Solo si media_type='series'."""
+
+    season_number: int | None = None
+    """Número de temporada del episodio (1-based). Solo si media_type='series'."""
+
+    episode_number: int | None = None
+    """Número de episodio dentro de la temporada (1-based).
+    Solo si media_type='series'."""
+
+    episode_title: str = ""
+    """Título del episodio según TMDb (si está disponible). Opcional en la
+    nomenclatura del MKV. Solo si media_type='series'."""
+
+    episode_runtime_minutes: int | None = None
+    """Runtime esperado del episodio según TMDb, en minutos. Usado para
+    validación visual: si el MPLS asignado tiene runtime ±1 min coincidente,
+    el match se considera confiable. Solo si media_type='series'."""
+
+    mpls_path: str = ""
+    """Ruta absoluta del MPLS específico a extraer (cuando media_type='series'
+    y hay varios MPLS de episodio en el disco). Si está vacío, el pipeline
+    usa el MPLS principal calculado por phase_a (caso película)."""
+
     error_message: str | None = None
     """Mensaje de error si status='error'."""
 

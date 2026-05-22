@@ -234,6 +234,166 @@ async def _run_mkvmerge_j(mpls_path: str) -> dict | None:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  DETECCIÓN MODO SERIE vs PELÍCULA (v2.5+)
+# ══════════════════════════════════════════════════════════════════════
+
+# Umbrales para clasificar un MPLS como "candidato a episodio".
+# Calibrados con discos típicos:
+#   - Episodios de TV duran típicamente 20-60 min (sitcom 20-22, drama 40-50).
+#   - Películas suelen ser >85 min.
+#   - Menús, intros y trailers son <10 min.
+# El rango 15-90 min cubre la gran mayoría de episodios (incluido
+# anime corto y dramas largos tipo The Crown).
+EPISODE_MIN_MINUTES = 15.0
+EPISODE_MAX_MINUTES = 90.0
+EPISODE_MIN_AUDIO_TRACKS = 1
+
+# Criterio para detectar modo serie: al menos N MPLS con duración en
+# rango episodio Y baja varianza relativa entre ellos. CV (coeficiente
+# de variación = stddev/mean) <= 0.15 indica duración similar. Los
+# discos de serie típicos tienen episodios de duración casi idéntica
+# (ej. drama de 42 min ± 30s).
+SERIES_MIN_CANDIDATES = 3
+SERIES_MAX_CV = 0.15
+
+
+def _mpls_duration_minutes(data: dict) -> float:
+    """Extrae la duración de un MPLS desde su JSON de mkvmerge -J.
+    Devuelve 0.0 si no se puede determinar."""
+    container = data.get("container") or {}
+    props = container.get("properties") or {}
+    # mkvmerge devuelve playlist_duration en NANOSEGUNDOS.
+    duration_ns = props.get("playlist_duration") or 0
+    if duration_ns:
+        return duration_ns / 1_000_000_000 / 60.0
+    return 0.0
+
+
+def _audio_track_count(data: dict) -> int:
+    """Cuenta pistas de audio en el JSON de mkvmerge -J."""
+    return sum(1 for t in data.get("tracks", []) if t.get("type") == "audio")
+
+
+async def identify_episode_candidates(
+    share_path: str, log_callback=None,
+) -> list[dict]:
+    """
+    Analiza todos los MPLS del disco y devuelve una lista de candidatos
+    a episodio ordenados por número de MPLS ascendente.
+
+    Cada candidato es un dict con:
+        - mpls_name: 'NNNNN.mpls'
+        - mpls_path: ruta absoluta
+        - duration_minutes: duración en minutos
+        - audio_track_count: número de pistas de audio
+        - data: JSON completo de mkvmerge -J (para reuso)
+
+    Se filtran:
+        - MPLS sin pistas de audio (menús/navegación)
+        - MPLS con duración fuera del rango episodio (15-90 min)
+
+    El orden de retorno es por nombre de MPLS ascendente (el patrón
+    más común en discos de series — ver investigación TMDb, mpv, MakeMKV).
+
+    Args:
+        share_path:   Ruta al directorio del disco montado.
+        log_callback: Corutina opcional para streaming.
+
+    Returns:
+        Lista de dicts. Vacía si no hay candidatos válidos.
+    """
+    playlist_dir = None
+    for candidate in [
+        Path(share_path) / "BDMV" / "PLAYLIST",
+        Path(share_path) / "PLAYLIST",
+    ]:
+        if candidate.exists():
+            playlist_dir = candidate
+            break
+    if playlist_dir is None:
+        return []
+
+    mpls_files = sorted(playlist_dir.glob("*.mpls"), key=lambda p: p.name)
+    if not mpls_files:
+        return []
+
+    # Top 20 por tamaño — cubre cualquier disco real de serie. Análisis
+    # exhaustivo costaría mucho en discos con cientos de MPLS de
+    # navegación (común en BDs antiguos).
+    candidates_by_size = sorted(
+        mpls_files, key=lambda p: p.stat().st_size, reverse=True
+    )[:20]
+
+    candidates = []
+    for mpls_path in candidates_by_size:
+        data = await _run_mkvmerge_j(str(mpls_path))
+        if data is None:
+            continue
+        audio_count = _audio_track_count(data)
+        if audio_count < EPISODE_MIN_AUDIO_TRACKS:
+            continue
+        dur_min = _mpls_duration_minutes(data)
+        if dur_min < EPISODE_MIN_MINUTES or dur_min > EPISODE_MAX_MINUTES:
+            continue
+        candidates.append({
+            "mpls_name": mpls_path.name,
+            "mpls_path": str(mpls_path),
+            "duration_minutes": dur_min,
+            "audio_track_count": audio_count,
+            "data": data,
+        })
+
+    # Ordenar por nombre MPLS ascendente. Los discos de serie típicamente
+    # numeran 00800, 00801, 00802... en orden de emisión (~85% de los
+    # casos según referencias comunitarias). Casos edge (commentary
+    # tracks, dual ordering) se resuelven con el match TMDb por runtime
+    # en una fase posterior.
+    candidates.sort(key=lambda c: c["mpls_name"])
+
+    if log_callback:
+        await log_callback(
+            f"[Fase A] {len(candidates)} MPLS candidatos a episodio "
+            f"(duración 15-90 min, ≥1 audio)"
+        )
+
+    return candidates
+
+
+def detect_disc_type(candidates: list[dict]) -> str:
+    """
+    Clasifica un disco como 'movie', 'series' o 'ambiguous' basándose
+    en la distribución de duraciones de los candidatos.
+
+    Heurística:
+      - 'series':    >=3 candidatos con CV (stddev/mean) <= 0.15
+      - 'movie':     <3 candidatos con duración compatible con episodio
+                     (típico: 1 MPLS dominante > 90 min ya filtrado fuera)
+      - 'ambiguous': caso intermedio (2 candidatos similares, o varios
+                     con duración muy dispersa). El usuario decide.
+
+    Args:
+        candidates: lista devuelta por identify_episode_candidates().
+
+    Returns:
+        'movie' | 'series' | 'ambiguous'
+    """
+    n = len(candidates)
+    if n < SERIES_MIN_CANDIDATES:
+        return "movie"
+
+    durations = [c["duration_minutes"] for c in candidates]
+    mean = sum(durations) / n
+    variance = sum((d - mean) ** 2 for d in durations) / n
+    stddev = variance ** 0.5
+    cv = stddev / mean if mean > 0 else 1.0
+
+    if cv <= SERIES_MAX_CV:
+        return "series"
+
+    return "ambiguous"
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  CONVERSIÓN: mkvmerge JSON → BDInfoResult
 # ══════════════════════════════════════════════════════════════════════
 
