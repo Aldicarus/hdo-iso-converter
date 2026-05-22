@@ -12638,7 +12638,12 @@ function _renderCMv40Info(s, pid) {
         <div class="section-subtitle">💾 Los cambios se guardan automáticamente tras cada acción. Cerrar la pestaña no pierde nada.</div></div>
         ${canAuto ? `
         <button class="btn btn-${autoOn ? 'primary' : 'ghost'} btn-sm" onclick="cmv40ToggleAuto('${pid}')"
-          data-tooltip="Auto-ejecuta cada fase tras la anterior. Pausa obligatoria en Fase D para revisión visual del chart.">
+          data-tooltip="${(() => {
+            const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+            if (trust) return 'Auto-ejecuta el pipeline completo A→H sin pausas. Los trust gates ya aprobaron alineación, Fase D se omite automáticamente.';
+            if (s.target_type) return 'Auto-ejecuta cada fase tras la anterior. Si los trust gates no aprueban, pausa en Fase D para revisión manual del chart.';
+            return 'Auto-ejecuta cada fase tras la anterior. La pausa en Fase D depende del target — sin gates trusted requiere revisión manual del chart.';
+          })()}">
           ${autoOn ? '🤖 Auto ON' : '🤖 Auto OFF'}
         </button>` : ''}
       </div>
@@ -12779,6 +12784,8 @@ function _renderCMv40RecommendationCard(s, pid) {
 
   // Banner verde cuando el proyecto está cerrado — distinguimos por
   // output_workflow para que el usuario sepa qué pasó realmente.
+  // Para restore_merge, los niveles transferidos dependen del source_workflow
+  // (P7 FEL → [1,2,3,6,8,9,10,11,254]; MEL/P8 → [3,8,9,11,254]).
   let doneBanner = '';
   if (s.output_workflow === 'keep_cmv29') {
     doneBanner = `
@@ -12791,15 +12798,21 @@ function _renderCMv40RecommendationCard(s, pid) {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
         <span style="color:var(--green); font-weight:600">✓ MKV procesado — RPU CMv4.0 inyectado (rápido)</span>
-        — el bin del repo se inyectó directo sobre el MKV original, sin
-        merge frame-a-frame. Calidad: ${escHtml(qualityTag)}.
+        — el bin se inyectó directo sobre el MKV original, sin merge
+        frame-a-frame. Calidad: ${escHtml(qualityTag)}.
       </div>`;
   } else if (s.output_workflow === 'restore_merge') {
+    const mergeLevels = s.source_workflow === 'p7_fel'
+      ? '[1, 2, 3, 6, 8, 9, 10, 11, 254]'
+      : '[3, 8, 9, 11, 254]';
+    const l2Note = s.source_workflow === 'p7_fel'
+      ? 'L1/L2/L6 del bin sobrescriben al del source (refinan stats legacy del BD)'
+      : 'L1/L2/L5/L6 del MKV original preservados';
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600">✓ MKV procesado — RPU CMv4.0 inyectado (preserva L2)</span>
-        — niveles CMv4.0 [3,8,9,11,254] transferidos del bin al MKV
-        preservando el L2 del original. Calidad: ${escHtml(qualityTag)}.
+        <span style="color:var(--green); font-weight:600">✓ MKV procesado — RPU CMv4.0 inyectado (merge selectivo)</span>
+        — niveles CMv4.0 ${mergeLevels} transferidos del bin al MKV; ${l2Note}.
+        Calidad: ${escHtml(qualityTag)}.
       </div>`;
   } else if (projectDone) {
     // Proyecto done sin output_workflow conocido (sesiones legacy procesadas
@@ -12815,7 +12828,7 @@ function _renderCMv40RecommendationCard(s, pid) {
       <div class="section-header">
         <div>
           <div class="section-title">🎯 Análisis y recomendación</div>
-          <div class="section-subtitle">Modelo Keep/Drop-in/Merge basado en análisis del bin descargado del repo DoviTools</div>
+          <div class="section-subtitle">Decisión Mantener vs Inyectar (rápido / preserva L2) basada en el análisis del bin: clasificación L8, tier de calidad CMv4 y comparación L2 source vs target</div>
         </div>
       </div>
       <div class="section-body">
@@ -13007,7 +13020,7 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
         <div class="cmv40-ack-actions">
           <button class="btn btn-ghost btn-md"
             onclick="_cmv40ChangeTarget('${pid}')"
-            data-tooltip="Vuelve a Fase B para escoger otro bin del repo o de carpeta local">
+            data-tooltip="Vuelve a Fase B para escoger otro bin (del repo DoviTools, de carpeta local o extraído de otro MKV propio)">
             ↩ Cambiar target
           </button>
           <button class="btn btn-warning btn-md"
@@ -13277,8 +13290,17 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   // puede sugerir trabajo que realmente no se hizo).
   const preferStateLabel = isSkipped || isDropInF;
   const subtitle = (!preferStateLabel && summary) ? summary : stateLabel;
+  // Sufijo diferenciado por razón de omisión — antes era "(omitida)" genérico
+  // para Fase C y D sin diferenciar el porqué (C por drop-in, D por trust).
+  const skippedSuffix = isSkippedC
+    ? '(omitida · drop-in)'
+    : isSkippedD
+    ? (s.user_acknowledged_degradation
+        ? '(omitida · usuario reconoció degradación)'
+        : '(omitida · trust gates OK)')
+    : '(omitida)';
   const titleSuffix = isSkipped
-    ? ' <span style="color:var(--text-3); font-weight:400; font-size:11px">(omitida)</span>'
+    ? ` <span style="color:var(--text-3); font-weight:400; font-size:11px">${skippedSuffix}</span>`
     : isDropInF
     ? ' <span style="color:#8a4a00; font-weight:500; font-size:11px">(drop-in)</span>'
     : '';
@@ -14053,10 +14075,16 @@ function _cmv40FaseBBody(pid, s) {
 }
 
 function _cmv40FaseCBody(pid, s) {
+  // El warning del Δ frames debe matizar que Fase D puede omitirse si los
+  // trust gates aprobaron alineación (no siempre habrá "revisión visual").
+  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const deltaNote = trust
+    ? 'Los trust gates ya validaron la alineación; la diferencia se considera tolerable y Fase D se omitirá.'
+    : 'Se evaluará en Fase D (chart de sincronización) — podrás aplicar corrección si hace falta.';
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Separa el Base Layer del Enhancement Layer y extrae datos de brillo por frame. Tarda 5-15 min.</div>
-      ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon">⚠️</span><span>Ya se detecta diferencia de frames (Δ = ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}). Lo revisarás visualmente en la siguiente fase.</span></div>` : ''}
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Separa el HEVC en BL (Capa Base) + EL (Capa de Mejora) y extrae datos de luminancia por frame para el chart de sincronización. Tarda 5-15 min.</div>
+      ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon">⚠️</span><span>Diferencia de frames detectada (Δ = ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}). ${deltaNote}</span></div>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')">✂️ Extraer BL/EL + per-frame data</button>
     </div>`;
 }
@@ -14064,7 +14092,7 @@ function _cmv40FaseCBody(pid, s) {
 function _cmv40FaseDBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Gráfico de MaxPQ (L1 del RPU Dolby Vision) por frame. Rojo = origen, Azul = target. Deben coincidir en forma. Si hay offset, aplicar corrección.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Chart de MaxPQ (L1 del RPU Dolby Vision) por frame. Rojo = origen, Azul = target. Las curvas deben coincidir en forma; si hay offset detectable, se aplica corrección con dovi_tool editor.</div>
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="320"></canvas>
@@ -14076,18 +14104,56 @@ function _cmv40FaseDBody(pid, s) {
 }
 
 function _cmv40FaseFBody(pid, s) {
+  // Texto dinámico según workflow y target_type (igual estrategia que el
+  // sidebar de la timeline). El banner "verifica el gráfico" solo aplica si
+  // Fase D fue ejecutada visualmente — con trust_ok o ack se omite.
+  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const wf = s.source_workflow || 'p7_fel';
+  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
+  const targetNeedsMerge = ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic'].includes(s.target_type);
+  const userAcked = !!s.user_acknowledged_degradation;
+  const faseDExecutedVisually = !trust && !userAcked;
+  let desc;
+  if (dropIn) {
+    desc = 'Inyecta el RPU del bin directamente sobre source.hevc (BL+EL juntos, sin merge ni mux posterior). Vía más rápida — el byte-identical del RPU queda garantizado.';
+  } else if (wf === 'p7_fel') {
+    desc = 'Merge CMv4.0 sobre el RPU P7 del source + inyecta el RPU merged en EL.hevc preservando la FEL.';
+  } else if (wf === 'p7_mel') {
+    desc = targetNeedsMerge
+      ? 'Merge CMv4.0 sobre el RPU P7 MEL del source + inyecta el RPU merged en BL.hevc (descarta el EL MEL → P8.1 CMv4.0).'
+      : 'Inyecta el RPU target directamente en BL.hevc (target P8 retail, sin merge — descarta el EL MEL → P8.1).';
+  } else {  // p8
+    desc = targetNeedsMerge
+      ? 'Merge CMv4.0 sobre el RPU P8 del source + inyecta el RPU merged en source.hevc.'
+      : 'Inyecta el RPU target directamente en source.hevc (target P8 retail, sin merge — reemplaza el RPU CMv2.9 existente).';
+  }
+  const reviewBanner = faseDExecutedVisually
+    ? '<div class="banner info" style="margin-bottom:10px"><span class="banner-icon">ℹ️</span><span>Verifica en el chart de Fase D que las curvas coinciden antes de inyectar.</span></div>'
+    : '';
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Inyecta el RPU sincronizado en el Enhancement Layer.</div>
-      <div class="banner info" style="margin-bottom:10px"><span class="banner-icon">ℹ️</span><span>Verifica en el gráfico de la Fase D que los dos trazos coinciden antes de inyectar.</span></div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
+      ${reviewBanner}
       <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')">💉 Inyectar RPU</button>
     </div>`;
 }
 
 function _cmv40FaseGBody(pid, s) {
+  // Texto dinámico según workflow + drop-in. Misma lógica que el sidebar.
+  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const wf = s.source_workflow || 'p7_fel';
+  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
+  let desc;
+  if (dropIn) {
+    desc = 'mkvmerge directo sobre source_injected.hevc (BL+EL dual-layer ya combinado en Fase F) con audio/subs/capítulos del MKV origen.';
+  } else if (wf === 'p7_fel') {
+    desc = 'dovi_tool mux combina BL.hevc + EL_injected.hevc en un HEVC dual-layer + mkvmerge añade audio/subs/capítulos del MKV origen.';
+  } else {  // p7_mel / p8: single-layer
+    desc = 'Sin mux dual-layer (single-layer) — mkvmerge directo sobre BL_injected.hevc con audio/subs/capítulos del MKV origen.';
+  }
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Combina BL + EL inyectado + audio/subs/capítulos del origen. Genera el MKV final.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
       <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')">📦 Remux MKV final</button>
     </div>`;
 }
