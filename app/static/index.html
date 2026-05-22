@@ -795,7 +795,6 @@
       <div id="cmv40-new-repo-list" class="cmv40-repo-list">
         <div class="cmv40-repo-empty">— Selecciona primero el MKV origen —</div>
       </div>
-      <div id="cmv40-new-pipeline-preview" style="display:none; margin-top:6px"></div>
     </div>
     <div id="cmv40-new-target-path" class="cmv40-target-tab" style="display:none">
       <div class="iso-select-row">
@@ -815,6 +814,11 @@
       </div>
       <div style="font-size:11px; color:var(--text-3); margin-top:6px">MKVs directos en el directorio de ISOs</div>
     </div>
+    <!-- Preview común a los 3 tabs. Para 'repo' muestra el pipeline preview
+         derivado del sheet (provenance/predicted_type); para 'path' y 'mkv'
+         muestra un placeholder explicando que el tipo se detectará en el
+         pre-flight (sin sheet no podemos predecir antes). -->
+    <div id="cmv40-new-pipeline-preview" style="display:none; margin-top:6px"></div>
     </div><!-- /cmv40-new-body -->
 
     <div class="cmv40-new-footer">

@@ -10688,6 +10688,10 @@ function _cmv40NewSwitchTargetTab(tab) {
   });
   _cmv40NewTargetSelected = null;
   _cmv40NewUpdateCreateBtn();
+  // Reset del preview al cambiar de tab — sin esto, el HTML del tab previo
+  // (p.ej. el preview "Trusted CMv4.0" de un candidato de repo) queda
+  // visible al pasar a path/mkv hasta que el usuario haga otra acción.
+  _cmv40NewUpdatePipelinePreview();
   if (tab === 'mkv')  _cmv40NewLoadTargetMkvs();
   if (tab === 'path') _cmv40NewLoadRpus();
   if (tab === 'repo' && _cmv40SourceSelected) _cmv40NewLoadRepoCandidates();
@@ -10962,9 +10966,47 @@ function _cmv40ProvenanceNoteHTML(prov, retailAlternative) {
 function _cmv40NewUpdatePipelinePreview() {
   const container = document.getElementById('cmv40-new-pipeline-preview');
   if (!container) return;
-  // Solo visible cuando la tab es 'repo' y hay un candidato seleccionado
-  if (_cmv40NewTargetTab !== 'repo' || !_cmv40NewTargetSelected
-      || _cmv40NewTargetSelected.kind !== 'repo') {
+
+  // Sin selección de target → vacío para los 3 tabs.
+  if (!_cmv40NewTargetSelected) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    _cmv40NewUpdateAutoLabel(null);
+    return;
+  }
+
+  const tab = _cmv40NewTargetTab;
+
+  // Tabs 'path' y 'mkv': sin sheet de recomendación no podemos predecir el
+  // provenance/predicted_type antes de descargar/extraer el bin. Mostramos
+  // un placeholder informativo para que el usuario sepa que la validación
+  // completa pasa por el pre-flight (idéntica a la del tab 'repo').
+  if (tab === 'path' || tab === 'mkv') {
+    const sourceLabel = tab === 'path' ? 'el bin local' : 'el MKV target';
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div class="cmv40-pp-card" style="background:var(--blue-dim); border:1px solid var(--blue-border); border-radius:8px; padding:10px 12px">
+        <div style="font-size:12px; color:var(--text-1); line-height:1.5">
+          <strong style="color:var(--blue)">ℹ El tipo del bin se detectará en el pre-flight.</strong>
+          Sin el sheet de recomendación de DoviTools no podemos predecir
+          la calidad de ${sourceLabel} antes de procesarlo. El pre-flight (5-30s
+          para .bin local, 30-90s para extraer de MKV) clasifica el L8
+          (real / sintético / ambiguo), calcula el tier de calidad
+          (CMv4 CORE/CORE+/FULL) y decide la recomendación
+          Mantener vs Inyectar — igual que con un bin del repo.
+          Verás el veredicto en la card "🎯 Análisis y recomendación"
+          del proyecto.
+        </div>
+      </div>`;
+    // Label del auto-pipeline neutro: no sabemos si será trusted/generic
+    // hasta que el pre-flight clasifique. El usuario verá el detalle real
+    // tras crear el proyecto.
+    _cmv40NewUpdateAutoLabel(null);
+    return;
+  }
+
+  // Tab 'repo': preview clásico con datos del sheet.
+  if (tab !== 'repo' || _cmv40NewTargetSelected.kind !== 'repo') {
     container.innerHTML = '';
     container.style.display = 'none';
     _cmv40NewUpdateAutoLabel(null);
