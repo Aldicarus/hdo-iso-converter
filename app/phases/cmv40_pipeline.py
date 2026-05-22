@@ -2873,6 +2873,36 @@ async def run_phase_f_inject(
     # se ejecuta sin repetir el mensaje. Las sub-llamadas (_merge_cmv40_into_p7
     # y _run_streaming del inject-rpu más abajo) emiten su propio detalle
     # cuando arrancan.
+    #
+    # ── Pesos de progreso: si hay merge previo, le damos MERGE_WEIGHT% del
+    # peso de la fase y el inject ocupa el resto. Sin merge (drop-in / direct
+    # inject), el inject ocupa el 100%. Asi la barra es monotonica (no salta
+    # del 50% al 0% como ocurria al hacer `_emit_progress(0, inject_label)`
+    # tras un merge que no reportaba progreso).
+    #
+    # Calibrado a 15%: dovi_tool editor sobre el RPU (~30-90s en UHD) es ~10%
+    # del tiempo de fase; inject-rpu sobre HEVC entero (~5-15 min) el resto.
+    # 15% deja margen para que se vea el "saltito" del merge sin desviar
+    # mucho del tiempo real.
+    MERGE_WEIGHT = 15.0
+    had_merge = False
+
+    async def _do_merge():
+        """Ejecuta el merge con barra cubriendo [0, MERGE_WEIGHT]."""
+        nonlocal had_merge
+        await _emit_progress(
+            log_callback, 0,
+            "Mergeando CMv4.0 levels en RPU source (dovi_tool editor)…"
+        )
+        await _merge_cmv40_into_p7(
+            rpu_source_p7=rpu_source,
+            rpu_target_v40=rpu_target_effective,
+            output=rpu_merged,
+            log_callback=log_callback,
+        )
+        had_merge = True
+        await _emit_progress(log_callback, MERGE_WEIGHT, "RPU merged listo")
+
     if drop_in_fel:
         rpu_to_inject = rpu_target_effective
         hevc_input    = source_hevc
@@ -2883,12 +2913,7 @@ async def run_phase_f_inject(
             session.phases_skipped.append("merge_cmv40_transfer")
     elif workflow == "p7_fel":
         # Merge preservando FEL (flujo clásico)
-        await _merge_cmv40_into_p7(
-            rpu_source_p7=rpu_source,
-            rpu_target_v40=rpu_target_effective,
-            output=rpu_merged,
-            log_callback=log_callback,
-        )
+        await _do_merge()
         rpu_to_inject = rpu_merged
         hevc_input    = el_hevc
         hevc_output   = el_injected
@@ -2905,12 +2930,7 @@ async def run_phase_f_inject(
             "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
         )
         if target_needs_merge:
-            await _merge_cmv40_into_p7(
-                rpu_source_p7=rpu_source,
-                rpu_target_v40=rpu_target_effective,
-                output=rpu_merged,
-                log_callback=log_callback,
-            )
+            await _do_merge()
             rpu_to_inject = rpu_merged
             inject_label  = "Inyectando RPU merged en BL (MEL descartado → P8.1 CMv4.0)"
         else:
@@ -2929,12 +2949,7 @@ async def run_phase_f_inject(
             "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
         )
         if target_needs_merge:
-            await _merge_cmv40_into_p7(
-                rpu_source_p7=rpu_source,
-                rpu_target_v40=rpu_target_effective,
-                output=rpu_merged,
-                log_callback=log_callback,
-            )
+            await _do_merge()
             rpu_to_inject = rpu_merged
             inject_label  = "Inyectando RPU merged en source.hevc (P8.1 CMv4.0)"
         else:
@@ -2957,7 +2972,11 @@ async def run_phase_f_inject(
             f"[Fase F] {inject_label} (RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
         )
     est_inject = _estimate_from_ffmpeg(session, RATIO_INJECT, FPS_INJECT)
-    await _emit_progress(log_callback, 0, inject_label)
+    # Inject empieza donde el merge dejó la barra (MERGE_WEIGHT) o desde 0%
+    # si no hubo merge. Monotónico.
+    inject_offset = MERGE_WEIGHT if had_merge else 0.0
+    inject_weight = 100.0 - inject_offset
+    await _emit_progress(log_callback, inject_offset, inject_label)
     rc = await _run_streaming([
         DOVI_TOOL_BIN, "inject-rpu",
         "-i", str(hevc_input),
@@ -2966,7 +2985,7 @@ async def run_phase_f_inject(
     ], log_callback=log_callback, proc_callback=proc_callback,
        progress_ctx={
            "time_estimate_s": est_inject,
-           "offset": 0.0, "weight": 100.0,
+           "offset": inject_offset, "weight": inject_weight,
            "label": inject_label,
        })
     if rc != 0:
