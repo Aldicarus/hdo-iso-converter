@@ -3404,7 +3404,6 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             session.target_preflight_ok = False
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight ━━━")
-            await _cmv40_log(session, "🤖 Auto-pipeline backend: validando bin target persistido…")
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
