@@ -289,23 +289,33 @@ def _mediainfo_general_duration(mi) -> float:
 
 async def _ffprobe_duration_seconds(file_path: str) -> float:
     """Duración en segundos del fichero usando ffprobe. Última línea
-    de defensa cuando mkvmerge -J y MediaInfo no la emiten (m2ts raw
-    con PCR atípico, formatos exóticos). Coste ~1-2s por fichero.
+    de defensa cuando mkvmerge -J y MediaInfo no la emiten o devuelven
+    valores inverosímiles. Coste ~1-3s por fichero.
 
-    Devuelve 0.0 si ffprobe también falla o el path no es accesible.
-    Usado para ficheros m2ts directos — NO usar dentro de un UDF mount
+    Flags clave para m2ts/ts:
+      -probesize 100M       Por defecto ~5MB. Insuficiente para que
+                            ffprobe alinee PCR/PTS en m2ts grandes.
+      -analyzeduration 100M Necesario para que ffprobe no se rinda
+                            con un valor parcial cuando el primer bloque
+                            tiene PCR discontinuo (causa típica del
+                            "2.8 min" en m2ts de 50GB).
+
+    Devuelve 0.0 si ffprobe falla o el path no es accesible. Usado
+    para ficheros m2ts directos — NO usar dentro de un UDF mount
     (ver memoria: ffprobe rompe el demux en m2ts montado por loop).
     """
     try:
         proc = await asyncio.create_subprocess_exec(
             FFPROBE_BIN, "-v", "error",
+            "-probesize", "100M",
+            "-analyzeduration", "100M",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             file_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
         if proc.returncode != 0:
             return 0.0
         out = stdout.decode("utf-8", errors="replace").strip()
@@ -313,6 +323,103 @@ async def _ffprobe_duration_seconds(file_path: str) -> float:
     except (asyncio.TimeoutError, ValueError, OSError, FileNotFoundError) as e:
         _logger.warning("ffprobe duration falló sobre %s: %s", file_path, e)
         return 0.0
+
+
+def _duration_looks_implausible(duration_seconds: float, file_size_bytes: int) -> bool:
+    """Sanity check de la duración reportada por una herramienta basada
+    en el bitrate implícito. Si la duración es tan corta que el bitrate
+    resultante supera el máximo físico de un Blu-ray UHD (≈140 Mbps con
+    margen), la duración es errónea (típicamente porque la herramienta
+    leyó solo el primer chunk del fichero).
+
+    Casos reales del usuario que motivaron este check:
+      - m2ts de 50 GB reportado como 168s → 2380 Mbps. Impossible.
+      - m2ts de 30 GB reportado como 12s → 20000 Mbps. Impossible.
+
+    Returns True si la duración es claramente errónea y conviene
+    intentar otra herramienta.
+    """
+    if duration_seconds <= 0 or file_size_bytes <= 0:
+        return False  # 0 ya se trata como "falló", no hace falta sanity check
+    bitrate_mbps = (file_size_bytes * 8) / (duration_seconds * 1_000_000)
+    # 200 Mbps es ya muy por encima del Blu-ray UHD físico (108 Mbps + audio).
+    # Cualquier bitrate por encima es señal clara de duración mal medida.
+    return bitrate_mbps > 200
+
+
+async def _resolve_m2ts_duration_seconds(
+    file_path: str,
+    mkvmerge_data: dict | None = None,
+    mediainfo_result=None,
+) -> float:
+    """Cascada de detección de duración para un m2ts, con sanity check
+    para descartar valores absurdamente cortos (típicos de m2ts con PCR
+    discontinuo donde la herramienta lee solo el primer chunk).
+
+    Orden:
+      1. mkvmerge -J `duration` (rápido si ya estaba calculado).
+      2. MediaInfo general/video/audio (si se pasa mediainfo_result).
+      3. ffprobe con probesize/analyzeduration grandes (ground truth).
+
+    Cada paso valida con `_duration_looks_implausible` — si una
+    herramienta devuelve un valor inverosímil para el tamaño del
+    fichero, pasamos al siguiente. Si ninguna devuelve un valor
+    creíble, devolvemos el primero >0 que tengamos (con un WARN), o 0
+    si ninguna devolvió nada.
+    """
+    try:
+        file_size = Path(file_path).stat().st_size
+    except OSError:
+        file_size = 0
+
+    candidates: list[tuple[str, float]] = []
+
+    # 1. mkvmerge
+    if mkvmerge_data:
+        dur = _mpls_duration_minutes(mkvmerge_data) * 60.0
+        if dur > 0:
+            if not _duration_looks_implausible(dur, file_size):
+                return dur
+            candidates.append(("mkvmerge", dur))
+            _logger.warning(
+                "mkvmerge reportó duración inverosímil para %s: %.1fs (file %dGB) — bitrate implícito >200 Mbps",
+                file_path, dur, file_size // 10**9,
+            )
+
+    # 2. MediaInfo
+    if mediainfo_result is not None:
+        dur = _mediainfo_general_duration(mediainfo_result)
+        if dur > 0:
+            if not _duration_looks_implausible(dur, file_size):
+                return dur
+            candidates.append(("MediaInfo", dur))
+            _logger.warning(
+                "MediaInfo reportó duración inverosímil para %s: %.1fs (file %dGB)",
+                file_path, dur, file_size // 10**9,
+            )
+
+    # 3. ffprobe (último recurso, lento pero fiable)
+    dur = await _ffprobe_duration_seconds(file_path)
+    if dur > 0:
+        if not _duration_looks_implausible(dur, file_size):
+            return dur
+        candidates.append(("ffprobe", dur))
+        _logger.warning(
+            "ffprobe también reportó duración inverosímil para %s: %.1fs (file %dGB)",
+            file_path, dur, file_size // 10**9,
+        )
+
+    # Si todas fueron sospechosas, devolvemos la más alta (probablemente
+    # la menos truncada) con un WARN. Es mejor un valor aproximado que 0.
+    if candidates:
+        best = max(candidates, key=lambda t: t[1])
+        _logger.warning(
+            "Ninguna herramienta dio duración creíble para %s — usando la más alta "
+            "(%.1fs vía %s) pero el resultado puede ser parcial",
+            file_path, best[1], best[0],
+        )
+        return best[1]
+    return 0.0
 
 
 def _mpls_duration_minutes(data: dict) -> float:
@@ -2351,23 +2458,11 @@ async def run_full_analysis_for_m2ts(
     if log_callback:
         await log_callback(f"[Fase A] ├─ Paso 3/4: Enriqueciendo con MediaInfo ({size_gb:.1f} GB)…")
 
+    mi = None
     try:
         mi = await run_mediainfo(m2ts_path)
         bdinfo.mediainfo_result = mi
         enrich_tracks_with_mediainfo(bdinfo, mi)
-        # Fallback de duración: si mkvmerge -J sobre el m2ts no emitió
-        # `duration` (algunos m2ts raw no lo traen), usamos la duración
-        # de la pista general de MediaInfo. Sin esto, los capítulos auto
-        # no se generan y la UI muestra "No se pudo determinar la duración".
-        if bdinfo.duration_seconds <= 0:
-            mi_duration = _mediainfo_general_duration(mi)
-            if mi_duration > 0:
-                bdinfo.duration_seconds = mi_duration
-                if log_callback:
-                    await log_callback(
-                        f"[Fase A] ├─   ℹ️ Duración via MediaInfo: {mi_duration:.0f}s "
-                        f"({mi_duration/60:.1f} min) — mkvmerge no la emitió"
-                    )
         if log_callback:
             await log_callback(
                 f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
@@ -2377,19 +2472,31 @@ async def run_full_analysis_for_m2ts(
         if log_callback:
             await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
-    # Última línea de fallback de duración: ffprobe. Si ni mkvmerge ni
-    # MediaInfo la emitieron, ffprobe casi siempre la calcula recorriendo
-    # los PES headers del m2ts. Sin esto los capítulos auto fallaban con
-    # "No se pudo determinar la duración del disco" en m2ts atípicos.
-    if bdinfo.duration_seconds <= 0:
-        ffp_sec = await _ffprobe_duration_seconds(m2ts_path)
-        if ffp_sec > 0:
-            bdinfo.duration_seconds = ffp_sec
-            if log_callback:
-                await log_callback(
-                    f"[Fase A] ├─   ℹ️ Duración via ffprobe: {ffp_sec:.0f}s "
-                    f"({ffp_sec/60:.1f} min) — mkvmerge y MediaInfo no la emitieron"
-                )
+    # Resolución robusta de duración con cascada + sanity check de bitrate.
+    # Caso real del usuario: m2ts de 50 GB reportado como 168s (2.8 min)
+    # por mkvmerge — el cálculo implícito da 2380 Mbps, claramente
+    # imposible. _resolve_m2ts_duration_seconds detecta el outlier y
+    # escalona a la siguiente herramienta.
+    resolved = await _resolve_m2ts_duration_seconds(
+        m2ts_path, mkvmerge_data=mkvmerge_data, mediainfo_result=mi,
+    )
+    if resolved > 0 and (bdinfo.duration_seconds <= 0 or resolved > bdinfo.duration_seconds * 1.5):
+        # Solo sustituimos si la duración previa era 0 o claramente
+        # menor (>50% diferencia → la actual era el outlier).
+        prev = bdinfo.duration_seconds
+        bdinfo.duration_seconds = resolved
+        if log_callback and prev > 0:
+            await log_callback(
+                f"[Fase A] ├─   ℹ️ Duración corregida: {resolved:.0f}s "
+                f"({resolved/60:.1f} min) — el valor anterior ({prev:.0f}s) "
+                f"era inverosímil para un fichero de "
+                f"{Path(m2ts_path).stat().st_size / 1e9:.1f} GB"
+            )
+        elif log_callback:
+            await log_callback(
+                f"[Fase A] ├─   ℹ️ Duración resuelta: {resolved:.0f}s "
+                f"({resolved/60:.1f} min)"
+            )
 
     # PGS counting sin MPLS PIDs — fallback a rango por defecto.
     try:
@@ -2466,25 +2573,17 @@ async def identify_episode_candidates_from_m2ts_list(
             skipped.append((Path(path).name, "mkvmerge -J falló o devolvió vacío"))
             continue
         audio_count = _audio_track_count(data)
-        dur_min = _mpls_duration_minutes(data)
-        # Fallback de duración en cascada: mkvmerge → MediaInfo → ffprobe.
-        # Los m2ts raw del Blu-ray a veces no traen `duration` en mkvmerge,
-        # ni en MediaInfo general/video/audio (PCR atípico, codificación
-        # antigua), pero ffprobe casi siempre la calcula. Sin esto los
-        # episodios afectados quedan filtrados y se quedan fuera de la
-        # selección del modal de series.
-        if dur_min <= 0:
-            try:
-                mi = await run_mediainfo(path)
-                mi_sec = _mediainfo_general_duration(mi)
-                if mi_sec > 0:
-                    dur_min = mi_sec / 60.0
-            except Exception:
-                pass
-        if dur_min <= 0:
-            ffp_sec = await _ffprobe_duration_seconds(path)
-            if ffp_sec > 0:
-                dur_min = ffp_sec / 60.0
+        # Cascada con sanity check de bitrate — detecta y rechaza
+        # duraciones inverosímiles (m2ts de 50GB reportado como 168s
+        # por mkvmerge cuando hay PCR discontinuo al inicio).
+        try:
+            mi = await run_mediainfo(path)
+        except Exception:
+            mi = None
+        dur_sec = await _resolve_m2ts_duration_seconds(
+            path, mkvmerge_data=data, mediainfo_result=mi,
+        )
+        dur_min = dur_sec / 60.0 if dur_sec > 0 else 0.0
         # Sin filtro estricto de duración aquí — el usuario eligió estos
         # ficheros explícitamente. Solo descartamos los manifestamente
         # rotos (sin duración o sin audio).
