@@ -3852,6 +3852,26 @@ async function analyzeSelectedISO() {
   }
 
   closeModal('new-project-modal');
+
+  // Disc probe: detecta si el ISO es película o serie multi-episodio antes
+  // de entrar al pipeline completo. ~10-20s en discos pequeños.
+  // - movie → flujo normal (_doAnalyzeISO).
+  // - series / ambiguous → abrir modal de selección de episodios (el
+  //   usuario identifica la serie en TMDb y mapea los MPLS → episodios;
+  //   el endpoint /api/create-series-sessions crea N sesiones de un golpe).
+  if (btn) { btn.innerHTML = '⏳ Probando disco…'; }
+  const probe = await apiFetch('/api/disc-probe', {
+    method: 'POST',
+    body: JSON.stringify({ iso_path: isoPath }),
+  });
+  if (btn) { btn.innerHTML = '💿 Analizar ISO'; }
+
+  if (probe && (probe.media_type === 'series' || probe.media_type === 'ambiguous')) {
+    openSeriesModal(probe);
+    return;
+  }
+
+  // Movie path (default): flujo de Fase A+B sin cambios.
   await _doAnalyzeISO(isoPath, isoName);
 }
 
@@ -3953,6 +3973,320 @@ async function _doAnalyzeISO(isoPath, isoName) {
 
   await loadSessions();
 }
+
+
+// ══════════════════════════════════════════════════════════════════════
+//  MODO SERIE — selección de episodios y creación de N sesiones (v2.5+)
+//
+//  Flujo:
+//    1. /api/disc-probe ya devolvió media_type='series'|'ambiguous'.
+//    2. openSeriesModal() guarda el probe en _seriesState y prellena
+//       la búsqueda TMDb con suggested_title.
+//    3. Usuario busca → seriesTmdbSearch() → /api/tv-search.
+//    4. Usuario elige candidata → seriesSelectCandidate() → /api/tv-details.
+//    5. Usuario elige temporada → seriesLoadSeason() → /api/tv-season
+//       (con mpls_durations para que el backend dé el match auto).
+//    6. Renderiza tabla MPLS↔episodio editable con confianza 🟢🟡.
+//    7. Usuario marca checkboxes + edita mapping si quiere.
+//    8. seriesCreateSessions() → /api/create-series-sessions → N sesiones.
+// ══════════════════════════════════════════════════════════════════════
+
+// Estado del modal de series. Se vacía al cerrar.
+let _seriesState = null;
+
+function openSeriesModal(probe) {
+  _seriesState = {
+    probe,                       // {iso_path, episode_candidates[], suggested_*}
+    selectedSeries: null,        // {tmdb_id, name, year, ...}
+    selectedSeason: null,        // {season_number, episode_count, ...}
+    seasonEpisodes: [],          // [TvEpisode]
+    mplsMatches: [],             // [{suggested_episode_number, matched_episode, confidence}]
+    mapping: {},                 // {mpls_path: {include: bool, episode_number, episode_title, runtime_minutes}}
+  };
+
+  // Cabecera con conteo de candidatos
+  const sub = document.getElementById('series-modal-sub');
+  if (sub) {
+    const n = probe.episode_candidates.length;
+    const verdict = probe.media_type === 'series'
+      ? `Detectados <strong>${n} MPLS candidatos a episodio</strong> con duración similar.`
+      : `Detectados <strong>${n} MPLS</strong> con duración compatible con episodio (clasificación ambigua — confirma manualmente).`;
+    sub.innerHTML = `${verdict} Identifica la serie en TMDb y mapea cada episodio.`;
+  }
+
+  // Prellenar query con título sugerido del nombre del ISO
+  const q = document.getElementById('series-tmdb-query');
+  const y = document.getElementById('series-tmdb-year');
+  if (q) q.value = probe.suggested_title || '';
+  if (y) y.value = probe.suggested_year || '';
+
+  // Reset secciones inferiores
+  document.getElementById('series-tmdb-results').innerHTML = '';
+  document.getElementById('series-season-section').style.display = 'none';
+  document.getElementById('series-episodes-section').style.display = 'none';
+  _seriesUpdateCreateButton();
+
+  openModal('series-modal');
+
+  // Lanza búsqueda inicial si tenemos query
+  if (probe.suggested_title) {
+    seriesTmdbSearch();
+  }
+}
+
+async function seriesTmdbSearch() {
+  const query = (document.getElementById('series-tmdb-query').value || '').trim();
+  const yearStr = (document.getElementById('series-tmdb-year').value || '').trim();
+  const year = yearStr ? parseInt(yearStr, 10) : null;
+  if (!query) {
+    showToast('Introduce el nombre de la serie', 'warning');
+    return;
+  }
+  const resultsBox = document.getElementById('series-tmdb-results');
+  resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px">⏳ Buscando en TMDb…</div>';
+
+  const qs = new URLSearchParams({ query });
+  if (year && !isNaN(year)) qs.set('year', String(year));
+  const data = await apiFetch(`/api/tv-search?${qs.toString()}`);
+
+  if (!data || !data.tmdb_configured) {
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px">⚠️ TMDb no configurado. Configura la API key en ⚙️ Ajustes para buscar series.</div>';
+    return;
+  }
+  if (!data.results || data.results.length === 0) {
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px">— Sin resultados. Prueba con otro título o año. —</div>';
+    return;
+  }
+
+  resultsBox.innerHTML = data.results.map(r => `
+    <div class="series-candidate" style="display:flex; gap:10px; padding:8px; border:1px solid var(--sep); border-radius:6px; margin-bottom:6px; cursor:pointer; background:var(--surface-1)"
+         onclick='seriesSelectCandidate(${JSON.stringify(r).replace(/'/g, "&apos;")})'>
+      ${r.poster_url ? `<img src="${escHtml(r.poster_url)}" style="width:50px; height:75px; object-fit:cover; border-radius:4px">` : '<div style="width:50px; height:75px; background:var(--surface-2); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--text-3)">📺</div>'}
+      <div style="flex:1; min-width:0">
+        <div style="font-weight:600">${escHtml(r.name)}${r.year ? ` <span style="color:var(--text-3); font-weight:400">(${r.year})</span>` : ''}</div>
+        <div style="font-size:11px; color:var(--text-3); margin-top:2px">${escHtml(r.original_name || '')}${r.vote_average ? ` · ★ ${r.vote_average.toFixed(1)}` : ''}</div>
+        <div style="font-size:11px; color:var(--text-2); margin-top:4px; max-height:42px; overflow:hidden">${escHtml(r.overview || '')}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function seriesSelectCandidate(candidate) {
+  _seriesState.selectedSeries = candidate;
+  // Highlight visual: marca la card seleccionada
+  document.querySelectorAll('.series-candidate').forEach(el => {
+    el.style.border = '1px solid var(--sep)';
+    el.style.background = 'var(--surface-1)';
+  });
+  // (no podemos referenciar el click target aquí sin event — refresh OK)
+
+  // Cargar detalles de la serie para poblar combo de temporadas
+  const data = await apiFetch(`/api/tv-details/${candidate.tmdb_id}`);
+  if (!data || !data.details) {
+    showToast('No se pudieron cargar los detalles de la serie', 'error');
+    return;
+  }
+  // Filtrar season_number 0 (specials) por defecto — en Fase 1 no soportamos
+  // specials. El usuario aún puede elegirla si quiere.
+  const seasons = data.details.seasons || [];
+  const select = document.getElementById('series-season-select');
+  select.innerHTML = '<option value="">— Elige temporada —</option>' + seasons.map(s =>
+    `<option value="${s.season_number}">${escHtml(s.name)} (${s.episode_count} episodios)</option>`
+  ).join('');
+  document.getElementById('series-season-section').style.display = 'block';
+  document.getElementById('series-episodes-section').style.display = 'none';
+  _seriesUpdateCreateButton();
+}
+
+async function seriesLoadSeason() {
+  const select = document.getElementById('series-season-select');
+  const seasonNumber = parseInt(select.value, 10);
+  if (isNaN(seasonNumber)) {
+    document.getElementById('series-episodes-section').style.display = 'none';
+    _seriesState.selectedSeason = null;
+    _seriesUpdateCreateButton();
+    return;
+  }
+  _seriesState.selectedSeason = { season_number: seasonNumber };
+
+  const tmdbId = _seriesState.selectedSeries.tmdb_id;
+  const durations = _seriesState.probe.episode_candidates
+    .map(c => c.duration_minutes)
+    .join(',');
+  const qs = new URLSearchParams({ mpls_durations: durations });
+  const data = await apiFetch(`/api/tv-season/${tmdbId}/${seasonNumber}?${qs.toString()}`);
+  if (!data) return;
+  _seriesState.seasonEpisodes = data.episodes || [];
+  _seriesState.mplsMatches = data.mpls_matches || [];
+
+  // Construir mapping inicial: pre-rellenar con suggested_episode_number
+  // y marcar todos como include=true por defecto (el usuario desmarca lo
+  // que no quiera).
+  const mapping = {};
+  _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
+    const match = _seriesState.mplsMatches[idx] || {};
+    mapping[mpls.mpls_path] = {
+      include: true,
+      episode_number: match.suggested_episode_number || (idx + 1),
+      episode_title: match.matched_episode ? match.matched_episode.name : '',
+      runtime_minutes: match.matched_episode ? match.matched_episode.runtime_minutes : 0,
+    };
+  });
+  _seriesState.mapping = mapping;
+
+  _renderSeriesEpisodesTable();
+  document.getElementById('series-episodes-section').style.display = 'block';
+  _seriesUpdateCreateButton();
+}
+
+function _renderSeriesEpisodesTable() {
+  const cands = _seriesState.probe.episode_candidates;
+  const matches = _seriesState.mplsMatches;
+  const mapping = _seriesState.mapping;
+  const episodes = _seriesState.seasonEpisodes;
+
+  // Lista de opciones del dropdown de episodio (para todas las filas)
+  const epOptions = episodes.map(e =>
+    `<option value="${e.episode_number}">E${String(e.episode_number).padStart(2,'0')} · ${escHtml(e.name)}${e.runtime_minutes ? ` (${e.runtime_minutes}m)` : ''}</option>`
+  ).join('');
+
+  const rows = cands.map((c, idx) => {
+    const m = matches[idx] || {};
+    const map = mapping[c.mpls_path] || {};
+    const confEmoji = m.confidence === 'high' ? '🟢'
+                    : m.confidence === 'low'  ? '🟡'
+                    : '⚪';
+    const confTitle = m.confidence === 'high'
+      ? `Match alto: runtime MPLS (${c.duration_minutes.toFixed(1)} min) coincide con TMDb (Δ=${m.runtime_delta_min ?? '?'} min)`
+      : m.confidence === 'low'
+      ? `Match bajo: runtime MPLS (${c.duration_minutes.toFixed(1)} min) vs TMDb (Δ=${m.runtime_delta_min ?? 'sin runtime'})`
+      : 'Sin match TMDb (asignación manual)';
+    return `
+      <tr style="border-top:1px solid var(--sep)">
+        <td style="padding:8px; text-align:center">
+          <input type="checkbox" ${map.include ? 'checked' : ''}
+                 onchange="seriesToggleEpisode('${c.mpls_path}', this.checked)">
+        </td>
+        <td style="padding:8px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px">${escHtml(c.mpls_name)}</td>
+        <td style="padding:8px; font-variant-numeric:tabular-nums; font-size:12px">${c.duration_minutes.toFixed(1)} min</td>
+        <td style="padding:8px; text-align:center" title="${escHtml(confTitle)}">${confEmoji}</td>
+        <td style="padding:8px">
+          <select onchange="seriesChangeEpisode('${c.mpls_path}', this.value)" style="width:100%; padding:4px; font-size:12px">
+            <option value="">—</option>
+            ${epOptions.replace(`value="${map.episode_number}"`, `value="${map.episode_number}" selected`)}
+          </select>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  document.getElementById('series-episodes-table').innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:12px">
+      <thead>
+        <tr style="background:var(--surface-2)">
+          <th style="padding:8px; text-align:center; width:40px"></th>
+          <th style="padding:8px; text-align:left">MPLS</th>
+          <th style="padding:8px; text-align:left">Duración</th>
+          <th style="padding:8px; text-align:center; width:50px" title="Confianza del match runtime MPLS↔TMDb">Match</th>
+          <th style="padding:8px; text-align:left">Episodio</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function seriesToggleEpisode(mplsPath, checked) {
+  if (!_seriesState.mapping[mplsPath]) return;
+  _seriesState.mapping[mplsPath].include = checked;
+  _seriesUpdateCreateButton();
+}
+
+function seriesChangeEpisode(mplsPath, episodeNumberStr) {
+  if (!_seriesState.mapping[mplsPath]) return;
+  const epNum = parseInt(episodeNumberStr, 10);
+  if (isNaN(epNum)) {
+    _seriesState.mapping[mplsPath].episode_number = null;
+    _seriesState.mapping[mplsPath].episode_title = '';
+    _seriesState.mapping[mplsPath].runtime_minutes = 0;
+  } else {
+    const ep = _seriesState.seasonEpisodes.find(e => e.episode_number === epNum);
+    _seriesState.mapping[mplsPath].episode_number = epNum;
+    _seriesState.mapping[mplsPath].episode_title = ep ? ep.name : '';
+    _seriesState.mapping[mplsPath].runtime_minutes = ep ? ep.runtime_minutes : 0;
+  }
+  _seriesUpdateCreateButton();
+}
+
+function _seriesUpdateCreateButton() {
+  const btn = document.getElementById('series-create-btn');
+  if (!btn) return;
+  const m = _seriesState?.mapping || {};
+  const selected = Object.values(m).filter(x => x.include && x.episode_number).length;
+  btn.innerHTML = `➕ Crear ${selected} proyecto${selected === 1 ? '' : 's'}`;
+  // Solo habilitar si hay serie + temporada + al menos un episodio marcado
+  btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
+}
+
+async function seriesCreateSessions() {
+  if (!_seriesState) return;
+  const s = _seriesState;
+  const episodes = Object.entries(s.mapping)
+    .filter(([_, v]) => v.include && v.episode_number)
+    .map(([mplsPath, v]) => ({
+      mpls_path: mplsPath,
+      episode_number: v.episode_number,
+      episode_title: v.episode_title,
+      runtime_minutes: v.runtime_minutes,
+    }))
+    .sort((a, b) => a.episode_number - b.episode_number);
+
+  if (!episodes.length) {
+    showToast('Selecciona al menos un episodio', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('series-create-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = `⏳ Creando ${episodes.length} proyectos…`; }
+
+  // El backend monta el ISO una vez, analiza cada MPLS y crea las sesiones.
+  // Coste: ~30s + N × 15-30s. Para 4 episodios típicos: ~2 min total.
+  const payload = {
+    iso_path: s.probe.iso_path,
+    series_tmdb_id: s.selectedSeries.tmdb_id,
+    series_name: s.selectedSeries.name,
+    series_year: s.selectedSeries.year,
+    season_number: s.selectedSeason.season_number,
+    episodes,
+  };
+  const data = await apiFetch('/api/create-series-sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, 600000);  // timeout 10 min
+
+  if (!data) {
+    if (btn) { btn.disabled = false; btn.innerHTML = `➕ Crear ${episodes.length} proyectos`; }
+    return;
+  }
+
+  const created = data.created || [];
+  const failed = data.failed || [];
+  closeModal('series-modal');
+  _seriesState = null;
+
+  if (failed.length) {
+    showToast(`${created.length} proyectos creados, ${failed.length} fallaron. Revisa logs.`, 'warning');
+  } else {
+    showToast(`${created.length} proyectos creados`, 'success');
+  }
+
+  // Refrescar el sidebar y abrir el primer proyecto creado
+  await loadSessions();
+  if (created.length > 0) {
+    openProject(created[0]);
+  }
+}
+
 
 /** Devuelve el nodo de texto visible del paso (label directo o anidado para pgs). */
 function _analyzeStepLabelNode(stepKey) {

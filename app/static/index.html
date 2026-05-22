@@ -554,6 +554,61 @@
 </div>
 
 
+<!-- ═══ MODAL: Disco de serie detectado — selector de episodios ═══════════════
+     Se abre cuando /api/disc-probe devuelve media_type='series' (o 'ambiguous').
+     Flujo:
+       1. Búsqueda TMDb del título sugerido del nombre del ISO.
+       2. Usuario elige una serie de los candidatos.
+       3. Selecciona temporada.
+       4. Mapea MPLS ↔ episodio (auto-fill con runtime match).
+       5. Crea N sesiones de un golpe (POST /api/create-series-sessions).
+═════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="series-modal" onclick="onModalOverlayClick(event,'series-modal')">
+  <div class="modal-box" style="max-width:920px">
+    <div class="modal-title">📺 Disco de serie detectado</div>
+    <div class="modal-sub" id="series-modal-sub">
+      Se han detectado varios MPLS de duración similar. Identifica la serie en TMDb y mapea cada episodio.
+    </div>
+
+    <!-- Sección 1: búsqueda TMDb -->
+    <div style="margin-top:16px">
+      <label class="modal-field-label">1. Identifica la serie en TMDb</label>
+      <div class="iso-select-row">
+        <input type="text" id="series-tmdb-query" class="iso-picker-select"
+               placeholder="Nombre de la serie" style="flex:1">
+        <input type="number" id="series-tmdb-year" class="iso-picker-select"
+               placeholder="Año (opcional)" style="max-width:120px">
+        <button class="btn btn-primary btn-md" onclick="seriesTmdbSearch()">🔍 Buscar</button>
+      </div>
+      <div id="series-tmdb-results" style="margin-top:8px"></div>
+    </div>
+
+    <!-- Sección 2: temporada (oculto hasta elegir serie) -->
+    <div id="series-season-section" style="display:none; margin-top:16px">
+      <label class="modal-field-label">2. Elige la temporada</label>
+      <div class="iso-select-row">
+        <select id="series-season-select" class="iso-picker-select"
+                onchange="seriesLoadSeason()">
+          <option value="">— Cargando temporadas… —</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Sección 3: tabla de episodios (oculta hasta elegir temporada) -->
+    <div id="series-episodes-section" style="display:none; margin-top:16px">
+      <label class="modal-field-label">3. Mapea MPLS ↔ episodio (marca los que quieras procesar)</label>
+      <div id="series-episodes-table" style="border:1px solid var(--sep); border-radius:6px; overflow:hidden"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('series-modal')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="series-create-btn" onclick="seriesCreateSessions()" disabled>
+        ➕ Crear 0 proyectos
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Confirmación ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="confirm-modal">
   <div class="modal-box">
