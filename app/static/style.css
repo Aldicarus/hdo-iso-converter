@@ -8352,7 +8352,10 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    de modales (.modal-box, var(--surface-*), var(--blue-dim)). */
 
 .series-modal-box {
-  max-width: 960px;
+  /* Override del width:460px del .modal-box base. Sin esto, el max-width
+     solo limita el upper bound pero la caja se queda en 460 reales. */
+  width: 1100px;
+  max-width: 92vw;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
