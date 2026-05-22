@@ -2177,3 +2177,165 @@ async def run_full_analysis_for_mpls(
             await log_callback("[Fase A] ⚠️ No se encontró m2ts del MPLS — análisis extendido omitido")
 
     return bdinfo, chapters_raw
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  ANÁLISIS DE M2TS SUELTO SIN BDMV (v2.6+)
+#
+#  Cuando el usuario apunta directamente a un .m2ts (sin la jerarquía
+#  BDMV alrededor), no tenemos MPLS para extraer capítulos ni lista
+#  autoritativa de PIDs PGS. El pipeline trabaja directamente sobre el
+#  m2ts:
+#    - mkvmerge -J sobre el m2ts (no MPLS) → JSON con pistas
+#    - MediaInfo sobre el m2ts → enriquecimiento normal
+#    - dovi_tool sobre el m2ts → análisis DV normal
+#    - PGS counting con rango por defecto (0x1200-0x12FF) — sin MPLS PIDs
+#    - Capítulos auto-generados (no hay metadata del MPLS)
+# ══════════════════════════════════════════════════════════════════════
+
+
+async def run_full_analysis_for_m2ts(
+    m2ts_path: str,
+    log_callback=None,
+    pgs_progress_callback=None,
+) -> tuple[BDInfoResult, list[dict]]:
+    """Análisis completo cuando la fuente es un fichero .m2ts directo.
+
+    Args:
+        m2ts_path:    Ruta absoluta al .m2ts.
+        log_callback: Opcional, streaming.
+        pgs_progress_callback: Opcional, progreso del PGS counter.
+
+    Returns:
+        Tupla (bdinfo_result, chapters_raw). chapters_raw será vacío —
+        el caller debe generar capítulos automáticos por duración.
+    """
+    if log_callback:
+        await log_callback(
+            f"[Fase A] 📋 Plan: analizar M2TS directo {Path(m2ts_path).name} "
+            f"(sin BDMV — capítulos auto-generados, PGS con rango por defecto)."
+        )
+        await log_callback("[Fase A] ┌─ Paso 1/4: Identificando pistas del M2TS con mkvmerge -J…")
+
+    mkvmerge_data = await _run_mkvmerge_j(m2ts_path)
+    if mkvmerge_data is None:
+        raise RuntimeError(
+            f"mkvmerge -J falló sobre {m2ts_path}. ¿Es un m2ts válido?"
+        )
+    bdinfo = parse_mkvmerge_json(mkvmerge_data)
+    bdinfo.main_m2ts = Path(m2ts_path).name
+
+    # Capítulos: sin MPLS. El caller (main.py) los auto-genera por
+    # duración usando generate_auto_chapters(). Devolvemos lista vacía.
+    if log_callback:
+        await log_callback("[Fase A] ├─ Paso 2/4: Sin MPLS — capítulos se auto-generarán cada 10 min")
+    chapters_raw: list[dict] = []
+
+    size_gb = Path(m2ts_path).stat().st_size / 1e9
+    if log_callback:
+        await log_callback(f"[Fase A] ├─ Paso 3/4: Enriqueciendo con MediaInfo ({size_gb:.1f} GB)…")
+
+    try:
+        mi = await run_mediainfo(m2ts_path)
+        bdinfo.mediainfo_result = mi
+        enrich_tracks_with_mediainfo(bdinfo, mi)
+        if log_callback:
+            await log_callback(
+                f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
+            )
+    except Exception as e:
+        _logger.warning("MediaInfo falló (no bloquea): %s", e)
+        if log_callback:
+            await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
+
+    # PGS counting sin MPLS PIDs — fallback a rango por defecto.
+    try:
+        if log_callback:
+            await log_callback(
+                "[Fase A] ├─   Contando paquetes PGS (rango 0x1200-0x12FF, sin MPLS)…"
+            )
+        pgs_packets = await count_pgs_packets_ts_parse(
+            m2ts_path,
+            log_callback=log_callback,
+            progress_callback=pgs_progress_callback,
+            pid_list=None,  # rango por defecto
+        )
+        if pgs_packets:
+            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
+            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
+                raw_sub.packet_count = pc
+    except Exception as e:
+        _logger.warning("TS parse PGS falló (no bloquea): %s", e)
+        if log_callback:
+            await log_callback(f"[Fase A] ├─   ⚠️ TS parse falló (no bloquea): {e}")
+
+    # dovi_tool (solo si hay EL detectado en el HEVC)
+    has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
+    if has_el:
+        try:
+            if log_callback:
+                await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision con dovi_tool…")
+            dovi = await run_dovi_analysis(m2ts_path)
+            if dovi:
+                enrich_dovi(bdinfo, dovi)
+                if log_callback:
+                    await log_callback(
+                        f"[Fase A] └─   ✓ Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                    )
+        except Exception as e:
+            _logger.warning("dovi_tool falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+    else:
+        if log_callback:
+            await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
+
+    return bdinfo, chapters_raw
+
+
+async def identify_episode_candidates_from_m2ts_list(
+    m2ts_paths: list[str], log_callback=None,
+) -> list[dict]:
+    """Construye lista de candidatos a episodio cuando la fuente es una
+    lista explícita de ficheros .m2ts (sin BDMV).
+
+    Cada m2ts se trata como un candidato — el usuario decide cuáles son
+    episodios. La detección automática serie/película NO aplica aquí:
+      - 1 m2ts → flujo movie (el caller crea sesión directa)
+      - N m2ts → flujo series (el caller llama a este helper para popular
+        episode_candidates del modal de selección)
+
+    Args:
+        m2ts_paths:   Lista absoluta de paths .m2ts.
+        log_callback: Opcional.
+
+    Returns:
+        Lista de dicts misma forma que identify_episode_candidates():
+        {mpls_name, mpls_path, duration_minutes, audio_track_count, data}.
+        NOTA: aquí 'mpls_name'/'mpls_path' apuntan al m2ts, no a un MPLS
+        — mantenemos el shape para no duplicar lógica downstream.
+    """
+    candidates = []
+    for path in sorted(m2ts_paths):
+        data = await _run_mkvmerge_j(path)
+        if data is None:
+            continue
+        audio_count = _audio_track_count(data)
+        dur_min = _mpls_duration_minutes(data)
+        # Sin filtro estricto de duración aquí — el usuario eligió estos
+        # ficheros explícitamente. Solo descartamos los manifestamente
+        # rotos (sin duración o sin audio).
+        if audio_count < 1 or dur_min <= 0:
+            continue
+        candidates.append({
+            "mpls_name": Path(path).name,
+            "mpls_path": path,
+            "duration_minutes": dur_min,
+            "audio_track_count": audio_count,
+            "data": data,
+        })
+    if log_callback:
+        await log_callback(
+            f"[Fase A] {len(candidates)} ficheros M2TS analizados como candidatos a episodio"
+        )
+    return candidates

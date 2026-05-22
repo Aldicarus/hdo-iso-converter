@@ -160,3 +160,177 @@ def is_mount_available() -> bool:
         return os.access(str(MOUNT_BASE), os.W_OK)
     except Exception:
         return False
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  ABSTRACCIÓN "Source" (v2.6+)
+#
+#  Encapsula el origen del contenido independientemente de si es ISO,
+#  carpeta BDMV extraída o ficheros M2TS sueltos. El pipeline de Fase A
+#  trabaja contra `Source.bdmv_root` (carpeta con BDMV/ accesible) o
+#  `Source.m2ts_paths` cuando no hay BDMV.
+#
+#  Tipos soportados:
+#    - 'iso':        fichero .iso → mount UDF en /mnt/bd/
+#    - 'bdmv_folder': directorio con BDMV/ dentro → sin mount
+#    - 'm2ts':        uno o varios ficheros .m2ts sueltos → sin mount
+# ══════════════════════════════════════════════════════════════════════
+
+from typing import Literal
+
+
+SourceType = Literal["iso", "bdmv_folder", "m2ts"]
+
+
+class SourceError(RuntimeError):
+    """Error específico al preparar un Source — paths inválidos,
+    BDMV no encontrado, etc. Permite que main.py devuelva HTTP 400
+    con mensaje claro al usuario en lugar de 500 genérico."""
+
+
+class Source:
+    """Origen del contenido a procesar. Context manager async.
+
+    Uso:
+        async with await Source.open(user_path) as src:
+            if src.bdmv_root:
+                candidates = await identify_episode_candidates(src.bdmv_root)
+            elif src.m2ts_paths:
+                # Flujo m2ts directo
+                ...
+
+    Tras `async with`, el ISO se desmonta automáticamente. Para
+    bdmv_folder y m2ts no hay cleanup (no se monta nada).
+    """
+
+    def __init__(
+        self,
+        source_type: SourceType,
+        original_path: str,
+        bdmv_root: str | None = None,
+        m2ts_paths: list[str] | None = None,
+    ):
+        self.source_type: SourceType = source_type
+        self.original_path = original_path
+        self.bdmv_root = bdmv_root
+        self.m2ts_paths: list[str] = m2ts_paths or []
+        self._mounted = False  # solo True si this.source_type == 'iso'
+
+    @staticmethod
+    def detect_type(path: str) -> SourceType:
+        """Clasifica un path en uno de los 3 tipos según extensión y
+        estructura. Raises SourceError si no se puede clasificar.
+
+        Reglas (en orden):
+          1. termina en .iso (case-insensitive) Y es fichero → 'iso'
+          2. termina en .m2ts (case-insensitive) Y es fichero → 'm2ts'
+          3. es directorio Y contiene BDMV/PLAYLIST/ → 'bdmv_folder'
+          4. resto → SourceError
+        """
+        p = Path(path)
+        if not p.exists():
+            raise SourceError(f"Path no encontrado: {path}")
+        if p.is_file():
+            ext = p.suffix.lower()
+            if ext == ".iso":
+                return "iso"
+            if ext == ".m2ts":
+                return "m2ts"
+            raise SourceError(
+                f"Extensión no reconocida: {ext} (esperado .iso o .m2ts)"
+            )
+        if p.is_dir():
+            for candidate in [p / "BDMV" / "PLAYLIST", p / "PLAYLIST"]:
+                if candidate.exists():
+                    return "bdmv_folder"
+            raise SourceError(
+                f"La carpeta {p.name} no contiene BDMV/PLAYLIST/. "
+                f"¿Es una carpeta BDMV extraída válida?"
+            )
+        raise SourceError(f"Path ni fichero ni directorio: {path}")
+
+    @classmethod
+    async def open(cls, path: str, m2ts_paths: list[str] | None = None) -> "Source":
+        """Crea una Source detectando el tipo automáticamente.
+
+        Para m2ts multi-archivo (series con varios .m2ts), pasar lista
+        completa en `m2ts_paths`. `path` puede ser entonces el primero
+        de la lista (referencia para fingerprint, logs).
+
+        NOTA: este factory NO entra todavía al context manager — eso
+        ocurre cuando se hace `async with src:`.
+        """
+        if m2ts_paths:
+            # Lista explícita de m2ts (caso serie con varios episodios)
+            for mp in m2ts_paths:
+                if not Path(mp).exists():
+                    raise SourceError(f"M2TS no encontrado: {mp}")
+                if Path(mp).suffix.lower() != ".m2ts":
+                    raise SourceError(f"No es .m2ts: {mp}")
+            return cls(
+                source_type="m2ts",
+                original_path=path or m2ts_paths[0],
+                m2ts_paths=list(m2ts_paths),
+            )
+
+        # Detectar automáticamente
+        stype = cls.detect_type(path)
+        if stype == "iso":
+            return cls(source_type="iso", original_path=path)
+        if stype == "bdmv_folder":
+            return cls(
+                source_type="bdmv_folder",
+                original_path=path,
+                bdmv_root=path,
+            )
+        if stype == "m2ts":
+            return cls(
+                source_type="m2ts",
+                original_path=path,
+                m2ts_paths=[path],
+            )
+        raise SourceError(f"Tipo desconocido: {stype}")
+
+    async def __aenter__(self) -> "Source":
+        if self.source_type == "iso":
+            self.bdmv_root = await mount_iso(self.original_path)
+            self._mounted = True
+        # bdmv_folder y m2ts no necesitan mount
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._mounted and self.bdmv_root:
+            await unmount_iso(self.bdmv_root)
+            self._mounted = False
+
+
+def safe_source_path(user_path: str, allowed_root: str) -> str:
+    """Resuelve `user_path` y verifica que cae bajo `allowed_root`.
+
+    Protección path-traversal: el frontend pasa paths relativos al ISOS_DIR
+    o absolutos resolvibles. Cualquier intento de '../' o paths fuera del
+    root permitido se rechaza.
+
+    Args:
+        user_path: path del usuario (relativo o absoluto).
+        allowed_root: directorio raíz permitido (ej. '/mnt/isos').
+
+    Returns:
+        Path absoluto validado.
+
+    Raises:
+        SourceError si el path resuelve fuera de allowed_root.
+    """
+    root = Path(allowed_root).resolve()
+    target = Path(user_path)
+    if not target.is_absolute():
+        target = root / target
+    target = target.resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise SourceError(
+            f"Path fuera del directorio permitido: {user_path} "
+            f"(esperado bajo {allowed_root})"
+        )
+    return str(target)
