@@ -514,14 +514,15 @@ function openProject(session) {
   const pid  = genProjectId();
   // Para series TV el nombre del tab debe identificar el episodio
   // concreto (todas las sesiones de la misma temporada comparten ISO).
-  // Formato: "Serie · SNNeNN — Título" si hay título, "Serie · SNNeNN"
-  // si no. Pelis siguen con basename del ISO sin extensión.
+  // Formato Plex/Jellyfin-style: "Serie (Año) - SNNeNN - Título".
+  // Pelis siguen con basename del ISO sin extensión.
   let name;
   if (session.media_type === 'series') {
     const sn = String(session.season_number || 0).padStart(2, '0');
     const en = String(session.episode_number || 0).padStart(2, '0');
-    const base = `${session.series_name || 'Serie'} · S${sn}E${en}`;
-    name = session.episode_title ? `${base} — ${session.episode_title}` : base;
+    const yearPart = session.series_year ? ` (${session.series_year})` : '';
+    const base = `${session.series_name || 'Serie'}${yearPart} - S${sn}E${en}`;
+    name = session.episode_title ? `${base} - ${session.episode_title}` : base;
   } else if (session.iso_path) {
     name = session.iso_path.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
   } else {
@@ -3815,10 +3816,23 @@ async function loadIsoPickerList() {
 /** Carga inicial de los 3 file browsers embebidos en el modal Nuevo Proyecto.
  *  Cada uno navega /mnt/isos con un filtro de extensión distinto. */
 async function loadSourcesList() {
-  // Estado de navegación por filtro
-  _srcFb.iso = { path: '', entries: [] };
-  _srcFb.bdmv = { path: '', entries: [] };
-  _srcFb.m2ts = { path: '', entries: [] };
+  // Estado de navegación por filtro. Mantenemos el último `sort` elegido
+  // por el usuario entre aperturas (es estado de preferencia UI, no de
+  // contenido — no lo persistimos en disco pero sí dentro de la SPA).
+  const isoSort = _srcFb.iso?.sort || 'name_asc';
+  const bdmvSort = _srcFb.bdmv?.sort || 'name_asc';
+  const m2tsSort = _srcFb.m2ts?.sort || 'size_desc';
+  _srcFb.iso  = { path: '', entries: [], sort: isoSort };
+  _srcFb.bdmv = { path: '', entries: [], sort: bdmvSort };
+  _srcFb.m2ts = { path: '', entries: [], sort: m2tsSort };
+  // Sincronizar el valor del <select> con el sort activo
+  const setSelect = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  };
+  setSelect('src-fb-iso-sort', isoSort);
+  setSelect('src-fb-bdmv-sort', bdmvSort);
+  setSelect('src-fb-m2ts-sort', m2tsSort);
   await Promise.all([
     srcFbNavigate('iso', ''),
     srcFbNavigate('bdmv', ''),
@@ -3828,10 +3842,38 @@ async function loadSourcesList() {
 
 /** Estado por-filtro del file browser embebido. */
 const _srcFb = {
-  iso:  { path: '', entries: [] },
-  bdmv: { path: '', entries: [] },
-  m2ts: { path: '', entries: [] },
+  // sort: ordenación visible en el listado.
+  //   - iso/bdmv default: name_asc (orden alfabético, intuitivo en carpetas)
+  //   - m2ts default: size_desc (los episodios/películas son los m2ts más
+  //     grandes; los pequeños son extras/menús/intros — sort por tamaño
+  //     descendente pone los útiles arriba)
+  iso:  { path: '', entries: [], sort: 'name_asc' },
+  bdmv: { path: '', entries: [], sort: 'name_asc' },
+  m2ts: { path: '', entries: [], sort: 'size_desc' },
 };
+
+/** Cambia el orden visible de un browser y re-renderiza sin re-fetch. */
+function srcFbSetSort(filter, sortMode) {
+  if (!_srcFb[filter]) return;
+  _srcFb[filter].sort = sortMode;
+  _renderSrcFb(filter);
+}
+
+/** Ordena las entries de un browser según el modo activo. Carpetas
+ *  siempre van arriba (orden alfabético independiente del modo de
+ *  fichero para que el árbol siga siendo navegable). */
+function _sortSrcFbEntries(entries, sort) {
+  const dirs = entries.filter(e => e.type === 'dir');
+  const files = entries.filter(e => e.type !== 'dir');
+  dirs.sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
+  files.sort((a, b) => {
+    if (sort === 'size_desc') return (b.size_bytes || 0) - (a.size_bytes || 0);
+    if (sort === 'size_asc')  return (a.size_bytes || 0) - (b.size_bytes || 0);
+    if (sort === 'name_desc') return b.name.localeCompare(a.name, 'es', { numeric: true });
+    return a.name.localeCompare(b.name, 'es', { numeric: true });  // name_asc default
+  });
+  return [...dirs, ...files];
+}
 
 /** Navega a una ruta relativa dentro del browser de un filtro concreto.
  *  filter: 'iso' | 'bdmv' | 'm2ts' (los IDs del DOM usan estos prefijos).
@@ -3853,10 +3895,13 @@ async function srcFbNavigate(filter, relPath) {
     return;
   }
 
+  // Preservar el sort actual al navegar — sin esto cada navegación
+  // (entrar a una carpeta) resetearía el orden a undefined.
   _srcFb[filter] = {
     path: data.path || '',
     parent: data.parent,
     entries: data.entries || [],
+    sort: _srcFb[filter]?.sort || (filter === 'm2ts' ? 'size_desc' : 'name_asc'),
   };
 
   _renderSrcFb(filter);
@@ -3896,7 +3941,8 @@ function _renderSrcFb(filter) {
     return;
   }
 
-  st.entries.forEach(e => {
+  const sortedEntries = _sortSrcFbEntries(st.entries, st.sort || 'name_asc');
+  sortedEntries.forEach(e => {
     const path = st.path ? `${st.path}/${e.name}` : e.name;
     const pathAttr = escHtml(path);
     if (e.type === 'dir') {
@@ -4230,10 +4276,20 @@ async function analyzeSelectedISO() {
  *  como alias para que cualquier caller antiguo siga funcionando. */
 async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProbe) {
   // ── Modal de progreso ──────────────────────────────────────────
+  // Configura título, icono y label del primer paso según el tipo de
+  // fuente — sin esto el modal hablaba siempre de "Montando ISO" y
+  // "MPLS" aunque el origen fuera una carpeta BDMV o un m2ts directo.
+  _configureAnalyzeModalForSource(sourceType);
   const isoEl = document.getElementById('analyze-modal-iso');
   if (isoEl) isoEl.textContent = sourceName;
   _resetAnalyzeSteps();
   openModal('analyze-modal');
+
+  // Para m2ts el paso "mount" no aplica — se salta visualmente
+  // marcándolo como ✅ antes de empezar (mount es no-op para m2ts).
+  if (sourceType === 'm2ts' || sourceType === 'bdmv_folder') {
+    _advanceAnalyzeStep('mount', 'identify');
+  }
 
   const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
   let lastStep = 'mount';
@@ -4980,6 +5036,37 @@ function _analyzeStepLabelNode(stepKey) {
 }
 
 /** Resetea todos los pasos del modal de análisis al estado inicial. */
+/** Configura iconos y labels del analyze-modal según el tipo de fuente.
+ *  Se llama antes de _resetAnalyzeSteps. Sin esto, el modal mostraba
+ *  siempre "Analizando disco / Montando ISO / Extrayendo capítulos del
+ *  MPLS" — engañoso para BDMV folder y m2ts directo. */
+function _configureAnalyzeModalForSource(sourceType) {
+  const iconEl = document.getElementById('analyze-modal-icon');
+  const titleEl = document.getElementById('analyze-modal-title');
+  const mountEl = document.getElementById('analyze-step-mount');
+  const chaptersEl = document.getElementById('analyze-step-chapters');
+  const identifyEl = document.getElementById('analyze-step-identify');
+  if (sourceType === 'iso') {
+    if (iconEl) iconEl.textContent = '💿';
+    if (titleEl) titleEl.textContent = 'Analizando disco';
+    if (mountEl) mountEl.textContent = '⏳ Montando ISO (loop mount UDF)…';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas (mkvmerge -J)…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del MPLS…';
+  } else if (sourceType === 'bdmv_folder') {
+    if (iconEl) iconEl.textContent = '📁';
+    if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
+    if (mountEl) mountEl.textContent = '✅ Sin mount necesario (carpeta directa)';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del MPLS principal (mkvmerge -J)…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del MPLS…';
+  } else if (sourceType === 'm2ts') {
+    if (iconEl) iconEl.textContent = '🎞️';
+    if (titleEl) titleEl.textContent = 'Analizando fichero M2TS';
+    if (mountEl) mountEl.textContent = '✅ Sin mount necesario (m2ts directo)';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas (mkvmerge -J)…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Generando capítulos automáticos (sin MPLS)…';
+  }
+}
+
 function _resetAnalyzeSteps() {
   const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
   steps.forEach((s, i) => {
@@ -5071,6 +5158,20 @@ function filterSidebarSessions() {
   _filterDebounceTimer = setTimeout(_doFilterSidebarSessions, 150);
 }
 
+/** Nombre de display para una sesión en el sidebar y filtros. Para
+ *  series TV, mkv_name es Plex-style ("Serie (Año)/Season NN/Serie...
+ *  - SNNeNN - Título.mkv") — el path completo es ilegible en una card,
+ *  así que extraemos solo el basename. Para pelis se queda igual. */
+function _sessionDisplayName(s) {
+  if (!s.mkv_name) {
+    return s.id.replace(/_\d+$/, '').replace(/_/g, ' ');
+  }
+  const baseName = s.mkv_name.includes('/')
+    ? s.mkv_name.split('/').pop()
+    : s.mkv_name;
+  return baseName.replace(/\.mkv$/i, '');
+}
+
 function _doFilterSidebarSessions() {
   const query = normalizeSearch(document.getElementById('sidebar-search')?.value || '');
   if (!query) {
@@ -5078,9 +5179,7 @@ function _doFilterSidebarSessions() {
     return;
   }
   const filtered = _sessionsCache.filter(s => {
-    const name = s.mkv_name
-      ? s.mkv_name.replace(/\.mkv$/i, '')
-      : s.id.replace(/_\d+$/, '').replace(/_/g, ' ');
+    const name = _sessionDisplayName(s);
     return normalizeSearch(name).includes(query);
   });
   renderSidebarSessions(filtered, query);
@@ -5178,9 +5277,7 @@ function _doFilterSidebarSessions() {
   // Filtro de texto
   if (query) {
     list = list.filter(s => {
-      const name = s.mkv_name
-        ? s.mkv_name.replace(/\.mkv$/i, '')
-        : s.id.replace(/_\d+$/, '').replace(/_/g, ' ');
+      const name = _sessionDisplayName(s);
       return normalizeSearch(name).includes(query);
     });
   }
@@ -5267,9 +5364,7 @@ function renderSidebarSessions(sessions, query = '') {
     const execStatus = _sessionExecStatus(s);
     const statusIcon = statusIcons[execStatus] || '💿';
 
-    const name = s.mkv_name
-      ? s.mkv_name.replace(/\.mkv$/i, '')
-      : s.id.replace(/_\d+$/, '').replace(/_/g, ' ');
+    const name = _sessionDisplayName(s);
 
     const modDate = formatRelativeDate(s.updated_at || s.created_at);
     const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {

@@ -567,6 +567,12 @@
         <div class="src-fb-toolbar">
           <div class="src-fb-breadcrumb" id="src-fb-iso-breadcrumb">📂 /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('iso','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <select class="src-fb-sort" id="src-fb-iso-sort" onchange="srcFbSetSort('iso', this.value)" data-tooltip="Orden de listado">
+            <option value="name_asc">Nombre A→Z</option>
+            <option value="name_desc">Nombre Z→A</option>
+            <option value="size_desc">Tamaño ↓</option>
+            <option value="size_asc">Tamaño ↑</option>
+          </select>
         </div>
         <div class="src-fb-list" id="src-fb-iso-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
@@ -582,6 +588,10 @@
         <div class="src-fb-toolbar">
           <div class="src-fb-breadcrumb" id="src-fb-bdmv-breadcrumb">📂 /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('bdmv','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <select class="src-fb-sort" id="src-fb-bdmv-sort" onchange="srcFbSetSort('bdmv', this.value)" data-tooltip="Orden de listado">
+            <option value="name_asc">Nombre A→Z</option>
+            <option value="name_desc">Nombre Z→A</option>
+          </select>
         </div>
         <div class="src-fb-list" id="src-fb-bdmv-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
@@ -597,6 +607,12 @@
           <div class="src-fb-breadcrumb" id="src-fb-m2ts-breadcrumb">📂 /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('m2ts','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
           <button class="btn btn-ghost btn-xs" onclick="srcFbM2tsClear()" data-tooltip="Quitar todas las selecciones">✕ Limpiar selección</button>
+          <select class="src-fb-sort" id="src-fb-m2ts-sort" onchange="srcFbSetSort('m2ts', this.value)" data-tooltip="Orden de listado — útil para localizar los m2ts grandes (episodios) entre los pequeños (extras)">
+            <option value="size_desc" selected>Tamaño ↓</option>
+            <option value="size_asc">Tamaño ↑</option>
+            <option value="name_asc">Nombre A→Z</option>
+            <option value="name_desc">Nombre Z→A</option>
+          </select>
         </div>
         <div class="src-fb-list" id="src-fb-m2ts-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
@@ -770,8 +786,8 @@
 <!-- ═══ MODAL: Análisis en curso ═════════════════════════════════ -->
 <div class="modal-overlay" id="analyze-modal">
   <div class="modal-box" style="max-width:420px; text-align:center">
-    <div style="font-size:40px; margin-bottom:12px">💿</div>
-    <div class="modal-title" style="margin-bottom:4px">Analizando disco</div>
+    <div id="analyze-modal-icon" style="font-size:40px; margin-bottom:12px">💿</div>
+    <div class="modal-title" id="analyze-modal-title" style="margin-bottom:4px">Analizando disco</div>
     <div class="modal-sub" id="analyze-modal-iso" style="margin-bottom:16px; word-break:break-all"></div>
     <div id="analyze-modal-steps" style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
       <div id="analyze-step-mount">⏳ Montando ISO (loop mount UDF)…</div>

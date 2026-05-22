@@ -8263,6 +8263,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   white-space: nowrap;
 }
 
+.src-fb-sort {
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid var(--sep);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.src-fb-sort:hover { border-color: var(--accent); }
+.src-fb-sort:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .src-fb-list {
   max-height: 380px;
   min-height: 280px;

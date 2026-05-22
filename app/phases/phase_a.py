@@ -257,13 +257,34 @@ SERIES_MIN_CANDIDATES = 3
 SERIES_MAX_CV = 0.15
 
 
+def _mediainfo_general_duration(mi) -> float:
+    """Duración en segundos según la pista general de MediaInfo.
+    Usado como fallback para m2ts raw cuando mkvmerge -J no la emite.
+    Devuelve 0.0 si no se encuentra."""
+    raw = getattr(mi, "raw_json", None) or {}
+    tracks = (raw.get("media") or {}).get("track") or []
+    for t in tracks:
+        if (t.get("@type") or "").lower() == "general":
+            dur_str = t.get("Duration") or ""
+            try:
+                # MediaInfo Duration está en segundos (decimales). Si trae
+                # ms (string con 'ms'), normalizamos heurísticamente.
+                v = float(dur_str)
+                if v > 36000:  # >10h, probable ms
+                    v = v / 1000.0
+                return v
+            except (ValueError, TypeError):
+                return 0.0
+    return 0.0
+
+
 def _mpls_duration_minutes(data: dict) -> float:
-    """Extrae la duración de un MPLS desde su JSON de mkvmerge -J.
-    Devuelve 0.0 si no se puede determinar."""
+    """Extrae la duración en minutos desde el JSON de mkvmerge -J.
+    Fuente prioritaria: ``playlist_duration`` (MPLS). Fallback: ``duration``
+    (m2ts directo, mkv, mp4). Ambos en nanosegundos. 0.0 si no se puede."""
     container = data.get("container") or {}
     props = container.get("properties") or {}
-    # mkvmerge devuelve playlist_duration en NANOSEGUNDOS.
-    duration_ns = props.get("playlist_duration") or 0
+    duration_ns = props.get("playlist_duration") or props.get("duration") or 0
     if duration_ns:
         return duration_ns / 1_000_000_000 / 60.0
     return 0.0
@@ -759,12 +780,14 @@ def _build_subtitle_tracks(tracks: list[dict]) -> list[RawSubtitleTrack]:
 
 def _extract_duration(container_props: dict) -> float:
     """
-    Extrae la duración del playlist en segundos.
+    Extrae la duración en segundos del contenedor.
 
-    ``playlist_duration`` de mkvmerge está en nanosegundos.
+    Tres fuentes posibles (ambas en nanosegundos):
+      - ``playlist_duration``: emitido para MPLS de BDMV.
+      - ``duration``: emitido para MKV, MP4, y m2ts/ts raw.
     Se aplica un sanity check y se loguea si el valor es inesperado.
     """
-    raw = container_props.get("playlist_duration", 0)
+    raw = container_props.get("playlist_duration") or container_props.get("duration") or 0
     if raw <= 0:
         return 0.0
 
@@ -2295,6 +2318,19 @@ async def run_full_analysis_for_m2ts(
         mi = await run_mediainfo(m2ts_path)
         bdinfo.mediainfo_result = mi
         enrich_tracks_with_mediainfo(bdinfo, mi)
+        # Fallback de duración: si mkvmerge -J sobre el m2ts no emitió
+        # `duration` (algunos m2ts raw no lo traen), usamos la duración
+        # de la pista general de MediaInfo. Sin esto, los capítulos auto
+        # no se generan y la UI muestra "No se pudo determinar la duración".
+        if bdinfo.duration_seconds <= 0:
+            mi_duration = _mediainfo_general_duration(mi)
+            if mi_duration > 0:
+                bdinfo.duration_seconds = mi_duration
+                if log_callback:
+                    await log_callback(
+                        f"[Fase A] ├─   ℹ️ Duración via MediaInfo: {mi_duration:.0f}s "
+                        f"({mi_duration/60:.1f} min) — mkvmerge no la emitió"
+                    )
         if log_callback:
             await log_callback(
                 f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
@@ -2378,6 +2414,17 @@ async def identify_episode_candidates_from_m2ts_list(
             continue
         audio_count = _audio_track_count(data)
         dur_min = _mpls_duration_minutes(data)
+        # Fallback de duración: si mkvmerge no la emitió (m2ts raw sin
+        # PCR limpio), preguntamos a MediaInfo. Algunas grabaciones BD
+        # llegan sin `duration` en mkvmerge -J pero sí en MediaInfo.
+        if dur_min <= 0:
+            try:
+                mi = await run_mediainfo(path)
+                mi_sec = _mediainfo_general_duration(mi)
+                if mi_sec > 0:
+                    dur_min = mi_sec / 60.0
+            except Exception:
+                pass
         # Sin filtro estricto de duración aquí — el usuario eligió estos
         # ficheros explícitamente. Solo descartamos los manifestamente
         # rotos (sin duración o sin audio).
