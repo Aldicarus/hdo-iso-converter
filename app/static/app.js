@@ -3758,9 +3758,13 @@ async function openNewProjectModal() {
   bdmvSelectedPath = null;
   m2tsSelectedPaths = [];
   _sourceTab = 'iso';
+  // Reset del botón Analizar. El tab ISO se activa por defecto vía
+  // onSourceTabSwitch — NO se referencia ningún select legacy (los
+  // antiguos iso-picker-select / bdmv-picker-select / m2ts-picker-list
+  // se reemplazaron por file browsers embebidos en el commit UX 1/3).
+  const btn = document.getElementById('new-project-analyze-btn');
+  if (btn) btn.disabled = true;
   onSourceTabSwitch('iso');  // muestra panel ISO por defecto
-  document.getElementById('iso-picker-select').value = '';
-  document.getElementById('new-project-analyze-btn').disabled = true;
   openModal('new-project-modal');
   await loadSourcesList();
 }
