@@ -1622,11 +1622,22 @@ async def _analyze_target_rpu(
         else:
             crit_fail = any(gates.get(k, {}).get("critical") and not gates.get(k, {}).get("ok")
                             for k in gates if isinstance(gates.get(k), dict))
+            # ¿Hay gates con severity ack_required? — escalada distinta a la
+            # de los gates críticos: requieren confirmación explícita del
+            # usuario (no son fail-fast, pero sí pausan el auto-pipeline).
+            has_ack_required = any(
+                isinstance(g, dict) and g.get("severity") == "ack_required"
+                for g in gates.values()
+            )
             if crit_fail:
                 implication = (
-                    "algún gate crítico ha fallado — se requiere revisión visual "
-                    "del chart de sincronización y posible corrección manual antes "
-                    "de la inyección."
+                    "algún gate crítico ha fallado — el pipeline se aborta. "
+                    "Cambia de target o corrige sincronización manualmente."
+                )
+            elif has_ack_required:
+                implication = (
+                    "gates con degradación previsible — el pipeline se detiene "
+                    "a la espera de que confirmes la decisión (ver detalles abajo)."
                 )
             else:
                 implication = (
