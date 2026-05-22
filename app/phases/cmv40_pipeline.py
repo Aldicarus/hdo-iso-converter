@@ -2959,20 +2959,30 @@ async def run_phase_f_inject(
     await _emit_progress(log_callback, 100, "RPU inyectado")
     if log_callback:
         await log_callback(f"[Fase F] ✓ HEVC con RPU inyectado generado: {hevc_output.name} (workflow {workflow})")
-        # Resultado con implicación para Fase G
+        # Descripción del artefacto generado (sin prometer qué hará Fase G —
+        # cuando Fase G arranque emitirá su propio 📋 Plan según el artefacto
+        # que encuentre en el workdir).
         if drop_in_fel:
-            impl = ("El HEVC conserva BL+EL intactos — Fase G puede saltarse el "
-                    "dovi_tool mux y usar mkvmerge directamente.")
+            artifact_desc = (
+                "BL+EL intactos con el RPU CMv4.0 inyectado — stream dual-layer "
+                "íntegro listo para multiplexar."
+            )
         elif workflow == "p7_fel":
-            impl = ("Mantenemos la FEL original — Fase G combinará BL.hevc + "
-                    "EL_injected.hevc con dovi_tool mux y luego mkvmerge añadirá "
-                    "audio/subs/capítulos.")
+            artifact_desc = (
+                "EL con el RPU merged inyectado; BL.hevc original sin tocar — "
+                "stream dual-layer P7 FEL listo para combinar."
+            )
         elif workflow == "p7_mel":
-            impl = ("MKV final será single-layer P8.1 — Fase G solo hará mkvmerge, "
-                    "no necesita mux dual-layer (más rápido y archivo más pequeño).")
+            artifact_desc = (
+                "BL con el RPU inyectado (EL MEL descartado) — stream single-layer "
+                "P8.1 CMv4.0 listo para remuxar."
+            )
         else:  # p8
-            impl = ("Source ya era single-layer — Fase G hará mkvmerge directo.")
-        await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {impl}")
+            artifact_desc = (
+                "HEVC single-layer con el RPU CMv4.0 inyectado — listo para "
+                "remuxar."
+            )
+        await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {artifact_desc}")
 
 
 async def _merge_cmv40_into_p7(
@@ -3339,10 +3349,12 @@ async def run_phase_g_remux(
         await log_callback(
             f"[Fase G] ✓ MKV ensamblado: {output_mkv.name} ({size_gb:.2f} GB, workflow {workflow})"
         )
+        # Descripción del artefacto generado. Fase H, cuando arranque, emitirá
+        # su propio 📋 Plan describiendo cómo lo validará.
         await log_callback(
-            "[Fase G] 🎯 Resultado: MKV completo escrito con sufijo .tmp. "
-            "Fase H validará que el RPU del resultante es CMv4.0 antes de "
-            "renombrar al nombre final (rename atómico)."
+            "[Fase G] 🎯 Resultado: MKV completo escrito con sufijo .tmp en "
+            "/mnt/output (pendiente de validar antes del rename atómico al "
+            "nombre final)."
         )
     return str(output_mkv)
 
