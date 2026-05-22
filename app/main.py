@@ -383,7 +383,7 @@ async def index():
 
 # ── ISOs disponibles ──────────────────────────────────────────────────────────
 
-@app.get("/api/isos", summary="Lista ISOs disponibles")
+@app.get("/api/isos", summary="Lista ISOs disponibles (legacy — usar /api/sources)")
 async def list_isos():
     """
     Devuelve la lista de ficheros .iso encontrados recursivamente en /mnt/isos.
@@ -392,6 +392,9 @@ async def list_isos():
     sin exponer la estructura interna del NAS.
 
     Respuesta: ``{"isos": ["Movie (2025).iso", "subdir/Movie2 (2024).iso", ...]}``
+
+    Legacy: /api/sources es el reemplazo (lista los 3 tipos de fuente). Este
+    endpoint se mantiene por compat con el frontend antiguo.
     """
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
@@ -404,6 +407,142 @@ async def list_isos():
         if p.is_file() and p.suffix.lower() == ".iso"
     )
     return {"isos": isos}
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  /api/sources — listado unificado de fuentes (v2.6+)
+#
+#  Escanea /mnt/isos recursivamente (depth máx 3) y devuelve cada
+#  entrada clasificada como uno de:
+#    - 'iso':         fichero .iso
+#    - 'bdmv_folder': carpeta con BDMV/PLAYLIST/ dentro
+#    - 'm2ts':        fichero .m2ts (típicamente dentro de BDMV/STREAM/
+#                     pero también suelto en carpetas)
+#
+#  Cuando un mismo árbol tiene tanto carpeta BDMV completa como ficheros
+#  .m2ts dentro, devolvemos SOLO la carpeta BDMV (es el origen "canónico"
+#  — el usuario raramente quiere procesar un m2ts suelto dentro de un
+#  BDMV completo, eso es bypass avanzado).
+#
+#  Cache 60s en memoria — el filesystem no cambia constantemente.
+# ══════════════════════════════════════════════════════════════════════
+
+
+_SOURCES_SCAN_MAX_DEPTH = 3
+_SOURCES_CACHE: dict = {"ts": 0.0, "data": None}
+_SOURCES_CACHE_TTL = 60.0
+
+
+def _scan_sources_in_dir() -> list[dict]:
+    """Escanea ISOS_DIR y devuelve lista clasificada. Operación síncrona —
+    el caller la ejecuta en thread pool si quiere evitar bloquear el event
+    loop con discos lentos."""
+    import time
+    if not ISOS_DIR.exists():
+        return []
+
+    root = ISOS_DIR.resolve()
+    results: list[dict] = []
+    # Dirs que ya hemos identificado como BDMV_folder — para no
+    # devolver sus m2ts internos como entradas separadas.
+    bdmv_folders: set[Path] = set()
+
+    # Primera pasada: detectar carpetas BDMV. Las carpetas BDMV se
+    # identifican por tener BDMV/PLAYLIST/ dentro a profundidad 1.
+    # Esto es eficiente y cubre la convención estándar.
+    for entry in root.rglob("*"):
+        # Limitar profundidad
+        try:
+            depth = len(entry.relative_to(root).parts)
+        except ValueError:
+            continue
+        if depth > _SOURCES_SCAN_MAX_DEPTH:
+            continue
+
+        if entry.is_dir() and entry.name == "BDMV":
+            # La carpeta BDMV está aquí — la carpeta padre es el source.
+            parent = entry.parent
+            if (entry / "PLAYLIST").exists():
+                bdmv_folders.add(parent)
+
+    # Segunda pasada: clasificar cada entrada.
+    for entry in root.rglob("*"):
+        try:
+            depth = len(entry.relative_to(root).parts)
+        except ValueError:
+            continue
+        if depth > _SOURCES_SCAN_MAX_DEPTH:
+            continue
+
+        # Skip si está dentro de una BDMV folder ya identificada (no
+        # listar los m2ts/MPLS internos como sources independientes).
+        is_inside_bdmv = any(
+            bdmv in entry.parents for bdmv in bdmv_folders
+        )
+
+        if entry.is_file():
+            ext = entry.suffix.lower()
+            if ext == ".iso":
+                results.append({
+                    "type": "iso",
+                    "path": str(entry.relative_to(root)),
+                    "name": entry.name,
+                    "size_bytes": entry.stat().st_size,
+                })
+            elif ext == ".m2ts" and not is_inside_bdmv:
+                # Solo m2ts sueltos (no dentro de un BDMV folder)
+                results.append({
+                    "type": "m2ts",
+                    "path": str(entry.relative_to(root)),
+                    "name": entry.name,
+                    "size_bytes": entry.stat().st_size,
+                })
+        elif entry.is_dir() and entry in bdmv_folders:
+            # Tamaño total = suma del directorio BDMV/STREAM/
+            stream_dir = entry / "BDMV" / "STREAM"
+            total = 0
+            if stream_dir.exists():
+                try:
+                    total = sum(
+                        f.stat().st_size for f in stream_dir.glob("*.m2ts")
+                    )
+                except OSError:
+                    pass
+            results.append({
+                "type": "bdmv_folder",
+                "path": str(entry.relative_to(root)),
+                "name": entry.name,
+                "size_bytes": total,
+            })
+
+    results.sort(key=lambda r: r["path"].lower())
+    return results
+
+
+@app.get("/api/sources", summary="Lista fuentes disponibles (ISO, carpeta BDMV, m2ts suelto)")
+async def list_sources():
+    """Escanea /mnt/isos recursivamente (max depth 3) y clasifica cada
+    entrada en uno de los 3 tipos. Cache 60s para no martillear el FS.
+
+    DEV_MODE: solo devuelve las ISOs fake (carpetas BDMV y m2ts no
+    aplican en DEV)."""
+    import time
+    if DEV_MODE:
+        return {
+            "sources": [
+                {"type": "iso", "path": f, "name": Path(f).name, "size_bytes": 0}
+                for f in DEV_FAKE_ISOS
+            ]
+        }
+
+    now = time.time()
+    if _SOURCES_CACHE["data"] is not None and now - _SOURCES_CACHE["ts"] < _SOURCES_CACHE_TTL:
+        return {"sources": _SOURCES_CACHE["data"], "cached": True}
+
+    sources = await asyncio.to_thread(_scan_sources_in_dir)
+    _SOURCES_CACHE["data"] = sources
+    _SOURCES_CACHE["ts"] = now
+    return {"sources": sources, "cached": False}
 
 
 # ── CRUD de sesiones ──────────────────────────────────────────────────────────
