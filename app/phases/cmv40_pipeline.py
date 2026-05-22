@@ -3639,9 +3639,15 @@ async def run_phase_h_validate(
                         f"posible bug del editor de dovi_tool. NO entregar este MKV."
                     )
                 if rpu_diff > 0 and log_callback:
+                    # Δ de 1-2 frames es normal: mkvmerge puede emitir un
+                    # cluster final corto que mueve ±1 frame el conteo. NO es
+                    # warning — el merge se considera correcto. Usamos ℹ
+                    # (informativo) para alinearlo con la semántica del drop-in
+                    # path en _check_frame_count.
                     await log_callback(
-                        f"[Fase H] ⚠ RPU frame count {rpu_info.frame_count} vs "
-                        f"{expected_frames} esperados (Δ={rpu_diff}, dentro de tolerancia ±2)"
+                        f"[Fase H] ℹ RPU frame count {rpu_info.frame_count} vs "
+                        f"{expected_frames} esperados (Δ={rpu_diff} frame{'s' if rpu_diff != 1 else ''}, "
+                        f"dentro de tolerancia ±2 — variación normal del muxer)"
                     )
 
             # ── Validación CMv4.0 ─────────────────────────────────────
