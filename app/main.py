@@ -3331,7 +3331,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
             f"Recomendación: mantener el MKV actual (no procesar). Un "
             f"reproductor compatible con CMv4.0 (p3i T4 / avdvplus / Sony / "
             f"LG modernos) hará la conversión al vuelo con el mismo resultado "
-            f"visible que el Restore."
+            f"visible que tendría inyectar este RPU."
         )
         return False
 
@@ -4230,7 +4230,7 @@ async def cmv40_accept_keep(session_id: str):
         "✓ Proyecto cerrado manteniendo el MKV actual — el fichero original "
         "queda sin tocar. Un reproductor compatible con CMv4.0 (p3i T4 / Sony "
         "/ LG modernos) hará la conversión al vuelo en runtime con el mismo "
-        "resultado visible que el Restore."
+        "resultado visible que tendría inyectar el RPU."
     )
     return session.model_dump()
 
@@ -4974,7 +4974,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
         return {
             "ok": True, "started": False,
             "reason": f"preflight_decision={session.preflight_decision} ya emitida — "
-                      f"esperando acción del usuario (cancelar o forzar Restore)",
+                      f"esperando acción del usuario (cancelar o forzar inyección)",
             "preflight_decision": session.preflight_decision,
             "preflight_message": session.preflight_message,
         }
