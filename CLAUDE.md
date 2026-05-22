@@ -227,7 +227,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Solo verifica integridad del MKV con `mkvmerge -J` y frame count con `ffprobe`. ~segundos.
-   - **Merge CMv4.0** (rama merge sobre P7/P8 source): muestreo HEAD + TAIL. `ffmpeg -t 30` (head) + `ffmpeg -sseof -30 -t 30` (tail) extraen dos chunks HEVC del MKV final. `dovi_tool extract-rpu` + `info --summary` sobre cada chunk; ambos deben reportar `cm_version == v4.0` y `el_type` esperado (detecta asimetrías del merge frame-a-frame). Frame count del MKV completo via `ffprobe` (no del RPU del sample). ~25-35s. Antes era extract-rpu completo (~5-8 min).
+   - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
 ### Estados de la sesión
@@ -643,6 +643,39 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - No añadir abstracción para un solo uso
 - **No cambiar `--active-hub` sin recalcular la interpolación** — romperá la continuidad del gradiente del hub
 - **No usar `idx + 1` sobre los `.tab` principales** para activar tabs — usar IDs (`tab-btn-N`) porque el orden visual no coincide con la numeración interna
+
+### Textos de log y UX — patrón "describir estado, no predecir futuro"
+
+Regla establecida tras varias rondas de audit (v2.4.1) — los textos del
+log de la consola CMv4.0, el sidebar de la timeline, el modal de creación
+y las cards del panel del proyecto deben describir **el estado actual**
+o **el artefacto generado**, NO el comportamiento futuro de una fase
+posterior.
+
+Bugs históricos eliminados que ilustran el patrón:
+- Fase A cerraba con "El RPU source queda guardado para los trust gates de Fase B" → si el usuario cancela, promesa colgando.
+- Fase F cerraba con "Fase G puede saltarse el dovi_tool mux…" → si el usuario aborta, predicción incumplida.
+- Pre-flight emitía "Procediendo con extracción del BD (Fase A)" antes del análisis L2/L8.
+- Tooltip auto-pipeline decía "Pausa obligatoria en Fase D" siempre, pero D se omite si `target_trust_ok=True`.
+
+Reglas concretas:
+1. Cierres de fase (`🎯 Resultado: …`) describen el **artefacto producido**, no qué hará la siguiente fase. Cada fase emite su propio `📋 Plan` al arrancar.
+2. Anuncios prematuros — nunca decir "procediendo con Fase X" hasta que el dispatcher realmente la dispare. Si `auto_pipeline=False`, indicarlo.
+3. Textos dinámicos según `workflow` + `target_type` + `target_trust_ok` cuando el comportamiento del backend depende de esa combinación. Patrón "5 ramas if/elif" para Fase F y Fase G (drop-in / p7_fel merge / p7_mel merge / p7_mel direct / p8 merge / p8 direct).
+4. Markers de persistencia (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, `📋 Plan`, `🛑 Cancelado`, `ℹ️ Auto`, `ℹ️ Forward`) son tokens de matching para `_CMV40_LOG_FORCE_PERSIST_MARKERS` ([main.py:2834](app/main.py#L2834)). Sus prefijos no se pueden cambiar; el texto detrás sí.
+5. Tokens del frontend (`§§PROGRESS§§`, `$ ` prefix, `--gui-mode` mkvmerge → "Progress: XX%") son contratos del parser — intocables.
+6. `_emit_progress(pct, label)` debe ser **monotónico** dentro de una fase. Si una operación intermedia consume tiempo sin reportar progreso (típico de `_run` sync vs `_run_streaming`), reservar un % fijo (ej. Fase F merge → 15%, inject → 85%).
+7. El `_emit_progress(100%, "X completado")` debe emitirse **después** del `🎯 Resultado` final, no antes (evita que la barra llegue al 100% mientras quedan logs útiles).
+
+Las funciones afectadas en `app/static/app.js`:
+- `_cmv40BuildPhaseSteps` (sidebar timeline)
+- `_renderCMv40Info`, `_renderCMv40RecommendationCard` (cabecera + card recomendación)
+- `_cmv40FaseCBody`, `_cmv40FaseDBody`, `_cmv40FaseFBody`, `_cmv40FaseGBody`, `_cmv40FaseHBody` (bodys de fase activa)
+- `_cmv40NewUpdatePipelinePreview` (modal de creación)
+
+Y en `app/phases/cmv40_pipeline.py`:
+- `run_phase_a_analyze_source`, `run_phase_b_target_from_*`, `run_phase_c_extract`, `run_phase_e_correct_sync`, `run_phase_f_inject`, `run_phase_g_remux`, `run_phase_h_validate` — cada una emite `📋 Plan` al arrancar y `🎯 Resultado` al terminar (excepto Fase E que añade resumen de ops aplicadas).
+- `_preflight_validate_bin` + `_cmv40_preflight_analyze_target` ([main.py:3252](app/main.py#L3252)) — emiten clasificación L8 + tier de calidad + recomendación al cierre del pre-flight.
 
 ---
 
