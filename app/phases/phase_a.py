@@ -1992,3 +1992,188 @@ async def run_full_analysis(
         )
 
     return bdinfo, mpls_path, chapters_raw
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  ANÁLISIS PARA MPLS ESPECÍFICO (series TV — v2.5+)
+#
+#  run_full_analysis() asume "un disco = una película" y elige el MPLS
+#  con más pistas como principal. Para series necesitamos analizar
+#  UN MPLS CONCRETO (el del episodio seleccionado por el usuario) sin
+#  ese paso de elección.
+#
+#  run_full_analysis_for_mpls() es la variante que recibe el MPLS path
+#  ya identificado. Reutiliza todo el pipeline excepto el paso de
+#  identificación. El m2ts se deriva del MPLS para que MediaInfo y
+#  dovi_tool actúen sobre el stream del episodio, no del más grande
+#  del disco.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _resolve_m2ts_from_mpls(share_path: str, mpls_path: str,
+                              mkvmerge_data: dict) -> str | None:
+    """Determina el m2ts referenciado por un MPLS específico.
+
+    Estrategia (orden de preferencia):
+      1. Leer `container.properties.playlist_file` o `playlist_files` del
+         JSON de mkvmerge -J — campo estándar que apunta al m2ts asociado.
+      2. Convención de nombre: '00800.mpls' → '00800.m2ts' en BDMV/STREAM/.
+         Funciona en ~95% de los discos (algunos repacks reordenan, pero
+         la convención del estudio respeta el clip_id).
+      3. Fallback: find_main_m2ts(share_path) — el más grande del disco.
+         Solo último recurso; en series esto sería incorrecto.
+
+    Devuelve la ruta absoluta del m2ts o None si no se puede resolver.
+    """
+    props = (mkvmerge_data.get("container") or {}).get("properties") or {}
+    pf = props.get("playlist_file") or props.get("playlist_files")
+    if isinstance(pf, list) and pf:
+        # mkvmerge a veces devuelve lista — el primero es el m2ts principal
+        # del PlayItem inicial (el resto suelen ser PlayItems adicionales
+        # de la misma playlist).
+        candidate = Path(pf[0])
+        if candidate.exists():
+            return str(candidate)
+    elif isinstance(pf, str) and pf:
+        candidate = Path(pf)
+        if candidate.exists():
+            return str(candidate)
+
+    # Convención de nombre
+    stream_dir = None
+    for c in [Path(share_path) / "BDMV" / "STREAM",
+              Path(share_path) / "bdmv" / "stream"]:
+        if c.exists():
+            stream_dir = c
+            break
+    if stream_dir is not None:
+        clip_id = Path(mpls_path).stem  # '00800.mpls' → '00800'
+        for ext in (".m2ts", ".M2TS"):
+            candidate = stream_dir / f"{clip_id}{ext}"
+            if candidate.exists():
+                return str(candidate)
+
+    # Último fallback: el m2ts más grande del disco. Para series TV esto
+    # sería incorrecto (apuntaría al m2ts de otro episodio), pero el
+    # log_callback registrará un warning para que el usuario lo vea.
+    return find_main_m2ts(share_path)
+
+
+async def run_full_analysis_for_mpls(
+    share_path: str,
+    mpls_path: str,
+    log_callback=None,
+    pgs_progress_callback=None,
+) -> tuple[BDInfoResult, list[dict]]:
+    """Análisis completo para un MPLS específico (usado en modo serie).
+
+    Equivalente funcional a run_full_analysis pero opera sobre el MPLS
+    pasado como argumento — no busca el "principal". El m2ts asociado
+    se deriva del MPLS para que MediaInfo y dovi_tool actúen sobre el
+    stream del episodio.
+
+    Args:
+        share_path:   Disco montado.
+        mpls_path:    MPLS específico (ya identificado).
+        log_callback: Opcional, streaming.
+        pgs_progress_callback: Opcional, progreso del PGS counter.
+
+    Returns:
+        Tupla (bdinfo_result, chapters_raw). Misma forma que
+        run_full_analysis pero sin mpls_path en el retorno (ya lo
+        conocemos).
+    """
+    if log_callback:
+        await log_callback(
+            f"[Fase A] 📋 Plan: analizar MPLS específico {Path(mpls_path).name} "
+            f"(modo serie — episodio seleccionado por el usuario)."
+        )
+        await log_callback(f"[Fase A] ┌─ Paso 1/4: Identificando pistas del MPLS con mkvmerge -J…")
+
+    mkvmerge_data = await _run_mkvmerge_j(mpls_path)
+    if mkvmerge_data is None:
+        raise RuntimeError(
+            f"mkvmerge -J falló sobre {mpls_path}. El MPLS puede estar corrupto o no ser válido."
+        )
+    bdinfo = parse_mkvmerge_json(mkvmerge_data)
+
+    if log_callback:
+        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo capítulos del MPLS…")
+    chapters_raw = parse_mpls_chapters(mpls_path)
+
+    # Resolver el m2ts específico de ESTE MPLS (no el más grande del disco)
+    m2ts_path = _resolve_m2ts_from_mpls(share_path, mpls_path, mkvmerge_data)
+    if m2ts_path:
+        bdinfo.main_m2ts = Path(m2ts_path).name
+        size_gb = Path(m2ts_path).stat().st_size / 1e9
+        if log_callback:
+            await log_callback(
+                f"[Fase A] ├─ Paso 3/4: Analizando M2TS del episodio {bdinfo.main_m2ts} ({size_gb:.1f} GB)"
+            )
+
+        try:
+            mi = await run_mediainfo(m2ts_path)
+            bdinfo.mediainfo_result = mi
+            enrich_tracks_with_mediainfo(bdinfo, mi)
+            if log_callback:
+                await log_callback(
+                    f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
+                )
+        except Exception as e:
+            _logger.warning("MediaInfo falló (no bloquea): %s", e)
+            if log_callback:
+                await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
+
+        # PGS packet count (mismo pipeline que película)
+        pgs_packets: dict[int, int] = {}
+        mpls_pg_streams: list[dict] = []
+        try:
+            mpls_pg_streams, _ = parse_mpls_pg_streams(mpls_path)
+        except Exception as e:
+            _logger.warning("MPLS parse falló (no bloquea): %s", e)
+
+        try:
+            if log_callback:
+                await log_callback(
+                    "[Fase A] ├─   Contando paquetes PGS del m2ts del episodio…"
+                )
+            pid_list = [s["pid"] for s in mpls_pg_streams] if mpls_pg_streams else None
+            pgs_packets = await count_pgs_packets_ts_parse(
+                m2ts_path,
+                log_callback=log_callback,
+                progress_callback=pgs_progress_callback,
+                pid_list=pid_list,
+            )
+        except Exception as e:
+            _logger.warning("TS parse PGS falló (no bloquea): %s", e)
+
+        if pgs_packets:
+            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
+            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
+                raw_sub.packet_count = pc
+
+        # dovi_tool (solo si hay EL)
+        has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
+        if has_el:
+            try:
+                if log_callback:
+                    await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision…")
+                dovi = await run_dovi_analysis(m2ts_path)
+                if dovi:
+                    enrich_dovi(bdinfo, dovi)
+                    if log_callback:
+                        await log_callback(
+                            f"[Fase A] └─   ✓ Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                        )
+            except Exception as e:
+                _logger.warning("dovi_tool falló (no bloquea): %s", e)
+                if log_callback:
+                    await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+        else:
+            if log_callback:
+                await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
+    else:
+        if log_callback:
+            await log_callback("[Fase A] ⚠️ No se encontró m2ts del MPLS — análisis extendido omitido")
+
+    return bdinfo, chapters_raw

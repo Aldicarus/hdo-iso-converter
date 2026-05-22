@@ -661,6 +661,341 @@ async def analyze_iso(body: AnalyzeRequest):
     return session.model_dump()
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  SERIES TV — endpoints (v2.5+)
+#
+#  Soporte para ISOs Blu-ray con múltiples episodios. Flujo:
+#
+#    1. POST /api/disc-probe           → monta, detecta tipo, devuelve
+#                                         candidatos. NO crea sesión.
+#    2. GET  /api/tv-search             → busca serie en TMDb.
+#    3. GET  /api/tv-details/{id}       → temporadas disponibles.
+#    4. GET  /api/tv-season/{id}/{N}    → episodios con runtime.
+#    5. POST /api/create-series-sessions → crea N sesiones (una por
+#                                          episodio seleccionado).
+#
+#  El endpoint /api/analyze original NO cambia — sigue siendo el flujo
+#  película. El frontend decide qué endpoint llamar tras disc-probe.
+# ══════════════════════════════════════════════════════════════════════
+
+
+class DiscProbeRequest(_BaseModel):
+    """Payload de POST /api/disc-probe."""
+    iso_path: str
+
+
+@app.post("/api/disc-probe",
+          summary="Detecta si el ISO es película o serie y devuelve candidatos de episodio")
+async def disc_probe(body: DiscProbeRequest):
+    """Monta el ISO temporalmente, identifica los MPLS candidatos a
+    episodio, clasifica el disco como 'movie' / 'series' / 'ambiguous'
+    y desmonta. NO crea sesión.
+
+    Si media_type == 'movie': el frontend debe llamar a /api/analyze para
+    el flujo normal de película.
+
+    Si media_type == 'series': el frontend muestra el modal extendido
+    de selección de episodios usando los endpoints /api/tv-search,
+    /api/tv-details y /api/tv-season, y finalmente llama a
+    /api/create-series-sessions con las selecciones del usuario.
+
+    Coste: ~10-20s (mount + identify_episode_candidates de top 20 MPLS
+    con mkvmerge -J). Mucho más rápido que /api/analyze completo.
+    """
+    from phases.phase_a import identify_episode_candidates, detect_disc_type
+    from phases.phase_b import _extract_title_year
+
+    iso_full_path = str(ISOS_DIR / body.iso_path)
+    if not Path(iso_full_path).exists():
+        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+
+    # Título sugerido extraído del nombre del ISO (idéntico al flujo
+    # película — el frontend lo usa como query inicial para TMDb).
+    suggested_title, suggested_year_str = _extract_title_year(body.iso_path)
+    suggested_year: int | None = None
+    if suggested_year_str.isdigit() and suggested_year_str != "0000":
+        suggested_year = int(suggested_year_str)
+
+    mount_point = None
+    candidates = []
+    try:
+        mount_point = await mount_iso(iso_full_path)
+        candidates = await identify_episode_candidates(mount_point)
+    except Exception as e:
+        _logger.exception("Error en disc-probe para ISO %s", iso_full_path)
+        raise HTTPException(status_code=500, detail=f"Error analizando disco: {e}")
+    finally:
+        if mount_point:
+            await unmount_iso(mount_point)
+
+    media_type = detect_disc_type(candidates)
+
+    # Para series y ambiguous devolvemos los candidatos con info ligera
+    # (sin el JSON crudo de mkvmerge — el data queda en backend hasta
+    # que el usuario confirme y se llame a /api/create-series-sessions).
+    episode_candidates = []
+    if media_type in ("series", "ambiguous"):
+        for c in candidates:
+            episode_candidates.append({
+                "mpls_name": c["mpls_name"],
+                "mpls_path": c["mpls_path"],
+                "duration_minutes": round(c["duration_minutes"], 2),
+                "audio_track_count": c["audio_track_count"],
+            })
+
+    return {
+        "media_type": media_type,
+        "iso_path": body.iso_path,
+        "suggested_title": suggested_title,
+        "suggested_year": suggested_year,
+        "episode_candidates": episode_candidates,
+    }
+
+
+@app.get("/api/tv-search",
+         summary="Busca series en TMDb por título (selector multi-candidato)")
+async def tv_search(query: str, year: int | None = None):
+    """Top 5 candidatos TMDb para una query de serie. `year` filtra por
+    first_air_date_year (premiere de la serie, no air_date de episodios).
+    El frontend muestra los resultados y el usuario elige."""
+    from services.tmdb import search_tv_series, is_configured
+    if not is_configured():
+        return {"tmdb_configured": False, "results": []}
+    results = await search_tv_series(query, year)
+    return {
+        "tmdb_configured": True,
+        "query": query,
+        "year": year,
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@app.get("/api/tv-details/{tmdb_id}",
+         summary="Detalles de una serie TMDb (temporadas, número de episodios)")
+async def tv_details(tmdb_id: int):
+    """Detalles extendidos de una serie: name, year, number_of_seasons,
+    seasons[]. El frontend usa esto para poblar el combo de temporadas
+    antes de pedir los episodios."""
+    from services.tmdb import fetch_tv_details, is_configured
+    if not is_configured():
+        return {"tmdb_configured": False, "details": None}
+    details = await fetch_tv_details(tmdb_id)
+    if not details:
+        raise HTTPException(status_code=404, detail=f"Serie TMDb {tmdb_id} no encontrada")
+    return {"tmdb_configured": True, "details": details.model_dump()}
+
+
+@app.get("/api/tv-season/{tmdb_id}/{season_number}",
+         summary="Episodios de una temporada + match heurístico contra MPLS candidatos")
+async def tv_season(
+    tmdb_id: int,
+    season_number: int,
+    mpls_durations: str | None = None,
+):
+    """Devuelve episodes[] de la temporada con runtime, name, air_date.
+
+    Si se pasa `mpls_durations` (lista coma-separada de duraciones en
+    minutos, en el orden de los MPLS), incluye también un array
+    `mpls_matches[]` con la heurística de match: para cada MPLS,
+    sugested_episode_number + matched_episode + confidence (high/low/
+    unknown) + runtime_delta_min.
+
+    El frontend usa los matches para pre-rellenar el mapping y dar el
+    hint visual (🟢🟡) sin tener que computarlo client-side.
+    """
+    from services.tmdb import fetch_tv_season, match_episodes_to_mpls, is_configured
+    if not is_configured():
+        return {"tmdb_configured": False, "episodes": [], "mpls_matches": []}
+    episodes = await fetch_tv_season(tmdb_id, season_number)
+    mpls_matches = []
+    if mpls_durations:
+        try:
+            durations = [float(x) for x in mpls_durations.split(",") if x.strip()]
+            mpls_matches = match_episodes_to_mpls(durations, episodes)
+        except ValueError:
+            # mpls_durations malformado: devolvemos sin matches.
+            mpls_matches = []
+    return {
+        "tmdb_configured": True,
+        "season_number": season_number,
+        "episodes": [e.model_dump() for e in episodes],
+        "mpls_matches": mpls_matches,
+    }
+
+
+class SeriesEpisodeSelection(_BaseModel):
+    """Una selección de episodio en POST /api/create-series-sessions."""
+    mpls_path: str
+    episode_number: int
+    episode_title: str = ""
+    runtime_minutes: int = 0
+
+
+class CreateSeriesSessionsRequest(_BaseModel):
+    """Payload de POST /api/create-series-sessions."""
+    iso_path: str
+    series_tmdb_id: int | None = None
+    series_name: str
+    series_year: int | None = None
+    season_number: int
+    episodes: list[SeriesEpisodeSelection]
+
+
+@app.post("/api/create-series-sessions",
+          summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie")
+async def create_series_sessions(body: CreateSeriesSessionsRequest):
+    """Monta el ISO una vez, analiza cada MPLS seleccionado por completo
+    (mkvmerge + MediaInfo + dovi_tool + capítulos), aplica las reglas de
+    Fase B y crea una sesión `pending` por episodio.
+
+    El usuario lanza cada sesión manualmente desde el panel del proyecto
+    (decisión explícita — no se encolan en batch).
+
+    Coste: ~30s + N × 15-30s. Para 4 episodios típicos: ~2 min total.
+    El frontend muestra progreso vía el modal de Datos ISO una vez creadas.
+    """
+    from phases.phase_a import run_full_analysis_for_mpls
+    from phases.phase_b import apply_rules, build_series_mkv_name
+    from models import Chapter
+
+    if DEV_MODE:
+        raise HTTPException(
+            status_code=400,
+            detail="DEV_MODE no soporta create-series-sessions (no hay ISOs reales)",
+        )
+
+    if not body.episodes:
+        raise HTTPException(status_code=400, detail="Lista de episodios vacía")
+
+    iso_full_path = str(ISOS_DIR / body.iso_path)
+    if not Path(iso_full_path).exists():
+        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+
+    audio_dcp = "audio dcp" in body.iso_path.lower()
+    fingerprint = compute_iso_fingerprint(iso_full_path)
+
+    created_sessions = []
+    failed_episodes: list[dict] = []
+    mount_point = None
+    try:
+        mount_point = await mount_iso(iso_full_path)
+        for ep in body.episodes:
+            # MPLS path en el ISO actualmente montado puede diferir del
+            # path original devuelto por disc-probe (cambia el mount point
+            # en cada montaje). Re-derivamos del mount actual usando solo
+            # el nombre del MPLS.
+            mpls_name = Path(ep.mpls_path).name
+            mpls_in_mount = None
+            for candidate in [
+                Path(mount_point) / "BDMV" / "PLAYLIST" / mpls_name,
+                Path(mount_point) / "PLAYLIST" / mpls_name,
+            ]:
+                if candidate.exists():
+                    mpls_in_mount = str(candidate)
+                    break
+            if mpls_in_mount is None:
+                failed_episodes.append({
+                    "episode_number": ep.episode_number,
+                    "error": f"MPLS {mpls_name} no encontrado en el disco montado",
+                })
+                continue
+
+            try:
+                bdinfo, mpls_chapters_raw = await run_full_analysis_for_mpls(
+                    mount_point, mpls_in_mount,
+                )
+            except Exception as e:
+                _logger.warning(
+                    "Error analizando episodio %s del ISO %s: %s",
+                    ep.episode_number, body.iso_path, e,
+                )
+                failed_episodes.append({
+                    "episode_number": ep.episode_number,
+                    "error": str(e),
+                })
+                continue
+
+            rules_result = apply_rules(bdinfo, body.iso_path, audio_dcp)
+
+            # Capítulos: igual que película — del MPLS si los hay, sino auto.
+            if mpls_chapters_raw:
+                chapters = [Chapter(**c) for c in mpls_chapters_raw]
+                chapters_auto = False
+                chapters_reason = f"{len(chapters)} capítulos extraídos del MPLS del episodio"
+            elif bdinfo.duration_seconds > 0:
+                chapters = generate_auto_chapters(bdinfo.duration_seconds)
+                chapters_auto = True
+                chapters_reason = "Sin capítulos en el MPLS — generados cada 10 min"
+            else:
+                chapters = []
+                chapters_auto = True
+                chapters_reason = "No se pudo determinar la duración del episodio"
+
+            # Nombre del MKV con jerarquía Plex/Jellyfin
+            mkv_name = build_series_mkv_name(
+                series_name=body.series_name,
+                series_year=body.series_year,
+                season_number=body.season_number,
+                episode_number=ep.episode_number,
+                episode_title=ep.episode_title,
+                has_fel=bdinfo.has_fel,
+                audio_dcp=audio_dcp,
+            )
+
+            # ID único por episodio. Incluye S/E para que sea legible.
+            import time as _t
+            session_id = f"{_sanitize_id(body.series_name)}_S{body.season_number:02d}E{ep.episode_number:02d}_{int(_t.time())}"
+
+            session = Session(
+                id=session_id,
+                iso_path=iso_full_path,
+                iso_fingerprint=fingerprint,
+                status="pending",
+                bdinfo_result=bdinfo,
+                has_fel=bdinfo.has_fel,
+                audio_dcp=audio_dcp,
+                included_tracks=rules_result["included_tracks"],
+                discarded_tracks=rules_result["discarded_tracks"],
+                mkv_name=mkv_name,
+                mkv_name_manual=False,
+                chapters=chapters,
+                chapters_auto_generated=chapters_auto,
+                chapters_auto_reason=chapters_reason,
+                # Campos del modo serie
+                media_type="series",
+                series_tmdb_id=body.series_tmdb_id,
+                series_name=body.series_name,
+                series_year=body.series_year,
+                season_number=body.season_number,
+                episode_number=ep.episode_number,
+                episode_title=ep.episode_title,
+                episode_runtime_minutes=ep.runtime_minutes or None,
+                mpls_path=mpls_name,  # Solo el nombre — el mount cambia.
+            )
+            save_session(session)
+            created_sessions.append(session.model_dump())
+    except Exception as e:
+        _logger.exception("Error global en create-series-sessions")
+        raise HTTPException(status_code=500, detail=f"Error creando sesiones: {e}")
+    finally:
+        if mount_point:
+            await unmount_iso(mount_point)
+
+    return {
+        "created": created_sessions,
+        "failed": failed_episodes,
+        "iso_path": body.iso_path,
+    }
+
+
+def _sanitize_id(s: str) -> str:
+    """Sanitiza un string para usarlo como parte de un session_id.
+    Reemplaza espacios y caracteres no alfanuméricos por guiones bajos.
+    Resultado: ASCII safe y legible en logs."""
+    import re as _re
+    return _re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_") or "series"
+
+
 # ── Recalcular nombre del MKV ─────────────────────────────────────────────────
 
 @app.post(
