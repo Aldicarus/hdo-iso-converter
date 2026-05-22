@@ -723,6 +723,19 @@ class Session(BaseModel):
     y hay varios MPLS de episodio en el disco). Si está vacío, el pipeline
     usa el MPLS principal calculado por phase_a (caso película)."""
 
+    # ── Origen del contenido (v2.6+) ──────────────────────────────
+    # Tipo de fuente del contenido. iso_path conserva el path original
+    # del usuario para compat con sesiones legacy. Los nuevos tipos
+    # (bdmv_folder, m2ts) viven en /mnt/isos junto a los ISO clásicos.
+    source_type: str = "iso"
+    """'iso' | 'bdmv_folder' | 'm2ts'. Default 'iso' para sesiones
+    pre-v2.6."""
+
+    source_path: str = ""
+    """Path relativo del origen dentro de ISOS_DIR. Para 'iso' coincide
+    con iso_path. Para 'bdmv_folder' apunta a la carpeta con BDMV/
+    dentro. Para 'm2ts' apunta al fichero .m2ts."""
+
     error_message: str | None = None
     """Mensaje de error si status='error'."""
 
@@ -741,11 +754,24 @@ class Session(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 
 class AnalyzeRequest(BaseModel):
-    """Payload de POST /api/analyze."""
+    """Payload de POST /api/analyze.
 
-    iso_path: str
-    """Ruta relativa al ISO dentro de /mnt/isos.
-    Ej: 'El Rey de Reyes (2025) [FullBluRay].iso'"""
+    Compat: si solo se pasa `iso_path` se asume source_type='iso'.
+    Para los tipos nuevos (v2.6+):
+      source_type='bdmv_folder' + source_path='Mad Men S1 D1'
+      source_type='m2ts'        + source_path='raw/Film.m2ts'
+    """
+
+    iso_path: str | None = None
+    """Ruta relativa al ISO dentro de /mnt/isos. Legacy — usar
+    source_type/source_path para flujos no-ISO."""
+
+    source_type: str | None = None
+    """'iso' | 'bdmv_folder' | 'm2ts'. Default: 'iso' si iso_path."""
+
+    source_path: str | None = None
+    """Ruta relativa a /mnt/isos. Para bdmv_folder: la carpeta padre
+    de BDMV/. Para m2ts: el fichero .m2ts."""
 
 
 class QueueReorderRequest(BaseModel):

@@ -639,21 +639,47 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
 
 # ── Comprobar ISO duplicado ───────────────────────────────────────────────────
 
-@app.post("/api/check-duplicate", summary="Comprueba si ya existe un proyecto para este ISO")
+@app.post("/api/check-duplicate", summary="Comprueba si ya existe un proyecto para este origen")
 async def check_duplicate(body: AnalyzeRequest):
     """
-    Calcula la huella del ISO (SHA-256 primer 1 MB + tamaño) y busca
+    Calcula la huella del origen (SHA-256 primer 1 MB + tamaño) y busca
     si ya existe una sesión con la misma huella. Permite detectar el
-    mismo disco incluso si se ha movido o renombrado.
+    mismo contenido incluso si se ha movido o renombrado.
+
+    Acepta los 3 tipos de origen (iso, bdmv_folder, m2ts) — para
+    bdmv_folder huella sobre el m2ts más grande, para m2ts sobre el
+    fichero directo.
 
     Respuesta: ``{"duplicate": bool, "session": {...}|null, "fingerprint": "..."}``
     """
-    iso_full_path = str(ISOS_DIR / body.iso_path)
-    if not Path(iso_full_path).exists():
-        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+    from phases.iso_mount import safe_source_path, SourceError, Source
+    from phases.phase_a import find_main_m2ts
 
-    fingerprint = compute_iso_fingerprint(iso_full_path)
-    existing = find_session_by_fingerprint(fingerprint)
+    if body.source_type:
+        stype = body.source_type
+        spath = body.source_path or body.iso_path or ""
+    elif body.iso_path:
+        stype = "iso"
+        spath = body.iso_path
+    else:
+        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+
+    try:
+        source_abs = safe_source_path(spath, str(ISOS_DIR))
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not Path(source_abs).exists():
+        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+
+    # Resolver target del fingerprint según tipo
+    if stype == "bdmv_folder":
+        fp_target = find_main_m2ts(source_abs) or source_abs
+    else:
+        fp_target = source_abs  # iso o m2ts directo
+
+    fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
+    existing = find_session_by_fingerprint(fingerprint) if fingerprint else None
 
     return {
         "duplicate": existing is not None,
@@ -677,22 +703,43 @@ async def analyze_progress():
 @app.post("/api/analyze", summary="Analiza un ISO (Fase A + B)")
 async def analyze_iso(body: AnalyzeRequest):
     """
-    Lanza el análisis completo de un ISO y devuelve la sesión lista para revisar.
+    Lanza el análisis completo de un origen (ISO, carpeta BDMV o M2TS).
+    Devuelve la sesión lista para revisar.
 
-    Pipeline: mount → mkvmerge -J → capítulos → MediaInfo → dovi_tool → reglas.
+    Pipeline:
+      - ISO / bdmv_folder: mount (si ISO) → mkvmerge -J MPLS → capítulos
+        → MediaInfo → dovi_tool → reglas.
+      - m2ts: mkvmerge -J sobre el m2ts → capítulos auto-generados →
+        MediaInfo → dovi_tool → reglas (PGS counting con rango default).
     """
     global _analyze_progress
+    from phases.iso_mount import Source, SourceError, safe_source_path
+
+    # Resolver source_type/source_path con compat para iso_path legacy
+    if body.source_type:
+        stype = body.source_type
+        spath = body.source_path or body.iso_path or ""
+    elif body.iso_path:
+        stype = "iso"
+        spath = body.iso_path
+    else:
+        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
 
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
-        session = build_fake_session(str(ISOS_DIR / body.iso_path))
+        session = build_fake_session(str(ISOS_DIR / (spath or body.iso_path or "")))
         return session.model_dump()
 
-    iso_full_path = str(ISOS_DIR / body.iso_path)
-    if not Path(iso_full_path).exists():
-        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+    # Validación path-traversal estricta
+    try:
+        source_abs = safe_source_path(spath, str(ISOS_DIR))
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    audio_dcp = "audio dcp" in body.iso_path.lower()
+    if not Path(source_abs).exists():
+        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+
+    audio_dcp = "audio dcp" in (spath or "").lower()
 
     # Captura el log emitido durante Fase A para guardarlo en la sesión.
     # Sirve para diagnóstico desde el modal "Datos ISO" sin tener que pedir
@@ -732,26 +779,42 @@ async def analyze_iso(body: AnalyzeRequest):
     _analyze_progress = {"step": "mount", "done": False}
 
     # ── Fase A: análisis completo (mkvmerge + MediaInfo + dovi_tool) ─
-    mount_point = None
-    mpls_chapters_raw = []
+    # Source context manager: monta el ISO si es necesario, no-op para
+    # bdmv_folder y m2ts. Cleanup automático en __aexit__.
+    mpls_path = ""
+    mpls_chapters_raw: list[dict] = []
+    bdinfo_result = None
     try:
-        mount_point = await mount_iso(iso_full_path)
-        _analyze_progress = {"step": "identify", "done": False}
-        bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(
-            mount_point,
-            log_callback=_progress_callback,
-            pgs_progress_callback=_pgs_progress_callback,
-        )
+        async with await Source.open(source_abs) as src:
+            _analyze_progress = {"step": "identify", "done": False}
+            if src.bdmv_root:
+                # ISO ya montado o bdmv_folder directo
+                bdinfo_result, mpls_path, mpls_chapters_raw = await run_full_analysis(
+                    src.bdmv_root,
+                    log_callback=_progress_callback,
+                    pgs_progress_callback=_pgs_progress_callback,
+                )
+            else:
+                # m2ts suelto (sin BDMV)
+                from phases.phase_a import run_full_analysis_for_m2ts
+                bdinfo_result, mpls_chapters_raw = await run_full_analysis_for_m2ts(
+                    src.m2ts_paths[0],
+                    log_callback=_progress_callback,
+                    pgs_progress_callback=_pgs_progress_callback,
+                )
+                mpls_path = src.m2ts_paths[0]
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        _logger.exception("Error en Fase A para ISO %s", iso_full_path)
+        _logger.exception("Error en Fase A para %s", source_abs)
         raise HTTPException(status_code=500, detail=f"Error en Fase A: {e}")
-    finally:
-        if mount_point:
-            await unmount_iso(mount_point)
 
     # ── Fase B: Reglas automáticas ─────────────────────────────────
     _analyze_progress = {"step": "rules", "done": False}
-    rules_result = apply_rules(bdinfo_result, body.iso_path, audio_dcp)
+    # Las reglas usan el nombre del path para detectar etiquetas en el
+    # filename (FEL, Audio DCP). Pasamos spath (path original del usuario)
+    # que es lo más representativo del nombre semántico del contenido.
+    rules_result = apply_rules(bdinfo_result, spath, audio_dcp)
 
     # ── Capítulos ─────────────────────────────────────────────────
     from models import Chapter
@@ -771,16 +834,28 @@ async def analyze_iso(body: AnalyzeRequest):
         chapters_reason = "No se pudo determinar la duración del disco"
 
     # ── Reutilizar sesión existente por fingerprint ─────────────────
-    fingerprint = compute_iso_fingerprint(iso_full_path)
+    # Para ISO: huella del fichero .iso (1 MB + tamaño). Para
+    # bdmv_folder: huella del m2ts más grande. Para m2ts: huella del
+    # m2ts directo. compute_iso_fingerprint funciona sobre ficheros
+    # arbitrarios, así que necesitamos resolver el "fichero principal":
+    if stype == "iso":
+        fp_target = source_abs
+    elif stype == "m2ts":
+        fp_target = source_abs  # el m2ts directo
+    else:
+        # bdmv_folder → el m2ts más grande de BDMV/STREAM/
+        from phases.phase_a import find_main_m2ts
+        fp_target = find_main_m2ts(source_abs) or source_abs
+    fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
     existing = find_session_by_fingerprint(fingerprint) if fingerprint else None
     if existing:
         session_id = existing.id
     else:
-        session_id = make_session_id(body.iso_path)
+        session_id = make_session_id(spath or "source")
 
     session = Session(
         id=session_id,
-        iso_path=iso_full_path,
+        iso_path=source_abs,         # path absoluto del origen (compat)
         iso_fingerprint=fingerprint,
         status="pending",
         bdinfo_result=bdinfo_result,
@@ -794,6 +869,8 @@ async def analyze_iso(body: AnalyzeRequest):
         chapters_auto_generated=chapters_auto,
         chapters_auto_reason=chapters_reason,
         analysis_log=analysis_log,
+        source_type=stype,
+        source_path=spath,
     )
     save_session(session)
     _analyze_progress = {"step": "done", "done": True}
@@ -819,59 +896,115 @@ async def analyze_iso(body: AnalyzeRequest):
 
 
 class DiscProbeRequest(_BaseModel):
-    """Payload de POST /api/disc-probe."""
-    iso_path: str
+    """Payload de POST /api/disc-probe. Soporta los 3 tipos de fuente.
+
+    Compat: si solo se pasa `iso_path` (sin source_type), se asume
+    source_type='iso' (sesiones legacy / frontend antiguo).
+
+    Para los nuevos tipos:
+      source_type='bdmv_folder' + source_path='Mad Men S1 D1'
+      source_type='m2ts'        + source_path='raw/X.m2ts' (1 fichero)
+      source_type='m2ts'        + m2ts_paths=['raw/E01.m2ts', 'raw/E02.m2ts', ...]
+                                  (multi-fichero → modo serie)
+    """
+    iso_path: str | None = None       # legacy compat
+    source_type: str | None = None    # 'iso' | 'bdmv_folder' | 'm2ts'
+    source_path: str | None = None    # path para iso/bdmv_folder/m2ts único
+    m2ts_paths: list[str] | None = None  # solo para m2ts multi-fichero
 
 
 @app.post("/api/disc-probe",
-          summary="Detecta si el ISO es película o serie y devuelve candidatos de episodio")
+          summary="Detecta tipo y devuelve candidatos. Soporta ISO, carpeta BDMV y m2ts sueltos")
 async def disc_probe(body: DiscProbeRequest):
-    """Monta el ISO temporalmente, identifica los MPLS candidatos a
-    episodio, clasifica el disco como 'movie' / 'series' / 'ambiguous'
-    y desmonta. NO crea sesión.
+    """Detecta media_type y devuelve candidatos a episodio para los 3
+    tipos de fuente. NO crea sesión.
 
-    Si media_type == 'movie': el frontend debe llamar a /api/analyze para
-    el flujo normal de película.
+    Comportamiento según source_type:
+      - 'iso': monta el ISO, lista MPLS candidatos, desmonta.
+      - 'bdmv_folder': lista MPLS candidatos sin mount.
+      - 'm2ts' (1 fichero): devuelve media_type='movie' siempre — un
+        solo m2ts es una película (no hay heurística que diga lo
+        contrario sin BDMV).
+      - 'm2ts' (N ficheros): cada m2ts es un candidato a episodio →
+        media_type='series', sin auto-detect (el usuario eligió varios).
 
-    Si media_type == 'series': el frontend muestra el modal extendido
-    de selección de episodios usando los endpoints /api/tv-search,
-    /api/tv-details y /api/tv-season, y finalmente llama a
-    /api/create-series-sessions con las selecciones del usuario.
-
-    Coste: ~10-20s (mount + identify_episode_candidates de top 20 MPLS
-    con mkvmerge -J). Mucho más rápido que /api/analyze completo.
+    Coste:
+      - iso: ~10-20s (mount + identify)
+      - bdmv_folder: ~5-15s (identify sin mount)
+      - m2ts: ~1-5s por fichero (mkvmerge -J de cada uno)
     """
-    from phases.phase_a import identify_episode_candidates, detect_disc_type
+    from phases.phase_a import (
+        identify_episode_candidates, detect_disc_type,
+        identify_episode_candidates_from_m2ts_list,
+    )
     from phases.phase_b import _extract_title_year
+    from phases.iso_mount import Source, SourceError, safe_source_path
 
-    iso_full_path = str(ISOS_DIR / body.iso_path)
-    if not Path(iso_full_path).exists():
-        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+    # Resolver source_type — compat con frontend antiguo (solo iso_path).
+    if body.source_type:
+        stype = body.source_type
+        spath = body.source_path or body.iso_path or ""
+    elif body.iso_path:
+        stype = "iso"
+        spath = body.iso_path
+    else:
+        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
 
-    # Título sugerido extraído del nombre del ISO (idéntico al flujo
+    # Validación path-traversal estricta. Para m2ts multi-fichero
+    # validamos cada path individualmente.
+    try:
+        if stype == "m2ts" and body.m2ts_paths:
+            validated_paths = [
+                safe_source_path(p, str(ISOS_DIR)) for p in body.m2ts_paths
+            ]
+            spath_abs = validated_paths[0] if validated_paths else ""
+        else:
+            spath_abs = safe_source_path(spath, str(ISOS_DIR))
+            validated_paths = None
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Título sugerido extraído del nombre del path (idéntico al flujo
     # película — el frontend lo usa como query inicial para TMDb).
-    suggested_title, suggested_year_str = _extract_title_year(body.iso_path)
+    suggested_title, suggested_year_str = _extract_title_year(
+        spath if stype != "m2ts" else Path(spath_abs).parent.name + ".x"
+    )
     suggested_year: int | None = None
     if suggested_year_str.isdigit() and suggested_year_str != "0000":
         suggested_year = int(suggested_year_str)
 
-    mount_point = None
-    candidates = []
+    candidates: list[dict] = []
+    media_type: str = "movie"
+
     try:
-        mount_point = await mount_iso(iso_full_path)
-        candidates = await identify_episode_candidates(mount_point)
+        if stype in ("iso", "bdmv_folder"):
+            # Misma lógica para ambos — el context manager monta si es ISO,
+            # no hace nada si es bdmv_folder.
+            async with await Source.open(spath_abs) as src:
+                if src.bdmv_root:
+                    candidates = await identify_episode_candidates(src.bdmv_root)
+            media_type = detect_disc_type(candidates)
+        elif stype == "m2ts":
+            paths = validated_paths or [spath_abs]
+            if len(paths) == 1:
+                # Un solo m2ts → película (no podemos detectar serie sin
+                # múltiples ficheros).
+                media_type = "movie"
+                candidates = []
+            else:
+                # Varios m2ts → cada uno es un candidato a episodio.
+                # Sin auto-detect — el usuario lo decidió al seleccionar varios.
+                candidates = await identify_episode_candidates_from_m2ts_list(paths)
+                media_type = "series" if candidates else "movie"
+        else:
+            raise HTTPException(status_code=400, detail=f"source_type desconocido: {stype}")
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        _logger.exception("Error en disc-probe para ISO %s", iso_full_path)
+        _logger.exception("Error en disc-probe para %s", spath_abs)
         raise HTTPException(status_code=500, detail=f"Error analizando disco: {e}")
-    finally:
-        if mount_point:
-            await unmount_iso(mount_point)
 
-    media_type = detect_disc_type(candidates)
-
-    # Para series y ambiguous devolvemos los candidatos con info ligera
-    # (sin el JSON crudo de mkvmerge — el data queda en backend hasta
-    # que el usuario confirme y se llame a /api/create-series-sessions).
+    # Lista de candidatos en formato ligero (sin el JSON crudo de mkvmerge)
     episode_candidates = []
     if media_type in ("series", "ambiguous"):
         for c in candidates:
@@ -884,7 +1017,9 @@ async def disc_probe(body: DiscProbeRequest):
 
     return {
         "media_type": media_type,
-        "iso_path": body.iso_path,
+        "source_type": stype,
+        "source_path": spath,
+        "iso_path": body.iso_path,         # compat
         "suggested_title": suggested_title,
         "suggested_year": suggested_year,
         "episode_candidates": episode_candidates,
@@ -971,8 +1106,15 @@ class SeriesEpisodeSelection(_BaseModel):
 
 
 class CreateSeriesSessionsRequest(_BaseModel):
-    """Payload de POST /api/create-series-sessions."""
-    iso_path: str
+    """Payload de POST /api/create-series-sessions. Soporta 3 tipos de
+    origen como el resto del flujo.
+
+    Compat: si solo se pasa iso_path, se asume source_type='iso'.
+    """
+    iso_path: str | None = None        # legacy compat
+    source_type: str | None = None     # 'iso' | 'bdmv_folder' | 'm2ts'
+    source_path: str | None = None
+    m2ts_paths: list[str] | None = None  # solo si source_type='m2ts' multi-fichero
     series_tmdb_id: int | None = None
     series_name: str
     series_year: int | None = None
@@ -983,142 +1125,206 @@ class CreateSeriesSessionsRequest(_BaseModel):
 @app.post("/api/create-series-sessions",
           summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie")
 async def create_series_sessions(body: CreateSeriesSessionsRequest):
-    """Monta el ISO una vez, analiza cada MPLS seleccionado por completo
-    (mkvmerge + MediaInfo + dovi_tool + capítulos), aplica las reglas de
-    Fase B y crea una sesión `pending` por episodio.
+    """Analiza cada MPLS/M2TS seleccionado completamente y crea una
+    sesión `pending` por episodio.
 
-    El usuario lanza cada sesión manualmente desde el panel del proyecto
-    (decisión explícita — no se encolan en batch).
+    Soporta los 3 tipos de origen:
+      - 'iso': monta el ISO una vez, re-deriva cada MPLS del mount actual.
+      - 'bdmv_folder': los MPLS del payload son paths relativos a la
+        carpeta BDMV; los resuelve en su ubicación real.
+      - 'm2ts': el ep.mpls_path apunta directamente al fichero .m2ts
+        (cada m2ts = un episodio).
 
-    Coste: ~30s + N × 15-30s. Para 4 episodios típicos: ~2 min total.
-    El frontend muestra progreso vía el modal de Datos ISO una vez creadas.
+    El usuario lanza cada sesión manualmente desde el panel del proyecto.
+    Coste: ~30s + N × 15-30s.
     """
-    from phases.phase_a import run_full_analysis_for_mpls
+    from phases.phase_a import run_full_analysis_for_mpls, run_full_analysis_for_m2ts, find_main_m2ts
     from phases.phase_b import apply_rules, build_series_mkv_name
+    from phases.iso_mount import Source, SourceError, safe_source_path
     from models import Chapter
 
     if DEV_MODE:
         raise HTTPException(
             status_code=400,
-            detail="DEV_MODE no soporta create-series-sessions (no hay ISOs reales)",
+            detail="DEV_MODE no soporta create-series-sessions (no hay sources reales)",
         )
 
     if not body.episodes:
         raise HTTPException(status_code=400, detail="Lista de episodios vacía")
 
-    iso_full_path = str(ISOS_DIR / body.iso_path)
-    if not Path(iso_full_path).exists():
-        raise HTTPException(status_code=400, detail=f"ISO no encontrado: {iso_full_path}")
+    # Resolver source_type/source_path con compat para iso_path legacy
+    if body.source_type:
+        stype = body.source_type
+        spath = body.source_path or body.iso_path or ""
+    elif body.iso_path:
+        stype = "iso"
+        spath = body.iso_path
+    else:
+        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
 
-    audio_dcp = "audio dcp" in body.iso_path.lower()
-    fingerprint = compute_iso_fingerprint(iso_full_path)
+    # Validar path principal (no aplica para m2ts multi-fichero donde
+    # cada ep.mpls_path es el path directo)
+    try:
+        if stype == "m2ts" and body.m2ts_paths:
+            for p in body.m2ts_paths:
+                safe_source_path(p, str(ISOS_DIR))
+            source_abs = safe_source_path(body.m2ts_paths[0], str(ISOS_DIR))
+        else:
+            source_abs = safe_source_path(spath, str(ISOS_DIR))
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not Path(source_abs).exists():
+        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+
+    audio_dcp = "audio dcp" in (spath or "").lower()
+
+    # Fingerprint: para iso del .iso, para bdmv del m2ts más grande,
+    # para m2ts del primero (compartido entre todos los episodios).
+    if stype == "bdmv_folder":
+        fp_target = find_main_m2ts(source_abs) or source_abs
+    else:
+        fp_target = source_abs
+    fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
 
     created_sessions = []
     failed_episodes: list[dict] = []
-    mount_point = None
     try:
-        mount_point = await mount_iso(iso_full_path)
-        for ep in body.episodes:
-            # MPLS path en el ISO actualmente montado puede diferir del
-            # path original devuelto por disc-probe (cambia el mount point
-            # en cada montaje). Re-derivamos del mount actual usando solo
-            # el nombre del MPLS.
-            mpls_name = Path(ep.mpls_path).name
-            mpls_in_mount = None
-            for candidate in [
-                Path(mount_point) / "BDMV" / "PLAYLIST" / mpls_name,
-                Path(mount_point) / "PLAYLIST" / mpls_name,
-            ]:
-                if candidate.exists():
-                    mpls_in_mount = str(candidate)
-                    break
-            if mpls_in_mount is None:
-                failed_episodes.append({
-                    "episode_number": ep.episode_number,
-                    "error": f"MPLS {mpls_name} no encontrado en el disco montado",
-                })
-                continue
+        # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
+        async with await Source.open(source_abs) as src:
+            for ep in body.episodes:
+                # Localizar el MPLS/M2TS de este episodio según source_type
+                ep_source_path: str | None = None
+                if stype in ("iso", "bdmv_folder") and src.bdmv_root:
+                    # Re-derivar del mount/carpeta actual usando nombre del MPLS
+                    mpls_name = Path(ep.mpls_path).name
+                    for candidate in [
+                        Path(src.bdmv_root) / "BDMV" / "PLAYLIST" / mpls_name,
+                        Path(src.bdmv_root) / "PLAYLIST" / mpls_name,
+                    ]:
+                        if candidate.exists():
+                            ep_source_path = str(candidate)
+                            break
+                    if ep_source_path is None:
+                        failed_episodes.append({
+                            "episode_number": ep.episode_number,
+                            "error": f"MPLS {mpls_name} no encontrado en {src.bdmv_root}",
+                        })
+                        continue
+                else:
+                    # m2ts: ep.mpls_path apunta directamente al fichero
+                    try:
+                        ep_source_path = safe_source_path(ep.mpls_path, str(ISOS_DIR))
+                    except SourceError as e:
+                        failed_episodes.append({
+                            "episode_number": ep.episode_number,
+                            "error": str(e),
+                        })
+                        continue
+                    if not Path(ep_source_path).exists():
+                        failed_episodes.append({
+                            "episode_number": ep.episode_number,
+                            "error": f"M2TS {ep.mpls_path} no encontrado",
+                        })
+                        continue
 
-            try:
-                bdinfo, mpls_chapters_raw = await run_full_analysis_for_mpls(
-                    mount_point, mpls_in_mount,
+                # Análisis: para iso/bdmv usamos for_mpls (necesita bdmv_root);
+                # para m2ts usamos for_m2ts (sin BDMV).
+                try:
+                    if stype == "m2ts":
+                        bdinfo, mpls_chapters_raw = await run_full_analysis_for_m2ts(
+                            ep_source_path,
+                        )
+                    else:
+                        bdinfo, mpls_chapters_raw = await run_full_analysis_for_mpls(
+                            src.bdmv_root, ep_source_path,
+                        )
+                except Exception as e:
+                    _logger.warning(
+                        "Error analizando episodio %s de %s: %s",
+                        ep.episode_number, source_abs, e,
+                    )
+                    failed_episodes.append({
+                        "episode_number": ep.episode_number,
+                        "error": str(e),
+                    })
+                    continue
+
+                rules_result = apply_rules(bdinfo, spath, audio_dcp)
+
+                # Capítulos: igual que película — del MPLS si los hay, sino auto.
+                if mpls_chapters_raw:
+                    chapters = [Chapter(**c) for c in mpls_chapters_raw]
+                    chapters_auto = False
+                    chapters_reason = f"{len(chapters)} capítulos extraídos del MPLS del episodio"
+                elif bdinfo.duration_seconds > 0:
+                    chapters = generate_auto_chapters(bdinfo.duration_seconds)
+                    chapters_auto = True
+                    chapters_reason = "Sin capítulos en el MPLS — generados cada 10 min"
+                else:
+                    chapters = []
+                    chapters_auto = True
+                    chapters_reason = "No se pudo determinar la duración del episodio"
+
+                # Nombre del MKV con jerarquía Plex/Jellyfin
+                mkv_name = build_series_mkv_name(
+                    series_name=body.series_name,
+                    series_year=body.series_year,
+                    season_number=body.season_number,
+                    episode_number=ep.episode_number,
+                    episode_title=ep.episode_title,
+                    has_fel=bdinfo.has_fel,
+                    audio_dcp=audio_dcp,
                 )
-            except Exception as e:
-                _logger.warning(
-                    "Error analizando episodio %s del ISO %s: %s",
-                    ep.episode_number, body.iso_path, e,
+
+                # ID único por episodio. Incluye S/E para que sea legible.
+                import time as _t
+                session_id = f"{_sanitize_id(body.series_name)}_S{body.season_number:02d}E{ep.episode_number:02d}_{int(_t.time())}"
+
+                # mpls_path persistido: solo el nombre del MPLS (para iso/
+                # bdmv el mount o la carpeta puede cambiar de ruta absoluta
+                # entre montajes). Para m2ts guardamos el path absoluto
+                # (es estable — no se monta).
+                mpls_persist = (
+                    Path(ep_source_path).name if stype != "m2ts"
+                    else ep_source_path
                 )
-                failed_episodes.append({
-                    "episode_number": ep.episode_number,
-                    "error": str(e),
-                })
-                continue
 
-            rules_result = apply_rules(bdinfo, body.iso_path, audio_dcp)
-
-            # Capítulos: igual que película — del MPLS si los hay, sino auto.
-            if mpls_chapters_raw:
-                chapters = [Chapter(**c) for c in mpls_chapters_raw]
-                chapters_auto = False
-                chapters_reason = f"{len(chapters)} capítulos extraídos del MPLS del episodio"
-            elif bdinfo.duration_seconds > 0:
-                chapters = generate_auto_chapters(bdinfo.duration_seconds)
-                chapters_auto = True
-                chapters_reason = "Sin capítulos en el MPLS — generados cada 10 min"
-            else:
-                chapters = []
-                chapters_auto = True
-                chapters_reason = "No se pudo determinar la duración del episodio"
-
-            # Nombre del MKV con jerarquía Plex/Jellyfin
-            mkv_name = build_series_mkv_name(
-                series_name=body.series_name,
-                series_year=body.series_year,
-                season_number=body.season_number,
-                episode_number=ep.episode_number,
-                episode_title=ep.episode_title,
-                has_fel=bdinfo.has_fel,
-                audio_dcp=audio_dcp,
-            )
-
-            # ID único por episodio. Incluye S/E para que sea legible.
-            import time as _t
-            session_id = f"{_sanitize_id(body.series_name)}_S{body.season_number:02d}E{ep.episode_number:02d}_{int(_t.time())}"
-
-            session = Session(
-                id=session_id,
-                iso_path=iso_full_path,
-                iso_fingerprint=fingerprint,
-                status="pending",
-                bdinfo_result=bdinfo,
-                has_fel=bdinfo.has_fel,
-                audio_dcp=audio_dcp,
-                included_tracks=rules_result["included_tracks"],
-                discarded_tracks=rules_result["discarded_tracks"],
-                mkv_name=mkv_name,
-                mkv_name_manual=False,
-                chapters=chapters,
-                chapters_auto_generated=chapters_auto,
-                chapters_auto_reason=chapters_reason,
-                # Campos del modo serie
-                media_type="series",
-                series_tmdb_id=body.series_tmdb_id,
-                series_name=body.series_name,
-                series_year=body.series_year,
-                season_number=body.season_number,
-                episode_number=ep.episode_number,
-                episode_title=ep.episode_title,
-                episode_runtime_minutes=ep.runtime_minutes or None,
-                mpls_path=mpls_name,  # Solo el nombre — el mount cambia.
-            )
-            save_session(session)
-            created_sessions.append(session.model_dump())
+                session = Session(
+                    id=session_id,
+                    iso_path=source_abs,
+                    iso_fingerprint=fingerprint,
+                    status="pending",
+                    bdinfo_result=bdinfo,
+                    has_fel=bdinfo.has_fel,
+                    audio_dcp=audio_dcp,
+                    included_tracks=rules_result["included_tracks"],
+                    discarded_tracks=rules_result["discarded_tracks"],
+                    mkv_name=mkv_name,
+                    mkv_name_manual=False,
+                    chapters=chapters,
+                    chapters_auto_generated=chapters_auto,
+                    chapters_auto_reason=chapters_reason,
+                    # Campos del modo serie
+                    media_type="series",
+                    series_tmdb_id=body.series_tmdb_id,
+                    series_name=body.series_name,
+                    series_year=body.series_year,
+                    season_number=body.season_number,
+                    episode_number=ep.episode_number,
+                    episode_title=ep.episode_title,
+                    episode_runtime_minutes=ep.runtime_minutes or None,
+                    mpls_path=mpls_persist,
+                    source_type=stype,
+                    source_path=spath,
+                )
+                save_session(session)
+                created_sessions.append(session.model_dump())
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         _logger.exception("Error global en create-series-sessions")
         raise HTTPException(status_code=500, detail=f"Error creando sesiones: {e}")
-    finally:
-        if mount_point:
-            await unmount_iso(mount_point)
 
     return {
         "created": created_sessions,
