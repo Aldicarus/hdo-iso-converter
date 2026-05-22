@@ -2716,6 +2716,24 @@ async def run_phase_e_correct_sync(
             progress_offset=0.0, progress_weight=100.0, est_export_s=est_export,
         )
 
+    # Resumen de la corrección aplicada para que el log refleje qué cambió.
+    # Útil al releer el log de una sesión con varias iteraciones de Fase E.
+    if log_callback:
+        ops_parts = []
+        if editor_config.get("remove"):
+            ops_parts.append(f"remove {len(editor_config['remove'])} rangos")
+        if editor_config.get("duplicate"):
+            ops_parts.append(f"duplicate {len(editor_config['duplicate'])} rangos")
+        ops_summary = ", ".join(ops_parts) if ops_parts else "sin cambios"
+        sync_status = (
+            "sync perfecto (Δ=0)" if session.sync_delta == 0
+            else f"Δ = {session.sync_delta:+d} frames respecto al source"
+        )
+        await log_callback(
+            f"[Fase E] 🎯 Resultado: corrección aplicada ({ops_summary}). "
+            f"RPU corregido en RPU_synced.bin — {sync_status}."
+        )
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  FASE F — Inyectar RPU en EL
