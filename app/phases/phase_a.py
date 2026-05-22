@@ -286,11 +286,17 @@ async def identify_episode_candidates(
         - mpls_path: ruta absoluta
         - duration_minutes: duración en minutos
         - audio_track_count: número de pistas de audio
+        - m2ts_size_bytes: tamaño del m2ts referenciado por el MPLS
         - data: JSON completo de mkvmerge -J (para reuso)
 
-    Se filtran:
-        - MPLS sin pistas de audio (menús/navegación)
-        - MPLS con duración fuera del rango episodio (15-90 min)
+    Filtros aplicados (en orden):
+        1. MPLS sin pistas de audio (menús/navegación) → descartado.
+        2. MPLS con duración fuera del rango episodio (15-90 min) →
+           descartado.
+        3. MPLS apuntando a m2ts < 40% de la mediana del grupo → descartado.
+           Cubre el caso de MPLS de menús/featurettes que tienen
+           duración engañosa por 'still time' pero apuntan a un m2ts
+           pequeño (típicamente <500 MB vs episodios reales de 5+ GB).
 
     El orden de retorno es por nombre de MPLS ascendente (el patrón
     más común en discos de series — ver investigación TMDb, mpv, MakeMKV).
@@ -335,13 +341,47 @@ async def identify_episode_candidates(
         dur_min = _mpls_duration_minutes(data)
         if dur_min < EPISODE_MIN_MINUTES or dur_min > EPISODE_MAX_MINUTES:
             continue
+        # Resuelve el m2ts referenciado y captura su tamaño. Si no se
+        # puede resolver, m2ts_size_bytes queda 0 y el candidato se
+        # descarta más abajo (no podemos validar su tamaño relativo).
+        m2ts_path = _resolve_m2ts_from_mpls(share_path, str(mpls_path), data)
+        m2ts_size = 0
+        if m2ts_path and Path(m2ts_path).exists():
+            try:
+                m2ts_size = Path(m2ts_path).stat().st_size
+            except OSError:
+                m2ts_size = 0
         candidates.append({
             "mpls_name": mpls_path.name,
             "mpls_path": str(mpls_path),
             "duration_minutes": dur_min,
             "audio_track_count": audio_count,
+            "m2ts_size_bytes": m2ts_size,
             "data": data,
         })
+
+    # Filtro adicional por tamaño del m2ts referenciado. Caso típico:
+    # un MPLS de featurette/menú con `still time` cumple duración 15-90
+    # min Y ≥1 audio, pero apunta a un m2ts de <500MB (vs episodios
+    # reales que son 5+ GB en HD, 25+ GB en UHD). Descartamos los
+    # candidatos cuyo m2ts está por debajo del 40% de la mediana del
+    # grupo — heurística empíricamente robusta.
+    #
+    # Solo aplica si tenemos >=3 candidatos con tamaño conocido —
+    # con menos no hay base estadística para la mediana.
+    sized = [c for c in candidates if c["m2ts_size_bytes"] > 0]
+    discarded_by_size: list[dict] = []
+    if len(sized) >= 3:
+        sizes = sorted(c["m2ts_size_bytes"] for c in sized)
+        median = sizes[len(sizes) // 2]
+        size_threshold = int(median * 0.40)
+        kept = []
+        for c in candidates:
+            if c["m2ts_size_bytes"] > 0 and c["m2ts_size_bytes"] < size_threshold:
+                discarded_by_size.append(c)
+            else:
+                kept.append(c)
+        candidates = kept
 
     # Ordenar por nombre MPLS ascendente. Los discos de serie típicamente
     # numeran 00800, 00801, 00802... en orden de emisión (~85% de los
@@ -353,8 +393,24 @@ async def identify_episode_candidates(
     if log_callback:
         await log_callback(
             f"[Fase A] {len(candidates)} MPLS candidatos a episodio "
-            f"(duración 15-90 min, ≥1 audio)"
+            f"(duración 15-90 min, ≥1 audio, m2ts ≥ 40% mediana)"
         )
+        # Log informativo con tamaños — útil para diagnosticar falsos
+        # positivos o falsos negativos.
+        for c in candidates:
+            gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
+            await log_callback(
+                f"[Fase A]   ✓ {c['mpls_name']} · "
+                f"{c['duration_minutes']:.1f} min · "
+                f"{gb:.2f} GB · {c['audio_track_count']} audio"
+            )
+        for c in discarded_by_size:
+            gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
+            await log_callback(
+                f"[Fase A]   ⏭ descartado por tamaño: {c['mpls_name']} · "
+                f"{c['duration_minutes']:.1f} min · "
+                f"{gb:.2f} GB (m2ts < 40% mediana — probable featurette/menú)"
+            )
 
     return candidates
 
