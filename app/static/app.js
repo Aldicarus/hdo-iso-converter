@@ -696,9 +696,9 @@ function buildProjectPanelHTML(pid) {
 
     <div id="${pid}-iso-missing-banner" class="banner error" style="display:none">
       <span class="banner-icon">💿</span>
-      <div><strong>ISO no disponible.</strong>
+      <div><strong id="${pid}-iso-missing-title">Origen no disponible.</strong>
         <span id="${pid}-iso-missing-text"></span>
-        Puedes editar los parámetros, pero no podrás ejecutar hasta que el ISO vuelva a estar accesible.
+        Puedes editar los parámetros, pero no podrás ejecutar hasta que el origen vuelva a estar accesible.
       </div>
     </div>
 
@@ -5274,8 +5274,14 @@ async function _checkIsoAvailability(project) {
   project.isoAvailable = data ? data.available : null;  // null = error de red
 
   if (data && !data.available) {
-    const isoName = (data.iso_path || '').replace(/\\/g, '/').split('/').pop();
-    setText('iso-missing-text', ` El fichero "${isoName}" ya no se encuentra en /mnt/isos.`);
+    const name = (data.iso_path || '').replace(/\\/g, '/').split('/').pop();
+    // Mensaje dinámico según source_type — antes era siempre "El fichero
+    // ... ya no se encuentra en /mnt/isos" (asumía ISO), ahora respeta
+    // el tipo real del origen (carpeta BDMV / fichero M2TS / ISO).
+    const label = data.source_label || 'ISO';
+    const verb = data.source_type === 'bdmv_folder' ? 'La carpeta' : 'El fichero';
+    setText('iso-missing-title', `${label} no disponible.`);
+    setText('iso-missing-text', ` ${verb} "${name}" ya no se encuentra en /mnt/isos.`);
     show('iso-missing-banner');
   } else {
     hide('iso-missing-banner');
@@ -6706,17 +6712,20 @@ async function executeSession() {
   await saveSession();
   clearProjectDirty(project.id);
 
-  // Verificar disponibilidad del ISO
+  // Verificar disponibilidad del origen (los 3 tipos soportados)
   const check = await apiFetch(`/api/sessions/${currentSession.id}/check-iso`);
   if (!check) return; // error de red ya manejado por apiFetch
   if (!check.available) {
-    const isoName = (check.iso_path || '').replace(/\\/g, '/').split('/').pop();
-    showToast(`ISO no disponible: "${isoName}" no está en /mnt/isos. No se puede ejecutar.`, 'error');
+    const name = (check.iso_path || '').replace(/\\/g, '/').split('/').pop();
+    const label = check.source_label || 'ISO';
+    const verb = check.source_type === 'bdmv_folder' ? 'La carpeta' : 'El fichero';
+    showToast(`${label} no disponible: "${name}" no está en /mnt/isos. No se puede ejecutar.`, 'error');
     // Actualizar banner por si no estaba visible
     project.isoAvailable = false;
     const prevSubTab = activeSubTabId;
     activeSubTabId = project.id;
-    setText('iso-missing-text', ` El fichero "${isoName}" ya no se encuentra en /mnt/isos.`);
+    setText('iso-missing-title', `${label} no disponible.`);
+    setText('iso-missing-text', ` ${verb} "${name}" ya no se encuentra en /mnt/isos.`);
     show('iso-missing-banner');
     activeSubTabId = prevSubTab;
     return;

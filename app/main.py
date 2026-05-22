@@ -1429,20 +1429,33 @@ async def reset_chapters(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    iso_path = session.iso_path
-    if not Path(iso_path).exists():
-        raise HTTPException(status_code=400, detail="ISO no disponible")
+    # Restaurar capítulos del MPLS requiere mount → solo aplica a iso o
+    # bdmv_folder. Para m2ts no hay MPLS — no se puede restaurar.
+    available, source_type, source_path = _check_source_available(session)
+    if not available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Origen no disponible: {source_path}",
+        )
+    if source_type == "m2ts":
+        raise HTTPException(
+            status_code=400,
+            detail="No hay capítulos que restaurar para fuentes M2TS sin MPLS. "
+                   "Los capítulos auto-generados se mantienen.",
+        )
 
-    mount_point = None
+    # Para iso/bdmv_folder usamos Source context manager (mount ISO si aplica)
     try:
-        mount_point = await mount_iso(iso_path)
-        _, mpls_path = await run_mkvmerge_identify(mount_point)
-        chapters_raw = parse_mpls_chapters(mpls_path)
+        from phases.iso_mount import Source
+        async with await Source.open(source_path) as src:
+            if not src.bdmv_root:
+                raise HTTPException(status_code=400, detail="BDMV no accesible")
+            _, mpls_path = await run_mkvmerge_identify(src.bdmv_root)
+            chapters_raw = parse_mpls_chapters(mpls_path)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al extraer capítulos: {e}")
-    finally:
-        if mount_point:
-            await unmount_iso(mount_point)
 
     if not chapters_raw:
         raise HTTPException(status_code=404, detail="No se encontraron capítulos en el disco")
@@ -1457,20 +1470,65 @@ async def reset_chapters(session_id: str):
 
 # ── Ejecución del pipeline (Fases D + E) ──────────────────────────────────────
 
-@app.get("/api/sessions/{session_id}/check-iso", summary="Comprueba si el ISO de la sesión está disponible")
+def _check_source_available(session) -> tuple[bool, str, str]:
+    """Verifica que el origen referenciado por la sesión sigue disponible
+    según su source_type. Devuelve (available, source_type, source_label).
+
+    Para los 3 tipos de origen (v2.6+):
+      - 'iso': el fichero .iso debe existir.
+      - 'bdmv_folder': la carpeta debe existir Y contener BDMV/PLAYLIST/.
+      - 'm2ts': el fichero .m2ts debe existir (uno o el primero del set).
+
+    Compat: sesiones legacy sin source_type lo asumen 'iso'.
+    """
+    source_type = getattr(session, 'source_type', '') or "iso"
+    p = Path(session.iso_path)
+    if not p.exists():
+        return False, source_type, str(p)
+    if source_type == "iso":
+        available = p.is_file() and p.suffix.lower() == ".iso"
+    elif source_type == "bdmv_folder":
+        available = p.is_dir() and (
+            (p / "BDMV" / "PLAYLIST").exists() or (p / "PLAYLIST").exists()
+        )
+    elif source_type == "m2ts":
+        available = p.is_file() and p.suffix.lower() == ".m2ts"
+    else:
+        # Desconocido — comprobación mínima de existencia
+        available = True
+    return available, source_type, str(p)
+
+
+@app.get("/api/sessions/{session_id}/check-iso", summary="Comprueba si el origen de la sesión está disponible")
 async def check_iso(session_id: str):
     """
-    Verifica que el fichero ISO referenciado por la sesión existe en disco
-    y tiene extensión .iso. No monta ni lee el ISO.
+    Verifica que el origen referenciado por la sesión sigue disponible.
+    Funciona para los 3 tipos: ISO, carpeta BDMV y ficheros M2TS.
+    No monta ni lee el origen — solo verifica existencia/estructura.
 
-    Respuesta: ``{"available": true|false, "iso_path": "/mnt/isos/..."}``
+    Respuesta:
+      {
+        "available": true|false,
+        "iso_path": "..." (path del origen, mantiene nombre legacy),
+        "source_type": "iso"|"bdmv_folder"|"m2ts",
+        "source_label": "ISO"|"carpeta BDMV"|"fichero M2TS"
+      }
     """
     session = load_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
-    iso = Path(session.iso_path)
-    available = iso.exists() and iso.suffix.lower() == ".iso"
-    return {"available": available, "iso_path": session.iso_path}
+    available, source_type, source_path = _check_source_available(session)
+    source_label = {
+        "iso": "ISO",
+        "bdmv_folder": "carpeta BDMV",
+        "m2ts": "fichero M2TS",
+    }.get(source_type, "origen")
+    return {
+        "available": available,
+        "iso_path": session.iso_path,
+        "source_type": source_type,
+        "source_label": source_label,
+    }
 
 
 @app.post("/api/sessions/{session_id}/execute", summary="Encola la sesión para Fases D+E")
@@ -1495,11 +1553,17 @@ async def execute_session(session_id: str):
                    f"Espera a que termine o cancela el trabajo actual.",
         )
 
-    iso = Path(session.iso_path)
-    if not iso.exists() or iso.suffix.lower() != ".iso":
+    # Verificación del origen — soporta los 3 tipos (iso, bdmv_folder, m2ts)
+    available, source_type, source_path = _check_source_available(session)
+    if not available:
+        type_label = {
+            "iso": "ISO",
+            "bdmv_folder": "carpeta BDMV",
+            "m2ts": "fichero M2TS",
+        }.get(source_type, "origen")
         raise HTTPException(
             status_code=400,
-            detail=f"ISO no disponible: {session.iso_path}. Comprueba que el fichero sigue en /mnt/isos.",
+            detail=f"{type_label} no disponible: {source_path}. Comprueba que sigue en /mnt/isos.",
         )
 
     session.status        = "queued"
