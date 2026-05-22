@@ -2078,23 +2078,31 @@ def _resolve_mkv_path_safe(input_path: str) -> Path:
     )
 
 
-@app.get("/api/library/browse", summary="Navega árboles de MKVs (Tab 2 y Tab 3)")
-async def library_browse(root: str = "library", path: str = ""):
-    """Lista subdirectorios + ficheros .mkv bajo LIBRARY_ROOTS[root]/<path>.
+@app.get("/api/library/browse", summary="Navega árboles de MKVs/ISOs/M2TS/BDMV")
+async def library_browse(
+    root: str = "library",
+    path: str = "",
+    filter: str = "mkv",
+):
+    """Lista subdirectorios + ficheros bajo LIBRARY_ROOTS[root]/<path>
+    filtrando por extensión según `filter`.
 
-    Roots soportados (configurables via env LIBRARY_DIR / OUTPUT_DIR):
-      - "library": /mnt/library — biblioteca de MKVs origen
-      - "output":  /mnt/output  — MKVs creados por la app (Tab 1)
+    Roots soportados:
+      - "library": /mnt/library
+      - "output":  /mnt/output
+      - "downloaded": /mnt/isos (también usado por Tab 1 como "sources")
 
-    Devuelve:
-      - root: clave del root activo
-      - path: ruta relativa actual (vacío = raíz)
-      - parent: ruta relativa del padre (None si en raíz)
-      - base: ruta absoluta del root
-      - entries: list[{name, type, size_bytes}] dirs primero, alfabético
+    Filtros (qué ficheros listar — las carpetas siempre se muestran para
+    permitir navegación):
+      - "mkv":   ficheros .mkv (default — compat Tab 2/3)
+      - "iso":   ficheros .iso
+      - "m2ts":  ficheros .m2ts
+      - "bdmv":  ninguno (solo carpetas; las que tengan BDMV/PLAYLIST/
+                 dentro se marcan con is_bdmv=True)
 
-    Solo se muestran .mkv (case-insensitive) y carpetas no-ocultas. Filtra
-    .zfs/snapshot, @eaDir, papeleras, dotfiles, etc.
+    Entries devueltas con campos extra:
+      - is_bdmv: true si la carpeta contiene BDMV/PLAYLIST/ dentro
+        (el frontend la pinta como seleccionable directamente sin navegar).
     """
     if DEV_MODE:
         # Fixtures distintas según el root seleccionado
@@ -2129,6 +2137,19 @@ async def library_browse(root: str = "library", path: str = ""):
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail=f"Directorio no encontrado: {path}")
 
+    # Validar filter
+    valid_filters = {"mkv", "iso", "m2ts", "bdmv"}
+    if filter not in valid_filters:
+        raise HTTPException(status_code=400, detail=f"filter desconocido: {filter}")
+
+    # Mapa filter → extensión a listar (None = solo carpetas)
+    file_ext = {
+        "mkv": ".mkv",
+        "iso": ".iso",
+        "m2ts": ".m2ts",
+        "bdmv": None,
+    }[filter]
+
     entries: list[dict] = []
     try:
         for child in target.iterdir():
@@ -2142,8 +2163,29 @@ async def library_browse(root: str = "library", path: str = ""):
             if name in _LIBRARY_HIDDEN_DIRS:
                 continue
             if child.is_dir():
-                entries.append({"name": name, "type": "dir", "size_bytes": 0})
-            elif child.is_file() and name.lower().endswith(".mkv"):
+                # En modo BDMV no exponemos la propia carpeta "BDMV" como
+                # navegable (no aporta — el usuario selecciona la padre).
+                if filter == "bdmv" and name == "BDMV":
+                    continue
+                # Detecta si esta carpeta es un BDMV root (tiene BDMV/PLAYLIST/
+                # dentro). Solo computamos para los filtros que lo necesitan
+                # para no penalizar perf en navegación normal.
+                is_bdmv = False
+                if filter == "bdmv":
+                    try:
+                        is_bdmv = (
+                            (child / "BDMV" / "PLAYLIST").exists() or
+                            (child / "PLAYLIST").exists()
+                        )
+                    except OSError:
+                        is_bdmv = False
+                entries.append({
+                    "name": name,
+                    "type": "dir",
+                    "size_bytes": 0,
+                    "is_bdmv": is_bdmv,
+                })
+            elif file_ext and child.is_file() and name.lower().endswith(file_ext):
                 try:
                     size = child.stat().st_size
                 except OSError:

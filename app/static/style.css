@@ -8228,3 +8228,120 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: 11px;
   flex-shrink: 0;
 }
+
+/* ═══ File browser embebido (modal Nuevo proyecto, v2.6+) ═══════════════
+   Reusa la paleta del file-browser-modal pero compacto y embebido en el
+   modal de creación. Permite navegar carpetas con click, filtrar por tipo
+   (iso/m2ts/bdmv) y seleccionar entradas. */
+
+.src-fb {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.src-fb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--sep);
+  font-size: 12px;
+}
+
+.src-fb-breadcrumb {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.src-fb-list {
+  max-height: 280px;
+  min-height: 220px;
+  overflow-y: auto;
+  background: #ffffff;
+  contain: paint;
+}
+
+.src-fb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  border-bottom: 1px solid var(--sep);
+  transition: background 0.1s ease;
+}
+.src-fb-row:hover {
+  background: var(--surface-2);
+}
+.src-fb-row.selected {
+  background: var(--blue-dim);
+  border-left: 3px solid var(--blue);
+  padding-left: 9px;
+}
+.src-fb-row .src-fb-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+.src-fb-row .src-fb-name {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src-fb-row .src-fb-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.src-fb-row.bdmv-folder {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.04), transparent);
+}
+.src-fb-row.bdmv-folder.selected {
+  background: var(--green-dim);
+  border-left-color: var(--green);
+}
+.src-fb-row .src-fb-badge {
+  font-size: 10px;
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: var(--font-stack);
+}
+.src-fb-row .src-fb-check {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.src-fb-status {
+  padding: 6px 12px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--sep);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.src-fb-loading,
+.src-fb-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+}

@@ -557,40 +557,51 @@
       </button>
     </div>
 
-    <!-- Panel ISO -->
+    <!-- File browsers integrados — uno por tipo. Mismo patrón visual que
+         el browser de Tab 2/3 (file-browser-modal) pero embedded en el
+         modal de Nuevo Proyecto. Navegación por carpetas con breadcrumb. -->
+
+    <!-- Panel ISO: navega /mnt/isos buscando .iso -->
     <div id="source-panel-iso" class="source-panel">
-      <div class="iso-select-row">
-        <select id="iso-picker-select" class="iso-picker-select" onchange="onIsoPickerChange()"
-          data-tooltip="Lista de ISOs disponibles en /mnt/isos">
-          <option value="">— Seleccionar ISO —</option>
-        </select>
-        <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadIsoPickerList()"
-          data-tooltip="Recargar la lista de ISOs desde /mnt/isos">↺ Actualizar</button>
+      <div class="src-fb" data-filter="iso">
+        <div class="src-fb-toolbar">
+          <div class="src-fb-breadcrumb" id="src-fb-iso-breadcrumb">📂 /mnt/isos</div>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('iso','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+        </div>
+        <div class="src-fb-list" id="src-fb-iso-list">
+          <div class="src-fb-loading">⏳ Cargando…</div>
+        </div>
+        <div class="src-fb-status" id="src-fb-iso-status">Selecciona un fichero .iso</div>
       </div>
-      <div class="iso-picker-status" id="iso-picker-status">Cargando ISOs disponibles…</div>
     </div>
 
-    <!-- Panel Carpeta BDMV -->
+    <!-- Panel Carpeta BDMV: navega hasta encontrar carpetas marcadas como BDMV.
+         Las carpetas con BDMV/ dentro son seleccionables directamente. -->
     <div id="source-panel-bdmv" class="source-panel" style="display:none">
-      <div class="iso-select-row">
-        <select id="bdmv-picker-select" class="iso-picker-select" onchange="onBdmvPickerChange()"
-          data-tooltip="Carpetas BDMV detectadas en /mnt/isos (con BDMV/PLAYLIST/ dentro)">
-          <option value="">— Seleccionar carpeta —</option>
-        </select>
-        <button class="btn btn-secondary btn-md iso-refresh-btn" onclick="loadSourcesList()"
-          data-tooltip="Recargar la lista">↺ Actualizar</button>
+      <div class="src-fb" data-filter="bdmv">
+        <div class="src-fb-toolbar">
+          <div class="src-fb-breadcrumb" id="src-fb-bdmv-breadcrumb">📂 /mnt/isos</div>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('bdmv','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+        </div>
+        <div class="src-fb-list" id="src-fb-bdmv-list">
+          <div class="src-fb-loading">⏳ Cargando…</div>
+        </div>
+        <div class="src-fb-status" id="src-fb-bdmv-status">Navega hasta encontrar una carpeta marcada 📀 BDMV y selecciónala</div>
       </div>
-      <div class="iso-picker-status" id="bdmv-picker-status">Carpetas BDMV en /mnt/isos…</div>
     </div>
 
-    <!-- Panel M2TS (multi-select) -->
+    <!-- Panel M2TS: navega + multi-select de .m2ts -->
     <div id="source-panel-m2ts" class="source-panel" style="display:none">
-      <div class="iso-picker-status" id="m2ts-picker-status">Ficheros .m2ts en /mnt/isos…</div>
-      <div id="m2ts-picker-list" style="margin-top:8px; max-height:240px; overflow-y:auto; border:1px solid var(--sep); border-radius:6px; padding:4px">
-        <div style="font-size:11px; color:var(--text-3); padding:8px">⏳ Cargando…</div>
-      </div>
-      <div style="font-size:11px; color:var(--text-3); margin-top:6px">
-        ℹ Marca <strong>1 fichero</strong> para procesar como película. Marca <strong>varios</strong> para tratarlos como episodios de una serie.
+      <div class="src-fb" data-filter="m2ts">
+        <div class="src-fb-toolbar">
+          <div class="src-fb-breadcrumb" id="src-fb-m2ts-breadcrumb">📂 /mnt/isos</div>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('m2ts','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbM2tsClear()" data-tooltip="Quitar todas las selecciones">✕ Limpiar selección</button>
+        </div>
+        <div class="src-fb-list" id="src-fb-m2ts-list">
+          <div class="src-fb-loading">⏳ Cargando…</div>
+        </div>
+        <div class="src-fb-status" id="src-fb-m2ts-status">Marca uno o varios .m2ts (1 = película · varios = serie)</div>
       </div>
     </div>
 

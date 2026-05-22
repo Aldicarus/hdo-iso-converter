@@ -3796,136 +3796,187 @@ async function loadIsoPickerList() {
   await loadSourcesList();
 }
 
-/** Carga las fuentes disponibles vía /api/sources (los 3 tipos) y rellena
- *  los 3 paneles. */
+/** Carga inicial de los 3 file browsers embebidos en el modal Nuevo Proyecto.
+ *  Cada uno navega /mnt/isos con un filtro de extensión distinto. */
 async function loadSourcesList() {
-  const isoSel    = document.getElementById('iso-picker-select');
-  const isoStatus = document.getElementById('iso-picker-status');
-  const bdmvSel   = document.getElementById('bdmv-picker-select');
-  const bdmvStatus= document.getElementById('bdmv-picker-status');
-  const m2tsList  = document.getElementById('m2ts-picker-list');
-  const m2tsStatus= document.getElementById('m2ts-picker-status');
+  // Estado de navegación por filtro
+  _srcFb.iso = { path: '', entries: [] };
+  _srcFb.bdmv = { path: '', entries: [] };
+  _srcFb.m2ts = { path: '', entries: [] };
+  await Promise.all([
+    srcFbNavigate('iso', ''),
+    srcFbNavigate('bdmv', ''),
+    srcFbNavigate('m2ts', ''),
+  ]);
+}
 
-  if (isoSel) { isoSel.innerHTML = '<option value="">Cargando…</option>'; isoSel.disabled = true; }
-  if (isoStatus) { isoStatus.className = 'iso-picker-status'; isoStatus.textContent = '⏳ Consultando /mnt/isos…'; }
-  if (bdmvSel) { bdmvSel.innerHTML = '<option value="">Cargando…</option>'; bdmvSel.disabled = true; }
-  if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status'; bdmvStatus.textContent = '⏳ Buscando carpetas BDMV…'; }
-  if (m2tsList) m2tsList.innerHTML = '<div style="font-size:11px; color:var(--text-3); padding:8px">⏳ Cargando…</div>';
-  if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status'; m2tsStatus.textContent = '⏳ Buscando ficheros .m2ts…'; }
+/** Estado por-filtro del file browser embebido. */
+const _srcFb = {
+  iso:  { path: '', entries: [] },
+  bdmv: { path: '', entries: [] },
+  m2ts: { path: '', entries: [] },
+};
 
-  const data = await apiFetch('/api/sources');
-  if (!data || !Array.isArray(data.sources)) {
-    if (isoStatus) { isoStatus.className = 'iso-picker-status error'; isoStatus.textContent = '❌ Error al cargar fuentes'; }
-    if (bdmvStatus) bdmvStatus.textContent = '❌ Error al cargar';
-    if (m2tsStatus) m2tsStatus.textContent = '❌ Error al cargar';
+/** Navega a una ruta relativa dentro del browser de un filtro concreto.
+ *  filter: 'iso' | 'bdmv' | 'm2ts' (los IDs del DOM usan estos prefijos).
+ *  relPath: ruta relativa a /mnt/isos (vacío = raíz). */
+async function srcFbNavigate(filter, relPath) {
+  const listEl = document.getElementById(`src-fb-${filter}-list`);
+  const bcEl = document.getElementById(`src-fb-${filter}-breadcrumb`);
+  if (listEl) listEl.innerHTML = '<div class="src-fb-loading">⏳ Cargando…</div>';
+  if (bcEl) bcEl.textContent = relPath ? `📂 /mnt/isos / ${relPath}` : '📂 /mnt/isos';
+
+  const url = `/api/library/browse?root=downloaded&path=${encodeURIComponent(relPath || '')}&filter=${filter}`;
+  const data = await apiFetch(url);
+  if (!data) {
+    if (listEl) listEl.innerHTML = '<div class="src-fb-empty">⚠ Error al cargar</div>';
+    return;
+  }
+  if (data.error) {
+    if (listEl) listEl.innerHTML = `<div class="src-fb-empty">${escHtml(data.error)}</div>`;
     return;
   }
 
-  // Particionar por tipo
-  _sourcesCache = { iso: [], bdmv_folder: [], m2ts: [] };
-  data.sources.forEach(s => {
-    if (_sourcesCache[s.type]) _sourcesCache[s.type].push(s);
+  _srcFb[filter] = {
+    path: data.path || '',
+    parent: data.parent,
+    entries: data.entries || [],
+  };
+
+  _renderSrcFb(filter);
+}
+
+/** Renderiza el contenido del browser para un filtro dado. */
+function _renderSrcFb(filter) {
+  const st = _srcFb[filter];
+  const listEl = document.getElementById(`src-fb-${filter}-list`);
+  if (!listEl) return;
+
+  const rows = [];
+
+  // Fila "..": subir un nivel si no estamos en la raíz
+  if (st.parent !== null && st.parent !== undefined) {
+    rows.push(`
+      <div class="src-fb-row" onclick="srcFbNavigate('${filter}', ${JSON.stringify(st.parent)})">
+        <span class="src-fb-icon">⬆</span>
+        <span class="src-fb-name">.. (subir)</span>
+      </div>
+    `);
+  }
+
+  if (!st.entries.length) {
+    if (rows.length === 0) {
+      listEl.innerHTML = `<div class="src-fb-empty">— Carpeta vacía o sin entradas que coincidan con el filtro <code>${filter}</code> —</div>`;
+      return;
+    }
+    listEl.innerHTML = rows.join('');
+    return;
+  }
+
+  st.entries.forEach(e => {
+    const path = st.path ? `${st.path}/${e.name}` : e.name;
+    if (e.type === 'dir') {
+      if (filter === 'bdmv' && e.is_bdmv) {
+        // Carpeta seleccionable como BDMV root
+        const selected = bdmvSelectedPath === path ? ' selected' : '';
+        rows.push(`
+          <div class="src-fb-row bdmv-folder${selected}" onclick="srcFbSelectBdmv(${JSON.stringify(path)})">
+            <span class="src-fb-icon">📀</span>
+            <span class="src-fb-name">${escHtml(e.name)}</span>
+            <span class="src-fb-badge">BDMV</span>
+          </div>
+        `);
+      } else {
+        // Carpeta navegable normal
+        rows.push(`
+          <div class="src-fb-row" onclick="srcFbNavigate('${filter}', ${JSON.stringify(path)})">
+            <span class="src-fb-icon">📁</span>
+            <span class="src-fb-name">${escHtml(e.name)}</span>
+            <span class="src-fb-meta">→</span>
+          </div>
+        `);
+      }
+    } else {
+      const sizeGb = e.size_bytes > 0 ? `${(e.size_bytes / 1e9).toFixed(2)} GB` : '';
+      if (filter === 'iso') {
+        const selected = pickerSelectedIso === path ? ' selected' : '';
+        rows.push(`
+          <div class="src-fb-row${selected}" onclick="srcFbSelectIso(${JSON.stringify(path)})">
+            <span class="src-fb-icon">💿</span>
+            <span class="src-fb-name">${escHtml(e.name)}</span>
+            <span class="src-fb-meta">${sizeGb}</span>
+          </div>
+        `);
+      } else if (filter === 'm2ts') {
+        const checked = m2tsSelectedPaths.includes(path) ? 'checked' : '';
+        const selected = checked ? ' selected' : '';
+        rows.push(`
+          <label class="src-fb-row${selected}">
+            <input type="checkbox" class="src-fb-check" value="${escHtml(path)}" ${checked} onchange="srcFbToggleM2ts(this, ${JSON.stringify(path)})">
+            <span class="src-fb-icon">🎞️</span>
+            <span class="src-fb-name">${escHtml(e.name)}</span>
+            <span class="src-fb-meta">${sizeGb}</span>
+          </label>
+        `);
+      }
+    }
   });
 
-  // Panel ISO
-  if (isoSel) {
-    isoSel.disabled = false;
-    if (!_sourcesCache.iso.length) {
-      isoSel.innerHTML = '<option value="">— No hay ISOs disponibles —</option>';
-      if (isoStatus) { isoStatus.className = 'iso-picker-status warn'; isoStatus.textContent = '⚠️ Sin ficheros .iso en /mnt/isos'; }
-    } else {
-      isoSel.innerHTML = '<option value="">— Seleccionar ISO —</option>';
-      _sourcesCache.iso.forEach(iso => {
-        const opt = document.createElement('option');
-        opt.value = iso.path;
-        opt.textContent = iso.path.replace(/\.iso$/i, '');
-        isoSel.appendChild(opt);
-      });
-      if (isoStatus) { isoStatus.className = 'iso-picker-status ok'; isoStatus.textContent = `✅ ${_sourcesCache.iso.length} ISO${_sourcesCache.iso.length !== 1 ? 's' : ''}`; }
-      // Restaurar selección previa
-      if (pickerSelectedIso && _sourcesCache.iso.some(s => s.path === pickerSelectedIso)) {
-        isoSel.value = pickerSelectedIso;
-      }
-    }
-  }
+  listEl.innerHTML = rows.join('');
+}
 
-  // Panel BDMV
-  if (bdmvSel) {
-    bdmvSel.disabled = false;
-    if (!_sourcesCache.bdmv_folder.length) {
-      bdmvSel.innerHTML = '<option value="">— No hay carpetas BDMV disponibles —</option>';
-      if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status warn'; bdmvStatus.textContent = '⚠️ Sin carpetas BDMV en /mnt/isos'; }
-    } else {
-      bdmvSel.innerHTML = '<option value="">— Seleccionar carpeta —</option>';
-      _sourcesCache.bdmv_folder.forEach(b => {
-        const opt = document.createElement('option');
-        opt.value = b.path;
-        const sizeGb = b.size_bytes > 0 ? ` (${(b.size_bytes / 1e9).toFixed(1)} GB)` : '';
-        opt.textContent = `${b.path}${sizeGb}`;
-        bdmvSel.appendChild(opt);
-      });
-      if (bdmvStatus) { bdmvStatus.className = 'iso-picker-status ok'; bdmvStatus.textContent = `✅ ${_sourcesCache.bdmv_folder.length} carpeta${_sourcesCache.bdmv_folder.length !== 1 ? 's' : ''} BDMV`; }
-      if (bdmvSelectedPath && _sourcesCache.bdmv_folder.some(s => s.path === bdmvSelectedPath)) {
-        bdmvSel.value = bdmvSelectedPath;
-      }
-    }
-  }
-
-  // Panel M2TS (multi-select con checkboxes)
-  if (m2tsList) {
-    if (!_sourcesCache.m2ts.length) {
-      m2tsList.innerHTML = '<div style="font-size:11px; color:var(--text-3); padding:8px">— No hay ficheros .m2ts sueltos en /mnt/isos —</div>';
-      if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status warn'; m2tsStatus.textContent = '⚠️ Sin ficheros .m2ts sueltos'; }
-    } else {
-      m2tsList.innerHTML = _sourcesCache.m2ts.map(m => {
-        const sizeGb = m.size_bytes > 0 ? `${(m.size_bytes / 1e9).toFixed(1)} GB` : '?';
-        const checked = m2tsSelectedPaths.includes(m.path) ? 'checked' : '';
-        return `
-          <label style="display:flex; gap:8px; padding:6px 8px; border-bottom:1px solid var(--sep); cursor:pointer; font-size:12px">
-            <input type="checkbox" value="${escHtml(m.path)}" ${checked} onchange="onM2tsToggle(this)">
-            <span style="flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(m.path)}</span>
-            <span style="color:var(--text-3); font-variant-numeric:tabular-nums">${sizeGb}</span>
-          </label>
-        `;
-      }).join('');
-      if (m2tsStatus) { m2tsStatus.className = 'iso-picker-status ok'; m2tsStatus.textContent = `✅ ${_sourcesCache.m2ts.length} fichero${_sourcesCache.m2ts.length !== 1 ? 's' : ''} .m2ts`; }
-    }
-  }
-
+/** Selección de ISO (single). */
+function srcFbSelectIso(path) {
+  pickerSelectedIso = path;
+  const status = document.getElementById('src-fb-iso-status');
+  if (status) status.textContent = `✅ Seleccionado: ${path}`;
+  _renderSrcFb('iso');  // re-render para marcar la fila activa
   _updateAnalyzeButtonState();
 }
 
-/** Actualiza pickerSelectedIso al cambiar el select del tab ISO. */
-function onIsoPickerChange() {
-  const sel = document.getElementById('iso-picker-select');
-  pickerSelectedIso = sel.value || null;
+/** Selección de carpeta BDMV (single). */
+function srcFbSelectBdmv(path) {
+  bdmvSelectedPath = path;
+  const status = document.getElementById('src-fb-bdmv-status');
+  if (status) status.textContent = `✅ Seleccionada carpeta BDMV: ${path}`;
+  _renderSrcFb('bdmv');
   _updateAnalyzeButtonState();
 }
 
-/** Actualiza bdmvSelectedPath al cambiar el select del tab BDMV. */
-function onBdmvPickerChange() {
-  const sel = document.getElementById('bdmv-picker-select');
-  bdmvSelectedPath = sel.value || null;
-  _updateAnalyzeButtonState();
-}
-
-/** Actualiza m2tsSelectedPaths al togglear un checkbox del tab M2TS. */
-function onM2tsToggle(cb) {
-  const path = cb.value;
-  if (cb.checked) {
+/** Toggle de un M2TS en el multi-select. */
+function srcFbToggleM2ts(checkbox, path) {
+  if (checkbox.checked) {
     if (!m2tsSelectedPaths.includes(path)) m2tsSelectedPaths.push(path);
   } else {
     m2tsSelectedPaths = m2tsSelectedPaths.filter(p => p !== path);
   }
-  // Indicador en el status del m2ts
-  const status = document.getElementById('m2ts-picker-status');
-  if (status && m2tsSelectedPaths.length > 0) {
-    const mode = m2tsSelectedPaths.length === 1 ? 'película' : `serie (${m2tsSelectedPaths.length} episodios)`;
-    status.className = 'iso-picker-status ok';
-    status.textContent = `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} seleccionado${m2tsSelectedPaths.length !== 1 ? 's' : ''} → modo ${mode}`;
+  const status = document.getElementById('src-fb-m2ts-status');
+  if (status) {
+    if (m2tsSelectedPaths.length === 0) {
+      status.textContent = 'Marca uno o varios .m2ts (1 = película · varios = serie)';
+    } else {
+      const mode = m2tsSelectedPaths.length === 1 ? 'película' : `serie (${m2tsSelectedPaths.length} episodios)`;
+      status.textContent = `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → modo ${mode}`;
+    }
   }
+  // Refresca solo la fila para que el highlight se actualice
+  _renderSrcFb('m2ts');
   _updateAnalyzeButtonState();
 }
+
+/** Reset de las selecciones M2TS. */
+function srcFbM2tsClear() {
+  m2tsSelectedPaths = [];
+  const status = document.getElementById('src-fb-m2ts-status');
+  if (status) status.textContent = 'Marca uno o varios .m2ts (1 = película · varios = serie)';
+  _renderSrcFb('m2ts');
+  _updateAnalyzeButtonState();
+}
+
+/** Legacy stubs (algunos callers antiguos los llamaban). */
+function onIsoPickerChange() { /* obsoleto — el browser nuevo usa srcFbSelectIso */ }
+function onBdmvPickerChange() { /* obsoleto — usa srcFbSelectBdmv */ }
+function onM2tsToggle() { /* obsoleto — usa srcFbToggleM2ts */ }
 
 /**
  * Analiza el ISO seleccionado en el picker.
