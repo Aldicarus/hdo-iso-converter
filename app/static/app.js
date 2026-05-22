@@ -512,9 +512,21 @@ function openProject(session) {
   }
 
   const pid  = genProjectId();
-  const name = session.iso_path
-    ? session.iso_path.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '')
-    : session.id;
+  // Para series TV el nombre del tab debe identificar el episodio
+  // concreto (todas las sesiones de la misma temporada comparten ISO).
+  // Formato: "Serie · SNNeNN — Título" si hay título, "Serie · SNNeNN"
+  // si no. Pelis siguen con basename del ISO sin extensión.
+  let name;
+  if (session.media_type === 'series') {
+    const sn = String(session.season_number || 0).padStart(2, '0');
+    const en = String(session.episode_number || 0).padStart(2, '0');
+    const base = `${session.series_name || 'Serie'} · S${sn}E${en}`;
+    name = session.episode_title ? `${base} — ${session.episode_title}` : base;
+  } else if (session.iso_path) {
+    name = session.iso_path.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
+  } else {
+    name = session.id;
+  }
 
   const project = {
     id: pid,
@@ -4034,32 +4046,56 @@ function onM2tsToggle() { /* obsoleto — usa srcFbToggleM2ts */ }
 //  donde el usuario veía el modal de origen congelado sin feedback.
 // ═══════════════════════════════════════════════════════════════════
 
-function showProgressModal({ title, sub, icon } = {}) {
-  document.getElementById('progress-modal-icon').textContent = icon || '⏳';
+function showProgressModal({ title, sub, icon, posterUrl } = {}) {
+  // Poster: si hay URL, muestra imagen; si no, fallback al emoji.
+  const posterEl = document.getElementById('progress-modal-poster');
+  if (posterEl) {
+    if (posterUrl) {
+      posterEl.innerHTML = `<img src="${escHtml(posterUrl)}" alt="poster">`;
+    } else {
+      posterEl.innerHTML = `<span id="progress-modal-icon">${icon || '⏳'}</span>`;
+    }
+  }
   document.getElementById('progress-modal-title').textContent = title || 'Procesando…';
   document.getElementById('progress-modal-sub').textContent = sub || '';
   document.getElementById('progress-modal-current').textContent = 'Iniciando…';
-  document.getElementById('progress-modal-bar').style.width = '0%';
+  const barEl = document.getElementById('progress-modal-bar');
+  if (barEl) { barEl.style.width = '0%'; barEl.classList.remove('done'); }
   document.getElementById('progress-modal-pct').textContent = '';
-  document.getElementById('progress-modal-steps').innerHTML = '';
+  const stepsEl = document.getElementById('progress-modal-steps');
+  if (stepsEl) { stepsEl.innerHTML = ''; stepsEl.style.display = 'none'; }
+  const footerEl = document.getElementById('progress-modal-footer');
+  if (footerEl) footerEl.classList.remove('done');
   openModal('progress-modal');
 }
 
-function updateProgressModal({ current, pct, addStep } = {}) {
+function updateProgressModal({ current, pct, addStep, done } = {}) {
   if (current !== undefined) {
     document.getElementById('progress-modal-current').textContent = current;
   }
   if (pct !== undefined && pct !== null) {
     const v = Math.max(0, Math.min(100, pct));
-    document.getElementById('progress-modal-bar').style.width = v + '%';
+    const barEl = document.getElementById('progress-modal-bar');
+    if (barEl) barEl.style.width = v + '%';
     document.getElementById('progress-modal-pct').textContent = v.toFixed(0) + '%';
   }
   if (addStep) {
     const el = document.getElementById('progress-modal-steps');
-    const div = document.createElement('div');
-    div.textContent = `✓ ${addStep}`;
-    el.appendChild(div);
-    el.scrollTop = el.scrollHeight;
+    if (el) {
+      el.style.display = 'block';
+      const div = document.createElement('div');
+      div.textContent = `✓ ${addStep}`;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+  if (done) {
+    // Estado completado: barra verde + sin spinner + tick verde
+    const barEl = document.getElementById('progress-modal-bar');
+    if (barEl) { barEl.style.width = '100%'; barEl.classList.add('done'); }
+    document.getElementById('progress-modal-pct').textContent = '100%';
+    const footerEl = document.getElementById('progress-modal-footer');
+    if (footerEl) footerEl.classList.add('done');
   }
 }
 
@@ -4644,15 +4680,20 @@ async function seriesLoadSeason() {
 
   // Construir mapping inicial: pre-rellenar con suggested_episode_number
   // y marcar todos como include=true por defecto (el usuario desmarca lo
-  // que no quiera).
+  // que no quiera). Capturamos también overview + still_url para que la
+  // cabecera de la pestaña del proyecto muestre la info concreta del
+  // episodio (no la genérica de la serie) tras la creación.
   const mapping = {};
   _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
     const match = _seriesState.mplsMatches[idx] || {};
+    const matched = match.matched_episode || {};
     mapping[mpls.mpls_path] = {
       include: true,
       episode_number: match.suggested_episode_number || (idx + 1),
-      episode_title: match.matched_episode ? match.matched_episode.name : '',
-      runtime_minutes: match.matched_episode ? match.matched_episode.runtime_minutes : 0,
+      episode_title: matched.name || '',
+      runtime_minutes: matched.runtime_minutes || 0,
+      episode_overview: matched.overview || '',
+      episode_still_url: matched.still_url || '',
     };
   });
   _seriesState.mapping = mapping;
@@ -4761,6 +4802,8 @@ function seriesChangeEpisode(mplsPath, episodeNumberStr) {
     if (!isManual) {
       map.episode_title = '';
       map.runtime_minutes = 0;
+      map.episode_overview = '';
+      map.episode_still_url = '';
     }
   } else {
     map.episode_number = epNum;
@@ -4771,6 +4814,8 @@ function seriesChangeEpisode(mplsPath, episodeNumberStr) {
       const ep = _seriesState.seasonEpisodes.find(e => e.episode_number === epNum);
       map.episode_title = ep ? ep.name : '';
       map.runtime_minutes = ep ? ep.runtime_minutes : 0;
+      map.episode_overview = ep ? (ep.overview || '') : '';
+      map.episode_still_url = ep ? (ep.still_url || '') : '';
     }
   }
   _seriesUpdateCreateButton();
@@ -4794,8 +4839,10 @@ async function seriesCreateSessions() {
     .map(([mplsPath, v]) => ({
       mpls_path: mplsPath,
       episode_number: v.episode_number,
-      episode_title: v.episode_title,
-      runtime_minutes: v.runtime_minutes,
+      episode_title: v.episode_title || '',
+      runtime_minutes: v.runtime_minutes || 0,
+      episode_overview: v.episode_overview || '',
+      episode_still_url: v.episode_still_url || '',
     }))
     .sort((a, b) => a.episode_number - b.episode_number);
 
@@ -4810,11 +4857,17 @@ async function seriesCreateSessions() {
   // Cerramos el series-modal y abrimos el progress-modal para que el
   // usuario vea feedback continuo (sin esto, el modal de series se
   // congela durante 1-3 minutos sin actividad visible).
+  // El subtítulo lleva el nombre de la serie/temporada para que el
+  // usuario sepa de qué se está analizando los capítulos.
   closeModal('series-modal');
+  const seriesTitle = s.selectedSeries.name || '—';
+  const seriesYear = s.selectedSeries.year ? ` (${s.selectedSeries.year})` : '';
+  const seasonLabel = ` · Temporada ${s.selectedSeason.season_number}`;
   showProgressModal({
-    title: `Creando ${episodes.length} proyectos`,
-    sub: `Análisis MPLS + reglas Fase B + persistencia. Tarda ~30s + 15-30s por episodio.`,
+    title: `${seriesTitle}${seriesYear}`,
+    sub: `${seasonLabel} — Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'} (análisis MPLS + reglas + persistencia)`,
     icon: '📺',
+    posterUrl: s.selectedSeries.poster_url || '',
   });
 
   // Polling del progreso. /api/series-create-progress devuelve current_index
@@ -4833,10 +4886,17 @@ async function seriesCreateSessions() {
   // Coste: ~30s (mount ISO) + N × 15-30s. Para 4 episodios típicos: ~2 min.
   // Payload generalizado a los 3 tipos (v2.6+): source_type + source_path
   // (+ m2ts_paths si aplica). iso_path se mantiene como alias compat.
+  // Incluimos los metadatos TMDb de la serie a nivel root para que el
+  // backend pueda construir un tmdb_info por episodio en cada Session.
   const payload = {
     series_tmdb_id: s.selectedSeries.tmdb_id,
     series_name: s.selectedSeries.name,
     series_year: s.selectedSeries.year,
+    series_poster_url: s.selectedSeries.poster_url || '',
+    series_backdrop_url: s.selectedSeries.backdrop_url || '',
+    series_overview: s.selectedSeries.overview || '',
+    series_genres: s.selectedSeries.genres || [],
+    series_vote_average: s.selectedSeries.vote_average || 0,
     season_number: s.selectedSeason.season_number,
     episodes,
   };
@@ -4855,9 +4915,9 @@ async function seriesCreateSessions() {
   }, 600000);  // timeout 10 min
 
   clearInterval(pollId);
-  closeProgressModal();
 
   if (!data) {
+    closeProgressModal();
     if (btn) { btn.disabled = false; btn.innerHTML = `➕ Crear ${episodes.length} proyectos`; }
     showToast('Error al crear los proyectos. Comprueba el log del backend.', 'error');
     return;
@@ -4867,16 +4927,47 @@ async function seriesCreateSessions() {
   const failed = data.failed || [];
   _seriesState = null;
 
+  // Marcamos el modal como done (barra verde 100% + checkmark, sin
+  // spinner gris): da cierre visual antes de pasar a abrir las pestañas.
+  // Pequeño delay para que el usuario lo perciba (300ms es suficiente).
+  updateProgressModal({
+    current: `✓ ${created.length} proyecto${created.length === 1 ? '' : 's'} creado${created.length === 1 ? '' : 's'}`,
+    done: true,
+  });
+  await new Promise(r => setTimeout(r, 350));
+  closeProgressModal();
+
   if (failed.length) {
     showToast(`${created.length} proyectos creados, ${failed.length} fallaron. Revisa logs.`, 'warning');
   } else {
     showToast(`${created.length} proyectos creados`, 'success');
   }
 
-  // Refrescar el sidebar y abrir el primer proyecto creado
+  // Refrescar el sidebar y abrir TODAS las pestañas de episodios creados.
+  // Las sesiones llegan ya ordenadas por episode_number desde el backend
+  // (que itera el payload.episodes que enviamos sorted). openProject()
+  // respeta MAX_PROJECTS y rechaza si el slot está lleno — silenciamos
+  // los toasts por episodio y mostramos uno único al final si hubo skip.
   await loadSessions();
   if (created.length > 0) {
-    openProject(created[0]);
+    const availableSlots = Math.max(0, MAX_PROJECTS - openProjects.length);
+    const toOpen = created.slice(0, availableSlots);
+    const skipped = created.length - toOpen.length;
+    // Abrimos en orden de izquierda a derecha (E01 → ENN). El último
+    // openProject() deja ese tab como activo; lo "anclamos" al final
+    // re-activando el primer episodio para que sea el visible.
+    for (const sess of toOpen) {
+      openProject(sess);
+    }
+    if (toOpen.length > 0) {
+      openProject(toOpen[0]);
+    }
+    if (skipped > 0) {
+      showToast(
+        `${skipped} episodio${skipped === 1 ? '' : 's'} creado${skipped === 1 ? '' : 's'} pero no abierto${skipped === 1 ? '' : 's'} (límite ${MAX_PROJECTS} pestañas). Ábrelos desde el sidebar.`,
+        'info',
+      );
+    }
   }
 }
 
@@ -5336,11 +5427,22 @@ function renderProjectPanel(project) {
   _resetOrigIndexTracking();
 
   // Ficha TMDb en la cabecera (mismo look que Tab 3). Best-effort.
-  // Parseamos el título del mkv_name (o del basename del ISO si aún no
-  // hay mkv_name). Cache global evita re-fetches entre cambios.
-  const filenameForTmdb = session.mkv_name
-    || (session.iso_path ? session.iso_path.split('/').pop() : '');
-  hydrateTmdbCard(`${project.id}-tmdb-card`, filenameForTmdb);
+  // Para series TV (v2.5+) la sesión ya trae `tmdb_info` poblado por
+  // create_series_sessions con la info del episodio concreto (título,
+  // sinopsis, still). Pintamos directo sin hacer otra búsqueda — el
+  // lookup por nombre buscaría la serie y traería metadata genérica.
+  // Para pelis seguimos con el flujo lookup-por-filename de siempre.
+  const tmdbCardId = `${project.id}-tmdb-card`;
+  if (session.tmdb_info && session.media_type === 'series') {
+    const tmdbEl = document.getElementById(tmdbCardId);
+    if (tmdbEl) tmdbEl.innerHTML = renderTmdbCardHTML(session.tmdb_info) || '';
+  } else {
+    // Parseamos el título del mkv_name (o del basename del ISO si aún no
+    // hay mkv_name). Cache global evita re-fetches entre cambios.
+    const filenameForTmdb = session.mkv_name
+      || (session.iso_path ? session.iso_path.split('/').pop() : '');
+    hydrateTmdbCard(tmdbCardId, filenameForTmdb);
+  }
 
   // Asegurar que el sub-tab activo es este proyecto
   const prevSubTab = activeSubTabId;

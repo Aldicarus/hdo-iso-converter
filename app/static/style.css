@@ -8715,3 +8715,124 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   outline: none;
   border-color: var(--blue);
 }
+
+/* ═══ Progress modal mejorado (v2.6+) ═════════════════════════════════
+   Modal de progreso con poster + título + barra + estado. Usado para
+   operaciones largas (disc-probe, create-series-sessions). */
+
+.progress-modal-box {
+  width: 540px;
+  max-width: 92vw;
+  padding: 0;
+  overflow: hidden;
+}
+
+.progress-modal-header {
+  display: flex;
+  gap: 14px;
+  padding: 20px 24px 12px;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--sep);
+}
+
+.progress-modal-poster {
+  width: 60px;
+  height: 90px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: var(--text-3);
+  border: 1px solid var(--sep);
+}
+.progress-modal-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.progress-modal-titles {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+.progress-modal-titles .modal-title {
+  font-size: 15px;
+  margin: 0 0 4px;
+  line-height: 1.25;
+}
+.progress-modal-titles .modal-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.progress-modal-body {
+  padding: 16px 24px 8px;
+}
+
+.progress-modal-current {
+  font-size: 13px;
+  color: var(--text-1);
+  font-weight: 500;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.progress-modal-bar-wrap {
+  height: 10px;
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-modal-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1e6fe6, #5ab3ff);
+  transition: width 0.4s ease, background 0.3s ease;
+  border-radius: 5px;
+}
+.progress-modal-bar.done {
+  background: linear-gradient(90deg, #16a34a, #4ade80);
+}
+
+.progress-modal-pct {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.progress-modal-steps {
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.6;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  margin: 8px 24px 0;
+}
+
+.progress-modal-footer {
+  display: flex;
+  justify-content: center;
+  padding: 12px 24px 20px;
+}
+.progress-modal-footer.done .analyze-spinner {
+  display: none;
+}
+.progress-modal-footer.done::before {
+  content: '✓';
+  font-size: 26px;
+  color: var(--green);
+  font-weight: 700;
+}

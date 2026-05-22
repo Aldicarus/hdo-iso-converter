@@ -736,6 +736,15 @@ class Session(BaseModel):
     con iso_path. Para 'bdmv_folder' apunta a la carpeta con BDMV/
     dentro. Para 'm2ts' apunta al fichero .m2ts."""
 
+    tmdb_info: dict | None = None
+    """Info extendida de TMDb para mostrar en la cabecera del proyecto.
+    Estructura compatible con renderTmdbCardHTML del frontend:
+      {title, original_title, year, overview, poster_url, backdrop_url,
+       runtime_minutes, vote_average, genres, ...}
+    Para sesiones de serie (media_type='series'), title = nombre del
+    episodio (no de la serie), overview = sinopsis del episodio,
+    still_url = screenshot del episodio (si disponible)."""
+
     error_message: str | None = None
     """Mensaje de error si status='error'."""
 

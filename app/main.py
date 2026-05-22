@@ -1103,6 +1103,10 @@ class SeriesEpisodeSelection(_BaseModel):
     episode_number: int
     episode_title: str = ""
     runtime_minutes: int = 0
+    # Datos opcionales del episodio para enriquecer session.tmdb_info
+    # (cabecera de la pestaña). Si vienen vacíos, no se persiste tmdb_info.
+    episode_overview: str = ""
+    episode_still_url: str = ""
 
 
 class CreateSeriesSessionsRequest(_BaseModel):
@@ -1118,6 +1122,13 @@ class CreateSeriesSessionsRequest(_BaseModel):
     series_tmdb_id: int | None = None
     series_name: str
     series_year: int | None = None
+    # Datos opcionales de la serie para enriquecer la cabecera de cada
+    # episodio (poster/backdrop comunes a toda la temporada).
+    series_poster_url: str = ""
+    series_backdrop_url: str = ""
+    series_overview: str = ""
+    series_genres: list[str] = []
+    series_vote_average: float = 0.0
     season_number: int
     episodes: list[SeriesEpisodeSelection]
 
@@ -1328,6 +1339,44 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                     else ep_source_path
                 )
 
+                # Construye tmdb_info por episodio para que la cabecera de
+                # cada pestaña muestre datos del EPISODIO concreto, no de
+                # la serie genérica (que es lo que hace hydrateTmdbCard
+                # parseando el filename con search/movie — devolvía
+                # falsos positivos tipo "Juego de Tronos: La última
+                # guardia" para todos los episodios).
+                #
+                # Estructura compatible con renderTmdbCardHTML del
+                # frontend: title (del episodio), year (serie), overview
+                # (episodio si lo tiene, si no la serie), poster_url
+                # (still del episodio si TMDb lo trae, si no poster de
+                # serie como fallback), backdrop_url (serie).
+                ep_tmdb_info: dict | None = None
+                if body.series_name:
+                    full_title = (
+                        f"{body.series_name} · S{body.season_number:02d}E{ep.episode_number:02d}"
+                        + (f" — {ep.episode_title}" if ep.episode_title else "")
+                    )
+                    ep_tmdb_info = {
+                        "title": full_title,
+                        "original_title": ep.episode_title or body.series_name,
+                        "year": body.series_year,
+                        "overview": ep.episode_overview or body.series_overview or "",
+                        "poster_url": ep.episode_still_url or body.series_poster_url or "",
+                        "backdrop_url": body.series_backdrop_url or "",
+                        "runtime_minutes": ep.runtime_minutes or 0,
+                        "vote_average": body.series_vote_average,
+                        "vote_count": 0,
+                        "genres": body.series_genres or [],
+                        "tagline": "",
+                        "imdb_id": "",
+                        "homepage": "",
+                        "tmdb_url": (
+                            f"https://www.themoviedb.org/tv/{body.series_tmdb_id}/season/{body.season_number}/episode/{ep.episode_number}"
+                            if body.series_tmdb_id else ""
+                        ),
+                    }
+
                 session = Session(
                     id=session_id,
                     iso_path=source_abs,
@@ -1355,6 +1404,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                     mpls_path=mpls_persist,
                     source_type=stype,
                     source_path=spath,
+                    tmdb_info=ep_tmdb_info,
                 )
                 save_session(session)
                 created_sessions.append(session.model_dump())
