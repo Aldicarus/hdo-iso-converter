@@ -3758,6 +3758,41 @@ let bdmvSelectedPath = null;
 /** Lista de m2ts seleccionados (multi). @type {string[]} */
 let m2tsSelectedPaths = [];
 
+/** Tipo de contenido elegido por el usuario en el modal Nuevo proyecto.
+ *  'movie' (default) o 'series'. Determina:
+ *    - Permite 1 o varios m2ts en el tab M2TS.
+ *    - Se envía como media_type_hint a /api/disc-probe — backend respeta
+ *      la elección sin auto-detect.
+ *  @type {'movie'|'series'} */
+let _contentType = 'movie';
+
+/** Cambia el tipo de contenido (Película / Serie). Re-renderiza el
+ *  browser activo si afecta a la selección (típicamente m2ts: cambia
+ *  entre radio y checkbox). En movie con varios m2ts ya marcados,
+ *  reduce la selección al primero. */
+function onContentTypeChange(type) {
+  if (type !== 'movie' && type !== 'series') return;
+  _contentType = type;
+  document.getElementById('ctt-btn-movie')?.classList.toggle('active', type === 'movie');
+  document.getElementById('ctt-btn-series')?.classList.toggle('active', type === 'series');
+  // En movie no permitimos múltiples m2ts — recortamos al primero
+  if (type === 'movie' && m2tsSelectedPaths.length > 1) {
+    m2tsSelectedPaths = [m2tsSelectedPaths[0]];
+  }
+  // Texto del status del browser m2ts según modo
+  const m2tsStatusEl = document.getElementById('src-fb-m2ts-status');
+  if (m2tsStatusEl) {
+    m2tsStatusEl.textContent = type === 'movie'
+      ? 'Marca un fichero .m2ts (modo película — solo un MKV de salida)'
+      : 'Marca varios ficheros .m2ts — uno por episodio (modo serie)';
+  }
+  // Re-render del browser m2ts para alternar radio/checkbox visualmente
+  if (_srcFb && _srcFb.m2ts && _srcFb.m2ts.entries) {
+    _renderSrcFb('m2ts');
+  }
+  _updateAnalyzeButtonState();
+}
+
 /** Cache del último listado completo de /api/sources. */
 let _sourcesCache = { iso: [], bdmv_folder: [], m2ts: [] };
 
@@ -3771,6 +3806,10 @@ async function openNewProjectModal() {
   bdmvSelectedPath = null;
   m2tsSelectedPaths = [];
   _sourceTab = 'iso';
+  // Reset del tipo de contenido al default (película) en cada apertura.
+  // Activamos el botón visualmente vía onContentTypeChange para mantener
+  // el estado del DOM sincronizado con la variable.
+  onContentTypeChange('movie');
   // Reset del botón Analizar. El tab ISO se activa por defecto vía
   // onSourceTabSwitch — NO se referencia ningún select legacy (los
   // antiguos iso-picker-select / bdmv-picker-select / m2ts-picker-list
@@ -3985,9 +4024,14 @@ function _renderSrcFb(filter) {
       } else if (filter === 'm2ts') {
         const checked = m2tsSelectedPaths.includes(path) ? 'checked' : '';
         const selected = checked ? ' selected' : '';
+        // En modo película → radio (selección única). En modo serie →
+        // checkbox (multi-selección). El handler delegado distingue por
+        // _contentType, no por el tipo de input — pero el visual lo
+        // alineamos para que el usuario sepa qué puede elegir.
+        const inputType = _contentType === 'movie' ? 'radio' : 'checkbox';
         rows.push(`
           <label class="src-fb-row${selected}" data-action="toggle-m2ts" data-path="${pathAttr}">
-            <input type="checkbox" class="src-fb-check" ${checked}>
+            <input type="${inputType}" name="src-fb-m2ts-sel" class="src-fb-check" ${checked}>
             <span class="src-fb-icon">🎞️</span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">${sizeGb}</span>
@@ -4020,11 +4064,14 @@ function _attachSrcFbDelegation(filter) {
     } else if (action === 'select-bdmv') {
       srcFbSelectBdmv(path);
     } else if (action === 'toggle-m2ts') {
-      // El <label> ya hace toggle del checkbox por defecto del browser,
-      // pero capturamos para sincronizar nuestro estado tras el cambio.
-      // Usamos un microtask para que el checkbox tenga el nuevo `checked`.
+      // El <label> ya hace toggle del checkbox/radio por defecto del
+      // browser; capturamos para sincronizar nuestro estado tras el
+      // cambio. Microtask para que el input tenga el nuevo `checked`.
       setTimeout(() => {
-        const cb = row.querySelector('input[type=checkbox]');
+        // En modo película el input es radio (sin tipo en el selector
+        // CSS general; aceptamos ambos). Si no encuentra ninguno,
+        // fallback usa el path como nuevo seleccionado.
+        const cb = row.querySelector('input[type=checkbox], input[type=radio]');
         if (cb) srcFbToggleM2ts(cb, path);
       }, 0);
     }
@@ -4051,20 +4098,18 @@ function srcFbSelectBdmv(path) {
 
 /** Toggle de un M2TS en el multi-select. */
 function srcFbToggleM2ts(checkbox, path) {
-  if (checkbox.checked) {
-    if (!m2tsSelectedPaths.includes(path)) m2tsSelectedPaths.push(path);
+  if (_contentType === 'movie') {
+    // Selección única en modo película — reemplaza siempre.
+    m2tsSelectedPaths = checkbox.checked ? [path] : [];
   } else {
-    m2tsSelectedPaths = m2tsSelectedPaths.filter(p => p !== path);
-  }
-  const status = document.getElementById('src-fb-m2ts-status');
-  if (status) {
-    if (m2tsSelectedPaths.length === 0) {
-      status.textContent = 'Marca uno o varios .m2ts (1 = película · varios = serie)';
+    // Multi-selección en modo serie.
+    if (checkbox.checked) {
+      if (!m2tsSelectedPaths.includes(path)) m2tsSelectedPaths.push(path);
     } else {
-      const mode = m2tsSelectedPaths.length === 1 ? 'película' : `serie (${m2tsSelectedPaths.length} episodios)`;
-      status.textContent = `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → modo ${mode}`;
+      m2tsSelectedPaths = m2tsSelectedPaths.filter(p => p !== path);
     }
   }
+  _updateM2tsStatusText();
   // Refresca solo la fila para que el highlight se actualice
   _renderSrcFb('m2ts');
   _updateAnalyzeButtonState();
@@ -4073,10 +4118,29 @@ function srcFbToggleM2ts(checkbox, path) {
 /** Reset de las selecciones M2TS. */
 function srcFbM2tsClear() {
   m2tsSelectedPaths = [];
-  const status = document.getElementById('src-fb-m2ts-status');
-  if (status) status.textContent = 'Marca uno o varios .m2ts (1 = película · varios = serie)';
+  _updateM2tsStatusText();
   _renderSrcFb('m2ts');
   _updateAnalyzeButtonState();
+}
+
+/** Refresca el texto del status del browser m2ts según selección y
+ *  modo activo (película/serie). Centralizado para no duplicar las
+ *  cuerdas en los handlers de toggle/clear. */
+function _updateM2tsStatusText() {
+  const status = document.getElementById('src-fb-m2ts-status');
+  if (!status) return;
+  if (m2tsSelectedPaths.length === 0) {
+    status.textContent = _contentType === 'movie'
+      ? 'Marca un fichero .m2ts (modo película — solo un MKV de salida)'
+      : 'Marca varios ficheros .m2ts — uno por episodio (modo serie)';
+    return;
+  }
+  if (_contentType === 'movie') {
+    status.textContent = `✅ 1 fichero seleccionado → modo película`;
+  } else {
+    status.textContent =
+      `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
+  }
 }
 
 /** Legacy stubs (algunos callers antiguos los llamaban). */
@@ -4221,6 +4285,16 @@ async function analyzeSelectedISO() {
     payloadProbe = { source_type: 'bdmv_folder', source_path: bdmvSelectedPath };
   } else if (_sourceTab === 'm2ts') {
     if (!m2tsSelectedPaths.length) return;
+    // Doble validación frontend: en modo película no debería ser posible
+    // tener >1 m2ts (la UI usa radio), pero blindamos por si el usuario
+    // ha cambiado de modo después de marcar varios.
+    if (_contentType === 'movie' && m2tsSelectedPaths.length > 1) {
+      showToast(
+        'Modo película solo admite un fichero M2TS. Cambia a modo serie o desmarca los demás.',
+        'warning',
+      );
+      return;
+    }
     sourceType = 'm2ts';
     sourcePath = m2tsSelectedPaths[0];
     sourceName = m2tsSelectedPaths.length === 1
@@ -4234,6 +4308,10 @@ async function analyzeSelectedISO() {
   } else {
     return;
   }
+
+  // Hint del tipo de contenido elegido por el usuario en el toggle del
+  // modal. El backend lo respeta y omite el auto-detect.
+  payloadProbe.media_type_hint = _contentType;
 
   // Deshabilitar botón dentro del modal mientras comprobamos
   const btn = document.getElementById('new-project-analyze-btn');
@@ -4313,7 +4391,19 @@ async function analyzeSelectedISO() {
     return;
   }
 
-  // Movie path: pasa source_type/source_path al endpoint /api/analyze.
+  // Movie path. Si el backend devolvió movie_warning (origen tiene
+  // pinta de serie pero el usuario eligió película), confirmamos
+  // antes de proceder — la operación es larga y el resultado puede
+  // no ser el esperado si era una serie disfrazada.
+  if (probe.movie_warning) {
+    showConfirm(
+      '⚠️ Origen con varios episodios',
+      probe.movie_warning,
+      () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
+      'Sí, procesar como película',
+    );
+    return;
+  }
   await _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe);
 }
 

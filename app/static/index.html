@@ -531,7 +531,28 @@
 <div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
   <div class="modal-box" style="max-width:960px; width:92vw">
     <div class="modal-title">💿 Nuevo proyecto</div>
-    <div class="modal-sub">Elige el tipo de origen y selecciona el contenido a procesar.</div>
+    <div class="modal-sub">Indica el tipo de contenido y selecciona el origen.</div>
+
+    <!-- Tipo de contenido: el usuario lo elige explícitamente (en vez de
+         auto-detect que fallaba en discos atípicos como BDMV con 1 m2ts
+         grande + varios pequeños). Película → 1 m2ts/MPLS; Serie →
+         varios episodios. -->
+    <div class="content-type-toggle" id="content-type-toggle">
+      <button type="button" class="ctt-btn active" id="ctt-btn-movie" onclick="onContentTypeChange('movie')">
+        <span class="ctt-icon">🎬</span>
+        <span class="ctt-text">
+          <span class="ctt-label">Película</span>
+          <span class="ctt-hint">Un solo MKV de salida</span>
+        </span>
+      </button>
+      <button type="button" class="ctt-btn" id="ctt-btn-series" onclick="onContentTypeChange('series')">
+        <span class="ctt-icon">📺</span>
+        <span class="ctt-text">
+          <span class="ctt-label">Serie</span>
+          <span class="ctt-hint">Un MKV por episodio</span>
+        </span>
+      </button>
+    </div>
 
     <!-- Tabs de tipo de origen — sustituyen al select simple anterior.
          Todos los orígenes viven en /mnt/isos para mantener una única
@@ -617,7 +638,7 @@
         <div class="src-fb-list" id="src-fb-m2ts-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
         </div>
-        <div class="src-fb-status" id="src-fb-m2ts-status">Marca uno o varios ficheros .m2ts — un fichero suelto se trata como película; varios se tratan como episodios de una serie</div>
+        <div class="src-fb-status" id="src-fb-m2ts-status">Marca un fichero .m2ts (modo película — solo un MKV de salida)</div>
       </div>
     </div>
 

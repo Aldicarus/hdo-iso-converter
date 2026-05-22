@@ -8234,6 +8234,61 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    modal de creación. Permite navegar carpetas con click, filtrar por tipo
    (iso/m2ts/bdmv) y seleccionar entradas. */
 
+/* ── Toggle Película / Serie (modal Nuevo proyecto) ──────────────
+   El usuario elige explícitamente el tipo de contenido — sin auto-
+   detect que fallaba en discos atípicos (BDMV con 1 m2ts grande +
+   varios pequeños se clasificaba como serie de 4 episodios). */
+.content-type-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 14px 0 12px;
+}
+
+.ctt-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--sep);
+  background: var(--surface-1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  text-align: left;
+  font-family: inherit;
+}
+.ctt-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.ctt-btn.active {
+  border-color: var(--accent);
+  background: rgba(30, 111, 230, 0.10);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.ctt-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.ctt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ctt-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.ctt-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
 .src-fb {
   display: flex;
   flex-direction: column;

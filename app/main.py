@@ -817,21 +817,31 @@ async def analyze_iso(body: AnalyzeRequest):
     rules_result = apply_rules(bdinfo_result, spath, audio_dcp)
 
     # ── Capítulos ─────────────────────────────────────────────────
+    # Textos dinámicos según el tipo de origen — antes hablaban siempre de
+    # "el disco" aunque el origen fuera carpeta BDMV o fichero M2TS suelto.
     from models import Chapter
+    source_label = (
+        "el disco" if stype == "iso"
+        else "la carpeta BDMV" if stype == "bdmv_folder"
+        else "el fichero M2TS"
+    )
     if mpls_chapters_raw:
         chapters      = [Chapter(**c) for c in mpls_chapters_raw]
         chapters_auto = False
+        # Para m2ts no hay MPLS — esta rama no se ejecuta (mpls_chapters_raw
+        # está vacío para run_full_analysis_for_m2ts), así que el texto
+        # menciona MPLS sin problema.
         chapters_reason = f"{len(chapters)} capítulos extraídos del disco (MPLS)"
     elif bdinfo_result.duration_seconds > 0:
         chapters      = generate_auto_chapters(bdinfo_result.duration_seconds)
         chapters_auto = True
         chapters_reason = (
-            "Sin capítulos en el disco — generados automáticamente cada 10 min"
+            f"Sin capítulos en {source_label} — generados automáticamente cada 10 min"
         )
     else:
         chapters      = []
         chapters_auto = True
-        chapters_reason = "No se pudo determinar la duración del disco"
+        chapters_reason = f"No se pudo determinar la duración de {source_label}"
 
     # ── Reutilizar sesión existente por fingerprint ─────────────────
     # Para ISO: huella del fichero .iso (1 MB + tamaño). Para
@@ -906,11 +916,17 @@ class DiscProbeRequest(_BaseModel):
       source_type='m2ts'        + source_path='raw/X.m2ts' (1 fichero)
       source_type='m2ts'        + m2ts_paths=['raw/E01.m2ts', 'raw/E02.m2ts', ...]
                                   (multi-fichero → modo serie)
+
+    `media_type_hint` (v2.7+): el usuario elige explícitamente 'movie' o
+    'series' en el modal del frontend. El backend respeta esa elección y
+    omite la auto-detección. Si es None (frontend antiguo), se usa
+    auto-detect como antes.
     """
     iso_path: str | None = None       # legacy compat
     source_type: str | None = None    # 'iso' | 'bdmv_folder' | 'm2ts'
     source_path: str | None = None    # path para iso/bdmv_folder/m2ts único
     m2ts_paths: list[str] | None = None  # solo para m2ts multi-fichero
+    media_type_hint: str | None = None   # 'movie' | 'series' | None=auto
 
 
 @app.post("/api/disc-probe",
@@ -975,29 +991,88 @@ async def disc_probe(body: DiscProbeRequest):
 
     candidates: list[dict] = []
     media_type: str = "movie"
+    movie_warning: str | None = None
+    hint = body.media_type_hint  # 'movie' | 'series' | None
 
     try:
-        if stype in ("iso", "bdmv_folder"):
-            # Misma lógica para ambos — el context manager monta si es ISO,
-            # no hace nada si es bdmv_folder.
-            async with await Source.open(spath_abs) as src:
-                if src.bdmv_root:
-                    candidates = await identify_episode_candidates(src.bdmv_root)
-            media_type = detect_disc_type(candidates)
-        elif stype == "m2ts":
+        if stype == "m2ts":
             paths = validated_paths or [spath_abs]
-            if len(paths) == 1:
-                # Un solo m2ts → película (no podemos detectar serie sin
-                # múltiples ficheros).
+            if hint == "movie":
+                # El usuario eligió película → solo permitimos 1 m2ts.
+                if len(paths) > 1:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Modo película seleccionado con {len(paths)} ficheros M2TS. "
+                            f"Para procesar varios episodios, vuelve al modal y cambia a "
+                            f"modo serie."
+                        ),
+                    )
                 media_type = "movie"
                 candidates = []
-            else:
-                # Varios m2ts → cada uno es un candidato a episodio.
-                # Sin auto-detect — el usuario lo decidió al seleccionar varios.
+            elif hint == "series":
+                # El usuario eligió serie → cada m2ts es un episodio.
                 candidates = await identify_episode_candidates_from_m2ts_list(paths)
-                media_type = "series" if candidates else "movie"
+                if not candidates:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Ningún fichero M2TS pasó los filtros de candidato a "
+                            "episodio (sin audio o duración no determinable)."
+                        ),
+                    )
+                media_type = "series"
+            else:
+                # hint=None (frontend antiguo o flujo legacy) → auto-detect.
+                if len(paths) == 1:
+                    media_type = "movie"
+                    candidates = []
+                else:
+                    candidates = await identify_episode_candidates_from_m2ts_list(paths)
+                    media_type = "series" if candidates else "movie"
+
+        elif stype in ("iso", "bdmv_folder"):
+            async with await Source.open(spath_abs) as src:
+                if not src.bdmv_root:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No se pudo acceder al BDMV del origen.",
+                    )
+                if hint == "movie":
+                    # El usuario eligió película → no listamos candidatos.
+                    # Pero contamos los m2ts grandes (>5GB) en BDMV/STREAM/
+                    # para advertir si el disco parece tener varios episodios.
+                    media_type = "movie"
+                    candidates = []
+                    big_count = _count_big_m2ts(src.bdmv_root, min_size_gb=5.0)
+                    if big_count >= 3:
+                        movie_warning = (
+                            f"Este origen tiene {big_count} ficheros M2TS de más de 5 GB. "
+                            f"Parece un disco de serie con varios episodios. "
+                            f"Si confirmas modo película se usará el MPLS principal "
+                            f"(el de mayor duración). Cambia a modo serie si quieres "
+                            f"procesar todos los episodios."
+                        )
+                elif hint == "series":
+                    candidates = await identify_episode_candidates(src.bdmv_root)
+                    if not candidates:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                "Ningún MPLS pasó los filtros de candidato a episodio "
+                                "(duración 15-90 min, ≥1 audio, m2ts ≥40% mediana). "
+                                "Cambia a modo película si es un disco de un solo título."
+                            ),
+                        )
+                    media_type = "series"
+                else:
+                    # Legacy auto-detect
+                    candidates = await identify_episode_candidates(src.bdmv_root)
+                    media_type = detect_disc_type(candidates)
         else:
             raise HTTPException(status_code=400, detail=f"source_type desconocido: {stype}")
+    except HTTPException:
+        raise
     except SourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1023,7 +1098,35 @@ async def disc_probe(body: DiscProbeRequest):
         "suggested_title": suggested_title,
         "suggested_year": suggested_year,
         "episode_candidates": episode_candidates,
+        # Warning informativo cuando el usuario eligió "película" pero el
+        # origen parece tener varios episodios. None si no aplica.
+        "movie_warning": movie_warning,
     }
+
+
+def _count_big_m2ts(bdmv_root: str, min_size_gb: float = 5.0) -> int:
+    """Cuenta los ficheros .m2ts en BDMV/STREAM/ por encima de un umbral.
+
+    Usado para detectar si un disco "modo película" tiene en realidad
+    pinta de serie (varios m2ts grandes = episodios independientes). No
+    abre los ficheros — solo stat() — por lo que es ~ms incluso para
+    BDMV con cientos de ficheros.
+    """
+    stream_dir = Path(bdmv_root) / "BDMV" / "STREAM"
+    if not stream_dir.exists():
+        return 0
+    threshold = int(min_size_gb * 1_000_000_000)
+    count = 0
+    try:
+        for f in stream_dir.glob("*.m2ts"):
+            try:
+                if f.stat().st_size >= threshold:
+                    count += 1
+            except OSError:
+                continue
+    except OSError:
+        return 0
+    return count
 
 
 @app.get("/api/tv-search",
@@ -1355,15 +1458,22 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                 _series_create_progress["current_episode_step"] = "rules"
                 rules_result = apply_rules(bdinfo, spath, audio_dcp)
 
-                # Capítulos: igual que película — del MPLS si los hay, sino auto.
+                # Capítulos: igual que película — del MPLS si los hay,
+                # sino auto. Texto del reason adaptado al tipo de origen
+                # para que el panel del proyecto no mencione "MPLS" cuando
+                # el episodio viene de un m2ts directo.
+                ep_origin_label = (
+                    "el MPLS del episodio" if stype in ("iso", "bdmv_folder")
+                    else "el fichero M2TS"
+                )
                 if mpls_chapters_raw:
                     chapters = [Chapter(**c) for c in mpls_chapters_raw]
                     chapters_auto = False
-                    chapters_reason = f"{len(chapters)} capítulos extraídos del MPLS del episodio"
+                    chapters_reason = f"{len(chapters)} capítulos extraídos de {ep_origin_label}"
                 elif bdinfo.duration_seconds > 0:
                     chapters = generate_auto_chapters(bdinfo.duration_seconds)
                     chapters_auto = True
-                    chapters_reason = "Sin capítulos en el MPLS — generados cada 10 min"
+                    chapters_reason = f"Sin capítulos en {ep_origin_label} — generados cada 10 min"
                 else:
                     chapters = []
                     chapters_auto = True
