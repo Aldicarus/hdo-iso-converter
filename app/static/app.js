@@ -9910,12 +9910,14 @@ function _cmv40PlanAutoSteps(s) {
   // - Drop-in FEL (caso típico): ffprobe + mkvmerge -J + rename atómico.
   //   ffprobe sobre MKV 71 GB → ~1s; mkvmerge -J → ~1s; rename mismo
   //   filesystem instantáneo; cleanup unlinks <1s. Total real ~3-5s; 5s
-  //   con margen. Antes 8s.
-  // - Path clásico (merge CMv4.0): 2× (ffmpeg copy 30s + extract-rpu del
-  //   chunk + info) + ffprobe + mkvmerge -J. extract-rpu sobre 30s de
-  //   HEVC (~300 MB) en CPU del NAS ~1-2s por chunk. Total real ~10-15s;
-  //   20s con margen. Antes 35s.
-  const etaH = dropIn ? 5 : 20;
+  //   con margen.
+  // - Path clásico (merge CMv4.0): extract-rpu COMPLETO del HEVC pre-mux
+  //   + dovi_tool info + mkvmerge -J. El extract-rpu sobre el HEVC entero
+  //   (~60-80 GB en UHD) toma ~5-8 min (heurística backend: hevc_gb/30*3
+  //   a hevc_gb/30*5 min). Sin ancla ffmpeg_wall_seconds usamos 240s
+  //   (4 min) como fallback razonable; si tenemos ancla, el extract-rpu
+  //   ronda 0.92× ffmpeg wall time (mismo ratio que Fase A).
+  const etaH = dropIn ? 5 : (anchor > 0 ? Math.round(anchor * 0.92) : 240);
 
   const steps = [];
 
@@ -9938,19 +9940,22 @@ function _cmv40PlanAutoSteps(s) {
   }
   steps.push({
     key: 'PREFLIGHT', icon: '🔬', title: 'Pre-flight · Validación rápida',
-    what: 'Sniff DV del MKV origen + dovi_tool info del bin target (~10-15s, aborta si algo no cuadra antes de gastar Fase A)',
-    etaSecs: 15,
+    what: 'Sniff DV del MKV origen + descarga + dovi_tool info del bin + análisis combos L2/L8 + clasificación de calidad (CMv4 CORE/CORE+/FULL) + recomendación Mantener vs Inyectar RPU (~30-60s, aborta o recomienda Mantener antes de gastar Fase A)',
+    etaSecs: 45,
     forcedStatus: preflightStatus,
   });
 
   steps.push({
     key: 'A', icon: '🔍', title: 'Fase A · Analizar MKV origen',
-    what: 'ffmpeg copia el HEVC + dovi_tool extract-rpu + info',
+    what: 'ffmpeg copia el HEVC + dovi_tool extract-rpu + info + análisis combos L2 del source + comparación L2 source vs target → recomendación final del modelo (drop-in / merge / mantener)',
     etaSecs: etaA,
   });
-  const bWhat = s.target_rpu_source === 'drive' ? 'Descarga del repo DoviTools + dovi_tool info + gates'
-              : s.target_rpu_source === 'mkv' ? 'ffmpeg + extract-rpu del MKV target + gates'
-              : 'Copia local + dovi_tool info + gates';
+  // Fase B: si el pre-flight ya descargó/copió/extrajo el bin, aquí se reusa
+  // del workdir y solo se re-evalúan los trust gates con los datos del source
+  // recién extraído en Fase A. Texto refleja ese rol real.
+  const bWhat = s.target_rpu_source === 'drive' ? 'Reusa el bin del workdir (descargado en pre-flight) + re-evalúa trust gates con datos del source: frames, L5/L6 zoneados, compatibilidad estructural'
+              : s.target_rpu_source === 'mkv' ? 'Reusa el RPU del workdir (extraído en pre-flight) + re-evalúa trust gates con datos del source: frames, L5/L6, compatibilidad'
+              : 'Reusa el bin del workdir (copiado en pre-flight) + re-evalúa trust gates con datos del source: frames, L5/L6, compatibilidad';
   steps.push({
     key: 'B', icon: '🎯', title: 'Fase B · Preparar RPU target',
     what: bWhat, etaSecs: etaB,
@@ -10013,7 +10018,9 @@ function _cmv40PlanAutoSteps(s) {
   });
   steps.push({
     key: 'D', icon: '📊', title: 'Fase D · Verificar sincronización',
-    what: trust ? 'Omitida — gates validaron frame count + L5/L6/L8' : 'Revisión visual manual del usuario',
+    what: trust
+      ? 'Omitida — gates validaron frame count + L5/L6/L8'
+      : 'Chart interactivo de sincronización: alinear las curvas MaxCLL de source y target (correlación Pearson ≥ 85% + Δ frames = 0) antes de inyectar',
     etaSecs: trust ? 0 : null,   // null = desconocido (interactivo)
     forcedStatus: trust ? 'skipped' : null,
   });
@@ -10056,16 +10063,43 @@ function _cmv40PlanAutoSteps(s) {
     forcedStatus: eStatus,
     customLabel: eLabel,
   });
-  const fWhat = dropIn ? 'Drop-in — inyecta bin directo en EL (sin merge)'
-              : wf === 'p7_fel' ? 'Merge CMv4.0 + inject en EL (preserva FEL)'
-              : wf === 'p7_mel' ? 'Inject RPU target en BL (descarta EL MEL)'
-              : 'Inject RPU target en source HEVC';
+  // Fase F: la ruta concreta depende del workflow y del target_type.
+  // - drop-in FEL: inyecta el bin sobre source.hevc (BL+EL juntos), sin merge ni mux.
+  // - p7_fel non-drop-in: merge CMv4.0 sobre RPU P7 + inyecta en EL.hevc.
+  // - p7_mel y p8: merge solo cuando target ∈ {p7_fel_final, p7_mel_final, generic};
+  //   con target P8 retail (trusted_p8_source) es inject directo sin merge.
+  //   Alineado con _do_merge() y target_needs_merge en cmv40_pipeline.py.
+  const targetNeedsMerge = ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic'].includes(s.target_type);
+  let fWhat;
+  if (dropIn) {
+    fWhat = 'Drop-in — inyecta el RPU del bin sobre source.hevc (BL+EL juntos, sin merge ni mux posterior)';
+  } else if (wf === 'p7_fel') {
+    fWhat = 'Merge CMv4.0 sobre RPU P7 del source + inyecta el RPU merged en EL.hevc (preserva FEL)';
+  } else if (wf === 'p7_mel') {
+    fWhat = targetNeedsMerge
+      ? 'Merge CMv4.0 sobre RPU P7 MEL del source + inyecta el RPU merged en BL.hevc (descarta EL MEL → P8.1)'
+      : 'Inyecta el RPU target directamente en BL.hevc (target P8 retail, sin merge — descarta EL MEL → P8.1)';
+  } else {  // p8
+    fWhat = targetNeedsMerge
+      ? 'Merge CMv4.0 sobre RPU P8 del source + inyecta el RPU merged en source.hevc'
+      : 'Inyecta el RPU target directamente en source.hevc (target P8 retail, sin merge)';
+  }
   steps.push({
     key: 'F', icon: '💉', title: 'Fase F · Inyectar RPU',
     what: fWhat, etaSecs: etaF,
   });
-  const gWhat = (wf === 'p7_fel') ? 'dovi_tool mux BL + EL_injected + mkvmerge con audio/subs/caps'
-              : 'Sin mux (single-layer) — mkvmerge directo con audio/subs/caps';
+  // Fase G: tres rutas distintas según workflow/modo.
+  // - drop-in FEL: source_injected.hevc ya es BL+EL dual-layer → mkvmerge directo.
+  // - p7_fel non-drop-in: dovi_tool mux combina BL + EL_injected → mkvmerge.
+  // - p7_mel / p8: BL_injected.hevc single-layer → mkvmerge directo.
+  let gWhat;
+  if (dropIn) {
+    gWhat = 'mkvmerge directo sobre source_injected.hevc (BL+EL dual-layer ya combinado en Fase F) con audio/subs/capítulos del MKV origen';
+  } else if (wf === 'p7_fel') {
+    gWhat = 'dovi_tool mux combina BL.hevc + EL_injected.hevc en un HEVC dual-layer + mkvmerge añade audio/subs/capítulos del MKV origen';
+  } else {  // p7_mel / p8
+    gWhat = 'Sin mux dual-layer (single-layer) — mkvmerge directo sobre BL_injected.hevc con audio/subs/capítulos del MKV origen';
+  }
   steps.push({
     key: 'G', icon: '📦', title: 'Fase G · Remux MKV final',
     what: gWhat, etaSecs: etaG,
@@ -10075,16 +10109,19 @@ function _cmv40PlanAutoSteps(s) {
   // dos rutas según modo:
   // - Drop-in FEL: ffprobe (frame count) + mkvmerge -J. Sin extract-rpu
   //   porque la cadena upstream ya garantiza Profile 7 FEL CMv4.0. ~5-10s.
-  // - Path clásico (merge CMv4.0): sample HEAD + TAIL (30s cada uno),
-  //   extract-rpu sobre cada chunk + dovi_tool info → valida que ambos
-  //   tengan CMv4.0 (detecta asimetrías). + ffprobe frame count + mkvmerge -J.
-  //   ~25-35s. Antes era extract-rpu completo (~150s en UHD BD).
+  // - Path clásico (merge CMv4.0): extract-rpu COMPLETO del HEVC pre-mux
+  //   (BL_injected/EL_injected/source_injected según workflow) + dovi_tool
+  //   info → valida frame count del RPU vs expected (±2), cm_version=v4.0,
+  //   el_type correcto, L8 presente. Después mkvmerge -J. ~5-8 min en UHD.
+  //   NO usa muestreo HEAD+TAIL: aunque más lento, garantiza frame count
+  //   total del RPU (un bug que cortara el RPU a la mitad pasaría
+  //   desapercibido con muestreo).
   // En ambos: rename atómico .tmp → .mkv + cleanup pre-mux.
   steps.push({
     key: 'H', icon: '✅', title: 'Fase H · Validar + finalizar',
     what: dropIn
       ? 'Validación rápida (ffprobe frame count + mkvmerge -J — el RPU es bit-a-bit el bin pre-validado) → rename atómico → cleanup'
-      : 'Validación DV por muestreo (extract-rpu de HEAD + TAIL 30s cada uno + dovi_tool info + ffprobe frame count + mkvmerge -J) → rename atómico → cleanup',
+      : 'Validación rigurosa: extract-rpu completo del HEVC pre-mux + dovi_tool info → confirma frame count, CMv4.0, el_type, L8 presente. Más mkvmerge -J. → rename atómico → cleanup',
     etaSecs: etaH,
   });
 
