@@ -670,6 +670,28 @@
   </div>
 </div>
 
+<!-- ═══ MODAL: Progreso genérico — operaciones largas que congelan UX ═══
+     Se usa para disc-probe (~10-30s) y create-series-sessions (~1-3 min).
+     Tiene título, subtítulo, mensaje dinámico + barra de progreso + log
+     de pasos completados. Sin botón cerrar — bloquea hasta que el caller
+     llame a closeProgressModal(). ═══════════════════════════════════ -->
+<div class="modal-overlay" id="progress-modal">
+  <div class="modal-box" style="max-width:480px; text-align:center">
+    <div style="font-size:40px; margin-bottom:12px" id="progress-modal-icon">⏳</div>
+    <div class="modal-title" id="progress-modal-title">Procesando…</div>
+    <div class="modal-sub" id="progress-modal-sub" style="margin-bottom:16px"></div>
+    <div style="margin: 12px 0">
+      <div id="progress-modal-current" style="font-size:13px; color:var(--text-1); font-weight:500; margin-bottom:8px">Iniciando…</div>
+      <div style="height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
+        <div id="progress-modal-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px"></div>
+      </div>
+      <div id="progress-modal-pct" style="font-size:11px; color:var(--text-3); margin-top:4px; font-variant-numeric:tabular-nums"></div>
+    </div>
+    <div id="progress-modal-steps" style="text-align:left; font-size:11px; color:var(--text-3); line-height:1.6; max-height:120px; overflow-y:auto; padding:8px; background:var(--surface-2); border-radius:4px; margin-top:8px"></div>
+    <div class="analyze-spinner" style="margin:16px auto 0"></div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: Confirmación ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="confirm-modal">
   <div class="modal-box">

@@ -3978,6 +3978,52 @@ function onIsoPickerChange() { /* obsoleto — el browser nuevo usa srcFbSelectI
 function onBdmvPickerChange() { /* obsoleto — usa srcFbSelectBdmv */ }
 function onM2tsToggle() { /* obsoleto — usa srcFbToggleM2ts */ }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  Modal de progreso genérico (v2.6+) — operaciones que congelan UX
+//
+//  showProgressModal({title, sub, icon}) abre el overlay con spinner.
+//  updateProgressModal({current, pct, addStep}) actualiza el contenido
+//  durante la operación.
+//  closeProgressModal() lo cierra.
+//
+//  Pensado para disc-probe (~10-30s) y create-series-sessions (~1-3 min)
+//  donde el usuario veía el modal de origen congelado sin feedback.
+// ═══════════════════════════════════════════════════════════════════
+
+function showProgressModal({ title, sub, icon } = {}) {
+  document.getElementById('progress-modal-icon').textContent = icon || '⏳';
+  document.getElementById('progress-modal-title').textContent = title || 'Procesando…';
+  document.getElementById('progress-modal-sub').textContent = sub || '';
+  document.getElementById('progress-modal-current').textContent = 'Iniciando…';
+  document.getElementById('progress-modal-bar').style.width = '0%';
+  document.getElementById('progress-modal-pct').textContent = '';
+  document.getElementById('progress-modal-steps').innerHTML = '';
+  openModal('progress-modal');
+}
+
+function updateProgressModal({ current, pct, addStep } = {}) {
+  if (current !== undefined) {
+    document.getElementById('progress-modal-current').textContent = current;
+  }
+  if (pct !== undefined && pct !== null) {
+    const v = Math.max(0, Math.min(100, pct));
+    document.getElementById('progress-modal-bar').style.width = v + '%';
+    document.getElementById('progress-modal-pct').textContent = v.toFixed(0) + '%';
+  }
+  if (addStep) {
+    const el = document.getElementById('progress-modal-steps');
+    const div = document.createElement('div');
+    div.textContent = `✓ ${addStep}`;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function closeProgressModal() {
+  closeModal('progress-modal');
+}
+
 /**
  * Analiza el ISO seleccionado en el picker.
  * Cierra el modal, dispara Fase A+B y abre el proyecto resultante.
@@ -4056,15 +4102,35 @@ async function analyzeSelectedISO() {
 
   closeModal('new-project-modal');
 
-  // Disc probe: detecta serie vs película + candidatos para los 3 tipos
-  if (btn) { btn.innerHTML = '⏳ Probando origen…'; }
+  // Disc probe: detecta serie vs película. Puede tardar 10-30s (mount ISO
+  // + identify_episode_candidates). Mostramos modal de progreso para que
+  // el usuario no vea el viewport congelado.
+  const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
+  const probeSub = sourceType === 'iso'
+    ? 'Montando ISO + identificando MPLS candidatos a episodio…'
+    : sourceType === 'bdmv_folder'
+    ? 'Identificando MPLS candidatos a episodio en la carpeta BDMV…'
+    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS con mkvmerge -J…`;
+  showProgressModal({
+    title: `Probando origen — ${sourceName}`,
+    sub: probeSub,
+    icon: probeIcon,
+  });
+  updateProgressModal({ current: '⏳ Esperando respuesta del backend…' });
+
   const probe = await apiFetch('/api/disc-probe', {
     method: 'POST',
     body: JSON.stringify(payloadProbe),
   });
-  if (btn) { btn.innerHTML = '🔍 Analizar'; }
 
-  if (probe && (probe.media_type === 'series' || probe.media_type === 'ambiguous')) {
+  closeProgressModal();
+
+  if (!probe) {
+    showToast('Error al probar el origen. Comprueba el log del backend.', 'error');
+    return;
+  }
+
+  if (probe.media_type === 'series' || probe.media_type === 'ambiguous') {
     // Series modal usa los m2ts_paths para identificar el origen al crear
     // sesiones — los persistimos en el probe object.
     if (sourceType === 'm2ts') {
@@ -4548,6 +4614,28 @@ async function seriesCreateSessions() {
   const btn = document.getElementById('series-create-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = `⏳ Creando ${episodes.length} proyectos…`; }
 
+  // Cerramos el series-modal y abrimos el progress-modal para que el
+  // usuario vea feedback continuo (sin esto, el modal de series se
+  // congela durante 1-3 minutos sin actividad visible).
+  closeModal('series-modal');
+  showProgressModal({
+    title: `Creando ${episodes.length} proyectos`,
+    sub: `Análisis MPLS + reglas Fase B + persistencia. Tarda ~30s + 15-30s por episodio.`,
+    icon: '📺',
+  });
+
+  // Polling del progreso. /api/series-create-progress devuelve current_index
+  // y current_label que actualizamos en el modal cada 500ms.
+  const pollId = setInterval(async () => {
+    try {
+      const prog = await apiFetch('/api/series-create-progress');
+      if (prog && prog.total > 0) {
+        const pct = (prog.current_index / prog.total) * 100;
+        updateProgressModal({ current: prog.current_label, pct });
+      }
+    } catch (_) { /* silenciar errores de polling */ }
+  }, 500);
+
   // El backend procesa cada MPLS/M2TS y crea las sesiones.
   // Coste: ~30s (mount ISO) + N × 15-30s. Para 4 episodios típicos: ~2 min.
   // Payload generalizado a los 3 tipos (v2.6+): source_type + source_path
@@ -4573,14 +4661,17 @@ async function seriesCreateSessions() {
     body: JSON.stringify(payload),
   }, 600000);  // timeout 10 min
 
+  clearInterval(pollId);
+  closeProgressModal();
+
   if (!data) {
     if (btn) { btn.disabled = false; btn.innerHTML = `➕ Crear ${episodes.length} proyectos`; }
+    showToast('Error al crear los proyectos. Comprueba el log del backend.', 'error');
     return;
   }
 
   const created = data.created || [];
   const failed = data.failed || [];
-  closeModal('series-modal');
   _seriesState = null;
 
   if (failed.length) {

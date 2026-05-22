@@ -1122,6 +1122,27 @@ class CreateSeriesSessionsRequest(_BaseModel):
     episodes: list[SeriesEpisodeSelection]
 
 
+# Progreso global de create_series_sessions (single-job singleton).
+# El frontend lo polleeará via /api/series-create-progress para mostrar
+# feedback durante el bucle de N episodios.
+_series_create_progress: dict = {
+    "running": False,
+    "current_index": 0,
+    "total": 0,
+    "current_label": "",
+    "completed": [],  # nombres de episodios ya procesados (success)
+    "failed": [],
+}
+
+
+@app.get("/api/series-create-progress",
+         summary="Polling del progreso de /api/create-series-sessions")
+async def series_create_progress():
+    """Devuelve el estado actual del único job de creación de sesiones en
+    curso. Si no hay ninguno, `running=False` y los campos quedan vacíos."""
+    return _series_create_progress
+
+
 @app.post("/api/create-series-sessions",
           summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie")
 async def create_series_sessions(body: CreateSeriesSessionsRequest):
@@ -1189,10 +1210,27 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
 
     created_sessions = []
     failed_episodes: list[dict] = []
+    # Reset del progreso global. Si otro job estaba en curso, lo
+    # sobrescribimos (el endpoint es single-job).
+    global _series_create_progress
+    _series_create_progress = {
+        "running": True,
+        "current_index": 0,
+        "total": len(body.episodes),
+        "current_label": f"Montando origen ({stype})…",
+        "completed": [],
+        "failed": [],
+    }
     try:
         # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
         async with await Source.open(source_abs) as src:
-            for ep in body.episodes:
+            _series_create_progress["current_label"] = "Origen listo. Iniciando análisis por episodio…"
+            for idx, ep in enumerate(body.episodes):
+                _series_create_progress["current_index"] = idx + 1
+                ep_label = ep.episode_title or f"Episodio S{body.season_number:02d}E{ep.episode_number:02d}"
+                _series_create_progress["current_label"] = (
+                    f"Analizando episodio {idx+1}/{len(body.episodes)}: {ep_label}"
+                )
                 # Localizar el MPLS/M2TS de este episodio según source_type
                 ep_source_path: str | None = None
                 if stype in ("iso", "bdmv_folder") and src.bdmv_root:
@@ -1320,11 +1358,22 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                 )
                 save_session(session)
                 created_sessions.append(session.model_dump())
+                _series_create_progress["completed"].append(ep_label)
     except SourceError as e:
+        _series_create_progress["running"] = False
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _series_create_progress["running"] = False
         _logger.exception("Error global en create-series-sessions")
         raise HTTPException(status_code=500, detail=f"Error creando sesiones: {e}")
+
+    # Marca progreso como terminado
+    _series_create_progress["running"] = False
+    _series_create_progress["current_label"] = (
+        f"✓ {len(created_sessions)} proyecto{'' if len(created_sessions) == 1 else 's'} creado"
+        f"{'' if len(created_sessions) == 1 else 's'}"
+    )
+    _series_create_progress["failed"] = failed_episodes
 
     return {
         "created": created_sessions,
