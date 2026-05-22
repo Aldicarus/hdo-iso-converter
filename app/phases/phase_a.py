@@ -65,6 +65,7 @@ _logger = logging.getLogger(__name__)
 MKVMERGE_BIN = "mkvmerge"
 MEDIAINFO_BIN = "mediainfo"
 FFMPEG_BIN = "ffmpeg"
+FFPROBE_BIN = "ffprobe"
 DOVI_TOOL_BIN = "dovi_tool"
 IDENTIFY_TIMEOUT = 30      # segundos — mkvmerge -J es rápido
 MEDIAINFO_TIMEOUT = 60     # MediaInfo sobre m2ts grande
@@ -258,24 +259,60 @@ SERIES_MAX_CV = 0.15
 
 
 def _mediainfo_general_duration(mi) -> float:
-    """Duración en segundos según la pista general de MediaInfo.
-    Usado como fallback para m2ts raw cuando mkvmerge -J no la emite.
-    Devuelve 0.0 si no se encuentra."""
+    """Duración en segundos según MediaInfo. Usado como fallback para
+    m2ts raw cuando mkvmerge -J no la emite. Estrategia en cascada:
+      1. Pista General (típico de mkv/mp4 + a veces m2ts).
+      2. Pista Video / Audio (algunos m2ts raw no tienen Duration en
+         General pero sí en los streams).
+    Devuelve 0.0 si ningún track la trae."""
     raw = getattr(mi, "raw_json", None) or {}
     tracks = (raw.get("media") or {}).get("track") or []
-    for t in tracks:
-        if (t.get("@type") or "").lower() == "general":
+    # Probar en orden: General → Video → Audio
+    for preferred in ("general", "video", "audio"):
+        for t in tracks:
+            if (t.get("@type") or "").lower() != preferred:
+                continue
             dur_str = t.get("Duration") or ""
             try:
                 # MediaInfo Duration está en segundos (decimales). Si trae
-                # ms (string con 'ms'), normalizamos heurísticamente.
+                # ms (típico de Mpeg-TS en algunas versiones), heurística
+                # de conversión: >10h en raw = probable ms.
                 v = float(dur_str)
-                if v > 36000:  # >10h, probable ms
+                if v > 36000:
                     v = v / 1000.0
-                return v
+                if v > 0:
+                    return v
             except (ValueError, TypeError):
-                return 0.0
+                continue
     return 0.0
+
+
+async def _ffprobe_duration_seconds(file_path: str) -> float:
+    """Duración en segundos del fichero usando ffprobe. Última línea
+    de defensa cuando mkvmerge -J y MediaInfo no la emiten (m2ts raw
+    con PCR atípico, formatos exóticos). Coste ~1-2s por fichero.
+
+    Devuelve 0.0 si ffprobe también falla o el path no es accesible.
+    Usado para ficheros m2ts directos — NO usar dentro de un UDF mount
+    (ver memoria: ffprobe rompe el demux en m2ts montado por loop).
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            FFPROBE_BIN, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode != 0:
+            return 0.0
+        out = stdout.decode("utf-8", errors="replace").strip()
+        return float(out) if out and out != "N/A" else 0.0
+    except (asyncio.TimeoutError, ValueError, OSError, FileNotFoundError) as e:
+        _logger.warning("ffprobe duration falló sobre %s: %s", file_path, e)
+        return 0.0
 
 
 def _mpls_duration_minutes(data: dict) -> float:
@@ -2340,6 +2377,20 @@ async def run_full_analysis_for_m2ts(
         if log_callback:
             await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
 
+    # Última línea de fallback de duración: ffprobe. Si ni mkvmerge ni
+    # MediaInfo la emitieron, ffprobe casi siempre la calcula recorriendo
+    # los PES headers del m2ts. Sin esto los capítulos auto fallaban con
+    # "No se pudo determinar la duración del disco" en m2ts atípicos.
+    if bdinfo.duration_seconds <= 0:
+        ffp_sec = await _ffprobe_duration_seconds(m2ts_path)
+        if ffp_sec > 0:
+            bdinfo.duration_seconds = ffp_sec
+            if log_callback:
+                await log_callback(
+                    f"[Fase A] ├─   ℹ️ Duración via ffprobe: {ffp_sec:.0f}s "
+                    f"({ffp_sec/60:.1f} min) — mkvmerge y MediaInfo no la emitieron"
+                )
+
     # PGS counting sin MPLS PIDs — fallback a rango por defecto.
     try:
         if log_callback:
@@ -2408,15 +2459,20 @@ async def identify_episode_candidates_from_m2ts_list(
         — mantenemos el shape para no duplicar lógica downstream.
     """
     candidates = []
+    skipped = []  # diagnóstico — qué se filtró y por qué
     for path in sorted(m2ts_paths):
         data = await _run_mkvmerge_j(path)
         if data is None:
+            skipped.append((Path(path).name, "mkvmerge -J falló o devolvió vacío"))
             continue
         audio_count = _audio_track_count(data)
         dur_min = _mpls_duration_minutes(data)
-        # Fallback de duración: si mkvmerge no la emitió (m2ts raw sin
-        # PCR limpio), preguntamos a MediaInfo. Algunas grabaciones BD
-        # llegan sin `duration` en mkvmerge -J pero sí en MediaInfo.
+        # Fallback de duración en cascada: mkvmerge → MediaInfo → ffprobe.
+        # Los m2ts raw del Blu-ray a veces no traen `duration` en mkvmerge,
+        # ni en MediaInfo general/video/audio (PCR atípico, codificación
+        # antigua), pero ffprobe casi siempre la calcula. Sin esto los
+        # episodios afectados quedan filtrados y se quedan fuera de la
+        # selección del modal de series.
         if dur_min <= 0:
             try:
                 mi = await run_mediainfo(path)
@@ -2425,10 +2481,21 @@ async def identify_episode_candidates_from_m2ts_list(
                     dur_min = mi_sec / 60.0
             except Exception:
                 pass
+        if dur_min <= 0:
+            ffp_sec = await _ffprobe_duration_seconds(path)
+            if ffp_sec > 0:
+                dur_min = ffp_sec / 60.0
         # Sin filtro estricto de duración aquí — el usuario eligió estos
         # ficheros explícitamente. Solo descartamos los manifestamente
         # rotos (sin duración o sin audio).
-        if audio_count < 1 or dur_min <= 0:
+        if audio_count < 1:
+            skipped.append((Path(path).name, "sin pistas de audio detectadas"))
+            continue
+        if dur_min <= 0:
+            skipped.append((
+                Path(path).name,
+                "no se pudo determinar la duración (mkvmerge + MediaInfo + ffprobe fallaron)",
+            ))
             continue
         candidates.append({
             "mpls_name": Path(path).name,
@@ -2437,6 +2504,14 @@ async def identify_episode_candidates_from_m2ts_list(
             "audio_track_count": audio_count,
             "data": data,
         })
+    # Diagnóstico: si filtramos algo, lo dejamos en el log para poder
+    # depurar (caso del usuario: 0001.m2ts ~30GB descartado sin explicación).
+    if skipped:
+        for name, reason in skipped:
+            _logger.warning(
+                "M2TS descartado del listado de candidatos a episodio: %s — %s",
+                name, reason,
+            )
     if log_callback:
         await log_callback(
             f"[Fase A] {len(candidates)} ficheros M2TS analizados como candidatos a episodio"
