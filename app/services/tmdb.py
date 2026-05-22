@@ -318,3 +318,320 @@ async def fetch_details(tmdb_id: int, lang: str = "es-ES") -> TmdbDetails | None
     cache[ck] = {"fetched_at": time.time(), "result": details.model_dump()}
     _save_cache()
     return details
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TV SERIES SUPPORT (v2.5+)
+#
+#  Endpoints TMDb usados:
+#    GET /3/search/tv?query=X&first_air_date_year=Y
+#      Devuelve series candidatas con tmdb_id, name, first_air_date.
+#    GET /3/tv/{id}?language=es-ES
+#      Detalles: number_of_seasons, seasons[], etc.
+#    GET /3/tv/{id}/season/{N}?language=es-ES
+#      episodes[] con episode_number, name, runtime (min), air_date.
+#
+#  Cache: las series viven en el mismo /config/tmdb_cache.json pero con
+#  prefijo de clave para no chocar con películas:
+#    "tv:search:Mad Men|2007"
+#    "tv:details:1104"
+#    "tv:season:1104:1"
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TvSearchResult(BaseModel):
+    """Una serie candidata devuelta por search_tv_series."""
+    tmdb_id: int
+    name: str = ""               # nombre localizado (es-ES)
+    original_name: str = ""
+    first_air_date: str = ""     # YYYY-MM-DD
+    year: int | None = None
+    poster_url: str = ""         # URL completa (w185 thumb)
+    overview: str = ""
+    vote_average: float = 0.0
+
+
+class TvSeasonSummary(BaseModel):
+    """Resumen de una temporada devuelto en TvDetails.seasons[]."""
+    season_number: int
+    episode_count: int = 0
+    air_date: str = ""
+    name: str = ""
+    poster_url: str = ""
+
+
+class TvDetails(BaseModel):
+    """Detalles extendidos de una serie."""
+    tmdb_id: int
+    name: str = ""
+    original_name: str = ""
+    first_air_date: str = ""
+    year: int | None = None
+    overview: str = ""
+    poster_url: str = ""         # w342
+    backdrop_url: str = ""       # w780
+    number_of_seasons: int = 0
+    number_of_episodes: int = 0
+    vote_average: float = 0.0
+    seasons: list[TvSeasonSummary] = []
+    tmdb_url: str = ""
+
+
+class TvEpisode(BaseModel):
+    """Un episodio de una temporada."""
+    episode_number: int
+    name: str = ""
+    overview: str = ""
+    air_date: str = ""
+    runtime_minutes: int = 0       # 0 si TMDb no lo tiene (común en specials)
+    still_url: str = ""            # screenshot del episodio
+
+
+_TV_POSTER_THUMB = "w185"
+_TV_STILL_SIZE = "w300"
+
+
+async def search_tv_series(
+    query: str, year: int | None = None,
+) -> list[TvSearchResult]:
+    """Busca series en TMDb por título (es-ES). Devuelve top 5 candidatos.
+
+    Usa `first_air_date_year` que filtra por año de la PREMIERE (no por
+    cualquier air_date de cualquier episodio — ese es el quirk de TMDb
+    documentado en https://www.themoviedb.org/talk/65af32bfd100b6010c82cc2d).
+
+    Cache: 30 días (mismo TTL que películas)."""
+    if not is_configured() or not query.strip():
+        return []
+    api_key = get_tmdb_api_key()
+    if not api_key:
+        return []
+
+    cache = _load_cache()
+    ck = f"tv:search:{query.lower().strip()}|{year or ''}"
+    cached = cache.get(ck)
+    if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
+        return [TvSearchResult(**r) for r in cached.get("result", [])]
+
+    params = {
+        "api_key": api_key,
+        "query": query,
+        "language": "es-ES",
+        "include_adult": "false",
+    }
+    if year:
+        params["first_air_date_year"] = str(year)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.themoviedb.org/3/search/tv", params=params,
+            )
+            r.raise_for_status()
+            payload = r.json()
+    except Exception:
+        return []
+
+    results = []
+    for item in (payload.get("results") or [])[:5]:
+        air = item.get("first_air_date") or ""
+        yr = int(air[:4]) if air[:4].isdigit() else None
+        poster = item.get("poster_path") or ""
+        results.append(TvSearchResult(
+            tmdb_id=int(item.get("id") or 0),
+            name=item.get("name") or "",
+            original_name=item.get("original_name") or "",
+            first_air_date=air,
+            year=yr,
+            poster_url=f"{_IMG_BASE}/{_TV_POSTER_THUMB}{poster}" if poster else "",
+            overview=item.get("overview") or "",
+            vote_average=float(item.get("vote_average") or 0.0),
+        ))
+
+    cache[ck] = {
+        "fetched_at": time.time(),
+        "result": [x.model_dump() for x in results],
+    }
+    _save_cache()
+    return results
+
+
+async def fetch_tv_details(tmdb_id: int) -> TvDetails | None:
+    """Obtiene detalles de una serie incluyendo el listado de temporadas.
+
+    Cache: 30 días."""
+    if not tmdb_id:
+        return None
+    if not is_configured():
+        return None
+    api_key = get_tmdb_api_key()
+    if not api_key:
+        return None
+
+    cache = _load_cache()
+    ck = f"tv:details:{tmdb_id}"
+    cached = cache.get(ck)
+    if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
+        return TvDetails(**cached.get("result", {}))
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"https://api.themoviedb.org/3/tv/{tmdb_id}",
+                params={"api_key": api_key, "language": "es-ES"},
+            )
+            r.raise_for_status()
+            raw = r.json()
+    except Exception:
+        return None
+
+    poster = raw.get("poster_path") or ""
+    backdrop = raw.get("backdrop_path") or ""
+    air = raw.get("first_air_date") or ""
+    yr = int(air[:4]) if air[:4].isdigit() else None
+    seasons = []
+    for sraw in (raw.get("seasons") or []):
+        s_poster = sraw.get("poster_path") or ""
+        seasons.append(TvSeasonSummary(
+            season_number=int(sraw.get("season_number") or 0),
+            episode_count=int(sraw.get("episode_count") or 0),
+            air_date=sraw.get("air_date") or "",
+            name=sraw.get("name") or "",
+            poster_url=f"{_IMG_BASE}/{_TV_POSTER_THUMB}{s_poster}" if s_poster else "",
+        ))
+    details = TvDetails(
+        tmdb_id=tmdb_id,
+        name=raw.get("name") or "",
+        original_name=raw.get("original_name") or "",
+        first_air_date=air,
+        year=yr,
+        overview=raw.get("overview") or "",
+        poster_url=f"{_IMG_BASE}/{_POSTER_SIZE}{poster}" if poster else "",
+        backdrop_url=f"{_IMG_BASE}/{_BACKDROP_SIZE}{backdrop}" if backdrop else "",
+        number_of_seasons=int(raw.get("number_of_seasons") or 0),
+        number_of_episodes=int(raw.get("number_of_episodes") or 0),
+        vote_average=float(raw.get("vote_average") or 0.0),
+        seasons=seasons,
+        tmdb_url=f"https://www.themoviedb.org/tv/{tmdb_id}",
+    )
+    cache[ck] = {"fetched_at": time.time(), "result": details.model_dump()}
+    _save_cache()
+    return details
+
+
+async def fetch_tv_season(
+    tmdb_id: int, season_number: int,
+) -> list[TvEpisode]:
+    """Devuelve los episodios de una temporada con runtime, name y air_date.
+
+    Cache: 30 días. El runtime es por episodio y se usa para el match
+    heurístico contra los MPLS del disco."""
+    if not tmdb_id or season_number is None:
+        return []
+    if not is_configured():
+        return []
+    api_key = get_tmdb_api_key()
+    if not api_key:
+        return []
+
+    cache = _load_cache()
+    ck = f"tv:season:{tmdb_id}:{season_number}"
+    cached = cache.get(ck)
+    if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
+        return [TvEpisode(**e) for e in cached.get("result", [])]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}",
+                params={"api_key": api_key, "language": "es-ES"},
+            )
+            r.raise_for_status()
+            raw = r.json()
+    except Exception:
+        return []
+
+    episodes = []
+    for eraw in (raw.get("episodes") or []):
+        still = eraw.get("still_path") or ""
+        episodes.append(TvEpisode(
+            episode_number=int(eraw.get("episode_number") or 0),
+            name=eraw.get("name") or "",
+            overview=eraw.get("overview") or "",
+            air_date=eraw.get("air_date") or "",
+            runtime_minutes=int(eraw.get("runtime") or 0),
+            still_url=f"{_IMG_BASE}/{_TV_STILL_SIZE}{still}" if still else "",
+        ))
+
+    cache[ck] = {
+        "fetched_at": time.time(),
+        "result": [x.model_dump() for x in episodes],
+    }
+    _save_cache()
+    return episodes
+
+
+def match_episodes_to_mpls(
+    mpls_durations_min: list[float],
+    tmdb_episodes: list[TvEpisode],
+    tolerance_min: float = 1.0,
+) -> list[dict]:
+    """Heurística de matching MPLS↔episodio basada en runtime.
+
+    Asume que los MPLS están ordenados por número (orden de emisión en
+    ~85% de los discos). Para cada MPLS computa:
+      - episode_number sugerido = posición en orden ascendente (1-based)
+      - matched_episode: el TvEpisode con ese episode_number (si existe)
+      - confidence: 'high' si runtime ±tolerance, 'low' si fuera de
+        tolerancia o sin runtime de TMDb, 'unknown' sin episodio asignado.
+
+    NO modifica la asignación, solo da el hint visual. El usuario
+    valida en la UI antes de crear las sesiones.
+
+    Args:
+        mpls_durations_min: duraciones de los MPLS en minutos, en el
+                            orden que se devolverá.
+        tmdb_episodes: episodios TMDb de la temporada (idealmente sorted
+                       por episode_number).
+        tolerance_min: ±N minutos para considerar match de runtime.
+
+    Returns:
+        Lista de dicts (mismo orden que mpls_durations_min):
+          {
+            "suggested_episode_number": int | None,
+            "matched_episode": TvEpisode | None (model_dump),
+            "confidence": "high" | "low" | "unknown",
+            "runtime_delta_min": float | None,
+          }
+    """
+    by_number = {e.episode_number: e for e in tmdb_episodes}
+    results = []
+    for idx, dur in enumerate(mpls_durations_min):
+        ep_num = idx + 1  # asignación secuencial 1-based
+        ep = by_number.get(ep_num)
+        if ep is None:
+            results.append({
+                "suggested_episode_number": ep_num if tmdb_episodes else None,
+                "matched_episode": None,
+                "confidence": "unknown",
+                "runtime_delta_min": None,
+            })
+            continue
+        if ep.runtime_minutes <= 0:
+            # TMDb no tiene runtime para este episodio
+            results.append({
+                "suggested_episode_number": ep_num,
+                "matched_episode": ep.model_dump(),
+                "confidence": "low",
+                "runtime_delta_min": None,
+            })
+            continue
+        delta = abs(dur - ep.runtime_minutes)
+        conf = "high" if delta <= tolerance_min else "low"
+        results.append({
+            "suggested_episode_number": ep_num,
+            "matched_episode": ep.model_dump(),
+            "confidence": conf,
+            "runtime_delta_min": round(delta, 2),
+        })
+    return results
