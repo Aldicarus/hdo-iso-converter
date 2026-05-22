@@ -4331,6 +4331,12 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   _resetAnalyzeSteps();
   openModal('analyze-modal');
 
+  // Hidratación TMDb en paralelo — sin bloquear el análisis. Si hay
+  // match, sustituye el icono 💿 por la cartela y el título genérico
+  // por el nombre real de la película. Best-effort; si falla, el
+  // modal sigue con el aspecto sin cartela.
+  _hydrateAnalyzeModalTmdb(sourceName, sourceType);
+
   // Para m2ts el paso "mount" no aplica — se salta visualmente
   // marcándolo como ✅ antes de empezar (mount es no-op para m2ts).
   if (sourceType === 'm2ts' || sourceType === 'bdmv_folder') {
@@ -5193,11 +5199,59 @@ function _analyzeStepLabelNode(stepKey) {
 }
 
 /** Resetea todos los pasos del modal de análisis al estado inicial. */
+/** Lookup TMDb best-effort para el analyze-modal (Tab 1 movies). Si hay
+ *  match, sustituye el icono emoji por la cartela y el título genérico
+ *  ("Analizando disco" etc.) por el nombre + año de la película. La
+ *  acción se baja al sub junto al filename. Se ejecuta en paralelo al
+ *  análisis — si tarda o falla, el modal sigue funcionando. */
+async function _hydrateAnalyzeModalTmdb(sourceName, sourceType) {
+  if (!sourceName) return;
+  try {
+    const data = await apiFetch('/api/cmv40/tmdb-lookup', {
+      method: 'POST',
+      body: JSON.stringify({ source_mkv_name: sourceName }),
+      silent: true,
+    }, 10000);
+    if (!data || !data.details) return;
+    const t = data.details;
+    // El usuario pudo cerrar el modal (cancelar análisis o error). Si
+    // ya no está abierto, descartamos la hidratación silenciosamente.
+    const modal = document.getElementById('analyze-modal');
+    if (!modal || !modal.classList.contains('open')) return;
+
+    const posterEl = document.getElementById('analyze-modal-poster');
+    if (posterEl && t.poster_url) {
+      posterEl.innerHTML = `<img src="${escHtml(t.poster_url)}" alt="${escHtml(t.title || '')}" loading="lazy">`;
+    }
+    const titleEl = document.getElementById('analyze-modal-title');
+    if (titleEl && t.title) {
+      const yr = t.year ? ` (${t.year})` : '';
+      titleEl.textContent = `${t.title}${yr}`;
+    }
+    // Sub: combina acción + nombre del fichero para no perder ese
+    // contexto al sustituir el título por el match TMDb.
+    const subEl = document.getElementById('analyze-modal-iso');
+    if (subEl) {
+      const action = sourceType === 'iso' ? 'Analizando disco'
+        : sourceType === 'bdmv_folder' ? 'Analizando carpeta BDMV'
+        : 'Analizando fichero M2TS';
+      subEl.textContent = `${action} · ${sourceName}`;
+    }
+  } catch (_) { /* TMDb no configurado / sin red / etc. — silencioso */ }
+}
+
 /** Configura iconos y labels del analyze-modal según el tipo de fuente.
  *  Se llama antes de _resetAnalyzeSteps. Sin esto, el modal mostraba
  *  siempre "Analizando disco / Montando ISO / Extrayendo capítulos del
  *  MPLS" — engañoso para BDMV folder y m2ts directo. */
 function _configureAnalyzeModalForSource(sourceType) {
+  // El poster se sustituye por <img> si TMDb da match. En aperturas
+  // posteriores hay que restaurar el span del icono (lo perdió el
+  // innerHTML del lookup anterior).
+  const posterEl = document.getElementById('analyze-modal-poster');
+  if (posterEl) {
+    posterEl.innerHTML = '<span id="analyze-modal-icon"></span>';
+  }
   const iconEl = document.getElementById('analyze-modal-icon');
   const titleEl = document.getElementById('analyze-modal-title');
   const mountEl = document.getElementById('analyze-step-mount');

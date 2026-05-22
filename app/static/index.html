@@ -783,13 +783,23 @@
   </div>
 </div>
 
-<!-- ═══ MODAL: Análisis en curso ═════════════════════════════════ -->
+<!-- ═══ MODAL: Análisis en curso ═════════════════════════════════
+     Cabecera con poster + título: el poster arranca como emoji (💿
+     según source_type) y se reemplaza por la cartela TMDb si hay
+     match con el nombre del origen. Best-effort en paralelo al
+     análisis — sin TMDb el modal sigue funcionando igual. -->
 <div class="modal-overlay" id="analyze-modal">
-  <div class="modal-box" style="max-width:420px; text-align:center">
-    <div id="analyze-modal-icon" style="font-size:40px; margin-bottom:12px">💿</div>
-    <div class="modal-title" id="analyze-modal-title" style="margin-bottom:4px">Analizando disco</div>
-    <div class="modal-sub" id="analyze-modal-iso" style="margin-bottom:16px; word-break:break-all"></div>
-    <div id="analyze-modal-steps" style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
+  <div class="modal-box analyze-modal-box">
+    <div class="analyze-modal-header">
+      <div class="analyze-modal-poster" id="analyze-modal-poster">
+        <span id="analyze-modal-icon">💿</span>
+      </div>
+      <div class="analyze-modal-titles">
+        <div class="modal-title" id="analyze-modal-title">Analizando disco</div>
+        <div class="modal-sub" id="analyze-modal-iso"></div>
+      </div>
+    </div>
+    <div id="analyze-modal-steps" class="analyze-modal-steps">
       <div id="analyze-step-mount">⏳ Montando el ISO…</div>
       <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas del disco…</div>
       <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos…</div>
@@ -804,7 +814,9 @@
       <div id="analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision…</div>
       <div id="analyze-step-rules" style="opacity:.4">⬜ Aplicando reglas automáticas…</div>
     </div>
-    <div class="analyze-spinner" style="margin:16px auto 0"></div>
+    <div class="analyze-modal-footer">
+      <div class="analyze-spinner"></div>
+    </div>
   </div>
 </div>
 
