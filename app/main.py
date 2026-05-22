@@ -3438,9 +3438,18 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
                     session.target_preflight_ok = True
+                    # El cierre canónico de fase no anuncia la siguiente — si
+                    # auto_pipeline=True el dispatcher emitirá su propio
+                    # ━━━ Inicio fase: analyze_source ━━━; si está desactivado,
+                    # el usuario decide cuándo lanzar Fase A.
+                    next_hint = (
+                        " — auto-pipeline encadenará Fase A a continuación."
+                        if session.auto_pipeline
+                        else " — auto-pipeline desactivado: pulsa ▶ para lanzar Fase A."
+                    )
                     await _cmv40_log(
                         session,
-                        "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
+                        f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
                     )
                 # Si NO avanzar, la helper ya pobló preflight_decision/message
             except Exception as e:
@@ -5045,9 +5054,14 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
                     session.target_preflight_ok = True
+                    next_hint = (
+                        " — auto-pipeline encadenará Fase A a continuación."
+                        if session.auto_pipeline
+                        else " — auto-pipeline desactivado: pulsa ▶ para lanzar Fase A."
+                    )
                     await _cmv40_log(
                         session,
-                        "✓ Fase preflight completada — origen y bin validos, procediendo con Fase A"
+                        f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
                     )
                 # Si NO avanzar, la helper ya pobló preflight_decision/message
                 # y dejó target_preflight_ok=False.
