@@ -150,6 +150,55 @@ MediaInfo y dovi_tool son opcionales: si fallan, el análisis sigue con datos de
 - **Progreso real** del subprocess (`--gui-mode` parseado a `Progress: XX%`), cancelación atómica.
 - **Validación final** automática: `mkvmerge -J` + `mkvextract` sobre el MKV resultante comparando contra lo esperado.
 
+### Series TV multi-episodio (v2.5+)
+
+Soporte automático de ISOs Blu-ray con varios episodios por disco. Al pulsar "Analizar ISO" el flujo arranca un **pre-probe rápido** (~10-20s):
+
+1. Monta el ISO, identifica los MPLS candidatos (duración 15-90 min, ≥1 audio track), desmonta.
+2. Clasifica el disco como `movie`, `series` o `ambiguous` según el coeficiente de variación de las duraciones (≥3 candidatos con CV ≤ 0.15 → serie).
+3. Si el disco es película, sigue el flujo normal de Fase A+B.
+4. Si es serie o ambiguous, abre el **modal de selección de episodios**.
+
+En el modal de series el usuario:
+
+- Identifica la serie en TMDb (búsqueda por título + año, top-5 candidatos con poster).
+- Selecciona la temporada (combo con `episode_count` por temporada).
+- Mapea cada MPLS a un episodio. El backend pre-rellena el mapping con asignación secuencial por número MPLS ascendente (~85% de los discos respetan este orden) y un indicador de confianza:
+  - 🟢 **alto** — runtime del MPLS coincide con TMDb ±1 min.
+  - 🟡 **bajo** — runtime difiere o TMDb no tiene runtime para ese episodio.
+  - ⚪ **sin match** — TMDb sin datos.
+- Marca los episodios que quiere procesar (todos por defecto, edita los que no apliquen) y pulsa **"Crear N proyectos"**.
+
+El backend monta el ISO una vez, analiza cada MPLS seleccionado completamente (mkvmerge + MediaInfo + dovi_tool + capítulos del MPLS específico) y crea N sesiones en `pending`. Coste: ~30s + 15-30s por episodio. Para 4 episodios típicos: ~2 min total.
+
+Las sesiones quedan esperando ejecución manual — el usuario lanza cada episodio cuando quiera (sin batch). Cada episodio sigue el mismo pipeline que una película (Fase D extrae el MPLS específico, Fase E aplica metadata, validación final).
+
+**Nomenclatura Plex/Jellyfin compatible:**
+
+```
+/mnt/output/
+  Mad Men (2007)/
+    Season 01/
+      Mad Men (2007) - S01E01 - Smoke Gets in Your Eyes [DV FEL].mkv
+      Mad Men (2007) - S01E02 - Ladies Room [DV FEL].mkv
+```
+
+El `build_series_mkv_name` sanitiza caracteres prohibidos en NTFS/SMB (`/\\:*?"<>|`) y preserva acentos UTF-8 (compatible con ext4/ZFS del NAS).
+
+**Casos edge cubiertos**:
+
+- Series con commentary tracks duplicados (8 MPLS para 4 episodios): el usuario desmarca los duplicados.
+- Anime/sitcoms de 22 min: el rango 15-90 min los cubre.
+- Specials (season 0): TMDb los lista, el usuario puede asignar manualmente.
+- Episodios dobles (1 MPLS = 2 episodios): edición manual del title (`S01E01-E02`).
+
+**Casos NO cubiertos en Fase 1** (mejoras futuras):
+
+- Auto-detección de commentary tracks duplicados (en Fase 1 aparecen como candidatos extras).
+- Multi-disco temporada completa (cada disco es ISO separado por ahora).
+- Override manual "esto es serie/película" si la detección automática falla.
+- Procesamiento en batch (cada episodio se lanza manualmente).
+
 ## Tab "Consultar / Editar MKV"
 
 ### File browser unificado

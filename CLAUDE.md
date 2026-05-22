@@ -125,6 +125,83 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 - **Banner contextual**: running/queued → azul con "Ver progreso" + "Cancelar". done/error → en historial.
 - **Tabla de historial de ejecuciones** con tiempos por fase y visor de log con coloreado semántico.
 
+### Modo serie multi-episodio (v2.5+)
+
+ISOs Blu-ray de series TV se detectan automáticamente y siguen un flujo paralelo al de películas. **Una sesión por episodio** — reutiliza toda la infraestructura (cola FIFO, validación, persistencia).
+
+**Detección automática** ([phase_a.py](app/phases/phase_a.py)):
+- `identify_episode_candidates(share_path)`: lista los MPLS con duración 15-90 min y ≥1 audio track (top 20 por tamaño).
+- `detect_disc_type(candidates)`: clasifica como `movie` / `series` / `ambiguous`:
+  - `series` si ≥3 candidatos con CV (stddev/mean) ≤ 0.15.
+  - `movie` si <3 candidatos válidos.
+  - `ambiguous` si ≥3 candidatos con duración dispersa (CV > 0.15).
+
+**Flujo end-to-end:**
+
+```
+Modal "Nuevo proyecto" → analyzeSelectedISO()
+  → POST /api/check-duplicate
+  → POST /api/disc-probe       (~10-20s: mount, identify, detect, umount)
+  └─ media_type:
+      ├─ movie → flujo normal (Fase A+B completa)
+      └─ series / ambiguous → abre #series-modal
+          ├─ GET /api/tv-search?query=...   (TMDb /search/tv)
+          ├─ GET /api/tv-details/{id}        (TMDb /tv/{id})
+          ├─ GET /api/tv-season/{id}/{N}?mpls_durations=...
+          │     (TMDb /tv/{id}/season/{N} + match heurístico runtime)
+          └─ POST /api/create-series-sessions
+                Monta ISO una vez, analiza cada MPLS con
+                run_full_analysis_for_mpls(), aplica reglas Fase B,
+                crea N sesiones pending.
+```
+
+**Endpoints REST nuevos** (todos en [main.py](app/main.py)):
+
+| Endpoint | Función |
+|---|---|
+| `POST /api/disc-probe` | Detecta tipo del disco; devuelve candidatos sin crear sesión |
+| `GET /api/tv-search?query=X&year=Y` | Top 5 candidatos TMDb (first_air_date_year filter) |
+| `GET /api/tv-details/{tmdb_id}` | Detalles + seasons[] |
+| `GET /api/tv-season/{tmdb_id}/{N}?mpls_durations=42,41.5,...` | episodes[] + mpls_matches[] con confianza |
+| `POST /api/create-series-sessions` | Crea N sesiones de un golpe tras confirmar mapping |
+
+**Match heurístico runtime** (`match_episodes_to_mpls` en [services/tmdb.py](app/services/tmdb.py)):
+- Asignación secuencial por orden MPLS ascendente (75-90% de los discos lo respetan).
+- Confianza:
+  - `high` si `|runtime_mpls - runtime_tmdb| ≤ 1 min`
+  - `low` si fuera de tolerancia o TMDb sin runtime
+  - `unknown` si MPLS sin episode asignado (más MPLS que episodios)
+- El usuario edita el mapping si quiere (override del auto-match).
+
+**Análisis por episodio** (`run_full_analysis_for_mpls` en [phase_a.py](app/phases/phase_a.py)):
+- Variante de `run_full_analysis` que opera sobre un MPLS específico (no busca el principal).
+- Helper `_resolve_m2ts_from_mpls`: deriva el m2ts del MPLS específico con 3 estrategias en cascada:
+  1. `container.properties.playlist_file` del JSON de mkvmerge -J
+  2. Convención `00800.mpls` → `00800.m2ts` (~95% acierto)
+  3. Fallback `find_main_m2ts` (último recurso)
+- MediaInfo, dovi_tool y PGS counting operan sobre el m2ts del episodio, no del disco entero.
+
+**Nomenclatura Plex/Jellyfin** (`build_series_mkv_name` en [phase_b.py](app/phases/phase_b.py)):
+
+```
+Serie Name (Año)/Season NN/Serie Name (Año) - SNNeNN - Episode Title [DV FEL][Audio DCP].mkv
+```
+
+- Sanitiza caracteres prohibidos en NTFS/SMB (`/\\:*?"<>|` → `-`).
+- Preserva acentos UTF-8 (ext4/ZFS-safe).
+- Subdirectorios creados con `Path.mkdir(parents=True)` en Fase E antes de mkvmerge.
+
+**Campos de sesión específicos de serie** (en [models.py](app/models.py) `Session`):
+
+```python
+media_type: "movie" | "series"  # default "movie"
+series_tmdb_id, series_name, series_year
+season_number, episode_number, episode_title, episode_runtime_minutes
+mpls_path  # solo el nombre, el mount point cambia entre montajes
+```
+
+Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"` por default.
+
 ---
 
 ## Tab 2 — Editar MKV
