@@ -578,22 +578,23 @@ def match_episodes_to_mpls(
 ) -> list[dict]:
     """Heurística de matching MPLS↔episodio basada en runtime.
 
-    Asume que los MPLS están ordenados por número (orden de emisión en
-    ~85% de los discos). Para cada MPLS computa:
-      - episode_number sugerido = posición en orden ascendente (1-based)
-      - matched_episode: el TvEpisode con ese episode_number (si existe)
-      - confidence: 'high' si runtime ±tolerance, 'low' si fuera de
-        tolerancia o sin runtime de TMDb, 'unknown' sin episodio asignado.
+    Asume que los MPLS están ordenados por número y son CONSECUTIVOS
+    dentro de la temporada — pero NO necesariamente empezando en E01.
+    Casos reales (disco 2 de una temporada, mid-season set, etc.):
+      - 3 MPLS [50, 50, 51] min, TMDb temp 1-8 con runtimes
+        [60, 60, 60, 50, 50, 50, 70, 70] → mejor offset = E04.
 
-    NO modifica la asignación, solo da el hint visual. El usuario
-    valida en la UI antes de crear las sesiones.
+    Algoritmo: probamos cada posible offset de inicio (E01, E02, …) y
+    nos quedamos con el que MINIMIZA la suma de |delta runtime| entre
+    cada MPLS y su episodio correspondiente. Si ningún offset tiene
+    runtime útil (TMDb sin runtimes), fallback al legacy (offset E01).
 
     Args:
         mpls_durations_min: duraciones de los MPLS en minutos, en el
                             orden que se devolverá.
         tmdb_episodes: episodios TMDb de la temporada (idealmente sorted
                        por episode_number).
-        tolerance_min: ±N minutos para considerar match de runtime.
+        tolerance_min: ±N minutos para considerar match individual 'high'.
 
     Returns:
         Lista de dicts (mismo orden que mpls_durations_min):
@@ -605,9 +606,36 @@ def match_episodes_to_mpls(
           }
     """
     by_number = {e.episode_number: e for e in tmdb_episodes}
+    sorted_eps = sorted(tmdb_episodes, key=lambda e: e.episode_number)
+
+    # Encontrar el offset (ep_num inicial) que minimiza la suma de
+    # deltas de runtime entre MPLS consecutivos y episodios consecutivos.
+    # Fallback: si ningún episodio tiene runtime, offset = E01 (legacy).
+    best_start_ep_num = sorted_eps[0].episode_number if sorted_eps else 1
+    if sorted_eps and mpls_durations_min:
+        best_score = float("inf")
+        max_offsets = max(1, len(sorted_eps) - len(mpls_durations_min) + 1)
+        for offset_idx in range(max_offsets):
+            total_delta = 0.0
+            valid = 0
+            for i, dur in enumerate(mpls_durations_min):
+                if offset_idx + i >= len(sorted_eps):
+                    break
+                ep = sorted_eps[offset_idx + i]
+                if ep.runtime_minutes > 0:
+                    total_delta += abs(dur - ep.runtime_minutes)
+                    valid += 1
+            if valid > 0:
+                # Usamos mean delta para no penalizar offsets con menos
+                # episodios disponibles que MPLS (caso último-disco).
+                mean_delta = total_delta / valid
+                if mean_delta < best_score:
+                    best_score = mean_delta
+                    best_start_ep_num = sorted_eps[offset_idx].episode_number
+
     results = []
     for idx, dur in enumerate(mpls_durations_min):
-        ep_num = idx + 1  # asignación secuencial 1-based
+        ep_num = best_start_ep_num + idx
         ep = by_number.get(ep_num)
         if ep is None:
             results.append({

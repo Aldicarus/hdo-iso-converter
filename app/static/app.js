@@ -4914,10 +4914,57 @@ async function seriesLoadSeason() {
   _seriesUpdateCreateButton();
 }
 
+/** Calcula el indicador de confianza para una fila MPLS↔episodio
+ *  basándose en el episodio ACTUAL del mapping (no el sugerido por el
+ *  backend). Se recomputa en cada render para que el indicador refleje
+ *  la elección actual del usuario.
+ *
+ *  Devuelve {emoji, title} para pintar en la celda y su tooltip:
+ *    🟢 high  · |Δ runtime| ≤ 1 min  (match perfecto)
+ *    🟡 low   · |Δ runtime| > 1 min  (runtime no coincide)
+ *    ⚪ unknown · sin episodio o TMDb sin runtime
+ *    ✏️ manual · modo manual (sin TMDb)
+ */
+function _computeMatchConfidence(mplsDurationMin, episodeNumber, isManual) {
+  if (isManual) {
+    return { emoji: '✏️', title: 'Modo manual · sin match runtime' };
+  }
+  if (!episodeNumber) {
+    return {
+      emoji: '⚪',
+      title: 'Sin episodio asignado — elige uno del desplegable',
+    };
+  }
+  const ep = (_seriesState.seasonEpisodes || []).find(e => e.episode_number === episodeNumber);
+  if (!ep) {
+    return {
+      emoji: '⚪',
+      title: `Episodio E${String(episodeNumber).padStart(2,'0')} no está en la lista de TMDb`,
+    };
+  }
+  if (!ep.runtime_minutes) {
+    return {
+      emoji: '🟡',
+      title: `MPLS ${mplsDurationMin.toFixed(1)} min · TMDb sin runtime para E${String(episodeNumber).padStart(2,'0')}`,
+    };
+  }
+  const delta = Math.abs(mplsDurationMin - ep.runtime_minutes);
+  const epLabel = `E${String(episodeNumber).padStart(2,'0')} ${ep.runtime_minutes} min`;
+  if (delta <= 1) {
+    return {
+      emoji: '🟢',
+      title: `Match alto · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
+    };
+  }
+  return {
+    emoji: '🟡',
+    title: `Match bajo · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
+  };
+}
+
 function _renderSeriesEpisodesTable() {
   _seriesUpdateStepper(3);
   const cands = _seriesState.probe.episode_candidates;
-  const matches = _seriesState.mplsMatches;
   const mapping = _seriesState.mapping;
   const episodes = _seriesState.seasonEpisodes;
   const isManual = _seriesState.mode === 'manual';
@@ -4946,20 +4993,12 @@ function _renderSeriesEpisodesTable() {
   `;
 
   const rows = cands.map((c, idx) => {
-    const m = matches[idx] || {};
     const map = mapping[c.mpls_path] || {};
-    const confEmoji = isManual
-      ? '✏️'  // modo manual: sin match runtime
-      : m.confidence === 'high' ? '🟢'
-      : m.confidence === 'low'  ? '🟡'
-      : '⚪';
-    const confTitle = isManual
-      ? 'Modo manual · sin match runtime'
-      : m.confidence === 'high'
-      ? `Match alto · MPLS ${c.duration_minutes.toFixed(1)} min · TMDb runtime Δ=${m.runtime_delta_min ?? '?'} min`
-      : m.confidence === 'low'
-      ? `Match bajo · MPLS ${c.duration_minutes.toFixed(1)} min vs TMDb (Δ=${m.runtime_delta_min ?? 'sin runtime'})`
-      : 'Sin match TMDb · asignación manual';
+    // Confianza dinámica basada en el episodio actualmente seleccionado
+    // (no en el match inicial del backend). Sin esto, cuando el usuario
+    // corregía manualmente la asignación el indicador se quedaba en
+    // amarillo aunque las duraciones coincidieran perfectamente.
+    const conf = _computeMatchConfidence(c.duration_minutes, map.episode_number, isManual);
     const dur = c.duration_minutes >= 60
       ? `${Math.floor(c.duration_minutes / 60)}h ${Math.round(c.duration_minutes % 60)}m`
       : `${c.duration_minutes.toFixed(1)} min`;
@@ -4971,7 +5010,7 @@ function _renderSeriesEpisodesTable() {
         </div>
         <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
         <div class="col-dur">${dur}</div>
-        <div class="col-match" title="${escHtml(confTitle)}">${confEmoji}</div>
+        <div class="col-match" title="${escHtml(conf.title)}">${conf.emoji}</div>
         <div class="col-episode">${isManual ? buildManualInputs(map.episode_number, map.episode_title, c.mpls_path) : buildSelect(map.episode_number, c.mpls_path)}</div>
       </div>
     `;
@@ -5030,6 +5069,13 @@ function seriesChangeEpisode(mplsPath, episodeNumberStr) {
     }
   }
   _seriesUpdateCreateButton();
+  // Re-render del table para que el indicador de match (🟢/🟡/⚪) refleje
+  // la nueva selección. Sin esto se quedaba en el valor inicial del
+  // backend aunque el usuario corrigiera la asignación al episodio
+  // correcto. En modo TMDb el re-render conserva el foco del <select>
+  // (el navegador lo restablece tras el re-render porque el value sigue
+  // siendo el mismo); el coste es despreciable (<5ms).
+  _renderSeriesEpisodesTable();
 }
 
 function _seriesUpdateCreateButton() {
