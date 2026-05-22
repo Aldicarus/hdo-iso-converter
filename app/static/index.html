@@ -625,40 +625,48 @@
        5. Crea N sesiones de un golpe (POST /api/create-series-sessions).
 ═════════════════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="series-modal" onclick="onModalOverlayClick(event,'series-modal')">
-  <div class="modal-box" style="max-width:920px">
+  <div class="modal-box series-modal-box">
     <div class="modal-title">📺 Disco de serie detectado</div>
     <div class="modal-sub" id="series-modal-sub">
       Se han detectado varios MPLS de duración similar. Identifica la serie en TMDb y mapea cada episodio.
     </div>
 
+    <!-- Stepper visual indicando en qué paso está el usuario. -->
+    <div class="series-stepper" id="series-stepper">
+      <div class="series-step active" data-step="1"><span class="series-step-num">1</span><span class="series-step-label">Identificar serie</span></div>
+      <div class="series-step" data-step="2"><span class="series-step-num">2</span><span class="series-step-label">Elegir temporada</span></div>
+      <div class="series-step" data-step="3"><span class="series-step-num">3</span><span class="series-step-label">Mapear episodios</span></div>
+    </div>
+
     <!-- Sección 1: búsqueda TMDb -->
-    <div style="margin-top:16px">
-      <label class="modal-field-label">1. Identifica la serie en TMDb</label>
-      <div class="iso-select-row">
-        <input type="text" id="series-tmdb-query" class="iso-picker-select"
-               placeholder="Nombre de la serie" style="flex:1">
-        <input type="number" id="series-tmdb-year" class="iso-picker-select"
-               placeholder="Año (opcional)" style="max-width:120px">
+    <div class="series-section">
+      <div class="series-section-title">1 · Identifica la serie en TMDb</div>
+      <div class="series-search-row">
+        <input type="text" id="series-tmdb-query"
+               class="series-input"
+               placeholder="Nombre de la serie">
+        <input type="number" id="series-tmdb-year"
+               class="series-input series-input-year"
+               placeholder="Año">
         <button class="btn btn-primary btn-md" onclick="seriesTmdbSearch()">🔍 Buscar</button>
       </div>
-      <div id="series-tmdb-results" style="margin-top:8px"></div>
+      <div id="series-tmdb-results" class="series-tmdb-results"></div>
     </div>
 
     <!-- Sección 2: temporada (oculto hasta elegir serie) -->
-    <div id="series-season-section" style="display:none; margin-top:16px">
-      <label class="modal-field-label">2. Elige la temporada</label>
-      <div class="iso-select-row">
-        <select id="series-season-select" class="iso-picker-select"
-                onchange="seriesLoadSeason()">
-          <option value="">— Cargando temporadas… —</option>
-        </select>
-      </div>
+    <div id="series-season-section" class="series-section" style="display:none">
+      <div class="series-section-title">2 · Elige la temporada</div>
+      <select id="series-season-select" class="series-input series-input-fullwidth"
+              onchange="seriesLoadSeason()">
+        <option value="">— Cargando temporadas… —</option>
+      </select>
     </div>
 
     <!-- Sección 3: tabla de episodios (oculta hasta elegir temporada) -->
-    <div id="series-episodes-section" style="display:none; margin-top:16px">
-      <label class="modal-field-label">3. Mapea MPLS ↔ episodio (marca los que quieras procesar)</label>
-      <div id="series-episodes-table" style="border:1px solid var(--sep); border-radius:6px; overflow:hidden"></div>
+    <div id="series-episodes-section" class="series-section" style="display:none">
+      <div class="series-section-title">3 · Mapea MPLS ↔ episodio</div>
+      <div class="series-section-help">Marca los episodios que quieres procesar. El nº de episodio se pre-rellena en orden con el match TMDb (🟢 alto / 🟡 bajo / ⚪ sin match runtime).</div>
+      <div id="series-episodes-table" class="series-ep-table"></div>
     </div>
 
     <div class="modal-footer">

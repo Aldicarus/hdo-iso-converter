@@ -4385,10 +4385,11 @@ function openSeriesModal(probe) {
   if (q) q.value = probe.suggested_title || '';
   if (y) y.value = probe.suggested_year || '';
 
-  // Reset secciones inferiores
+  // Reset secciones inferiores + stepper
   document.getElementById('series-tmdb-results').innerHTML = '';
   document.getElementById('series-season-section').style.display = 'none';
   document.getElementById('series-episodes-section').style.display = 'none';
+  _seriesUpdateStepper(1);
   _seriesUpdateCreateButton();
 
   openModal('series-modal');
@@ -4423,36 +4424,57 @@ async function seriesTmdbSearch() {
     return;
   }
 
-  resultsBox.innerHTML = data.results.map(r => `
-    <div class="series-candidate" style="display:flex; gap:10px; padding:8px; border:1px solid var(--sep); border-radius:6px; margin-bottom:6px; cursor:pointer; background:var(--surface-1)"
-         onclick='seriesSelectCandidate(${JSON.stringify(r).replace(/'/g, "&apos;")})'>
-      ${r.poster_url ? `<img src="${escHtml(r.poster_url)}" style="width:50px; height:75px; object-fit:cover; border-radius:4px">` : '<div style="width:50px; height:75px; background:var(--surface-2); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--text-3)">📺</div>'}
-      <div style="flex:1; min-width:0">
-        <div style="font-weight:600">${escHtml(r.name)}${r.year ? ` <span style="color:var(--text-3); font-weight:400">(${r.year})</span>` : ''}</div>
-        <div style="font-size:11px; color:var(--text-3); margin-top:2px">${escHtml(r.original_name || '')}${r.vote_average ? ` · ★ ${r.vote_average.toFixed(1)}` : ''}</div>
-        <div style="font-size:11px; color:var(--text-2); margin-top:4px; max-height:42px; overflow:hidden">${escHtml(r.overview || '')}</div>
+  // Cacheamos los candidatos por tmdb_id para no tener que serializar todo
+  // el objeto en el onclick (evita problemas de escape).
+  _seriesState.candidates = {};
+  resultsBox.innerHTML = data.results.map(r => {
+    _seriesState.candidates[r.tmdb_id] = r;
+    const isSelected = _seriesState.selectedSeries && _seriesState.selectedSeries.tmdb_id === r.tmdb_id;
+    const yr = r.year ? `<span class="yr">(${r.year})</span>` : '';
+    const meta = [
+      r.original_name && r.original_name !== r.name ? escHtml(r.original_name) : '',
+      r.vote_average ? `★ ${r.vote_average.toFixed(1)}` : '',
+    ].filter(Boolean).join(' · ');
+    const poster = r.poster_url
+      ? `<img src="${escHtml(r.poster_url)}" alt="${escHtml(r.name)}" loading="lazy">`
+      : '📺';
+    return `
+      <div class="series-candidate${isSelected ? ' selected' : ''}"
+           onclick="seriesSelectCandidate(${r.tmdb_id})">
+        <div class="series-candidate-poster">${poster}</div>
+        <div class="series-candidate-info">
+          <div class="series-candidate-title">${escHtml(r.name)} ${yr}</div>
+          ${meta ? `<div class="series-candidate-meta">${meta}</div>` : ''}
+          ${r.overview ? `<div class="series-candidate-overview">${escHtml(r.overview)}</div>` : ''}
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
-async function seriesSelectCandidate(candidate) {
+async function seriesSelectCandidate(tmdbId) {
+  // Recupera el candidato cacheado por tmdb_id (no recibimos el objeto
+  // entero por onclick — más limpio y sin issues de escape de quotes).
+  const candidate = _seriesState.candidates && _seriesState.candidates[tmdbId];
+  if (!candidate) return;
   _seriesState.selectedSeries = candidate;
-  // Highlight visual: marca la card seleccionada
-  document.querySelectorAll('.series-candidate').forEach(el => {
-    el.style.border = '1px solid var(--sep)';
-    el.style.background = 'var(--surface-1)';
+
+  // Update stepper visual: 1=done, 2=active
+  _seriesUpdateStepper(2);
+
+  // Re-render para marcar la card seleccionada (refresh con CSS .selected)
+  const resultsBox = document.getElementById('series-tmdb-results');
+  resultsBox.querySelectorAll('.series-candidate').forEach(el => {
+    el.classList.toggle('selected',
+      el.getAttribute('onclick') === `seriesSelectCandidate(${tmdbId})`);
   });
-  // (no podemos referenciar el click target aquí sin event — refresh OK)
 
   // Cargar detalles de la serie para poblar combo de temporadas
-  const data = await apiFetch(`/api/tv-details/${candidate.tmdb_id}`);
+  const data = await apiFetch(`/api/tv-details/${tmdbId}`);
   if (!data || !data.details) {
     showToast('No se pudieron cargar los detalles de la serie', 'error');
     return;
   }
-  // Filtrar season_number 0 (specials) por defecto — en Fase 1 no soportamos
-  // specials. El usuario aún puede elegirla si quiere.
   const seasons = data.details.seasons || [];
   const select = document.getElementById('series-season-select');
   select.innerHTML = '<option value="">— Elige temporada —</option>' + seasons.map(s =>
@@ -4461,6 +4483,17 @@ async function seriesSelectCandidate(candidate) {
   document.getElementById('series-season-section').style.display = 'block';
   document.getElementById('series-episodes-section').style.display = 'none';
   _seriesUpdateCreateButton();
+}
+
+/** Update visual stepper. activeStep: 1, 2 o 3. Pasos anteriores quedan
+ *  marcados como done. */
+function _seriesUpdateStepper(activeStep) {
+  document.querySelectorAll('#series-stepper .series-step').forEach(el => {
+    const n = parseInt(el.getAttribute('data-step'), 10);
+    el.classList.remove('active', 'done');
+    if (n < activeStep) el.classList.add('done');
+    else if (n === activeStep) el.classList.add('active');
+  });
 }
 
 async function seriesLoadSeason() {
@@ -4505,15 +4538,23 @@ async function seriesLoadSeason() {
 }
 
 function _renderSeriesEpisodesTable() {
+  _seriesUpdateStepper(3);
   const cands = _seriesState.probe.episode_candidates;
   const matches = _seriesState.mplsMatches;
   const mapping = _seriesState.mapping;
   const episodes = _seriesState.seasonEpisodes;
 
-  // Lista de opciones del dropdown de episodio (para todas las filas)
-  const epOptions = episodes.map(e =>
-    `<option value="${e.episode_number}">E${String(e.episode_number).padStart(2,'0')} · ${escHtml(e.name)}${e.runtime_minutes ? ` (${e.runtime_minutes}m)` : ''}</option>`
-  ).join('');
+  // Opciones del select de episodio. Construimos por fila para poder
+  // marcar `selected` en la correcta (no usar replace string-based que
+  // es frágil con números de 2+ dígitos).
+  const buildSelect = (selectedNum, mplsPath) => {
+    const opts = [`<option value="">—</option>`].concat(episodes.map(e => {
+      const isSel = e.episode_number === selectedNum ? ' selected' : '';
+      const label = `E${String(e.episode_number).padStart(2, '0')} · ${escHtml(e.name)}${e.runtime_minutes ? ` (${e.runtime_minutes}m)` : ''}`;
+      return `<option value="${e.episode_number}"${isSel}>${label}</option>`;
+    }));
+    return `<select onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">${opts.join('')}</select>`;
+  };
 
   const rows = cands.map((c, idx) => {
     const m = matches[idx] || {};
@@ -4522,42 +4563,36 @@ function _renderSeriesEpisodesTable() {
                     : m.confidence === 'low'  ? '🟡'
                     : '⚪';
     const confTitle = m.confidence === 'high'
-      ? `Match alto: runtime MPLS (${c.duration_minutes.toFixed(1)} min) coincide con TMDb (Δ=${m.runtime_delta_min ?? '?'} min)`
+      ? `Match alto · MPLS ${c.duration_minutes.toFixed(1)} min · TMDb runtime Δ=${m.runtime_delta_min ?? '?'} min`
       : m.confidence === 'low'
-      ? `Match bajo: runtime MPLS (${c.duration_minutes.toFixed(1)} min) vs TMDb (Δ=${m.runtime_delta_min ?? 'sin runtime'})`
-      : 'Sin match TMDb (asignación manual)';
+      ? `Match bajo · MPLS ${c.duration_minutes.toFixed(1)} min vs TMDb (Δ=${m.runtime_delta_min ?? 'sin runtime'})`
+      : 'Sin match TMDb · asignación manual';
+    const dur = c.duration_minutes >= 60
+      ? `${Math.floor(c.duration_minutes / 60)}h ${Math.round(c.duration_minutes % 60)}m`
+      : `${c.duration_minutes.toFixed(1)} min`;
     return `
-      <tr style="border-top:1px solid var(--sep)">
-        <td style="padding:8px; text-align:center">
+      <div class="series-ep-row${map.include ? '' : ' unchecked'}">
+        <div class="col-cb">
           <input type="checkbox" ${map.include ? 'checked' : ''}
-                 onchange="seriesToggleEpisode('${c.mpls_path}', this.checked)">
-        </td>
-        <td style="padding:8px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px">${escHtml(c.mpls_name)}</td>
-        <td style="padding:8px; font-variant-numeric:tabular-nums; font-size:12px">${c.duration_minutes.toFixed(1)} min</td>
-        <td style="padding:8px; text-align:center" title="${escHtml(confTitle)}">${confEmoji}</td>
-        <td style="padding:8px">
-          <select onchange="seriesChangeEpisode('${c.mpls_path}', this.value)" style="width:100%; padding:4px; font-size:12px">
-            <option value="">—</option>
-            ${epOptions.replace(`value="${map.episode_number}"`, `value="${map.episode_number}" selected`)}
-          </select>
-        </td>
-      </tr>
+                 onchange="seriesToggleEpisode('${escHtml(c.mpls_path)}', this.checked)">
+        </div>
+        <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
+        <div class="col-dur">${dur}</div>
+        <div class="col-match" title="${escHtml(confTitle)}">${confEmoji}</div>
+        <div class="col-episode">${buildSelect(map.episode_number, c.mpls_path)}</div>
+      </div>
     `;
   }).join('');
 
   document.getElementById('series-episodes-table').innerHTML = `
-    <table style="width:100%; border-collapse:collapse; font-size:12px">
-      <thead>
-        <tr style="background:var(--surface-2)">
-          <th style="padding:8px; text-align:center; width:40px"></th>
-          <th style="padding:8px; text-align:left">MPLS</th>
-          <th style="padding:8px; text-align:left">Duración</th>
-          <th style="padding:8px; text-align:center; width:50px" title="Confianza del match runtime MPLS↔TMDb">Match</th>
-          <th style="padding:8px; text-align:left">Episodio</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="series-ep-header">
+      <div></div>
+      <div>MPLS / fichero</div>
+      <div>Duración</div>
+      <div title="Confianza del match runtime MPLS ↔ TMDb">Match</div>
+      <div>Episodio TMDb</div>
+    </div>
+    ${rows}
   `;
 }
 
