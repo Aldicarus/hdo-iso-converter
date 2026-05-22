@@ -1686,13 +1686,18 @@ async def _run_pipeline(session_id: str) -> None:
     Corutina interna que ejecuta el pipeline de extracción en background.
     Llamada por queue_manager cuando le toca el turno al trabajo.
 
-    Flujo optimizado:
-      1. Monta el ISO (loop mount UDF)
-      2. Localiza el MPLS principal
+    Flujo optimizado (compatible con los 3 tipos de origen):
+      1. Prepara el origen vía Source:
+         - 'iso' → monta loop mount UDF en /mnt/bd
+         - 'bdmv_folder' → no-op (carpeta directa)
+         - 'm2ts' → no-op (fichero directo, sin BDMV)
+      2. Localiza la fuente para mkvmerge:
+         - iso/bdmv_folder → MPLS principal o el del episodio (modo serie)
+         - m2ts → el fichero m2ts directamente
       3. Decide ruta según reordenación:
-         a) Con reordenación → mkvmerge MPLS → MKV final (1 copia, sin intermedio)
-         b) Sin reordenación → mkvmerge MPLS → intermedio → mkvpropedit + mv (1 copia)
-      4. Desmonta el ISO (siempre, en finally)
+         a) Con reordenación → mkvmerge → MKV final (1 copia, sin intermedio)
+         b) Sin reordenación → mkvmerge → intermedio → mkvpropedit + mv (1 copia)
+      4. Limpia el origen (ISO desmontado, etc.) en finally.
     """
     session = load_session(session_id)
     if not session:
@@ -1735,6 +1740,10 @@ async def _run_pipeline(session_id: str) -> None:
         for ws in list(_ws_connections.get(session_id, [])):
             asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, msg))
 
+    # Tracking del origen abierto. `source_obj` se setea tras Source.open()
+    # + __aenter__ y se cierra en finally. `mount_point` se mantiene como
+    # alias para mantener compatibilidad con logs/checks que aún lo usan.
+    source_obj: "Source | None" = None
     mount_point      = None
     intermediate_mkv = None
     _cancel_flags[session_id] = False
@@ -1749,40 +1758,103 @@ async def _run_pipeline(session_id: str) -> None:
         _active_processes[session_id] = proc
 
     try:
-        await log(f"[Pipeline] ━━━ Iniciando extracción de {session.iso_path} ━━━")
-        await log(
-            "[Pipeline] 📋 Plan general: montar el ISO (loop mount UDF), localizar el "
-            "MPLS principal del Blu-ray, extraer las pistas seleccionadas a un MKV y "
-            "aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
-            "validar el resultado y desmontar el ISO."
-        )
+        from phases.iso_mount import Source, SourceError
 
-        # ── 1. Montar ISO ─────────────────────────────────────────
+        stype = session.source_type or "iso"
+        await log(f"[Pipeline] ━━━ Iniciando extracción de {session.iso_path} ━━━")
+
+        # Plan general dinámico según el tipo de origen — antes hablaba
+        # siempre de "montar el ISO" aunque el origen fuera carpeta BDMV
+        # o m2ts, lo cual confundía y fallaba al intentar montar un m2ts.
+        if stype == "iso":
+            plan_text = (
+                "[Pipeline] 📋 Plan general: montar el ISO (loop mount UDF), localizar el "
+                "MPLS principal del Blu-ray, extraer las pistas seleccionadas a un MKV y "
+                "aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
+                "validar el resultado y desmontar el ISO."
+            )
+        elif stype == "bdmv_folder":
+            plan_text = (
+                "[Pipeline] 📋 Plan general: leer la carpeta BDMV directa (sin montaje), "
+                "localizar el MPLS principal, extraer las pistas seleccionadas a un MKV "
+                "y aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
+                "validar el resultado."
+            )
+        else:  # m2ts
+            plan_text = (
+                "[Pipeline] 📋 Plan general: leer el fichero M2TS directo (sin MPLS), "
+                "extraer las pistas seleccionadas a un MKV y aplicar los metadatos "
+                "(nombres, flags, capítulos auto cada 10 min si no hay extraídos del "
+                "disco). Tras completar, validar el resultado."
+            )
+        await log(plan_text)
+
+        # ── 1. Preparar origen (Source abstraction) ───────────────
         _mark_phase("mount")
-        await log("[Montando ISO] ┌─ Paso 1: Montando ISO en /mnt/bd (loop mount UDF)…")
-        mount_point = await mount_iso(session.iso_path)
+        if stype == "iso":
+            await log("[Origen] ┌─ Paso 1: Montando el ISO en /mnt/bd (loop mount UDF)…")
+        elif stype == "bdmv_folder":
+            await log("[Origen] ┌─ Paso 1: Preparando carpeta BDMV (sin montaje)…")
+        else:  # m2ts
+            await log("[Origen] ┌─ Paso 1: Preparando fichero M2TS (sin montaje)…")
+
+        source_obj = await Source.open(session.iso_path)
+        await source_obj.__aenter__()
+        # Alias para que código posterior que lee `mount_point` siga
+        # funcionando (típicamente referencias al bdmv_root del montaje).
+        mount_point = source_obj.bdmv_root  # None para m2ts
         _mark_phase("mount", done=True)
-        await log(f"[Montando ISO] └─ ✓ ISO montado en: {mount_point}")
+
+        if stype == "iso":
+            await log(f"[Origen] └─ ✓ ISO montado en: {mount_point}")
+        elif stype == "bdmv_folder":
+            await log(f"[Origen] └─ ✓ Carpeta BDMV lista: {mount_point}")
+        else:
+            await log(f"[Origen] └─ ✓ Fichero M2TS listo: {session.iso_path}")
 
         _check_cancel()
 
-        # ── 2. Localizar MPLS principal ───────────────────────────
-        # Reutilizar el MPLS detectado en Fase A (guardado en bdinfo_result)
-        if session.bdinfo_result and session.bdinfo_result.main_mpls:
-            mpls_name = session.bdinfo_result.main_mpls
-            for candidate_dir in [
-                Path(mount_point) / "BDMV" / "PLAYLIST",
-                Path(mount_point) / "PLAYLIST",
-            ]:
-                candidate_path = candidate_dir / mpls_name
-                if candidate_path.exists():
-                    mpls_path = str(candidate_path)
-                    break
-            else:
-                mpls_path = find_main_mpls(mount_point)
+        # ── 2. Localizar la fuente para mkvmerge ──────────────────
+        # iso/bdmv_folder → MPLS (principal o del episodio en serie)
+        # m2ts → el propio fichero
+        if stype == "m2ts":
+            # session.iso_path apunta al m2ts directo. Para serie
+            # multi-fichero, session.mpls_path tiene el path absoluto
+            # del m2ts del episodio (lo guardamos así en create_series).
+            mkvmerge_source = (
+                session.mpls_path
+                if session.mpls_path and Path(session.mpls_path).exists()
+                else session.iso_path
+            )
+            await log(f"[Origen] Fuente para mkvmerge: {Path(mkvmerge_source).name}")
         else:
-            mpls_path = find_main_mpls(mount_point)
-        await log(f"[Fase D] MPLS seleccionado: {mpls_path}")
+            # Buscar el MPLS dentro del bdmv_root. Prioridades:
+            #   1. session.mpls_path (modo serie — nombre del MPLS específico)
+            #   2. session.bdinfo_result.main_mpls (modo película — detectado en Fase A)
+            #   3. find_main_mpls (fallback general)
+            mkvmerge_source = None
+            preferred_mpls_name = None
+            if session.mpls_path:
+                preferred_mpls_name = Path(session.mpls_path).name
+            elif session.bdinfo_result and session.bdinfo_result.main_mpls:
+                preferred_mpls_name = session.bdinfo_result.main_mpls
+
+            if preferred_mpls_name:
+                for candidate_dir in [
+                    Path(mount_point) / "BDMV" / "PLAYLIST",
+                    Path(mount_point) / "PLAYLIST",
+                ]:
+                    candidate_path = candidate_dir / preferred_mpls_name
+                    if candidate_path.exists():
+                        mkvmerge_source = str(candidate_path)
+                        break
+            if not mkvmerge_source:
+                mkvmerge_source = find_main_mpls(mount_point)
+            await log(f"[Fase D] MPLS seleccionado: {mkvmerge_source}")
+
+        # Alias mpls_path para no romper código posterior — semánticamente
+        # ahora puede ser MPLS o m2ts según el tipo de origen.
+        mpls_path = mkvmerge_source
 
         _check_cancel()
 
@@ -1790,9 +1862,9 @@ async def _run_pipeline(session_id: str) -> None:
         do_reorder = await needs_reordering(session, mpls_path, log)
 
         if do_reorder:
-            # ── RUTA DIRECTA: MPLS → MKV final (1 sola copia) ────
+            # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
             await log(
-                "[Pipeline] 🎯 Ruta elegida: DIRECTA (MPLS → MKV final, una sola "
+                "[Pipeline] 🎯 Ruta elegida: DIRECTA (origen → MKV final, una sola "
                 "copia). Se elige porque hay pistas que reordenar o excluir — "
                 "mkvmerge hace selección + metadatos + capítulos en una pasada."
             )
@@ -1806,20 +1878,23 @@ async def _run_pipeline(session_id: str) -> None:
             _mark_phase("extract", done=True)
 
         else:
-            # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
+            # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
             await log(
                 "[Pipeline] 🎯 Ruta elegida: INTERMEDIO (Fase D + Fase E in-place). "
                 "Se elige porque no hay reordenación — mejor copiar una sola vez al "
                 "intermedio y aplicar metadatos con mkvpropedit (O(1), sin recopia)."
             )
 
-            # Phase D: extraer todo al intermedio
+            # Phase D: extraer todo al intermedio. Para m2ts pasamos
+            # source_path explícito (no hay MPLS que buscar); para
+            # iso/bdmv pasamos share_path y el helper busca el MPLS.
             _mark_phase("extract")
             intermediate_mkv = await run_phase_d(
-                share_path=mount_point,
+                share_path=mount_point or "",
                 tmp_dir=TMP_DIR,
                 log_callback=log,
                 proc_callback=_register_proc,
+                source_path=mpls_path if stype == "m2ts" else None,
             )
             _mark_phase("extract", done=True)
             await log(f"[Fase D] MKV intermedio generado: {intermediate_mkv}")
@@ -1878,12 +1953,23 @@ async def _run_pipeline(session_id: str) -> None:
         session.output_mkv_path = None
 
     finally:
-        # Desmontar siempre (éxito, error o cancelación)
-        if mount_point:
+        # Cierre del origen (siempre — éxito, error o cancelación). Para
+        # ISO ejecuta el unmount; para bdmv_folder y m2ts es no-op pero
+        # lo invocamos para mantener el contrato del context manager.
+        if source_obj is not None:
             _mark_phase("unmount")
-            await unmount_iso(mount_point)
+            try:
+                await source_obj.__aexit__(None, None, None)
+            except Exception as _cleanup_err:
+                _logger.warning("Error cerrando Source: %s", _cleanup_err)
             _mark_phase("unmount", done=True)
-            await log("[Desmontando ISO] ISO desmontado")
+            stype_cleanup = session.source_type or "iso"
+            if stype_cleanup == "iso":
+                await log("[Origen] ISO desmontado")
+            elif stype_cleanup == "bdmv_folder":
+                await log("[Origen] Carpeta BDMV liberada")
+            else:
+                await log("[Origen] Fichero M2TS liberado")
 
         # Limpiar tracking de cancelación
         _cancel_flags.pop(session_id, None)

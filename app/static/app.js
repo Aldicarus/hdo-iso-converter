@@ -7693,14 +7693,32 @@ function handleExecutionWsMessage(msg) {
     return;
   }
 
-  // Detectar cambios de fase por marcadores en el log
-  if (msg.includes('[Montando ISO]')) {
+  // Detectar cambios de fase por marcadores en el log. Los marcadores
+  // `[Origen]` (v2.7+) reemplazaron a `[Montando ISO]` / `[Desmontando
+  // ISO]` cuando el pipeline pasó a soportar 3 tipos de origen (iso /
+  // bdmv_folder / m2ts). Mantenemos los antiguos por compat con sesiones
+  // legacy cuyo log se renderiza al reabrir.
+  const isMountMarker = msg.includes('[Origen] ┌─') || msg.includes('[Montando ISO]');
+  const isUnmountMarker = (
+    msg.includes('[Origen] ISO desmontado')
+    || msg.includes('[Origen] Carpeta BDMV liberada')
+    || msg.includes('[Origen] Fichero M2TS liberado')
+    || msg.includes('[Desmontando ISO]')
+  );
+  if (isMountMarker) {
     updateColaMiniPipeline('mount', 'active');
     const el = document.getElementById('csb-phase-label');
-    if (el) el.textContent = 'Montando ISO…';
-    // Actualizar subtítulo de la fase extract según la ruta detectada
+    if (el) {
+      // Label según tipo de origen detectado en el propio mensaje
+      el.textContent = msg.includes('Montando el ISO') || msg.includes('Montando ISO') ? 'Montando ISO…'
+        : msg.includes('carpeta BDMV') ? 'Preparando carpeta BDMV…'
+        : msg.includes('M2TS') ? 'Preparando M2TS…'
+        : 'Preparando origen…';
+    }
+    // Subtítulo de la fase extract: usaremos "origen → MKV" porque
+    // puede ser MPLS o m2ts directo según el caso.
     const subEl = document.getElementById('pc-sub-extract');
-    if (subEl) subEl.textContent = 'MPLS → MKV';
+    if (subEl) subEl.textContent = 'Origen → MKV';
     updateSubtabQueuePill();
   } else if (msg.includes('[Fase D]') || msg.includes('[Fase E]')) {
     updateColaMiniPipeline('mount', 'done');
@@ -7712,16 +7730,21 @@ function handleExecutionWsMessage(msg) {
     // Detectar ruta por el contenido del mensaje
     const subEl = document.getElementById('pc-sub-extract');
     if (msg.includes('directo') || msg.includes('direct')) {
-      if (subEl) subEl.textContent = 'MPLS → MKV final (ruta directa)';
+      if (subEl) subEl.textContent = 'Origen → MKV final (ruta directa)';
     } else if (msg.includes('intermedio') || msg.includes('propedit')) {
-      if (subEl) subEl.textContent = 'MPLS → intermedio → propedit → final';
+      if (subEl) subEl.textContent = 'Origen → intermedio → propedit → final';
     }
     updateSubtabQueuePill();
-  } else if (msg.includes('[Desmontando ISO]')) {
+  } else if (isUnmountMarker) {
     updateColaMiniPipeline('extract', 'done');
     updateColaMiniPipeline('unmount', 'active');
     const el = document.getElementById('csb-phase-label');
-    if (el) el.textContent = 'Desmontando ISO…';
+    if (el) {
+      el.textContent = msg.includes('desmontado') ? 'Desmontando ISO…'
+        : msg.includes('Carpeta BDMV liberada') ? 'Liberando carpeta…'
+        : msg.includes('M2TS liberado') ? 'Liberando M2TS…'
+        : 'Cerrando origen…';
+    }
     updateSubtabQueuePill();
   }
 }
@@ -8180,7 +8203,7 @@ async function cancelQueueItem(sessionId) {
 async function cancelRunningSession(sessionId) {
   const data = await apiFetch(`/api/sessions/${sessionId}/cancel`, { method: 'POST' });
   if (data && data.ok) {
-    showToast('Cancelando ejecución… El ISO se desmontará y los temporales se limpiarán.', 'info');
+    showToast('Cancelando ejecución… Se cerrará el origen y se limpiarán los temporales.', 'info');
   }
 }
 

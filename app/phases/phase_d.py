@@ -44,20 +44,26 @@ async def run_phase_d(
     tmp_dir: str = "/mnt/tmp",
     log_callback=None,
     proc_callback=None,
+    source_path: str | None = None,
 ) -> str:
     """
-    Extrae el título principal del BDMV montado al MKV intermedio usando mkvmerge.
+    Extrae el título principal del origen a un MKV intermedio usando mkvmerge.
 
-    Busca el MPLS de mayor tamaño en share_path/BDMV/PLAYLIST/ y lanza
-    mkvmerge para extraer todas las pistas (vídeo, audio, subtítulos) y
-    los capítulos al MKV intermedio.
+    Modos de uso:
+      - share_path apunta a la raíz del BDMV (montado o no): se busca el
+        MPLS principal automáticamente con find_main_mpls.
+      - source_path se pasa explícitamente (m2ts directo o MPLS de un
+        episodio concreto en modo serie): se usa tal cual sin buscar.
 
     Args:
         share_path:   Ruta al directorio raíz del disco montado via loop mount
-                      (ej: '/mnt/bd/Movie_2025_1'). Debe contener BDMV/.
+                      (ej: '/mnt/bd/Movie_2025_1') o de la carpeta BDMV
+                      extraída. Vacío "" si source_path se pasa directo.
         tmp_dir:      Directorio de salida para el MKV intermedio.
         log_callback: Corutina opcional ``async def(str)`` para streaming
                       de output en tiempo real.
+        source_path:  Path explícito al MPLS o m2ts a extraer. Si está,
+                      se ignora share_path para la búsqueda.
 
     Returns:
         Ruta absoluta al MKV intermedio generado en tmp_dir.
@@ -66,8 +72,15 @@ async def run_phase_d(
         RuntimeError: Si no se encuentran ficheros MPLS, o mkvmerge falla
                       con código ≥ 2 (código 1 = warnings no fatales).
     """
-    mpls_path = find_main_mpls(share_path)
-    iso_stem  = Path(share_path).name
+    if source_path:
+        mpls_path = source_path
+        # Stem único basado en el origen — m2ts directo tendría stem
+        # "00044" (basename sin ext); MPLS de serie sería "00800". Suficiente
+        # para diferenciar intermediates de distintas sesiones en /mnt/tmp.
+        iso_stem = Path(source_path).stem
+    else:
+        mpls_path = find_main_mpls(share_path)
+        iso_stem  = Path(share_path).name
     out_path  = str(Path(tmp_dir) / f"{iso_stem}_intermediate.mkv")
 
     cmd = [MKVMERGE_BIN, "--gui-mode", "-o", out_path, mpls_path]
