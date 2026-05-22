@@ -3856,12 +3856,17 @@ function _renderSrcFb(filter) {
   const listEl = document.getElementById(`src-fb-${filter}-list`);
   if (!listEl) return;
 
+  // Usamos data-attributes + un único event listener delegado en el
+  // contenedor (registrado bajo demanda). Sin onclick inline porque
+  // los paths pueden contener comillas/acentos/espacios que rompían
+  // el atributo HTML (bug v2.6 — file browser no era navegable con
+  // ciertos nombres de carpeta).
   const rows = [];
 
   // Fila "..": subir un nivel si no estamos en la raíz
   if (st.parent !== null && st.parent !== undefined) {
     rows.push(`
-      <div class="src-fb-row" onclick="srcFbNavigate('${filter}', ${JSON.stringify(st.parent)})">
+      <div class="src-fb-row" data-action="navigate" data-path="${escHtml(st.parent)}">
         <span class="src-fb-icon">⬆</span>
         <span class="src-fb-name">.. (subir)</span>
       </div>
@@ -3871,20 +3876,23 @@ function _renderSrcFb(filter) {
   if (!st.entries.length) {
     if (rows.length === 0) {
       listEl.innerHTML = `<div class="src-fb-empty">— Carpeta vacía o sin entradas que coincidan con el filtro <code>${filter}</code> —</div>`;
+      _attachSrcFbDelegation(filter);
       return;
     }
     listEl.innerHTML = rows.join('');
+    _attachSrcFbDelegation(filter);
     return;
   }
 
   st.entries.forEach(e => {
     const path = st.path ? `${st.path}/${e.name}` : e.name;
+    const pathAttr = escHtml(path);
     if (e.type === 'dir') {
       if (filter === 'bdmv' && e.is_bdmv) {
         // Carpeta seleccionable como BDMV root
         const selected = bdmvSelectedPath === path ? ' selected' : '';
         rows.push(`
-          <div class="src-fb-row bdmv-folder${selected}" onclick="srcFbSelectBdmv(${JSON.stringify(path)})">
+          <div class="src-fb-row bdmv-folder${selected}" data-action="select-bdmv" data-path="${pathAttr}">
             <span class="src-fb-icon">📀</span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-badge">BDMV</span>
@@ -3893,7 +3901,7 @@ function _renderSrcFb(filter) {
       } else {
         // Carpeta navegable normal
         rows.push(`
-          <div class="src-fb-row" onclick="srcFbNavigate('${filter}', ${JSON.stringify(path)})">
+          <div class="src-fb-row" data-action="navigate" data-path="${pathAttr}">
             <span class="src-fb-icon">📁</span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">→</span>
@@ -3905,7 +3913,7 @@ function _renderSrcFb(filter) {
       if (filter === 'iso') {
         const selected = pickerSelectedIso === path ? ' selected' : '';
         rows.push(`
-          <div class="src-fb-row${selected}" onclick="srcFbSelectIso(${JSON.stringify(path)})">
+          <div class="src-fb-row${selected}" data-action="select-iso" data-path="${pathAttr}">
             <span class="src-fb-icon">💿</span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">${sizeGb}</span>
@@ -3915,8 +3923,8 @@ function _renderSrcFb(filter) {
         const checked = m2tsSelectedPaths.includes(path) ? 'checked' : '';
         const selected = checked ? ' selected' : '';
         rows.push(`
-          <label class="src-fb-row${selected}">
-            <input type="checkbox" class="src-fb-check" value="${escHtml(path)}" ${checked} onchange="srcFbToggleM2ts(this, ${JSON.stringify(path)})">
+          <label class="src-fb-row${selected}" data-action="toggle-m2ts" data-path="${pathAttr}">
+            <input type="checkbox" class="src-fb-check" ${checked}>
             <span class="src-fb-icon">🎞️</span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">${sizeGb}</span>
@@ -3927,6 +3935,37 @@ function _renderSrcFb(filter) {
   });
 
   listEl.innerHTML = rows.join('');
+  _attachSrcFbDelegation(filter);
+}
+
+/** Registra (una sola vez) el listener delegado en el contenedor del
+ *  browser de un filtro. Lee data-action y data-path de la fila clicada
+ *  para decidir qué hacer — sin onclick inline. */
+function _attachSrcFbDelegation(filter) {
+  const listEl = document.getElementById(`src-fb-${filter}-list`);
+  if (!listEl || listEl.dataset.delegated === '1') return;
+  listEl.dataset.delegated = '1';
+  listEl.addEventListener('click', (ev) => {
+    const row = ev.target.closest('.src-fb-row');
+    if (!row) return;
+    const action = row.dataset.action;
+    const path = row.dataset.path || '';
+    if (action === 'navigate') {
+      srcFbNavigate(filter, path);
+    } else if (action === 'select-iso') {
+      srcFbSelectIso(path);
+    } else if (action === 'select-bdmv') {
+      srcFbSelectBdmv(path);
+    } else if (action === 'toggle-m2ts') {
+      // El <label> ya hace toggle del checkbox por defecto del browser,
+      // pero capturamos para sincronizar nuestro estado tras el cambio.
+      // Usamos un microtask para que el checkbox tenga el nuevo `checked`.
+      setTimeout(() => {
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) srcFbToggleM2ts(cb, path);
+      }, 0);
+    }
+  });
 }
 
 /** Selección de ISO (single). */

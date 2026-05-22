@@ -8264,8 +8264,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 
 .src-fb-list {
-  max-height: 280px;
-  min-height: 220px;
+  max-height: 380px;
+  min-height: 280px;
   overflow-y: auto;
   background: #ffffff;
   contain: paint;
