@@ -4497,16 +4497,26 @@ async function seriesCreateSessions() {
   const btn = document.getElementById('series-create-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = `⏳ Creando ${episodes.length} proyectos…`; }
 
-  // El backend monta el ISO una vez, analiza cada MPLS y crea las sesiones.
-  // Coste: ~30s + N × 15-30s. Para 4 episodios típicos: ~2 min total.
+  // El backend procesa cada MPLS/M2TS y crea las sesiones.
+  // Coste: ~30s (mount ISO) + N × 15-30s. Para 4 episodios típicos: ~2 min.
+  // Payload generalizado a los 3 tipos (v2.6+): source_type + source_path
+  // (+ m2ts_paths si aplica). iso_path se mantiene como alias compat.
   const payload = {
-    iso_path: s.probe.iso_path,
     series_tmdb_id: s.selectedSeries.tmdb_id,
     series_name: s.selectedSeries.name,
     series_year: s.selectedSeries.year,
     season_number: s.selectedSeason.season_number,
     episodes,
   };
+  if (s.probe.source_type) {
+    payload.source_type = s.probe.source_type;
+    payload.source_path = s.probe.source_path;
+    if (s.probe.source_type === 'm2ts' && s.probe.m2ts_paths) {
+      payload.m2ts_paths = s.probe.m2ts_paths;
+    }
+  }
+  // Compat con backend antiguo
+  payload.iso_path = s.probe.iso_path || s.probe.source_path;
   const data = await apiFetch('/api/create-series-sessions', {
     method: 'POST',
     body: JSON.stringify(payload),

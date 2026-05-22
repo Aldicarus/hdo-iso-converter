@@ -113,6 +113,16 @@ Variables de `docker/.env`:
 
 ## Tab "Blu-Ray ISO → MKV"
 
+### Tipos de origen soportados (v2.6+)
+
+El modal "Nuevo proyecto" tiene 3 tabs para los 3 formatos:
+
+- **💿 ISO** — fichero `.iso` (UDF 2.50+). Se monta automáticamente con `mount -t udf -o ro,loop` y se desmonta al terminar.
+- **📁 Carpeta BDMV** — directorio con `BDMV/PLAYLIST/` dentro (disco extraído sin ISO). Sin mount, análisis directo sobre la jerarquía.
+- **🎞️ Ficheros M2TS** — multi-select de ficheros `.m2ts` sueltos. Sin BDMV → sin MPLS, capítulos auto-generados, PGS counting con rango por defecto (0x1200-0x12FF). Si seleccionas **1 fichero** = película; **varios** = serie de N episodios.
+
+Todos los orígenes viven en `/mnt/isos` (configurable vía `ISOS_DIR`). El endpoint `GET /api/sources` clasifica cada entrada y devuelve la lista al modal.
+
 ### Flujo
 
 ```

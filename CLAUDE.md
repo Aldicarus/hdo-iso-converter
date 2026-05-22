@@ -105,7 +105,12 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 
 ### Paso 1 — Crear proyecto
 - Se hace **exclusivamente desde el modal "Nuevo proyecto"**, nunca desde el sidebar.
-- **Detección de duplicados**: antes de analizar, `POST /api/check-duplicate` calcula la huella SHA-256 del ISO (primer 1 MB + tamaño) y busca sesiones existentes con la misma huella. Si se detecta duplicado, ofrece "Abrir existente" o "Re-analizar".
+- El modal tiene **3 tabs** (v2.6+) para los 3 tipos de origen:
+  - **💿 ISO** — `mount -t udf -o ro,loop` automático
+  - **📁 Carpeta BDMV** — disco extraído (con BDMV/PLAYLIST/ dentro), sin mount
+  - **🎞️ Ficheros M2TS** — multi-select; 1 fichero = película, N = serie
+- Todos los orígenes viven en `/mnt/isos`. El endpoint `GET /api/sources` (depth máx 3, cache 60s) escanea recursivamente y devuelve cada entrada clasificada por tipo.
+- **Detección de duplicados**: antes de analizar, `POST /api/check-duplicate` calcula la huella SHA-256 (primer 1 MB + tamaño) del fichero principal según tipo de origen (.iso, m2ts más grande del BDMV, .m2ts directo) y busca sesiones existentes con la misma huella. Si se detecta duplicado, ofrece "Abrir existente" o "Re-analizar".
 - **Modal de progreso**: al analizar, se muestra un modal con 4 pasos animados (Montar ISO → Identificar pistas → Extraer capítulos → Aplicar reglas).
 - **No se persiste nada hasta éxito**: si Fase A falla, no se crea fichero JSON. Sin sesiones huérfanas.
 - **Feedback**: modal de progreso durante el análisis. Si falla, toast de error.
@@ -634,6 +639,54 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - Requiere `privileged: true` en Docker
 - **MOUNT_BASE**: `/mnt/bd` (creado en entrypoint.sh)
 - `unmount_iso()`: umount normal, fallback lazy, limpia directorio
+
+### Abstracción Source (v2.6+) — soporte BDMV/M2TS sin ISO
+
+Encapsula el origen en una sola interfaz async context manager
+([`phases/iso_mount.py`](app/phases/iso_mount.py)). 3 tipos:
+
+| Tipo | Path apunta a | Pre | Post |
+|---|---|---|---|
+| `iso` | fichero `.iso` | `mount_iso` → `/mnt/bd/...` | `unmount_iso` |
+| `bdmv_folder` | carpeta con `BDMV/` | no-op (verificar estructura) | no-op |
+| `m2ts` | uno o varios `.m2ts` sueltos | no-op | no-op |
+
+Uso típico:
+
+```python
+async with await Source.open(user_path) as src:
+    if src.bdmv_root:
+        # iso (ya montado) o bdmv_folder
+        candidates = await identify_episode_candidates(src.bdmv_root)
+    elif src.m2ts_paths:
+        # m2ts directo (uno o varios)
+        ...
+```
+
+`Source.detect_type(path)` clasifica por extensión (`.iso`, `.m2ts`) y por presencia de `BDMV/PLAYLIST/`. Lanza `SourceError` si el path es ambiguo o no soportado.
+
+`safe_source_path(user_path, allowed_root)` valida path-traversal estricto. Cualquier `../` o path absoluto fuera de `ISOS_DIR` se rechaza → HTTP 400. Aplicado en todos los endpoints de Tab 1 (`/api/disc-probe`, `/api/analyze`, `/api/check-duplicate`, `/api/create-series-sessions`).
+
+`run_full_analysis_for_m2ts(m2ts_path)` ([`phases/phase_a.py`](app/phases/phase_a.py)): variante para m2ts sin BDMV. Diferencias con el flujo MPLS:
+- mkvmerge -J sobre el m2ts directo (no MPLS).
+- Sin `parse_mpls_chapters` → capítulos auto-generados cada 10 min en el caller.
+- PGS counting con rango por defecto `0x1200-0x12FF` (sin lista autoritativa de PIDs del MPLS).
+- MediaInfo + dovi_tool operan idéntico sobre el m2ts.
+
+`identify_episode_candidates_from_m2ts_list(paths)`: análogo a `identify_episode_candidates` (que lee MPLS de una carpeta BDMV) pero opera sobre una lista explícita de `.m2ts`. Devuelve el mismo shape (`{mpls_name, mpls_path, duration_minutes, audio_track_count, data}`) — el resto del pipeline downstream no distingue.
+
+### Endpoints adaptados a los 3 tipos (v2.6+)
+
+| Endpoint | Comportamiento |
+|---|---|
+| `POST /api/disc-probe` | acepta `source_type` (`iso`/`bdmv_folder`/`m2ts`). Para m2ts con 1 fichero → movie; con N → series sin auto-detect. |
+| `POST /api/analyze` | analiza el origen completo. Para bdmv_folder/m2ts no monta. |
+| `POST /api/check-duplicate` | huella según tipo (iso → del .iso; bdmv → del m2ts mayor; m2ts → del fichero directo). |
+| `POST /api/create-series-sessions` | resuelve cada `ep.mpls_path` según tipo (nombre relativo en iso/bdmv; path absoluto en m2ts). |
+| `GET /api/sources` | reemplazo de `/api/isos`. Escaneo recursivo (depth 3) clasificando ISOs + BDMV folders + m2ts sueltos. Cache 60s. |
+| `GET /api/isos` | legacy alias, sigue funcionando. Frontend nuevo usa `/api/sources`. |
+
+Campos persistidos en `Session`: `source_type`, `source_path` (default `iso`/`""` para compat legacy).
 
 ### Pipeline optimizado — 1 sola copia de datos
 - **Ruta directa** (con reordenación/exclusión): mkvmerge lee MPLS → MKV final en `/mnt/output`. Mapeo de pistas por idioma+codec (no posicional).
