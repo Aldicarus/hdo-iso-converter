@@ -1253,8 +1253,7 @@ async def _preflight_validate_bin(
     if log_callback:
         if session.target_type.startswith("trusted_"):
             await log_callback(
-                f"[Pre-flight] ✓ Bin válido — clasificado como {session.target_type}. "
-                f"Procediendo con extracción del BD (Fase A)."
+                f"[Pre-flight] ✓ Bin válido — clasificado como {session.target_type}."
             )
         else:
             await log_callback(
