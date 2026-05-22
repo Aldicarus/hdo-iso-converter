@@ -1230,11 +1230,19 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     # Reset del progreso global. Si otro job estaba en curso, lo
     # sobrescribimos (el endpoint es single-job).
     global _series_create_progress
+    # Etiqueta de origen amigable según tipo — sin jerga ('source_type' /
+    # 'stype' eran términos internos). El usuario ve "Montando el ISO…",
+    # no "Montando origen (iso)…".
+    _prep_label = (
+        "Montando el ISO…" if stype == "iso"
+        else "Preparando carpeta BDMV…" if stype == "bdmv_folder"
+        else "Preparando ficheros M2TS…"
+    )
     _series_create_progress = {
         "running": True,
         "current_index": 0,
         "total": len(body.episodes),
-        "current_label": f"Montando origen ({stype})…",
+        "current_label": _prep_label,
         "completed": [],
         "failed": [],
         "current_episode_step": "mount",
@@ -1270,7 +1278,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     try:
         # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
         async with await Source.open(source_abs) as src:
-            _series_create_progress["current_label"] = "Origen listo. Iniciando análisis por episodio…"
+            _series_create_progress["current_label"] = "Origen preparado · empezando con el primer episodio"
             for idx, ep in enumerate(body.episodes):
                 _series_create_progress["current_index"] = idx + 1
                 _series_create_progress["current_episode_step"] = "identify"

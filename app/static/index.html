@@ -531,7 +531,7 @@
 <div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
   <div class="modal-box" style="max-width:960px; width:92vw">
     <div class="modal-title">💿 Nuevo proyecto</div>
-    <div class="modal-sub">Selecciona el origen (ISO, carpeta BDMV extraída o ficheros M2TS).</div>
+    <div class="modal-sub">Elige el tipo de origen y selecciona el contenido a procesar.</div>
 
     <!-- Tabs de tipo de origen — sustituyen al select simple anterior.
          Todos los orígenes viven en /mnt/isos para mantener una única
@@ -577,7 +577,7 @@
         <div class="src-fb-list" id="src-fb-iso-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
         </div>
-        <div class="src-fb-status" id="src-fb-iso-status">Selecciona un fichero .iso</div>
+        <div class="src-fb-status" id="src-fb-iso-status">Navega hasta el .iso que quieras procesar y haz clic para seleccionarlo</div>
       </div>
     </div>
 
@@ -596,7 +596,7 @@
         <div class="src-fb-list" id="src-fb-bdmv-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
         </div>
-        <div class="src-fb-status" id="src-fb-bdmv-status">Navega hasta encontrar una carpeta marcada 📀 BDMV y selecciónala</div>
+        <div class="src-fb-status" id="src-fb-bdmv-status">Navega hasta la carpeta marcada con 📀 (contiene una estructura BDMV) y haz clic para seleccionarla</div>
       </div>
     </div>
 
@@ -617,7 +617,7 @@
         <div class="src-fb-list" id="src-fb-m2ts-list">
           <div class="src-fb-loading">⏳ Cargando…</div>
         </div>
-        <div class="src-fb-status" id="src-fb-m2ts-status">Marca uno o varios .m2ts (1 = película · varios = serie)</div>
+        <div class="src-fb-status" id="src-fb-m2ts-status">Marca uno o varios ficheros .m2ts — un fichero suelto se trata como película; varios se tratan como episodios de una serie</div>
       </div>
     </div>
 
@@ -644,16 +644,16 @@
   <div class="modal-box series-modal-box">
     <!-- Header fijo: título + subtítulo. NO scrolea con el contenido. -->
     <div class="series-modal-header">
-      <div class="modal-title">📺 Disco de serie detectado</div>
+      <div class="modal-title" id="series-modal-title">📺 Serie detectada</div>
       <div class="modal-sub" id="series-modal-sub">
-        Se han detectado varios MPLS de duración similar. Identifica la serie y mapea cada episodio.
+        Se han detectado varios episodios candidatos. Identifica la serie y asígnale a cada uno su número.
       </div>
 
       <!-- Stepper visual indicando en qué paso está el usuario. -->
       <div class="series-stepper" id="series-stepper">
         <div class="series-step active" data-step="1"><span class="series-step-num">1</span><span class="series-step-label">Identificar serie</span></div>
         <div class="series-step" data-step="2"><span class="series-step-num">2</span><span class="series-step-label">Elegir temporada</span></div>
-        <div class="series-step" data-step="3"><span class="series-step-num">3</span><span class="series-step-label">Mapear episodios</span></div>
+        <div class="series-step" data-step="3"><span class="series-step-num">3</span><span class="series-step-label">Asignar episodios</span></div>
       </div>
     </div>
 
@@ -690,7 +690,7 @@
         <!-- Subsección Manual (oculta por defecto) -->
         <div id="series-mode-manual-panel" style="display:none">
           <div class="series-section-help">
-            Útil cuando TMDb no encuentra la serie o prefieres asignar nombres tú mismo. Sin TMDb no hay match automático por runtime — el orden secuencial de los MPLS se usa como sugerencia inicial.
+            Útil cuando TMDb no encuentra la serie o si prefieres asignar tú mismo los nombres. Sin TMDb no hay sugerencia automática por duración — los candidatos se asignan en orden secuencial (E01, E02…).
           </div>
           <div class="series-manual-grid">
             <label>Nombre de la serie *</label>
@@ -717,9 +717,9 @@
 
       <!-- Sección 3: tabla de episodios (oculta hasta elegir temporada) -->
       <div id="series-episodes-section" class="series-section" style="display:none">
-        <div class="series-section-title">3 · Mapea MPLS ↔ episodio</div>
+        <div class="series-section-title">3 · Asigna cada origen a un episodio</div>
         <div class="series-section-help" id="series-episodes-help">
-          Marca los episodios que quieres procesar. El nº de episodio se pre-rellena en orden con el match TMDb (🟢 alto / 🟡 bajo / ⚪ sin match runtime).
+          Marca los episodios que quieres procesar. El nº de episodio se rellena automáticamente comparando duración (🟢 coincidencia alta · 🟡 coincidencia baja · ⚪ sin coincidencia).
         </div>
         <div id="series-episodes-table" class="series-ep-table"></div>
       </div>
@@ -730,7 +730,7 @@
     <div class="modal-footer series-modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('series-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="series-create-btn" onclick="seriesCreateSessions()" disabled>
-        ➕ Crear 0 proyectos
+        ➕ Crear proyectos
       </button>
     </div>
   </div>
@@ -790,18 +790,18 @@
     <div class="modal-title" id="analyze-modal-title" style="margin-bottom:4px">Analizando disco</div>
     <div class="modal-sub" id="analyze-modal-iso" style="margin-bottom:16px; word-break:break-all"></div>
     <div id="analyze-modal-steps" style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
-      <div id="analyze-step-mount">⏳ Montando ISO (loop mount UDF)…</div>
-      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas (mkvmerge -J)…</div>
-      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos del MPLS…</div>
-      <div id="analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadata extendida (MediaInfo)…</div>
+      <div id="analyze-step-mount">⏳ Montando el ISO…</div>
+      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas del disco…</div>
+      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos…</div>
+      <div id="analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadatos extendidos…</div>
       <div id="analyze-step-pgs" style="opacity:.4">
-        <div id="analyze-step-pgs-label">⬜ Contando paquetes PGS por subtítulo (1-3 min)…</div>
+        <div id="analyze-step-pgs-label">⬜ Analizando subtítulos del disco (1-3 min)…</div>
         <div id="analyze-step-pgs-bar" style="display:none; margin:6px 0 2px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
           <div id="analyze-step-pgs-bar-fill" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px; box-shadow:0 0 6px rgba(59,143,255,0.4)"></div>
         </div>
         <div id="analyze-step-pgs-stats" style="display:none; font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums"></div>
       </div>
-      <div id="analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision (dovi_tool)…</div>
+      <div id="analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision…</div>
       <div id="analyze-step-rules" style="opacity:.4">⬜ Aplicando reglas automáticas…</div>
     </div>
     <div class="analyze-spinner" style="margin:16px auto 0"></div>

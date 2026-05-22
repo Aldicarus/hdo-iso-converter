@@ -3887,7 +3887,7 @@ async function srcFbNavigate(filter, relPath) {
   const url = `/api/library/browse?root=downloaded&path=${encodeURIComponent(relPath || '')}&filter=${filter}`;
   const data = await apiFetch(url);
   if (!data) {
-    if (listEl) listEl.innerHTML = '<div class="src-fb-empty">⚠ Error al cargar</div>';
+    if (listEl) listEl.innerHTML = '<div class="src-fb-empty">⚠ No se pudo leer la carpeta</div>';
     return;
   }
   if (data.error) {
@@ -3932,7 +3932,12 @@ function _renderSrcFb(filter) {
 
   if (!st.entries.length) {
     if (rows.length === 0) {
-      listEl.innerHTML = `<div class="src-fb-empty">— Carpeta vacía o sin entradas que coincidan con el filtro <code>${filter}</code> —</div>`;
+      // Mensaje específico por filtro — "filtro iso/bdmv/m2ts" no es
+      // legible en castellano. Cada tipo dice qué busca exactamente.
+      const filterDesc = filter === 'iso' ? 'ficheros .iso'
+        : filter === 'bdmv' ? 'carpetas con estructura BDMV'
+        : 'ficheros .m2ts';
+      listEl.innerHTML = `<div class="src-fb-empty">— Sin ${filterDesc} en esta carpeta —</div>`;
       _attachSrcFbDelegation(filter);
       return;
     }
@@ -4249,10 +4254,10 @@ async function analyzeSelectedISO() {
     closeModal('new-project-modal');
     const existingName = check.session.mkv_name || sourceName;
     showConfirm(
-      'Este origen ya tiene un proyecto',
-      `Se ha detectado el mismo origen en "${existingName}". Puedes abrir el proyecto existente o re-analizar (se perderán las ediciones actuales).`,
+      'Ya existe un proyecto para este origen',
+      `Hay un proyecto previo asociado a este contenido: "${existingName}". Puedes abrirlo tal cual está o reanalizar el origen (se perderán las ediciones actuales).`,
       () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
-      'Re-analizar',
+      'Reanalizar',
     );
     const openBtn = document.createElement('button');
     openBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
@@ -4268,21 +4273,21 @@ async function analyzeSelectedISO() {
 
   closeModal('new-project-modal');
 
-  // Disc probe: detecta serie vs película. Puede tardar 10-30s (mount ISO
-  // + identify_episode_candidates). Mostramos modal de progreso para que
-  // el usuario no vea el viewport congelado.
+  // Detección inicial: serie vs película. Puede tardar 10-30s (montaje
+  // del ISO + búsqueda de episodios candidatos). Modal de progreso para
+  // que el usuario no vea el viewport congelado.
   const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
   const probeSub = sourceType === 'iso'
-    ? 'Montando ISO + identificando MPLS candidatos a episodio…'
+    ? 'Montando el ISO y buscando episodios en el disco…'
     : sourceType === 'bdmv_folder'
-    ? 'Identificando MPLS candidatos a episodio en la carpeta BDMV…'
-    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS con mkvmerge -J…`;
+    ? 'Buscando episodios en la carpeta BDMV…'
+    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS…`;
   showProgressModal({
-    title: `Probando origen — ${sourceName}`,
+    title: `Detectando contenido — ${sourceName}`,
     sub: probeSub,
     icon: probeIcon,
   });
-  updateProgressModal({ current: '⏳ Esperando respuesta del backend…' });
+  updateProgressModal({ current: '⏳ Conectando con el servidor…' });
 
   const probe = await apiFetch('/api/disc-probe', {
     method: 'POST',
@@ -4292,7 +4297,7 @@ async function analyzeSelectedISO() {
   closeProgressModal();
 
   if (!probe) {
-    showToast('Error al probar el origen. Comprueba el log del backend.', 'error');
+    showToast('No se pudo inspeccionar el origen. Revisa el log del servidor.', 'error');
     return;
   }
 
@@ -4359,7 +4364,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
         const ss = (elapsed % 60).toString().padStart(2, '0');
         const pct = prog?.pct;
         const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
@@ -4399,7 +4404,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   closeModal('analyze-modal');
 
   if (!session) {
-    showToast(`Error al analizar ${escHtml(sourceName)}. Comprueba el origen.`, 'error');
+    showToast(`No se pudo analizar ${escHtml(sourceName)}. Verifica que el origen sigue disponible y es válido.`, 'error');
     return;
   }
 
@@ -4458,7 +4463,7 @@ async function _doAnalyzeISO(isoPath, isoName) {
         const ss = (elapsed % 60).toString().padStart(2, '0');
         const pct = prog?.pct;
         const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
@@ -4495,7 +4500,7 @@ async function _doAnalyzeISO(isoPath, isoName) {
   closeModal('analyze-modal');
 
   if (!session) {
-    showToast(`Error al analizar ${escHtml(isoName)}. Comprueba que el ISO es válido y el contenedor tiene privileged: true.`, 'error');
+    showToast(`No se pudo analizar ${escHtml(isoName)}. Verifica que el ISO es válido y que el contenedor Docker arranca en modo privilegiado.`, 'error');
     return;
   }
 
@@ -4547,14 +4552,27 @@ function openSeriesModal(probe) {
     mapping: {},                 // {mpls_path: {include, episode_number, episode_title, runtime_minutes}}
   };
 
-  // Cabecera con conteo de candidatos
+  // Título + subtítulo source-aware. Para ISO/BDMV los candidatos son
+  // playlists (MPLS); para M2TS son los ficheros sueltos que eligió el
+  // usuario. El término "episodio candidato" funciona para los 3 casos
+  // sin exponer jerga de Blu-ray al usuario que viene de Plex/Jellyfin.
+  const stype = probe.source_type || 'iso';
+  const titleEl = document.getElementById('series-modal-title');
+  if (titleEl) {
+    titleEl.textContent = stype === 'iso' ? '📺 Disco de serie detectado'
+      : stype === 'bdmv_folder' ? '📺 Carpeta BDMV de serie detectada'
+      : '📺 Episodios de serie detectados';
+  }
   const sub = document.getElementById('series-modal-sub');
   if (sub) {
     const n = probe.episode_candidates.length;
+    const sourceLabel = stype === 'iso' ? 'el disco'
+      : stype === 'bdmv_folder' ? 'la carpeta BDMV'
+      : 'los ficheros M2TS';
     const verdict = probe.media_type === 'series'
-      ? `Detectados <strong>${n} MPLS candidatos a episodio</strong> con duración similar.`
-      : `Detectados <strong>${n} MPLS</strong> con duración compatible con episodio (clasificación ambigua — confirma manualmente).`;
-    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y mapea cada episodio.`;
+      ? `Detectados <strong>${n} episodios candidatos</strong> en ${sourceLabel} con duración similar.`
+      : `Detectados <strong>${n} candidatos</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
+    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.`;
   }
 
   // Prellenar inputs con título/año sugerido
@@ -4653,7 +4671,7 @@ function seriesConfirmManual() {
   document.getElementById('series-episodes-section').style.display = 'block';
   // Actualizar ayuda contextual
   const help = document.getElementById('series-episodes-help');
-  if (help) help.textContent = 'Modo manual: edita el nº de episodio y, opcionalmente, el título de cada episodio. La asignación inicial es secuencial.';
+  if (help) help.textContent = 'Modo manual: edita el nº de episodio y, opcionalmente, su título. La asignación inicial es secuencial (E01, E02…).';
   _renderSeriesEpisodesTable();
   _seriesUpdateCreateButton();
 }
@@ -4937,13 +4955,13 @@ function _seriesUpdateCreateButton() {
  *  Las etiquetas son las que se ven en la checklist del modal.
  */
 const _SERIES_EP_SUBSTEPS = [
-  { key: 'identify',  label: 'Identificación de pistas (mkvmerge -J)', weight: 0  },
-  { key: 'chapters',  label: 'Extracción de capítulos',                weight: 8  },
-  { key: 'mediainfo', label: 'Metadata extendida (MediaInfo)',         weight: 18 },
-  { key: 'pgs',       label: 'Paquetes PGS por subtítulo',             weight: 30 },
-  { key: 'dovi',      label: 'Dolby Vision (dovi_tool)',               weight: 75 },
-  { key: 'rules',     label: 'Reglas + capítulos auto',                weight: 90 },
-  { key: 'save',      label: 'Persistencia (JSON)',                    weight: 97 },
+  { key: 'identify',  label: 'Identificando pistas del episodio',      weight: 0  },
+  { key: 'chapters',  label: 'Extrayendo capítulos',                   weight: 8  },
+  { key: 'mediainfo', label: 'Analizando metadatos (codecs, HDR)',     weight: 18 },
+  { key: 'pgs',       label: 'Analizando subtítulos del episodio',     weight: 30 },
+  { key: 'dovi',      label: 'Analizando Dolby Vision',                weight: 75 },
+  { key: 'rules',     label: 'Aplicando reglas automáticas',           weight: 90 },
+  { key: 'save',      label: 'Guardando proyecto',                     weight: 97 },
 ];
 
 /** Construye el payload de updateProgressModal a partir del estado del
@@ -5038,7 +5056,10 @@ async function seriesCreateSessions() {
   }
 
   const btn = document.getElementById('series-create-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = `⏳ Creando ${episodes.length} proyectos…`; }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `⏳ Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}…`;
+  }
 
   // Cerramos el series-modal y abrimos el progress-modal para que el
   // usuario vea feedback continuo (sin esto, el modal de series se
@@ -5048,10 +5069,10 @@ async function seriesCreateSessions() {
   closeModal('series-modal');
   const seriesTitle = s.selectedSeries.name || '—';
   const seriesYear = s.selectedSeries.year ? ` (${s.selectedSeries.year})` : '';
-  const seasonLabel = ` · Temporada ${s.selectedSeason.season_number}`;
+  const seasonLabel = `Temporada ${s.selectedSeason.season_number}`;
   showProgressModal({
     title: `${seriesTitle}${seriesYear}`,
-    sub: `${seasonLabel} — Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'} (análisis MPLS + reglas + persistencia)`,
+    sub: `${seasonLabel} · Analizando ${episodes.length} episodio${episodes.length === 1 ? '' : 's'} y creando proyecto${episodes.length === 1 ? '' : 's'}`,
     icon: '📺',
     posterUrl: s.selectedSeries.poster_url || '',
   });
@@ -5105,8 +5126,11 @@ async function seriesCreateSessions() {
 
   if (!data) {
     closeProgressModal();
-    if (btn) { btn.disabled = false; btn.innerHTML = `➕ Crear ${episodes.length} proyectos`; }
-    showToast('Error al crear los proyectos. Comprueba el log del backend.', 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `➕ Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
+    }
+    showToast('No se pudieron crear los proyectos. Revisa el log del servidor.', 'error');
     return;
   }
 
@@ -5124,10 +5148,12 @@ async function seriesCreateSessions() {
   await new Promise(r => setTimeout(r, 350));
   closeProgressModal();
 
+  const okWord = created.length === 1 ? 'proyecto creado' : 'proyectos creados';
   if (failed.length) {
-    showToast(`${created.length} proyectos creados, ${failed.length} fallaron. Revisa logs.`, 'warning');
+    const failWord = failed.length === 1 ? 'falló' : 'fallaron';
+    showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}. Revisa el log del servidor.`, 'warning');
   } else {
-    showToast(`${created.length} proyectos creados`, 'success');
+    showToast(`${created.length} ${okWord}`, 'success');
   }
 
   // Refrescar el sidebar y abrir TODAS las pestañas de episodios creados.
@@ -5180,21 +5206,21 @@ function _configureAnalyzeModalForSource(sourceType) {
   if (sourceType === 'iso') {
     if (iconEl) iconEl.textContent = '💿';
     if (titleEl) titleEl.textContent = 'Analizando disco';
-    if (mountEl) mountEl.textContent = '⏳ Montando ISO (loop mount UDF)…';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas (mkvmerge -J)…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del MPLS…';
+    if (mountEl) mountEl.textContent = '⏳ Montando el ISO…';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del disco…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos…';
   } else if (sourceType === 'bdmv_folder') {
     if (iconEl) iconEl.textContent = '📁';
     if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
-    if (mountEl) mountEl.textContent = '✅ Sin mount necesario (carpeta directa)';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del MPLS principal (mkvmerge -J)…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del MPLS…';
+    if (mountEl) mountEl.textContent = '✅ Carpeta directa — no requiere montaje';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del playlist principal…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del playlist…';
   } else if (sourceType === 'm2ts') {
     if (iconEl) iconEl.textContent = '🎞️';
     if (titleEl) titleEl.textContent = 'Analizando fichero M2TS';
-    if (mountEl) mountEl.textContent = '✅ Sin mount necesario (m2ts directo)';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas (mkvmerge -J)…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Generando capítulos automáticos (sin MPLS)…';
+    if (mountEl) mountEl.textContent = '✅ Fichero directo — no requiere montaje';
+    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del fichero…';
+    if (chaptersEl) chaptersEl.textContent = '⬜ Generando capítulos automáticos cada 10 min…';
   }
 }
 
@@ -8456,7 +8482,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
         const ss = (elapsed % 60).toString().padStart(2, '0');
         const pct = prog?.pct;
         const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Contando paquetes PGS por subtítulo…';
+        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
