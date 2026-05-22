@@ -112,6 +112,11 @@ async def run_phase_e_direct(
         Ruta absoluta al MKV final en /mnt/output.
     """
     output_path  = str(Path(OUTPUT_DIR) / session.mkv_name)
+    # session.mkv_name puede contener subdirectorios (modo serie:
+    # "Serie/Season 01/Serie - S01E01.mkv"). Creamos el árbol antes de
+    # invocar mkvmerge — sin esto, mkvmerge falla si el directorio padre
+    # no existe.
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     track_map    = await _identify_tracks(mpls_path, log_callback)
     chapters_xml = _write_chapters_xml(session.chapters) if session.chapters else None
 

@@ -854,3 +854,91 @@ def _build_mkv_name(title: str, year: str, has_fel: bool, audio_dcp: bool) -> st
     if audio_dcp:
         name += " [Audio DCP]"
     return name + ".mkv"
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  NOMENCLATURA DE SERIES (v2.5+)
+#
+#  Plex/Jellyfin compatible. Estructura con subdirectorios:
+#
+#    Serie Name (Año)/
+#      Season NN/
+#        Serie Name (Año) - SNNeNN - Episode Title [DV FEL][Audio DCP].mkv
+#
+#  Sin episode title cuando TMDb no lo trae:
+#    Serie Name (Año) - SNNeNN [DV FEL][Audio DCP].mkv
+#
+#  La función devuelve la RUTA RELATIVA (con subdirectorios). El
+#  caller la combina con OUTPUT_DIR. phase_e.py hace `parent.mkdir`
+#  antes de mkvmerge para que la jerarquía se cree on-the-fly.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _sanitize_for_path(s: str) -> str:
+    """Sustituye caracteres problemáticos en nombres de fichero/directorio.
+    Compatible con ext4, ZFS, NTFS y SMB compartido del NAS.
+    Conserva acentos y caracteres no-ASCII (UTF-8 nativo)."""
+    # Caracteres prohibidos: / \ : * ? " < > | (Windows reserva éstos)
+    bad = '\\/:*?"<>|'
+    for c in bad:
+        s = s.replace(c, "-")
+    # Colapsa espacios múltiples + strip puntos/espacios al final (NTFS no
+    # los acepta como último char de un componente de path).
+    while "  " in s:
+        s = s.replace("  ", " ")
+    return s.strip(" .")
+
+
+def build_series_mkv_name(
+    series_name: str,
+    series_year: int | None,
+    season_number: int,
+    episode_number: int,
+    episode_title: str = "",
+    has_fel: bool = False,
+    audio_dcp: bool = False,
+) -> str:
+    """
+    Construye la ruta relativa del MKV de un episodio (estructura Plex/
+    Jellyfin con subdirectorios).
+
+    Args:
+        series_name:    Nombre canónico de la serie (TMDb).
+        series_year:    Año del first_air_date (opcional, si conocido).
+        season_number:  1-based.
+        episode_number: 1-based dentro de la temporada.
+        episode_title:  Título del episodio según TMDb (opcional).
+        has_fel:        DV FEL detectado.
+        audio_dcp:      Audio DCP detectado en el nombre del ISO.
+
+    Returns:
+        Ruta relativa con subdirectorios. Ej:
+          "Mad Men (2007)/Season 01/Mad Men (2007) - S01E01 - Smoke Gets in Your Eyes.mkv"
+        Sin year:
+          "Twin Peaks/Season 01/Twin Peaks - S01E01 - Pilot.mkv"
+        Sin episode title:
+          "Mad Men (2007)/Season 01/Mad Men (2007) - S01E01.mkv"
+        Con tags:
+          "...S01E01 - Pilot [DV FEL][Audio DCP].mkv"
+    """
+    safe_series = _sanitize_for_path(series_name)
+    safe_episode_title = _sanitize_for_path(episode_title) if episode_title else ""
+
+    series_with_year = (
+        f"{safe_series} ({series_year})" if series_year else safe_series
+    )
+
+    season_folder = f"Season {season_number:02d}"
+
+    # Filename: SerieName (Año) - SNNeNN[ - Title][tags].mkv
+    sne = f"S{season_number:02d}E{episode_number:02d}"
+    filename = f"{series_with_year} - {sne}"
+    if safe_episode_title:
+        filename += f" - {safe_episode_title}"
+    if has_fel:
+        filename += " [DV FEL]"
+    if audio_dcp:
+        filename += " [Audio DCP]"
+    filename += ".mkv"
+
+    return f"{series_with_year}/{season_folder}/{filename}"
