@@ -105,15 +105,22 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 
 ### Paso 1 — Crear proyecto
 - Se hace **exclusivamente desde el modal "Nuevo proyecto"**, nunca desde el sidebar.
-- El modal tiene **3 tabs** (v2.6+) para los 3 tipos de origen:
-  - **💿 ISO** — `mount -t udf -o ro,loop` automático
-  - **📁 Carpeta BDMV** — disco extraído (con BDMV/PLAYLIST/ dentro), sin mount
-  - **🎞️ Ficheros M2TS** — multi-select; 1 fichero = película, N = serie
+- El modal exige **dos elecciones en orden** (v2.7+):
+  1. **Tipo de contenido** (Película / Serie). Toggle obligatorio — la zona de selección de origen está bloqueada (opacity 0.35 + pointer-events:none + banner "👆 Selecciona arriba…") hasta que el usuario elige. Sin auto-detect (que fallaba en discos atípicos con 1 m2ts grande + extras).
+  2. **Tipo de origen** (3 tabs):
+     - **💿 ISO** — `mount -t udf -o ro,loop` automático
+     - **📁 Carpeta BDMV** — disco extraído (con BDMV/PLAYLIST/ dentro), sin mount
+     - **🎞️ Ficheros M2TS** — selección de fichero(s) sueltos. En modo Película el browser usa radios (1 fichero); en modo Serie usa checkboxes (N ficheros).
+- El tipo de contenido elegido se envía como `media_type_hint` al backend en `/api/disc-probe` — el backend respeta la elección y omite el auto-detect.
 - Todos los orígenes viven en `/mnt/isos`. El endpoint `GET /api/sources` (depth máx 3, cache 60s) escanea recursivamente y devuelve cada entrada clasificada por tipo.
-- **Detección de duplicados**: antes de analizar, `POST /api/check-duplicate` calcula la huella SHA-256 (primer 1 MB + tamaño) del fichero principal según tipo de origen (.iso, m2ts más grande del BDMV, .m2ts directo) y busca sesiones existentes con la misma huella. Si se detecta duplicado, ofrece "Abrir existente" o "Re-analizar".
-- **Modal de progreso**: al analizar, se muestra un modal con 4 pasos animados (Montar ISO → Identificar pistas → Extraer capítulos → Aplicar reglas).
+- **File browser embebido** por tab con sort configurable (nombre A→Z / Z→A · tamaño ↓/↑). Default `size_desc` en M2TS (los episodios son los m2ts grandes; los pequeños son extras).
+- **Detección de duplicados** (v2.7+): `POST /api/check-duplicate` calcula la huella SHA-256 (primer 1 MB + tamaño) del fichero principal y devuelve la lista completa de sesiones que comparten fingerprint (`sessions[]`), no solo la primera. Para BDMV/ISO de serie con N episodios ya procesados eso son N. Comportamiento:
+  - **Modo Película + duplicado**: diálogo "Ya existe un proyecto" con Abrir/Reanalizar (1 sesión esperada por fingerprint).
+  - **Modo Serie + ≥1 sesión previa**: NO diálogo. Se pasa directo al series-modal con la lista de existentes; cada candidato MPLS/m2ts con sesión previa muestra badge `✓ Existe` en la columna del episodio y arranca DESMARCADO. El usuario marca solo lo que quiera añadir o rehacer.
+- **Modal "Detectando contenido"**: tras click en Analizar el frontend abre un modal que polla `/api/disc-probe/progress` cada 400ms y muestra el paso real (montaje del ISO → escaneo de candidatos N/M → clasificación) con barra real en lugar de "Conectando con el servidor…" estático.
+- **Modal de análisis** (`analyze-modal`): durante Fase A muestra cartela TMDb + título cuando hay match (lookup `/api/cmv40/tmdb-lookup` lanzado en paralelo, best-effort). Sin match queda el icono 💿/📁/🎞️ según source_type.
+- **Warning de modo confundido**: en modo Película si el BDMV/ISO tiene ≥3 m2ts grandes (>5GB cada uno), `disc-probe` devuelve `movie_warning` y el frontend abre `showConfirm` antes del análisis: *"Este origen tiene N ficheros M2TS de más de 5 GB. Parece un disco de serie con varios episodios. Si confirmas modo película se usará el MPLS principal."*
 - **No se persiste nada hasta éxito**: si Fase A falla, no se crea fichero JSON. Sin sesiones huérfanas.
-- **Feedback**: modal de progreso durante el análisis. Si falla, toast de error.
 
 ### Paso 2 — Configurar y ejecutar
 - El análisis (Fases A+B) se ejecuta al crear el proyecto y produce configuración inicial.
@@ -132,51 +139,91 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 
 ### Modo serie multi-episodio (v2.5+)
 
-ISOs Blu-ray de series TV se detectan automáticamente y siguen un flujo paralelo al de películas. **Una sesión por episodio** — reutiliza toda la infraestructura (cola FIFO, validación, persistencia).
+ISOs/BDMV/M2TS de series TV con varios episodios se procesan como **una sesión por episodio** — reutiliza toda la infraestructura (cola FIFO, validación, persistencia). Tipo elegido explícitamente por el usuario en el modal (sin auto-detect).
 
-**Detección automática** ([phase_a.py](app/phases/phase_a.py)):
-- `identify_episode_candidates(share_path)`: lista los MPLS con duración 15-90 min y ≥1 audio track (top 20 por tamaño).
-- `detect_disc_type(candidates)`: clasifica como `movie` / `series` / `ambiguous`:
-  - `series` si ≥3 candidatos con CV (stddev/mean) ≤ 0.15.
-  - `movie` si <3 candidatos válidos.
-  - `ambiguous` si ≥3 candidatos con duración dispersa (CV > 0.15).
+**Detección de candidatos** ([phase_a.py](app/phases/phase_a.py)):
+- `identify_episode_candidates(share_path)` (iso/bdmv): lista MPLS con duración 15-90 min y ≥1 audio (top 20 por tamaño). Aplica dos filtros adicionales:
+  1. **Dedupe por m2ts referenciado** — varios MPLS pueden apuntar al mismo m2ts (Director's Cut, Theatrical Cut, seamless branching). Mantiene solo la de duración mayor para evitar contar variantes como episodios independientes.
+  2. **Tamaño relativo** — `m2ts_size ≥ max(40% mediana, 25% máximo)`. La parte de mediana cubre featurettes con still time; la del máximo cubre la distribución bimodal (1 m2ts grande + N pequeños) donde la mediana se acerca al pequeño.
+- `identify_episode_candidates_from_m2ts_list(paths)` (m2ts multi-fichero): cada m2ts del set es un candidato. Sin filtro de duración estricto (el usuario los eligió). Cascada de duración: mkvmerge → MediaInfo → ffprobe con sanity check de bitrate (descarta valores inverosímiles tipo "50GB en 168s").
+- `detect_disc_type(candidates)` (legacy): solo se usa cuando el frontend NO envía `media_type_hint` (compat). Con el toggle Película/Serie del modal, este auto-detect ya no aplica.
 
 **Flujo end-to-end:**
 
 ```
-Modal "Nuevo proyecto" → analyzeSelectedISO()
-  → POST /api/check-duplicate
-  → POST /api/disc-probe       (~10-20s: mount, identify, detect, umount)
-  └─ media_type:
+Modal "Nuevo proyecto" (con tipo elegido) → analyzeSelectedISO()
+  → POST /api/check-duplicate         (devuelve sessions[] con todas las
+                                       sesiones que comparten fingerprint)
+  → si serie + ≥1 sesión previa: bypass del diálogo de duplicado,
+    pasa directo al siguiente paso con la lista de existentes
+  → POST /api/disc-probe              (con media_type_hint='movie'|'series';
+                                       polling /api/disc-probe/progress)
+  └─ Según hint:
       ├─ movie → flujo normal (Fase A+B completa)
-      └─ series / ambiguous → abre #series-modal
+      └─ series → abre #series-modal con las sesiones previas
           ├─ GET /api/tv-search?query=...   (TMDb /search/tv)
           ├─ GET /api/tv-details/{id}        (TMDb /tv/{id})
           ├─ GET /api/tv-season/{id}/{N}?mpls_durations=...
-          │     (TMDb /tv/{id}/season/{N} + match heurístico runtime)
-          └─ POST /api/create-series-sessions
-                Monta ISO una vez, analiza cada MPLS con
-                run_full_analysis_for_mpls(), aplica reglas Fase B,
-                crea N sesiones pending.
+          │     (TMDb /tv/{id}/season/{N} + smart-match runtime)
+          └─ POST /api/create-series-sessions  (mode='add_only')
+                Monta origen una vez, analiza cada MPLS con
+                run_full_analysis_for_mpls/for_m2ts, aplica reglas
+                Fase B, crea N sesiones pending.
 ```
 
 **Endpoints REST nuevos** (todos en [main.py](app/main.py)):
 
 | Endpoint | Función |
 |---|---|
-| `POST /api/disc-probe` | Detecta tipo del disco; devuelve candidatos sin crear sesión |
+| `POST /api/disc-probe` | Detecta candidatos a episodio. Respeta `media_type_hint`; devuelve `movie_warning` si Película+BDMV con ≥3 m2ts grandes. |
+| `GET /api/disc-probe/progress` | Polling del paso actual + % del scan (modal "Detectando contenido"). |
 | `GET /api/tv-search?query=X&year=Y` | Top 5 candidatos TMDb (first_air_date_year filter) |
 | `GET /api/tv-details/{tmdb_id}` | Detalles + seasons[] |
 | `GET /api/tv-season/{tmdb_id}/{N}?mpls_durations=42,41.5,...` | episodes[] + mpls_matches[] con confianza |
-| `POST /api/create-series-sessions` | Crea N sesiones de un golpe tras confirmar mapping |
+| `POST /api/create-series-sessions` | Crea N sesiones de un golpe. Param `mode`: `add_only` (default, 409 si conflicto) · `replace` (borra existentes) · `skip_existing` (omite conflictos). |
 
-**Match heurístico runtime** (`match_episodes_to_mpls` en [services/tmdb.py](app/services/tmdb.py)):
-- Asignación secuencial por orden MPLS ascendente (75-90% de los discos lo respetan).
-- Confianza:
+**Smart-match por offset** (`match_episodes_to_mpls` en [services/tmdb.py](app/services/tmdb.py)):
+- Asume MPLS consecutivos pero NO necesariamente empezando en E01. Caso típico: disco 2 de una temporada con episodios E04-E06.
+- Prueba todos los offsets de inicio (E01, E02, …) y se queda con el que MINIMIZA la suma de `|delta runtime|` entre MPLS consecutivos y episodios consecutivos.
+- Confianza por fila:
   - `high` si `|runtime_mpls - runtime_tmdb| ≤ 1 min`
-  - `low` si fuera de tolerancia o TMDb sin runtime
+  - `low` si fuera de tolerancia o TMDb sin runtime para ese episodio
   - `unknown` si MPLS sin episode asignado (más MPLS que episodios)
-- El usuario edita el mapping si quiere (override del auto-match).
+- El frontend **recalcula la confianza on-the-fly** en cada render (`_computeMatchConfidence` en [app.js](app/static/app.js)) basándose en el episodio actualmente asignado, no en la sugerencia inicial del backend. Sin esto, al corregir el match manualmente el indicador 🟢/🟡 se quedaba en el valor inicial.
+
+**Episodios ya procesados** (v2.7+, frontend [app.js](app/static/app.js)):
+
+Al reabrir un BDMV/ISO de serie con N episodios procesados:
+- `check-duplicate` devuelve `sessions[]` (todas las que comparten fingerprint).
+- El frontend filtra las que tienen `season_number + episode_number` (signal robusto de "es serie"; no se fía del `media_type` por si está como `"movie"` por default de Pydantic en sesiones muy antiguas).
+- Las pasa al series-modal en `probe.existing_series_sessions`.
+- `openSeriesModal` construye DOS índices para lookup O(1):
+  - `existingByMpls` (**primario**) — key = basename del `mpls_path` persistido. Identifica físicamente el fichero del disco. Robusto frente a cambios de numeración entre runs.
+  - `existingByEp` (secundario) — key = `"season.episode"`. Fallback si la sesión es muy antigua sin `mpls_path`.
+- Helper `_findExistingForCandidate(c, season, epNum)` consulta primero por mpls, fallback por season+ep. Lo usan: cálculo de `include` por defecto, badge `✓ Existe`, detección de conflictos.
+- Cada candidato con sesión previa: badge **`✓ Existe`** en la columna del episodio (no en la columna MPLS — esa es 130px con overflow:hidden y recortaba el badge) + fila con fondo ámbar sutil + checkbox **desmarcado por defecto**.
+- Si el usuario marca algún existente al crear, `_seriesConfirmConflicts` abre un diálogo con 3 opciones:
+  - **🗑️ Reemplazar** (envía `mode='replace'` → backend borra las sesiones existentes con `delete_session` antes de crear las nuevas)
+  - **⏭ Saltar existentes** (envía `mode='skip_existing'` → backend omite conflictos, crea solo los nuevos)
+  - **Cancelar**
+
+**Análisis por episodio** (`run_full_analysis_for_mpls` / `run_full_analysis_for_m2ts` en [phase_a.py](app/phases/phase_a.py)):
+- Variantes de `run_full_analysis` que operan sobre un MPLS/m2ts específico (no buscan el principal).
+- Helper `_resolve_m2ts_from_mpls`: deriva el m2ts del MPLS específico con 3 estrategias en cascada:
+  1. `container.properties.playlist_file` del JSON de mkvmerge -J
+  2. Convención `00800.mpls` → `00800.m2ts` (~95% acierto)
+  3. Fallback `find_main_m2ts` (último recurso)
+- MediaInfo, dovi_tool y PGS counting operan sobre el m2ts del episodio, no del disco entero.
+
+**Nomenclatura Plex/Jellyfin** (`build_series_mkv_name` en [phase_b.py](app/phases/phase_b.py)):
+
+```
+Serie Name (Año)/Season NN/Serie Name (Año) - SNNeNN - Episode Title [DV FEL][Audio DCP].mkv
+```
+
+- Sanitiza caracteres prohibidos en NTFS/SMB (`/\\:*?"<>|` → `-`).
+- Preserva acentos UTF-8 (ext4/ZFS-safe).
+- Subdirectorios creados con `Path.mkdir(parents=True)` en Fase E antes de mkvmerge.
 
 **Análisis por episodio** (`run_full_analysis_for_mpls` en [phase_a.py](app/phases/phase_a.py)):
 - Variante de `run_full_analysis` que opera sobre un MPLS específico (no busca el principal).
@@ -675,6 +722,30 @@ async with await Source.open(user_path) as src:
 
 `identify_episode_candidates_from_m2ts_list(paths)`: análogo a `identify_episode_candidates` (que lee MPLS de una carpeta BDMV) pero opera sobre una lista explícita de `.m2ts`. Devuelve el mismo shape (`{mpls_name, mpls_path, duration_minutes, audio_track_count, data}`) — el resto del pipeline downstream no distingue.
 
+### Cascada de duración M2TS con sanity check (v2.7+)
+
+Los m2ts del Blu-ray a veces tienen PCR discontinuo al inicio. `mkvmerge -J` y MediaInfo pueden leer solo el primer chunk y reportar duración trunca — caso real: 50GB reportados como 168s (bitrate implícito 2380 Mbps, físicamente imposible).
+
+Solución en cascada en [`phases/phase_a.py`](app/phases/phase_a.py):
+
+1. **`_duration_looks_implausible(duration_seconds, file_size_bytes)`**: calcula bitrate implícito; True si >200 Mbps (Blu-ray UHD físico tope 113 Mbps con margen).
+
+2. **`_resolve_m2ts_duration_seconds(file_path, mkvmerge_data, mediainfo_result)`**: orquesta la cascada con el sanity check entre cada paso:
+   - mkvmerge `playlist_duration` o `duration` (ns) → si pasa el check, devuelve.
+   - MediaInfo: probó tracks General → Video → Audio (algunos m2ts no tienen Duration en General).
+   - ffprobe con `-probesize 100M -analyzeduration 100M` (default ~5MB era insuficiente).
+   - Si todas dan valores sospechosos, devuelve la MÁS ALTA con un WARN al log (mejor un valor aproximado que 0).
+
+3. **`_ffprobe_duration_seconds(file_path)`**: solo se usa sobre ficheros directos. NO dentro de UDF mount — `ffprobe` rompe el demux en m2ts montado por loop (memoria histórica del proyecto).
+
+Aplicado en `run_full_analysis_for_m2ts` y `identify_episode_candidates_from_m2ts_list`. Si la duración inicial era el outlier, se sustituye por la corregida y se loguea el cambio.
+
+### Disc-probe progress endpoint (v2.7+)
+
+Para no dejar al usuario con un modal estático durante los 10-30s del scan, [`main.py`](app/main.py) mantiene un singleton `_disc_probe_progress: {running, current_label, pct, step}` y expone `GET /api/disc-probe/progress`. El frontend pollea cada 400ms y refresca el modal "Detectando contenido" con el paso real y % por candidato escaneado.
+
+Los helpers `identify_episode_candidates(...)` y `identify_episode_candidates_from_m2ts_list(...)` aceptan ahora un `progress_callback(idx, total, item_name)` opcional que se invoca antes de procesar cada MPLS/m2ts. `disc_probe` lo conecta al estado global con etiquetas como `"Analizando candidato 3/20: 00800.mpls"`.
+
 ### Endpoints adaptados a los 3 tipos (v2.6+)
 
 | Endpoint | Comportamiento |
@@ -688,11 +759,36 @@ async with await Source.open(user_path) as src:
 
 Campos persistidos en `Session`: `source_type`, `source_path` (default `iso`/`""` para compat legacy).
 
-### Pipeline optimizado — 1 sola copia de datos
-- **Ruta directa** (con reordenación/exclusión): mkvmerge lee MPLS → MKV final en `/mnt/output`. Mapeo de pistas por idioma+codec (no posicional).
-- **Ruta intermedio** (sin reordenación): Phase D → MKV intermedio → mkvpropedit in-place → `mv` al output.
-- **`--gui-mode`**: fuerza output de progreso en mkvmerge. Traducido de `#GUI#progress XX%` a `Progress: XX%`.
-- **Cancelación**: `_cancel_flags` + `_active_processes` permiten matar el subprocess activo. Limpieza de temporales y desmontaje en finally.
+### Pipeline optimizado — 1 sola copia de datos (v2.7+: 3 source types)
+
+El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/phase_d.py) y [phases/phase_e.py](app/phases/phase_e.py); orquestación en `_run_pipeline` de [main.py](app/main.py)) soporta los 3 tipos de origen mediante el context manager `Source`:
+
+- **ISO**: `mount -t udf -o ro,loop` automático en `/mnt/bd`. Selecciona MPLS (preferencias en orden):
+  1. `session.mpls_path` (modo serie — nombre del MPLS específico).
+  2. `session.bdinfo_result.main_mpls` (modo película — detectado en Fase A).
+  3. `find_main_mpls(mount_point)` (fallback general).
+- **BDMV folder**: no-op de mount. Mismo proceso de selección de MPLS dentro de la carpeta directa.
+- **M2TS**: no-op de mount. El "MPLS" para mkvmerge es el propio fichero (`session.mpls_path` absoluto para series, `session.iso_path` para movies con 1 m2ts).
+
+`run_phase_d` y `run_phase_e_direct` aceptan ambos un `source_path` que puede ser un MPLS (iso/bdmv) o un m2ts directo — mkvmerge maneja ambos formatos sin distinción.
+
+**Rutas optimizadas:**
+- **Ruta directa** (con reordenación/exclusión de pistas): mkvmerge lee origen → MKV final en `/mnt/output`. Mapeo de pistas por idioma+codec (no posicional).
+- **Ruta intermedio** (sin reordenación): Phase D → MKV intermedio → mkvpropedit edita cabeceras (sin recopiar datos) → `mv` al output.
+
+**Strip de fases en el panel de cola** (v2.7+, source-aware):
+- Para `iso`: 3 fases visibles — Montar ISO → mkvmerge → Desmontar ISO.
+- Para `bdmv_folder` / `m2ts`: las fases mount/unmount se marcan `skipped` (clase `.skipped`: opacity .35 + icono ⊘ + label "Origen directo" / "Cierre del origen"). `updateColaMiniPipeline` ignora las transiciones de estado en fases skipped — el backend sigue emitiendo el evento por compat con el context manager Source, pero el panel ya no se enciende con ese pulso de medio segundo.
+- `_configurePhaseStripForSource(sourceType)` (frontend) reconfigura títulos + estado al arrancar un job. Cache `_lastConfiguredSourceType` evita reconfigurar en cada poll si no cambió.
+
+**Logs del pipeline** (audit v2.7+):
+- Marker `[Origen]` (sustituye al antiguo `[Montando ISO]`) con texto dinámico: "Montando el ISO…" (iso) · "Origen directo — leyendo la carpeta BDMV" (bdmv) · "Origen directo — leyendo el fichero M2TS" (m2ts).
+- Cierre dinámico: "✓ ISO desmontado" / "✓ Origen cerrado (carpeta BDMV)" / "✓ Origen cerrado (fichero M2TS)".
+- Frontend (parser del panel cola) detecta los nuevos marcadores con fallback a los antiguos para sesiones legacy con log persistido.
+
+**Otros:**
+- **`--gui-mode`** en mkvmerge: fuerza output de progreso (`#GUI#progress XX%` → traducido a `Progress: XX%`).
+- **Cancelación**: `_cancel_flags` + `_active_processes` permiten matar el subprocess activo. Limpieza de temporales y cierre del origen en finally (via `Source.__aexit__`).
 - **Validación final**: tras crear el MKV, `mkvmerge -J` + `mkvextract` verifican pistas, idiomas, flags y capítulos contra lo esperado.
 
 ### Mapeo de pistas (Phase E)
