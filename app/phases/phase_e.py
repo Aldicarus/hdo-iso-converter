@@ -129,12 +129,11 @@ async def run_phase_e_direct(
     )
     if log_callback:
         await log_callback(
-            "[Fase E] 📋 Plan: generar el MKV final DIRECTAMENTE desde el MPLS con "
-            "un solo mkvmerge — seleccionamos las pistas, les aplicamos nombres/flags "
-            "correctos y escribimos capítulos en una sola pasada. Esta ruta se elige "
-            "cuando hay reordenación o pistas excluidas, evitando el MKV intermedio."
+            "[Fase E] 📋 Generando el MKV final con un solo mkvmerge: selección "
+            "de pistas, reordenación, nombres, flags y capítulos en una sola pasada. "
+            "Ahorra una copia completa respecto a la ruta con intermedio."
         )
-        await log_callback(f"[Fase E] ┌─ Escribiendo MKV final directo desde MPLS → {output_path}")
+        await log_callback(f"[Fase E] ┌─ Escribiendo: {output_path}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -164,11 +163,10 @@ async def run_phase_e_direct(
 
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
-        await log_callback(f"[Fase E] ✓ MKV final escrito: {output_path} ({size_gb:.1f} GB)")
+        await log_callback(f"[Fase E] ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
         await log_callback(
-            "[Fase E] 🎯 Resultado: MKV listo en /mnt/output con las pistas "
-            "seleccionadas, nombres y flags correctos, y capítulos embebidos. "
-            "Ruta directa (sin intermedio) — ahorro de una copia completa."
+            "[Fase E] 🎯 Resultado: MKV en /mnt/output con pistas, nombres, flags "
+            "y capítulos correctos. Ruta directa — una sola copia."
         )
     return output_path
 
@@ -235,12 +233,12 @@ async def run_phase_e_propedit(
 
     if log_callback:
         await log_callback(
-            "[Fase E] 📋 Plan: aplicar ediciones de metadatos (nombres de pistas, "
-            "flags default/forced, capítulos) sobre el MKV intermedio de Fase D con "
-            "mkvpropedit in-place (O(1), sin copiar datos). Luego se mueve al output "
-            "final con un rename atómico. Ahorro: una copia completa del fichero."
+            "[Fase E] 📋 Aplicando los metadatos al MKV intermedio con mkvpropedit: "
+            "edita solo las cabeceras del contenedor (nombres de pistas, flags "
+            "default/forced y capítulos) sin recopiar los datos. El MKV se mueve "
+            "después al directorio final con un rename atómico."
         )
-        await log_callback(f"[Fase E] ┌─ mkvpropedit in-place sobre: {intermediate_mkv}")
+        await log_callback(f"[Fase E] ┌─ Editando metadatos en: {Path(intermediate_mkv).name}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -264,10 +262,10 @@ async def run_phase_e_propedit(
     shutil.move(intermediate_mkv, output_path)
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
-        await log_callback(f"[Fase E] └─ ✓ MKV movido a ubicación final: {output_path} ({size_gb:.1f} GB)")
+        await log_callback(f"[Fase E] └─ ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
         await log_callback(
-            "[Fase E] 🎯 Resultado: MKV final con metadatos aplicados sin re-copiar "
-            "el stream. Ruta con intermedio — mkvpropedit es O(1), solo edita headers."
+            "[Fase E] 🎯 Resultado: MKV en /mnt/output con metadatos aplicados sin "
+            "recopiar el contenido (solo cabeceras editadas)."
         )
     return output_path
 

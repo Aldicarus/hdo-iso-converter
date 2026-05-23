@@ -2160,6 +2160,17 @@ select { appearance: none; cursor: pointer;
 }
 .pc-step.done   { opacity: 1; border-color: rgba(48,209,88,.3); background: rgba(48,209,88,.06); }
 .pc-step.error  { opacity: 1; border-color: rgba(255,69,58,.3);  background: rgba(255,69,58,.06); }
+/* Fase no aplica al tipo de origen (BDMV/M2TS no requieren mount/unmount).
+   Igual de tenue que pending pero con icono ⊘ y subtexto explicativo —
+   evita que el usuario crea que se montó algo cuando no fue así. */
+.pc-step.skipped { opacity: .35; }
+.pc-step.skipped .pc-step-circle {
+  background: var(--surface-3);
+  border-color: var(--sep);
+  color: var(--text-3);
+}
+.pc-step.skipped .pc-step-title { color: var(--text-2); }
+.pc-step.skipped .pc-step-elapsed { color: var(--text-3); }
 
 /* Cabecera interna del paso */
 .pc-step-head {
@@ -2724,6 +2735,13 @@ select { appearance: none; cursor: pointer;
 }
 .csb-pipe-conn.active { background: var(--blue); }
 .csb-pipe-conn.done { background: var(--green); }
+/* Fase no aplica al tipo de origen (BDMV/M2TS sin mount). Mantiene
+   el espacio del pipeline pero indica visualmente que se saltó. */
+.csb-pipe-phase.skipped { opacity: .35; }
+.csb-pipe-phase.skipped .csb-pipe-circle {
+  background: var(--surface-2);
+  border-color: var(--sep);
+}
 
 /* Metadata de progreso */
 .csb-prog-meta {

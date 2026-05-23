@@ -7836,7 +7836,10 @@ function handleExecutionWsMessage(msg) {
   // legacy cuyo log se renderiza al reabrir.
   const isMountMarker = msg.includes('[Origen] ┌─') || msg.includes('[Montando ISO]');
   const isUnmountMarker = (
-    msg.includes('[Origen] ISO desmontado')
+    msg.includes('[Origen] ✓ ISO desmontado')
+    || msg.includes('[Origen] ✓ Origen cerrado')
+    // Backward-compat con sesiones legacy persistidas en disco
+    || msg.includes('[Origen] ISO desmontado')
     || msg.includes('[Origen] Carpeta BDMV liberada')
     || msg.includes('[Origen] Fichero M2TS liberado')
     || msg.includes('[Desmontando ISO]')
@@ -7876,9 +7879,12 @@ function handleExecutionWsMessage(msg) {
     updateColaMiniPipeline('unmount', 'active');
     const el = document.getElementById('csb-phase-label');
     if (el) {
-      el.textContent = msg.includes('desmontado') ? 'Desmontando ISO…'
-        : msg.includes('Carpeta BDMV liberada') ? 'Liberando carpeta…'
-        : msg.includes('M2TS liberado') ? 'Liberando M2TS…'
+      el.textContent = msg.includes('ISO desmontado') ? 'Desmontando ISO…'
+        : msg.includes('carpeta BDMV') ? 'Cerrando carpeta…'
+        : msg.includes('fichero M2TS') ? 'Cerrando fichero…'
+        // Legacy fallbacks
+        : msg.includes('Carpeta BDMV liberada') ? 'Cerrando carpeta…'
+        : msg.includes('M2TS liberado') ? 'Cerrando fichero…'
         : 'Cerrando origen…';
     }
     updateSubtabQueuePill();
@@ -8116,8 +8122,22 @@ function renderColaSidebar() {
       const rawName = runningSession?.mkv_name || runningProject?.name || queueState.running || '';
       nameEl.textContent = rawName.replace(/\.mkv$/i, '');
     }
+    // Reconfigurar el strip de fases según el tipo de origen — solo si
+    // cambió respecto a la última sesión, para evitar reset visual en
+    // cada poll. Bdmv/m2ts marcan mount/unmount como skipped (⊘).
+    const currentType = runningSession?.source_type || 'iso';
+    if (currentType !== _lastConfiguredSourceType) {
+      _configurePhaseStripForSource(currentType);
+      _lastConfiguredSourceType = currentType;
+    }
   } else {
     // Resetear indicadores al quedar sin trabajo
+    // Volver a la configuración por defecto (iso) para que la próxima
+    // sesión arranque con labels correctos antes de saber su tipo.
+    if (_lastConfiguredSourceType !== 'iso') {
+      _configurePhaseStripForSource('iso');
+      _lastConfiguredSourceType = 'iso';
+    }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'pending');
     const csbBar = document.getElementById('csb-prog-bar');
     if (csbBar) { csbBar.style.width = ''; csbBar.classList.add('indeterminate'); }
@@ -8264,7 +8284,71 @@ function _updateSidebarRunningIcon() {
  * @param {'pending'|'active'|'done'|'error'} state - Nuevo estado.
  * @param {string} [meta] - No usado (mantenido para compatibilidad de llamadas).
  */
+/** Fases del pipeline que NO aplican al tipo de origen actual.
+ *  Para bdmv_folder y m2ts no hay montaje/desmontaje real — las
+ *  marcamos como 'skipped' visualmente para que el panel no sugiera
+ *  que se montó algo. Se popula desde _configurePhaseStripForSource. */
+let _pipelineSkippedPhases = new Set();
+
+/** Último source_type configurado en el strip (para evitar reconfigurar
+ *  en cada render si no cambió). */
+let _lastConfiguredSourceType = null;
+
+/** Adapta los títulos, subtítulos y estado visual del pipeline (panel
+ *  cola + sidebar mini) al tipo de origen de la sesión en ejecución.
+ *  Para iso muestra las 3 fases reales (montar → mkvmerge → desmontar).
+ *  Para bdmv_folder y m2ts marca mount/unmount como 'skipped' (atenuado
+ *  con ⊘) y cambia los textos para que no mientan al usuario. */
+function _configurePhaseStripForSource(sourceType) {
+  const isIso = sourceType === 'iso';
+  const sourceLabel = sourceType === 'bdmv_folder' ? 'Carpeta BDMV'
+    : sourceType === 'm2ts' ? 'Fichero M2TS'
+    : 'Origen';
+
+  _pipelineSkippedPhases = isIso ? new Set() : new Set(['mount', 'unmount']);
+
+  // Cola panel — títulos/subtítulos de los pasos
+  const set = (sel, text) => {
+    const el = document.querySelector(sel);
+    if (el) el.textContent = text;
+  };
+  if (isIso) {
+    set('#pc-step-mount .pc-step-title', 'Montar ISO');
+    set('#pc-step-mount .pc-step-sub', 'loop mount UDF → /mnt/bd/');
+    set('#pc-step-unmount .pc-step-title', 'Desmontar ISO');
+    set('#pc-step-unmount .pc-step-sub', 'umount del loop device');
+  } else {
+    set('#pc-step-mount .pc-step-title', 'Origen directo');
+    set('#pc-step-mount .pc-step-sub', `${sourceLabel} — no requiere montaje`);
+    set('#pc-step-unmount .pc-step-title', 'Cierre del origen');
+    set('#pc-step-unmount .pc-step-sub', `${sourceLabel} — sin operación de limpieza`);
+  }
+
+  // Marcado 'skipped' en cola panel + sidebar mini-pipe. Usamos
+  // classList.toggle para preservar otras clases (active/done/error)
+  // si las hubiera.
+  for (const ph of ['mount', 'unmount']) {
+    const stepEl = document.getElementById(`pc-step-${ph}`);
+    if (stepEl) stepEl.classList.toggle('skipped', !isIso);
+    const csbEl = document.getElementById(`csb-pipe-${ph}`);
+    if (csbEl) csbEl.classList.toggle('skipped', !isIso);
+    // Icono ⊘ en lugar de 💿/🔓 para fases que no aplican
+    const circleEl = document.getElementById(`pc-circle-${ph}`);
+    if (circleEl && !isIso) circleEl.textContent = '⊘';
+    const csbCircleEl = document.getElementById(`csb-pipe-circle-${ph}`);
+    if (csbCircleEl && !isIso) csbCircleEl.textContent = '⊘';
+  }
+}
+
 function updateColaMiniPipeline(phase, state) {
+  // No transitar el estado visual ni el icono de fases marcadas como
+  // 'skipped'. BDMV/M2TS no tienen mount/unmount real (aunque el
+  // backend emita el evento por compat con el ctx-manager Source).
+  // El icono ⊘ y la clase 'skipped' las pone _configurePhaseStripForSource
+  // al inicio; aquí nos limitamos a no tocarlas.
+  if (_pipelineSkippedPhases.has(phase)) {
+    return;
+  }
   const ICONS = { mount: '💿', extract: '⬇️', unmount: '🔓' };
   // Conector que sigue a cada fase (en sidebar y en panel)
   const CONN = { mount: 'me', extract: 'eu', unmount: null };
@@ -8285,9 +8369,16 @@ function updateColaMiniPipeline(phase, state) {
   }
 
   // — Sidebar compacto —
+  // Preservamos clase 'skipped' si está presente — no sobrescribimos
+  // todo el className para que mount/unmount en BDMV/M2TS no se
+  // resetee al estado por defecto (esos return-earlys arriba ya lo
+  // protegen pero el reset a pending pasa por aquí).
   const csbPhaseEl  = document.getElementById(`csb-pipe-${phase}`);
   const csbCircleEl = document.getElementById(`csb-pipe-circle-${phase}`);
-  if (csbPhaseEl)  csbPhaseEl.className    = `csb-pipe-phase ${state}`;
+  if (csbPhaseEl) {
+    const wasSkipped = csbPhaseEl.classList.contains('skipped');
+    csbPhaseEl.className = `csb-pipe-phase ${state}${wasSkipped ? ' skipped' : ''}`;
+  }
   if (csbCircleEl) csbCircleEl.textContent = icon;
   if (CONN[phase]) {
     const csbConn = document.getElementById(`csb-pipe-conn-${CONN[phase]}`);
@@ -8298,7 +8389,10 @@ function updateColaMiniPipeline(phase, state) {
   const stepEl   = document.getElementById(`pc-step-${phase}`);
   const circleEl = document.getElementById(`pc-circle-${phase}`);
   const progEl   = document.getElementById(`pc-prog-${phase}`);
-  if (stepEl)   stepEl.className      = `pc-step ${state}`;
+  if (stepEl) {
+    const wasSkipped = stepEl.classList.contains('skipped');
+    stepEl.className = `pc-step ${state}${wasSkipped ? ' skipped' : ''}`;
+  }
   if (circleEl) circleEl.textContent  = icon;
   if (progEl)   progEl.style.display  = state === 'active' ? '' : 'none';
   const cancelEl = document.getElementById(`pc-cancel-${phase}`);

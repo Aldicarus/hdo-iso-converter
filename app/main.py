@@ -1871,42 +1871,41 @@ async def _run_pipeline(session_id: str) -> None:
         from phases.iso_mount import Source, SourceError
 
         stype = session.source_type or "iso"
-        await log(f"[Pipeline] ━━━ Iniciando extracción de {session.iso_path} ━━━")
+        source_basename = Path(session.iso_path).name
+        await log(f"[Pipeline] ━━━ Iniciando: {source_basename} ━━━")
 
-        # Plan general dinámico según el tipo de origen — antes hablaba
-        # siempre de "montar el ISO" aunque el origen fuera carpeta BDMV
-        # o m2ts, lo cual confundía y fallaba al intentar montar un m2ts.
+        # Plan general dinámico según el tipo de origen. Describe SOLO los
+        # pasos que se van a ejecutar — los específicos (ruta directa /
+        # intermedio, capítulos auto) se anuncian en sus propios markers
+        # cuando llegan, no aquí.
         if stype == "iso":
             plan_text = (
-                "[Pipeline] 📋 Plan general: montar el ISO (loop mount UDF), localizar el "
-                "MPLS principal del Blu-ray, extraer las pistas seleccionadas a un MKV y "
-                "aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
-                "validar el resultado y desmontar el ISO."
+                "[Pipeline] 📋 Plan: montar el ISO, localizar el playlist principal "
+                "del Blu-ray, extraer las pistas elegidas a un MKV con sus metadatos "
+                "(nombres, flags, capítulos), validar el resultado y desmontar."
             )
         elif stype == "bdmv_folder":
             plan_text = (
-                "[Pipeline] 📋 Plan general: leer la carpeta BDMV directa (sin montaje), "
-                "localizar el MPLS principal, extraer las pistas seleccionadas a un MKV "
-                "y aplicar los metadatos (nombres, flags, capítulos). Tras completar, "
-                "validar el resultado."
+                "[Pipeline] 📋 Plan: leer la carpeta BDMV, localizar el playlist "
+                "principal, extraer las pistas elegidas a un MKV con sus metadatos "
+                "(nombres, flags, capítulos) y validar el resultado."
             )
         else:  # m2ts
             plan_text = (
-                "[Pipeline] 📋 Plan general: leer el fichero M2TS directo (sin MPLS), "
-                "extraer las pistas seleccionadas a un MKV y aplicar los metadatos "
-                "(nombres, flags, capítulos auto cada 10 min si no hay extraídos del "
-                "disco). Tras completar, validar el resultado."
+                "[Pipeline] 📋 Plan: leer el fichero M2TS, extraer las pistas elegidas "
+                "a un MKV con sus metadatos. El M2TS no contiene marcas de capítulo, "
+                "así que se generan automáticamente cada 10 minutos."
             )
         await log(plan_text)
 
         # ── 1. Preparar origen (Source abstraction) ───────────────
         _mark_phase("mount")
         if stype == "iso":
-            await log("[Origen] ┌─ Paso 1: Montando el ISO en /mnt/bd (loop mount UDF)…")
+            await log("[Origen] ┌─ Paso 1: Montando el ISO en /mnt/bd…")
         elif stype == "bdmv_folder":
-            await log("[Origen] ┌─ Paso 1: Preparando carpeta BDMV (sin montaje)…")
+            await log("[Origen] ┌─ Paso 1: Origen directo — leyendo la carpeta BDMV")
         else:  # m2ts
-            await log("[Origen] ┌─ Paso 1: Preparando fichero M2TS (sin montaje)…")
+            await log("[Origen] ┌─ Paso 1: Origen directo — leyendo el fichero M2TS")
 
         source_obj = await Source.open(session.iso_path)
         await source_obj.__aenter__()
@@ -1918,9 +1917,9 @@ async def _run_pipeline(session_id: str) -> None:
         if stype == "iso":
             await log(f"[Origen] └─ ✓ ISO montado en: {mount_point}")
         elif stype == "bdmv_folder":
-            await log(f"[Origen] └─ ✓ Carpeta BDMV lista: {mount_point}")
+            await log(f"[Origen] └─ ✓ Carpeta lista: {mount_point}")
         else:
-            await log(f"[Origen] └─ ✓ Fichero M2TS listo: {session.iso_path}")
+            await log(f"[Origen] └─ ✓ Fichero listo: {session.iso_path}")
 
         _check_cancel()
 
@@ -1936,7 +1935,7 @@ async def _run_pipeline(session_id: str) -> None:
                 if session.mpls_path and Path(session.mpls_path).exists()
                 else session.iso_path
             )
-            await log(f"[Origen] Fuente para mkvmerge: {Path(mkvmerge_source).name}")
+            await log(f"[Origen] Fichero de origen: {Path(mkvmerge_source).name}")
         else:
             # Buscar el MPLS dentro del bdmv_root. Prioridades:
             #   1. session.mpls_path (modo serie — nombre del MPLS específico)
@@ -1960,7 +1959,7 @@ async def _run_pipeline(session_id: str) -> None:
                         break
             if not mkvmerge_source:
                 mkvmerge_source = find_main_mpls(mount_point)
-            await log(f"[Fase D] MPLS seleccionado: {mkvmerge_source}")
+            await log(f"[Origen] Playlist principal: {Path(mkvmerge_source).name}")
 
         # Alias mpls_path para no romper código posterior — semánticamente
         # ahora puede ser MPLS o m2ts según el tipo de origen.
@@ -1974,9 +1973,9 @@ async def _run_pipeline(session_id: str) -> None:
         if do_reorder:
             # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
             await log(
-                "[Pipeline] 🎯 Ruta elegida: DIRECTA (origen → MKV final, una sola "
-                "copia). Se elige porque hay pistas que reordenar o excluir — "
-                "mkvmerge hace selección + metadatos + capítulos en una pasada."
+                "[Pipeline] 🎯 Ruta directa: hay pistas reordenadas o excluidas, "
+                "así que un solo mkvmerge hace selección + reorganización + "
+                "metadatos + capítulos en una pasada (ahorra una copia)."
             )
             _mark_phase("extract")
             final_mkv = await run_phase_e_direct(
@@ -1990,9 +1989,10 @@ async def _run_pipeline(session_id: str) -> None:
         else:
             # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
             await log(
-                "[Pipeline] 🎯 Ruta elegida: INTERMEDIO (Fase D + Fase E in-place). "
-                "Se elige porque no hay reordenación — mejor copiar una sola vez al "
-                "intermedio y aplicar metadatos con mkvpropedit (O(1), sin recopia)."
+                "[Pipeline] 🎯 Ruta con intermedio: no hay reordenación de pistas, "
+                "así que es más rápido copiar una vez al intermedio (mkvmerge) y "
+                "aplicar después los metadatos sobre las cabeceras (mkvpropedit), "
+                "sin volver a copiar el contenido."
             )
 
             # Phase D: extraer todo al intermedio. Para m2ts pasamos
@@ -2007,7 +2007,7 @@ async def _run_pipeline(session_id: str) -> None:
                 source_path=mpls_path if stype == "m2ts" else None,
             )
             _mark_phase("extract", done=True)
-            await log(f"[Fase D] MKV intermedio generado: {intermediate_mkv}")
+            await log(f"[Fase D] Intermedio listo en: {intermediate_mkv}")
 
             # Phase E: mkvpropedit in-place + mv
             _mark_phase("write")
@@ -2029,16 +2029,18 @@ async def _run_pipeline(session_id: str) -> None:
         session.last_executed  = datetime.now(timezone.utc)
 
         if validation_ok:
-            await log(f"[Pipeline] ✓ Completado: {final_mkv}")
+            await log(f"[Pipeline] ✓ Listo: {final_mkv}")
             await log(
-                "[Pipeline] 🎯 Resultado: MKV disponible en /mnt/output con validación "
-                "final OK (pistas, idiomas, flags y capítulos verificados contra lo esperado)."
+                "[Pipeline] 🎯 Resultado: MKV disponible en /mnt/output. Pistas, "
+                "idiomas, flags y capítulos verificados contra lo configurado en "
+                "la sesión."
             )
         else:
-            await log(f"[Pipeline] ⚠ Completado con advertencias: {final_mkv}")
+            await log(f"[Pipeline] ⚠ Completado con avisos: {final_mkv}")
             await log(
-                "[Pipeline] 🎯 Resultado: MKV escrito pero con discrepancias en la "
-                "validación — revisa el log de validación para ver qué campos no cuadran."
+                "[Pipeline] 🎯 Resultado: MKV escrito en /mnt/output pero con "
+                "discrepancias en la verificación. Revisa los avisos marcados con "
+                "⚠️ o ❌ arriba para ver qué campos no cuadran."
             )
 
     except Exception as e:
@@ -2046,18 +2048,18 @@ async def _run_pipeline(session_id: str) -> None:
         if cancelled:
             session.status        = "pending"
             session.error_message = None
-            await log("[Pipeline] Cancelado por el usuario")
+            await log("[Pipeline] 🛑 Cancelado por el usuario")
         else:
             session.status        = "error"
             session.error_message = str(e)
-            await log(f"[Pipeline] ERROR: {e}")
+            await log(f"[Pipeline] ✗ Error: {e}")
 
         # Limpiar ficheros temporales/parciales
         for path in [intermediate_mkv, session.output_mkv_path]:
             if path and Path(path).exists():
                 try:
                     Path(path).unlink()
-                    await log(f"[Pipeline] Fichero limpiado: {Path(path).name}")
+                    await log(f"[Pipeline] 🧹 Temporal eliminado: {Path(path).name}")
                 except OSError:
                     pass
         session.output_mkv_path = None
@@ -2075,11 +2077,11 @@ async def _run_pipeline(session_id: str) -> None:
             _mark_phase("unmount", done=True)
             stype_cleanup = session.source_type or "iso"
             if stype_cleanup == "iso":
-                await log("[Origen] ISO desmontado")
+                await log("[Origen] ✓ ISO desmontado")
             elif stype_cleanup == "bdmv_folder":
-                await log("[Origen] Carpeta BDMV liberada")
+                await log("[Origen] ✓ Origen cerrado (carpeta BDMV)")
             else:
-                await log("[Origen] Fichero M2TS liberado")
+                await log("[Origen] ✓ Origen cerrado (fichero M2TS)")
 
         # Limpiar tracking de cancelación
         _cancel_flags.pop(session_id, None)
@@ -2111,10 +2113,10 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     Returns:
         True si todo es correcto, False si hay discrepancias.
     """
-    await log("[Validación] Verificando MKV final…")
+    await log("[Validación] 📋 Verificando el MKV final contra lo configurado en la sesión…")
 
     if not Path(mkv_path).exists():
-        await log("[Validación] ❌ ERROR: El fichero MKV no existe")
+        await log("[Validación] ❌ El fichero MKV no existe")
         return False
 
     # ── Leer pistas del MKV final con mkvmerge -J ────────────────
@@ -2125,13 +2127,13 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     )
     stdout, _ = await proc.communicate()
     if proc.returncode >= 2:
-        await log(f"[Validación] ❌ ERROR: mkvmerge -J falló con código {proc.returncode}")
+        await log(f"[Validación] ❌ mkvmerge no pudo leer el MKV (código {proc.returncode})")
         return False
 
     try:
         data = json.loads(stdout.decode("utf-8", errors="replace"))
     except json.JSONDecodeError:
-        await log("[Validación] ❌ ERROR: JSON inválido de mkvmerge -J")
+        await log("[Validación] ❌ mkvmerge devolvió un JSON inválido")
         return False
 
     actual_tracks = data.get("tracks", [])
@@ -2151,18 +2153,18 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     warnings = []
 
     # ── Log de información general ───────────────────────────────
-    await log(f"[Validación] Fichero: {Path(mkv_path).name} ({file_size / 1e9:.2f} GB)")
-    await log(f"[Validación] Pistas: {len(actual_video)} vídeo, {len(actual_audio)} audio, {len(actual_subs)} subtítulos")
+    await log(f"[Validación] 📁 {Path(mkv_path).name} ({file_size / 1e9:.2f} GB)")
+    await log(f"[Validación] 🎞️ Pistas: {len(actual_video)} vídeo · {len(actual_audio)} audio · {len(actual_subs)} subtítulos")
 
     # ── Validar vídeo ────────────────────────────────────────────
     if not actual_video:
-        await log("[Validación] ❌ Sin pistas de vídeo")
+        await log("[Validación] ❌ El MKV no tiene pistas de vídeo")
         all_ok = False
     else:
         for v in actual_video:
             codec = v.get("codec", "?")
             dims = v.get("properties", {}).get("pixel_dimensions", "?")
-            await log(f"[Validación]   🎬 Vídeo: {codec} {dims}")
+            await log(f"[Validación]   🎬 Vídeo: {codec} · {dims}")
 
     # Verificar Dolby Vision si se esperaba FEL
     # Con mkvmerge v81+, BL+EL se combinan en un solo track (no hay EL separada).
@@ -2170,19 +2172,19 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     if session.has_fel:
         if len(actual_video) == 1:
             # v81+: BL+EL combinados — comportamiento correcto
-            await log("[Validación]   ✅ Dolby Vision: BL+EL combinados en un solo track (mkvmerge v81+)")
+            await log("[Validación]   ✅ Dolby Vision FEL: base + enhancement combinados en una sola pista")
         elif any("1920" in v.get("properties", {}).get("pixel_dimensions", "") for v in actual_video):
             # v65 legacy: EL como track separado — DV puede no funcionar
-            await log("[Validación]   ⚠️ Dolby Vision: EL presente como track separado (requiere mkvmerge v81+ para DV correcto)")
+            await log("[Validación]   ⚠️ Dolby Vision FEL: enhancement layer en pista separada (requiere mkvmerge v81+ para DV correcto)")
         else:
-            msg = "❌ Dolby Vision: FEL esperado pero no se encontró Enhancement Layer"
+            msg = "❌ Dolby Vision FEL esperado pero no se ha encontrado el enhancement layer"
             await log(f"[Validación] {msg}")
             warnings.append(msg)
             all_ok = False
 
     # ── Validar audio ────────────────────────────────────────────
     if len(actual_audio) != len(expected_audio):
-        msg = f"❌ Audio: {len(actual_audio)} pistas en MKV vs {len(expected_audio)} esperadas"
+        msg = f"❌ Audio: {len(actual_audio)} pistas en el MKV vs {len(expected_audio)} esperadas en la sesión"
         await log(f"[Validación] {msg}")
         warnings.append(msg)
         all_ok = False
@@ -2221,14 +2223,14 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     # Pistas esperadas que no están en el MKV
     for i in range(len(actual_audio), len(expected_audio)):
         exp = expected_audio[i]
-        msg = f"❌ Audio esperada #{i+1} ausente: {exp.raw.language} {exp.raw.codec}"
+        msg = f"❌ Falta la pista de audio #{i+1} esperada: {exp.raw.language} {exp.raw.codec}"
         await log(f"[Validación]   {msg}")
         warnings.append(msg)
         all_ok = False
 
     # ── Validar subtítulos ───────────────────────────────────────
     if len(actual_subs) != len(expected_subs):
-        msg = f"❌ Subtítulos: {len(actual_subs)} pistas en MKV vs {len(expected_subs)} esperadas"
+        msg = f"❌ Subtítulos: {len(actual_subs)} pistas en el MKV vs {len(expected_subs)} esperadas en la sesión"
         await log(f"[Validación] {msg}")
         warnings.append(msg)
         all_ok = False
@@ -2262,7 +2264,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     for i in range(len(actual_subs), len(expected_subs)):
         exp = expected_subs[i]
-        msg = f"❌ Subtítulo esperado #{i+1} ausente: {exp.raw.language} {exp.subtitle_type}"
+        msg = f"❌ Falta el subtítulo #{i+1} esperado: {exp.raw.language} {exp.subtitle_type}"
         await log(f"[Validación]   {msg}")
         warnings.append(msg)
         all_ok = False
@@ -2279,7 +2281,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         num_chapters = 0
     expected_chapters = len(session.chapters)
     if num_chapters != expected_chapters and expected_chapters > 0:
-        msg = f"⚠️ Capítulos: {num_chapters} en MKV vs {expected_chapters} esperados"
+        msg = f"⚠️ Capítulos: {num_chapters} en el MKV vs {expected_chapters} esperados en la sesión"
         await log(f"[Validación] {msg}")
         warnings.append(msg)
     else:
@@ -2287,26 +2289,30 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     # ── Resumen ──────────────────────────────────────────────────
     if all_ok:
-        await log("[Validación] ✅ MKV verificado correctamente")
+        await log("[Validación] ✅ Verificación correcta — el MKV coincide con lo configurado en la sesión")
     else:
-        await log(f"[Validación] ⚠️ Verificación con {len(warnings)} discrepancia(s)")
-        await log("[Validación] ──── DATOS PARA DIAGNÓSTICO ────")
+        await log(f"[Validación] ⚠️ Verificación con {len(warnings)} discrepancia{'s' if len(warnings) != 1 else ''} — revisa las líneas con ❌ o ⚠️ arriba")
+        await log("[Validación] ── Datos para diagnóstico ──")
         await log(f"[Validación] Sesión ID: {session.id}")
-        await log(f"[Validación] ISO: {session.iso_path}")
-        await log(f"[Validación] MKV: {mkv_path}")
-        await log(f"[Validación] Pistas incluidas (sesión): {len(expected_audio)} audio + {len(expected_subs)} subs")
+        await log(f"[Validación] Origen: {session.iso_path}")
+        await log(f"[Validación] MKV final: {mkv_path}")
+        await log(f"[Validación] Pistas configuradas en la sesión: {len(expected_audio)} audio + {len(expected_subs)} subtítulos")
         for i, t in enumerate(expected_audio):
-            await log(f"[Validación]   Audio esperado #{i+1}: {t.raw.language} · {t.raw.codec} · label=\"{t.label}\"")
+            await log(f"[Validación]   Audio esperado #{i+1}: {t.raw.language} · {t.raw.codec} · etiqueta=\"{t.label}\"")
         for i, t in enumerate(expected_subs):
-            await log(f"[Validación]   Sub esperado #{i+1}: {t.raw.language} · {t.subtitle_type} · label=\"{t.label}\"")
-        await log(f"[Validación] Pistas reales (mkvmerge -J): {len(actual_audio)} audio + {len(actual_subs)} subs")
+            await log(f"[Validación]   Subtítulo esperado #{i+1}: {t.raw.language} · {t.subtitle_type} · etiqueta=\"{t.label}\"")
+        await log(f"[Validación] Pistas reales en el MKV: {len(actual_audio)} audio + {len(actual_subs)} subtítulos")
         for at in actual_audio:
             p = at.get("properties", {})
-            await log(f"[Validación]   Audio real: id={at['id']} {at['codec']} {p.get('language','')} \"{p.get('track_name','')}\"")
+            await log(f"[Validación]   Audio real: id={at['id']} · {at['codec']} · {p.get('language','')} · \"{p.get('track_name','')}\"")
         for st in actual_subs:
             p = st.get("properties", {})
-            await log(f"[Validación]   Sub real: id={st['id']} {p.get('language','')} def={p.get('default_track',False)} frc={p.get('forced_track',False)} \"{p.get('track_name','')}\"")
-        await log("[Validación] ──── FIN DIAGNÓSTICO ────")
+            flags = []
+            if p.get('default_track'): flags.append('default')
+            if p.get('forced_track'): flags.append('forzado')
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            await log(f"[Validación]   Subtítulo real: id={st['id']} · {p.get('language','')}{flag_str} · \"{p.get('track_name','')}\"")
+        await log("[Validación] ── Fin del diagnóstico ──")
 
     return all_ok
 
