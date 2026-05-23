@@ -4334,7 +4334,11 @@ async function analyzeSelectedISO() {
     showConfirm(
       'Ya existe un proyecto para este origen',
       `Hay un proyecto previo asociado a este contenido: "${existingName}". Puedes abrirlo tal cual está o reanalizar el origen (se perderán las ediciones actuales).`,
-      () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
+      // Reanalizar pasa por el flujo COMPLETO de probe + routing — sin
+      // esto, un disco de serie reabierto en modo película saltaba
+      // directo a _doAnalyzeSource sin pasar por la detección de
+      // multi-episodios y fallaba en mitad del análisis.
+      () => _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe),
       'Reanalizar',
     );
     const openBtn = document.createElement('button');
@@ -4350,10 +4354,23 @@ async function analyzeSelectedISO() {
   }
 
   closeModal('new-project-modal');
+  await _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe);
+}
 
-  // Detección inicial: serie vs película. Puede tardar 10-30s (montaje
-  // del ISO + búsqueda de episodios candidatos). Modal de progreso para
-  // que el usuario no vea el viewport congelado.
+/** Ejecuta /api/disc-probe y enruta el resultado a la siguiente pantalla:
+ *
+ *  - series / ambiguous → abre el series-modal (selector de episodios).
+ *  - movie con movie_warning → showConfirm antes de proceder
+ *    (caso BDMV/ISO de serie reabierto en modo película).
+ *  - movie sin warning → _doAnalyzeSource directo.
+ *
+ *  Se llama desde dos puntos: el flujo normal (sin duplicado) y el handler
+ *  de "Reanalizar" tras el aviso de duplicado. Antes el handler de
+ *  Reanalizar saltaba directo a _doAnalyzeSource sin disc-probe, por lo
+ *  que el movie_warning nunca se mostraba al reabrir un origen previo. */
+async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe) {
+  // Modal de progreso — disc-probe puede tardar 10-30s (montaje del
+  // ISO + búsqueda de episodios candidatos en discos grandes).
   const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
   const probeSub = sourceType === 'iso'
     ? 'Montando el ISO y buscando episodios en el disco…'
