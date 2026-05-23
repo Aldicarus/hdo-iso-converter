@@ -4368,8 +4368,16 @@ async function analyzeSelectedISO() {
   // procesados, eso son N — no queremos mostrar un diálogo "Ya
   // existe un proyecto" como si solo hubiera uno. Filtramos según
   // modo elegido por el usuario.
+  //
+  // La detección de "es una sesión de serie" usa la presencia de
+  // season_number + episode_number (no el campo media_type) porque
+  // sesiones legacy pueden tener media_type cargado como 'movie' por
+  // el default de Pydantic aunque hayan sido creadas como serie. Los
+  // campos season/episode son el signal real.
   const existingSessions = (check?.sessions || []).filter(Boolean);
-  const existingSeriesSessions = existingSessions.filter(s => s.media_type === 'series');
+  const existingSeriesSessions = existingSessions.filter(
+    s => s.season_number && s.episode_number,
+  );
 
   if (_contentType === 'series' && existingSeriesSessions.length > 0) {
     // Modo serie con episodios previos: NO mostramos diálogo de duplicado.
@@ -4731,12 +4739,56 @@ async function _doAnalyzeISO(isoPath, isoName) {
 // Estado del modal de series. Se vacía al cerrar.
 let _seriesState = null;
 
+/** Busca la sesión existente que corresponde a un candidato (MPLS/m2ts).
+ *  Prioriza el lookup por mpls_basename (identifica físicamente el
+ *  fichero del disco); fallback por (season, episode_number) si el match
+ *  por path falla (sesión muy antigua sin mpls_path persistido).
+ *
+ *  Devuelve la Session o null si no hay match. */
+function _findExistingForCandidate(candidate, season, episodeNumber) {
+  if (!_seriesState) return null;
+  // 1) Lookup primario: por basename del MPLS/m2ts. Robusto frente a
+  //    cambios de numeración de episodio entre runs (smart-match TMDb).
+  const byMpls = _seriesState.existingByMpls;
+  if (byMpls && candidate && candidate.mpls_name) {
+    const hit = byMpls.get(candidate.mpls_name) || byMpls.get(candidate.mpls_path);
+    if (hit) return hit;
+  }
+  // 2) Fallback: por (season, episode_number).
+  const byEp = _seriesState.existingByEp;
+  if (byEp && season && episodeNumber) {
+    return byEp.get(`${season}.${episodeNumber}`) || null;
+  }
+  return null;
+}
+
 function openSeriesModal(probe) {
-  // Sesiones existentes para este origen (mismo fingerprint). Index
-  // por (season, episode) para lookup O(1) desde el render del table.
+  // Sesiones existentes para este origen (mismo fingerprint). Dos índices
+  // para lookup O(1) en el render del table:
+  //
+  //   - existingByMpls (PRIMARIO): key = basename del MPLS/M2TS persistido.
+  //     Es el identificador físico de qué fichero del disco representa la
+  //     sesión. Independiente de qué número de episodio le hayamos asignado.
+  //   - existingByEp (SECUNDARIO): key = "season.episode". Útil si en modo
+  //     manual el usuario edita el episode_number — pero el primario gana
+  //     siempre que coincide.
+  //
+  // Antes solo usábamos existingByEp y fallaba cuando el smart-match de
+  // TMDb asignaba números distintos a los que tenían las sesiones
+  // existentes (caso del usuario: badges no aparecían y los checkboxes
+  // quedaban invertidos).
   const existing = probe.existing_series_sessions || [];
+  const existingByMpls = new Map();
   const existingByEp = new Map();
   for (const s of existing) {
+    if (s.mpls_path) {
+      // Para iso/bdmv: basename del MPLS (ej. "00800.mpls").
+      // Para m2ts: el path absoluto entero o el basename. Cubrimos ambos.
+      const basename = s.mpls_path.split('/').pop();
+      existingByMpls.set(basename, s);
+      // También por path completo (por si se compara con absoluto)
+      if (basename !== s.mpls_path) existingByMpls.set(s.mpls_path, s);
+    }
     if (s.season_number && s.episode_number) {
       existingByEp.set(`${s.season_number}.${s.episode_number}`, s);
     }
@@ -4751,7 +4803,8 @@ function openSeriesModal(probe) {
     mplsMatches: [],             // matches runtime; vacío en modo manual
     candidates: {},              // cache de candidatos TMDb por id
     mapping: {},                 // {mpls_path: {include, episode_number, episode_title, runtime_minutes}}
-    existingByEp,                // Map<"season.ep", session> — para badges
+    existingByMpls,              // Map<mpls_basename, session> — primario
+    existingByEp,                // Map<"season.ep", session> — secundario
   };
 
   // Título + subtítulo source-aware. Para ISO/BDMV los candidatos son
@@ -4768,7 +4821,10 @@ function openSeriesModal(probe) {
   const sub = document.getElementById('series-modal-sub');
   if (sub) {
     const n = probe.episode_candidates.length;
-    const existingCount = existingByEp.size;
+    // Conteo de existentes para la nota informativa. Usamos el mapa
+    // primario (por mpls); fallback al secundario por si solo hay
+    // datos season/episode (sesión muy antigua sin mpls_path).
+    const existingCount = existingByMpls.size > 0 ? existingByMpls.size : existingByEp.size;
     const sourceLabel = stype === 'iso' ? 'el disco'
       : stype === 'bdmv_folder' ? 'la carpeta BDMV'
       : 'los ficheros M2TS';
@@ -4862,15 +4918,15 @@ function seriesConfirmManual() {
 
   // Mapping inicial: asignación secuencial 1-based; sin título de episodio
   // (el usuario puede teclear uno por fila si quiere). Si ya existe una
-  // sesión para (season, episode_number), por defecto la fila queda
-  // DESMARCADA — el usuario marca solo lo que quiera añadir o rehacer.
+  // sesión para este MPLS o (season, episode_number), por defecto la
+  // fila queda DESMARCADA — el usuario marca solo lo que quiera añadir
+  // o rehacer.
   const mapping = {};
-  const existingByEp = _seriesState.existingByEp || new Map();
   _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
     const epNum = idx + 1;
-    const alreadyExists = existingByEp.has(`${season}.${epNum}`);
+    const existing = _findExistingForCandidate(mpls, season, epNum);
     mapping[mpls.mpls_path] = {
-      include: !alreadyExists,
+      include: !existing,
       episode_number: epNum,
       episode_title: '',
       runtime_minutes: 0,
@@ -5012,17 +5068,18 @@ async function seriesLoadSeason() {
   // cabecera de la pestaña del proyecto muestre la info concreta del
   // episodio (no la genérica de la serie) tras la creación.
   const mapping = {};
-  const existingByEp = _seriesState.existingByEp || new Map();
   _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
     const match = _seriesState.mplsMatches[idx] || {};
     const matched = match.matched_episode || {};
     const epNum = match.suggested_episode_number || (idx + 1);
     // Episodios ya procesados de este origen → desmarcados por defecto.
     // Sin esto, al reabrir un disco con N episodios el usuario tendría
-    // que desmarcar uno a uno (o reprocesar todos sin querer).
-    const alreadyExists = existingByEp.has(`${seasonNumber}.${epNum}`);
+    // que desmarcar uno a uno (o reprocesar todos sin querer). El helper
+    // mira primero por mpls_basename (identificador físico) y solo
+    // cae a (season, ep_number) si lo primero falla.
+    const existing = _findExistingForCandidate(mpls, seasonNumber, epNum);
     mapping[mpls.mpls_path] = {
-      include: !alreadyExists,
+      include: !existing,
       episode_number: epNum,
       episode_title: matched.name || '',
       runtime_minutes: matched.runtime_minutes || 0,
@@ -5115,7 +5172,6 @@ function _renderSeriesEpisodesTable() {
     </div>
   `;
 
-  const existingByEp = _seriesState.existingByEp || new Map();
   const season = _seriesState.selectedSeason ? _seriesState.selectedSeason.season_number : null;
 
   const rows = cands.map((c, idx) => {
@@ -5128,12 +5184,10 @@ function _renderSeriesEpisodesTable() {
     const dur = c.duration_minutes >= 60
       ? `${Math.floor(c.duration_minutes / 60)}h ${Math.round(c.duration_minutes % 60)}m`
       : `${c.duration_minutes.toFixed(1)} min`;
-    // Badge "Existe" si la sesión del (season, episode_number) actual ya
-    // existe en disco. Si la marcas igualmente, se entrará en flujo de
-    // reemplazo y se pedirá confirmación al pulsar "Crear".
-    const existingSession = (season && map.episode_number)
-      ? existingByEp.get(`${season}.${map.episode_number}`)
-      : null;
+    // Badge "Existe" si este MPLS/m2ts (o el (season, ep_number) actual)
+    // ya tiene sesión persistida. Si la marcas igualmente, se entra en
+    // flujo de reemplazo y se pedirá confirmación al pulsar "Crear".
+    const existingSession = _findExistingForCandidate(c, season, map.episode_number);
     const existsBadge = existingSession
       ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}">✓ Existe</span>`
       : '';
@@ -5383,17 +5437,26 @@ async function seriesCreateSessions() {
   //   - Cancelar: vuelve al modal sin hacer nada.
   //
   // Sin esto, el backend caía en mode='add_only' y devolvía 409, pero
-  // el frontend solo veía null y mostraba un toast genérico.
+  // el frontend solo veía null y mostraba un toast genérico. Usamos el
+  // helper _findExistingForCandidate para consistencia con el render
+  // (que mira primero por mpls_basename, fallback por season+episode).
   const seasonNum = s.selectedSeason.season_number;
-  const existingByEp = s.existingByEp || new Map();
+  const candsByPath = new Map();
+  for (const c of s.probe.episode_candidates) {
+    candsByPath.set(c.mpls_path, c);
+  }
   const conflicts = episodes
-    .filter(ep => existingByEp.has(`${seasonNum}.${ep.episode_number}`))
-    .map(ep => ({
-      season_number: seasonNum,
-      episode_number: ep.episode_number,
-      episode_title: ep.episode_title,
-      existing: existingByEp.get(`${seasonNum}.${ep.episode_number}`),
-    }));
+    .map(ep => {
+      const cand = candsByPath.get(ep.mpls_path);
+      const existing = _findExistingForCandidate(cand, seasonNum, ep.episode_number);
+      return existing ? {
+        season_number: seasonNum,
+        episode_number: ep.episode_number,
+        episode_title: ep.episode_title,
+        existing,
+      } : null;
+    })
+    .filter(Boolean);
 
   // Modo a enviar al backend. add_only para casos sin conflictos
   // (defensa contra race conditions), replace si el usuario confirma
