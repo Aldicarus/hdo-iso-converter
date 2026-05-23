@@ -4328,6 +4328,28 @@ async function analyzeSelectedISO() {
 
   if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Analizar'; }
 
+  // El check-duplicate ahora devuelve `sessions[]` (todas las que
+  // comparten fingerprint). Para BDMV/ISO de serie con N episodios
+  // procesados, eso son N — no queremos mostrar un diálogo "Ya
+  // existe un proyecto" como si solo hubiera uno. Filtramos según
+  // modo elegido por el usuario.
+  const existingSessions = (check?.sessions || []).filter(Boolean);
+  const existingSeriesSessions = existingSessions.filter(s => s.media_type === 'series');
+
+  if (_contentType === 'series' && existingSeriesSessions.length > 0) {
+    // Modo serie con episodios previos: NO mostramos diálogo de duplicado.
+    // Pasamos directamente al disc-probe + series-modal, llevando el set
+    // de existentes para que cada candidato muestre badge "✓ Existe"
+    // (desmarcado por defecto — el usuario marca solo lo que quiere
+    // añadir o rehacer).
+    closeModal('new-project-modal');
+    await _probeAndRouteSource(
+      sourceType, sourcePath, sourceName, payloadProbe,
+      { existingSeriesSessions },
+    );
+    return;
+  }
+
   if (check?.duplicate && check.session) {
     closeModal('new-project-modal');
     const existingName = check.session.mkv_name || sourceName;
@@ -4368,7 +4390,7 @@ async function analyzeSelectedISO() {
  *  de "Reanalizar" tras el aviso de duplicado. Antes el handler de
  *  Reanalizar saltaba directo a _doAnalyzeSource sin disc-probe, por lo
  *  que el movie_warning nunca se mostraba al reabrir un origen previo. */
-async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe) {
+async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe, opts = {}) {
   // Modal de progreso — disc-probe puede tardar 10-30s (montaje del
   // ISO + búsqueda de episodios candidatos en discos grandes).
   const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
@@ -4421,6 +4443,10 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
     }
     probe.source_type = sourceType;
     probe.source_path = sourcePath;
+    // Sesiones de serie ya existentes para este origen (mismo fingerprint).
+    // El series-modal las usa para marcar candidatos con badge "✓ Existe"
+    // y desmarcarlos por defecto (evita reprocesar sin querer).
+    probe.existing_series_sessions = opts.existingSeriesSessions || [];
     openSeriesModal(probe);
     return;
   }
@@ -4671,6 +4697,16 @@ async function _doAnalyzeISO(isoPath, isoName) {
 let _seriesState = null;
 
 function openSeriesModal(probe) {
+  // Sesiones existentes para este origen (mismo fingerprint). Index
+  // por (season, episode) para lookup O(1) desde el render del table.
+  const existing = probe.existing_series_sessions || [];
+  const existingByEp = new Map();
+  for (const s of existing) {
+    if (s.season_number && s.episode_number) {
+      existingByEp.set(`${s.season_number}.${s.episode_number}`, s);
+    }
+  }
+
   _seriesState = {
     probe,                       // {iso_path, episode_candidates[], suggested_*}
     mode: 'tmdb',                // 'tmdb' | 'manual' — afecta a render + payload
@@ -4680,6 +4716,7 @@ function openSeriesModal(probe) {
     mplsMatches: [],             // matches runtime; vacío en modo manual
     candidates: {},              // cache de candidatos TMDb por id
     mapping: {},                 // {mpls_path: {include, episode_number, episode_title, runtime_minutes}}
+    existingByEp,                // Map<"season.ep", session> — para badges
   };
 
   // Título + subtítulo source-aware. Para ISO/BDMV los candidatos son
@@ -4696,13 +4733,19 @@ function openSeriesModal(probe) {
   const sub = document.getElementById('series-modal-sub');
   if (sub) {
     const n = probe.episode_candidates.length;
+    const existingCount = existingByEp.size;
     const sourceLabel = stype === 'iso' ? 'el disco'
       : stype === 'bdmv_folder' ? 'la carpeta BDMV'
       : 'los ficheros M2TS';
     const verdict = probe.media_type === 'series'
       ? `Detectados <strong>${n} episodios candidatos</strong> en ${sourceLabel} con duración similar.`
       : `Detectados <strong>${n} candidatos</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
-    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.`;
+    // Aviso adicional cuando ya hay episodios procesados de este origen
+    // — el usuario sabe por qué algunas filas vienen desmarcadas.
+    const existingNote = existingCount > 0
+      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists">✓ Existe</span> — marca solo los que quieras añadir o rehacer.`
+      : '';
+    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.${existingNote}`;
   }
 
   // Prellenar inputs con título/año sugerido
@@ -4783,12 +4826,17 @@ function seriesConfirmManual() {
   _seriesState.mplsMatches = [];
 
   // Mapping inicial: asignación secuencial 1-based; sin título de episodio
-  // (el usuario puede teclear uno por fila si quiere).
+  // (el usuario puede teclear uno por fila si quiere). Si ya existe una
+  // sesión para (season, episode_number), por defecto la fila queda
+  // DESMARCADA — el usuario marca solo lo que quiera añadir o rehacer.
   const mapping = {};
+  const existingByEp = _seriesState.existingByEp || new Map();
   _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
+    const epNum = idx + 1;
+    const alreadyExists = existingByEp.has(`${season}.${epNum}`);
     mapping[mpls.mpls_path] = {
-      include: true,
-      episode_number: idx + 1,
+      include: !alreadyExists,
+      episode_number: epNum,
       episode_title: '',
       runtime_minutes: 0,
     };
@@ -4929,12 +4977,18 @@ async function seriesLoadSeason() {
   // cabecera de la pestaña del proyecto muestre la info concreta del
   // episodio (no la genérica de la serie) tras la creación.
   const mapping = {};
+  const existingByEp = _seriesState.existingByEp || new Map();
   _seriesState.probe.episode_candidates.forEach((mpls, idx) => {
     const match = _seriesState.mplsMatches[idx] || {};
     const matched = match.matched_episode || {};
+    const epNum = match.suggested_episode_number || (idx + 1);
+    // Episodios ya procesados de este origen → desmarcados por defecto.
+    // Sin esto, al reabrir un disco con N episodios el usuario tendría
+    // que desmarcar uno a uno (o reprocesar todos sin querer).
+    const alreadyExists = existingByEp.has(`${seasonNumber}.${epNum}`);
     mapping[mpls.mpls_path] = {
-      include: true,
-      episode_number: match.suggested_episode_number || (idx + 1),
+      include: !alreadyExists,
+      episode_number: epNum,
       episode_title: matched.name || '',
       runtime_minutes: matched.runtime_minutes || 0,
       episode_overview: matched.overview || '',
@@ -5026,6 +5080,9 @@ function _renderSeriesEpisodesTable() {
     </div>
   `;
 
+  const existingByEp = _seriesState.existingByEp || new Map();
+  const season = _seriesState.selectedSeason ? _seriesState.selectedSeason.season_number : null;
+
   const rows = cands.map((c, idx) => {
     const map = mapping[c.mpls_path] || {};
     // Confianza dinámica basada en el episodio actualmente seleccionado
@@ -5036,13 +5093,22 @@ function _renderSeriesEpisodesTable() {
     const dur = c.duration_minutes >= 60
       ? `${Math.floor(c.duration_minutes / 60)}h ${Math.round(c.duration_minutes % 60)}m`
       : `${c.duration_minutes.toFixed(1)} min`;
+    // Badge "Existe" si la sesión del (season, episode_number) actual ya
+    // existe en disco. Si la marcas igualmente, se entrará en flujo de
+    // reemplazo y se pedirá confirmación al pulsar "Crear".
+    const existingSession = (season && map.episode_number)
+      ? existingByEp.get(`${season}.${map.episode_number}`)
+      : null;
+    const existsBadge = existingSession
+      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}">✓ Existe</span>`
+      : '';
     return `
-      <div class="series-ep-row${map.include ? '' : ' unchecked'}">
+      <div class="series-ep-row${map.include ? '' : ' unchecked'}${existingSession ? ' has-existing' : ''}">
         <div class="col-cb">
           <input type="checkbox" ${map.include ? 'checked' : ''}
                  onchange="seriesToggleEpisode('${escHtml(c.mpls_path)}', this.checked)">
         </div>
-        <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
+        <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}${existsBadge}</div>
         <div class="col-dur">${dur}</div>
         <div class="col-match" title="${escHtml(conf.title)}">${conf.emoji}</div>
         <div class="col-episode">${isManual ? buildManualInputs(map.episode_number, map.episode_title, c.mpls_path) : buildSelect(map.episode_number, c.mpls_path)}</div>
@@ -5211,6 +5277,48 @@ function _buildSeriesProgressUpdate(prog, episodes) {
   return { current, pct: totalPct, checklist, footnote };
 }
 
+/** Pregunta al usuario qué hacer con N episodios marcados que ya tienen
+ *  sesión previa. Devuelve una promesa que resuelve a:
+ *    'replace'        → el usuario quiere sobrescribir (perderá edits)
+ *    'skip_existing'  → omitir los conflictos, crear solo los nuevos
+ *    'cancel'         → volver al modal sin hacer nada
+ *
+ *  Implementado con showConfirm + un botón extra (igual que el modal
+ *  de "Ya existe un proyecto" del flujo Película). */
+function _seriesConfirmConflicts(count, listText) {
+  return new Promise(resolve => {
+    showConfirm(
+      `${count} episodio${count === 1 ? '' : 's'} ya existen para este origen`,
+      `Las siguientes sesiones ya están creadas:\n\n${listText}\n\n` +
+      `· "Reemplazar" borra las existentes y crea unas nuevas — perderás ediciones, historial de ejecución y el output MKV si aún no se ha movido.\n` +
+      `· "Saltar existentes" mantiene las actuales y procesa solo los episodios nuevos marcados.`,
+      () => resolve('replace'),
+      '🗑️ Reemplazar',
+    );
+    // Botón secundario "Saltar existentes" — clonado del patrón de
+    // "Abrir existente" del flujo Película (single duplicate).
+    const skipBtn = document.createElement('button');
+    skipBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
+    skipBtn.textContent = '⏭ Saltar existentes';
+    skipBtn.onclick = () => {
+      closeModal('confirm-modal');
+      resolve('skip_existing');
+    };
+    const confirmOk = document.getElementById('confirm-ok-btn');
+    if (confirmOk) confirmOk.parentNode.insertBefore(skipBtn, confirmOk);
+    // Si el usuario cierra el modal por Cancelar o fuera del modal,
+    // tratamos como cancel. Hookeamos al cancel-btn del modal estándar.
+    const cancelBtn = document.querySelector('#confirm-modal .btn-ghost');
+    if (cancelBtn) {
+      const onCancel = () => {
+        cancelBtn.removeEventListener('click', onCancel);
+        resolve('cancel');
+      };
+      cancelBtn.addEventListener('click', onCancel);
+    }
+  });
+}
+
 async function seriesCreateSessions() {
   if (!_seriesState) return;
   const s = _seriesState;
@@ -5229,6 +5337,45 @@ async function seriesCreateSessions() {
   if (!episodes.length) {
     showToast('Selecciona al menos un episodio', 'warning');
     return;
+  }
+
+  // ── Detección frontend de conflictos ─────────────────────────────
+  // El usuario puede haber marcado un episodio que YA existe (badge
+  // ✓ Existe). Antes de lanzar la creación, le pedimos confirmación:
+  //   - Reemplazar: borra las existentes y crea las nuevas (perdemos
+  //     edits + historial de ejecución).
+  //   - Saltar existentes: crea solo los nuevos.
+  //   - Cancelar: vuelve al modal sin hacer nada.
+  //
+  // Sin esto, el backend caía en mode='add_only' y devolvía 409, pero
+  // el frontend solo veía null y mostraba un toast genérico.
+  const seasonNum = s.selectedSeason.season_number;
+  const existingByEp = s.existingByEp || new Map();
+  const conflicts = episodes
+    .filter(ep => existingByEp.has(`${seasonNum}.${ep.episode_number}`))
+    .map(ep => ({
+      season_number: seasonNum,
+      episode_number: ep.episode_number,
+      episode_title: ep.episode_title,
+      existing: existingByEp.get(`${seasonNum}.${ep.episode_number}`),
+    }));
+
+  // Modo a enviar al backend. add_only para casos sin conflictos
+  // (defensa contra race conditions), replace si el usuario confirma
+  // sobrescribir, skip_existing si decide saltarlos.
+  let createMode = 'add_only';
+  if (conflicts.length > 0) {
+    const list = conflicts.map(c => {
+      const sn = String(c.season_number).padStart(2, '0');
+      const en = String(c.episode_number).padStart(2, '0');
+      const tStr = c.existing?.updated_at
+        ? ` · actualizado ${new Date(c.existing.updated_at).toLocaleDateString('es-ES')}`
+        : '';
+      return `S${sn}E${en}${c.episode_title ? ' — ' + c.episode_title : ''}${tStr}`;
+    }).join('\n');
+    const decision = await _seriesConfirmConflicts(conflicts.length, list);
+    if (decision === 'cancel') return;
+    createMode = decision;  // 'replace' | 'skip_existing'
   }
 
   const btn = document.getElementById('series-create-btn');
@@ -5283,6 +5430,7 @@ async function seriesCreateSessions() {
     series_vote_average: s.selectedSeries.vote_average || 0,
     season_number: s.selectedSeason.season_number,
     episodes,
+    mode: createMode,
   };
   if (s.probe.source_type) {
     payload.source_type = s.probe.source_type;
@@ -5324,12 +5472,23 @@ async function seriesCreateSessions() {
   await new Promise(r => setTimeout(r, 350));
   closeProgressModal();
 
+  const skippedExisting = data.skipped_existing || [];
+  const replacedIds = data.replaced_ids || [];
   const okWord = created.length === 1 ? 'proyecto creado' : 'proyectos creados';
+  // Mensaje de toast adaptado a las distintas combinaciones (creados,
+  // fallidos, saltados, reemplazados). Sin esto el usuario veía solo el
+  // count de creados aunque hubiera saltado o reemplazado N.
+  const extras = [];
+  if (replacedIds.length) extras.push(`${replacedIds.length} reemplazado${replacedIds.length === 1 ? '' : 's'}`);
+  if (skippedExisting.length) extras.push(`${skippedExisting.length} saltado${skippedExisting.length === 1 ? '' : 's'} (ya existía${skippedExisting.length === 1 ? '' : 'n'})`);
+  const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
     const failWord = failed.length === 1 ? 'falló' : 'fallaron';
-    showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}. Revisa el log del servidor.`, 'warning');
+    showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}${extrasStr}. Revisa el log del servidor.`, 'warning');
+  } else if (created.length === 0 && skippedExisting.length > 0) {
+    showToast(`Sin novedades: los ${skippedExisting.length} episodios ya existían`, 'info');
   } else {
-    showToast(`${created.length} ${okWord}`, 'success');
+    showToast(`${created.length} ${okWord}${extrasStr}`, 'success');
   }
 
   // Refrescar el sidebar y abrir TODAS las pestañas de episodios creados.

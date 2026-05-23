@@ -8738,6 +8738,28 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .series-ep-row:last-child { border-bottom: none; }
 .series-ep-row:hover { background: var(--surface-2); }
+/* Fila con sesión ya existente (mismo origen, mismo episodio). Fondo
+   sutilmente ambar para que destaque pero no compita con el highlight
+   de hover. Combinado con el badge ✓ Existe ayuda al usuario a ver
+   de un vistazo qué episodios ya tiene procesados. */
+.series-ep-row.has-existing { background: rgba(180, 132, 0, 0.06); }
+.series-ep-row.has-existing:hover { background: rgba(180, 132, 0, 0.12); }
+
+/* Badge inline "✓ Existe" en la columna del MPLS — junto al nombre del
+   fichero. Color ámbar (mismo tono que el fondo) para coherencia. */
+.series-badge-exists {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(180, 132, 0, 0.18);
+  color: #8a6500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
 .series-ep-row > div {
   padding: 8px 10px;
   overflow: hidden;

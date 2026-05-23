@@ -232,13 +232,27 @@ def compute_iso_fingerprint(iso_path: str) -> str:
 
 
 def find_session_by_fingerprint(fingerprint: str) -> "Session | None":
-    """Busca una sesión existente con el mismo iso_fingerprint."""
+    """Busca UNA sesión existente con el mismo iso_fingerprint.
+    Para discos de serie con varios episodios procesados, devuelve la
+    primera encontrada (todas comparten fingerprint). Para casos donde
+    el caller necesita la lista completa (modo serie, evitar sobrescritura
+    silenciosa de episodios hermanos), usar find_sessions_by_fingerprint."""
     if not fingerprint:
         return None
     for session in list_sessions():
         if session.iso_fingerprint == fingerprint:
             return session
     return None
+
+
+def find_sessions_by_fingerprint(fingerprint: str) -> list["Session"]:
+    """Devuelve TODAS las sesiones con el mismo iso_fingerprint.
+    Caso típico: BDMV/ISO de serie con N episodios → N sesiones que
+    comparten el fingerprint del disco (el del .iso, o el del m2ts más
+    grande del BDMV)."""
+    if not fingerprint:
+        return []
+    return [s for s in list_sessions() if s.iso_fingerprint == fingerprint]
 
 
 # ══════════════════════════════════════════════════════════════════════

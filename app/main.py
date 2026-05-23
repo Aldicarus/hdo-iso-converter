@@ -79,6 +79,7 @@ from storage import (
     compute_iso_fingerprint,
     delete_session,
     find_session_by_fingerprint,
+    find_sessions_by_fingerprint,
     list_sessions,
     load_session,
     make_session_id,
@@ -643,14 +644,19 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
 async def check_duplicate(body: AnalyzeRequest):
     """
     Calcula la huella del origen (SHA-256 primer 1 MB + tamaño) y busca
-    si ya existe una sesión con la misma huella. Permite detectar el
-    mismo contenido incluso si se ha movido o renombrado.
+    sesiones existentes con la misma huella. Permite detectar el mismo
+    contenido incluso si se ha movido o renombrado.
 
     Acepta los 3 tipos de origen (iso, bdmv_folder, m2ts) — para
     bdmv_folder huella sobre el m2ts más grande, para m2ts sobre el
     fichero directo.
 
-    Respuesta: ``{"duplicate": bool, "session": {...}|null, "fingerprint": "..."}``
+    Respuesta:
+      - duplicate: True si hay ≥1 sesión con el mismo fingerprint.
+      - sessions: lista completa de sesiones que comparten fingerprint
+        (BDMV/ISO de serie pueden tener N episodios procesados → N).
+      - session: legacy — la primera de la lista (compat con flujo
+        película que solo espera 1 match).
     """
     from phases.iso_mount import safe_source_path, SourceError, Source
     from phases.phase_a import find_main_m2ts
@@ -679,11 +685,15 @@ async def check_duplicate(body: AnalyzeRequest):
         fp_target = source_abs  # iso o m2ts directo
 
     fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
-    existing = find_session_by_fingerprint(fingerprint) if fingerprint else None
+    sessions = find_sessions_by_fingerprint(fingerprint) if fingerprint else []
+    # Orden estable: por episode_number ascendente, luego por id (caso
+    # mixto serie+película o duplicados de movie sin episode_number).
+    sessions.sort(key=lambda s: (s.episode_number or 0, s.id))
 
     return {
-        "duplicate": existing is not None,
-        "session": existing.model_dump() if existing else None,
+        "duplicate": len(sessions) > 0,
+        "sessions": [s.model_dump() for s in sessions],
+        "session": sessions[0].model_dump() if sessions else None,  # legacy/compat
         "fingerprint": fingerprint,
     }
 
@@ -1314,6 +1324,14 @@ class CreateSeriesSessionsRequest(_BaseModel):
     origen como el resto del flujo.
 
     Compat: si solo se pasa iso_path, se asume source_type='iso'.
+
+    `mode` controla qué hacer cuando algún episodio ya tiene sesión
+    persistida (mismo session_id derivado del fingerprint + episode_number):
+      - "add_only" (default): falla con 409 si hay conflictos. El frontend
+        muestra la lista y deja al usuario confirmar reemplazo. Es el modo
+        seguro — evita sobrescribir ediciones del usuario.
+      - "replace": sobrescribe los conflictos sin preguntar (legacy).
+      - "skip_existing": ignora los conflictos y crea solo los nuevos.
     """
     iso_path: str | None = None        # legacy compat
     source_type: str | None = None     # 'iso' | 'bdmv_folder' | 'm2ts'
@@ -1331,6 +1349,7 @@ class CreateSeriesSessionsRequest(_BaseModel):
     series_vote_average: float = 0.0
     season_number: int
     episodes: list[SeriesEpisodeSelection]
+    mode: str = "add_only"  # 'add_only' | 'replace' | 'skip_existing'
 
 
 # Progreso global de create_series_sessions (single-job singleton).
@@ -1425,6 +1444,81 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         fp_target = source_abs
     fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
 
+    # ── Detección de conflictos por (fingerprint, season, episode_number) ──
+    # Para BDMV/ISO de serie, todas las sesiones de episodios del mismo
+    # disco comparten fingerprint. Si el usuario está rehaciendo solo
+    # uno (o añadiendo nuevos), NO queremos crear duplicados ni
+    # sobrescribir silenciosamente las existentes. find_sessions_by_
+    # fingerprint nos da el conjunto; cruzamos con (season, episode_number)
+    # para identificar conflictos exactos.
+    existing_by_episode: dict[tuple[int, int], "Session"] = {}
+    if fingerprint:
+        for s in find_sessions_by_fingerprint(fingerprint):
+            if s.media_type == "series" and s.season_number and s.episode_number:
+                existing_by_episode[(s.season_number, s.episode_number)] = s
+
+    requested_keys = [(body.season_number, ep.episode_number) for ep in body.episodes]
+    conflicts = [
+        existing_by_episode[k] for k in requested_keys if k in existing_by_episode
+    ]
+    mode = (body.mode or "add_only").lower()
+    if mode not in ("add_only", "replace", "skip_existing"):
+        raise HTTPException(status_code=400, detail=f"mode inválido: {body.mode}")
+    if conflicts and mode == "add_only":
+        # El frontend muestra la lista y deja al usuario elegir si quiere
+        # reemplazar o saltar los conflictos. Sin esta protección, el bug
+        # del usuario: rehacer 1 episodio duplicaba en disco (timestamps)
+        # o sobrescribía sesiones hermanas según el flujo.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "episode_conflicts",
+                "message": (
+                    f"{len(conflicts)} episodio(s) ya tienen una sesión existente. "
+                    f"Reenvía con mode='replace' para sobrescribir o "
+                    f"mode='skip_existing' para crear solo los nuevos."
+                ),
+                "conflicts": [
+                    {
+                        "id": s.id,
+                        "mkv_name": s.mkv_name,
+                        "season_number": s.season_number,
+                        "episode_number": s.episode_number,
+                        "episode_title": s.episode_title,
+                        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                    }
+                    for s in conflicts
+                ],
+            },
+        )
+
+    # Determinar qué episodios procesar y cuáles saltar/reemplazar
+    skipped_existing: list[dict] = []
+    to_replace_ids: list[str] = []
+    episodes_to_process = []
+    for ep in body.episodes:
+        key = (body.season_number, ep.episode_number)
+        existing = existing_by_episode.get(key)
+        if existing and mode == "skip_existing":
+            skipped_existing.append({
+                "season_number": body.season_number,
+                "episode_number": ep.episode_number,
+                "existing_id": existing.id,
+            })
+            continue
+        if existing and mode == "replace":
+            to_replace_ids.append(existing.id)
+        episodes_to_process.append(ep)
+
+    # Borrar las sesiones a reemplazar antes del bucle — evita ambigüedad
+    # si dos episodios en la misma petición apuntaran al mismo id (no
+    # debería pasar, pero por seguridad).
+    for sid in to_replace_ids:
+        try:
+            delete_session(sid)
+        except Exception as _e:
+            _logger.warning("No se pudo borrar sesión existente %s: %s", sid, _e)
+
     created_sessions = []
     failed_episodes: list[dict] = []
     # Reset del progreso global. Si otro job estaba en curso, lo
@@ -1475,11 +1569,27 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         _series_create_progress["pgs_pct"] = round(pct, 1)
         _series_create_progress["pgs_eta_s"] = eta_s
 
+    # Si tras filtrar conflictos no queda nada que procesar (skip_existing
+    # con todos los episodios pedidos ya existentes), devolvemos respuesta
+    # vacía sin entrar al bucle de análisis.
+    if not episodes_to_process:
+        _series_create_progress["running"] = False
+        return {
+            "created": [],
+            "failed": [],
+            "skipped_existing": skipped_existing,
+            "iso_path": body.iso_path,
+        }
+
+    # Recalculamos `total` del progreso para reflejar solo lo que vamos a
+    # procesar de verdad (los saltados ya no cuentan).
+    _series_create_progress["total"] = len(episodes_to_process)
+
     try:
         # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
         async with await Source.open(source_abs) as src:
             _series_create_progress["current_label"] = "Origen preparado · empezando con el primer episodio"
-            for idx, ep in enumerate(body.episodes):
+            for idx, ep in enumerate(episodes_to_process):
                 _series_create_progress["current_index"] = idx + 1
                 _series_create_progress["current_episode_step"] = "identify"
                 _series_create_progress["pgs_pct"] = 0
@@ -1487,7 +1597,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                 ep_label = ep.episode_title or f"Episodio S{body.season_number:02d}E{ep.episode_number:02d}"
                 _series_create_progress["current_episode_title"] = ep_label
                 _series_create_progress["current_label"] = (
-                    f"Analizando episodio {idx+1}/{len(body.episodes)}: {ep_label}"
+                    f"Analizando episodio {idx+1}/{len(episodes_to_process)}: {ep_label}"
                 )
                 # Localizar el MPLS/M2TS de este episodio según source_type
                 ep_source_path: str | None = None
@@ -1691,6 +1801,8 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     return {
         "created": created_sessions,
         "failed": failed_episodes,
+        "skipped_existing": skipped_existing,  # mode=skip_existing
+        "replaced_ids": to_replace_ids,        # mode=replace — sesiones borradas antes de crear las nuevas
         "iso_path": body.iso_path,
     }
 
