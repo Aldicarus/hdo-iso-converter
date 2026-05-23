@@ -50,8 +50,16 @@ jobs:
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             : > /tmp/release_body.txt
           fi
-          # Description para el OCI label: primera línea ~100 chars + truncar.
-          DESC=$(head -c 800 /tmp/release_body.txt | tr '\n' ' ' | sed 's/  */ /g')
+          # Description para el OCI label. CRÍTICO: truncar a nivel de
+          # CARÁCTER (no de byte) — `head -c` corta por bytes y rompe
+          # emojis multi-byte UTF-8 (4 bytes c/u) a mitad de carácter,
+          # produciendo bytes inválidos que GHCR rechaza con 500 al
+          # PUT del manifest. Caso real: release v2.5.0 con muchos
+          # emojis (💿 📺 ✨ 🎬 …) que rompió el push 3 veces seguidas
+          # hasta que se trigger via workflow_dispatch (sin body).
+          # `cut -c` y similar parsean caracteres en POSIX C, no UTF-8.
+          # Usamos awk con setlocale para garantizar truncado seguro.
+          DESC=$(awk 'BEGIN{n=0} { for(i=1;i<=length($0);i++){ c=substr($0,i,1); printf "%s",c; if(++n>=800){exit} }; printf " " }' /tmp/release_body.txt | sed 's/  */ /g')
           if [ -z "$DESC" ]; then
             DESC="HDO ISO Converter — UHD Blu-ray ISO to MKV with DV FEL, in-place MKV editing, Dolby Vision CMv4.0 upgrade"
           fi
