@@ -4940,7 +4940,12 @@ function seriesConfirmManual() {
   document.getElementById('series-episodes-section').style.display = 'block';
   // Actualizar ayuda contextual
   const help = document.getElementById('series-episodes-help');
-  if (help) help.textContent = 'Modo manual: edita el nº de episodio y, opcionalmente, su título. La asignación inicial es secuencial (E01, E02…).';
+  if (help) {
+    // Modo manual: usamos innerHTML para que el <strong> de la advertencia
+    // de validación se renderice como en el modo TMDb (mismo patrón
+    // visual entre ambos paneles).
+    help.innerHTML = 'Modo manual: la asignación inicial es secuencial (E01, E02…). Edita el nº de episodio y, opcionalmente, su título en cada fila. <strong>Valida manualmente</strong> que cada MPLS corresponda al episodio correcto antes de crear.';
+  }
   _renderSeriesEpisodesTable();
   _seriesUpdateCreateButton();
 }
@@ -5187,6 +5192,10 @@ function _renderSeriesEpisodesTable() {
     // Badge "Existe" si este MPLS/m2ts (o el (season, ep_number) actual)
     // ya tiene sesión persistida. Si la marcas igualmente, se entra en
     // flujo de reemplazo y se pedirá confirmación al pulsar "Crear".
+    // Se renderiza en la columna del episodio (col-episode, 1fr) para
+    // que no quede recortado — la columna MPLS es estrecha (130px) y
+    // tiene overflow:hidden, lo que ocultaba el badge si lo poníamos
+    // junto al nombre del fichero.
     const existingSession = _findExistingForCandidate(c, season, map.episode_number);
     const existsBadge = existingSession
       ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}">✓ Existe</span>`
@@ -5197,10 +5206,10 @@ function _renderSeriesEpisodesTable() {
           <input type="checkbox" ${map.include ? 'checked' : ''}
                  onchange="seriesToggleEpisode('${escHtml(c.mpls_path)}', this.checked)">
         </div>
-        <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}${existsBadge}</div>
+        <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
         <div class="col-dur">${dur}</div>
         <div class="col-match" title="${escHtml(conf.title)}">${conf.emoji}</div>
-        <div class="col-episode">${isManual ? buildManualInputs(map.episode_number, map.episode_title, c.mpls_path) : buildSelect(map.episode_number, c.mpls_path)}</div>
+        <div class="col-episode">${isManual ? buildManualInputs(map.episode_number, map.episode_title, c.mpls_path) : buildSelect(map.episode_number, c.mpls_path)}${existsBadge}</div>
       </div>
     `;
   }).join('');

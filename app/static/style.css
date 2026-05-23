@@ -8820,8 +8820,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   text-align: center;
   font-size: 15px;
 }
+/* col-episode: flex para que el select ocupe el espacio disponible y
+   el badge ✓ Existe quepa a la derecha sin recortarse. Override del
+   white-space:nowrap general porque tiene su propio layout. */
+.series-ep-row .col-episode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
 .series-ep-row .col-episode select {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 4px 6px;
   font-size: 12px;
   border: 1px solid var(--sep);
@@ -8841,6 +8851,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   grid-template-columns: 60px 1fr;
   gap: 6px;
   align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 .series-manual-ep-num,
 .series-manual-ep-title {
