@@ -43,8 +43,14 @@ function langLiteral(bdInfoLang) {
 
 // ── Estado global ─────────────────────────────────────────────────
 
-/** Máximo de proyectos abiertos simultáneamente. */
-const MAX_PROJECTS = 5;
+/** Máximo de proyectos abiertos simultáneamente en Tab 1.
+ *  Sin límite desde v2.5.0+ — con el soporte de series, un disco puede
+ *  producir 10-15 episodios y queremos abrirlos todos como pestañas
+ *  consecutivas. El valor Infinity mantiene la estructura del código
+ *  (los checks siguen llamándose pero nunca disparan). Tab 3 mantiene
+ *  su tope de 5 (MAX_CMV40_PROJECTS) — un job CMv4.0 es mucho más
+ *  pesado y no tiene caso de uso multi-episodio. */
+const MAX_PROJECTS = Infinity;
 
 /**
  * Proyectos abiertos (sub-tabs de proyecto en Tab 1).
