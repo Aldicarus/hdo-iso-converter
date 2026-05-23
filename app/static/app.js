@@ -4373,22 +4373,39 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   // ISO + búsqueda de episodios candidatos en discos grandes).
   const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
   const probeSub = sourceType === 'iso'
-    ? 'Montando el ISO y buscando episodios en el disco…'
+    ? 'Montando ISO y buscando episodios candidatos en el disco'
     : sourceType === 'bdmv_folder'
-    ? 'Buscando episodios en la carpeta BDMV…'
-    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS…`;
+    ? 'Buscando episodios candidatos en la carpeta BDMV'
+    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS`;
   showProgressModal({
     title: `Detectando contenido — ${sourceName}`,
     sub: probeSub,
     icon: probeIcon,
   });
-  updateProgressModal({ current: '⏳ Conectando con el servidor…' });
+  // Estado inicial — el polling de /api/disc-probe/progress lo sustituye
+  // en cuanto el backend empieza a reportar el paso real (montaje, scan
+  // por candidato, clasificación). Sin polling el modal se quedaba con
+  // "Conectando con el servidor…" durante 10-30s sin barra avanzando.
+  updateProgressModal({ current: '⏳ Iniciando…', pct: 0 });
+
+  // Polling del progreso real. Pollea cada 400ms hasta que el POST
+  // termine. Si el backend reporta `running:false` lo respetamos (el
+  // POST suele acabar a la vez o un tick antes que el polling lo vea).
+  const pollId = setInterval(async () => {
+    try {
+      const prog = await apiFetch('/api/disc-probe/progress', { silent: true });
+      if (prog && prog.current_label) {
+        updateProgressModal({ current: prog.current_label, pct: prog.pct || 0 });
+      }
+    } catch (_) { /* silenciar errores de polling */ }
+  }, 400);
 
   const probe = await apiFetch('/api/disc-probe', {
     method: 'POST',
     body: JSON.stringify(payloadProbe),
   });
 
+  clearInterval(pollId);
   closeProgressModal();
 
   if (!probe) {

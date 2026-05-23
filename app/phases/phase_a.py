@@ -440,7 +440,7 @@ def _audio_track_count(data: dict) -> int:
 
 
 async def identify_episode_candidates(
-    share_path: str, log_callback=None,
+    share_path: str, log_callback=None, progress_callback=None,
 ) -> list[dict]:
     """
     Analiza todos los MPLS del disco y devuelve una lista de candidatos
@@ -499,7 +499,13 @@ async def identify_episode_candidates(
     )[:20]
 
     candidates = []
-    for mpls_path in candidates_by_size:
+    total = len(candidates_by_size)
+    for idx, mpls_path in enumerate(candidates_by_size, start=1):
+        if progress_callback:
+            try:
+                await progress_callback(idx, total, mpls_path.name)
+            except Exception:
+                pass  # progreso no es crítico — nunca debe abortar el scan
         data = await _run_mkvmerge_j(str(mpls_path))
         if data is None:
             continue
@@ -2580,7 +2586,7 @@ async def run_full_analysis_for_m2ts(
 
 
 async def identify_episode_candidates_from_m2ts_list(
-    m2ts_paths: list[str], log_callback=None,
+    m2ts_paths: list[str], log_callback=None, progress_callback=None,
 ) -> list[dict]:
     """Construye lista de candidatos a episodio cuando la fuente es una
     lista explícita de ficheros .m2ts (sin BDMV).
@@ -2603,7 +2609,14 @@ async def identify_episode_candidates_from_m2ts_list(
     """
     candidates = []
     skipped = []  # diagnóstico — qué se filtró y por qué
-    for path in sorted(m2ts_paths):
+    sorted_paths = sorted(m2ts_paths)
+    total = len(sorted_paths)
+    for idx, path in enumerate(sorted_paths, start=1):
+        if progress_callback:
+            try:
+                await progress_callback(idx, total, Path(path).name)
+            except Exception:
+                pass
         data = await _run_mkvmerge_j(path)
         if data is None:
             skipped.append((Path(path).name, "mkvmerge -J falló o devolvió vacío"))

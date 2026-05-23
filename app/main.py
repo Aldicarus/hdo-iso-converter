@@ -700,6 +700,25 @@ async def analyze_progress():
     return _analyze_progress
 
 
+# Progreso del disc-probe (modal "Detectando contenido"). Sin esto el modal
+# mostraba una barra estática y un texto genérico ("Conectando con el
+# servidor…") aunque la operación tarde 10-30s en discos grandes.
+_disc_probe_progress: dict = {
+    "running": False,
+    "current_label": "",
+    "pct": 0,         # 0-100; 0 = indeterminado
+    "step": "",       # 'mount' | 'scan' | 'analyze' | 'classify' | 'done'
+}
+
+
+@app.get("/api/disc-probe/progress", summary="Progreso del disc-probe en curso")
+async def disc_probe_progress():
+    """Estado actual del disc-probe (single-job singleton). Usado por el
+    modal "Detectando contenido" para mostrar el paso real con su % o
+    barra indeterminada cuando no se puede medir."""
+    return _disc_probe_progress
+
+
 @app.post("/api/analyze", summary="Analiza un ISO (Fase A + B)")
 async def analyze_iso(body: AnalyzeRequest):
     """
@@ -994,6 +1013,29 @@ async def disc_probe(body: DiscProbeRequest):
     movie_warning: str | None = None
     hint = body.media_type_hint  # 'movie' | 'series' | None
 
+    # Inicializa el progreso global del disc-probe. Single-job singleton:
+    # si dos llamadas concurrentes se cruzan, la segunda sobrescribe a la
+    # primera (el frontend no permite lanzar dos a la vez, pero por si
+    # acaso). El modal hace polling de /api/disc-probe/progress y muestra
+    # current_label + pct en lugar del texto genérico "Conectando…".
+    global _disc_probe_progress
+    _disc_probe_progress = {
+        "running": True,
+        "current_label": "Preparando origen…",
+        "pct": 0,
+        "step": "mount",
+    }
+
+    async def _scan_progress(idx: int, total: int, item_name: str):
+        """Callback que reciben identify_episode_candidates* en cada MPLS/m2ts.
+        Actualiza el progreso global con el % real y el nombre del fichero."""
+        if total > 0:
+            _disc_probe_progress["pct"] = round((idx / total) * 100, 1)
+        _disc_probe_progress["current_label"] = (
+            f"Analizando candidato {idx}/{total}: {item_name}"
+        )
+        _disc_probe_progress["step"] = "analyze"
+
     try:
         if stype == "m2ts":
             paths = validated_paths or [spath_abs]
@@ -1008,11 +1050,23 @@ async def disc_probe(body: DiscProbeRequest):
                             f"modo serie."
                         ),
                     )
+                _disc_probe_progress.update({
+                    "current_label": "Película + 1 fichero M2TS — no requiere análisis previo",
+                    "pct": 100,
+                    "step": "classify",
+                })
                 media_type = "movie"
                 candidates = []
             elif hint == "series":
                 # El usuario eligió serie → cada m2ts es un episodio.
-                candidates = await identify_episode_candidates_from_m2ts_list(paths)
+                _disc_probe_progress.update({
+                    "current_label": f"Analizando {len(paths)} ficheros M2TS…",
+                    "pct": 0,
+                    "step": "scan",
+                })
+                candidates = await identify_episode_candidates_from_m2ts_list(
+                    paths, progress_callback=_scan_progress,
+                )
                 if not candidates:
                     raise HTTPException(
                         status_code=400,
@@ -1028,10 +1082,24 @@ async def disc_probe(body: DiscProbeRequest):
                     media_type = "movie"
                     candidates = []
                 else:
-                    candidates = await identify_episode_candidates_from_m2ts_list(paths)
+                    candidates = await identify_episode_candidates_from_m2ts_list(
+                        paths, progress_callback=_scan_progress,
+                    )
                     media_type = "series" if candidates else "movie"
 
         elif stype in ("iso", "bdmv_folder"):
+            # Etiqueta inicial según tipo — el mount del ISO tarda varios
+            # segundos sin progreso medible (no podemos predecir el tiempo
+            # de un loop mount UDF), así que mostramos un texto descriptivo
+            # con barra indeterminada (pct=0 hasta que arranque el scan).
+            _disc_probe_progress.update({
+                "current_label": (
+                    "Montando el ISO…" if stype == "iso"
+                    else "Leyendo la carpeta BDMV…"
+                ),
+                "pct": 0,
+                "step": "mount",
+            })
             async with await Source.open(spath_abs) as src:
                 if not src.bdmv_root:
                     raise HTTPException(
@@ -1042,6 +1110,11 @@ async def disc_probe(body: DiscProbeRequest):
                     # El usuario eligió película → no listamos candidatos.
                     # Pero contamos los m2ts grandes (>5GB) en BDMV/STREAM/
                     # para advertir si el disco parece tener varios episodios.
+                    _disc_probe_progress.update({
+                        "current_label": "Contando ficheros M2TS de gran tamaño…",
+                        "pct": 50,
+                        "step": "classify",
+                    })
                     media_type = "movie"
                     candidates = []
                     big_count = _count_big_m2ts(src.bdmv_root, min_size_gb=5.0)
@@ -1053,8 +1126,16 @@ async def disc_probe(body: DiscProbeRequest):
                             f"(el de mayor duración). Cambia a modo serie si quieres "
                             f"procesar todos los episodios."
                         )
+                    _disc_probe_progress.update({"pct": 100, "step": "done"})
                 elif hint == "series":
-                    candidates = await identify_episode_candidates(src.bdmv_root)
+                    _disc_probe_progress.update({
+                        "current_label": "Buscando episodios candidatos…",
+                        "pct": 0,
+                        "step": "scan",
+                    })
+                    candidates = await identify_episode_candidates(
+                        src.bdmv_root, progress_callback=_scan_progress,
+                    )
                     if not candidates:
                         raise HTTPException(
                             status_code=400,
@@ -1067,15 +1148,31 @@ async def disc_probe(body: DiscProbeRequest):
                     media_type = "series"
                 else:
                     # Legacy auto-detect
-                    candidates = await identify_episode_candidates(src.bdmv_root)
+                    _disc_probe_progress.update({
+                        "current_label": "Buscando episodios candidatos…",
+                        "pct": 0,
+                        "step": "scan",
+                    })
+                    candidates = await identify_episode_candidates(
+                        src.bdmv_root, progress_callback=_scan_progress,
+                    )
                     media_type = detect_disc_type(candidates)
         else:
             raise HTTPException(status_code=400, detail=f"source_type desconocido: {stype}")
+        _disc_probe_progress.update({
+            "current_label": f"Detección completada ({media_type})",
+            "pct": 100,
+            "step": "done",
+            "running": False,
+        })
     except HTTPException:
+        _disc_probe_progress["running"] = False
         raise
     except SourceError as e:
+        _disc_probe_progress["running"] = False
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _disc_probe_progress["running"] = False
         _logger.exception("Error en disc-probe para %s", spath_abs)
         raise HTTPException(status_code=500, detail=f"Error analizando disco: {e}")
 
