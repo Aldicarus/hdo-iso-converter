@@ -8307,6 +8307,42 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--text-3);
 }
 
+/* Banner instructivo arriba del modal cuando aún no se ha elegido tipo
+   de contenido. Desaparece (display:none) en cuanto se hace clic en
+   Película o Serie. Fondo azul claro con borde a juego, icono "👆"
+   apuntando hacia los botones del toggle. */
+.new-project-locked-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  background: rgba(30, 111, 230, 0.07);
+  border: 1px solid rgba(30, 111, 230, 0.25);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.new-project-locked-banner.hidden { display: none; }
+.new-project-locked-banner .lpb-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.new-project-locked-banner .lpb-text strong { color: var(--text-1); }
+
+/* Wrapper de la zona de selección de origen — bloqueado mientras el
+   usuario no haya elegido tipo de contenido. opacity + pointer-events
+   evita que se navegue el browser por accidente. */
+.new-project-source-area {
+  transition: opacity var(--t-fast) var(--ease);
+}
+.new-project-source-area.locked {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+}
+
 .src-fb {
   display: flex;
   flex-direction: column;

@@ -531,14 +531,16 @@
 <div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
   <div class="modal-box" style="max-width:960px; width:92vw">
     <div class="modal-title">💿 Nuevo proyecto</div>
-    <div class="modal-sub">Indica el tipo de contenido y selecciona el origen.</div>
+    <div class="modal-sub" id="new-project-sub">Paso 1: elige el tipo de contenido para empezar.</div>
 
     <!-- Tipo de contenido: el usuario lo elige explícitamente (en vez de
          auto-detect que fallaba en discos atípicos como BDMV con 1 m2ts
          grande + varios pequeños). Película → 1 m2ts/MPLS; Serie →
-         varios episodios. -->
+         varios episodios. Sin valor por defecto: el resto del modal
+         queda bloqueado hasta que el usuario elija uno (evita el caso
+         de empezar con Película marcada sin querer). -->
     <div class="content-type-toggle" id="content-type-toggle">
-      <button type="button" class="ctt-btn active" id="ctt-btn-movie" onclick="onContentTypeChange('movie')">
+      <button type="button" class="ctt-btn" id="ctt-btn-movie" onclick="onContentTypeChange('movie')">
         <span class="ctt-icon">🎬</span>
         <span class="ctt-text">
           <span class="ctt-label">Película</span>
@@ -553,6 +555,21 @@
         </span>
       </button>
     </div>
+
+    <!-- Banner instructivo cuando aún no se ha elegido tipo. El resto
+         del modal (tabs + browsers) queda bloqueado visualmente con
+         pointer-events:none + opacity reducida — sin esto el usuario
+         podía empezar a navegar el browser sin haber tocado el toggle
+         de tipo y se le quedaba en Película por defecto. -->
+    <div class="new-project-locked-banner" id="new-project-locked-banner">
+      <span class="lpb-icon">👆</span>
+      <span class="lpb-text">Selecciona arriba si el contenido es <strong>Película</strong> o <strong>Serie</strong>. Lo necesitamos para mostrarte las opciones correctas y evitar errores en el análisis.</span>
+    </div>
+
+    <!-- Wrapper bloqueable. Cuando _contentType es null, la clase
+         `locked` aplica opacity .35 + pointer-events:none al contenido
+         de selección de origen. -->
+    <div id="new-project-source-area" class="new-project-source-area locked">
 
     <!-- Tabs de tipo de origen — sustituyen al select simple anterior.
          Todos los orígenes viven en /mnt/isos para mantener una única
@@ -641,6 +658,8 @@
         <div class="src-fb-status" id="src-fb-m2ts-status">Marca un fichero .m2ts (modo película — solo un MKV de salida)</div>
       </div>
     </div>
+
+    </div><!-- /new-project-source-area -->
 
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('new-project-modal')">Cancelar</button>

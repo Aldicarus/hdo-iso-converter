@@ -3759,22 +3759,36 @@ let bdmvSelectedPath = null;
 let m2tsSelectedPaths = [];
 
 /** Tipo de contenido elegido por el usuario en el modal Nuevo proyecto.
- *  'movie' (default) o 'series'. Determina:
+ *  null (sin elegir aún, bloquea el resto del modal) / 'movie' / 'series'.
+ *  Determina:
  *    - Permite 1 o varios m2ts en el tab M2TS.
  *    - Se envía como media_type_hint a /api/disc-probe — backend respeta
  *      la elección sin auto-detect.
- *  @type {'movie'|'series'} */
-let _contentType = 'movie';
+ *  @type {null | 'movie' | 'series'} */
+let _contentType = null;
 
-/** Cambia el tipo de contenido (Película / Serie). Re-renderiza el
+/** Cambia el tipo de contenido (Película / Serie). Desbloquea la zona
+ *  de selección de origen la primera vez que se elige. Re-renderiza el
  *  browser activo si afecta a la selección (típicamente m2ts: cambia
  *  entre radio y checkbox). En movie con varios m2ts ya marcados,
  *  reduce la selección al primero. */
 function onContentTypeChange(type) {
   if (type !== 'movie' && type !== 'series') return;
+  const wasLocked = _contentType === null;
   _contentType = type;
   document.getElementById('ctt-btn-movie')?.classList.toggle('active', type === 'movie');
   document.getElementById('ctt-btn-series')?.classList.toggle('active', type === 'series');
+  // Desbloquear la zona de selección de origen + ocultar el banner
+  // instructivo "Selecciona arriba si el contenido es Película o Serie".
+  document.getElementById('new-project-source-area')?.classList.remove('locked');
+  document.getElementById('new-project-locked-banner')?.classList.add('hidden');
+  // Actualizar el subtítulo del modal para indicar el paso 2.
+  const subEl = document.getElementById('new-project-sub');
+  if (subEl) {
+    subEl.textContent = type === 'movie'
+      ? 'Paso 2: elige el origen (un fichero) y púlsa Analizar.'
+      : 'Paso 2: elige el origen (varios episodios) y púlsa Analizar.';
+  }
   // En movie no permitimos múltiples m2ts — recortamos al primero
   if (type === 'movie' && m2tsSelectedPaths.length > 1) {
     m2tsSelectedPaths = [m2tsSelectedPaths[0]];
@@ -3789,6 +3803,11 @@ function onContentTypeChange(type) {
   // Re-render del browser m2ts para alternar radio/checkbox visualmente
   if (_srcFb && _srcFb.m2ts && _srcFb.m2ts.entries) {
     _renderSrcFb('m2ts');
+  }
+  // Cargar el listado de fuentes si es la primera vez que el usuario
+  // elige un tipo (la zona estaba bloqueada → no se había cargado).
+  if (wasLocked) {
+    loadSourcesList();
   }
   _updateAnalyzeButtonState();
 }
@@ -3806,10 +3825,17 @@ async function openNewProjectModal() {
   bdmvSelectedPath = null;
   m2tsSelectedPaths = [];
   _sourceTab = 'iso';
-  // Reset del tipo de contenido al default (película) en cada apertura.
-  // Activamos el botón visualmente vía onContentTypeChange para mantener
-  // el estado del DOM sincronizado con la variable.
-  onContentTypeChange('movie');
+  // Reset del tipo de contenido a "ningún elegido" en cada apertura.
+  // El usuario debe elegir explícitamente Película o Serie antes de
+  // poder navegar el browser de origen — esto evita el caso del
+  // usuario olvidándose y dejándolo en Película por defecto.
+  _contentType = null;
+  document.getElementById('ctt-btn-movie')?.classList.remove('active');
+  document.getElementById('ctt-btn-series')?.classList.remove('active');
+  document.getElementById('new-project-source-area')?.classList.add('locked');
+  document.getElementById('new-project-locked-banner')?.classList.remove('hidden');
+  const subEl = document.getElementById('new-project-sub');
+  if (subEl) subEl.textContent = 'Paso 1: elige el tipo de contenido para empezar.';
   // Reset del botón Analizar. El tab ISO se activa por defecto vía
   // onSourceTabSwitch — NO se referencia ningún select legacy (los
   // antiguos iso-picker-select / bdmv-picker-select / m2ts-picker-list
@@ -3818,7 +3844,9 @@ async function openNewProjectModal() {
   if (btn) btn.disabled = true;
   onSourceTabSwitch('iso');  // muestra panel ISO por defecto
   openModal('new-project-modal');
-  await loadSourcesList();
+  // No cargamos las fuentes aquí: la zona de origen está bloqueada
+  // hasta que el usuario elija Película o Serie. La carga la dispara
+  // onContentTypeChange la primera vez que se selecciona un tipo.
 }
 
 /** Cambia entre tabs ISO / Carpeta BDMV / Ficheros M2TS. */
@@ -3836,10 +3864,17 @@ function onSourceTabSwitch(tab) {
   _updateAnalyzeButtonState();
 }
 
-/** Habilita/deshabilita el botón Analizar según el tab activo + selección. */
+/** Habilita/deshabilita el botón Analizar según el tipo de contenido,
+ *  el tab activo y la selección. Sin tipo elegido (Película/Serie) el
+ *  botón queda siempre deshabilitado — la zona de origen también está
+ *  bloqueada visualmente. */
 function _updateAnalyzeButtonState() {
   const btn = document.getElementById('new-project-analyze-btn');
   if (!btn) return;
+  if (_contentType === null) {
+    btn.disabled = true;
+    return;
+  }
   let enabled = false;
   if (_sourceTab === 'iso') enabled = !!pickerSelectedIso;
   else if (_sourceTab === 'bdmv_folder') enabled = !!bdmvSelectedPath;
