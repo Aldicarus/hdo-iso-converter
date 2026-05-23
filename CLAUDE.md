@@ -1,13 +1,18 @@
-# HDO ISO Converter — Reglas del proyecto
+# HDO Blu-ray Toolkit — Reglas del proyecto
 
 ## Nombre de la aplicación
-La aplicación se llama **HDO ISO Converter**. Este nombre debe usarse en:
+La aplicación se llama **HDO Blu-ray Toolkit**. Este nombre debe usarse en:
 - Título del documento HTML
 - Texto de bienvenida en la UI
 - README y documentación
 - Mensajes de la consola del pipeline
 
-El nombre interno del repositorio y ficheros puede seguir siendo `ISO2MKVFEL` por compatibilidad.
+Nombres técnicos que **se mantienen por compatibilidad** (no romper docker pulls / URLs existentes):
+- Repositorio interno: `ISO2MKVFEL` (path local)
+- GitHub repo: `hdo-iso-converter`
+- Imagen Docker: `ghcr.io/aldicarus/hdo-iso-converter:latest`
+
+El cambio "HDO ISO Converter → HDO Blu-ray Toolkit" se hizo cuando la app dejó de ser solo Tab 1 (ripeo de ISOs) y maduró como suite con 3 herramientas — el nombre antiguo daba a entender que solo hace una cosa, lo cual era engañoso.
 
 ## Descripción
 Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs:

@@ -1,5 +1,5 @@
 """
-main.py — Backend FastAPI de HDO ISO Converter
+main.py — Backend FastAPI de HDO Blu-ray Toolkit
 
 Punto de entrada de la aplicación. Sirve la SPA y expone la API REST
 y el endpoint WebSocket para streaming de output en tiempo real.
@@ -306,7 +306,7 @@ if DEV_MODE:
 # ── Aplicación FastAPI ────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="HDO ISO Converter",
+    title="HDO Blu-ray Toolkit",
     version="1.3.0",
     description="Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.",
 )

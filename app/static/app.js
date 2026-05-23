@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * @fileoverview HDO ISO Converter — Frontend SPA (Fase C de la pipeline)
+ * @fileoverview HDO Blu-ray Toolkit — Frontend SPA (Fase C de la pipeline)
  *
  * Arquitectura:
  *   - Vanilla JS sin framework ni bundler. Todo el estado vive en `currentSession`.
@@ -3305,7 +3305,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>En "Request an API Key" selecciona <strong>"Developer"</strong>. No necesitas "Commercial" — este es gratis.</li>
       <li>Acepta los términos de uso. Rellena el formulario con datos reales:
         <ul style="margin-top:4px">
-          <li><em>Application name</em>: <strong>HDO ISO Converter</strong> (o el nombre que quieras)</li>
+          <li><em>Application name</em>: <strong>HDO Blu-ray Toolkit</strong> (o el nombre que quieras)</li>
           <li><em>Application URL</em>: cualquier URL válida (por ejemplo <code>http://localhost</code> si no tienes dominio — vale)</li>
           <li><em>Application summary</em>: <em>Uso doméstico para enriquecer metadata de películas en biblioteca personal</em></li>
           <li>Tipo: <em>Personal</em> / <em>Non-commercial</em></li>
@@ -3334,7 +3334,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>En la ventana que se abre, arriba a la derecha, pulsa <strong>"Nuevo proyecto"</strong>.</li>
       <li>Rellena:
         <ul style="margin-top:4px">
-          <li><em>Nombre</em>: <strong>HDO ISO Converter</strong> (o lo que quieras)</li>
+          <li><em>Nombre</em>: <strong>HDO Blu-ray Toolkit</strong> (o lo que quieras)</li>
           <li><em>Organización</em>: deja "Sin organización" si no perteneces a una</li>
           <li><em>Ubicación</em>: "Sin organización"</li>
         </ul>

@@ -61,7 +61,7 @@ jobs:
           # Usamos awk con setlocale para garantizar truncado seguro.
           DESC=$(awk 'BEGIN{n=0} { for(i=1;i<=length($0);i++){ c=substr($0,i,1); printf "%s",c; if(++n>=800){exit} }; printf " " }' /tmp/release_body.txt | sed 's/  */ /g')
           if [ -z "$DESC" ]; then
-            DESC="HDO ISO Converter — UHD Blu-ray ISO to MKV with DV FEL, in-place MKV editing, Dolby Vision CMv4.0 upgrade"
+            DESC="HDO Blu-ray Toolkit — UHD Blu-ray suite: ISO/BDMV/M2TS to MKV with DV FEL + series support, in-place MKV editing, Dolby Vision CMv4.0 upgrade"
           fi
           # Multi-line outputs: usar delimiter syntax
           {
@@ -83,7 +83,7 @@ jobs:
           # vez de la descripcion del repo.
           labels: |
             org.opencontainers.image.description=${{ steps.rel.outputs.description }}
-            org.opencontainers.image.title=HDO ISO Converter
+            org.opencontainers.image.title=HDO Blu-ray Toolkit
             org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
 
       - name: Build and push
@@ -100,7 +100,7 @@ jobs:
           # al build-push-action — gana lo ultimo definido.
           annotations: |
             manifest:org.opencontainers.image.description=${{ steps.rel.outputs.description }}
-            manifest:org.opencontainers.image.title=HDO ISO Converter
+            manifest:org.opencontainers.image.title=HDO Blu-ray Toolkit
             manifest:org.opencontainers.image.version=${{ steps.rel.outputs.tag }}
             manifest:org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
           # Bake version y commit en la imagen para que /api/version
