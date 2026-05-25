@@ -778,6 +778,26 @@ async def run_phase_a_analyze_source(
     duration   = await _probe_duration(session.source_mkv_path)
     frame_count = await _probe_frame_count(session.source_mkv_path)
 
+    # Validación temprana: si el MKV no tiene duración detectable, ffmpeg
+    # seguirá adelante con "File ended prematurely" y exit code 0,
+    # produciendo un source.hevc trunco que pasa el rc==0 check pero solo
+    # contiene un puñado de frames. Caso real (2026-05-25): MKV de "28
+    # años después" sin segmento Matroska finalizado o con la última
+    # parte truncada → ffmpeg sacó 97 MB de HEVC con 241 frames; el
+    # pipeline continuó hasta Fase B que reventó con un gate l1_div
+    # confuso. Mejor parar aquí con mensaje claro.
+    mkv_path_obj = Path(session.source_mkv_path)
+    mkv_size = mkv_path_obj.stat().st_size if mkv_path_obj.exists() else 0
+    if duration <= 0:
+        raise RuntimeError(
+            f"El MKV origen no tiene duración detectable (ffprobe devuelve "
+            f"Duration: N/A). Posibles causas: fichero corrupto, transferencia "
+            f"interrumpida (descarga / copia parcial), o MKV sin segmento "
+            f"Matroska finalizado. Tamaño del fichero: {mkv_size / 1e9:.2f} GB. "
+            f"Verifica con `mediainfo` o `ffprobe` que el MKV está intacto "
+            f"antes de relanzar Fase A."
+        )
+
     # Paso 0: Sniff DV del source. Idempotente — preflight_source ya lo hace
     # si el usuario lo dispara (típicamente al crear el proyecto o vía
     # /api/cmv40/{id}/preflight-source). Si por alguna razón Fase A se lanza
@@ -798,8 +818,29 @@ async def run_phase_a_analyze_source(
         await log_callback(
             "[Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg…"
         )
+    # Threshold de validación del HEVC extraído: debería ser >=50% del
+    # tamaño del MKV (en UHD el HEVC es >90% del total). Por debajo de
+    # eso, ffmpeg terminó prematuramente. Se usa tanto para invalidar
+    # cache (forzar re-extracción) como para abortar tras ffmpeg si
+    # produjo basura.
+    MIN_HEVC_RATIO = 0.5
+
     ffmpeg_elapsed = 0.0
-    if not source_hevc.exists() or source_hevc.stat().st_size < 1_000_000:
+    existing_size = source_hevc.stat().st_size if source_hevc.exists() else 0
+    existing_too_small = (
+        existing_size < 1_000_000
+        or (mkv_size > 0 and existing_size < MIN_HEVC_RATIO * mkv_size)
+    )
+    if existing_too_small:
+        # Si había un source.hevc parcial de un run anterior, lo borramos
+        # explícitamente — ffmpeg con -y lo sobreescribirá igualmente,
+        # pero así el log lo refleja por si el usuario está investigando.
+        if existing_size > 0 and log_callback:
+            await log_callback(
+                f"[Fase A] source.hevc previo ({existing_size / 1e6:.0f} MB) "
+                f"es demasiado pequeño respecto al MKV ({mkv_size / 1e9:.2f} GB) — "
+                f"se regenera desde cero."
+            )
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
@@ -814,6 +855,31 @@ async def run_phase_a_analyze_source(
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
             raise RuntimeError(f"ffmpeg falló al extraer HEVC (código {rc})")
+
+        # Validación post-ffmpeg: el HEVC debe tener un tamaño razonable
+        # respecto al MKV. Sin esto, ffmpeg puede terminar con rc=0 tras
+        # ver "File ended prematurely" y dejar un HEVC trunco — caso real
+        # 2026-05-25, ffmpeg sacó 97 MB de un MKV de varios GB. Borramos
+        # el parcial para que un reintento empiece limpio.
+        hevc_size = source_hevc.stat().st_size if source_hevc.exists() else 0
+        if mkv_size > 0 and hevc_size > 0:
+            ratio = hevc_size / mkv_size
+            if ratio < MIN_HEVC_RATIO:
+                try:
+                    source_hevc.unlink()
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    f"ffmpeg terminó con rc=0 pero extrajo solo "
+                    f"{hevc_size / 1e9:.2f} GB de HEVC desde un MKV de "
+                    f"{mkv_size / 1e9:.2f} GB (ratio {ratio:.1%}, esperado "
+                    f">={MIN_HEVC_RATIO:.0%}). El MKV probablemente está "
+                    f"corrupto o incompleto — busca 'File ended prematurely' "
+                    f"en el log de ffmpeg arriba. Verifica con `mediainfo` o "
+                    f"`ffprobe -i <mkv>` antes de relanzar Fase A. El "
+                    f"source.hevc parcial se ha borrado para que el reintento "
+                    f"sea limpio."
+                )
     else:
         if log_callback:
             await log_callback("[Fase A] source.hevc ya existe, reutilizando")
@@ -870,6 +936,28 @@ async def run_phase_a_analyze_source(
     dovi_info = _parse_dovi_summary(summary)
     session.source_dv_info = dovi_info
     session.source_frame_count = dovi_info.frame_count
+
+    # Validación post-extract-rpu: tercera capa de defensa. Si el HEVC
+    # logró pasar las dos capas anteriores pero el RPU resultante tiene
+    # muchos menos frames de los esperados, también abortamos. Cubre
+    # casos donde ffmpeg sacó tamaño suficiente pero el HEVC tenía
+    # corrupciones internas que dovi_tool no pudo procesar entero.
+    if frame_count > 0 and dovi_info.frame_count > 0:
+        ratio = dovi_info.frame_count / frame_count
+        if ratio < 0.5:
+            try:
+                source_hevc.unlink()
+                rpu_source.unlink()
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"El RPU extraído tiene {dovi_info.frame_count} frames pero "
+                f"el MKV origen esperaba ~{frame_count} (ratio {ratio:.1%}). "
+                f"Discrepancia masiva — el HEVC se truncó durante el procesado "
+                f"(MKV con corrupciones internas). Artefactos parciales "
+                f"borrados — verifica el fichero con `ffprobe -count_frames "
+                f"-i <mkv>` antes de relanzar Fase A."
+            )
 
     # Detectar workflow según perfil y subperfil (ver CMv40Session.source_workflow)
     session.source_workflow = _detect_workflow(dovi_info)
