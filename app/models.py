@@ -672,6 +672,20 @@ class Session(BaseModel):
     discarded_tracks: list[DiscardedTrack] = []
     """Pistas excluidas. Se muestran al usuario con botón 'Recuperar'."""
 
+    ambiguous_audio_langs: list[str] = []
+    """Códigos de idioma (estilo mkvmerge: 'spanish', 'english'…) con 2+
+    pistas de audio del mismo idioma target detectadas en Fase B. Se
+    usa como fuente de verdad permanente: si el usuario hace swap
+    manual (descartar la incluida + recuperar otra), los warnings
+    per-track se pierden, pero esta lista garantiza que el frontend
+    sigue mostrando el aviso visual amber para tracks que pertenecen a
+    un grupo originalmente ambiguo."""
+
+    ambiguous_subtitle_langs: list[str] = []
+    """Equivalente a ambiguous_audio_langs para subtítulos. Solo se
+    listan idiomas con 2+ candidatos COMPLETOS (no se incluye el caso
+    "1 forzado + 1 completo" porque no es ambiguo: roles distintos)."""
+
     chapters: list[Chapter] = []
     """Lista de capítulos editable. Se escribe como XML al MKV en Fase E."""
 

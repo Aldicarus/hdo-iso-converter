@@ -6456,6 +6456,37 @@ function updateTrackCounts() {
 }
 
 /**
+ * Devuelve el texto de aviso de ambigüedad efectivo para una pista.
+ *
+ * Lógica en dos pasos:
+ *   1) Si el track tiene su propio `ambiguity_warning` (texto rico
+ *      asignado por phase_b al hacer el análisis), devolverlo tal cual.
+ *   2) Si NO lo tiene pero la lengua de la pista está en la lista
+ *      session.ambiguous_{audio,subtitle}_langs, devolver un fallback
+ *      genérico. Esto cubre el caso de swap manual: cuando el usuario
+ *      descarta la incluida y recupera otra, los objetos nuevos no
+ *      llevan ambiguity_warning, pero la lista a nivel de sesión nos
+ *      dice que la lengua era ambigua → seguimos pintando el banner.
+ *
+ * Devuelve "" si no hay aviso aplicable.
+ */
+function getTrackAmbiguityWarning(track) {
+  if (track && track.ambiguity_warning) return track.ambiguity_warning;
+  if (!currentSession || !track || !track.raw || !track.raw.language) return '';
+  const isAudio = track.track_type === 'audio';
+  const list = isAudio
+    ? (currentSession.ambiguous_audio_langs || [])
+    : (currentSession.ambiguous_subtitle_langs || []);
+  const lang = String(track.raw.language || '').toLowerCase();
+  if (!list.includes(lang)) return '';
+  const langLit = langLiteral(lang) || lang;
+  return (
+    `Pertenece a un grupo de pistas ${langLit} marcado como ambiguo en el análisis. ` +
+    `Revisa manualmente que la elegida sea la versión que querías.`
+  );
+}
+
+/**
  * Renderiza la lista de pistas incluidas con controles de edición.
  *
  * @param {Object[]} tracks - Array de IncludedAudioTrack | IncludedSubtitleTrack.
@@ -6538,7 +6569,7 @@ function renderIncludedTracks(tracks) {
             data-tooltip="Descartar esta pista">✕</button>
         </div>
         <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
-        ${track.ambiguity_warning ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}`;
+        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
       audioList.appendChild(li);
     });
   }
@@ -6593,7 +6624,7 @@ function renderIncludedTracks(tracks) {
             data-tooltip="Descartar esta pista">✕</button>
         </div>
         <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
-        ${track.ambiguity_warning ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}`;
+        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
       subList.appendChild(li);
     });
   }
@@ -6779,15 +6810,16 @@ function renderDiscardedTracks(tracks) {
       }
 
       const icon = isAudio ? '🔊' : '💬';
+      const ambigWarn = getTrackAmbiguityWarning(track);
       const div = document.createElement('div');
-      div.className = 'discarded-item' + (track.ambiguity_warning ? ' has-ambiguity' : '');
+      div.className = 'discarded-item' + (ambigWarn ? ' has-ambiguity' : '');
       div.innerHTML = `
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">${icon}</span>
         <div class="discarded-body">
           <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
           <div class="discarded-reason">${escHtml(track.discard_reason || '')}</div>
-          ${track.ambiguity_warning ? `<div class="track-ambiguity inline"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}
+          ${ambigWarn ? `<div class="track-ambiguity inline"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(ambigWarn)}</span></div>` : ''}
         </div>
         <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})"
           data-tooltip="Recuperar esta pista y añadirla a las incluidas">↩ Recuperar</button>`;

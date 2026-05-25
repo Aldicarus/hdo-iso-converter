@@ -189,11 +189,46 @@ def apply_rules(
 
     all_discarded = sorted(discarded_audio + discarded_subs, key=_disc_order_key)
 
+    # Lista de idiomas con grupos ambiguos a nivel de sesión. Se deriva
+    # de la presencia de ambiguity_warning en cualquier track (included
+    # o discarded). El frontend la usa como fuente de verdad permanente:
+    # si el usuario hace swap manual entre incluidas y descartadas, los
+    # warnings per-track se pierden (los nuevos objetos no copian el
+    # campo), pero esta lista garantiza que el frontend siga marcando
+    # esos tracks con banner ámbar para recordar al usuario que el
+    # grupo era ambiguo originalmente.
+    ambiguous_audio_set: set[str] = set()
+    ambiguous_subtitle_set: set[str] = set()
+
+    def _accumulate_ambig(track_obj, track_type: str) -> None:
+        warning = getattr(track_obj, "ambiguity_warning", "") or ""
+        if not warning:
+            return
+        raw = getattr(track_obj, "raw", None)
+        lang = getattr(raw, "language", "") if raw is not None else ""
+        if not lang:
+            return
+        lang_norm = lang.lower()
+        if track_type == "subtitle":
+            ambiguous_subtitle_set.add(lang_norm)
+        else:
+            ambiguous_audio_set.add(lang_norm)
+
+    for t in all_included:
+        # IncludedAudioTrack vs IncludedSubtitleTrack: discrimino por
+        # presencia del atributo `subtitle_type` (solo subs lo tienen).
+        is_sub = hasattr(t, "subtitle_type")
+        _accumulate_ambig(t, "subtitle" if is_sub else "audio")
+    for t in all_discarded:
+        _accumulate_ambig(t, t.track_type)
+
     mkv_name = _build_mkv_name(title, year, bdinfo.has_fel, audio_dcp)
 
     return {
         "included_tracks": all_included,
         "discarded_tracks": all_discarded,
+        "ambiguous_audio_langs": sorted(ambiguous_audio_set),
+        "ambiguous_subtitle_langs": sorted(ambiguous_subtitle_set),
         "mkv_name": mkv_name,
         "mkv_name_manual": False,
         "vo_warning": vo_warning,

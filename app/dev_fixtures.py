@@ -177,6 +177,8 @@ def build_fake_session(iso_path: str):
     rules_result             = apply_rules(bdinfo_result, iso_path, audio_dcp)
     session.included_tracks  = rules_result["included_tracks"]
     session.discarded_tracks = rules_result["discarded_tracks"]
+    session.ambiguous_audio_langs    = rules_result.get("ambiguous_audio_langs", [])
+    session.ambiguous_subtitle_langs = rules_result.get("ambiguous_subtitle_langs", [])
     session.mkv_name         = rules_result["mkv_name"]
     session.mkv_name_manual  = False
 
@@ -518,6 +520,8 @@ def seed_dev_sessions(config_dir: Path) -> None:
         rules_result             = apply_rules(bdinfo_result, iso_path, audio_dcp)
         session.included_tracks  = rules_result["included_tracks"]
         session.discarded_tracks = rules_result["discarded_tracks"]
+        session.ambiguous_audio_langs    = rules_result.get("ambiguous_audio_langs", [])
+        session.ambiguous_subtitle_langs = rules_result.get("ambiguous_subtitle_langs", [])
         session.mkv_name         = rules_result["mkv_name"]
 
         duration = bdinfo_result.duration_seconds or 6464.0

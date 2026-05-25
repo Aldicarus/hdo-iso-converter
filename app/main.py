@@ -631,6 +631,8 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
     )
     session.included_tracks = rules["included_tracks"]
     session.discarded_tracks = rules["discarded_tracks"]
+    session.ambiguous_audio_langs = rules.get("ambiguous_audio_langs", [])
+    session.ambiguous_subtitle_langs = rules.get("ambiguous_subtitle_langs", [])
     # No sobrescribir mkv_name si el usuario lo editó manualmente
     if not session.mkv_name_manual:
         session.mkv_name = rules["mkv_name"]
@@ -902,6 +904,8 @@ async def analyze_iso(body: AnalyzeRequest):
         audio_dcp=audio_dcp,
         included_tracks=rules_result["included_tracks"],
         discarded_tracks=rules_result["discarded_tracks"],
+        ambiguous_audio_langs=rules_result.get("ambiguous_audio_langs", []),
+        ambiguous_subtitle_langs=rules_result.get("ambiguous_subtitle_langs", []),
         mkv_name=rules_result["mkv_name"],
         mkv_name_manual=False,
         chapters=chapters,
@@ -1758,6 +1762,8 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                     audio_dcp=audio_dcp,
                     included_tracks=rules_result["included_tracks"],
                     discarded_tracks=rules_result["discarded_tracks"],
+                    ambiguous_audio_langs=rules_result.get("ambiguous_audio_langs", []),
+                    ambiguous_subtitle_langs=rules_result.get("ambiguous_subtitle_langs", []),
                     mkv_name=mkv_name,
                     mkv_name_manual=False,
                     chapters=chapters,
