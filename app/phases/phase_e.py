@@ -300,10 +300,17 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
         track_map = {}
         for track in data.get("tracks", []):
             idx = track["id"]
+            props = track.get("properties", {}) or {}
             track_map[idx] = {
                 "type":     track.get("type", ""),
                 "codec":    track.get("codec", ""),
-                "language": track.get("properties", {}).get("language", ""),
+                "language": props.get("language", ""),
+                # Canales físicos de audio. Crítico para desambiguar
+                # dos pistas con mismo idioma+codec pero distinto mix
+                # (ej: Castellano DD 2.0 vs Castellano DD 5.1 — ambas
+                # son AC-3 spa). Sin esto el matcher cogía siempre la
+                # de menor ID independientemente de la selección.
+                "audio_channels": props.get("audio_channels", 0) or 0,
             }
         return track_map
     except (json.JSONDecodeError, KeyError):
@@ -392,6 +399,45 @@ def _classify_sub_source_ids(
     return forced, complete
 
 
+def _parse_channels(description: str) -> int:
+    """
+    Extrae el número de canales físicos de la descripción de la pista
+    incluida (campo raw.description). Formatos típicos:
+
+      ``2.0 / 48 kHz``           → 2
+      ``5.1 / 48 kHz / 1509 kbps`` → 6
+      ``7.1+11 objects / 48 kHz`` → 8 (cuenta solo el layout físico)
+      ``2.0-Atmos / 48 kHz``     → 2 (raro, pero por compat)
+
+    Devuelve 0 si no se puede parsear. Se usa para desambiguar el
+    matching entre pistas con mismo idioma+codec pero distinto mix.
+    """
+    if not description:
+        return 0
+    # Localiza el primer dígito y parsea M.N a partir de ahí.
+    s = description.lstrip()
+    if not s or not s[0].isdigit():
+        return 0
+    i = 0
+    while i < len(s) and s[i].isdigit():
+        i += 1
+    if i == 0:
+        return 0
+    major_str = s[:i]
+    if i >= len(s) or s[i] != ".":
+        return 0
+    j = i + 1
+    while j < len(s) and s[j].isdigit():
+        j += 1
+    if j == i + 1:
+        return 0
+    minor_str = s[i + 1:j]
+    try:
+        return int(major_str) + int(minor_str)
+    except ValueError:
+        return 0
+
+
 def _match_tracks_to_source(
     included_tracks: list,
     source_ids: list[int],
@@ -452,7 +498,16 @@ def _match_tracks_to_source(
                         best_id = sid
                         break
         else:
-            # Audio: matching por idioma + codec
+            # Audio: matching por idioma + codec + canales (desambig).
+            # Recogemos TODOS los candidatos que matchean lang+codec y
+            # entre ellos preferimos el que coincide en canales físicos.
+            # Sin esto, dos pistas Castellano AC-3 (DD 2.0 + DD 5.1)
+            # se distinguían solo por orden de source ID, así que el
+            # matcher siempre cogía la primera (ID menor) ignorando la
+            # selección del usuario. Caso real: GoT S01 — usuario
+            # selecciona DD 5.1, matcher entrega DD 2.0.
+            channels_inc = _parse_channels(getattr(raw, "description", ""))
+            candidates: list[tuple[int, int]] = []  # (sid, src_channels)
             for sid in source_ids:
                 if sid in used_ids:
                     continue
@@ -462,8 +517,21 @@ def _match_tracks_to_source(
                     continue
                 src_codec = src.get("codec", "").lower()
                 if _codec_matches(codec_inc, src_codec):
-                    best_id = sid
-                    break
+                    candidates.append((sid, src.get("audio_channels", 0) or 0))
+
+            if candidates:
+                # 1ª preferencia: canales exactos.
+                if channels_inc > 0:
+                    for sid, ch in candidates:
+                        if ch == channels_inc:
+                            best_id = sid
+                            break
+                # Fallback: primer candidato por orden de source_ids
+                # (comportamiento legacy para sesiones sin info de
+                # canales en raw.description o sources sin
+                # audio_channels en track_map).
+                if best_id is None:
+                    best_id = candidates[0][0]
 
         if best_id is not None:
             result[i] = best_id
