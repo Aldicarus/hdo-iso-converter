@@ -331,6 +331,30 @@ def _select_audio_tracks(
         else:
             reason = "Seleccionada: VO (idioma de la primera pista del disco)"
 
+        # Detectar ambigüedad: pistas en `rest` del mismo idioma con calidad
+        # similar (mismo codec_priority + bitrate dentro de ±15%). Caso
+        # típico: castellano España + Latinoamérica con mismo codec —
+        # heurística no puede decidir cuál es la correcta. Marcamos
+        # tanto la incluida como la(s) descartada(s) ambigua(s) con un
+        # warning para que el usuario revise manualmente.
+        ambiguous_rest = [
+            t for t in rest if _is_audio_ambiguous_with(best, t)
+        ]
+        ambiguity_text_included = ""
+        ambiguity_text_discarded = ""
+        if ambiguous_rest:
+            ambiguity_text_included = (
+                f"Hay {len(ambiguous_rest)} pista{'s' if len(ambiguous_rest) > 1 else ''} "
+                f"adicional{'es' if len(ambiguous_rest) > 1 else ''} en {lang_lit} con calidad "
+                f"muy parecida (mismo codec, bitrate similar). Casos típicos: "
+                f"España vs Latinoamérica. Revisa manualmente si la elegida es la correcta."
+            )
+            ambiguity_text_discarded = (
+                f"Calidad similar a la incluida en {lang_lit} (mismo codec, "
+                f"bitrate similar). Si es la versión que querías, recupérala "
+                f"manualmente."
+            )
+
         included.append(IncludedAudioTrack(
             position=0,  # se reasigna después
             raw=best,
@@ -340,19 +364,56 @@ def _select_audio_tracks(
             flag_default=is_castellano,
             flag_forced=False,
             selection_reason=reason,
+            ambiguity_warning=ambiguity_text_included,
         ))
 
-        # Descartar el resto del mismo idioma
+        # Descartar el resto del mismo idioma. Las ambiguas (mismo codec
+        # + bitrate similar) reciben razón ligeramente distinta + el
+        # ambiguity_warning paralelo para destacar visualmente en la UI.
         best_codec_lit = _codec_literal(best, False)
+        ambiguous_ids = {id(t) for t in ambiguous_rest}
         for t in rest:
             t_codec_lit = _codec_literal(t, False)
+            is_ambig = id(t) in ambiguous_ids
+            if is_ambig:
+                reason_disc = (
+                    f"Descartada por defecto: hay otra pista {lang_lit} "
+                    f"({best_codec_lit}) de calidad similar y nos quedamos "
+                    f"con la primera del disco."
+                )
+            else:
+                reason_disc = (
+                    f"Descartada: segunda pista {_language_literal(t.language.lower())}. "
+                    f"Menor calidad: {t_codec_lit} < {best_codec_lit}"
+                )
             discarded.append(DiscardedTrack(
                 track_type="audio",
                 raw=t,
-                discard_reason=f"Descartada: segunda pista {_language_literal(t.language.lower())}. Menor calidad: {t_codec_lit} < {best_codec_lit}",
+                discard_reason=reason_disc,
+                ambiguity_warning=ambiguity_text_discarded if is_ambig else "",
             ))
 
     return included, discarded
+
+
+def _is_audio_ambiguous_with(a: RawAudioTrack, b: RawAudioTrack) -> bool:
+    """Dos pistas de audio son ambiguas si tienen el mismo codec_priority
+    (mismo nivel de calidad: TrueHD Atmos == TrueHD Atmos, DTS-HD MA ==
+    DTS-HD MA, etc.) y bitrate dentro del ±15% (mismo channel layout
+    típicamente). Sin esto la heurística no puede decidir cuál es la
+    "correcta" entre p.ej. doblaje España vs Latinoamérica del mismo
+    codec, y elegirla a ciegas es peor que avisar al usuario.
+
+    Devuelve True si hay ambigüedad real, False si la diferencia de
+    calidad es clara (codec distinto o bitrate muy distinto)."""
+    if _codec_priority(a) != _codec_priority(b):
+        return False  # Codecs distintos → la heurística decide bien
+    if a.bitrate_kbps <= 0 or b.bitrate_kbps <= 0:
+        # Sin bitrate fiable, mismo codec_priority basta para ser ambiguo
+        return True
+    hi = max(a.bitrate_kbps, b.bitrate_kbps)
+    lo = min(a.bitrate_kbps, b.bitrate_kbps)
+    return (hi - lo) / hi <= 0.15
 
 
 def _codec_priority(track: RawAudioTrack) -> int:
@@ -559,23 +620,32 @@ def _select_subtitle_tracks(
 
     def _classify_lang(lang_tracks: list[RawSubtitleTrack]) -> tuple[
         RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack],
-        list[RawSubtitleTrack]
+        list[RawSubtitleTrack], list[RawSubtitleTrack]
     ]:
         """
-        Clasifica las pistas de un idioma en (forzados, completo, audio_descripción, otros_sobrantes).
+        Clasifica las pistas de un idioma en (forzados, completo,
+        audio_descripción, alternativas_ambiguas, otros_sobrantes).
 
         **Modo A — packet-based (si packet_count disponible en alguna pista):**
           - Forzados:  packets < 500
           - Candidatos completo: el resto
-          - Audiodescripción: packet_count > 1.3× mediana de candidatos completo
+          - Audiodescripción: packet_count > 1.3× del MÍNIMO del grupo no-forzado
           - Completo final: primer candidato no-AD por posición original
           - Forzado final:  primer forzado por posición original
+          - **Alternativas ambiguas**: si quedan ≥2 candidatos a completo
+            tras filtrar AD, las que NO se eligieron son ambiguas
+            (mismo idioma, tamaño similar — comentarios del director,
+            España vs Latinoamérica, etc.). La heurística no puede
+            decidir cuál es la "correcta" automáticamente.
 
         **Modo B — bitrate sintético (fallback, antes de ffprobe -count_packets):**
-          Forma A: si hay ≥2 pistas y una tiene bitrate < 3 kbps → es la de forzados.
+          Forma A: si hay ≥2 pistas y una tiene bitrate < 3 kbps → es la
+          de forzados. Sin ambigüedad detectable en este modo (no hay
+          señal de tamaño relativo).
 
-        Devuelve (forced, complete, audio_descriptions, otros_sobrantes).
-        Las AD y sobrantes se descartarán explícitamente con razón distinta.
+        Devuelve (forced, complete, audio_descriptions, ambiguous_alts,
+        leftover). Las AD, ambiguas y sobrantes se descartan con razones
+        distintas.
         """
         has_packets = any(t.packet_count > 0 for t in lang_tracks)
 
@@ -596,13 +666,20 @@ def _select_subtitle_tracks(
             # Escoger primero por posición original (ya vienen en orden del m2ts)
             forced   = forced_cands[0] if forced_cands else None
             complete = complete_cands[0] if complete_cands else None
+            # Alternativas ambiguas: el resto de complete_cands (mismo
+            # idioma + tamaño dentro del ±30% por el filtro AD previo).
+            ambiguous_alts = complete_cands[1:] if len(complete_cands) >= 2 else []
             used = {id(t) for t in (forced, complete) if t}
-            # Sobrantes: forzados extra y completos extra (no AD)
+            ambig_ids = {id(t) for t in ambiguous_alts}
+            # Sobrantes: forzados extra (los que no se incluyeron) que
+            # no son AD ni ambiguos.
             leftover = [
                 t for t in lang_tracks
-                if id(t) not in used and t not in audio_descriptions
+                if id(t) not in used
+                and id(t) not in ambig_ids
+                and t not in audio_descriptions
             ]
-            return forced, complete, audio_descriptions, leftover
+            return forced, complete, audio_descriptions, ambiguous_alts, leftover
 
         # ── Fallback: bitrate sintético (cuando ffprobe no pudo medir) ──
         if len(lang_tracks) >= 2:
@@ -615,13 +692,18 @@ def _select_subtitle_tracks(
                 if complete:
                     used.add(id(complete))
                 leftover = [t for t in lang_tracks if id(t) not in used]
-                return forced, complete, [], leftover
+                return forced, complete, [], [], leftover
         if lang_tracks:
-            return None, lang_tracks[0], [], lang_tracks[1:]
-        return None, None, [], []
+            return None, lang_tracks[0], [], [], lang_tracks[1:]
+        return None, None, [], [], []
 
-    # Clasificar pistas por idioma (forzados, completos, sobrantes)
-    classified: dict[str, tuple[RawSubtitleTrack | None, RawSubtitleTrack | None]] = {}
+    # Clasificar pistas por idioma. El tercer slot del valor es la lista
+    # de alternativas ambiguas (pistas completas del mismo idioma con
+    # tamaño similar al elegido) — el bucle de emisión las usa para
+    # poner ambiguity_warning en la incluida y en las descartadas.
+    classified: dict[str, tuple[
+        RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack]
+    ]] = {}
     target_langs = {"spanish"}
     if vo_norm != "spanish":
         target_langs.add(vo_norm)
@@ -630,8 +712,9 @@ def _select_subtitle_tracks(
 
     for lang_norm in target_langs:
         if lang_norm in by_lang:
-            forced, complete, audio_descriptions, leftover = _classify_lang(by_lang[lang_norm])
-            classified[lang_norm] = (forced, complete)
+            forced, complete, audio_descriptions, ambiguous_alts, leftover = _classify_lang(by_lang[lang_norm])
+            classified[lang_norm] = (forced, complete, ambiguous_alts)
+            lang_lit = _language_literal(lang_norm)
             # Descartar audiodescripción con razón explícita
             for t in audio_descriptions:
                 discarded.append(DiscardedTrack(
@@ -642,12 +725,31 @@ def _select_subtitle_tracks(
                         f"(packet_count={t.packet_count} > 1.3× del mínimo del idioma)"
                     ),
                 ))
+            # Descartar alternativas ambiguas con razón + warning paralelo
+            # al de la incluida. El frontend pintará banner ámbar en la
+            # incluida + en éstas para que el usuario revise manualmente.
+            for t in ambiguous_alts:
+                discarded.append(DiscardedTrack(
+                    track_type="subtitle",
+                    raw=t,
+                    discard_reason=(
+                        f"Descartada por defecto: hay otra pista de subtítulos "
+                        f"{lang_lit} de tamaño similar y nos quedamos con la "
+                        f"primera del disco."
+                    ),
+                    ambiguity_warning=(
+                        f"Tamaño similar a la pista de subtítulos {lang_lit} "
+                        f"incluida (puede ser comentarios del director, España "
+                        f"vs Latinoamérica…). Si es la versión que querías, "
+                        f"recupérala manualmente."
+                    ),
+                ))
             # Descartar pistas sobrantes del mismo idioma
             for t in leftover:
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
-                    discard_reason=f"Descartada: pista adicional {_language_literal(lang_norm)} (ya incluida la mejor de cada tipo)",
+                    discard_reason=f"Descartada: pista adicional {lang_lit} (ya incluida la mejor de cada tipo)",
                 ))
 
     # Orden de inclusión:
@@ -681,7 +783,7 @@ def _select_subtitle_tracks(
         seen.add(key)
         if lang_norm not in classified:
             continue
-        forced_track, complete_track = classified[lang_norm]
+        forced_track, complete_track, ambiguous_alts = classified[lang_norm]
         lang_lit = _language_literal(lang_norm)
         is_castellano = lang_norm == "spanish"
 
@@ -717,6 +819,24 @@ def _select_subtitle_tracks(
                 )
             else:
                 reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
+            # Si hay alternativas ambiguas (otras pistas completas del
+            # mismo idioma con tamaño similar), avisar al usuario en la
+            # incluida — la heurística no puede decidir cuál es la
+            # correcta (comentarios del director, España vs Latam…).
+            ambiguity_text = ""
+            if ambiguous_alts:
+                alt_counts = ", ".join(
+                    f"{t.packet_count} paq." for t in ambiguous_alts
+                    if t.packet_count > 0
+                )
+                detail = f" ({alt_counts})" if alt_counts else ""
+                ambiguity_text = (
+                    f"Hay {len(ambiguous_alts)} pista{'s' if len(ambiguous_alts) > 1 else ''} "
+                    f"de subtítulos {lang_lit} más con tamaño similar{detail}. "
+                    f"Casos típicos: comentarios del director, España vs "
+                    f"Latinoamérica. Revisa manualmente si la elegida es "
+                    f"la correcta."
+                )
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=complete_track,
@@ -726,6 +846,7 @@ def _select_subtitle_tracks(
                 flag_default=False,
                 flag_forced=False,
                 selection_reason=reason_complete,
+                ambiguity_warning=ambiguity_text,
             ))
 
     # Descartar idiomas que no son target
@@ -745,7 +866,7 @@ def _select_subtitle_tracks(
     for lang_norm in target_langs:
         if lang_norm not in classified:
             continue
-        forced_track, complete_track = classified[lang_norm]
+        forced_track, complete_track, _ambiguous_alts = classified[lang_norm]
         for t, tipo in [(forced_track, "forzado"), (complete_track, "completo")]:
             if t and id(t) not in included_raws and id(t) not in discarded_raws:
                 discarded.append(DiscardedTrack(

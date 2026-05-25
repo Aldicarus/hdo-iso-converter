@@ -6537,7 +6537,8 @@ function renderIncludedTracks(tracks) {
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
             data-tooltip="Descartar esta pista">✕</button>
         </div>
-        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>`;
+        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
+        ${track.ambiguity_warning ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}`;
       audioList.appendChild(li);
     });
   }
@@ -6591,7 +6592,8 @@ function renderIncludedTracks(tracks) {
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
             data-tooltip="Descartar esta pista">✕</button>
         </div>
-        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>`;
+        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
+        ${track.ambiguity_warning ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}`;
       subList.appendChild(li);
     });
   }
@@ -6778,13 +6780,14 @@ function renderDiscardedTracks(tracks) {
 
       const icon = isAudio ? '🔊' : '💬';
       const div = document.createElement('div');
-      div.className = 'discarded-item';
+      div.className = 'discarded-item' + (track.ambiguity_warning ? ' has-ambiguity' : '');
       div.innerHTML = `
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">${icon}</span>
         <div class="discarded-body">
           <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
           <div class="discarded-reason">${escHtml(track.discard_reason || '')}</div>
+          ${track.ambiguity_warning ? `<div class="track-ambiguity inline"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(track.ambiguity_warning)}</span></div>` : ''}
         </div>
         <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})"
           data-tooltip="Recuperar esta pista y añadirla a las incluidas">↩ Recuperar</button>`;

@@ -1107,6 +1107,45 @@ body {
   display: flex; align-items: flex-start; gap: 4px;
 }
 
+/* Aviso de ambigüedad: pistas en las que la heurística no puede decidir
+   automáticamente entre dos del mismo idioma con calidad/tamaño similar
+   (caso España vs Latinoamérica, comentarios del director vs completos).
+   Banner ámbar visible — el usuario tiene que revisar manualmente cuál
+   es la correcta. */
+.track-ambiguity {
+  grid-column: 1 / 6;
+  grid-row: 3;
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: rgba(232, 168, 0, 0.13);
+  border: 1px solid rgba(232, 168, 0, 0.45);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: #b07c00;
+  line-height: 1.4;
+  display: flex; align-items: flex-start; gap: 8px;
+}
+.track-ambiguity.inline {
+  /* En la lista de descartadas no estamos en un grid de track-item:
+     ahí lo metemos dentro de .discarded-body, sin grid-column/row. */
+  grid-column: unset;
+  grid-row: unset;
+  margin-top: 4px;
+  padding: 5px 8px;
+}
+.track-ambiguity .ta-icon { font-size: 13px; flex-shrink: 0; }
+.track-ambiguity .ta-text { flex: 1; }
+
+/* Resaltar la fila completa de la pista ambigua con un acento ámbar */
+.track-item:has(.track-ambiguity) {
+  border-color: rgba(232, 168, 0, 0.45);
+  background: rgba(232, 168, 0, 0.03);
+}
+.discarded-item.has-ambiguity {
+  border-color: rgba(232, 168, 0, 0.45);
+  background: rgba(232, 168, 0, 0.05);
+}
+
 /* ── Discarded items ────────────────────────────────────────────── */
 .discarded-item {
   display: flex;

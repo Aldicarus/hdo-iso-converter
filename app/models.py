@@ -429,6 +429,12 @@ class IncludedAudioTrack(BaseModel):
     """Explicación legible de por qué se seleccionó esta pista.
     Ej: 'Seleccionada: mejor calidad para Spanish. TrueHD Atmos > DD+ > DTS-HD MA > DTS > DD'"""
 
+    ambiguity_warning: str = ""
+    """Aviso de ambigüedad cuando hay otra pista del mismo idioma con
+    calidad similar (caso típico: España vs Latinoamérica con mismo codec).
+    Vacío si no aplica. El frontend lo pinta como banner ámbar dentro
+    de la fila para que el usuario revise la elección manualmente."""
+
 
 class IncludedSubtitleTrack(BaseModel):
     """
@@ -470,6 +476,12 @@ class IncludedSubtitleTrack(BaseModel):
     selection_reason: str
     """Explicación legible de la clasificación aplicada."""
 
+    ambiguity_warning: str = ""
+    """Aviso de ambigüedad cuando hay otra pista de subtítulos del mismo
+    idioma con tamaño similar (caso típico: comentarios del director
+    confundidos con completos, España vs Latinoamérica). Vacío si no
+    aplica."""
+
 
 # Alias de unión para usar en listas polimórficas
 IncludedTrack = IncludedAudioTrack | IncludedSubtitleTrack
@@ -494,6 +506,14 @@ class DiscardedTrack(BaseModel):
     """Explicación legible de por qué se descartó.
     Ej: 'Descartada: idioma French no es Castellano ni VO (English)'
         'Descartada: código de idioma qad (Audio Description)'"""
+
+    ambiguity_warning: str = ""
+    """Aviso paralelo al de IncludedAudio/SubtitleTrack.ambiguity_warning:
+    indica que esta pista descartada tiene calidad/tamaño similar a la
+    incluida del mismo idioma, así que podría ser la versión correcta
+    (caso España vs Latinoamérica, comentarios del director, etc.).
+    El frontend la pinta con banner ámbar para que el usuario considere
+    recuperarla manualmente."""
 
 
 # ══════════════════════════════════════════════════════════════════════
