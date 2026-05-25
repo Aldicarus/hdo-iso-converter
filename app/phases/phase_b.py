@@ -173,7 +173,21 @@ def apply_rules(
         t.position = len(included_audio) + i
         all_included.append(t)
 
-    all_discarded = discarded_audio + discarded_subs
+    # Orden de discarded: por posición original en el disco. Antes el
+    # orden era el de procesamiento del código (idiomas no-target →
+    # segundas pistas de target langs), que daba secuencias confusas
+    # tipo "Francés, Alemán, Italiano…, Español 2.0 (id=6), Inglés 5.1
+    # (id=2)" donde el orden no se correspondía con el del log raw de
+    # mkvmerge. Sort estable por (track_type, índice en bdinfo).
+    audio_disc_order = {id(t): i for i, t in enumerate(bdinfo.audio_tracks)}
+    sub_disc_order = {id(t): i for i, t in enumerate(bdinfo.subtitle_tracks)}
+
+    def _disc_order_key(d: DiscardedTrack) -> tuple[int, int]:
+        is_sub = d.track_type == "subtitle"
+        lookup = sub_disc_order if is_sub else audio_disc_order
+        return (1 if is_sub else 0, lookup.get(id(d.raw), 9999))
+
+    all_discarded = sorted(discarded_audio + discarded_subs, key=_disc_order_key)
 
     mkv_name = _build_mkv_name(title, year, bdinfo.has_fel, audio_dcp)
 
@@ -331,29 +345,96 @@ def _select_audio_tracks(
         else:
             reason = "Seleccionada: VO (idioma de la primera pista del disco)"
 
-        # Detectar ambigüedad: pistas en `rest` del mismo idioma con calidad
-        # similar (mismo codec_priority + bitrate dentro de ±15%). Caso
-        # típico: castellano España + Latinoamérica con mismo codec —
-        # heurística no puede decidir cuál es la correcta. Marcamos
-        # tanto la incluida como la(s) descartada(s) ambigua(s) con un
-        # warning para que el usuario revise manualmente.
-        ambiguous_rest = [
-            t for t in rest if _is_audio_ambiguous_with(best, t)
-        ]
-        ambiguity_text_included = ""
-        ambiguity_text_discarded = ""
-        if ambiguous_rest:
-            ambiguity_text_included = (
-                f"Hay {len(ambiguous_rest)} pista{'s' if len(ambiguous_rest) > 1 else ''} "
-                f"adicional{'es' if len(ambiguous_rest) > 1 else ''} en {lang_lit} con calidad "
-                f"muy parecida (mismo codec, bitrate similar). Casos típicos: "
-                f"España vs Latinoamérica. Revisa manualmente si la elegida es la correcta."
-            )
-            ambiguity_text_discarded = (
+        # Detección de ambigüedad: SIEMPRE que haya 2+ pistas del mismo
+        # idioma target, marcamos ambiguo. El texto se adapta según
+        # similitud técnica:
+        #   · Calidades similares (mismo codec + bitrate ±15%): aviso
+        #     directo "España vs Latam con misma calidad — revisa".
+        #   · Calidades distintas: aviso especial — la heurística eligió
+        #     por mayor calidad técnica, pero la PRIMERA del disco
+        #     puede ser la que el usuario quería (caso típico: España
+        #     dub original DD 2.0 + Latam remix DD 5.1; el orden del
+        #     disco es el signal informativo).
+        # Sin esta ampliación el caso GoT (DD 2.0 + DD 5.1, ratio 42%)
+        # se nos escapaba porque mi filtro de ±15% lo descartaba.
+        if rest:
+            # Identificar la "primera del disco" entre best y rest, para
+            # avisar al usuario si la elegida NO es la primera.
+            all_lang_tracks = by_lang[lang_norm]  # ya en orden del disco
+            first_of_disc = all_lang_tracks[0]
+            picked_is_first = best is first_of_disc
+            best_codec_lit_for_msg = _codec_literal(best, False)
+
+            similar_quality = [t for t in rest if _is_audio_ambiguous_with(best, t)]
+            different_quality = [t for t in rest if not _is_audio_ambiguous_with(best, t)]
+
+            # Solo construimos aviso si hay caso ambiguo real:
+            #   - calidades similares (España/Latam con mismo codec), o
+            #   - calidades distintas Y la elegida NO es la primera (caso
+            #     España DD 2.0 + Latam DD 5.1: heurística eligió Latam
+            #     por más canales, pero la primera del disco es la otra).
+            # Si la elegida ES la primera + hay otras de menor calidad,
+            # no avisamos: la heurística está siendo coherente (mejor
+            # codec + primera del disco = doble señal positiva).
+            # El aviso "different_quality + not first" solo aplica a
+            # Castellano: el signal "primera del disco = dub original
+            # España, segunda = remix Latam" es específico de los UHD
+            # españoles. Para VO (Inglés u otros) la primera DD 5.1 + un
+            # TrueHD Atmos posterior es solo orden de disco; el codec
+            # priority es totalmente fiable. Sin este guard, todos los
+            # discos UHD con TrueHD Atmos + DD 5.1 inglés disparaban un
+            # falso positivo mencionando "España vs Latam".
+            parts_included = []
+            if similar_quality:
+                if is_castellano:
+                    parts_included.append(
+                        f"Hay {len(similar_quality)} pista{'s' if len(similar_quality) > 1 else ''} "
+                        f"{lang_lit} con calidad muy parecida (mismo codec, bitrate similar). "
+                        f"Casos típicos: España vs Latinoamérica con misma calidad."
+                    )
+                else:
+                    parts_included.append(
+                        f"Hay {len(similar_quality)} pista{'s' if len(similar_quality) > 1 else ''} "
+                        f"{lang_lit} con calidad muy parecida (mismo codec, bitrate similar). "
+                        f"Podría ser una mezcla alternativa o comentarios del director."
+                    )
+            if different_quality and not picked_is_first and is_castellano:
+                first_codec_lit = _codec_literal(first_of_disc, False)
+                parts_included.append(
+                    f"La primera pista {lang_lit} del disco es {first_codec_lit} (descartada "
+                    f"por menor calidad técnica frente a {best_codec_lit_for_msg}). En algunos "
+                    f"discos esto significa que la primera es España (dub original) y la "
+                    f"elegida es Latinoamérica (remix posterior con más canales)."
+                )
+
+            if parts_included:
+                ambiguity_text_included = (
+                    " ".join(parts_included)
+                    + " Revisa manualmente y recupera la otra si era la versión que querías."
+                )
+            else:
+                ambiguity_text_included = ""
+            ambiguity_text_discarded_similar = (
                 f"Calidad similar a la incluida en {lang_lit} (mismo codec, "
                 f"bitrate similar). Si es la versión que querías, recupérala "
                 f"manualmente."
             )
+            # Aviso de descartadas "different" solo cuando: (a) la elegida
+            # NO es la primera del disco (caso España DD 2.0 + Latam DD
+            # 5.1 donde la heurística pudo equivocarse) Y (b) es Castellano
+            # (mismo razonamiento que arriba — para VO el codec priority
+            # manda y la "primera del disco" no es informativa).
+            ambiguity_text_discarded_different = (
+                f"Otra pista {lang_lit} con distinta calidad técnica. Si es "
+                f"la versión que querías (p.ej. España dub original vs Latam "
+                f"remix), recupérala manualmente."
+            ) if (not picked_is_first and is_castellano) else ""
+        else:
+            ambiguity_text_included = ""
+            ambiguity_text_discarded_similar = ""
+            ambiguity_text_discarded_different = ""
+            similar_quality = []
+            different_quality = []
 
         included.append(IncludedAudioTrack(
             position=0,  # se reasigna después
@@ -367,30 +448,42 @@ def _select_audio_tracks(
             ambiguity_warning=ambiguity_text_included,
         ))
 
-        # Descartar el resto del mismo idioma. Las ambiguas (mismo codec
-        # + bitrate similar) reciben razón ligeramente distinta + el
-        # ambiguity_warning paralelo para destacar visualmente en la UI.
+        # Descartar el resto del mismo idioma. Cada descartada lleva su
+        # warning: las de calidad SIMILAR llevan texto explícito de "España
+        # vs Latam"; las de calidad DISTINTA llevan texto que apunta al
+        # caso "España dub original vs Latam remix" si la primera del
+        # disco está entre ellas. Sin "similar+different", solo "diff".
         best_codec_lit = _codec_literal(best, False)
-        ambiguous_ids = {id(t) for t in ambiguous_rest}
+        similar_ids = {id(t) for t in similar_quality}
+        different_ids = {id(t) for t in different_quality}
         for t in rest:
             t_codec_lit = _codec_literal(t, False)
-            is_ambig = id(t) in ambiguous_ids
-            if is_ambig:
+            if id(t) in similar_ids:
                 reason_disc = (
                     f"Descartada por defecto: hay otra pista {lang_lit} "
                     f"({best_codec_lit}) de calidad similar y nos quedamos "
                     f"con la primera del disco."
                 )
+                ambig_text = ambiguity_text_discarded_similar
+            elif id(t) in different_ids:
+                reason_disc = (
+                    f"Descartada: segunda pista {_language_literal(t.language.lower())}. "
+                    f"Menor calidad técnica: {t_codec_lit} < {best_codec_lit}"
+                )
+                ambig_text = ambiguity_text_discarded_different
             else:
+                # No debería pasar (similar+different cubre rest), pero
+                # por defensa: razón clásica sin warning.
                 reason_disc = (
                     f"Descartada: segunda pista {_language_literal(t.language.lower())}. "
                     f"Menor calidad: {t_codec_lit} < {best_codec_lit}"
                 )
+                ambig_text = ""
             discarded.append(DiscardedTrack(
                 track_type="audio",
                 raw=t,
                 discard_reason=reason_disc,
-                ambiguity_warning=ambiguity_text_discarded if is_ambig else "",
+                ambiguity_warning=ambig_text,
             ))
 
     return included, discarded
