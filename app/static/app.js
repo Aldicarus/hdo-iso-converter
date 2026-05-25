@@ -8039,6 +8039,11 @@ function connectQueueWebSocket() {
     renderColaDetailPanel();
     updateSubtabQueuePill();
     if (queueState.running && queueState.running !== prevRunning) {
+      // Nuevo job arrancando — limpiar dedup de toasts terminales para
+      // que el __DONE__/__ERROR__ del job nuevo sí dispare el toast aunque
+      // por casualidad tenga el mismo sessionId que el anterior (no debería
+      // pasar con timestamps, pero defensivo).
+      _resetTerminalToastDedup();
       connectExecutionWebSocket(queueState.running);
       startColaExecTimer();
       // Actualizar proyecto abierto y sidebar: ahora está "running"
@@ -8130,9 +8135,29 @@ function connectExecutionWebSocket(sessionId) {
  * @param {string} msg
  * @param {string} sessionId
  */
+// Dedup de toasts terminales (__DONE__/__CANCELLED__/__ERROR__).
+// El backend mantiene una lista de WS por session_id en _ws_connections
+// y envía el señalizador final a TODOS los conectados. Si la pestaña se
+// reenfoca durante un job, el frontend hace reconnect (line 270-278) y
+// brevemente coexisten dos conexiones backend (la vieja en CLOSING, la
+// nueva en OPEN) — ambas reciben __DONE__ → handleExecutionWsMessage se
+// dispara 2× → 2 toasts duplicados. Trackeamos el último sessionId
+// procesado para terminal events y descartamos los duplicados. Se
+// resetea al arrancar un job nuevo (queueWs detecta running !== prev).
+let _lastTerminalToastSessionId = null;
+
+function _resetTerminalToastDedup() {
+  _lastTerminalToastSessionId = null;
+}
+
 function handleExecutionWsMessage(msg) {
   if (msg === '__DONE__') {
     const finishedId = queueState.running;
+    if (finishedId && finishedId === _lastTerminalToastSessionId) {
+      // Ya procesado por una conexión WS gemela — descartar.
+      return;
+    }
+    _lastTerminalToastSessionId = finishedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'done');
     updateSubtabQueuePill();
@@ -8145,6 +8170,10 @@ function handleExecutionWsMessage(msg) {
 
   if (msg === '__CANCELLED__') {
     const cancelledId = queueState.running;
+    if (cancelledId && cancelledId === _lastTerminalToastSessionId) {
+      return;
+    }
+    _lastTerminalToastSessionId = cancelledId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'pending');
     updateSubtabQueuePill();
@@ -8156,6 +8185,10 @@ function handleExecutionWsMessage(msg) {
 
   if (msg.startsWith('__ERROR__')) {
     const failedId = queueState.running;
+    if (failedId && failedId === _lastTerminalToastSessionId) {
+      return;
+    }
+    _lastTerminalToastSessionId = failedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'error');
     updateSubtabQueuePill();
