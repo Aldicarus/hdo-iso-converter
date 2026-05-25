@@ -6753,6 +6753,22 @@ function renderDiscardedTracks(tracks) {
     byType[type].push({ track, idx });
   });
 
+  // Orden visual SIEMPRE por posición original del disco (#N), tanto
+  // en audio como en subs. El array discarded_tracks puede llegar en
+  // cualquier orden — backend lo guarda ordenado tras Fase B, pero
+  // ediciones manuales (discardTrack hace push al final) lo desordenan.
+  // Sortamos a nivel de render para que el orden visual sea estable
+  // sin tener que mantener el array sortado en cada mutación. Stable
+  // sort por _orig_index, conservando idx original (apunta al array)
+  // para que el botón "Recuperar" siga funcionando.
+  const _sortByDiscOrder = (a, b) => {
+    const ai = (typeof a.track._orig_index === 'number') ? a.track._orig_index : 99999;
+    const bi = (typeof b.track._orig_index === 'number') ? b.track._orig_index : 99999;
+    return ai - bi;
+  };
+  byType.audio.sort(_sortByDiscOrder);
+  byType.subtitle.sort(_sortByDiscOrder);
+
   updateTrackCounts();
 
   const renderGroup = (container, items, isAudio) => {
