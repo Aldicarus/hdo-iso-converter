@@ -848,10 +848,49 @@ def _select_subtitle_tracks(
             return None, lang_tracks[0], [], [], lang_tracks[1:]
         return None, None, [], [], []
 
-    # Clasificar pistas por idioma. El tercer slot del valor es la lista
-    # de alternativas ambiguas (pistas completas del mismo idioma con
-    # tamaño similar al elegido) — el bucle de emisión las usa para
-    # poner ambiguity_warning en la incluida y en las descartadas.
+    # Clasificar TODOS los idiomas (target y no-target) con la misma
+    # heurística. La razón: cuando el usuario recupera manualmente un
+    # subtítulo descartado, la UI necesita saber si era forzado o
+    # completo para etiquetarlo correctamente. Antes solo se clasificaban
+    # los idiomas target y todo recupero acababa con label "Completos",
+    # incluso si era un forzado de Tailandés, Checo, etc.
+    classified_full: dict[str, tuple[
+        RawSubtitleTrack | None, RawSubtitleTrack | None,
+        list[RawSubtitleTrack], list[RawSubtitleTrack], list[RawSubtitleTrack]
+    ]] = {}
+    for lang_norm in by_lang:
+        # _classify_lang devuelve también un slot audio_descriptions por
+        # compat, pero la detección de AD por packet_count se retiró
+        # (estructuralmente incorrecta — ver docstring). La única señal
+        # fiable de AD es el código ISO 639 'qad' (ya filtrado arriba).
+        classified_full[lang_norm] = _classify_lang(by_lang[lang_norm])
+
+    # Helper: tipo inferido de un track según la clasificación de su idioma.
+    # 'forced' / 'complete' / '' según en qué bucket cayó.
+    def _infer_sub_type(lang_norm: str, track: RawSubtitleTrack) -> str:
+        cls = classified_full.get(lang_norm)
+        if not cls:
+            return ""
+        forced, complete, _ad, ambiguous, leftover = cls
+        if forced is track:
+            return "forced"
+        if complete is track:
+            return "complete"
+        # ambiguous_alts: eran candidatos a completo que perdieron por ser
+        # segundos en disc order → son completos en realidad.
+        for t in ambiguous:
+            if t is track:
+                return "complete"
+        # leftover: forzados extra (idioma con N forzados o caso edge) →
+        # los marcamos como forzados.
+        for t in leftover:
+            if t is track:
+                return "forced"
+        return ""
+
+    # Para downstream: dict simplificado (forced, complete, ambiguous_alts)
+    # solo para los idiomas target — el resto se descartan con tipo
+    # inferido directamente.
     classified: dict[str, tuple[
         RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack]
     ]] = {}
@@ -862,20 +901,16 @@ def _select_subtitle_tracks(
         target_langs.add("english")
 
     for lang_norm in target_langs:
-        if lang_norm in by_lang:
-            # _classify_lang devuelve también un slot audio_descriptions
-            # por compat, pero la detección de AD por packet_count se
-            # retiró (era estructuralmente incorrecta — ver docstring de
-            # _classify_lang). La única señal fiable de AD es el código
-            # ISO 639 'qad', ya filtrado al inicio de esta función.
-            forced, complete, _ad_unused, ambiguous_alts, leftover = _classify_lang(by_lang[lang_norm])
+        if lang_norm in classified_full:
+            forced, complete, _ad_unused, ambiguous_alts, leftover = classified_full[lang_norm]
             classified[lang_norm] = (forced, complete, ambiguous_alts)
             lang_lit = _language_literal(lang_norm)
             # Descartar alternativas ambiguas con razón + warning paralelo
             # al de la incluida. Son pistas del mismo idioma con tamaño
             # similar al elegido (ratio <3×), señal de que NO son
             # completo+forzado sino ediciones distintas. El frontend
-            # pinta banner ámbar para que el usuario decida.
+            # pinta banner ámbar para que el usuario decida. Tipo
+            # inferido = complete (eran candidatos a completo).
             for t in ambiguous_alts:
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
@@ -891,13 +926,17 @@ def _select_subtitle_tracks(
                         f"(España/Latam, comentarios, mezcla alternativa). Si era "
                         f"la versión que querías, recupérala y compruébala."
                     ),
+                    inferred_subtitle_type="complete",
                 ))
-            # Descartar pistas sobrantes del mismo idioma
+            # Descartar pistas sobrantes del mismo idioma. Las clasificó
+            # _classify_lang como forzados extra (caso edge — un idioma
+            # con >1 pista forzada). Tipo inferido = forced.
             for t in leftover:
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
                     discard_reason=f"Descartada: pista adicional {lang_lit} (ya incluida la mejor de cada tipo)",
+                    inferred_subtitle_type="forced",
                 ))
 
     # Orden de inclusión:
@@ -1013,7 +1052,9 @@ def _select_subtitle_tracks(
                 ambiguity_warning=ambiguity_text,
             ))
 
-    # Descartar idiomas que no son target
+    # Descartar idiomas que no son target. Para cada pista, propagamos
+    # el tipo inferido (forced/complete) de la clasificación para que el
+    # recover manual sepa nombrarla correctamente.
     for lang_norm, lang_tracks in by_lang.items():
         if lang_norm not in target_langs:
             for t in lang_tracks:
@@ -1021,6 +1062,7 @@ def _select_subtitle_tracks(
                     track_type="subtitle",
                     raw=t,
                     discard_reason=f"Descartada: idioma {_language_literal(lang_norm)} no es Castellano, VO ({_language_literal(vo_language.lower())}) ni Inglés",
+                    inferred_subtitle_type=_infer_sub_type(lang_norm, t),
                 ))
 
     # Descartar pistas clasificadas de idiomas target que no se incluyeron
@@ -1037,6 +1079,7 @@ def _select_subtitle_tracks(
                     track_type="subtitle",
                     raw=t,
                     discard_reason=f"Descartada: pista {tipo} {_language_literal(lang_norm)} sin posición asignada en el orden de inclusión",
+                    inferred_subtitle_type="forced" if tipo == "forzado" else "complete",
                 ))
 
     return included, discarded

@@ -7226,13 +7226,21 @@ function recoverTrack(idx) {
   const isAudio = track.track_type === 'audio';
   const langLit = langLiteral(raw.language) || '';
 
+  // Para subs: usar el tipo inferido por Fase B (forced/complete). Antes
+  // siempre se asumía 'complete', así que forzados de idiomas no-target
+  // (Tailandés Forzados, Checo Forzados, etc.) se etiquetaban erróneamente
+  // como Completos al recuperarlos. Ahora preservamos la clasificación.
+  // Fallback a 'complete' si el campo no está (sesiones legacy o tracks
+  // sin packet_count fiable).
+  const inferredSubType = track.inferred_subtitle_type || 'complete';
+  const isForcedSub = !isAudio && inferredSubType === 'forced';
+
   let codecLit, fullLabel;
   if (isAudio) {
     codecLit = _buildAudioCodecLiteral(raw, !!currentSession.audio_dcp);
     fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
   } else {
-    // Subtítulos: formato "{Idioma} Completos (PGS)" (asumimos completo al recuperar)
-    codecLit = 'Completos (PGS)';
+    codecLit = isForcedSub ? 'Forzados (PGS)' : 'Completos (PGS)';
     fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
   }
 
@@ -7242,11 +7250,12 @@ function recoverTrack(idx) {
     raw: track.raw,
     label: fullLabel,
     flag_default: false,
-    flag_forced: false,
-    selection_reason: 'Recuperada manualmente por el usuario',
+    flag_forced: isForcedSub,
+    selection_reason: 'Recuperada manualmente por el usuario'
+      + (!isAudio ? ` (tipo inferido por Fase B: ${inferredSubType})` : ''),
     language_literal: langLit,
     codec_literal: codecLit,
-    subtitle_type: 'complete',
+    subtitle_type: isForcedSub ? 'forced' : 'complete',
   };
 
   // Insertar agrupando por tipo: audio recuperado va tras el último audio;

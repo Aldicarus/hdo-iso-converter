@@ -515,6 +515,20 @@ class DiscardedTrack(BaseModel):
     El frontend la pinta con banner ámbar para que el usuario considere
     recuperarla manualmente."""
 
+    inferred_subtitle_type: str = ""
+    """Tipo inferido de la pista de subtítulos (forced/complete) según
+    la heurística de Fase B. Solo aplica si track_type == 'subtitle'.
+
+    Se rellena para TODOS los subtítulos descartados (target o no-target),
+    para que cuando el usuario recupere una pista no-target la UI sepa
+    si era un forzado o un completo. Sin esta info, recoverTrack
+    asumía siempre 'complete' y etiquetaba los forzados de idiomas no
+    incluidos (Tailandés Forzados, Checo Forzados, etc.) como Completos
+    — mismo label que el completo del mismo idioma, indistinguibles.
+
+    Valores: 'forced', 'complete', '' (no clasificado / sub sin
+    packet_count fiable)."""
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  CAPÍTULOS
