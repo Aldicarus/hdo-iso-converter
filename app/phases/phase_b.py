@@ -872,22 +872,24 @@ def _select_subtitle_tracks(
             classified[lang_norm] = (forced, complete, ambiguous_alts)
             lang_lit = _language_literal(lang_norm)
             # Descartar alternativas ambiguas con razón + warning paralelo
-            # al de la incluida. El frontend pintará banner ámbar en la
-            # incluida + en éstas para que el usuario revise manualmente.
+            # al de la incluida. Son pistas del mismo idioma con tamaño
+            # similar al elegido (ratio <3×), señal de que NO son
+            # completo+forzado sino ediciones distintas. El frontend
+            # pinta banner ámbar para que el usuario decida.
             for t in ambiguous_alts:
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
                     discard_reason=(
                         f"Descartada por defecto: hay otra pista de subtítulos "
-                        f"{lang_lit} de tamaño similar y nos quedamos con la "
-                        f"primera del disco."
+                        f"{lang_lit} de tamaño parecido (ratio <3×). Nos quedamos "
+                        f"con la primera del disco."
                     ),
                     ambiguity_warning=(
-                        f"Tamaño similar a la pista de subtítulos {lang_lit} "
-                        f"incluida (puede ser comentarios del director, España "
-                        f"vs Latinoamérica…). Si es la versión que querías, "
-                        f"recupérala manualmente."
+                        f"Otra pista de subtítulos {lang_lit} con tamaño parecido "
+                        f"al incluido. Puede ser una edición diferente "
+                        f"(España/Latam, comentarios, mezcla alternativa). Si era "
+                        f"la versión que querías, recupérala y compruébala."
                     ),
                 ))
             # Descartar pistas sobrantes del mismo idioma
@@ -936,10 +938,24 @@ def _select_subtitle_tracks(
         if track_type == "forced" and forced_track:
             flag_default = is_castellano
             if forced_track.packet_count > 0:
-                reason_forced = (
-                    f"Forzados (packet-based): {forced_track.packet_count} paquetes < 500. "
-                    f"Primera pista forzada para {lang_norm.capitalize()}"
-                )
+                # Construir razón coherente con la heurística nueva:
+                # si hay completo, mencionamos el ratio; si no, decimos
+                # "única pista del idioma, <500 paquetes → forzado por
+                # tamaño absoluto".
+                if complete_track and complete_track.packet_count > 0:
+                    ratio = complete_track.packet_count / forced_track.packet_count
+                    reason_forced = (
+                        f"Forzados (packet-based): {forced_track.packet_count} paquetes "
+                        f"vs {complete_track.packet_count} de la pista completa "
+                        f"({ratio:.1f}× menor → forzado). Primera pista forzada para "
+                        f"{lang_norm.capitalize()}"
+                    )
+                else:
+                    reason_forced = (
+                        f"Forzados (packet-based): {forced_track.packet_count} paquetes "
+                        f"(<500, tamaño típico de un forzado puro). Única pista de "
+                        f"subtítulos para {lang_norm.capitalize()}"
+                    )
             else:
                 reason_forced = (
                     f"Forzados Forma A: bitrate {forced_track.bitrate_kbps:.3f} kbps < umbral 3 kbps. "
@@ -965,10 +981,11 @@ def _select_subtitle_tracks(
                 )
             else:
                 reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
-            # Si hay alternativas ambiguas (otras pistas completas del
-            # mismo idioma con tamaño similar), avisar al usuario en la
+            # Si hay alternativas ambiguas (otras pistas del mismo idioma
+            # con tamaño similar al elegido, ratio <3×), avisar en la
             # incluida — la heurística no puede decidir cuál es la
-            # correcta (comentarios del director, España vs Latam…).
+            # versión correcta. No predecimos qué es España vs Latam por
+            # orden o tamaño; solo listamos posibilidades.
             ambiguity_text = ""
             if ambiguous_alts:
                 alt_counts = ", ".join(
@@ -978,10 +995,11 @@ def _select_subtitle_tracks(
                 detail = f" ({alt_counts})" if alt_counts else ""
                 ambiguity_text = (
                     f"Hay {len(ambiguous_alts)} pista{'s' if len(ambiguous_alts) > 1 else ''} "
-                    f"de subtítulos {lang_lit} más con tamaño similar{detail}. "
-                    f"Casos típicos: comentarios del director, España vs "
-                    f"Latinoamérica. Revisa manualmente si la elegida es "
-                    f"la correcta."
+                    f"de subtítulos {lang_lit} adicional"
+                    f"{'es' if len(ambiguous_alts) > 1 else ''} con tamaño parecido"
+                    f"{detail}. Pueden ser ediciones diferentes (España/Latam, "
+                    f"comentarios, mezcla alternativa). Compruébalo y recupera "
+                    f"otra si no era la versión que querías."
                 )
             included.append(IncludedSubtitleTrack(
                 position=0,

@@ -834,7 +834,7 @@ function buildProjectPanelHTML(pid) {
         <span style="color:var(--text-3)">Modo:</span>
         <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="subtitle"
           onclick="setTrackMode('subtitle','filtered')"
-          data-tooltip="Solo Castellano + VO + Inglés, con detección de audiodescripción">🎯 Castellano + VO + Inglés</button>
+          data-tooltip="Solo Castellano + VO + Inglés. Detecta forzados por tamaño relativo (completo/forzado ≥3×) y descarta pistas en otros idiomas.">🎯 Castellano + VO + Inglés</button>
         <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="subtitle"
           onclick="setTrackMode('subtitle','keep_all')"
           data-tooltip="Mantener todos los subtítulos con labels automáticos (sin reordenar ni descartar)">📋 Mantener todos</button>
@@ -11014,21 +11014,29 @@ function _renderMkvTracks() {
         : codecRaw)
       : 'PGS';
 
-    // Clasificación Forzados / Completos con señal de fallback:
-    //   1. Si el flag del MKV está puesto → es la verdad.
-    //   2. Si no: packet_count < 500 → forzados (proxy fiable para PGS).
-    //   3. Si no hay packet_count: bitrate < 3 kbps → forzados (señal menos fiable).
-    //   4. En otro caso: completos.
+    // Clasificación Forzados / Completos con señal de fallback. En Tab 2
+    // estamos inspeccionando UN MKV ya construido y clasificamos cada
+    // pista de forma independiente — sin acceso barato al ratio
+    // completo/forzado por idioma que sí usa la heurística de Fase B
+    // sobre el origen. Por eso aquí el fallback se queda en el umbral
+    // absoluto (<500 paq.). Cuando el flag forced del MKV está bien
+    // puesto (caso típico de los MKVs generados por la propia app), se
+    // ignora el fallback y se usa la verdad del contenedor.
+    //   1. flag forced del MKV → fuente de verdad.
+    //   2. <500 paquetes → forzado (muy ligero, casi siempre forzado).
+    //   3. bitrate <3 kbps (sin packet_count) → forzado, señal histórica
+    //      antes de tener PGS packet counting.
+    //   4. resto → completos.
     const packets = t.packet_count || 0;
     let derivedForced = t.flag_forced;
     let forcedSource = t.flag_forced ? 'flag del MKV' : '';
     if (!t.flag_forced) {
       if (packets > 0 && packets < 500) {
         derivedForced = true;
-        forcedSource = `${packets} paquetes < 500`;
+        forcedSource = `${packets} paquetes (forzado típico <500)`;
       } else if (packets === 0 && t.bitrate_kbps > 0 && t.bitrate_kbps < 3) {
         derivedForced = true;
-        forcedSource = `bitrate ${t.bitrate_kbps} kbps < 3`;
+        forcedSource = `bitrate ${t.bitrate_kbps} kbps (forzado típico <3)`;
       }
     }
     const flagForcedLit = t.flag_forced;

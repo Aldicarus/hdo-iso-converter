@@ -1559,15 +1559,18 @@ async def run_pgs_packet_counts(
     """Cuenta paquetes por pista PGS del m2ts usando ffprobe -count_packets.
 
     El número de paquetes PES es el proxy más fiable del volumen real de
-    subtítulos (forzado vs completo vs audiodescripción), ya que MediaInfo
-    y el bit_rate de ffprobe devuelven N/A para PGS.
+    subtítulos (forzado vs completo vs comentarios/alternativas), ya que
+    MediaInfo y el bit_rate de ffprobe devuelven N/A para PGS. Fase B
+    convierte estos counts en clasificación por ratio (completo/forzado
+    ≥3×) más un umbral absoluto <500 paquetes para el caso de un idioma
+    con una sola pista muy ligera.
 
     Si `sample_seconds` (default 1200 = 20 min) y `total_duration_seconds` se
     pasan, y el fichero dura más del 1.5× del sample, contamos solo los primeros
     `sample_seconds` (via ffprobe -read_intervals) y ESCALAMOS la cuenta al
-    total por proporción de duración. Asi la cadencia (pkts/sec) se preserva y
-    phase_b puede seguir usando los umbrales absolutos habituales (<500 forzado,
-    etc.). Para ficheros cortos o sin duración conocida, se lee completo.
+    total por proporción de duración. Así la cadencia (pkts/sec) se preserva y
+    los ratios entre pistas siguen siendo válidos. Para ficheros cortos o sin
+    duración conocida, se lee completo.
 
     Si se pasa ``progress_callback(pct: float, eta_s: int)``, se emite
     progreso real basado en bytes leídos por el proceso (vía /proc/{pid}/io)
