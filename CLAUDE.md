@@ -670,13 +670,28 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 ### Reglas de subtítulos (spec §5.2)
 - Descartar código de idioma `qad` (Audio Description)
-- Forzados: detección por estructura de bloques (ver Fase A)
+- **Clasificación forced/complete por ratio** ([phase_b.py](app/phases/phase_b.py) `_classify_lang`):
+  - Por idioma, con packet_count disponible:
+    - 1 sola pista: `<500 paq → forced`, `≥500 paq → complete` (no hay con qué comparar).
+    - 2+ pistas: la mayor es candidata a complete. Cada otra pista se clasifica por ratio
+      contra la mayor: `ratio ≥ 3.0 → forced` · `ratio < 3.0 → alternativa ambigua` (España/Latam, comentarios, mezcla alternativa).
+    - Caso edge (mayor <500): todas son forced; el idioma no tiene complete en este disco.
+  - La detección de audiodescripción por packet_count se RETIRÓ — era estructuralmente incorrecta
+    (cualquier completo+forzado cruzaba el threshold ×1.3 mal calibrado). Única señal fiable de AD: código ISO 639 `qad`.
+- **`DiscardedTrack.inferred_subtitle_type`** ([models.py](app/models.py)): cada sub descartado lleva su tipo inferido
+  (forced/complete) según la heurística. Lo usa `recoverTrack` para nombrar correctamente los recuperados
+  de cualquier idioma (Tailandés Forzados, Checo Forzados, etc.) — antes todos los recuperados se etiquetaban como Completos.
 - **Orden de inclusión**:
   1. Forzados Castellano (default=True, forced=True)
   2. Completos VO
   3. Completos Castellano
-  4. Forzados VO
+  4. Forzados VO (forced=False — ver siguiente regla)
   5. Completos Inglés (si VO ≠ Inglés)
+- **flag_forced de Matroska solo a Castellano**: aunque haya forzados de VO/Inglés extra en el MKV
+  (subtitle_type='forced' + label "X Forzados (PGS)"), su `flag_forced` Matroska es `false`. Solo
+  el forzado Castellano lleva la flag en el contenedor, así el reproductor no solapa varios al
+  cambiar de audio. recoverTrack respeta la misma regla: si recuperas un forzado de idioma no-Castellano,
+  el label es "X Forzados (PGS)" pero flag_forced=false.
 - Labels: `{Idioma} Forzados (PGS)`, `{Idioma} Completos (PGS)`
 
 ### Capítulos (spec §5.3)
@@ -799,6 +814,11 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### Mapeo de pistas (Phase E)
 - **Por contenido, no por posición**: `_match_tracks_to_source()` busca cada pista incluida en el source por coincidencia de idioma + codec.
 - Audio: compara `raw.language` (inglés) con ISO 639-2 del source + subcadenas de codec.
+  - **Desambiguación por canales físicos** (`_parse_channels` + `audio_channels` en track_map):
+    cuando 2+ pistas comparten idioma + codec (caso típico: Castellano DD 2.0 + Castellano DD 5.1,
+    ambas AC-3 spa), el matcher prefiere la que coincide en canales con la pista incluida en lugar
+    de coger la primera por orden de source_ids. Sin esto, seleccionar manualmente la DD 5.1 producía
+    extracción de la DD 2.0 con el label "DD 5.1" mal puesto encima (bug histórico, arreglado v2.5.4).
 - Subtítulos: solo por idioma (no tienen codec en `RawSubtitleTrack`). Consume IDs en orden (used_ids).
 - Tabla de matching: `_ISO639` (ISO → nombre inglés), `_codec_matches()` (BDInfo → mkvmerge).
 
