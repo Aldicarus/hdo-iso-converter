@@ -1001,6 +1001,21 @@ def _select_subtitle_tracks(
                     f"Pista completa {lang_norm.capitalize()} presente"
                     + (f" con bitrate {complete_track.bitrate_kbps:.3f} kbps" if complete_track else "")
                 )
+            # flag_forced solo a Castellano (spec §5.2). Es el track que el
+            # reproductor enseñará automáticamente cuando se reproduzca el
+            # audio principal (castellano). Aunque otros idiomas tengan
+            # forzados (VO/Inglés extra), no llevan flag_forced — el
+            # contenido sigue siendo forzado (label "X Forzados (PGS)",
+            # subtitle_type="forced"), pero la flag Matroska es única.
+            # Sin esta restricción, MKV terminaba con varias pistas
+            # flag_forced=yes y el reproductor las solapaba al cambiar
+            # de audio.
+            flag_forced_matroska = is_castellano
+            flag_note = ""
+            if flag_default:
+                flag_note = ". flag default=yes + forced=yes: pista de forzados Castellano (la única con flag forced en el MKV)"
+            elif lang_norm == vo_norm:
+                flag_note = ". flag forced=no: aunque sea forzado, solo el de Castellano lleva flag forced en Matroska (spec §5.2)"
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=forced_track,
@@ -1008,8 +1023,8 @@ def _select_subtitle_tracks(
                 subtitle_type="forced",
                 label=f"{lang_lit} Forzados (PGS)",
                 flag_default=flag_default,
-                flag_forced=True,
-                selection_reason=reason_forced + (". flag default=yes: primera pista de subtítulos forzados en castellano" if flag_default else ""),
+                flag_forced=flag_forced_matroska,
+                selection_reason=reason_forced + flag_note,
             ))
 
         if track_type == "complete" and complete_track:

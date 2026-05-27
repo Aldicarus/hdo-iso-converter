@@ -7234,6 +7234,14 @@ function recoverTrack(idx) {
   // sin packet_count fiable).
   const inferredSubType = track.inferred_subtitle_type || 'complete';
   const isForcedSub = !isAudio && inferredSubType === 'forced';
+  // flag_forced de Matroska solo a Castellano (spec §5.2). El resto de
+  // forzados (VO, Inglés, idiomas no-target recuperados) llevan
+  // subtitle_type='forced' + label "X Forzados (PGS)" para reflejar
+  // el contenido, pero flag_forced=false para mantener una sola pista
+  // con flag forced=yes en el MKV final. Sin esto el reproductor podía
+  // solapar varios forzados al cambiar de audio.
+  const isCastellanoSub = !isAudio && (raw.language || '').toLowerCase() === 'spanish';
+  const setForcedFlag = isForcedSub && isCastellanoSub;
 
   let codecLit, fullLabel;
   if (isAudio) {
@@ -7250,9 +7258,9 @@ function recoverTrack(idx) {
     raw: track.raw,
     label: fullLabel,
     flag_default: false,
-    flag_forced: isForcedSub,
+    flag_forced: setForcedFlag,
     selection_reason: 'Recuperada manualmente por el usuario'
-      + (!isAudio ? ` (tipo inferido por Fase B: ${inferredSubType})` : ''),
+      + (!isAudio ? ` (tipo inferido por Fase B: ${inferredSubType}${isForcedSub && !setForcedFlag ? ' — sin flag forced de Matroska porque no es Castellano' : ''})` : ''),
     language_literal: langLit,
     codec_literal: codecLit,
     subtitle_type: isForcedSub ? 'forced' : 'complete',
