@@ -733,16 +733,38 @@ def _select_subtitle_tracks(
         audio_descripción, alternativas_ambiguas, otros_sobrantes).
 
         **Modo A — packet-based (si packet_count disponible en alguna pista):**
-          - Forzados:  packets < 500
-          - Candidatos completo: el resto
-          - Audiodescripción: packet_count > 1.3× del MÍNIMO del grupo no-forzado
-          - Completo final: primer candidato no-AD por posición original
-          - Forzado final:  primer forzado por posición original
-          - **Alternativas ambiguas**: si quedan ≥2 candidatos a completo
-            tras filtrar AD, las que NO se eligieron son ambiguas
-            (mismo idioma, tamaño similar — comentarios del director,
-            España vs Latinoamérica, etc.). La heurística no puede
-            decidir cuál es la "correcta" automáticamente.
+          La señal fundamental: el **completo** lleva TODO el diálogo y
+          el **forzado** solo los extranjeros / on-screen text. Por eso
+          completo siempre tiene muchos más paquetes que forzado, con
+          ratios típicos de 5× a 200×. Cuando dos pistas del mismo
+          idioma tienen tamaño parecido (ratio <3×), no son
+          completo+forzado — son ediciones alternativas (España/Latam,
+          comentarios, etc.) y la heurística no puede decidir.
+
+          Reglas:
+          - 1 sola pista del idioma:
+              * <500 paquetes → forzado (no hay completo).
+              * ≥500 paquetes → completo (no hay forzado).
+          - 2+ pistas:
+              * La de más paquetes es candidata a **completo**.
+              * Si la mayor tiene <500 paquetes (rara, idioma sin
+                completo en este disco): todas son forzadas.
+              * Cada otra pista se compara con la mayor por ratio:
+                  - ratio ≥ 3.0 → **forzado** (o sub muy ligero — sub
+                    forzado de carteles + algún diálogo extranjero).
+                  - ratio < 3.0 → **alternativa ambigua** (España vs
+                    Latam, comentarios del director, etc.).
+              * Forzado final: primero por posición original entre los
+                forzados.
+              * Alternativas ambiguas: todas las que no son forzado.
+
+          La detección de audiodescripción por packet_count se ha
+          retirado: era estructuralmente incorrecta — el ratio
+          completo/forzado (>3×) coincide con el threshold que el
+          código viejo usaba para marcar como AD (×1.3), así que
+          cualquier forzado de tamaño moderado se confundía con AD.
+          La única señal fiable de AD es el código ISO 639 `qad` (ya
+          filtrado al inicio de _select_subtitle_tracks).
 
         **Modo B — bitrate sintético (fallback, antes de ffprobe -count_packets):**
           Forma A: si hay ≥2 pistas y una tiene bitrate < 3 kbps → es la
@@ -750,42 +772,65 @@ def _select_subtitle_tracks(
           señal de tamaño relativo).
 
         Devuelve (forced, complete, audio_descriptions, ambiguous_alts,
-        leftover). Las AD, ambiguas y sobrantes se descartan con razones
-        distintas.
+        leftover). En el modo packet-based audio_descriptions siempre
+        está vacío.
         """
+        FORCED_ABSOLUTE_THRESHOLD = 500       # <500 paq. en pista única → forzado seguro
+        FORCED_RATIO_THRESHOLD    = 3.0       # ratio max/t ≥3 → t es forzado
+
         has_packets = any(t.packet_count > 0 for t in lang_tracks)
 
         if has_packets:
-            forced_cands = [t for t in lang_tracks if t.packet_count < 500]
-            other_cands  = [t for t in lang_tracks if t.packet_count >= 500]
-            # Detectar audiodescripción: pistas con packet_count >1.3× del MÍNIMO
-            # del grupo no-forzado. Usamos mínimo (no mediana) porque con solo 2
-            # pistas la mediana=promedio y los outliers no se detectan.
-            audio_descriptions: list[RawSubtitleTrack] = []
-            complete_cands = other_cands
-            if len(other_cands) >= 2:
-                base = min(t.packet_count for t in other_cands)
-                threshold_ad = base * 1.3
-                complete_cands = [t for t in other_cands if t.packet_count <= threshold_ad]
-                audio_descriptions = [t for t in other_cands if t.packet_count > threshold_ad]
+            # Una sola pista del idioma: regla absoluta (<500 forzado, resto completo).
+            if len(lang_tracks) == 1:
+                only = lang_tracks[0]
+                if only.packet_count > 0 and only.packet_count < FORCED_ABSOLUTE_THRESHOLD:
+                    return only, None, [], [], []
+                return None, only, [], [], []
 
-            # Escoger primero por posición original (ya vienen en orden del m2ts)
-            forced   = forced_cands[0] if forced_cands else None
-            complete = complete_cands[0] if complete_cands else None
-            # Alternativas ambiguas: el resto de complete_cands (mismo
-            # idioma + tamaño dentro del ±30% por el filtro AD previo).
-            ambiguous_alts = complete_cands[1:] if len(complete_cands) >= 2 else []
-            used = {id(t) for t in (forced, complete) if t}
-            ambig_ids = {id(t) for t in ambiguous_alts}
-            # Sobrantes: forzados extra (los que no se incluyeron) que
-            # no son AD ni ambiguos.
-            leftover = [
-                t for t in lang_tracks
-                if id(t) not in used
-                and id(t) not in ambig_ids
-                and t not in audio_descriptions
-            ]
-            return forced, complete, audio_descriptions, ambiguous_alts, leftover
+            # 2+ pistas: la más grande es candidata a completo. Buscamos
+            # su índice (no solo el track) para preservar disc order al
+            # iterar después.
+            biggest_idx = max(range(len(lang_tracks)),
+                              key=lambda i: lang_tracks[i].packet_count)
+            biggest = lang_tracks[biggest_idx]
+
+            # Si la mayor es <500 → el idioma no tiene completo en este
+            # disco; todas son forzadas. Mantenemos compat con la lógica
+            # vieja (primer forzado por posición original, resto leftover).
+            if biggest.packet_count > 0 and biggest.packet_count < FORCED_ABSOLUTE_THRESHOLD:
+                forced = lang_tracks[0]
+                leftover = lang_tracks[1:]
+                return forced, None, [], [], leftover
+
+            # Caso típico: hay un completo claro. Clasificar las otras
+            # pistas comparando con biggest por ratio.
+            complete = biggest
+            forced_list: list[RawSubtitleTrack] = []
+            ambiguous: list[RawSubtitleTrack] = []
+            for i, t in enumerate(lang_tracks):
+                if i == biggest_idx:
+                    continue
+                if t.packet_count <= 0 or biggest.packet_count <= 0:
+                    # Sin packet_count fiable → conservador, va a ambiguous
+                    # (no podemos asegurar que sea forzado).
+                    ambiguous.append(t)
+                    continue
+                ratio = biggest.packet_count / t.packet_count
+                if ratio >= FORCED_RATIO_THRESHOLD:
+                    forced_list.append(t)
+                else:
+                    ambiguous.append(t)
+
+            # Forzado final: primer forzado por orden del disco (ya
+            # iteramos lang_tracks en orden, así que forced_list ya
+            # respeta posición original).
+            forced = forced_list[0] if forced_list else None
+            # Forzados extra (raros — un idioma con 2 forzados distintos):
+            leftover = forced_list[1:] if len(forced_list) > 1 else []
+            ambiguous_alts = ambiguous
+            # audio_descriptions vacío: ver docstring (señal era basura).
+            return forced, complete, [], ambiguous_alts, leftover
 
         # ── Fallback: bitrate sintético (cuando ffprobe no pudo medir) ──
         if len(lang_tracks) >= 2:
@@ -818,19 +863,14 @@ def _select_subtitle_tracks(
 
     for lang_norm in target_langs:
         if lang_norm in by_lang:
-            forced, complete, audio_descriptions, ambiguous_alts, leftover = _classify_lang(by_lang[lang_norm])
+            # _classify_lang devuelve también un slot audio_descriptions
+            # por compat, pero la detección de AD por packet_count se
+            # retiró (era estructuralmente incorrecta — ver docstring de
+            # _classify_lang). La única señal fiable de AD es el código
+            # ISO 639 'qad', ya filtrado al inicio de esta función.
+            forced, complete, _ad_unused, ambiguous_alts, leftover = _classify_lang(by_lang[lang_norm])
             classified[lang_norm] = (forced, complete, ambiguous_alts)
             lang_lit = _language_literal(lang_norm)
-            # Descartar audiodescripción con razón explícita
-            for t in audio_descriptions:
-                discarded.append(DiscardedTrack(
-                    track_type="subtitle",
-                    raw=t,
-                    discard_reason=(
-                        f"Descartada: detectada como audiodescripción "
-                        f"(packet_count={t.packet_count} > 1.3× del mínimo del idioma)"
-                    ),
-                ))
             # Descartar alternativas ambiguas con razón + warning paralelo
             # al de la incluida. El frontend pintará banner ámbar en la
             # incluida + en éstas para que el usuario revise manualmente.
