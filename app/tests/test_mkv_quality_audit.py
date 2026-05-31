@@ -239,6 +239,52 @@ class TestCancelByAuditId(unittest.TestCase):
         self.reset(file_name="movie.mkv")
         self.check()  # no raise
 
+    def test_log_skipped_when_audit_id_obsolete(self):
+        """Si _mkv_quality_log se llama con target_audit_id de un audit
+        anterior, la línea NO debe añadirse al state.log_lines (que pertenece
+        al audit actual). Sin esto, el except del primer endpoint en race
+        contra el reset del segundo audit metía 'Cancelado por el usuario'
+        en el log del audit nuevo."""
+        from main import _mkv_quality_log
+        first_id = self.reset(file_name="first.mkv")
+        # Reset al segundo audit (cambia audit_id)
+        second_id = self.reset(file_name="second.mkv")
+        n_before = len(self.state["log_lines"])
+        # Cancel/except del primer audit intenta loguear con target=first_id
+        _mkv_quality_log("contaminación del primer audit", target_audit_id=first_id)
+        # NO debe aparecer en el log del segundo audit
+        self.assertEqual(len(self.state["log_lines"]), n_before)
+
+    def test_log_accepted_when_audit_id_matches(self):
+        """Si target_audit_id coincide con el actual, la línea se añade
+        normalmente. Caso del flujo legítimo (el audit actual loguea de sí mismo)."""
+        from main import _mkv_quality_log
+        audit_id = self.reset(file_name="movie.mkv")
+        n_before = len(self.state["log_lines"])
+        _mkv_quality_log("línea propia", target_audit_id=audit_id)
+        self.assertEqual(len(self.state["log_lines"]), n_before + 1)
+
+    def test_log_accepted_when_no_target_passed(self):
+        """Sin target_audit_id, comportamiento legacy: siempre añade."""
+        from main import _mkv_quality_log
+        self.reset(file_name="movie.mkv")
+        n_before = len(self.state["log_lines"])
+        _mkv_quality_log("línea sin guard")
+        self.assertEqual(len(self.state["log_lines"]), n_before + 1)
+
+    def test_finalize_if_skipped_when_audit_obsolete(self):
+        """_state_finalize_if NO modifica el state si audit_id ya cambió."""
+        from main import _mkv_quality_state_finalize_if
+        first_id = self.reset(file_name="first.mkv")
+        # Simula que el segundo audit ya empezó
+        second_id = self.reset(file_name="second.mkv")
+        self.state["active"] = True
+        result = _mkv_quality_state_finalize_if(first_id, "obsoleto")
+        self.assertFalse(result)
+        # El state del segundo audit NO se ha tocado
+        self.assertTrue(self.state["active"])
+        self.assertNotEqual(self.state.get("error"), "obsoleto")
+
 
 if __name__ == "__main__":
     unittest.main()
