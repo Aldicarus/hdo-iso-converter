@@ -32,6 +32,7 @@ from storage import (  # noqa: E402
     write_mkv_cache_quality,
     invalidate_mkv_cache,
     invalidate_mkv_cache_by_path,
+    list_mkv_audit_entries,
     MKV_AUDIT_DIR,
     _mkv_audit_path,
 )
@@ -285,6 +286,107 @@ class TestEdgeCases(unittest.TestCase):
             self.assertIsNone(result)
         finally:
             cache_path.unlink(missing_ok=True)
+
+
+class TestOriginalFilePathPersistence(unittest.TestCase):
+    """write_mkv_cache_basic/quality persisten original_file_path top-level,
+    necesario para que el scan de huérfanos pueda detectar caches cuyo MKV
+    ya no existe en disco."""
+
+    def setUp(self):
+        self.p = _make_fake_mkv(b"orig" * 200_000)
+        self.fp = compute_mkv_fingerprint(str(self.p))
+
+    def tearDown(self):
+        self.p.unlink(missing_ok=True)
+        if self.fp:
+            _mkv_audit_path(self.fp["sha256_1mb"]).unlink(missing_ok=True)
+
+    def test_basic_persists_original_file_path(self):
+        write_mkv_cache_basic(self.fp, 1, 1, {"x": 1}, original_file_path=str(self.p))
+        import json as _json
+        data = _json.loads(_mkv_audit_path(self.fp["sha256_1mb"]).read_text())
+        self.assertEqual(data.get("original_file_path"), str(self.p))
+
+    def test_quality_persists_original_file_path(self):
+        write_mkv_cache_quality(self.fp, 1, 1, {"x": 1}, original_file_path=str(self.p))
+        import json as _json
+        data = _json.loads(_mkv_audit_path(self.fp["sha256_1mb"]).read_text())
+        self.assertEqual(data.get("original_file_path"), str(self.p))
+
+    def test_write_basic_preserves_existing_orig_path(self):
+        """Si quality se escribió antes con un path, basic re-escrito sin
+        path explícito debe preservar el path existente."""
+        write_mkv_cache_quality(self.fp, 1, 1, {"x": 1}, original_file_path=str(self.p))
+        write_mkv_cache_basic(self.fp, 1, 1, {"y": 2})  # sin original_file_path
+        import json as _json
+        data = _json.loads(_mkv_audit_path(self.fp["sha256_1mb"]).read_text())
+        self.assertEqual(data.get("original_file_path"), str(self.p))
+
+
+class TestListMkvAuditEntries(unittest.TestCase):
+    """list_mkv_audit_entries devuelve metadata top-level + flags por
+    cada fichero. Usado por el scan de huérfanos."""
+
+    def setUp(self):
+        # Tres MKVs con tres tipos de cache distintos
+        self.p_ok = _make_fake_mkv(b"OK" * 200_000)
+        self.p_orphan = _make_fake_mkv(b"ORPHAN" * 200_000)
+        self.p_basura = _make_fake_mkv(b"BASURA" * 200_000)
+        self.fp_ok = compute_mkv_fingerprint(str(self.p_ok))
+        self.fp_orphan = compute_mkv_fingerprint(str(self.p_orphan))
+        self.fp_basura = compute_mkv_fingerprint(str(self.p_basura))
+
+    def tearDown(self):
+        for p in (self.p_ok, self.p_orphan, self.p_basura):
+            try: p.unlink(missing_ok=True)
+            except Exception: pass
+        for fp in (self.fp_ok, self.fp_orphan, self.fp_basura):
+            if fp:
+                _mkv_audit_path(fp["sha256_1mb"]).unlink(missing_ok=True)
+
+    def test_empty_when_no_caches(self):
+        # Borrar cualquier residuo previo
+        for entry in list_mkv_audit_entries():
+            try: Path(entry["cache_path"]).unlink()
+            except Exception: pass
+        self.assertEqual(list_mkv_audit_entries(), [])
+
+    def test_lists_basic_only_entry(self):
+        write_mkv_cache_basic(self.fp_ok, 1, 1, {"file_path": "ok.mkv"},
+                              original_file_path=str(self.p_ok))
+        entries = [e for e in list_mkv_audit_entries() if e.get("fingerprint_sha") == self.fp_ok["sha256_1mb"]]
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertTrue(e["basic_present"])
+        self.assertFalse(e["quality_present"])
+        self.assertEqual(e["original_file_path"], str(self.p_ok))
+        self.assertEqual(e["versions"], {"basic": 1})
+
+    def test_lists_quality_summary(self):
+        write_mkv_cache_quality(self.fp_basura, 1, 1, {
+            "quality_total_frames_rpu": 0,  # ← BASURA
+            "quality_classification": "default",
+        }, original_file_path=str(self.p_basura))
+        entries = [e for e in list_mkv_audit_entries() if e.get("fingerprint_sha") == self.fp_basura["sha256_1mb"]]
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertTrue(e["quality_present"])
+        self.assertEqual(e["quality_total_frames"], 0)
+        self.assertEqual(e["quality_classification"], "default")
+
+    def test_lists_corrupt_entry(self):
+        """Un fichero JSON malformado aparece como corrupt=True sin pet."""
+        MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+        fake_path = MKV_AUDIT_DIR / "feedface.json"
+        fake_path.write_text("{ not valid json")
+        try:
+            entries = [e for e in list_mkv_audit_entries() if "feedface" in e["cache_path"]]
+            self.assertEqual(len(entries), 1)
+            self.assertTrue(entries[0]["corrupt"])
+            self.assertIn("error", entries[0])
+        finally:
+            fake_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

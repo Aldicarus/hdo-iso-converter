@@ -855,6 +855,7 @@ def persist_mkv_quality_to_cache(mkv_path: str, quality_payload: dict) -> None:
             cache_version_basic_existing=CACHE_VERSION_BASIC,
             cache_version_quality=CACHE_VERSION_QUALITY,
             quality_payload=quality_payload,
+            original_file_path=mkv_path,
         )
         _logger.info("MKV cache WRITE quality para %s", Path(mkv_path).name)
     except Exception as e:
@@ -887,6 +888,7 @@ def persist_mkv_basic_to_cache(mkv_path: str, result: MkvAnalysisResult) -> None
             cache_version_basic=CACHE_VERSION_BASIC,
             cache_version_quality_existing=CACHE_VERSION_QUALITY,
             basic_payload=payload,
+            original_file_path=mkv_path,
         )
         _logger.info("MKV cache WRITE para %s", Path(mkv_path).name)
     except Exception as e:

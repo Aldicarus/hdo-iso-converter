@@ -7733,6 +7733,91 @@ def _scan_orphans() -> list[dict]:
         except Exception:
             pass
 
+    # 5. Cache MKV (Tab 2) — 4 sub-categorías:
+    #    (a) huérfano: original_file_path no existe en disco
+    #    (b) quality basura: payload con frames=0 (bug timeout 60s histórico)
+    #    (c) stale-version: versions.basic|quality != actual
+    #    (d) corrupt: JSON inválido
+    # Los caches válidos NO se listan — el scan solo muestra lo que sobra.
+    try:
+        from storage import list_mkv_audit_entries
+        from phases.mkv_analyze import (
+            CACHE_VERSION_BASIC as _CVB, CACHE_VERSION_QUALITY as _CVQ,
+            _quality_payload_is_valid as _qpv,
+        )
+        for entry in list_mkv_audit_entries():
+            cache_path = entry["cache_path"]
+            size = entry["size_bytes"]
+            age = entry["age_seconds"]
+            # (d) corrupt
+            if entry.get("corrupt"):
+                out.append({
+                    "category": "mkv_cache_corrupt",
+                    "label": "Cache MKV corrupto (JSON inválido)",
+                    "path": cache_path,
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": True,
+                    "reason": entry.get("error", "JSON corrupto"),
+                })
+                continue
+            # (a) huérfano — el MKV original ya no existe
+            orig = entry.get("original_file_path")
+            if orig and not Path(orig).exists():
+                out.append({
+                    "category": "mkv_cache_orphan",
+                    "label": "Cache MKV huérfano (fichero borrado/movido)",
+                    "path": cache_path,
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": True,
+                    "reason": f"Fichero original ya no existe: {orig}",
+                })
+                continue
+            # (b) quality basura
+            if entry.get("quality_present"):
+                quality_summary = {
+                    "quality_total_frames_rpu": entry.get("quality_total_frames"),
+                    "quality_classification": entry.get("quality_classification"),
+                }
+                if not _qpv(quality_summary):
+                    out.append({
+                        "category": "mkv_cache_invalid_quality",
+                        "label": "Cache MKV con auditoría inválida",
+                        "path": cache_path,
+                        "size_bytes": size,
+                        "age_seconds": age,
+                        "safe": True,
+                        "reason": (
+                            f"Bloque quality basura (frames={entry.get('quality_total_frames')}, "
+                            f"classification={entry.get('quality_classification')!r}) — "
+                            f"borrar permite relanzar la auditoría limpia"
+                        ),
+                    })
+                    continue
+            # (c) versions obsoletas
+            versions = entry.get("versions") or {}
+            v_basic = versions.get("basic")
+            v_quality = versions.get("quality")
+            stale_msgs = []
+            if v_basic is not None and v_basic != _CVB:
+                stale_msgs.append(f"basic v{v_basic} (actual v{_CVB})")
+            if v_quality is not None and v_quality != _CVQ:
+                stale_msgs.append(f"quality v{v_quality} (actual v{_CVQ})")
+            if stale_msgs:
+                out.append({
+                    "category": "mkv_cache_stale_version",
+                    "label": "Cache MKV con versión obsoleta",
+                    "path": cache_path,
+                    "size_bytes": size,
+                    "age_seconds": age,
+                    "safe": True,
+                    "reason": "Mejora del clasificador desde el último análisis: "
+                              + " · ".join(stale_msgs),
+                })
+    except Exception as e:
+        _logger.warning("[scan_orphans] escaneo de mkv_audits falló: %s", e)
+
     return out
 
 
@@ -7791,13 +7876,14 @@ class CleanupExecuteRequest(BaseModel):
 @app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados")
 async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     """Borra los paths indicados. Solo se aceptan paths bajo prefixes
-    conocidos (/mnt/tmp/cmv40/, /mnt/bd/, /tmp/lightprof_, /mnt/output/*.mkv.tmp).
-    Cada item devuelve {ok, freed, error}."""
+    conocidos (/mnt/tmp/cmv40/, /mnt/bd/, /tmp/lightprof_, /mnt/output/*.mkv.tmp,
+    /config/mkv_audits/). Cada item devuelve {ok, freed, error}."""
     ALLOWED_PREFIXES = [
         "/mnt/tmp/cmv40/",
         "/mnt/bd/",
         "/tmp/lightprof_",
-        "/mnt/output/",  # solo .mkv.tmp, validamos abajo
+        "/mnt/output/",       # solo .mkv.tmp, validamos abajo
+        "/config/mkv_audits/", # cache Tab 2 (orphans, basura, stale-version)
     ]
     deleted = []
     failed = []
@@ -7806,6 +7892,10 @@ async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
         # Salvaguarda extra para /mnt/output/: solo .mkv.tmp
         if path.startswith("/mnt/output/") and not path.endswith(".mkv.tmp"):
             failed.append({"path": path, "error": "/mnt/output/ solo permite borrar *.mkv.tmp"})
+            continue
+        # Salvaguarda extra para /config/mkv_audits/: solo .json
+        if path.startswith("/config/mkv_audits/") and not path.endswith(".json"):
+            failed.append({"path": path, "error": "/config/mkv_audits/ solo permite borrar *.json"})
             continue
         ok, freed, err = _delete_orphan_path(path, ALLOWED_PREFIXES)
         if ok:
