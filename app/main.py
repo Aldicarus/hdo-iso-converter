@@ -3851,6 +3851,10 @@ async def mkv_quality_audit_endpoint(body: dict):
             "quality_tier_description": "Master CMv4.0 FULL — campos exclusivos CMv4.0 poblados.",
             "quality_verdict_text": "Master CMv4.0 FULL — calidad máxima",
             "quality_verdict_color": "green",
+            "quality_provenance_hints": [
+                "Master nativo CMv4.0 reciente — L11 + L254 presentes",
+                "Metadata DV completa — source primaries (L9) + target primaries (L10) + content type (L11)",
+            ],
         }
         _mkv_quality_state["result"] = fake_result
         _mkv_quality_state["active"] = False
@@ -3887,12 +3891,36 @@ async def mkv_quality_audit_endpoint(body: dict):
     try:
         from phases.mkv_analyze import (
             analyze_rpu_quality_for_mkv, persist_mkv_quality_to_cache,
+            CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY,
         )
+        from storage import compute_mkv_fingerprint, read_mkv_cache
+        # Extraer los has_l* del análisis básico si está cacheado — los
+        # usa el classifier para calcular provenance_hints. Si el básico
+        # no está cacheado (caso edge: usuario ejecutó la auditoría sin
+        # análisis básico previo), los hints quedan vacíos.
+        dv_flags = {}
+        try:
+            fp = compute_mkv_fingerprint(mkv_full)
+            if fp:
+                basic_cached = read_mkv_cache(fp, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+                if basic_cached and basic_cached.get("basic"):
+                    dv = (basic_cached["basic"].get("dovi") or {})
+                    dv_flags = {
+                        "has_l3":   dv.get("has_l3", False),
+                        "has_l4":   dv.get("has_l4", False),
+                        "has_l9":   dv.get("has_l9", False),
+                        "has_l10":  dv.get("has_l10", False),
+                        "has_l11":  dv.get("has_l11", False),
+                        "has_l254": dv.get("has_l254", False),
+                    }
+        except Exception as e:
+            _logger.warning("No se pudieron leer flags has_l* del cache (provenance hints vacíos): %s", e)
         result = await analyze_rpu_quality_for_mkv(
             mkv_full,
             progress_callback=_progress_cb,
             cancel_check=_mkv_quality_check_cancel,
             register_proc=_register,
+            dv_flags=dv_flags,
         )
         # Persistir en el cache MKV (bloque quality)
         persist_mkv_quality_to_cache(mkv_full, result)

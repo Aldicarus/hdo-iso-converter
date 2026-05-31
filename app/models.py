@@ -228,6 +228,13 @@ class DoviInfo(BaseModel):
     quality_verdict_color: str = ""
     """'green' | 'yellow' | 'red' | 'gray'. Driver del badge de la card."""
 
+    quality_provenance_hints: list[str] = []
+    """Frases interpretativas sobre la procedencia del RPU basadas en
+    combinaciones L4/L9/L10/L11/L254 + tier. Ej: 'Master nativo CMv4.0
+    reciente — L11 + L254 presentes', 'Bin convertido p3i — compat L4
+    + L8 sintético', 'Master CMv4.0 pre-IQ (anterior a L11)'. Se
+    muestran como bullets debajo del veredicto en la card de auditoría."""
+
 
 class MediaInfoTrack(BaseModel):
     """Datos por pista extraídos de MediaInfo --Output=JSON."""

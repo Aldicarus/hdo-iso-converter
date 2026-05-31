@@ -9957,6 +9957,40 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const hdr10Fall = hdr?.max_fall != null ? `MaxFALL ${hdr.max_fall} nits` : '';
   const hdr10Line = [hdr10Cll, hdr10Fall].filter(Boolean).join(' · ');
 
+  // L1 vs HDR10 divergence: comparar el peak L1 RPU (de dovi_tool info
+  // sample 30s, ya disponible en dv.l1_max_cll) vs el MaxCLL del SEI
+  // estático. Si difieren >1.8×, suele indicar master con tone-mapping
+  // agresivo etiquetado conservadoramente (caso BR2049: L1=176, SEI=1000).
+  // Si L1 > SEI, lo contrario: SEI conservador, RPU más generoso.
+  let divergenceBanner = '';
+  const l1Peak  = dv?.l1_max_cll || 0;
+  const seiCll  = hdr?.max_cll || 0;
+  if (l1Peak > 10 && seiCll > 10) {
+    const ratio = l1Peak / seiCll;
+    if (ratio < 0.5) {
+      divergenceBanner = `
+        <div class="dv-mc-divergence dv-mc-div-low">
+          <span class="dv-mc-div-icon">⚠️</span>
+          <span><strong>Master conservador con tone-mapping agresivo</strong> —
+            L1 RPU peak ${l1Peak.toFixed(0)} nits vs HDR10 SEI MaxCLL ${seiCll} nits
+            (ratio ${ratio.toFixed(2)}×). El colorista etiquetó la metadata DV
+            por debajo del peak HDR10 — la imagen real tras display mapping
+            puede mostrar valores mayores que los anunciados por el L1.
+          </span>
+        </div>`;
+    } else if (ratio > 2.0) {
+      divergenceBanner = `
+        <div class="dv-mc-divergence dv-mc-div-high">
+          <span class="dv-mc-div-icon">ℹ️</span>
+          <span><strong>L1 RPU más generoso que HDR10 SEI</strong> —
+            L1 peak ${l1Peak.toFixed(0)} nits vs SEI MaxCLL ${seiCll} nits
+            (ratio ${ratio.toFixed(2)}×). El SEI HDR10 está etiquetado conservadoramente
+            respecto al grado DV real.
+          </span>
+        </div>`;
+    }
+  }
+
   return `
     <section class="dv-block">
       <h5 class="dv-block-title">Cadena de mastering
@@ -10000,6 +10034,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
           <div class="dv-mc-row-label">HDR10 metadata <span class="dv-mc-row-sub">SEI estática</span></div>
           <div class="dv-mc-row-content"><span class="dv-mc-hdr10-val">${hdr10Line}</span></div>
         </div>` : ''}
+      ${divergenceBanner}
       ${(l11Type || l11App) ? `
         <div class="dv-mc-row-l11">
           <div class="dv-mc-row-label">L11 content type</div>
@@ -10508,6 +10543,13 @@ function _rgrfQualityAuditCard(dv, isV40) {
           <div class="dv-quality-stat-label">cobertura CMv4.0</div>
         </div>
       </div>
+      ${(dv.quality_provenance_hints?.length || 0) > 0 ? `
+        <div class="dv-quality-hints">
+          <div class="dv-quality-hints-label">Procedencia probable</div>
+          <ul class="dv-quality-hints-list">
+            ${dv.quality_provenance_hints.map(h => `<li>${escHtml(h)}</li>`).join('')}
+          </ul>
+        </div>` : ''}
       ${reason ? `<details class="dv-quality-details">
         <summary>Detalle técnico</summary>
         <div class="dv-quality-reason">${escHtml(reason)}</div>

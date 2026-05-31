@@ -321,7 +321,80 @@ async def analyze_mkv(
     )
 
 
-def _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only: bool) -> dict:
+def _compute_provenance_hints(
+    rpu_analysis,
+    classification: str,
+    tier: str,
+    dv_flags: dict,
+    is_cmv29_only: bool,
+) -> list[str]:
+    """Heurísticas interpretativas sobre la procedencia del RPU.
+
+    Combina los flags has_l* del DoviInfo básico con el resultado del
+    classifier para emitir frases legibles. Devuelve una lista de strings
+    (puede estar vacía si nada concluyente). El frontend las muestra como
+    bullets debajo del veredicto.
+
+    Las heurísticas reflejan patrones observados empíricamente:
+      - L11 + L254 + CMv4.0 → master nativo reciente
+      - L8 default + L4 ausente → bin sintético (conversión al vuelo)
+      - L8 default + L4 presente → bin convertido (p3i, avdvplus)
+      - L8 real + sin L11 → master CMv4.0 pre-IQ (antes de 2020)
+      - L9 + L10 + L11 todos presentes → metadata completa del master
+      - CMv2.9 puro → release pre-CMv4 o BD original sin upgrade
+    """
+    hints: list[str] = []
+    has_l4   = bool(dv_flags.get("has_l4"))
+    has_l9   = bool(dv_flags.get("has_l9"))
+    has_l10  = bool(dv_flags.get("has_l10"))
+    has_l11  = bool(dv_flags.get("has_l11"))
+    has_l254 = bool(dv_flags.get("has_l254"))
+
+    if is_cmv29_only:
+        hints.append("RPU CMv2.9 puro — Blu-ray original sin upgrade a CMv4.0")
+        if rpu_analysis.l2_unique_count >= 30:
+            hints.append("L2 trabajado por colorista — grading dinámico nativo")
+        if has_l4:
+            hints.append("L4 presente — compat trim legacy")
+        return hints
+
+    # CMv4.0 — combina con classifier
+    if classification == "real" and tier in ("full", "core_rich"):
+        if has_l11 and has_l254:
+            hints.append("Master nativo CMv4.0 reciente — L11 + L254 presentes")
+        elif has_l254:
+            hints.append("Master CMv4.0 con marker L254 (CMv4.0 bien señalado)")
+        if has_l9 and has_l10 and has_l11:
+            hints.append("Metadata DV completa — source primaries (L9) + target primaries (L10) + content type (L11)")
+        if not has_l11 and (has_l9 or has_l10):
+            hints.append("Master CMv4.0 pre-L11 — anterior a Dolby Vision IQ (~2020)")
+
+    elif classification == "real" and tier == "core":
+        hints.append("Master CMv4.0 estándar — calidad de release streaming")
+        if not has_l11:
+            hints.append("Sin L11 — Dolby Vision IQ no aplicable en este master")
+
+    elif classification == "default":
+        if has_l4:
+            hints.append("Bin convertido — L4 (compat CMv2.9) + L8 sintético sugieren transfer P5/P8→CMv4.0")
+        else:
+            hints.append("Bin sintético — equivalente a la conversión al vuelo de p3i / avdvplus / appletvplus")
+        if not has_l11:
+            hints.append("Sin L11 — confirma origen automático (los conversores no añaden content type)")
+
+    elif classification == "indeterminate":
+        hints.append("L8 ambiguo — el clasificador no puede decidir con seguridad")
+        if has_l11 and has_l254:
+            hints.append("Pero L11 + L254 sugieren master nativo, dudoso por densidad de combos")
+
+    return hints
+
+
+def _build_quality_audit_from_rpu_analysis(
+    rpu_analysis,
+    is_cmv29_only: bool,
+    dv_flags: dict | None = None,
+) -> dict:
     """Construye el dict de campos quality_* a partir de un RpuAnalysis.
 
     Devuelve un dict ya con shape para inyectar en DoviInfo.model_validate(
@@ -331,6 +404,10 @@ def _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only: bool) ->
 
     is_cmv29_only: True si el RPU NO tiene bloques CMv4.0 (l8_unique_count==0
     Y frames_with_cmv40==0). En ese caso el veredicto se basa en L2.
+
+    dv_flags: dict opcional con has_l4/has_l9/has_l10/has_l11/has_l254 del
+    análisis básico (DoviInfo enriquecido por _enrich_dovi_from_json_export).
+    Si se pasa, se calculan provenance_hints — si no, lista vacía.
     """
     from phases.rpu_analyze import classify_l8, classify_l8_quality
 
@@ -372,15 +449,19 @@ def _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only: bool) ->
                       f"trabajo de tone-mapping dinámico; un upgrade a CMv4.0 sería "
                       f"un salto sustancial.")
             tier_label = "CMv2.9 MIN"
+        classification_cmv29 = "real" if l2_count >= 10 else "default"
         return {
             **base,
-            "quality_classification": "real" if l2_count >= 10 else "default",
+            "quality_classification": classification_cmv29,
             "quality_reason": reason,
             "quality_tier": "",  # tiers son solo CMv4.0
             "quality_tier_label": tier_label,
             "quality_tier_description": reason,
             "quality_verdict_text": verdict,
             "quality_verdict_color": color,
+            "quality_provenance_hints": _compute_provenance_hints(
+                rpu_analysis, classification_cmv29, "", dv_flags or {}, True,
+            ),
         }
 
     # CMv4.0: aplica el classifier de Tab 3 íntegro.
@@ -416,6 +497,9 @@ def _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only: bool) ->
         "quality_tier_description": tier_desc,
         "quality_verdict_text": verdict,
         "quality_verdict_color": color,
+        "quality_provenance_hints": _compute_provenance_hints(
+            rpu_analysis, classification, tier, dv_flags or {}, False,
+        ),
     }
 
 
@@ -424,6 +508,7 @@ async def analyze_rpu_quality_for_mkv(
     progress_callback=None,
     cancel_check=None,
     register_proc=None,
+    dv_flags: dict | None = None,
 ) -> dict:
     """Pipeline de auditoría profunda del RPU de un MKV (Tab 2, on-demand).
 
@@ -564,7 +649,9 @@ async def analyze_rpu_quality_for_mkv(
         # ── Paso 4: classify + verdict ───────────────────────────────
         is_cmv29_only = (rpu_analysis.frames_with_cmv40 == 0
                          and rpu_analysis.l8_unique_count == 0)
-        result = _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only)
+        result = _build_quality_audit_from_rpu_analysis(
+            rpu_analysis, is_cmv29_only, dv_flags=dv_flags,
+        )
         _emit("done", 100.0, "✓ Auditoría completada")
         return result
 
