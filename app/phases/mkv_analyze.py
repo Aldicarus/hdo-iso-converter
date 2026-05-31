@@ -721,9 +721,20 @@ async def analyze_rpu_quality_for_mkv(
         _log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
         _log("[Audit] 📋 Plan: dovi_tool export -d all sobre el RPU → JSON grande "
              "(~3-5× el tamaño del RPU) → parsear y agregar combos únicos por frame.")
+        _log("[Audit] ⏱ Para UHD BD el export puede tardar 5-15 min (JSON 300-500 MB). "
+             "Verás líneas de progreso del dovi_tool a continuación.")
         _log(f"$ dovi_tool export -i {rpu_path} -d all=<json_temp>")
         t_step = _t.monotonic()
-        rpu_analysis = await analyze_rpu_combos(rpu_path)
+        # Timeout amplio (15 min) y streaming del stderr para que el log
+        # muestre progreso real en lugar de quedarse silencioso 5-15 min.
+        # register_proc para que el cancel pueda matarlo. Usamos _log (con
+        # wrapper de error handling) en lugar del callback crudo.
+        rpu_analysis = await analyze_rpu_combos(
+            rpu_path,
+            export_timeout=900,
+            log_callback=_log,
+            register_proc=register_proc,
+        )
         _check()
         if rpu_analysis.total_frames == 0:
             _log("[Audit] ✗ dovi_tool export devolvió 0 frames — el RPU no es legible o no hay metadata DV.")

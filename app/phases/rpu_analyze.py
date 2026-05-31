@@ -72,21 +72,96 @@ class RpuAnalysis:
     l8_has_clip_trim: bool = False
 
 
-async def _run_export(rpu_path: Path, out_path: Path) -> tuple[int, str]:
-    """Ejecuta `dovi_tool export -i <rpu> -d all=<out>` y devuelve (rc, stderr)."""
+async def _run_export(
+    rpu_path: Path,
+    out_path: Path,
+    timeout: int = 60,
+    log_callback=None,
+    register_proc=None,
+) -> tuple[int, str]:
+    """Ejecuta `dovi_tool export -i <rpu> -d all=<out>` y devuelve (rc, stderr).
+
+    Para RPUs pequeños (bins de comunidad ~1-5 MB, Tab 3) 60s es de sobra.
+    Para RPUs full-movie (UHD BD ~100-200 MB, Tab 2 quality audit) hay que
+    pasar timeout=900+ — dovi_tool tarda 5-15 min generando el JSON 300-500 MB.
+
+    Si se pasa ``log_callback``, hace streaming de stdout+stderr línea a
+    línea al log durante la ejecución. Indispensable para operaciones largas
+    (sin esto el usuario no ve progreso y parece que el modal está colgado).
+
+    Cleanup robusto: si dispara timeout, SIGTERM → wait 5s → SIGKILL → wait
+    10s para garantizar reap. Sin esto, file handles abiertos sobre NAS
+    pueden bloquear el siguiente run.
+    """
     proc = await asyncio.create_subprocess_exec(
         DOVI_TOOL_BIN, "export",
         "-i", str(rpu_path),
         "-d", f"all={out_path}",
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,  # merge para poder hacer streaming simple
     )
+    if register_proc:
+        register_proc(proc)
+
+    collected: list[str] = []
+
+    async def _stream_reader():
+        """Lee stdout línea a línea (con stderr mergeado) y emite al log."""
+        while True:
+            try:
+                line = await proc.stdout.readline()
+            except Exception:
+                break
+            if not line:
+                break
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if not text:
+                continue
+            collected.append(text)
+            if log_callback:
+                try:
+                    log_callback(f"  {text}")
+                except Exception:
+                    pass
+
+    reader_task = asyncio.create_task(_stream_reader())
     try:
-        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+        # Drena cualquier línea pendiente del reader antes de retornar
+        try:
+            await asyncio.wait_for(reader_task, timeout=2.0)
+        except asyncio.TimeoutError:
+            reader_task.cancel()
     except asyncio.TimeoutError:
-        proc.kill()
+        # Cleanup robusto: SIGTERM → reap → SIGKILL si necesario → reap.
+        # Sin este reap, los siguientes runs pueden chocar con file handles
+        # abiertos sobre el NAS (estado D del proceso).
+        logger.warning("dovi_tool export excedió %ss, matando proceso", timeout)
+        if log_callback:
+            try:
+                log_callback(f"  ⚠ dovi_tool export excedió {timeout}s — matando proceso")
+            except Exception:
+                pass
+        try: proc.terminate()
+        except Exception: pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("dovi_tool export: subprocess no reaped tras SIGKILL+10s")
+        try: reader_task.cancel()
+        except Exception: pass
         return -1, "timeout"
-    return proc.returncode, stderr.decode("utf-8", errors="replace")
+    return proc.returncode, "\n".join(collected)
+
+
+async def _run_export_simple(rpu_path: Path, out_path: Path) -> tuple[int, str]:
+    """Wrapper retro-compatible para Tab 3 (sin streaming + timeout 60s)."""
+    return await _run_export(rpu_path, out_path, timeout=60)
 
 
 def _extract_frames_from_json(data) -> list:
@@ -239,7 +314,12 @@ def _parse_export(json_path: Path) -> RpuAnalysis:
     return analysis
 
 
-async def analyze_rpu_combos(rpu_path: Path) -> RpuAnalysis:
+async def analyze_rpu_combos(
+    rpu_path: Path,
+    export_timeout: int = 60,
+    log_callback=None,
+    register_proc=None,
+) -> RpuAnalysis:
     """Ejecuta dovi_tool export -d all y parsea L2/L8 combos + stats.
 
     Devuelve un RpuAnalysis. Si dovi_tool falla, devuelve un RpuAnalysis
@@ -247,6 +327,16 @@ async def analyze_rpu_combos(rpu_path: Path) -> RpuAnalysis:
     seguir sin los datos enriquecidos).
 
     El JSON intermedio se borra siempre, incluso si la operación falla.
+
+    Args:
+        export_timeout: segundos máx para dovi_tool export. Default 60s
+            (suficiente para bins de comunidad pequeños usados por Tab 3).
+            Para RPUs full-movie (Tab 2 quality audit con ~100-200 MB)
+            pasar 900s+ — dovi_tool tarda 5-15 min generando el JSON.
+        log_callback: opcional, recibe cada línea de stdout/stderr de
+            dovi_tool en streaming. Sin esto el usuario no ve progreso
+            durante los minutos del export.
+        register_proc: opcional, registra el subprocess para cancel externo.
     """
     if not rpu_path.exists():
         logger.warning("analyze_rpu_combos: RPU no existe: %s", rpu_path)
@@ -261,7 +351,12 @@ async def analyze_rpu_combos(rpu_path: Path) -> RpuAnalysis:
     tmp_path = Path(tmp_path_str)
 
     try:
-        rc, stderr = await _run_export(rpu_path, tmp_path)
+        rc, stderr = await _run_export(
+            rpu_path, tmp_path,
+            timeout=export_timeout,
+            log_callback=log_callback,
+            register_proc=register_proc,
+        )
         if rc != 0:
             logger.warning("dovi_tool export falló sobre %s (rc=%s): %s",
                            rpu_path.name, rc, stderr[:200])
@@ -269,6 +364,13 @@ async def analyze_rpu_combos(rpu_path: Path) -> RpuAnalysis:
         if not tmp_path.exists() or tmp_path.stat().st_size == 0:
             logger.warning("dovi_tool export no generó JSON sobre %s", rpu_path.name)
             return RpuAnalysis()
+
+        if log_callback:
+            try:
+                size_mb = tmp_path.stat().st_size / (1024 * 1024)
+                log_callback(f"  ✓ JSON generado: {size_mb:.1f} MB · parseando combos…")
+            except Exception:
+                pass
 
         # El parseo del JSON puede ser costoso (cientos de MB en algunos RPUs).
         # Lo movemos al thread pool para no bloquear el event loop durante

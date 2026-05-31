@@ -10725,6 +10725,11 @@ function _mkvQualityResetSteps() {
     el.style.opacity = i === 0 ? '1' : '.4';
     el.textContent = el.textContent.replace(/^[✅⏳⬜✗]\s*/, i === 0 ? '⏳ ' : '⬜ ');
   });
+  // Resetear el guard monotónico de step para que una re-auditoría tras
+  // error vuelva a reconocer "ffmpeg" como step inicial (sin esto, si la
+  // sesión previa quedó en step "combos"/"error", la nueva llegaba con
+  // "ffmpeg" y se ignoraba como duplicado).
+  _mkvQualityLastStep = '';
   const cancelBtn = document.getElementById('mkv-quality-cancel-btn');
   if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = '🛑 Cancelar'; cancelBtn.style.display = ''; }
   const closeBtn = document.getElementById('mkv-quality-error-close-btn');
