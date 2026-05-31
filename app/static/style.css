@@ -8192,6 +8192,34 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-weight: 600;
 }
 
+/* Modal de Auditoría de calidad (Tab 2) — más alto que el modal estándar
+   para que se vean ~20 líneas de log de un vistazo. Reusa la paleta
+   semántica de .cmv40-log (importada arriba) para que el log tenga el
+   mismo aspecto que el overlay de CMv4.0. */
+.mkv-quality-modal-box {
+  max-width: 680px;
+  width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px;
+}
+.mkv-quality-log {
+  /* Override del max-height por defecto de .cmv40-log (300px) — aquí
+     queremos que ocupe todo el espacio vertical disponible del modal,
+     con un mínimo cómodo (~20 líneas a 11px/1.4 ≈ 310px). */
+  max-height: 340px;
+  min-height: 240px;
+  margin: 12px 0 8px;
+  flex: 1;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+/* En pantallas altas, dejar que crezca más */
+@media (min-height: 900px) {
+  .mkv-quality-log { max-height: 480px; }
+}
+
 /* ══════════════════════════════════════════════════════════════════
    FILE BROWSER MODAL — Tab 3 selector de MKV origen
    Hereda de .modal-box (border-radius, shadow, slide-up anim, surface-1

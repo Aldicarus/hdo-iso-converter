@@ -3745,9 +3745,14 @@ def _mkv_quality_reset(file_name: str = ""):
 def _mkv_quality_log(msg: str):
     import time as _t
     ts = _t.strftime("%H:%M:%S")
+    # Los markers semánticos (━━━, $, ✓, 📋, 🎯, ├─) deben mantener su
+    # prefijo intacto para que el clasificador del frontend (.cmv40-log)
+    # asigne la clase correcta. Solo prefijamos el timestamp.
     _mkv_quality_state["log_lines"].append(f"[{ts}] {msg}")
-    if len(_mkv_quality_state["log_lines"]) > 60:
-        _mkv_quality_state["log_lines"] = _mkv_quality_state["log_lines"][-60:]
+    # Buffer rolling generoso — el log enriquecido genera 30-50 líneas por
+    # run típico. 200 deja margen sobrado y son ~25 KB en el peor caso.
+    if len(_mkv_quality_state["log_lines"]) > 200:
+        _mkv_quality_state["log_lines"] = _mkv_quality_state["log_lines"][-200:]
     started = _mkv_quality_state.get("started_at") or _t.monotonic()
     _mkv_quality_state["elapsed_s"] = int(_t.monotonic() - started)
 
@@ -3815,25 +3820,51 @@ async def mkv_quality_audit_endpoint(body: dict):
     rel_path = body.get("file_path", "")
 
     if DEV_MODE:
-        # Fixture fake: simula 6 segundos de progreso y devuelve un veredicto
-        # CMv4.0 FULL para validar la UI sin ejecutar el pipeline real.
+        # Fixture fake: simula el log enriquecido (DEV) con marcadores
+        # semánticos, comandos y tiempos para validar la UI sin pipeline real.
         import asyncio as _aio
         _mkv_quality_reset(file_name=Path(rel_path).name or "fixture.mkv")
-        _mkv_quality_log("Paso 1/3 — Extrayendo HEVC del MKV con ffmpeg (DEV)")
+        _mkv_quality_log("[Audit] 📋 Plan: extraer HEVC del MKV → extraer RPU Dolby Vision → agregar combos L8/L2 y clasificar. ~5-10 min en UHD BD (~62 GB).")
+        _mkv_quality_log("[Audit] Workdir temporal: /tmp/mkv_quality_audit_DEV · se borrará al terminar")
+        _mkv_quality_log("━━━ Paso 1/3 · Extracción HEVC ━━━")
+        _mkv_quality_log("[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. Tamaño esperado del HEVC: ~46 GB (75% del MKV, sin audio/subs).")
+        _mkv_quality_log("$ ffmpeg -y -v error -i /mnt/output/Movie.mkv -map 0:v:0 -c:v copy -bsf:v hevc_mp4toannexb -f hevc /tmp/.../video.hevc")
         for pct in (10, 30, 55):
             _mkv_quality_state["global_pct"] = pct
             _mkv_quality_state["step"] = "ffmpeg"
-            await _aio.sleep(0.6)
-        _mkv_quality_log("Paso 2/3 — Extrayendo RPU (DEV)")
+            _mkv_quality_log(f"[Audit] HEVC: {int(pct/0.55)}% ({pct/2:.1f} GB / 46 GB esperado)")
+            await _aio.sleep(0.5)
+        _mkv_quality_log("[Audit] ✓ HEVC extraído en 4m 12s · 44.18 GB")
+        _mkv_quality_log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
+        _mkv_quality_log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
+        _mkv_quality_log("$ dovi_tool extract-rpu /tmp/.../video.hevc -o /tmp/.../rpu.bin")
         for pct in (65, 75, 80):
             _mkv_quality_state["global_pct"] = pct
             _mkv_quality_state["step"] = "extract_rpu"
             await _aio.sleep(0.4)
-        _mkv_quality_log("Paso 3/3 — Agregando combos (DEV)")
-        for pct in (88, 95, 100):
+        _mkv_quality_log("  Parsing RPU... ████████ 100%")
+        _mkv_quality_log("[Audit] ✓ RPU extraído en 1m 47s · 142 MB")
+        _mkv_quality_log("[Audit] ⏬ HEVC intermedio liberado (no se vuelve a usar)")
+        _mkv_quality_log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
+        _mkv_quality_log("[Audit] 📋 Plan: dovi_tool export -d all sobre el RPU → JSON grande (~3-5× el tamaño del RPU) → parsear y agregar combos únicos por frame.")
+        _mkv_quality_log("$ dovi_tool export -i /tmp/.../rpu.bin -d all=<json_temp>")
+        for pct in (88, 95):
             _mkv_quality_state["global_pct"] = pct
             _mkv_quality_state["step"] = "combos"
             await _aio.sleep(0.3)
+        _mkv_quality_log("[Audit] Frames analizados: 189,123 · CMv4.0 cobertura: 100% · scene cuts: 1,487")
+        _mkv_quality_log("[Audit] L8: 2,547 combos únicos · 11% frames neutros · mid_contrast · clip_trim")
+        _mkv_quality_log("[Audit] L2: 73 combos únicos · 4 target_pqs ([62, 2081, 2851, 3079])")
+        _mkv_quality_log("[Audit] ✓ Combos agregados en 1m 04s")
+        _mkv_quality_state["global_pct"] = 100
+        _mkv_quality_state["step"] = "combos"
+        await _aio.sleep(0.3)
+        _mkv_quality_log("[Audit] 🎯 Resultado: Master CMv4.0 FULL — calidad máxima")
+        _mkv_quality_log("[Audit] Tier: CMv4 FULL")
+        _mkv_quality_log("[Audit] L8 trabajado por colorista — 2547 combos únicos, 89% frames con trim (FULL).")
+        _mkv_quality_log("[Audit] ├─ Master nativo CMv4.0 reciente — L11 + L254 presentes")
+        _mkv_quality_log("[Audit] ├─ Metadata DV completa — source primaries (L9) + target primaries (L10) + content type (L11)")
+        _mkv_quality_log("✓ Auditoría completada en 7m 03s")
         fake_result = {
             "quality_total_frames_rpu": 189123,
             "quality_frames_with_cmv40": 189123,
@@ -3874,16 +3905,14 @@ async def mkv_quality_audit_endpoint(body: dict):
     _mkv_quality_reset(file_name=mkv_path_obj.name)
 
     def _progress_cb(step: str, pct: float, label: str):
+        # SOLO actualiza estado para el modal/polling. NO loguea — la lógica
+        # de logging detallado vive en analyze_rpu_quality_for_mkv via
+        # log_callback, con marcadores semánticos ricos (━━━ pasos, comandos
+        # $, ✓ resultados). Hacer log aquí duplicaría líneas.
         _mkv_quality_state["step"] = step
         _mkv_quality_state["global_pct"] = int(pct)
         if label:
             _mkv_quality_state["step_label"] = label
-            # Loguear solo cuando el label cambia (no en cada actualización
-            # de pct, que llega cada 1.5s y satura el log)
-            last_logged = _mkv_quality_state.get("_last_logged_label")
-            if label != last_logged:
-                _mkv_quality_log(label)
-                _mkv_quality_state["_last_logged_label"] = label
 
     def _register(proc):
         _mkv_quality_active_proc["proc"] = proc
@@ -3921,6 +3950,7 @@ async def mkv_quality_audit_endpoint(body: dict):
             cancel_check=_mkv_quality_check_cancel,
             register_proc=_register,
             dv_flags=dv_flags,
+            log_callback=_mkv_quality_log,
         )
         # Persistir en el cache MKV (bloque quality)
         persist_mkv_quality_to_cache(mkv_full, result)

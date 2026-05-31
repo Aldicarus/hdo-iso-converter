@@ -10588,17 +10588,11 @@ async function _rgrfAuditQuality(evt) {
           const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
           if (lines.length > lastLogCount && logEl) {
             const newLines = lines.slice(lastLogCount);
-            const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
-            for (const line of newLines) {
-              const div = document.createElement('div');
-              div.className = 'dv-light-log-line';
-              if (/Paso \d\/3/.test(line)) div.classList.add('step');
-              if (line.startsWith('✓') || line.includes('completada')) div.classList.add('done');
-              if (line.startsWith('✗') || (st.error && line.includes(st.error))) div.classList.add('error');
-              div.textContent = line;
-              logEl.appendChild(div);
-            }
-            if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+            // Reusa _appendLogLine que ya implementa scroll inteligente
+            // (_isScrolledNearBottom) y aplica la paleta semántica de
+            // .cmv40-log (clasifica por markers ━━━ / $ / 📋 / 🎯 / ✓ / ✗).
+            // Misma UX que el log del overlay de CMv4.0 — paridad visual.
+            for (const line of newLines) _appendLogLine(logEl, line);
             lastLogCount = lines.length;
           }
           if (st.active === false && (st.result || st.error)) {
@@ -10685,11 +10679,8 @@ async function _rgrfAuditQuality(evt) {
     }
     const errMsg = e?.message || String(e);
     if (logEl) {
-      const div = document.createElement('div');
-      div.className = 'dv-light-log-line error';
-      div.textContent = `✗ Error: ${errMsg}`;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
+      // _appendLogLine clasifica automáticamente por marcador "✗" como log-error
+      _appendLogLine(logEl, `✗ Error: ${errMsg}`);
     }
     showToast(`Error auditoría: ${errMsg}`, 'error', 8000);
     // Inyectar botón "Cerrar" para que el usuario lea el error sin presión

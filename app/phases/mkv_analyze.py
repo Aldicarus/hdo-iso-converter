@@ -503,12 +503,35 @@ def _build_quality_audit_from_rpu_analysis(
     }
 
 
+def _fmt_bytes(n: int) -> str:
+    """Formatea bytes como KB / MB / GB legible para el log."""
+    if n is None or n <= 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    f = float(n); i = 0
+    while f >= 1024 and i < len(units) - 1:
+        f /= 1024.0
+        i += 1
+    return f"{f:.2f} {units[i]}" if i >= 2 else f"{f:.0f} {units[i]}"
+
+
+def _fmt_elapsed(secs: float) -> str:
+    """Formatea segundos como '4m 12s' / '47s' / '1h 23m'."""
+    secs = max(0, int(secs))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m {secs % 60:02d}s"
+    return f"{secs // 3600}h {(secs % 3600) // 60:02d}m"
+
+
 async def analyze_rpu_quality_for_mkv(
     mkv_path: str,
     progress_callback=None,
     cancel_check=None,
     register_proc=None,
     dv_flags: dict | None = None,
+    log_callback=None,
 ) -> dict:
     """Pipeline de auditoría profunda del RPU de un MKV (Tab 2, on-demand).
 
@@ -524,19 +547,31 @@ async def analyze_rpu_quality_for_mkv(
     Callbacks:
       - progress_callback(step: str, pct: float, label: str)
       - cancel_check() — debe raise RuntimeError si el usuario canceló.
-      - register_proc(proc) — registra el subprocess actual para que el
-        endpoint de cancel pueda matarlo. Llamado antes de cada subprocess.
+      - register_proc(proc) — registra el subprocess para que el cancel
+        pueda matarlo.
+      - log_callback(msg: str) — opcional, recibe líneas detalladas con
+        marcadores semánticos (━━━ separadores de paso, $ comandos
+        ejecutados, ✓ éxitos, 📋 plan, 🎯 resultado). Si no se pasa,
+        el log solo aparece via progress_callback (label por step).
 
     Ficheros intermedios (HEVC ~45 GB, RPU ~100-200 MB, JSON ~300-500 MB)
     se borran SIEMPRE en finally — nunca se cachean.
     """
     import tempfile
+    import time as _t
     from phases.rpu_analyze import analyze_rpu_combos
 
     def _emit(step: str, pct: float = 0.0, label: str = ""):
         if progress_callback:
             try:
                 progress_callback(step, pct, label)
+            except Exception:
+                pass
+
+    def _log(msg: str):
+        if log_callback:
+            try:
+                log_callback(msg)
             except Exception:
                 pass
 
@@ -551,19 +586,29 @@ async def analyze_rpu_quality_for_mkv(
     tmpdir = Path(tempfile.mkdtemp(prefix="mkv_quality_audit_"))
     hevc_path = tmpdir / "video.hevc"
     rpu_path = tmpdir / "rpu.bin"
+    mkv_size = p.stat().st_size
+    expected_hevc = int(mkv_size * 0.75)
+
+    audit_start = _t.monotonic()
+    _log(f"[Audit] 📋 Plan: extraer HEVC del MKV → extraer RPU Dolby Vision → "
+         f"agregar combos L8/L2 y clasificar. ~5-10 min en UHD BD (~{_fmt_bytes(mkv_size)}).")
+    _log(f"[Audit] Workdir temporal: {tmpdir} · se borrará al terminar")
 
     try:
         # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
         _check()
         _emit("ffmpeg", 0.0, "Extrayendo HEVC del MKV con ffmpeg…")
-        mkv_size = p.stat().st_size
-        expected_hevc = int(mkv_size * 0.75)
+        _log("━━━ Paso 1/3 · Extracción HEVC ━━━")
+        _log(f"[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. "
+             f"Tamaño esperado del HEVC: ~{_fmt_bytes(expected_hevc)} (75% del MKV, sin audio/subs).")
         ff_cmd = [
             FFMPEG_BIN, "-y", "-v", "error",
             "-i", str(p),
             "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
             "-f", "hevc", str(hevc_path),
         ]
+        _log("$ " + " ".join(ff_cmd))
+        t_step = _t.monotonic()
         ff_proc = await asyncio.create_subprocess_exec(
             *ff_cmd,
             stdout=asyncio.subprocess.DEVNULL,
@@ -572,16 +617,22 @@ async def analyze_rpu_quality_for_mkv(
         if register_proc:
             register_proc(ff_proc)
         stop_mon = asyncio.Event()
+        last_logged_pct = -10
 
         async def _ff_monitor():
+            nonlocal last_logged_pct
             while not stop_mon.is_set():
                 try:
                     if hevc_path.exists() and expected_hevc > 0:
                         size = hevc_path.stat().st_size
-                        # Paso 1 ocupa 55% del progreso global
                         local_pct = min(99, size * 100 / expected_hevc)
                         global_pct = local_pct * 0.55
                         _emit("ffmpeg", global_pct, "Extrayendo HEVC del MKV…")
+                        # Loguear progreso cada 10% para no saturar
+                        if int(local_pct) >= last_logged_pct + 10:
+                            last_logged_pct = int(local_pct // 10) * 10
+                            _log(f"[Audit] HEVC: {int(local_pct)}% "
+                                 f"({_fmt_bytes(size)} / {_fmt_bytes(expected_hevc)} esperado)")
                 except Exception:
                     pass
                 try:
@@ -591,7 +642,7 @@ async def analyze_rpu_quality_for_mkv(
 
         mon_task = asyncio.create_task(_ff_monitor())
         try:
-            _, stderr = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
+            _, stderr_bytes = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
         except asyncio.TimeoutError:
             try: ff_proc.kill()
             except Exception: pass
@@ -602,48 +653,98 @@ async def analyze_rpu_quality_for_mkv(
             except Exception: pass
 
         _check()
+        ff_stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+        if ff_stderr:
+            # Emitir cada línea (max 30) — ffmpeg con -v error sólo escupe si
+            # hay problema, así que vale la pena verlo todo.
+            for ln in ff_stderr.splitlines()[:30]:
+                _log(f"  {ln}")
         if ff_proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
-            err = stderr.decode("utf-8", errors="replace")[:400]
+            err = ff_stderr[:400] or f"rc={ff_proc.returncode}"
+            _log(f"[Audit] ✗ ffmpeg falló: {err}")
             raise RuntimeError(f"ffmpeg falló: {err}")
+        hevc_size = hevc_path.stat().st_size
         _emit("ffmpeg", 55.0, "✓ HEVC extraído")
+        _log(f"[Audit] ✓ HEVC extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(hevc_size)}")
 
         # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
         _check()
         _emit("extract_rpu", 55.0, "Extrayendo RPU Dolby Vision del HEVC…")
+        _log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
+        _log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y "
+             "extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
+        dt_cmd = [DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path)]
+        _log("$ " + " ".join(dt_cmd))
+        t_step = _t.monotonic()
         dt_proc = await asyncio.create_subprocess_exec(
-            DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            *dt_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
         if register_proc:
             register_proc(dt_proc)
         try:
-            _, stderr = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
+            dt_out_bytes, _ = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
         except asyncio.TimeoutError:
             try: dt_proc.kill()
             except Exception: pass
             raise RuntimeError("dovi_tool extract-rpu excedió 30 min")
         _check()
+        dt_output = dt_out_bytes.decode("utf-8", errors="replace").strip()
+        if dt_output:
+            # dovi_tool escupe líneas de progreso ("Parsing RPU...") + summary.
+            # Mostrar las últimas 20 (las útiles).
+            lines = dt_output.splitlines()
+            for ln in lines[-20:]:
+                if ln.strip():
+                    _log(f"  {ln.strip()}")
         if dt_proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
-            err = stderr.decode("utf-8", errors="replace")[:400]
+            err = dt_output[-400:] or f"rc={dt_proc.returncode}"
+            _log(f"[Audit] ✗ dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}")
             raise RuntimeError(
                 f"dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}"
             )
+        rpu_size = rpu_path.stat().st_size
+        _log(f"[Audit] ✓ RPU extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(rpu_size)}")
         # Liberar HEVC en cuanto tenemos el RPU — son 45 GB que ya no
         # necesitamos. Reduce uso de disco durante el paso 3.
-        try: hevc_path.unlink(missing_ok=True)
-        except Exception: pass
+        try:
+            hevc_path.unlink(missing_ok=True)
+            _log("[Audit] ⏬ HEVC intermedio liberado (no se vuelve a usar)")
+        except Exception:
+            pass
         _emit("extract_rpu", 80.0, "✓ RPU extraído")
 
         # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
         _check()
         _emit("combos", 80.0, "Exportando metadata y agregando combos L8/L2…")
+        _log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
+        _log("[Audit] 📋 Plan: dovi_tool export -d all sobre el RPU → JSON grande "
+             "(~3-5× el tamaño del RPU) → parsear y agregar combos únicos por frame.")
+        _log(f"$ dovi_tool export -i {rpu_path} -d all=<json_temp>")
+        t_step = _t.monotonic()
         rpu_analysis = await analyze_rpu_combos(rpu_path)
         _check()
         if rpu_analysis.total_frames == 0:
+            _log("[Audit] ✗ dovi_tool export devolvió 0 frames — el RPU no es legible o no hay metadata DV.")
             raise RuntimeError(
                 "dovi_tool export devolvió 0 frames — el RPU no es legible o no hay metadata DV."
             )
+        cmv40_pct = (rpu_analysis.frames_with_cmv40 * 100 / rpu_analysis.total_frames
+                     if rpu_analysis.total_frames > 0 else 0)
+        _log(f"[Audit] Frames analizados: {rpu_analysis.total_frames:,} · "
+             f"CMv4.0 cobertura: {cmv40_pct:.0f}% · scene cuts: {rpu_analysis.scene_cuts:,}")
+        if rpu_analysis.l8_unique_count > 0:
+            l8_extras = []
+            if rpu_analysis.l8_has_mid_contrast: l8_extras.append("mid_contrast")
+            if rpu_analysis.l8_has_clip_trim:    l8_extras.append("clip_trim")
+            extras_str = (" · " + " · ".join(l8_extras)) if l8_extras else ""
+            _log(f"[Audit] L8: {rpu_analysis.l8_unique_count:,} combos únicos · "
+                 f"{rpu_analysis.l8_neutral_pct * 100:.0f}% frames neutros{extras_str}")
+        if rpu_analysis.l2_unique_count > 0:
+            _log(f"[Audit] L2: {rpu_analysis.l2_unique_count:,} combos únicos · "
+                 f"{len(rpu_analysis.l2_target_pqs)} target_pqs ({rpu_analysis.l2_target_pqs})")
+        _log(f"[Audit] ✓ Combos agregados en {_fmt_elapsed(_t.monotonic() - t_step)}")
         _emit("combos", 95.0, "✓ Combos agregados")
 
         # ── Paso 4: classify + verdict ───────────────────────────────
@@ -653,6 +754,14 @@ async def analyze_rpu_quality_for_mkv(
             rpu_analysis, is_cmv29_only, dv_flags=dv_flags,
         )
         _emit("done", 100.0, "✓ Auditoría completada")
+        _log(f"[Audit] 🎯 Resultado: {result.get('quality_verdict_text', '—')}")
+        if result.get("quality_tier_label"):
+            _log(f"[Audit] Tier: {result['quality_tier_label']}")
+        if result.get("quality_reason"):
+            _log(f"[Audit] {result['quality_reason']}")
+        for hint in (result.get("quality_provenance_hints") or [])[:5]:
+            _log(f"[Audit] ├─ {hint}")
+        _log(f"✓ Auditoría completada en {_fmt_elapsed(_t.monotonic() - audit_start)}")
         return result
 
     finally:

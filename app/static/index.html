@@ -978,26 +978,27 @@
 
 <!-- ═══ MODAL: Auditoría de calidad RPU (Tab 2) ═══════════════════ -->
 <div class="modal-overlay" id="mkv-quality-modal">
-  <div class="modal-box" style="max-width:520px">
-    <div style="font-size:40px; text-align:center; margin-bottom:8px">🔬</div>
-    <div class="modal-title" style="margin-bottom:4px; text-align:center">Auditando calidad CMv4.0 / CMv2.9</div>
+  <div class="modal-box mkv-quality-modal-box">
+    <div style="font-size:32px; text-align:center; margin-bottom:6px">🔬</div>
+    <div class="modal-title" style="margin-bottom:2px; text-align:center">Auditando calidad CMv4.0 / CMv2.9</div>
     <div class="modal-sub" id="mkv-quality-modal-file"
-         style="margin-bottom:16px; word-break:break-all; text-align:center"></div>
-    <div style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
+         style="margin-bottom:12px; word-break:break-all; text-align:center"></div>
+    <div style="text-align:left; font-size:12px; color:var(--text-2); line-height:1.9">
       <div id="mkv-quality-step-ffmpeg">⏳ Extrayendo HEVC del MKV (2-7 min, leyendo del NAS)…</div>
       <div id="mkv-quality-step-extract_rpu" style="opacity:.4">⬜ Extrayendo RPU Dolby Vision (1-2 min)…</div>
       <div id="mkv-quality-step-combos" style="opacity:.4">⬜ Agregando combos L8/L2 y clasificando (1-3 min)…</div>
     </div>
-    <div style="margin:12px 0 4px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
+    <div style="margin:10px 0 4px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
       <div id="mkv-quality-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px; box-shadow:0 0 6px rgba(59,143,255,0.4)"></div>
     </div>
     <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums">
       <span id="mkv-quality-pct">0%</span>
       <span id="mkv-quality-elapsed">00:00</span>
     </div>
-    <pre id="mkv-quality-log" class="raw-analysis-pre"
-         style="max-height:140px; margin:12px 0 8px; font-size:10px"></pre>
+    <div id="mkv-quality-log" class="cmv40-log mkv-quality-log"></div>
     <div class="modal-footer">
+      <button class="btn btn-ghost btn-xs" onclick="copyLogToClipboard('mkv-quality-log', this)"
+              data-tooltip="Copiar todo el log al portapapeles">📋 Copiar log</button>
       <button class="btn btn-danger btn-sm" id="mkv-quality-cancel-btn"
               onclick="_mkvQualityCancel()">🛑 Cancelar</button>
     </div>
