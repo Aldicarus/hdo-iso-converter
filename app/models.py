@@ -175,6 +175,59 @@ class DoviInfo(BaseModel):
     raw_summary: str = ""
     """Output completo de dovi_tool info --summary."""
 
+    # ── Auditoría profunda del RPU (Tab 2, on-demand) ───────────────
+    # Resultado de `dovi_tool export -d all` + analyze_rpu_combos +
+    # classify_l8/classify_l8_quality. Permanecen vacíos hasta que el
+    # usuario pulsa "Auditar calidad" en la card del panel — el coste
+    # del análisis full es de 5-10 min en UHD BD.
+    quality_total_frames_rpu: int = 0
+    """Total de frames analizados por dovi_tool export (= frames del MKV)."""
+
+    quality_frames_with_cmv40: int = 0
+    """Cuántos frames del RPU tienen metadata cmv40_metadata poblada."""
+
+    quality_scene_cuts: int = 0
+    """Nº de frames con scene_refresh_flag (~ nº de shots de la peli)."""
+
+    quality_l2_unique_count: int = 0
+    """Nº de combos L2 únicos (trims CMv2.9) a lo largo del RPU."""
+
+    quality_l2_target_pqs: list[int] = []
+    """Target_max_pq distintos del L2 (ej: [62, 2081, 2851, 3079] = 4 targets)."""
+
+    quality_l8_unique_count: int = 0
+    """Nº de combos L8 únicos (trims CMv4.0)."""
+
+    quality_l8_neutral_pct: float = 0.0
+    """% de frames donde TODOS los L8 son neutros (= sintético / Auto on-the-fly)."""
+
+    quality_l8_has_mid_contrast: bool = False
+    """Algún combo L8 popula target_mid_contrast (campo CMv4.0-only). Marcador FULL."""
+
+    quality_l8_has_clip_trim: bool = False
+    """Algún combo L8 popula clip_trim (campo CMv4.0-only). Marcador FULL."""
+
+    quality_classification: str = ""
+    """'real' | 'default' | 'indeterminate' | '' (no auditado)."""
+
+    quality_reason: str = ""
+    """Descripción técnica del veredicto (de classify_l8 o classify_l2)."""
+
+    quality_tier: str = ""
+    """'full' | 'core_rich' | 'core' | '' (no aplica si classification != real)."""
+
+    quality_tier_label: str = ""
+    """'CMv4 FULL' | 'CMv4 CORE+' | 'CMv4 CORE' | 'CMv2.9' | ''."""
+
+    quality_tier_description: str = ""
+    """Descripción técnica del tier (frase larga del classifier)."""
+
+    quality_verdict_text: str = ""
+    """Frase corta humana para el banner: 'Master CMv4.0 FULL — calidad máxima'."""
+
+    quality_verdict_color: str = ""
+    """'green' | 'yellow' | 'red' | 'gray'. Driver del badge de la card."""
+
 
 class MediaInfoTrack(BaseModel):
     """Datos por pista extraídos de MediaInfo --Output=JSON."""

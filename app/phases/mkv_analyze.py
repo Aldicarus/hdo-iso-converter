@@ -110,6 +110,14 @@ async def analyze_mkv(
                 # llega como None. El modal "Datos MKV" no lo consume, así
                 # que el comportamiento es idéntico para el usuario.
                 result = MkvAnalysisResult.model_validate(cached["basic"])
+                # Si hay quality cache válido, inyectarlo en el DoviInfo del
+                # resultado para que la card de Auditoría aparezca poblada
+                # directamente al abrir el MKV.
+                quality_block = cached.get("quality")
+                if quality_block and result.dovi:
+                    for k, v in quality_block.items():
+                        if hasattr(result.dovi, k):
+                            setattr(result.dovi, k, v)
                 _logger.info("MKV cache HIT para %s", Path(mkv_path).name)
                 return result
             except Exception as e:
@@ -311,6 +319,288 @@ async def analyze_mkv(
         dovi=dovi_info,
         mediainfo_raw=mediainfo_raw,
     )
+
+
+def _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only: bool) -> dict:
+    """Construye el dict de campos quality_* a partir de un RpuAnalysis.
+
+    Devuelve un dict ya con shape para inyectar en DoviInfo.model_validate(
+    {**dovi_existing, **quality_dict}). Centraliza la lógica de verdict
+    text/color para que el frontend reciba un payload coherente sin
+    re-implementar el árbol de decisión en JavaScript.
+
+    is_cmv29_only: True si el RPU NO tiene bloques CMv4.0 (l8_unique_count==0
+    Y frames_with_cmv40==0). En ese caso el veredicto se basa en L2.
+    """
+    from phases.rpu_analyze import classify_l8, classify_l8_quality
+
+    base = {
+        "quality_total_frames_rpu": rpu_analysis.total_frames,
+        "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
+        "quality_scene_cuts": rpu_analysis.scene_cuts,
+        "quality_l2_unique_count": rpu_analysis.l2_unique_count,
+        "quality_l2_target_pqs": list(rpu_analysis.l2_target_pqs),
+        "quality_l8_unique_count": rpu_analysis.l8_unique_count,
+        "quality_l8_neutral_pct": rpu_analysis.l8_neutral_pct,
+        "quality_l8_has_mid_contrast": rpu_analysis.l8_has_mid_contrast,
+        "quality_l8_has_clip_trim": rpu_analysis.l8_has_clip_trim,
+    }
+
+    if is_cmv29_only:
+        # RPU CMv2.9 puro: el veredicto es sobre L2 (Tier 1 del modelo).
+        # Mismo umbral cualitativo: muchos combos = master nativo; pocos = generado.
+        l2_count = rpu_analysis.l2_unique_count
+        l2_pqs = len(rpu_analysis.l2_target_pqs)
+        if l2_count >= 30 and l2_pqs >= 3:
+            verdict = "Master CMv2.9 nativo — grading rico del Blu-ray UHD"
+            color = "green"
+            reason = (f"L2 trabajado por colorista — {l2_count} combos únicos "
+                      f"sobre {l2_pqs} target_pqs. Grading nativo de masterizado "
+                      f"UHD BD, no conversión algorítmica.")
+            tier_label = "CMv2.9 NATIVO"
+        elif l2_count >= 10:
+            verdict = "CMv2.9 estándar — trims básicos del master"
+            color = "yellow"
+            reason = (f"L2 con {l2_count} combos únicos sobre {l2_pqs} target_pqs. "
+                      f"Funcional pero no excepcional; típico de release streaming "
+                      f"o conversión a CMv2.9.")
+            tier_label = "CMv2.9 CORE"
+        else:
+            verdict = "CMv2.9 mínimo — grading limitado"
+            color = "red"
+            reason = (f"L2 con solo {l2_count} combos únicos. El RPU aporta poco "
+                      f"trabajo de tone-mapping dinámico; un upgrade a CMv4.0 sería "
+                      f"un salto sustancial.")
+            tier_label = "CMv2.9 MIN"
+        return {
+            **base,
+            "quality_classification": "real" if l2_count >= 10 else "default",
+            "quality_reason": reason,
+            "quality_tier": "",  # tiers son solo CMv4.0
+            "quality_tier_label": tier_label,
+            "quality_tier_description": reason,
+            "quality_verdict_text": verdict,
+            "quality_verdict_color": color,
+        }
+
+    # CMv4.0: aplica el classifier de Tab 3 íntegro.
+    classification, reason = classify_l8(rpu_analysis)
+    tier, tier_label, tier_desc = classify_l8_quality(rpu_analysis)
+
+    if classification == "real" and tier == "full":
+        verdict = "Master CMv4.0 FULL — calidad máxima"
+        color = "green"
+    elif classification == "real" and tier == "core_rich":
+        verdict = "Master CMv4.0 CORE+ — grading dinámico shot-a-shot"
+        color = "green"
+    elif classification == "real" and tier == "core":
+        verdict = "Master CMv4.0 CORE — streaming estándar"
+        color = "yellow"
+    elif classification == "real":
+        # "real" sin tier — minimal real
+        verdict = "Master CMv4.0 minimal — look global trabajado"
+        color = "yellow"
+    elif classification == "default":
+        verdict = "CMv4.0 sintético — equivale a Auto on-the-fly"
+        color = "red"
+    else:  # indeterminate
+        verdict = "CMv4.0 ambiguo — caso límite"
+        color = "gray"
+
+    return {
+        **base,
+        "quality_classification": classification,
+        "quality_reason": reason,
+        "quality_tier": tier,
+        "quality_tier_label": tier_label,
+        "quality_tier_description": tier_desc,
+        "quality_verdict_text": verdict,
+        "quality_verdict_color": color,
+    }
+
+
+async def analyze_rpu_quality_for_mkv(
+    mkv_path: str,
+    progress_callback=None,
+    cancel_check=None,
+    register_proc=None,
+) -> dict:
+    """Pipeline de auditoría profunda del RPU de un MKV (Tab 2, on-demand).
+
+    Pasos (con timings típicos en UHD BD 60 GB):
+      1. ffmpeg → HEVC annex-B (2-7 min, I/O-bound NAS).
+      2. dovi_tool extract-rpu sobre HEVC (1-2 min, CPU-bound).
+      3. analyze_rpu_combos (export -d all + parse JSON, 1-3 min).
+      4. classify_l8 + classify_l8_quality + verdict (instantáneo).
+
+    Devuelve un dict con los campos quality_* listos para inyectar en
+    DoviInfo. Lanza RuntimeError ante cualquier fallo o cancelación.
+
+    Callbacks:
+      - progress_callback(step: str, pct: float, label: str)
+      - cancel_check() — debe raise RuntimeError si el usuario canceló.
+      - register_proc(proc) — registra el subprocess actual para que el
+        endpoint de cancel pueda matarlo. Llamado antes de cada subprocess.
+
+    Ficheros intermedios (HEVC ~45 GB, RPU ~100-200 MB, JSON ~300-500 MB)
+    se borran SIEMPRE en finally — nunca se cachean.
+    """
+    import tempfile
+    from phases.rpu_analyze import analyze_rpu_combos
+
+    def _emit(step: str, pct: float = 0.0, label: str = ""):
+        if progress_callback:
+            try:
+                progress_callback(step, pct, label)
+            except Exception:
+                pass
+
+    def _check():
+        if cancel_check:
+            cancel_check()
+
+    p = Path(mkv_path)
+    if not p.exists():
+        raise RuntimeError(f"MKV no encontrado: {mkv_path}")
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="mkv_quality_audit_"))
+    hevc_path = tmpdir / "video.hevc"
+    rpu_path = tmpdir / "rpu.bin"
+
+    try:
+        # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
+        _check()
+        _emit("ffmpeg", 0.0, "Extrayendo HEVC del MKV con ffmpeg…")
+        mkv_size = p.stat().st_size
+        expected_hevc = int(mkv_size * 0.75)
+        ff_cmd = [
+            FFMPEG_BIN, "-y", "-v", "error",
+            "-i", str(p),
+            "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+            "-f", "hevc", str(hevc_path),
+        ]
+        ff_proc = await asyncio.create_subprocess_exec(
+            *ff_cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        if register_proc:
+            register_proc(ff_proc)
+        stop_mon = asyncio.Event()
+
+        async def _ff_monitor():
+            while not stop_mon.is_set():
+                try:
+                    if hevc_path.exists() and expected_hevc > 0:
+                        size = hevc_path.stat().st_size
+                        # Paso 1 ocupa 55% del progreso global
+                        local_pct = min(99, size * 100 / expected_hevc)
+                        global_pct = local_pct * 0.55
+                        _emit("ffmpeg", global_pct, "Extrayendo HEVC del MKV…")
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
+                except asyncio.TimeoutError:
+                    pass
+
+        mon_task = asyncio.create_task(_ff_monitor())
+        try:
+            _, stderr = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
+        except asyncio.TimeoutError:
+            try: ff_proc.kill()
+            except Exception: pass
+            raise RuntimeError("ffmpeg excedió 40 min extrayendo HEVC")
+        finally:
+            stop_mon.set()
+            try: await mon_task
+            except Exception: pass
+
+        _check()
+        if ff_proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
+            err = stderr.decode("utf-8", errors="replace")[:400]
+            raise RuntimeError(f"ffmpeg falló: {err}")
+        _emit("ffmpeg", 55.0, "✓ HEVC extraído")
+
+        # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
+        _check()
+        _emit("extract_rpu", 55.0, "Extrayendo RPU Dolby Vision del HEVC…")
+        dt_proc = await asyncio.create_subprocess_exec(
+            DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        if register_proc:
+            register_proc(dt_proc)
+        try:
+            _, stderr = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
+        except asyncio.TimeoutError:
+            try: dt_proc.kill()
+            except Exception: pass
+            raise RuntimeError("dovi_tool extract-rpu excedió 30 min")
+        _check()
+        if dt_proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
+            err = stderr.decode("utf-8", errors="replace")[:400]
+            raise RuntimeError(
+                f"dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}"
+            )
+        # Liberar HEVC en cuanto tenemos el RPU — son 45 GB que ya no
+        # necesitamos. Reduce uso de disco durante el paso 3.
+        try: hevc_path.unlink(missing_ok=True)
+        except Exception: pass
+        _emit("extract_rpu", 80.0, "✓ RPU extraído")
+
+        # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
+        _check()
+        _emit("combos", 80.0, "Exportando metadata y agregando combos L8/L2…")
+        rpu_analysis = await analyze_rpu_combos(rpu_path)
+        _check()
+        if rpu_analysis.total_frames == 0:
+            raise RuntimeError(
+                "dovi_tool export devolvió 0 frames — el RPU no es legible o no hay metadata DV."
+            )
+        _emit("combos", 95.0, "✓ Combos agregados")
+
+        # ── Paso 4: classify + verdict ───────────────────────────────
+        is_cmv29_only = (rpu_analysis.frames_with_cmv40 == 0
+                         and rpu_analysis.l8_unique_count == 0)
+        result = _build_quality_audit_from_rpu_analysis(rpu_analysis, is_cmv29_only)
+        _emit("done", 100.0, "✓ Auditoría completada")
+        return result
+
+    finally:
+        # Cleanup atómico — nunca dejamos basura en /mnt/tmp
+        try: hevc_path.unlink(missing_ok=True)
+        except Exception: pass
+        try: rpu_path.unlink(missing_ok=True)
+        except Exception: pass
+        try: tmpdir.rmdir()
+        except Exception: pass
+
+
+def persist_mkv_quality_to_cache(mkv_path: str, quality_payload: dict) -> None:
+    """Persiste el dict de quality_* en el bloque 'quality' del cache MKV.
+
+    Preserva el bloque 'basic' existente (storage.write_mkv_cache_quality
+    lo lee y lo re-escribe). Si el cache no existe todavía (caso edge:
+    análisis básico no se hizo por la app), crea el fichero solo con
+    quality y los versions queda incompleto — la próxima apertura
+    re-analizará basic y mantendrá quality."""
+    from storage import compute_mkv_fingerprint, write_mkv_cache_quality
+    try:
+        fingerprint = compute_mkv_fingerprint(mkv_path)
+        if not fingerprint:
+            return
+        write_mkv_cache_quality(
+            fingerprint=fingerprint,
+            cache_version_basic_existing=CACHE_VERSION_BASIC,
+            cache_version_quality=CACHE_VERSION_QUALITY,
+            quality_payload=quality_payload,
+        )
+        _logger.info("MKV cache WRITE quality para %s", Path(mkv_path).name)
+    except Exception as e:
+        _logger.warning("Fallo escribiendo quality cache para %s: %s",
+                        Path(mkv_path).name, e)
 
 
 def persist_mkv_basic_to_cache(mkv_path: str, result: MkvAnalysisResult) -> None:

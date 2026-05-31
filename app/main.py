@@ -3697,6 +3697,226 @@ async def mkv_light_profile_endpoint(body: dict):
         _light_profile_state["active"] = False
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  TAB 2 — Quality audit (RPU L8/L2 combos + classify) on-demand
+# ══════════════════════════════════════════════════════════════════════
+#
+# Pipeline costoso (~5-10 min UHD BD) que se dispara cuando el usuario
+# pulsa "🔬 Auditar calidad" en la card del panel. Reusa el infra del
+# light-profile (single-job singleton + state + cancel cooperativo).
+# Al terminar, persiste el bloque 'quality' del cache MKV — futuras
+# aperturas del mismo fichero muestran la card poblada directamente.
+
+_mkv_quality_state: dict = {
+    "active": False,
+    "step": "",           # "ffmpeg" | "extract_rpu" | "combos" | "done" | "error"
+    "step_label": "",
+    "global_pct": 0,      # 0-100 total
+    "elapsed_s": 0,
+    "log_lines": [],      # rolling log (max 60 líneas)
+    "error": None,
+    "started_at": 0.0,
+    "result": None,       # dict con los campos quality_* tras éxito
+    "file_name": "",
+}
+
+_mkv_quality_active_proc: dict = {"proc": None}
+_mkv_quality_cancel: dict = {"requested": False}
+
+
+def _mkv_quality_reset(file_name: str = ""):
+    import time as _t
+    _mkv_quality_active_proc["proc"] = None
+    _mkv_quality_cancel["requested"] = False
+    _mkv_quality_state.update({
+        "active": True,
+        "step": "ffmpeg",
+        "step_label": "Iniciando auditoría…",
+        "global_pct": 0,
+        "elapsed_s": 0,
+        "log_lines": [],
+        "error": None,
+        "result": None,
+        "started_at": _t.monotonic(),
+        "file_name": file_name,
+    })
+
+
+def _mkv_quality_log(msg: str):
+    import time as _t
+    ts = _t.strftime("%H:%M:%S")
+    _mkv_quality_state["log_lines"].append(f"[{ts}] {msg}")
+    if len(_mkv_quality_state["log_lines"]) > 60:
+        _mkv_quality_state["log_lines"] = _mkv_quality_state["log_lines"][-60:]
+    started = _mkv_quality_state.get("started_at") or _t.monotonic()
+    _mkv_quality_state["elapsed_s"] = int(_t.monotonic() - started)
+
+
+def _mkv_quality_check_cancel():
+    """Lanza RuntimeError si el usuario canceló. Llamar entre pasos."""
+    if _mkv_quality_cancel["requested"]:
+        raise RuntimeError("Cancelado por el usuario")
+
+
+@app.get("/api/mkv/quality-audit/progress")
+async def mkv_quality_audit_progress():
+    """Polling endpoint para el modal de auditoría."""
+    return dict(_mkv_quality_state)
+
+
+@app.post("/api/mkv/quality-audit/cancel")
+async def mkv_quality_audit_cancel():
+    """Solicita cancelación cooperativa + SIGTERM/SIGKILL del subprocess.
+
+    Espera a que el subprocess sea reaped antes de retornar — sin esto,
+    el siguiente intento puede chocar con file handles aún abiertos sobre
+    el NAS (mismo patrón que el cancel del light-profile)."""
+    if not _mkv_quality_state.get("active"):
+        return {"ok": False, "reason": "no_active_job"}
+    _mkv_quality_cancel["requested"] = True
+    proc = _mkv_quality_active_proc.get("proc")
+    if proc:
+        try:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                try: proc.kill()
+                except Exception: pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    _logger.warning(
+                        "quality-audit cancel: subprocess no reaped tras 10s "
+                        "(zombie probable)"
+                    )
+        except Exception as e:
+            _logger.warning("quality-audit cancel: kill subprocess falló: %s", e)
+    _mkv_quality_active_proc["proc"] = None
+    _mkv_quality_log("✗ Cancelado por el usuario")
+    _mkv_quality_state["error"] = "Cancelado por el usuario"
+    _mkv_quality_state["active"] = False
+    return {"ok": True}
+
+
+@app.post("/api/mkv/quality-audit", summary="Auditoría profunda del RPU (on-demand)")
+async def mkv_quality_audit_endpoint(body: dict):
+    """Ejecuta el pipeline de auditoría L8/L2 sobre el RPU completo del MKV.
+
+    Body: ``{"file_path": "/mnt/.../movie.mkv"}``.
+
+    Tarda 5-10 min en UHD BD (ffmpeg 2-7 min + extract-rpu 1-2 min + export
+    & parse 1-3 min). Devuelve un dict con los campos `quality_*` para
+    inyectar en `DoviInfo`. El resultado se persiste en el bloque `quality`
+    del cache MKV — re-abrir el mismo MKV en Tab 2 muestra la card poblada.
+
+    Estado durante la ejecución expuesto via /api/mkv/quality-audit/progress.
+    """
+    rel_path = body.get("file_path", "")
+
+    if DEV_MODE:
+        # Fixture fake: simula 6 segundos de progreso y devuelve un veredicto
+        # CMv4.0 FULL para validar la UI sin ejecutar el pipeline real.
+        import asyncio as _aio
+        _mkv_quality_reset(file_name=Path(rel_path).name or "fixture.mkv")
+        _mkv_quality_log("Paso 1/3 — Extrayendo HEVC del MKV con ffmpeg (DEV)")
+        for pct in (10, 30, 55):
+            _mkv_quality_state["global_pct"] = pct
+            _mkv_quality_state["step"] = "ffmpeg"
+            await _aio.sleep(0.6)
+        _mkv_quality_log("Paso 2/3 — Extrayendo RPU (DEV)")
+        for pct in (65, 75, 80):
+            _mkv_quality_state["global_pct"] = pct
+            _mkv_quality_state["step"] = "extract_rpu"
+            await _aio.sleep(0.4)
+        _mkv_quality_log("Paso 3/3 — Agregando combos (DEV)")
+        for pct in (88, 95, 100):
+            _mkv_quality_state["global_pct"] = pct
+            _mkv_quality_state["step"] = "combos"
+            await _aio.sleep(0.3)
+        fake_result = {
+            "quality_total_frames_rpu": 189123,
+            "quality_frames_with_cmv40": 189123,
+            "quality_scene_cuts": 1487,
+            "quality_l2_unique_count": 73,
+            "quality_l2_target_pqs": [62, 2081, 2851, 3079],
+            "quality_l8_unique_count": 2547,
+            "quality_l8_neutral_pct": 0.11,
+            "quality_l8_has_mid_contrast": True,
+            "quality_l8_has_clip_trim": True,
+            "quality_classification": "real",
+            "quality_reason": "L8 trabajado por colorista — 2547 combos únicos, 89% frames con trim (FULL).",
+            "quality_tier": "full",
+            "quality_tier_label": "CMv4 FULL",
+            "quality_tier_description": "Master CMv4.0 FULL — campos exclusivos CMv4.0 poblados.",
+            "quality_verdict_text": "Master CMv4.0 FULL — calidad máxima",
+            "quality_verdict_color": "green",
+        }
+        _mkv_quality_state["result"] = fake_result
+        _mkv_quality_state["active"] = False
+        return fake_result
+
+    mkv_path_obj = _resolve_mkv_path_safe(rel_path)
+    mkv_full = str(mkv_path_obj)
+    if not mkv_path_obj.exists():
+        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+
+    if _mkv_quality_state.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="Ya hay una auditoría en curso. Cancélala o espera a que termine.",
+        )
+
+    _mkv_quality_reset(file_name=mkv_path_obj.name)
+
+    def _progress_cb(step: str, pct: float, label: str):
+        _mkv_quality_state["step"] = step
+        _mkv_quality_state["global_pct"] = int(pct)
+        if label:
+            _mkv_quality_state["step_label"] = label
+            # Loguear solo cuando el label cambia (no en cada actualización
+            # de pct, que llega cada 1.5s y satura el log)
+            last_logged = _mkv_quality_state.get("_last_logged_label")
+            if label != last_logged:
+                _mkv_quality_log(label)
+                _mkv_quality_state["_last_logged_label"] = label
+
+    def _register(proc):
+        _mkv_quality_active_proc["proc"] = proc
+
+    try:
+        from phases.mkv_analyze import (
+            analyze_rpu_quality_for_mkv, persist_mkv_quality_to_cache,
+        )
+        result = await analyze_rpu_quality_for_mkv(
+            mkv_full,
+            progress_callback=_progress_cb,
+            cancel_check=_mkv_quality_check_cancel,
+            register_proc=_register,
+        )
+        # Persistir en el cache MKV (bloque quality)
+        persist_mkv_quality_to_cache(mkv_full, result)
+        _mkv_quality_state["result"] = result
+        _mkv_quality_state["step"] = "done"
+        _mkv_quality_state["global_pct"] = 100
+        return result
+    except RuntimeError as e:
+        msg = str(e)
+        _mkv_quality_state["error"] = msg
+        _mkv_quality_state["step"] = "error"
+        _mkv_quality_log(f"✗ Error: {msg}")
+        status = 499 if "Cancelado" in msg else 500
+        raise HTTPException(status_code=status, detail=msg)
+    except Exception as e:
+        _logger.exception("quality-audit falló inesperadamente sobre %s", mkv_full)
+        _mkv_quality_state["error"] = str(e)
+        _mkv_quality_state["step"] = "error"
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _mkv_quality_active_proc["proc"] = None
+        _mkv_quality_state["active"] = False
+
+
 def _pq_code_to_nits(code_value: float) -> float:
     """Convierte valor PQ (0-4095) a nits via SMPTE ST 2084 EOTF inverse."""
     # PQ inverse EOTF: L = 10000 * ((max(0, V^(1/m2) - c1)) / (c2 - c3 * V^(1/m2)))^(1/m1)

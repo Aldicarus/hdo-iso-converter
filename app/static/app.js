@@ -10123,6 +10123,11 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   const isV40 = cm.includes('4.0') || cm.includes('v4');
 
   // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 0 · Auditoría de calidad (quality_*) — encabeza la radiografía
+  // ═══════════════════════════════════════════════════════════════
+  const blockQuality = _rgrfQualityAuditCard(dv, isV40);
+
+  // ═══════════════════════════════════════════════════════════════
   // BLOQUE 1 · Stream (profile + timing + structure)
   // ═══════════════════════════════════════════════════════════════
   const blockStream = `
@@ -10333,12 +10338,329 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
                 data-tooltip="Copia toda la información como Markdown">📋 Copiar</button>
       </div>
+      ${blockQuality}
       ${blockStream}
       ${blockMastering}
       ${blockActiveArea}
       ${blockCmv4}
       ${blockLight}
     </div>`;
+}
+
+/**
+ * Card de auditoría de calidad del RPU. Dos estados:
+ *  - Sin datos (quality_classification vacío): CTA "Auditar calidad"
+ *  - Con datos: badge color + verdict + 4 mini-stats + descripción técnica
+ *
+ * El usuario pulsa la CTA → pipeline backend de 5-10 min → la card se
+ * re-renderiza poblada. El resultado se persiste en el cache MKV, así
+ * que re-abrir el MKV muestra la card directamente.
+ */
+function _rgrfQualityAuditCard(dv, isV40) {
+  const cls = dv?.quality_classification || '';
+  const hasAudit = !!cls;
+
+  if (!hasAudit) {
+    // Estado "no auditado" — CTA
+    const cmLabel = isV40 ? 'CMv4.0' : (dv?.cm_version ? dv.cm_version.toUpperCase() : 'CMv2.9');
+    return `
+      <section class="dv-block dv-quality-card dv-quality-empty">
+        <div class="dv-quality-empty-icon">🔬</div>
+        <div class="dv-quality-empty-body">
+          <div class="dv-quality-empty-title">Auditoría de calidad ${cmLabel}</div>
+          <div class="dv-quality-empty-text">
+            Extrae todos los combos L8/L2 del RPU completo del MKV y los clasifica
+            (FULL / CORE+ / CORE / sintético). Identifica si el master que tienes
+            es de calidad de referencia o si fue generado algorítmicamente.
+          </div>
+          <button class="btn btn-primary btn-sm dv-quality-cta"
+                  onclick="_rgrfAuditQuality(event)">
+            <span>🔬</span> Auditar calidad (~5-10 min)
+          </button>
+          <div class="dv-quality-empty-hint">
+            El MKV no se modifica · ficheros intermedios borrados al terminar
+          </div>
+        </div>
+      </section>`;
+  }
+
+  // Estado poblado
+  const colorMap = {
+    green:  { badge: '🟢', cls: 'dv-q-green' },
+    yellow: { badge: '🟡', cls: 'dv-q-yellow' },
+    red:    { badge: '🔴', cls: 'dv-q-red' },
+    gray:   { badge: '⚪', cls: 'dv-q-gray' },
+  };
+  const color = colorMap[dv.quality_verdict_color] || colorMap.gray;
+  const verdict = dv.quality_verdict_text || '—';
+  const tierLabel = dv.quality_tier_label || '';
+  const reason = dv.quality_reason || dv.quality_tier_description || '';
+
+  // 4 mini-stats
+  const l8Count = dv.quality_l8_unique_count || 0;
+  const l2Count = dv.quality_l2_unique_count || 0;
+  const scenes = dv.quality_scene_cuts || 0;
+  const totalFrames = dv.quality_total_frames_rpu || 0;
+  const cmv40Frames = dv.quality_frames_with_cmv40 || 0;
+  const cmv40Pct = totalFrames > 0 ? Math.round(cmv40Frames * 100 / totalFrames) : 0;
+  const combosPerShot = scenes > 0 ? (l8Count / scenes).toFixed(2) : '—';
+
+  return `
+    <section class="dv-block dv-quality-card ${color.cls}">
+      <div class="dv-quality-header">
+        <div class="dv-quality-badge">${color.badge}</div>
+        <div class="dv-quality-head-body">
+          <div class="dv-quality-verdict">${escHtml(verdict)}</div>
+          ${tierLabel ? `<div class="dv-quality-tier">${escHtml(tierLabel)}</div>` : ''}
+        </div>
+        <button class="btn btn-ghost btn-xs dv-quality-reaudit"
+                onclick="_rgrfAuditQuality(event)"
+                data-tooltip="Re-auditar (5-10 min). Útil si el clasificador mejoró.">↻ Re-auditar</button>
+      </div>
+      <div class="dv-quality-stats">
+        <div class="dv-quality-stat">
+          <div class="dv-quality-stat-value">${l8Count.toLocaleString()}</div>
+          <div class="dv-quality-stat-label">combos L8 únicos</div>
+        </div>
+        <div class="dv-quality-stat">
+          <div class="dv-quality-stat-value">${l2Count.toLocaleString()}</div>
+          <div class="dv-quality-stat-label">combos L2 únicos</div>
+        </div>
+        <div class="dv-quality-stat">
+          <div class="dv-quality-stat-value">${scenes.toLocaleString()}</div>
+          <div class="dv-quality-stat-label">scene cuts <span style="opacity:.6">(~${combosPerShot} L8/shot)</span></div>
+        </div>
+        <div class="dv-quality-stat">
+          <div class="dv-quality-stat-value">${cmv40Pct}%</div>
+          <div class="dv-quality-stat-label">cobertura CMv4.0</div>
+        </div>
+      </div>
+      ${reason ? `<details class="dv-quality-details">
+        <summary>Detalle técnico</summary>
+        <div class="dv-quality-reason">${escHtml(reason)}</div>
+      </details>` : ''}
+    </section>`;
+}
+
+/**
+ * Dispara la auditoría de calidad del MKV abierto. Igual patrón que
+ * _rgrfAnalyzeLight: modal de progreso con steps + polling.
+ */
+async function _rgrfAuditQuality(evt) {
+  if (!mkvProject) return;
+  const fileEl = document.getElementById('mkv-quality-modal-file');
+  if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  _mkvQualityResetSteps();
+  _mkvQualitySetProgress(0);
+  _mkvQualitySetElapsed(0);
+  const logEl = document.getElementById('mkv-quality-log');
+  if (logEl) logEl.innerHTML = '';
+  openModal('mkv-quality-modal');
+
+  let lastLogCount = 0;
+  let polling = true;
+  window._mkvQualitySession = { ctrl: null, polledResult: null, cancelledByUser: false };
+
+  async function _pollLoop() {
+    while (polling) {
+      try {
+        const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
+        if (!polling) return;
+        if (st) {
+          _mkvQualitySetStep(st.step);
+          _mkvQualitySetProgress(st.global_pct || 0);
+          _mkvQualitySetElapsed(st.elapsed_s || 0);
+          const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
+          if (lines.length > lastLogCount && logEl) {
+            const newLines = lines.slice(lastLogCount);
+            const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
+            for (const line of newLines) {
+              const div = document.createElement('div');
+              div.className = 'dv-light-log-line';
+              if (/Paso \d\/3/.test(line)) div.classList.add('step');
+              if (line.startsWith('✓') || line.includes('completada')) div.classList.add('done');
+              if (line.startsWith('✗') || (st.error && line.includes(st.error))) div.classList.add('error');
+              div.textContent = line;
+              logEl.appendChild(div);
+            }
+            if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+            lastLogCount = lines.length;
+          }
+          if (st.active === false && (st.result || st.error)) {
+            window._mkvQualitySession.polledResult = st.result || null;
+            try { window._mkvQualitySession.ctrl?.abort(); } catch (_) {}
+            polling = false;
+            return;
+          }
+        }
+      } catch (_) { /* silencioso */ }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  _pollLoop();
+
+  try {
+    let data = null;
+    let postError = null;
+    {
+      const ctrl = new AbortController();
+      window._mkvQualitySession.ctrl = ctrl;
+      const POST_TIMEOUT_MS = 3600000;  // 1h
+      const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
+      try {
+        const resp = await fetch('/api/mkv/quality-audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name,
+          }),
+          signal: ctrl.signal,
+        });
+        if (resp.ok) {
+          data = await resp.json();
+        } else {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          postError = err.detail || resp.statusText;
+        }
+      } catch (e) {
+        postError = e.name === 'AbortError'
+          ? `Timeout tras ${POST_TIMEOUT_MS / 1000}s`
+          : (e.message || String(e));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    // Fallback via polling
+    if (!data?.quality_classification) {
+      const polled = window._mkvQualitySession?.polledResult;
+      if (polled && polled.quality_classification) {
+        data = polled;
+      } else {
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 1500));
+          const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
+          if (st && st.result && st.result.quality_classification) {
+            data = st.result;
+            break;
+          }
+          if (st && !st.active && st.error) throw new Error(st.error);
+          if (st && !st.active && st.step === 'done') break;
+        }
+      }
+    }
+    if (!data?.quality_classification) {
+      throw new Error(postError || 'respuesta vacía del servidor');
+    }
+
+    _mkvQualitySetProgress(100);
+    if (!mkvProject || !mkvProject.analysis) {
+      throw new Error('El MKV se cerró durante la auditoría — vuelve a abrirlo');
+    }
+    if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
+    Object.assign(mkvProject.analysis.dovi, data);
+    await new Promise(r => setTimeout(r, 500));
+    closeModal('mkv-quality-modal');
+    _renderMkvEditPanel();
+    showToast(`Auditoría completada — ${data.quality_verdict_text}`, 'success');
+  } catch (e) {
+    if (window._mkvQualitySession?.cancelledByUser) {
+      closeModal('mkv-quality-modal');
+      showToast('🛑 Auditoría cancelada', 'info');
+      return;
+    }
+    const errMsg = e?.message || String(e);
+    if (logEl) {
+      const div = document.createElement('div');
+      div.className = 'dv-light-log-line error';
+      div.textContent = `✗ Error: ${errMsg}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    showToast(`Error auditoría: ${errMsg}`, 'error', 8000);
+    // Inyectar botón "Cerrar" para que el usuario lea el error sin presión
+    if (!document.getElementById('mkv-quality-error-close-btn')) {
+      const footer = document.querySelector('#mkv-quality-modal .modal-footer');
+      if (footer) {
+        const btn = document.createElement('button');
+        btn.id = 'mkv-quality-error-close-btn';
+        btn.className = 'btn btn-ghost btn-sm';
+        btn.textContent = 'Cerrar';
+        btn.onclick = () => { closeModal('mkv-quality-modal'); btn.remove(); };
+        footer.appendChild(btn);
+      }
+    }
+    // Deshabilita el botón cancelar (ya no aplica)
+    const cancelBtn = document.getElementById('mkv-quality-cancel-btn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+  } finally {
+    polling = false;
+    if (window._mkvQualitySession) {
+      window._mkvQualitySession.ctrl = null;
+      window._mkvQualitySession.polledResult = null;
+      window._mkvQualitySession.cancelledByUser = false;
+    }
+  }
+}
+
+async function _mkvQualityCancel() {
+  const btn = document.getElementById('mkv-quality-cancel-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
+  if (window._mkvQualitySession) window._mkvQualitySession.cancelledByUser = true;
+  try {
+    await apiFetch('/api/mkv/quality-audit/cancel', { method: 'POST', silent: true });
+  } catch (_) {}
+  try { window._mkvQualitySession?.ctrl?.abort(); } catch (_) {}
+}
+
+function _mkvQualityResetSteps() {
+  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i) => {
+    const el = document.getElementById(`mkv-quality-step-${s}`);
+    if (!el) return;
+    el.style.opacity = i === 0 ? '1' : '.4';
+    el.textContent = el.textContent.replace(/^[✅⏳⬜✗]\s*/, i === 0 ? '⏳ ' : '⬜ ');
+  });
+  const cancelBtn = document.getElementById('mkv-quality-cancel-btn');
+  if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = '🛑 Cancelar'; cancelBtn.style.display = ''; }
+  const closeBtn = document.getElementById('mkv-quality-error-close-btn');
+  if (closeBtn) closeBtn.remove();
+}
+
+let _mkvQualityLastStep = '';
+function _mkvQualitySetStep(step) {
+  if (!step || step === _mkvQualityLastStep) return;
+  const order = ['ffmpeg', 'extract_rpu', 'combos', 'done', 'error'];
+  const idx = order.indexOf(step);
+  if (idx < 0) return;
+  _mkvQualityLastStep = step;
+  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i) => {
+    const el = document.getElementById(`mkv-quality-step-${s}`);
+    if (!el) return;
+    if (step === 'done' || i < idx) {
+      el.style.opacity = '1';
+      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '✅ ');
+    } else if (i === idx) {
+      el.style.opacity = '1';
+      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '⏳ ');
+    } else {
+      el.style.opacity = '.4';
+      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '⬜ ');
+    }
+  });
+}
+
+function _mkvQualitySetProgress(pct) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const bar = document.getElementById('mkv-quality-progress-bar');
+  const txt = document.getElementById('mkv-quality-pct');
+  if (bar) bar.style.width = `${clamped}%`;
+  if (txt) txt.textContent = `${Math.round(clamped)}%`;
+}
+
+function _mkvQualitySetElapsed(secs) {
+  const el = document.getElementById('mkv-quality-elapsed');
+  if (!el) return;
+  const s = Math.max(0, Math.floor(secs));
+  el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
 /** Copia la radiografía como Markdown al portapapeles. */
