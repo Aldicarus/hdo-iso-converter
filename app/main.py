@@ -3804,6 +3804,78 @@ async def mkv_quality_audit_cancel():
     return {"ok": True}
 
 
+@app.get("/api/mkv/cache-info", summary="Diagnóstico del cache de un MKV")
+async def mkv_cache_info_endpoint(file_path: str = ""):
+    """Inspecciona el cache /config/mkv_audits/ para un MKV concreto.
+
+    Útil para diagnosticar "el audit acabó en pocos segundos sin error" —
+    suele ser cache hit con un quality cacheado de un intento previo basura.
+
+    Devuelve fingerprint actual, fingerprint cacheado, versiones de los
+    bloques basic/quality, y un resumen del quality si está poblado.
+    """
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path requerido")
+    mkv_path_obj = _resolve_mkv_path_safe(file_path)
+    mkv_full = str(mkv_path_obj)
+    if not mkv_path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"MKV no encontrado: {file_path}")
+    from storage import compute_mkv_fingerprint, _mkv_audit_path
+    from phases.mkv_analyze import (
+        CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY, _quality_payload_is_valid,
+    )
+    fp = compute_mkv_fingerprint(mkv_full)
+    cache_path = _mkv_audit_path(fp["sha256_1mb"]) if fp else None
+    cache_exists = bool(cache_path and cache_path.exists())
+    raw = None
+    if cache_exists:
+        try:
+            raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            raw = {"_parse_error": str(e)}
+    out = {
+        "mkv_path": mkv_full,
+        "current_fingerprint": fp,
+        "cache_file": str(cache_path) if cache_path else None,
+        "cache_exists": cache_exists,
+        "cache_app_versions": {"basic": CACHE_VERSION_BASIC, "quality": CACHE_VERSION_QUALITY},
+        "cache_persisted_versions": (raw or {}).get("versions") if isinstance(raw, dict) else None,
+        "cache_persisted_fingerprint": (raw or {}).get("fingerprint") if isinstance(raw, dict) else None,
+        "cache_cached_at": (raw or {}).get("cached_at") if isinstance(raw, dict) else None,
+        "basic_present": bool(isinstance(raw, dict) and raw.get("basic")),
+        "quality_present": bool(isinstance(raw, dict) and raw.get("quality")),
+    }
+    quality = (raw or {}).get("quality") if isinstance(raw, dict) else None
+    if quality:
+        out["quality_summary"] = {
+            "is_valid_payload": _quality_payload_is_valid(quality),
+            "total_frames_rpu": quality.get("quality_total_frames_rpu"),
+            "frames_with_cmv40": quality.get("quality_frames_with_cmv40"),
+            "scene_cuts": quality.get("quality_scene_cuts"),
+            "l8_unique_count": quality.get("quality_l8_unique_count"),
+            "l2_unique_count": quality.get("quality_l2_unique_count"),
+            "classification": quality.get("quality_classification"),
+            "tier": quality.get("quality_tier"),
+            "verdict_text": quality.get("quality_verdict_text"),
+        }
+    return out
+
+
+@app.delete("/api/mkv/cache-info", summary="Borra el cache de un MKV")
+async def mkv_cache_delete_endpoint(file_path: str = ""):
+    """Borra el fichero de cache de un MKV. Útil para forzar reanálisis
+    cuando se sospecha que el cache está corrupto o tiene un quality basura."""
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path requerido")
+    mkv_path_obj = _resolve_mkv_path_safe(file_path)
+    mkv_full = str(mkv_path_obj)
+    if not mkv_path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"MKV no encontrado: {file_path}")
+    from storage import invalidate_mkv_cache_by_path
+    removed = invalidate_mkv_cache_by_path(mkv_full)
+    return {"ok": True, "cache_removed": removed, "file_path": mkv_full}
+
+
 @app.post("/api/mkv/quality-audit", summary="Auditoría profunda del RPU (on-demand)")
 async def mkv_quality_audit_endpoint(body: dict):
     """Ejecuta el pipeline de auditoría L8/L2 sobre el RPU completo del MKV.

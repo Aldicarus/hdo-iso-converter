@@ -110,15 +110,31 @@ async def analyze_mkv(
                 # llega como None. El modal "Datos MKV" no lo consume, así
                 # que el comportamiento es idéntico para el usuario.
                 result = MkvAnalysisResult.model_validate(cached["basic"])
-                # Si hay quality cache válido, inyectarlo en el DoviInfo del
+                # Si hay quality cache VÁLIDO, inyectarlo en el DoviInfo del
                 # resultado para que la card de Auditoría aparezca poblada
-                # directamente al abrir el MKV.
+                # directamente al abrir el MKV. Si el cache.quality es basura
+                # (resultado de un pipeline anterior que falló silenciosamente
+                # con frames=0), lo IGNORAMOS — la card mostrará el estado "no
+                # auditado" con CTA y el usuario podrá relanzar el audit.
                 quality_block = cached.get("quality")
                 if quality_block and result.dovi:
-                    for k, v in quality_block.items():
-                        if hasattr(result.dovi, k):
-                            setattr(result.dovi, k, v)
-                _logger.info("MKV cache HIT para %s", Path(mkv_path).name)
+                    if _quality_payload_is_valid(quality_block):
+                        for k, v in quality_block.items():
+                            if hasattr(result.dovi, k):
+                                setattr(result.dovi, k, v)
+                        _logger.info(
+                            "MKV cache HIT (basic+quality) para %s",
+                            Path(mkv_path).name,
+                        )
+                    else:
+                        _logger.warning(
+                            "MKV cache HIT (basic) para %s — quality descartado (frames=%s, cls=%r)",
+                            Path(mkv_path).name,
+                            quality_block.get("quality_total_frames_rpu"),
+                            quality_block.get("quality_classification"),
+                        )
+                else:
+                    _logger.info("MKV cache HIT (basic) para %s", Path(mkv_path).name)
                 return result
             except Exception as e:
                 _logger.warning(
@@ -785,6 +801,27 @@ async def analyze_rpu_quality_for_mkv(
         except Exception: pass
 
 
+def _quality_payload_is_valid(payload: dict) -> bool:
+    """Heurística: ¿el resultado del audit tiene datos reales o es basura?
+
+    Un audit válido siempre tiene total_frames_rpu > 0 (los frames del MKV
+    extraídos por dovi_tool export). Si vale 0, fue un export que terminó
+    en error sin que el caller lanzara — guardarlo contamina el cache y la
+    card de Auditoría aparece "auditada" con stats vacías hasta que el
+    usuario fuerza re-auditar.
+
+    También filtramos clasificaciones vacías (sin tier ni veredicto) como
+    señal de pipeline incompleto.
+    """
+    if not isinstance(payload, dict):
+        return False
+    if (payload.get("quality_total_frames_rpu") or 0) <= 0:
+        return False
+    if not payload.get("quality_classification"):
+        return False
+    return True
+
+
 def persist_mkv_quality_to_cache(mkv_path: str, quality_payload: dict) -> None:
     """Persiste el dict de quality_* en el bloque 'quality' del cache MKV.
 
@@ -792,8 +829,23 @@ def persist_mkv_quality_to_cache(mkv_path: str, quality_payload: dict) -> None:
     lo lee y lo re-escribe). Si el cache no existe todavía (caso edge:
     análisis básico no se hizo por la app), crea el fichero solo con
     quality y los versions queda incompleto — la próxima apertura
-    re-analizará basic y mantendrá quality."""
+    re-analizará basic y mantendrá quality.
+
+    NO persiste si el payload no pasa _quality_payload_is_valid — evita
+    cachear resultados basura (frames=0) de un pipeline que falló silenciosamente
+    en algún paso. Sin este filtro, un timeout de dovi_tool sin lanzar dejaba
+    un quality cacheado vacío que después contaminaba la UI hasta un re-audit
+    explícito.
+    """
     from storage import compute_mkv_fingerprint, write_mkv_cache_quality
+    if not _quality_payload_is_valid(quality_payload):
+        _logger.warning(
+            "Quality payload no válido (frames=%s, classification=%r) — NO se persiste el cache para %s",
+            (quality_payload or {}).get("quality_total_frames_rpu"),
+            (quality_payload or {}).get("quality_classification"),
+            Path(mkv_path).name,
+        )
+        return
     try:
         fingerprint = compute_mkv_fingerprint(mkv_path)
         if not fingerprint:
