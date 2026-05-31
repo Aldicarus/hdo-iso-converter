@@ -58,7 +58,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -3783,13 +3783,33 @@ def _mkv_quality_log(msg: str, target_audit_id: str | None = None):
 
 def _mkv_quality_state_finalize_if(target_audit_id: str, error_msg: str, step: str = "error"):
     """Marca el audit como terminado en state SOLO si audit_id sigue siendo
-    el target. Usado tanto por el cancel endpoint como por el except del
-    endpoint principal — ambos pueden ejecutarse en race contra un reset
-    de un audit posterior, y sin esta guard pisarían su state.
+    el target. Usado por el cancel endpoint, el except del endpoint principal,
+    y cualquier otro path que finalice un audit.
 
-    Idempotente y seguro de llamar varias veces."""
-    if _mkv_quality_state.get("audit_id") != target_audit_id:
+    Idempotente: si el audit YA fue finalizado con el mismo error, no duplica
+    log ni re-escribe. Esto evita que el flujo "user cancela → cancel endpoint
+    finaliza con 'Cancelado por el usuario' → pipeline detecta cancel y raise
+    → except endpoint finaliza otra vez con el mismo msg" añada dos líneas
+    idénticas al log."""
+    current = _mkv_quality_state.get("audit_id")
+    if current != target_audit_id:
+        _logger.info(
+            "[QualityFinalize] SKIP audit_id=%s (current=%s) msg=%r",
+            target_audit_id, current, error_msg,
+        )
         return False
+    # Idempotencia: ya estaba finalizado con el mismo error → no-op silencioso
+    if (not _mkv_quality_state.get("active")
+            and _mkv_quality_state.get("error") == error_msg):
+        _logger.info(
+            "[QualityFinalize] NO-OP audit_id=%s already finalized msg=%r",
+            target_audit_id, error_msg,
+        )
+        return True
+    _logger.warning(
+        "[QualityFinalize] APPLY audit_id=%s msg=%r step=%s",
+        target_audit_id, error_msg, step,
+    )
     _mkv_quality_active_proc["proc"] = None
     _mkv_quality_log(f"✗ {error_msg}", target_audit_id=target_audit_id)
     _mkv_quality_state["error"] = error_msg
@@ -3837,7 +3857,7 @@ async def _mkv_quality_reap_proc(proc):
 
 
 @app.post("/api/mkv/quality-audit/cancel")
-async def mkv_quality_audit_cancel():
+async def mkv_quality_audit_cancel(request: Request):
     """Solicita cancelación cooperativa + SIGTERM (sin esperar el reap).
 
     Retorna inmediato (< 100ms) — el reap del subprocess se hace en
@@ -3854,10 +3874,27 @@ async def mkv_quality_audit_cancel():
          endpoint también usa _state_finalize_if con su audit_id snapshot —
          si el reset del audit nuevo ya pasó, no pisa nada.
     """
+    # Logging defensivo para diagnosticar "cancels fantasma" — quién hace
+    # POST cancel, sobre qué audit_id, desde qué cliente.
+    client_addr = f"{request.client.host}:{request.client.port}" if request.client else "?"
+    user_agent = request.headers.get("user-agent", "?")[:60]
     if not _mkv_quality_state.get("active"):
+        _logger.info(
+            "[QualityCancel] NO-OP — no hay audit activo (caller=%s, ua=%s)",
+            client_addr, user_agent,
+        )
         return {"ok": False, "reason": "no_active_job"}
     target_audit_id = _mkv_quality_state.get("audit_id")
     target_proc = _mkv_quality_active_proc.get("proc")
+    target_step = _mkv_quality_state.get("step")
+    started_at = _mkv_quality_state.get("started_at") or 0
+    import time as _t
+    elapsed = int(_t.monotonic() - started_at) if started_at else 0
+    _logger.warning(
+        "[QualityCancel] RECIBIDO — audit_id=%s step=%s elapsed=%ds "
+        "caller=%s ua=%s",
+        target_audit_id, target_step, elapsed, client_addr, user_agent,
+    )
     _mkv_quality_cancel["requested_for_id"] = target_audit_id
     # SIGTERM inmediato + reap en background (no bloquea el endpoint)
     if target_proc:
@@ -3953,7 +3990,7 @@ async def mkv_cache_delete_endpoint(file_path: str = ""):
 
 
 @app.post("/api/mkv/quality-audit", summary="Auditoría profunda del RPU (on-demand)")
-async def mkv_quality_audit_endpoint(body: dict):
+async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     """Ejecuta el pipeline de auditoría L8/L2 sobre el RPU completo del MKV.
 
     Body: ``{"file_path": "/mnt/.../movie.mkv"}``.
@@ -4054,6 +4091,12 @@ async def mkv_quality_audit_endpoint(body: dict):
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
+    client_addr = (f"{request.client.host}:{request.client.port}"
+                   if request and request.client else "?")
+    _logger.warning(
+        "[QualityAudit] START audit_id=%s file=%s caller=%s",
+        my_audit_id, mkv_path_obj.name, client_addr,
+    )
 
     def _progress_cb(step: str, pct: float, label: str):
         # SOLO actualiza estado para el modal/polling. NO loguea — la lógica
@@ -4114,9 +4157,9 @@ async def mkv_quality_audit_endpoint(body: dict):
         return result
     except RuntimeError as e:
         msg = str(e)
-        # guard: solo pisa state si seguimos siendo el audit actual
+        # guard: solo pisa state si seguimos siendo el audit actual.
+        # finalize_if ya emite "✗ {msg}" al log, no añadimos extra.
         _mkv_quality_state_finalize_if(my_audit_id, msg, step="error")
-        _mkv_quality_log(f"✗ Error: {msg}", target_audit_id=my_audit_id)
         status = 499 if "Cancelado" in msg else 500
         raise HTTPException(status_code=status, detail=msg)
     except Exception as e:
