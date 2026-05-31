@@ -3709,11 +3709,12 @@ async def mkv_light_profile_endpoint(body: dict):
 
 _mkv_quality_state: dict = {
     "active": False,
+    "audit_id": None,     # uuid de la audit actual — discrimina cancels obsoletos
     "step": "",           # "ffmpeg" | "extract_rpu" | "combos" | "done" | "error"
     "step_label": "",
     "global_pct": 0,      # 0-100 total
     "elapsed_s": 0,
-    "log_lines": [],      # rolling log (max 60 líneas)
+    "log_lines": [],      # rolling log (max 200 líneas)
     "error": None,
     "started_at": 0.0,
     "result": None,       # dict con los campos quality_* tras éxito
@@ -3721,15 +3722,28 @@ _mkv_quality_state: dict = {
 }
 
 _mkv_quality_active_proc: dict = {"proc": None}
-_mkv_quality_cancel: dict = {"requested": False}
+
+# Cancel por audit_id en lugar de bool global. Si el cancel del audit "AAA"
+# tarda 3-13s en completarse (kill + wait reap), durante ese tiempo el usuario
+# puede haber lanzado un nuevo audit "BBB"; el cancel viejo NO debe afectarle.
+# El pipeline verifica si requested_for_id coincide con el audit_id actual del
+# state — si no, el cancel se considera obsoleto y se ignora.
+_mkv_quality_cancel: dict = {"requested_for_id": None}
 
 
-def _mkv_quality_reset(file_name: str = ""):
+def _mkv_quality_reset(file_name: str = "") -> str:
     import time as _t
+    import uuid as _uuid
     _mkv_quality_active_proc["proc"] = None
-    _mkv_quality_cancel["requested"] = False
+    # NO tocamos _mkv_quality_cancel["requested_for_id"] aquí — un cancel viejo
+    # del audit anterior referencia un audit_id que ya no coincide con el nuevo,
+    # por lo que _mkv_quality_check_cancel lo ignorará automáticamente. Lo
+    # limpiamos por higiene para no acumular un valor obsoleto indefinido.
+    _mkv_quality_cancel["requested_for_id"] = None
+    audit_id = _uuid.uuid4().hex[:12]
     _mkv_quality_state.update({
         "active": True,
+        "audit_id": audit_id,
         "step": "ffmpeg",
         "step_label": "Iniciando auditoría…",
         "global_pct": 0,
@@ -3740,6 +3754,7 @@ def _mkv_quality_reset(file_name: str = ""):
         "started_at": _t.monotonic(),
         "file_name": file_name,
     })
+    return audit_id
 
 
 def _mkv_quality_log(msg: str):
@@ -3758,8 +3773,14 @@ def _mkv_quality_log(msg: str):
 
 
 def _mkv_quality_check_cancel():
-    """Lanza RuntimeError si el usuario canceló. Llamar entre pasos."""
-    if _mkv_quality_cancel["requested"]:
+    """Lanza RuntimeError si el usuario canceló ESTE audit. Llamar entre pasos.
+
+    Compara requested_for_id contra el audit_id activo: si difieren, el cancel
+    es de un audit anterior ya finalizado (con cancel POST que tardó en reapear
+    su subprocess) y no debe afectar al audit actual.
+    """
+    target_id = _mkv_quality_cancel.get("requested_for_id")
+    if target_id is not None and target_id == _mkv_quality_state.get("audit_id"):
         raise RuntimeError("Cancelado por el usuario")
 
 
@@ -3775,21 +3796,30 @@ async def mkv_quality_audit_cancel():
 
     Espera a que el subprocess sea reaped antes de retornar — sin esto,
     el siguiente intento puede chocar con file handles aún abiertos sobre
-    el NAS (mismo patrón que el cancel del light-profile)."""
+    el NAS (mismo patrón que el cancel del light-profile).
+
+    Idempotente respecto a re-lanzamientos: si durante el wait del reap el
+    usuario lanza un nuevo audit (audit_id cambia), NO pisamos el state del
+    audit nuevo al terminar — solo si el audit_id sigue siendo el target
+    original. Esto evita el bug "cancelar + re-lanzar → error inmediato".
+    """
     if not _mkv_quality_state.get("active"):
         return {"ok": False, "reason": "no_active_job"}
-    _mkv_quality_cancel["requested"] = True
-    proc = _mkv_quality_active_proc.get("proc")
-    if proc:
+    # Snapshot del audit_id en el momento de iniciar el cancel. Si cambia
+    # mientras esperamos al subprocess, el cancel pasa a ser obsoleto.
+    target_audit_id = _mkv_quality_state.get("audit_id")
+    target_proc = _mkv_quality_active_proc.get("proc")
+    _mkv_quality_cancel["requested_for_id"] = target_audit_id
+    if target_proc:
         try:
-            proc.terminate()
+            target_proc.terminate()
             try:
-                await asyncio.wait_for(proc.wait(), timeout=3.0)
+                await asyncio.wait_for(target_proc.wait(), timeout=3.0)
             except asyncio.TimeoutError:
-                try: proc.kill()
+                try: target_proc.kill()
                 except Exception: pass
                 try:
-                    await asyncio.wait_for(proc.wait(), timeout=10.0)
+                    await asyncio.wait_for(target_proc.wait(), timeout=10.0)
                 except asyncio.TimeoutError:
                     _logger.warning(
                         "quality-audit cancel: subprocess no reaped tras 10s "
@@ -3797,10 +3827,21 @@ async def mkv_quality_audit_cancel():
                     )
         except Exception as e:
             _logger.warning("quality-audit cancel: kill subprocess falló: %s", e)
-    _mkv_quality_active_proc["proc"] = None
-    _mkv_quality_log("✗ Cancelado por el usuario")
-    _mkv_quality_state["error"] = "Cancelado por el usuario"
-    _mkv_quality_state["active"] = False
+    # SOLO pisamos el state global si seguimos en el mismo audit. Si el
+    # audit_id ha cambiado, significa que el usuario relanzó tras cancelar
+    # y el state actual pertenece al nuevo audit — no debe alterarlo.
+    current_audit_id = _mkv_quality_state.get("audit_id")
+    if current_audit_id == target_audit_id:
+        _mkv_quality_active_proc["proc"] = None
+        _mkv_quality_log("✗ Cancelado por el usuario")
+        _mkv_quality_state["error"] = "Cancelado por el usuario"
+        _mkv_quality_state["active"] = False
+    else:
+        _logger.info(
+            "quality-audit cancel obsoleto (audit_id %s ya no activo, "
+            "el audit actual es %s) — no pisamos el state nuevo",
+            target_audit_id, current_audit_id,
+        )
     return {"ok": True}
 
 

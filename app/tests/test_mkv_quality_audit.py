@@ -178,5 +178,67 @@ class TestBuilderIntegratesHints(unittest.TestCase):
         self.assertEqual(out["quality_provenance_hints"], [])
 
 
+class TestCancelByAuditId(unittest.TestCase):
+    """Cancel viejo no debe afectar a un audit nuevo lanzado tras él.
+
+    Reproduce el bug "cancelar audit + relanzar inmediatamente → el segundo
+    audit falla con 'Cancelado por el usuario'" mediante una secuencia
+    determinista sobre los singletons de estado.
+
+    El import de main.py necesita cwd en app/ porque la app monta
+    StaticFiles("static") con path relativo.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+        cls._orig_cwd = os.getcwd()
+        app_dir = Path(__file__).parent.parent  # .../app
+        os.chdir(str(app_dir))
+
+    @classmethod
+    def tearDownClass(cls):
+        import os
+        os.chdir(cls._orig_cwd)
+
+    def setUp(self):
+        from main import (
+            _mkv_quality_state, _mkv_quality_cancel,
+            _mkv_quality_reset, _mkv_quality_check_cancel,
+        )
+        self.state = _mkv_quality_state
+        self.cancel = _mkv_quality_cancel
+        self.reset = _mkv_quality_reset
+        self.check = _mkv_quality_check_cancel
+        # Reset clean state
+        self.state.update({"active": False, "audit_id": None})
+        self.cancel["requested_for_id"] = None
+
+    def test_check_cancel_fires_when_targeted(self):
+        """Cancel del audit actual → _check raise."""
+        audit_id = self.reset(file_name="movie.mkv")
+        self.cancel["requested_for_id"] = audit_id
+        with self.assertRaises(RuntimeError):
+            self.check()
+
+    def test_check_cancel_silent_when_obsolete(self):
+        """Cancel de un audit anterior → _check NO raise sobre el nuevo audit."""
+        first_id = self.reset(file_name="first.mkv")
+        # Simula: cancel del primer audit marca requested_for_id=first_id
+        self.cancel["requested_for_id"] = first_id
+        # Usuario relanza → reset asigna audit_id nuevo y limpia el viejo
+        second_id = self.reset(file_name="second.mkv")
+        self.assertNotEqual(first_id, second_id)
+        # En el endpoint nuevo, reset limpia requested_for_id (idempotencia)
+        self.assertIsNone(self.cancel.get("requested_for_id"))
+        # _check no debe disparar para el nuevo audit
+        self.check()  # no raise
+
+    def test_check_cancel_silent_when_no_cancel_pending(self):
+        """Sin cancel pendiente, _check es no-op."""
+        self.reset(file_name="movie.mkv")
+        self.check()  # no raise
+
+
 if __name__ == "__main__":
     unittest.main()
