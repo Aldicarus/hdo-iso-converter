@@ -367,3 +367,214 @@ def make_cmv40_session_id(source_mkv_path: str) -> str:
         year  = "0000"
     ts = int(datetime.now(timezone.utc).timestamp())
     return f"cmv40_{title}_{year}_{ts}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TAB 2 — Cache de análisis de MKV (basic + quality)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Convierte la apertura de un MKV ya analizado en instantánea (~30 ms).
+# Cache "solo resultado" — un JSON pequeño (5-15 KB) por MKV. NUNCA
+# se cachean ficheros pesados (HEVC intermedio, RPU.bin, JSON export).
+#
+# Estructura: /config/mkv_audits/{sha256_1mb}.json
+#
+# Dos bloques independientes dentro del mismo fichero:
+#   - basic: MkvAnalysisResult (mkvmerge + MediaInfo + PGS + dovi sample)
+#   - quality: análisis profundo del RPU (L8/L2 combos + classifier)
+#
+# Cada bloque lleva su propia versión. Si la lógica de un motor cambia,
+# se bumpea la constante correspondiente (CACHE_VERSION_BASIC en
+# mkv_analyze.py, CACHE_VERSION_QUALITY en el endpoint quality-audit) y
+# el cache se invalida automáticamente la próxima vez que se lee.
+
+MKV_AUDIT_DIR = CONFIG_DIR / "mkv_audits"
+
+
+def compute_mkv_fingerprint(mkv_path: str) -> dict | None:
+    """Triple-fingerprint de un MKV: SHA-256(primer 1 MB) + size + mtime_ns.
+
+    Triple-check porque mkvpropedit puede editar metadatos in-place sin
+    cambiar el tamaño total ni necesariamente el primer 1 MB (el segment
+    info de Matroska está al inicio pero ediciones pequeñas pueden caer
+    fuera de ese MB). El mtime atrapa cualquier modificación in-place,
+    el size atrapa truncados/extensiones, y el SHA atrapa cambios de
+    contenido sin tocar tiempos (raro, pero posible si alguien resetea
+    mtime con touch).
+
+    Devuelve None si el fichero no existe.
+    """
+    p = Path(mkv_path)
+    if not p.exists():
+        return None
+    st = p.stat()
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        h.update(f.read(FINGERPRINT_CHUNK))
+    return {
+        "sha256_1mb": h.hexdigest(),
+        "size_bytes": st.st_size,
+        "mtime_ns": st.st_mtime_ns,
+    }
+
+
+def _mkv_audit_path(fingerprint_sha: str) -> Path:
+    """Ruta del fichero de cache para un fingerprint SHA dado."""
+    return MKV_AUDIT_DIR / f"{fingerprint_sha}.json"
+
+
+def read_mkv_cache(
+    fingerprint: dict,
+    cache_version_basic: int,
+    cache_version_quality: int,
+) -> dict | None:
+    """Lee el cache de un MKV si existe y los tres componentes del fingerprint
+    coinciden con los persistidos.
+
+    Devuelve un dict con shape:
+        {
+            "basic": {...} | None,      # MkvAnalysisResult serializado (o None si no hay)
+            "quality": {...} | None,    # quality audit (o None si no hay)
+            "cached_at": "...",
+        }
+    Cada bloque solo se devuelve si su `versions.{basic|quality}` coincide
+    con la versión actual del clasificador. Si una versión está obsoleta,
+    ese bloque se devuelve como None y el caller decide (re-analizar
+    automáticamente vs ofrecer botón).
+
+    Devuelve None si:
+      - El fichero de cache no existe.
+      - El fingerprint no coincide (MKV modificado externamente o re-encoded).
+      - El fichero está corrupto.
+    """
+    if not fingerprint:
+        return None
+    path = _mkv_audit_path(fingerprint["sha256_1mb"])
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("MKV cache corrupto, ignorado: %s — %s", path.name, e)
+        return None
+    persisted_fp = data.get("fingerprint") or {}
+    if (persisted_fp.get("sha256_1mb") != fingerprint["sha256_1mb"]
+            or persisted_fp.get("size_bytes") != fingerprint["size_bytes"]
+            or persisted_fp.get("mtime_ns") != fingerprint["mtime_ns"]):
+        # MKV cambió desde la última auditoría → cache inválido. NO lo
+        # borramos del disco — la próxima escritura lo sobrescribirá con
+        # el nuevo fingerprint.
+        return None
+
+    versions = data.get("versions") or {}
+    basic = data.get("basic") if versions.get("basic") == cache_version_basic else None
+    quality = data.get("quality") if versions.get("quality") == cache_version_quality else None
+    return {
+        "basic": basic,
+        "quality": quality,
+        "cached_at": data.get("cached_at"),
+    }
+
+
+def _write_mkv_cache_full(
+    fingerprint: dict,
+    versions: dict,
+    basic: dict | None,
+    quality: dict | None,
+) -> None:
+    """Helper interno: vuelca el fichero completo con todos los bloques."""
+    MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+    path = _mkv_audit_path(fingerprint["sha256_1mb"])
+    payload = {
+        "schema_version": 1,
+        "fingerprint": fingerprint,
+        "versions": versions,
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+        "basic": basic,
+        "quality": quality,
+    }
+    _atomic_write_json(path, json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def write_mkv_cache_basic(
+    fingerprint: dict,
+    cache_version_basic: int,
+    cache_version_quality_existing: int | None,
+    basic_payload: dict,
+) -> None:
+    """Persiste el bloque basic del cache. Si ya existía un bloque quality
+    válido para el mismo fingerprint, se preserva (los bloques son
+    independientes — re-analizar el basic no debe invalidar la auditoría
+    de calidad si el MKV no cambió).
+
+    `cache_version_quality_existing` es la versión del bloque quality
+    que el caller leyó previamente (o None si no había). Sirve para
+    re-escribir el bloque junto con el basic conservando su versión.
+    """
+    existing_quality = None
+    if fingerprint:
+        existing = read_mkv_cache(fingerprint, cache_version_basic, cache_version_quality_existing or 0)
+        if existing:
+            existing_quality = existing.get("quality")
+    versions = {"basic": cache_version_basic}
+    if existing_quality is not None:
+        versions["quality"] = cache_version_quality_existing
+    _write_mkv_cache_full(fingerprint, versions, basic_payload, existing_quality)
+
+
+def write_mkv_cache_quality(
+    fingerprint: dict,
+    cache_version_basic_existing: int | None,
+    cache_version_quality: int,
+    quality_payload: dict,
+) -> None:
+    """Persiste el bloque quality del cache. Preserva el bloque basic
+    existente si su versión coincide con la actual."""
+    existing_basic = None
+    existing_basic_version = None
+    if fingerprint:
+        path = _mkv_audit_path(fingerprint["sha256_1mb"])
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                persisted_fp = data.get("fingerprint") or {}
+                if (persisted_fp.get("sha256_1mb") == fingerprint["sha256_1mb"]
+                        and persisted_fp.get("size_bytes") == fingerprint["size_bytes"]
+                        and persisted_fp.get("mtime_ns") == fingerprint["mtime_ns"]):
+                    versions = data.get("versions") or {}
+                    if versions.get("basic") == cache_version_basic_existing:
+                        existing_basic = data.get("basic")
+                        existing_basic_version = versions.get("basic")
+            except (json.JSONDecodeError, OSError):
+                pass
+    versions = {"quality": cache_version_quality}
+    if existing_basic_version is not None:
+        versions["basic"] = existing_basic_version
+    _write_mkv_cache_full(fingerprint, versions, existing_basic, quality_payload)
+
+
+def invalidate_mkv_cache(fingerprint_sha: str) -> bool:
+    """Borra el fichero de cache de un MKV. Devuelve True si existía."""
+    if not fingerprint_sha:
+        return False
+    path = _mkv_audit_path(fingerprint_sha)
+    if path.exists():
+        try:
+            path.unlink()
+            return True
+        except OSError as e:
+            logger.warning("No se pudo borrar cache MKV %s: %s", path.name, e)
+    return False
+
+
+def invalidate_mkv_cache_by_path(mkv_path: str) -> bool:
+    """Calcula el fingerprint del MKV y borra su cache si existe.
+    Tolerante: si el fichero no existe o no se puede leer, devuelve False
+    sin lanzar."""
+    try:
+        fp = compute_mkv_fingerprint(mkv_path)
+        if not fp:
+            return False
+        return invalidate_mkv_cache(fp["sha256_1mb"])
+    except OSError:
+        return False

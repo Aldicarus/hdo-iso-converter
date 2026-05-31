@@ -9162,7 +9162,7 @@ function _openMkvBrowserNow() {
   });
 }
 
-async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
+async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = false) {
 
   // Polling de progreso real del backend — reusa /api/analyze/progress
   const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
@@ -9219,9 +9219,12 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName) {
   // Enviamos absPath (ruta absoluta resuelta por el file browser). El
   // backend valida que cae bajo un root permitido (Library / Output) y
   // ya no asume /mnt/output como prefijo automatico.
+  // force_refresh: si true, invalida el cache antes de re-analizar (botón
+  // "↻ Re-analizar" del panel). Si false (default), permite cache HIT
+  // instantáneo para MKVs ya analizados previamente.
   const data = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
-    body: JSON.stringify({ file_path: absPath }),
+    body: JSON.stringify({ file_path: absPath, force_refresh: forceRefresh }),
   }, 600000);  // 10 min timeout — el PGS puede tardar 1-3 min
 
   clearInterval(pollId);
@@ -9316,6 +9319,48 @@ function _doCloseMkvEditor() {
   document.getElementById('mkv-edit-panel').style.display = 'none';
   document.getElementById('mkv-edit-panel').innerHTML = '';
   document.getElementById('mkv-empty-state').style.display = '';
+}
+
+/**
+ * Re-analiza el MKV actualmente abierto invalidando el cache. Útil cuando
+ * el fichero ha cambiado externamente (no via Tab 2 — esos cambios ya
+ * invalidan automáticamente el cache) o cuando se quiere forzar un fresh
+ * tras un bump de versión del clasificador.
+ *
+ * Si hay cambios pendientes en el panel, pide confirmación. Al terminar,
+ * el resultado fresh sobrescribe el cache para futuras aperturas.
+ */
+async function reanalyzeMkv() {
+  if (!mkvProject) return;
+  const absPath = mkvProject.filePath || mkvProject.analysis?.file_path;
+  const fileName = mkvProject.fileName || mkvProject.analysis?.file_name || '';
+  if (!absPath) {
+    showToast('No se conoce la ruta del MKV', 'error');
+    return;
+  }
+  const doRun = () => {
+    // Abrir el modal de análisis (mismo del open inicial) y disparar el
+    // fetch con force_refresh:true. El backend invalida el cache antes de
+    // re-ejecutar el pipeline completo (1-3 min en MKVs grandes).
+    const fileEl = document.getElementById('mkv-analyze-modal-file');
+    if (fileEl) fileEl.textContent = fileName;
+    _resetMkvAnalyzeSteps();
+    openModal('mkv-analyze-modal');
+    _doAnalyzeMkvFromPickerPath(absPath, fileName, true).catch(e => {
+      console.error('reanalyze MKV error:', e);
+      showToast(`Error en re-análisis: ${e.message || e}`, 'error');
+    });
+  };
+  if (mkvProject.dirty) {
+    showConfirm(
+      'Cambios sin guardar',
+      'Hay cambios sin guardar en el MKV actual. Re-analizar los descartará. ¿Continuar?',
+      doRun,
+      'Descartar y re-analizar',
+    );
+    return;
+  }
+  doRun();
 }
 
 function undoMkvEdits() {
@@ -10751,7 +10796,12 @@ function _renderMkvEditPanel() {
 
       <!-- Info del fichero (solo lectura) -->
       <div class="section-card">
-        <div class="section-header"><div><div class="section-title">📦 Fichero MKV</div></div></div>
+        <div class="section-header">
+          <div><div class="section-title">📦 Fichero MKV</div></div>
+          <button class="btn btn-ghost btn-xs" onclick="reanalyzeMkv()"
+                  data-tooltip="Invalida el cache y re-ejecuta el análisis completo (1-3 min). Útil si el fichero cambió externamente o tras una mejora del clasificador."
+                  style="margin-left:auto; color:var(--text-2)">↻ Re-analizar</button>
+        </div>
         <div class="section-body">
           <div style="font-weight:600; font-size:14px; margin-bottom:4px">${escHtml(a.file_name)}</div>
           <div style="font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:4px 14px; line-height:1.55">

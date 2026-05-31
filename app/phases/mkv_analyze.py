@@ -8,6 +8,12 @@ Responsabilidades:
 
 Todas las operaciones son stateless — no se persiste nada en disco.
 El estado de edición vive en el frontend.
+
+Cache: el resultado del análisis se persiste en /config/mkv_audits/ vía
+triple-fingerprint del MKV (ver storage.read_mkv_cache). Re-abrir el
+mismo MKV es instantáneo. La invalidación es automática si el MKV
+cambia (mtime/size/SHA-1MB) o si se bumpea CACHE_VERSION_BASIC tras
+mejorar un motor del pipeline (mkvmerge parsing, MediaInfo, PGS, dovi).
 """
 import asyncio
 import json
@@ -32,6 +38,20 @@ DOVI_TOOL_BIN   = "dovi_tool"
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/mnt/output")
 TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 
+# Versión del clasificador del análisis básico (mkvmerge + MediaInfo + PGS
+# + dovi sample). Bumpear cuando se cambie la LÓGICA de cualquiera de esos
+# motores (no cuando se arregle un typo del log). El cache de cualquier MKV
+# analizado con una versión distinta se invalida automáticamente y se
+# re-analiza al próximo open. Historial:
+#   v1 (mayo 2026) — versión inicial del cache.
+CACHE_VERSION_BASIC = 1
+
+# Versión del análisis profundo del RPU (L8/L2 combos + classify_l8 +
+# classify_l8_quality). Bumpear cuando cambien los umbrales del clasificador
+# en rpu_analyze.py o se añadan campos cuantitativos nuevos.
+#   v1 (mayo 2026) — versión inicial del quality audit.
+CACHE_VERSION_QUALITY = 1
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  ANÁLISIS
@@ -41,6 +61,7 @@ async def analyze_mkv(
     mkv_path: str,
     progress_callback=None,
     pgs_progress_callback=None,
+    use_cache: bool = True,
 ) -> MkvAnalysisResult:
     """
     Analiza un MKV existente: pistas, capítulos, metadatos.
@@ -51,12 +72,21 @@ async def analyze_mkv(
 
     Si se pasa ``progress_callback(step: str)``, se notifica al arrancar cada
     paso costoso para que el frontend pueda mostrar un modal de progreso.
-    Pasos emitidos: ``identify``, ``mediainfo``, ``pgs``, ``dovi``.
+    Pasos emitidos: ``identify``, ``mediainfo``, ``pgs``, ``dovi`` y
+    ``cache_hit`` cuando se sirve del cache.
 
     Si se pasa ``pgs_progress_callback(pct: float, eta_s: int)``, durante el
     conteo de paquetes ffprobe se emite progreso real basado en bytes leídos
     (vía /proc/{pid}/io), exactamente como en Tab 1.
+
+    Si ``use_cache=True`` (default), antes de ejecutar el pipeline se busca
+    en /config/mkv_audits/ por fingerprint. Hit válido → return inmediato.
+    Tras un miss, el resultado se persiste para servir openings posteriores
+    instantáneamente. ``use_cache=False`` fuerza pipeline fresh y reescribe
+    el cache (usado por el botón "↻ Re-analizar" del frontend).
     """
+    from storage import compute_mkv_fingerprint, read_mkv_cache
+
     async def _emit(step: str):
         if progress_callback:
             try:
@@ -66,6 +96,28 @@ async def analyze_mkv(
 
     if not Path(mkv_path).exists():
         raise RuntimeError(f"Fichero no encontrado: {mkv_path}")
+
+    # ── Cache check ──────────────────────────────────────────────────
+    # Triple-fingerprint barato (~20 ms para SHA del primer 1 MB).
+    fingerprint = compute_mkv_fingerprint(mkv_path) if use_cache else None
+    if fingerprint:
+        cached = read_mkv_cache(fingerprint, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+        if cached and cached.get("basic"):
+            await _emit("cache_hit")
+            try:
+                # Reconstruir el MkvAnalysisResult desde el JSON cacheado.
+                # mediainfo_raw se excluyó del cache (50-80 KB cada uno) →
+                # llega como None. El modal "Datos MKV" no lo consume, así
+                # que el comportamiento es idéntico para el usuario.
+                result = MkvAnalysisResult.model_validate(cached["basic"])
+                _logger.info("MKV cache HIT para %s", Path(mkv_path).name)
+                return result
+            except Exception as e:
+                _logger.warning(
+                    "MKV cache inválido para %s (re-analizando): %s",
+                    Path(mkv_path).name, e,
+                )
+                # Sigue al pipeline normal — el cache se sobrescribirá.
 
     # ── mkvmerge -J ──────────────────────────────────────────────
     await _emit("identify")
@@ -259,6 +311,40 @@ async def analyze_mkv(
         dovi=dovi_info,
         mediainfo_raw=mediainfo_raw,
     )
+
+
+def persist_mkv_basic_to_cache(mkv_path: str, result: MkvAnalysisResult) -> None:
+    """Persiste un MkvAnalysisResult en el cache de Tab 2.
+
+    Llamado por el endpoint /api/mkv/analyze tras un análisis exitoso, una
+    vez se le ha asignado el ``analysis_log`` capturado durante la operación.
+
+    Excluye ``mediainfo_raw`` del payload: son 50-80 KB de diagnóstico que
+    el frontend no consume (el modal "Datos MKV" usa solo analysis_log +
+    tracks). Con 10.000 MKVs cacheados, el ahorro es 500-800 MB.
+
+    Errores se loguean pero no se propagan — el cache es best-effort, el
+    usuario ya tiene el resultado en memoria. Si falla la escritura, el
+    próximo open simplemente re-analizará.
+    """
+    from storage import compute_mkv_fingerprint, write_mkv_cache_basic
+    try:
+        fingerprint = compute_mkv_fingerprint(mkv_path)
+        if not fingerprint:
+            return
+        payload = result.model_dump(exclude={"mediainfo_raw"})
+        write_mkv_cache_basic(
+            fingerprint=fingerprint,
+            cache_version_basic=CACHE_VERSION_BASIC,
+            cache_version_quality_existing=CACHE_VERSION_QUALITY,
+            basic_payload=payload,
+        )
+        _logger.info("MKV cache WRITE para %s", Path(mkv_path).name)
+    except Exception as e:
+        _logger.warning(
+            "Fallo escribiendo cache MKV para %s: %s",
+            Path(mkv_path).name, e,
+        )
 
 
 async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:

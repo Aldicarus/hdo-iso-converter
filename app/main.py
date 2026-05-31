@@ -2889,12 +2889,18 @@ async def analyze_mkv_endpoint(body: dict):
     sobre un MKV y devuelve toda la información de pistas, capítulos y
     metadatos. Puede tardar 1-3 min en MKVs grandes.
 
-    Body: ``{"file_path": "Movie.mkv"}`` (relativo a /mnt/output).
+    Body: ``{"file_path": "Movie.mkv", "force_refresh": false}``.
+
+    El primer análisis persiste el resultado en /config/mkv_audits/. Re-abrir
+    el mismo MKV es instantáneo (cache HIT). ``force_refresh: true`` invalida
+    el cache (botón "↻ Re-analizar" del frontend) y rehace el pipeline.
+
     Durante la ejecución emite progreso en ``_analyze_progress`` (mismo
     endpoint ``/api/analyze/progress`` que usa Tab 1).
     """
     global _analyze_progress
     rel_path = body.get("file_path", "")
+    force_refresh = bool(body.get("force_refresh", False))
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         # Simulación de progreso para que el modal se vea en dev — incluye
@@ -2921,6 +2927,16 @@ async def analyze_mkv_endpoint(body: dict):
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
+    # Force refresh: borra el cache antes de delegar para que analyze_mkv
+    # caiga al pipeline completo.
+    if force_refresh:
+        try:
+            from storage import invalidate_mkv_cache_by_path
+            invalidate_mkv_cache_by_path(mkv_full)
+            _logger.info("MKV cache invalidado por force_refresh: %s", mkv_path_obj.name)
+        except Exception as e:
+            _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
+
     # Captura el log emitido durante el análisis para guardarlo en el
     # resultado. Sirve para diagnóstico desde el modal "Datos MKV" sin pedir
     # el log del container — paridad con Tab 1's Session.analysis_log.
@@ -2930,10 +2946,13 @@ async def analyze_mkv_endpoint(body: dict):
         "mediainfo": "Analizando metadata extendida con MediaInfo",
         "pgs": "Contando paquetes PGS por subtítulo (ffprobe)",
         "dovi": "Analizando Dolby Vision (dovi_tool)",
+        "cache_hit": "Resultado servido desde caché (sin re-analizar)",
     }
+    cache_was_hit = False
 
     async def _mkv_progress_callback(step: str):
         global _analyze_progress
+        nonlocal cache_was_hit
         try:
             from datetime import datetime as _dt
             ts = _dt.now().strftime("%H:%M:%S")
@@ -2941,6 +2960,10 @@ async def analyze_mkv_endpoint(body: dict):
             analysis_log.append(f"[{ts}] [Análisis MKV] {label}…")
         except Exception:
             analysis_log.append(step)
+        if step == "cache_hit":
+            cache_was_hit = True
+            _analyze_progress = {"step": "", "done": True}
+            return
         if step == "pgs":
             _analyze_progress = {"step": "pgs", "done": False, "pct": 0, "eta_s": 0}
         else:
@@ -2957,7 +2980,20 @@ async def analyze_mkv_endpoint(body: dict):
             progress_callback=_mkv_progress_callback,
             pgs_progress_callback=_mkv_pgs_progress_callback,
         )
-        result.analysis_log = analysis_log
+        # Si el cache HIT, el analysis_log devuelto viene del cache antiguo
+        # (con sus timestamps originales). NO lo sobrescribimos — preserva
+        # el contexto temporal del análisis original. Solo añadimos al log
+        # cuando el pipeline corrió de verdad.
+        if not cache_was_hit:
+            result.analysis_log = analysis_log
+            # Persistir tras pipeline fresh. Encapsulado en mkv_analyze
+            # para mantener la lógica de exclude(mediainfo_raw) cerca del
+            # modelo.
+            try:
+                from phases.mkv_analyze import persist_mkv_basic_to_cache
+                persist_mkv_basic_to_cache(mkv_full, result)
+            except Exception as e:
+                _logger.warning("Cache write falló (no bloquea): %s", e)
         _analyze_progress = {"step": "", "done": True}
         return result.model_dump()
     except Exception as e:
@@ -3979,6 +4015,14 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 body.file_path = str(dst_path)
                 result = await apply_mkv_edits(body)
                 _mkv_apply_set_step("done", "Cambios aplicados correctamente")
+                # mkvpropedit cambia mtime y posiblemente el primer 1MB del
+                # MKV → cache previo (del source o del destino si existía)
+                # debe quedar invalidado para que el próximo open re-analice.
+                try:
+                    from storage import invalidate_mkv_cache_by_path
+                    invalidate_mkv_cache_by_path(str(dst_path))
+                except Exception as e:
+                    _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
                 # Devolvemos el nuevo path para que el frontend actualice el state
                 if isinstance(result, dict):
                     result["new_file_path"] = str(dst_path)
@@ -4010,6 +4054,14 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
 
         # Ruta directa (MKV en /mnt/output u otro root editable)
         result = await apply_mkv_edits(body)
+        # mkvpropedit modifica el MKV in-place → invalidar cache para que
+        # la próxima apertura desde Tab 2 re-analice y refleje los nuevos
+        # metadatos (nombres de pistas, flags, capítulos).
+        try:
+            from storage import invalidate_mkv_cache_by_path
+            invalidate_mkv_cache_by_path(body.file_path)
+        except Exception as e:
+            _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
         return result
     except HTTPException:
         raise
