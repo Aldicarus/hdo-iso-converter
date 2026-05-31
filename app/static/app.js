@@ -9468,9 +9468,29 @@ function _rgrfAspectLabel(dv, frameW = 3840, frameH = 2160) {
 }
 
 /** Visualizador L8: trims en escala log — dots con halo radial + labels encima. */
+/**
+ * Etiqueta semántica de un trim target L8 según los nits del display
+ * destino. Mapping de la spec de Dolby Vision (subset común). Los valores
+ * intermedios (ej. 1500 nits visto en algún master raro) se etiquetan
+ * solo con sus nits sin texto extra.
+ */
+function _l8NitsLabel(n) {
+  const map = {
+    100:  'SDR target',
+    350:  'HDR low',
+    600:  'HDR mid',
+    1000: 'HDR consumer',
+    2000: 'HDR high-end',
+    4000: 'Pulsar reference',
+  };
+  return map[n] || '';
+}
+
 function _rgrfL8Svg(nits) {
   if (!Array.isArray(nits) || !nits.length) return '';
-  const svgW = 500, svgH = 68, padL = 32, padR = 32, axisY = 46;
+  // svgH aumentado de 68 → 86 para alojar la fila de labels semánticos
+  // debajo de la fila de nits (eje X). axisY se queda igual.
+  const svgW = 500, svgH = 86, padL = 32, padR = 32, axisY = 46;
   const usableW = svgW - padL - padR;
   const logMin = Math.log10(10), logMax = Math.log10(10000);
   const xOf = (n) => padL + ((Math.log10(Math.max(n, 1)) - logMin) / (logMax - logMin)) * usableW;
@@ -9494,13 +9514,19 @@ function _rgrfL8Svg(nits) {
     html += `<text x="${x}" y="${axisY + 18}" fill="#64748b" font-size="11.5"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">${t}</text>`;
   });
-  // Dots con halo (shadow SVG)
+  // Dots con halo + label semántica debajo (si conocida)
   nits.forEach(n => {
     const x = xOf(n);
     html += `<circle cx="${x}" cy="${axisY}" r="10" fill="#007AFF" fill-opacity="0.12" />`;
     html += `<circle cx="${x}" cy="${axisY}" r="6.5" fill="url(#${gid})" stroke="#ffffff" stroke-width="2" />`;
     html += `<text x="${x}" y="${axisY - 14}" fill="#003e8a" font-size="12"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${n}</text>`;
+    const label = _l8NitsLabel(n);
+    if (label) {
+      html += `<text x="${x}" y="${axisY + 33}" fill="#1e40af" font-size="9.5"
+                 font-family="-apple-system,Inter,sans-serif" text-anchor="middle"
+                 font-weight="500" opacity="0.75">${label}</text>`;
+    }
   });
   html += `</svg>`;
   return html;
@@ -10130,6 +10156,19 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 1 · Stream (profile + timing + structure)
   // ═══════════════════════════════════════════════════════════════
+  // Scene cuts + density si la auditoría profunda lo ha calculado.
+  // Esto solo aparece cuando el usuario ha pulsado "Auditar calidad"
+  // (los datos vienen del quality audit, no del análisis básico).
+  const sceneCutsCell = (dv?.quality_scene_cuts || 0) > 0
+    ? cell(
+        'Scene cuts',
+        `${dv.quality_scene_cuts.toLocaleString()} (~${
+          (a.duration_seconds / dv.quality_scene_cuts).toFixed(1)
+        }s/escena)`,
+        { tooltip: 'Nº de frames con scene_refresh_flag en el RPU (cambios de plano detectados por el colorista). Aportado por la auditoría profunda.' }
+      )
+    : '';
+
   const blockStream = `
     <section class="dv-block">
       <h5 class="dv-block-title">Stream</h5>
@@ -10142,6 +10181,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
         ${cell('RPU', rpuSize, { tooltip: 'Tamaño total estimado del RPU del MKV completo (bytes/frame medido en sample × frames totales). El bytes/frame es estable entre sample y total.' })}
+        ${sceneCutsCell}
         ${elVideo ? cell('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
       </div>
     </section>`;
@@ -10246,6 +10286,38 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     const nitsLabel = (l8Effective && l8Effective.length)
       ? l8Effective.join(' · ') + ' nits'
       : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
+    // Mini-tabla cuantitativa si hay quality audit. Sustituye al "info
+    // binaria solamente" de las pills con datos concretos del L8/L2.
+    const hasQuality = !!dv?.quality_classification;
+    const cmv4StatsTable = hasQuality ? `
+      <div class="dv-cmv4-stats-table">
+        <div class="dv-cmv4-stats-row">
+          <div class="dv-cmv4-stats-key">L8</div>
+          <div class="dv-cmv4-stats-val">
+            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString()}</strong> combos únicos
+            <span class="dv-cmv4-stats-sub">
+              ${dv.quality_scene_cuts > 0
+                ? `· ${(dv.quality_l8_unique_count / dv.quality_scene_cuts).toFixed(2)} combos/shot`
+                : ''}
+              ${dv.quality_l8_neutral_pct != null
+                ? ` · ${Math.round(dv.quality_l8_neutral_pct * 100)}% frames neutros`
+                : ''}
+              ${dv.quality_l8_has_mid_contrast ? ' · <code>mid_contrast</code>' : ''}
+              ${dv.quality_l8_has_clip_trim ? ' · <code>clip_trim</code>' : ''}
+            </span>
+          </div>
+        </div>
+        <div class="dv-cmv4-stats-row">
+          <div class="dv-cmv4-stats-key">L2</div>
+          <div class="dv-cmv4-stats-val">
+            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString()}</strong> combos únicos
+            ${(dv.quality_l2_target_pqs?.length || 0) > 0
+              ? `<span class="dv-cmv4-stats-sub">· ${dv.quality_l2_target_pqs.length} target_pqs</span>`
+              : ''}
+          </div>
+        </div>
+      </div>` : '';
+
     blockCmv4 = `
       <section class="dv-block">
         <h5 class="dv-block-title">CMv4.0 levels extendidos
@@ -10260,6 +10332,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
           ${pill(dv.has_l11, 'L11', 'content type')}
           ${pill(dv.has_l254,'L254', 'CMv4.0 marker')}
         </div>
+        ${cmv4StatsTable}
         ${l8Effective && l8Effective.length ? `
           <div class="dv-viz-inline">
             <div class="dv-viz-caption">L8 target displays · escala logarítmica de nits${l8FromLightProfile && l8FromLightProfile.length ? ' · validado film completo' : ' · sample 30s'}</div>

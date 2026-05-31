@@ -8086,6 +8086,55 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   .dv-quality-stats { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Mini-tabla cuantitativa en el bloque CMv4.0 levels (Tab 2).
+   Se renderiza debajo de las pills binarias cuando hay quality audit.
+   Datos por nivel: combos únicos, combos/shot, % neutros, fields CMv4.0-only. */
+.dv-cmv4-stats-table {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.dv-cmv4-stats-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.dv-cmv4-stats-key {
+  font-weight: 700;
+  color: var(--dv-accent-text);
+  font-family: 'SF Mono', monospace;
+  letter-spacing: 0.4px;
+  min-width: 28px;
+  font-size: 10.5px;
+}
+.dv-cmv4-stats-val {
+  color: var(--dv-text-2);
+  flex: 1;
+  line-height: 1.5;
+}
+.dv-cmv4-stats-val strong {
+  color: var(--dv-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.dv-cmv4-stats-sub {
+  color: var(--dv-text-3);
+  font-size: 11px;
+}
+.dv-cmv4-stats-val code {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--dv-accent-text);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: 'SF Mono', monospace;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    FILE BROWSER MODAL — Tab 3 selector de MKV origen
    Hereda de .modal-box (border-radius, shadow, slide-up anim, surface-1
