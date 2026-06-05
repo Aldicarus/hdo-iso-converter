@@ -82,9 +82,20 @@ def _check_reordering(session: Session, track_map: dict) -> bool:
     if len(audio_tracks) < len(mkv_audio_ids) or len(sub_tracks) < len(mkv_sub_ids):
         return True
 
-    # Si los valores de position no son monotónicamente crecientes → reordenación
-    positions = [t.position for t in session.included_tracks]
-    return positions != sorted(positions)
+    # Reordenación real: ¿el orden DESEADO (included_tracks, Castellano
+    # primero) coincide con el orden FÍSICO del source? Mapeamos cada pista
+    # incluida a su ID por contenido (idioma+codec+canales) y miramos si la
+    # secuencia queda ascendente. Si no, hay que reordenar → ruta directa.
+    # El antiguo check `positions != sorted(positions)` NO servía: Fase B
+    # asigna position=i siempre en orden Castellano-primero, así que las
+    # posiciones eran SIEMPRE [0,1,2,…] monótonas y nunca disparaba — los
+    # discos con el audio VO físicamente antes del Castellano caían a la
+    # ruta propedit posicional y se etiquetaban cruzados (P0 de la auditoría).
+    audio_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map)
+    sub_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
+    audio_seq = [audio_map[i] for i in range(len(audio_tracks)) if i in audio_map]
+    sub_seq   = [sub_map[i]   for i in range(len(sub_tracks))   if i in sub_map]
+    return audio_seq != sorted(audio_seq) or sub_seq != sorted(sub_seq)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -211,27 +222,15 @@ async def run_phase_e_propedit(
     if chapters_xml:
         cmd += ["--chapters", chapters_xml]
 
-    # Metadatos de pistas de audio
-    mkv_audio_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "audio"]
-    audio_tracks  = [t for t in session.included_tracks if t.track_type == "audio"]
-    for i, track in enumerate(audio_tracks):
-        if i < len(mkv_audio_ids):
-            tid = mkv_audio_ids[i]
-            cmd += ["--edit", f"track:{tid + 1}"]   # mkvpropedit usa índice 1-based
-            cmd += ["--set", f"name={track.label}"]
-            cmd += ["--set", f"flag-default={'1' if track.flag_default else '0'}"]
-            cmd += ["--set", f"flag-forced={'1'  if track.flag_forced  else '0'}"]
-
-    # Metadatos de pistas de subtítulos
-    mkv_sub_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "subtitles"]
-    sub_tracks  = [t for t in session.included_tracks if t.track_type == "subtitle"]
-    for i, track in enumerate(sub_tracks):
-        if i < len(mkv_sub_ids):
-            tid = mkv_sub_ids[i]
-            cmd += ["--edit", f"track:{tid + 1}"]
-            cmd += ["--set", f"name={track.label}"]
-            cmd += ["--set", f"flag-default={'1' if track.flag_default else '0'}"]
-            cmd += ["--set", f"flag-forced={'1'  if track.flag_forced  else '0'}"]
+    # Metadatos de pistas: mapeo POR CONTENIDO (idioma+codec+canales), igual
+    # que la ruta directa. Antes era posicional (`mkv_audio_ids[i]`) y cruzaba
+    # las etiquetas en discos con el audio VO físicamente antes del Castellano.
+    # mkvpropedit usa índice 1-based.
+    for tid, label, flag_default, flag_forced in _propedit_track_edits(session, track_map):
+        cmd += ["--edit", f"track:{tid + 1}"]
+        cmd += ["--set", f"name={label}"]
+        cmd += ["--set", f"flag-default={'1' if flag_default else '0'}"]
+        cmd += ["--set", f"flag-forced={'1' if flag_forced else '0'}"]
 
     if log_callback:
         await log_callback(
@@ -570,6 +569,35 @@ def _codec_matches(included_codec: str, source_codec: str) -> bool:
             return True
     # Fallback: si ambos son el mismo string
     return included_codec == source_codec
+
+
+def _propedit_track_edits(session, track_map: dict) -> list[tuple[int, str, bool, bool]]:
+    """Mapea cada pista incluida a su track del MKV intermedio POR CONTENIDO
+    (idioma+codec+canales) — igual que la ruta directa vía
+    ``_match_tracks_to_source``. Devuelve la lista de ediciones para mkvpropedit:
+    ``[(source_track_id, label, flag_default, flag_forced), …]``.
+
+    La ruta propedit antes mapeaba por POSICIÓN (``mkv_audio_ids[i]``); en discos
+    con el audio VO físicamente antes del Castellano eso ponía la etiqueta
+    'Castellano…' sobre el stream inglés (P0 de la auditoría). Reusar el matcher
+    por contenido lo evita y además desambigua por canales (dos Castellano AC-3
+    2.0 vs 5.1).
+    """
+    audio_tracks  = [t for t in session.included_tracks if t.track_type == "audio"]
+    sub_tracks    = [t for t in session.included_tracks if t.track_type == "subtitle"]
+    mkv_audio_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "audio"]
+    mkv_sub_ids   = [idx for idx, t in sorted(track_map.items()) if t["type"] == "subtitles"]
+    audio_id_map  = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map)
+    sub_id_map    = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
+
+    edits: list[tuple[int, str, bool, bool]] = []
+    for i, track in enumerate(audio_tracks):
+        if i in audio_id_map:
+            edits.append((audio_id_map[i], track.label, track.flag_default, track.flag_forced))
+    for i, track in enumerate(sub_tracks):
+        if i in sub_id_map:
+            edits.append((sub_id_map[i], track.label, track.flag_default, track.flag_forced))
+    return edits
 
 
 # ══════════════════════════════════════════════════════════════════════
