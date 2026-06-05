@@ -10715,6 +10715,24 @@ async function _rgrfCopyToClipboard(evt) {
 async function _rgrfAnalyzeLight(evt) {
   if (!mkvProject) return;
 
+  // Guard anti-solapamiento. El estado de luminancia es ÚNICO en el backend
+  // (un solo _light_profile_state + cancelación global) y la sesión del
+  // navegador (window._dvLightSession) también. Lanzar un segundo análisis
+  // mientras corre el primero machacaba esa sesión global y reabría el modal
+  // COMPARTIDO; al intentar deshacerte del segundo (atascado en el 409 del
+  // backend) el botón "Cancelar" disparaba la cancelación GLOBAL que mataba al
+  // PRIMERO, con mensajes cruzados ("Cancelado por el usuario" + "Timeout tras
+  // 3600s"). Preguntamos al backend (fuente de verdad) y, si hay uno activo,
+  // avisamos sin tocar nada. El 409 del endpoint queda como red de seguridad
+  // para la race entre este check y el POST (o llamadas no-UI).
+  try {
+    const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
+    if (st && st.active) {
+      showToast('Ya hay un análisis de luminancia en curso. Espera a que termine o cancélalo.', 'info');
+      return;
+    }
+  } catch (_) { /* si /progress falla, continuamos; el 409 del backend cubre la race */ }
+
   // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
