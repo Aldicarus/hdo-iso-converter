@@ -4515,6 +4515,15 @@ select { appearance: none; cursor: pointer;
   border-color: rgba(0, 122, 255, 0.65);
   box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
 }
+/* A11y: foco visible por teclado en botones y tabs principales. Antes solo
+   .cmv40-repo-card tenía :focus-visible, así que la app no era navegable por
+   teclado. Aditivo y solo para foco de teclado (:focus-visible no matchea el
+   click de ratón), así que no cambia la apariencia al usar el puntero. */
+.btn:focus-visible,
+.tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.40);
+}
 .cmv40-repo-card.selected {
   background: rgba(0, 122, 255, 0.10);
   border-color: #005fb8;

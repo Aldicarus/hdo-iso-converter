@@ -3702,7 +3702,7 @@ function onModalOverlayClick(e, id) { if (e.target === document.getElementById(i
 // Cerrar con Escape
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.modal-overlay.open:not([data-no-escape])').forEach(m => m.classList.remove('open'));
     TooltipManager.hide();
   }
 });
@@ -8299,35 +8299,6 @@ function handleExecutionWsMessage(msg) {
 }
 
 /**
- * Actualiza la barra de progreso determinada con un porcentaje concreto.
- * @param {number} pct   - Porcentaje de 0 a 100.
- * @param {string} [label] - Texto descriptivo de la operación actual.
- */
-function updateProgress(pct, label) {
-  const bar   = document.getElementById('progress-bar');
-  const pctEl = document.getElementById('progress-pct');
-  bar.classList.remove('indeterminate');
-  bar.style.width = `${pct}%`;
-  if (pctEl) pctEl.textContent = `${pct}%`;
-  if (label) setText('progress-label', label);
-}
-
-/**
- * Cambia el icono y label de la barra de progreso y vuelve a modo indeterminate.
- * @param {string} icon  - Emoji de la fase.
- * @param {string} label - Texto descriptivo.
- */
-function setProgressLabel(icon, label) {
-  setText('progress-icon', icon);
-  setText('progress-label', label);
-  // Volver a indeterminate cuando cambia de fase
-  const bar = document.getElementById('progress-bar');
-  bar.style.width = '35%';
-  bar.classList.add('indeterminate');
-  document.getElementById('progress-pct').textContent = '';
-}
-
-/**
  * Inicia el temporizador de ejecución de un proyecto específico.
  * Actualiza el elapsed del panel del proyecto (si está activo) y del Cola panel.
  * @param {Object} project
@@ -8412,12 +8383,6 @@ function appendConsole(text) {
   line.textContent = text;
   c.appendChild(line);
   if (wasAtBottom) c.scrollTop = c.scrollHeight;
-}
-
-/** Vacía el contenido de la consola de output. */
-function clearConsole() {
-  const el = E('console-wrap');
-  if (el) el.innerHTML = '';
 }
 
 /**
@@ -12066,7 +12031,9 @@ async function _doApplyMkvEdits(copyToOutput) {
  * cancelar funcional. Si está terminado/error/cancelled, también lo
  * mostramos brevemente para que el usuario sepa el resultado.
  */
+let _mkvApplyResumePolling = false;  // evita loops de polling concurrentes (audit #6)
 async function _mkvCheckActiveApply() {
+  if (_mkvApplyResumePolling) return;  // ya hay un loop de reanudación activo
   const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
   if (!st || !st.active) {
     // Si hay un step terminal pero active=false, no abrimos modal
@@ -12099,6 +12066,7 @@ async function _mkvCheckActiveApply() {
   _renderMkvApplyProgress(st);
   // Lanzar polling local que sigue hasta que step sea terminal. Sin POST
   // que esperar — el backend ya está procesando.
+  _mkvApplyResumePolling = true;
   let polling = true;
   let lastStep = st.step;
   const tick = async () => {
@@ -12127,6 +12095,7 @@ async function _mkvCheckActiveApply() {
       }
     } catch (_) { /* ignora errores de poll */ }
     if (polling) setTimeout(tick, 1000);
+    else _mkvApplyResumePolling = false;
   };
   setTimeout(tick, 500);
 }
