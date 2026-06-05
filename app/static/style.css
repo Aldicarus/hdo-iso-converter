@@ -5585,7 +5585,7 @@ select { appearance: none; cursor: pointer;
   letter-spacing: 0;
 }
 /* Selector con element `input` para igualar especificidad de la regla global
-   `input[type="text"], select { background: var(--surface-2); }` (style.css:1321)
+   `input[type="text"], select { background: var(--surface-2); }` (style.css:1437)
    que estaba ganando y pintando el input de título en gris mientras el de año
    (type="number") no caía en esa regla y se veia blanco. */
 input.cmv40-lookup-input {

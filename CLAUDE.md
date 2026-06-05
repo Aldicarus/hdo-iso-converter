@@ -842,7 +842,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ## Reglas de UX / Diseño visual
 
 ### Estilo general — macOS moderno
-- Paleta oscura, acentos azul/teal, radios generosos, transiciones fluidas
+- Paleta **clara** (tema macOS light: `--bg: #f5f5f7`, texto oscuro), con **islas oscuras** puntuales (el hub navy superior, la consola del pipeline, ciertos modales). Acentos azul/teal, radios generosos, transiciones fluidas
 - Variables CSS centralizadas en `:root`
 
 ### Hub activo — franja superior
