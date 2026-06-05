@@ -261,9 +261,14 @@ def _parse_export(json_path: Path) -> RpuAnalysis:
                     l8_idx_set.add(combo[0])
                 if not _is_l8_neutral(combo):
                     l8_worked_in_this_frame = True
-                if combo[7] is not None:
+                # Solo cuenta como "campo CMv4.0-only usado" si está poblado con
+                # un valor NO neutro. Un target_mid_contrast/clip_trim presente
+                # pero a 2048 (neutro) no es trabajo del colorista — marcarlo
+                # inflaba el tier a [CMv4 FULL] (audit #14). Alineado con
+                # _is_l8_neutral, que también trata None/2048 como neutro.
+                if combo[7] is not None and combo[7] != 2048:
                     analysis.l8_has_mid_contrast = True
-                if combo[8] is not None:
+                if combo[8] is not None and combo[8] != 2048:
                     analysis.l8_has_clip_trim = True
         if l8_worked_in_this_frame:
             frames_with_any_l8_worked += 1
@@ -440,8 +445,18 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
                     f"({', '.join(extras)}). Master con look global uniforme + "
                     f"toning por brackets de shot.")
 
+    # Default (sintético) si: muy pocos combos únicos (1-2 = look global de
+    # conversión al vuelo), O bien mayoría de frames neutros PERO sin alcanzar
+    # un nº de combos propio de un master trabajado. El antiguo `OR neutral>=95%`
+    # a secas marcaba "default" másters CORE reales de pelis OSCURAS (50+ combos
+    # reales, pero la mayoría de frames en escenas oscuras → trims a neutro),
+    # recomendando Mantener y descartando un bin válido (audit #3). `combos<=2`
+    # sigue siendo disparador INDEPENDIENTE (1-2 combos = sintético siempre,
+    # aunque el combo sea no-neutro) para no regresar la detección de bins
+    # sintéticos de 1 combo con trim global no-neutro.
     if (analysis.l8_unique_count <= L8_DEFAULT_MAX_UNIQUE_COMBOS
-            or analysis.l8_neutral_pct >= L8_DEFAULT_MIN_NEUTRAL_PCT):
+            or (analysis.l8_neutral_pct >= L8_DEFAULT_MIN_NEUTRAL_PCT
+                and analysis.l8_unique_count < L8_REAL_MIN_UNIQUE_COMBOS)):
         return ("default",
                 f"Bin sintético — {analysis.l8_unique_count} combos L8 únicos, "
                 f"{analysis.l8_neutral_pct * 100:.0f}% frames neutros. "

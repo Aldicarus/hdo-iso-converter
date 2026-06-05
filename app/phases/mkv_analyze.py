@@ -50,7 +50,10 @@ CACHE_VERSION_BASIC = 1
 # classify_l8_quality). Bumpear cuando cambien los umbrales del clasificador
 # en rpu_analyze.py o se añadan campos cuantitativos nuevos.
 #   v1 (mayo 2026) — versión inicial del quality audit.
-CACHE_VERSION_QUALITY = 1
+#   v2 (jun 2026)  — recalibrado classify_l8 (default ya no salta solo por
+#                    %neutro alto con muchos combos: audit #3) + flags
+#                    mid_contrast/clip_trim sólo si != 2048 (audit #14).
+CACHE_VERSION_QUALITY = 2
 
 
 # ══════════════════════════════════════════════════════════════════════

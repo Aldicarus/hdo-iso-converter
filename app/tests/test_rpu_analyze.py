@@ -71,9 +71,23 @@ class TestClassifyL8(unittest.TestCase):
         self.assertEqual(cls, "default")
         self.assertIn("sintético", reason.lower())
 
-    def test_default_when_all_frames_neutral(self):
-        # Aunque haya muchos combos, si >=95% están neutros es default
+    def test_dark_master_many_combos_high_neutral_is_indeterminate(self):
+        # audit #3: un master CORE real de peli OSCURA tiene muchos combos
+        # reales (50) pero la mayoría de frames en escenas oscuras → trims a
+        # neutro (98%). Antes el `OR neutral>=95%` lo marcaba "default" →
+        # Mantener → descartaba un bin válido. Ahora, con >=10 combos, el alto
+        # % neutro NO basta para "default": cae a "indeterminate" (avanza y
+        # decide tras Fase A) en lugar de auto-descartarse.
         a = self._make(l8_count=50, neutral_pct=0.98)
+        cls, reason = classify_l8(a)
+        self.assertEqual(cls, "indeterminate")
+
+    def test_single_combo_nonneutral_still_default(self):
+        # Guarda contra la regresión del fix #3: un bin sintético de 1 combo
+        # con trim global NO-neutro (0% frames neutros) debe seguir siendo
+        # "default" — `combos<=2` es disparador independiente, no condicionado
+        # al % neutro.
+        a = self._make(l8_count=1, neutral_pct=0.0)
         cls, reason = classify_l8(a)
         self.assertEqual(cls, "default")
 
@@ -268,6 +282,33 @@ class TestParseExport(unittest.TestCase):
             res = _parse_export(path)
             self.assertTrue(res.l8_has_mid_contrast)
             self.assertTrue(res.l8_has_clip_trim)
+        finally:
+            path.unlink()
+
+    def test_neutral_mid_contrast_clip_not_flagged(self):
+        # audit #14: target_mid_contrast/clip_trim PRESENTES pero a 2048 (neutro)
+        # no son trabajo del colorista — antes activaban el flag → tier [CMv4
+        # FULL] inflado. Ahora el flag sólo se activa con valor != 2048.
+        f = {
+            "vdr_dm_data": {
+                "cmv40_metadata": {
+                    "ext_metadata_blocks": [
+                        {"Level8": {
+                            "target_display_index": 1,
+                            "trim_slope": 2272, "trim_offset": 2048, "trim_power": 2048,
+                            "trim_chroma_weight": 2048, "trim_saturation_gain": 2048,
+                            "ms_weight": 2048,
+                            "target_mid_contrast": 2048, "clip_trim": 2048,  # neutros
+                        }}
+                    ]
+                }
+            }
+        }
+        path = _write_json([f] * 50)
+        try:
+            res = _parse_export(path)
+            self.assertFalse(res.l8_has_mid_contrast)
+            self.assertFalse(res.l8_has_clip_trim)
         finally:
             path.unlink()
 
