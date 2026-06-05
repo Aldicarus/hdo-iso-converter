@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -921,8 +922,11 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
     """
     from phases.phase_a import _parse_dovi_summary
 
-    pid = os.getpid()
-    tmp_rpu = str(Path(TMP_DIR) / f"_mkv_rpu_{pid}.bin")
+    # Token único por llamada (NO os.getpid(): es constante en el proceso, así
+    # que dos análisis concurrentes — p. ej. dos pestañas en Tab 2 — usaban los
+    # mismos ficheros temporales y uno leía el RPU del otro). audit #15.
+    token = uuid.uuid4().hex[:12]
+    tmp_rpu = str(Path(TMP_DIR) / f"_mkv_rpu_{token}.bin")
     # Limit de frames para muestreo: 720 ≈ 30s a 24fps, suficiente para
     # identificar profile + CM version + niveles presentes.
     _LIMIT_FRAMES = "720"
@@ -944,7 +948,7 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
             _logger.info("dovi_tool MKV direct falló, fallback a ffmpeg (%s): %s",
                          "EL en pista separada" if hevc_count >= 2 else "estructura no estándar",
                          stderr.decode()[:200])
-            tmp_hevc = str(Path(TMP_DIR) / f"_mkv_hevc_{pid}.hevc")
+            tmp_hevc = str(Path(TMP_DIR) / f"_mkv_hevc_{token}.hevc")
             map_arg = "0:v:1" if hevc_count >= 2 else "0:v:0"
             try:
                 proc = await asyncio.create_subprocess_exec(

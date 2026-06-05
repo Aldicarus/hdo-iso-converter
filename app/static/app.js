@@ -260,9 +260,11 @@ function _runRecoveryTasks() {
   if (typeof loadSessions === 'function') {
     try { loadSessions(); } catch (_) {}
   }
-  // Queue WS — reconnect agresivo (no chequea readyState).
+  // Queue WS — reconnect agresivo (no chequea readyState). Marcamos
+  // _closedByUser para que el onclose no programe SU PROPIO reconnect (sería
+  // por duplicado con el connectQueueWebSocket() de abajo). audit #25.
   if (typeof queueWs !== 'undefined' && queueWs) {
-    try { queueWs.close(); } catch (_) {}
+    try { queueWs._closedByUser = true; queueWs.close(); } catch (_) {}
   }
   if (typeof connectQueueWebSocket === 'function') {
     try { connectQueueWebSocket(); } catch (_) {}
@@ -7975,7 +7977,11 @@ function connectQueueWebSocket() {
       refreshOpenProjectState(prevRunning);
     }
   };
-  queueWs.onclose = () => {
+  queueWs.onclose = (ev) => {
+    // Cierre intencional (p. ej. recovery tras Mac sleep) → NO reconectar
+    // aquí: quien cerró ya llamará a connectQueueWebSocket(). Sin este guard
+    // se abrían DOS conexiones (la del recovery + la del setTimeout). audit #25.
+    if (ev && ev.target && ev.target._closedByUser) return;
     setTimeout(connectQueueWebSocket, _queueWsReconnectDelay);
     _queueWsReconnectDelay = Math.min(_queueWsReconnectDelay * 2, _QUEUE_WS_MAX_DELAY);
   };
@@ -14313,6 +14319,13 @@ function _cmv40SyncPermanentLog(project) {
     _appendLogLine(containerEl, line);
   }
   project._renderedLogCount = logArr.length;
+  // Cap del DOM: un job CMv4.0 largo (ffmpeg/dovi_tool) genera miles de líneas.
+  // La fuente de verdad es session.output_log (re-hidratado por watermark), así
+  // que podar los nodos más antiguos no pierde nada y evita inflar el DOM
+  // (Tab 1 ya acota con el ring buffer _colaLogLines). audit #11.
+  while (containerEl.childNodes.length > 1200) {
+    containerEl.removeChild(containerEl.firstChild);
+  }
 }
 
 function _cmv40SyncRunningLog(project) {

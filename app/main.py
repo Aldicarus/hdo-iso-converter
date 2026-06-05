@@ -6442,6 +6442,13 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
+    if session.running_phase:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Hay una fase en curso ({session.running_phase}). "
+                   "Cancélala antes de resetear (audit #13).",
+        )
+
     if session.archived:
         raise HTTPException(
             status_code=400,
@@ -6479,6 +6486,25 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         session.target_rpu_path = ""
         session.target_rpu_source = ""
         session.sync_delta = 0
+        # El target se re-provee → invalida toda la evaluación de trust,
+        # pre-flight y la recomendación Mantener/Inyectar derivadas del bin
+        # anterior. Sin esto el workflow quedaba mal etiquetado tras el reset
+        # (audit #12). trust_override se conserva (es preferencia del usuario).
+        session.target_type = "generic"
+        session.target_trust_ok = False
+        session.target_preflight_ok = False
+        session.preflight_decision = ""
+        session.preflight_message = ""
+        session.target_l8_classification = ""
+        session.phases_skipped = []
+        session.awaiting_critical_ack = False
+        session.critical_gate_failures = []
+        session.user_acknowledged_degradation = False
+        session.pipeline_aborted = False
+        session.recommended_action = ""
+        session.recommended_action_label = ""
+        session.recommended_action_reason = ""
+        session.output_workflow = ""
     if _clear_from("sync_corrected"):
         session.sync_config = None
         # Restaurar target_frame_count / sync_delta al valor del RPU original,
@@ -7254,6 +7280,13 @@ async def cmv40_reset_sync(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    if session.running_phase:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Hay una fase en curso ({session.running_phase}). "
+                   "Cancélala antes de descartar la corrección (audit #13).",
+        )
 
     # ⚠️ DEV MODE: restaurar target a valor original simulado (source + 40)
     if DEV_MODE:
@@ -8266,6 +8299,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
     latest_tag = ""
     pending_releases: list[dict] = []
     fetch_error = None
+    rate_limited = False
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {"Accept": "application/vnd.github+json"}
@@ -8276,6 +8310,11 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                     f"https://api.github.com/repos/{repo}/releases?per_page=30",
                     headers=headers,
                 )
+                # 403 (cuota agotada, X-RateLimit-Remaining=0) o 429 → NO
+                # intentar /tags: gastaría otra de las 60 req/h sin auth y
+                # fallaría igual (audit #24).
+                if resp.status_code in (403, 429):
+                    rate_limited = True
                 if resp.status_code == 200:
                     releases_list = resp.json() or []
                     # Filtrar a tags semver, no draft, no prerelease
@@ -8312,8 +8351,10 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                 pass
 
             # Intento 2: /tags si /releases no dio nada (lo más comun para
-            # repos que solo tagean via `git tag` sin crear Releases)
-            if not latest_tag:
+            # repos que solo tagean via `git tag` sin crear Releases). NO si
+            # /releases fue rate-limited: /tags gastaría otra req del cupo
+            # 60/h y fallaría igual (audit #24).
+            if not latest_tag and not rate_limited:
                 resp_tags = await client.get(
                     f"https://api.github.com/repos/{repo}/tags?per_page=30",
                     headers=headers,
