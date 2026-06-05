@@ -68,6 +68,7 @@ ISO2MKVFEL/
     │   ├── phase_d.py         ← Extracción: mkvmerge desde MPLS montado
     │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
     │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo + light-profile DV L1)
+    │   ├── rpu_analyze.py     ← Clasificación L8 (classify_l8 + tiers) para el modelo Mantener/Inyectar (pre-flight)
     │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync + pre-flight)
     ├── dev_fixtures.py      ← Fixtures (DEV_MODE=1): ISOs/MKVs/RPUs fake para devel UI sin discos reales
     ├── services/            ← Integraciones externas
@@ -77,10 +78,13 @@ ISO2MKVFEL/
     │   ├── rec999_drive.py      ← Google Drive API v3 (listado + descarga de RPUs)
     │   ├── rec999_drive_match.py ← Fuzzy match de título con candidatos en el repo
     │   └── cmv40_recommend.py   ← Orquesta filename → TMDb → match contra sheet
-    └── static/
-        ├── index.html       ← SPA completa (Tab 1 + Tab 2 + Tab 3 + modales + config)
-        ├── app.js           ← Toda la lógica UI
-        └── style.css
+    ├── static/
+    │   ├── index.html       ← SPA completa (Tab 1 + Tab 2 + Tab 3 + modales + config)
+    │   ├── app.js           ← Toda la lógica UI
+    │   └── style.css
+    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction)
+    └── tools/
+        └── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
 ```
 
 ## Volúmenes Docker
@@ -214,24 +218,6 @@ Al reabrir un BDMV/ISO de serie con N episodios procesados:
 
 **Análisis por episodio** (`run_full_analysis_for_mpls` / `run_full_analysis_for_m2ts` en [phase_a.py](app/phases/phase_a.py)):
 - Variantes de `run_full_analysis` que operan sobre un MPLS/m2ts específico (no buscan el principal).
-- Helper `_resolve_m2ts_from_mpls`: deriva el m2ts del MPLS específico con 3 estrategias en cascada:
-  1. `container.properties.playlist_file` del JSON de mkvmerge -J
-  2. Convención `00800.mpls` → `00800.m2ts` (~95% acierto)
-  3. Fallback `find_main_m2ts` (último recurso)
-- MediaInfo, dovi_tool y PGS counting operan sobre el m2ts del episodio, no del disco entero.
-
-**Nomenclatura Plex/Jellyfin** (`build_series_mkv_name` en [phase_b.py](app/phases/phase_b.py)):
-
-```
-Serie Name (Año)/Season NN/Serie Name (Año) - SNNeNN - Episode Title [DV FEL][Audio DCP].mkv
-```
-
-- Sanitiza caracteres prohibidos en NTFS/SMB (`/\\:*?"<>|` → `-`).
-- Preserva acentos UTF-8 (ext4/ZFS-safe).
-- Subdirectorios creados con `Path.mkdir(parents=True)` en Fase E antes de mkvmerge.
-
-**Análisis por episodio** (`run_full_analysis_for_mpls` en [phase_a.py](app/phases/phase_a.py)):
-- Variante de `run_full_analysis` que opera sobre un MPLS específico (no busca el principal).
 - Helper `_resolve_m2ts_from_mpls`: deriva el m2ts del MPLS específico con 3 estrategias en cascada:
   1. `container.properties.playlist_file` del JSON de mkvmerge -J
   2. Convención `00800.mpls` → `00800.m2ts` (~95% acierto)
@@ -407,7 +393,7 @@ Indicadores visuales:
 
 **Cuándo usar la versión síncrona**: solo en endpoints REST one-shot donde el bloqueo de 100-500ms es aceptable (la respuesta tarda eso pero no afecta a otras corutinas en hot loops).
 
-**Tests de validación**: con session de 10K líneas (JSON ~1MB), el event loop debe quedarse bloqueado <50ms p95 incluso bajo cascadas de saves. Ver `test_eventloop.py` y `test_tab1_loop.py` (en commits históricos).
+**Tests de validación**: con session de 10K líneas (JSON ~1MB), el event loop debe quedarse bloqueado <50ms p95 incluso bajo cascadas de saves. (Los tests `test_eventloop.py` / `test_tab1_loop.py` que cubrían esto vivieron en commits históricos; ver la suite actual en `app/tests/` — comando abajo.)
 
 ### Auto-rewind y forward-roll en GET /api/cmv40/{id}
 
@@ -843,6 +829,14 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - `./run_local.sh` — carga `.env.local`, crea directorios, lanza uvicorn con `--reload`
 - `DEV_MODE=1` activa fixtures fake
 
+### Tests
+- Suite `unittest` en `app/tests/` (sin pytest ni config). Ejecutar **desde la raíz del repo**:
+  ```bash
+  python3 -m unittest discover -s app/tests -v        # toda la suite
+  python3 -m unittest app.tests.test_rpu_analyze -v   # un módulo
+  ```
+- Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV y la abstracción Source. No requieren discos reales.
+
 ---
 
 ## Reglas de UX / Diseño visual
@@ -966,8 +960,8 @@ Tres categorías:
 - **`real`** — L8 trabajado por colorista. Restore aporta calidad. Dos sub-ramas:
   - **CORE/CORE+/FULL estándar**: `combos_únicos >= 10` Y `frames_neutros < 95%`.
   - **FULL minimal**: `combos_únicos >= 3` Y (`mid_contrast` OR `clip_trim` poblados) Y al menos un combo con delta>50 unidades del neutro en algún trim (slope/offset/power/saturation_gain). Detecta masters con look global uniforme + brackets de toning sutiles (Black Phone 2: 3 combos slope+117 mid_c=2121; Expediente Warren: 5 combos slope=-276 sat=-410 clip=1901). Sin esta rama caerían en "indeterminate".
-- **`default`** — Bin sintético: ≤2 combos únicos O ≥95% frames neutros. Restore == conversión al vuelo del p3i/avdvplus → recomendación: Mantener MKV actual.
-- **`indeterminate`** — Caso límite, avanzar y decidir tras Fase A.
+- **`default`** — Bin sintético: ≤2 combos únicos, O ≥95% frames neutros **con <10 combos**. Restore == conversión al vuelo del p3i/avdvplus → recomendación: Mantener MKV actual. Un % neutro alto **con muchos combos** (≥10) es típico de un master CORE real de peli oscura (escenas oscuras → trims a neutro), así que cae a `indeterminate`, no a `default`, para no descartar un bin válido. `≤2 combos` sigue siendo disparador independiente (sintético aunque el combo sea no-neutro).
+- **`indeterminate`** — Caso límite (incluye master con muchos combos pero mayoría neutros), avanzar y decidir tras Fase A.
 
 ### Tiers de calidad (`classify_l8_quality`)
 
@@ -975,7 +969,7 @@ Solo aplica cuando la clasificación L8 es "real":
 
 | Tier | Filename label | Criterio |
 |---|---|---|
-| `full` | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados. Sub-descripción "FULL minimal" cuando combos<10 (master uniforme con brackets) |
+| `full` | `[CMv4 FULL]` | `target_mid_contrast` o `clip_trim` poblados **con valor no neutro (≠2048)** — un campo presente pero a 2048 no es trabajo del colorista y no cuenta. Sub-descripción "FULL minimal" cuando combos<10 (master uniforme con brackets) |
 | `core_rich` | `[CMv4 CORE+]` | `combos/scene_cuts >= 0.1` o `>= 400 absolutos` (grading dinámico shot-a-shot intenso) |
 | `core` | `[CMv4 CORE]` | Estándar streaming (Apple TV+/Disney+/Netflix) — trims básicos sin campos CMv4.0-only |
 
