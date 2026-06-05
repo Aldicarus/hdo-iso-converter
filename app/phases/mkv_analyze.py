@@ -229,8 +229,16 @@ async def analyze_mkv(
         mediainfo_raw = mi.raw_json
 
         mi_video = [t for t in mi.tracks if t.track_type == "video"]
-        mi_audio = [t for t in mi.tracks if t.track_type == "audio"]
-        mi_subs  = [t for t in mi.tracks if t.track_type == "text"]
+        # Ordenadas por stream_order (= orden de pista en el contenedor) para
+        # alinearlas con el orden de mkvmerge (por id ascendente). Antes se
+        # emparejaban por posición en la lista de MediaInfo, que NO siempre
+        # respeta el orden del contenedor → el bitrate/format_commercial (Atmos)
+        # podía caer en la pista equivocada (audit #16, solo display). Con
+        # stream_order=-1 (no reportado) sorted es estable → sin cambio.
+        mi_audio = sorted((t for t in mi.tracks if t.track_type == "audio"),
+                          key=lambda t: t.stream_order)
+        mi_subs  = sorted((t for t in mi.tracks if t.track_type == "text"),
+                          key=lambda t: t.stream_order)
 
         # Enriquecer pistas de vídeo
         video_tracks_list = [t for t in tracks if t.type == "video"]

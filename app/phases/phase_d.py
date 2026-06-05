@@ -28,11 +28,17 @@ import asyncio
 import os
 import subprocess
 import json
+import time
 from pathlib import Path
 
 MKVMERGE_BIN  = "mkvmerge"
 MKVEXTRACT_BIN = "mkvextract"
 MIN_MPLS_SIZE = 200  # 200 bytes — ISOs custom tienen MPLS muy pequeños (~1.5 KB)
+# Watchdog: si mkvmerge (con --gui-mode) pasa MKVMERGE_INACTIVITY_S sin emitir
+# NINGUNA línea de progreso, lo consideramos colgado y lo matamos para no
+# bloquear la cola FIFO indefinidamente (audit #20). 15 min es muy holgado: un
+# remux activo emite progreso cada pocos segundos.
+MKVMERGE_INACTIVITY_S = 900
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -104,18 +110,48 @@ async def run_phase_d(
     )
     if proc_callback:
         proc_callback(proc)
-    async for line in proc.stdout:
-        text = line.decode("utf-8", errors="replace").rstrip()
-        if not text:
-            continue
-        # --gui-mode: "#GUI#progress 45%" → "Progress: 45%"
-        if text.startswith("#GUI#progress "):
-            text = "Progress: " + text.removeprefix("#GUI#progress ")
-        elif text.startswith("#GUI#"):
-            continue  # Descartar otras líneas de control GUI
-        if log_callback:
-            await log_callback(text)
-    await proc.wait()
+    last_line_at = time.monotonic()
+    hung = False
+
+    async def _watchdog():
+        nonlocal hung
+        while proc.returncode is None:
+            await asyncio.sleep(30)
+            if time.monotonic() - last_line_at > MKVMERGE_INACTIVITY_S:
+                hung = True
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                return
+
+    wd_task = asyncio.create_task(_watchdog())
+    try:
+        async for line in proc.stdout:
+            last_line_at = time.monotonic()
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if not text:
+                continue
+            # --gui-mode: "#GUI#progress 45%" → "Progress: 45%"
+            if text.startswith("#GUI#progress "):
+                text = "Progress: " + text.removeprefix("#GUI#progress ")
+            elif text.startswith("#GUI#"):
+                continue  # Descartar otras líneas de control GUI
+            if log_callback:
+                await log_callback(text)
+        await proc.wait()
+    finally:
+        wd_task.cancel()
+        try:
+            await wd_task
+        except asyncio.CancelledError:
+            pass
+
+    if hung:
+        raise RuntimeError(
+            f"mkvmerge sin actividad >{MKVMERGE_INACTIVITY_S // 60} min — "
+            "abortado (probable cuelgue, no bloquea la cola)"
+        )
 
     # mkvmerge código 1 = warnings no fatales (ej: pista vacía), aceptable
     if proc.returncode >= 2:

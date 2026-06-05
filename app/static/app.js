@@ -13880,8 +13880,13 @@ function _cmv40StartSafetyPoller(project) {
     // dispara _cmv40MaybeAutoAdvance si autoContinue=true y phase no
     // running — con el retry de 5s del flag, esto destraba cadenas
     // atascadas en modo puente.
-    if (!document.hidden) {
-      _refreshCMv40Session(project.id);
+    // No solapar refreshes: GET /api/cmv40/{id} trae el output_log completo y
+    // bajo carga del NAS puede tardar >4s (el intervalo del poller). Sin este
+    // guard se acumulaban GETs pesados en vuelo (audit #10).
+    if (!document.hidden && !project._safetyRefreshInFlight) {
+      project._safetyRefreshInFlight = true;
+      Promise.resolve(_refreshCMv40Session(project.id))
+        .finally(() => { project._safetyRefreshInFlight = false; });
     }
     // Watchdog: detectar zombie WS por silencio prolongado.
     const silentMs = Date.now() - (project._lastWsMessageAt || 0);
@@ -16570,6 +16575,12 @@ async function cmv40DoAnalyzeSource(pid) {
  * éxito, dispara la siguiente fase automáticamente (sin atravesar Fase D).
  */
 async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
+  // Singleton por pid: se dispara desde varios sitios (analyze, target-provided,
+  // inject…). Sin guard, dos llamadas para el mismo proyecto corrían bucles de
+  // polling concurrentes → GETs pesados solapados a /api/cmv40/{id} (audit #10).
+  if (!window._cmv40PollActive) window._cmv40PollActive = {};
+  if (window._cmv40PollActive[pid]) return;
+  window._cmv40PollActive[pid] = true;
   for (let i = 0; i < maxTries; i++) {
     await new Promise(r => setTimeout(r, 500));
     // silent: ver _refreshCMv40Session — polling rutinario suprime toasts
@@ -16588,9 +16599,11 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
       if (project && project.autoContinue && !data.error_message && data.phase !== 'done') {
         _cmv40MaybeAutoAdvance(project);
       }
+      window._cmv40PollActive[pid] = false;
       return;
     }
   }
+  window._cmv40PollActive[pid] = false;
 }
 
 /**
