@@ -4516,9 +4516,9 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   await _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe);
 }
 
-/** Wrapper de _doAnalyzeISO que envía el source_type al endpoint /api/analyze.
- *  Reemplaza al wrapper antiguo solo-ISO. Mantiene la signature legacy
- *  como alias para que cualquier caller antiguo siga funcionando. */
+/** Lanza el análisis (Fase A+B) de un origen (ISO / carpeta BDMV / m2ts)
+ *  enviando su source_type al endpoint /api/analyze. Configura el modal de
+ *  progreso según el tipo y, si hay match TMDb, hidrata la cartela. */
 async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProbe) {
   // ── Modal de progreso ──────────────────────────────────────────
   // Configura título, icono y label del primer paso según el tipo de
@@ -4625,106 +4625,6 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
 
   await loadSessions();
 }
-
-/**
- * Ejecuta el análisis de un ISO (Fase A+B). Extraída para reutilizar
- * tanto en creación nueva como en re-análisis de un proyecto existente.
- */
-async function _doAnalyzeISO(isoPath, isoName) {
-  // ── Modal de progreso ──────────────────────────────────────────
-  const isoEl = document.getElementById('analyze-modal-iso');
-  if (isoEl) isoEl.textContent = isoName;
-  _resetAnalyzeSteps();
-  openModal('analyze-modal');
-
-  // Polling de progreso real del backend
-  const steps = ['mount', 'identify', 'chapters', 'mediainfo', 'pgs', 'dovi', 'rules'];
-  let lastStep = 'mount';
-  let stepStartTs = Date.now();
-  const pollId = setInterval(async () => {
-    try {
-      const prog = await apiFetch('/api/analyze/progress');
-      if (prog?.step && prog.step !== lastStep && steps.includes(prog.step)) {
-        const prevIdx = steps.indexOf(lastStep);
-        const newIdx = steps.indexOf(prog.step);
-        // Solo avanzar — ignorar backward transitions (pueden ocurrir si un
-        // log tardio contiene una keyword que matchea un step anterior).
-        if (newIdx > prevIdx) {
-          for (let i = prevIdx; i < newIdx; i++) {
-            _advanceAnalyzeStep(steps[i], steps[i + 1]);
-          }
-          lastStep = prog.step;
-          stepStartTs = Date.now();
-        }
-      }
-      // Paso PGS: barra de progreso real basada en bytes leídos por ffprobe
-      if (lastStep === 'pgs') {
-        const labelEl = document.getElementById('analyze-step-pgs-label');
-        const barWrap = document.getElementById('analyze-step-pgs-bar');
-        const barFill = document.getElementById('analyze-step-pgs-bar-fill');
-        const statsEl = document.getElementById('analyze-step-pgs-stats');
-        const elapsed = Math.floor((Date.now() - stepStartTs) / 1000);
-        const mm = Math.floor(elapsed / 60);
-        const ss = (elapsed % 60).toString().padStart(2, '0');
-        const pct = prog?.pct;
-        const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
-        if (barWrap) barWrap.style.display = 'block';
-        if (statsEl) statsEl.style.display = 'block';
-        if (pct != null && barFill) {
-          barFill.style.width = pct + '%';
-        }
-        if (statsEl) {
-          let line = `${mm}:${ss} transcurridos`;
-          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
-          if (eta && eta > 0) {
-            const em = Math.floor(eta / 60);
-            const es = (eta % 60).toString().padStart(2, '0');
-            line += ` · ETA ${em}:${es}`;
-          }
-          statsEl.textContent = line;
-        }
-      }
-    } catch (_) { /* silenciar errores de polling */ }
-  }, 500);
-
-  // 15 min timeout: el paso de packet count puede tardar hasta 3 min en m2ts
-  // de 60GB, más el resto del análisis (ffmpeg DV, MediaInfo, mkvmerge).
-  const session = await apiFetch('/api/analyze', {
-    method: 'POST',
-    body: JSON.stringify({ iso_path: isoPath }),
-  }, 900000);
-
-  clearInterval(pollId);
-  // Marcar todos los pasos restantes como completados
-  steps.forEach((s, i) => {
-    if (i < steps.length - 1) _advanceAnalyzeStep(s, steps[i + 1]);
-  });
-  // Pequeña pausa para que se vea el último ✅ antes de cerrar
-  await new Promise(r => setTimeout(r, 400));
-  closeModal('analyze-modal');
-
-  if (!session) {
-    showToast(`No se pudo analizar ${escHtml(isoName)}. Verifica que el ISO es válido y que el contenedor Docker arranca en modo privilegiado.`, 'error');
-    return;
-  }
-
-  // Si el proyecto ya estaba abierto, actualizar su sesión
-  const existingProject = openProjects.find(p => p.sessionId === session.id);
-  if (existingProject) {
-    existingProject.session = session;
-    currentSession = session;
-    _chaptersModified.delete(existingProject.subTabId);
-    renderChapters(session.chapters, session.chapters_auto_generated, session.chapters_auto_reason);
-    showToast(`Proyecto re-analizado: ${session.mkv_name || isoName}`, 'success');
-  } else {
-    showToast(`Proyecto creado: ${session.mkv_name || isoName}`, 'success');
-    openProject(session);
-  }
-
-  await loadSessions();
-}
-
 
 // ══════════════════════════════════════════════════════════════════════
 //  MODO SERIE — selección de episodios y creación de N sesiones (v2.5+)
@@ -9140,7 +9040,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
         const prevIdx = steps.indexOf(lastStep);
         const newIdx = steps.indexOf(prog.step);
         // Solo avanzar — ignorar backward transitions (defense-in-depth,
-        // mismo guard que en Tab 1's _doAnalyzeISO).
+        // mismo guard que en Tab 1's _doAnalyzeSource).
         if (newIdx > prevIdx) {
           for (let i = prevIdx; i < newIdx; i++) {
             _advanceMkvAnalyzeStep(steps[i], steps[i + 1]);
