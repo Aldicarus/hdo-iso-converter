@@ -3987,8 +3987,11 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
     pearson = num / (den_s * den_t)
     # Clamp
     pearson = max(-1.0, min(1.0, pearson))
-    # Convertir a porcentaje de confianza: -1 → 0%, +1 → 100%
-    confidence_pct = int(round((pearson + 1) / 2 * 100))
+    # Porcentaje de confianza en la MISMA escala que el gate de avance
+    # (threshold_ok = pearson >= 0.85 → "umbral 85%"). Antes mapeábamos
+    # [-1,1]→[0,100], lo que mostraba "Confianza 90% inferior al umbral 85%"
+    # (contradicción: 90 > 85). La correlación negativa se satura a 0%.
+    confidence_pct = max(0, int(round(pearson * 100)))
 
     if pearson > 0.95:
         rating, reason = "excellent", "Sincronización muy precisa — las curvas coinciden en forma casi perfectamente"

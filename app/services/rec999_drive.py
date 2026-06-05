@@ -123,6 +123,7 @@ async def _walk(client: httpx.AsyncClient, api_key: str,
 
 
 def _save_cache(files: list[DriveFile]) -> None:
+    tmp_path = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -130,9 +131,14 @@ def _save_cache(files: list[DriveFile]) -> None:
             "folder_id": get_cmv40_drive_folder_id(),
             "files": [f.model_dump() for f in files],
         }
-        CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                              encoding="utf-8")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        os.replace(tmp_path, CACHE_PATH)  # atómico en POSIX mismo-FS
     except OSError as e:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         _logger.warning("No pude persistir cache Drive: %s", e)
 
 

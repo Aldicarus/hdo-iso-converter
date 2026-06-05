@@ -86,18 +86,34 @@ def _load_cache() -> dict[str, dict]:
 def _save_cache() -> None:
     if _cache is None:
         return
+    tmp_path = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CACHE_PATH.write_text(
+        tmp_path.write_text(
             json.dumps(_cache, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp_path, CACHE_PATH)  # atómico en POSIX mismo-FS
     except OSError:
-        pass
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _cache_key(title: str, year: int | None) -> str:
     return f"{title.lower().strip()}|{year or ''}"
+
+
+def _safe_err(e: Exception) -> str:
+    """Mensaje de error sin filtrar la api_key. La key viaja como query param
+    en la URL, y httpx la incrusta en str(HTTPStatusError) → loguear la
+    excepción cruda la escribiría al log del NAS. Devolvemos solo el código de
+    estado HTTP (o el tipo de excepción para errores de red/parseo)."""
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        return f"HTTP {resp.status_code}"
+    return type(e).__name__
 
 
 def is_configured() -> bool:
@@ -235,7 +251,7 @@ async def search_movies(title_es: str, year: int | None,
                     vote_average=float(r.get("vote_average") or 0.0),
                 ))
     except Exception as e:
-        _logger.warning("TMDb search falló: %s", e)
+        _logger.warning("TMDb search falló: %s", _safe_err(e))
         return []
 
     # No cachear resultados vacios — el fallback sin año puede recuperar
@@ -287,7 +303,7 @@ async def fetch_details(tmdb_id: int, lang: str = "es-ES") -> TmdbDetails | None
             resp.raise_for_status()
             raw = resp.json()
     except Exception as e:
-        _logger.warning("TMDb details falló (id=%s): %s", tmdb_id, e)
+        _logger.warning("TMDb details falló (id=%s): %s", tmdb_id, _safe_err(e))
         return None
 
     poster_path   = raw.get("poster_path") or ""

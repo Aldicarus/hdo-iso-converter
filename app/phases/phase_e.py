@@ -156,6 +156,8 @@ async def run_phase_e_direct(
     await proc.wait()
 
     if proc.returncode >= 2:
+        if chapters_xml:
+            Path(chapters_xml).unlink(missing_ok=True)
         raise RuntimeError(f"mkvmerge falló con código {proc.returncode}")
 
     if chapters_xml:
@@ -249,6 +251,8 @@ async def run_phase_e_propedit(
         proc_callback(proc)
     _, stderr = await proc.communicate()
     if proc.returncode >= 2:
+        if chapters_xml:
+            Path(chapters_xml).unlink(missing_ok=True)
         err_text = stderr.decode("utf-8", errors="replace")[:300] if stderr else ""
         raise RuntimeError(
             f"mkvpropedit falló con código {proc.returncode}: {err_text}"

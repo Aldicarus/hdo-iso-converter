@@ -316,8 +316,6 @@ _ws_connections: dict[str, list[WebSocket]] = {}
 
 # Clientes WebSocket suscritos a updates de la cola
 _queue_ws_clients: set[WebSocket] = set()
-# Lock para serializar sends concurrentes al mismo WS (evita conflictos uvicorn/wsproto)
-_broadcast_lock = None  # inicializado en startup (necesita event loop activo)
 
 
 async def _send_ws_with_timeout(
@@ -3138,6 +3136,12 @@ async def mkv_light_profile_endpoint(body: dict):
     """
     import tempfile
     rel_path = body.get("file_path", "")
+    if _light_profile_state.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="Ya hay un análisis de luminancia en curso. Espera a que "
+                   "termine o cancélalo.",
+        )
     _lp_reset()
     if DEV_MODE:
         import math, random
@@ -4461,6 +4465,13 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     if not src_path.exists():
         raise HTTPException(status_code=400, detail="MKV no encontrado")
 
+    if _mkv_apply_state.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="Ya hay una copia o edición de MKV en curso. Espera a que "
+                   "termine o cancélala.",
+        )
+
     # Detección de library read-only — exige confirmación explícita del usuario
     needs_copy = _mkv_needs_copy_to_output(body.file_path)
     if needs_copy and not body.copy_to_output:
@@ -4940,7 +4951,6 @@ async def _run_cmv40_phase(
             # ANTES del save final del estado. Sin esto, las últimas N
             # líneas del log podrían perderse si el server cae justo aquí.
             await _cmv40_flush_log(session)
-            save_cmv40_session(session)
 
     # ── AUTO-PIPELINE BACKEND-DRIVEN ──────────────────────────────────
     # Tras completar una fase con éxito (sin error_message poblado en
@@ -5347,7 +5357,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 session.running_phase = None
-                save_cmv40_session(session)
+                await _save_cmv40_session_async(session)
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
         # target_preflight_ok=True ahora.
@@ -6963,7 +6973,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 session.running_phase = None
-                save_cmv40_session(session)
+                await _save_cmv40_session_async(session)
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
         # este endpoint manualmente (en lugar del orquestador interno), Fase
@@ -7033,7 +7043,7 @@ async def cmv40_preflight_source(session_id: str):
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 session.running_phase = None
-                save_cmv40_session(session)
+                await _save_cmv40_session_async(session)
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}

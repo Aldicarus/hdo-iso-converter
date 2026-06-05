@@ -1081,6 +1081,7 @@ def parse_mpls_chapters(mpls_path: str) -> list[dict]:
         [{"number": 1, "timestamp": "00:00:00.000", "name": "Capítulo 01", "name_custom": false}, ...]
         Lista vacía si falla o no hay capítulos.
     """
+    tmp_mkv = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".mkv", delete=False) as tmp:
             tmp_mkv = tmp.name
@@ -1118,7 +1119,8 @@ def parse_mpls_chapters(mpls_path: str) -> list[dict]:
         _logger.warning("Error extrayendo capítulos de %s: %s", mpls_path, e)
         return []
     finally:
-        Path(tmp_mkv).unlink(missing_ok=True)
+        if tmp_mkv:
+            Path(tmp_mkv).unlink(missing_ok=True)
 
 
 def _parse_simple_chapters(output: str) -> list[dict]:
