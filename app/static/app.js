@@ -10471,6 +10471,12 @@ async function _rgrfAuditQuality(evt) {
   // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
   // la auditoría, el resultado no debe aplicarse al proyecto equivocado.
   const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
+  // request_id estable por lanzamiento: si el navegador/proxy re-envía el POST
+  // largo (al perder foco / caer la conexión), reusa el MISMO body → el backend
+  // lo dedup y NO arranca un audit duplicado.
+  const requestId = (self.crypto && self.crypto.randomUUID)
+    ? self.crypto.randomUUID()
+    : (Date.now() + '-' + Math.random().toString(36).slice(2));
   const fileEl = document.getElementById('mkv-quality-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
   _mkvQualityResetSteps();
@@ -10540,7 +10546,7 @@ async function _rgrfAuditQuality(evt) {
         const resp = await fetch('/api/mkv/quality-audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: targetFilePath }),
+          body: JSON.stringify({ file_path: targetFilePath, request_id: requestId }),
           signal: ctrl.signal,
         });
         if (resp.ok) {
@@ -10807,6 +10813,10 @@ async function _rgrfAnalyzeLight(evt) {
   // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
   // el análisis, el resultado no debe aplicarse al proyecto equivocado.
   const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
+  // request_id estable por lanzamiento (dedup de re-envíos del POST largo).
+  const requestId = (self.crypto && self.crypto.randomUUID)
+    ? self.crypto.randomUUID()
+    : (Date.now() + '-' + Math.random().toString(36).slice(2));
   // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
@@ -10918,7 +10928,7 @@ async function _rgrfAnalyzeLight(evt) {
         const resp = await fetch('/api/mkv/light-profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: targetFilePath }),
+          body: JSON.stringify({ file_path: targetFilePath, request_id: requestId }),
           signal: ctrl.signal,
         });
         if (resp.ok) {

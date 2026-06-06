@@ -3088,6 +3088,7 @@ async def analyze_mkv_endpoint(body: dict):
 _light_profile_state: dict = {
     "active": False,
     "job_id": None,      # uuid del análisis actual — discrimina cancels obsoletos
+    "request_id": None,  # id de cliente para dedup de re-envíos del POST largo
     "step": 0,           # 0=idle, 1=ffmpeg, 2=extract-rpu, 3=export+parse, 4=done
     "step_label": "",
     "step_pct": 0,       # 0-100 dentro del paso actual
@@ -3249,6 +3250,18 @@ async def mkv_light_profile_endpoint(body: dict):
     """
     import tempfile
     rel_path = body.get("file_path", "")
+    # Dedup anti re-envío (mismo problema que quality-audit): el POST se queda
+    # abierto minutos; al perder el foco la pestaña el navegador/proxy re-manda
+    # el mismo body → arrancaba un análisis duplicado. El mismo request_id → no
+    # arrancamos otro.
+    request_id = (body.get("request_id") or "").strip() or None
+    if request_id and request_id == _light_profile_state.get("request_id"):
+        st = _light_profile_state
+        if st.get("active"):
+            return {"started": True, "duplicate": True, "job_id": st.get("job_id")}
+        if st.get("result"):
+            return st["result"]
+        raise HTTPException(status_code=500, detail=st.get("error") or "El análisis anterior no produjo resultado")
     if _light_profile_state.get("active"):
         raise HTTPException(
             status_code=409,
@@ -3256,6 +3269,7 @@ async def mkv_light_profile_endpoint(body: dict):
                    "termine o cancélalo.",
         )
     my_job_id = _lp_reset()
+    _light_profile_state["request_id"] = request_id
     if DEV_MODE:
         import math, random
         random.seed(42)
@@ -3859,6 +3873,7 @@ async def mkv_light_profile_endpoint(body: dict):
 _mkv_quality_state: dict = {
     "active": False,
     "audit_id": None,     # uuid de la audit actual — discrimina cancels obsoletos
+    "request_id": None,   # id de cliente para dedup de re-envíos del POST largo
     "step": "",           # "ffmpeg" | "extract_rpu" | "combos" | "done" | "error"
     "step_label": "",
     "global_pct": 0,      # 0-100 total
@@ -4250,6 +4265,24 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
+    # Dedup anti re-envío: el POST de la auditoría se queda abierto ~12 min sin
+    # respuesta; cuando la pestaña pierde el foco y cae la conexión, el navegador
+    # (o un proxy) RE-ENVÍA el POST con el MISMO body → arrancaba un audit
+    # duplicado tras completar el anterior (confirmado en logs: 2º START, mismo
+    # fichero, puerto nuevo, sin clic). El re-envío trae el mismo request_id →
+    # NO arrancamos otro: devolvemos el audit en curso o el resultado ya hecho.
+    request_id = (body.get("request_id") or "").strip() or None
+    if request_id and request_id == _mkv_quality_state.get("request_id"):
+        st = _mkv_quality_state
+        if st.get("active"):
+            _logger.info("[QualityAudit] re-envío del request_id=%s en curso — ignorado", request_id)
+            return {"started": True, "duplicate": True, "audit_id": st.get("audit_id")}
+        if st.get("result"):
+            _logger.info("[QualityAudit] re-envío del request_id=%s ya completado — devuelvo resultado", request_id)
+            return st["result"]
+        msg = st.get("error") or "La auditoría anterior no produjo resultado"
+        raise HTTPException(status_code=499 if "Cancelado" in msg else 500, detail=msg)
+
     if _mkv_quality_state.get("active"):
         raise HTTPException(
             status_code=409,
@@ -4260,6 +4293,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
+    _mkv_quality_state["request_id"] = request_id
     client_addr = (f"{request.client.host}:{request.client.port}"
                    if request and request.client else "?")
     _logger.warning(
