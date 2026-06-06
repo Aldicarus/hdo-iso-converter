@@ -35,6 +35,7 @@ from storage import (  # noqa: E402
     list_mkv_audit_entries,
     MKV_AUDIT_DIR,
     _mkv_audit_path,
+    _fingerprint_content_match,
 )
 
 
@@ -99,13 +100,14 @@ class TestFingerprint(unittest.TestCase):
         finally:
             p1.unlink(missing_ok=True); p2.unlink(missing_ok=True)
 
-    def test_changes_with_mtime(self):
-        """Mismo contenido y size pero mtime distinto → fingerprint distinto.
+    def test_mtime_recorded_but_not_part_of_content(self):
+        """compute_mkv_fingerprint sigue REGISTRANDO mtime_ns (referencia),
+        pero el match de cache lo ignora (ver _fingerprint_content_match):
+        mismo contenido + mismo size → mismo sha+size aunque cambie el mtime.
 
-        Este es el caso de mkvpropedit editando metadatos in-place donde
-        las posiciones del primer MB y el size pueden quedar idénticas
-        (caso edge teórico — en la práctica suele cambiar algún byte).
-        El mtime garantiza la invalidación."""
+        Quitar mtime del match evita re-auditorías de 5-10 min por touch/copia/
+        rollback sin cambio de contenido. Las ediciones in-place de mkvpropedit
+        se siguen detectando por el cambio del 1er MB + invalidación por path."""
         p = _make_fake_mkv(b"Z" * 2_000_000)
         try:
             fp1 = compute_mkv_fingerprint(str(p))
@@ -115,7 +117,10 @@ class TestFingerprint(unittest.TestCase):
             fp2 = compute_mkv_fingerprint(str(p))
             self.assertEqual(fp1["sha256_1mb"], fp2["sha256_1mb"])
             self.assertEqual(fp1["size_bytes"], fp2["size_bytes"])
+            # mtime_ns se sigue calculando y cambia…
             self.assertNotEqual(fp1["mtime_ns"], fp2["mtime_ns"])
+            # …pero NO entra en el match de contenido.
+            self.assertTrue(_fingerprint_content_match(fp1, fp2))
         finally:
             p.unlink(missing_ok=True)
 
@@ -166,15 +171,31 @@ class TestCacheBasicRoundtrip(unittest.TestCase):
         self.assertIsNotNone(cached)  # el fichero existe
         self.assertIsNone(cached["basic"])  # pero el bloque obsoleto
 
-    def test_read_returns_none_when_fingerprint_mismatch(self):
-        """Si el MKV cambia (mtime/size/SHA), el cache se descarta."""
+    def test_read_hit_when_only_mtime_changes(self):
+        """Cambio de SOLO mtime (touch, copia, rollback) → sigue siendo HIT.
+
+        Contrato nuevo: el match de cache es por contenido (sha+size), no por
+        mtime. Antes esto forzaba una re-auditoría inútil de 5-10 min."""
         payload = {"file_path": "/fake/movie.mkv", "tracks": []}
         write_mkv_cache_basic(self.fp, 1, 1, payload)
-        # Modificar el fingerprint a mano (simular cambio del MKV)
-        modified_fp = dict(self.fp)
-        modified_fp["mtime_ns"] = self.fp["mtime_ns"] + 1_000_000_000
-        cached = read_mkv_cache(modified_fp, 1, 1)
-        self.assertIsNone(cached)
+        only_mtime_changed = dict(self.fp)
+        only_mtime_changed["mtime_ns"] = self.fp["mtime_ns"] + 1_000_000_000
+        cached = read_mkv_cache(only_mtime_changed, 1, 1)
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached["basic"], payload)
+
+    def test_read_returns_none_when_content_changes(self):
+        """Si cambia el CONTENIDO (size o SHA del 1er MB), el cache se descarta."""
+        payload = {"file_path": "/fake/movie.mkv", "tracks": []}
+        write_mkv_cache_basic(self.fp, 1, 1, payload)
+        # size distinto → miss
+        size_changed = dict(self.fp)
+        size_changed["size_bytes"] = self.fp["size_bytes"] + 1
+        self.assertIsNone(read_mkv_cache(size_changed, 1, 1))
+        # SHA del 1er MB distinto → miss
+        sha_changed = dict(self.fp)
+        sha_changed["sha256_1mb"] = "0" * 64
+        self.assertIsNone(read_mkv_cache(sha_changed, 1, 1))
 
 
 # ── Roundtrip quality ─────────────────────────────────────────────────

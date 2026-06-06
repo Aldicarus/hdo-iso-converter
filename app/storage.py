@@ -392,15 +392,17 @@ MKV_AUDIT_DIR = CONFIG_DIR / "mkv_audits"
 
 
 def compute_mkv_fingerprint(mkv_path: str) -> dict | None:
-    """Triple-fingerprint de un MKV: SHA-256(primer 1 MB) + size + mtime_ns.
+    """Fingerprint de un MKV: SHA-256(primer 1 MB) + size + mtime_ns.
 
-    Triple-check porque mkvpropedit puede editar metadatos in-place sin
-    cambiar el tamaño total ni necesariamente el primer 1 MB (el segment
-    info de Matroska está al inicio pero ediciones pequeñas pueden caer
-    fuera de ese MB). El mtime atrapa cualquier modificación in-place,
-    el size atrapa truncados/extensiones, y el SHA atrapa cambios de
-    contenido sin tocar tiempos (raro, pero posible si alguien resetea
-    mtime con touch).
+    La COMPARACIÓN de caché usa solo SHA(1 MB) + size (ver
+    _fingerprint_content_match) — identifica el contenido. mtime_ns se sigue
+    calculando y guardando como referencia/diagnóstico, pero NO entra en el
+    match: un cambio de fecha sin cambio de contenido (touch, copia SMB/rsync
+    sin preservar times, rollback ZFS, la copia Library→output de Tab 2)
+    forzaba antes una re-auditoría de 5-10 min inútil. Las ediciones in-place
+    de mkvpropedit se siguen detectando porque cambian el 1er MB (el elemento
+    Tracks vive al principio) y porque el endpoint apply invalida el cache
+    por path tras editar.
 
     Devuelve None si el fichero no existe.
     """
@@ -421,6 +423,18 @@ def compute_mkv_fingerprint(mkv_path: str) -> dict | None:
 def _mkv_audit_path(fingerprint_sha: str) -> Path:
     """Ruta del fichero de cache para un fingerprint SHA dado."""
     return MKV_AUDIT_DIR / f"{fingerprint_sha}.json"
+
+
+def _fingerprint_content_match(persisted_fp: dict, fingerprint: dict) -> bool:
+    """¿Dos fingerprints apuntan al mismo CONTENIDO? Compara SHA(1er MB) +
+    tamaño. Deliberadamente NO compara mtime_ns (ver compute_mkv_fingerprint):
+    el contenido es lo que importa para el cache, y el mtime cambia en copias/
+    touch/rollback sin que el RPU ni las pistas cambien. Centralizado para que
+    los 3 sitios (read + write basic + write quality) no se desincronicen."""
+    if not persisted_fp:
+        return False
+    return (persisted_fp.get("sha256_1mb") == fingerprint.get("sha256_1mb")
+            and persisted_fp.get("size_bytes") == fingerprint.get("size_bytes"))
 
 
 def read_mkv_cache(
@@ -458,9 +472,7 @@ def read_mkv_cache(
         logger.warning("MKV cache corrupto, ignorado: %s — %s", path.name, e)
         return None
     persisted_fp = data.get("fingerprint") or {}
-    if (persisted_fp.get("sha256_1mb") != fingerprint["sha256_1mb"]
-            or persisted_fp.get("size_bytes") != fingerprint["size_bytes"]
-            or persisted_fp.get("mtime_ns") != fingerprint["mtime_ns"]):
+    if not _fingerprint_content_match(persisted_fp, fingerprint):
         # MKV cambió desde la última auditoría → cache inválido. NO lo
         # borramos del disco — la próxima escritura lo sobrescribirá con
         # el nuevo fingerprint.
@@ -551,9 +563,7 @@ def write_mkv_cache_basic(
         if existing_raw:
             persisted_fp = existing_raw.get("fingerprint") or {}
             # Solo preservar si fingerprint coincide (MKV no cambió)
-            if (persisted_fp.get("sha256_1mb") == fingerprint["sha256_1mb"]
-                    and persisted_fp.get("size_bytes") == fingerprint["size_bytes"]
-                    and persisted_fp.get("mtime_ns") == fingerprint["mtime_ns"]):
+            if _fingerprint_content_match(persisted_fp, fingerprint):
                 versions = existing_raw.get("versions") or {}
                 if versions.get("quality") == cache_version_quality_existing:
                     existing_quality = existing_raw.get("quality")
@@ -584,9 +594,7 @@ def write_mkv_cache_quality(
         existing_raw = _read_cache_raw(fingerprint["sha256_1mb"])
         if existing_raw:
             persisted_fp = existing_raw.get("fingerprint") or {}
-            if (persisted_fp.get("sha256_1mb") == fingerprint["sha256_1mb"]
-                    and persisted_fp.get("size_bytes") == fingerprint["size_bytes"]
-                    and persisted_fp.get("mtime_ns") == fingerprint["mtime_ns"]):
+            if _fingerprint_content_match(persisted_fp, fingerprint):
                 versions = existing_raw.get("versions") or {}
                 if versions.get("basic") == cache_version_basic_existing:
                     existing_basic = existing_raw.get("basic")
