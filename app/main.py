@@ -4190,18 +4190,31 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         my_audit_id, mkv_path_obj.name, client_addr,
     )
 
+    # Los 3 callbacks van GUARDADOS por my_audit_id: si el usuario canceló este
+    # audit y relanzó otro, el pipeline de ESTE (moribundo, aún vivo unos ms
+    # mientras su subprocess muere) NO debe escribir estado/log/proc del audit
+    # nuevo. El finalize ya estaba guardado; esto cierra la contaminación
+    # cosmética (líneas "✗ ffmpeg falló" del A muerto colándose en el log de B).
     def _progress_cb(step: str, pct: float, label: str):
         # SOLO actualiza estado para el modal/polling. NO loguea — la lógica
         # de logging detallado vive en analyze_rpu_quality_for_mkv via
         # log_callback, con marcadores semánticos ricos (━━━ pasos, comandos
         # $, ✓ resultados). Hacer log aquí duplicaría líneas.
+        if _mkv_quality_state.get("audit_id") != my_audit_id:
+            return
         _mkv_quality_state["step"] = step
         _mkv_quality_state["global_pct"] = int(pct)
         if label:
             _mkv_quality_state["step_label"] = label
 
     def _register(proc):
+        if _mkv_quality_state.get("audit_id") != my_audit_id:
+            return
         _mkv_quality_active_proc["proc"] = proc
+
+    def _log_cb(msg: str):
+        # _mkv_quality_log ya descarta la línea si el audit_id no coincide.
+        _mkv_quality_log(msg, target_audit_id=my_audit_id)
 
     try:
         from phases.mkv_analyze import (
@@ -4236,7 +4249,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
             cancel_check=_mkv_quality_check_cancel,
             register_proc=_register,
             dv_flags=dv_flags,
-            log_callback=_mkv_quality_log,
+            log_callback=_log_cb,
         )
         # Persistir en el cache MKV (bloque quality). Estos writes al
         # state se hacen condicionados al audit_id: si el usuario ya

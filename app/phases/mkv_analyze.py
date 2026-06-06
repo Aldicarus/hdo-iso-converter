@@ -57,6 +57,21 @@ CACHE_VERSION_BASIC = 1
 CACHE_VERSION_QUALITY = 2
 
 
+def _quality_workdir_base() -> str | None:
+    """Base donde van los temporales de auditoría (HEVC ~45 GB, RPU, JSON).
+
+    Devuelve TMP_DIR (/mnt/tmp, SSD grande) si es usable, o None para caer al
+    tempdir por defecto solo en dev local sin /mnt/tmp. Centraliza el `dir=`
+    de los mkdtemp para que el HEVC NUNCA caiga al /tmp del contenedor —
+    tmpfs pequeño en QNAP → "No space left on device" a mitad de ffmpeg
+    (docker-compose.yml avisa: "NUNCA dejar fallback a /tmp")."""
+    try:
+        Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
+        return TMP_DIR
+    except Exception:
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  ANÁLISIS
 # ══════════════════════════════════════════════════════════════════════
@@ -611,11 +626,27 @@ async def analyze_rpu_quality_for_mkv(
     if not p.exists():
         raise RuntimeError(f"MKV no encontrado: {mkv_path}")
 
-    tmpdir = Path(tempfile.mkdtemp(prefix="mkv_quality_audit_"))
-    hevc_path = tmpdir / "video.hevc"
-    rpu_path = tmpdir / "rpu.bin"
+    import shutil
     mkv_size = p.stat().st_size
     expected_hevc = int(mkv_size * 0.75)
+    # Workdir en /mnt/tmp (NO el /tmp del contenedor — ver _quality_workdir_base).
+    workdir_base = _quality_workdir_base()
+    # Pre-flight de espacio: un error claro AQUÍ es mucho mejor que un
+    # "ffmpeg falló" críptico a los 4 min de extraer 45 GB.
+    if workdir_base:
+        try:
+            free = shutil.disk_usage(workdir_base).free
+            if free < int(expected_hevc * 1.1):
+                raise RuntimeError(
+                    f"Espacio insuficiente en {workdir_base}: la extracción HEVC "
+                    f"necesita ~{_fmt_bytes(int(expected_hevc * 1.1))} y solo hay "
+                    f"{_fmt_bytes(free)} libres. Libera espacio o usa otro disco."
+                )
+        except FileNotFoundError:
+            pass
+    tmpdir = Path(tempfile.mkdtemp(prefix="mkv_quality_audit_", dir=workdir_base))
+    hevc_path = tmpdir / "video.hevc"
+    rpu_path = tmpdir / "rpu.bin"
 
     audit_start = _t.monotonic()
     _log(f"[Audit] 📋 Plan: extraer HEVC del MKV → extraer RPU Dolby Vision → "
@@ -1023,7 +1054,8 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     """
     import tempfile, json as _json
     from pathlib import Path as _Path
-    tmpdir = _Path(tempfile.mkdtemp(prefix="dovi_export_"))
+    # JSON de export a /mnt/tmp, no al /tmp del contenedor (puede ser grande).
+    tmpdir = _Path(tempfile.mkdtemp(prefix="dovi_export_", dir=_quality_workdir_base()))
     json_path = tmpdir / "rpu.json"
     try:
         proc = await asyncio.create_subprocess_exec(

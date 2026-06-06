@@ -8450,8 +8450,12 @@ function renderColaSidebar() {
       qListEl.innerHTML = '';
       queueState.queue.forEach((sid, idx) => {
         const proj = openProjects.find(p => p.sessionId === sid);
-        const name = (proj?.name || sid).replace(/\.mkv$/i, '');
         const session = _sessionsCache.find(s => s.id === sid);
+        // Mismo criterio que el job en curso: manda el mkv_name (nombre
+        // formateado de la peli); proj.name solo si la pestaña está abierta;
+        // sid como último recurso. Antes solo miraba proj.name, así que los
+        // jobs encolados sin pestaña abierta mostraban el id técnico.
+        const name = (session?.mkv_name || proj?.name || sid).replace(/\.mkv$/i, '');
         const dateStr = session ? formatRelativeDate(session.updated_at || session.created_at) : '';
         const isExp = _colaQueueExpanded.has(sid);
         const item = document.createElement('div');
@@ -10457,6 +10461,9 @@ async function _rgrfAuditQuality(evt) {
       return;
     }
   } catch (_) { /* si /progress falla seguimos: el guard 409 del backend es la red de seguridad */ }
+  // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
+  // la auditoría, el resultado no debe aplicarse al proyecto equivocado.
+  const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
   const fileEl = document.getElementById('mkv-quality-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
   _mkvQualityResetSteps();
@@ -10524,9 +10531,7 @@ async function _rgrfAuditQuality(evt) {
         const resp = await fetch('/api/mkv/quality-audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name,
-          }),
+          body: JSON.stringify({ file_path: targetFilePath }),
           signal: ctrl.signal,
         });
         if (resp.ok) {
@@ -10568,6 +10573,15 @@ async function _rgrfAuditQuality(evt) {
     _mkvQualitySetProgress(100);
     if (!mkvProject || !mkvProject.analysis) {
       throw new Error('El MKV se cerró durante la auditoría — vuelve a abrirlo');
+    }
+    // Si el usuario abrió otro MKV mientras corría la auditoría, NO aplicar el
+    // resultado al proyecto equivocado. El backend ya lo cacheó bajo el path
+    // correcto, así que al reabrir aquel MKV aparecerá poblado.
+    const curFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
+    if (curFilePath !== targetFilePath) {
+      closeModal('mkv-quality-modal');
+      showToast('Auditoría completada para el MKV anterior (guardada en caché)', 'info');
+      return;
     }
     if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
     Object.assign(mkvProject.analysis.dovi, data);
