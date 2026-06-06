@@ -175,6 +175,107 @@ def list_sessions() -> list[Session]:
     return sessions
 
 
+# ── Cache en memoria del summary de sesiones Tab 1 (sidebar), por fichero ──
+#
+# GET /api/sessions alimenta el sidebar de Tab 1 y se llama en cada arranque,
+# acción, visibilitychange y refresh tras WS. La versión completa lee y valida
+# TODOS los JSON de /config en el event loop, y cada Session arrastra campos
+# pesados que el sidebar NO usa: output_log (log del pipeline), analysis_log,
+# bdinfo_result.mkvmerge_raw (el -J completo de mkvmerge, cientos de KB) y el
+# output_log de cada ExecutionRecord. Con muchos proyectos eso son decenas de
+# MB de I/O + serialización por llamada — el mismo riesgo de timeout/bloqueo
+# que se corrigió en el sidebar de Tab 3.
+#
+# Mismo enfoque que list_cmv40_sessions_summary: cache POR FICHERO con
+# invalidación por stat (mtime_ns/size). Solo relee del disco las sesiones que
+# cambiaron (durante un job, solo la activa reescribe su JSON) y devuelve dicts
+# ligeros. El detalle completo sigue en GET /api/sessions/{id}.
+_sessions_summary_lock = threading.Lock()
+# nombre de fichero → (mtime_ns, size, summary_dict)
+_sessions_summary_by_file: dict[str, tuple[int, int, dict]] = {}
+
+# Ficheros de /config que no son sesiones de Tab 1 (caches y settings).
+_NON_SESSION_FILES = frozenset({
+    "settings.json",
+    "queue_state.json",
+    "app_settings.json",
+    "tmdb_cache.json",
+    "rec999_drive_cache.json",
+    "rec999_sheet_cache.json",
+    "update_check_cache.json",
+})
+
+
+def _strip_session_summary(data: dict) -> dict:
+    """Vacía los campos pesados que el sidebar no necesita; el detalle
+    completo está en GET /api/sessions/{id}. Mantiene la metadata y el status
+    de cada ejecución (execution_history[].status), solo descarta logs y el
+    bdinfo raw."""
+    data["output_log"] = []
+    data["analysis_log"] = []
+    data["bdinfo_result"] = None
+    for rec in data.get("execution_history") or []:
+        if isinstance(rec, dict):
+            rec["output_log"] = []
+    return data
+
+
+def list_sessions_summary() -> list[dict]:
+    """Lista resumida de sesiones Tab 1 (sin logs ni bdinfo raw) — sidebar.
+
+    Cacheada en memoria por fichero con invalidación por stat: solo relee del
+    disco las sesiones que cambiaron. Devuelve dicts ligeros; el detalle
+    completo (logs, bdinfo_result) está en GET /api/sessions/{id}.
+
+    La lista devuelta es nueva, pero los dicts internos son las instancias
+    cacheadas compartidas: los consumidores NO deben mutarlas.
+    """
+    with _sessions_summary_lock:
+        if not CONFIG_DIR.exists():
+            _sessions_summary_by_file.clear()
+            return []
+        # stat de los *.json de la raíz de /config (las sesiones cmv40 viven en
+        # el subdirectorio cmv40/, que glob no recorre). Orden: mtime desc.
+        entries: list[tuple[float, str, Path, int, int]] = []
+        for path in CONFIG_DIR.glob("*.json"):
+            if path.name in _NON_SESSION_FILES:
+                continue
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, path.name, path, st.st_mtime_ns, st.st_size))
+        entries.sort(key=lambda e: e[0], reverse=True)
+
+        seen: set[str] = set()
+        summaries: list[dict] = []
+        for _mtime, name, path, mtime_ns, size in entries:
+            seen.add(name)
+            cached = _sessions_summary_by_file.get(name)
+            if cached and cached[0] == mtime_ns and cached[1] == size:
+                summaries.append(cached[2])  # sin cambios → reusar, no leer
+                continue
+            # Nuevo o modificado → releer SOLO este fichero.
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning("Sesión corrupta o inválida, omitida: %s — %s", name, e)
+                _sessions_summary_by_file.pop(name, None)
+                continue
+            # Guard: descarta JSON de /config que no sean sesiones (un Session
+            # siempre tiene 'id'; los caches no listados arriba no).
+            if not isinstance(data, dict) or "id" not in data:
+                _sessions_summary_by_file.pop(name, None)
+                continue
+            data = _strip_session_summary(data)
+            _sessions_summary_by_file[name] = (mtime_ns, size, data)
+            summaries.append(data)
+        # Purgar entradas de ficheros borrados para no acumular memoria.
+        for stale in [n for n in _sessions_summary_by_file if n not in seen]:
+            del _sessions_summary_by_file[stale]
+        return summaries
+
+
 def delete_session(session_id: str) -> bool:
     """
     Elimina el fichero JSON de una sesión.

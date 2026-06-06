@@ -556,8 +556,14 @@ async def list_sources():
 
 @app.get("/api/sessions", summary="Lista todas las sesiones")
 async def get_sessions():
-    sessions = list_sessions()
-    return {"sessions": [s.model_dump() for s in sessions]}
+    # Summary ligero (sin output_log/analysis_log/bdinfo_result) cacheado por
+    # fichero + invalidación por stat, en el thread pool para no bloquear el
+    # event loop leyendo/serializando N JSON. El detalle completo (logs,
+    # bdinfo) está en GET /api/sessions/{id}, que es lo que usa el frontend al
+    # abrir un proyecto. Mismo patrón que GET /api/cmv40.
+    from storage import list_sessions_summary
+    sessions = await asyncio.to_thread(list_sessions_summary)
+    return {"sessions": sessions}
 
 
 @app.get("/api/sessions/{session_id}", summary="Obtiene una sesión")
