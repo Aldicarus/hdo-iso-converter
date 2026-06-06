@@ -914,8 +914,69 @@ async def analyze_iso(body: AnalyzeRequest):
         source_path=spath,
     )
     save_session(session)
+
+    # Enriquece con TMDb: rellena la ficha de la cabecera y, si el nombre del
+    # ISO no traía año, completa el mkv_name con el año de TMDb. Inline con
+    # timeout corto (el análisis ya tardó minutos; +unos segundos es
+    # irrelevante); si TMDb tarda más sigue en background y el frontend lo
+    # hidrata en el siguiente render. Mismo patrón que Tab 3.
+    try:
+        await asyncio.wait_for(_hydrate_session_tmdb(session.id), timeout=4.0)
+        refreshed = load_session(session.id)
+        if refreshed:
+            session = refreshed
+    except (asyncio.TimeoutError, Exception):
+        asyncio.create_task(_hydrate_session_tmdb(session.id))
+
     _analyze_progress = {"step": "done", "done": True}
     return session.model_dump()
+
+
+async def _hydrate_session_tmdb(session_id: str) -> None:
+    """Rellena `session.tmdb_info` (ficha de la cabecera de Tab 1) y, si el
+    nombre del ISO no traía año, completa el `mkv_name` con el año de TMDb.
+
+    El query a TMDb usa `parse_mkv_filename` (normaliza separadores y año
+    suelto, igual que el resto de lookups); el título visible del MKV lo
+    sigue fijando `_extract_title_year` sobre el nombre del fichero — de TMDb
+    solo tomamos el año. Best-effort: cualquier fallo se ignora (no crítico).
+    """
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.tmdb import search_movies, fetch_details, is_configured
+    from phases.phase_b import _extract_title_year, _build_mkv_name
+
+    if not is_configured():
+        return
+    try:
+        session = load_session(session_id)
+        if not session:
+            return
+        name = session.source_path or session.iso_path or ""
+        query_title, query_year = parse_mkv_filename(name)
+        if not query_title:
+            return
+        matches = await search_movies(query_title, query_year, limit=1)
+        if not matches:
+            return
+        details = await fetch_details(matches[0].tmdb_id)
+        if not details:
+            return
+        # Recarga en caliente por si otra operación escribió entretanto.
+        fresh = load_session(session_id)
+        if not fresh:
+            return
+        fresh.tmdb_info = details.model_dump()
+        # Completa el año del nombre SOLO si el fichero no lo traía y el
+        # usuario no lo editó a mano. El del fichero (si existe) tiene
+        # prioridad: no se pisa lo que ya venía bien.
+        title, file_year = _extract_title_year(name)
+        if not fresh.mkv_name_manual and file_year == "0000" and details.year:
+            fresh.mkv_name = _build_mkv_name(
+                title, str(details.year), fresh.has_fel, fresh.audio_dcp
+            )
+        save_session(fresh)
+    except Exception as e:
+        _logger.warning("TMDb hydrate (Tab 1) falló para %s: %s", session_id, e)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1833,7 +1894,14 @@ async def recalculate_mkv_name(session_id: str):
         return {"mkv_name": session.mkv_name, "manual": True}
 
     from phases.phase_b import _build_mkv_name, _extract_title_year
-    title, year      = _extract_title_year(session.iso_path)
+    title, year      = _extract_title_year(session.source_path or session.iso_path)
+    # Si el nombre del fichero no traía año, usar el de TMDb ya guardado en la
+    # ficha (mismo criterio que el hydrate: fichero > TMDb > nada). Así, al
+    # cambiar los flags FEL/DCP, el nombre conserva el año.
+    if year == "0000":
+        tmdb_year = (session.tmdb_info or {}).get("year")
+        if tmdb_year:
+            year = str(tmdb_year)
     new_name         = _build_mkv_name(title, year, session.has_fel, session.audio_dcp)
     session.mkv_name = new_name
     save_session(session)
@@ -3882,6 +3950,19 @@ async def mkv_quality_audit_cancel(request: Request):
     # POST cancel, sobre qué audit_id, desde qué cliente.
     client_addr = f"{request.client.host}:{request.client.port}" if request.client else "?"
     user_agent = request.headers.get("user-agent", "?")[:60]
+    # audit_id que el cliente QUIERE cancelar (capturado del /progress). Sin
+    # esto el cancel apuntaba siempre al audit VIVO en el instante del POST:
+    # si el usuario cancelaba A y relanzaba B muy rápido, este cancel (tardío)
+    # leía audit_id=B y mataba B → falso "Cancelado por el usuario" sobre la
+    # auditoría nueva. Con el target explícito, un cancel de A obsoleto se
+    # ignora en cuanto B ya tomó el relevo.
+    requested_audit_id = None
+    try:
+        _body = await request.json()
+        if isinstance(_body, dict):
+            requested_audit_id = _body.get("audit_id") or None
+    except Exception:
+        requested_audit_id = None
     if not _mkv_quality_state.get("active"):
         _logger.info(
             "[QualityCancel] NO-OP — no hay audit activo (caller=%s, ua=%s)",
@@ -3889,6 +3970,13 @@ async def mkv_quality_audit_cancel(request: Request):
         )
         return {"ok": False, "reason": "no_active_job"}
     target_audit_id = _mkv_quality_state.get("audit_id")
+    if requested_audit_id and requested_audit_id != target_audit_id:
+        _logger.info(
+            "[QualityCancel] STALE — cancel para audit_id=%s pero current=%s; "
+            "ignorado (caller=%s, ua=%s)",
+            requested_audit_id, target_audit_id, client_addr, user_agent,
+        )
+        return {"ok": False, "reason": "stale_audit_id"}
     target_proc = _mkv_quality_active_proc.get("proc")
     target_step = _mkv_quality_state.get("step")
     started_at = _mkv_quality_state.get("started_at") or 0

@@ -10434,6 +10434,16 @@ function _rgrfQualityAuditCard(dv, isV40) {
  */
 async function _rgrfAuditQuality(evt) {
   if (!mkvProject) return;
+  // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
+  // el estado del audit es un singleton global en el backend; lanzar un 2º
+  // mientras hay uno activo pisaría ese estado y dejaría pollers cruzados.
+  try {
+    const cur = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
+    if (cur && cur.active) {
+      showToast('Ya hay una auditoría de calidad en curso — espera a que termine o cancélala', 'info');
+      return;
+    }
+  } catch (_) { /* si /progress falla seguimos: el guard 409 del backend es la red de seguridad */ }
   const fileEl = document.getElementById('mkv-quality-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
   _mkvQualityResetSteps();
@@ -10445,14 +10455,24 @@ async function _rgrfAuditQuality(evt) {
 
   let lastLogCount = 0;
   let polling = true;
-  window._mkvQualitySession = { ctrl: null, polledResult: null, cancelledByUser: false };
+  // Sesión con scope LOCAL. window._mkvQualitySession sigue existiendo para
+  // que el botón Cancelar lea el audit_id, pero el poller/finally/abort de
+  // ESTA invocación operan sobre `session` local — así un audit nuevo que
+  // tome el relevo no es pisado por el teardown del viejo (bug cancel+relanzar).
+  const session = { ctrl: null, polledResult: null, cancelledByUser: false, auditId: null };
+  window._mkvQualitySession = session;
 
   async function _pollLoop() {
     while (polling) {
+      // Si otra auditoría tomó el relevo (usuario relanzó), este poller es
+      // obsoleto: autodetenerse para no volcar log cruzado ni abortar el POST
+      // del audit nuevo.
+      if (window._mkvQualitySession !== session) { polling = false; return; }
       try {
         const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
-        if (!polling) return;
+        if (!polling || window._mkvQualitySession !== session) { polling = false; return; }
         if (st) {
+          if (st.audit_id) session.auditId = st.audit_id;
           _mkvQualitySetStep(st.step);
           _mkvQualitySetProgress(st.global_pct || 0);
           _mkvQualitySetElapsed(st.elapsed_s || 0);
@@ -10467,8 +10487,8 @@ async function _rgrfAuditQuality(evt) {
             lastLogCount = lines.length;
           }
           if (st.active === false && (st.result || st.error)) {
-            window._mkvQualitySession.polledResult = st.result || null;
-            try { window._mkvQualitySession.ctrl?.abort(); } catch (_) {}
+            session.polledResult = st.result || null;
+            try { session.ctrl?.abort(); } catch (_) {}
             polling = false;
             return;
           }
@@ -10484,7 +10504,7 @@ async function _rgrfAuditQuality(evt) {
     let postError = null;
     {
       const ctrl = new AbortController();
-      window._mkvQualitySession.ctrl = ctrl;
+      session.ctrl = ctrl;
       const POST_TIMEOUT_MS = 3600000;  // 1h
       const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
       try {
@@ -10512,7 +10532,7 @@ async function _rgrfAuditQuality(evt) {
     }
     // Fallback via polling
     if (!data?.quality_classification) {
-      const polled = window._mkvQualitySession?.polledResult;
+      const polled = session.polledResult;
       if (polled && polled.quality_classification) {
         data = polled;
       } else {
@@ -10543,7 +10563,7 @@ async function _rgrfAuditQuality(evt) {
     _renderMkvEditPanel();
     showToast(`Auditoría completada — ${data.quality_verdict_text}`, 'success');
   } catch (e) {
-    if (window._mkvQualitySession?.cancelledByUser) {
+    if (session.cancelledByUser) {
       closeModal('mkv-quality-modal');
       showToast('🛑 Auditoría cancelada', 'info');
       return;
@@ -10571,22 +10591,30 @@ async function _rgrfAuditQuality(evt) {
     if (cancelBtn) cancelBtn.style.display = 'none';
   } finally {
     polling = false;
-    if (window._mkvQualitySession) {
-      window._mkvQualitySession.ctrl = null;
-      window._mkvQualitySession.polledResult = null;
-      window._mkvQualitySession.cancelledByUser = false;
-    }
+    session.ctrl = null;
+    session.polledResult = null;
+    session.cancelledByUser = false;
+    // Solo soltar la referencia global si seguimos siendo el audit activo —
+    // si un audit nuevo ya tomó el relevo NO la tocamos (era el clobber del bug).
+    if (window._mkvQualitySession === session) window._mkvQualitySession = null;
   }
 }
 
 async function _mkvQualityCancel() {
   const btn = document.getElementById('mkv-quality-cancel-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
-  if (window._mkvQualitySession) window._mkvQualitySession.cancelledByUser = true;
+  const session = window._mkvQualitySession;
+  if (session) session.cancelledByUser = true;
   try {
-    await apiFetch('/api/mkv/quality-audit/cancel', { method: 'POST', silent: true });
+    // Mandamos el audit_id que ESTE modal está siguiendo: el backend ignora
+    // el cancel si ya no coincide con el audit activo (cancel obsoleto tras
+    // relanzar). Sin esto, un cancel tardío de A mataba la auditoría nueva B.
+    await apiFetch('/api/mkv/quality-audit/cancel', {
+      method: 'POST', silent: true,
+      body: JSON.stringify({ audit_id: session?.auditId || null }),
+    });
   } catch (_) {}
-  try { window._mkvQualitySession?.ctrl?.abort(); } catch (_) {}
+  try { session?.ctrl?.abort(); } catch (_) {}
 }
 
 function _mkvQualityResetSteps() {
