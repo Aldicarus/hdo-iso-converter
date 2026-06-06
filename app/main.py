@@ -235,23 +235,31 @@ def _cleanup_obvious_orphans_at_startup() -> None:
     import time as _time_so
     from pathlib import Path as _Path_so
 
-    # 1. /tmp/lightprof_* mayores de 1 hora
-    try:
-        for lp in _Path_so("/tmp").glob("lightprof_*"):
-            if not lp.is_dir():
-                continue
+    # 1. lightprof_* + mkv_quality_audit_* mayores de 1 hora. Los workdirs
+    #    van a /mnt/tmp (TMP_DIR); /tmp se sigue escaneando por si quedaron
+    #    leftovers de versiones anteriores que caían al /tmp del contenedor.
+    _scan_bases = []
+    for _b in ("/tmp", TMP_DIR):
+        if _b and _b not in _scan_bases:
+            _scan_bases.append(_b)
+    for _base in _scan_bases:
+        for _pat in ("lightprof_*", "mkv_quality_audit_*"):
             try:
-                age = _time_so.time() - lp.stat().st_mtime
-            except OSError:
-                continue
-            if age > 3600:
-                try:
-                    _shutil_so.rmtree(lp)
-                    _logger.info("[Startup cleanup] light-profile tmp removed: %s (age %ds)", lp, int(age))
-                except Exception as e:
-                    _logger.warning("[Startup cleanup] failed to remove %s: %s", lp, e)
-    except Exception as e:
-        _logger.warning("[Startup cleanup] lightprof scan failed: %s", e)
+                for lp in _Path_so(_base).glob(_pat):
+                    if not lp.is_dir():
+                        continue
+                    try:
+                        age = _time_so.time() - lp.stat().st_mtime
+                    except OSError:
+                        continue
+                    if age > 3600:
+                        try:
+                            _shutil_so.rmtree(lp)
+                            _logger.info("[Startup cleanup] tmp removed: %s (age %ds)", lp, int(age))
+                        except Exception as e:
+                            _logger.warning("[Startup cleanup] failed to remove %s: %s", lp, e)
+            except Exception as e:
+                _logger.warning("[Startup cleanup] scan %s/%s failed: %s", _base, _pat, e)
 
     # 2. /mnt/bd/* sin entry en /proc/mounts (mount points zombies)
     try:
@@ -3073,6 +3081,7 @@ async def analyze_mkv_endpoint(body: dict):
 # Single-writer (solo hay un analisis activo a la vez en la UI).
 _light_profile_state: dict = {
     "active": False,
+    "job_id": None,      # uuid del análisis actual — discrimina cancels obsoletos
     "step": 0,           # 0=idle, 1=ffmpeg, 2=extract-rpu, 3=export+parse, 4=done
     "step_label": "",
     "step_pct": 0,       # 0-100 dentro del paso actual
@@ -3085,22 +3094,28 @@ _light_profile_state: dict = {
 
 
 # Tracking del subprocess activo (ffmpeg/dovi_tool) para cancelacion +
-# flag de cancelacion. Single-job singleton igual que el state. Patron
-# similar al _cmv40_active_procs de Tab 3.
+# flag de cancelacion DIRIGIDA por job_id (no bool global). Si el cancel del
+# análisis A llega tarde (NAS bajo carga) cuando el usuario ya relanzó B, el
+# requested_for_id no coincide con el job_id vivo → se ignora. Mismo patrón
+# que _mkv_quality_cancel (Tab 2 auditoría de calidad).
 _lp_active_proc: dict = {"proc": None}
-_lp_cancel: dict = {"requested": False}
+_lp_cancel: dict = {"requested_for_id": None}
 
 
-def _lp_reset():
+def _lp_reset() -> str:
+    import uuid as _uuid
     _lp_active_proc["proc"] = None
-    _lp_cancel["requested"] = False
+    _lp_cancel["requested_for_id"] = None
+    job_id = _uuid.uuid4().hex[:12]
     _light_profile_state.update({
         "active": True,
+        "job_id": job_id,
         "step": 0, "step_label": "", "step_pct": 0, "global_pct": 0,
         "elapsed_s": 0, "log_lines": [], "error": None,
         "result": None,
         "started_at": __import__("time").monotonic(),
     })
+    return job_id
 
 
 def _lp_register_proc(proc):
@@ -3109,8 +3124,11 @@ def _lp_register_proc(proc):
 
 
 def _lp_check_cancel():
-    """Lanza RuntimeError si el usuario cancelo. Llamar en cada paso."""
-    if _lp_cancel["requested"]:
+    """Lanza RuntimeError si el usuario canceló ESTE análisis. Llamar en cada
+    paso. Compara requested_for_id contra el job_id vivo: un cancel de un
+    análisis anterior ya no coincide y no afecta al actual."""
+    rid = _lp_cancel.get("requested_for_id")
+    if rid is not None and rid == _light_profile_state.get("job_id"):
         raise RuntimeError("Cancelado por el usuario")
 
 
@@ -3147,17 +3165,35 @@ async def mkv_light_profile_progress_endpoint():
 
 
 @app.post("/api/mkv/light-profile/cancel")
-async def mkv_light_profile_cancel_endpoint():
+async def mkv_light_profile_cancel_endpoint(request: Request):
     """Cancela el analisis activo: SIGTERM → SIGKILL al subprocess +
     cancel flag. CRITICO: esperar a que el subprocess sea totalmente
     reaped antes de retornar — sino el siguiente analisis puede chocar
     con file handles/locks del NAS aun no liberados (especialmente sobre
     VPN), causando que el nuevo ffmpeg se cuelgue al intentar leer el
     mismo MKV.
+
+    El cliente envía el job_id que está siguiendo: si ya no coincide con el
+    análisis vivo (el usuario canceló A y relanzó B), el cancel se ignora
+    como obsoleto en vez de matar B.
     """
+    requested_job_id = None
+    try:
+        _body = await request.json()
+        if isinstance(_body, dict):
+            requested_job_id = _body.get("job_id") or None
+    except Exception:
+        requested_job_id = None
     if not _light_profile_state.get("active"):
         return {"ok": False, "reason": "no hay analisis activo"}
-    _lp_cancel["requested"] = True
+    current_job_id = _light_profile_state.get("job_id")
+    if requested_job_id and requested_job_id != current_job_id:
+        _logger.info(
+            "[LightProfile] cancel STALE — para job_id=%s pero current=%s; ignorado",
+            requested_job_id, current_job_id,
+        )
+        return {"ok": False, "reason": "stale_job_id"}
+    _lp_cancel["requested_for_id"] = current_job_id
     proc = _lp_active_proc.get("proc")
     if proc:
         try:
@@ -3185,9 +3221,12 @@ async def mkv_light_profile_cancel_endpoint():
         except Exception as e:
             _logger.warning("light-profile cancel: kill subprocess fallo: %s", e)
     _lp_active_proc["proc"] = None
-    _lp_log("✗ Cancelado por el usuario")
-    _light_profile_state["error"] = "Cancelado por el usuario"
-    _light_profile_state["active"] = False
+    # Tras el reap bloqueante (hasta ~13s) el job pudo terminar y el usuario
+    # relanzar otro. Solo finalizamos el estado si seguimos siendo ese job.
+    if _light_profile_state.get("job_id") == current_job_id:
+        _lp_log("✗ Cancelado por el usuario")
+        _light_profile_state["error"] = "Cancelado por el usuario"
+        _light_profile_state["active"] = False
     return {"ok": True}
 
 
@@ -3210,7 +3249,7 @@ async def mkv_light_profile_endpoint(body: dict):
             detail="Ya hay un análisis de luminancia en curso. Espera a que "
                    "termine o cancélalo.",
         )
-    _lp_reset()
+    my_job_id = _lp_reset()
     if DEV_MODE:
         import math, random
         random.seed(42)
@@ -3234,9 +3273,7 @@ async def mkv_light_profile_endpoint(body: dict):
 
     from phases.phase_a import DOVI_TOOL_BIN, FFMPEG_BIN
     import json as _json, time as _time
-    tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_"))
-    rpu_path = tmp_dir / "rpu.bin"
-    hevc_path = tmp_dir / "sample.hevc"
+    import shutil as _shutil
 
     # Estimacion del HEVC final segun bitrate del MKV (para el pct de ffmpeg)
     try:
@@ -3245,6 +3282,33 @@ async def mkv_light_profile_endpoint(body: dict):
         expected_hevc_size = int(mkv_size * 0.75)
     except Exception:
         expected_hevc_size = 0
+
+    # Workdir en /mnt/tmp, NO el /tmp del contenedor: el HEVC pesa ~75% del MKV
+    # (~45 GB en UHD) y /tmp en QNAP es tmpfs pequeño → "No space left on device"
+    # a mitad de ffmpeg. Fallback al tempdir por defecto solo en dev sin /mnt/tmp.
+    _lp_workbase = TMP_DIR
+    try:
+        Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        _lp_workbase = None
+    # Pre-flight de espacio: un error claro AQUÍ es mejor que un "ffmpeg falló"
+    # críptico tras varios minutos de extracción.
+    if _lp_workbase and expected_hevc_size > 0:
+        try:
+            free = _shutil.disk_usage(_lp_workbase).free
+            if free < int(expected_hevc_size * 1.1):
+                _light_profile_state["active"] = False
+                raise HTTPException(
+                    status_code=507,
+                    detail=(f"Espacio insuficiente en {_lp_workbase}: el perfil de "
+                            f"luminancia necesita ~{expected_hevc_size * 1.1 / 1e9:.1f} GB "
+                            f"y solo hay {free / 1e9:.1f} GB libres."),
+                )
+        except FileNotFoundError:
+            pass
+    tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_", dir=_lp_workbase))
+    rpu_path = tmp_dir / "rpu.bin"
+    hevc_path = tmp_dir / "sample.hevc"
 
     try:
         # Estrategia: ffmpeg hace demux eficiente del MKV (stream-copy sin
@@ -3714,10 +3778,13 @@ async def mkv_light_profile_endpoint(body: dict):
             return [min(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
 
         _lp_log(f"✓ Listo — {len(per_frame_cll):,} frames analizados, downsample a {MAX_POINTS} buckets")
-        _light_profile_state["step"] = 4
-        _light_profile_state["step_label"] = "Listo"
-        _light_profile_state["step_pct"] = 100
-        _light_profile_state["global_pct"] = 100
+        # Escrituras de estado guardadas por job_id: si el usuario canceló este
+        # análisis y relanzó otro, NO pisamos el estado del nuevo.
+        if _light_profile_state.get("job_id") == my_job_id:
+            _light_profile_state["step"] = 4
+            _light_profile_state["step_label"] = "Listo"
+            _light_profile_state["step_pct"] = 100
+            _light_profile_state["global_pct"] = 100
         # Resultado tambien guardado en el state para que el frontend pueda
         # recuperarlo via polling si el POST aborta (timeout en MKVs muy
         # grandes que tardan >60 min). El POST sigue devolviendo el dato
@@ -3758,7 +3825,8 @@ async def mkv_light_profile_endpoint(body: dict):
                 "l8_trim_nits_full":     l8_trim_nits_full,
             },
         }
-        _light_profile_state["result"] = result
+        if _light_profile_state.get("job_id") == my_job_id:
+            _light_profile_state["result"] = result
         return result
     finally:
         for p in (rpu_path, hevc_path, tmp_dir / "rpu.json"):
@@ -3766,7 +3834,10 @@ async def mkv_light_profile_endpoint(body: dict):
             except Exception: pass
         try: tmp_dir.rmdir()
         except Exception: pass
-        _light_profile_state["active"] = False
+        # Solo apaga el flag si seguimos siendo el job vivo — si el usuario
+        # canceló y relanzó, el job nuevo es responsable de su propio active.
+        if _light_profile_state.get("job_id") == my_job_id:
+            _light_profile_state["active"] = False
 
 
 # ══════════════════════════════════════════════════════════════════════

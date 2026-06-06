@@ -10788,6 +10788,9 @@ async function _rgrfAnalyzeLight(evt) {
     }
   } catch (_) { /* si /progress falla, continuamos; el 409 del backend cubre la race */ }
 
+  // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
+  // el análisis, el resultado no debe aplicarse al proyecto equivocado.
+  const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
   // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
@@ -10813,14 +10816,25 @@ async function _rgrfAnalyzeLight(evt) {
   // handler de cancel y el polling lo aborten cuando el backend ya
   // termino (recuperacion tras Mac sleep — el POST pendiente puede
   // quedar colgado pero el polling ve el resultado).
-  window._dvLightSession = { ctrl: null, polledResult: null };
+  // Sesión con scope LOCAL. window._dvLightSession sigue apuntando a la
+  // sesión actual (para el botón Cancelar y la recuperación de visibilidad),
+  // pero el poller/finally/abort de ESTA invocación operan sobre `session`
+  // local — así un análisis nuevo que tome el relevo no es pisado por el
+  // teardown del viejo (bug cancelar+relanzar, igual que en quality-audit).
+  const session = { ctrl: null, polledResult: null, cancelledByUser: false, jobId: null };
+  window._dvLightSession = session;
   const pollTicker = { _stop: () => { polling = false; } };
   async function _pollLoop() {
     while (polling) {
+      // Si otro análisis tomó el relevo (usuario relanzó), este poller es
+      // obsoleto: autodetenerse para no volcar log cruzado ni abortar el POST
+      // del análisis nuevo.
+      if (window._dvLightSession !== session) { polling = false; return; }
       try {
         const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
-        if (!polling) return;
+        if (!polling || window._dvLightSession !== session) { polling = false; return; }
         if (st) {
+          if (st.job_id) session.jobId = st.job_id;
           if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
           _dvLightSetProgress(st.global_pct || 0);
           _dvLightSetElapsed(st.elapsed_s || 0);
@@ -10846,8 +10860,8 @@ async function _rgrfAnalyzeLight(evt) {
           // del polling como fallback. Esto cubre el caso "Mac sleep durante
           // analisis → wake → POST nunca resuelve aunque backend ya acabo".
           if (st.active === false && (st.result || st.error)) {
-            window._dvLightSession.polledResult = st.result || null;
-            try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
+            session.polledResult = st.result || null;
+            try { session.ctrl?.abort(); } catch (_) {}
             polling = false;
             return;
           }
@@ -10880,13 +10894,13 @@ async function _rgrfAnalyzeLight(evt) {
       const ctrl = new AbortController();
       // Expone el ctrl al polling para que pueda abortar cuando vea el
       // backend completado (Mac sleep recovery) y al handler de cancel.
-      window._dvLightSession.ctrl = ctrl;
+      session.ctrl = ctrl;
       const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
       try {
         const resp = await fetch('/api/mkv/light-profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name }),
+          body: JSON.stringify({ file_path: targetFilePath }),
           signal: ctrl.signal,
         });
         if (resp.ok) {
@@ -10910,7 +10924,7 @@ async function _rgrfAnalyzeLight(evt) {
     // 1) Si el polling ya capturo el resultado (recuperacion sleep), usalo.
     // 2) Si no, sondea unas veces mas para darle tiempo a finalizar.
     if (!data?.per_scene_max_cll) {
-      const polled = window._dvLightSession?.polledResult;
+      const polled = session.polledResult;
       if (polled && polled.per_scene_max_cll) {
         data = polled;
       } else {
@@ -10948,6 +10962,14 @@ async function _rgrfAnalyzeLight(evt) {
     if (!mkvProject || !mkvProject.analysis) {
       throw new Error('El MKV se cerró durante el análisis — vuelve a abrirlo');
     }
+    // Si el usuario abrió otro MKV mientras corría el análisis, NO aplicar el
+    // resultado al proyecto equivocado.
+    const curFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
+    if (curFilePath !== targetFilePath) {
+      closeModal('dv-light-modal');
+      showToast('Perfil de luminancia completado para el MKV anterior', 'info');
+      return;
+    }
     if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
     mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
     mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
@@ -10966,7 +10988,7 @@ async function _rgrfAnalyzeLight(evt) {
     // Cancelación explícita por el usuario — cierre directo sin tratar
     // como error. Toast informativo + closeModal. NO inyectamos el botón
     // "Cerrar" (sería redundante: el usuario ya cliqueó Cancelar).
-    if (window._dvLightSession?.cancelledByUser) {
+    if (session.cancelledByUser) {
       closeModal('dv-light-modal');
       showToast('🛑 Análisis cancelado', 'info');
       return;
@@ -11012,12 +11034,12 @@ async function _rgrfAnalyzeLight(evt) {
     }
   } finally {
     pollTicker._stop();
-    // Limpia la session global por higiene; futuros analisis crearan una nueva.
-    if (window._dvLightSession) {
-      window._dvLightSession.ctrl = null;
-      window._dvLightSession.polledResult = null;
-      window._dvLightSession.cancelledByUser = false;
-    }
+    session.ctrl = null;
+    session.polledResult = null;
+    session.cancelledByUser = false;
+    // Solo soltar la referencia global si seguimos siendo el análisis activo —
+    // si uno nuevo ya tomó el relevo NO la tocamos (era el clobber del bug).
+    if (window._dvLightSession === session) window._dvLightSession = null;
   }
 }
 
@@ -11031,11 +11053,17 @@ async function _dvLightCancel() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
   // Flag para que el catch path NO muestre error ni boton Cerrar — fue
   // intencional, cierre directo + toast informativo.
-  if (window._dvLightSession) window._dvLightSession.cancelledByUser = true;
+  const session = window._dvLightSession;
+  if (session) session.cancelledByUser = true;
   try {
-    await apiFetch('/api/mkv/light-profile/cancel', { method: 'POST', silent: true });
+    // Enviamos el job_id que ESTE modal sigue: el backend ignora el cancel si
+    // ya no coincide con el análisis vivo (cancel obsoleto tras relanzar).
+    await apiFetch('/api/mkv/light-profile/cancel', {
+      method: 'POST', silent: true,
+      body: JSON.stringify({ job_id: session?.jobId || null }),
+    });
   } catch (_) { /* el aborto local + state del backend bastan */ }
-  try { window._dvLightSession?.ctrl?.abort(); } catch (_) {}
+  try { session?.ctrl?.abort(); } catch (_) {}
 }
 
 // Guard monotónico: ignora actualizaciones que llegan con un step inferior
