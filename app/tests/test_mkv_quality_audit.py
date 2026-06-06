@@ -286,5 +286,63 @@ class TestCancelByAuditId(unittest.TestCase):
         self.assertNotEqual(self.state.get("error"), "obsoleto")
 
 
+class TestLightProfileCancelByJobId(unittest.TestCase):
+    """Mismo blindaje que TestCancelByAuditId pero para el perfil de luminancia
+    (colorimetría). Un cancel de un análisis anterior NO debe matar el nuevo
+    lanzado tras él — el cancel va dirigido por job_id."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+        cls._orig_cwd = os.getcwd()
+        os.chdir(str(Path(__file__).parent.parent))  # .../app
+
+    @classmethod
+    def tearDownClass(cls):
+        import os
+        os.chdir(cls._orig_cwd)
+
+    def setUp(self):
+        from main import (
+            _light_profile_state, _lp_cancel, _lp_reset, _lp_check_cancel,
+        )
+        self.state = _light_profile_state
+        self.cancel = _lp_cancel
+        self.reset = _lp_reset
+        self.check = _lp_check_cancel
+        self.state.update({"active": False, "job_id": None})
+        self.cancel["requested_for_id"] = None
+
+    def test_reset_returns_job_id_and_clears_cancel(self):
+        """reset() devuelve un job_id, lo fija en el state y limpia el cancel."""
+        # Simula un cancel pendiente del análisis anterior
+        self.cancel["requested_for_id"] = "viejo123"
+        job_id = self.reset()
+        self.assertTrue(job_id)
+        self.assertEqual(self.state["job_id"], job_id)
+        self.assertIsNone(self.cancel.get("requested_for_id"))
+
+    def test_check_cancel_fires_when_targeted(self):
+        """Cancel del análisis actual → _check raise."""
+        job_id = self.reset()
+        self.cancel["requested_for_id"] = job_id
+        with self.assertRaises(RuntimeError):
+            self.check()
+
+    def test_check_cancel_silent_when_obsolete(self):
+        """Cancel del análisis anterior → _check NO raise sobre el nuevo."""
+        first_id = self.reset()
+        self.cancel["requested_for_id"] = first_id   # cancel del 1º (tardío)
+        second_id = self.reset()                      # usuario relanza
+        self.assertNotEqual(first_id, second_id)
+        self.assertIsNone(self.cancel.get("requested_for_id"))
+        self.check()  # no raise — el cancel viejo no afecta al nuevo
+
+    def test_check_cancel_silent_when_no_cancel_pending(self):
+        """Sin cancel pendiente, _check es no-op."""
+        self.reset()
+        self.check()  # no raise
+
+
 if __name__ == "__main__":
     unittest.main()
