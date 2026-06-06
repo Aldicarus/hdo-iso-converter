@@ -10454,12 +10454,19 @@ async function _rgrfAuditQuality(evt) {
   // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
   // el estado del audit es un singleton global en el backend; lanzar un 2º
   // mientras hay uno activo pisaría ese estado y dejaría pollers cruzados.
+  let prevAuditId = null;
   try {
     const cur = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
     if (cur && cur.active) {
       showToast('Ya hay una auditoría de calidad en curso — espera a que termine o cancélala', 'info');
       return;
     }
+    // audit_id del audit ANTERIOR ya terminado: el backend retiene su
+    // result/done hasta que NUESTRO POST resetee. Sin esto, el poller leía ese
+    // estado viejo (active=false + result), creía que "ya terminó", abortaba
+    // nuestro POST y aplicaba el resultado del audit anterior (mostraba la peli
+    // equivocada en ~1s). Lo ignoramos hasta ver un audit_id nuevo.
+    prevAuditId = (cur && cur.audit_id) || null;
   } catch (_) { /* si /progress falla seguimos: el guard 409 del backend es la red de seguridad */ }
   // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
   // la auditoría, el resultado no debe aplicarse al proyecto equivocado.
@@ -10491,7 +10498,9 @@ async function _rgrfAuditQuality(evt) {
       try {
         const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
         if (!polling || window._mkvQualitySession !== session) { polling = false; return; }
-        if (st) {
+        // Mientras el state siga mostrando el audit ANTERIOR (aún no reseteado
+        // por nuestro POST), ignorarlo — no es nuestro result.
+        if (st && !(prevAuditId && st.audit_id === prevAuditId)) {
           if (st.audit_id) session.auditId = st.audit_id;
           _mkvQualitySetStep(st.step);
           _mkvQualitySetProgress(st.global_pct || 0);
@@ -10557,6 +10566,8 @@ async function _rgrfAuditQuality(evt) {
         for (let i = 0; i < 20; i++) {
           await new Promise(r => setTimeout(r, 1500));
           const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
+          // Ignorar el estado obsoleto del audit anterior (mismo motivo que el poller).
+          if (st && prevAuditId && st.audit_id === prevAuditId) continue;
           if (st && st.result && st.result.quality_classification) {
             data = st.result;
             break;
@@ -10780,12 +10791,17 @@ async function _rgrfAnalyzeLight(evt) {
   // 3600s"). Preguntamos al backend (fuente de verdad) y, si hay uno activo,
   // avisamos sin tocar nada. El 409 del endpoint queda como red de seguridad
   // para la race entre este check y el POST (o llamadas no-UI).
+  let prevJobId = null;
   try {
     const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
     if (st && st.active) {
       showToast('Ya hay un análisis de luminancia en curso. Espera a que termine o cancélalo.', 'info');
       return;
     }
+    // job_id del análisis ANTERIOR ya terminado: el backend retiene su
+    // result/done hasta que NUESTRO POST resetee. El poller debe ignorarlo o
+    // aplicaría el resultado viejo (mismo bug que en quality-audit).
+    prevJobId = (st && st.job_id) || null;
   } catch (_) { /* si /progress falla, continuamos; el 409 del backend cubre la race */ }
 
   // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
@@ -10833,7 +10849,9 @@ async function _rgrfAnalyzeLight(evt) {
       try {
         const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
         if (!polling || window._dvLightSession !== session) { polling = false; return; }
-        if (st) {
+        // Mientras el state siga mostrando el análisis ANTERIOR (aún no
+        // reseteado por nuestro POST), ignorarlo — no es nuestro result.
+        if (st && !(prevJobId && st.job_id === prevJobId)) {
           if (st.job_id) session.jobId = st.job_id;
           if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
           _dvLightSetProgress(st.global_pct || 0);
@@ -10931,6 +10949,8 @@ async function _rgrfAnalyzeLight(evt) {
         for (let i = 0; i < 20; i++) {
           await new Promise(r => setTimeout(r, 1500));
           const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
+          // Ignorar el estado obsoleto del análisis anterior (mismo motivo que el poller).
+          if (st && prevJobId && st.job_id === prevJobId) continue;
           if (st && st.result && st.result.per_scene_max_cll) {
             data = st.result;
             break;
