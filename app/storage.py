@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -307,6 +308,29 @@ def list_cmv40_sessions() -> list[CMv40Session]:
     return sessions
 
 
+# ── Cache en memoria del summary CMv4.0 (sidebar), por fichero ─────────
+#
+# GET /api/cmv40 se pide con frecuencia: el sidebar de Tab 3 y, sobre todo,
+# el poller de "puntitos verdes" del header (cada 5s, en cualquier tab).
+# Sin cache, CADA llamada lee y parsea TODOS los JSON de /config/cmv40, y
+# cada uno arrastra su `output_log` (MBs tras un job largo) aunque luego lo
+# descartemos. Con decenas de proyectos eso son cientos de MB de I/O cada
+# pocos segundos — justo lo que dispara los timeouts del sidebar cuando el
+# NAS está saturado escribiendo el MKV final de un job.
+#
+# El cache es POR FICHERO: guarda {nombre: (mtime_ns, size, summary)}. En
+# cada llamada hace stat() de los *.json (barato: solo metadata) y relee del
+# disco SOLO los que cambiaron de mtime_ns/size — un save/delete invalida su
+# entrada sin tocar las demás. Clave para el caso real: durante un job solo
+# la sesión activa reescribe su JSON (cada ~2s por el throttle del log), así
+# que se relee 1 fichero y las otras N-1 salen de memoria, en vez de releer
+# las N en cada poll. Un cache "todo o nada" se invalidaría entero con cada
+# save de la sesión activa, dejando sin protección el momento de alto I/O.
+_cmv40_summary_lock = threading.Lock()
+# nombre de fichero → (mtime_ns, size, summary_dict)
+_cmv40_summary_by_file: dict[str, tuple[int, int, dict]] = {}
+
+
 def list_cmv40_sessions_summary() -> list[dict]:
     """Lista resumida (sin output_log ni phase_history) — para el sidebar.
 
@@ -316,30 +340,56 @@ def list_cmv40_sessions_summary() -> list[dict]:
     largos) ni `phase_history` detallado.
 
     Reduce el payload de GET /api/cmv40 de ~10-30 MB con 20-30 sesiones a
-    < 1 MB y elimina la causa principal de timeouts del sidebar bajo
-    carga I/O del NAS (visto: durante Fase H extract-rpu con varias
-    sesiones acumuladas, el sidebar tardaba >2 min en refrescar el
-    spinner). El detalle completo está disponible en GET /api/cmv40/{id}.
+    < 1 MB. Además cachea cada summary en memoria por fichero con
+    invalidación por stat (mtime_ns/size): solo relee del disco las sesiones
+    que cambiaron, no las decenas restantes. Esto ataca la causa de fondo de
+    los timeouts del sidebar bajo carga I/O del NAS. El detalle completo (con
+    log) está en GET /api/cmv40/{id}.
+
+    Devuelve una lista nueva, pero los dicts internos son las instancias
+    cacheadas compartidas: los consumidores NO deben mutarlas (el único
+    actual solo las serializa).
     """
-    if not CMV40_DIR.exists():
-        return []
-    summaries: list[dict] = []
-    for path in sorted(
-        CMV40_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    ):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            # Sustituimos por listas vacías para no romper consumidores
-            # que asumen el campo presente (frontend code defensive).
-            data["output_log"] = []
-            data["phase_history"] = []
+    with _cmv40_summary_lock:
+        if not CMV40_DIR.exists():
+            _cmv40_summary_by_file.clear()
+            return []
+        # stat de todos los *.json (barato, solo metadata). Orden de salida:
+        # mtime descendente (más reciente primero), como antes.
+        entries: list[tuple[float, str, Path, int, int]] = []
+        for path in CMV40_DIR.glob("*.json"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, path.name, path, st.st_mtime_ns, st.st_size))
+        entries.sort(key=lambda e: e[0], reverse=True)
+
+        seen: set[str] = set()
+        summaries: list[dict] = []
+        for _mtime, name, path, mtime_ns, size in entries:
+            seen.add(name)
+            cached = _cmv40_summary_by_file.get(name)
+            if cached and cached[0] == mtime_ns and cached[1] == size:
+                summaries.append(cached[2])  # sin cambios → reusar, no leer
+                continue
+            # Nuevo o modificado → releer SOLO este fichero.
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                # Sustituimos por listas vacías para no romper consumidores
+                # que asumen el campo presente (frontend code defensive).
+                data["output_log"] = []
+                data["phase_history"] = []
+            except Exception as e:
+                logger.warning("CMv40 sesión corrupta, omitida: %s — %s", name, e)
+                _cmv40_summary_by_file.pop(name, None)
+                continue
+            _cmv40_summary_by_file[name] = (mtime_ns, size, data)
             summaries.append(data)
-        except Exception as e:
-            logger.warning("CMv40 sesión corrupta, omitida: %s — %s", path.name, e)
-            continue
-    return summaries
+        # Purgar entradas de ficheros borrados para no acumular memoria.
+        for stale in [n for n in _cmv40_summary_by_file if n not in seen]:
+            del _cmv40_summary_by_file[stale]
+        return summaries
 
 
 def delete_cmv40_session(session_id: str) -> bool:
