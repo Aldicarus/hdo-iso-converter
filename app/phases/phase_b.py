@@ -1151,18 +1151,29 @@ def _extract_title_year(iso_path: str) -> tuple[str, str]:
     """
     Extrae el título y el año del nombre del fichero ISO.
 
-    Busca el patrón ``{Título} ({Año})`` en el stem del nombre. Si el nombre
-    no sigue el patrón (p.ej. no tiene año entre paréntesis), devuelve el
-    stem completo como título y '0000' como año.
+    1. Elimina los tags entre corchetes ``[...]`` y llaves ``{...}`` (calidad,
+       codec, grupo, audio…) en CUALQUIER posición del nombre. Los releases
+       los colocan tanto después del año como antes, y a veces sin año en
+       absoluto (p.ej. 'Scream 7[Audio DCP] [Grupo HDO].iso'). El
+       comportamiento antiguo solo recortaba esos tags cuando había un año
+       entre paréntesis; sin año devolvía el stem entero con los corchetes
+       dentro del título.
+    2. Sobre el nombre ya limpio busca el patrón ``{Título} ({Año})``. Si no
+       hay año entre paréntesis devuelve '0000' — el caller decide si lo
+       completa con TMDb o lo omite.
 
-    Ej: 'The Brutalist (2024) [DV FEL].iso' → ('The Brutalist', '2024')
-        'pelicula_sin_anno.iso'              → ('pelicula_sin_anno', '0000')
+    Ej: 'The Brutalist (2024) [DV FEL].iso'    → ('The Brutalist', '2024')
+        'Scream 7[Audio DCP] [Grupo HDO].iso'  → ('Scream 7', '0000')
+        'pelicula_sin_anno.iso'                → ('pelicula_sin_anno', '0000')
     """
     stem = Path(iso_path).stem
-    m = re.match(r"^(.+?)\s*\((\d{4})\)", stem)
+    # Quita los tags entre corchetes/llaves esté donde esté el año (o sin año).
+    cleaned = re.sub(r"[\[\{].*?[\]\}]", " ", stem)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    m = re.match(r"^(.+?)\s*\((\d{4})\)", cleaned)
     if m:
         return m.group(1).strip(), m.group(2)
-    return stem, "0000"
+    return cleaned, "0000"
 
 
 def build_mkv_name(title: str, year: str, has_fel: bool, audio_dcp: bool) -> str:
@@ -1188,10 +1199,13 @@ def _build_mkv_name(title: str, year: str, has_fel: bool, audio_dcp: bool) -> st
     """
     Construye el nombre del MKV según la spec §5.4.
 
-    Patrón: ``{Título} ({Año})[tags].mkv``
+    Patrón: ``{Título} ({Año})[tags].mkv``. Si el año es desconocido (cadena
+    vacía o '0000' — el nombre del ISO no lo traía y TMDb no dio match), se
+    omite el ``(Año)`` en lugar de escribir un '(0000)' espurio, igual que la
+    nomenclatura de series.
     Tags: ``[DV FEL]`` si has_fel, ``[Audio DCP]`` si audio_dcp, en ese orden.
     """
-    name = f"{title} ({year})"
+    name = f"{title} ({year})" if year and year != "0000" else title
     if has_fel:
         name += " [DV FEL]"
     if audio_dcp:

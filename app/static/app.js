@@ -523,7 +523,8 @@ function openProject(session) {
   // Para series TV el nombre del tab debe identificar el episodio
   // concreto (todas las sesiones de la misma temporada comparten ISO).
   // Formato Plex/Jellyfin-style: "Serie (Año) - SNNeNN - Título".
-  // Pelis siguen con basename del ISO sin extensión.
+  // Pelis usan el mkv_name (ya saneado por el backend: sin tags del release);
+  // fallback al basename del ISO solo si aún no hay mkv_name.
   let name;
   if (session.media_type === 'series') {
     const sn = String(session.season_number || 0).padStart(2, '0');
@@ -531,6 +532,8 @@ function openProject(session) {
     const yearPart = session.series_year ? ` (${session.series_year})` : '';
     const base = `${session.series_name || 'Serie'}${yearPart} - S${sn}E${en}`;
     name = session.episode_title ? `${base} - ${session.episode_title}` : base;
+  } else if (session.mkv_name) {
+    name = session.mkv_name.replace(/\.mkv$/i, '');
   } else if (session.iso_path) {
     name = session.iso_path.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
   } else {
@@ -7625,15 +7628,25 @@ async function revertMkvName() {
 /**
  * Recalcula el nombre del MKV localmente (sin llamar al backend) cuando
  * cambia el toggle FEL o DCP y el nombre no fue editado manualmente.
+ *
+ * Replica la lógica del backend (_extract_title_year + _build_mkv_name):
+ * limpia los tags entre corchetes/llaves del nombre, toma el año del fichero
+ * si lo trae y, si no, el de la ficha TMDb; si tampoco hay, omite el (Año).
  */
 function recalcMkvNameLocal() {
   const project = getActiveProject();
   const iso  = currentSession.iso_path || '';
-  const stem = iso.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
+  let stem   = iso.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
+  // Quita los tags entre corchetes/llaves esté donde esté el año (o sin año).
+  stem = stem.replace(/[\[\{].*?[\]\}]/g, ' ').replace(/\s{2,}/g, ' ').trim();
   const m    = stem.match(/^(.+?)\s*\((\d{4})\)/);
   const title = m ? m[1].trim() : stem;
-  const year  = m ? m[2] : '0000';
-  let name = `${title} (${year})`;
+  // Año: del fichero si lo trae; si no, de TMDb; si no, ninguno.
+  let year = m ? m[2] : '';
+  if (!year && currentSession.tmdb_info && currentSession.tmdb_info.year) {
+    year = String(currentSession.tmdb_info.year);
+  }
+  let name = year ? `${title} (${year})` : title;
   if (currentSession.has_fel)   name += ' [DV FEL]';
   if (currentSession.audio_dcp) name += ' [Audio DCP]';
   name += '.mkv';
