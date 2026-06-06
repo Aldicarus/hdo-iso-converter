@@ -17209,7 +17209,28 @@ async function refreshCMv40Sidebar() {
   // y tras cada accion de fase. Bajo VPN un timeout transitorio no es util —
   // el siguiente tick (otro mensaje WS o accion del usuario) lo corrige.
   const data = await apiFetch('/api/cmv40', { silent: true });
-  _cmv40SidebarList = data?.sessions || [];
+  if (!data) {
+    // El fetch falló (timeout por el I/O alto del NAS al terminar un job con
+    // mucha escritura, VPN caída, etc.). NO vaciar la lista: machacarla con
+    // [] dejaba el sidebar en "0 jobs", y como al terminar el job el WS se
+    // cierra puede no llegar ningún otro tick que lo recupere. Conservamos
+    // lo último bueno, re-pintamos por si el DOM se limpió, y reintentamos
+    // hasta que el I/O baje y el backend vuelva a responder.
+    if (_cmv40SidebarList.length) _renderCMv40Sidebar();
+    if (!window._cmv40SidebarRetryTimer) {
+      window._cmv40SidebarRetryTimer = setTimeout(() => {
+        window._cmv40SidebarRetryTimer = null;
+        refreshCMv40Sidebar();
+      }, 4000);
+    }
+    return;
+  }
+  // Éxito: cancelar cualquier reintento pendiente de un fallo previo.
+  if (window._cmv40SidebarRetryTimer) {
+    clearTimeout(window._cmv40SidebarRetryTimer);
+    window._cmv40SidebarRetryTimer = null;
+  }
+  _cmv40SidebarList = data.sessions || [];
 
   // Auto-resume del overlay: si hay un proyecto con running_phase != null,
   // no archivado, y NO hay nada abierto en Tab 3, abrirlo automáticamente
