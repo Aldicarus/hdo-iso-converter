@@ -659,9 +659,14 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - **Clasificación forced/complete por ratio** ([phase_b.py](app/phases/phase_b.py) `_classify_lang`):
   - Por idioma, con packet_count disponible:
     - 1 sola pista: `<500 paq → forced`, `≥500 paq → complete` (no hay con qué comparar).
-    - 2+ pistas: la mayor es candidata a complete. Cada otra pista se clasifica por ratio
-      contra la mayor: `ratio ≥ 3.0 → forced` · `ratio < 3.0 → alternativa ambigua` (España/Latam, comentarios, mezcla alternativa).
-    - Caso edge (mayor <500): todas son forced; el idioma no tiene complete en este disco.
+    - 2+ pistas: la de más paquetes (`biggest`) es la REFERENCIA para medir ratios. Cada otra pista
+      se clasifica contra ella: `ratio ≥ 3.0 → forced` · `ratio < 3.0 → alternativa ambigua` (España/Latam, normal/SDH, comentarios).
+    - **Completa elegida — NO siempre `biggest`** (Opción A, banda casi-idéntica): entre las completas con `ratio < 2.0`
+      respecto a `biggest` (donde ninguna puede ser un forzado disfrazado) se incluye la **primera del disco** — la de más
+      paquetes suele ser la versión SDH (texto extra en momentos sin diálogo) y la primera la normal. Las completas en banda
+      `2.0–3.0` quedan ambiguas pero NUNCA se eligen (podrían ser un forzado grande de 2000+ paq — el bug que arregló 4b985d2).
+      Caso real Scream 7: ES 12569(1ª)+12817(2ª) y EN 13410(1ª)+17308(2ª) → se elige la 1ª de cada uno. Cubierto por `test_subtitle_classification.py`.
+    - Caso edge (`biggest` <500): todas son forced; el idioma no tiene complete en este disco.
   - La detección de audiodescripción por packet_count se RETIRÓ — era estructuralmente incorrecta
     (cualquier completo+forzado cruzaba el threshold ×1.3 mal calibrado). Única señal fiable de AD: código ISO 639 `qad`.
 - **`DiscardedTrack.inferred_subtitle_type`** ([models.py](app/models.py)): cada sub descartado lleva su tipo inferido
