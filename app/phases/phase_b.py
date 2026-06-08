@@ -746,17 +746,24 @@ def _select_subtitle_tracks(
               * <500 paquetes → forzado (no hay completo).
               * ≥500 paquetes → completo (no hay forzado).
           - 2+ pistas:
-              * La de más paquetes es candidata a **completo**.
-              * Si la mayor tiene <500 paquetes (rara, idioma sin
-                completo en este disco): todas son forzadas.
-              * Cada otra pista se compara con la mayor por ratio:
-                  - ratio ≥ 3.0 → **forzado** (o sub muy ligero — sub
-                    forzado de carteles + algún diálogo extranjero).
-                  - ratio < 3.0 → **alternativa ambigua** (España vs
-                    Latam, comentarios del director, etc.).
+              * La de más paquetes (biggest) es la REFERENCIA para medir
+                ratios; cada otra pista se compara con ella:
+                  - ratio ≥ 3.0 → **forzado** (la pequeña solo lleva
+                    carteles + algún diálogo extranjero).
+                  - ratio < 3.0 → otra completa (**ambigua**): España vs
+                    Latam, normal vs SDH, comentarios del director, etc.
+              * Si biggest tiene <500 paquetes (rara, idioma sin completo
+                en este disco): todas son forzadas.
+              * **Completo elegido**: NO es necesariamente biggest. Entre
+                las completas "casi idénticas" (ratio <2× con biggest, donde
+                ninguna puede ser un forzado disfrazado) se elige la PRIMERA
+                del disco — la de más paquetes suele ser la versión SDH
+                (texto extra en momentos sin diálogo) y la primera la normal.
+                Las completas en banda 2×–3× quedan ambiguas pero NUNCA se
+                eligen (podrían ser un forzado grande de 2000+ paquetes).
               * Forzado final: primero por posición original entre los
                 forzados.
-              * Alternativas ambiguas: todas las que no son forzado.
+              * Alternativas ambiguas: el resto de completas-candidatas.
 
           La detección de audiodescripción por packet_count se ha
           retirado: era estructuralmente incorrecta — el ratio
@@ -777,6 +784,7 @@ def _select_subtitle_tracks(
         """
         FORCED_ABSOLUTE_THRESHOLD = 500       # <500 paq. en pista única → forzado seguro
         FORCED_RATIO_THRESHOLD    = 3.0       # ratio max/t ≥3 → t es forzado
+        NEAR_IDENTICAL_RATIO      = 2.0       # ratio <2× → dos completas casi idénticas (no puede ser forzado)
 
         has_packets = any(t.packet_count > 0 for t in lang_tracks)
 
@@ -803,32 +811,58 @@ def _select_subtitle_tracks(
                 leftover = lang_tracks[1:]
                 return forced, None, [], [], leftover
 
-            # Caso típico: hay un completo claro. Clasificar las otras
-            # pistas comparando con biggest por ratio.
-            complete = biggest
-            forced_list: list[RawSubtitleTrack] = []
-            ambiguous: list[RawSubtitleTrack] = []
+            # Caso típico: hay un completo claro. Clasificamos las demás
+            # pistas comparando con biggest (la de más paquetes) por ratio:
+            #   ratio ≥ 3×  → forzado (la pequeña solo lleva carteles).
+            #   ratio < 3×  → otra completa (ambigua): España/Latam, normal/SDH…
+            # Trabajamos con índices para preservar el orden del disco sin
+            # depender de la igualdad por valor de los modelos Pydantic.
+            forced_idx: list[int] = []
+            ambiguous_idx: list[int] = []
             for i, t in enumerate(lang_tracks):
                 if i == biggest_idx:
                     continue
                 if t.packet_count <= 0 or biggest.packet_count <= 0:
-                    # Sin packet_count fiable → conservador, va a ambiguous
+                    # Sin packet_count fiable → conservador, va a ambiguas
                     # (no podemos asegurar que sea forzado).
-                    ambiguous.append(t)
+                    ambiguous_idx.append(i)
                     continue
                 ratio = biggest.packet_count / t.packet_count
                 if ratio >= FORCED_RATIO_THRESHOLD:
-                    forced_list.append(t)
+                    forced_idx.append(i)
                 else:
-                    ambiguous.append(t)
+                    ambiguous_idx.append(i)
 
-            # Forzado final: primer forzado por orden del disco (ya
-            # iteramos lang_tracks en orden, así que forced_list ya
-            # respeta posición original).
-            forced = forced_list[0] if forced_list else None
+            # ¿Cuál de las completas-candidatas incluimos? biggest es la
+            # referencia para detectar forzados, pero NO tiene por qué ser
+            # la elegida: cuando dos completas son casi idénticas en tamaño
+            # (ratio <2×), la de más paquetes suele ser la versión con
+            # descripciones para sordos (SDH) — texto extra en momentos sin
+            # diálogo — y la primera del disco la normal. Preferimos la
+            # primera del disco entre las "casi idénticas".
+            #   · banda casi-idéntica (ratio <2× con biggest): elegibles.
+            #   · banda 2×–3×: quedan ambiguas pero NUNCA se eligen como
+            #     completa (podrían ser un forzado grande de 2000+ paq).
+            near_identical_idx = [
+                i for i in ambiguous_idx
+                if lang_tracks[i].packet_count > 0
+                and biggest.packet_count / lang_tracks[i].packet_count < NEAR_IDENTICAL_RATIO
+            ]
+            # Primera por orden del disco entre {biggest} ∪ {casi idénticas}.
+            complete_idx = min([biggest_idx, *near_identical_idx])
+            complete = lang_tracks[complete_idx]
+
+            # Las demás completas-candidatas (biggest si no ganó + el resto
+            # de ambiguas) se descartan con banner de ambigüedad.
+            ambiguous_alts = [
+                lang_tracks[i]
+                for i in sorted(set(ambiguous_idx) | {biggest_idx})
+                if i != complete_idx
+            ]
+            # Forzado final: primer forzado por orden del disco.
+            forced = lang_tracks[forced_idx[0]] if forced_idx else None
             # Forzados extra (raros — un idioma con 2 forzados distintos):
-            leftover = forced_list[1:] if len(forced_list) > 1 else []
-            ambiguous_alts = ambiguous
+            leftover = [lang_tracks[i] for i in forced_idx[1:]]
             # audio_descriptions vacío: ver docstring (señal era basura).
             return forced, complete, [], ambiguous_alts, leftover
 
@@ -917,13 +951,15 @@ def _select_subtitle_tracks(
                     raw=t,
                     discard_reason=(
                         f"Descartada por defecto: hay otra pista de subtítulos "
-                        f"{lang_lit} de tamaño parecido (ratio <3×). Nos quedamos "
-                        f"con la primera del disco."
+                        f"{lang_lit} de tamaño parecido (ratio <3×, no es un forzado). "
+                        f"Puede ser una edición regional distinta (España/Latam) o la "
+                        f"versión con descripciones para sordos (SDH). Recupérala si era "
+                        f"la que querías."
                     ),
                     ambiguity_warning=(
                         f"Otra pista de subtítulos {lang_lit} con tamaño parecido "
-                        f"al incluido. Puede ser una edición diferente "
-                        f"(España/Latam, comentarios, mezcla alternativa). Si era "
+                        f"al incluido. Puede ser una edición diferente (España/Latam, "
+                        f"con o sin descripciones para sordos (SDH), comentarios). Si era "
                         f"la versión que querías, recupérala y compruébala."
                     ),
                     inferred_subtitle_type="complete",
@@ -1029,10 +1065,24 @@ def _select_subtitle_tracks(
 
         if track_type == "complete" and complete_track:
             if complete_track.packet_count > 0:
-                reason_complete = (
-                    f"Completos (packet-based): {complete_track.packet_count} paquetes, "
-                    f"primera pista completa para {lang_norm.capitalize()}"
+                # Si alguna alternativa ambigua tiene MÁS paquetes que la
+                # elegida, es que hemos preferido la primera del disco sobre
+                # una casi idéntica más grande (probable SDH). Lo explicamos.
+                bigger_alt = any(
+                    a.packet_count > complete_track.packet_count for a in ambiguous_alts
                 )
+                if bigger_alt:
+                    reason_complete = (
+                        f"Completos (packet-based): {complete_track.packet_count} paquetes. "
+                        f"Primera pista del disco para {lang_norm.capitalize()}; hay otra casi "
+                        f"idéntica con más paquetes (probable versión con descripciones para "
+                        f"sordos, SDH)"
+                    )
+                else:
+                    reason_complete = (
+                        f"Completos (packet-based): {complete_track.packet_count} paquetes — "
+                        f"pista completa de {lang_norm.capitalize()}"
+                    )
             else:
                 reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
             # Si hay alternativas ambiguas (otras pistas del mismo idioma
@@ -1052,8 +1102,8 @@ def _select_subtitle_tracks(
                     f"de subtítulos {lang_lit} adicional"
                     f"{'es' if len(ambiguous_alts) > 1 else ''} con tamaño parecido"
                     f"{detail}. Pueden ser ediciones diferentes (España/Latam, "
-                    f"comentarios, mezcla alternativa). Compruébalo y recupera "
-                    f"otra si no era la versión que querías."
+                    f"con o sin descripciones para sordos (SDH), comentarios). "
+                    f"Compruébalo y recupera otra si no era la versión que querías."
                 )
             included.append(IncludedSubtitleTrack(
                 position=0,

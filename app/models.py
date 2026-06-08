@@ -370,7 +370,8 @@ class RawSubtitleTrack(BaseModel):
     Es el proxy más fiable del volumen de subtítulo real (eventos de pantalla):
     - Forzado típico: <500 paquetes
     - Completo típico: ~7.000-11.000 paquetes
-    - Audiodescripción: paquetes > 1.3× mediana del idioma
+    - SDH (descripciones para sordos): algo más que el completo normal del
+      mismo idioma (texto extra en momentos sin diálogo)
 
     0 si ffprobe no pudo medirlo (fallback a heurística de patrones)."""
 
