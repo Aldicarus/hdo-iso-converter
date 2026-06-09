@@ -151,19 +151,30 @@ def _seq_ratio(a: str, b: str) -> float:
 
 
 def _containment_score(a: str, b: str) -> float:
-    """Si un slug es sub-string del otro, bonus fuerte. Maneja casos
-    tipo 'dark knight' ⊂ 'the dark knight' o 'zootopia 2' ⊂ 'zootopia 2 2025'."""
-    if not a or not b:
+    """Bonus cuando el título corto es el núcleo del largo, medido sobre
+    TOKENS significativos (no subcadena de caracteres).
+
+    El corto debe ser subconjunto de las palabras del largo Y cubrir una
+    fracción sustancial de ellas (≥60%). Sin el gate de cobertura un título
+    corto como 'the ring' matchearía 'the lord of the rings the fellowship of
+    the ring' por ser subcadena de caracteres (1 palabra de 4 → falso
+    positivo: son films distintos). Casos legítimos que SÍ debe cazar:
+        'dark knight' ⊂ 'the dark knight'   (cobertura 2/2)
+        'zootopia 2'  ⊂ 'zootopia 2 2025'    (cobertura 2/3)
+    """
+    ta = [t for t in _tokens(a) if t not in _STOP_WORDS]
+    tb = [t for t in _tokens(b) if t not in _STOP_WORDS]
+    if not ta or not tb:
         return 0.0
-    sa = _strip_accents(a)
-    sb = _strip_accents(b)
-    short, long_ = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
-    if len(short) < 3:
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    sset, lset = set(short), set(long_)
+    if not sset.issubset(lset):
         return 0.0
-    if short in long_:
-        # Escala por cuán "dominante" es el short sobre el long
-        return min(1.0, 0.85 + (len(short) / len(long_)) * 0.15)
-    return 0.0
+    coverage = len(sset) / len(lset)
+    if coverage < 0.6:
+        return 0.0
+    # Escala por cobertura: cubrir casi todo el largo ≈ mismo título.
+    return min(1.0, 0.85 + coverage * 0.15)
 
 
 def _similarity(a: str, b: str) -> float:

@@ -475,7 +475,7 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 
 ### Recomendación CMv4.0 (Tab 3)
 - Parser de filename: trunca tags después del año (`UHD.BluRay.x265`, `[DV FEL]`, etc.)
-- Matching fuzzy compuesto: max(SequenceMatcher, token-set Jaccard, containment) sobre acentos strippeados
+- Matching fuzzy compuesto: max(SequenceMatcher, token-set Jaccard, containment) sobre acentos strippeados. El `containment` opera sobre **tokens** (no subcadena de caracteres) con gate de cobertura ≥60%: evita que un título corto matchee uno largo que lo contiene como subcadena (caso real: "The Ring" ⊂ "The Lord of the Rings: The Fellowship of the **Ring**" daba 0.875). Cubierto por `test_cmv40_recommend_match.py`. La misma `_similarity` la consume `rec999_drive_match.rank_candidates`.
 - Normalización de romanos (II→2, III→3…) y stop-words (the, la, de…)
 - Multi-candidato TMDb (top-5) — prueba cada uno contra el sheet
 - Umbrales adaptativos: **0.72 año exacto · 0.82 año ±1 · 0.88 sin año**
