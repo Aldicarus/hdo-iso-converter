@@ -211,5 +211,43 @@ class TestPropeditTrackEdits(unittest.TestCase):
         self.assertEqual(by_id[1], "Inglés DTS-HD MA 5.1")
 
 
+class TestLanguageMapCoverage(unittest.TestCase):
+    """Regresión: el matcher debe reconocer idiomas fuera del antiguo subset de
+    phase_e (catalán, tailandés…). El source los identifica por código ISO
+    ('cat') y la pista incluida los trae en inglés ('Catalan'); _ISO639 debe
+    normalizar el código al mismo nombre. Antes el subset no tenía 'cat' →
+    'cat' ≠ 'catalan' → la pista se perdía en silencio (caso real: Avatar
+    Fuego y Ceniza — catalán DTS + sub forzado catalán descartados)."""
+
+    def test_catalan_audio_matches(self):
+        included = [_audio("Catalan", "DTS Audio", "5.1 / 48 kHz", "Catalan DTS 5.1")]
+        tmap = _track_map(_amap(10, codec="DTS", lang="cat", ch=6))
+        self.assertEqual(_match_tracks_to_source(included, [10], tmap), {0: 10})
+
+    def test_catalan_subtitle_matches(self):
+        included = [_sub("Catalan", "forced", "Catalan Forzados (PGS)", flag_forced=True)]
+        tmap = _track_map(_smap(16, lang="cat"))
+        self.assertEqual(_match_tracks_to_source(included, [16], tmap), {0: 16})
+
+    def test_thai_audio_matches(self):
+        included = [_audio("Thai", "DTS Audio", "5.1 / 48 kHz", "Thai DTS 5.1")]
+        tmap = _track_map(_amap(5, codec="DTS", lang="tha", ch=6))
+        self.assertEqual(_match_tracks_to_source(included, [5], tmap), {0: 5})
+
+    def test_avatar_es_en_cat_all_match(self):
+        # Caso Avatar simplificado: spa + eng + cat → los tres mapean.
+        included = [
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio", "7.1 / 48 kHz", "Castellano TrueHD Atmos 7.1", position=0),
+            _audio("English", "Dolby TrueHD/Atmos Audio", "7.1 / 48 kHz", "Inglés TrueHD Atmos 7.1", position=1),
+            _audio("Catalan", "DTS Audio", "5.1 / 48 kHz", "Catalan DTS 5.1", position=2),
+        ]
+        tmap = _track_map(
+            _amap(2,  codec="TrueHD Atmos", lang="eng", ch=8),
+            _amap(7,  codec="TrueHD Atmos", lang="spa", ch=8),
+            _amap(10, codec="DTS",          lang="cat", ch=6),
+        )
+        self.assertEqual(_match_tracks_to_source(included, [2, 7, 10], tmap), {0: 7, 1: 2, 2: 10})
+
+
 if __name__ == "__main__":
     unittest.main()

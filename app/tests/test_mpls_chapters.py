@@ -174,6 +174,33 @@ class TestMplsMarksBinary(unittest.TestCase):
         self.assertEqual([c["timestamp"] for c in chapters],
                          ["00:00:00.000", "00:02:00.000"])
 
+    def test_descarta_end_mark_degenerado(self):
+        # Mark final pegado al fin (== duración total) = marca de fin del
+        # playlist, no un capítulo. Se descarta (caso Avatar: 58 → 57).
+        path = self._mpls(
+            playitems=[(0, HZ * 600)],
+            marks=[
+                (0x01, 0, 0),
+                (0x01, 0, HZ * 300),
+                (0x01, 0, HZ * 600),   # == total → end mark degenerado
+            ],
+        )
+        chapters = _parse_mpls_marks_binary(path)
+        self.assertEqual([c["timestamp"] for c in chapters],
+                         ["00:00:00.000", "00:05:00.000"])
+
+    def test_no_descarta_capitulo_real_cerca_del_final(self):
+        # Un capítulo 3s antes del final (>1s) SÍ es navegable → se mantiene.
+        path = self._mpls(
+            playitems=[(0, HZ * 600)],
+            marks=[
+                (0x01, 0, 0),
+                (0x01, 0, HZ * 300),
+                (0x01, 0, HZ * 597),   # 3s antes del final → capítulo real
+            ],
+        )
+        self.assertEqual(len(_parse_mpls_marks_binary(path)), 3)
+
     def test_menos_de_dos_marks_devuelve_vacio(self):
         # 1 solo entry mark no es una lista útil → [] (se prefiere auto-generado).
         path = self._mpls(playitems=[(0, HZ * 600)], marks=[(0x01, 0, 0)])

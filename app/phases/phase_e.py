@@ -44,6 +44,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from models import Chapter, Session
+from phases.phase_a import ISO639_TO_ENGLISH
 from phases.phase_d import MkvmergePlaylistError, is_playlist_assertion_line
 
 MKVMERGE_BIN    = "mkvmerge"
@@ -378,15 +379,15 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
 #  MAPEO DE PISTAS INCLUIDAS → IDs DEL SOURCE
 # ══════════════════════════════════════════════════════════════════════
 
-# ISO 639-2 → nombre en inglés (subset del mapa completo de phase_a)
-_ISO639 = {
-    "spa": "spanish", "eng": "english", "fre": "french", "fra": "french",
-    "ger": "german", "deu": "german", "ita": "italian", "jpn": "japanese",
-    "por": "portuguese", "chi": "chinese", "zho": "chinese", "kor": "korean",
-    "dut": "dutch", "nld": "dutch", "rus": "russian", "pol": "polish",
-    "cze": "czech", "ces": "czech", "hun": "hungarian", "swe": "swedish",
-    "nor": "norwegian", "dan": "danish", "fin": "finnish", "tur": "turkish",
-}
+# ISO 639-2 → nombre en inglés (lowercase) para el matcher de pistas.
+# Se DERIVA del mapa completo de phase_a (ISO639_TO_ENGLISH) en lugar de
+# mantener un subset propio. Un subset desincronizado descartaba pistas de
+# idiomas que phase_a sí conoce: la pista incluida llega con raw.language en
+# inglés (ej. "Catalan") y el source la identifica por código ISO ("cat"); si
+# el código no está aquí, _ISO639.get("cat","cat")="cat" ≠ "catalan" → el
+# matcher no la encontraba y la pista (catalán, tailandés, griego…) se perdía
+# en silencio. Derivarlo garantiza que ambos extremos hablen el mismo idioma.
+_ISO639 = {code: name.lower() for code, name in ISO639_TO_ENGLISH.items()}
 
 
 def _classify_sub_source_ids(

@@ -1292,10 +1292,23 @@ def _parse_mpls_marks_binary(mpls_path: str) -> list[dict]:
             pi_in = playitems[ref_pi][0]
             abs_ticks_list.append(offsets[ref_pi] + max(0, mark_ts - pi_in))
 
-        if len(abs_ticks_list) < 2:
+        if not abs_ticks_list:
             return []
 
         abs_ticks_list.sort()
+
+        # Descartar un "end mark" degenerado pegado al final de la película
+        # (≤1s del total): es la marca de fin del playlist, no un capítulo
+        # navegable. mkvmerge tampoco lo cuenta (por eso 58 marks → 57 caps).
+        END_EPS = 45000  # 1 s en ticks de 45 kHz
+        if (total_ticks > 0 and len(abs_ticks_list) >= 2
+                and total_ticks - abs_ticks_list[-1] <= END_EPS):
+            abs_ticks_list.pop()
+
+        # Menos de 2 capítulos no es una lista útil → mejor el auto-generado.
+        if len(abs_ticks_list) < 2:
+            return []
+
         # Sanity check: el último capítulo no debe exceder la duración total
         # (con 5% de margen). Si lo hace, el cálculo de offsets falló (p. ej.
         # multi-ángulo real) → descartar para no dar capítulos en posiciones
