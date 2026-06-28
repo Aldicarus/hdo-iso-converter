@@ -687,9 +687,12 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 ### Capítulos (spec §5.3)
 - **Capítulos reales** extraídos del MPLS en Fase A (no en Fase D). Disponibles desde la creación del proyecto.
+- **Extracción en dos niveles** (`parse_mpls_chapters` en [phase_a.py](app/phases/phase_a.py)):
+  1. `_extract_chapters_via_mkvtoolnix`: MKV mínimo (`mkvmerge --no-audio --no-video --no-subtitles`) + `mkvextract chapters --simple`. Preserva nombres custom del disco.
+  2. **Fallback binario** `_parse_mpls_marks_binary`: parsea los **PlayListMark** del MPLS directamente. Necesario en discos UHD multi-segmento donde el nivel 1 hace **abortar a mkvmerge** (assertion `add_filelists_for_playlists`, SIGABRT) y devuelve `[]`. Calcula el tiempo absoluto de cada entry mark (tipo 0x01) sumando las duraciones de los PlayItems previos (`Σ(OUT-IN) + (mark_ts - IN)`, ticks 45 kHz). Mismo layout de PlayItem validado por `parse_mpls_pg_streams` (IN en +12, OUT en +16). Sanity check: descarta si <2 marks o si el último excede la duración total +5% (multi-ángulo no soportado). Cubierto por `test_mpls_chapters.py`.
 - Si no hay capítulos → generación automática cada 10 min desde el primer intervalo
 - **Botón "🏷️ Nombres genéricos"**: visible si algún capítulo tiene nombre custom. Reemplaza todos por "Capítulo XX".
-- **Botón "🔄 Restaurar del disco"**: visible tras ediciones manuales. Re-monta ISO y extrae capítulos frescos (con confirmación).
+- **Botón "🔄 Restaurar del disco"**: visible en fuentes con MPLS (iso/bdmv) tanto tras ediciones manuales **como cuando los capítulos son auto-generados** (el disco puede tener capítulos reales que no se pudieron extraer la 1ª vez — caso multi-segmento). Oculto en m2ts. Re-monta ISO y re-extrae con `parse_mpls_chapters` (con confirmación; texto dinámico según auto/editado).
 - **`name_custom: bool`**: `false` = auto-nombrado, `true` = editado manualmente
 
 ### Acceso al ISO — Loop mount directo (UDF 2.50)

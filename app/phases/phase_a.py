@@ -1063,15 +1063,16 @@ MKVEXTRACT_BIN = "mkvextract"
 
 def parse_mpls_chapters(mpls_path: str) -> list[dict]:
     """
-    Extrae los capítulos del MPLS creando un MKV mínimo (sin streams) y
-    leyendo los capítulos con mkvextract.
+    Extrae los capítulos reales del MPLS en dos niveles.
 
-    mkvmerge calcula los timestamps con precisión completa y extrae
-    los nombres reales del disco si existen. Es instantáneo (~1s)
-    porque no copia datos de vídeo/audio.
-
-    Los nombres genéricos ("Chapter 01") se traducen a español
-    ("Capítulo 01"). Los nombres custom del disco se preservan.
+    1. **mkvmerge + mkvextract** (MKV mínimo sin streams): instantáneo y
+       preserva los nombres de capítulo custom del disco si existen. Los
+       nombres genéricos ("Chapter 01") se traducen a "Capítulo 01".
+    2. **Parser binario de los PlayListMark** (fallback): necesario en discos
+       UHD multi-segmento, donde mkvmerge ABORTA por SIGABRT al ensamblar la
+       file-list del playlist (assertion ``add_filelists_for_playlists``) y el
+       nivel 1 no devuelve nada. Lee los timestamps directamente del MPLS sin
+       invocar mkvmerge.
 
     Args:
         mpls_path: Ruta absoluta al fichero .mpls (el ISO debe estar montado)
@@ -1079,8 +1080,26 @@ def parse_mpls_chapters(mpls_path: str) -> list[dict]:
     Returns:
         Lista de dicts compatibles con Chapter:
         [{"number": 1, "timestamp": "00:00:00.000", "name": "Capítulo 01", "name_custom": false}, ...]
-        Lista vacía si falla o no hay capítulos.
+        Lista vacía si no hay capítulos.
     """
+    chapters = _extract_chapters_via_mkvtoolnix(mpls_path)
+    if chapters:
+        return chapters
+
+    binary = _parse_mpls_marks_binary(mpls_path)
+    if binary:
+        _logger.info(
+            "MPLS %s: %d capítulos extraídos via parser binario "
+            "(fallback — mkvmerge no pudo procesar el playlist)",
+            Path(mpls_path).name, len(binary),
+        )
+    return binary
+
+
+def _extract_chapters_via_mkvtoolnix(mpls_path: str) -> list[dict]:
+    """Crea un MKV mínimo (solo capítulos, sin streams) con mkvmerge y lee los
+    capítulos con mkvextract. Preserva los nombres custom del disco. Devuelve []
+    si mkvmerge aborta (típico en discos UHD multi-segmento) o no hay capítulos."""
     tmp_mkv = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".mkv", delete=False) as tmp:
@@ -1092,8 +1111,14 @@ def parse_mpls_chapters(mpls_path: str) -> list[dict]:
              "-o", tmp_mkv, mpls_path],
             capture_output=True, text=True, timeout=30,
         )
-        if result.returncode >= 2:
-            _logger.warning("mkvmerge falló al crear MKV de capítulos: %s", result.stderr[:200])
+        # returncode 0/1 = OK/warnings; resto = fallo. Incluye los códigos
+        # negativos por señal (SIGABRT = -6 del assertion de playlist): el
+        # `>= 2` antiguo NO los capturaba.
+        if result.returncode not in (0, 1):
+            _logger.warning(
+                "mkvmerge no pudo crear el MKV de capítulos (código %d): %s",
+                result.returncode, (result.stderr or "")[:200],
+            )
             return []
 
         # Extraer capítulos en formato simple
@@ -1102,7 +1127,7 @@ def parse_mpls_chapters(mpls_path: str) -> list[dict]:
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            _logger.warning("mkvextract falló: %s", result.stderr[:200])
+            _logger.warning("mkvextract falló: %s", (result.stderr or "")[:200])
             return []
 
         chapters = _parse_simple_chapters(result.stdout)
@@ -1174,6 +1199,128 @@ def _parse_simple_chapters(output: str) -> list[dict]:
         })
 
     return chapters
+
+
+def _ticks_to_timestamp(ticks_45khz: int) -> str:
+    """Convierte ticks de 45 kHz (unidad de tiempo de los MPLS Blu-ray) a
+    'HH:MM:SS.mmm'."""
+    total_seconds = max(0, ticks_45khz) / 45000.0
+    h   = int(total_seconds // 3600)
+    m   = int((total_seconds % 3600) // 60)
+    s   = total_seconds % 60
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def _parse_mpls_marks_binary(mpls_path: str) -> list[dict]:
+    """Extrae capítulos parseando los PlayListMark del MPLS binario.
+
+    Fallback de parse_mpls_chapters para discos cuyo playlist hace abortar a
+    mkvmerge (assertion ``add_filelists_for_playlists`` en discos UHD
+    multi-segmento). Lee los *entry marks* (mark_type=0x01) y calcula su tiempo
+    absoluto en la película sumando las duraciones de los PlayItems previos
+    (seamless branching): ``abs = Σ(OUT-IN de PlayItems previos) + (mark_ts - IN)``.
+
+    Los Blu-ray rara vez almacenan nombres de capítulo en el MPLS, así que se
+    nombran "Capítulo NN" (name_custom=False). Devuelve [] si falla, si hay
+    menos de 2 entry marks (no es una lista útil) o si los timestamps salen
+    fuera de rango (posible multi-ángulo no soportado) — el caller cae entonces
+    al auto-generado.
+
+    El layout de PlayItem (IN_time en +12, OUT_time en +16, fixed=32 bytes)
+    es el mismo validado por ``parse_mpls_pg_streams``.
+    """
+    try:
+        data = Path(mpls_path).read_bytes()
+    except Exception as e:
+        _logger.warning("MPLS marks: read falló %s: %s", mpls_path, e)
+        return []
+
+    if len(data) < 40 or data[:4] != b"MPLS":
+        return []
+
+    try:
+        pl_start  = int.from_bytes(data[8:12], "big")
+        plm_start = int.from_bytes(data[12:16], "big")
+        if pl_start + 8 > len(data) or plm_start + 6 > len(data):
+            return []
+
+        # ── 1. PlayItems: IN/OUT time de cada uno (ticks 45 kHz) ──────────
+        p = pl_start + 4 + 2  # length(4) + reserved(2)
+        n_playitems = int.from_bytes(data[p:p + 2], "big")
+        p += 2 + 2            # n_playitems(2) + n_subpaths(2)
+        if n_playitems == 0:
+            return []
+
+        playitems: list[tuple[int, int]] = []  # (in_time, out_time)
+        for _ in range(n_playitems):
+            if p + 2 > len(data):
+                return []
+            pi_length = int.from_bytes(data[p:p + 2], "big")
+            pi_data   = p + 2
+            if pi_data + 20 > len(data):
+                return []
+            in_time  = int.from_bytes(data[pi_data + 12:pi_data + 16], "big")
+            out_time = int.from_bytes(data[pi_data + 16:pi_data + 20], "big")
+            playitems.append((in_time, out_time))
+            p = pi_data + pi_length
+
+        # Offset acumulado del inicio de cada PlayItem en la timeline global.
+        offsets = [0] * n_playitems
+        for i in range(1, n_playitems):
+            prev_in, prev_out = playitems[i - 1]
+            offsets[i] = offsets[i - 1] + max(0, prev_out - prev_in)
+        last_in, last_out = playitems[-1]
+        total_ticks = offsets[-1] + max(0, last_out - last_in)
+
+        # ── 2. PlayListMark: entry marks (mark_type=0x01) ────────────────
+        m = plm_start
+        n_marks = int.from_bytes(data[m + 4:m + 6], "big")  # length(4) + n(2)
+        m += 6
+
+        abs_ticks_list: list[int] = []
+        for _ in range(n_marks):
+            if m + 14 > len(data):
+                break
+            mark_type = data[m + 1]
+            ref_pi    = int.from_bytes(data[m + 2:m + 4], "big")
+            mark_ts   = int.from_bytes(data[m + 4:m + 8], "big")
+            m += 14  # cada mark son 14 bytes
+            if mark_type != 0x01:        # solo entry marks son capítulos
+                continue
+            if ref_pi >= n_playitems:
+                continue
+            pi_in = playitems[ref_pi][0]
+            abs_ticks_list.append(offsets[ref_pi] + max(0, mark_ts - pi_in))
+
+        if len(abs_ticks_list) < 2:
+            return []
+
+        abs_ticks_list.sort()
+        # Sanity check: el último capítulo no debe exceder la duración total
+        # (con 5% de margen). Si lo hace, el cálculo de offsets falló (p. ej.
+        # multi-ángulo real) → descartar para no dar capítulos en posiciones
+        # erróneas.
+        if total_ticks > 0 and abs_ticks_list[-1] > total_ticks * 1.05:
+            _logger.warning(
+                "MPLS marks: timestamps fuera de rango (último=%.0fs > total=%.0fs) "
+                "— descartado, posible multi-ángulo no soportado",
+                abs_ticks_list[-1] / 45000, total_ticks / 45000,
+            )
+            return []
+
+        return [
+            {
+                "number": idx,
+                "timestamp": _ticks_to_timestamp(ticks),
+                "name": f"Capítulo {idx:02d}",
+                "name_custom": False,
+            }
+            for idx, ticks in enumerate(abs_ticks_list, start=1)
+        ]
+
+    except Exception as e:
+        _logger.warning("MPLS marks: parse falló %s: %s", mpls_path, e)
+        return []
 
 
 # ══════════════════════════════════════════════════════════════════════
