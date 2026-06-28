@@ -71,7 +71,12 @@ from models import (
 )
 from phases.phase_a import run_full_analysis
 from phases.phase_b import apply_rules, generate_auto_chapters
-from phases.phase_d import find_main_mpls, run_phase_d
+from phases.phase_d import (
+    find_main_mpls,
+    run_phase_d,
+    MkvmergePlaylistError,
+    m2ts_covers_title,
+)
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
 from queue_manager import queue_manager
@@ -2086,6 +2091,98 @@ async def execute_session(session_id: str):
     return {"ok": True, "session_id": session_id, **queue_status}
 
 
+async def _mkvmerge_container_duration_s(path: str) -> float:
+    """Duración en segundos del contenedor (MPLS o M2TS) vía ``mkvmerge -J``.
+
+    Reutiliza ``_extract_duration`` de phase_a (lee ``playlist_duration`` o
+    ``duration`` en ns). Devuelve 0.0 si no se puede determinar — ``mkvmerge -J``
+    no dispara el assertion de playlist (solo el mux real lo hace), así que es
+    seguro invocarlo sobre el .mpls problemático.
+    """
+    from phases.phase_a import _extract_duration
+
+    proc = await asyncio.create_subprocess_exec(
+        "mkvmerge", "-J", path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode not in (0, 1):
+        return 0.0
+    try:
+        data = json.loads(stdout.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return 0.0
+    return _extract_duration((data.get("container", {}) or {}).get("properties", {}) or {})
+
+
+async def _resolve_main_m2ts_for_fallback(
+    mount_point: "str | None",
+    session: Session,
+    mpls_path: str,
+    log,
+) -> str:
+    """Resuelve el M2TS principal del disco como alternativa a un playlist que
+    mkvmerge no puede procesar (assertion ``add_filelists_for_playlists``).
+
+    Workaround estándar de la comunidad para discos UHD multi-segmento: pasar
+    el M2TS principal directamente. Antes de aceptarlo verifica que su duración
+    cubre el título completo — la validación final NO comprueba duración, así
+    que un M2TS corto (seamless branching real) produciría un MKV truncado en
+    silencio.
+
+    Raises:
+        RuntimeError: si no hay M2TS principal o no cubre el título.
+    """
+    from phases.phase_a import find_main_m2ts
+
+    await log(
+        "[Pipeline] ⚠️ mkvmerge no pudo procesar el playlist de este disco "
+        "(bug conocido de mkvmerge con UHD multi-segmento). Probando con el "
+        "M2TS principal directamente…"
+    )
+
+    # 1. Localizar el M2TS principal — preferimos el detectado en Fase A.
+    m2ts_path = None
+    main_name = (
+        session.bdinfo_result.main_m2ts
+        if session.bdinfo_result and session.bdinfo_result.main_m2ts
+        else ""
+    )
+    if main_name and mount_point:
+        for stream_dir in (
+            Path(mount_point) / "BDMV" / "STREAM",
+            Path(mount_point) / "bdmv" / "stream",
+        ):
+            cand = stream_dir / main_name
+            if cand.exists():
+                m2ts_path = str(cand)
+                break
+    if not m2ts_path and mount_point:
+        m2ts_path = find_main_m2ts(mount_point)
+    if not m2ts_path:
+        raise RuntimeError(
+            "No se encontró el M2TS principal para sortear el fallo del playlist."
+        )
+
+    # 2. Verificar que el M2TS cubre el título completo.
+    pl_dur   = await _mkvmerge_container_duration_s(mpls_path)
+    m2ts_dur = await _mkvmerge_container_duration_s(m2ts_path)
+    if not m2ts_covers_title(pl_dur, m2ts_dur):
+        raise RuntimeError(
+            f"El M2TS principal (~{m2ts_dur / 60:.0f} min) no cubre el título "
+            f"completo del playlist (~{pl_dur / 60:.0f} min): el disco usa "
+            "seamless branching real y no puede ripearse por esta vía. "
+            "Usa MakeMKV o dgdemux para este disco concreto."
+        )
+
+    cover = f" (~{m2ts_dur / 60:.0f} min)" if m2ts_dur > 0 else ""
+    await log(
+        f"[Pipeline] 🔁 Reintentando la extracción con {Path(m2ts_path).name}{cover}"
+    )
+    return m2ts_path
+
+
 async def _run_pipeline(session_id: str) -> None:
     """
     Corutina interna que ejecuta el pipeline de extracción en background.
@@ -2262,58 +2359,90 @@ async def _run_pipeline(session_id: str) -> None:
 
         _check_cancel()
 
-        # ── 3. Decidir ruta ───────────────────────────────────────
-        do_reorder = await needs_reordering(session, mpls_path, log)
+        # ── 3. Decidir ruta y ejecutar la extracción ──────────────
+        # El source normal es el MPLS (iso/bdmv). Si mkvmerge aborta al
+        # procesar el playlist (bug con discos UHD multi-segmento), se reintenta
+        # UNA vez con el M2TS principal directo — workaround estándar. Un M2TS
+        # ya es lectura directa, así que no puede caer en ese assertion.
+        extraction_source   = mpls_path
+        m2ts_fallback_active = (stype == "m2ts")
 
-        if do_reorder:
-            # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
-            await log(
-                "[Pipeline] 🎯 Ruta directa: hay pistas reordenadas o excluidas, "
-                "así que un solo mkvmerge hace selección + reorganización + "
-                "metadatos + capítulos en una pasada (ahorra una copia)."
-            )
-            _mark_phase("extract")
-            final_mkv = await run_phase_e_direct(
-                session=session,
-                mpls_path=mpls_path,
-                log_callback=log,
-                proc_callback=_register_proc,
-            )
-            _mark_phase("extract", done=True)
+        while True:
+            do_reorder = await needs_reordering(session, extraction_source, log)
+            try:
+                if do_reorder:
+                    # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
+                    await log(
+                        "[Pipeline] 🎯 Ruta directa: hay pistas reordenadas o excluidas, "
+                        "así que un solo mkvmerge hace selección + reorganización + "
+                        "metadatos + capítulos en una pasada (ahorra una copia)."
+                    )
+                    _mark_phase("extract")
+                    final_mkv = await run_phase_e_direct(
+                        session=session,
+                        mpls_path=extraction_source,
+                        log_callback=log,
+                        proc_callback=_register_proc,
+                    )
+                    _mark_phase("extract", done=True)
 
-        else:
-            # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
-            await log(
-                "[Pipeline] 🎯 Ruta con intermedio: no hay reordenación de pistas, "
-                "así que es más rápido copiar una vez al intermedio (mkvmerge) y "
-                "aplicar después los metadatos sobre las cabeceras (mkvpropedit), "
-                "sin volver a copiar el contenido."
-            )
+                else:
+                    # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
+                    await log(
+                        "[Pipeline] 🎯 Ruta con intermedio: no hay reordenación de pistas, "
+                        "así que es más rápido copiar una vez al intermedio (mkvmerge) y "
+                        "aplicar después los metadatos sobre las cabeceras (mkvpropedit), "
+                        "sin volver a copiar el contenido."
+                    )
 
-            # Phase D: extraer todo al intermedio. Para m2ts pasamos
-            # source_path explícito (no hay MPLS que buscar); para
-            # iso/bdmv pasamos share_path y el helper busca el MPLS.
-            _mark_phase("extract")
-            intermediate_mkv = await run_phase_d(
-                share_path=mount_point or "",
-                tmp_dir=TMP_DIR,
-                log_callback=log,
-                proc_callback=_register_proc,
-                source_path=mpls_path if stype == "m2ts" else None,
-            )
-            _mark_phase("extract", done=True)
-            await log(f"[Fase D] Intermedio listo en: {intermediate_mkv}")
+                    # Phase D: extraer todo al intermedio. Para m2ts (o tras el
+                    # fallback) pasamos source_path explícito; para iso/bdmv
+                    # pasamos share_path y el helper busca el MPLS.
+                    _mark_phase("extract")
+                    intermediate_mkv = await run_phase_d(
+                        share_path=mount_point or "",
+                        tmp_dir=TMP_DIR,
+                        log_callback=log,
+                        proc_callback=_register_proc,
+                        source_path=(
+                            extraction_source
+                            if (stype == "m2ts" or m2ts_fallback_active)
+                            else None
+                        ),
+                    )
+                    _mark_phase("extract", done=True)
+                    await log(f"[Fase D] Intermedio listo en: {intermediate_mkv}")
 
-            # Phase E: mkvpropedit in-place + mv
-            _mark_phase("write")
-            _check_cancel()
-            final_mkv = await run_phase_e_propedit(
-                session=session,
-                intermediate_mkv=intermediate_mkv,
-                log_callback=log,
-                proc_callback=_register_proc,
-            )
-            _mark_phase("write", done=True)
+                    # Phase E: mkvpropedit in-place + mv
+                    _mark_phase("write")
+                    _check_cancel()
+                    final_mkv = await run_phase_e_propedit(
+                        session=session,
+                        intermediate_mkv=intermediate_mkv,
+                        log_callback=log,
+                        proc_callback=_register_proc,
+                    )
+                    _mark_phase("write", done=True)
+
+                break  # extracción completada
+
+            except MkvmergePlaylistError:
+                if m2ts_fallback_active:
+                    # El source ya era un M2TS directo: no hay más alternativa.
+                    raise RuntimeError(
+                        "mkvmerge no pudo procesar este título ni desde el "
+                        "playlist ni desde el M2TS principal."
+                    )
+                # Descartar cualquier intermedio parcial del intento fallido.
+                if intermediate_mkv and Path(intermediate_mkv).exists():
+                    Path(intermediate_mkv).unlink(missing_ok=True)
+                    intermediate_mkv = None
+                extraction_source = await _resolve_main_m2ts_for_fallback(
+                    mount_point, session, mpls_path, log
+                )
+                m2ts_fallback_active = True
+                _check_cancel()
+                # vuelve a iterar el bucle con el M2TS principal
 
         session.output_mkv_path = final_mkv
 

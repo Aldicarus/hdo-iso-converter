@@ -800,7 +800,13 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 **Otros:**
 - **`--gui-mode`** en mkvmerge: fuerza output de progreso (`#GUI#progress XX%` → traducido a `Progress: XX%`).
 - **Cancelación**: `_cancel_flags` + `_active_processes` permiten matar el subprocess activo. Limpieza de temporales y cierre del origen en finally (via `Source.__aexit__`).
-- **Validación final**: tras crear el MKV, `mkvmerge -J` + `mkvextract` verifican pistas, idiomas, flags y capítulos contra lo esperado.
+- **Validación final**: tras crear el MKV, `mkvmerge -J` + `mkvextract` verifican pistas, idiomas, flags y capítulos contra lo esperado. **No comprueba duración** — por eso el fallback al M2TS (abajo) la valida él mismo.
+
+**Fallback al M2TS ante el assertion de playlist de mkvmerge** (Avatar Fuego y Ceniza 2025):
+- Algunos discos UHD multi-segmento (seamless branching / multi-ángulo) hacen que **mkvmerge aborte por SIGABRT** al muxear desde el `.mpls`: `Assertion 'file_names.size() == play_items.size()' failed` en `add_filelists_for_playlists`. Ocurre **solo en el mux real, no en `mkvmerge -J`** — por eso Fase A pasa y Fase D/E peta.
+- **Dos bugs eran reales**: (1) el check `if proc.returncode >= 2` de Fase D/E **no capturaba el código negativo de la señal** (SIGABRT = -6) → el flujo seguía hasta el `stat()` del output inexistente y reventaba con un críptico `[Errno 2] No such file`. Ahora es `not in (0, 1)` + guard de existencia del output. (2) No había workaround.
+- **Fix**: `run_phase_d`/`run_phase_e_direct` detectan la línea del assertion (`is_playlist_assertion_line` en [phase_d.py](app/phases/phase_d.py)) y lanzan `MkvmergePlaylistError`. El orquestador (`_run_pipeline`) la captura, resuelve el **M2TS principal** (`session.bdinfo_result.main_m2ts` → fallback `find_main_m2ts`) y **reintenta UNA vez** con el m2ts directo — el workaround estándar de la comunidad (mkvmerge soporta m2ts nativo).
+- **Gate de duración** (`m2ts_covers_title`): antes de aceptar el m2ts compara su duración con la del playlist (vía `mkvmerge -J`, que no crashea). Si el m2ts es >2% más corto → `RuntimeError` claro (seamless branching real, usar MakeMKV/dgdemux), **no** se produce un MKV truncado en silencio. Si alguna duración es desconocida (0) se asume que cubre (caso dominante: 1 m2ts = toda la peli). Cubierto por `test_playlist_fallback.py`.
 
 ### Mapeo de pistas (Phase E)
 - **Por contenido, no por posición**: `_match_tracks_to_source()` busca cada pista incluida en el source por coincidencia de idioma + codec.

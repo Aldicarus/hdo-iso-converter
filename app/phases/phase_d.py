@@ -42,6 +42,50 @@ MKVMERGE_INACTIVITY_S = 900
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  FALLO ESPECÍFICO: ASSERTION DE PLAYLIST DE MKVMERGE
+# ══════════════════════════════════════════════════════════════════════
+
+class MkvmergePlaylistError(RuntimeError):
+    """mkvmerge abortó al ensamblar la lista de ficheros de un playlist MPLS.
+
+    Bug conocido de mkvmerge con ciertos discos UHD Blu-ray (seamless
+    branching / multi-ángulo): el assertion
+    ``file_names.size() == play_items.size()`` falla en
+    ``add_filelists_for_playlists`` y el proceso muere por SIGABRT. Sucede
+    solo en el mux real, no en ``mkvmerge -J`` (identify).
+
+    El orquestador la captura para reintentar la extracción pasando el M2TS
+    principal directamente (workaround estándar), en lugar del .mpls.
+    """
+
+
+def is_playlist_assertion_line(text: str) -> bool:
+    """True si la línea de mkvmerge corresponde al assertion de playlist que
+    mata el proceso en discos UHD multi-segmento. Se busca el nombre de la
+    función (estable entre versiones) o la expresión del assertion."""
+    return "add_filelists_for_playlists" in text or "play_items.size()" in text
+
+
+def m2ts_covers_title(
+    playlist_seconds: float,
+    m2ts_seconds: float,
+    tol: float = 0.02,
+) -> bool:
+    """¿El M2TS principal cubre el título completo del playlist?
+
+    Solo devuelve False cuando AMBAS duraciones son medibles (>0) y el M2TS
+    es más de ``tol`` (2 %) más corto que el playlist — señal de seamless
+    branching real donde el M2TS suelto truncaría la película. Si alguna
+    duración es desconocida (0), se asume que cubre: el caso dominante es un
+    único M2TS que contiene toda la película, y bloquear por no poder medir
+    dejaría sin ripear discos perfectamente válidos.
+    """
+    if playlist_seconds <= 0 or m2ts_seconds <= 0:
+        return True
+    return (playlist_seconds - m2ts_seconds) / playlist_seconds <= tol
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  ENTRADA PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════
 
@@ -112,6 +156,7 @@ async def run_phase_d(
         proc_callback(proc)
     last_line_at = time.monotonic()
     hung = False
+    playlist_assert = False
 
     async def _watchdog():
         nonlocal hung
@@ -132,6 +177,11 @@ async def run_phase_d(
             text = line.decode("utf-8", errors="replace").rstrip()
             if not text:
                 continue
+            # Bug de mkvmerge con playlists UHD multi-segmento: aborta con un
+            # assertion en add_filelists_for_playlists. Lo detectamos para que
+            # el orquestador reintente con el M2TS principal directo.
+            if is_playlist_assertion_line(text):
+                playlist_assert = True
             # --gui-mode: "#GUI#progress 45%" → "Progress: 45%"
             if text.startswith("#GUI#progress "):
                 text = "Progress: " + text.removeprefix("#GUI#progress ")
@@ -153,9 +203,17 @@ async def run_phase_d(
             "abortado (probable cuelgue, no bloquea la cola)"
         )
 
-    # mkvmerge código 1 = warnings no fatales (ej: pista vacía), aceptable
-    if proc.returncode >= 2:
-        raise RuntimeError(f"mkvmerge falló con código {proc.returncode}")
+    if playlist_assert:
+        raise MkvmergePlaylistError(
+            "mkvmerge abortó al ensamblar la lista de ficheros del playlist "
+            "(bug conocido con discos UHD multi-segmento / multi-ángulo)."
+        )
+
+    # returncode 0 = OK · 1 = warnings no fatales · resto = fallo. Incluye
+    # los códigos negativos por señal (SIGABRT = -6): el `>= 2` antiguo NO
+    # los capturaba y el crash se enmascaraba aguas abajo.
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"mkvmerge terminó de forma anómala (código {proc.returncode})")
 
     if not Path(out_path).exists():
         raise RuntimeError(f"mkvmerge no generó el MKV intermedio en {out_path}")

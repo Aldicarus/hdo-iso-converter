@@ -44,6 +44,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from models import Chapter, Session
+from phases.phase_d import MkvmergePlaylistError, is_playlist_assertion_line
 
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
@@ -160,6 +161,7 @@ async def run_phase_e_direct(
         proc_callback(proc)
     last_line_at = time.monotonic()
     hung = False
+    playlist_assert = False
 
     async def _watchdog():
         nonlocal hung
@@ -180,6 +182,11 @@ async def run_phase_e_direct(
             text = line.decode("utf-8", errors="replace").rstrip()
             if not text:
                 continue
+            # Bug de mkvmerge con playlists UHD multi-segmento: aborta con un
+            # assertion en add_filelists_for_playlists. Lo detectamos para que
+            # el orquestador reintente con el M2TS principal directo.
+            if is_playlist_assertion_line(text):
+                playlist_assert = True
             # --gui-mode: "#GUI#progress 45%" → "Progress: 45%"
             if text.startswith("#GUI#progress "):
                 text = "Progress: " + text.removeprefix("#GUI#progress ")
@@ -195,21 +202,31 @@ async def run_phase_e_direct(
         except asyncio.CancelledError:
             pass
 
+    # mkvmerge terminó (éxito o fallo): el XML de capítulos ya no se necesita.
+    if chapters_xml:
+        Path(chapters_xml).unlink(missing_ok=True)
+
     if hung:
-        if chapters_xml:
-            Path(chapters_xml).unlink(missing_ok=True)
         raise RuntimeError(
             f"mkvmerge sin actividad >{MKVMERGE_INACTIVITY_S // 60} min — "
             "abortado (probable cuelgue, no bloquea la cola)"
         )
 
-    if proc.returncode >= 2:
-        if chapters_xml:
-            Path(chapters_xml).unlink(missing_ok=True)
-        raise RuntimeError(f"mkvmerge falló con código {proc.returncode}")
+    if playlist_assert:
+        raise MkvmergePlaylistError(
+            "mkvmerge abortó al ensamblar la lista de ficheros del playlist "
+            "(bug conocido con discos UHD multi-segmento / multi-ángulo)."
+        )
 
-    if chapters_xml:
-        Path(chapters_xml).unlink(missing_ok=True)
+    # returncode 0 = OK · 1 = warnings no fatales · resto = fallo. Incluye los
+    # códigos negativos por señal (SIGABRT = -6): el `>= 2` antiguo NO los
+    # capturaba, el flujo seguía hasta el stat() del output inexistente y
+    # reventaba con un críptico "[Errno 2] No such file or directory".
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"mkvmerge terminó de forma anómala (código {proc.returncode})")
+
+    if not Path(output_path).exists():
+        raise RuntimeError(f"mkvmerge no generó el MKV final en {output_path}")
 
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
