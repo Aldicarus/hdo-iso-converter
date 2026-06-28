@@ -69,7 +69,7 @@ from models import (
     Session,
     SessionUpdateRequest,
 )
-from phases.phase_a import run_full_analysis
+from phases.phase_a import run_full_analysis, ISO639_TO_ENGLISH
 from phases.phase_b import apply_rules, generate_auto_chapters
 from phases.phase_d import (
     find_main_mpls,
@@ -2613,12 +2613,11 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         warnings.append(msg)
         all_ok = False
 
-    # Mapeo ISO 639-2 → nombre inglés lowered para comparación
-    _iso = {
-        "spa": "spanish", "eng": "english", "fre": "french", "fra": "french",
-        "ger": "german", "deu": "german", "ita": "italian", "jpn": "japanese",
-        "por": "portuguese", "dut": "dutch", "nld": "dutch", "rus": "russian",
-    }
+    # ISO 639-2 → nombre inglés (lowercase) para comparar con raw.language de
+    # la sesión. DERIVADO del mapa canónico de phase_a (mismo patrón que
+    # phase_e._ISO639) — un subset propio daba falsos ❌ en idiomas como el
+    # catalán ("cat"), que en included_tracks figura como "Catalan".
+    _iso = {code: name.lower() for code, name in ISO639_TO_ENGLISH.items()}
 
     for i, at in enumerate(actual_audio):
         props = at.get("properties", {})
@@ -2636,6 +2635,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             if lang_name != exp_lang:
                 status = "❌"
                 detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                warnings.append(f"Audio #{i+1}: idioma {lang_name} ≠ {exp_lang}")
                 all_ok = False
         else:
             status = "⚠️"
@@ -2675,6 +2675,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             if lang_name != exp_lang:
                 status = "❌"
                 detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                warnings.append(f"Subtítulo #{i+1}: idioma {lang_name} ≠ {exp_lang}")
                 all_ok = False
         else:
             status = "⚠️"

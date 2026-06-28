@@ -822,6 +822,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - Subtítulos: solo por idioma (no tienen codec en `RawSubtitleTrack`). Consume IDs en orden (used_ids).
 - Tabla de matching: `_ISO639` (ISO → nombre inglés), `_codec_matches()` (BDInfo → mkvmerge).
   - **`_ISO639` se DERIVA de `phase_a.ISO639_TO_ENGLISH`** (`{code: name.lower()}`), NO es un subset propio. Antes era un subset manual de ~24 idiomas y se desincronizó: una pista incluida llega con `raw.language` en inglés (`"Catalan"`) y el source la identifica por código ISO (`"cat"`); si el código no estaba en el subset, `_ISO639.get("cat","cat")="cat" ≠ "catalan"` → el matcher no la encontraba y la pista se **perdía en silencio** (catalán, tailandés, griego…). Bug pre-existente independiente de la ruta (mismo matcher para MPLS y M2TS); aflora cuando el job completa. Caso real: Avatar Fuego y Ceniza (catalán DTS + sub forzado). Cubierto por `test_track_mapping.py::TestLanguageMapCoverage`.
+  - **Mismo patrón en `_validate_final_mkv`** (main.py): su `_iso` local era otro subset incompleto y daba un **falso ❌** ("esperado: catalan, real: cat") aunque la pista estuviera bien extraída — también deriva ahora de `ISO639_TO_ENGLISH`. Las discrepancias de idioma inline ahora se añaden a `warnings` (antes marcaban `all_ok=False` pero el resumen decía "0 discrepancias"). **Regla: cualquier normalización ISO 639 → idioma parte de `ISO639_TO_ENGLISH`, nunca de un subset local.**
 
 ### Persistencia
 - Cada sesión es un fichero JSON en `/config/{session_id}.json`

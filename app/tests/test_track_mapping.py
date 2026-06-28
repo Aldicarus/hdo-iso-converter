@@ -234,6 +234,16 @@ class TestLanguageMapCoverage(unittest.TestCase):
         tmap = _track_map(_amap(5, codec="DTS", lang="tha", ch=6))
         self.assertEqual(_match_tracks_to_source(included, [5], tmap), {0: 5})
 
+    def test_iso639_no_es_subset_del_canonico(self):
+        # Blindaje: phase_e._ISO639 debe DERIVAR del mapa canónico de phase_a,
+        # no ser un subset propio. Un subset desincronizado descartaba pistas
+        # (catalán, tailandés…) en silencio. Si alguien vuelve a recortarlo,
+        # este test falla.
+        from phases.phase_e import _ISO639
+        from phases.phase_a import ISO639_TO_ENGLISH
+        for code, name in ISO639_TO_ENGLISH.items():
+            self.assertEqual(_ISO639.get(code), name.lower(), f"_ISO639 no cubre '{code}'")
+
     def test_avatar_es_en_cat_all_match(self):
         # Caso Avatar simplificado: spa + eng + cat → los tres mapean.
         included = [
