@@ -108,6 +108,33 @@ class TestSubtitleClassification(unittest.TestCase):
         included, _ = _select_subtitle_tracks(tracks, vo_language="English")
         self.assertEqual(_complete_packets(included, "Spanish"), 5500)
 
+    # ── Banda 2×–3× con volumen absoluto alto (≥3000) → completa normal ───
+
+    def test_imaginary_normal_plus_heavy_sdh_picks_first(self):
+        """Caso Imaginary (2024): Inglés 4187 (1ª, normal) + 9634 (2ª, SDH
+        cargada), ratio 2.30× en banda 2-3×. La 1ª tiene 4187 paq — muy por
+        encima de cualquier forzado (≥3000) → es una completa normal, así que
+        se elige la PRIMERA del disco (4187), no la SDH (9634)."""
+        tracks = [_sub("English", 4187), _sub("English", 9634)]
+        included, discarded = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_complete_packets(included, "English"), 4187)
+        self.assertIn(9634, {d.raw.packet_count for d in discarded})
+
+    def test_band_2_3_high_absolute_picks_first(self):
+        """Frontera alta: 3100 (1ª) + 7000 (2ª), ratio 2.26×. 3100 ≥ 3000 →
+        completa normal → se elige la primera del disco."""
+        tracks = [_sub("Spanish", 3100), _sub("Spanish", 7000)]
+        included, _ = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_complete_packets(included, "Spanish"), 3100)
+
+    def test_band_2_3_below_absolute_keeps_biggest(self):
+        """Frontera baja: 2900 (1ª) + 7000 (2ª), ratio 2.41×. 2900 < 3000 →
+        posible forzado grande → NO se elige aunque sea primera; gana la de
+        más paquetes (7000). Protege el caso del 'forzado grande'."""
+        tracks = [_sub("Spanish", 2900), _sub("Spanish", 7000)]
+        included, _ = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_complete_packets(included, "Spanish"), 7000)
+
     # ── Forzados clásicos (ratio ≥3×): la regla nueva NO los toca ─────────
 
     def test_pulp_fiction_complete_vs_forced(self):

@@ -755,12 +755,16 @@ def _select_subtitle_tracks(
               * Si biggest tiene <500 paquetes (rara, idioma sin completo
                 en este disco): todas son forzadas.
               * **Completo elegido**: NO es necesariamente biggest. Entre
-                las completas "casi idénticas" (ratio <2× con biggest, donde
-                ninguna puede ser un forzado disfrazado) se elige la PRIMERA
-                del disco — la de más paquetes suele ser la versión SDH
-                (texto extra en momentos sin diálogo) y la primera la normal.
-                Las completas en banda 2×–3× quedan ambiguas pero NUNCA se
-                eligen (podrían ser un forzado grande de 2000+ paquetes).
+                las completas "elegibles" se elige la PRIMERA del disco — la
+                de más paquetes suele ser la versión SDH (texto extra en
+                momentos sin diálogo) y la primera la normal. Son elegibles:
+                  - las "casi idénticas" (ratio <2× con biggest), y
+                  - las de banda 2×–3× con ≥3000 paquetes absolutos: tantos
+                    no caben en un forzado (incl. los "grandes" ~2000-2200),
+                    luego son completas normales (caso Imaginary 2024: 4187
+                    normal vs 9634 SDH, ratio 2.30×).
+                Las completas en banda 2×–3× por DEBAJO de 3000 quedan
+                ambiguas y NUNCA se eligen (podrían ser un forzado grande).
               * Forzado final: primero por posición original entre los
                 forzados.
               * Alternativas ambiguas: el resto de completas-candidatas.
@@ -785,6 +789,9 @@ def _select_subtitle_tracks(
         FORCED_ABSOLUTE_THRESHOLD = 500       # <500 paq. en pista única → forzado seguro
         FORCED_RATIO_THRESHOLD    = 3.0       # ratio max/t ≥3 → t es forzado
         NEAR_IDENTICAL_RATIO      = 2.0       # ratio <2× → dos completas casi idénticas (no puede ser forzado)
+        COMPLETE_ABSOLUTE_THRESHOLD = 3000    # ≥3000 paq. → completa segura aunque ratio 2-3×: por
+                                              # encima de cualquier forzado (incl. los "grandes" ~2000-2200),
+                                              # así que es una completa normal, no un forzado disfrazado
 
         has_packets = any(t.packet_count > 0 for t in lang_tracks)
 
@@ -839,17 +846,24 @@ def _select_subtitle_tracks(
             # (ratio <2×), la de más paquetes suele ser la versión con
             # descripciones para sordos (SDH) — texto extra en momentos sin
             # diálogo — y la primera del disco la normal. Preferimos la
-            # primera del disco entre las "casi idénticas".
-            #   · banda casi-idéntica (ratio <2× con biggest): elegibles.
-            #   · banda 2×–3×: quedan ambiguas pero NUNCA se eligen como
-            #     completa (podrían ser un forzado grande de 2000+ paq).
-            near_identical_idx = [
+            # primera del disco entre las completas "elegibles":
+            #   · banda casi-idéntica (ratio <2× con biggest): elegible.
+            #   · banda 2×–3× PERO con ≥3000 paq. absolutos: también elegible.
+            #     Tantos paquetes no caben en un forzado (los "grandes" rondan
+            #     2000-2200), así que es una completa normal y, si va primera,
+            #     debe ganarle a la SDH (caso Imaginary 2024: 4187 normal vs
+            #     9634 SDH, ratio 2.30×). El umbral protege del forzado grande:
+            #     una pista 2-3× por DEBAJO de 3000 sigue sin elegirse.
+            eligible_idx = [
                 i for i in ambiguous_idx
                 if lang_tracks[i].packet_count > 0
-                and biggest.packet_count / lang_tracks[i].packet_count < NEAR_IDENTICAL_RATIO
+                and (
+                    biggest.packet_count / lang_tracks[i].packet_count < NEAR_IDENTICAL_RATIO
+                    or lang_tracks[i].packet_count >= COMPLETE_ABSOLUTE_THRESHOLD
+                )
             ]
-            # Primera por orden del disco entre {biggest} ∪ {casi idénticas}.
-            complete_idx = min([biggest_idx, *near_identical_idx])
+            # Primera por orden del disco entre {biggest} ∪ {elegibles}.
+            complete_idx = min([biggest_idx, *eligible_idx])
             complete = lang_tracks[complete_idx]
 
             # Las demás completas-candidatas (biggest si no ganó + el resto
