@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260628a">
+  <link rel="stylesheet" href="/static/style.css?v=20260629a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -937,11 +937,17 @@
 
 <!-- ═══ MODAL: Análisis MKV en curso (Tab 2) ═══════════════════ -->
 <div class="modal-overlay" id="mkv-analyze-modal">
-  <div class="modal-box" style="max-width:460px; text-align:center">
-    <div style="font-size:40px; margin-bottom:12px">✏️</div>
-    <div class="modal-title" style="margin-bottom:4px">Analizando MKV</div>
-    <div class="modal-sub" id="mkv-analyze-modal-file" style="margin-bottom:16px; word-break:break-all"></div>
-    <div style="text-align:left; font-size:12px; color:var(--text-2); line-height:2">
+  <div class="modal-box analyze-modal-box">
+    <div class="analyze-modal-header">
+      <div class="analyze-modal-poster" id="mkv-analyze-modal-poster">
+        <span id="mkv-analyze-modal-icon">✏️</span>
+      </div>
+      <div class="analyze-modal-titles">
+        <div class="modal-title" id="mkv-analyze-modal-title">Analizando MKV</div>
+        <div class="modal-sub" id="mkv-analyze-modal-file"></div>
+      </div>
+    </div>
+    <div class="analyze-modal-steps">
       <div id="mkv-analyze-step-identify">⏳ Identificando pistas (mkvmerge -J)…</div>
       <div id="mkv-analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadata extendida (MediaInfo)…</div>
       <div id="mkv-analyze-step-pgs" style="opacity:.4">
@@ -953,9 +959,11 @@
       </div>
       <div id="mkv-analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision (dovi_tool)…</div>
     </div>
-    <div class="analyze-spinner" style="margin:16px auto 0"></div>
-    <div style="font-size:10px; color:var(--text-3); margin-top:10px; font-style:italic">
+    <div class="progress-modal-footnote" style="font-style:italic; margin-top:2px">
       El MKV no se modifica en este paso — solo se leen sus metadatos.
+    </div>
+    <div class="analyze-modal-footer">
+      <div class="analyze-spinner"></div>
     </div>
   </div>
 </div>
@@ -1436,6 +1444,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260628a"></script>
+<script src="/static/app.js?v=20260629a"></script>
 </body>
 </html>

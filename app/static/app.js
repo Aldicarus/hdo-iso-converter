@@ -5551,40 +5551,56 @@ function _analyzeStepLabelNode(stepKey) {
  *  ("Analizando disco" etc.) por el nombre + año de la película. La
  *  acción se baja al sub junto al filename. Se ejecuta en paralelo al
  *  análisis — si tarda o falla, el modal sigue funcionando. */
-async function _hydrateAnalyzeModalTmdb(sourceName, sourceType) {
-  if (!sourceName) return;
+/** Lookup TMDb best-effort para un modal de análisis con cabecera tipo poster
+ *  (poster + título + sub). Si hay match, sustituye el icono por la cartela y
+ *  el título genérico por el nombre + año de la película. Se ejecuta en
+ *  paralelo al análisis: si tarda, falla o el usuario cierra el modal, no pasa
+ *  nada. Compartida por Tab 1 (analyze-modal) y Tab 2 (mkv-analyze-modal) para
+ *  que las cabeceras sean equivalentes en todos los flujos. */
+async function _hydrateModalWithTmdb({ name, modalId, posterId, titleId, subId, subText }) {
+  if (!name) return;
   try {
     const data = await apiFetch('/api/cmv40/tmdb-lookup', {
       method: 'POST',
-      body: JSON.stringify({ source_mkv_name: sourceName }),
+      body: JSON.stringify({ source_mkv_name: name }),
       silent: true,
     }, 10000);
     if (!data || !data.details) return;
     const t = data.details;
-    // El usuario pudo cerrar el modal (cancelar análisis o error). Si
-    // ya no está abierto, descartamos la hidratación silenciosamente.
-    const modal = document.getElementById('analyze-modal');
+    // El usuario pudo cerrar el modal (cancelar / error). Si ya no está
+    // abierto, descartamos la hidratación silenciosamente.
+    const modal = document.getElementById(modalId);
     if (!modal || !modal.classList.contains('open')) return;
 
-    const posterEl = document.getElementById('analyze-modal-poster');
+    const posterEl = document.getElementById(posterId);
     if (posterEl && t.poster_url) {
       posterEl.innerHTML = `<img src="${escHtml(t.poster_url)}" alt="${escHtml(t.title || '')}" loading="lazy">`;
     }
-    const titleEl = document.getElementById('analyze-modal-title');
+    const titleEl = document.getElementById(titleId);
     if (titleEl && t.title) {
       const yr = t.year ? ` (${t.year})` : '';
       titleEl.textContent = `${t.title}${yr}`;
     }
-    // Sub: combina acción + nombre del fichero para no perder ese
-    // contexto al sustituir el título por el match TMDb.
-    const subEl = document.getElementById('analyze-modal-iso');
-    if (subEl) {
-      const action = sourceType === 'iso' ? 'Analizando disco'
-        : sourceType === 'bdmv_folder' ? 'Analizando carpeta BDMV'
-        : 'Analizando fichero M2TS';
-      subEl.textContent = `${action} · ${sourceName}`;
-    }
+    // Sub: contexto (acción + nombre del fichero) para no perderlo al
+    // sustituir el título por el match TMDb.
+    const subEl = document.getElementById(subId);
+    if (subEl && subText) subEl.textContent = subText;
   } catch (_) { /* TMDb no configurado / sin red / etc. — silencioso */ }
+}
+
+/** Hidratación TMDb del analyze-modal de Tab 1 (delega en la genérica). */
+async function _hydrateAnalyzeModalTmdb(sourceName, sourceType) {
+  const action = sourceType === 'iso' ? 'Analizando disco'
+    : sourceType === 'bdmv_folder' ? 'Analizando carpeta BDMV'
+    : 'Analizando fichero M2TS';
+  return _hydrateModalWithTmdb({
+    name: sourceName,
+    modalId: 'analyze-modal',
+    posterId: 'analyze-modal-poster',
+    titleId: 'analyze-modal-title',
+    subId: 'analyze-modal-iso',
+    subText: sourceName ? `${action} · ${sourceName}` : '',
+  });
 }
 
 /** Configura iconos y labels del analyze-modal según el tipo de fuente.
@@ -9048,6 +9064,16 @@ function _openMkvBrowserNow() {
       if (fileEl) fileEl.textContent = name;
       _resetMkvAnalyzeSteps();
       openModal('mkv-analyze-modal');
+      // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
+      // ficha que el modal de análisis de Tab 1, para consistencia entre flujos.
+      _hydrateModalWithTmdb({
+        name,
+        modalId: 'mkv-analyze-modal',
+        posterId: 'mkv-analyze-modal-poster',
+        titleId: 'mkv-analyze-modal-title',
+        subId: 'mkv-analyze-modal-file',
+        subText: name,
+      });
       // 2) Async (NO await): el fetch de analisis tarda 1-3 min. Lo lanzamos en
       //    background para que onSelect resuelva inmediatamente y _fileBrowserSelect
       //    cierre el browser → quedando solo el modal de analisis visible.
@@ -9142,6 +9168,13 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
 
 /** Resetea los pasos del modal de análisis de MKV. */
 function _resetMkvAnalyzeSteps() {
+  // Restaurar la cabecera al estado base: una apertura previa con match TMDb
+  // pudo sustituir el poster por <img> y el título por el nombre de la peli.
+  const posterEl = document.getElementById('mkv-analyze-modal-poster');
+  if (posterEl) posterEl.innerHTML = '<span id="mkv-analyze-modal-icon">✏️</span>';
+  const titleEl = document.getElementById('mkv-analyze-modal-title');
+  if (titleEl) titleEl.textContent = 'Analizando MKV';
+
   const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
   steps.forEach((s, i) => {
     const container = document.getElementById(`mkv-analyze-step-${s}`);
@@ -9243,6 +9276,14 @@ async function reanalyzeMkv() {
     if (fileEl) fileEl.textContent = fileName;
     _resetMkvAnalyzeSteps();
     openModal('mkv-analyze-modal');
+    _hydrateModalWithTmdb({
+      name: fileName,
+      modalId: 'mkv-analyze-modal',
+      posterId: 'mkv-analyze-modal-poster',
+      titleId: 'mkv-analyze-modal-title',
+      subId: 'mkv-analyze-modal-file',
+      subText: fileName,
+    });
     _doAnalyzeMkvFromPickerPath(absPath, fileName, true).catch(e => {
       console.error('reanalyze MKV error:', e);
       showToast(`Error en re-análisis: ${e.message || e}`, 'error');
