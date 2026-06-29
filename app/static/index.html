@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260629a">
+  <link rel="stylesheet" href="/static/style.css?v=20260629b">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -895,10 +895,12 @@
 <!-- ═══ MODAL: Análisis de perfil de luminancia DV (Tab 2) ═══════════════ -->
 <div class="modal-overlay" id="dv-light-modal" data-no-escape>
   <div class="modal-box dv-light-modal-box">
-    <div class="dv-light-header">
-      <div class="dv-light-icon">📊</div>
+    <div class="dv-light-header" style="align-items:flex-start">
+      <div class="analyze-modal-poster" id="dv-light-modal-poster">
+        <span id="dv-light-modal-icon">📊</span>
+      </div>
       <div>
-        <div class="modal-title">Análisis de perfil de luminancia</div>
+        <div class="modal-title" id="dv-light-modal-title">Análisis de perfil de luminancia</div>
         <div class="modal-sub" id="dv-light-modal-file"></div>
       </div>
     </div>
@@ -987,10 +989,15 @@
 <!-- ═══ MODAL: Auditoría de calidad RPU (Tab 2) ═══════════════════ -->
 <div class="modal-overlay" id="mkv-quality-modal" data-no-escape>
   <div class="modal-box mkv-quality-modal-box">
-    <div style="font-size:32px; text-align:center; margin-bottom:6px">🔬</div>
-    <div class="modal-title" style="margin-bottom:2px; text-align:center">Auditando calidad CMv4.0 / CMv2.9</div>
-    <div class="modal-sub" id="mkv-quality-modal-file"
-         style="margin-bottom:12px; word-break:break-all; text-align:center"></div>
+    <div style="display:flex; gap:14px; align-items:flex-start; text-align:left; margin-bottom:12px">
+      <div class="analyze-modal-poster" id="mkv-quality-modal-poster">
+        <span id="mkv-quality-modal-icon">🔬</span>
+      </div>
+      <div style="flex:1; min-width:0">
+        <div class="modal-title" id="mkv-quality-modal-title" style="margin-bottom:2px">Auditando calidad CMv4.0 / CMv2.9</div>
+        <div class="modal-sub" id="mkv-quality-modal-file" style="word-break:break-all"></div>
+      </div>
+    </div>
     <div style="text-align:left; font-size:12px; color:var(--text-2); line-height:1.9">
       <div id="mkv-quality-step-ffmpeg">⏳ Extrayendo HEVC del MKV (2-7 min, leyendo del NAS)…</div>
       <div id="mkv-quality-step-extract_rpu" style="opacity:.4">⬜ Extrayendo RPU Dolby Vision (1-2 min)…</div>
@@ -1444,6 +1451,6 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260629a"></script>
+<script src="/static/app.js?v=20260629b"></script>
 </body>
 </html>

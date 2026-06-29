@@ -6901,19 +6901,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   word-break: break-all;
   margin-top: 2px;
 }
-.dv-light-icon {
-  font-size: 32px;
-  line-height: 1;
-  width: 52px;
-  height: 52px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--dvl-accent-bg);
-  border: 1px solid var(--dvl-accent-border);
-  border-radius: 12px;
-  flex-shrink: 0;
-}
+/* (.dv-light-icon retirada: la cabecera del modal de luminancia ahora usa
+   .analyze-modal-poster, igual que el resto de modales de análisis.) */
 
 /* Tooltip del hover sobre el sparkline de luminancia. Caja absoluta
    posicionada por JS cerca del cursor, formato `1234 nits · 01:23:45`. */

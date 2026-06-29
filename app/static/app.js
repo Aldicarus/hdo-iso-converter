@@ -10529,12 +10529,28 @@ async function _rgrfAuditQuality(evt) {
     : (Date.now() + '-' + Math.random().toString(36).slice(2));
   const fileEl = document.getElementById('mkv-quality-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  // Cabecera: restaurar icono base (una apertura previa con match TMDb pudo
+  // dejar la cartela) antes de re-intentar la hidratación.
+  const qPoster = document.getElementById('mkv-quality-modal-poster');
+  if (qPoster) qPoster.innerHTML = '<span id="mkv-quality-modal-icon">🔬</span>';
+  const qTitle = document.getElementById('mkv-quality-modal-title');
+  if (qTitle) qTitle.textContent = 'Auditando calidad CMv4.0 / CMv2.9';
   _mkvQualityResetSteps();
   _mkvQualitySetProgress(0);
   _mkvQualitySetElapsed(0);
   const logEl = document.getElementById('mkv-quality-log');
   if (logEl) logEl.innerHTML = '';
   openModal('mkv-quality-modal');
+  // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
+  // ficha que los demás modales de análisis, para consistencia entre flujos.
+  _hydrateModalWithTmdb({
+    name: mkvProject.analysis.file_name,
+    modalId: 'mkv-quality-modal',
+    posterId: 'mkv-quality-modal-poster',
+    titleId: 'mkv-quality-modal-title',
+    subId: 'mkv-quality-modal-file',
+    subText: mkvProject.analysis.file_name,
+  });
 
   let lastLogCount = 0;
   let polling = true;
@@ -10870,6 +10886,12 @@ async function _rgrfAnalyzeLight(evt) {
   // Inicializa UI del modal
   const fileEl = document.getElementById('dv-light-modal-file');
   if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  // Cabecera: restaurar icono base (una apertura previa con match TMDb pudo
+  // dejar la cartela) antes de re-intentar la hidratación.
+  const lPoster = document.getElementById('dv-light-modal-poster');
+  if (lPoster) lPoster.innerHTML = '<span id="dv-light-modal-icon">📊</span>';
+  const lTitle = document.getElementById('dv-light-modal-title');
+  if (lTitle) lTitle.textContent = 'Análisis de perfil de luminancia';
   _dvLightLastStep = 0;       // monotonic step guard — reset por sesión
   _dvLightLastPct = 0;        // idem para progreso global
   _dvLightSetStep(1);
@@ -10878,6 +10900,16 @@ async function _rgrfAnalyzeLight(evt) {
   const logEl = document.getElementById('dv-light-log');
   if (logEl) logEl.innerHTML = '';
   openModal('dv-light-modal');
+  // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
+  // ficha que los demás modales de análisis, para consistencia entre flujos.
+  _hydrateModalWithTmdb({
+    name: mkvProject.analysis.file_name,
+    modalId: 'dv-light-modal',
+    posterId: 'dv-light-modal-poster',
+    titleId: 'dv-light-modal-title',
+    subId: 'dv-light-modal-file',
+    subText: mkvProject.analysis.file_name,
+  });
 
   // Polling del backend para el estado real. Usamos chained await (no
   // setInterval) para evitar que se solapen peticiones en vuelo: bajo
