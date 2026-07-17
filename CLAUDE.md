@@ -82,7 +82,7 @@ ISO2MKVFEL/
     │   ├── index.html       ← SPA completa (Tab 1 + Tab 2 + Tab 3 + modales + config)
     │   ├── app.js           ← Toda la lógica UI
     │   └── style.css
-    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction)
+    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     └── tools/
         └── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
 ```
@@ -625,7 +625,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 3. **PGS packet counting** (opcional, no bloquea si falla) — proxy fiable forzado/completo/AD
    - `parse_mpls_pg_streams()`: parser MPLS binario en Python puro (~150 líneas, sin deps). Lee la STN_table del primer PlayItem y devuelve PIDs PGS + language code en orden mkvmerge. Crítico: `UO_mask_table` son **8 bytes**, no 12.
-   - `count_pgs_packets_ts_parse()`: parser TS directo del m2ts. Lee 4 GB (~5 min de vídeo, sample estadístico) y cuenta paquetes por PID. NO usa ffprobe (incompatible con UDF: `-read_intervals` devuelve `nb_read_packets=N/A` o stdout vacío en m2ts montado por loop).
+   - `count_pgs_packets_ts_parse()`: parser TS directo del m2ts. Lee ~4 GB (presupuesto `sample_bytes`) y cuenta paquetes por PID. NO usa ffprobe (incompatible con UDF: `-read_intervals` devuelve `nb_read_packets=N/A` o stdout vacío en m2ts montado por loop). **Muestreo distribuido** (no HEAD-only): el presupuesto de bytes se reparte en `sample_segments` tramos (default 4) equiespaciados a lo largo de TODO el fichero (inicio/33%/66%/final), realineando a frontera de paquete tras cada seek (`_find_alignment`). Leer solo los primeros 4 GB desde el inicio bastaba en BD de ~30-50 GB, pero en UHD de ~100 GB son ~5 min del arranque: una completa con poca actividad inicial (típico: subs ES) quedaba con cuenta parecida a un forzado y phase_b los confundía por ratio (caso real La Momia 2026: ES completo 1096 vs forzado 988 = 1.1×). Cubierto por `test_pgs_sampling.py`. mediainfo NO sirve como alternativa: con parse rápido no da bitrate de PGS (haría falta full-scan de los 99 GB).
    - **Robustez**: bytearray buffer con leftover entre reads → inmune a short reads (NAS bajo contención). Auto-detect 192-byte BDAV vs 188-byte standard TS por sync bytes consecutivos.
    - **Rangos PIDs**: spec BDA-016 dice 0x1200-0x121F pero discos modernos usan hasta 0x12FF (visto 0x12A0-0x12AA). El parser MPLS da los PIDs reales; fallback al rango extendido 0x1200-0x12FF.
    - **Inicialización a 0**: si MPLS aporta lista de PIDs, todos se inicializan a 0 antes del scan. Forzados con eventos tardíos (no en sample) siguen apareciendo en el resultado posicional → phase_b clasifica por ratio relativo.
@@ -926,7 +926,7 @@ Reglas concretas:
 1. Cierres de fase (`🎯 Resultado: …`) describen el **artefacto producido**, no qué hará la siguiente fase. Cada fase emite su propio `📋 Plan` al arrancar.
 2. Anuncios prematuros — nunca decir "procediendo con Fase X" hasta que el dispatcher realmente la dispare. Si `auto_pipeline=False`, indicarlo.
 3. Textos dinámicos según `workflow` + `target_type` + `target_trust_ok` cuando el comportamiento del backend depende de esa combinación. Patrón "5 ramas if/elif" para Fase F y Fase G (drop-in / p7_fel merge / p7_mel merge / p7_mel direct / p8 merge / p8 direct).
-4. Markers de persistencia (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, `📋 Plan`, `🛑 Cancelado`, `ℹ️ Auto`, `ℹ️ Forward`) son tokens de matching para `_CMV40_LOG_FORCE_PERSIST_MARKERS` ([main.py:2834](app/main.py#L2834)). Sus prefijos no se pueden cambiar; el texto detrás sí.
+4. Markers de persistencia (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, `📋 Plan`, `🛑 Cancelado`, `ℹ️ Auto`, `ℹ️ Forward`) son tokens de matching para `_CMV40_LOG_FORCE_PERSIST_MARKERS` (en `main.py`, buscar por símbolo). Sus prefijos no se pueden cambiar; el texto detrás sí.
 5. Tokens del frontend (`§§PROGRESS§§`, `$ ` prefix, `--gui-mode` mkvmerge → "Progress: XX%") son contratos del parser — intocables.
 6. `_emit_progress(pct, label)` debe ser **monotónico** dentro de una fase. Si una operación intermedia consume tiempo sin reportar progreso (típico de `_run` sync vs `_run_streaming`), reservar un % fijo (ej. Fase F merge → 15%, inject → 85%).
 7. El `_emit_progress(100%, "X completado")` debe emitirse **después** del `🎯 Resultado` final, no antes (evita que la barra llegue al 100% mientras quedan logs útiles).
@@ -939,7 +939,7 @@ Las funciones afectadas en `app/static/app.js`:
 
 Y en `app/phases/cmv40_pipeline.py`:
 - `run_phase_a_analyze_source`, `run_phase_b_target_from_*`, `run_phase_c_extract`, `run_phase_e_correct_sync`, `run_phase_f_inject`, `run_phase_g_remux`, `run_phase_h_validate` — cada una emite `📋 Plan` al arrancar y `🎯 Resultado` al terminar (excepto Fase E que añade resumen de ops aplicadas).
-- `_preflight_validate_bin` + `_cmv40_preflight_analyze_target` ([main.py:3252](app/main.py#L3252)) — emiten clasificación L8 + tier de calidad + recomendación al cierre del pre-flight.
+- `_preflight_validate_bin` + `_cmv40_preflight_analyze_target` (en `main.py`, buscar por símbolo) — emiten clasificación L8 + tier de calidad + recomendación al cierre del pre-flight.
 
 ---
 

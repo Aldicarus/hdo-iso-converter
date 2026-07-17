@@ -1478,10 +1478,11 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
 
 async def count_pgs_packets_ts_parse(
     m2ts_path: str,
-    sample_bytes: int = 4 * 1024 * 1024 * 1024,  # 4 GB por defecto (~5 min de video)
+    sample_bytes: int = 4 * 1024 * 1024 * 1024,  # presupuesto total de lectura (4 GB)
     log_callback=None,
     progress_callback=None,
     pid_list: list[int] | None = None,
+    sample_segments: int = 4,
 ) -> dict[int, int]:
     """Cuenta paquetes TS por PID PGS leyendo el m2ts directamente.
 
@@ -1494,10 +1495,25 @@ async def count_pgs_packets_ts_parse(
         - Parsear TS packets directamente es trivial, funciona en cualquier
           FS, sin demux, sin deps externas, y muestra fija pequeña (~4 GB).
 
+    Muestreo DISTRIBUIDO (no HEAD-only):
+        Leer solo los primeros `sample_bytes` desde el inicio funcionaba en
+        discos BD de ~30-50 GB donde 4 GB ≈ toda la primera media hora. En un
+        UHD de ~100 GB, 4 GB son solo ~5 min del ARRANQUE — y ahí forzados y
+        completos acumulan cuentas parecidas (una completa española puede tener
+        pocos eventos en los primeros minutos), rompiendo la clasificación por
+        ratio de phase_b (caso real: La Momia 2026, ES completo 1096 vs forzado
+        988 — 1.1×, indistinguibles). En vez de eso repartimos el mismo
+        presupuesto de I/O en `sample_segments` tramos equiespaciados a lo largo
+        de TODO el fichero (inicio, cuerpo, final), de modo que la densidad
+        relativa de cada pista sea representativa de la peli entera. Mismo coste
+        de bytes leidos, muestra representativa. Si el fichero cabe entero en
+        `sample_bytes` se lee secuencial (un solo tramo).
+
     Formatos soportados:
         - BDAV m2ts (192 bytes/paquete): 4 bytes ATC + 188 bytes TS
         - Standard TS (188 bytes/paquete): sync byte directo en offset 0
-        Auto-detectado mirando los primeros 4 KB.
+        Auto-detectado mirando los primeros 4 KB. Cada tramo tras un seek se
+        re-alinea a frontera de paquete antes de escanear.
 
     PID en TS header bits 13-25: ((byte1 & 0x1F) << 8) | byte2.
 
@@ -1508,7 +1524,7 @@ async def count_pgs_packets_ts_parse(
     Devuelve {idx: count} con idx en orden ascendente de PID — coincide con
     el orden que mkvmerge usa para enumerar subtitle_tracks.
 
-    Performance: ~5-30s para 4 GB segun contencion.
+    Performance: ~5-30s para 4 GB segun contencion (los seeks son despreciables).
     """
     SYNC_BYTE = 0x47
 
@@ -1558,14 +1574,19 @@ async def count_pgs_packets_ts_parse(
     # GIL hace los read/write atomicos para tipos simples — no necesita lock.
     progress_state = {"bytes_read": 0}
 
-    def _parse_blocking() -> tuple[dict[int, int], int, int, dict[int, int]]:
+    def _parse_blocking() -> tuple[dict[int, int], int, int, dict[int, int], int]:
         try:
+            try:
+                file_size = os.path.getsize(m2ts_path)
+            except OSError:
+                file_size = 0
+
             with open(m2ts_path, "rb") as f:
-                # Lee primer chunk para detectar packet size, luego procesa todo
-                # con un buffer leftover para resistir short reads (importante
-                # en UDF mount bajo contencion: f.read puede devolver menos de
-                # lo pedido, lo que rompe la alineacion de packets si scaneamos
-                # cada chunk por separado).
+                # Lee primer chunk para detectar packet size. Cada tramo se
+                # procesa con un buffer leftover para resistir short reads
+                # (importante en UDF mount bajo contencion: f.read puede
+                # devolver menos de lo pedido, lo que rompe la alineacion de
+                # packets si scaneamos cada chunk por separado).
                 first = f.read(4096)
                 packet_size = _detect_packet_size(first)
                 sync_off = 4 if packet_size == 192 else 0
@@ -1588,32 +1609,77 @@ async def count_pgs_packets_ts_parse(
                         if _is_target_pid(pid):
                             pgs_counts[pid] = pgs_counts.get(pid, 0) + 1
 
-                # Acumulamos en un bytearray; procesamos solo packets completos,
-                # guardamos remainder para juntar con el siguiente read.
-                buffer = bytearray(first)
-                total_read = len(first)
-                progress_state["bytes_read"] = total_read
+                def _find_alignment(buf: bytes) -> int:
+                    # Tras un seek a offset arbitrario no estamos en frontera de
+                    # paquete. Buscamos el desplazamiento a en [0, packet_size)
+                    # donde 3 sync bytes consecutivos aparecen a stride packet_size.
+                    for a in range(packet_size):
+                        ok = True
+                        for i in range(3):
+                            pos = a + sync_off + i * packet_size
+                            if pos >= len(buf) or buf[pos] != SYNC_BYTE:
+                                ok = False
+                                break
+                        if ok:
+                            return a
+                    return -1
+
+                # ── Layout de tramos ──────────────────────────────────────
+                # Repartimos sample_bytes en num_segments tramos equiespaciados
+                # que cubren todo el fichero (start → end). Si el fichero cabe
+                # entero en el presupuesto, un solo tramo secuencial.
+                num_segments = max(1, sample_segments)
+                if file_size <= 0 or file_size <= sample_bytes or num_segments == 1:
+                    segments = [(0, sample_bytes)]
+                    num_segments = 1
+                else:
+                    seg_bytes = sample_bytes // num_segments
+                    span = file_size - seg_bytes  # último tramo termina en EOF
+                    segments = [
+                        ((span * i) // (num_segments - 1), seg_bytes)
+                        for i in range(num_segments)
+                    ]
+
                 chunk_size = packet_size * 1024
+                total_read = 0
+                progress_state["bytes_read"] = 0
 
-                while True:
-                    n_complete = len(buffer) // packet_size
-                    if n_complete > 0:
-                        _scan(bytes(buffer), n_complete * packet_size)
-                        # Conservamos el remainder (bytes parciales del ultimo packet)
-                        del buffer[: n_complete * packet_size]
-                    if total_read >= sample_bytes:
-                        break
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    total_read += len(chunk)
-                    progress_state["bytes_read"] = total_read
-                    buffer.extend(chunk)
+                for seg_offset, seg_limit in segments:
+                    f.seek(seg_offset)
+                    buffer = bytearray()
+                    seg_read = 0
+                    aligned = (seg_offset == 0)  # offset 0 ya es frontera de packet
 
-                return (pgs_counts, total_read, packet_size, all_non_av)
+                    while seg_read < seg_limit:
+                        chunk = f.read(min(chunk_size, seg_limit - seg_read))
+                        if not chunk:
+                            break
+                        seg_read += len(chunk)
+                        total_read += len(chunk)
+                        progress_state["bytes_read"] = total_read
+                        buffer.extend(chunk)
+
+                        if not aligned:
+                            a = _find_alignment(bytes(buffer))
+                            if a < 0:
+                                # Sin frontera aun: conservamos solo la cola para
+                                # acotar el buffer y reintentamos con mas datos.
+                                if len(buffer) > 4 * packet_size:
+                                    del buffer[: len(buffer) - 3 * packet_size]
+                                continue
+                            del buffer[:a]
+                            aligned = True
+
+                        n_complete = len(buffer) // packet_size
+                        if n_complete > 0:
+                            _scan(bytes(buffer), n_complete * packet_size)
+                            # Conservamos el remainder (bytes del ultimo packet)
+                            del buffer[: n_complete * packet_size]
+
+                return (pgs_counts, total_read, packet_size, all_non_av, num_segments)
         except Exception as e:
             _logger.warning("TS parse falló sobre %s: %s", m2ts_path, e)
-            return ({}, 0, 0, {})
+            return ({}, 0, 0, {}, 0)
 
     import time
     t0 = time.monotonic()
@@ -1643,7 +1709,7 @@ async def count_pgs_packets_ts_parse(
 
     monitor_task = asyncio.create_task(_monitor()) if progress_callback else None
     try:
-        pgs_counts, bytes_read, packet_size, all_non_av = await asyncio.to_thread(_parse_blocking)
+        pgs_counts, bytes_read, packet_size, all_non_av, num_segments = await asyncio.to_thread(_parse_blocking)
     finally:
         if monitor_task:
             monitor_task.cancel()
@@ -1667,6 +1733,10 @@ async def count_pgs_packets_ts_parse(
 
     if log_callback:
         mb = bytes_read / (1024 * 1024)
+        sample_desc = (
+            f"{mb:.0f} MB en {num_segments} tramos"
+            if num_segments > 1 else f"{mb:.0f} MB"
+        )
         if found_any:
             # Preserve el orden del pid_list si lo tenemos; si no, sort ascendente
             order = pid_list if has_pid_list else sorted(pgs_counts.keys())
@@ -1675,14 +1745,14 @@ async def count_pgs_packets_ts_parse(
             )
             await log_callback(
                 f"[Fase A] ├─   ✓ TS parse ({packet_size}B/pkt): "
-                f"{len(pgs_counts)} streams PGS en {mb:.0f} MB ({elapsed:.1f}s) "
+                f"{len(pgs_counts)} streams PGS en {sample_desc} ({elapsed:.1f}s) "
                 f"— {preview}"
             )
         elif has_pid_list:
             # Tenemos lista del MPLS pero ningun PID acumulo paquetes en el sample
             await log_callback(
                 f"[Fase A] ├─   ⚠️ TS parse: 0 paquetes para los {len(target_pids)} "
-                f"PIDs del MPLS en {mb:.0f} MB ({elapsed:.1f}s). Posibles causas: "
+                f"PIDs del MPLS en {sample_desc} ({elapsed:.1f}s). Posibles causas: "
                 "intro larga sin diálogo o subs muy esparcidos. Los counts se "
                 "mantienen a 0 — phase_b distinguirá forzados/completos por "
                 "ratio relativo."
@@ -1692,7 +1762,7 @@ async def count_pgs_packets_ts_parse(
             top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
             await log_callback(
                 f"[Fase A] ├─   ⚠️ TS parse ({packet_size}B/pkt): 0 paquetes en "
-                f"PGS range (0x1200-0x12FF) tras {mb:.0f} MB ({elapsed:.1f}s). "
+                f"PGS range (0x1200-0x12FF) tras {sample_desc} ({elapsed:.1f}s). "
                 f"Top PIDs no-AV detectados: {top_str}. Si los subtítulos están "
                 "ahí pero en otro rango, hay que ampliar AV_PID_RANGES o el rango PGS."
             )
