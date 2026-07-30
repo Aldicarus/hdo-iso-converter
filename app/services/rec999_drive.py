@@ -410,8 +410,25 @@ async def download_file(file_id: str, dest_path: Path,
         async with client.stream("GET", url, params=params) as resp:
             if resp.status_code != 200:
                 text = await resp.aread()
+                try:
+                    body = text.decode("utf-8", "replace")
+                except Exception:
+                    body = repr(text)
+                # Google bloquea temporalmente la descarga directa de ficheros
+                # públicos muy solicitados (contador de cuota del propio fichero,
+                # no de la API key). Mensaje legible + workaround.
+                if resp.status_code == 403 and "quota" in body.lower():
+                    raise RuntimeError(
+                        "Google Drive ha bloqueado temporalmente la descarga de "
+                        "este bin por exceso de descargas de la comunidad (no es "
+                        "tu cuota de API). Soluciones: ábrelo en el navegador y usa "
+                        "\"Hacer una copia\" a tu Drive para descargarlo desde tu "
+                        "copia, coloca el .bin en /mnt/cmv40_rpus y usa la pestaña "
+                        "\"Carpeta local\"; o reintenta en ~24h (la cuota del "
+                        "fichero se restablece sola)."
+                    )
                 raise RuntimeError(
-                    f"Drive download falló ({resp.status_code}): {text[:200]!r}"
+                    f"Drive download falló ({resp.status_code}): {body[:200]!r}"
                 )
             total_s = resp.headers.get("content-length")
             total = int(total_s) if total_s and total_s.isdigit() else None
