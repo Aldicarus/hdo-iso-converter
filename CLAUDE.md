@@ -661,6 +661,13 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
     - 1 sola pista: `<500 paq → forced`, `≥500 paq → complete` (no hay con qué comparar).
     - 2+ pistas: la de más paquetes (`biggest`) es la REFERENCIA para medir ratios. Cada otra pista
       se clasifica contra ella: `ratio ≥ 3.0 → forced` · `ratio < 3.0 → alternativa ambigua` (España/Latam, normal/SDH, comentarios).
+    - **Pista con `packet_count == 0` (el muestreo la perdió) — fallback al patrón estructural**: un forzado muy disperso
+      puede caer entero fuera de los 4 tramos del muestreo y salir con 0 paquetes. En ese caso NO se manda a "ambigua"
+      (eso disparaba el falso aviso de "otra pista parecida" y no la auto-incluía); se usa la señal estructural del patrón
+      de bloques/adyacencia (bitrate sintético de phase_a): si el patrón también dice forzado (`bitrate_kbps < 3.0`) → **forced**;
+      si no hay patrón forzado → conservador → ambigua. El modelo ya define `packet_count=0` como "usar la heurística de patrones".
+      Caso real: Obsession 2025, ES forzado `0x12A3` = 0 paq. (frente a completo 4516) — con la corrección se clasifica forzado.
+      Cubierto por `test_subtitle_classification.py::test_obsession_forced_missed_by_sample_uses_pattern`.
     - **Completa elegida — NO siempre `biggest`** (Opción A): se incluye la **primera del disco** entre las completas
       "elegibles" — la de más paquetes suele ser la versión SDH (texto extra en momentos sin diálogo) y la primera la normal.
       Son **elegibles**: (a) las casi-idénticas a `biggest` (`ratio < 2.0`, ninguna puede ser un forzado disfrazado); **y**

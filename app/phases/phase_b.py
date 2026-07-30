@@ -829,10 +829,26 @@ def _select_subtitle_tracks(
             for i, t in enumerate(lang_tracks):
                 if i == biggest_idx:
                     continue
-                if t.packet_count <= 0 or biggest.packet_count <= 0:
-                    # Sin packet_count fiable → conservador, va a ambiguas
-                    # (no podemos asegurar que sea forzado).
-                    ambiguous_idx.append(i)
+                if t.packet_count <= 0:
+                    # El muestreo distribuido no capturó NINGÚN paquete de
+                    # esta pista, mientras que biggest sí es una completa
+                    # clara. Una completa (miles de eventos repartidos por
+                    # toda la peli) casi nunca sale a 0 en un muestreo que
+                    # cubre inicio/cuerpo/final; salir a 0 es señal de pista
+                    # muy dispersa = forzado. Pero no lo asumimos a ciegas:
+                    # el modelo define packet_count=0 como "usar la heurística
+                    # de patrones", así que confirmamos con la señal
+                    # estructural (bitrate sintético del patrón de bloques/
+                    # adyacencia de phase_a). Si el patrón TAMBIÉN dice forzado
+                    # (<3 kbps) → forzado; si no, conservador → ambigua.
+                    # Sin esto, un forzado que el sample pierde (caso real
+                    # Obsession 2025: ES forzado 0x12A3 = 0 paq. frente a
+                    # completo 4516) caía en "ambigua" y disparaba el falso
+                    # aviso de "otra pista parecida" sin auto-incluirse.
+                    if t.bitrate_kbps < 3.0:
+                        forced_idx.append(i)
+                    else:
+                        ambiguous_idx.append(i)
                     continue
                 ratio = biggest.packet_count / t.packet_count
                 if ratio >= FORCED_RATIO_THRESHOLD:

@@ -173,6 +173,47 @@ class TestSubtitleClassification(unittest.TestCase):
         self.assertEqual(_forced_packets(included, "Spanish"), 200)
         self.assertIsNone(_complete_packets(included, "Spanish"))
 
+    # ── Forzado que el muestreo pierde (packet_count=0) ──────────────────
+
+    def test_obsession_forced_missed_by_sample_uses_pattern(self):
+        """Obsession 2025: el muestreo distribuido no capturó NINGÚN paquete
+        del forzado castellano (0x12A3 → 0 paq.) frente a la completa (4516).
+        El patrón estructural sí lo marcó forzado (bitrate sintético 1.0). El
+        0-paquetes debe clasificarse como FORZADO vía la señal estructural, no
+        como alternativa 'ambigua' (que disparaba el falso aviso y no lo
+        auto-incluía)."""
+        complete = RawSubtitleTrack(
+            language="Spanish", bitrate_kbps=30.0, description="", packet_count=4516,
+        )
+        forced = RawSubtitleTrack(
+            language="Spanish", bitrate_kbps=1.0, description="", packet_count=0,
+        )
+        tracks = [complete, forced]
+        included, _ = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_complete_packets(included, "Spanish"), 4516)
+        # El forzado (0 paq.) se incluye como forzado, no queda ambiguo/descartado.
+        forced_included = [
+            t for t in included
+            if t.subtitle_type == "forced" and t.raw.language.lower() == "spanish"
+        ]
+        self.assertEqual(len(forced_included), 1)
+        self.assertEqual(forced_included[0].raw.packet_count, 0)
+
+    def test_zero_packets_without_forced_pattern_stays_conservative(self):
+        """0 paquetes PERO el patrón estructural NO lo marca forzado (bitrate
+        completo 30.0): nos mantenemos conservadores → no se clasifica como
+        forzado (queda como alternativa ambigua, sin auto-incluir)."""
+        complete = RawSubtitleTrack(
+            language="Spanish", bitrate_kbps=30.0, description="", packet_count=4516,
+        )
+        other = RawSubtitleTrack(
+            language="Spanish", bitrate_kbps=30.0, description="", packet_count=0,
+        )
+        tracks = [complete, other]
+        included, _ = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_complete_packets(included, "Spanish"), 4516)
+        self.assertIsNone(_forced_packets(included, "Spanish"))
+
 
 if __name__ == "__main__":
     unittest.main()
