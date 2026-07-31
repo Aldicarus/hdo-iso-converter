@@ -530,8 +530,26 @@ def _match_tracks_to_source(
         best_id = None
 
         if not codec_inc:
-            # Subtítulo: usar tipo para elegir ID correcto
-            is_forced = getattr(track, "subtitle_type", "") == "forced"
+            # Subtítulo: elegir el source id por la identidad ESTRUCTURAL
+            # que lleva el propio raw (posición forzado/completo en el
+            # disco), NO por track.subtitle_type.
+            #
+            # Motivo: subtitle_type lo fija la clasificación por paquetes de
+            # phase_b y puede venir equivocado — p.ej. un forzado que el
+            # muestreo PGS perdió (0 paq. → marcado 'complete'), o una pista
+            # recuperada a mano. Renombrar la etiqueta NO cambia
+            # subtitle_type, así que el matcher entregaba el contenido
+            # CRUZADO (caso real Obsession 2025: la pista 'Castellano
+            # Forzados' recibía el PGS completo y viceversa).
+            #
+            # raw.bitrate_kbps es la señal sintética de phase_a
+            # (_detect_subtitle_pattern: <3 kbps = posición de forzado en el
+            # disco) — la MISMA base estructural que usa
+            # _classify_sub_source_ids sobre el source, así que ambos
+            # extremos quedan alineados. En el caso de 1 sola pista del
+            # idioma da igual (solo hay un source id que elegir).
+            raw_bitrate = getattr(raw, "bitrate_kbps", 30.0)
+            is_forced = raw_bitrate < 3.0
             # Buscar primero en la categoría correcta
             primary = _sub_forced_ids if is_forced else _sub_complete_ids
             for sid in primary.get(lang_inc, []):

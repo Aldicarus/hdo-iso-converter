@@ -52,10 +52,20 @@ def _audio(language, codec, description, label, *, flag_default=False, position=
     )
 
 
-def _sub(language, subtitle_type, label, *, flag_default=False, flag_forced=False, position=0):
+def _sub(language, subtitle_type, label, *, flag_default=False, flag_forced=False,
+         position=0, raw_bitrate=None, packet_count=0):
+    # El matcher de Fase E decide forzado/completo por la señal ESTRUCTURAL
+    # del raw (bitrate sintético de phase_a: <3 kbps = forzado), no por
+    # subtitle_type. Por defecto derivamos el bitrate del subtitle_type para
+    # que los tests reflejen un disco coherente; raw_bitrate permite forzar
+    # una discrepancia (caso Obsession: subtitle_type='complete' en un raw
+    # que estructuralmente es forzado).
+    if raw_bitrate is None:
+        raw_bitrate = 1.0 if subtitle_type == "forced" else 30.0
     return IncludedSubtitleTrack(
         position=position,
-        raw=RawSubtitleTrack(language=language, bitrate_kbps=0.0, description=""),
+        raw=RawSubtitleTrack(language=language, bitrate_kbps=raw_bitrate,
+                             description="", packet_count=packet_count),
         language_literal=label.split()[0],
         subtitle_type=subtitle_type,
         label=label,
@@ -257,6 +267,46 @@ class TestLanguageMapCoverage(unittest.TestCase):
             _amap(10, codec="DTS",          lang="cat", ch=6),
         )
         self.assertEqual(_match_tracks_to_source(included, [2, 7, 10], tmap), {0: 7, 1: 2, 2: 10})
+
+    # ── Subtítulos: matching por identidad estructural del raw, no por
+    #    subtitle_type (que puede venir mal) ──────────────────────────────
+
+    def test_obsession_forced_subtitle_type_wrong_still_maps_by_structure(self):
+        """Obsession 2025: la pista 'Castellano Forzados' se recuperó a mano y
+        quedó con subtitle_type='complete' (el forzado que el muestreo perdió),
+        pero su raw es el forzado real (bitrate 1.0, 0 paq.). La 'Castellano
+        Completos' tiene el raw completo (bitrate 30.0, 4516 paq.). El matcher
+        debe entregar el forzado al source forzado y el completo al completo,
+        AUNQUE ambas tengan subtitle_type='complete' — decidiendo por la señal
+        estructural del raw. Antes se cruzaban.
+
+        Source (orden disco, patrón bloques eng/spa/fre + spa/fre):
+          10=spa completo (primera aparición), 12=spa forzado (segunda)."""
+        included = [
+            # Reordenada por el usuario: el 'forzado' va primero. subtitle_type
+            # MAL ('complete'), raw estructuralmente forzado (bitrate 1.0).
+            _sub("Spanish", "complete", "Castellano Forzados (PGS)",
+                 flag_forced=True, flag_default=True, raw_bitrate=1.0, packet_count=0),
+            _sub("English", "complete", "Inglés Completos (PGS)",
+                 raw_bitrate=30.0, packet_count=8730),
+            _sub("Spanish", "complete", "Castellano Completos (PGS)",
+                 raw_bitrate=30.0, packet_count=4516),
+        ]
+        # track_map en orden de disco: eng(9), spa(10), fre(11), spa(12), fre(13)
+        tmap = _track_map(
+            _smap(9,  lang="eng"),
+            _smap(10, lang="spa"),
+            _smap(11, lang="fre"),
+            _smap(12, lang="spa"),
+            _smap(13, lang="fre"),
+        )
+        result = _match_tracks_to_source(included, [9, 10, 11, 12, 13], tmap)
+        # 'Castellano Forzados' (idx 0) → source forzado spa = 12
+        self.assertEqual(result[0], 12)
+        # 'Inglés Completos' (idx 1) → 9
+        self.assertEqual(result[1], 9)
+        # 'Castellano Completos' (idx 2) → source completo spa = 10
+        self.assertEqual(result[2], 10)
 
 
 if __name__ == "__main__":
