@@ -335,6 +335,8 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Desde carpeta NAS** (`/mnt/cmv40_rpus/*.bin`)
    - **Extraer de otro MKV** que ya tenga CMv4.0 (ffmpeg + extract-rpu)
 3. **Fase C — Extraer BL/EL + datos per-frame**: `dovi_tool demux` + exportación muestreada de MaxCLL/MaxFALL de ambos RPUs para el chart.
+   - **Timeout del demux ADAPTATIVO, no fijo** (`_adaptive_timeout`): el tope fijo de 900s no escalaba con la duración de la peli. Caso real Proyecto Salvación (2h36m UHD): demux estimado ~990s (ffmpeg 761s × `RATIO_DEMUX` 1.30) > 900s → timeout garantizado → `BL.hevc` truncado (171679 de 225177 frames). El timeout ahora es `max(1800, est×3)`, proporcional al tamaño real (la estimación ya se adapta a la carga del NAS vía `ffmpeg_wall_seconds`). Mismo cambio en los `extract-rpu` de Fase A/B (floor 1200s).
+   - **Reutilización de BL/EL solo si el demux se completó** (`_demux_output_reusable` + marcador `.demux_done`): antes la rama de reutilización comprobaba solo que BL/EL **existieran**, así que un demux muerto a medias (timeout/kill/reinicio) dejaba ficheros truncados que el reintento reutilizaba → MKV corrupto (lo cazaba Fase H, pero desperdiciaba todo el pipeline). El marcador se escribe SOLO tras `rc=0`; su ausencia fuerza re-demux. Los parciales se borran al fallar/timeout (`_cleanup_partial_demux`). Cubierto por `test_cmv40_pipeline.py`.
 4. **Fase D — Verificar sincronización** (UX clave): gráfico Canvas custom con dos curvas superpuestas (origen rojo, target azul). Incluye:
    - **Zoom**: presets 30s / 1min / 5min / 30min / Todo + inputs manuales
    - **Detección automática de offset** por cross-correlation

@@ -392,6 +392,33 @@ def _estimate_from_ffmpeg(session: CMv40Session, ratio: float, fps_fallback: flo
     return 120.0
 
 
+def _adaptive_timeout(estimated_s: float, floor_s: int = 1800) -> int:
+    """Timeout generoso derivado de la estimación wall-time (3× con suelo).
+
+    Un timeout FIJO no escala con la duración de la peli y mata operaciones
+    largas a mitad de escritura. Caso real (Proyecto Salvación, 2h36m UHD):
+    el ``dovi_tool demux`` estimaba ~990s (ffmpeg 761s × RATIO_DEMUX 1.30)
+    pero el tope era fijo a 900s → timeout garantizado → BL.hevc truncado
+    (171679 de 225177 frames) reutilizado por el reintento → MKV corrupto
+    (lo cazó Fase H). Escalar con la estimación —que ya se adapta a la carga
+    del NAS vía ffmpeg_wall_seconds— da holgura proporcional al tamaño real.
+    El suelo cubre estimaciones minúsculas (sesiones sin ancla de ffmpeg).
+    """
+    est = estimated_s if estimated_s and estimated_s > 0 else 0.0
+    return max(floor_s, int(est * 3))
+
+
+def _demux_output_reusable(bl_hevc: Path, el_hevc: Path, marker: Path) -> bool:
+    """True solo si el demux previo terminó por completo y es seguro reutilizarlo.
+
+    No basta con que existan BL/EL: un demux muerto a mitad (timeout, kill -9,
+    reinicio del server) deja ficheros truncados en disco. El marcador se
+    escribe SOLO tras un demux con rc=0, así que su presencia es la señal
+    fiable de completitud. Sin marcador → hay que rehacer el demux.
+    """
+    return bl_hevc.exists() and el_hevc.exists() and marker.exists()
+
+
 async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
     """Emite un marcador estructurado de progreso que el frontend detecta."""
     if not log_callback:
@@ -902,7 +929,7 @@ async def run_phase_a_analyze_source(
     rc, out, err = await _run_with_time_estimate([
         DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
     ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
-       timeout=600, label="Extrayendo RPU del HEVC",
+       timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC",
        offset=W_FFMPEG, weight=W_RPU)
     if rc != 0:
         raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
@@ -1557,7 +1584,7 @@ async def run_phase_b_target_from_mkv(
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
-           timeout=600, label="Extrayendo RPU del HEVC target",
+           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC target",
            offset=W_FFMPEG, weight=W_RPU)
         if rc != 0:
             raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
@@ -2463,19 +2490,52 @@ async def run_phase_c_extract(
         if log_callback:
             label = "BL + EL" if workflow == "p7_fel" else "BL (EL MEL será ignorado)"
             await log_callback(f"[Fase C] Separando {label} (dovi_tool demux)…")
-        if not (bl_hevc.exists() and el_hevc.exists()):
-            rc, out, err = await _run_with_time_estimate([
-                DOVI_TOOL_BIN, "demux", str(source_hevc),
-                "--bl-out", str(bl_hevc),
-                "--el-out", str(el_hevc),
-            ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
-               timeout=900, label="Separando BL + EL (dovi_tool demux)",
-               offset=0.0, weight=W_DEMUX)
-            if rc != 0:
-                raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
-        else:
+        demux_done = wd / ".demux_done"
+
+        def _cleanup_partial_demux() -> None:
+            """Borra BL/EL parciales + marcador para que el reintento sea limpio."""
+            for partial in (bl_hevc, el_hevc, demux_done):
+                if partial.exists():
+                    try:
+                        partial.unlink()
+                    except OSError:
+                        pass
+
+        if _demux_output_reusable(bl_hevc, el_hevc, demux_done):
             if log_callback:
-                await log_callback("[Fase C] BL.hevc y EL.hevc ya existen, reutilizando")
+                await log_callback(
+                    "[Fase C] BL.hevc y EL.hevc ya existen y el demux previo se "
+                    "completó (marcador verificado), reutilizando"
+                )
+        else:
+            # Un BL/EL sin marcador es un demux muerto a medias (truncado) —
+            # nunca se reutiliza. Limpiamos cualquier parcial antes de rehacer.
+            _cleanup_partial_demux()
+            # Timeout PROPORCIONAL al tamaño real (no fijo): un demux de UHD
+            # largo supera de sobra los 900s antiguos. Ver _adaptive_timeout.
+            demux_timeout = _adaptive_timeout(est_demux)
+            try:
+                rc, out, err = await _run_with_time_estimate([
+                    DOVI_TOOL_BIN, "demux", str(source_hevc),
+                    "--bl-out", str(bl_hevc),
+                    "--el-out", str(el_hevc),
+                ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
+                   timeout=demux_timeout, label="Separando BL + EL (dovi_tool demux)",
+                   offset=0.0, weight=W_DEMUX)
+            except BaseException:
+                # Timeout/kill/cancel → los BL/EL a medio escribir NO deben
+                # sobrevivir para el siguiente intento.
+                _cleanup_partial_demux()
+                raise
+            if rc != 0:
+                _cleanup_partial_demux()
+                raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
+            # Marcar el demux como completo (sobrevive a reinicios) → reutilización
+            # segura en reintentos de fases posteriores.
+            try:
+                demux_done.write_text(str(session.source_frame_count or ""))
+            except OSError:
+                pass
         await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
     else:
         if log_callback:
