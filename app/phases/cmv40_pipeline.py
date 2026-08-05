@@ -684,23 +684,6 @@ async def _run_with_time_estimate(
             pass
 
 
-async def _count_hevc_frames(hevc_path: str) -> int:
-    """Cuenta frames de un HEVC stream usando ffprobe (rápido)."""
-    rc, out, err = await _run([
-        FFPROBE_BIN, "-v", "error", "-count_packets",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=nb_read_packets",
-        "-of", "csv=p=0",
-        hevc_path,
-    ], timeout=120)
-    if rc != 0:
-        raise RuntimeError(f"ffprobe falló: {err[:200]}")
-    try:
-        return int(out.strip())
-    except ValueError:
-        raise RuntimeError(f"ffprobe output inválido: {out!r}")
-
-
 # ══════════════════════════════════════════════════════════════════════
 #  FASE A — Analizar MKV origen
 # ══════════════════════════════════════════════════════════════════════
@@ -1291,7 +1274,9 @@ async def preflight_target_mkv(
             await log_callback("[Pre-flight] Extrayendo RPU del HEVC target…")
         rc, out, err = await _run([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
-        ], timeout=600)
+        ], timeout=_adaptive_timeout(
+            _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+            floor_s=1200))
         if rc != 0:
             raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
 
@@ -2690,18 +2675,21 @@ async def _export_rpu_frames(
     try:
         wd = rpu_path.parent
         export_json = wd / f"_export_{label}.json"
+        # export -d all de un RPU full-movie tarda 5-15 min y ESCALA con los
+        # frames; timeout adaptativo (no fijo) para no morir en NAS lentos.
+        export_to = _adaptive_timeout(est_s, floor_s=1200)
         if progress_weight > 0:
             rc, out, err = await _run_with_time_estimate([
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
-            ], estimated_s=est_s, log_callback=log_callback, timeout=300,
+            ], estimated_s=est_s, log_callback=log_callback, timeout=export_to,
                label=f"Exportando frames {label}",
                offset=progress_offset, weight=progress_weight)
         else:
             rc, out, err = await _run([
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
-            ], timeout=300)
+            ], timeout=export_to)
         if rc == 0 and export_json.exists():
             data = json.loads(export_json.read_text(encoding="utf-8"))
             export_json.unlink(missing_ok=True)
@@ -3762,7 +3750,11 @@ async def run_phase_h_validate(
                 rc, _, err = await _run([
                     DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
                     "-o", str(full_rpu),
-                ], log_callback=log_callback, timeout=900)
+                ], log_callback=log_callback,
+                   timeout=_adaptive_timeout(
+                       _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+                       floor_s=1200),
+                )
             finally:
                 hb_task.cancel()
                 try:

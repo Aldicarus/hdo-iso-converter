@@ -3465,8 +3465,11 @@ async def mkv_light_profile_endpoint(body: dict):
         # reencodar) → HEVC annex-B local → dovi_tool extract-rpu sobre HEVC.
         # Mucho más rápido que dovi_tool directo sobre MKV (matroska-rs
         # lento en NAS con HDD).
-        ff_timeout = 1200  # 20 min max para full movie
-        dt_timeout = 900   # 15 min max para extract-rpu
+        # Ambos escalan con la duración de la peli; 30 min de margen para no
+        # morir en NAS lentos / pelis largas (el antiguo dt=900 para un
+        # extract-rpu completo era tan justo como el bug del demux de Fase C).
+        ff_timeout = 1800  # full-movie ffmpeg extract
+        dt_timeout = 1800  # full-movie extract-rpu
 
         ff_cmd = [FFMPEG_BIN, "-y", "-v", "error",
                   "-i", mkv_full,
@@ -3582,13 +3585,16 @@ async def mkv_light_profile_endpoint(body: dict):
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         _lp_register_proc(proc)
+        # export de un RPU full-movie tarda 5-15 min y escala con los frames;
+        # 300s (5 min) era el borde bajo → moría en NAS lentos. 30 min de margen.
+        _lp_export_timeout = 1800
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_lp_export_timeout)
         except asyncio.TimeoutError:
             try: proc.kill()
             except Exception: pass
-            _light_profile_state["error"] = "dovi_tool export excedió 5 min"
-            raise HTTPException(status_code=504, detail="dovi_tool export excedió 5 min")
+            _light_profile_state["error"] = f"dovi_tool export excedió {_lp_export_timeout // 60} min"
+            raise HTTPException(status_code=504, detail=f"dovi_tool export excedió {_lp_export_timeout // 60} min")
         if proc.returncode != 0 or not json_path.exists():
             err = stderr.decode("utf-8", errors="replace")[:400]
             _light_profile_state["error"] = f"export falló: {err}"

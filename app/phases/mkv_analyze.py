@@ -790,7 +790,9 @@ async def analyze_rpu_quality_for_mkv(
         # wrapper de error handling) en lugar del callback crudo.
         rpu_analysis = await analyze_rpu_combos(
             rpu_path,
-            export_timeout=900,
+            # export -d all de un RPU full-movie escala con los frames y puede
+            # superar 15 min en NAS lentos / pelis largas → 30 min de margen.
+            export_timeout=1800,
             log_callback=_log,
             register_proc=register_proc,
         )
