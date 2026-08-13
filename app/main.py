@@ -596,8 +596,7 @@ async def update_session(session_id: str, body: SessionUpdateRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    if body.has_fel           is not None: session.has_fel           = body.has_fel
-    if body.audio_dcp         is not None: session.audio_dcp         = body.audio_dcp
+    # has_fel / audio_dcp NO se aceptan: los fija el análisis del disco.
     if body.mkv_name          is not None: session.mkv_name          = body.mkv_name
     if body.mkv_name_manual   is not None: session.mkv_name_manual   = body.mkv_name_manual
     if body.included_tracks   is not None: session.included_tracks   = body.included_tracks

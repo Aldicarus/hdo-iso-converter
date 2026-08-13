@@ -770,7 +770,7 @@ body {
 }
 
 /* ── Global vars ────────────────────────────────────────────────── */
-/* ── Globals card (MKV name + toggles) ─────────────────────────── */
+/* ── Globals card (nombre MKV + tarjetas informativas del disco) ── */
 .globals-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
 
 .globals-mkv-input {
@@ -788,60 +788,64 @@ body {
 }
 .globals-mkv-input:focus { border-color: var(--blue); }
 
-.globals-toggles-row {
+/* Chip informativo bajo el nombre del MKV (origen del tag [Audio DCP]) */
+.globals-mkv-chip {
+  margin-top: 6px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: var(--orange-dim);
+  border: 1px solid var(--orange-border);
+  color: #8a4a00;
+  font-size: 11px; font-weight: 600;
+}
+
+/* Tarjetas de solo lectura: estado Dolby Vision + resumen vídeo/HDR.
+   Reemplazan a los antiguos toggles FEL/DCP — el disco es lo que es;
+   el usuario no lo cambia desde aquí. */
+.globals-info-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-.global-toggle-item {
+.global-info-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: 10px;
   padding: 10px 14px;
   background: var(--surface-2);
   border-radius: var(--r-md);
   border: 1px solid var(--sep);
-  transition: border-color var(--t-med) var(--ease);
+  min-width: 0;
 }
-.global-toggle-item.active-fel { border-color: var(--purple-border); background: rgba(191,90,242,.05); }
-.global-toggle-item.active-dcp { border-color: var(--orange-border); background: rgba(255,159,10,.05); }
-.global-toggle-left  { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.global-toggle-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.global-card-icon  { font-size: 20px; flex-shrink: 0; }
+/* Acento por estado DV: FEL (lo bueno) morado · MEL/otros neutro ·
+   sin confirmar ámbar · sin DV gris */
+.global-info-item.dv-fel         { border-color: var(--purple-border); background: rgba(191,90,242,.05); }
+.global-info-item.dv-unconfirmed { border-color: var(--orange-border); background: rgba(255,159,10,.05); }
+.global-info-body { min-width: 0; flex: 1; }
+.global-info-head {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.global-card-icon  { font-size: 20px; flex-shrink: 0; line-height: 1.2; }
 .global-card-label { font-size: 12px; font-weight: 600; color: var(--text-1); }
-.global-card-reason {
-  font-size: 11px; color: var(--text-3);
-  margin-top: 2px;
-  display: flex; align-items: flex-start; gap: 3px;
-}
-
-/* ── Toggle (macOS) ─────────────────────────────────────────────── */
-.toggle-row { display: flex; align-items: center; gap: 10px; }
-.toggle-value { font-size: 13px; font-weight: 600; }
-
-.ios-toggle { position: relative; display: inline-block; }
-.ios-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-.ios-track {
-  display: block;
-  width: 44px; height: 26px;
+.global-info-chip {
+  padding: 2px 7px;
+  border-radius: 9px;
   background: var(--surface-3);
-  border-radius: 13px;
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease);
+  color: var(--text-2);
+  font-size: 10px; font-weight: 700;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: nowrap;
 }
-.ios-toggle input:checked + .ios-track { background: var(--green); }
-.ios-thumb {
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 20px; height: 20px;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(0,0,0,.3);
-  transition: transform var(--t-fast) var(--ease);
-  pointer-events: none;
+.global-info-line {
+  font-size: 11px; color: var(--text-3);
+  margin-top: 3px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
-.ios-toggle input:checked ~ .ios-thumb { transform: translateX(18px); }
+.global-info-line:empty { display: none; }
+.global-info-line--note { color: var(--text-2); font-style: italic; }
 
 /* ── Track items ────────────────────────────────────────────────── */
 .track-list { display: flex; flex-direction: column; gap: 5px; }

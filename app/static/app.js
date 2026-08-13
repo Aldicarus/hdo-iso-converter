@@ -763,39 +763,33 @@ function buildProjectPanelHTML(pid) {
             <button class="btn btn-xs btn-ghost" onclick="revertMkvName()"
               data-tooltip="Restaurar el nombre generado automáticamente.">Revertir</button>
           </div>
+          <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none"
+            data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
+            🎵 Audio DCP — detectado en el nombre del ISO
+          </div>
         </div>
-        <div class="globals-toggles-row">
-          <div class="global-toggle-item" id="${pid}-global-fel">
-            <div class="global-toggle-left">
-              <span class="global-card-icon">🎬</span>
-              <div>
-                <div class="global-card-label">Dolby Vision FEL</div>
-                <div class="global-card-reason"><span>ℹ️</span><span id="${pid}-fel-reason-text"></span></div>
-                <div id="${pid}-dovi-detail" class="global-card-reason" style="display:none; margin-top:2px; font-size:10px; color:var(--text-3)"></div>
+        <div class="globals-info-row">
+          <div class="global-info-item" id="${pid}-dv-card">
+            <span class="global-card-icon" id="${pid}-dv-icon">🎬</span>
+            <div class="global-info-body">
+              <div class="global-info-head">
+                <span class="global-card-label" id="${pid}-dv-state">—</span>
+                <span class="global-info-chip" id="${pid}-dv-tag" style="display:none"
+                  data-tooltip="Tag que se añade automáticamente al nombre del MKV."></span>
               </div>
-            </div>
-            <div class="global-toggle-right">
-              <span id="${pid}-fel-value" class="toggle-value">—</span>
-              <label class="ios-toggle" data-tooltip="FEL (Full Enhancement Layer) de Dolby Vision.\nAfecta al nombre del MKV.">
-                <input type="checkbox" id="${pid}-toggle-fel" onchange="onFelChange()">
-                <span class="ios-track"></span><span class="ios-thumb"></span>
-              </label>
+              <div class="global-info-line" id="${pid}-dv-detail"></div>
+              <div class="global-info-line global-info-line--note" id="${pid}-dv-note" style="display:none"></div>
             </div>
           </div>
-          <div class="global-toggle-item" id="${pid}-global-dcp">
-            <div class="global-toggle-left">
-              <span class="global-card-icon">🎵</span>
-              <div>
-                <div class="global-card-label">Audio DCP</div>
-                <div class="global-card-reason"><span>ℹ️</span><span id="${pid}-dcp-reason-text"></span></div>
+          <div class="global-info-item" id="${pid}-vhdr-card">
+            <span class="global-card-icon">📺</span>
+            <div class="global-info-body">
+              <div class="global-info-head">
+                <span class="global-card-label">Vídeo · HDR</span>
               </div>
-            </div>
-            <div class="global-toggle-right">
-              <span id="${pid}-dcp-value" class="toggle-value">—</span>
-              <label class="ios-toggle" data-tooltip="Tag 'Audio DCP' en el nombre del ISO.\nAñade sufijo (DCP 9.1.6) a pistas TrueHD Atmos.">
-                <input type="checkbox" id="${pid}-toggle-dcp" onchange="onDcpChange()">
-                <span class="ios-track"></span><span class="ios-thumb"></span>
-              </label>
+              <div class="global-info-line" id="${pid}-vhdr-codec"></div>
+              <div class="global-info-line" id="${pid}-vhdr-hdr"></div>
+              <div class="global-info-line" id="${pid}-vhdr-color"></div>
             </div>
           </div>
         </div>
@@ -6120,38 +6114,11 @@ function renderProjectPanel(project) {
   // Estado activo de los toggles de modo audio/subs
   _updateModeToggles(project.id, session.audio_mode || 'filtered', session.subtitle_mode || 'filtered');
 
-  // Variables globales
-  setToggle('toggle-fel', session.has_fel);
-  setText('fel-value', session.has_fel ? 'FEL' : 'MEL');
-  // No mostrar fel_reason si hay dovi detail (evitar duplicado)
-  const hasDovi = session.bdinfo_result?.video_tracks?.find(t => !t.is_el)?.dovi;
-  setText('fel-reason-text', hasDovi ? '' : (session.bdinfo_result?.fel_reason || ''));
-  E('global-fel').className = `global-toggle-item${session.has_fel ? ' active-fel' : ''}`;
-
-  // Info extendida de Dolby Vision (dovi_tool)
-  const mainVid = session.bdinfo_result?.video_tracks?.find(t => !t.is_el);
-  const doviDetail = E('dovi-detail');
-  if (doviDetail && mainVid?.dovi) {
-    const d = mainVid.dovi;
-    const parts = [`Profile ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}`, `CM ${d.cm_version}`];
-    if (d.has_l1) parts.push('L1');
-    if (d.has_l2) parts.push('L2');
-    if (d.has_l5) parts.push('L5');
-    if (d.has_l6) parts.push('L6');
-    if (d.scene_count) parts.push(`${d.scene_count} escenas`);
-    if (mainVid.hdr?.mastering_display_luminance) parts.push(mainVid.hdr.mastering_display_luminance);
-    doviDetail.textContent = parts.join(' · ');
-    doviDetail.style.display = '';
-  } else if (doviDetail) {
-    doviDetail.style.display = 'none';
-  }
-
-  setToggle('toggle-dcp', session.audio_dcp);
-  setText('dcp-value', session.audio_dcp ? 'Activo' : 'No detectado');
-  setText('dcp-reason-text', session.audio_dcp
-    ? "Tag 'Audio DCP' encontrado en nombre del ISO"
-    : "Tag no encontrado en nombre del ISO");
-  E('global-dcp').className = `global-toggle-item${session.audio_dcp ? ' active-dcp' : ''}`;
+  // Tarjetas informativas: estado Dolby Vision del disco + resumen vídeo/HDR
+  _renderDvStatusCard(session);
+  _renderVideoHdrCard(session);
+  const dcpChip = E('mkv-dcp-chip');
+  if (dcpChip) dcpChip.style.display = session.audio_dcp ? '' : 'none';
 
   const mkvInput = E('mkv-name-input');
   if (mkvInput) mkvInput.value = session.mkv_name || '';
@@ -7572,56 +7539,160 @@ async function resetChaptersFromDisc() {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  VARIABLES GLOBALES (FEL / DCP / Nombre MKV)
+//  TARJETAS INFORMATIVAS DEL DISCO (Dolby Vision / Vídeo·HDR)
+//
+//  Ambas son de SOLO LECTURA: describen lo que el análisis de Fase A
+//  encontró en el disco. El estado FEL/MEL no es editable — antes había
+//  un toggle que solo cambiaba el tag del nombre, lo que permitía
+//  renombrar un disco MEL como FEL sin que el contenido cambiase.
+//  Si la detección falla, el escape sigue siendo editar el nombre del MKV.
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Maneja el cambio del toggle FEL. Actualiza la sesión en memoria y
- * regenera el nombre del MKV si no fue editado manualmente.
+ * Clasifica el estado Dolby Vision del disco a partir del análisis.
+ *
+ * La fuente fiable es dovi_tool (`dovi` en la pista BL): da profile y
+ * el_type definitivos. Es un paso OPCIONAL de Fase A — si falla, solo
+ * queda la heurística estructural de `_detect_fel`, que asume FEL en
+ * cuanto ve una Enhancement Layer. Ese caso se marca como "sin
+ * confirmar" en vez de afirmar FEL.
+ *
+ * @returns {{label: string, icon: string, cls: string, detail: string,
+ *            note: string, unconfirmed: boolean}}
  */
-function onFelChange() {
-  const project = getActiveProject();
-  markProjectDirty();
-  const val = E('toggle-fel')?.checked;
-  if (!currentSession) return;
-  currentSession.has_fel = val;
-  setText('fel-value', val ? 'FEL' : 'MEL');
-  E('global-fel').className = `global-toggle-item${val ? ' active-fel' : ''}`;
-  if (!project?.mkvNameWasManual) recalcMkvNameLocal();
+function _classifyDvStatus(session) {
+  const bd       = session.bdinfo_result || {};
+  const tracks   = bd.video_tracks || [];
+  const mainVid  = tracks.find(t => !t.is_el) || null;
+  const dv       = mainVid?.dovi || null;
+  const hasEl    = tracks.some(t => t.is_el);
+
+  // Detalle técnico del RPU (lo que antes vivía en #dovi-detail).
+  // El master display va en la tarjeta de Vídeo·HDR — aquí sería duplicado.
+  let detail = '';
+  if (dv) {
+    const parts = [`Perfil ${dv.profile}`];
+    if (dv.el_type) parts.push(dv.el_type);
+    if (dv.cm_version) parts.push(`CM ${dv.cm_version}`);
+    const lvls = [];
+    if (dv.has_l1) lvls.push('L1');
+    if (dv.has_l2) lvls.push('L2');
+    if (dv.has_l5) lvls.push('L5');
+    if (dv.has_l6) lvls.push('L6');
+    if (dv.has_l8) lvls.push('L8');
+    if (lvls.length) parts.push(lvls.join(' '));
+    if (dv.scene_count) parts.push(`${dv.scene_count.toLocaleString('es-ES')} escenas`);
+    detail = parts.join(' · ');
+  }
+
+  if (dv && dv.profile === 7 && dv.el_type === 'FEL') {
+    return { label: 'Dolby Vision FEL', icon: '🎬', cls: 'dv-fel', detail,
+             note: '', unconfirmed: false };
+  }
+  if (dv && dv.profile === 7 && dv.el_type === 'MEL') {
+    return { label: 'Dolby Vision MEL', icon: '🎬', cls: 'dv-mel', detail,
+             note: 'Capa de mejora mínima — sin residuals de color. El MKV no lleva tag [DV FEL].',
+             unconfirmed: false };
+  }
+  if (dv) {
+    return { label: `Dolby Vision (Perfil ${dv.profile})`, icon: '🎬', cls: 'dv-other',
+             detail, note: '', unconfirmed: false };
+  }
+  if (hasEl || session.has_fel) {
+    // Del reason solo la primera frase (el "cómo se detectó"); el resto
+    // ya lo cuenta la nota. El texto íntegro sigue en 🔬 Datos ISO.
+    const how = (bd.fel_reason || '').split('. ')[0];
+    return {
+      label: 'Dolby Vision dual-layer', icon: '🎬', cls: 'dv-unconfirmed',
+      detail: how || 'Enhancement Layer presente en el disco',
+      note: 'dovi_tool no pudo confirmar si la capa es FEL o MEL — se asume FEL (mira 🔬 Datos ISO).',
+      unconfirmed: true,
+    };
+  }
+  // Sin Dolby Vision: describir el HDR que sí trae el disco.
+  const hdrFmt = mainVid?.hdr?.hdr_format || '';
+  return {
+    label: 'Sin Dolby Vision', icon: '📼', cls: 'dv-none',
+    detail: hdrFmt ? `El disco es ${hdrFmt} sin capa Dolby Vision` : (bd.fel_reason || ''),
+    note: '', unconfirmed: false,
+  };
 }
 
-function onDcpChange() {
-  const project = getActiveProject();
-  markProjectDirty();
-  const val = E('toggle-dcp')?.checked;
-  if (!currentSession) return;
-  currentSession.audio_dcp = val;
-  setText('dcp-value', val ? 'Activo' : 'No detectado');
-  E('global-dcp').className = `global-toggle-item${val ? ' active-dcp' : ''}`;
-  recalcAudioLabelsForDcp(val);
-  if (!project?.mkvNameWasManual) recalcMkvNameLocal();
+/** Pinta la tarjeta de estado Dolby Vision (solo lectura). */
+function _renderDvStatusCard(session) {
+  const st = _classifyDvStatus(session);
+  const card = E('dv-card');
+  if (card) card.className = `global-info-item ${st.cls}`;
+  setText('dv-icon', st.icon);
+  setText('dv-state', st.label);
+  setText('dv-detail', st.detail);
+
+  const note = E('dv-note');
+  if (note) {
+    note.textContent = st.note;
+    note.style.display = st.note ? '' : 'none';
+  }
+
+  // Chip con el tag literal que se añadirá al nombre del MKV.
+  const tag = E('dv-tag');
+  if (tag) {
+    if (session.has_fel) {
+      tag.textContent = st.unconfirmed ? '[DV FEL] · sin confirmar' : '[DV FEL]';
+      tag.style.display = '';
+    } else {
+      tag.style.display = 'none';
+    }
+  }
 }
 
 /**
- * Añade o quita el sufijo "(DCP 9.1.6)" en los labels de pistas TrueHD Atmos
- * incluidas, según el estado del toggle DCP (spec §5.1.4).
- * Solo afecta a pistas cuyo codec raw contiene "TrueHD" y "Atmos".
+ * Pinta el resumen de vídeo/HDR del disco: codec, bitrate real, HDR10 y
+ * espacio de color. Los datos vienen de MediaInfo sobre el m2ts principal
+ * (paso opcional de Fase A) — sin él solo hay codec y resolución.
  */
-function recalcAudioLabelsForDcp(enabled) {
-  if (!currentSession) return;
-  let changed = false;
-  currentSession.included_tracks.forEach(t => {
-    if (t.track_type !== 'audio') return;
-    const raw = t.raw || {};
-    if ((raw.language || '').toLowerCase() !== 'spanish') return;
-    const codec = (raw.codec || '').toLowerCase();
-    if (!codec.includes('truehd') || !codec.includes('atmos')) return;
-    const base = t.label.replace(/ \(DCP 9\.1\.6\)$/, '');
-    t.label = enabled ? `${base} (DCP 9.1.6)` : base;
-    changed = true;
-  });
-  if (changed) renderIncludedTracks(currentSession.included_tracks);
+function _renderVideoHdrCard(session) {
+  const mainVid = (session.bdinfo_result?.video_tracks || []).find(t => !t.is_el) || null;
+  const hdr     = mainVid?.hdr || null;
+
+  // "MPEG-H HEVC Video" → "HEVC" (el literal estilo BDInfo es ruido aquí)
+  const codec = (mainVid?.codec || '').replace(/^MPEG-H\s+/i, '').replace(/\s+Video$/i, '');
+  const codecParts = [codec || '—'];
+  if (mainVid?.description) codecParts.push(mainVid.description);
+  if (mainVid?.bitrate_kbps) codecParts.push(`${(mainVid.bitrate_kbps / 1000).toFixed(1)} Mbps`);
+  if (hdr?.bit_depth) codecParts.push(`${hdr.bit_depth} bit`);
+  setText('vhdr-codec', codecParts.join(' · '));
+
+  const hdrParts = [];
+  if (hdr?.hdr_format) hdrParts.push(hdr.hdr_format);
+  if (hdr?.max_cll)  hdrParts.push(`MaxCLL ${hdr.max_cll.toLocaleString('es-ES')} nits`);
+  if (hdr?.max_fall) hdrParts.push(`MaxFALL ${hdr.max_fall.toLocaleString('es-ES')} nits`);
+  setText('vhdr-hdr', hdrParts.join(' · '));
+
+  const colorParts = [];
+  if (hdr?.color_primaries) colorParts.push(hdr.color_primaries);
+  if (hdr?.transfer_characteristics) colorParts.push(hdr.transfer_characteristics);
+  const master = _formatMasteringLuminance(hdr?.mastering_display_luminance);
+  if (master) colorParts.push(master);
+  setText('vhdr-color', colorParts.join(' · ') || (hdr ? '' : 'Sin datos de MediaInfo'));
 }
+
+/**
+ * "min: 0.0001 cd/m2, max: 1000 cd/m2" → "Master 1000 nits".
+ * MediaInfo devuelve la luminancia del display de masterizado en crudo;
+ * el pico es lo único accionable. El valor completo sigue en 🔬 Datos ISO.
+ */
+function _formatMasteringLuminance(raw) {
+  if (!raw) return '';
+  const m = String(raw).match(/max\s*:\s*([\d.]+)/i);
+  if (!m) return String(raw);
+  const nits = Math.round(parseFloat(m[1]));
+  return Number.isFinite(nits) ? `Master ${nits.toLocaleString('es-ES')} nits` : String(raw);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  NOMBRE DEL MKV
+// ═══════════════════════════════════════════════════════════════════
 
 function onMkvNameInput() {
   const project = getActiveProject();
@@ -7650,40 +7721,10 @@ async function revertMkvName() {
   }
 }
 
-/**
- * Recalcula el nombre del MKV localmente (sin llamar al backend) cuando
- * cambia el toggle FEL o DCP y el nombre no fue editado manualmente.
- *
- * Replica la lógica del backend (_extract_title_year + _build_mkv_name):
- * limpia los tags entre corchetes/llaves del nombre, toma el año del fichero
- * si lo trae y, si no, el de la ficha TMDb; si tampoco hay, omite el (Año).
- */
-function recalcMkvNameLocal() {
-  const project = getActiveProject();
-  const iso  = currentSession.iso_path || '';
-  let stem   = iso.replace(/\\/g, '/').split('/').pop().replace(/\.iso$/i, '');
-  // Quita los tags entre corchetes/llaves esté donde esté el año (o sin año).
-  stem = stem.replace(/[\[\{].*?[\]\}]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  const m    = stem.match(/^(.+?)\s*\((\d{4})\)/);
-  const title = m ? m[1].trim() : stem;
-  // Año: del fichero si lo trae; si no, de TMDb; si no, ninguno.
-  let year = m ? m[2] : '';
-  if (!year && currentSession.tmdb_info && currentSession.tmdb_info.year) {
-    year = String(currentSession.tmdb_info.year);
-  }
-  let name = year ? `${title} (${year})` : title;
-  if (currentSession.has_fel)   name += ' [DV FEL]';
-  if (currentSession.audio_dcp) name += ' [Audio DCP]';
-  name += '.mkv';
-  currentSession.mkv_name = name;
-  const inp = E('mkv-name-input');
-  if (inp) inp.value = name;
-  // Actualizar también el título del subtab
-  if (project) {
-    project.name = name.replace(/\.mkv$/i, '');
-    renderProjectSubTabButton(project);
-  }
-}
+// NOTA: la construcción del nombre del MKV vive SOLO en el backend
+// (phase_b._build_mkv_name + endpoint /recalculate-name). La réplica local
+// que había aquí existía para reaccionar a los toggles FEL/DCP; al
+// eliminarlos desaparece también esa duplicación de reglas de naming.
 
 // ═══════════════════════════════════════════════════════════════════
 //  GUARDAR / EJECUTAR
@@ -7697,8 +7738,6 @@ async function saveSession() {
   const data = await apiFetch(`/api/sessions/${currentSession.id}`, {
     method: 'PUT',
     body: JSON.stringify({
-      has_fel: currentSession.has_fel,
-      audio_dcp: currentSession.audio_dcp,
       mkv_name: currentSession.mkv_name,
       mkv_name_manual: currentSession.mkv_name_manual || false,
       included_tracks: currentSession.included_tracks,
@@ -8966,12 +9005,6 @@ function setText(id, text) {
   const el = E(id);
   if (el) el.textContent = text;
 }
-/** Establece el estado checked de un checkbox buscado con E(). @param {string} id @param {boolean} checked */
-function setToggle(id, checked) {
-  const el = E(id);
-  if (el) el.checked = checked;
-}
-
 /** Timeout por defecto para llamadas API (30s). */
 const API_FETCH_TIMEOUT = 30000;
 

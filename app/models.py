@@ -717,20 +717,24 @@ class Session(BaseModel):
 
     # ── Resultado de Fase B + ediciones de Fase C ─────────────────
     has_fel: bool = False
-    """True si se detectó FEL. Afecta al nombre del MKV y puede editarse
-    manualmente con el toggle de la pantalla de revisión."""
+    """True si se detectó FEL en Fase A (dovi_tool, o la heurística
+    estructural si dovi_tool no pudo correr). Añade el tag [DV FEL] al
+    nombre del MKV. Solo lectura para el usuario: la pantalla de revisión
+    lo muestra como dato del disco, no como opción editable."""
 
     audio_dcp: bool = False
-    """True si el nombre del ISO contiene 'Audio DCP'. Afecta al sufijo
-    de las pistas TrueHD Atmos y al nombre del MKV."""
+    """True si el nombre del ISO contiene 'Audio DCP'. Añade el sufijo
+    (DCP 9.1.6) a la pista TrueHD Atmos en Castellano y el tag [Audio DCP]
+    al nombre del MKV. Solo lectura para el usuario."""
 
     mkv_name: str = ""
     """Nombre del fichero MKV de salida (sin ruta).
     Formato automático: '{Título} ({Año}) [DV FEL] [Audio DCP].mkv'"""
 
     mkv_name_manual: bool = False
-    """True si el usuario ha editado el nombre manualmente. En este caso,
-    los cambios de FEL/Audio DCP no sobreescriben el nombre."""
+    """True si el usuario ha editado el nombre manualmente. En este caso, ni
+    un re-análisis ni /recalculate-name sobreescriben el nombre. Es el escape
+    cuando la detección FEL/MEL o el tag Audio DCP no son los deseados."""
 
     audio_mode: str = "filtered"
     """Modo de selección de audio: 'filtered' (solo Castellano + VO) o
@@ -905,10 +909,14 @@ class SessionUpdateRequest(BaseModel):
 
     Todos los campos son opcionales (partial update). Solo se actualizan
     los campos presentes en el body.
+
+    ``has_fel`` y ``audio_dcp`` NO están aquí a propósito: son resultado del
+    análisis del disco (dovi_tool / nombre del ISO), no preferencias del
+    usuario. Antes se editaban con dos toggles que solo cambiaban los tags
+    del nombre — lo que permitía renombrar un disco MEL como FEL. El escape
+    para un caso mal detectado es editar ``mkv_name``.
     """
 
-    has_fel: bool | None = None
-    audio_dcp: bool | None = None
     mkv_name: str | None = None
     mkv_name_manual: bool | None = None
     included_tracks: list[IncludedAudioTrack | IncludedSubtitleTrack] | None = None

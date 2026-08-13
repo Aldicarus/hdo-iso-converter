@@ -1016,8 +1016,12 @@ def _detect_fel(
        id ≥ 2 pero solo hay 1 track de vídeo (id=0), entonces id=1 fue
        absorbido como EL → hay Dolby Vision dual-layer.
 
-    En ambos casos, asumimos FEL (los discos MEL prácticamente no existen
-    en el catálogo actual de UHD Blu-ray).
+    Esta función solo sabe si HAY capa de mejora, no de qué tipo es: asume
+    FEL porque los discos MEL prácticamente no existen en el catálogo actual
+    de UHD Blu-ray. Quien distingue FEL de MEL es ``dovi_tool`` en
+    ``enrich_dovi``, que sobreescribe ``has_fel`` y ``fel_reason`` con el
+    dato definitivo. El texto del reason refleja esa incertidumbre para que
+    la UI pueda avisar cuando dovi_tool no llegó a correr.
 
     Returns:
         Tupla (has_fel, el_bitrate_kbps, reason_string).
@@ -1034,7 +1038,8 @@ def _detect_fel(
     )
     if el_track is not None:
         return True, None, (
-            "FEL detectado: Enhancement Layer HEVC 1080p presente como track separado."
+            "Dolby Vision dual-layer: Enhancement Layer HEVC 1080p presente como "
+            "track separado. FEL asumido — pendiente de confirmar con dovi_tool."
         )
 
     # ── Método 2: Gap en IDs de tracks (mkvmerge v81+ combina BL+EL) ──
@@ -1047,8 +1052,9 @@ def _detect_fel(
         first_non_video = min(non_video_ids)
         if first_non_video >= 2:
             return True, None, (
-                f"FEL detectado: gap en IDs de tracks (video id=0, siguiente id={first_non_video}). "
-                f"mkvmerge v81+ combinó BL+EL en un solo track con señalización Dolby Vision."
+                f"Dolby Vision dual-layer: gap en IDs de tracks (video id=0, siguiente "
+                f"id={first_non_video}) — mkvmerge v81+ combinó BL+EL en un solo track. "
+                f"FEL asumido — pendiente de confirmar con dovi_tool."
             )
 
     return False, None, "Sin capa de mejora Dolby Vision detectada"

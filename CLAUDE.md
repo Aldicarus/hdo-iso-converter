@@ -134,6 +134,10 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 ### Paso 2 — Configurar y ejecutar
 - El análisis (Fases A+B) se ejecuta al crear el proyecto y produce configuración inicial.
 - El usuario revisa y ajusta en el panel de proyecto (sub-tab).
+- **Tarjetas informativas del disco (v2.8+, solo lectura)**: bajo el nombre del MKV hay dos tarjetas que describen lo que el análisis encontró — **Dolby Vision** (FEL / MEL / Perfil N / dual-layer sin confirmar / sin DV, con perfil, CM version, niveles y escenas) y **Vídeo · HDR** (codec, resolución, bitrate real, HDR10 MaxCLL/MaxFALL, primaries/transfer/bit depth, master display). Un chip muestra el tag que se añadirá al nombre (`[DV FEL]`), y otro bajo el input avisa de dónde sale `[Audio DCP]` (del nombre del ISO).
+  - **Sustituyen a los antiguos toggles FEL y Audio DCP**, que confundían a los usuarios: no cambiaban el contenido del MKV, solo los tags del nombre — se podía renombrar un disco MEL como FEL. `has_fel` y `audio_dcp` ya no se aceptan en `PUT /api/sessions/{id}`; son resultado del análisis (dovi_tool / nombre del ISO). El escape ante una detección errónea es editar el nombre del MKV, que sigue siendo editable (`mkv_name_manual`).
+  - **Estado "dual-layer sin confirmar"**: `_detect_fel` solo sabe si HAY Enhancement Layer y asume FEL; quien distingue FEL de MEL es `dovi_tool` en `enrich_dovi`, paso opcional que puede fallar. Cuando no hay `dovi` en la pista BL, la tarjeta lo dice en vez de afirmar FEL.
+  - La construcción del nombre del MKV vive **solo en el backend** — con los toggles desapareció `recalcMkvNameLocal` (la réplica de las reglas de naming en `app.js`).
 - **Botón "🔬 Datos ISO"**: junto a la phase strip, abre modal con datos de diagnóstico en 3 secciones: mkvmerge -J raw, post-heurística, resultado de reglas.
 - Hasta 5 proyectos abiertos simultáneamente en sub-tabs.
 - **Botón de ejecutar adaptativo**: "▶️ Confirmar y ejecutar" (pending), "↻ Re-ejecutar" (done), "⏳ En ejecución…" (running/queued, deshabilitado).
