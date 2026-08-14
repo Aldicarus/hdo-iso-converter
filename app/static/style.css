@@ -4466,6 +4466,17 @@ select { appearance: none; cursor: pointer;
   background: rgba(142, 142, 147, 0.08);
   border-color: rgba(142, 142, 147, 0.35);
 }
+/* Viable con avisos / "Not Sure!" del sheet */
+.cmv40-rec-banner.caveats {
+  background: rgba(255, 149, 0, 0.08);
+  border-color: rgba(255, 149, 0, 0.45);
+}
+/* "No convertible a P8.1": informativo, NO un rechazo — esta app preserva
+   el FEL, así que ese impedimento del sheet no afecta al resultado. */
+.cmv40-rec-banner.p8only {
+  background: rgba(0, 122, 255, 0.07);
+  border-color: rgba(0, 122, 255, 0.30);
+}
 /* Cabecera en UNA línea: badge de estado + separador + título del match + meta */
 .cmv40-rec-top {
   display: flex;
@@ -4503,6 +4514,16 @@ select { appearance: none; cursor: pointer;
   color: #4a4a4f;
   border: 1px solid rgba(142, 142, 147, 0.45);
 }
+.cmv40-rec-status-badge.caveats {
+  background: rgba(255, 149, 0, 0.20);
+  color: #8a4a00;
+  border: 1px solid rgba(255, 149, 0, 0.45);
+}
+.cmv40-rec-status-badge.p8only {
+  background: rgba(0, 122, 255, 0.16);
+  color: #00459e;
+  border: 1px solid rgba(0, 122, 255, 0.38);
+}
 .cmv40-rec-icon { font-size: 14px; line-height: 1; }
 .cmv40-rec-status-label { font-size: 11px; }
 .cmv40-rec-match-sep {
@@ -4524,6 +4545,51 @@ select { appearance: none; cursor: pointer;
   text-decoration: none;
 }
 .cmv40-rec-match-title.linked:hover { text-decoration: underline; }
+
+/* ── Veredicto: explicación + bloque por sección del sheet ──────── */
+.cmv40-rec-verdict-detail {
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+/* Un bloque por cada sección donde aparece el título. Cuando el título está
+   en varias, se muestran todas en vez de colapsarlas en un veredicto único. */
+.cmv40-rec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+}
+/* Fila cuyo motivo no afecta a este flujo: atenuada, no eliminada — el dato
+   sigue siendo consultable pero deja de leerse como un rechazo. */
+.cmv40-rec-section.na { opacity: 0.72; }
+.cmv40-rec-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cmv40-rec-na-chip {
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(0, 122, 255, 0.14);
+  border: 1px solid rgba(0, 122, 255, 0.28);
+  color: #00459e;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cmv40-rec-blocker {
+  font-size: 11px;
+  color: var(--text-3);
+  padding-left: 2px;
+}
 
 /* ── Tabla key-value de la factibilidad ─────────────────────────── */
 .cmv40-rec-table {

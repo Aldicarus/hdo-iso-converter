@@ -494,8 +494,25 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 - Prioridad de fetch: **Sheets API v4 (Google key)** → **XLSX + openpyxl (rich-text hyperlinks)** → gviz HTML → CSV export → disk cache
 - XLSX + openpyxl es la única vía que preserva los rich-text hyperlinks incrustados manualmente en celdas
 - Extracción de URLs: primero `cell.hyperlink.target`, fallback a regex sobre texto plano
-- Parseo de 3 secciones: cols 0-4 (no factible), 6-11 (factible), 13-18 ("Not Sure! / probably ok")
+- Parseo de 3 secciones: cols 0-4 (no factible), 6-11 (factible), 13-18 ("Not Sure! / probably ok"). Cada fila lleva `section` (`infeasible`/`feasible`/`probably_ok`) — el consumidor NECESITA saber de qué bloque viene
 - Sheet ID + GID hardcodeados a la hoja de DoviTools (variables de entorno para override)
+
+#### Semántica del veredicto — el sheet NO responde nuestra pregunta
+
+La columna izquierda evalúa si el disco se puede **convertir a P8.1 single-layer** (objetivo mayoritario de la comunidad), NO si se le puede añadir CMv4.0. Medido sobre la hoja real (828 filas, 792 títulos): **219 de las 326 filas no-factibles** tienen el motivo `can only be played on a FEL device and can't be converted to P8 without baking FEL into BL`, que **no aplica a esta app** — el workflow `p7_fel` es "demux + merge CMv4.0 + preserva FEL" y el EL solo se descarta en `p7_mel` (donde está vacío). A nivel de título: 190 de 291.
+
+Además **32 títulos están en dos secciones a la vez** con veredictos opuestos (izquierda: "no convertible a P8"; derecha: "cmv4.0 bloc can be restored to the P7 RPU (workflow 2-3)" ← literalmente lo que hacemos). Caso de referencia: **Obsession 2026**.
+
+Consecuencias en el código (`services/cmv40_recommend.py`):
+- `classify_blockers(notes)` → lista de motivos (`p8_only`, `static_dv`, `grading`, `no_bd`, `other`, `unspecified`). Devuelve TODAS las categorías que matcheen, no la primera: una nota puede mezclar el tema P8 con un problema real. `blockers_apply_to_fel_workflow()` descarta solo `p8_only`.
+- `_matching_rows()` recoge **todas** las filas del título (factibles primero) y `recommend()` las devuelve en `rows[]`. `_best_match` prefiere la factible **en empate** — antes ganaba la primera emitida por el parser, que es siempre la izquierda: 31 de los 32 duplicados mostraban ❌ falso.
+- `_build_verdict()` produce 5 estados: `recommended` (verde) · `caveats` (ámbar: avisos relevantes o sección "Not Sure!") · `p8_only_note` (azul informativo, NO rechazo) · `not_feasible` (rojo: `static_dv`/`grading`/…) · `unknown`.
+- Los campos planos del result (`dv_source`, `sync_offset`, `notes`…) vienen de la **fila primaria** = la factible si existe (la izquierda no trae `sync_offset`).
+- **Persistencia**: `CMv40Session.sheet_recommendation` se rellena al crear el proyecto (`_cmv40_hydrate_sheet_recommendation`, background best-effort) y con `POST /api/cmv40/{id}/refresh-sheet` para proyectos previos. Antes el veredicto solo existía en el modal de creación y se perdía justo antes de Fase D.
+- **Fase D contrasta offsets**: `sheet_sync_hint()` (en `phases/cmv40_pipeline.py`, junto a `detect_sync_offset`) compara el desfase documentado con el detectado por cross-correlation → `agrees` (±2 frames), `sign_flipped` (misma magnitud, signo contrario) o divergencia con aviso. Se expone en `GET /api/cmv40/{id}/sync-data` como `sheet_sync`.
+- Cubierto por `test_cmv40_sheet_verdict.py` (32 tests, incluye end-to-end con el parser CSV real).
+
+**Sheet y bins del Drive son rutas independientes**: `/api/cmv40/recommend` (sheet) y `/api/cmv40/repo-rpus` (Drive) no se consultan entre sí y usan matchers con umbrales distintos (sheet 0.72/0.82/0.88 · drive 0.65/0.78). El veredicto no filtra bins ni el bin cambia el veredicto — se pintan juntos en el modal. Composición medida del repo: 1857 `.bin` → 473 `trusted_p7_fel_final`, 360 `trusted_p8_source`, 114 `trusted_p7_mel_final`, 567 `unknown`, 343 artefactos; 254 retail / 688 generated.
 
 ### Drive DoviTools
 - Listado recursivo de `.bin` con Drive API v3 + paginación (profundidad máx 5)

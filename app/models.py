@@ -1277,6 +1277,14 @@ class CMv40Session(BaseModel):
     """Info extendida de TMDb (poster, sinopsis, géneros, rating…) si
     hubo match. Dict libre para flexibilidad — estructura en services/tmdb.py."""
 
+    sheet_recommendation: dict | None = None
+    """Veredicto de la hoja de DoviTools capturado al crear el proyecto
+    (`CMv40RecommendationResult` serializado). Antes solo existía en el modal
+    de creación y se perdía al crear el proyecto — con lo que los avisos
+    útiles ("different grade", "do not use itunes!!!", el offset conocido y
+    los links de comparaciones) desaparecían justo antes de Fase D, que es
+    donde hacen falta. Dict libre: estructura en services/cmv40_recommend.py."""
+
     # ── Clasificación del RPU target (integración DoviTools bins) ──
     target_type: str = "generic"
     """Clasificación del target RPU tras `_analyze_target_rpu`. Valores:

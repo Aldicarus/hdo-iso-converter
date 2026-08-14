@@ -4065,6 +4065,61 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
     }
 
 
+# Tolerancia al comparar el offset del sheet con el detectado: el dato del
+# sheet lo mide la comunidad sobre su propio rip y un par de frames de
+# diferencia no invalida la coincidencia.
+SHEET_OFFSET_TOLERANCE = 2
+
+
+def sheet_sync_hint(session: CMv40Session, suggested: dict | None) -> dict | None:
+    """Contrasta el offset documentado en la hoja de DoviTools con el que
+    la cross-correlation acaba de detectar.
+
+    Son dos medidas independientes del mismo desfase: si coinciden, es una
+    confirmación fuerte de que el bin es el correcto y está bien alineado;
+    si divergen, algo no cuadra (bin de otra edición, corte distinto) y
+    conviene revisar el chart a mano antes de inyectar.
+
+    Devuelve None si el sheet no aporta offset para este título.
+    """
+    rec = session.sheet_recommendation or {}
+    if not rec:
+        return None
+
+    # El offset vive en la fila factible (la sección izquierda no lo trae).
+    frames: int | None = rec.get("sync_offset_frames")
+    text: str = rec.get("sync_offset") or ""
+    if frames is None:
+        for row in rec.get("rows") or []:
+            if row.get("sync_offset_frames") is not None:
+                frames = row["sync_offset_frames"]
+                text = row.get("sync_offset") or text
+                break
+    if frames is None:
+        return None
+
+    out = {
+        "sheet_offset": frames,
+        "sheet_offset_text": text,
+        "match_title": rec.get("match_title", ""),
+        "detected_offset": None,
+        "agrees": None,
+        "delta": None,
+        "sign_flipped": False,
+    }
+    detected = (suggested or {}).get("offset")
+    if isinstance(detected, int):
+        out["detected_offset"] = detected
+        out["delta"] = detected - frames
+        out["agrees"] = abs(out["delta"]) <= SHEET_OFFSET_TOLERANCE
+        # Misma magnitud, signo contrario: la comunidad anota el desfase en
+        # el sentido inverso en algunas filas. Distinguirlo evita leer como
+        # "no cuadra" lo que en realidad es el mismo desfase.
+        if not out["agrees"] and frames != 0:
+            out["sign_flipped"] = abs(detected + frames) <= SHEET_OFFSET_TOLERANCE
+    return out
+
+
 def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
     """
     Detecta el offset de frames entre source y target por cross-correlation

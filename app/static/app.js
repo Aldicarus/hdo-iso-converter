@@ -2310,14 +2310,17 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Tamaño aproximado:</strong> varios cientos de títulos catalogados distribuidos en las 3 secciones (ver abajo). Crece en tiempo real.
     </div>
 
-    <h2 id="s-structure">📋 Estructura del sheet — tres clasificaciones</h2>
-    <p>Cada película se clasifica en <strong>una de tres categorías</strong> según el estado de viabilidad del upgrade:</p>
+    <h2 id="s-structure">📋 Estructura del sheet — tres bloques de columnas</h2>
+    <p>La hoja tiene tres bloques de columnas, y un mismo título puede aparecer en <strong>varios a la vez</strong>: no es una contradicción, cada bloque documenta una <em>ruta distinta</em>.</p>
     <table>
-      <tr><th>Categoría</th><th>Qué significa</th><th>Qué hace la app al detectarla</th></tr>
-      <tr><td><strong>No factible</strong></td><td>El upgrade <em>no funciona</em> limpiamente para esta película: no existe bin CMv4.0 público, o el master de referencia tiene un corte incompatible con el Blu-ray, o hay problemas técnicos documentados.</td><td>Banner rojo. La app desaconseja crear el proyecto.</td></tr>
-      <tr><td><strong>Factible</strong></td><td>Upgrade <em>verificado</em> por la comunidad: bin disponible y probado, desfase de frames conocido, comparaciones HDR OK.</td><td>Banner verde. Adelante con el proyecto, normalmente en modo automático.</td></tr>
-      <tr><td><strong>Probably OK / Not Sure</strong></td><td>Caso <em>con incertidumbre</em>: bin disponible pero sin verificación completa, o hay reportes contradictorios en la comunidad.</td><td>Banner ámbar. La app recomienda revisión visual manual aunque los gates automáticos pasen.</td></tr>
+      <tr><th>Bloque</th><th>Qué evalúa realmente</th><th>Qué hace la app</th></tr>
+      <tr><td><strong>Izquierda — "no factible"</strong></td><td>Si el disco se puede <strong>convertir a P8.1 single-layer</strong>, que es el objetivo mayoritario de la comunidad (fichero más ligero, reproducible en cualquier dispositivo DV). El motivo dominante — <em>"can only be played on a FEL device and can't be converted to P8 without baking FEL into BL"</em>, dos tercios de las filas del bloque — significa que el FEL lleva información de imagen real y aplanarlo exigiría re-codificar el vídeo.</td><td>Banner azul informativo <strong>"No convertible a P8.1"</strong> con el chip <em>no aplica a este flujo</em>. Esta app nunca aplana a P8: el workflow <code>p7_fel</code> preserva la capa de mejora, así que ese impedimento no afecta al resultado. No desaconseja nada.</td></tr>
+      <tr><td><strong>Derecha — "factible"</strong></td><td>Si el <strong>bloque CMv4.0 se puede restaurar sobre el RPU P7</strong> del disco (la nota típica es <em>"cmv4.0 bloc can be restored to the P7 RPU (workflow 2-3)"</em>). Esto es exactamente lo que hace esta app.</td><td>Banner verde <strong>Factible</strong>: ruta verificada por la comunidad, con desfase de frames conocido y comparaciones HDR.</td></tr>
+      <tr><td><strong>Derecha extra — "Not Sure!"</strong></td><td>Bin disponible pero <em>sin verificación completa</em>, o reportes contradictorios.</td><td>Banner ámbar <strong>Probablemente OK</strong>: conviene revisar la sincronización a mano aunque los <em>trust gates</em> pasen.</td></tr>
     </table>
+    <div class="help-callout help-callout-info">
+      <strong>Por qué importa la distinción:</strong> si un título está en la izquierda y en la derecha, la app se queda con la lectura de la derecha y muestra <em>todas</em> las filas, cada una con su bloque de origen. Antes colapsaba las dos en un único veredicto y ganaba siempre la de la izquierda, así que salía un ❌ rojo aunque la hoja documentara la ruta de restore. Los motivos que sí bajan el semáforo son los que afectan al resultado: <code>static dv</code> (metadata plana en la fuente), <code>mdl mismatch</code> / <code>different grade</code> (el master de referencia tiene otro grading) y <code>no bd yet</code>.
+    </div>
 
     <h2 id="s-columns">🗂️ Cómo leer cada columna</h2>
     <p>La app te muestra estos campos cuando el sheet tiene información de tu película:</p>
@@ -2330,13 +2333,14 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td><strong>Notas</strong></td><td>Observaciones libres del autor: avisos, consejos, detalles críticos.</td><td>"Use iTunes rip", "BD has extra logos", "FEL preserved OK"</td></tr>
     </table>
     <div class="help-callout help-callout-warning">
-      <strong>Cómo interpretar el desfase:</strong> si el sheet dice <code>+48</code>, significa que el bin viene con 48 frames extra al inicio (normalmente logos de estudio que el Blu-ray no tiene). La app lo arregla automáticamente — o te avisa en la revisión visual para confirmes el ajuste.
+      <strong>Cómo interpretar el desfase:</strong> si el sheet dice <code>+48</code>, significa que el bin viene con 48 frames extra al inicio (normalmente logos de estudio que el Blu-ray no tiene). En la Fase D la app <strong>contrasta ese dato con el desfase que mide ella misma</strong> por cross-correlation: si coinciden (±2 frames) aparece una confirmación verde — dos medidas independientes de acuerdo es la mejor señal de que el bin es el correcto; si divergen, un aviso ámbar te pide revisar el gráfico antes de inyectar, porque suele indicar un bin de otra edición o de otro corte. La corrección la sigues aplicando tú desde la Fase D.
     </div>
 
     <h2 id="s-hyperlinks">🔗 Enlaces del sheet</h2>
     <p>Muchas celdas llevan enlaces incrustados a recursos externos: el bin en Google Drive, imágenes comparativas, hilos de foro con pruebas, tutoriales específicos. La app los preserva y te los muestra con un botón "Abrir ↗" en:</p>
     <ul>
       <li>El <strong>banner de recomendación</strong> que aparece al seleccionar un Blu-ray en "Nuevo proyecto".</li>
+      <li>La card <strong>"📋 Hoja de DoviTools"</strong> del panel del proyecto, que conserva el veredicto durante todo el pipeline.</li>
       <li>La <strong>consulta rápida <code>🔎</code></strong> del header — para revisar un título sin crear proyecto.</li>
     </ul>
 
@@ -2344,7 +2348,9 @@ const _CMV40_HELP_SECTIONS = {
     <ol>
       <li>Al seleccionar el Blu-ray origen en "Nuevo proyecto", la app extrae el título y año del nombre del fichero.</li>
       <li>Si has configurado una API key de TMDb en <strong>⚙︎ Configuración</strong>, la app contrasta el título con TMDb — así desambigua cine no-ASCII (cine asiático, títulos en otros idiomas) y confirma el año.</li>
-      <li>Te muestra el banner de recomendación: verde / ámbar / rojo según la categoría, con los detalles de la columna correspondiente y los enlaces a los recursos.</li>
+      <li>Te muestra el veredicto <strong>traducido a lo que hace esta app</strong> (que preserva el FEL): verde <em>Factible</em>, ámbar <em>Viable con avisos</em> / <em>Probablemente OK</em>, azul <em>No convertible a P8.1</em> (informativo) o rojo <em>No recomendado</em>. Si el título aparece en varios bloques del sheet, se listan todos con su bloque de origen.</li>
+      <li>Al crear el proyecto el veredicto <strong>se guarda con él</strong>, así que los avisos, el desfase documentado y los enlaces siguen a mano en la Fase D — que es donde hacen falta. El botón "↻ Actualizar" de la card lo vuelve a consultar.</li>
+      <li>En la <strong>Fase D</strong> el desfase del sheet se compara con el que mide la app; coincidencia = confirmación, divergencia = aviso.</li>
     </ol>
 
     <h3>Cómo ajusta la sensibilidad del match</h3>
@@ -13207,20 +13213,84 @@ function _cmv40TableRow(key, value, link, opts = {}) {
     </div>`;
 }
 
+// Etiqueta de cada bloque de columnas del sheet. La izquierda ("infeasible")
+// NO significa "no se puede añadir CMv4.0": evalúa la conversión a P8.1
+// single-layer, que es el objetivo de la comunidad pero no el de esta app.
+const CMV40_SHEET_SECTION_LABEL = {
+  feasible:    { icon: '✅', text: 'Ruta verificada — restore del bloque CMv4.0 sobre el RPU' },
+  probably_ok: { icon: '⚠️', text: 'Sección "Not Sure!" — viable pero sin verificación completa' },
+  infeasible:  { icon: 'ℹ️', text: 'Ruta de conversión a P8.1 single-layer' },
+};
+
+/** Tabla de campos de una fila del sheet (fuente · sync · verif. · notas). */
+function _cmv40SheetRowTable(row) {
+  const notesKey = row.feasible === false ? 'notes_motivo' : 'notes';
+  const cells = [
+    _cmv40TableRow('dv_source',     row.dv_source,     row.dv_source_link),
+    _cmv40TableRow('sync',          row.sync_offset,   row.sync_link),
+    _cmv40TableRow('comparisons',   row.comparisons,   row.comparisons_link),
+    _cmv40TableRow('comparisons_2', row.comparisons_2, row.comparisons_2_link),
+    _cmv40TableRow(notesKey,        row.notes,         row.notes_link),
+  ].filter(Boolean);
+  return cells.length ? `<div class="cmv40-rec-table">${cells.join('')}</div>` : '';
+}
+
+/**
+ * Bloque de una fila cuando el título aparece en varias secciones: cabecera
+ * con la sección de origen + tabla. Las filas cuyo motivo no aplica a este
+ * flujo (el caso P8) se atenúan y llevan chip explicativo, en vez de
+ * presentarse como un rechazo.
+ */
+function _cmv40RenderSheetRowBlock(row) {
+  const meta = CMV40_SHEET_SECTION_LABEL[row.section]
+            || CMV40_SHEET_SECTION_LABEL.feasible;
+  const notApplicable = row.feasible === false && row.applies_to_our_workflow === false;
+  const chip = notApplicable
+    ? `<span class="cmv40-rec-na-chip" data-tooltip="Esta app preserva el FEL del disco: nunca aplana a P8.1, así que este impedimento no afecta al resultado.">no aplica a este flujo</span>`
+    : '';
+  const labels = (row.blocker_labels || [])
+    .filter(l => !notApplicable || (row.blocker_labels || []).length > 1)
+    .map(l => `<div class="cmv40-rec-blocker">· ${escHtml(l)}</div>`).join('');
+  return `
+    <div class="cmv40-rec-section${notApplicable ? ' na' : ''}">
+      <div class="cmv40-rec-section-head">
+        <span>${meta.icon}</span><span>${escHtml(meta.text)}</span>${chip}
+      </div>
+      ${labels}
+      ${_cmv40SheetRowTable(row)}
+    </div>`;
+}
+
+// Estados del veredicto del sheet, traducidos al flujo de ESTA app (que
+// preserva el FEL del disco). El backend los calcula en
+// cmv40_recommend._build_verdict; aquí solo se pintan.
+//
+//   recommended  ✅ verde  — el sheet documenta la ruta de restore CMv4.0
+//   caveats      ⚠️ ámbar  — viable, pero con avisos que sí nos afectan
+//                            (o fila de la sección "Not Sure!")
+//   p8_only_note ℹ️ azul   — lo único que impide el sheet es aplanar a P8.1,
+//                            que esta app no hace: NO es un rechazo
+//   not_feasible ❌ rojo   — motivos que comprometen el resultado
+//   unknown      ❓ gris   — el título no está en la hoja
+const CMV40_VERDICT_STYLE = {
+  recommended:  { cls: 'ok',       icon: '✅', label: 'Factible' },
+  caveats:      { cls: 'caveats',  icon: '⚠️', label: 'Viable con avisos' },
+  p8_only_note: { cls: 'p8only',   icon: 'ℹ️', label: 'No convertible a P8.1' },
+  not_feasible: { cls: 'ko',       icon: '❌', label: 'No recomendado' },
+  unknown:      { cls: 'unknown',  icon: '❓', label: 'Sin datos' },
+};
+
 function _cmv40RenderRecommendation(data, containerId) {
   const banner = document.getElementById(containerId || 'cmv40-recommendation-banner');
   if (!banner) return;
   banner.style.display = 'block';
   const status = data.status || 'unknown';
-  const cls = status === 'recommended' ? 'ok'
-            : status === 'not_feasible' ? 'ko'
-            : 'unknown';
-  const icon = status === 'recommended' ? '✅'
-             : status === 'not_feasible' ? '❌'
-             : '❓';
-  const statusLabel = status === 'recommended' ? 'Factible'
-                    : status === 'not_feasible' ? 'No factible'
-                    : 'Sin datos';
+  const style = CMV40_VERDICT_STYLE[status] || CMV40_VERDICT_STYLE.unknown;
+  const cls = style.cls;
+  const icon = style.icon;
+  // El backend manda la etiqueta ya redactada (verdict_label); el mapa local
+  // es el fallback para respuestas viejas cacheadas.
+  const statusLabel = data.verdict_label || style.label;
   banner.className = 'cmv40-rec-banner ' + cls;
 
   const matchTitleHtml = data.match_title
@@ -13251,21 +13321,33 @@ function _cmv40RenderRecommendation(data, containerId) {
       ${metaHtml}
     </div>`;
 
-  if (status === 'recommended' || status === 'not_feasible') {
-    const notesKey = status === 'not_feasible' ? 'notes_motivo' : 'notes';
-    // Etiqueta dinámica para "motivo" en caso no_feasible — reusa meta de 'notes'
+  // Explicación del veredicto en una línea (la redacta el backend según la
+  // combinación de filas encontradas).
+  if (data.verdict_detail) {
+    html += `<div class="cmv40-rec-verdict-detail">${escHtml(data.verdict_detail)}</div>`;
+  }
+
+  if (status !== 'unknown') {
+    // Etiqueta dinámica para "motivo" en filas no factibles — reusa meta de 'notes'
     if (!CMV40_CHIP_META.notes_motivo) {
       CMV40_CHIP_META.notes_motivo = { ...CMV40_CHIP_META.notes, label: 'Motivo' };
     }
-    const rows = [
-      _cmv40TableRow('dv_source',     data.dv_source,     data.dv_source_link),
-      _cmv40TableRow('sync',          data.sync_offset,   data.sync_link),
-      _cmv40TableRow('comparisons',   data.comparisons,   data.comparisons_link),
-      _cmv40TableRow('comparisons_2', data.comparisons_2, data.comparisons_2_link),
-      _cmv40TableRow(notesKey,        data.notes,         data.notes_link),
-    ].filter(Boolean);
-    if (rows.length) {
-      html += `<div class="cmv40-rec-table">${rows.join('')}</div>`;
+    const sheetRows = Array.isArray(data.rows) ? data.rows : [];
+    if (sheetRows.length > 1) {
+      // El mismo título catalogado en varias secciones: se muestran TODAS.
+      // Antes se colapsaban en una y ganaba sistemáticamente la de "no
+      // factible", que suele hablar solo de la conversión a P8.1.
+      html += sheetRows.map(_cmv40RenderSheetRowBlock).join('');
+    } else {
+      const row = sheetRows[0] || null;
+      html += _cmv40SheetRowTable(row || {
+        feasible: data.feasible,
+        dv_source: data.dv_source, dv_source_link: data.dv_source_link,
+        sync_offset: data.sync_offset, sync_link: data.sync_link,
+        comparisons: data.comparisons, comparisons_link: data.comparisons_link,
+        comparisons_2: data.comparisons_2, comparisons_2_link: data.comparisons_2_link,
+        notes: data.notes, notes_link: data.notes_link,
+      });
     }
   } else {
     html += `<div class="cmv40-rec-body">
@@ -15303,6 +15385,7 @@ function _renderCMv40Info(s, pid) {
         </div>
       </div>
     </div>
+    ${_renderCMv40SheetCard(s, pid)}
     ${_renderCMv40RecommendationCard(s, pid)}`;
 
   // Si aún no tenemos tmdb_info, intentamos hidratarlo (puede haber fallado la
@@ -15311,6 +15394,53 @@ function _renderCMv40Info(s, pid) {
     if (project) project._tmdbLookupTried = true;
     _cmv40HydrateTmdbClient(pid);
   }
+
+  // Veredicto del sheet: se pinta en el slot recién creado (el banner usa
+  // innerHTML sobre un contenedor, no se puede devolver como string).
+  if (s.sheet_recommendation) {
+    _cmv40RenderRecommendation(s.sheet_recommendation, `cmv40-sheet-banner-${pid}`);
+  } else if (!project?._sheetLookupTried) {
+    // Proyectos creados antes de que el veredicto se persistiera: se pide
+    // una vez por apertura y el polling lo recoge.
+    if (project) project._sheetLookupTried = true;
+    _cmv40HydrateSheetClient(pid);
+  }
+}
+
+/**
+ * Card "📋 Hoja de DoviTools" del panel del proyecto. Mantiene el veredicto,
+ * los avisos y el offset conocido visibles durante todo el pipeline — antes
+ * solo existían en el modal de creación y se perdían justo antes de Fase D,
+ * que es donde hacen falta.
+ */
+function _renderCMv40SheetCard(s, pid) {
+  if (!s.sheet_recommendation) return '';
+  return `
+    <div class="section-card" style="margin-top:12px">
+      <div class="section-header">
+        <span class="section-icon">📋</span>
+        <div>
+          <div class="section-title">Hoja de DoviTools</div>
+          <div class="section-subtitle">Lo que la comunidad ha documentado sobre este título</div>
+        </div>
+        <button class="btn btn-ghost btn-xs" onclick="_cmv40HydrateSheetClient('${pid}')"
+          data-tooltip="Vuelve a consultar la hoja (la caché dura 1 h)"
+          style="margin-left:auto; color:var(--text-2)">↻ Actualizar</button>
+      </div>
+      <div style="padding:0 16px 14px">
+        <div id="cmv40-sheet-banner-${pid}" class="cmv40-rec-banner"></div>
+      </div>
+    </div>`;
+}
+
+/** Pide al backend el veredicto del sheet para un proyecto ya creado. */
+async function _cmv40HydrateSheetClient(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/refresh-sheet`, { method: 'POST' });
+  if (!data?.sheet_recommendation) return;
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project?.session) return;
+  project.session.sheet_recommendation = data.sheet_recommendation;
+  if (activeCMv40SubTabId === pid) _renderCMv40Info(project.session, pid);
 }
 
 /**
@@ -17633,7 +17763,56 @@ function _renderCMv40SyncStats(project) {
         <span class="banner-icon">🔍</span>
         <span>Offset detectado automáticamente: <b>${suggested.offset > 0 ? '+' : ''}${suggested.offset} frames</b></span>
       </div>` : ''}
+    ${_cmv40SheetSyncBannerHTML(d.sheet_sync)}
   `;
+}
+
+/**
+ * Contraste entre el offset documentado en la hoja de DoviTools y el que
+ * acaba de medir la cross-correlation. Son dos medidas independientes del
+ * mismo desfase: coincidir es confirmación fuerte de que el bin es el
+ * correcto; divergir es la señal más temprana de que el bin corresponde a
+ * otra edición o a otro corte.
+ */
+function _cmv40SheetSyncBannerHTML(sheetSync) {
+  if (!sheetSync || sheetSync.sheet_offset === null
+      || sheetSync.sheet_offset === undefined) return '';
+  const sheetVal = sheetSync.sheet_offset;
+  const sign = v => (v > 0 ? '+' : '') + v;
+  const sheetTxt = sheetSync.sheet_offset_text
+    ? `<b>${escHtml(sheetSync.sheet_offset_text)}</b>`
+    : `<b>${sign(sheetVal)} frames</b>`;
+  const src = sheetSync.match_title
+    ? ` (fila «${escHtml(sheetSync.match_title)}»)` : '';
+
+  if (sheetSync.agrees === true) {
+    return `<div class="banner success" style="margin-top:8px">
+      <span class="banner-icon">✅</span>
+      <span>La hoja de DoviTools documenta el mismo desfase ${sheetTxt}${src} —
+        confirmación independiente de que el bin está bien alineado.</span>
+    </div>`;
+  }
+  if (sheetSync.agrees === false && sheetSync.sign_flipped) {
+    return `<div class="banner info" style="margin-top:8px">
+      <span class="banner-icon">↔️</span>
+      <span>La hoja documenta ${sheetTxt}${src}: misma magnitud que el detectado
+        (${sign(sheetSync.detected_offset)}) pero con el signo al revés. Suele ser
+        la convención de la fila, no un desajuste — comprueba el chart.</span>
+    </div>`;
+  }
+  if (sheetSync.agrees === false) {
+    return `<div class="banner warning" style="margin-top:8px">
+      <span class="banner-icon">⚠️</span>
+      <span>La hoja documenta ${sheetTxt}${src} pero aquí se ha detectado
+        <b>${sign(sheetSync.detected_offset)} frames</b> (Δ ${sign(sheetSync.delta)}).
+        Revisa el gráfico antes de inyectar: puede ser un bin de otra edición.</span>
+    </div>`;
+  }
+  // Sin offset detectado con el que comparar (aún no hay per-frame data).
+  return `<div class="banner info" style="margin-top:8px">
+    <span class="banner-icon">📋</span>
+    <span>La hoja de DoviTools documenta un desfase de ${sheetTxt}${src} para este título.</span>
+  </div>`;
 }
 
 function _renderCMv40Confidence(project) {

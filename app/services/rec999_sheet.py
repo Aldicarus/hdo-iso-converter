@@ -78,8 +78,21 @@ _NON_MOVIE_MARKERS = (
 
 
 class RecommendationRow(BaseModel):
-    """Una fila parseada del sheet."""
+    """Una fila parseada del sheet.
+
+    Un mismo título puede aparecer en VARIAS secciones con veredictos
+    distintos — no es una contradicción del sheet, son rutas distintas:
+    la izquierda evalúa la conversión a P8.1 single-layer y la derecha el
+    restore del bloque CMv4.0 sobre el RPU P7. Caso real: Obsession está
+    en izquierda ("can only be played on a FEL device, can't be converted
+    to P8") y en derecha ("cmv4.0 bloc can be restored to the P7 RPU").
+    Por eso `section` se conserva: el consumidor necesita saber de qué
+    bloque viene cada fila para decidir qué aplica a su flujo.
+    """
     feasible: bool
+    section: str = "feasible"
+    """Bloque de origen: 'infeasible' (cols 0-4) · 'feasible' (6-11) ·
+    'probably_ok' (13-18, la sección "Not Sure!" — factible con reservas)."""
     title_raw: str
     title_normalized: str
     year: int | None = None
@@ -197,6 +210,7 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
     if left_title and _extract_year(left_title) and not _is_instructional(left_title):
         out.append(RecommendationRow(
             feasible=False,
+            section="infeasible",
             title_raw=left_title,
             title_link=left["link"],
             title_normalized=_normalize_title(left_title),
@@ -219,6 +233,7 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
         sync_text = col(7)["text"]
         out.append(RecommendationRow(
             feasible=True,
+            section="feasible",
             title_raw=right_title,
             title_link=right["link"],
             title_normalized=_normalize_title(right_title),
@@ -251,6 +266,7 @@ def _parse_row(row: list[dict]) -> list[RecommendationRow]:
         # cols: 13=title, 14=sync, 15=dv_source, 16+17=comparisons (2 sub-cols), 18=notes
         out.append(RecommendationRow(
             feasible=True,
+            section="probably_ok",
             title_raw=extra_title,
             title_link=extra["link"],
             title_normalized=_normalize_title(extra_title),

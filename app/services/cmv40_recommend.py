@@ -61,9 +61,112 @@ def _tokens(slug: str) -> list[str]:
     return [_ROMAN_MAP.get(t, t) for t in toks]
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  CLASIFICACIÓN DE MOTIVOS DE NO-FACTIBILIDAD
+#
+#  La columna izquierda del sheet evalúa la conversión del disco a **P8.1
+#  single-layer**, que es el objetivo mayoritario de la comunidad. Esta app
+#  hace lo contrario: preserva el FEL (workflow `p7_fel` = "demux + merge
+#  CMv4.0 + preserva FEL"; el EL solo se descarta en `p7_mel`, donde está
+#  vacío). Por eso el motivo más frecuente del sheet — 219 de 326 filas
+#  no-factibles, medido sobre la hoja real — NO nos aplica.
+#
+#  Clasificar el motivo permite distinguir "esto no va a funcionar" de
+#  "esto no funciona para una ruta que no usamos".
+# ══════════════════════════════════════════════════════════════════════
+
+BLOCKER_P8_ONLY   = "p8_only"
+BLOCKER_STATIC_DV = "static_dv"
+BLOCKER_GRADING   = "grading"
+BLOCKER_NO_BD     = "no_bd"
+BLOCKER_OTHER     = "other"
+BLOCKER_UNSPEC    = "unspecified"
+
+# Orden irrelevante: se devuelven TODAS las clasificaciones que matcheen.
+# Una nota puede mezclar motivos ("static dv + non-cropped rpu l5") y
+# perder el relevante por quedarnos con el primero sería el mismo error
+# que colapsar las dos filas del sheet en un veredicto único.
+_BLOCKER_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"can'?t be converted to p8|only be played on a fel"
+                r"|baking fel|bake fel", re.I), BLOCKER_P8_ONLY),
+    (re.compile(r"static", re.I), BLOCKER_STATIC_DV),
+    (re.compile(r"mdl mismatch|different grade|not the same grade"
+                r"|brighter|shots are different", re.I), BLOCKER_GRADING),
+    (re.compile(r"no bd yet", re.I), BLOCKER_NO_BD),
+]
+
+BLOCKER_LABELS: dict[str, str] = {
+    BLOCKER_P8_ONLY: "Solo afecta a la conversión a P8.1 — esta app preserva el FEL",
+    BLOCKER_STATIC_DV: "Metadata DV estática en la fuente — el upgrade puede no aportar",
+    BLOCKER_GRADING: "El master de referencia tiene otro grading (MDL / brillo / cortes)",
+    BLOCKER_NO_BD: "Aún no hay Blu-ray — la fila documenta solo la fuente streaming",
+    BLOCKER_OTHER: "Motivo específico — ver la nota del sheet",
+    BLOCKER_UNSPEC: "El sheet no indica el motivo",
+}
+
+
+def classify_blockers(notes: str) -> list[str]:
+    """Clasifica el motivo de no-factibilidad de una fila del sheet.
+
+    Devuelve TODAS las categorías detectadas (una nota puede mezclar
+    varias). Lista vacía nunca: sin texto → ['unspecified'], con texto no
+    reconocido → ['other'].
+    """
+    text = (notes or "").strip()
+    if not text:
+        return [BLOCKER_UNSPEC]
+    found = [tag for pat, tag in _BLOCKER_PATTERNS if pat.search(text)]
+    return found or [BLOCKER_OTHER]
+
+
+def blockers_apply_to_fel_workflow(blockers: list[str]) -> bool:
+    """True si algún motivo afecta al flujo de esta app.
+
+    `p8_only` es el único que se descarta: describe una limitación de la
+    conversión a single-layer que nunca ejecutamos.
+    """
+    return any(b != BLOCKER_P8_ONLY for b in blockers)
+
+
+class SheetMatchRow(BaseModel):
+    """Una fila del sheet que matchea el título consultado.
+
+    Se devuelven todas (no solo la mejor) porque un título puede estar
+    catalogado en varias secciones con veredictos distintos.
+    """
+    feasible: bool
+    section: str = "feasible"         # 'infeasible' | 'feasible' | 'probably_ok'
+    dv_source: str = ""
+    sync_offset: str = ""
+    sync_offset_frames: int | None = None
+    comparisons: str = ""
+    comparisons_2: str = ""
+    notes: str = ""
+    blockers: list[str] = []          # vacío en filas factibles
+    blocker_labels: list[str] = []
+    applies_to_our_workflow: bool = True
+    match_confidence: float = 0.0
+    # Hyperlinks de la fila
+    title_link: str = ""
+    sync_link: str = ""
+    dv_source_link: str = ""
+    comparisons_link: str = ""
+    comparisons_2_link: str = ""
+    notes_link: str = ""
+
+
 class CMv40RecommendationResult(BaseModel):
     """Respuesta del endpoint /api/cmv40/recommend."""
-    status: str                       # 'recommended' | 'not_feasible' | 'unknown'
+    status: str
+    """Veredicto para NUESTRO flujo (preserva FEL):
+      - 'recommended'   — hay ruta de restore verificada en el sheet
+      - 'caveats'       — viable pero con avisos que sí nos afectan, o fila
+                          en la sección "Not Sure! / probably ok"
+      - 'p8_only_note'  — lo único que el sheet documenta es que no se puede
+                          aplanar a P8.1; irrelevante aquí
+      - 'not_feasible'  — motivos que sí comprometen el resultado
+      - 'unknown'       — el título no está en la hoja
+    """
     input_title: str
     input_year: int | None = None
     title_en: str = ""
@@ -72,6 +175,26 @@ class CMv40RecommendationResult(BaseModel):
     match_source: str = "filename"    # 'tmdb' | 'filename'
     match_confidence: float = 0.0
     tmdb_configured: bool = False
+
+    # ── Todas las filas del sheet para este título ────────────────────
+    rows: list[SheetMatchRow] = []
+    """Cada sección donde aparece el título, con su veredicto y motivo.
+    Puede haber 2+ entradas con veredictos opuestos (rutas distintas)."""
+    feasible_row_count: int = 0
+    infeasible_row_count: int = 0
+    blockers: list[str] = []
+    """Unión de los motivos de las filas no factibles."""
+    blockers_apply_to_our_workflow: bool = False
+    verdict_label: str = ""           # etiqueta corta para la UI (ES)
+    verdict_detail: str = ""          # explicación de una línea (ES)
+
+    # ── Fila primaria: la que gobierna los campos planos ──────────────
+    # Se prefiere una fila FACTIBLE si existe. Antes se cogía la de mejor
+    # score de similitud y, en empate, ganaba la primera emitida por el
+    # parser — que es siempre la de la sección "no factible". Resultado
+    # medido: 31 de los 32 títulos presentes en ambas secciones mostraban
+    # ❌ aunque el sheet documentara la ruta de restore.
+    primary_section: str = ""
     feasible: bool | None = None
     dv_source: str = ""               # 'BD FEL', 'iTunes', 'DSNP'…
     sync_offset: str = ""             # '(+24)', '(-8 T280/B280)'…
@@ -207,16 +330,115 @@ def _similarity(a: str, b: str) -> float:
 
 def _best_match(title_slug: str, year: int | None,
                 rows: list[RecommendationRow]) -> tuple[RecommendationRow | None, float]:
+    """Mejor fila y su score. Con varias filas empatadas (el mismo título
+    catalogado en dos secciones) prefiere la FACTIBLE — es la que describe
+    una ruta que esta app puede ejecutar.
+    """
     best: RecommendationRow | None = None
     best_score = 0.0
     for r in rows:
         if year and r.year and abs(r.year - year) > 1:
             continue
         sim = _similarity(title_slug, r.title_normalized)
-        if sim > best_score:
+        if sim > best_score or (sim == best_score and best is not None
+                                and r.feasible and not best.feasible):
             best_score = sim
             best = r
     return best, best_score
+
+
+def _matching_rows(title_slug: str, year: int | None,
+                   rows: list[RecommendationRow],
+                   threshold: float) -> list[tuple[RecommendationRow, float]]:
+    """TODAS las filas que superan el umbral para este slug+año.
+
+    Un título puede estar en la sección "no factible" (no convertible a
+    P8.1) y a la vez en la "factible" (bloque CMv4.0 restaurable sobre el
+    RPU P7). Quedarse con una sola fila pierde la mitad de la información.
+    """
+    out: list[tuple[RecommendationRow, float]] = []
+    for r in rows:
+        if year and r.year and abs(r.year - year) > 1:
+            continue
+        sim = _similarity(title_slug, r.title_normalized)
+        if sim >= threshold:
+            out.append((r, sim))
+    # Factibles primero, y dentro de cada grupo por score descendente:
+    # la fila que gobierna los campos planos es la primera.
+    out.sort(key=lambda t: (not t[0].feasible, -t[1]))
+    return out
+
+
+def _to_match_row(row: RecommendationRow, score: float) -> SheetMatchRow:
+    """RecommendationRow (fila cruda del sheet) → SheetMatchRow (con el
+    motivo ya clasificado para la UI)."""
+    blockers = [] if row.feasible else classify_blockers(row.notes)
+    return SheetMatchRow(
+        feasible=row.feasible,
+        section=row.section,
+        dv_source=row.dv_source,
+        sync_offset=row.sync_offset,
+        sync_offset_frames=row.sync_offset_frames,
+        comparisons=row.comparisons,
+        comparisons_2=row.comparisons_2,
+        notes=row.notes,
+        blockers=blockers,
+        blocker_labels=[BLOCKER_LABELS.get(b, b) for b in blockers],
+        applies_to_our_workflow=(
+            blockers_apply_to_fel_workflow(blockers) if blockers else True
+        ),
+        match_confidence=round(score, 3),
+        title_link=row.title_link,
+        sync_link=row.sync_link,
+        dv_source_link=row.dv_source_link,
+        comparisons_link=row.comparisons_link,
+        comparisons_2_link=row.comparisons_2_link,
+        notes_link=row.notes_link,
+    )
+
+
+def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
+    """Veredicto para el flujo de esta app (que preserva el FEL).
+
+    Returns:
+        (status, verdict_label, verdict_detail)
+    """
+    if not match_rows:
+        return "unknown", "Sin datos", ""
+
+    feasible_rows = [r for r in match_rows if r.feasible]
+    infeasible_rows = [r for r in match_rows if not r.feasible]
+    all_blockers = sorted({b for r in infeasible_rows for b in r.blockers})
+    relevant = blockers_apply_to_fel_workflow(all_blockers) if all_blockers else False
+
+    if feasible_rows:
+        only_probably_ok = all(r.section == "probably_ok" for r in feasible_rows)
+        if relevant:
+            labels = [BLOCKER_LABELS.get(b, b) for b in all_blockers
+                      if b != BLOCKER_P8_ONLY]
+            return ("caveats", "Viable con avisos",
+                    "El sheet documenta la ruta de restore CMv4.0, pero hay avisos: "
+                    + " · ".join(labels))
+        if only_probably_ok:
+            return ("caveats", "Probablemente OK",
+                    "El sheet lo cataloga como \"Not Sure!\" — viable pero sin "
+                    "verificación completa. Conviene revisar la sincronización a mano.")
+        detail = "El sheet confirma que el bloque CMv4.0 se puede restaurar sobre el RPU."
+        if infeasible_rows:
+            detail += (" La nota de \"no factible\" se refiere a la conversión a P8.1, "
+                       "que esta app no hace: preserva el FEL del disco.")
+        return "recommended", "Factible", detail
+
+    # Solo filas no factibles
+    if all_blockers and not relevant:
+        return ("p8_only_note", "No convertible a P8.1",
+                "El único impedimento que documenta el sheet es aplanar el disco a "
+                "P8.1 single-layer — algo que esta app no hace. No hay fila de restore "
+                "verificada para este título, así que la sincronización no está "
+                "comprobada por la comunidad.")
+    labels = [BLOCKER_LABELS.get(b, b) for b in all_blockers]
+    return ("not_feasible", "No recomendado",
+            "Motivos que sí afectan al resultado: " + " · ".join(labels))
 
 
 def _threshold_for(best: RecommendationRow | None, year: int | None) -> float:
@@ -302,23 +524,47 @@ async def recommend(input_title: str,
         result.match_source = best_source
         return result
 
-    result.match_title = best_row.title_raw
-    result.match_year = best_row.year
-    result.match_confidence = round(best_score, 3)
+    # El slug ganador puede matchear VARIAS filas del sheet (mismo título
+    # catalogado en dos secciones). Recogemos todas con el mismo umbral y
+    # construimos el veredicto sobre el conjunto, no sobre una fila.
+    slug_win = _normalize_title(best_row.title_raw)
+    matches = _matching_rows(slug_win, best_year_for_threshold, rows, threshold)
+    if not matches:                      # defensivo: al menos la fila ganadora
+        matches = [(best_row, best_score)]
+    result.rows = [_to_match_row(r, s) for r, s in matches]
+    result.feasible_row_count = sum(1 for r in result.rows if r.feasible)
+    result.infeasible_row_count = len(result.rows) - result.feasible_row_count
+    result.blockers = sorted({b for r in result.rows for b in r.blockers})
+    result.blockers_apply_to_our_workflow = (
+        blockers_apply_to_fel_workflow(result.blockers) if result.blockers else False
+    )
+
+    status, label, detail = _build_verdict(result.rows)
+    result.status = status
+    result.verdict_label = label
+    result.verdict_detail = detail
+
+    # Campos planos ← fila primaria (factible si existe; _matching_rows ya
+    # las ordenó con las factibles delante).
+    primary = result.rows[0]
+    primary_row = matches[0][0]
+    result.match_title = primary_row.title_raw
+    result.match_year = primary_row.year
+    result.match_confidence = round(matches[0][1], 3)
     result.match_source = best_source
-    result.feasible = best_row.feasible
-    result.dv_source = best_row.dv_source
-    result.sync_offset = best_row.sync_offset
-    result.sync_offset_frames = best_row.sync_offset_frames
-    result.notes = best_row.notes
-    result.comparisons = best_row.comparisons
-    result.comparisons_2 = best_row.comparisons_2
+    result.primary_section = primary.section
+    result.feasible = primary.feasible
+    result.dv_source = primary.dv_source
+    result.sync_offset = primary.sync_offset
+    result.sync_offset_frames = primary.sync_offset_frames
+    result.notes = primary.notes
+    result.comparisons = primary.comparisons
+    result.comparisons_2 = primary.comparisons_2
     # Hyperlinks de la hoja (solo llenos si vinieron vía XLSX+openpyxl o Sheets API v4)
-    result.title_link = best_row.title_link
-    result.sync_link = best_row.sync_link
-    result.dv_source_link = best_row.dv_source_link
-    result.comparisons_link = best_row.comparisons_link
-    result.comparisons_2_link = best_row.comparisons_2_link
-    result.notes_link = best_row.notes_link
-    result.status = "recommended" if best_row.feasible else "not_feasible"
+    result.title_link = primary.title_link
+    result.sync_link = primary.sync_link
+    result.dv_source_link = primary.dv_source_link
+    result.comparisons_link = primary.comparisons_link
+    result.comparisons_2_link = primary.comparisons_2_link
+    result.notes_link = primary.notes_link
     return result

@@ -4925,7 +4925,7 @@ from phases.cmv40_pipeline import (
     run_phase_c_extract,
     run_phase_e_correct_sync, run_phase_f_inject,
     run_phase_g_remux, run_phase_h_validate,
-    detect_sync_offset, compute_sync_confidence,
+    detect_sync_offset, compute_sync_confidence, sheet_sync_hint,
     validate_artifacts as _validate_cmv40_artifacts,
     cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
     CMV40_WORK_BASE,
@@ -5917,6 +5917,26 @@ async def cmv40_tmdb_refresh(session_id: str):
             "details": session.tmdb_info}
 
 
+@app.post("/api/cmv40/{session_id}/refresh-sheet",
+          summary="Re-consulta la hoja de DoviTools y guarda el veredicto en la sesión")
+async def cmv40_refresh_sheet(session_id: str):
+    """Rellena `session.sheet_recommendation`. Útil en proyectos creados
+    antes de que el veredicto se persistiera, o tras una actualización de
+    la hoja (la caché del sheet tiene TTL de 1h).
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    await _cmv40_hydrate_sheet_recommendation(session_id)
+    refreshed = load_cmv40_session(session_id)
+    return {
+        "updated": bool(refreshed and refreshed.sheet_recommendation),
+        "sheet_recommendation": (refreshed.sheet_recommendation
+                                 if refreshed else None),
+    }
+
+
 @app.get("/api/cmv40/repo-survey",
          summary="Survey de TODOS los .bin del repo DoviTools con su tipo predicho")
 async def cmv40_repo_survey(refresh: bool = False):
@@ -6169,6 +6189,10 @@ async def cmv40_create(body: CMv40CreateRequest):
         # Timeout o error: seguimos sin bloquear, tarea en background
         asyncio.create_task(_cmv40_hydrate_tmdb(sid))
 
+    # Veredicto del sheet de DoviTools: siempre en background (el fetch puede
+    # tardar si la caché está fría). El frontend lo recoge en el polling.
+    asyncio.create_task(_cmv40_hydrate_sheet_recommendation(sid))
+
     # Si auto_pipeline=True, dispara el orquestador inmediatamente. El
     # orquestador detectará phase=CREATED + pending_target y disparará
     # preflight automático → tras éxito, Fase A → ... → done. Todo sin
@@ -6206,6 +6230,33 @@ async def _cmv40_hydrate_tmdb(session_id: str) -> None:
     except Exception as e:
         # No crítico
         _logger.warning("TMDb hydrate falló para %s: %s", session_id, e)
+
+
+async def _cmv40_hydrate_sheet_recommendation(session_id: str) -> None:
+    """Consulta la hoja de DoviTools y guarda el veredicto en la sesión.
+
+    Best-effort: el sheet es una integración opcional (sin Google key cae a
+    XLSX/CSV público, y puede fallar). Nunca debe impedir crear el proyecto.
+    Se guarda para que el panel pueda mostrar los avisos y el offset conocido
+    durante todo el pipeline, no solo en el modal de creación.
+    """
+    from services.cmv40_recommend import parse_mkv_filename, recommend
+
+    try:
+        session = load_cmv40_session(session_id)
+        if not session:
+            return
+        title, year = parse_mkv_filename(session.source_mkv_name)
+        if not title:
+            return
+        rec = await recommend(title, year)
+        fresh = load_cmv40_session(session_id)     # recarga: otra fase pudo escribir
+        if not fresh:
+            return
+        fresh.sheet_recommendation = rec.model_dump()
+        save_cmv40_session(fresh)
+    except Exception as e:
+        _logger.warning("Sheet hydrate falló para %s: %s", session_id, e)
 
 
 def _cmv40_scan_artifacts(session: CMv40Session) -> dict:
@@ -7539,6 +7590,7 @@ async def cmv40_sync_data(session_id: str):
     data = _json.loads(pf.read_text(encoding="utf-8"))
     data["suggested_offset"] = detect_sync_offset(data)
     data["confidence"] = compute_sync_confidence(data)
+    data["sheet_sync"] = sheet_sync_hint(session, data["suggested_offset"])
     return data
 
 
