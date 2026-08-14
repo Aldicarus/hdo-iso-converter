@@ -2858,7 +2858,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Validar</span></div>
       </div>
-      <div class="help-pipeline-diagram-sub">Hay bin P7 MEL CMv4.0 retail en el repo (poco común). El MEL original del Blu-ray no añade precisión de color respecto al bin target, así que la app se queda con el bin y descarta el EL. Resultado: P7 MEL CMv4.0, compatible con reproductores DV de gama media.</div>
+      <div class="help-pipeline-diagram-sub">Hay bin P7 MEL CMv4.0 retail en el repo (poco común). El MEL original del Blu-ray no añade precisión de color respecto al bin target, así que la app se queda con el bin y descarta el EL. Como el stream resultante ya no tiene capa de mejora, el RPU se convierte a <strong>Profile 8.1</strong> (<code>dovi_tool editor</code>, mode 2) para que la señalización case con el contenido. Resultado: P8.1 CMv4.0 single-layer, compatible con cualquier reproductor DV.</div>
     </div>
 
     <div class="help-pipeline-diagram">

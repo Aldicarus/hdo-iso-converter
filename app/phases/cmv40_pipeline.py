@@ -2890,6 +2890,84 @@ async def run_phase_e_correct_sync(
 #  FASE F — Inyectar RPU en EL
 # ══════════════════════════════════════════════════════════════════════
 
+async def _ensure_profile8_rpu(rpu_path: Path, wd: Path, log_callback=None) -> Path:
+    """Convierte el RPU a Profile 8.1 si aún declara Profile 7.
+
+    Necesario en los workflows que producen un HEVC **single-layer** (p7_mel
+    descarta el EL; p8 nunca lo tuvo). Si el RPU inyectado sigue declarando
+    Profile 7, MediaInfo lee el resultado como ``dvhe.07 / BL+EL+RPU`` — un
+    fichero que se anuncia como dual-layer sin tener capa de mejora, así que
+    un reproductor DV espera una EL que no existe.
+
+    Caso real ("Te van a matar", 2026-08-15): el merge conservaba el Profile 7
+    MEL del source, el mux remuxaba solo la BL, y el MKV final quedaba con la
+    señalización del origen pese a la pista llamarse "P8.1 CMv4.0". Un
+    comentario del código afirmaba que "el reproductor lo lee como
+    P8.1-equivalente"; MediaInfo demuestra que no.
+
+    Usa ``dovi_tool editor`` con ``{"mode": 2}`` — "Converts the RPU to be
+    profile 8.1 compatible" — que preserva CM version, frame count y scene
+    cuts (verificado sobre el RPU real: P7 MEL → P8, 136033 frames y 1101
+    escenas intactos).
+
+    Devuelve el path del RPU a inyectar (el convertido, o el original si ya
+    era Profile 8 o si la conversión falla — en ese caso se avisa y se sigue,
+    porque el contenido de imagen es correcto igualmente).
+    """
+    rc, summary, _err = await _run(
+        [DOVI_TOOL_BIN, "info", "--summary", str(rpu_path)], timeout=60)
+    info = _parse_dovi_summary(summary)
+    if info.profile == 8:
+        return rpu_path
+
+    if log_callback:
+        await log_callback(
+            f"[Fase F] El RPU declara Profile {info.profile}"
+            f"{' ' + info.el_type if info.el_type else ''} pero el stream de "
+            f"salida es single-layer → convirtiendo el RPU a Profile 8.1 "
+            f"(dovi_tool editor, mode 2) para que la señalización case con el "
+            f"contenido."
+        )
+
+    config_path = wd / "_profile8_mode.json"
+    config_path.write_text(json.dumps({"mode": 2}), encoding="utf-8")
+    converted = wd / f"{rpu_path.stem}_p81.bin"
+    rc, _out, err = await _run([
+        DOVI_TOOL_BIN, "editor",
+        "-i", str(rpu_path),
+        "-j", str(config_path),
+        "-o", str(converted),
+    ], timeout=1800)
+    if rc != 0 or not converted.exists() or converted.stat().st_size < 1000:
+        if log_callback:
+            await log_callback(
+                f"[Fase F] ⚠ La conversión a Profile 8.1 falló ({err[:150]}) — "
+                f"se inyecta el RPU original. El vídeo será correcto, pero el "
+                f"fichero se anunciará como dual-layer sin tener capa de mejora."
+            )
+        return rpu_path
+
+    rc, summary_after, _err = await _run(
+        [DOVI_TOOL_BIN, "info", "--summary", str(converted)], timeout=60)
+    after = _parse_dovi_summary(summary_after)
+    if after.frame_count != info.frame_count:
+        if log_callback:
+            await log_callback(
+                f"[Fase F] ⚠ La conversión cambió el frame count "
+                f"({info.frame_count} → {after.frame_count}) — se descarta y "
+                f"se inyecta el RPU original."
+            )
+        return rpu_path
+
+    if log_callback:
+        await log_callback(
+            f"[Fase F] ✓ RPU convertido a Profile {after.profile} "
+            f"(CM {after.cm_version}, {after.frame_count} frames, "
+            f"{after.scene_count} escenas — sin pérdida de metadata)."
+        )
+    return converted
+
+
 async def run_phase_f_inject(
     session: CMv40Session,
     log_callback=None,
@@ -3059,9 +3137,10 @@ async def run_phase_f_inject(
         # Si el target es P8 (trusted_p8_source): inject directo — el P8 RPU
         # encaja sobre el BL y produce un HEVC P8.1 CMv4.0.
         # Si el target es P7 (fel o mel) o generic: mergeamos los levels CMv4.0
-        # del target en el RPU P7 MEL del source — el output hereda la profile
-        # P7 MEL pero al inyectarlo en BL single-layer el reproductor lo lee
-        # como P8.1-equivalente con CMv4.0 completo.
+        # del target en el RPU P7 MEL del source. El RPU resultante hereda el
+        # Profile 7 del source, así que ANTES de inyectarlo hay que convertirlo
+        # a Profile 8.1 (ver `_ensure_profile8_rpu`): sin eso el fichero queda
+        # sin capa de mejora pero anunciándose como dual-layer.
         target_needs_merge = session.target_type in (
             "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
         )
@@ -3093,6 +3172,15 @@ async def run_phase_f_inject(
             inject_label  = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
         hevc_input    = source_hevc
         hevc_output   = bl_injected  # reutilizamos el slot de artefacto
+
+    # Los workflows single-layer (p7_mel y p8) producen un HEVC SIN capa de
+    # mejora. Si el RPU que vamos a inyectar declara Profile 7, el fichero
+    # final se anuncia como dual-layer (dvhe.07 / BL+EL+RPU) sin tener EL:
+    # un reproductor DV espera una capa que no existe. Convertimos el RPU a
+    # Profile 8.1 para que la señalización case con el contenido real.
+    if workflow in ("p7_mel", "p8"):
+        rpu_to_inject = await _ensure_profile8_rpu(
+            rpu_to_inject, wd, log_callback)
 
     # Validación de frame count antes de inyectar
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_to_inject)], timeout=30)
