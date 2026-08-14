@@ -3592,6 +3592,42 @@ async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
             )
 
 
+def resolve_validation_target(session: CMv40Session, wd: Path) -> tuple[Path, bool]:
+    """Decide QUÉ fichero valida la Fase H y si el rename ya está hecho.
+
+    Tres orígenes, en orden:
+      1. ``/mnt/output/{nombre}.mkv.tmp`` — lo normal: Fase G lo acaba de escribir.
+      2. ``{workdir}/output.mkv`` — proyectos antiguos (Fase G escribía al workdir).
+      3. ``/mnt/output/{nombre}.mkv`` — el rename YA se hizo en una ejecución
+         previa de esta misma fase.
+
+    El caso 3 existe porque la Fase H puede dispararse dos veces: el frontend
+    re-lanza la siguiente fase en cada tick de polling/WS y el lock de
+    `_run_cmv40_phase` solo cubre la ventana en que la fase corre — un disparo
+    que llega segundos DESPUÉS del rename lo esquiva. Antes eso reventaba con
+    "MKV final no existe — ejecuta Fase G primero" y dejaba el proyecto marcado
+    con error pese a tener el MKV correcto y completo en su sitio (visto en 2
+    de 67 jobs). Revalidar el fichero final es idempotente y conserva el
+    sentido de la fase: se comprueba lo que hay, sin moverlo.
+
+    Returns:
+        (path_a_validar, already_renamed)
+    """
+    output_mkv_tmp = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
+    output_mkv_legacy = wd / "output.mkv"
+    output_mkv_final = OUTPUT_DIR / session.output_mkv_name
+    if output_mkv_tmp.exists():
+        return output_mkv_tmp, False
+    if output_mkv_legacy.exists():
+        return output_mkv_legacy, False
+    if output_mkv_final.exists():
+        return output_mkv_final, True
+    raise RuntimeError(
+        f"MKV final no existe: ni {output_mkv_tmp} ni {output_mkv_legacy} "
+        f"ni {output_mkv_final} — ejecuta Fase G primero"
+    )
+
+
 async def run_phase_h_validate(
     session: CMv40Session,
     log_callback=None,
@@ -3606,15 +3642,12 @@ async def run_phase_h_validate(
     # El MKV final provisional vive en /mnt/output/{name}.mkv.tmp (Fase G lo
     # escribió directamente allí). Si no existe, fallback al path antiguo
     # (workdir/output.mkv) para compatibilidad con proyectos viejos.
-    output_mkv_tmp = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-    output_mkv_legacy = wd / "output.mkv"
-    if output_mkv_tmp.exists():
-        output_mkv = output_mkv_tmp
-    elif output_mkv_legacy.exists():
-        output_mkv = output_mkv_legacy
-    else:
-        raise RuntimeError(
-            f"MKV final no existe: ni {output_mkv_tmp} ni {output_mkv_legacy} — ejecuta Fase G primero"
+    output_mkv, already_renamed = resolve_validation_target(session, wd)
+    if already_renamed and log_callback:
+        await log_callback(
+            "[Fase H] El MKV final ya está en su ubicación definitiva "
+            "(una ejecución previa completó el rename) — se revalida sin "
+            "volver a moverlo."
         )
 
     drop_in_fel = is_drop_in_fel(session)
@@ -3889,6 +3922,28 @@ async def run_phase_h_validate(
     # Renombrar .tmp → .mkv (atómico si mkvmerge escribió ya en /mnt/output,
     # fallback a move con monitor de progreso si viene de workdir legacy).
     final_path = OUTPUT_DIR / session.output_mkv_name
+    if already_renamed:
+        # Nada que mover: acabamos de validar el propio fichero final.
+        session.output_mkv_path = str(final_path)
+        await _emit_progress(log_callback, 100, "Validación completada")
+        if log_callback:
+            await log_callback(
+                f"[Fase H] ✓ Revalidado el MKV ya existente: {final_path}"
+            )
+            await log_callback(
+                f"[Fase H] 🎯 Resultado: el upgrade ya estaba completo — "
+                f"Profile {result_info.profile}"
+                f"{' ' + result_info.el_type if result_info.el_type else ''}, "
+                f"CM {result_info.cm_version}, {result_info.frame_count} frames."
+            )
+        return {
+            "profile": result_info.profile,
+            "el_type": result_info.el_type,
+            "cm_version": result_info.cm_version,
+            "frame_count": result_info.frame_count,
+            "output_path": str(final_path),
+            "already_validated": True,
+        }
     if final_path.exists():
         raise RuntimeError(f"Ya existe un MKV con ese nombre: {session.output_mkv_name}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
