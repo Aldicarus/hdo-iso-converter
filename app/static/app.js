@@ -17492,6 +17492,7 @@ async function refreshCMv40Sidebar() {
     // lo último bueno, re-pintamos por si el DOM se limpió, y reintentamos
     // hasta que el I/O baje y el backend vuelva a responder.
     if (_cmv40SidebarList.length) _renderCMv40Sidebar();
+    else _renderCMv40SidebarLoadError();
     if (!window._cmv40SidebarRetryTimer) {
       window._cmv40SidebarRetryTimer = setTimeout(() => {
         window._cmv40SidebarRetryTimer = null;
@@ -17544,6 +17545,31 @@ async function refreshCMv40Sidebar() {
     }
   }
   _renderCMv40Sidebar();
+}
+
+/**
+ * Estado del sidebar cuando el listado falla y NO hay nada cacheado que
+ * mostrar. Sin esto el panel quedaba en blanco y era indistinguible de "no
+ * tienes proyectos" — el usuario daba por perdidos proyectos que estaban
+ * intactos en disco. Caso real: el payload de /api/cmv40 creció hasta pasarse
+ * del timeout de 30 s del fetch y el sidebar aparecía vacío tras cada
+ * reinicio del contenedor.
+ */
+function _renderCMv40SidebarLoadError() {
+  const list = document.getElementById('cmv40-sidebar-list');
+  if (!list) return;
+  const count = document.getElementById('cmv40-count');
+  if (count) count.textContent = '—';
+  list.innerHTML = `
+    <div class="empty-state" style="padding:24px 12px">
+      <div class="empty-state-icon">🔌</div>
+      <div>No se ha podido cargar la lista de proyectos</div>
+      <div class="empty-state-desc" style="margin-top:6px">
+        Tus proyectos siguen guardados. Reintentando cada 4 s…
+      </div>
+      <button class="btn btn-ghost btn-xs" style="margin-top:10px"
+        onclick="refreshCMv40Sidebar()">↻ Reintentar ahora</button>
+    </div>`;
 }
 
 function _renderCMv40Sidebar() {

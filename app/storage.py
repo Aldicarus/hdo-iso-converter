@@ -431,6 +431,29 @@ _cmv40_summary_lock = threading.Lock()
 # nombre de fichero → (mtime_ns, size, summary_dict)
 _cmv40_summary_by_file: dict[str, tuple[int, int, dict]] = {}
 
+# Campos que se vacían en el summary: son listas de análisis que ni el sidebar
+# ni el poller del header consumen, y pesan órdenes de magnitud más que el
+# resto de la sesión junta.
+#
+# Medido en producción con 78 proyectos (2026-08-14): el payload de
+# GET /api/cmv40 eran 14,8 MB y de ahí 14,0 MB (95%) salían de tres campos —
+# target_l2_combos 6,1 MB · source_l2_combos 6,0 MB · target_l8_combos 1,9 MB.
+# La respuesta tardaba 50 s con la caché fría, y el `apiFetch` del frontend
+# aborta a los 30 s: el sidebar de Tab 3 se quedaba PERMANENTEMENTE vacío tras
+# cada reinicio del contenedor (el fetch devolvía null y la lista nunca se
+# pintaba). Los combos se añadieron después de esta función y nadie amplió la
+# lista, que solo cubría output_log/phase_history.
+#
+# Al añadir un campo pesado a CMv40Session, añádelo AQUÍ. El guard
+# `test_cmv40_summary_size.py` falla si el summary vuelve a engordar.
+_CMV40_SUMMARY_EMPTY_LIST_FIELDS = (
+    "output_log",
+    "phase_history",
+    "source_l2_combos",
+    "target_l2_combos",
+    "target_l8_combos",
+)
+
 
 def list_cmv40_sessions_summary() -> list[dict]:
     """Lista resumida (sin output_log ni phase_history) — para el sidebar.
@@ -477,10 +500,10 @@ def list_cmv40_sessions_summary() -> list[dict]:
             # Nuevo o modificado → releer SOLO este fichero.
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                # Sustituimos por listas vacías para no romper consumidores
-                # que asumen el campo presente (frontend code defensive).
-                data["output_log"] = []
-                data["phase_history"] = []
+                # Sustituimos por listas vacías (no borramos la clave) para no
+                # romper consumidores que asumen el campo presente.
+                for field in _CMV40_SUMMARY_EMPTY_LIST_FIELDS:
+                    data[field] = []
             except Exception as e:
                 logger.warning("CMv40 sesión corrupta, omitida: %s — %s", name, e)
                 _cmv40_summary_by_file.pop(name, None)
