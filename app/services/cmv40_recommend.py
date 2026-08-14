@@ -178,10 +178,16 @@ class CMv40RecommendationResult(BaseModel):
 
     # ── Todas las filas del sheet para este título ────────────────────
     rows: list[SheetMatchRow] = []
-    """Cada sección donde aparece el título, con su veredicto y motivo.
-    Puede haber 2+ entradas con veredictos opuestos (rutas distintas)."""
+    """Filas que aportan algo a ESTA app (ver `_relevant_rows`): las viables
+    y las que traen un impedimento real. Cuando hay ruta viable se omiten las
+    que solo dicen "no convertible a P8.1" — es una conversión que este
+    pipeline no hace, así que mostrarlas sería ruido."""
+    rows_omitted: int = 0
+    """Cuántas filas del sheet se han omitido de `rows` por no aportar."""
     feasible_row_count: int = 0
     infeasible_row_count: int = 0
+    """Contadores sobre TODAS las filas encontradas en la hoja, incluidas las
+    omitidas — no sobre `rows`."""
     blockers: list[str] = []
     """Unión de los motivos de las filas no factibles."""
     blockers_apply_to_our_workflow: bool = False
@@ -397,6 +403,20 @@ def _to_match_row(row: RecommendationRow, score: float) -> SheetMatchRow:
     )
 
 
+def _relevant_rows(match_rows: list[SheetMatchRow]) -> list[SheetMatchRow]:
+    """Filas que APORTAN algo al usuario de esta app.
+
+    Cuando el sheet documenta una ruta viable, las filas cuyo único
+    impedimento es "no convertible a P8.1" se descartan: describen una
+    conversión que este pipeline no hace (preserva el FEL), así que
+    mostrarlas solo añade información que el usuario tiene que descartar
+    mentalmente. Sin fila viable sí se muestran — son lo único que hay.
+    """
+    if not any(r.feasible for r in match_rows):
+        return match_rows
+    return [r for r in match_rows if r.feasible or r.applies_to_our_workflow]
+
+
 def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
     """Veredicto para el flujo de esta app (que preserva el FEL).
 
@@ -423,11 +443,11 @@ def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
             return ("caveats", "Probablemente OK",
                     "El sheet lo cataloga como \"Not Sure!\" — viable pero sin "
                     "verificación completa. Conviene revisar la sincronización a mano.")
-        detail = "El sheet confirma que el bloque CMv4.0 se puede restaurar sobre el RPU."
-        if infeasible_rows:
-            detail += (" La nota de \"no factible\" se refiere a la conversión a P8.1, "
-                       "que esta app no hace: preserva el FEL del disco.")
-        return "recommended", "Factible", detail
+        # Si además hay filas cuyo único impedimento es la conversión a P8.1,
+        # no se mencionan: hablan de una ruta que esta app no ejecuta y su
+        # única aportación sería ruido.
+        return ("recommended", "Factible",
+                "El sheet confirma que el bloque CMv4.0 se puede restaurar sobre el RPU.")
 
     # Solo filas no factibles
     if all_blockers and not relevant:
@@ -531,18 +551,23 @@ async def recommend(input_title: str,
     matches = _matching_rows(slug_win, best_year_for_threshold, rows, threshold)
     if not matches:                      # defensivo: al menos la fila ganadora
         matches = [(best_row, best_score)]
-    result.rows = [_to_match_row(r, s) for r, s in matches]
-    result.feasible_row_count = sum(1 for r in result.rows if r.feasible)
-    result.infeasible_row_count = len(result.rows) - result.feasible_row_count
-    result.blockers = sorted({b for r in result.rows for b in r.blockers})
+    # El veredicto y los contadores se calculan sobre TODAS las filas
+    # encontradas; `rows` solo lleva las que aportan algo al usuario.
+    all_rows = [_to_match_row(r, s) for r, s in matches]
+    result.feasible_row_count = sum(1 for r in all_rows if r.feasible)
+    result.infeasible_row_count = len(all_rows) - result.feasible_row_count
+    result.blockers = sorted({b for r in all_rows for b in r.blockers})
     result.blockers_apply_to_our_workflow = (
         blockers_apply_to_fel_workflow(result.blockers) if result.blockers else False
     )
 
-    status, label, detail = _build_verdict(result.rows)
+    status, label, detail = _build_verdict(all_rows)
     result.status = status
     result.verdict_label = label
     result.verdict_detail = detail
+
+    result.rows = _relevant_rows(all_rows)
+    result.rows_omitted = len(all_rows) - len(result.rows)
 
     # Campos planos ← fila primaria (factible si existe; _matching_rows ya
     # las ordenó con las factibles delante).

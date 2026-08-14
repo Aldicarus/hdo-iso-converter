@@ -146,7 +146,9 @@ class TestBuildVerdict(unittest.TestCase):
         status, label, detail = _build_verdict(rows)
         self.assertEqual(status, "recommended")
         self.assertEqual(label, "Factible")
-        self.assertIn("P8.1", detail)  # explica de qué hablaba el ❌
+        # Con ruta viable, la conversión a P8.1 no se menciona: es una ruta
+        # que esta app no ejecuta y nombrarla solo añade ruido.
+        self.assertNotIn("P8.1", detail)
 
     def test_solo_p8_da_nota_informativa_no_rechazo(self):
         status, label, _ = _build_verdict([self._mr(False, "infeasible", P8_NOTE)])
@@ -259,6 +261,11 @@ class TestRecommendEndToEnd(unittest.TestCase):
         '"","","","","","",""\n'
         f'"Static Movie 2020","WEB","","","static dv: only 8 shots",'
         '"","","","","","","","","","","","","",""\n'
+        f'"Solo P8 Movie 2019","BD FEL","HDR COMP","","{P8_NOTE}",'
+        '"","","","","","","","","","","","","",""\n'
+        f'"Mixed Movie 2022","WEB","","","mdl mismatch",'
+        f'"","Mixed Movie 2022","(+48)","iTunes","plot","","{RESTORE_NOTE}",'
+        '"","","","","","",""\n'
     )
 
     def _run(self, title, year):
@@ -285,12 +292,17 @@ class TestRecommendEndToEnd(unittest.TestCase):
         self.assertEqual(len(obsession), 2)
         self.assertEqual({r.section for r in obsession}, {"infeasible", "feasible"})
 
-    def test_obsession_sale_factible_con_las_dos_filas(self):
+    def test_obsession_sale_factible(self):
         res = self._run("Obsession", 2025)      # el fichero dice 2025, el sheet 2026
         self.assertEqual(res.status, "recommended")
-        self.assertEqual(len(res.rows), 2, "deben viajar ambas filas al frontend")
+        # Los contadores reflejan lo que hay en la hoja (2 filas)…
         self.assertEqual(res.feasible_row_count, 1)
         self.assertEqual(res.infeasible_row_count, 1)
+        # …pero solo se muestra la que aporta: la fila "no convertible a P8.1"
+        # se omite porque describe una ruta que esta app no ejecuta.
+        self.assertEqual(len(res.rows), 1)
+        self.assertTrue(res.rows[0].feasible)
+        self.assertEqual(res.rows_omitted, 1)
 
     def test_campos_planos_vienen_de_la_fila_factible(self):
         res = self._run("Obsession", 2025)
@@ -299,18 +311,39 @@ class TestRecommendEndToEnd(unittest.TestCase):
         self.assertEqual(res.sync_offset_frames, 24)   # la izquierda no trae sync
         self.assertIn("restored", res.notes)
 
-    def test_el_motivo_p8_se_marca_como_no_aplicable(self):
+    def test_el_motivo_p8_no_se_muestra_pero_consta(self):
         res = self._run("Obsession", 2025)
-        infeasible = next(r for r in res.rows if not r.feasible)
-        self.assertEqual(infeasible.blockers, [BLOCKER_P8_ONLY])
-        self.assertFalse(infeasible.applies_to_our_workflow)
+        self.assertEqual([r for r in res.rows if not r.feasible], [])
+        # El motivo sigue disponible en el resultado agregado, solo no se pinta.
+        self.assertEqual(res.blockers, [BLOCKER_P8_ONLY])
         self.assertFalse(res.blockers_apply_to_our_workflow)
+
+    def test_solo_p8_si_se_muestra_cuando_es_lo_unico_que_hay(self):
+        # Sin fila viable, la fila P8 es la única información del sheet:
+        # ahí sí se muestra (fuente, comparaciones y motivo).
+        res = self._run("Solo P8 Movie", 2019)
+        self.assertEqual(res.status, "p8_only_note")
+        self.assertEqual(len(res.rows), 1)
+        self.assertFalse(res.rows[0].applies_to_our_workflow)
+        self.assertEqual(res.rows_omitted, 0)
 
     def test_titulo_solo_no_factible_con_motivo_real(self):
         res = self._run("Static Movie", 2020)
         self.assertEqual(res.status, "not_feasible")
         self.assertIn(BLOCKER_STATIC_DV, res.blockers)
         self.assertTrue(res.blockers_apply_to_our_workflow)
+
+    def test_aviso_relevante_si_se_muestra_junto_a_la_fila_viable(self):
+        # Filtrar "lo que no aporta" NO puede llevarse por delante un aviso
+        # real: mdl mismatch es exactamente lo que el usuario necesita ver
+        # antes de gastar el pipeline.
+        res = self._run("Mixed Movie", 2022)
+        self.assertEqual(res.status, "caveats")
+        self.assertEqual(len(res.rows), 2)
+        self.assertEqual(res.rows_omitted, 0)
+        infeasible = next(r for r in res.rows if not r.feasible)
+        self.assertIn(BLOCKER_GRADING, infeasible.blockers)
+        self.assertTrue(infeasible.applies_to_our_workflow)
 
     def test_titulo_ausente_queda_unknown(self):
         res = self._run("Pelicula Inexistente", 1999)
