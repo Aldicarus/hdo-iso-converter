@@ -5186,6 +5186,25 @@ def _get_cmv40_phase_lock(session_id: str) -> asyncio.Lock:
     return _cmv40_phase_locks[session_id]
 
 
+# Sesiones con una fase EN VUELO. Complementa al lock: `if lock.locked()`
+# seguido de `async with lock` NO es atómico — entre el check y la adquisición
+# hay un await, así que dos disparos simultáneos ven el lock libre, pasan el
+# check y el segundo se ENCOLA en el lock; cuando el primero termina, el
+# segundo ejecuta la fase OTRA VEZ. Eso es lo que hacía correr la Fase H dos
+# veces seguidas (visto en "Robot Salvaje": validate 22:22:50→54 y de nuevo
+# 22:22:57→23:02) y dejaba el modal apareciendo y desapareciendo.
+#
+# Este set se consulta y actualiza SIN await entre medias, así que en el
+# bucle de eventos monohilo de asyncio la comprobación es atómica de verdad:
+# el segundo disparo se descarta en vez de esperar su turno.
+_cmv40_phases_in_flight: set[str] = set()
+
+# Fases que NO avanzan de estado por diseño y por tanto pueden repetirse:
+# Fase E aplica correcciones de sync acumulativas sin salir de Fase D
+# (`new_phase` = la fase actual). Excluirlas del guard de "trabajo ya hecho".
+_CMV40_REPEATABLE_PHASES = {"correct_sync"}
+
+
 async def _run_cmv40_phase(
     session: CMv40Session,
     phase_name: str,
@@ -5204,7 +5223,7 @@ async def _run_cmv40_phase(
     coro_factory: función que recibe (log_callback, proc_callback) y devuelve coroutine.
     """
     lock = _get_cmv40_phase_lock(session.id)
-    if lock.locked():
+    if session.id in _cmv40_phases_in_flight or lock.locked():
         _logger.info(
             "Fase %s ignorada para sesión %s: ya hay una fase en curso (lock)",
             phase_name, session.id,
@@ -5224,6 +5243,44 @@ async def _run_cmv40_phase(
                 f"⏭ Fase {phase_name} ignorada — ya hay otra fase ({running}) en curso para este proyecto"
             )
         return
+
+    # A partir de aquí la sesión queda marcada como ocupada hasta el finally.
+    _cmv40_phases_in_flight.add(session.id)
+    try:
+        # Guard de "trabajo ya hecho": un disparo que llega DESPUÉS de que la
+        # fase terminara (el frontend reintenta a los 5s si su copia del estado
+        # es vieja) no debe repetirla. Se compara contra el estado en DISCO
+        # porque el objeto `session` en memoria puede ser una copia obsoleta —
+        # justo el caso que provoca el re-disparo.
+        if phase_name not in _CMV40_REPEATABLE_PHASES:
+            on_disk = load_cmv40_session(session.id)
+            if on_disk and on_disk.phase == new_phase and not on_disk.error_message:
+                await _cmv40_log(
+                    session,
+                    f"⏭ Fase {phase_name} omitida — el proyecto ya está en "
+                    f"'{new_phase}': el trabajo de esta fase ya está hecho. "
+                    f"(Para rehacerla, usa 🔄 Rehacer, que retrocede el estado.)"
+                )
+                return
+        await _run_cmv40_phase_locked(
+            session, phase_name, coro_factory, new_phase, lock)
+    finally:
+        _cmv40_phases_in_flight.discard(session.id)
+
+
+async def _run_cmv40_phase_locked(
+    session: CMv40Session,
+    phase_name: str,
+    coro_factory,
+    new_phase: str,
+    lock: asyncio.Lock,
+) -> None:
+    """Cuerpo de la fase, ya con los guards de entrada superados.
+
+    Mantiene el `async with lock` original: el lock sigue dando exclusión
+    mutua con el resto de operaciones que lo toman (preflight, cancel), que
+    no pasan por `_cmv40_phases_in_flight`.
+    """
     async with lock:
         started = datetime.now(timezone.utc)
         previous_phase = session.phase
