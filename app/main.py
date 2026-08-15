@@ -6499,25 +6499,26 @@ async def cmv40_cleanup(session_id: str):
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None
     freed = 0
     if wd and wd.exists():
-        # Borrar TODOS los artefactos intermedios, preservar session.json (vive en /config)
-        for arts in _CMV40_PHASE_ARTIFACTS.values():
-            for name in arts:
-                f = wd / name
-                if f.exists() and f.is_file():
-                    freed += f.stat().st_size
-                    try:
-                        f.unlink()
-                    except Exception as e:
-                        _logger.warning("No se pudo borrar %s: %s", f, e)
-        # Borrar plots + RPU_synced también
-        for extra in ["RPU_synced.bin", "editor_config.json"]:
-            f = wd / extra
-            if f.exists() and f.is_file():
-                freed += f.stat().st_size
+        # Se borra el workdir ENTERO, no una lista de nombres conocidos. El
+        # directorio es exclusivo de esta sesión (/mnt/tmp/cmv40/{id}) y el
+        # session.json vive en /config, así que no hay nada que preservar.
+        #
+        # Antes se recorría `_CMV40_PHASE_ARTIFACTS`, así que cualquier
+        # artefacto nuevo del pipeline sobrevivía a la limpieza para siempre
+        # y el proyecto quedaba archivado (solo lectura) sin forma de volver
+        # a limpiarlo desde la UI. Caso real: los ficheros de la conversión a
+        # Profile 8.1 dejaron 29 MB huérfanos en "Te van a matar".
+        for f in wd.rglob("*"):
+            if f.is_file():
                 try:
-                    f.unlink()
-                except Exception:
+                    freed += f.stat().st_size
+                except OSError:
                     pass
+        try:
+            _cmv40_shutil.rmtree(wd)
+        except Exception as e:
+            _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
+            freed = 0
     # También borrar .mkv.tmp orfeno en /mnt/output (si Fase G escribió pero
     # Fase H no completó)
     try:
@@ -6850,7 +6851,13 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
     "target_provided": ["RPU_target.bin"],
     "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
     "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
-    "injected":        ["EL_injected.hevc", "BL_injected.hevc", "source_injected.hevc", "RPU_merged.bin"],
+    "injected":        ["EL_injected.hevc", "BL_injected.hevc", "source_injected.hevc",
+                        "RPU_merged.bin",
+                        # Conversión a Profile 8.1 de los workflows single-layer
+                        # (_ensure_profile8_rpu). El sufijo depende del RPU de
+                        # entrada, así que se listan las dos variantes posibles.
+                        "RPU_merged_p81.bin", "RPU_target_p81.bin",
+                        "_profile8_mode.json"],
     "remuxed":         ["output.mkv", "DV_dual.hevc"],
 }
 
