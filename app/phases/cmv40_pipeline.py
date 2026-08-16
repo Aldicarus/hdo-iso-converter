@@ -650,7 +650,10 @@ async def _run_streaming(
 # líneas crudas de ffmpeg serían ~700 por job; así son ~35 y se leen.
 PIPE_LOG_EVERY_S = 10.0
 
-_FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)kB")
+# ffmpeg 4.x escribía `size=  19459840kB`; desde 6.x usa unidades IEC
+# (`size=  19003MiB`). Se aceptan las dos, con su factor.
+_FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)\s*(kB|KiB|MiB|GiB)")
+_SIZE_UNIT_MB    = {"kB": 1 / 1024, "KiB": 1 / 1024, "MiB": 1.0, "GiB": 1024.0}
 _FFMPEG_SPEED_RE = re.compile(r"speed=\s*([\d.]+)x")
 _FFMPEG_FRAME_RE = re.compile(r"frame=\s*(\d+)")
 
@@ -672,11 +675,11 @@ def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
 
 
 def _fmt_ffmpeg_size(line: str) -> str:
-    """`size=19459840kB` → `19,5 GB`."""
+    """`size=19459840kB` o `size=19003MiB` → `19,5 GB`."""
     m = _FFMPEG_SIZE_RE.search(line)
     if not m:
         return "…"
-    gb = int(m.group(1)) / 1024 / 1024
+    gb = int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)] / 1024
     return f"{gb:.1f} GB".replace(".", ",")
 
 

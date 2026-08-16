@@ -132,6 +132,14 @@ class TestProgresoEnElLog(unittest.TestCase):
                 "time=00:41:07.38 bitrate=64609.0kbits/s speed=23.6x")
         # Decimales con coma, que es como se escribe en el resto de la UI
         self.assertEqual(_fmt_ffmpeg_size(line), "18,6 GB")
+        # ffmpeg 7 cambió a unidades IEC y el tamaño salía vacío en el log
+        # (visto en el primer job con 7.1.5). Mismo valor, otra unidad:
+        self.assertEqual(
+            _fmt_ffmpeg_size("frame=58601 size=   19003MiB speed=23.6x"), "18,6 GB")
+        self.assertEqual(
+            _fmt_ffmpeg_size("frame=1 size=  512KiB speed=1x"), "0,0 GB")
+        self.assertEqual(
+            _fmt_ffmpeg_size("frame=1 size=    2GiB speed=1x"), "2,0 GB")
         self.assertEqual(_fmt_ffmpeg_speed(line), " · 23,6x")
         self.assertEqual(_fmt_eta(200), "quedan ~3min 20s")
         self.assertEqual(_fmt_eta(45), "quedan ~45s")
