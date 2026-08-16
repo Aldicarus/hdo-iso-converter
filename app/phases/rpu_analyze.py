@@ -78,6 +78,7 @@ async def _run_export(
     timeout: int = 60,
     log_callback=None,
     register_proc=None,
+    export_args: list[str] | None = None,
 ) -> tuple[int, str]:
     """Ejecuta `dovi_tool export -i <rpu> -d all=<out>` y devuelve (rc, stderr).
 
@@ -93,10 +94,11 @@ async def _run_export(
     10s para garantizar reap. Sin esto, file handles abiertos sobre NAS
     pueden bloquear el siguiente run.
     """
+    args = export_args if export_args is not None else ["-d", f"all={out_path}"]
     proc = await asyncio.create_subprocess_exec(
         DOVI_TOOL_BIN, "export",
         "-i", str(rpu_path),
-        "-d", f"all={out_path}",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,  # merge para poder hacer streaming simple
     )
@@ -164,6 +166,49 @@ async def _run_export_simple(rpu_path: Path, out_path: Path) -> tuple[int, str]:
     return await _run_export(rpu_path, out_path, timeout=60)
 
 
+# Niveles que necesita el análisis de combos. L1 sirve de censo de frames
+# (un registro por frame), L2/L8 son los combos y `scenes` da los cortes.
+_EXPORT_LEVELS = ("level1", "level2", "level8")
+
+
+async def _run_export_levels(
+    rpu_path: Path,
+    out_dir: Path,
+    stem: str,
+    timeout: int = 60,
+    log_callback=None,
+    register_proc=None,
+) -> tuple[int, str, dict[str, Path]]:
+    """Export SELECTIVO por niveles — la vía rápida (dovi_tool >= 2.3.3).
+
+    `export -d all` vuelca el RPU entero: medido sobre un bin real de 61 MB /
+    145.303 frames son **682 MB en ~100 s**, que además hay que releer y
+    parsear (varios GB de objetos Python, con el NAS ya tirando de swap).
+    De todo ese volcado solo usamos L1, L2, L8 y los cortes de escena.
+
+    `--levels` los saca directamente: **115 MB en 4 s**, y el parseo baja de
+    ~15 s a 1,9 s. Formato JSON y no CSV a propósito: el writer CSV de 2.3.3
+    aborta con "found record with 11 fields, but the previous record has 9"
+    en cuanto un bloque L8 trae los campos CMv4.0 (`target_mid_contrast`,
+    `clip_trim`) — justo los masters FULL que más nos interesan.
+
+    Devuelve (rc, stderr, paths) con los ficheros generados.
+    """
+    paths = {lv: out_dir / f".{stem}_{lv}.json" for lv in _EXPORT_LEVELS}
+    paths["scenes"] = out_dir / f".{stem}_scenes.json"
+    levels_arg = ",".join(f"{lv}={paths[lv]}" for lv in _EXPORT_LEVELS)
+    rc, stderr = await _run_export(
+        rpu_path, out_dir, timeout=timeout,
+        log_callback=log_callback, register_proc=register_proc,
+        export_args=[
+            "-f", "json",
+            "-d", f"scenes={paths['scenes']}",
+            "--levels", levels_arg,
+        ],
+    )
+    return rc, stderr, paths
+
+
 def _extract_frames_from_json(data) -> list:
     """Maneja las dos estructuras conocidas del export de dovi_tool:
     lista plana de frames, o dict con clave 'rpus'/'frames'.
@@ -193,6 +238,126 @@ def _is_l8_neutral(combo: tuple) -> bool:
     if clip is not None and clip != 2048:
         return False
     return True
+
+
+def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
+    """Construye el RpuAnalysis desde los exports POR NIVEL de dovi_tool 2.3.3.
+
+    Equivalente a `_parse_export` pero leyendo `--levels level1/level2/level8`
+    (+ `-d scenes`) en vez del volcado completo del RPU. Mismos campos, ~6x
+    menos bytes y ~25x menos tiempo — ver `_run_export_levels`.
+
+    Cada fichero es una lista plana de registros con el índice de frame:
+        L1: {"frame":0,"min_pq":0,"max_pq":2081,"avg_pq":819}
+        L2: {"frame":40,"target_max_pq":2081,"trim_slope":2019,...}
+        L8: {"frame":0,"length":10,"target_display_index":1,...,
+             "target_mid_contrast":…,"clip_trim":…}   ← los dos últimos
+             solo aparecen en bloques CMv4.0 extendidos
+    """
+    def _load(key: str) -> list:
+        p = paths.get(key)
+        if not p or not p.exists() or p.stat().st_size == 0:
+            return []
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (ValueError, OSError) as e:
+            logger.warning("No se pudo leer el export de %s: %s", key, e)
+            return []
+        return data if isinstance(data, list) else []
+
+    l1 = _load("level1")
+    l2 = _load("level2")
+    l8 = _load("level8")
+    scenes = _load("scenes")
+
+    analysis = RpuAnalysis()
+    # L1 tiene exactamente un registro por frame del RPU.
+    analysis.total_frames = len(l1)
+    # `scenes` es la lista de índices con scene_refresh_flag=1.
+    analysis.scene_cuts = len(scenes)
+
+    l2_counter: Counter = Counter()
+    l2_pq_set: set[int] = set()
+    for r in l2:
+        if not isinstance(r, dict):
+            continue
+        combo = (
+            r.get("target_max_pq"), r.get("trim_slope"),
+            r.get("trim_offset"), r.get("trim_power"),
+            r.get("trim_chroma_weight"), r.get("trim_saturation_gain"),
+            r.get("ms_weight"),
+        )
+        l2_counter[combo] += 1
+        if combo[0] is not None:
+            l2_pq_set.add(combo[0])
+
+    l8_counter: Counter = Counter()
+    l8_idx_set: set[int] = set()
+    # Frames con al menos un L8 = frames con metadata CMv4.0. Es el denominador
+    # de l8_neutral_pct, igual que `frames_with_cmv40` en el parser del volcado.
+    frames_with_l8: set = set()
+    frames_worked: set = set()
+    for r in l8:
+        if not isinstance(r, dict):
+            continue
+        combo = (
+            r.get("target_display_index"), r.get("trim_slope"),
+            r.get("trim_offset"), r.get("trim_power"),
+            r.get("trim_chroma_weight"), r.get("trim_saturation_gain"),
+            r.get("ms_weight"),
+            r.get("target_mid_contrast"), r.get("clip_trim"),
+        )
+        l8_counter[combo] += 1
+        if combo[0] is not None:
+            l8_idx_set.add(combo[0])
+        frame = r.get("frame")
+        frames_with_l8.add(frame)
+        if not _is_l8_neutral(combo):
+            frames_worked.add(frame)
+        # Solo cuenta como campo CMv4.0-only usado si NO es neutro (audit #14).
+        if combo[7] is not None and combo[7] != 2048:
+            analysis.l8_has_mid_contrast = True
+        if combo[8] is not None and combo[8] != 2048:
+            analysis.l8_has_clip_trim = True
+
+    analysis.frames_with_cmv40 = len(frames_with_l8)
+    analysis.l2_combos = _materialize_l2(l2_counter)
+    analysis.l2_unique_count = len(l2_counter)
+    analysis.l2_target_pqs = sorted(l2_pq_set)
+    analysis.l8_combos = _materialize_l8(l8_counter)
+    analysis.l8_unique_count = len(l8_counter)
+    analysis.l8_target_indices = sorted(l8_idx_set)
+    if analysis.frames_with_cmv40 > 0:
+        analysis.l8_neutral_pct = 1.0 - (len(frames_worked) / analysis.frames_with_cmv40)
+    else:
+        analysis.l8_neutral_pct = 0.0
+    return analysis
+
+
+def _materialize_l2(counter: Counter) -> list[L2Combo]:
+    return [
+        L2Combo(
+            target_max_pq=k[0] or 0, trim_slope=k[1] or 0, trim_offset=k[2] or 0,
+            trim_power=k[3] or 0, trim_chroma_weight=k[4] or 0,
+            trim_saturation_gain=k[5] or 0, ms_weight=k[6] or 0,
+            occurrence_count=c,
+        )
+        for k, c in counter.most_common()
+    ]
+
+
+def _materialize_l8(counter: Counter) -> list[L8Combo]:
+    return [
+        L8Combo(
+            target_display_index=k[0] or 0, trim_slope=k[1] or 0,
+            trim_offset=k[2] or 0, trim_power=k[3] or 0,
+            trim_chroma_weight=k[4] or 0, trim_saturation_gain=k[5] or 0,
+            ms_weight=k[6] or 0, target_mid_contrast=k[7], clip_trim=k[8],
+            occurrence_count=c,
+        )
+        for k, c in counter.most_common()
+    ]
 
 
 def _parse_export(json_path: Path) -> RpuAnalysis:
@@ -274,37 +439,11 @@ def _parse_export(json_path: Path) -> RpuAnalysis:
             frames_with_any_l8_worked += 1
 
     # Materializar combos
-    analysis.l2_combos = [
-        L2Combo(
-            target_max_pq=k[0] or 0,
-            trim_slope=k[1] or 0,
-            trim_offset=k[2] or 0,
-            trim_power=k[3] or 0,
-            trim_chroma_weight=k[4] or 0,
-            trim_saturation_gain=k[5] or 0,
-            ms_weight=k[6] or 0,
-            occurrence_count=c,
-        )
-        for k, c in l2_counter.most_common()
-    ]
+    analysis.l2_combos = _materialize_l2(l2_counter)
     analysis.l2_unique_count = len(l2_counter)
     analysis.l2_target_pqs = sorted(l2_pq_set)
 
-    analysis.l8_combos = [
-        L8Combo(
-            target_display_index=k[0] or 0,
-            trim_slope=k[1] or 0,
-            trim_offset=k[2] or 0,
-            trim_power=k[3] or 0,
-            trim_chroma_weight=k[4] or 0,
-            trim_saturation_gain=k[5] or 0,
-            ms_weight=k[6] or 0,
-            target_mid_contrast=k[7],
-            clip_trim=k[8],
-            occurrence_count=c,
-        )
-        for k, c in l8_counter.most_common()
-    ]
+    analysis.l8_combos = _materialize_l8(l8_counter)
     analysis.l8_unique_count = len(l8_counter)
     analysis.l8_target_indices = sorted(l8_idx_set)
 
@@ -317,6 +456,54 @@ def _parse_export(json_path: Path) -> RpuAnalysis:
         analysis.l8_neutral_pct = 0.0
 
     return analysis
+
+
+async def _try_levels_export(
+    rpu_path: Path,
+    tmp_dir: Path,
+    stem: str,
+    export_timeout: int,
+    log_callback,
+    register_proc,
+) -> RpuAnalysis | None:
+    """Intenta el export por niveles. None si no está disponible o falla —
+    el caller cae entonces al volcado completo, que funciona en cualquier
+    versión de dovi_tool."""
+    paths: dict[str, Path] = {}
+    try:
+        rc, stderr, paths = await _run_export_levels(
+            rpu_path, tmp_dir, stem,
+            timeout=export_timeout,
+            log_callback=log_callback,
+            register_proc=register_proc,
+        )
+        if rc != 0:
+            logger.info(
+                "export --levels no disponible sobre %s (rc=%s): %s — "
+                "usando el volcado completo", rpu_path.name, rc, stderr[:160])
+            return None
+        generated = {k: p for k, p in paths.items() if p.exists() and p.stat().st_size > 0}
+        if "level1" not in generated or "level8" not in generated:
+            logger.info("export --levels incompleto sobre %s — usando el volcado completo",
+                        rpu_path.name)
+            return None
+        if log_callback:
+            try:
+                total_mb = sum(p.stat().st_size for p in generated.values()) / (1024 * 1024)
+                log_callback(f"  ✓ Niveles exportados: {total_mb:.1f} MB · parseando combos…")
+            except Exception:
+                pass
+        return await asyncio.to_thread(_parse_export_levels, generated)
+    except Exception as e:  # noqa: BLE001 — nunca debe tumbar el análisis
+        logger.info("export --levels falló sobre %s (%s) — usando el volcado completo",
+                    rpu_path.name, e)
+        return None
+    finally:
+        for p in paths.values():
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 async def analyze_rpu_combos(
@@ -356,6 +543,16 @@ async def analyze_rpu_combos(
     tmp_path = Path(tmp_path_str)
 
     try:
+        # ── Vía rápida: export por niveles (dovi_tool >= 2.3.3) ──────────
+        # 115 MB / 4 s frente a los 682 MB / 100 s del volcado completo.
+        # Si el binario es anterior no conoce `--levels` y sale con error de
+        # parseo de argumentos: caemos al `-d all` de siempre.
+        fast = await _try_levels_export(
+            rpu_path, tmp_dir, tmp_path.stem,
+            export_timeout, log_callback, register_proc)
+        if fast is not None:
+            return fast
+
         rc, stderr = await _run_export(
             rpu_path, tmp_path,
             timeout=export_timeout,

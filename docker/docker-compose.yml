@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
-        DOVI_TOOL_VERSION: "2.3.2"
+        DOVI_TOOL_VERSION: "2.3.3"
         # Bakeable solo si quien ejecuta `compose up --build` tiene los env
         # vars APP_VERSION/APP_COMMIT seteados (lo hace el workflow GHA).
         # En builds locales se queda en los defaults del Dockerfile (dev /
