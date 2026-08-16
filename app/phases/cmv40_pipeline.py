@@ -785,11 +785,24 @@ def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
     return f"frame {cur} · "
 
 
-def _fmt_ffmpeg_size(line: str) -> str:
-    """`size=19459840kB` o `size=19003MiB` → `19,5 GB`."""
+def _fmt_ffmpeg_size(line: str, out_path: Path | None = None) -> str:
+    """Cuánto se lleva escrito, como `19,5 GB`. Cadena vacía si no se sabe.
+
+    Primero se mira el fichero de salida, que es el dato de verdad y siempre
+    está. A ffmpeg no se le puede preguntar cuando escribe con el muxer
+    `tee`: al haber dos salidas emite `Lsize=N/A`, y el campo salía como "…"
+    en el log del pipeline.
+    """
+    if out_path is not None:
+        try:
+            gb = out_path.stat().st_size / (1024 ** 3)
+            if gb > 0:
+                return f"{gb:.1f} GB".replace(".", ",")
+        except OSError:
+            pass
     m = _FFMPEG_SIZE_RE.search(line)
     if not m:
-        return "…"
+        return ""
     gb = int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)] / 1024
     return f"{gb:.1f} GB".replace(".", ",")
 
@@ -981,9 +994,11 @@ async def _ffmpeg_extract_rpu_piped(
                     last_push = now
                 if log_callback and (now - last_log) >= PIPE_LOG_EVERY_S:
                     last_log = now
+                    tam = _fmt_ffmpeg_size(line, hevc_out)
                     await log_callback(
                         f"  ⏱ {step_pct:.0f}% · {_fmt_ffmpeg_frame(line, total_frames)}"
-                        f"{_fmt_ffmpeg_size(line)}{_fmt_ffmpeg_speed(line)} · "
+                        f"{tam + ' · ' if tam else ''}"
+                        f"{_fmt_ffmpeg_speed(line).lstrip(' ·').strip()} · "
                         f"{_fmt_eta(eta)}")
 
     step_start = time.monotonic()

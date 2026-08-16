@@ -149,8 +149,35 @@ class TestProgresoEnElLog(unittest.TestCase):
     def test_lineas_sin_datos_no_rompen(self):
         """ffmpeg no siempre reporta size/speed (arranque, ciertos filtros)."""
         from phases.cmv40_pipeline import _fmt_ffmpeg_size, _fmt_ffmpeg_speed
-        self.assertEqual(_fmt_ffmpeg_size("frame=1 time=00:00:01.00"), "…")
+        self.assertEqual(_fmt_ffmpeg_size("frame=1 time=00:00:01.00"), "")
         self.assertEqual(_fmt_ffmpeg_speed("frame=1 time=00:00:01.00"), "")
+
+    def test_con_muxer_tee_el_tamano_sale_del_fichero(self):
+        """Con `-f tee` ffmpeg emite `Lsize=N/A` —no puede dar un tamaño único
+        con dos salidas— y el campo salía como "…" en el log. El dato bueno
+        es el fichero de salida."""
+        import tempfile
+        from pathlib import Path as P
+        from phases.cmv40_pipeline import _fmt_ffmpeg_size
+        linea = "frame=117592 fps=470 q=-1.0 Lsize=N/A time=00:41:07 speed=19.6x"
+        # Sin fichero no hay nada que decir: se omite, no se pone "…"
+        self.assertEqual(_fmt_ffmpeg_size(linea), "")
+        with tempfile.TemporaryDirectory() as td:
+            f = P(td) / "source.hevc"
+            f.write_bytes(b"0" * (3 * 1024 * 1024))
+            self.assertEqual(_fmt_ffmpeg_size(linea, f), "0,0 GB")
+            f.write_bytes(b"0" * int(2.5 * 1024 ** 3))
+            self.assertEqual(_fmt_ffmpeg_size(linea, f), "2,5 GB")
+
+    def test_el_fichero_manda_sobre_lo_que_diga_ffmpeg(self):
+        from phases.cmv40_pipeline import _fmt_ffmpeg_size
+        import tempfile
+        from pathlib import Path as P
+        linea = "frame=1 size=  19003MiB speed=2x"
+        with tempfile.TemporaryDirectory() as td:
+            f = P(td) / "out.hevc"
+            f.write_bytes(b"0" * (1024 ** 3))
+            self.assertEqual(_fmt_ffmpeg_size(linea, f), "1,0 GB")
 
     def test_cadencia_no_es_por_linea(self):
         """ffmpeg emite varias líneas por segundo; el log va cada 10 s."""
