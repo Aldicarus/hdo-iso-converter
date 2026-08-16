@@ -177,11 +177,12 @@ async function _refreshTabRunningDots() {
     const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
     setDot(2, !!(st && st.active));
   } catch (_) { setDot(2, false); }
-  // Tab 3: cualquier sesión con running_phase
+  // Tab 3: cualquier sesión con running_phase. Endpoint dedicado — pedir
+  // /api/cmv40 entero para esto costaba 569 KB y 193 ms cada 5s (~10% de un
+  // core del NAS) solo para decidir si se pinta un punto.
   try {
-    const data = await apiFetch('/api/cmv40', { silent: true });
-    const t3 = !!(data?.sessions || []).some(s => s.running_phase);
-    setDot(3, t3);
+    const data = await apiFetch('/api/cmv40-active', { silent: true });
+    setDot(3, !!data?.active);
   } catch (_) { setDot(3, false); }
 }
 
@@ -14758,7 +14759,25 @@ async function _refreshCMv40Session(pid, { includeLog = true } = {}) {
       _cmv40MaybeAutoAdvance(project);
     }
   }
-  refreshCMv40Sidebar();
+  // El sidebar solo si cambió algo que se ve en él. Esta función corre en
+  // cada tick del safety poller (4s) y refrescaba la lista SIEMPRE: 569 KB
+  // y 193 ms de servidor por tick, ~30 veces por minuto entre unos
+  // llamadores y otros, para repintar exactamente lo mismo.
+  if (_cmv40SidebarStateChanged(pid, data)) refreshCMv40Sidebar();
+}
+
+// Huella de lo que el sidebar muestra de un proyecto. Si no cambia, no hay
+// nada que repintar.
+const _cmv40SidebarKeys = new Map();
+
+function _cmv40SidebarStateChanged(pid, data) {
+  const key = [
+    data.phase, data.running_phase || '', data.error_message ? 'e' : '',
+    data.archived ? 'a' : '', data.output_mkv_name || '',
+  ].join('|');
+  if (_cmv40SidebarKeys.get(pid) === key) return false;
+  _cmv40SidebarKeys.set(pid, key);
+  return true;
 }
 
 // ── Render del panel ─────────────────────────────────────────────

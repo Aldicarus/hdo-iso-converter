@@ -6031,6 +6031,21 @@ async def list_cmv40():
     return {"sessions": sessions}
 
 
+@app.get("/api/cmv40-active", summary="¿Hay algún job CMv4.0 en curso? (indicador de tab)")
+async def cmv40_active():
+    """Respuesta mínima para el punto verde del tab.
+
+    El frontend lo consulta cada 5 s. Antes usaba `GET /api/cmv40`, que con
+    88 proyectos devuelve **569 KB y tarda 193 ms** — pedir eso para pintar
+    un punto era ~10 % de un core del NAS mientras el pipeline pelea por
+    los 4 que hay. Aquí solo salen los ids que están corriendo.
+    """
+    from storage import list_cmv40_sessions_summary
+    sessions = await asyncio.to_thread(list_cmv40_sessions_summary)
+    running = [s.get("id") for s in sessions if s.get("running_phase")]
+    return {"active": bool(running), "ids": running}
+
+
 @app.get("/api/cmv40/rpu-files", summary="Lista RPUs disponibles en /mnt/cmv40_rpus")
 async def list_cmv40_rpu_files():
     # ⚠️ DEV MODE

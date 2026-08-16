@@ -278,3 +278,43 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
         await _a.sleep(0)  # deja correr las tasks de save en background
         self.assertLessEqual(len(self.saves), 1,
                              "el progreso no debe persistir en cada tick")
+
+
+class TestEndpointActivo(unittest.IsolatedAsyncioTestCase):
+    """`GET /api/cmv40-active`: respuesta mínima para el punto verde del tab.
+
+    El frontend lo consulta cada 5 s. Antes pedía `GET /api/cmv40`, que con
+    88 proyectos son 569 KB y 193 ms — ~10 % de un core del NAS para decidir
+    si se pinta un punto.
+    """
+
+    def setUp(self):
+        import storage
+        self._orig = storage.list_cmv40_sessions_summary
+        self.rows = []
+        storage.list_cmv40_sessions_summary = lambda: self.rows
+
+    def tearDown(self):
+        import storage
+        storage.list_cmv40_sessions_summary = self._orig
+
+    async def test_sin_jobs(self):
+        self.rows = [{"id": "a", "running_phase": None},
+                     {"id": "b", "running_phase": ""}]
+        data = await main.cmv40_active()
+        self.assertFalse(data["active"])
+        self.assertEqual(data["ids"], [])
+
+    async def test_con_job_en_curso(self):
+        self.rows = [{"id": "a", "running_phase": None},
+                     {"id": "b", "running_phase": "inject"}]
+        data = await main.cmv40_active()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["ids"], ["b"])
+
+    async def test_no_devuelve_el_listado_entero(self):
+        """El payload debe ser mínimo — nada de arrastrar los summaries."""
+        self.rows = [{"id": f"s{i}", "running_phase": None,
+                      "peso": "x" * 5000} for i in range(50)]
+        data = await main.cmv40_active()
+        self.assertEqual(set(data.keys()), {"active", "ids"})
