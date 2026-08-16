@@ -30,6 +30,25 @@ from models import Chapter, DoviInfo, HdrMetadata, MkvAnalysisResult, MkvEditReq
 
 _logger = logging.getLogger(__name__)
 
+
+async def _probe_duration_seconds(media_path: str) -> float:
+    """Duración en segundos vía ffprobe (0.0 si no se puede determinar).
+
+    La necesita el pipeline de extracción para calcular el % de avance: sin
+    fichero intermedio que medir, el progreso sale del `time=` que ffmpeg
+    escribe en stderr, y eso solo es un porcentaje si se sabe el total.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "csv=p=0", media_path,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        return float(out.decode().strip())
+    except Exception:
+        return 0.0
+
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
 MKVEXTRACT_BIN  = "mkvextract"
@@ -654,125 +673,173 @@ async def analyze_rpu_quality_for_mkv(
     _log(f"[Audit] Workdir temporal: {tmpdir} · se borrará al terminar")
 
     try:
-        # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
+        # ── Pasos 1+2 en una sola pasada ─────────────────────────────
+        # El HEVC (45 GB) se extraía entero a disco solo para que
+        # extract-rpu lo releyera y borrarlo acto seguido. Aquí no hace
+        # falta conservarlo, así que va por un pipe: ffmpeg escribe a
+        # stdout y dovi_tool lee de stdin. Misma técnica que la Fase A de
+        # CMv4.0, verificada bit a bit (mismo md5 del RPU).
         _check()
-        _emit("ffmpeg", 0.0, "Extrayendo HEVC del MKV con ffmpeg…")
-        _log("━━━ Paso 1/3 · Extracción HEVC ━━━")
-        _log(f"[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. "
-             f"Tamaño esperado del HEVC: ~{_fmt_bytes(expected_hevc)} (75% del MKV, sin audio/subs).")
-        ff_cmd = [
-            FFMPEG_BIN, "-y", "-v", "error",
-            "-i", str(p),
-            "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
-            "-f", "hevc", str(hevc_path),
-        ]
-        _log("$ " + " ".join(ff_cmd))
-        t_step = _t.monotonic()
-        ff_proc = await asyncio.create_subprocess_exec(
-            *ff_cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        if register_proc:
-            register_proc(ff_proc)
-        stop_mon = asyncio.Event()
-        last_logged_pct = -10
+        _emit("ffmpeg", 0.0, "Extrayendo HEVC + RPU del MKV…")
+        _log("━━━ Pasos 1+2 · Extracción HEVC + RPU (en paralelo) ━━━")
+        _log("[Audit] 📋 Plan: ffmpeg lee el v:0 del MKV y se lo pasa a "
+             "dovi_tool por un pipe. Sin escribir el HEVC a disco: son "
+             f"~{_fmt_bytes(expected_hevc)} que solo servían de intermedio.")
 
-        async def _ff_monitor():
-            nonlocal last_logged_pct
-            while not stop_mon.is_set():
+        async def _pipe_log(msg: str) -> None:
+            """Adapta el log del pipeline (async, con marcadores de progreso)
+            a los callbacks síncronos de este módulo."""
+            if msg.startswith("§§PROGRESS§§"):
                 try:
-                    if hevc_path.exists() and expected_hevc > 0:
-                        size = hevc_path.stat().st_size
-                        local_pct = min(99, size * 100 / expected_hevc)
-                        global_pct = local_pct * 0.55
-                        _emit("ffmpeg", global_pct, "Extrayendo HEVC del MKV…")
-                        # Loguear progreso cada 10% para no saturar
-                        if int(local_pct) >= last_logged_pct + 10:
-                            last_logged_pct = int(local_pct // 10) * 10
-                            _log(f"[Audit] HEVC: {int(local_pct)}% "
-                                 f"({_fmt_bytes(size)} / {_fmt_bytes(expected_hevc)} esperado)")
+                    d = json.loads(msg[len("§§PROGRESS§§"):])
+                    _emit("ffmpeg", float(d.get("pct") or 0), d.get("label") or "")
                 except Exception:
                     pass
-                try:
-                    await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
-                except asyncio.TimeoutError:
-                    pass
+                return
+            _log(msg)
 
-        mon_task = asyncio.create_task(_ff_monitor())
+        piped_ok = False
         try:
-            _, stderr_bytes = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
-        except asyncio.TimeoutError:
-            try: ff_proc.kill()
-            except Exception: pass
-            raise RuntimeError("ffmpeg excedió 40 min extrayendo HEVC")
-        finally:
-            stop_mon.set()
-            try: await mon_task
-            except Exception: pass
-
-        _check()
-        ff_stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-        if ff_stderr:
-            # Emitir cada línea (max 30) — ffmpeg con -v error sólo escupe si
-            # hay problema, así que vale la pena verlo todo.
-            for ln in ff_stderr.splitlines()[:30]:
-                _log(f"  {ln}")
-        if ff_proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
-            err = ff_stderr[:400] or f"rc={ff_proc.returncode}"
-            _log(f"[Audit] ✗ ffmpeg falló: {err}")
-            raise RuntimeError(f"ffmpeg falló: {err}")
-        hevc_size = hevc_path.stat().st_size
-        _emit("ffmpeg", 55.0, "✓ HEVC extraído")
-        _log(f"[Audit] ✓ HEVC extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(hevc_size)}")
-
-        # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
-        _check()
-        _emit("extract_rpu", 55.0, "Extrayendo RPU Dolby Vision del HEVC…")
-        _log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
-        _log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y "
-             "extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
-        dt_cmd = [DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path)]
-        _log("$ " + " ".join(dt_cmd))
-        t_step = _t.monotonic()
-        dt_proc = await asyncio.create_subprocess_exec(
-            *dt_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        if register_proc:
-            register_proc(dt_proc)
-        try:
-            dt_out_bytes, _ = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
-        except asyncio.TimeoutError:
-            try: dt_proc.kill()
-            except Exception: pass
-            raise RuntimeError("dovi_tool extract-rpu excedió 30 min")
-        _check()
-        dt_output = dt_out_bytes.decode("utf-8", errors="replace").strip()
-        if dt_output:
-            # dovi_tool escupe líneas de progreso ("Parsing RPU...") + summary.
-            # Mostrar las últimas 20 (las útiles).
-            lines = dt_output.splitlines()
-            for ln in lines[-20:]:
-                if ln.strip():
-                    _log(f"  {ln.strip()}")
-        if dt_proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
-            err = dt_output[-400:] or f"rc={dt_proc.returncode}"
-            _log(f"[Audit] ✗ dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}")
-            raise RuntimeError(
-                f"dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}"
+            from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped
+            t_step = _t.monotonic()
+            piped_ok = await _ffmpeg_extract_rpu_piped(
+                str(p), rpu_path, hevc_out=None,
+                duration=await _probe_duration_seconds(str(p)),
+                log_callback=_pipe_log, proc_callback=register_proc,
+                offset=0.0, weight=80.0,
+                label="Extrayendo HEVC + RPU",
+                estimated_s=0.0,
             )
-        rpu_size = rpu_path.stat().st_size
-        _log(f"[Audit] ✓ RPU extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(rpu_size)}")
-        # Liberar HEVC en cuanto tenemos el RPU — son 45 GB que ya no
-        # necesitamos. Reduce uso de disco durante el paso 3.
-        try:
-            hevc_path.unlink(missing_ok=True)
-            _log("[Audit] ⏬ HEVC intermedio liberado (no se vuelve a usar)")
-        except Exception:
-            pass
-        _emit("extract_rpu", 80.0, "✓ RPU extraído")
+        except Exception as e:
+            _logger.info("quality audit: pipeline no disponible (%s)", e)
+            piped_ok = False
+        if piped_ok:
+            _check()
+            rpu_size = rpu_path.stat().st_size
+            _log(f"[Audit] ✓ RPU extraído en {_fmt_elapsed(_t.monotonic() - t_step)} "
+                 f"· {_fmt_bytes(rpu_size)} (sin volcar el HEVC a disco)")
+            _emit("extract_rpu", 80.0, "✓ RPU extraído")
+
+        if not piped_ok:
+            # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
+            _check()
+            _emit("ffmpeg", 0.0, "Extrayendo HEVC del MKV con ffmpeg…")
+            _log("━━━ Paso 1/3 · Extracción HEVC ━━━")
+            _log(f"[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. "
+                 f"Tamaño esperado del HEVC: ~{_fmt_bytes(expected_hevc)} (75% del MKV, sin audio/subs).")
+            ff_cmd = [
+                FFMPEG_BIN, "-y", "-v", "error",
+                "-i", str(p),
+                "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+                "-f", "hevc", str(hevc_path),
+            ]
+            _log("$ " + " ".join(ff_cmd))
+            t_step = _t.monotonic()
+            ff_proc = await asyncio.create_subprocess_exec(
+                *ff_cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            if register_proc:
+                register_proc(ff_proc)
+            stop_mon = asyncio.Event()
+            last_logged_pct = -10
+
+            async def _ff_monitor():
+                nonlocal last_logged_pct
+                while not stop_mon.is_set():
+                    try:
+                        if hevc_path.exists() and expected_hevc > 0:
+                            size = hevc_path.stat().st_size
+                            local_pct = min(99, size * 100 / expected_hevc)
+                            global_pct = local_pct * 0.55
+                            _emit("ffmpeg", global_pct, "Extrayendo HEVC del MKV…")
+                            # Loguear progreso cada 10% para no saturar
+                            if int(local_pct) >= last_logged_pct + 10:
+                                last_logged_pct = int(local_pct // 10) * 10
+                                _log(f"[Audit] HEVC: {int(local_pct)}% "
+                                     f"({_fmt_bytes(size)} / {_fmt_bytes(expected_hevc)} esperado)")
+                    except Exception:
+                        pass
+                    try:
+                        await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        pass
+
+            mon_task = asyncio.create_task(_ff_monitor())
+            try:
+                _, stderr_bytes = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
+            except asyncio.TimeoutError:
+                try: ff_proc.kill()
+                except Exception: pass
+                raise RuntimeError("ffmpeg excedió 40 min extrayendo HEVC")
+            finally:
+                stop_mon.set()
+                try: await mon_task
+                except Exception: pass
+
+            _check()
+            ff_stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+            if ff_stderr:
+                # Emitir cada línea (max 30) — ffmpeg con -v error sólo escupe si
+                # hay problema, así que vale la pena verlo todo.
+                for ln in ff_stderr.splitlines()[:30]:
+                    _log(f"  {ln}")
+            if ff_proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
+                err = ff_stderr[:400] or f"rc={ff_proc.returncode}"
+                _log(f"[Audit] ✗ ffmpeg falló: {err}")
+                raise RuntimeError(f"ffmpeg falló: {err}")
+            hevc_size = hevc_path.stat().st_size
+            _emit("ffmpeg", 55.0, "✓ HEVC extraído")
+            _log(f"[Audit] ✓ HEVC extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(hevc_size)}")
+
+            # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
+            _check()
+            _emit("extract_rpu", 55.0, "Extrayendo RPU Dolby Vision del HEVC…")
+            _log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
+            _log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y "
+                 "extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
+            dt_cmd = [DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path)]
+            _log("$ " + " ".join(dt_cmd))
+            t_step = _t.monotonic()
+            dt_proc = await asyncio.create_subprocess_exec(
+                *dt_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            if register_proc:
+                register_proc(dt_proc)
+            try:
+                dt_out_bytes, _ = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
+            except asyncio.TimeoutError:
+                try: dt_proc.kill()
+                except Exception: pass
+                raise RuntimeError("dovi_tool extract-rpu excedió 30 min")
+            _check()
+            dt_output = dt_out_bytes.decode("utf-8", errors="replace").strip()
+            if dt_output:
+                # dovi_tool escupe líneas de progreso ("Parsing RPU...") + summary.
+                # Mostrar las últimas 20 (las útiles).
+                lines = dt_output.splitlines()
+                for ln in lines[-20:]:
+                    if ln.strip():
+                        _log(f"  {ln.strip()}")
+            if dt_proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
+                err = dt_output[-400:] or f"rc={dt_proc.returncode}"
+                _log(f"[Audit] ✗ dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}")
+                raise RuntimeError(
+                    f"dovi_tool extract-rpu falló (el MKV no tiene DV o el RPU es inválido): {err}"
+                )
+            rpu_size = rpu_path.stat().st_size
+            _log(f"[Audit] ✓ RPU extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(rpu_size)}")
+            # Liberar HEVC en cuanto tenemos el RPU — son 45 GB que ya no
+            # necesitamos. Reduce uso de disco durante el paso 3.
+            try:
+                hevc_path.unlink(missing_ok=True)
+                _log("[Audit] ⏬ HEVC intermedio liberado (no se vuelve a usar)")
+            except Exception:
+                pass
+            _emit("extract_rpu", 80.0, "✓ RPU extraído")
 
         # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
         _check()
