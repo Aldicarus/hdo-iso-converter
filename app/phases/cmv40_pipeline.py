@@ -695,6 +695,33 @@ def _fmt_eta(eta_s: float | None) -> str:
     return f"quedan ~{m}min {s}s" if m else f"quedan ~{s}s"
 
 
+# Tamaño del buffer del pipe entre ffmpeg y dovi_tool. Linux da 64 KB por
+# defecto, lo que sobre 48 GB obliga a los dos procesos a sincronizarse casi
+# 800.000 veces. Con un buffer mayor se desacoplan: el que va sobrado sigue
+# trabajando mientras el otro se pone al día.
+PIPE_BUF_BYTES = 4 * 1024 * 1024
+
+
+def _widen_pipe(write_fd: int) -> int:
+    """Amplía el buffer del pipe. Devuelve el tamaño resultante (0 si no se
+    pudo). Best-effort: el kernel limita a /proc/sys/fs/pipe-max-size (1 MB
+    por defecto) salvo con CAP_SYS_RESOURCE, y el contenedor corre privileged
+    pero no damos por hecho que siempre sea así."""
+    try:
+        import fcntl
+        f_setpipe_sz = getattr(fcntl, "F_SETPIPE_SZ", 1031)
+        f_getpipe_sz = getattr(fcntl, "F_GETPIPE_SZ", 1032)
+        for size in (PIPE_BUF_BYTES, 1024 * 1024):
+            try:
+                fcntl.fcntl(write_fd, f_setpipe_sz, size)
+                return fcntl.fcntl(write_fd, f_getpipe_sz)
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return 0
+
+
 def _tee_path_is_safe(path: Path) -> bool:
     """El muxer `tee` de ffmpeg usa `|` para separar salidas, `[...]` para las
     opciones de cada una y `:` dentro de ellas. Una ruta con esos caracteres
@@ -759,6 +786,7 @@ async def _ffmpeg_extract_rpu_piped(
         await log_callback(f"$ {' '.join(ff_cmd)} | {' '.join(dv_cmd)}")
 
     read_fd, write_fd = os.pipe()
+    _widen_pipe(write_fd)
     ff = dv = None
     try:
         ff = await asyncio.create_subprocess_exec(
@@ -3392,6 +3420,12 @@ async def run_phase_f_inject(
     Si target ya es P7 FEL CMv4.0, se inyecta directamente (no hace falta merge).
     """
     wd = get_workdir(session)
+    # Esta fase regenera el HEVC inyectado, así que el RPU que Fase G pudiera
+    # haber adelantado para la validación de Fase H (ver
+    # _prewarm_validation_rpu) deja de corresponderse con él. Se borra aquí
+    # para que nadie valide un stream contra el RPU de una pasada anterior:
+    # el frame count coincidiría y la comprobación no lo detectaría.
+    (wd / "_validate_full_rpu.bin").unlink(missing_ok=True)
     source_hevc  = wd / "source.hevc"
     source_injected = wd / "source_injected.hevc"
     bl_hevc      = wd / "BL.hevc"
@@ -3861,6 +3895,41 @@ async def _merge_cmv40_into_p7(
 #  FASE G — Remux final (dovi_tool mux + mkvmerge)
 # ══════════════════════════════════════════════════════════════════════
 
+async def _prewarm_validation_rpu(
+    session: CMv40Session,
+    pre_mux_hevc: Path,
+    out_rpu: Path,
+    log_callback=None,
+) -> bool:
+    """Extrae el RPU que la Fase H usará para validar, mientras el remux corre.
+
+    Va sin `log_callback` al subproceso a propósito: sus líneas se mezclarían
+    con las del mkvmerge y el progreso del remux quedaría ilegible. El
+    resultado se anuncia al recogerlo.
+
+    Devuelve True si dejó un RPU utilizable. Nunca lanza: si algo va mal, la
+    Fase H lo extrae como siempre.
+    """
+    try:
+        rc, _out, err = await _run([
+            DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc), "-o", str(out_rpu),
+        ], timeout=_adaptive_timeout(
+            _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+            floor_s=1200))
+        if rc != 0 or not out_rpu.exists() or out_rpu.stat().st_size == 0:
+            _logger.info("prewarm extract-rpu rc=%s: %s", rc, err[:200])
+            out_rpu.unlink(missing_ok=True)
+            return False
+        return True
+    except asyncio.CancelledError:
+        out_rpu.unlink(missing_ok=True)
+        raise
+    except Exception as e:
+        _logger.info("prewarm extract-rpu falló: %s", e)
+        out_rpu.unlink(missing_ok=True)
+        return False
+
+
 async def run_phase_g_remux(
     session: CMv40Session,
     log_callback=None,
@@ -3972,6 +4041,32 @@ async def run_phase_g_remux(
         remux_offset = 0.0
         remux_weight = 100.0
 
+    # ── Validación de Fase H, adelantada y en paralelo ──────────────────
+    # La Fase H del camino merge extrae el RPU COMPLETO del HEVC pre-mux para
+    # comprobar frame count, CMv4.0, el_type y L8. Son 240 s de media y afecta
+    # al 82 % de los jobs (68 de 83 medidos): el drop-in, que se libra con el
+    # fast path, resulta ser la excepción y no la norma.
+    #
+    # Ese extract-rpu lee exactamente el mismo fichero que mkvmerge está a
+    # punto de leer, y no depende de su resultado. Lanzándolo ahora se solapa
+    # con el remux y la Fase H se encuentra el trabajo hecho.
+    #
+    # No se cambia NADA del criterio de validación: el extract sigue siendo
+    # completo y Fase H sigue comprobando lo mismo sobre el mismo RPU. Si esto
+    # falla, se ignora y Fase H lo rehace por su cuenta.
+    prewarm_task = None
+    prewarm_rpu = wd / "_validate_full_rpu.bin"
+    prewarm_rpu.unlink(missing_ok=True)   # nunca reutilizar el de otra pasada
+    if not drop_in_fel:
+        if log_callback:
+            await log_callback(
+                "[Fase G] ├─ Extrayendo en paralelo el RPU para la validación "
+                "de Fase H (mismo HEVC que va a leer mkvmerge, así no hay que "
+                "recorrerlo dos veces seguidas)"
+            )
+        prewarm_task = asyncio.create_task(_prewarm_validation_rpu(
+            session, hevc_for_mkv, prewarm_rpu, log_callback))
+
     # mkvmerge: MKV final con audio/subs/capítulos del origen (progreso real).
     # --track-name deja una huella visible del procesado (visible en cualquier
     # inspector MKV / mediainfo) sin depender de session.json externo.
@@ -3997,7 +4092,24 @@ async def run_phase_g_remux(
            "label": "Remuxando MKV final (mkvmerge)",
        })
     if rc not in (0, 1):
+        if prewarm_task:
+            prewarm_task.cancel()
         raise RuntimeError(f"mkvmerge falló (código {rc})")
+
+    # Recoger el extract-rpu adelantado. A estas alturas suele estar hecho
+    # (240 s de media contra 460 s de remux); si no, se le espera aquí, que es
+    # exactamente el tiempo que la Fase H habría gastado de todos modos.
+    if prewarm_task:
+        try:
+            ok = await prewarm_task
+            if ok and log_callback:
+                await log_callback(
+                    f"[Fase G] ✓ RPU de validación listo "
+                    f"({prewarm_rpu.stat().st_size / 1e6:.0f} MB) — Fase H no "
+                    f"tendrá que releer el HEVC"
+                )
+        except Exception as e:
+            _logger.info("prewarm del RPU de validación falló: %s", e)
 
     # Cleanup intermedio: NO se borra aquí el pre-mux HEVC (source_injected /
     # dv_dual). Fase H los necesita para `extract-rpu` como alternativa al
@@ -4235,61 +4347,77 @@ async def run_phase_h_validate(
             )
 
         full_rpu = wd / "_validate_full_rpu.bin"
+        # Fase G lo deja extraído mientras hacía el remux (ver
+        # _prewarm_validation_rpu): es el mismo HEVC y el mismo comando, así
+        # que aquí solo hay que recogerlo. Si no está —Fase G de una versión
+        # anterior, o el adelanto falló— se extrae ahora como siempre.
+        prewarmed = full_rpu.exists() and full_rpu.stat().st_size > 0
         try:
-            if log_callback:
-                hevc_gb = pre_mux_hevc.stat().st_size / 1e9
-                # ETA orientativa: dovi_tool extract-rpu sobre NAS ronda
-                # ~3-5 min por cada 30 GB de HEVC (depende de carga I/O).
-                eta_min_lo = max(2, int(hevc_gb / 30 * 3))
-                eta_min_hi = max(5, int(hevc_gb / 30 * 5))
-                await log_callback(
-                    f"[Fase H] Paso 1/3: extrayendo RPU completo del HEVC "
-                    f"pre-mux ({pre_mux_hevc.name}, {hevc_gb:.1f} GB) — "
-                    f"validación rigurosa del frame count y CMv4.0. "
-                    f"Operación pesada (lectura del HEVC entero por dovi_tool, "
-                    f"~{eta_min_lo}-{eta_min_hi} min sobre NAS)…"
-                )
-            await _emit_progress(log_callback, 5, "Extrayendo RPU completo del pre-mux")
+            if prewarmed:
+                if log_callback:
+                    await log_callback(
+                        f"[Fase H] Paso 1/3: RPU ya extraído durante el remux "
+                        f"({full_rpu.stat().st_size / 1e6:.0f} MB) — se valida "
+                        f"directamente, sin releer el HEVC."
+                    )
+                await _emit_progress(log_callback, 75, "RPU listo (extraído en Fase G)")
+            else:
+                if log_callback:
+                    hevc_gb = pre_mux_hevc.stat().st_size / 1e9
+                    # ETA orientativa: dovi_tool extract-rpu sobre NAS ronda
+                    # ~3-5 min por cada 30 GB de HEVC (depende de carga I/O).
+                    eta_min_lo = max(2, int(hevc_gb / 30 * 3))
+                    eta_min_hi = max(5, int(hevc_gb / 30 * 5))
+                    await log_callback(
+                        f"[Fase H] Paso 1/3: extrayendo RPU completo del HEVC "
+                        f"pre-mux ({pre_mux_hevc.name}, {hevc_gb:.1f} GB) — "
+                        f"validación rigurosa del frame count y CMv4.0. "
+                        f"Operación pesada (lectura del HEVC entero por dovi_tool, "
+                        f"~{eta_min_lo}-{eta_min_hi} min sobre NAS)…"
+                    )
+                await _emit_progress(log_callback, 5, "Extrayendo RPU completo del pre-mux")
 
             # Heartbeat task: dovi_tool extract-rpu no streamea progreso al log
             # (sale en stderr solo al final), así que sin esto el modal queda
             # sin actividad ~5-8 min y parece colgado. Cada 30s emitimos el
             # tiempo transcurrido para confirmar que sigue trabajando.
-            import time
-            hb_start = time.monotonic()
-            async def _heartbeat():
-                try:
-                    while True:
-                        await asyncio.sleep(30)
-                        elapsed = int(time.monotonic() - hb_start)
-                        if log_callback:
-                            await log_callback(
-                                f"[Fase H]  ⏱ extract-rpu en curso… "
-                                f"({elapsed // 60}min {elapsed % 60}s transcurridos)"
-                            )
-                except asyncio.CancelledError:
-                    return
-            hb_task = asyncio.create_task(_heartbeat())
-            try:
-                rc, _, err = await _run([
-                    DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
-                    "-o", str(full_rpu),
-                ], log_callback=log_callback,
-                   timeout=_adaptive_timeout(
-                       _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
-                       floor_s=1200),
-                )
-            finally:
-                hb_task.cancel()
-                try:
-                    await hb_task
-                except asyncio.CancelledError:
-                    pass
+            if not prewarmed:
+                import time
+                hb_start = time.monotonic()
 
-            if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
-                raise RuntimeError(
-                    f"extract-rpu falló sobre {pre_mux_hevc.name}: {err[:200]}"
-                )
+                async def _heartbeat():
+                    try:
+                        while True:
+                            await asyncio.sleep(30)
+                            elapsed = int(time.monotonic() - hb_start)
+                            if log_callback:
+                                await log_callback(
+                                    f"[Fase H]  ⏱ extract-rpu en curso… "
+                                    f"({elapsed // 60}min {elapsed % 60}s transcurridos)"
+                                )
+                    except asyncio.CancelledError:
+                        return
+                hb_task = asyncio.create_task(_heartbeat())
+                try:
+                    rc, _, err = await _run([
+                        DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
+                        "-o", str(full_rpu),
+                    ], log_callback=log_callback,
+                       timeout=_adaptive_timeout(
+                           _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+                           floor_s=1200),
+                    )
+                finally:
+                    hb_task.cancel()
+                    try:
+                        await hb_task
+                    except asyncio.CancelledError:
+                        pass
+
+                if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
+                    raise RuntimeError(
+                        f"extract-rpu falló sobre {pre_mux_hevc.name}: {err[:200]}"
+                    )
 
             if log_callback:
                 await log_callback("[Fase H] Paso 2/3: analizando metadata del RPU…")

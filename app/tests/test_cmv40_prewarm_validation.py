@@ -1,0 +1,175 @@
+"""
+La validación de Fase H se adelanta al remux en vez de ir detrás.
+
+Fase H, en el camino merge, extrae el RPU COMPLETO del HEVC pre-mux para
+comprobar frame count, CMv4.0, el_type y L8. Son 240 s de media y afectan al
+**82 % de los jobs** (68 de 83 medidos en el NAS: 36 p7_fel·merge, 25
+p8·merge, 7 p7_mel·merge; solo 15 son drop-in, que se libra con el fast
+path). Durante toda la sesión habíamos dado por hecho lo contrario —el
+código llama al drop-in "el caso típico"— y resulta ser la excepción.
+
+Ese extract-rpu lee exactamente el mismo fichero que mkvmerge va a leer y no
+depende de su resultado, así que puede correr en paralelo con el remux.
+
+Lo que NO cambia: el extract sigue siendo completo, sobre el mismo HEVC, y
+Fase H comprueba lo mismo. Solo se mueve cuándo empieza.
+"""
+import asyncio
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
+
+
+class TestPrewarmHelper(unittest.IsolatedAsyncioTestCase):
+    """`_prewarm_validation_rpu` nunca puede tumbar la Fase G."""
+
+    def _session(self, wd):
+        from models import CMv40Session
+        return CMv40Session(
+            id="sess_pw", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+            output_mkv_name="out.mkv", artifacts_dir=str(wd))
+
+    async def test_devuelve_false_si_dovi_tool_falla(self):
+        import phases.cmv40_pipeline as pipe
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td)
+            orig = pipe.DOVI_TOOL_BIN
+            pipe.DOVI_TOOL_BIN = "/binario/que/no/existe"
+            try:
+                ok = await pipe._prewarm_validation_rpu(
+                    self._session(wd), wd / "pre.hevc", wd / "rpu.bin")
+            finally:
+                pipe.DOVI_TOOL_BIN = orig
+            self.assertFalse(ok)
+            # No deja un fichero a medias que Fase H pudiera dar por bueno
+            self.assertFalse((wd / "rpu.bin").exists())
+
+    async def test_rc_distinto_de_cero_no_deja_rastro(self):
+        import phases.cmv40_pipeline as pipe
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td)
+            out = wd / "rpu.bin"
+
+            async def _fake_run(cmd, **kw):
+                out.write_bytes(b"basura parcial")
+                return (1, "", "boom")
+
+            orig = pipe._run
+            pipe._run = _fake_run
+            try:
+                ok = await pipe._prewarm_validation_rpu(
+                    self._session(wd), wd / "pre.hevc", out)
+            finally:
+                pipe._run = orig
+            self.assertFalse(ok)
+            self.assertFalse(out.exists(), "un RPU parcial debe borrarse")
+
+    async def test_rpu_vacio_se_considera_fallo(self):
+        import phases.cmv40_pipeline as pipe
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td)
+            out = wd / "rpu.bin"
+
+            async def _fake_run(cmd, **kw):
+                out.write_bytes(b"")
+                return (0, "", "")
+
+            orig = pipe._run
+            pipe._run = _fake_run
+            try:
+                ok = await pipe._prewarm_validation_rpu(
+                    self._session(wd), wd / "pre.hevc", out)
+            finally:
+                pipe._run = orig
+            self.assertFalse(ok)
+
+    async def test_al_cancelarse_no_deja_el_fichero(self):
+        """Si el remux falla, Fase G cancela el adelanto."""
+        import phases.cmv40_pipeline as pipe
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td)
+            out = wd / "rpu.bin"
+
+            async def _fake_run(cmd, **kw):
+                out.write_bytes(b"a medias")
+                await asyncio.sleep(30)
+                return (0, "", "")
+
+            orig = pipe._run
+            pipe._run = _fake_run
+            try:
+                task = asyncio.create_task(pipe._prewarm_validation_rpu(
+                    self._session(wd), wd / "pre.hevc", out))
+                await asyncio.sleep(0.05)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            finally:
+                pipe._run = orig
+            self.assertFalse(out.exists())
+
+
+class TestInvalidacion(unittest.TestCase):
+    """El RPU adelantado tiene que morir cuando el HEVC al que corresponde
+    se regenera. Si no, Fase H validaría el stream nuevo contra el RPU del
+    anterior — y como el frame count coincidiría, no lo detectaría."""
+
+    def test_fase_f_lo_borra_al_empezar(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        i = src.find("async def run_phase_f_inject")
+        j = src.find("async def ", i + 10)
+        cuerpo = src[i:j]
+        self.assertIn('_validate_full_rpu.bin").unlink(missing_ok=True)', cuerpo)
+
+    def test_fase_g_lo_borra_antes_de_relanzarlo(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        i = src.find("async def run_phase_g_remux")
+        j = src.find("async def ", i + 10)
+        cuerpo = src[i:j]
+        self.assertIn("prewarm_rpu.unlink(missing_ok=True)", cuerpo)
+
+    def test_no_se_adelanta_en_drop_in(self):
+        """El drop-in usa el fast path de Fase H: extraer el RPU sería tirar
+        240 s de CPU para nada."""
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        i = src.find("prewarm_task = None")
+        self.assertGreater(i, 0)
+        self.assertIn("if not drop_in_fel:", src[i:i + 300])
+
+    def test_fase_h_usa_el_adelantado_si_esta(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("prewarmed = full_rpu.exists() and full_rpu.stat().st_size > 0", src)
+        # …y si no está, lo extrae como siempre
+        self.assertIn("if not prewarmed:", src)
+
+
+class TestPipeBuffer(unittest.TestCase):
+    """Buffer del pipe entre ffmpeg y dovi_tool: 64 KB por defecto obligan a
+    sincronizarse ~800.000 veces sobre 48 GB."""
+
+    def test_intenta_ampliarlo_y_tolera_el_fallo(self):
+        from phases.cmv40_pipeline import _widen_pipe, PIPE_BUF_BYTES
+        import os
+        self.assertEqual(PIPE_BUF_BYTES, 4 * 1024 * 1024)
+        r, w = os.pipe()
+        try:
+            size = _widen_pipe(w)
+            # En Linux devuelve el tamaño logrado; en otros sistemas 0. En
+            # ningún caso puede lanzar.
+            self.assertIsInstance(size, int)
+            self.assertGreaterEqual(size, 0)
+        finally:
+            os.close(r)
+            os.close(w)
+
+    def test_fd_invalido_no_revienta(self):
+        from phases.cmv40_pipeline import _widen_pipe
+        self.assertEqual(_widen_pipe(-1), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
