@@ -114,3 +114,36 @@ class TestPhaseArtifactsMap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSourceHevcSeLiberaAlValidar(unittest.TestCase):
+    """`source.hevc` se quedaba en disco para siempre en los jobs drop-in.
+
+    Fase C solo lo borra cuando hubo demux, y en drop-in no lo hay. Fase H
+    limpiaba los pre-mux pero no él. Medido en el NAS el 2026-08-16: 227 GB
+    en cuatro ficheros de otros tantos jobs ya terminados — el 99,6 % de todo
+    lo que había en /mnt/tmp.
+    """
+
+    def test_la_fase_h_lo_incluye_en_su_limpieza(self):
+        from pathlib import Path
+        src = (Path(__file__).parent.parent / "phases" / "cmv40_pipeline.py").read_text(
+            encoding="utf-8")
+        # La lista de artefactos que Fase H borra tras el rename atómico
+        i = src.find('for hevc_name in ("source.hevc"')
+        self.assertGreater(i, 0, "source.hevc debe estar en el cleanup de Fase H")
+        bloque = src[i:i + 400]
+        for nombre in ("source_injected.hevc", "DV_dual.hevc",
+                       "EL_injected.hevc", "BL_injected.hevc"):
+            self.assertIn(nombre, bloque)
+
+    def test_se_borra_despues_de_mover_el_mkv(self):
+        """Orden importante: primero el rename atómico, luego la limpieza. Si
+        se borrara antes y el rename fallara, no habría de dónde rehacer."""
+        from pathlib import Path
+        src = (Path(__file__).parent.parent / "phases" / "cmv40_pipeline.py").read_text(
+            encoding="utf-8")
+        pos_rename = src.find("session.output_mkv_path = str(final_path)")
+        pos_limpieza = src.find('for hevc_name in ("source.hevc"')
+        self.assertGreater(pos_rename, 0)
+        self.assertGreater(pos_limpieza, pos_rename)

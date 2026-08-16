@@ -4501,9 +4501,27 @@ async def run_phase_h_validate(
     # necesitamos. Antes se borraban al final de Fase G, pero Fase H los
     # requería como input alternativo a extract-rpu sobre el MKV final
     # (evita "Invalid PPS index" de dovi_tool 2.3.x con ciertos MKVs).
-    for hevc_name in ("source_injected.hevc", "DV_dual.hevc",
+    #
+    # `source.hevc` entra en la lista desde 2026-08-16. Fase C solo lo borra
+    # cuando hubo demux, así que en los workflows drop-in (que son la mayoría)
+    # sobrevivía al job entero: 227 GB en cuatro ficheros de otros tantos jobs
+    # ya terminados. Aquí el MKV final ya está validado y movido, así que el
+    # HEVC no sirve para nada — si se rehace una fase, Fase A lo regenera.
+    freed = 0
+    for hevc_name in ("source.hevc", "source_injected.hevc", "DV_dual.hevc",
                       "EL_injected.hevc", "BL_injected.hevc"):
-        (wd / hevc_name).unlink(missing_ok=True)
+        artifact = wd / hevc_name
+        try:
+            if artifact.exists():
+                freed += artifact.stat().st_size
+        except OSError:
+            pass
+        artifact.unlink(missing_ok=True)
+    if freed > 0 and log_callback:
+        await log_callback(
+            f"[Fase H] 🧹 Liberados {freed / 1024**3:.1f} GB de HEVC intermedio "
+            f"(el MKV final ya está validado en /mnt/output)"
+        )
 
     if log_callback:
         await log_callback(

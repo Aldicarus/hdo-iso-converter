@@ -55,6 +55,34 @@ RUN wget -q \
 # Label de dovi_tool (constante por version, no invalida cache de app)
 LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 
+# ── ffmpeg moderno (build estatico de BtbN) ───────────────────────────────────
+# Ubuntu 22.04 trae ffmpeg 4.4.2, de 2021. Se instala 7.1 encima en
+# /usr/local/bin, que precede a /usr/bin en el PATH; el de apt se queda como
+# red de seguridad.
+#
+# NO se hace por velocidad: medido en el NAS sobre el mismo tramo de vídeo,
+# 4.4.2 y 7.1.5 tardan lo mismo (10 s vs 11 s, dentro del ruido) porque ffmpeg
+# aqui hace stream-copy y esta limitado por el disco, no por CPU. Se hace por
+# los cuatro años de correcciones — incluido el demuxer de Matroska, que es
+# justo donde hemos visto MKVs dar "File ended prematurely".
+#
+# Compatibilidad verificada bit a bit con nuestro uso (stream-copy del v:0 +
+# hevc_mp4toannexb + muxer tee hacia un pipe): el HEVC y el RPU resultantes
+# tienen el mismo md5 con las dos versiones.
+#
+# Para volver atras: comentar este bloque y reconstruir; el ffmpeg de apt
+# vuelve a ser el que se usa, sin tocar nada mas.
+ARG FFMPEG_BUILD=ffmpeg-n7.1-latest-linux64-gpl-7.1
+RUN wget -q \
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${FFMPEG_BUILD}.tar.xz" \
+    -O /tmp/ffmpeg.tar.xz \
+    && tar xJf /tmp/ffmpeg.tar.xz -C /tmp \
+    && mv /tmp/${FFMPEG_BUILD}/bin/ffmpeg /tmp/${FFMPEG_BUILD}/bin/ffprobe /usr/local/bin/ \
+    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
+    && rm -rf /tmp/ffmpeg.tar.xz /tmp/${FFMPEG_BUILD} \
+    && ffmpeg -version | head -1
+LABEL ffmpeg.build="${FFMPEG_BUILD}"
+
 # ── Python app ────────────────────────────────────────────────────────────────
 WORKDIR /app
 COPY app/requirements.txt .
