@@ -14917,6 +14917,20 @@ function _renderCMv40RunningOverlay(project) {
                 style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
                 <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"></div>
               </div>
+              <!-- Progreso del JOB completo. La barra de arriba mide la fase
+                   en curso, así que llega al 100% varias veces por job; esta
+                   dice cuánto queda de verdad. Oculta hasta que el backend
+                   manda job_pct. -->
+              <div class="cmv40-jobprogress" id="cmv40-jobprogress-${pid}"
+                style="display:none; align-items:center; gap:8px; font-size:11px; color:#9aa3b2">
+                <span style="flex-shrink:0">Job completo</span>
+                <div style="flex:1; height:5px; background:#0b0e17; border-radius:3px; overflow:hidden">
+                  <div id="cmv40-jobprogress-bar-${pid}"
+                    style="height:100%; width:0%; background:#3d7ab8; transition:width .4s ease"></div>
+                </div>
+                <span id="cmv40-jobprogress-pct-${pid}"
+                  style="flex-shrink:0; font-variant-numeric:tabular-nums; min-width:38px; text-align:right">—</span>
+              </div>
             </div>
             <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
           </div>
@@ -15204,6 +15218,22 @@ function _cmv40UpdateProgressUI(pid, prog) {
       eta.textContent = `ETA ${m}:${String(s).padStart(2, '0')}`;
     } else {
       eta.textContent = '';
+    }
+  }
+  // Barra del job completo. El backend la calcula (_cmv40_job_pct) porque es
+  // quien sabe qué fases han corrido ya y cuánto pesa cada una; el pipeline
+  // solo conoce la suya.
+  const jobWrap = document.getElementById(`cmv40-jobprogress-${pid}`);
+  if (jobWrap) {
+    if (prog.job_pct != null) {
+      const jp = Math.max(0, Math.min(100, prog.job_pct));
+      jobWrap.style.display = 'flex';
+      const jb = document.getElementById(`cmv40-jobprogress-bar-${pid}`);
+      const jt = document.getElementById(`cmv40-jobprogress-pct-${pid}`);
+      if (jb) jb.style.width = jp + '%';
+      if (jt) jt.textContent = jp.toFixed(0) + '%';
+    } else {
+      jobWrap.style.display = 'none';
     }
   }
 }

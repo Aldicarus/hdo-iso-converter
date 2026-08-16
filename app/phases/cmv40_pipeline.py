@@ -419,6 +419,101 @@ def _demux_output_reusable(bl_hevc: Path, el_hevc: Path, marker: Path) -> bool:
     return bl_hevc.exists() and el_hevc.exists() and marker.exists()
 
 
+class _ReadProgress:
+    """Progreso REAL de un subproceso, leyendo cuánto lleva leído de su entrada.
+
+    Las operaciones de dovi_tool (`extract-rpu`, `demux`, `inject-rpu`, `mux`)
+    no informan de nada por stdout, así que hasta ahora la barra se calculaba
+    como `elapsed / estimación`. Y aunque la estimación esté bien calibrada de
+    media —medido sobre 87 jobs: RATIO_INJECT 1,77 hardcodeado vs 1,83 real—
+    la dispersión entre jobs concretos es de 1,31 a 2,32. Es decir, ninguna
+    constante puede predecir un job: la barra mentía y se quedaba clavada en
+    el tope del 95 %.
+
+    El kernel sí sabe la verdad: `/proc/<pid>/fdinfo/<fd>` lleva la posición
+    de lectura del descriptor. Comparada con el tamaño del fichero da el
+    porcentaje exacto, sin estimar nada.
+
+    Verificado contra `dovi_tool extract-rpu` sobre un MKV de 50 GB: la
+    posición avanza de forma monotónica y continua. (El tamaño del fichero de
+    SALIDA no vale como señal: extract-rpu escribe el RPU entero al cerrar y
+    se queda a 0 bytes durante toda la ejecución.)
+
+    Si no se puede leer —otro kernel, entrada por pipe, lectura con mmap— el
+    caller se queda con la estimación por reloj de siempre.
+    """
+
+    def __init__(self, pid: int, input_path: Path):
+        self.pid = pid
+        self.input_path = str(input_path)
+        self.total = 0
+        try:
+            self.total = os.path.getsize(self.input_path)
+        except OSError:
+            pass
+        self._fdinfo: str | None = None
+        self._last_pct = 0.0
+        # (monotonic, pct) para calcular el ritmo real — ver eta()
+        self._samples: list[tuple[float, float]] = []
+
+    def _find_fd(self) -> str | None:
+        """Localiza el descriptor que apunta a la entrada. Se cachea: el fd no
+        cambia durante la vida del proceso."""
+        if self._fdinfo:
+            return self._fdinfo
+        try:
+            fd_dir = f"/proc/{self.pid}/fd"
+            for name in os.listdir(fd_dir):
+                try:
+                    if os.readlink(os.path.join(fd_dir, name)) == self.input_path:
+                        self._fdinfo = f"/proc/{self.pid}/fdinfo/{name}"
+                        return self._fdinfo
+                except OSError:
+                    continue
+        except OSError:
+            pass
+        return None
+
+    def sample(self) -> float | None:
+        """Porcentaje leído (0-100), o None si la señal no está disponible."""
+        if self.total <= 0:
+            return None
+        info = self._find_fd()
+        if not info:
+            return None
+        try:
+            with open(info, "r") as f:
+                for line in f:
+                    if line.startswith("pos:"):
+                        pos = int(line.split()[1])
+                        break
+                else:
+                    return None
+        except (OSError, ValueError, IndexError):
+            return None
+        pct = max(0.0, min(100.0, pos * 100.0 / self.total))
+        # Monotónico: un readahead o un seek puntual no deben hacer retroceder
+        # la barra delante del usuario.
+        pct = max(pct, self._last_pct)
+        self._last_pct = pct
+        self._samples.append((time.monotonic(), pct))
+        del self._samples[:-12]   # ventana de ~20s a 1,5s por muestra
+        return pct
+
+    def eta(self) -> float | None:
+        """Segundos restantes según el ritmo OBSERVADO en este job, no según
+        una constante. Necesita al menos dos muestras con avance real."""
+        if len(self._samples) < 2:
+            return None
+        (t0, p0), (t1, p1) = self._samples[0], self._samples[-1]
+        if p1 <= p0 or t1 <= t0:
+            return None
+        ritmo = (p1 - p0) / (t1 - t0)     # % por segundo
+        if ritmo <= 0:
+            return None
+        return max(0.0, (100.0 - p1) / ritmo)
+
+
 async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | None = None) -> None:
     """Emite un marcador estructurado de progreso que el frontend detecta."""
     if not log_callback:
@@ -471,6 +566,7 @@ async def _run_streaming(
         progress_ctx = {
           'duration': float,           # duración conocida a priori (ffmpeg, s); o 0
           'time_estimate_s': float,    # alternativa: estimación wall-clock (para comandos silenciosos)
+          'input_path': Path,          # fichero que lee el proceso → progreso REAL (_ReadProgress)
           'offset': float,             # pct base (0-100)
           'weight': float,             # peso de este paso en la fase (0-100)
           'label': str,                # etiqueta a mostrar
@@ -487,6 +583,8 @@ async def _run_streaming(
     )
     if proc_callback:
         proc_callback(proc)
+    if progress_input is not None:
+        reader = _ReadProgress(proc.pid, Path(progress_input))
 
     buffer = b""
     last_throttle = 0.0
@@ -496,6 +594,8 @@ async def _run_streaming(
     weight   = float(progress_ctx.get("weight", 100.0)) if progress_ctx else 100.0
     label    = progress_ctx.get("label", "") if progress_ctx else ""
     time_est = float(progress_ctx.get("time_estimate_s", 0.0)) if progress_ctx else 0.0
+    progress_input = progress_ctx.get("input_path") if progress_ctx else None
+    reader: _ReadProgress | None = None
     step_start = time.monotonic()
     has_real_progress = False  # se pone True si detectamos ffmpeg time= o mkvmerge Progress:
     # Contador de warnings ruidosos suprimidos. Algunos HEVC bitstreams
@@ -585,16 +685,25 @@ async def _run_streaming(
             if has_real_progress:
                 return
             elapsed = time.monotonic() - step_start
-            step_pct = min(95.0, (elapsed / time_est) * 100.0)
+            step_pct = None
+            eta = None
+            # Progreso REAL si sabemos qué fichero está leyendo el proceso
+            # (inject-rpu, mux). Ver _ReadProgress.
+            if reader is not None:
+                step_pct = reader.sample()
+                if step_pct is not None:
+                    eta = reader.eta()
+            if step_pct is None:
+                step_pct = min(95.0, (elapsed / time_est) * 100.0)
+                eta = max(0.0, time_est - elapsed)
             phase_pct = offset + step_pct * weight / 100.0
-            eta = max(0.0, time_est - elapsed)
             await _emit_progress(log_callback, phase_pct, label, eta)
             now = time.monotonic()
             if now - last_hb >= HEARTBEAT_EVERY_S:
                 last_hb = now
                 await _emit_heartbeat(log_callback, label or "Proceso", elapsed, eta)
             try:
-                await asyncio.wait_for(stop_ticker.wait(), timeout=2.0)
+                await asyncio.wait_for(stop_ticker.wait(), timeout=1.5)
             except asyncio.TimeoutError:
                 pass
 
@@ -930,34 +1039,53 @@ async def _run_with_time_estimate(
     label: str = "",
     offset: float = 0.0,
     weight: float = 100.0,
+    progress_input: Path | None = None,
 ) -> tuple[int, str, str]:
-    """Ejecuta un comando silencioso mientras emite progreso estimado cada 2 s.
+    """Ejecuta un comando silencioso emitiendo progreso cada 1,5 s.
 
-    Usado para ``dovi_tool extract-rpu`` y similares que no producen salida
-    de progreso cuando stdout está conectado a un pipe. El cálculo se basa
-    en ``elapsed / estimated_s``, cap al 95 % hasta que termine.
+    Usado para ``dovi_tool extract-rpu``, ``demux`` y similares, que no
+    producen salida de progreso cuando stdout está conectado a un pipe.
+
+    Con `progress_input` se sigue lo que el proceso lleva LEÍDO de ese
+    fichero (ver `_ReadProgress`): porcentaje exacto y ETA según el ritmo
+    real. Sin él —o si el kernel no lo expone— se cae a la estimación por
+    reloj de siempre, `elapsed / estimated_s` con tope al 95 %.
     """
     stop = asyncio.Event()
     start = time.monotonic()
+    reader: _ReadProgress | None = None
+    used_real = False
 
     async def _tick():
-        # Emite al inicio y luego cada 2 s
+        nonlocal used_real
         last_hb = time.monotonic()
         while not stop.is_set():
             elapsed = time.monotonic() - start
-            est = max(estimated_s, 5.0)
-            step_pct = min(95.0, (elapsed / est) * 100.0)
+            step_pct = None
+            eta = None
+            if reader is not None:
+                step_pct = reader.sample()
+                if step_pct is not None:
+                    used_real = True
+                    eta = reader.eta()
+            if step_pct is None:
+                # Sin señal del kernel: estimación por reloj (lo de antes).
+                est = max(estimated_s, 5.0)
+                step_pct = min(95.0, (elapsed / est) * 100.0)
+                eta = max(0.0, est - elapsed)
             phase_pct = offset + step_pct * weight / 100.0
-            eta = max(0.0, est - elapsed)
             await _emit_progress(log_callback, phase_pct, label, eta)
             # Heartbeat de texto: estos comandos (extract-rpu, export, demux)
             # no escriben NADA durante minutos. Ver HEARTBEAT_EVERY_S.
             now = time.monotonic()
             if now - last_hb >= HEARTBEAT_EVERY_S:
                 last_hb = now
-                await _emit_heartbeat(log_callback, label or "Proceso", elapsed, eta)
+                await _emit_heartbeat(
+                    log_callback,
+                    f"{label or 'Proceso'} ({step_pct:.0f}%)" if used_real else (label or "Proceso"),
+                    elapsed, eta)
             try:
-                await asyncio.wait_for(stop.wait(), timeout=2.0)
+                await asyncio.wait_for(stop.wait(), timeout=1.5)
             except asyncio.TimeoutError:
                 pass
 
@@ -974,6 +1102,8 @@ async def _run_with_time_estimate(
         )
         if proc_callback:
             proc_callback(proc)
+        if progress_input is not None:
+            reader = _ReadProgress(proc.pid, progress_input)
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
@@ -1277,7 +1407,7 @@ async def run_phase_a_analyze_source(
             DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
            timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC",
-           offset=W_FFMPEG, weight=W_RPU)
+           offset=W_FFMPEG, weight=W_RPU, progress_input=source_hevc)
         if rc != 0:
             raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
 
@@ -1948,6 +2078,7 @@ async def run_phase_b_target_from_mkv(
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
            timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC target",
+           progress_input=temp_hevc,
            offset=W_FFMPEG, weight=W_RPU)
         if rc != 0:
             raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
@@ -2912,7 +3043,7 @@ async def run_phase_c_extract(
                     "--el-out", str(el_hevc),
                 ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
                    timeout=demux_timeout, label="Separando BL + EL (dovi_tool demux)",
-                   offset=0.0, weight=W_DEMUX)
+                   offset=0.0, weight=W_DEMUX, progress_input=source_hevc)
             except BaseException:
                 # Timeout/kill/cancel → los BL/EL a medio escribir NO deben
                 # sobrevivir para el siguiente intento.
@@ -3117,7 +3248,7 @@ async def _export_rpu_frames(
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
             ], estimated_s=est_s, log_callback=log_callback, timeout=export_to,
-               label=f"Exportando frames {label}",
+               label=f"Exportando frames {label}", progress_input=rpu_path,
                offset=progress_offset, weight=progress_weight)
         else:
             rc, out, err = await _run([
@@ -3651,6 +3782,7 @@ async def run_phase_f_inject(
            "time_estimate_s": est_inject,
            "offset": inject_offset, "weight": inject_weight,
            "label": inject_label,
+           "input_path": hevc_input,
        })
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
@@ -4027,6 +4159,7 @@ async def run_phase_g_remux(
                "time_estimate_s": est_mux,
                "offset": 0.0, "weight": W_MUX,
                "label": "Combinando BL + EL (dovi_tool mux)",
+               "input_path": bl_hevc,
            })
         if rc != 0:
             raise RuntimeError(f"dovi_tool mux falló (código {rc})")

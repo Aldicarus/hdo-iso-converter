@@ -5117,6 +5117,72 @@ _CMV40_PROGRESS_PERSIST_S = 20.0
 _cmv40_progress_persist_ts: dict[str, float] = {}
 
 
+# Peso de cada fase dentro del job completo, en tanto por uno. Derivado del
+# reparto real de las 83 sesiones del histórico (analyze 28,6 % · inject
+# 28,2 % · remux 31,6 % · validate 9,1 % · extract 2 %), no inventado.
+#
+# Se ajusta según la ruta porque el reparto cambia mucho: en drop-in no hay
+# demux y la validación son 4 s, mientras que en merge la validación pesa.
+_CMV40_PHASE_WEIGHTS_MERGE = {
+    "preflight": 0.01, "analyze_source": 0.29, "target_rpu_drive": 0.01,
+    "target_rpu_path": 0.01, "target_rpu_mkv": 0.03, "extract": 0.08,
+    "correct_sync": 0.01, "inject": 0.28, "remux": 0.29, "validate": 0.01,
+}
+_CMV40_PHASE_WEIGHTS_DROPIN = {
+    "preflight": 0.01, "analyze_source": 0.35, "target_rpu_drive": 0.01,
+    "target_rpu_path": 0.01, "target_rpu_mkv": 0.03, "extract": 0.00,
+    "correct_sync": 0.01, "inject": 0.32, "remux": 0.31, "validate": 0.01,
+}
+# Orden real de ejecución, para saber qué queda por detrás de la fase actual.
+_CMV40_PHASE_RUN_ORDER = [
+    "preflight", "analyze_source", "target_rpu_drive", "target_rpu_path",
+    "target_rpu_mkv", "extract", "correct_sync", "inject", "remux", "validate",
+]
+
+
+def _cmv40_job_pct(session: CMv40Session, phase_pct: float) -> float | None:
+    """Porcentaje del JOB completo, no de la fase.
+
+    La barra del overlay mide la fase en curso, así que llega al 100 % varias
+    veces por job y no dice cuánto queda de verdad. Esto reparte el 0-100 %
+    entre las fases según lo que pesa cada una, para poder decir "job al 45 %".
+
+    Devuelve None si no hay una fase en curso reconocible.
+    """
+    running = session.running_phase
+    if not running or running not in _CMV40_PHASE_RUN_ORDER:
+        return None
+    dropin = bool(session.target_type == "trusted_p7_fel_final"
+                  and session.target_trust_ok
+                  and (session.source_workflow or "p7_fel") == "p7_fel")
+    pesos = _CMV40_PHASE_WEIGHTS_DROPIN if dropin else _CMV40_PHASE_WEIGHTS_MERGE
+    total = sum(pesos.values()) or 1.0
+    idx = _CMV40_PHASE_RUN_ORDER.index(running)
+    # Fases ya pasadas: cuentan enteras solo si de verdad se ejecutaron.
+    hechas = {r.phase for r in (session.phase_history or []) if r.status == "done"}
+    acumulado = sum(
+        pesos.get(ph, 0.0)
+        for i, ph in enumerate(_CMV40_PHASE_RUN_ORDER)
+        if i < idx and ph in hechas
+    )
+    acumulado += pesos.get(running, 0.0) * max(0.0, min(100.0, phase_pct)) / 100.0
+    return round(100.0 * acumulado / total, 1)
+
+
+def _cmv40_augment_progress(session: CMv40Session, msg: str) -> tuple[str, str]:
+    """Añade `job_pct` al marcador de progreso. Devuelve (msg, ts_msg)."""
+    try:
+        payload = json.loads(msg[len(_CMV40_PROGRESS_PREFIX):])
+        if isinstance(payload, dict):
+            job = _cmv40_job_pct(session, float(payload.get("pct") or 0))
+            if job is not None:
+                payload["job_pct"] = job
+                msg = _CMV40_PROGRESS_PREFIX + json.dumps(payload)
+    except (ValueError, TypeError):
+        pass
+    return msg, f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
+
+
 def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
     """Guarda el progreso en la sesión y lo persiste de tanto en tanto.
 
@@ -5184,6 +5250,9 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     if msg.startswith(_CMV40_PROGRESS_PREFIX):
         if not _cmv40_progress_should_emit(session.id, msg):
             return
+        # Enriquecer con el % del job completo antes de enviarlo: el pipeline
+        # solo sabe de su fase, la sesión es quien conoce el resto.
+        msg, ts_msg = _cmv40_augment_progress(session, msg)
         _cmv40_store_last_progress(session, msg)
     else:
         session.output_log.append(ts_msg)

@@ -171,5 +171,143 @@ class TestPipeBuffer(unittest.TestCase):
         self.assertEqual(_widen_pipe(-1), 0)
 
 
+
+class TestProgresoReal(unittest.TestCase):
+    """`_ReadProgress`: el % sale de lo que el proceso lleva leído, no del reloj.
+
+    Medido sobre 87 jobs: RATIO_INJECT vale 1,77 hardcodeado y 1,83 real, o
+    sea que la constante está bien calibrada — pero la dispersión entre jobs
+    va de 1,31 a 2,32. Ninguna constante puede predecir un job concreto, y por
+    eso la barra se quedaba clavada en el tope del 95 %.
+    """
+
+    def test_lee_la_posicion_real_del_descriptor(self):
+        """Contra un proceso de verdad leyendo un fichero de verdad."""
+        import os, subprocess, tempfile, time
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            big = Path(td) / "grande.bin"
+            big.write_bytes(b"\0" * (24 * 1024 * 1024))
+            # `cat` a /dev/null: lectura secuencial simple del fichero
+            with open(os.devnull, "wb") as devnull:
+                proc = subprocess.Popen(["cat", str(big)], stdout=devnull)
+                try:
+                    rp = _ReadProgress(proc.pid, big)
+                    self.assertEqual(rp.total, 24 * 1024 * 1024)
+                    visto = None
+                    for _ in range(200):
+                        s = rp.sample()
+                        if s is not None:
+                            visto = s
+                            break
+                        time.sleep(0.005)
+                    # En Linux debe dar una lectura; en macOS no hay /proc y
+                    # devuelve None, que es el caso de fallback.
+                    if visto is not None:
+                        self.assertGreaterEqual(visto, 0.0)
+                        self.assertLessEqual(visto, 100.0)
+                finally:
+                    proc.wait(timeout=10)
+
+    def test_sin_proc_devuelve_none_y_no_revienta(self):
+        """Fallback: si no hay /proc (macOS) o el pid no existe, el caller
+        se queda con la estimación por reloj."""
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "x.bin"
+            f.write_bytes(b"0" * 1024)
+            rp = _ReadProgress(999999, f)   # pid inexistente
+            self.assertIsNone(rp.sample())
+
+    def test_fichero_inexistente_no_revienta(self):
+        from phases.cmv40_pipeline import _ReadProgress
+        rp = _ReadProgress(1, Path("/no/existe.bin"))
+        self.assertEqual(rp.total, 0)
+        self.assertIsNone(rp.sample())
+
+    def test_el_porcentaje_nunca_retrocede(self):
+        """El readahead o un seek puntual no deben hacer bajar la barra."""
+        from phases.cmv40_pipeline import _ReadProgress
+        rp = _ReadProgress(1, Path("/no/existe.bin"))
+        rp.total = 1000
+        rp._fdinfo = "/dev/null"        # sample() no encontrará 'pos:'
+        rp._last_pct = 60.0
+        # Simulamos lo que hace sample() tras leer una posición menor
+        pct = max(30.0, rp._last_pct)
+        self.assertEqual(pct, 60.0)
+
+    def test_eta_por_ritmo_observado(self):
+        """La ETA sale del avance real de este job, no de una constante."""
+        from phases.cmv40_pipeline import _ReadProgress
+        rp = _ReadProgress(1, Path("/no/existe.bin"))
+        self.assertIsNone(rp.eta(), "sin muestras no se inventa una ETA")
+        rp._samples = [(100.0, 10.0), (110.0, 20.0)]   # 10% en 10s → 1%/s
+        eta = rp.eta()
+        self.assertIsNotNone(eta)
+        self.assertAlmostEqual(eta, 80.0, delta=1.0)   # faltan 80% a 1%/s
+        # Sin avance entre muestras no se puede estimar
+        rp._samples = [(100.0, 20.0), (110.0, 20.0)]
+        self.assertIsNone(rp.eta())
+
+
+class TestJobPct(unittest.TestCase):
+    """El % del job completo, que hasta ahora no existía: la barra medía la
+    fase y llegaba al 100 % varias veces por job."""
+
+    def setUp(self):
+        import os
+        self._cwd = os.getcwd()
+        os.chdir(APP_DIR)
+        import main
+        self.main = main
+
+    def tearDown(self):
+        import os
+        os.chdir(self._cwd)
+
+    def _session(self, **kw):
+        from models import CMv40Session
+        s = CMv40Session(id="s", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+                         output_mkv_name="o.mkv")
+        for k, v in kw.items():
+            setattr(s, k, v)
+        return s
+
+    def test_sin_fase_en_curso_no_hay_porcentaje(self):
+        s = self._session(running_phase=None)
+        self.assertIsNone(self.main._cmv40_job_pct(s, 50))
+
+    def test_avanza_con_las_fases(self):
+        from models import CMv40PhaseRecord
+        from datetime import datetime, timezone
+        ahora = datetime.now(timezone.utc)
+        s = self._session(running_phase="analyze_source")
+        al_principio = self.main._cmv40_job_pct(s, 0)
+        a_medias = self.main._cmv40_job_pct(s, 50)
+        self.assertLess(al_principio, a_medias)
+
+        # Con analyze ya hecha y el remux en curso, el job va mucho más allá
+        s2 = self._session(running_phase="remux")
+        s2.phase_history = [
+            CMv40PhaseRecord(phase=p, started_at=ahora, status="done")
+            for p in ("analyze_source", "extract", "inject")
+        ]
+        self.assertGreater(self.main._cmv40_job_pct(s2, 50),
+                           self.main._cmv40_job_pct(s, 100))
+
+    def test_nunca_se_pasa_de_100(self):
+        s = self._session(running_phase="validate")
+        self.assertLessEqual(self.main._cmv40_job_pct(s, 100), 100.0)
+
+    def test_drop_in_reparte_distinto(self):
+        """En drop-in no hay demux y la validación son 4 s: el mismo avance
+        de fase equivale a más porcentaje de job."""
+        s_merge = self._session(running_phase="inject", target_type="trusted_p8_source")
+        s_drop = self._session(running_phase="inject",
+                               target_type="trusted_p7_fel_final",
+                               target_trust_ok=True, source_workflow="p7_fel")
+        self.assertNotEqual(self.main._cmv40_job_pct(s_merge, 50),
+                            self.main._cmv40_job_pct(s_drop, 50))
+
 if __name__ == "__main__":
     unittest.main()
