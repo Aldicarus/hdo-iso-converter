@@ -183,5 +183,92 @@ class TestNumeracionDePasos(unittest.TestCase):
         self.assertIn("Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg", src)
         self.assertIn("Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu", src)
 
+
+class TestRunStreamingHumo(unittest.IsolatedAsyncioTestCase):
+    """Tests de humo de `_run_streaming` con procesos DE VERDAD.
+
+    Añadidos tras romper producción el 2026-08-16: al meter el progreso por
+    /proc dejé `progress_input` asignada DESPUÉS de su primer uso, así que
+    toda llamada a `_run_streaming` moría con «local variable
+    'progress_input' referenced before assignment» — es decir, el pipeline
+    entero, desde el sniff del pre-flight. No lo cazó nadie porque la suite
+    no llegaba a ejecutar esta función: solo comprobaba la forma del código.
+
+    Estos tests usan `sh`, así que corren en cualquier sitio sin ffmpeg ni
+    dovi_tool.
+    """
+
+    async def test_sin_progress_ctx(self):
+        """El caso del sniff del pre-flight, que es el que reventó."""
+        from phases.cmv40_pipeline import _run_streaming
+        lines = []
+
+        async def _log(m):
+            lines.append(m)
+
+        rc = await _run_streaming(["sh", "-c", "echo hola; echo mundo"],
+                                  log_callback=_log)
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("hola" in l for l in lines))
+        self.assertTrue(any("mundo" in l for l in lines))
+
+    async def test_sin_log_callback_ni_nada(self):
+        from phases.cmv40_pipeline import _run_streaming
+        rc = await _run_streaming(["sh", "-c", "echo x"])
+        self.assertEqual(rc, 0)
+
+    async def test_con_progress_ctx_sin_input_path(self):
+        """progress_ctx presente pero sin fichero que vigilar."""
+        from phases.cmv40_pipeline import _run_streaming
+        rc = await _run_streaming(
+            ["sh", "-c", "echo y"], log_callback=None,
+            progress_ctx={"time_estimate_s": 1.0, "offset": 0.0,
+                          "weight": 100.0, "label": "prueba"})
+        self.assertEqual(rc, 0)
+
+    async def test_con_input_path(self):
+        """La ruta nueva: vigilando un fichero real."""
+        from phases.cmv40_pipeline import _run_streaming
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as td:
+            f = os.path.join(td, "in.bin")
+            with open(f, "wb") as fh:
+                fh.write(b"0" * (2 * 1024 * 1024))
+            rc = await _run_streaming(
+                ["sh", "-c", f"cat {f} > /dev/null; echo fin"],
+                progress_ctx={"time_estimate_s": 1.0, "offset": 0.0,
+                              "weight": 100.0, "label": "prueba",
+                              "input_path": f})
+            self.assertEqual(rc, 0)
+
+    async def test_codigo_de_error_se_propaga(self):
+        from phases.cmv40_pipeline import _run_streaming
+        rc = await _run_streaming(["sh", "-c", "exit 3"])
+        self.assertEqual(rc, 3)
+
+
+class TestRunWithTimeEstimateHumo(unittest.IsolatedAsyncioTestCase):
+    """Lo mismo para `_run_with_time_estimate`, que también toca progreso."""
+
+    async def test_sin_progress_input(self):
+        from phases.cmv40_pipeline import _run_with_time_estimate
+        rc, out, err = await _run_with_time_estimate(
+            ["sh", "-c", "echo salida"], estimated_s=1.0)
+        self.assertEqual(rc, 0)
+        self.assertIn("salida", out)
+
+    async def test_con_progress_input(self):
+        from phases.cmv40_pipeline import _run_with_time_estimate
+        import tempfile, os
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as td:
+            f = os.path.join(td, "in.bin")
+            with open(f, "wb") as fh:
+                fh.write(b"0" * (1024 * 1024))
+            rc, out, err = await _run_with_time_estimate(
+                ["sh", "-c", f"cat {f} > /dev/null"], estimated_s=1.0,
+                progress_input=P(f))
+            self.assertEqual(rc, 0)
+
 if __name__ == "__main__":
     unittest.main()

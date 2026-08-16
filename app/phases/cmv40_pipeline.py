@@ -573,6 +573,10 @@ async def _run_streaming(
         }
     Prioridad: ffmpeg time= > mkvmerge Progress: > time_estimate_s (ticker).
     """
+    # Antes de lanzar nada: el bloque que lee progress_ctx vive más abajo, y
+    # estas dos se usan en cuanto existe el pid.
+    progress_input = progress_ctx.get("input_path") if progress_ctx else None
+    reader: _ReadProgress | None = None
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
     proc = await asyncio.create_subprocess_exec(
@@ -594,8 +598,6 @@ async def _run_streaming(
     weight   = float(progress_ctx.get("weight", 100.0)) if progress_ctx else 100.0
     label    = progress_ctx.get("label", "") if progress_ctx else ""
     time_est = float(progress_ctx.get("time_estimate_s", 0.0)) if progress_ctx else 0.0
-    progress_input = progress_ctx.get("input_path") if progress_ctx else None
-    reader: _ReadProgress | None = None
     step_start = time.monotonic()
     has_real_progress = False  # se pone True si detectamos ffmpeg time= o mkvmerge Progress:
     # Contador de warnings ruidosos suprimidos. Algunos HEVC bitstreams
