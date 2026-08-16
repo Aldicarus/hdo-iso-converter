@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -169,6 +170,77 @@ async def _run_export_simple(rpu_path: Path, out_path: Path) -> tuple[int, str]:
 # Niveles que necesita el análisis de combos. L1 sirve de censo de frames
 # (un registro por frame), L2/L8 son los combos y `scenes` da los cortes.
 _EXPORT_LEVELS = ("level1", "level2", "level8")
+
+
+async def export_levels(
+    rpu_path: Path,
+    levels,
+    out_dir: Path | None = None,
+    timeout: int = 300,
+    log_callback=None,
+    register_proc=None,
+) -> dict[str, list] | None:
+    """Exporta SOLO los niveles pedidos y devuelve sus registros parseados.
+
+    Alternativa a `dovi_tool export -d all`, que vuelca el RPU entero: sobre
+    un bin real de 145.303 frames son 682 MB y ~100 s, frente a 8 MB y ~1 s
+    si lo único que quieres es el L1. Requiere dovi_tool >= 2.3.3.
+
+    Formato de cada nivel (lista plana, un registro por frame y bloque):
+        level1: {"frame","min_pq","max_pq","avg_pq"}
+        level5: {"frame","active_area_{left,right,top,bottom}_offset"}
+        level6: {"frame","max_display_mastering_luminance",
+                 "max_content_light_level","max_frame_average_light_level",…}
+        level9: {"frame","length","source_primary_index"}
+
+    Devuelve None si dovi_tool no conoce `--levels` o si el export falla:
+    el caller debe conservar su camino alternativo.
+    """
+    levels = tuple(levels)
+    if not levels:
+        return None
+    out = out_dir or rpu_path.parent
+    stem = f".lvl_{os.getpid()}_{rpu_path.stem[:24]}"
+    paths = {lv: out / f"{stem}_{lv}.json" for lv in levels}
+    try:
+        rc, stderr = await _run_export(
+            rpu_path, out, timeout=timeout,
+            log_callback=log_callback, register_proc=register_proc,
+            export_args=[
+                "-f", "json",
+                "--levels", ",".join(f"{lv}={paths[lv]}" for lv in levels),
+            ],
+        )
+        if rc != 0:
+            logger.info("export --levels %s falló sobre %s (rc=%s): %s",
+                        levels, rpu_path.name, rc, stderr[:160])
+            return None
+
+        def _read_all() -> dict[str, list]:
+            data: dict[str, list] = {}
+            for lv, p in paths.items():
+                if not p.exists() or p.stat().st_size == 0:
+                    data[lv] = []
+                    continue
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    data[lv] = loaded if isinstance(loaded, list) else []
+                except (ValueError, OSError):
+                    data[lv] = []
+            return data
+
+        return await asyncio.to_thread(_read_all)
+    except Exception as e:  # noqa: BLE001
+        logger.info("export --levels %s no disponible sobre %s: %s",
+                    levels, rpu_path.name, e)
+        return None
+    finally:
+        for p in paths.values():
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 async def _run_export_levels(

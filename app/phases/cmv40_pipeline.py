@@ -2117,9 +2117,37 @@ async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
 
     Coste: ~30-60s una sola vez por RPU (no 24 calls); el JSON puede ser
     grande (~50 MB para una peli de 2h) pero se borra inmediatamente.
+
+    Con dovi_tool >= 2.3.3 se pide SOLO el L5 (`--levels level5`): ~20 MB y
+    un par de segundos, en vez de volcar el RPU entero para leer cuatro
+    offsets por frame.
     """
     if frame_count <= 0:
         return []
+
+    # Vía rápida: solo el nivel que nos interesa.
+    try:
+        from phases.rpu_analyze import export_levels
+        levels = await export_levels(rpu_path, ("level5",), timeout=timeout)
+        if levels is not None:
+            rows = levels.get("level5") or []
+            if rows:
+                step = max(1, len(rows) // max(2, samples))
+                return [
+                    (i, (
+                        int(rows[i].get("active_area_top_offset") or 0),
+                        int(rows[i].get("active_area_bottom_offset") or 0),
+                        int(rows[i].get("active_area_left_offset") or 0),
+                        int(rows[i].get("active_area_right_offset") or 0),
+                    ))
+                    for i in range(0, len(rows), step)
+                    if isinstance(rows[i], dict)
+                ]
+            # Sin bloques L5 en el RPU: es un resultado válido, no un fallo.
+            return []
+    except Exception as e:
+        _logger.info("export --levels level5 no disponible (%s) — usando export completo", e)
+
     export_json = rpu_path.parent / f"_l5_export_{rpu_path.stem}.json"
     try:
         try:
@@ -2704,6 +2732,34 @@ async def _export_rpu_frames(
 
     Intenta primero export JSON; si no está disponible, hace muestreo cada N frames.
     """
+    # Intento 0: export SOLO del L1 (dovi_tool >= 2.3.3). El chart únicamente
+    # necesita max_pq/avg_pq por frame — y eso son ~8 MB y ~1 s, frente a los
+    # ~680 MB y ~100 s del volcado completo del RPU. Como esto corre DOS veces
+    # por Fase C (source + target), es el ahorro más directo de la fase.
+    try:
+        from phases.rpu_analyze import export_levels
+        levels = await export_levels(
+            rpu_path, ("level1",), timeout=_adaptive_timeout(est_s, floor_s=600))
+        if levels is not None and levels.get("level1"):
+            rows = levels["level1"]
+            if log_callback:
+                await log_callback(
+                    f"[Fase C] L1 de {label}: {len(rows)} frames "
+                    f"(export selectivo — sin volcar el RPU entero)")
+            if progress_weight > 0:
+                await _emit_progress(log_callback, progress_offset + progress_weight,
+                                     f"Frames de {label} exportados")
+            return [
+                {
+                    "frame": i,
+                    "maxcll": float(r.get("max_pq") or 0),
+                    "maxfall": float(r.get("avg_pq") or 0),
+                }
+                for i, r in enumerate(rows)
+            ]
+    except Exception as e:
+        _logger.info("export --levels level1 no disponible (%s) — usando export completo", e)
+
     # Intento 1: dovi_tool export (versión reciente). Estimación basada en fps real.
     try:
         wd = rpu_path.parent

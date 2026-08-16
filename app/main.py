@@ -3366,6 +3366,68 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
     return {"ok": True}
 
 
+# Cada nivel exportado va a la metadata donde el parser lo espera: L1/L2/L5/L6
+# son CMv2.9 y L8/L9/L10/L11 son exclusivos de CMv4.0. El parser mira en las
+# dos, así que esto es por corrección más que por necesidad.
+_LEVEL_TO_META = {
+    "level1": "cmv29_metadata", "level2": "cmv29_metadata",
+    "level5": "cmv29_metadata", "level6": "cmv29_metadata",
+    "level8": "cmv40_metadata", "level9": "cmv40_metadata",
+    "level10": "cmv40_metadata", "level11": "cmv40_metadata",
+}
+
+
+def _rpus_from_levels(levels: dict[str, list]) -> list[dict]:
+    """Rehace la lista `rpus` del volcado a partir de los exports por nivel.
+
+    Los exports de `--levels` son listas planas con el índice de frame:
+        [{"frame":0,"max_pq":2081,…}, {"frame":1,…}, …]
+    y el parser del light-profile espera la forma anidada del volcado:
+        {"vdr_dm_data":{"cmv29_metadata":{"ext_metadata_blocks":[{"Level1":{…}}]}}}
+
+    Reconstruirla cuesta unos segundos y algo de RAM, pero mucho menos que
+    parsear el volcado entero (1,12 GB para 243.552 frames), y evita tocar un
+    parser que está validado campo a campo contra `dovi_tool info --summary`.
+
+    Los dicts de datos se reutilizan por referencia: no se copian.
+    """
+    # Nº de frames = el mayor índice visto en cualquier nivel. L1 existe en
+    # todos los frames de un RPU válido, pero no damos por hecho que esté.
+    n = 0
+    for rows in levels.values():
+        for r in rows:
+            if isinstance(r, dict):
+                fr = r.get("frame")
+                if isinstance(fr, int) and fr + 1 > n:
+                    n = fr + 1
+    if n <= 0:
+        return []
+
+    # Un frame puede tener varios bloques del mismo nivel (L2/L8 traen uno por
+    # target display), así que se acumulan en lista.
+    blocks: list[dict[str, list]] = [dict() for _ in range(n)]
+    for level, rows in levels.items():
+        meta = _LEVEL_TO_META.get(level)
+        if not meta:
+            continue
+        tag = "Level" + level.removeprefix("level")
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            fr = r.get("frame")
+            if not isinstance(fr, int) or not (0 <= fr < n):
+                continue
+            blocks[fr].setdefault(meta, []).append({tag: r})
+
+    return [
+        {"vdr_dm_data": {
+            meta: {"ext_metadata_blocks": bl}
+            for meta, bl in per_frame.items()
+        }}
+        for per_frame in blocks
+    ]
+
+
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
 async def mkv_light_profile_endpoint(body: dict):
     """Extrae el perfil de luminancia del MOVIE COMPLETO del MKV.
@@ -3579,34 +3641,67 @@ async def mkv_light_profile_endpoint(body: dict):
         _lp_set_step(3, "Exportando metadata a JSON + parseo", 90)
         t2 = _time.monotonic()
         json_path = tmp_dir / "rpu.json"
-        proc = await asyncio.create_subprocess_exec(
-            DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        )
-        _lp_register_proc(proc)
-        # export de un RPU full-movie tarda 5-15 min y escala con los frames;
-        # 300s (5 min) era el borde bajo → moría en NAS lentos. 30 min de margen.
-        _lp_export_timeout = 1800
-        try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_lp_export_timeout)
-        except asyncio.TimeoutError:
-            try: proc.kill()
-            except Exception: pass
-            _light_profile_state["error"] = f"dovi_tool export excedió {_lp_export_timeout // 60} min"
-            raise HTTPException(status_code=504, detail=f"dovi_tool export excedió {_lp_export_timeout // 60} min")
-        if proc.returncode != 0 or not json_path.exists():
-            err = stderr.decode("utf-8", errors="replace")[:400]
-            _light_profile_state["error"] = f"export falló: {err}"
-            raise HTTPException(status_code=500, detail=f"export falló: {err}")
 
-        # Parse JSON
+        # ── Vía rápida: export SOLO de los niveles que este parser lee ──
+        # El volcado completo de un RPU de 243.552 frames pesa 1,12 GB y
+        # tarda ~100 s en generarse, más el json.load (decenas de segundos y
+        # varios GB de RAM). De todo eso aquí solo se usan L1, L2, L5, L6 y
+        # L8: pedirlos sueltos son ~157 MB y unos segundos.
+        #
+        # Se reconstruye la estructura que el parser de abajo espera en vez
+        # de reescribirlo: ese parser está validado contra
+        # `dovi_tool info --summary` (caso BR2049) y no merece la pena
+        # arriesgar una divergencia por ahorrarse un adaptador.
+        rpus = None
         try:
-            with open(json_path) as f:
-                data = _json.load(f)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
-        _lp_log(f"Paso 3/3 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
-        _lp_set_step_pct(100, 98)
+            from phases.rpu_analyze import export_levels
+            _lp_levels = await export_levels(
+                rpu_path, ("level1", "level2", "level5", "level6", "level8"),
+                out_dir=tmp_dir, timeout=1800,
+            )
+            if _lp_levels is not None and _lp_levels.get("level1"):
+                rpus = await asyncio.to_thread(_rpus_from_levels, _lp_levels)
+                _lp_log(
+                    f"Paso 3/3 ✓ export por niveles ({len(rpus)} frames) en "
+                    f"{_time.monotonic() - t2:.1f}s — sin volcar el RPU entero"
+                )
+                _lp_set_step_pct(100, 98)
+        except Exception as _e:
+            _logger.info("light-profile: export por niveles no disponible (%s)", _e)
+            rpus = None
+
+        if rpus is None:
+            # Camino clásico: volcado completo del RPU. Sigue vivo por si el
+            # binario es anterior a 2.3.3 o el export por niveles falla.
+            proc = await asyncio.create_subprocess_exec(
+                DOVI_TOOL_BIN, "export", "-i", str(rpu_path), "-o", str(json_path),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            )
+            _lp_register_proc(proc)
+            # export de un RPU full-movie tarda 5-15 min y escala con los frames;
+            # 300s (5 min) era el borde bajo → moría en NAS lentos. 30 min de margen.
+            _lp_export_timeout = 1800
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_lp_export_timeout)
+            except asyncio.TimeoutError:
+                try: proc.kill()
+                except Exception: pass
+                _light_profile_state["error"] = f"dovi_tool export excedió {_lp_export_timeout // 60} min"
+                raise HTTPException(status_code=504, detail=f"dovi_tool export excedió {_lp_export_timeout // 60} min")
+            if proc.returncode != 0 or not json_path.exists():
+                err = stderr.decode("utf-8", errors="replace")[:400]
+                _light_profile_state["error"] = f"export falló: {err}"
+                raise HTTPException(status_code=500, detail=f"export falló: {err}")
+
+            # Parse JSON
+            try:
+                with open(json_path) as f:
+                    data = _json.load(f)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
+            _lp_log(f"Paso 3/3 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
+            _lp_set_step_pct(100, 98)
+            rpus = data.get("rpus") if isinstance(data, dict) else data
 
         # El formato de dovi_tool export varia entre versiones. Soportamos:
         #   (a) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{level:1, ...}, ...]
@@ -3615,7 +3710,7 @@ async def mkv_light_profile_endpoint(body: dict):
         #       (dict keyed por nombre de nivel)
         #   (c) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{Level1:{...}}, ...]
         #       (tagged enum de serde — variante más común en dovi_tool 2.3.x)
-        rpus = data.get("rpus") if isinstance(data, dict) else data
+        #   (d) reconstruido por _rpus_from_levels desde el export por niveles
         if not isinstance(rpus, list):
             raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
 
