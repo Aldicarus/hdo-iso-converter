@@ -546,13 +546,9 @@ class TestSufijoEtaEnTodosLosEscritores(unittest.TestCase):
         self.assertIn("elapsedEl.dataset.etaSufijo = _cmv40SufijoEta(s);", js)
         self.assertIn("function _cmv40SufijoEta(s)", js)
 
-    def test_el_criterio_es_no_conocer_aun_la_ruta(self):
-        js = self._js()
-        i = js.find("function _cmv40SufijoEta(s)")
-        cuerpo = js[i:i + 400]
-        self.assertIn("!s.target_type", cuerpo)
-        self.assertIn("target_provided", cuerpo)
-        self.assertIn("(estimado inicial)", cuerpo)
+    # El criterio en sí (qué campo señala "ruta aún desconocida") se prueba
+    # por comportamiento en test_cmv40_eta_sufijo.py. Aquí solo el cableado
+    # de los tres escritores, que es lo que se rompió.
 
 if __name__ == "__main__":
     unittest.main()
