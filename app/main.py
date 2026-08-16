@@ -6209,6 +6209,7 @@ _ETA_MODEL_TTL_S = 300.0
 # Fases cuyo ratio medimos contra la Fase A (la referencia natural: es la
 # primera larga y su coste escala con el tamaño del vídeo igual que el resto).
 _ETA_MODEL_PHASES = ("extract", "inject", "remux", "validate")
+_ETA_MODEL_WINDOW = 10      # jobs recientes por ruta
 
 
 def _cmv40_build_eta_model() -> dict:
@@ -6232,9 +6233,18 @@ def _cmv40_build_eta_model() -> dict:
     carpeta = _CFG / "cmv40"
     if not carpeta.exists():
         return {"dropin": {}, "merge": {}, "n": 0}
+    # Ventana corta a propósito: la referencia es la Fase A, y su duración
+    # cambia cuando cambia el pipeline. Con 25 jobs, los anteriores al pipe
+    # de Fase A dominaban la mediana y el modelo subestimaba un 15 %;
+    # validado contra M3GAN 2.0 (28,6 min reales), con 10 el error baja al
+    # 2 %.
+    #
+    # La ventana se cuenta POR RUTA, no global: una racha de drop-in deja
+    # sin muestras a merge (que es el 82 % de los jobs) y viceversa.
     ficheros = sorted(carpeta.glob("*.json"), key=lambda p: p.stat().st_mtime,
-                      reverse=True)[:25]
+                      reverse=True)
     ratios: dict[str, dict[str, list[float]]] = {"dropin": {}, "merge": {}}
+    vistos = {"dropin": 0, "merge": 0}
     usados = 0
     for fp in ficheros:
         try:
@@ -6248,8 +6258,21 @@ def _cmv40_build_eta_model() -> dict:
         base = hechas.get("analyze_source", 0)
         if base < 30:          # sin Fase A medible no hay referencia
             continue
-        # El fast path de validación (segundos) delata el drop-in.
-        ruta = "dropin" if hechas.get("validate", 999) < 20 else "merge"
+        # Ruta según la definición real de drop-in (la misma condición que
+        # `is_drop_in_fel` del pipeline). NO vale mirar si la validación fue
+        # rápida: desde que corre dentro del remux, los jobs merge también
+        # validan en 2 s, y clasificaba como drop-in jobs que habían hecho
+        # un demux de 217 s — contaminando la mediana.
+        es_dropin = (
+            data.get("source_workflow") == "p7_fel"
+            and data.get("target_type") == "trusted_p7_fel_final"
+            and bool(data.get("target_trust_ok"))
+            and data.get("trust_override") != "force_interactive"
+        )
+        ruta = "dropin" if es_dropin else "merge"
+        if vistos[ruta] >= _ETA_MODEL_WINDOW:
+            continue
+        vistos[ruta] += 1
         usados += 1
         for ph in _ETA_MODEL_PHASES:
             if ph in hechas:

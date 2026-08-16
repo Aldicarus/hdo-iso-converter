@@ -338,7 +338,8 @@ class TestModeloEtaMedido(unittest.TestCase):
         self._td.cleanup()
         os.chdir(self._cwd)
 
-    def _job(self, nombre, analyze, inject, remux, validate, extract=None):
+    def _job(self, nombre, analyze, inject, remux, validate, extract=None,
+             dropin=True):
         import json
         ph = [{"phase": "analyze_source", "status": "done", "elapsed_seconds": analyze,
                "started_at": "2026-08-16T10:00:00Z"},
@@ -351,15 +352,21 @@ class TestModeloEtaMedido(unittest.TestCase):
         if extract is not None:
             ph.append({"phase": "extract", "status": "done", "elapsed_seconds": extract,
                        "started_at": "2026-08-16T10:00:00Z"})
+        # La ruta se deduce de los mismos campos que usa is_drop_in_fel, no
+        # de lo que tardara la validación (ver el test de abajo).
+        doc = {"id": nombre, "phase_history": ph,
+               "source_workflow": "p7_fel" if dropin else "p7_mel",
+               "target_type": "trusted_p7_fel_final" if dropin else "trusted_p7_mel_final",
+               "target_trust_ok": bool(dropin)}
         p = Path(self._td.name) / "cmv40" / f"{nombre}.json"
-        p.write_text(json.dumps({"id": nombre, "phase_history": ph}), encoding="utf-8")
+        p.write_text(json.dumps(doc), encoding="utf-8")
 
     def test_separa_drop_in_de_merge(self):
         """El reparto no se parece: en drop-in no hay demux y la validación
         son segundos."""
         for i in range(3):
-            self._job(f"d{i}", 300, 360, 390, 3)              # drop-in
-            self._job(f"m{i}", 300, 480, 600, 240, extract=210)  # merge
+            self._job(f"d{i}", 300, 360, 390, 3, dropin=True)
+            self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
         m = self.main._cmv40_build_eta_model()
         self.assertEqual(m["n"], 6)
         self.assertAlmostEqual(m["dropin"]["inject"], 1.2, places=2)
@@ -368,6 +375,16 @@ class TestModeloEtaMedido(unittest.TestCase):
         # El demux solo existe en merge
         self.assertIn("extract", m["merge"])
         self.assertNotIn("extract", m["dropin"])
+
+    def test_un_merge_rapido_de_validar_no_pasa_por_drop_in(self):
+        """Desde que la validación corre dentro del remux (B2), los jobs
+        merge también validan en 2 s. Clasificar por eso metía en el cubo de
+        drop-in jobs que habían hecho un demux de 217 s ("Te van a matar")."""
+        for i in range(3):
+            self._job(f"m{i}", 300, 480, 660, 2, extract=210, dropin=False)
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m["dropin"], {}, "no debe haber ningún drop-in")
+        self.assertAlmostEqual(m["merge"]["remux"], 2.2, places=1)
 
     def test_no_emite_ratios_con_pocas_muestras(self):
         """Con menos de 3 el frontend se queda con su constante."""
