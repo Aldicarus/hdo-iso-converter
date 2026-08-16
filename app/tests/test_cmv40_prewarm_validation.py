@@ -516,5 +516,43 @@ class TestProgresoConDosPasadas(unittest.TestCase):
         self.assertIn('"output_path": hevc_output', bloque)
         self.assertIn('"expected_out_bytes"', bloque)
 
+
+class TestSufijoEtaEnTodosLosEscritores(unittest.TestCase):
+    """El texto del tiempo restante lo escriben TRES sitios: el render
+    completo, el updater incremental y el tick de 1 s. Este último lo tenía
+    hardcodeado a "(auto)" y pisaba cada segundo el "(estimado inicial)" que
+    ponían los otros dos — el aviso no llegaba a verse nunca.
+    """
+
+    def _js(self):
+        return (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+
+    def test_ningun_sufijo_hardcodeado(self):
+        js = self._js()
+        self.assertNotIn("restantes (auto)", js,
+                         "el sufijo debe salir de _cmv40SufijoEta, no fijo")
+
+    def test_el_tick_lee_el_sufijo_del_dataset(self):
+        js = self._js()
+        i = js.find("_cmv40EnsureTimerTick")
+        j = js.find("\nfunction ", i + 10)
+        cuerpo = js[i:j]
+        self.assertIn("dataset.etaSufijo", cuerpo)
+
+    def test_los_tres_escritores_usan_la_misma_fuente(self):
+        js = self._js()
+        # render completo y updater guardan el sufijo; el tick lo lee
+        self.assertIn('data-eta-sufijo="', js)
+        self.assertIn("elapsedEl.dataset.etaSufijo = _cmv40SufijoEta(s);", js)
+        self.assertIn("function _cmv40SufijoEta(s)", js)
+
+    def test_el_criterio_es_no_conocer_aun_la_ruta(self):
+        js = self._js()
+        i = js.find("function _cmv40SufijoEta(s)")
+        cuerpo = js[i:i + 400]
+        self.assertIn("!s.target_type", cuerpo)
+        self.assertIn("target_provided", cuerpo)
+        self.assertIn("(estimado inicial)", cuerpo)
+
 if __name__ == "__main__":
     unittest.main()

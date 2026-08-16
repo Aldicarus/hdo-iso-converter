@@ -12945,7 +12945,13 @@ function _cmv40EnsureTimerTick() {
       if (remainEl && isFinite(baseRem) && isFinite(baseAt)) {
         const delta = (Date.now() - baseAt) / 1000;
         const remaining = Math.max(0, baseRem - delta);
-        remainEl.textContent = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes (auto)` : 'casi listo…';
+        // El sufijo lo decide el render (ver _cmv40TextoRestante) y viaja en
+        // un data-attribute: si no, este tick de 1s lo pisaba con "(auto)"
+        // y el aviso de estimación provisional no llegaba a verse nunca.
+        const sufijo = el.dataset.etaSufijo || '(auto)';
+        remainEl.textContent = remaining > 0
+          ? `~${_cmv40FmtClock(remaining)} restantes ${sufijo}`
+          : 'casi listo…';
       }
     });
   }, 1000);
@@ -12954,11 +12960,15 @@ function _cmv40EnsureTimerTick() {
 /** Texto del tiempo restante. Mientras el pre-flight no ha clasificado el
  *  bin no se sabe la ruta (drop-in o merge cambian el total en ~15 min), así
  *  que el número se marca como provisional en vez de darlo por bueno. */
-function _cmv40TextoRestante(secs, s) {
-  if (secs <= 0) return 'casi listo…';
+function _cmv40SufijoEta(s) {
   const rutaPorSaber = !s.target_type
     && CMV40_PHASES_ORDER.indexOf(s.phase) < CMV40_PHASES_ORDER.indexOf('target_provided');
-  return `~${_cmv40FmtClock(secs)} restantes ${rutaPorSaber ? '(estimado inicial)' : '(auto)'}`;
+  return rutaPorSaber ? '(estimado inicial)' : '(auto)';
+}
+
+function _cmv40TextoRestante(secs, s) {
+  if (secs <= 0) return 'casi listo…';
+  return `~${_cmv40FmtClock(secs)} restantes ${_cmv40SufijoEta(s)}`;
 }
 
 /** ¿El job está en un estado terminal? Con done/error el porcentaje no debe
@@ -13046,7 +13056,8 @@ function _cmv40RenderTimeline(s, project) {
       // data-base-remaining + data-base-at permiten que el tick de 1s
       // decremente suavemente sin recalcular la suma (evita fluctuaciones
       // por cambios de steps.etaSecs entre renders).
-      timerAttrs = ` data-started-at="${startedMs}" data-base-remaining="${remaining}" data-base-at="${Date.now()}"`;
+      timerAttrs = ` data-started-at="${startedMs}" data-base-remaining="${remaining}"`
+                 + ` data-base-at="${Date.now()}" data-eta-sufijo="${escHtml(_cmv40SufijoEta(s))}"`;
       _cmv40EnsureTimerTick();
     }
     elapsedLabel = _cmv40FmtClock(elapsedSecs);
@@ -15198,6 +15209,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   // Refrescar snapshot del remaining — el tick de 1s decrementa desde aquí.
   if (elapsedEl && newBaseRemaining !== null) {
     elapsedEl.dataset.baseRemaining = String(newBaseRemaining);
+    elapsedEl.dataset.etaSufijo = _cmv40SufijoEta(s);
     elapsedEl.dataset.baseAt = String(Date.now());
   }
   const pctText = `${doneCount}/${totalCount} · ${progressPct}%`;
