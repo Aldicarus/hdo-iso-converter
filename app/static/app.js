@@ -12837,19 +12837,35 @@ function _cmv40EnsureTimerTick() {
   }, 1000);
 }
 
+/** ¿El job está en un estado terminal? Con done/error el porcentaje no debe
+ *  salir del último job_pct recibido, que se quedó a medias. */
+function isTerminal0(s) {
+  return s.phase === 'done' || !!s.error_message || !!s.archived;
+}
+
 /** Segundos restantes estimados para las fases AUTO pendientes de ejecución.
  *  Suma los etaSecs de pasos no-done/no-skipped, descontando el tiempo que
  *  lleva ejecutándose el paso en curso. Fase D manual (etaSecs=null) no cuenta. */
-function _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist) {
+function _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project) {
+  // ETA MEDIDA de la fase en curso: el backend la calcula con el ritmo real
+  // de este job (_ReadProgress.eta), no con una constante. Si la tenemos,
+  // sustituye a la estimación de esa fase; las pendientes siguen estimadas
+  // porque todavía no han empezado y no hay nada que medir.
+  const medida = project && project._phaseEtaSecs;
   let remaining = 0;
   for (let i = 0; i < steps.length; i++) {
     const status = stepStatuses[i];
     if (status === 'done' || status === 'skipped') continue;
+    if (status === 'running' && medida != null) {
+      remaining += medida;
+      continue;
+    }
     const eta = steps[i].etaSecs || 0;   // null (manual) → 0
     remaining += eta;
   }
-  // Descontar el tiempo que lleva ejecutándose la fase actual (si existe)
-  if (s.running_phase && Array.isArray(hist)) {
+  // Descontar el tiempo que lleva ejecutándose la fase actual (si existe).
+  // Con ETA medida no aplica: ya cuenta lo que falta, no el total.
+  if (medida == null && s.running_phase && Array.isArray(hist)) {
     const curEntry = [...hist].reverse().find(h => h.phase === s.running_phase);
     if (curEntry && curEntry.started_at && !curEntry.finished_at) {
       const startMs = Date.parse(curEntry.started_at);
@@ -12869,7 +12885,13 @@ function _cmv40RenderTimeline(s, project) {
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
   const totalCount = steps.length;
-  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  // El porcentaje por fases completadas es escalonado: se queda clavado los
+  // minutos que dura cada fase. Si el backend manda `job_pct` (ponderado por
+  // lo que pesa cada fase y con el avance real de la que corre — ver
+  // _cmv40_job_pct), ese manda. El escalonado queda de respaldo.
+  const progressPct = (project && project._jobPct != null && !isTerminal0(s))
+    ? Math.round(project._jobPct)
+    : (totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0);
 
   // Timer — arranque del pipeline cacheado por proyecto via _cmv40ResolveStartedMs.
   // Imprescindible que sea el MISMO valor en full render, incremental update y
@@ -12895,7 +12917,7 @@ function _cmv40RenderTimeline(s, project) {
       // (etaSecs null = interactiva, p.ej. Fase D no-trusted). Descontamos
       // el tiempo que lleva ejecutándose la fase actual para que el contador
       // baje suavemente durante ella.
-      const remaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist);
+      const remaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
       remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes (auto)` : 'casi listo…';
       // data-base-remaining + data-base-at permiten que el tick de 1s
       // decremente suavemente sin recalcular la suma (evita fluctuaciones
@@ -14917,20 +14939,6 @@ function _renderCMv40RunningOverlay(project) {
                 style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
                 <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"></div>
               </div>
-              <!-- Progreso del JOB completo. La barra de arriba mide la fase
-                   en curso, así que llega al 100% varias veces por job; esta
-                   dice cuánto queda de verdad. Oculta hasta que el backend
-                   manda job_pct. -->
-              <div class="cmv40-jobprogress" id="cmv40-jobprogress-${pid}"
-                style="display:none; align-items:center; gap:8px; font-size:11px; color:#9aa3b2">
-                <span style="flex-shrink:0">Job completo</span>
-                <div style="flex:1; height:5px; background:#0b0e17; border-radius:3px; overflow:hidden">
-                  <div id="cmv40-jobprogress-bar-${pid}"
-                    style="height:100%; width:0%; background:#3d7ab8; transition:width .4s ease"></div>
-                </div>
-                <span id="cmv40-jobprogress-pct-${pid}"
-                  style="flex-shrink:0; font-variant-numeric:tabular-nums; min-width:38px; text-align:right">—</span>
-              </div>
             </div>
             <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
           </div>
@@ -15017,7 +15025,13 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
   const totalCount = steps.length;
-  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  // El porcentaje por fases completadas es escalonado: se queda clavado los
+  // minutos que dura cada fase. Si el backend manda `job_pct` (ponderado por
+  // lo que pesa cada fase y con el avance real de la que corre — ver
+  // _cmv40_job_pct), ese manda. El escalonado queda de respaldo.
+  const progressPct = (project && project._jobPct != null && !isTerminal0(s))
+    ? Math.round(project._jobPct)
+    : (totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0);
 
   // Timer: elapsed / remaining (mismo helper que el full render — garantiza
   // que ambos rendered + tick usan el MISMO startedMs cacheado, sin saltos
@@ -15037,7 +15051,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
       remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
-      newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist);
+      newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
       remainingText = newBaseRemaining > 0
         ? `~${_cmv40FmtClock(newBaseRemaining)} restantes (auto)`
         : 'casi listo…';
@@ -15220,21 +15234,14 @@ function _cmv40UpdateProgressUI(pid, prog) {
       eta.textContent = '';
     }
   }
-  // Barra del job completo. El backend la calcula (_cmv40_job_pct) porque es
-  // quien sabe qué fases han corrido ya y cuánto pesa cada una; el pipeline
-  // solo conoce la suya.
-  const jobWrap = document.getElementById(`cmv40-jobprogress-${pid}`);
-  if (jobWrap) {
-    if (prog.job_pct != null) {
-      const jp = Math.max(0, Math.min(100, prog.job_pct));
-      jobWrap.style.display = 'flex';
-      const jb = document.getElementById(`cmv40-jobprogress-bar-${pid}`);
-      const jt = document.getElementById(`cmv40-jobprogress-pct-${pid}`);
-      if (jb) jb.style.width = jp + '%';
-      if (jt) jt.textContent = jp.toFixed(0) + '%';
-    } else {
-      jobWrap.style.display = 'none';
-    }
+  // El progreso del JOB y la ETA de la fase en curso NO se pintan aquí: van
+  // a la barra del timeline lateral, que es la que ya cumplía esa función.
+  // Se guardan en el proyecto para que el próximo render del timeline los
+  // use en lugar de sus estimaciones.
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (project) {
+    if (prog.job_pct != null) project._jobPct = prog.job_pct;
+    project._phaseEtaSecs = (prog.eta_s != null && prog.eta_s > 0) ? prog.eta_s : null;
   }
 }
 
