@@ -3597,16 +3597,25 @@ async def mkv_light_profile_endpoint(body: dict):
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         _lp_register_proc(proc)
-        # dovi_tool no expone progreso estructurado; estimamos linealmente
-        # con ETA basada en tiempo de ffmpeg (aprox ratio 0.5x ffmpeg time).
+        # dovi_tool no expone progreso estructurado, pero el kernel sí sabe
+        # cuánto lleva leído del HEVC: _ReadProgress lo saca de
+        # /proc/<pid>/fdinfo. La estimación por reloj (que era `elapsed /
+        # (tiempo_de_ffmpeg × 0,5)`) queda solo de reserva.
+        from phases.cmv40_pipeline import _ReadProgress as _RP
+        dt_reader = _RP(proc.pid, hevc_path)
         expected_dt_s = max(20, int((_time.monotonic() - t0) * 0.5))
         stop_mon2 = asyncio.Event()
 
         async def _dt_monitor():
             while not stop_mon2.is_set():
-                elapsed = _time.monotonic() - t1
-                pct = min(99, elapsed * 100 / expected_dt_s)
+                pct = dt_reader.sample()
+                if pct is None:
+                    elapsed = _time.monotonic() - t1
+                    pct = min(99, elapsed * 100 / expected_dt_s)
                 _lp_set_step_pct(pct, 55 + pct * 0.35)
+                eta = dt_reader.eta()
+                if eta is not None:
+                    _light_profile_state["eta_s"] = int(eta)
                 try:
                     await asyncio.wait_for(stop_mon2.wait(), timeout=1.5)
                 except asyncio.TimeoutError:

@@ -809,12 +809,35 @@ async def analyze_rpu_quality_for_mkv(
             )
             if register_proc:
                 register_proc(dt_proc)
+            # Sin esto la barra saltaba de 55 % a 80 % de golpe y se quedaba
+            # ahí 1-2 min. dovi_tool no dice nada, pero el kernel sabe cuánto
+            # lleva leído del HEVC (_ReadProgress → /proc/<pid>/fdinfo).
+            from phases.cmv40_pipeline import _ReadProgress
+            dt_reader = _ReadProgress(dt_proc.pid, hevc_path)
+            stop_dt = asyncio.Event()
+
+            async def _dt_progress():
+                while not stop_dt.is_set():
+                    pct = dt_reader.sample()
+                    if pct is not None:
+                        _emit("extract_rpu", 55.0 + pct * 0.25,
+                              "Extrayendo RPU Dolby Vision del HEVC…")
+                    try:
+                        await asyncio.wait_for(stop_dt.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        pass
+
+            dt_mon = asyncio.create_task(_dt_progress())
             try:
                 dt_out_bytes, _ = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
             except asyncio.TimeoutError:
                 try: dt_proc.kill()
                 except Exception: pass
                 raise RuntimeError("dovi_tool extract-rpu excedió 30 min")
+            finally:
+                stop_dt.set()
+                try: await dt_mon
+                except Exception: pass
             _check()
             dt_output = dt_out_bytes.decode("utf-8", errors="replace").strip()
             if dt_output:
