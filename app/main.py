@@ -4910,6 +4910,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 import shutil as _cmv40_shutil
+import time as _time
 from pydantic import BaseModel
 from models import CMv40Session, CMv40Phase, CMv40PhaseRecord, CMV40_PHASES_ORDER
 from storage import (
@@ -4978,6 +4979,41 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
         save_cmv40_session(session)
 
 
+# Marcadores de progreso: prefijo del token que el frontend parsea y estado
+# del último emitido por sesión — {session_id: (payload, monotonic_ts)}.
+_CMV40_PROGRESS_PREFIX = "§§PROGRESS§§"
+_cmv40_last_progress: dict[str, tuple[str, float]] = {}
+# Cada cuánto se reemite un progreso que no ha cambiado. Solo viaja por WS
+# (no se persiste), así que su coste es despreciable y conviene que sea corto:
+# es lo que hace que un cliente recién reconectado recupere la barra.
+_CMV40_PROGRESS_HEARTBEAT_S = 5.0
+
+
+def _cmv40_progress_should_emit(session_id: str, msg: str) -> bool:
+    """True si este marcador de progreso aporta algo nuevo al cliente.
+
+    Los tickers de `cmv40_pipeline` emiten `§§PROGRESS§§` cada 2 s aunque el
+    valor no haya cambiado. Durante `inject-rpu` (que no escribe nada más al
+    log) el pct se satura en 95 % y el ticker repetía la MISMA línea ~450
+    veces en una fase de 15 min. Cada una entraba en `output_log` y disparaba
+    el throttle de persistencia, que reescribe el JSON entero de la sesión
+    (2,16 MB medidos en John Wick 4): ~1 MB/s de escrituras aleatorias contra
+    el mismo pool ZFS por el que el pipeline streamea 70 GB, y ~0,6 cores de
+    un NAS que solo tiene 4.
+
+    Filtramos por (pct, label) con un heartbeat corto — así un cliente que se
+    reconecta recupera la barra enseguida, pero la repetición deja de tocar
+    `output_log` y, con ello, el disco.
+    """
+    payload = msg[len(_CMV40_PROGRESS_PREFIX):]
+    now = _time.monotonic()
+    prev = _cmv40_last_progress.get(session_id)
+    if prev and prev[0] == payload and (now - prev[1]) < _CMV40_PROGRESS_HEARTBEAT_S:
+        return False
+    _cmv40_last_progress[session_id] = (payload, now)
+    return True
+
+
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     """Añade un log a la sesión CMv4.0, lo persiste con throttling y lo
     emite por WebSocket inmediatamente.
@@ -5002,11 +5038,19 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
 
     El WebSocket SÍ se notifica inmediatamente — el frontend ve el log
     en tiempo real aunque la persistencia esté throttled o async.
+
+    Los marcadores `§§PROGRESS§§` son EFÍMEROS: viajan por WS (alimentan la
+    barra del overlay) pero NO entran en `output_log` ni disparan
+    persistencia. Ver `_cmv40_progress_should_emit`.
     """
     # Timestamp en hora local del contenedor (TZ env, ej: Europe/Madrid)
     ts_msg = f"[{datetime.now().astimezone().strftime('%H:%M:%S')}] {msg}"
-    session.output_log.append(ts_msg)
-    await _cmv40_maybe_persist_log(session, ts_msg)
+    if msg.startswith(_CMV40_PROGRESS_PREFIX):
+        if not _cmv40_progress_should_emit(session.id, msg):
+            return
+    else:
+        session.output_log.append(ts_msg)
+        await _cmv40_maybe_persist_log(session, ts_msg)
     # Broadcast a clientes WS — en TASKS PARALELOS con timeout corto.
     #
     # CRÍTICO: NO usar `await ws.send_text(...)` directo en este loop.
@@ -5111,10 +5155,17 @@ async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
     vivo al cliente.
 
     Reglas:
-      1. Marker o >1s o >=20 líneas → trigger
+      1. Marker o >5s o >=50 líneas → trigger
       2. Si lock libre → lanza task background, retorna inmediato (ms)
       3. Si lock ocupado → descarta trigger, la línea queda en RAM y el
          próximo trigger la captura
+
+    La ventana era 1s/20 líneas. En sesiones grandes cada save reescribe
+    megabytes (2,16 MB en John Wick 4) contra el mismo pool ZFS por el que
+    el pipeline streamea 70 GB, así que salía ~1 MB/s de escrituras
+    aleatorias compitiendo con el trabajo útil. Con 5s la pérdida máxima
+    ante un kill -9 sigue siendo irrelevante (el WS ya entregó las líneas
+    al cliente y `_cmv40_flush_log` cierra cada fase con un save completo).
     """
     import time as _t
     sid = session.id
@@ -5122,7 +5173,7 @@ async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
     state["lines_since"] += 1
     is_marker = any(m in line for m in _CMV40_LOG_FORCE_PERSIST_MARKERS)
     elapsed = _t.monotonic() - state["last_save_ts"]
-    should_save = is_marker or elapsed > 1.0 or state["lines_since"] >= 20
+    should_save = is_marker or elapsed > 5.0 or state["lines_since"] >= 50
     if not should_save:
         return
 
@@ -5296,6 +5347,10 @@ async def _run_cmv40_phase_locked(
             _cmv40_proc_register(session.id, proc)
 
         try:
+            # Estado del dedup de progreso limpio: la primera barra de esta
+            # fase debe emitirse siempre, aunque coincida con la última de
+            # la fase anterior.
+            _cmv40_last_progress.pop(session.id, None)
             await _cmv40_log(session, f"━━━ Inicio fase: {phase_name} ━━━")
             await coro_factory(_log_cb, _proc_cb)
 
@@ -6350,7 +6405,19 @@ _CMV40_FAKE_ARTIFACT_SIZES = {
 
 
 @app.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
-async def cmv40_get(session_id: str):
+async def cmv40_get(session_id: str, include_log: bool = True):
+    """Detalle completo de un proyecto CMv4.0.
+
+    `include_log=false` devuelve la sesión SIN `output_log`. Lo usan los
+    pollers del frontend (el de fase cada 1,5 s y el de seguridad cada 4 s
+    mientras hay un job) cuando el
+    WebSocket está entregando el log en vivo: el poller solo necesita el
+    estado (phase, running_phase, error), pero el payload completo medía
+    1,57 MB y costaba 437 ms de serialización por tick — un 11 % de un
+    core del NAS dedicado a reenviar un log que el cliente ya tiene.
+    Se responde `output_log_omitted: true` + `output_log_len` para que el
+    cliente conserve su copia y detecte desincronización.
+    """
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
@@ -6429,6 +6496,10 @@ async def cmv40_get(session_id: str):
             )
 
     data = session.model_dump()
+    if not include_log:
+        data["output_log_len"] = len(data.get("output_log") or [])
+        data["output_log"] = []
+        data["output_log_omitted"] = True
     if DEV_MODE:
         # En DEV simulamos tamaños de artefactos según la fase alcanzada
         target_idx = CMV40_PHASES_ORDER.index(session.phase)

@@ -64,6 +64,32 @@ def _atomic_write_json(path: Path, content: str) -> None:
         raise
 
 
+def _log_safe_snapshot(session, growing_fields: tuple[str, ...]):
+    """Copia barata y segura de una sesión para serializar en otro thread.
+
+    El snapshot existe para que el thread que serializa no lea una sesión
+    que el event loop está mutando. La versión anterior usaba
+    `model_copy(deep=True)`, que clona TODO el árbol — incluidos campos
+    que no cambian nunca durante un job pero que son enormes: una sesión
+    CMv4.0 real llevaba 3.914 objetos `L2Combo` en `source_l2_combos` más
+    los combos L8 y el `sheet_recommendation`. En el Celeron del NAS eso
+    son ~100 ms de CPU por save, y el save se dispara cada pocos segundos
+    durante fases que duran 10-20 min.
+
+    Lo único que muta mientras un job corre son las listas que crecen
+    (`output_log`, `phase_history` / `execution_history`). Copiamos SOLO
+    esas — copia plana de referencias, microsegundos — y compartimos el
+    resto. Los campos compartidos se escriben una vez al calcularse y no
+    se vuelven a tocar, así que el thread los lee estables.
+    """
+    updates = {}
+    for field in growing_fields:
+        value = getattr(session, field, None)
+        if isinstance(value, list):
+            updates[field] = list(value)
+    return session.model_copy(update=updates)
+
+
 def save_session(session: Session) -> None:
     """
     Persiste una sesión en disco como JSON con indentación.
@@ -90,9 +116,9 @@ async def save_session_async(session: Session) -> None:
     output_log de miles de líneas tarda 100-500ms y bloquea reads del
     subprocess, broadcasts WS y otros endpoints).
 
-    Snapshot consistente: `model_copy(deep=True)` en el async (rápido,
-    ~ms) garantiza que el thread serializa una versión inmutable mientras
-    otras corutinas pueden seguir mutando `session.output_log` etc.
+    Snapshot consistente: ver `_log_safe_snapshot` — copia superficial con
+    las listas que crecen durante un job duplicadas, para que el thread
+    serialice sin que el event loop le mueva el suelo.
 
     REGLA: usar SIEMPRE en lugar de `save_session` cuando el llamador
     está dentro de un loop async (callback de log, stream de subprocess,
@@ -100,7 +126,7 @@ async def save_session_async(session: Session) -> None:
     """
     import asyncio as _asyncio
     session.updated_at = datetime.now(timezone.utc)
-    snapshot = session.model_copy(deep=True)
+    snapshot = _log_safe_snapshot(session, ("output_log", "execution_history"))
     path = _session_path(session.id)
 
     def _serialize_and_write():
@@ -116,7 +142,7 @@ async def save_cmv40_session_async(session: CMv40Session) -> None:
     + write en thread). Ver doc de `save_session_async` para detalles."""
     import asyncio as _asyncio
     session.updated_at = datetime.now(timezone.utc)
-    snapshot = session.model_copy(deep=True)
+    snapshot = _log_safe_snapshot(session, ("output_log", "phase_history"))
     path = _cmv40_session_path(session.id)
 
     def _serialize_and_write():

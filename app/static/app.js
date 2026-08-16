@@ -14022,6 +14022,13 @@ async function _cmv40FirePreflight(pid, target) {
 // durante una cancelación de fase que clobberea campos async).
 function _cmv40AssignSession(project, data) {
   if (!project || !data) return;
+  // Respuesta sin log (GET ?include_log=false del safety poller): el backend
+  // no reenvía output_log porque el WS ya lo está entregando en vivo.
+  // Restauramos la copia local para que el resto del flujo (watermark,
+  // _cmv40SyncPermanentLog) siga viendo el array completo de siempre.
+  if (data.output_log_omitted) {
+    data.output_log = (project.session && project.session.output_log) || [];
+  }
   const preserved = {};
   const PRESERVE_FIELDS = ['tmdb_info'];
   for (const f of PRESERVE_FIELDS) {
@@ -14213,7 +14220,15 @@ function _cmv40StartSafetyPoller(project) {
     // guard se acumulaban GETs pesados en vuelo (audit #10).
     if (!document.hidden && !project._safetyRefreshInFlight) {
       project._safetyRefreshInFlight = true;
-      Promise.resolve(_refreshCMv40Session(project.id))
+      // El log solo se pide cuando el WS NO lo está entregando. Con el WS
+      // sano este tick solo necesita el estado, y pedir el log completo
+      // costaba 1,57 MB / 437 ms de servidor cada 4 s (medido en un job
+      // real). Si el WS lleva >10s callado, volvemos a pedirlo entero para
+      // recuperar lo que se haya perdido.
+      const wsSilentMs = Date.now() - (project._lastWsMessageAt || 0);
+      const wsAlive = project.ws && project.ws.readyState === WebSocket.OPEN
+                      && wsSilentMs < 10000;
+      Promise.resolve(_refreshCMv40Session(project.id, { includeLog: !wsAlive }))
         .finally(() => { project._safetyRefreshInFlight = false; });
     }
     // Watchdog: detectar zombie WS por silencio prolongado.
@@ -14688,16 +14703,18 @@ function _appendCMv40Log(project, line) {
   if (!project || !project.session) return;
   const pid = project.id;
   // Marcador de progreso: no se añade al log visual, solo actualiza la barra.
-  // Nota: la línea se persiste en session.output_log también, así que el
-  // watermark debe contarla aunque no se renderice — sino el próximo sync
-  // intentaría re-pintarla.
+  // Tampoco toca el watermark — desde que el backend dejó de persistirlos
+  // (ver _cmv40_progress_should_emit), estas líneas viajan SOLO por WS y no
+  // existen en session.output_log. Contarlas desincronizaría el watermark
+  // por encima de output_log.length y el siguiente sync se saltaría líneas
+  // reales.
   const prog = _cmv40ParseProgress(line);
   if (prog) {
     _cmv40UpdateProgressUI(pid, prog);
-  } else {
-    _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
-    _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
+    return;
   }
+  _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
+  _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
   // Watermark++: el WS acaba de entregar una línea que también está
   // (o estará en milisegundos) en session.output_log. Sin este incremento,
   // un refresh posterior intentaría pintarla de nuevo.
@@ -14707,12 +14724,16 @@ function _appendCMv40Log(project, line) {
   }
 }
 
-async function _refreshCMv40Session(pid) {
+async function _refreshCMv40Session(pid, { includeLog = true } = {}) {
   // silent: timeouts transitorios bajo carga I/O pesada (Fase C/E/F escribiendo
   // 40+ GB) no son utiles al usuario — el siguiente tick los resuelve y el WS
   // sigue trayendo el log. Sin silent, el toast 'el servidor no respondio en 30s'
   // aparecia repetidamente durante extract/inject/remux pesados.
-  const data = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
+  //
+  // includeLog=false: el llamador sabe que el WS está entregando el log y
+  // solo quiere el estado. Ahorra ~1,5 MB de payload por tick.
+  const qs = includeLog ? '' : '?include_log=false';
+  const data = await apiFetch(`/api/cmv40/${pid}${qs}`, { silent: true });
   if (!data) return;
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
@@ -16943,9 +16964,16 @@ async function cmv40DoAnalyzeSource(pid) {
   _cmv40PollPhase(pid, 'source_analyzed', 'error');
 }
 
+// Cadencia del poller de fase. Era 500ms, pensado para que la UI reaccionara
+// rápido al cambio de fase; pero el log en vivo ya llega por WS y el panel se
+// repinta con él, así que lo único que aporta este tick es detectar el fin de
+// fase. A 1,5s el encadenado sigue siendo instantáneo a ojo (las fases duran
+// minutos) y el poller cubre 15 min en vez de 5 con los mismos maxTries.
+const CMV40_POLL_PHASE_MS = 1500;
+
 /**
  * Polling hasta que la sesión alcance una fase objetivo (o error).
- * Refresca la UI cada 500ms durante 5 min máximo.
+ * Refresca la UI cada CMV40_POLL_PHASE_MS durante 15 min máximo.
  *
  * Si el proyecto tiene project.autoContinue === true y terminó la fase con
  * éxito, dispara la siguiente fase automáticamente (sin atravesar Fase D).
@@ -16958,10 +16986,13 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
   if (window._cmv40PollActive[pid]) return;
   window._cmv40PollActive[pid] = true;
   for (let i = 0; i < maxTries; i++) {
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, CMV40_POLL_PHASE_MS));
     // silent: ver _refreshCMv40Session — polling rutinario suprime toasts
     // de timeout transitorio bajo carga I/O.
-    const data = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
+    // include_log=false: este poller solo mira phase/running_phase/error. El
+    // log llega por WS. Pidiéndolo entero eran 1,57 MB y 437 ms de servidor
+    // por tick, ~1.000 ticks en una fase de inject de 15 min.
+    const data = await apiFetch(`/api/cmv40/${pid}?include_log=false`, { silent: true });
     if (!data) continue;
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
@@ -16971,16 +17002,31 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
     // Termina cuando: no hay fase corriendo, alcanzó objetivo, hay error, o done
     if (!data.running_phase && (data.phase === targetPhase || data.phase === 'done' || data.error_message)) {
       refreshCMv40Sidebar();
+      // Liberar el singleton ANTES de encadenar. Si se libera después, la
+      // llamada a _cmv40MaybeAutoAdvance de aquí abajo dispara la fase
+      // siguiente y SU _cmv40PollPhase se encuentra el flag todavía en true
+      // → retorna sin vigilar nada. Esa fase se quedaba cubierta solo por el
+      // safety poller de 4s, que con un snapshot atrasado reintentaba el
+      // disparo a los 5s: es el origen del "⏭ Fase validate omitida" que
+      // aparecía justo 5s después de completarla (John Wick 4, FNAF 2).
+      window._cmv40PollActive[pid] = false;
       // Auto-avanzar si el flag está activo y no hay error
       if (project && project.autoContinue && !data.error_message && data.phase !== 'done') {
         _cmv40MaybeAutoAdvance(project);
       }
-      window._cmv40PollActive[pid] = false;
       return;
     }
   }
   window._cmv40PollActive[pid] = false;
 }
+
+// Ventana del retry del dedup de auto-avance (ver más abajo). Era 5s, y una
+// fase que el backend completa en menos que eso (Fase H en drop-in tarda 1-4s)
+// entraba en carrera: el frontend aún no había visto el 'done' y reintentaba
+// el mismo disparo al segundo 5. El backend lo rechaza —"⏭ Fase X omitida"—
+// pero ensucia el log y confunde. 12s deja margen de sobra para que el estado
+// llegue, sin renunciar a recuperar disparos realmente perdidos.
+const AUTO_ADVANCE_RETRY_MS = 12000;
 
 /**
  * Orquesta el auto-pipeline: dispara la siguiente fase según la actual.
@@ -17030,7 +17076,7 @@ function _cmv40MaybeAutoAdvance(project) {
   // porque cada burst refresh / safety check llamaba a esta función).
   const isTerminalPhase = (s.phase === 'done');
   if (lastFired && lastFired.state === stateKey) {
-    if (isTerminalPhase || (now - lastFired.at) < 5000) {
+    if (isTerminalPhase || (now - lastFired.at) < AUTO_ADVANCE_RETRY_MS) {
       return;
     }
   }

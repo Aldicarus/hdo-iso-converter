@@ -372,10 +372,10 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 
 La app está diseñada para que el frontend pueda cerrarse (cierre de pestaña, Mac dormido, server reinicia) sin perder estado ni log de los jobs en curso. Sistema de robustez en 5 capas:
 
-1. **Watermark de log frontend** (`project._renderedLogCount` y `_renderedRunningLogCount`) — el log permanente de cada proyecto CMv4.0 (card "📜 Log") se hidrata desde `session.output_log` al cargar y se incrementa con cada línea WS. Garantiza que tras un Mac dormido toda la noche, al reabrir el proyecto se ve TODO el log (no solo lo que llegó por WS antes del sleep). Sin esto, la card permanente quedaba vacía cuando `running_phase=null` porque el WS no se conectaba. El backend YA NO envía replay de las últimas 500 líneas del WS (era duplicación contra la hidratación REST).
+1. **Watermark de log frontend** (`project._renderedLogCount` y `_renderedRunningLogCount`) — el log permanente de cada proyecto CMv4.0 (card "📜 Log") se hidrata desde `session.output_log` al cargar y se incrementa con cada línea WS **que el backend persiste** (las `§§PROGRESS§§` no cuentan — ver punto 6 del patrón de saves). Garantiza que tras un Mac dormido toda la noche, al reabrir el proyecto se ve TODO el log (no solo lo que llegó por WS antes del sleep). Sin esto, la card permanente quedaba vacía cuando `running_phase=null` porque el WS no se conectaba. El backend YA NO envía replay de las últimas 500 líneas del WS (era duplicación contra la hidratación REST). Los pollers piden `?include_log=false` mientras el WS está sano y `_cmv40AssignSession` restaura la copia local — así el watermark nunca ve un array recortado.
 2. **Auto-resume del overlay Tab 3** — al entrar al Tab 3 con un proyecto en `running_phase != null` y sin proyectos abiertos, la app abre automáticamente el proyecto con su modal de ejecución y log en vivo. Toast informativo "🤖 Reanudando seguimiento". 1-shot por entrada al tab (`_cmv40AutoResumeAttempted`). Mismo mecanismo aplicado a Tab 2 con `_mkvCheckActiveApply` cuando hay copia desde Library en curso.
 3. **Atomicidad de escritura** — `_atomic_write_json` en `storage.py` (escribe a `.tmp` + `os.replace`) usado por `save_session`, `save_cmv40_session`, `_persist_mkv_apply_state` y `queue_state`. Sobrevive a kill -9 mid-write sin dejar JSON corrupto.
-4. **Throttle de saves del log CMv4.0** — `_cmv40_maybe_persist_log` evita reescribir el JSON entero por cada línea ruidosa de ffmpeg/dovi_tool. Persistencia inmediata en marcadores clave (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, etc.), throttled a 2s o 25 líneas para output crudo. `_cmv40_flush_log` fuerza save al terminar cada fase. Reduce I/O del NAS de ~1 GB/job a ~10 MB sin perder más de 2s de log ante crash.
+4. **Throttle de saves del log CMv4.0** — `_cmv40_maybe_persist_log` evita reescribir el JSON entero por cada línea ruidosa de ffmpeg/dovi_tool. Persistencia inmediata en marcadores clave (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, etc.), throttled a 5s o 50 líneas para output crudo. `_cmv40_flush_log` fuerza save al terminar cada fase. Reduce I/O del NAS de ~1 GB/job a ~10 MB sin perder más de 5s de log ante crash.
 5. **Recovery startup** — al arrancar el server:
    - `_recover_interrupted_sessions` resetea Tab 1 sesiones running/queued a pending con error.
    - `_recover_interrupted_cmv40_sessions` limpia `running_phase` fantasma y marca el último `phase_history` running como error.
@@ -395,10 +395,12 @@ Indicadores visuales:
 - Resultado: gaps de varios segundos en el log visible al usuario aunque el subprocess esté funcionando normal.
 
 **Solución estándar**:
-1. **Helpers en `storage.py`**: `save_session_async` y `save_cmv40_session_async` hacen `model_copy(deep=True)` en async (rápido, ms) para snapshot consistente, luego `asyncio.to_thread(serialize + write)` para no bloquear.
-2. **Throttle + lock por sesión** en main.py: `_maybe_save_session_throttled` (Tab 1) y `_cmv40_maybe_persist_log` (Tab 3). Reglas: trigger si >1s o >=20 líneas; si lock libre → fire-and-forget task; si lock ocupado → descartar trigger (la línea sigue en `output_log` RAM y se persistirá con el siguiente). Garantía: el callback `await` retorna en <1ms siempre.
-3. **Flush al terminar fase**: `_flush_session_save` (Tab 1) y `_cmv40_flush_log` (Tab 3) esperan al lock para garantizar durabilidad antes de marcar la sesión como done.
-4. **Broadcasts WS**: `_send_ws_with_timeout` con `asyncio.wait_for(timeout=2s)` en `asyncio.create_task` — un cliente zombie nunca bloquea el log loop.
+1. **Helpers en `storage.py`**: `save_session_async` y `save_cmv40_session_async` toman un snapshot en async (rápido, µs) y mueven `serialize + write` a `asyncio.to_thread` para no bloquear.
+2. **Snapshot barato**: `_log_safe_snapshot` (storage.py) sustituye al `model_copy(deep=True)` — copia solo las listas que crecen durante un job (`output_log`, `phase_history`/`execution_history`) y comparte el resto. El deep copy clonaba también campos estables y enormes (3.914 `L2Combo` en una sesión real) en cada save.
+3. **Throttle + lock por sesión** en main.py: `_maybe_save_session_throttled` (Tab 1, >1s o >=20 líneas) y `_cmv40_maybe_persist_log` (Tab 3, >5s o >=50 líneas). Si lock libre → fire-and-forget task; si lock ocupado → descartar trigger (la línea sigue en `output_log` RAM y se persistirá con el siguiente). Garantía: el callback `await` retorna en <1ms siempre.
+4. **Flush al terminar fase**: `_flush_session_save` (Tab 1) y `_cmv40_flush_log` (Tab 3) esperan al lock para garantizar durabilidad antes de marcar la sesión como done.
+5. **Broadcasts WS**: `_send_ws_with_timeout` con `asyncio.wait_for(timeout=2s)` en `asyncio.create_task` — un cliente zombie nunca bloquea el log loop.
+6. **El progreso no se persiste**: las líneas `§§PROGRESS§§` viajan SOLO por WS — no entran en `output_log` ni disparan save (`_cmv40_progress_should_emit`, dedup por (pct,label) con heartbeat de 5s). El ticker las emite cada 2s aunque el valor no cambie; con el pct saturado al 95% en la recta final de una fase larga eran cientos de reescrituras del JSON entero. El watermark del frontend (`_appendCMv40Log`) NO las cuenta, justamente porque ya no existen en `output_log`. Cubierto por `test_cmv40_log_throughput.py`.
 
 **Cuándo usar la versión síncrona**: solo en endpoints REST one-shot donde el bloqueo de 100-500ms es aceptable (la respuesta tarda eso pero no afecta a otras corutinas en hot loops).
 
@@ -427,7 +429,10 @@ Ambos saltan en sesiones archivadas y en DEV_MODE.
 ```
 POST   /api/cmv40/create
 GET    /api/cmv40
-GET    /api/cmv40/{id}                      (incluye campo artifacts con sizes)
+GET    /api/cmv40/{id}                      (incluye campo artifacts con sizes;
+                                             ?include_log=false omite output_log
+                                             — lo usan los pollers mientras el WS
+                                             entrega el log en vivo)
 DELETE /api/cmv40/{id}                      (?clean_artifacts=true para borrar workdir)
 POST   /api/cmv40/{id}/rename-output        (edita output_mkv_name)
 POST   /api/cmv40/{id}/analyze-source       (Fase A)
