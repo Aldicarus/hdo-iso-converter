@@ -12943,7 +12943,8 @@ function _cmv40EnsureTimerTick() {
       const elapsed = (Date.now() - started) / 1000;
       el.textContent = _cmv40FmtClock(elapsed);
       // Remaining: decrementa desde la snapshot del último render.
-      const remainEl = el.parentElement?.parentElement?.querySelector('.cmv40-tl-timer-remaining');
+      const remainEl = el.closest('.cmv40-tl-progress-meta')
+                         ?.querySelector('.cmv40-tl-timer-remaining');
       const baseRem = parseFloat(el.dataset.baseRemaining || 'NaN');
       const baseAt  = parseFloat(el.dataset.baseAt || 'NaN');
       if (remainEl && isFinite(baseRem) && isFinite(baseAt)) {
@@ -13148,14 +13149,15 @@ function _cmv40RenderTimeline(s, project) {
         </div>
         <div class="cmv40-tl-progress ${progressCls}">
           <div class="cmv40-tl-progress-meta">
-            <span class="cmv40-tl-timer-block">
-              <span class="cmv40-tl-timer">
-                <span class="cmv40-tl-timer-icon">⏱</span>
-                <span class="cmv40-tl-timer-elapsed"${timerAttrs}>${elapsedLabel}</span>
-              </span>
-              <span class="cmv40-tl-timer-remaining">${escHtml(remainingText)}</span>
+            <span class="cmv40-tl-timer">
+              <span class="cmv40-tl-timer-icon">⏱</span>
+              <span class="cmv40-tl-timer-elapsed"${timerAttrs}>${elapsedLabel}</span>
             </span>
             <span class="cmv40-tl-progress-pct">${doneCount}/${totalCount} · ${progressPct}%</span>
+            <!-- Fuera del bloque del timer a propósito: así ocupa una línea
+                 entera de la fila (ver .cmv40-tl-progress-meta) en vez de
+                 competir por el ancho con el chip del porcentaje. -->
+            <span class="cmv40-tl-timer-remaining">${escHtml(remainingText)}</span>
           </div>
           <div class="cmv40-tl-progress-track">
             <div class="cmv40-tl-progress-fill" style="width:${progressPct}%"></div>

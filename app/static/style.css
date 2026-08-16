@@ -3282,20 +3282,19 @@ select { appearance: none; cursor: pointer;
   border: 1px solid var(--sep);
   border-radius: 8px;
 }
+/* Fila de dos líneas dentro de una columna de 330px:
+     línea 1 → ⏱ elapsed  ···········  chip N/M · XX%
+     línea 2 → ~MM:SS restantes (…)
+   El "restantes" va en su propia línea (flex-basis 100%) porque con el
+   sufijo largo —"(estimado inicial)"— no cabía junto al chip: ambos se
+   encogían y partían en dos líneas cada uno. */
 .cmv40-tl-progress-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 1px 10px;
   font-variant-numeric: tabular-nums;
-}
-/* Bloque del timer: elapsed grande + remaining en línea inferior */
-.cmv40-tl-timer-block {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  min-width: 0;
 }
 .cmv40-tl-timer {
   display: inline-flex;
@@ -3316,6 +3315,7 @@ select { appearance: none; cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
 .cmv40-tl-timer-remaining {
+  flex: 1 0 100%;                         /* siempre línea propia, ancho completo */
   font-size: 10.5px;
   color: var(--text-3);
   line-height: 1.2;
@@ -3328,6 +3328,8 @@ select { appearance: none; cursor: pointer;
 .cmv40-tl-timer-sep { color: var(--text-3); }
 .cmv40-tl-timer-total { color: var(--text-3); font-size: 11px; }
 .cmv40-tl-progress-pct {
+  flex-shrink: 0;                         /* nunca se encoge: partía "1/10 · 0%" en dos */
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 700;
   color: #005fb8;
