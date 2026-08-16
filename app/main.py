@@ -6283,6 +6283,13 @@ def _cmv40_build_eta_model() -> dict:
             if len(vals) >= 3:
                 salida[ruta][ph] = round(_st.median(vals), 3)
                 salida[ruta][ph + "_n"] = len(vals)
+    # Con qué frecuencia sale cada ruta. Sirve para los primeros segundos de
+    # un job, cuando el pre-flight aún no ha clasificado el bin: sin saber la
+    # ruta el plan asumía la cara (merge) y anunciaba 48 min para un job que
+    # iba a durar 35. Ponderando por lo que suele pasar en esta instalación
+    # se acierta mucho más.
+    total = vistos["dropin"] + vistos["merge"]
+    salida["share_dropin"] = round(vistos["dropin"] / total, 3) if total else 0.5
     return salida
 
 

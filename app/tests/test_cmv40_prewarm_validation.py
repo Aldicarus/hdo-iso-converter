@@ -401,7 +401,34 @@ class TestModeloEtaMedido(unittest.TestCase):
 
     def test_sin_historico_devuelve_modelo_vacio(self):
         m = self.main._cmv40_build_eta_model()
-        self.assertEqual(m, {"dropin": {}, "merge": {}, "n": 0})
+        self.assertEqual(m["dropin"], {})
+        self.assertEqual(m["merge"], {})
+        self.assertEqual(m["n"], 0)
+        self.assertEqual(m["share_dropin"], 0.5, "sin datos, mitad y mitad")
+
+    def test_reparto_de_rutas_para_los_primeros_segundos(self):
+        """Al crear un proyecto no se sabe la ruta hasta que el pre-flight
+        clasifica el bin. Asumir merge (la cara) anunciaba 48 min para jobs
+        de 35; con el reparto real de la instalación se pondera."""
+        for i in range(6):
+            self._job(f"d{i}", 300, 360, 390, 3, dropin=True)
+        for i in range(2):
+            self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
+        m = self.main._cmv40_build_eta_model()
+        self.assertAlmostEqual(m["share_dropin"], 0.75, places=2)
+
+    def test_la_ventana_se_cuenta_por_ruta(self):
+        """Una racha de drop-in no puede dejar sin muestras a merge."""
+        for i in range(14):
+            self._job(f"d{i:02d}", 300, 360, 390, 3, dropin=True)
+        for i in range(4):
+            self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
+        m = self.main._cmv40_build_eta_model()
+        # Los 4 merge son los más recientes, pero aunque hubiera 14 drop-in
+        # por delante, ambas rutas deben tener ratios.
+        self.assertIn("inject", m["dropin"])
+        self.assertIn("inject", m["merge"])
+        self.assertLessEqual(m["dropin"]["inject_n"], 10, "ventana de 10 por ruta")
 
     def test_json_corrupto_no_revienta(self):
         (Path(self._td.name) / "cmv40" / "malo.json").write_text("{", encoding="utf-8")

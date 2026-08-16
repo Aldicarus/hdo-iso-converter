@@ -12531,8 +12531,21 @@ async function _cmv40LoadEtaModel() {
 
 /** Ratio de una fase respecto a la Fase A: medido si hay muestras
  *  suficientes, constante calibrada a mano si no. */
-function _cmv40RatioFase(fase, dropIn, porDefecto) {
-  const m = CMV40_ETA_MODEL && CMV40_ETA_MODEL[dropIn ? 'dropin' : 'merge'];
+function _cmv40RatioFase(fase, dropIn, porDefecto, rutaDesconocida) {
+  const mod = CMV40_ETA_MODEL;
+  if (!mod) return porDefecto;
+  // Los primeros segundos de un job no se sabe la ruta: el pre-flight aún no
+  // ha clasificado el bin. Antes se asumía merge (la cara) y salían 48 min
+  // para jobs de 35. Con la mezcla real de esta instalación se acierta más.
+  if (rutaDesconocida && typeof mod.share_dropin === 'number') {
+    const d = mod.dropin && mod.dropin[fase];
+    const g = mod.merge && mod.merge[fase];
+    if (typeof d === 'number' && typeof g === 'number') {
+      return d * mod.share_dropin + g * (1 - mod.share_dropin);
+    }
+    return (typeof d === 'number' ? d : (typeof g === 'number' ? g : porDefecto));
+  }
+  const m = mod[dropIn ? 'dropin' : 'merge'];
   const v = m && m[fase];
   return (typeof v === 'number' && v > 0) ? v : porDefecto;
 }
@@ -12570,6 +12583,9 @@ function _cmv40PlanAutoSteps(s, project) {
   const dropIn = gatesHechos
     ? (trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel')
     : dropInProbable;
+  // Ni siquiera hay predicción posible mientras el pre-flight no haya
+  // clasificado el bin (los primeros ~10s de un job).
+  const rutaDesconocida = !gatesHechos && !s.target_type;
   const skipped = s.phases_skipped || [];
 
   // ETAs estimados.
@@ -12607,17 +12623,21 @@ function _cmv40PlanAutoSteps(s, project) {
   // Esta es la parte que mas desajustaba el ETA antes: el etaC calculado
   // (~300-400s en un UHD BD) inflaba el total inicial y luego se evaporaba
   // al detectar trust, causando el salto visible de 25 → 15 min.
-  const etaDemux = (wf === 'p8' || dropIn) ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux, anchorFfmpeg);
+  const pesoMerge = rutaDesconocida && CMV40_ETA_MODEL
+    ? (1 - (CMV40_ETA_MODEL.share_dropin ?? 0.5)) : 1;
+  const etaDemux = (wf === 'p8' || dropIn)
+    ? 0
+    : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux, anchorFfmpeg) * pesoMerge;
   const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export, anchorFfmpeg);  // ×2 por ambos RPUs
   const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
   // Si el histórico da un ratio medido para esta ruta, se usa contra la
   // duración de la Fase A (que es su referencia). Si no, la estimación de
   // siempre sobre el ffmpeg puro.
-  const rInject = _cmv40RatioFase('inject', dropIn, null);
+  const rInject = _cmv40RatioFase('inject', dropIn, null, rutaDesconocida);
   const etaF = (rInject && etaA > 0)
     ? Math.max(5, etaA * rInject)
     : _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject, anchorFfmpeg);
-  const rRemux = _cmv40RatioFase('remux', dropIn, null);
+  const rRemux = _cmv40RatioFase('remux', dropIn, null, rutaDesconocida);
   const etaG = (rRemux && etaA > 0)
     ? Math.max(5, etaA * rRemux)
     : ((wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux, anchorFfmpeg) : 30);
@@ -12632,7 +12652,9 @@ function _cmv40PlanAutoSteps(s, project) {
   //   a hevc_gb/30*5 min). Sin ancla ffmpeg_wall_seconds usamos 240s
   //   (4 min) como fallback razonable; si tenemos ancla, el extract-rpu
   //   ronda 0.92× ffmpeg wall time (mismo ratio que Fase A).
-  const etaH = dropIn ? 5 : (anchorFfmpeg > 0 ? Math.round(anchorFfmpeg * 0.92) : 240);
+  const etaH = dropIn
+    ? 5
+    : Math.round((anchorFfmpeg > 0 ? anchorFfmpeg * 0.92 : 240) * pesoMerge);
 
   const steps = [];
 
@@ -12929,6 +12951,16 @@ function _cmv40EnsureTimerTick() {
   }, 1000);
 }
 
+/** Texto del tiempo restante. Mientras el pre-flight no ha clasificado el
+ *  bin no se sabe la ruta (drop-in o merge cambian el total en ~15 min), así
+ *  que el número se marca como provisional en vez de darlo por bueno. */
+function _cmv40TextoRestante(secs, s) {
+  if (secs <= 0) return 'casi listo…';
+  const rutaPorSaber = !s.target_type
+    && CMV40_PHASES_ORDER.indexOf(s.phase) < CMV40_PHASES_ORDER.indexOf('target_provided');
+  return `~${_cmv40FmtClock(secs)} restantes ${rutaPorSaber ? '(estimado inicial)' : '(auto)'}`;
+}
+
 /** ¿El job está en un estado terminal? Con done/error el porcentaje no debe
  *  salir del último job_pct recibido, que se quedó a medias. */
 function isTerminal0(s) {
@@ -13010,7 +13042,7 @@ function _cmv40RenderTimeline(s, project) {
       // el tiempo que lleva ejecutándose la fase actual para que el contador
       // baje suavemente durante ella.
       const remaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
-      remainingText = remaining > 0 ? `~${_cmv40FmtClock(remaining)} restantes (auto)` : 'casi listo…';
+      remainingText = _cmv40TextoRestante(remaining, s);
       // data-base-remaining + data-base-at permiten que el tick de 1s
       // decremente suavemente sin recalcular la suma (evita fluctuaciones
       // por cambios de steps.etaSecs entre renders).
@@ -15144,9 +15176,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
       newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
-      remainingText = newBaseRemaining > 0
-        ? `~${_cmv40FmtClock(newBaseRemaining)} restantes (auto)`
-        : 'casi listo…';
+      remainingText = _cmv40TextoRestante(newBaseRemaining, s);
     }
     elapsedLabel = _cmv40FmtClock(elapsedSecs);
   }
