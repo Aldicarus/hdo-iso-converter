@@ -114,5 +114,56 @@ class TestCommandShape(unittest.TestCase):
         self.assertIn("os.close(write_fd)", src)
 
 
+
+class TestProgresoEnElLog(unittest.TestCase):
+    """Con el pipeline, el log de la Fase A se quedaba MUDO seis minutos.
+
+    El camino clásico reenviaba las líneas de ffmpeg (throttled a 500 ms) y
+    se veía avanzar. Al pasar a pipe, el stderr de ffmpeg solo alimentaba la
+    barra y no escribía nada en el log. En vez de devolver las líneas crudas
+    —~700 por job, ilegibles y persistidas— se emite una consolidada cada
+    20 s.
+    """
+
+    def test_formato_de_la_linea(self):
+        from phases.cmv40_pipeline import (
+            _fmt_ffmpeg_size, _fmt_ffmpeg_speed, _fmt_eta)
+        line = ("frame=58601 fps=560 q=-1.0 size=19459840kB "
+                "time=00:41:07.38 bitrate=64609.0kbits/s speed=23.6x")
+        # Decimales con coma, que es como se escribe en el resto de la UI
+        self.assertEqual(_fmt_ffmpeg_size(line), "18,6 GB")
+        self.assertEqual(_fmt_ffmpeg_speed(line), " · 23,6x")
+        self.assertEqual(_fmt_eta(200), "quedan ~3min 20s")
+        self.assertEqual(_fmt_eta(45), "quedan ~45s")
+        self.assertEqual(_fmt_eta(0), "casi listo")
+        self.assertEqual(_fmt_eta(None), "casi listo")
+
+    def test_lineas_sin_datos_no_rompen(self):
+        """ffmpeg no siempre reporta size/speed (arranque, ciertos filtros)."""
+        from phases.cmv40_pipeline import _fmt_ffmpeg_size, _fmt_ffmpeg_speed
+        self.assertEqual(_fmt_ffmpeg_size("frame=1 time=00:00:01.00"), "…")
+        self.assertEqual(_fmt_ffmpeg_speed("frame=1 time=00:00:01.00"), "")
+
+    def test_cadencia_no_es_por_linea(self):
+        """ffmpeg emite varias líneas por segundo; el log va cada 20 s."""
+        from phases.cmv40_pipeline import PIPE_LOG_EVERY_S
+        self.assertGreaterEqual(PIPE_LOG_EVERY_S, 10)
+
+
+class TestNumeracionDePasos(unittest.TestCase):
+    """La Fase A tiene 3 pasos con pipeline y 4 sin él; el log no puede
+    anunciar 'Paso 1/4' y a continuación 'pasos 1+2 juntos'."""
+
+    def test_los_pasos_se_renumeran_segun_la_ruta(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("Paso 1/3: Extrayendo el HEVC y su RPU a la vez", src)
+        self.assertIn("""{'2/3' if piped_ok else '3/4'}""", src)
+        self.assertIn("""{'3/3' if piped_ok else '4/4'}""", src)
+
+    def test_el_camino_clasico_conserva_su_numeracion(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg", src)
+        self.assertIn("Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu", src)
+
 if __name__ == "__main__":
     unittest.main()

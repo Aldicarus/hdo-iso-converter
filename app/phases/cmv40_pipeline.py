@@ -646,6 +646,38 @@ async def _run_streaming(
     return proc.returncode
 
 
+# Cada cuánto el pipeline escribe una línea de avance en el log. Con las
+# líneas crudas de ffmpeg serían ~700 por job; así son ~18 y se leen.
+PIPE_LOG_EVERY_S = 20.0
+
+_FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)kB")
+_FFMPEG_SPEED_RE = re.compile(r"speed=\s*([\d.]+)x")
+
+
+def _fmt_ffmpeg_size(line: str) -> str:
+    """`size=19459840kB` → `19,5 GB`."""
+    m = _FFMPEG_SIZE_RE.search(line)
+    if not m:
+        return "…"
+    gb = int(m.group(1)) / 1024 / 1024
+    return f"{gb:.1f} GB".replace(".", ",")
+
+
+def _fmt_ffmpeg_speed(line: str) -> str:
+    """`speed=23.6x` → ` · 23,6x`. Cadena vacía si ffmpeg no lo reporta."""
+    m = _FFMPEG_SPEED_RE.search(line)
+    if not m:
+        return ""
+    return f" · {m.group(1).replace('.', ',')}x"
+
+
+def _fmt_eta(eta_s: float | None) -> str:
+    if not eta_s or eta_s <= 0:
+        return "casi listo"
+    m, s = int(eta_s) // 60, int(eta_s) % 60
+    return f"quedan ~{m}min {s}s" if m else f"quedan ~{s}s"
+
+
 def _tee_path_is_safe(path: Path) -> bool:
     """El muxer `tee` de ffmpeg usa `|` para separar salidas, `[...]` para las
     opciones de cada una y `:` dentro de ellas. Una ruta con esos caracteres
@@ -744,13 +776,19 @@ async def _ffmpeg_extract_rpu_piped(
         proc_callback(ff)
         proc_callback(dv)
 
-    # Progreso desde el stderr de ffmpeg (las líneas `frame=… time=…`), igual
-    # que en el camino clásico.
+    # Progreso desde el stderr de ffmpeg (las líneas `frame=… time=…`).
+    #
+    # Alimenta dos cosas distintas:
+    #   - La barra del overlay (§§PROGRESS§§), cada segundo.
+    #   - Una línea de texto en el log cada PIPE_LOG_EVERY_S. NO se reenvían
+    #     las líneas crudas de ffmpeg: son ~700 por job, ilegibles, y se
+    #     persisten. Una línea consolidada dice lo mismo mejor.
     last_push = 0.0
+    last_log = 0.0
     ff_tail: list[str] = []
 
     async def _drain_ffmpeg() -> None:
-        nonlocal last_push
+        nonlocal last_push, last_log
         buf = b""
         while True:
             chunk = await ff.stderr.read(4096)
@@ -769,17 +807,23 @@ async def _ffmpeg_extract_rpu_piped(
                 ff_tail.append(line)
                 del ff_tail[:-40]
                 now = time.monotonic()
-                if duration > 0 and (now - last_push) >= 1.0:
-                    m = _FFMPEG_TIME_RE.search(line)
-                    if m:
-                        elapsed_media = _hms_to_seconds(*m.groups())
-                        step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
-                        wall = now - step_start
-                        eta = ((wall / elapsed_media) * (duration - elapsed_media)
-                               if elapsed_media > 0 else None)
-                        await _emit_progress(
-                            log_callback, offset + step_pct * weight / 100.0, label, eta)
-                        last_push = now
+                m = _FFMPEG_TIME_RE.search(line) if duration > 0 else None
+                if not m:
+                    continue
+                elapsed_media = _hms_to_seconds(*m.groups())
+                step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
+                wall = now - step_start
+                eta = ((wall / elapsed_media) * (duration - elapsed_media)
+                       if elapsed_media > 0 else None)
+                if (now - last_push) >= 1.0:
+                    await _emit_progress(
+                        log_callback, offset + step_pct * weight / 100.0, label, eta)
+                    last_push = now
+                if log_callback and (now - last_log) >= PIPE_LOG_EVERY_S:
+                    last_log = now
+                    await log_callback(
+                        f"  ⏱ {step_pct:.0f}% · {_fmt_ffmpeg_size(line)}"
+                        f"{_fmt_ffmpeg_speed(line)} · {_fmt_eta(eta)}")
 
     step_start = time.monotonic()
     dv_out = b""
@@ -1039,9 +1083,6 @@ async def run_phase_a_analyze_source(
             "RPU extraído es la referencia que luego usaremos para comparar "
             "contra el target y decidir si el upgrade es posible."
         )
-        await log_callback(
-            "[Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg…"
-        )
     # Threshold de validación del HEVC extraído: debería ser >=50% del
     # tamaño del MKV (en UHD el HEVC es >90% del total). Por debajo de
     # eso, ffmpeg terminó prematuramente. Se usa tanto para invalidar
@@ -1072,9 +1113,9 @@ async def run_phase_a_analyze_source(
             )
         if log_callback:
             await log_callback(
-                "[Fase A] ├─ Pasos 1+2 en paralelo: ffmpeg extrae el HEVC y "
-                "dovi_tool saca el RPU del mismo flujo, sin esperar a que el "
-                "fichero esté completo."
+                "[Fase A] ┌─ Paso 1/3: Extrayendo el HEVC y su RPU a la vez — "
+                "ffmpeg escribe source.hevc mientras dovi_tool saca el RPU del "
+                "mismo flujo, sin esperar a que el fichero esté completo."
             )
         t0 = time.monotonic()
         piped_ok = await _ffmpeg_extract_rpu_piped(
@@ -1115,6 +1156,9 @@ async def run_phase_a_analyze_source(
     if not piped_ok and existing_too_small:
         # Camino en dos pasos: el pipeline no se pudo usar (ruta no apta para
         # el muxer tee, dovi_tool sin soporte de stdin, o falló a medias).
+        if log_callback:
+            await log_callback(
+                "[Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg…")
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
@@ -1205,7 +1249,9 @@ async def run_phase_a_analyze_source(
 
     # Paso 3: Info del RPU
     if log_callback:
-        await log_callback("[Fase A] ├─ Paso 3/4: Analizando metadata del RPU con dovi_tool info --summary…")
+        await log_callback(
+            f"[Fase A] ├─ Paso {'2/3' if piped_ok else '3/4'}: Analizando metadata "
+            f"del RPU con dovi_tool info --summary…")
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_source),
     ], timeout=30)
@@ -1256,7 +1302,7 @@ async def run_phase_a_analyze_source(
     from phases.rpu_analyze import analyze_rpu_combos, compare_l2, recommend_action
     if log_callback:
         await log_callback(
-            "[Fase A] └─ Paso 4/4: Analizando combos L2 del source (dovi_tool export) "
+            f"[Fase A] └─ Paso {'3/3' if piped_ok else '4/4'}: Analizando combos L2 del source (dovi_tool export) "
             "para comparar con el target y decidir Mantener/Inyectar…"
         )
     source_analysis = await analyze_rpu_combos(rpu_source)
