@@ -12585,7 +12585,7 @@ function _cmv40PlanAutoSteps(s, project) {
     : dropInProbable;
   // Ni siquiera hay predicción posible mientras el pre-flight no haya
   // clasificado el bin (los primeros ~10s de un job).
-  const rutaDesconocida = !gatesHechos && !s.target_type;
+  const rutaDesconocida = !gatesHechos && !_cmv40BinClasificado(s);
   const skipped = s.phases_skipped || [];
 
   // ETAs estimados.
@@ -12629,7 +12629,11 @@ function _cmv40PlanAutoSteps(s, project) {
     ? 0
     : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux, anchorFfmpeg) * pesoMerge;
   const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export, anchorFfmpeg);  // ×2 por ambos RPUs
-  const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
+  // El export per-frame también desaparece en drop-in (Fase C entera se
+  // salta), así que mientras la ruta esté por saber pesa igual que el demux.
+  // Sin esto la mitad de la Fase C se contaba a precio de merge y el total
+  // inicial salía inflado.
+  const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport * pesoMerge);
   // Si el histórico da un ratio medido para esta ruta, se usa contra la
   // duración de la Fase A (que es su referencia). Si no, la estimación de
   // siempre sobre el ffmpeg puro.
@@ -12960,8 +12964,20 @@ function _cmv40EnsureTimerTick() {
 /** Texto del tiempo restante. Mientras el pre-flight no ha clasificado el
  *  bin no se sabe la ruta (drop-in o merge cambian el total en ~15 min), así
  *  que el número se marca como provisional en vez de darlo por bueno. */
+/** ¿El pre-flight ya clasificó el bin target?
+ *
+ *  OJO con el sentinel: `target_type` NO sirve para esto — el modelo lo
+ *  inicializa a 'generic', así que `!s.target_type` es SIEMPRE falso y los
+ *  dos sitios que lo usaban quedaron muertos (ni el reparto por share_dropin
+ *  ni el aviso de estimación provisional llegaron a activarse nunca). El
+ *  campo que sí nace vacío es `target_dv_info`, que el pre-flight rellena en
+ *  la misma línea que target_type. */
+function _cmv40BinClasificado(s) {
+  return !!s.target_dv_info;
+}
+
 function _cmv40SufijoEta(s) {
-  const rutaPorSaber = !s.target_type
+  const rutaPorSaber = !_cmv40BinClasificado(s)
     && CMV40_PHASES_ORDER.indexOf(s.phase) < CMV40_PHASES_ORDER.indexOf('target_provided');
   return rutaPorSaber ? '(estimado inicial)' : '(auto)';
 }
