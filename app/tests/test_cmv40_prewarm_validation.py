@@ -393,5 +393,84 @@ class TestModeloEtaMedido(unittest.TestCase):
         m = self.main._cmv40_build_eta_model()
         self.assertEqual(m["n"], 3)
 
+
+class TestProgresoConDosPasadas(unittest.TestCase):
+    """`inject-rpu` recorre la entrada DOS veces y la posición de lectura
+    reinicia a mitad de faena.
+
+    Verificado en el NAS siguiendo los descriptores de un inject real:
+
+        2s  [fd3 out=0MB]    [fd4 in=1332MB]   ← pasada 1
+        4s  [fd3 out=323MB]  [fd4 in=324MB]    ← pasada 2, in vuelve a 0
+       18s  [fd3 out=1642MB] [fd4 in=1642MB]
+
+    Con solo la posición de lectura, el guard monotónico dejaba el
+    porcentaje clavado en el máximo de la primera pasada, el ritmo se volvía
+    cero y la ETA caía al reloj — que era lo que se veía en el log:
+    «(4min 6s)» sin tiempo restante a partir del minuto 4.
+    """
+
+    def test_el_fichero_de_salida_manda_sobre_la_posicion_de_lectura(self):
+        import tempfile
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            ent = Path(td) / "in.hevc"
+            sal = Path(td) / "out.hevc"
+            ent.write_bytes(b"0" * 1000)
+            sal.write_bytes(b"0" * 250)
+            rp = _ReadProgress(999999, ent, output_path=sal, expected_out=1000)
+            # pid inexistente: sin el output no habría señal ninguna
+            self.assertEqual(rp.sample(), 25.0)
+            sal.write_bytes(b"0" * 900)
+            self.assertEqual(rp.sample(), 90.0)
+
+    def test_el_avance_del_output_no_retrocede(self):
+        import tempfile
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            ent = Path(td) / "in.hevc"
+            sal = Path(td) / "out.hevc"
+            ent.write_bytes(b"0" * 1000)
+            sal.write_bytes(b"0" * 600)
+            rp = _ReadProgress(999999, ent, output_path=sal, expected_out=1000)
+            self.assertEqual(rp.sample(), 60.0)
+            sal.write_bytes(b"0" * 100)          # truncado (no debería pasar)
+            self.assertEqual(rp.sample(), 60.0)  # la barra no baja
+
+    def test_mientras_no_escriba_nada_cae_a_la_lectura(self):
+        """Los primeros segundos inject-rpu aún no ha creado la salida."""
+        import tempfile
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            ent = Path(td) / "in.hevc"
+            ent.write_bytes(b"0" * 1000)
+            rp = _ReadProgress(999999, ent,
+                               output_path=Path(td) / "todavia-no.hevc",
+                               expected_out=1000)
+            self.assertIsNone(rp.sample())   # pid falso → sin señal, sin crash
+
+    def test_da_eta_con_el_avance_del_output(self):
+        import tempfile, time
+        from phases.cmv40_pipeline import _ReadProgress
+        with tempfile.TemporaryDirectory() as td:
+            ent = Path(td) / "in.hevc"
+            sal = Path(td) / "out.hevc"
+            ent.write_bytes(b"0" * 1000)
+            rp = _ReadProgress(999999, ent, output_path=sal, expected_out=1000)
+            sal.write_bytes(b"0" * 100)
+            rp.sample()
+            time.sleep(0.05)
+            sal.write_bytes(b"0" * 200)
+            rp.sample()
+            self.assertIsNotNone(rp.eta(), "con dos muestras y avance hay ETA")
+
+    def test_la_fase_f_pasa_el_output_al_lector(self):
+        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
+        i = src.find('"label": inject_label,')
+        self.assertGreater(i, 0)
+        bloque = src[i:i + 500]
+        self.assertIn('"output_path": hevc_output', bloque)
+        self.assertIn('"expected_out_bytes"', bloque)
+
 if __name__ == "__main__":
     unittest.main()

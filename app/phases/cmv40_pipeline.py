@@ -443,9 +443,20 @@ class _ReadProgress:
     caller se queda con la estimación por reloj de siempre.
     """
 
-    def __init__(self, pid: int, input_path: Path):
+    def __init__(self, pid: int, input_path: Path,
+                 output_path: Path | None = None, expected_out: int = 0):
         self.pid = pid
         self.input_path = str(input_path)
+        # Cuando el proceso escribe un fichero grande cuyo tamaño final
+        # sabemos, ESE es mejor indicador que la posición de lectura, porque
+        # crece monotónicamente por naturaleza. `inject-rpu` obliga a ello:
+        # recorre la entrada DOS veces (una para el orden de frames y otra
+        # reescribiendo) rebobinando el mismo descriptor, así que la posición
+        # de lectura vuelve a cero a mitad de faena. Verificado en el NAS:
+        #   2s  [fd3 out=0MB]   [fd4 in=1332MB]   ← pasada 1
+        #   4s  [fd3 out=323MB] [fd4 in=324MB]    ← pasada 2, in reinicia
+        self.output_path = str(output_path) if output_path else None
+        self.expected_out = expected_out
         self.total = 0
         try:
             self.total = os.path.getsize(self.input_path)
@@ -475,7 +486,21 @@ class _ReadProgress:
         return None
 
     def sample(self) -> float | None:
-        """Porcentaje leído (0-100), o None si la señal no está disponible."""
+        """Porcentaje de avance (0-100), o None si no hay señal disponible."""
+        # Preferente: lo que lleva escrito, si sabemos cuánto va a escribir.
+        if self.output_path and self.expected_out > 0:
+            try:
+                escrito = os.path.getsize(self.output_path)
+            except OSError:
+                escrito = 0
+            if escrito > 0:
+                pct = max(0.0, min(100.0, escrito * 100.0 / self.expected_out))
+                pct = max(pct, self._last_pct)
+                self._last_pct = pct
+                self._samples.append((time.monotonic(), pct))
+                del self._samples[:-12]
+                return pct
+            # Todavía no ha empezado a escribir: seguimos con la lectura.
         if self.total <= 0:
             return None
         info = self._find_fd()
@@ -567,6 +592,8 @@ async def _run_streaming(
           'duration': float,           # duración conocida a priori (ffmpeg, s); o 0
           'time_estimate_s': float,    # alternativa: estimación wall-clock (para comandos silenciosos)
           'input_path': Path,          # fichero que lee el proceso → progreso REAL (_ReadProgress)
+          'output_path': Path,         # fichero que escribe (mejor señal si hay 2 pasadas)
+          'expected_out_bytes': int,   # tamaño final esperado de output_path
           'offset': float,             # pct base (0-100)
           'weight': float,             # peso de este paso en la fase (0-100)
           'label': str,                # etiqueta a mostrar
@@ -576,6 +603,8 @@ async def _run_streaming(
     # Antes de lanzar nada: el bloque que lee progress_ctx vive más abajo, y
     # estas dos se usan en cuanto existe el pid.
     progress_input = progress_ctx.get("input_path") if progress_ctx else None
+    progress_output = progress_ctx.get("output_path") if progress_ctx else None
+    progress_expected = int(progress_ctx.get("expected_out_bytes") or 0) if progress_ctx else 0
     reader: _ReadProgress | None = None
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
@@ -588,7 +617,10 @@ async def _run_streaming(
     if proc_callback:
         proc_callback(proc)
     if progress_input is not None:
-        reader = _ReadProgress(proc.pid, Path(progress_input))
+        reader = _ReadProgress(
+            proc.pid, Path(progress_input),
+            output_path=Path(progress_output) if progress_output else None,
+            expected_out=progress_expected)
 
     buffer = b""
     last_throttle = 0.0
@@ -847,6 +879,14 @@ def _widen_pipe(write_fd: int) -> int:
     except Exception:
         pass
     return 0
+
+
+def _tamano(p: Path) -> int:
+    """Tamaño en bytes, 0 si no se puede leer."""
+    try:
+        return p.stat().st_size
+    except OSError:
+        return 0
 
 
 def _tee_path_is_safe(path: Path) -> bool:
@@ -3801,6 +3841,11 @@ async def run_phase_f_inject(
            "offset": inject_offset, "weight": inject_weight,
            "label": inject_label,
            "input_path": hevc_input,
+           # inject-rpu recorre la entrada dos veces; el fichero de salida,
+           # en cambio, solo crece. Pesa lo mismo que la entrada salvo los
+           # pocos MB del RPU.
+           "output_path": hevc_output,
+           "expected_out_bytes": _tamano(hevc_input),
        })
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
@@ -4178,6 +4223,8 @@ async def run_phase_g_remux(
                "offset": 0.0, "weight": W_MUX,
                "label": "Combinando BL + EL (dovi_tool mux)",
                "input_path": bl_hevc,
+               "output_path": dv_dual,
+               "expected_out_bytes": _tamano(bl_hevc) + _tamano(el_injected),
            })
         if rc != 0:
             raise RuntimeError(f"dovi_tool mux falló (código {rc})")
