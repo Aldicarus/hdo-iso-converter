@@ -145,9 +145,19 @@ class TestProgresoEnElLog(unittest.TestCase):
         self.assertEqual(_fmt_ffmpeg_speed("frame=1 time=00:00:01.00"), "")
 
     def test_cadencia_no_es_por_linea(self):
-        """ffmpeg emite varias líneas por segundo; el log va cada 20 s."""
+        """ffmpeg emite varias líneas por segundo; el log va cada 10 s."""
         from phases.cmv40_pipeline import PIPE_LOG_EVERY_S
-        self.assertGreaterEqual(PIPE_LOG_EVERY_S, 10)
+        self.assertGreaterEqual(PIPE_LOG_EVERY_S, 5)
+
+    def test_incluye_el_frame_actual_y_el_total(self):
+        from phases.cmv40_pipeline import _fmt_ffmpeg_frame
+        line = "frame=58601 fps=560 q=-1.0 size=19459840kB speed=23.6x"
+        # Separador de miles español
+        self.assertEqual(_fmt_ffmpeg_frame(line, 145303), "frame 58.601/145.303 · ")
+        # Sin total conocido (pre-flight sobre otro MKV)
+        self.assertEqual(_fmt_ffmpeg_frame(line), "frame 58.601 · ")
+        # Si ffmpeg aún no reporta frame, no se inventa nada
+        self.assertEqual(_fmt_ffmpeg_frame("size=1024kB", 145303), "")
 
 
 class TestNumeracionDePasos(unittest.TestCase):

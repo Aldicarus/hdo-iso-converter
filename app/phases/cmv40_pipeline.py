@@ -647,11 +647,28 @@ async def _run_streaming(
 
 
 # Cada cuánto el pipeline escribe una línea de avance en el log. Con las
-# líneas crudas de ffmpeg serían ~700 por job; así son ~18 y se leen.
-PIPE_LOG_EVERY_S = 20.0
+# líneas crudas de ffmpeg serían ~700 por job; así son ~35 y se leen.
+PIPE_LOG_EVERY_S = 10.0
 
 _FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)kB")
 _FFMPEG_SPEED_RE = re.compile(r"speed=\s*([\d.]+)x")
+_FFMPEG_FRAME_RE = re.compile(r"frame=\s*(\d+)")
+
+
+def _fmt_miles(n: int) -> str:
+    """58601 → '58.601' (separador de miles español)."""
+    return f"{n:,}".replace(",", ".")
+
+
+def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
+    """`frame=58601` → `frame 58.601/145.303` (o sin total si no se conoce)."""
+    m = _FFMPEG_FRAME_RE.search(line)
+    if not m:
+        return ""
+    cur = _fmt_miles(int(m.group(1)))
+    if total > 0:
+        return f"frame {cur}/{_fmt_miles(total)} · "
+    return f"frame {cur} · "
 
 
 def _fmt_ffmpeg_size(line: str) -> str:
@@ -697,6 +714,7 @@ async def _ffmpeg_extract_rpu_piped(
     weight: float = 100.0,
     label: str = "Extrayendo HEVC + RPU",
     estimated_s: float = 0.0,
+    total_frames: int = 0,
 ) -> bool:
     """Extrae el HEVC y su RPU en UNA sola pasada, con ffmpeg y dovi_tool
     trabajando a la vez.
@@ -822,8 +840,9 @@ async def _ffmpeg_extract_rpu_piped(
                 if log_callback and (now - last_log) >= PIPE_LOG_EVERY_S:
                     last_log = now
                     await log_callback(
-                        f"  ⏱ {step_pct:.0f}% · {_fmt_ffmpeg_size(line)}"
-                        f"{_fmt_ffmpeg_speed(line)} · {_fmt_eta(eta)}")
+                        f"  ⏱ {step_pct:.0f}% · {_fmt_ffmpeg_frame(line, total_frames)}"
+                        f"{_fmt_ffmpeg_size(line)}{_fmt_ffmpeg_speed(line)} · "
+                        f"{_fmt_eta(eta)}")
 
     step_start = time.monotonic()
     dv_out = b""
@@ -1125,6 +1144,7 @@ async def run_phase_a_analyze_source(
             offset=0.0, weight=W_FFMPEG + W_RPU,
             label="Extrayendo HEVC + RPU (en paralelo)",
             estimated_s=_estimate_from_ffmpeg(session, 1.0, FPS_FFMPEG_EXTRACT),
+            total_frames=frame_count,
         )
         if piped_ok:
             ffmpeg_elapsed = time.monotonic() - t0
