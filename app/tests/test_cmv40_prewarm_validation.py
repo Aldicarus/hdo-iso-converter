@@ -309,5 +309,89 @@ class TestJobPct(unittest.TestCase):
         self.assertNotEqual(self.main._cmv40_job_pct(s_merge, 50),
                             self.main._cmv40_job_pct(s_drop, 50))
 
+
+class TestModeloEtaMedido(unittest.TestCase):
+    """Los ratios de ETA salen del histórico real, no de constantes a mano.
+
+    Las del frontend (`CMV40_ETA.r_inject` = 2,15, `r_mux` = 2,00) estaban
+    calibradas contra runs concretos y envejecieron en horas: el pipe de
+    Fase A, el adelanto de la validación y el export por niveles cambiaron
+    los tiempos, y un job de ~26 min llegó a anunciar 49.
+    """
+
+    def setUp(self):
+        import os, tempfile
+        self._cwd = os.getcwd()
+        os.chdir(APP_DIR)
+        import main
+        self.main = main
+        self._td = tempfile.TemporaryDirectory()
+        import storage
+        self._orig_cfg = storage.CONFIG_DIR
+        storage.CONFIG_DIR = Path(self._td.name)
+        (Path(self._td.name) / "cmv40").mkdir()
+        main._ETA_MODEL_CACHE.update({"at": 0.0, "data": None})
+
+    def tearDown(self):
+        import os, storage
+        storage.CONFIG_DIR = self._orig_cfg
+        self._td.cleanup()
+        os.chdir(self._cwd)
+
+    def _job(self, nombre, analyze, inject, remux, validate, extract=None):
+        import json
+        ph = [{"phase": "analyze_source", "status": "done", "elapsed_seconds": analyze,
+               "started_at": "2026-08-16T10:00:00Z"},
+              {"phase": "inject", "status": "done", "elapsed_seconds": inject,
+               "started_at": "2026-08-16T10:00:00Z"},
+              {"phase": "remux", "status": "done", "elapsed_seconds": remux,
+               "started_at": "2026-08-16T10:00:00Z"},
+              {"phase": "validate", "status": "done", "elapsed_seconds": validate,
+               "started_at": "2026-08-16T10:00:00Z"}]
+        if extract is not None:
+            ph.append({"phase": "extract", "status": "done", "elapsed_seconds": extract,
+                       "started_at": "2026-08-16T10:00:00Z"})
+        p = Path(self._td.name) / "cmv40" / f"{nombre}.json"
+        p.write_text(json.dumps({"id": nombre, "phase_history": ph}), encoding="utf-8")
+
+    def test_separa_drop_in_de_merge(self):
+        """El reparto no se parece: en drop-in no hay demux y la validación
+        son segundos."""
+        for i in range(3):
+            self._job(f"d{i}", 300, 360, 390, 3)              # drop-in
+            self._job(f"m{i}", 300, 480, 600, 240, extract=210)  # merge
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m["n"], 6)
+        self.assertAlmostEqual(m["dropin"]["inject"], 1.2, places=2)
+        self.assertAlmostEqual(m["merge"]["inject"], 1.6, places=2)
+        self.assertAlmostEqual(m["merge"]["remux"], 2.0, places=2)
+        # El demux solo existe en merge
+        self.assertIn("extract", m["merge"])
+        self.assertNotIn("extract", m["dropin"])
+
+    def test_no_emite_ratios_con_pocas_muestras(self):
+        """Con menos de 3 el frontend se queda con su constante."""
+        self._job("uno", 300, 360, 390, 3)
+        self._job("dos", 300, 366, 396, 4)
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m["dropin"], {})
+
+    def test_ignora_jobs_sin_fase_a_medible(self):
+        self._job("corto", 5, 360, 390, 3)     # analyze de 5s: no sirve de base
+        self._job("vacio", 0, 0, 0, 0)
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m["n"], 0)
+
+    def test_sin_historico_devuelve_modelo_vacio(self):
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m, {"dropin": {}, "merge": {}, "n": 0})
+
+    def test_json_corrupto_no_revienta(self):
+        (Path(self._td.name) / "cmv40" / "malo.json").write_text("{", encoding="utf-8")
+        for i in range(3):
+            self._job(f"d{i}", 300, 360, 390, 3)
+        m = self.main._cmv40_build_eta_model()
+        self.assertEqual(m["n"], 3)
+
 if __name__ == "__main__":
     unittest.main()

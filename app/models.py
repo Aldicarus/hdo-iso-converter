@@ -1208,6 +1208,14 @@ class CMv40Session(BaseModel):
     Usado como ancla para estimar el ETA de fases silenciosas posteriores
     (extract-rpu, demux, inject, mux) — I/O del NAS es el bottleneck común."""
 
+    ffmpeg_wall_includes_rpu: bool = False
+    """True si `ffmpeg_wall_seconds` cubre ffmpeg Y extract-rpu solapados.
+
+    Desde que la Fase A los ejecuta por un pipe (2026-08-16) el ancla ya no
+    mide solo ffmpeg. Quien estime a partir de ella tiene que saberlo: el
+    frontend calculaba la Fase A como `ancla × (1 + r_extract_rpu)` y con el
+    pipe eso cuenta el extract-rpu dos veces, inflando el ETA."""
+
     source_workflow: str = ""
     """Tipo de pipeline según perfil DV del source, detectado en Fase A:
       - "p7_fel":  P7 FEL → demux BL/EL + merge CMv4.0 + mux preservando FEL

@@ -150,6 +150,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // del que viene.
   _refreshTabRunningDots();
   setInterval(_refreshTabRunningDots, 5000);
+  // Modelo de ETA medido del histórico. Se refresca cada 10 min: cada job
+  // que termina lo afina, así que sigue a los cambios del pipeline solo.
+  _cmv40LoadEtaModel();
+  setInterval(_cmv40LoadEtaModel, 600000);
 });
 
 /**
@@ -12483,9 +12487,15 @@ function _cmv40FallbackAnchor(s) {
 
 /** Estima segundos de una sub-tarea usando ffmpeg wall time (anchor) o
  *  frame_count × fps como fallback. */
-function _cmv40EstimateSecs(s, ratio, fps) {
-  if (s.ffmpeg_wall_seconds && s.ffmpeg_wall_seconds > 0) {
-    return Math.max(5, s.ffmpeg_wall_seconds * ratio);
+function _cmv40EstimateSecs(s, ratio, fps, anchorOverride) {
+  // anchorOverride: ancla ya normalizada a "ffmpeg puro" por el llamador.
+  // Necesario desde que ffmpeg_wall_seconds puede medir ffmpeg+extract-rpu
+  // solapados (pipe de Fase A): usarla tal cual inflaría todo lo demás.
+  const base = (anchorOverride != null && anchorOverride > 0)
+    ? anchorOverride
+    : (s.ffmpeg_wall_seconds || 0);
+  if (base > 0) {
+    return Math.max(5, base * ratio);
   }
   if (s.source_frame_count && s.source_frame_count > 0) {
     return Math.max(5, s.source_frame_count / fps);
@@ -12506,17 +12516,90 @@ function _cmv40FmtEta(secs) {
   return `${m}m`;
 }
 
+// Modelo de ETA medido del histórico de esta instalación (GET
+// /api/cmv40/eta-model). Sustituye a los ratios de CMV40_ETA para las fases
+// que aún no han empezado. Vacío hasta que se carga; entonces se usan las
+// constantes, que es el comportamiento de siempre.
+let CMV40_ETA_MODEL = null;
+
+async function _cmv40LoadEtaModel() {
+  try {
+    const d = await apiFetch('/api/cmv40/eta-model', { silent: true });
+    if (d && (d.dropin || d.merge)) CMV40_ETA_MODEL = d;
+  } catch (_) { /* nos quedamos con las constantes */ }
+}
+
+/** Ratio de una fase respecto a la Fase A: medido si hay muestras
+ *  suficientes, constante calibrada a mano si no. */
+function _cmv40RatioFase(fase, dropIn, porDefecto) {
+  const m = CMV40_ETA_MODEL && CMV40_ETA_MODEL[dropIn ? 'dropin' : 'merge'];
+  const v = m && m[fase];
+  return (typeof v === 'number' && v > 0) ? v : porDefecto;
+}
+
+/** Segundos que lleva ejecutándose una fase, según su registro abierto en
+ *  phase_history. null si no está corriendo. */
+function _cmv40PhaseStartedSecs(s, phase) {
+  const hist = s.phase_history || [];
+  const cur = [...hist].reverse().find(h => h.phase === phase && !h.finished_at);
+  if (!cur || !cur.started_at) return null;
+  const ms = Date.parse(cur.started_at);
+  if (!isFinite(ms)) return null;
+  return Math.max(0, (Date.now() - ms) / 1000);
+}
+
 /** Plan de pasos del auto-pipeline según workflow + trust del proyecto.
  *  Devuelve array ordenado de objetos con {key, icon, title, what, etaSecs}. */
-function _cmv40PlanAutoSteps(s) {
+function _cmv40PlanAutoSteps(s, project) {
   const wf = s.source_workflow || 'p7_fel';
   const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
-  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
+  // `target_trust_ok` no se evalúa hasta Fase B, pero el pre-flight ya dejó
+  // clasificado el bin. Sin anticiparlo, durante toda la Fase A el plan
+  // asume ruta merge y suma un demux, un export y una validación completa
+  // que no van a ejecutarse: ~13 min de fantasma en un UHD BD (reportado
+  // con M3GAN 2.0: 49 min estimados para un job de ~26).
+  const dropInProbable = s.target_type === 'trusted_p7_fel_final'
+                       && s.trust_override !== 'force_interactive'
+                       && (wf === 'p7_fel')
+                       && !s.error_message;
+  // La predicción solo vale ANTES de que Fase B evalúe los gates. Después
+  // manda el dato real: un bin trusted_p7_fel_final que no pase los gates
+  // va por merge, y el plan tiene que reflejarlo.
+  const gatesHechos = CMV40_PHASES_ORDER.indexOf(s.phase)
+                    >= CMV40_PHASES_ORDER.indexOf('target_provided');
+  const dropIn = gatesHechos
+    ? (trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel')
+    : dropInProbable;
   const skipped = s.phases_skipped || [];
 
-  // ETAs estimados
-  const anchor = s.ffmpeg_wall_seconds || 0;
-  const etaA = anchor > 0 ? anchor * (1 + CMV40_ETA.r_extract_rpu) : _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract);
+  // ETAs estimados.
+  //
+  // El ancla es el tiempo de la extracción de Fase A. Desde que ffmpeg y
+  // extract-rpu van por un pipe, ese tiempo YA incluye los dos (lo marca
+  // ffmpeg_wall_includes_rpu), así que multiplicarlo por (1+r_extract_rpu)
+  // contaría el extract dos veces.
+  let anchor = s.ffmpeg_wall_seconds || 0;
+  let anchorEsFaseA = !!s.ffmpeg_wall_includes_rpu;
+  // Mejor todavía: si la Fase A está corriendo AHORA, su ETA medida (ritmo
+  // real de este job) proyecta un ancla mucho más fiable que el teórico de
+  // tamaño ÷ 220 MB/s. Lo proyectado es la fase A ENTERA, no el ffmpeg solo.
+  if (!anchor && project && project._phaseEtaSecs != null
+      && s.running_phase === 'analyze_source') {
+    const empezado = _cmv40PhaseStartedSecs(s, 'analyze_source');
+    if (empezado != null) {
+      anchor = empezado + project._phaseEtaSecs;
+      anchorEsFaseA = true;
+    }
+  }
+  // Todo lo de abajo se estima sobre el ffmpeg "puro", que es contra lo que
+  // están calibrados los ratios. Si el ancla mide la Fase A completa
+  // (ffmpeg + extract-rpu por el pipe), se descuenta la parte del extract.
+  const anchorFfmpeg = anchorEsFaseA
+    ? anchor / (1 + CMV40_ETA.r_extract_rpu)
+    : anchor;
+  const etaA = anchor > 0
+    ? (anchorEsFaseA ? anchor : anchor * (1 + CMV40_ETA.r_extract_rpu))
+    : _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract);
   const etaB = s.target_rpu_source === 'drive' ? 30
              : s.target_rpu_source === 'mkv'   ? _cmv40EstimateSecs(s, 1.0 + CMV40_ETA.r_extract_rpu, CMV40_ETA.fps_extract)
              : 10;  // path: copia local
@@ -12524,11 +12607,20 @@ function _cmv40PlanAutoSteps(s) {
   // Esta es la parte que mas desajustaba el ETA antes: el etaC calculado
   // (~300-400s en un UHD BD) inflaba el total inicial y luego se evaporaba
   // al detectar trust, causando el salto visible de 25 → 15 min.
-  const etaDemux = (wf === 'p8' || dropIn) ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux);
-  const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export);  // ×2 por ambos RPUs
+  const etaDemux = (wf === 'p8' || dropIn) ? 0 : _cmv40EstimateSecs(s, CMV40_ETA.r_demux, CMV40_ETA.fps_demux, anchorFfmpeg);
+  const etaExport = _cmv40EstimateSecs(s, CMV40_ETA.r_export * 2, CMV40_ETA.fps_export, anchorFfmpeg);  // ×2 por ambos RPUs
   const etaC = etaDemux + ((trust || dropIn) ? 0 : etaExport);
-  const etaF = _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject);
-  const etaG = (wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux) : 30;
+  // Si el histórico da un ratio medido para esta ruta, se usa contra la
+  // duración de la Fase A (que es su referencia). Si no, la estimación de
+  // siempre sobre el ffmpeg puro.
+  const rInject = _cmv40RatioFase('inject', dropIn, null);
+  const etaF = (rInject && etaA > 0)
+    ? Math.max(5, etaA * rInject)
+    : _cmv40EstimateSecs(s, CMV40_ETA.r_inject, CMV40_ETA.fps_inject, anchorFfmpeg);
+  const rRemux = _cmv40RatioFase('remux', dropIn, null);
+  const etaG = (rRemux && etaA > 0)
+    ? Math.max(5, etaA * rRemux)
+    : ((wf === 'p7_fel') ? _cmv40EstimateSecs(s, CMV40_ETA.r_mux, CMV40_ETA.fps_mux, anchorFfmpeg) : 30);
   // Fase H: depende del modo. Calibrado con runs reales en NAS UHD BD:
   // - Drop-in FEL (caso típico): ffprobe + mkvmerge -J + rename atómico.
   //   ffprobe sobre MKV 71 GB → ~1s; mkvmerge -J → ~1s; rename mismo
@@ -12540,7 +12632,7 @@ function _cmv40PlanAutoSteps(s) {
   //   a hevc_gb/30*5 min). Sin ancla ffmpeg_wall_seconds usamos 240s
   //   (4 min) como fallback razonable; si tenemos ancla, el extract-rpu
   //   ronda 0.92× ffmpeg wall time (mismo ratio que Fase A).
-  const etaH = dropIn ? 5 : (anchor > 0 ? Math.round(anchor * 0.92) : 240);
+  const etaH = dropIn ? 5 : (anchorFfmpeg > 0 ? Math.round(anchorFfmpeg * 0.92) : 240);
 
   const steps = [];
 
@@ -12880,7 +12972,7 @@ function _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project) {
 
 /** Renderiza el timeline lateral del auto-pipeline (HTML). */
 function _cmv40RenderTimeline(s, project) {
-  const steps = _cmv40PlanAutoSteps(s);
+  const steps = _cmv40PlanAutoSteps(s, project);
   // Progreso por #pasos completados (done + skipped) sobre total.
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
@@ -15021,7 +15113,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   }
 
   // Recalcular métricas
-  const steps = _cmv40PlanAutoSteps(s);
+  const steps = _cmv40PlanAutoSteps(s, project);
   const stepStatuses = steps.map(st => _cmv40StepStatus(st, s));
   const doneCount = stepStatuses.filter(st => st === 'done' || st === 'skipped').length;
   const totalCount = steps.length;

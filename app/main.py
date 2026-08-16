@@ -6204,6 +6204,81 @@ async def list_cmv40():
     return {"sessions": sessions}
 
 
+_ETA_MODEL_CACHE: dict = {"at": 0.0, "data": None}
+_ETA_MODEL_TTL_S = 300.0
+# Fases cuyo ratio medimos contra la Fase A (la referencia natural: es la
+# primera larga y su coste escala con el tamaño del vídeo igual que el resto).
+_ETA_MODEL_PHASES = ("extract", "inject", "remux", "validate")
+
+
+def _cmv40_build_eta_model() -> dict:
+    """Ratios reales de duración de cada fase respecto a la Fase A.
+
+    Sustituye a las constantes del frontend (`CMV40_ETA.r_inject`, `r_mux`…),
+    que estaban calibradas a mano contra runs concretos y envejecen con cada
+    cambio del pipeline: el pipe de Fase A, el adelanto de la validación y el
+    export por niveles las dejaron desfasadas en cuestión de horas, y el ETA
+    de un job de 26 min llegó a anunciar 49.
+
+    Se segmenta por ruta porque el reparto no se parece en nada: en drop-in
+    no hay demux y la validación son segundos.
+
+    Solo se emite un ratio con al menos 3 muestras; por debajo, el frontend
+    se queda con su constante. Se usan los 25 jobs más recientes para que el
+    modelo siga a los cambios del pipeline en vez de arrastrar el pasado.
+    """
+    import statistics as _st
+    from storage import CONFIG_DIR as _CFG
+    carpeta = _CFG / "cmv40"
+    if not carpeta.exists():
+        return {"dropin": {}, "merge": {}, "n": 0}
+    ficheros = sorted(carpeta.glob("*.json"), key=lambda p: p.stat().st_mtime,
+                      reverse=True)[:25]
+    ratios: dict[str, dict[str, list[float]]] = {"dropin": {}, "merge": {}}
+    usados = 0
+    for fp in ficheros:
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        hechas = {}
+        for rec in (data.get("phase_history") or []):
+            if rec.get("status") == "done" and (rec.get("elapsed_seconds") or 0) > 0:
+                hechas[rec["phase"]] = rec["elapsed_seconds"]
+        base = hechas.get("analyze_source", 0)
+        if base < 30:          # sin Fase A medible no hay referencia
+            continue
+        # El fast path de validación (segundos) delata el drop-in.
+        ruta = "dropin" if hechas.get("validate", 999) < 20 else "merge"
+        usados += 1
+        for ph in _ETA_MODEL_PHASES:
+            if ph in hechas:
+                ratios[ruta].setdefault(ph, []).append(hechas[ph] / base)
+    salida = {"dropin": {}, "merge": {}, "n": usados}
+    for ruta, porfase in ratios.items():
+        for ph, vals in porfase.items():
+            if len(vals) >= 3:
+                salida[ruta][ph] = round(_st.median(vals), 3)
+                salida[ruta][ph + "_n"] = len(vals)
+    return salida
+
+
+@app.get("/api/cmv40/eta-model", summary="Ratios de ETA medidos del histórico")
+async def cmv40_eta_model():
+    """Modelo de duración derivado de los jobs ya ejecutados en esta máquina.
+
+    El frontend lo usa para estimar las fases que aún no han empezado. Las
+    que están corriendo no lo necesitan: su progreso y su ETA salen de lo que
+    el proceso lleva leído (ver `_ReadProgress`).
+    """
+    ahora = _time.monotonic()
+    if _ETA_MODEL_CACHE["data"] and (ahora - _ETA_MODEL_CACHE["at"]) < _ETA_MODEL_TTL_S:
+        return _ETA_MODEL_CACHE["data"]
+    data = await asyncio.to_thread(_cmv40_build_eta_model)
+    _ETA_MODEL_CACHE.update({"at": ahora, "data": data})
+    return data
+
+
 @app.get("/api/cmv40-active", summary="¿Hay algún job CMv4.0 en curso? (indicador de tab)")
 async def cmv40_active():
     """Respuesta mínima para el punto verde del tab.

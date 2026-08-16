@@ -1393,6 +1393,7 @@ async def run_phase_a_analyze_source(
     # (RATIO_*) quedan algo holgadas, que es el lado seguro.
     if ffmpeg_elapsed > 5:
         session.ffmpeg_wall_seconds = ffmpeg_elapsed
+        session.ffmpeg_wall_includes_rpu = piped_ok
 
     if not piped_ok:
         # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
