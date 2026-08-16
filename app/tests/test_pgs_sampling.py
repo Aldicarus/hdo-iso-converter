@@ -138,3 +138,93 @@ class TestSequentialSmallFile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
+    """El conteo por PID debe dar exactamente lo mismo que el recorrido
+    paquete a paquete, que es lo que había antes.
+
+    El bucle byte a byte costaba ~60 s de CPU sobre el presupuesto de 4 GB
+    (21 M de paquetes, dos llamadas a función y accesos a dict por cada uno)
+    y se llevaba la mayor parte del análisis inicial de un disco. La versión
+    nueva hace el mismo trabajo con slicing extendido + translate + Counter,
+    que corren en C.
+    """
+
+    def _fake_m2ts(self, path, pid_plan, packet_size=192):
+        """Escribe un TS sintético: pid_plan es una lista de PIDs, un paquete
+        por entrada."""
+        sync_off = 4 if packet_size == 192 else 0
+        with open(path, "wb") as f:
+            for pid in pid_plan:
+                pkt = bytearray(packet_size)
+                pkt[sync_off] = 0x47
+                pkt[sync_off + 1] = (pid >> 8) & 0x1F
+                pkt[sync_off + 2] = pid & 0xFF
+                f.write(pkt)
+
+    async def test_mismos_conteos_que_el_recorrido_lento(self):
+        import tempfile, os
+        from phases.phase_a import count_pgs_packets_ts_parse
+        # Mezcla realista: vídeo, audio, tres subtítulos con volúmenes muy
+        # distintos (completo, alternativo, forzado disperso) y basura.
+        plan = ([0x1011] * 500 + [0x1100] * 200
+                + [0x1200] * 137 + [0x1201] * 41 + [0x1202] * 3
+                + [0x1FFF] * 60)
+        plan.sort(key=lambda _: 0)  # estable: mantiene el orden de arriba
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "t.m2ts")
+            self._fake_m2ts(p, plan)
+            got = await count_pgs_packets_ts_parse(
+                p, pid_list=[0x1200, 0x1201, 0x1202])
+        # El contrato es {índice posicional: conteo}, no {pid: conteo}
+        self.assertEqual(got, {0: 137, 1: 41, 2: 3})
+
+    async def test_pid_ausente_del_muestreo_queda_a_cero(self):
+        """Un forzado muy disperso puede no aparecer; debe salir con 0, que
+        es lo que phase_b interpreta como 'usa el patrón estructural'."""
+        import tempfile, os
+        from phases.phase_a import count_pgs_packets_ts_parse
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "t.m2ts")
+            self._fake_m2ts(p, [0x1200] * 50)
+            got = await count_pgs_packets_ts_parse(
+                p, pid_list=[0x1200, 0x12A3])
+        self.assertEqual(got, {0: 50, 1: 0})
+
+    async def test_paquetes_desalineados_caen_al_recorrido_lento(self):
+        """Si algún paquete no empieza por 0x47 hay que mirarlos uno a uno:
+        la vía rápida asume alineación perfecta."""
+        import tempfile, os
+        from phases.phase_a import count_pgs_packets_ts_parse
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "t.m2ts")
+            self._fake_m2ts(p, [0x1200] * 40)
+            # Rompemos el sync de un paquete del medio
+            with open(p, "r+b") as f:
+                f.seek(20 * 192 + 4)
+                f.write(b"\x00")
+            got = await count_pgs_packets_ts_parse(p, pid_list=[0x1200])
+        # 39 válidos: el corrupto no se cuenta, el resto sí
+        self.assertEqual(got[0], 39)
+
+    async def test_sin_pid_list_usa_el_rango_por_defecto(self):
+        import tempfile, os
+        from phases.phase_a import count_pgs_packets_ts_parse
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "t.m2ts")
+            self._fake_m2ts(p, [0x1200] * 10 + [0x12FF] * 5 + [0x1300] * 7)
+            got = await count_pgs_packets_ts_parse(p)
+        # 0x1300 queda fuera del rango PGS (0x1200-0x12FF). Sin pid_list el
+        # orden es ascendente de PID: idx 0 = 0x1200, idx 1 = 0x12FF.
+        self.assertEqual(got, {0: 10, 1: 5})
+
+    async def test_paquetes_de_188_bytes(self):
+        """TS estándar, sin la cabecera BDAV de 4 bytes."""
+        import tempfile, os
+        from phases.phase_a import count_pgs_packets_ts_parse
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "t.ts")
+            self._fake_m2ts(p, [0x1200] * 30 + [0x1201] * 12, packet_size=188)
+            got = await count_pgs_packets_ts_parse(p, pid_list=[0x1200, 0x1201])
+        self.assertEqual(got, {0: 30, 1: 12})

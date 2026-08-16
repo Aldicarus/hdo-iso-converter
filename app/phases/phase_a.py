@@ -44,14 +44,20 @@ enrich_dovi():
 run_full_analysis() — orquestador:
   Ejecuta todo secuencialmente, captura errores de herramientas opcionales.
 """
+import array
 import asyncio
 import json
 import logging
 import re
 import subprocess
+import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
+
+# Máscara del byte alto del PID (bits 12-8 del header TS): `b & 0x1F` aplicado
+# con `bytes.translate`, que recorre el buffer en C en vez de byte a byte.
+_PID_HI_MASK = bytes(i & 0x1F for i in range(256))
 
 import os
 
@@ -1603,17 +1609,60 @@ async def count_pgs_packets_ts_parse(
                         pgs_counts[pid_init] = 0
                 all_non_av: dict[int, int] = {}
 
-                def _scan(buf: bytes, end_off: int):
+                def _tally(pid: int, count: int) -> None:
+                    if not _is_av_pid(pid):
+                        all_non_av[pid] = all_non_av.get(pid, 0) + count
+                    if _is_target_pid(pid):
+                        pgs_counts[pid] = pgs_counts.get(pid, 0) + count
+
+                def _scan_slow(buf: bytes, end_off: int) -> None:
+                    """Recorrido paquete a paquete. Solo para tramos con algún
+                    sync byte fuera de sitio."""
                     for off in range(0, end_off, packet_size):
                         if buf[off + sync_off] != SYNC_BYTE:
                             continue
                         b1 = buf[off + sync_off + 1]
                         b2 = buf[off + sync_off + 2]
-                        pid = ((b1 & 0x1F) << 8) | b2
-                        if not _is_av_pid(pid):
-                            all_non_av[pid] = all_non_av.get(pid, 0) + 1
-                        if _is_target_pid(pid):
-                            pgs_counts[pid] = pgs_counts.get(pid, 0) + 1
+                        _tally(((b1 & 0x1F) << 8) | b2, 1)
+
+                def _scan(buf: bytes, end_off: int) -> None:
+                    """Cuenta paquetes por PID.
+
+                    El bucle byte a byte costaba ~60 s de CPU pura sobre el
+                    presupuesto de 4 GB (21 millones de paquetes, con dos
+                    llamadas a función y accesos a dict por cada uno) y era la
+                    mayor parte del análisis inicial de un disco.
+
+                    Aquí el trabajo se hace con operaciones que corren en C:
+                    el slicing extendido saca de un tirón la columna de bytes
+                    que ocupa la misma posición en cada paquete, `translate`
+                    aplica la máscara del PID, y `Counter` sobre un
+                    `array('H')` agrupa. El resultado es idéntico al del
+                    recorrido lento (lo fija test_pgs_sampling).
+                    """
+                    n = end_off // packet_size
+                    if n <= 0:
+                        return
+                    view = memoryview(buf)[:end_off]
+                    syncs = bytes(view[sync_off::packet_size])
+                    if syncs.count(SYNC_BYTE) != n:
+                        # Algún paquete no empieza por 0x47: el tramo no está
+                        # bien alineado y hay que mirarlo uno a uno.
+                        _scan_slow(buf, end_off)
+                        return
+                    hi = bytes(view[sync_off + 1::packet_size]).translate(_PID_HI_MASK)
+                    lo = bytes(view[sync_off + 2::packet_size])
+                    packed = bytearray(n * 2)
+                    packed[0::2] = hi
+                    packed[1::2] = lo
+                    pids = array.array("H")
+                    pids.frombytes(bytes(packed))
+                    # El PID es big-endian (byte alto primero); array usa el
+                    # orden nativo, que en x86 es little-endian.
+                    if sys.byteorder == "little":
+                        pids.byteswap()
+                    for pid, count in Counter(pids).items():
+                        _tally(pid, count)
 
                 def _find_alignment(buf: bytes) -> int:
                     # Tras un seek a offset arbitrario no estamos en frontera de
