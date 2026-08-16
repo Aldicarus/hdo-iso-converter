@@ -214,3 +214,67 @@ class TestIncludeLog(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
+    """`session.last_progress`: la barra sobrevive a un WebSocket caído.
+
+    Los pasos silenciosos (extract-rpu, export, demux) tardan minutos sin
+    escribir una línea. Desde que el progreso no se persiste en `output_log`,
+    la barra dependía solo del WS — y con el WS parpadeando la UI se quedaba
+    muerta y parecía un cuelgue (reportado el 2026-08-16 en la Fase A).
+    """
+
+    def setUp(self):
+        from models import CMv40Session
+        self.session = CMv40Session(
+            id="sess_prog", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+            output_mkv_name="out.mkv")
+        main._cmv40_last_progress.pop(self.session.id, None)
+        main._cmv40_progress_persist_ts.pop(self.session.id, None)
+        self._orig_persist = main._cmv40_maybe_persist_log
+        self._orig_save = main._save_cmv40_session_async
+        self.saves = []
+
+        async def _fake_persist(session, line):
+            pass
+
+        async def _fake_save(session):
+            self.saves.append(session.id)
+
+        main._cmv40_maybe_persist_log = _fake_persist
+        main._save_cmv40_session_async = _fake_save
+
+    def tearDown(self):
+        main._cmv40_maybe_persist_log = self._orig_persist
+        main._save_cmv40_session_async = self._orig_save
+        main._cmv40_last_progress.pop(self.session.id, None)
+        main._cmv40_progress_persist_ts.pop(self.session.id, None)
+
+    async def test_el_progreso_queda_en_la_sesion(self):
+        await main._cmv40_log(self.session, PROGRESS)
+        self.assertEqual(self.session.last_progress,
+                         {"pct": 95.0, "label": "Inyectando RPU"})
+        # …y sigue sin ensuciar el log
+        self.assertEqual(self.session.output_log, [])
+
+    async def test_se_actualiza_con_cada_valor_nuevo(self):
+        await main._cmv40_log(self.session, PROGRESS)
+        await main._cmv40_log(
+            self.session, '§§PROGRESS§§{"pct": 96.5, "label": "Inyectando RPU"}')
+        self.assertEqual(self.session.last_progress["pct"], 96.5)
+
+    async def test_payload_invalido_no_revienta(self):
+        await main._cmv40_log(self.session, "§§PROGRESS§§no-es-json")
+        self.assertIsNone(self.session.last_progress)
+
+    async def test_la_persistencia_va_throttled(self):
+        """Debe tocar disco, pero no en cada tick."""
+        import asyncio as _a
+        await main._cmv40_log(self.session, PROGRESS)
+        for i in range(20):
+            await main._cmv40_log(
+                self.session, f'§§PROGRESS§§{{"pct": {i}, "label": "X"}}')
+        await _a.sleep(0)  # deja correr las tasks de save en background
+        self.assertLessEqual(len(self.saves), 1,
+                             "el progreso no debe persistir en cada tick")

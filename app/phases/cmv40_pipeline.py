@@ -430,6 +430,27 @@ async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | No
     await log_callback(f"§§PROGRESS§§{json.dumps(payload)}")
 
 
+# Cada cuánto una operación silenciosa escribe una línea REAL en el log.
+# `extract-rpu`, `export`, `demux` e `inject-rpu` no imprimen nada durante
+# minutos: sin esto, el log se queda clavado y parece que el job ha muerto
+# (reportado el 2026-08-16 al final de la Fase A). El progreso sí fluye por
+# WS, pero es invisible si el WS parpadea — y no deja rastro en el log
+# permanente que el usuario revisa después.
+HEARTBEAT_EVERY_S = 60.0
+
+
+async def _emit_heartbeat(log_callback, label: str, elapsed_s: float,
+                          eta_s: float | None = None) -> None:
+    """Línea de texto 'sigue vivo' para operaciones sin salida propia."""
+    if not log_callback:
+        return
+    mins, secs = int(elapsed_s) // 60, int(elapsed_s) % 60
+    eta_txt = ""
+    if eta_s is not None and eta_s > 0:
+        eta_txt = f" · quedan ~{int(eta_s) // 60}min {int(eta_s) % 60}s"
+    await log_callback(f"  ⏱ {label} en curso… ({mins}min {secs}s{eta_txt})")
+
+
 async def _run_streaming(
     cmd: list[str],
     log_callback=None,
@@ -559,6 +580,7 @@ async def _run_streaming(
             return
         except asyncio.TimeoutError:
             pass
+        last_hb = time.monotonic()
         while not stop_ticker.is_set():
             if has_real_progress:
                 return
@@ -567,6 +589,10 @@ async def _run_streaming(
             phase_pct = offset + step_pct * weight / 100.0
             eta = max(0.0, time_est - elapsed)
             await _emit_progress(log_callback, phase_pct, label, eta)
+            now = time.monotonic()
+            if now - last_hb >= HEARTBEAT_EVERY_S:
+                last_hb = now
+                await _emit_heartbeat(log_callback, label or "Proceso", elapsed, eta)
             try:
                 await asyncio.wait_for(stop_ticker.wait(), timeout=2.0)
             except asyncio.TimeoutError:
@@ -641,6 +667,7 @@ async def _run_with_time_estimate(
 
     async def _tick():
         # Emite al inicio y luego cada 2 s
+        last_hb = time.monotonic()
         while not stop.is_set():
             elapsed = time.monotonic() - start
             est = max(estimated_s, 5.0)
@@ -648,6 +675,12 @@ async def _run_with_time_estimate(
             phase_pct = offset + step_pct * weight / 100.0
             eta = max(0.0, est - elapsed)
             await _emit_progress(log_callback, phase_pct, label, eta)
+            # Heartbeat de texto: estos comandos (extract-rpu, export, demux)
+            # no escriben NADA durante minutos. Ver HEARTBEAT_EVERY_S.
+            now = time.monotonic()
+            if now - last_hb >= HEARTBEAT_EVERY_S:
+                last_hb = now
+                await _emit_heartbeat(log_callback, label or "Proceso", elapsed, eta)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=2.0)
             except asyncio.TimeoutError:

@@ -14020,6 +14020,10 @@ async function _cmv40FirePreflight(pid, target) {
 // puede no haber hidratado aún (típicamente `tmdb_info`). Evita que la
 // ficha TMDb desaparezca/flickee cuando hay saves concurrentes (p.ej.
 // durante una cancelación de fase que clobberea campos async).
+// Silencio del WS a partir del cual la barra se reconstruye desde el estado
+// persistido (session.last_progress) en vez de esperar al siguiente mensaje.
+const CMV40_WS_SILENCE_FOR_REST_PROGRESS_MS = 8000;
+
 function _cmv40AssignSession(project, data) {
   if (!project || !data) return;
   // Respuesta sin log (GET ?include_log=false del safety poller): el backend
@@ -14028,6 +14032,17 @@ function _cmv40AssignSession(project, data) {
   // _cmv40SyncPermanentLog) siga viendo el array completo de siempre.
   if (data.output_log_omitted) {
     data.output_log = (project.session && project.session.output_log) || [];
+  }
+  // Barra de progreso desde el estado persistido. Los pasos silenciosos
+  // (extract-rpu, export, demux) tardan minutos sin escribir una sola línea:
+  // si el WS se cae, la barra era la única señal y se quedaba congelada.
+  // Solo entra en juego cuando el WS lleva rato callado — mientras entrega,
+  // él manda porque va más al día que el JSON persistido.
+  if (data.last_progress && data.running_phase) {
+    const wsSilentMs = Date.now() - (project._lastWsMessageAt || 0);
+    if (wsSilentMs > CMV40_WS_SILENCE_FOR_REST_PROGRESS_MS) {
+      _cmv40UpdateProgressUI(project.id, data.last_progress);
+    }
   }
   const preserved = {};
   const PRESERVE_FIELDS = ['tmdb_info'];

@@ -1395,6 +1395,18 @@ class CMv40Session(BaseModel):
     """Fase ejecutándose ahora mismo ('analyze_source', 'extract', 'inject', 'remux').
     Cuando != None, la UI muestra modo modal con log + cancelar. Al terminar se limpia."""
 
+    last_progress: dict | None = None
+    """Último marcador de progreso emitido: {pct, label, eta_s}.
+
+    Los pasos largos del pipeline (`extract-rpu`, `export`, `demux`,
+    `inject-rpu`) son SILENCIOSOS: durante minutos no escriben una sola línea
+    y la barra es la única señal de vida. Esa barra viaja por WebSocket, y un
+    WS que parpadea la dejaba congelada sin forma de recuperarla — el log ya
+    no lleva los `§§PROGRESS§§` que antes servían de respaldo.
+
+    Guardarlo aquí (unos bytes, no cientos de líneas) hace que cualquier GET
+    lo devuelva y la UI reconstruya la barra sin depender del WS."""
+
     # ── Bloque 1: análisis L2/L8 capturado vía dovi_tool export -d all ──
     # Datos en bruto que alimentan el modelo de decisión Keep/Drop-in/Merge.
     # El análisis del bin se hace en pre-flight (antes de Fase A); el del

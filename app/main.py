@@ -5014,6 +5014,47 @@ def _cmv40_progress_should_emit(session_id: str, msg: str) -> bool:
     return True
 
 
+# Cada cuánto se persiste `last_progress` en el JSON de la sesión. Es lo que
+# permite que la barra sobreviva a un WS caído o a un F5, así que tiene que
+# tocar disco de vez en cuando — pero mucho menos que las ~450 reescrituras
+# que provocaba persistir el progreso dentro del log.
+_CMV40_PROGRESS_PERSIST_S = 20.0
+_cmv40_progress_persist_ts: dict[str, float] = {}
+
+
+def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
+    """Guarda el progreso en la sesión y lo persiste de tanto en tanto.
+
+    Sin esto, un paso silencioso largo (extract-rpu son 2-3 min sin una sola
+    línea) deja la UI sin ninguna señal si el WebSocket se cae: el log no
+    lleva progreso y el GET tampoco lo traía.
+    """
+    try:
+        payload = json.loads(msg[len(_CMV40_PROGRESS_PREFIX):])
+    except (ValueError, TypeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    session.last_progress = payload
+    now = _time.monotonic()
+    last = _cmv40_progress_persist_ts.get(session.id, 0.0)
+    if now - last < _CMV40_PROGRESS_PERSIST_S:
+        return
+    _cmv40_progress_persist_ts[session.id] = now
+    lock = _get_cmv40_save_lock(session.id)
+    if lock.locked():
+        return  # hay un save en vuelo; ya se llevará el valor actual
+
+    async def _bg_save():
+        try:
+            async with lock:
+                await _save_cmv40_session_async(session)
+        except Exception as e:
+            _logger.warning("[cmv40 progress save] sid=%s error: %s", session.id, e)
+
+    asyncio.create_task(_bg_save())
+
+
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     """Añade un log a la sesión CMv4.0, lo persiste con throttling y lo
     emite por WebSocket inmediatamente.
@@ -5048,6 +5089,7 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
     if msg.startswith(_CMV40_PROGRESS_PREFIX):
         if not _cmv40_progress_should_emit(session.id, msg):
             return
+        _cmv40_store_last_progress(session, msg)
     else:
         session.output_log.append(ts_msg)
         await _cmv40_maybe_persist_log(session, ts_msg)
@@ -5073,22 +5115,50 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
             asyncio.create_task(_cmv40_send_with_timeout(sid, ws, ts_msg))
 
 
+# Timeouts de envío consecutivos por conexión — {id(ws): n}. Se limpia en
+# cuanto un envío va bien o cuando la conexión se descarta.
+_cmv40_ws_timeouts: dict = {}
+_CMV40_WS_SEND_TIMEOUT_S = 10.0
+_CMV40_WS_MAX_TIMEOUTS = 3
+
+
 async def _cmv40_send_with_timeout(sid: str, ws, msg: str) -> None:
-    """Envía un mensaje a un WebSocket con timeout corto. Si el send tarda
-    más de 2s asumimos zombie: cerramos el ws y lo quitamos de la lista
-    para no volver a intentarlo (el frontend reconectará al detectar el
-    cierre). Esto evita que un cliente lento congele el log para todos."""
+    """Envía un mensaje a un WebSocket sin dejar que un cliente lento congele
+    el log para todos.
+
+    El timeout era de 2 s y CUALQUIER excepción cerraba la conexión. Con el
+    event loop compitiendo por 4 cores saturados, un send perfectamente sano
+    puede pasar de 2 s: el resultado eran 27 reconexiones en pocos minutos
+    (2026-08-16), y como el progreso ya no se persiste en el log, cada corte
+    dejaba la UI muerta hasta la siguiente reconexión.
+
+    Ahora un timeout aislado NO cierra: hacen falta varios seguidos para
+    declarar zombie. Cualquier otra excepción (socket ya cerrado, etc.) sí
+    cierra de inmediato, que es el caso real de cliente desaparecido.
+    """
+    key = id(ws)
     try:
-        await asyncio.wait_for(ws.send_text(msg), timeout=2.0)
-    except (asyncio.TimeoutError, Exception):
-        try:
-            await ws.close()
-        except Exception:
-            pass
-        try:
-            _cmv40_ws_connections.get(sid, []).remove(ws)
-        except ValueError:
-            pass
+        await asyncio.wait_for(ws.send_text(msg), timeout=_CMV40_WS_SEND_TIMEOUT_S)
+        _cmv40_ws_timeouts.pop(key, None)
+        return
+    except asyncio.TimeoutError:
+        n = _cmv40_ws_timeouts.get(key, 0) + 1
+        _cmv40_ws_timeouts[key] = n
+        if n < _CMV40_WS_MAX_TIMEOUTS:
+            return  # transitorio: el cliente sigue vivo, no lo desconectamos
+        _logger.info(
+            "WS de %s desconectado tras %d timeouts de envío seguidos", sid, n)
+    except Exception:
+        pass
+    _cmv40_ws_timeouts.pop(key, None)
+    try:
+        await ws.close()
+    except Exception:
+        pass
+    try:
+        _cmv40_ws_connections.get(sid, []).remove(ws)
+    except ValueError:
+        pass
 
 
 # Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int} }
@@ -5418,6 +5488,11 @@ async def _run_cmv40_phase_locked(
         finally:
             _cmv40_active_procs.pop(session.id, None)
             session.running_phase = None  # ← desbloquea la UI
+            # La barra pertenece a la fase que acaba de terminar: dejarla
+            # puesta haría que la siguiente arrancara mostrando el progreso
+            # de la anterior hasta su primer tick.
+            session.last_progress = None
+            _cmv40_progress_persist_ts.pop(session.id, None)
             # Flush garantizado del log al terminar fase: cualquier línea
             # que el throttle hubiera dejado en buffer se vuelca a disco
             # ANTES del save final del estado. Sin esto, las últimas N
