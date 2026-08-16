@@ -38,12 +38,42 @@ def _session_path(session_id: str) -> Path:
     return CONFIG_DIR / f"{session_id}.json"
 
 
+# Un lock por fichero destino. El .tmp intermedio tiene nombre determinista
+# (`X.json.tmp`), así que dos escrituras simultáneas al mismo destino se pisan:
+# la primera renombra el .tmp y la segunda revienta con
+# `[Errno 2] ... '.json.tmp' -> '.json'`. Pasa de verdad — el save síncrono que
+# marca el arranque de una fase CMv4.0 puede coincidir con un `_bg_save`
+# throttled que sigue en vuelo en el thread pool (visto el 2026-08-16 con
+# "La trama fenicia": la excepción subió hasta un `except Exception: pass` y la
+# Fase A murió sin dejar rastro, con `running_phase` pegado en disco).
+#
+# Es un `threading.Lock` y no un `asyncio.Lock` a propósito: las escrituras
+# llegan tanto del event loop (save síncrono) como del thread pool
+# (`asyncio.to_thread` de los saves async), y solo un primitivo de threading
+# cubre ambos.
+_write_locks: dict[str, threading.Lock] = {}
+_write_locks_guard = threading.Lock()
+
+
+def _get_write_lock(path: Path) -> threading.Lock:
+    key = str(path)
+    with _write_locks_guard:
+        lock = _write_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _write_locks[key] = lock
+        return lock
+
+
 def _atomic_write_json(path: Path, content: str) -> None:
     """Escritura atómica: vuelca a un .tmp en el mismo directorio y rename
     al destino final. Garantiza que el fichero objetivo nunca queda en
     estado parcial — incluso si el server cae mid-write (kill -9, panic
     del kernel, apagón). El rename dentro del mismo filesystem es atómico
     en POSIX/Linux por contrato.
+
+    Serializado por destino (ver `_write_locks`): la atomicidad del rename
+    no basta si dos escritores comparten el mismo fichero .tmp.
 
     Usado para todas las persistencias críticas (Sessions, CMv40Session,
     queue_state, mkv_apply_state). Sin esto, las escrituras de output_log
@@ -52,16 +82,17 @@ def _atomic_write_json(path: Path, content: str) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    try:
-        tmp_path.write_text(content, encoding="utf-8")
-        os.replace(tmp_path, path)  # atomic on POSIX same-filesystem
-    except Exception:
-        # Best-effort cleanup del .tmp si rename falló
+    with _get_write_lock(path):
         try:
-            tmp_path.unlink(missing_ok=True)
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, path)  # atomic on POSIX same-filesystem
         except Exception:
-            pass
-        raise
+            # Best-effort cleanup del .tmp si rename falló
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
 
 
 def _log_safe_snapshot(session, growing_fields: tuple[str, ...]):
