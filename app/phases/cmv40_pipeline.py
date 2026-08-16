@@ -646,6 +646,187 @@ async def _run_streaming(
     return proc.returncode
 
 
+def _tee_path_is_safe(path: Path) -> bool:
+    """El muxer `tee` de ffmpeg usa `|` para separar salidas, `[...]` para las
+    opciones de cada una y `:` dentro de ellas. Una ruta con esos caracteres
+    rompería el descriptor, así que en ese caso preferimos el camino clásico.
+    """
+    return not any(c in str(path) for c in "|[]:")
+
+
+async def _ffmpeg_extract_rpu_piped(
+    mkv_path: str,
+    rpu_out: Path,
+    hevc_out: Path | None = None,
+    duration: float = 0.0,
+    log_callback=None,
+    proc_callback=None,
+    offset: float = 0.0,
+    weight: float = 100.0,
+    label: str = "Extrayendo HEVC + RPU",
+    estimated_s: float = 0.0,
+) -> bool:
+    """Extrae el HEVC y su RPU en UNA sola pasada, con ffmpeg y dovi_tool
+    trabajando a la vez.
+
+    En serie, estos dos pasos son la mayor parte de la Fase A y se estorban:
+    medido sobre John Wick (243.552 frames), ffmpeg tarda 574 s y está
+    limitado por el disco (la CPU ociosa), y `extract-rpu` tarda 372 s y está
+    limitado por la CPU al 100 % de un core (el disco medio ocioso). Uno
+    detrás de otro son ~946 s usando la mitad de la máquina cada vez.
+
+    Conectados por un pipe, el conjunto va al ritmo del más lento (~574 s) y
+    además `extract-rpu` deja de releer del disco los 73 GB del HEVC.
+
+    Si `hevc_out` es None, el HEVC no se guarda: solo interesa el RPU (caso
+    del pre-flight sobre otro MKV). Si se pide, ffmpeg lo escribe con el
+    muxer `tee` mientras manda una copia por el pipe — verificado bit a bit:
+    el HEVC y el RPU salen con el mismo MD5 que por el camino clásico.
+
+    Devuelve True si todo fue bien. False (sin lanzar) si algo falla, para
+    que el caller pueda recurrir al camino secuencial de siempre.
+    """
+    if hevc_out is not None and not _tee_path_is_safe(hevc_out):
+        if log_callback:
+            await log_callback(
+                "[Fase A] La ruta del workdir lleva caracteres que el muxer tee "
+                "de ffmpeg no admite — se usa el camino en dos pasos.")
+        return False
+
+    if hevc_out is not None:
+        out_args = ["-f", "tee", f"[f=hevc]{hevc_out}|[f=hevc]pipe:1"]
+    else:
+        out_args = ["-f", "hevc", "pipe:1"]
+    ff_cmd = [
+        FFMPEG_BIN, "-y", "-i", mkv_path,
+        "-map", "0:v:0", "-c:v", "copy",
+        "-bsf:v", "hevc_mp4toannexb",
+        *out_args,
+    ]
+    dv_cmd = [DOVI_TOOL_BIN, "extract-rpu", "-", "-o", str(rpu_out)]
+
+    if log_callback:
+        await log_callback(f"$ {' '.join(ff_cmd)} | {' '.join(dv_cmd)}")
+
+    read_fd, write_fd = os.pipe()
+    ff = dv = None
+    try:
+        ff = await asyncio.create_subprocess_exec(
+            *ff_cmd, stdout=write_fd, stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        dv = await asyncio.create_subprocess_exec(
+            *dv_cmd, stdin=read_fd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except Exception as e:
+        # Arrancar el pipeline no debe poder tumbar la fase: el caller tiene
+        # el camino en dos pasos esperando.
+        if ff is not None:
+            try:
+                ff.kill()
+            except Exception:
+                pass
+        _logger.info("No se pudo lanzar el pipeline ffmpeg|extract-rpu: %s", e)
+        if log_callback:
+            await log_callback(
+                f"[Fase A] No se pudo lanzar el pipeline ({e}) — se usa el "
+                f"camino en dos pasos.")
+        return False
+    finally:
+        # El padre DEBE cerrar sus copias: si el extremo de escritura sigue
+        # abierto aquí, dovi_tool nunca ve el EOF y el pipeline se cuelga.
+        os.close(read_fd)
+        os.close(write_fd)
+
+    if proc_callback:
+        proc_callback(ff)
+        proc_callback(dv)
+
+    # Progreso desde el stderr de ffmpeg (las líneas `frame=… time=…`), igual
+    # que en el camino clásico.
+    last_push = 0.0
+    ff_tail: list[str] = []
+
+    async def _drain_ffmpeg() -> None:
+        nonlocal last_push
+        buf = b""
+        while True:
+            chunk = await ff.stderr.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            while True:
+                nl, cr = buf.find(b"\n"), buf.find(b"\r")
+                if nl == -1 and cr == -1:
+                    break
+                idx = min(x for x in (nl, cr) if x != -1)
+                line = buf[:idx].decode("utf-8", errors="replace").rstrip()
+                buf = buf[idx + 1:]
+                if not line:
+                    continue
+                ff_tail.append(line)
+                del ff_tail[:-40]
+                now = time.monotonic()
+                if duration > 0 and (now - last_push) >= 1.0:
+                    m = _FFMPEG_TIME_RE.search(line)
+                    if m:
+                        elapsed_media = _hms_to_seconds(*m.groups())
+                        step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
+                        wall = now - step_start
+                        eta = ((wall / elapsed_media) * (duration - elapsed_media)
+                               if elapsed_media > 0 else None)
+                        await _emit_progress(
+                            log_callback, offset + step_pct * weight / 100.0, label, eta)
+                        last_push = now
+
+    step_start = time.monotonic()
+    dv_out = b""
+
+    async def _drain_dovi() -> None:
+        nonlocal dv_out
+        dv_out = await dv.stdout.read()
+
+    # Timeout del conjunto. Escala con la estimación (que se ancla a la carga
+    # real del NAS) y nunca baja de una hora: el pipeline recorre el vídeo
+    # entero y un tope corto es justo el bug que documenta
+    # test_pipeline_timeouts.
+    total_timeout = _adaptive_timeout(estimated_s, floor_s=3600)
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(_drain_ffmpeg(), _drain_dovi()), timeout=total_timeout)
+        ff_rc = await asyncio.wait_for(ff.wait(), timeout=60)
+        dv_rc = await asyncio.wait_for(dv.wait(), timeout=300)
+    except asyncio.TimeoutError:
+        for p in (ff, dv):
+            try:
+                p.kill()
+            except Exception:
+                pass
+        if log_callback:
+            await log_callback(
+                f"[Fase A] El pipeline ffmpeg|extract-rpu excedió {total_timeout}s — "
+                f"abortado; se reintenta en dos pasos.")
+        return False
+
+    if ff_rc != 0 or dv_rc != 0:
+        if log_callback:
+            await log_callback(
+                f"[Fase A] El pipeline ffmpeg|extract-rpu falló "
+                f"(ffmpeg={ff_rc}, dovi_tool={dv_rc}) — se reintenta en dos pasos."
+            )
+            for line in ff_tail[-6:]:
+                await log_callback(f"  {line}")
+            tail = dv_out.decode("utf-8", errors="replace").strip().splitlines()[-4:]
+            for line in tail:
+                await log_callback(f"  {line}")
+        return False
+    if not rpu_out.exists() or rpu_out.stat().st_size == 0:
+        return False
+    return True
+
+
 async def _run_with_time_estimate(
     cmd: list[str],
     estimated_s: float,
@@ -874,16 +1055,66 @@ async def run_phase_a_analyze_source(
         existing_size < 1_000_000
         or (mkv_size > 0 and existing_size < MIN_HEVC_RATIO * mkv_size)
     )
+
+    # ── Pasos 1+2 en una sola pasada ────────────────────────────────────
+    # ffmpeg (limitado por disco) y extract-rpu (limitado por CPU) hacen el
+    # mismo recorrido sobre decenas de GB, uno detrás de otro. Conectados por
+    # un pipe se solapan y el conjunto va al ritmo del más lento. Solo aplica
+    # si hay que extraer el HEVC: si ya está en disco de un run anterior, el
+    # camino de siempre (extract-rpu leyendo el fichero) es más barato.
+    piped_ok = False
     if existing_too_small:
-        # Si había un source.hevc parcial de un run anterior, lo borramos
-        # explícitamente — ffmpeg con -y lo sobreescribirá igualmente,
-        # pero así el log lo refleja por si el usuario está investigando.
         if existing_size > 0 and log_callback:
             await log_callback(
                 f"[Fase A] source.hevc previo ({existing_size / 1e6:.0f} MB) "
                 f"es demasiado pequeño respecto al MKV ({mkv_size / 1e9:.2f} GB) — "
                 f"se regenera desde cero."
             )
+        if log_callback:
+            await log_callback(
+                "[Fase A] ├─ Pasos 1+2 en paralelo: ffmpeg extrae el HEVC y "
+                "dovi_tool saca el RPU del mismo flujo, sin esperar a que el "
+                "fichero esté completo."
+            )
+        t0 = time.monotonic()
+        piped_ok = await _ffmpeg_extract_rpu_piped(
+            session.source_mkv_path, rpu_source, hevc_out=source_hevc,
+            duration=duration, log_callback=log_callback,
+            proc_callback=proc_callback,
+            offset=0.0, weight=W_FFMPEG + W_RPU,
+            label="Extrayendo HEVC + RPU (en paralelo)",
+            estimated_s=_estimate_from_ffmpeg(session, 1.0, FPS_FFMPEG_EXTRACT),
+        )
+        if piped_ok:
+            ffmpeg_elapsed = time.monotonic() - t0
+            hevc_size = source_hevc.stat().st_size if source_hevc.exists() else 0
+            if mkv_size > 0 and hevc_size > 0 and (hevc_size / mkv_size) < MIN_HEVC_RATIO:
+                # Mismo guard que en el camino clásico: un HEVC truncado con
+                # rc=0 es señal de MKV corrupto.
+                source_hevc.unlink(missing_ok=True)
+                rpu_source.unlink(missing_ok=True)
+                raise RuntimeError(
+                    f"ffmpeg terminó con rc=0 pero extrajo solo "
+                    f"{hevc_size / 1e9:.2f} GB de HEVC desde un MKV de "
+                    f"{mkv_size / 1e9:.2f} GB (ratio {hevc_size / mkv_size:.1%}, "
+                    f"esperado >={MIN_HEVC_RATIO:.0%}). El MKV probablemente está "
+                    f"corrupto o incompleto. Artefactos parciales borrados."
+                )
+            if log_callback:
+                await log_callback(
+                    f"[Fase A] ✓ HEVC ({hevc_size / 1e9:.1f} GB) + RPU extraídos "
+                    f"en una pasada ({ffmpeg_elapsed:.0f}s)"
+                )
+            await _emit_progress(log_callback, W_FFMPEG + W_RPU, "HEVC y RPU extraídos")
+        else:
+            # El pipeline no era viable: limpiamos lo que haya quedado a medias
+            # y seguimos por el camino de siempre.
+            source_hevc.unlink(missing_ok=True)
+            rpu_source.unlink(missing_ok=True)
+
+    if not piped_ok and existing_too_small:
+        # Camino en dos pasos: el pipeline no se pudo usar (ruta no apta para
+        # el muxer tee, dovi_tool sin soporte de stdin, o falló a medias).
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
@@ -923,32 +1154,37 @@ async def run_phase_a_analyze_source(
                     f"source.hevc parcial se ha borrado para que el reintento "
                     f"sea limpio."
                 )
-    else:
+    elif not piped_ok:
         if log_callback:
             await log_callback("[Fase A] source.hevc ya existe, reutilizando")
-    await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
+    if not piped_ok:
+        await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
 
-    # Guardar wall-time de ffmpeg como ancla para estimaciones futuras
+    # Guardar wall-time de ffmpeg como ancla para estimaciones futuras.
+    # Con el pipeline, este tiempo cubre ffmpeg + extract-rpu solapados: es
+    # una cota superior del ffmpeg puro, así que las estimaciones derivadas
+    # (RATIO_*) quedan algo holgadas, que es el lado seguro.
     if ffmpeg_elapsed > 5:
         session.ffmpeg_wall_seconds = ffmpeg_elapsed
 
-    # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
-    if log_callback:
-        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
-    # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
-    if ffmpeg_elapsed > 5:
-        est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
-    elif frame_count > 0:
-        est_rpu = frame_count / FPS_EXTRACT_RPU
-    else:
-        est_rpu = 120.0
-    rc, out, err = await _run_with_time_estimate([
-        DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
-    ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
-       timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC",
-       offset=W_FFMPEG, weight=W_RPU)
-    if rc != 0:
-        raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+    if not piped_ok:
+        # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
+        if log_callback:
+            await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
+        # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
+        if ffmpeg_elapsed > 5:
+            est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
+        elif frame_count > 0:
+            est_rpu = frame_count / FPS_EXTRACT_RPU
+        else:
+            est_rpu = 120.0
+        rc, out, err = await _run_with_time_estimate([
+            DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
+        ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
+           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC",
+           offset=W_FFMPEG, weight=W_RPU)
+        if rc != 0:
+            raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
 
     # extract-rpu sale rc=0 incluso cuando no encuentra ni un solo NAL DV en
     # el HEVC — solo deja el fichero vacio o inexistente. info --summary
@@ -1290,28 +1526,40 @@ async def preflight_target_mkv(
                 f"[Pre-flight] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}"
             )
 
-        rc = await _run_streaming([
-            FFMPEG_BIN, "-y", "-i", source_mkv_path,
-            "-map", "0:v:0", "-c:v", "copy",
-            "-bsf:v", "hevc_mp4toannexb",
-            "-f", "hevc", str(temp_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback,
-           progress_ctx={
-               "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
-               "label": "Pre-flight: extrayendo HEVC del MKV target",
-           })
-        if rc != 0:
-            raise RuntimeError(f"ffmpeg falló (código {rc})")
+        # Aquí el HEVC no interesa, solo su RPU: va directo por un pipe sin
+        # tocar disco. Antes se escribían decenas de GB para releerlos y
+        # borrarlos a continuación.
+        piped = await _ffmpeg_extract_rpu_piped(
+            source_mkv_path, rpu_target, hevc_out=None,
+            duration=duration, log_callback=log_callback,
+            proc_callback=proc_callback,
+            offset=0.0, weight=W_FFMPEG + W_RPU,
+            label="Pre-flight: extrayendo RPU del MKV target",
+            estimated_s=_estimate_from_ffmpeg(session, 1.0, FPS_FFMPEG_EXTRACT),
+        )
+        if not piped:
+            rc = await _run_streaming([
+                FFMPEG_BIN, "-y", "-i", source_mkv_path,
+                "-map", "0:v:0", "-c:v", "copy",
+                "-bsf:v", "hevc_mp4toannexb",
+                "-f", "hevc", str(temp_hevc),
+            ], log_callback=log_callback, proc_callback=proc_callback,
+               progress_ctx={
+                   "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
+                   "label": "Pre-flight: extrayendo HEVC del MKV target",
+               })
+            if rc != 0:
+                raise RuntimeError(f"ffmpeg falló (código {rc})")
 
-        if log_callback:
-            await log_callback("[Pre-flight] Extrayendo RPU del HEVC target…")
-        rc, out, err = await _run([
-            DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
-        ], timeout=_adaptive_timeout(
-            _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
-            floor_s=1200))
-        if rc != 0:
-            raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+            if log_callback:
+                await log_callback("[Pre-flight] Extrayendo RPU del HEVC target…")
+            rc, out, err = await _run([
+                DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
+            ], timeout=_adaptive_timeout(
+                _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+                floor_s=1200))
+            if rc != 0:
+                raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
 
         session.target_rpu_source = "mkv"
         session.target_rpu_path = source_mkv_path
