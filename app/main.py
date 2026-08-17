@@ -5288,6 +5288,28 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
             asyncio.create_task(_cmv40_send_with_timeout(sid, ws, ts_msg))
 
 
+async def _cmv40_log_phase_failed(
+    session: CMv40Session, fase: str, msg: str
+) -> None:
+    """Cierra una fase con la marca ✗ sin repetir un motivo ya explicado.
+
+    Las fases que abortan con diagnóstico propio (el pre-flight es el caso
+    claro) escriben un párrafo largo al log y acto seguido lanzan ese MISMO
+    texto como excepción. El handler genérico lo volvía a escribir entero, así
+    que el usuario veía el mismo bloque de diez líneas dos veces seguidas y
+    parecía que había fallado dos veces. Si el motivo ya está en las últimas
+    líneas, aquí basta la línea de cierre.
+
+    El prefijo `✗ Fase` es token de persistencia
+    (`_CMV40_LOG_FORCE_PERSIST_MARKERS`) — no tocarlo.
+    """
+    recientes = (session.output_log or [])[-3:]
+    if msg and any(msg in linea for linea in recientes):
+        await _cmv40_log(session, f"✗ Fase {fase} FALLÓ")
+    else:
+        await _cmv40_log(session, f"✗ Fase {fase} FALLÓ: {msg}")
+
+
 # Timeouts de envío consecutivos por conexión — {id(ws): n}. Se limpia en
 # cuanto un envío va bien o cuando la conexión se descarta.
 _cmv40_ws_timeouts: dict = {}
@@ -5634,7 +5656,7 @@ async def _run_cmv40_phase_locked(
             record.error_message = str(e)
             session.phase = previous_phase
             session.error_message = str(e)
-            await _cmv40_log(session, f"✗ Fase {phase_name} FALLÓ: {e}")
+            await _cmv40_log_phase_failed(session, phase_name, str(e))
             # Fase G (remux) fallando → .mkv.tmp puede estar parcial/corrupto →
             # borrar es correcto. Fase H (validate) fallando → la mux ya
             # terminó ok, el MKV está completo; la validación es solo sanity
@@ -6095,7 +6117,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 # Si NO avanzar, la helper ya pobló preflight_decision/message
             except Exception as e:
                 msg = str(e)
-                await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
+                await _cmv40_log_phase_failed(session, "preflight", msg)
                 session.error_message = msg
                 session.target_preflight_ok = False
             finally:
@@ -7951,7 +7973,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 # error_message para que la UI lo muestre como banner. SIN
                 # toast (es ruido — el log del proyecto ya tiene el motivo).
                 msg = str(e)
-                await _cmv40_log(session, f"✗ Fase preflight FALLÓ: {msg}")
+                await _cmv40_log_phase_failed(session, "preflight", msg)
                 session.error_message = msg
                 session.target_preflight_ok = False
             finally:
@@ -8021,7 +8043,7 @@ async def cmv40_preflight_source(session_id: str):
                 )
             except Exception as e:
                 msg = str(e)
-                await _cmv40_log(session, f"✗ Fase preflight (source) FALLÓ: {msg}")
+                await _cmv40_log_phase_failed(session, "preflight (source)", msg)
                 session.error_message = msg
                 session.source_preflight_ok = False
             finally:
