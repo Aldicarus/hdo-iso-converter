@@ -146,5 +146,59 @@ class TestFaseFDeclaraLasDosPasadas(unittest.TestCase):
         self.assertIn('"expected_out_bytes"', cuerpo)
 
 
+
+class TestLatidoEnFasesConProgresoExacto(unittest.IsolatedAsyncioTestCase):
+    """mkvmerge da un porcentaje exacto, y era la única fase larga sin tiempos.
+
+    Medido en el remux de John Wick 4 (813,6 s): 101 líneas de "Progress: N%"
+    y ni un "lleva/quedan" en el log. El ETA sí se calculaba, pero solo viajaba
+    a la barra; la línea "Progress: N%" es contrato del parser del frontend y
+    no se puede ampliar. El ticker, que es quien escribe los latidos, se
+    retiraba en cuanto aparecía progreso real.
+    """
+
+    async def _correr(self, guion, heartbeat_s):
+        import phases.cmv40_pipeline as pipe
+        import tempfile
+        emitidos = []
+
+        async def _log(msg):
+            emitidos.append(msg)
+
+        with tempfile.TemporaryDirectory() as td:
+            sh = Path(td) / "falso.sh"
+            sh.write_text("#!/bin/sh\n" + guion)
+            sh.chmod(0o755)
+            orig = pipe.HEARTBEAT_EVERY_S
+            pipe.HEARTBEAT_EVERY_S = heartbeat_s
+            try:
+                rc = await pipe._run_streaming(
+                    [str(sh)], log_callback=_log,
+                    progress_ctx={"time_estimate_s": 60.0, "label": "Remuxando"})
+            finally:
+                pipe.HEARTBEAT_EVERY_S = orig
+        return rc, emitidos
+
+    async def test_escribe_latidos_con_pct_y_tiempo(self):
+        # Más de 3,5 s de vida: el ticker espera 3 s antes del primer tick
+        # para no hablar en comandos que terminan enseguida.
+        guion = "".join(
+            f'echo "#GUI#progress {p}%"\nsleep 0.45\n'
+            for p in (5, 12, 20, 30, 40, 50, 60, 70, 80, 90, 99))
+        rc, emitidos = await self._correr(guion, heartbeat_s=0.5)
+        self.assertEqual(rc, 0)
+        # El contrato del parser sigue intacto
+        self.assertTrue(any(m.startswith("Progress: ") for m in emitidos), emitidos)
+        latidos = [m for m in emitidos if "en curso…" in m]
+        self.assertTrue(latidos, emitidos)
+        self.assertRegex(latidos[-1], r"Remuxando \(\d+%\) en curso…")
+        self.assertTrue(any("quedan" in m for m in latidos), latidos)
+
+    async def test_no_toca_la_linea_de_progress(self):
+        rc, emitidos = await self._correr(
+            'echo "#GUI#progress 42%"\nsleep 0.2\n', heartbeat_s=99)
+        self.assertEqual(rc, 0)
+        self.assertIn("Progress: 42%", emitidos)
+
 if __name__ == "__main__":
     unittest.main()

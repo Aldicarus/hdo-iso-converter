@@ -649,6 +649,8 @@ async def _run_streaming(
     time_est = float(progress_ctx.get("time_estimate_s", 0.0)) if progress_ctx else 0.0
     step_start = time.monotonic()
     has_real_progress = False  # se pone True si detectamos ffmpeg time= o mkvmerge Progress:
+    ultimo_real_pct = 0.0
+    ultimo_real_eta: float | None = None
     # Contador de warnings ruidosos suprimidos. Algunos HEVC bitstreams
     # generan cientos de "non monotonically increasing dts" por segundo
     # — el bitstream filter copia bien igualmente, pero el log se infla.
@@ -657,6 +659,7 @@ async def _run_streaming(
 
     async def _emit(text: str) -> None:
         nonlocal last_throttle, last_progress_push, duration, has_real_progress
+        nonlocal ultimo_real_pct, ultimo_real_eta
         nonlocal suppressed_dts_warnings
         if not text:
             return
@@ -689,6 +692,10 @@ async def _run_streaming(
                 phase_pct = offset + step_pct * weight / 100.0
                 wall = time.monotonic() - step_start
                 eta = (wall / step_pct) * (100 - step_pct) if step_pct > 1 else None
+                # Guardado para el latido del log: la línea "Progress: N%" es
+                # contrato del parser del frontend y no se puede tocar, así que
+                # el tiempo se cuenta en una línea aparte.
+                ultimo_real_pct, ultimo_real_eta = step_pct, eta
                 await _emit_progress(log_callback, phase_pct, label, eta)
 
         # Detectar Duration en el header si aún no la tenemos
@@ -734,7 +741,23 @@ async def _run_streaming(
         last_hb = time.monotonic()
         while not stop_ticker.is_set():
             if has_real_progress:
-                return
+                # La fuente real ya alimenta la barra: aquí solo queda el
+                # latido del log. Antes el ticker se retiraba del todo y la
+                # fase más larga con progreso exacto se quedaba sin tiempos:
+                # Fase G son 13,5 min y 101 líneas de "Progress: N%" sin un
+                # solo "lleva/quedan" (el ETA existía, pero solo en la barra).
+                ahora = time.monotonic()
+                if log_callback and ahora - last_hb >= HEARTBEAT_EVERY_S:
+                    last_hb = ahora
+                    await _emit_heartbeat(
+                        log_callback,
+                        f"{label or 'Proceso'} ({ultimo_real_pct:.0f}%)",
+                        ahora - step_start, ultimo_real_eta)
+                try:
+                    await asyncio.wait_for(stop_ticker.wait(), timeout=1.5)
+                except asyncio.TimeoutError:
+                    pass
+                continue
             elapsed = time.monotonic() - step_start
             step_pct = None
             eta = None
