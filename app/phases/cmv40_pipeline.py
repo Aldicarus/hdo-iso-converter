@@ -120,6 +120,40 @@ async def check_disk_space_preflight(
         )
 
 
+async def check_output_name_free(
+    session: CMv40Session,
+    log_callback=None,
+) -> None:
+    """Comprueba que el nombre de salida no está ya ocupado en /mnt/output.
+
+    Fase H se niega a sobrescribir, y hace bien, pero se enteraba al final:
+    caso real del 2026-08-17, un John Wick 4 gastó 826 s de Fase A + 851 s de
+    inject + 755 s de remux y murió con "Ya existe un MKV con ese nombre"
+    porque el job anterior había dejado ese fichero. 40 minutos por algo que
+    se sabe en el segundo cero.
+
+    No borra ni renombra nada: el fichero de destino puede ser una versión que
+    el usuario quiere conservar. Aborta y le deja decidir.
+    """
+    final_path = OUTPUT_DIR / session.output_mkv_name
+    if not final_path.exists():
+        if log_callback:
+            await log_callback(
+                f"[Preflight] Nombre de salida libre — {session.output_mkv_name}")
+        return
+    try:
+        tam = f" ({final_path.stat().st_size / 1e9:.1f} GB)"
+    except OSError:
+        tam = ""
+    raise RuntimeError(
+        f"Ya existe un MKV con ese nombre en /mnt/output: "
+        f"{session.output_mkv_name}{tam}. Renombra la salida en la cabecera "
+        f"del proyecto o mueve/borra el anterior. Fase H se negaría a "
+        f"sobrescribirlo igualmente, así que abortamos ahora en vez de tras "
+        f"~40 min de extracción, inyección y remux."
+    )
+
+
 def compute_file_sha256(path: Path) -> str:
     """Calcula SHA-256 hex de un fichero. Usado para huella del bin target."""
     import hashlib
@@ -502,7 +536,11 @@ class _ReadProgress:
         pct = max(pct, self._last_pct)     # nunca retroceder delante del usuario
         self._last_pct = pct
         self._samples.append((time.monotonic(), pct))
-        del self._samples[:-12]            # ventana de ~20s a 1,5s por muestra
+        # Ventana de ~1 min a 1,5 s por muestra. Con las 12 muestras de antes
+        # (18 s) el ETA de Fase F saltaba ±2 min entre líneas consecutivas
+        # porque el ritmo del NAS fluctúa; medido en John Wick 4: 4min 35s →
+        # 5min 47s → 3min 55s en tres latidos seguidos.
+        del self._samples[:-40]
         return pct
 
     def sample(self) -> float | None:
@@ -1471,6 +1509,7 @@ async def run_phase_a_analyze_source(
 
     # Pre-flight: abortar si no hay espacio suficiente en /mnt/tmp y /mnt/output
     await check_disk_space_preflight(session, log_callback)
+    await check_output_name_free(session, log_callback)
 
     # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
     W_FFMPEG, W_RPU, W_INFO = 50.0, 45.0, 5.0

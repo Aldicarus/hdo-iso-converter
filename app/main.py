@@ -5708,6 +5708,35 @@ async def _run_cmv40_phase_locked(
         asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
 
+def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
+    """409 si la sesión arrastra un error sin resolver.
+
+    La siguiente fase la disparan DOS sitios: el orquestador del backend y
+    `_cmv40MaybeAutoAdvance` en el frontend. El frontend se protege mirando
+    `error_message`, pero sobre el snapshot de su último poll — si ese poll
+    cayó en el hueco entre "la fase anterior acabó" y "la siguiente arrancó",
+    ve la fase avanzada, sin error y sin `running_phase`, y dispara igual.
+
+    Caso real (2026-08-17): Fase H se ejecutó dos veces con 1,2 s de
+    diferencia, la segunda cuando el error de la primera ya estaba escrito en
+    disco. En drop-in cuesta segundos; en la rama merge, Fase H son 5-8 min de
+    extract-rpu completo repetidos.
+
+    Se comprueba aquí porque el servidor es el único que tiene el estado real.
+    Para reintentar, el frontend ya llama a POST /clear-error al descartar el
+    banner del error.
+    """
+    if session.error_message:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"La sesión tiene un error sin resolver: "
+                f"{session.error_message[:160]} — descártalo antes de "
+                f"reintentar la fase."
+            ),
+        )
+
+
 async def _cmv40_dispatch_next_phase(session_id: str) -> None:
     """Orquestador del auto-pipeline backend-driven.
 
@@ -7626,6 +7655,7 @@ async def cmv40_analyze_source(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE — simular fase A con logs realistas
     if DEV_MODE:
@@ -7691,6 +7721,7 @@ async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -7730,6 +7761,7 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -7790,6 +7822,7 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -8061,6 +8094,7 @@ async def cmv40_extract(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -8191,6 +8225,7 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # Acumular corrección con la previa (si existía)
     def _count_remove(cfg: dict) -> int:
@@ -8355,6 +8390,7 @@ async def cmv40_inject(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -8399,6 +8435,7 @@ async def cmv40_remux(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -8448,6 +8485,7 @@ async def cmv40_validate(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_no_pending_error(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
