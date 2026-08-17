@@ -444,9 +444,21 @@ class _ReadProgress:
     """
 
     def __init__(self, pid: int, input_path: Path,
-                 output_path: Path | None = None, expected_out: int = 0):
+                 output_path: Path | None = None, expected_out: int = 0,
+                 expected_read: int = 0):
         self.pid = pid
         self.input_path = str(input_path)
+        # Señal preferente cuando sabemos cuántos bytes va a leer EN TOTAL el
+        # proceso, sumando todas sus pasadas: `rchar` de /proc solo crece, así
+        # que atraviesa el cambio de pasada sin saltos ni topes.
+        #
+        # `inject-rpu` lo necesita: hace dos pasadas y las señales de cada una
+        # son distintas (posición de lectura en la primera, fichero de salida
+        # en la segunda). Al mezclarlas con el tope monotónico, la primera
+        # pasada dejaba `_last_pct` en 100 % y la segunda quedaba clavada ahí
+        # —sin barra y sin ETA— durante el 84 % de la fase. Medido en John
+        # Wick 4: pasada 1 = 124 s, pasada 2 = 683 s, total 815 s.
+        self.expected_read = expected_read
         # Cuando el proceso escribe un fichero grande cuyo tamaño final
         # sabemos, ESE es mejor indicador que la posición de lectura, porque
         # crece monotónicamente por naturaleza. `inject-rpu` obliga a ello:
@@ -485,21 +497,31 @@ class _ReadProgress:
             pass
         return None
 
+    def _anotar(self, pct: float) -> float:
+        pct = max(0.0, min(100.0, pct))
+        pct = max(pct, self._last_pct)     # nunca retroceder delante del usuario
+        self._last_pct = pct
+        self._samples.append((time.monotonic(), pct))
+        del self._samples[:-12]            # ventana de ~20s a 1,5s por muestra
+        return pct
+
     def sample(self) -> float | None:
         """Porcentaje de avance (0-100), o None si no hay señal disponible."""
-        # Preferente: lo que lleva escrito, si sabemos cuánto va a escribir.
+        # Preferente: bytes leídos en total, si sabemos cuántos van a ser.
+        # Vale para procesos de varias pasadas, donde ninguna otra señal es
+        # continua de principio a fin.
+        if self.expected_read > 0:
+            leido = _proc_rchar(self.pid)
+            if leido is not None and leido > 0:
+                return self._anotar(leido * 100.0 / self.expected_read)
+        # Después: lo que lleva escrito, si sabemos cuánto va a escribir.
         if self.output_path and self.expected_out > 0:
             try:
                 escrito = os.path.getsize(self.output_path)
             except OSError:
                 escrito = 0
             if escrito > 0:
-                pct = max(0.0, min(100.0, escrito * 100.0 / self.expected_out))
-                pct = max(pct, self._last_pct)
-                self._last_pct = pct
-                self._samples.append((time.monotonic(), pct))
-                del self._samples[:-12]
-                return pct
+                return self._anotar(escrito * 100.0 / self.expected_out)
             # Todavía no ha empezado a escribir: seguimos con la lectura.
         if self.total <= 0:
             return None
@@ -516,14 +538,7 @@ class _ReadProgress:
                     return None
         except (OSError, ValueError, IndexError):
             return None
-        pct = max(0.0, min(100.0, pos * 100.0 / self.total))
-        # Monotónico: un readahead o un seek puntual no deben hacer retroceder
-        # la barra delante del usuario.
-        pct = max(pct, self._last_pct)
-        self._last_pct = pct
-        self._samples.append((time.monotonic(), pct))
-        del self._samples[:-12]   # ventana de ~20s a 1,5s por muestra
-        return pct
+        return self._anotar(pos * 100.0 / self.total)
 
     def eta(self) -> float | None:
         """Segundos restantes según el ritmo OBSERVADO en este job, no según
@@ -605,6 +620,7 @@ async def _run_streaming(
     progress_input = progress_ctx.get("input_path") if progress_ctx else None
     progress_output = progress_ctx.get("output_path") if progress_ctx else None
     progress_expected = int(progress_ctx.get("expected_out_bytes") or 0) if progress_ctx else 0
+    progress_read_total = int(progress_ctx.get("expected_read_bytes") or 0) if progress_ctx else 0
     reader: _ReadProgress | None = None
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
@@ -620,7 +636,8 @@ async def _run_streaming(
         reader = _ReadProgress(
             proc.pid, Path(progress_input),
             output_path=Path(progress_output) if progress_output else None,
-            expected_out=progress_expected)
+            expected_out=progress_expected,
+            expected_read=progress_read_total)
 
     buffer = b""
     last_throttle = 0.0
@@ -723,19 +740,31 @@ async def _run_streaming(
             eta = None
             # Progreso REAL si sabemos qué fichero está leyendo el proceso
             # (inject-rpu, mux). Ver _ReadProgress.
+            real = False
             if reader is not None:
                 step_pct = reader.sample()
                 if step_pct is not None:
+                    real = True
                     eta = reader.eta()
             if step_pct is None:
                 step_pct = min(95.0, (elapsed / time_est) * 100.0)
-                eta = max(0.0, time_est - elapsed)
+            if eta is None:
+                # Aunque el porcentaje sea real, el ETA puede no estarlo (hacen
+                # falta dos muestras con avance). Sin este respaldo el "quedan
+                # ~Nmin" DESAPARECÍA del log en cuanto había señal real.
+                restante = time_est - elapsed
+                eta = restante if restante > 0 else None
             phase_pct = offset + step_pct * weight / 100.0
             await _emit_progress(log_callback, phase_pct, label, eta)
             now = time.monotonic()
             if now - last_hb >= HEARTBEAT_EVERY_S:
                 last_hb = now
-                await _emit_heartbeat(log_callback, label or "Proceso", elapsed, eta)
+                # El % solo se anuncia cuando es medido: con la estimación por
+                # reloj sería una cifra inventada con pinta de dato.
+                await _emit_heartbeat(
+                    log_callback,
+                    f"{label or 'Proceso'} ({step_pct:.0f}%)" if real else (label or "Proceso"),
+                    elapsed, eta)
             try:
                 await asyncio.wait_for(stop_ticker.wait(), timeout=1.5)
             except asyncio.TimeoutError:
@@ -1241,7 +1270,9 @@ async def _run_with_time_estimate(
                 # Sin señal del kernel: estimación por reloj (lo de antes).
                 est = max(estimated_s, 5.0)
                 step_pct = min(95.0, (elapsed / est) * 100.0)
-                eta = max(0.0, est - elapsed)
+            if eta is None:
+                restante = max(estimated_s, 5.0) - elapsed
+                eta = restante if restante > 0 else None
             phase_pct = offset + step_pct * weight / 100.0
             await _emit_progress(log_callback, phase_pct, label, eta)
             # Heartbeat de texto: estos comandos (extract-rpu, export, demux)
@@ -3958,6 +3989,12 @@ async def run_phase_f_inject(
            # pocos MB del RPU.
            "output_path": hevc_output,
            "expected_out_bytes": _tamano(hevc_input),
+           # Dos pasadas sobre la entrada: una para el orden de frames y otra
+           # reescribiendo. Los bytes leídos acumulados son la única señal
+           # continua que cubre las dos — ver _ReadProgress. Comprobado con el
+           # proceso real a mitad de la pasada 2: rchar 108,97 GB = 73,2 de la
+           # entrada + 35,66 ya reescritos.
+           "expected_read_bytes": 2 * _tamano(hevc_input),
        })
     if rc != 0:
         raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
