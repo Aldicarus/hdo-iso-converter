@@ -1101,6 +1101,8 @@ El panel "Radiografía DV+HDR" del tab "Editar MKV" tiene una sección "Cadena d
 
 ## Comandos de despliegue al NAS — REGLA FIJA
 
+**Antes de nada: no desplegar si hay un job activo.** `compose up -d --build` reinicia el contenedor, así que mata el job en curso y encima el deploy se eterniza esperando a que el contenedor pare (un ffmpeg/dovi_tool en marcha lo bloquea: caso real 2026-08-17, >10 min contra los ~2-3 habituales). Comprobar los tres frentes — `/api/cmv40-active`, sesiones de Tab 1 en `running`/`queued`, `/api/mkv/apply/progress` — y si hay algo, avisar al usuario y esperar. El push a GitHub sí se puede hacer; lo que se retrasa es el paso del NAS.
+
 Estos son los 3 comandos exactos que se usan en el NAS. **No inventar variantes** (no añadir `--no-cache`, no usar `pull` sobre `:latest`, no sugerir `force-recreate`, etc.). Si algo falla, revisar el log antes de proponer otro comando.
 
 ```bash
