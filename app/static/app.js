@@ -4591,7 +4591,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');
-            line += ` · ETA ${em}:${es}`;
+            line += ` · Restante ${em}:${es}`;
           }
           statsEl.textContent = line;
         }
@@ -8340,7 +8340,7 @@ function startColaExecTimer() {
       if (ph === 'extract' && _pcPhaseEnd.extract === null && _pcLastPct > 0 && _pcLastPct < 100) {
         const remaining = Math.round(secs * (100 - _pcLastPct) / _pcLastPct);
         const etaEl = document.getElementById('pc-eta-extract');
-        if (etaEl) etaEl.textContent = `ETA ${fmtSecs(remaining)}`;
+        if (etaEl) etaEl.textContent = `Restante ${fmtSecs(remaining)}`;
       }
     }
   }, 1000);
@@ -9175,7 +9175,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');
-            line += ` · ETA ${em}:${es}`;
+            line += ` · Restante ${em}:${es}`;
           }
           statsEl.textContent = line;
         }
@@ -13100,7 +13100,7 @@ function _cmv40RenderTimeline(s, project) {
                        : status === 'skipped' ? 'omitida'
                        : status === 'running' ? 'en curso…'
                        : status === 'error'   ? 'incompatible'
-                       : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
+                       : `Restante ${_cmv40FmtEta(st.etaSecs)}`;
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     const gateCls = st.isGate ? ' cmv40-tl-is-gate' : '';
@@ -15324,7 +15324,7 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
     const defaultLabel = status === 'done'    ? doneLabel
                        : status === 'skipped' ? 'omitida'
                        : status === 'running' ? 'en curso…'
-                       : `ETA ${_cmv40FmtEta(st.etaSecs)}`;
+                       : `Restante ${_cmv40FmtEta(st.etaSecs)}`;
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     return `<li class="cmv40-tl-step cmv40-tl-${status}" data-step-key="${escHtml(st.key)}">
@@ -15381,7 +15381,7 @@ function _cmv40UpdateProgressUI(pid, prog) {
     if (prog.eta_s != null && prog.eta_s > 0) {
       const m = Math.floor(prog.eta_s / 60);
       const s = prog.eta_s % 60;
-      eta.textContent = `ETA ${m}:${String(s).padStart(2, '0')}`;
+      eta.textContent = `Restante ${m}:${String(s).padStart(2, '0')}`;
     } else {
       eta.textContent = '';
     }

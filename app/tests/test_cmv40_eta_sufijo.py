@@ -152,5 +152,34 @@ class TestSenalDeRutaDesconocida(unittest.TestCase):
         self.assertIn("const rutaPorSaber = !_cmv40BinClasificado(s)", js)
 
 
+class TestRotuloDelTiempoRestante(unittest.TestCase):
+    """Las barras de progreso rotulan el tiempo que falta como "Restante".
+
+    "ETA" es jerga en inglés y el proyecto pide los textos de UI en
+    castellano. Aparecía en cinco sitios distintos (escaneo PGS de Tab 1 y
+    Tab 2, phase strip de la cola, pasos de la timeline CMv4.0 y barra del
+    overlay de ejecución); el guard evita que vuelva por uno solo de ellos.
+    """
+
+    _FICHEROS = ("static/app.js", "static/index.html")
+
+    def test_no_queda_ningun_literal_eta_visible(self):
+        for rel in self._FICHEROS:
+            texto = (APP_DIR / rel).read_text(encoding="utf-8")
+            for i, linea in enumerate(texto.splitlines(), 1):
+                limpia = linea.strip()
+                if limpia.startswith(("*", "//", "/*", "<!--")):
+                    continue        # comentarios: ahí "ETA" es descripción
+                for delim in ("`ETA ", "'ETA ", '"ETA ', ">ETA "):
+                    self.assertNotIn(delim, linea, f"{rel}:{i} — {limpia[:90]}")
+
+    def test_los_sitios_conocidos_dicen_restante(self):
+        js = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertEqual(js.count("` · Restante ${em}:${es}`"), 2)   # escaneo PGS ×2
+        self.assertEqual(js.count("`Restante ${fmtSecs(remaining)}`"), 1)
+        self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)
+        self.assertIn("`Restante ${m}:${String(s).padStart(2, '0')}`", js)
+
+
 if __name__ == "__main__":
     unittest.main()
