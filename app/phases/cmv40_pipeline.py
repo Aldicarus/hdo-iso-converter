@@ -730,11 +730,15 @@ async def _run_streaming(
                 phase_pct = offset + step_pct * weight / 100.0
                 wall = time.monotonic() - step_start
                 eta = (wall / step_pct) * (100 - step_pct) if step_pct > 1 else None
-                # Guardado para el latido del log: la línea "Progress: N%" es
-                # contrato del parser del frontend y no se puede tocar, así que
-                # el tiempo se cuenta en una línea aparte.
                 ultimo_real_pct, ultimo_real_eta = step_pct, eta
                 await _emit_progress(log_callback, phase_pct, label, eta)
+                # La línea cruda NO va al log: mkvmerge escupe una cada ~7 s y
+                # se solapaba con el latido consolidado, que dice lo mismo y
+                # además el tiempo. El porcentaje sigue viajando a la barra por
+                # §§PROGRESS§§, que es de donde lo lee el overlay de Tab 3.
+                # (En Tab 1 sí se sigue logueando: su panel de cola parsea
+                # "Progress:" del texto del log, y ese pipeline es otro código.)
+                return
 
         # Detectar Duration en el header si aún no la tenemos
         if progress_ctx is not None and duration <= 0:
@@ -785,7 +789,7 @@ async def _run_streaming(
                 # Fase G son 13,5 min y 101 líneas de "Progress: N%" sin un
                 # solo "lleva/quedan" (el ETA existía, pero solo en la barra).
                 ahora = time.monotonic()
-                if log_callback and ahora - last_hb >= HEARTBEAT_EVERY_S:
+                if log_callback and ahora - last_hb >= PIPE_LOG_EVERY_S:
                     last_hb = ahora
                     await _emit_heartbeat(
                         log_callback,

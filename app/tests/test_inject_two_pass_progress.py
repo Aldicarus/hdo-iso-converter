@@ -169,15 +169,44 @@ class TestLatidoEnFasesConProgresoExacto(unittest.IsolatedAsyncioTestCase):
             sh = Path(td) / "falso.sh"
             sh.write_text("#!/bin/sh\n" + guion)
             sh.chmod(0o755)
-            orig = pipe.HEARTBEAT_EVERY_S
+            # Con progreso real la cadencia del latido la manda
+            # PIPE_LOG_EVERY_S (10 s en producción): hay algo que contar cada
+            # pocos segundos. HEARTBEAT_EVERY_S (60 s) es para las operaciones
+            # mudas, donde lo único que se puede decir es "sigo vivo".
+            orig = (pipe.HEARTBEAT_EVERY_S, pipe.PIPE_LOG_EVERY_S)
             pipe.HEARTBEAT_EVERY_S = heartbeat_s
+            pipe.PIPE_LOG_EVERY_S = heartbeat_s
             try:
                 rc = await pipe._run_streaming(
                     [str(sh)], log_callback=_log,
                     progress_ctx={"time_estimate_s": 60.0, "label": "Remuxando"})
             finally:
-                pipe.HEARTBEAT_EVERY_S = orig
+                pipe.HEARTBEAT_EVERY_S, pipe.PIPE_LOG_EVERY_S = orig
         return rc, emitidos
+
+    async def test_la_linea_cruda_de_mkvmerge_no_va_al_log(self):
+        """mkvmerge escupe una "Progress: N%" cada ~7 s y se solapaba con el
+        latido consolidado, que dice lo mismo y además el tiempo:
+
+            [22:07:55] Progress: 70%
+            [22:08:04] Progress: 71%
+            [22:08:06]   ⏱ Remuxando MKV final (71%) en curso… (9min 10s · quedan ~3min 44s)
+            [22:08:11] Progress: 72%
+
+        El porcentaje sigue llegando a la barra por §§PROGRESS§§, que es de
+        donde lo lee el overlay de Tab 3.
+        """
+        guion = "".join(
+            f'echo "#GUI#progress {p}%"\nsleep 0.45\n'
+            for p in (5, 12, 20, 30, 40, 50, 60, 70, 80, 90, 99))
+        rc, emitidos = await self._correr(guion, heartbeat_s=0.5)
+        self.assertEqual(rc, 0)
+        crudas = [m for m in emitidos if m.startswith("Progress: ")]
+        self.assertEqual(crudas, [], f"la línea cruda sigue en el log: {crudas}")
+        # Pero el porcentaje sí viaja a la barra
+        barra = [m for m in emitidos if m.startswith("§§PROGRESS§§")]
+        self.assertTrue(barra, emitidos)
+        self.assertTrue(any('"pct": 99' in m for m in barra), barra)
 
     async def test_escribe_latidos_con_pct_y_tiempo(self):
         # Más de 3,5 s de vida: el ticker espera 3 s antes del primer tick
@@ -187,18 +216,26 @@ class TestLatidoEnFasesConProgresoExacto(unittest.IsolatedAsyncioTestCase):
             for p in (5, 12, 20, 30, 40, 50, 60, 70, 80, 90, 99))
         rc, emitidos = await self._correr(guion, heartbeat_s=0.5)
         self.assertEqual(rc, 0)
-        # El contrato del parser sigue intacto
-        self.assertTrue(any(m.startswith("Progress: ") for m in emitidos), emitidos)
         latidos = [m for m in emitidos if "en curso…" in m]
         self.assertTrue(latidos, emitidos)
         self.assertRegex(latidos[-1], r"Remuxando \(\d+%\) en curso…")
         self.assertTrue(any("quedan" in m for m in latidos), latidos)
 
-    async def test_no_toca_la_linea_de_progress(self):
+    async def test_el_pct_llega_a_la_barra_aunque_no_al_log(self):
         rc, emitidos = await self._correr(
             'echo "#GUI#progress 42%"\nsleep 0.2\n', heartbeat_s=99)
         self.assertEqual(rc, 0)
-        self.assertIn("Progress: 42%", emitidos)
+        self.assertNotIn("Progress: 42%", emitidos)
+        self.assertTrue(any('"pct": 42' in m for m in emitidos), emitidos)
+
+    def test_tab1_conserva_su_linea_cruda(self):
+        """El panel de cola de Tab 1 parsea "Progress:" del texto del log
+        (app.js: msg.match(/Progress:\s*(\d+)%/i) → pc-bar-extract). Ese
+        pipeline es otro código y no debe verse afectado."""
+        js = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("msg.match(/Progress:", js)
+        tab1 = (APP_DIR / "phases" / "phase_d.py").read_text(encoding="utf-8")
+        self.assertIn("gui-mode", tab1)
 
 if __name__ == "__main__":
     unittest.main()
