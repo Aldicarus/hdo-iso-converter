@@ -79,7 +79,7 @@ LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 # etiqueta móvil no es un pin.
 #
 # Este es exactamente el binario con el que se validó el pipe de la Fase A y el
-# que corre en el NAS: n7.1.5-16-g9a4bb2c579-20260815.
+# que corre en el NAS: n7.1.5-16-g9a4bb2c579-20260816.
 ARG FFMPEG_RELEASE=autobuild-2026-08-16-13-00
 ARG FFMPEG_BUILD=ffmpeg-n7.1.5-16-g9a4bb2c579-linux64-gpl-7.1
 RUN wget -q \

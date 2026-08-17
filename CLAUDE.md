@@ -919,7 +919,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - **Cola**: `queue_state.json`. Al arrancar, sesiones zombie → `pending`.
 
 ### Docker
-- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.2 + Python 3.10
+- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.3 + Python 3.10
 - **`privileged: true`**: para loop mount
 - **Puerto**: 8090 → 8080 (configurable)
 - **Healthcheck**: `GET /api/health` cada 30s
