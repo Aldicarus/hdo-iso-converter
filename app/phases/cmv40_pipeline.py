@@ -793,6 +793,11 @@ async def _run_streaming(
 # líneas crudas de ffmpeg serían ~700 por job; así son ~35 y se leen.
 PIPE_LOG_EVERY_S = 10.0
 
+# Cada cuánto se consulta al kernel cuánto lleva leído el consumidor del pipe.
+# Constante de módulo para que los tests puedan acelerarla; en producción un
+# segundo es el ritmo de la barra.
+PIPE_TICK_EVERY_S = 1.0
+
 # ffmpeg 4.x escribía `size=  19459840kB`; desde 6.x usa unidades IEC
 # (`size=  19003MiB`). Se aceptan las dos, con su factor.
 _FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)\s*(kB|KiB|MiB|GiB)")
@@ -827,16 +832,15 @@ def _fmt_ffmpeg_size(line: str, out_path: Path | None = None) -> str:
     """
     if out_path is not None:
         try:
-            gb = out_path.stat().st_size / (1024 ** 3)
-            if gb > 0:
-                return f"{gb:.1f} GB".replace(".", ",")
+            n = out_path.stat().st_size
+            if n > 0:
+                return _gb(n)
         except OSError:
             pass
     m = _FFMPEG_SIZE_RE.search(line)
     if not m:
         return ""
-    gb = int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)] / 1024
-    return f"{gb:.1f} GB".replace(".", ",")
+    return _gb(int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)] * 1024 * 1024)
 
 
 def _fmt_ffmpeg_speed(line: str) -> str:
@@ -879,6 +883,31 @@ def _widen_pipe(write_fd: int) -> int:
     except Exception:
         pass
     return 0
+
+
+def _gb(n: float) -> str:
+    """Bytes → '73,2 GB'. GB decimales (1e9) y coma decimal, la misma unidad
+    que la línea de cierre de la fase: mezclarla con GiB hacía que el mismo
+    fichero apareciera como 67,8 GB mientras crecía y 73,2 GB al terminar."""
+    return f"{n / 1e9:.1f} GB".replace(".", ",")
+
+
+def _proc_rchar(pid: int) -> int | None:
+    """Bytes que el proceso lleva leídos en total, de `/proc/<pid>/io`.
+
+    Para el consumidor de un pipe no sirve `fdinfo` (un pipe no tiene
+    posición), pero `rchar` sí cuenta lo que ha sacado de él. Incluye las
+    lecturas del propio arranque del binario, unos pocos MB: irrelevante
+    frente a las decenas de GB del stream.
+    """
+    try:
+        with open(f"/proc/{pid}/io", "r") as fh:
+            for linea in fh:
+                if linea.startswith("rchar:"):
+                    return int(linea.split(":", 1)[1])
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def _tamano(p: Path) -> int:
@@ -996,12 +1025,17 @@ async def _ffmpeg_extract_rpu_piped(
     #   - Una línea de texto en el log cada PIPE_LOG_EVERY_S. NO se reenvían
     #     las líneas crudas de ffmpeg: son ~700 por job, ilegibles, y se
     #     persisten. Una línea consolidada dice lo mismo mejor.
-    last_push = 0.0
+    # Quién manda en la barra: mientras ffmpeg escupe líneas es él, pero el
+    # que decide cuándo acaba la fase es dovi_tool (ver _tick_consumidor).
     last_log = 0.0
     ff_tail: list[str] = []
+    media_frac = 0.0          # posición de ffmpeg en el vídeo, 0..1
+    ff_eof = False            # ffmpeg ya cerró su stderr → su salida es final
+    tail_eta: float | None = None   # ETA del pipeline completo, del consumidor
+    tail_ok = False           # ¿hay señal del kernel para el consumidor?
 
     async def _drain_ffmpeg() -> None:
-        nonlocal last_push, last_log
+        nonlocal last_log, media_frac, ff_eof
         buf = b""
         while True:
             chunk = await ff.stderr.read(4096)
@@ -1024,29 +1058,105 @@ async def _ffmpeg_extract_rpu_piped(
                 if not m:
                     continue
                 elapsed_media = _hms_to_seconds(*m.groups())
-                step_pct = max(0.0, min(100.0, (elapsed_media / duration) * 100.0))
+                media_frac = max(0.0, min(1.0, elapsed_media / duration))
+                step_pct = media_frac * 100.0
                 wall = now - step_start
                 eta = ((wall / elapsed_media) * (duration - elapsed_media)
                        if elapsed_media > 0 else None)
-                if (now - last_push) >= 1.0:
-                    await _emit_progress(
-                        log_callback, offset + step_pct * weight / 100.0, label, eta)
-                    last_push = now
                 if log_callback and (now - last_log) >= PIPE_LOG_EVERY_S:
                     last_log = now
                     tam = _fmt_ffmpeg_size(line, hevc_out)
+                    # El ETA de ffmpeg solo cubre SU parte. Si tenemos el del
+                    # pipeline completo, ese es el que vale: ffmpeg terminaba
+                    # anunciando "quedan ~3s" con 3 minutos de extract-rpu por
+                    # delante.
                     await log_callback(
-                        f"  ⏱ {step_pct:.0f}% · {_fmt_ffmpeg_frame(line, total_frames)}"
+                        f"  ⏱ {step_pct:.0f}% leído del vídeo · "
+                        f"{_fmt_ffmpeg_frame(line, total_frames)}"
                         f"{tam + ' · ' if tam else ''}"
                         f"{_fmt_ffmpeg_speed(line).lstrip(' ·').strip()} · "
-                        f"{_fmt_eta(eta)}")
+                        f"{_fmt_eta(tail_eta if tail_ok else eta)}")
+        ff_eof = True
 
     step_start = time.monotonic()
     dv_out = b""
+    fin = asyncio.Event()
 
     async def _drain_dovi() -> None:
         nonlocal dv_out
-        dv_out = await dv.stdout.read()
+        try:
+            dv_out = await dv.stdout.read()
+        finally:
+            fin.set()
+
+    async def _tick_consumidor() -> None:
+        """Progreso de la fase medido en el consumidor del pipe, no en ffmpeg.
+
+        ffmpeg termina bastante antes que `extract-rpu`: lee del disco a
+        varios cientos de MB/s mientras el otro parsea NALs a un core. Medido
+        en el NAS, ffmpeg acaba y el pipeline sigue 71 s (Transformers One,
+        40 GB), 119 s (Nosferatu, 63 GB) y 198 s (John Wick 4, 73 GB) — entre
+        un cuarto y un tercio de la fase. Confirmado por los mtime de los
+        artefactos: `source.hevc` quedó fijo a los 321 s y `RPU_source.bin`
+        se escribió a los 519 s.
+
+        Todo el progreso salía del stderr de ffmpeg, así que en esa cola no se
+        emitía NADA: la barra clavada en 99 %, "quedan ~3s" y el log mudo
+        varios minutos, como si el job hubiera muerto.
+
+        La señal correcta es cuántos bytes lleva sacados del pipe el
+        consumidor (`rchar`) sobre el total del stream. El total no se conoce
+        de antemano, pero se extrapola de lo que ffmpeg ya escribió y de por
+        dónde va en el vídeo; cuando ffmpeg cierra, su fichero ES el total.
+
+        Si `/proc` no da la señal, no se emite nada desde aquí y manda el
+        progreso de ffmpeg de siempre.
+        """
+        nonlocal tail_eta, tail_ok
+        ultimo_pct = 0.0
+        ultimo_log = time.monotonic()
+        muestras: list[tuple[float, int]] = []   # (monotonic, bytes leídos)
+        while not fin.is_set():
+            try:
+                await asyncio.wait_for(fin.wait(), timeout=PIPE_TICK_EVERY_S)
+                break
+            except asyncio.TimeoutError:
+                pass
+            leido = _proc_rchar(dv.pid)
+            escrito = _tamano(hevc_out) if hevc_out is not None else 0
+            # Sin fichero de salida (pre-flight sobre otro MKV) no hay con qué
+            # extrapolar el total; esas extracciones son cortas y se quedan
+            # con el progreso de ffmpeg.
+            if leido is None or escrito <= 0 or (not ff_eof and media_frac < 0.02):
+                continue
+            total = escrito if ff_eof else escrito / media_frac
+            if total <= 0:
+                continue
+            pct = max(ultimo_pct, min(100.0, (leido / total) * 100.0))
+            ultimo_pct = pct
+            tail_ok = True
+
+            ahora = time.monotonic()
+            muestras.append((ahora, leido))
+            del muestras[:-15]
+            eta = None
+            if len(muestras) >= 2:
+                dt = muestras[-1][0] - muestras[0][0]
+                db = muestras[-1][1] - muestras[0][1]
+                if dt > 0 and db > 0:
+                    eta = max(0.0, (total - leido) / (db / dt))
+            tail_eta = eta
+            await _emit_progress(
+                log_callback, offset + pct * weight / 100.0, label, eta)
+
+            # Una línea de texto solo cuando ffmpeg ya no escribe ninguna: si
+            # no, se solaparían dos avances distintos del mismo paso.
+            if (log_callback and ff_eof
+                    and (ahora - ultimo_log) >= PIPE_LOG_EVERY_S):
+                ultimo_log = ahora
+                await log_callback(
+                    f"  ⏱ ffmpeg terminó · extract-rpu procesando el stream — "
+                    f"{pct:.0f}% ({_gb(leido)} de {_gb(total)}) · {_fmt_eta(eta)}")
 
     # Timeout del conjunto. Escala con la estimación (que se ancla a la carga
     # real del NAS) y nunca baja de una hora: el pipeline recorre el vídeo
@@ -1055,10 +1165,12 @@ async def _ffmpeg_extract_rpu_piped(
     total_timeout = _adaptive_timeout(estimated_s, floor_s=3600)
     try:
         await asyncio.wait_for(
-            asyncio.gather(_drain_ffmpeg(), _drain_dovi()), timeout=total_timeout)
+            asyncio.gather(_drain_ffmpeg(), _drain_dovi(), _tick_consumidor()),
+            timeout=total_timeout)
         ff_rc = await asyncio.wait_for(ff.wait(), timeout=60)
         dv_rc = await asyncio.wait_for(dv.wait(), timeout=300)
     except asyncio.TimeoutError:
+        fin.set()                      # corta el ticker antes de salir
         for p in (ff, dv):
             try:
                 p.kill()

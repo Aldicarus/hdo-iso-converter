@@ -130,16 +130,18 @@ class TestProgresoEnElLog(unittest.TestCase):
             _fmt_ffmpeg_size, _fmt_ffmpeg_speed, _fmt_eta)
         line = ("frame=58601 fps=560 q=-1.0 size=19459840kB "
                 "time=00:41:07.38 bitrate=64609.0kbits/s speed=23.6x")
-        # Decimales con coma, que es como se escribe en el resto de la UI
-        self.assertEqual(_fmt_ffmpeg_size(line), "18,6 GB")
+        # Decimales con coma, y GB de 1e9 — la misma unidad que la línea de
+        # cierre de la fase. Mezclarlas hacía que el mismo fichero apareciera
+        # como 67,8 GB mientras crecía y 73,2 GB al terminar.
+        self.assertEqual(_fmt_ffmpeg_size(line), "19,9 GB")
         # ffmpeg 7 cambió a unidades IEC y el tamaño salía vacío en el log
         # (visto en el primer job con 7.1.5). Mismo valor, otra unidad:
         self.assertEqual(
-            _fmt_ffmpeg_size("frame=58601 size=   19003MiB speed=23.6x"), "18,6 GB")
+            _fmt_ffmpeg_size("frame=58601 size=   19003MiB speed=23.6x"), "19,9 GB")
         self.assertEqual(
             _fmt_ffmpeg_size("frame=1 size=  512KiB speed=1x"), "0,0 GB")
         self.assertEqual(
-            _fmt_ffmpeg_size("frame=1 size=    2GiB speed=1x"), "2,0 GB")
+            _fmt_ffmpeg_size("frame=1 size=    2GiB speed=1x"), "2,1 GB")
         self.assertEqual(_fmt_ffmpeg_speed(line), " · 23,6x")
         self.assertEqual(_fmt_eta(200), "quedan ~3min 20s")
         self.assertEqual(_fmt_eta(45), "quedan ~45s")
@@ -166,7 +168,7 @@ class TestProgresoEnElLog(unittest.TestCase):
             f = P(td) / "source.hevc"
             f.write_bytes(b"0" * (3 * 1024 * 1024))
             self.assertEqual(_fmt_ffmpeg_size(linea, f), "0,0 GB")
-            f.write_bytes(b"0" * int(2.5 * 1024 ** 3))
+            f.write_bytes(b"0" * int(2.5e9))
             self.assertEqual(_fmt_ffmpeg_size(linea, f), "2,5 GB")
 
     def test_el_fichero_manda_sobre_lo_que_diga_ffmpeg(self):
@@ -176,7 +178,7 @@ class TestProgresoEnElLog(unittest.TestCase):
         linea = "frame=1 size=  19003MiB speed=2x"
         with tempfile.TemporaryDirectory() as td:
             f = P(td) / "out.hevc"
-            f.write_bytes(b"0" * (1024 ** 3))
+            f.write_bytes(b"0" * int(1e9))
             self.assertEqual(_fmt_ffmpeg_size(linea, f), "1,0 GB")
 
     def test_cadencia_no_es_por_linea(self):
