@@ -359,6 +359,48 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
+### Fase A en una sola pasada: ffmpeg | extract-rpu por un pipe
+
+Los dos pasos grandes de Fase A recorren el vídeo entero y se estorbaban: medido sobre John Wick 4 (243.552 frames, MKV de 88 GB), ffmpeg tarda 574s limitado por DISCO con la CPU ociosa, y `extract-rpu` 372s limitado por CPU (100% de un core) con el disco medio ocioso — ~946s en serie usando media máquina cada vez. `_ffmpeg_extract_rpu_piped` los conecta por un `os.pipe()` (ensanchado a 4 MB con `F_SETPIPE_SZ`) usando el muxer `tee` de ffmpeg para escribir `source.hevc` y alimentar el pipe a la vez. Verificado bit a bit: mismo MD5 que por el camino clásico. Ante cualquier problema devuelve `False` **sin lanzar**, para que el caller recurra al camino en dos pasos.
+
+Consecuencia contraintuitiva pero estructural: **ffmpeg termina bastante antes que el pipeline**. Medido en 5 jobs, la "cola" en la que `extract-rpu` sigue solo es el 23-38% de la fase (71s/263s · 119s/495s · 198s/519s · 201s/733s · 197s/863s). `source.hevc` queda con su mtime final mientras `RPU_source.bin` se escribe minutos después.
+
+### Progreso: medirlo, no estimarlo — y saber qué NO se puede medir
+
+Regla del proyecto tras la auditoría de progreso: la barra y el ETA salen de **evidencia** (bytes leídos/escritos, frames, `Progress:` de mkvmerge), no de `elapsed / constante`. Las constantes envejecen con cada cambio del pipeline — el pipe de Fase A y el adelanto de la validación dejaron las suyas desfasadas en horas, y un job de 26 min llegó a anunciar 49.
+
+`_ReadProgress` (en `phases/cmv40_pipeline.py`) da el porcentaje real de un subproceso con tres señales, por orden de preferencia:
+
+| señal | de dónde | cuándo usarla |
+|---|---|---|
+| `expected_read` | `rchar` de `/proc/<pid>/io` | procesos de **varias pasadas**: el contador acumula y atraviesa el cambio de pasada sin saltos |
+| `expected_out` | tamaño del fichero de salida | el proceso escribe algo cuyo tamaño final se conoce |
+| posición de lectura | `pos:` de `/proc/<pid>/fdinfo/<fd>` | una sola pasada sobre un fichero |
+
+Trampas verificadas en el NAS, todas ellas causa de un bug real:
+- **Un pipe no tiene posición de lectura**: `fdinfo` se queda a `pos: 0` pasen los GB que pasen. Para el consumidor de un pipe hay que usar `rchar`.
+- **`rchar` no puede medir la cola del pipe de Fase A**: el consumidor tiene que haber sacado del pipe TODO lo que ffmpeg escribió para que ffmpeg pueda terminar (el buffer son 4 MB), así que el contador llega al total justo cuando ffmpeg acaba y ahí se queda. La barra tiene tope en `TOPE_LECTURA` (95%) y esa cola solo se cuenta en tiempo transcurrido.
+- **`dovi_tool extract-rpu` escribe el RPU de golpe al cerrar** (comprobado: el tamaño aparece en el mismo segundo en que la fase termina), así que el fichero de salida tampoco sirve para esa cola. Ese tramo NO es medible; no fingir un porcentaje.
+- **`inject-rpu` hace dos pasadas** (`Processing input video for frame order info` → `Rewriting file with interleaved RPU NALs`). Medido: pasada 1 = 15% del tiempo, pasada 2 = 84%. Mezclar señales distintas con el tope monotónico dejaba la barra clavada al 100% durante la segunda. Se usa `expected_read = 2 × tamaño(entrada)`.
+- **El tope monotónico es obligatorio** (`_anotar`): los totales extrapolados fluctúan y sin él la barra retrocede.
+- **El respaldo por reloj del ETA es un `if` propio**, no va dentro del `if step_pct is None`: con porcentaje real pero sin dos muestras de avance, el ETA quedaba en `None` y desaparecía del log.
+- El ETA sale de una **ventana** de muestras (~60s). Con 18s saltaba ±2 min entre líneas porque el ritmo del NAS fluctúa.
+- El porcentaje solo se anuncia en el log **cuando es medido**; con la estimación por reloj sería una cifra inventada con pinta de dato.
+
+`GET /api/cmv40/eta-model` sustituye a las constantes del frontend: ratios reales de cada fase respecto a Fase A, **segmentados por ruta** (drop-in vs merge, que no se parecen en nada) sobre los 10 jobs más recientes de cada una, más `share_dropin` para repartir cuando la ruta aún no se sabe. La señal de "ruta aún desconocida" es `target_dv_info` vacío, **no** `target_type` (que nace a `'generic'`, así que `!target_type` es siempre falso — bug real que dejó muertos dos consumidores).
+
+### El auto-pipeline tiene DOS disparadores
+
+La siguiente fase la lanzan el orquestador del backend (`_cmv40_dispatch_next_phase`) **y** `_cmv40MaybeAutoAdvance` en el frontend. El frontend se protege mirando `error_message`, pero sobre el snapshot de su último poll: si ese poll cayó en el hueco entre "la fase anterior acabó" y "la siguiente arrancó", ve la fase avanzada, sin error y sin `running_phase`, y dispara igual. Comprobado que el disparo duplicado es **sistemático**, unos 10s después del cierre de fase.
+
+Dos guards en el servidor, que es el único con el estado real:
+- fase ya en `done` → se omite (ya existía).
+- `_cmv40_guard_no_pending_error` → **409** en los nueve endpoints que arrancan fase si la sesión arrastra un `error_message` sin resolver. Para reintentar, `POST /clear-error` (lo llama el frontend al descartar el banner). Sin esto, Fase H se ejecutó dos veces con 1,2s de diferencia; en la rama merge son 5-8 min de `extract-rpu` repetidos.
+
+### Abortar antes de gastar, no después
+
+`check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
+
 ### Estados de la sesión
 
 - `phase`: última fase completada — `created → source_analyzed → target_provided → extracted → sync_verified → injected → remuxed → validated → done`
