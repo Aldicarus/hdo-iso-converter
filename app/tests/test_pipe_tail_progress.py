@@ -121,11 +121,19 @@ class TestColaDelPipeline(unittest.IsolatedAsyncioTestCase):
         for i, frac in enumerate(media_frac_por_tick[:ticks_hasta_fin_ffmpeg]):
             n = int(hevc_bytes * frac)
             segs = int(600 * frac)
+            # El fichero crece PRIMERO y la posición se anuncia después, con
+            # una ventana entre medias. Es el orden real (el tamaño en disco
+            # se adelanta a la línea de progreso) y es lo que hace que el
+            # total extrapolado —escrito/media_frac— se infle de golpe: sin
+            # tope monotónico, la barra retrocede justo ahí. La ventana de
+            # 0,15 s garantiza que algún tick de 0,05 s caiga dentro, para que
+            # el test no dependa de cómo caigan los tiempos.
             lineas.append(
                 f"dd if=/dev/zero of={hevc} bs=1 count=0 seek={n} 2>/dev/null\n"
+                f"sleep 0.15\n"
                 f'printf "frame=%d fps=100 size=N/A time=00:%02d:%02d.00 '
                 f'speed=30x\\r" {i * 1000} {segs // 60} {segs % 60} >&2\n'
-                f"sleep 0.25\n")
+                f"sleep 0.1\n")
         ff.write_text("#!/bin/sh\n" + "".join(lineas))
         ff.chmod(0o755)
 
@@ -227,11 +235,42 @@ class TestColaDelPipeline(unittest.IsolatedAsyncioTestCase):
         finally:
             pipe.PIPE_LOG_EVERY_S = orig
         self.assertTrue(ok)
-        cola = [m for m in emitidos if "extract-rpu procesando" in m]
+        cola = [m for m in emitidos if "ffmpeg terminó" in m]
         self.assertTrue(cola, emitidos)
-        # Dice cuánto lleva y cuánto queda, no solo "sigo vivo"
-        self.assertIn("de 10,0 GB", cola[0])
-        self.assertTrue(any("quedan" in m or "casi listo" in m for m in cola), cola)
+        # Dice qué está pasando y cuánto lleva así, sin inventar un %
+        self.assertTrue(all("extract-rpu" in m for m in cola), cola)
+        self.assertTrue(any("lleva" in m or "quedan" in m for m in cola), cola)
+
+    async def test_no_dice_100_por_ciento_mientras_la_fase_sigue(self):
+        """Lo que salió en el primer job real: veinte líneas seguidas con
+        "100% (73,2 GB de 73,2 GB) · casi listo" durante 201 s.
+
+        El consumidor tiene que haber sacado del pipe TODO lo que ffmpeg
+        escribió para que ffmpeg pueda terminar —el buffer son 4 MB—, así que
+        `rchar` llega al total y se queda ahí mientras dovi_tool aún trabaja.
+        No es una señal de avance para esa parte: no se puede fingir un %.
+        """
+        import phases.cmv40_pipeline as pipe
+        orig = pipe.PIPE_LOG_EVERY_S
+        pipe.PIPE_LOG_EVERY_S = 0.2
+        try:
+            ok, emitidos = await self._correr(
+                # El contador se satura enseguida y ahí se queda, como en el
+                # job real.
+                lecturas=[10_000_000_000] * 8,
+                media_frac_por_tick=[0.5, 1.0],
+                hevc_bytes=10_000_000_000,
+                ticks_hasta_fin_ffmpeg=2)
+        finally:
+            pipe.PIPE_LOG_EVERY_S = orig
+        self.assertTrue(ok)
+        pcts = _pcts(emitidos)
+        self.assertTrue(pcts)
+        self.assertLessEqual(max(pcts), pipe.TOPE_LECTURA, pcts)
+        cola = [m for m in emitidos if "ffmpeg terminó" in m]
+        self.assertTrue(cola, emitidos)
+        self.assertFalse(any("100%" in m for m in cola), cola)
+        self.assertFalse(any("casi listo" in m for m in cola), cola)
 
     async def test_no_dice_casi_listo_al_2_por_ciento(self):
         """Visto en el primer job con esto puesto:

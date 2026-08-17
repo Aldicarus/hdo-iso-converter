@@ -827,6 +827,12 @@ PIPE_LOG_EVERY_S = 10.0
 # segundo es el ritmo de la barra.
 PIPE_TICK_EVERY_S = 1.0
 
+# Hasta dónde puede llegar la barra con la señal de bytes leídos. El resto de
+# la fase es el consumidor terminando de procesar lo que ya leyó, y de eso no
+# hay contador: mejor quedarse corto que clavarse en 100 % (que es lo que
+# hacía, veinte líneas seguidas diciendo "100% · casi listo").
+TOPE_LECTURA = 95.0
+
 # ffmpeg 4.x escribía `size=  19459840kB`; desde 6.x usa unidades IEC
 # (`size=  19003MiB`). Se aceptan las dos, con su factor.
 _FFMPEG_SIZE_RE  = re.compile(r"size=\s*(\d+)\s*(kB|KiB|MiB|GiB)")
@@ -1145,6 +1151,7 @@ async def _ffmpeg_extract_rpu_piped(
         nonlocal tail_eta
         ultimo_pct = 0.0
         ultimo_log = time.monotonic()
+        fin_lectura: float | None = None   # cuándo dejó de avanzar el contador
         muestras: list[tuple[float, int]] = []   # (monotonic, bytes leídos)
         while not fin.is_set():
             try:
@@ -1154,6 +1161,7 @@ async def _ffmpeg_extract_rpu_piped(
                 pass
             leido = _proc_rchar(dv.pid)
             escrito = _tamano(hevc_out) if hevc_out is not None else 0
+            rpu_hasta_ahora = _tamano(rpu_out)
             # Sin fichero de salida (pre-flight sobre otro MKV) no hay con qué
             # extrapolar el total; esas extracciones son cortas y se quedan
             # con el progreso de ffmpeg.
@@ -1162,18 +1170,28 @@ async def _ffmpeg_extract_rpu_piped(
             total = escrito if ff_eof else escrito / media_frac
             if total <= 0:
                 continue
-            pct = max(ultimo_pct, min(100.0, (leido / total) * 100.0))
-            ultimo_pct = pct
+            # Tope en TOPE_LECTURA: los bytes leídos se agotan antes que la
+            # fase. El consumidor tiene que haber sacado del pipe TODO lo que
+            # ffmpeg escribió para que ffmpeg pueda terminar (el buffer son
+            # 4 MB), así que `rchar` llega al total y ahí se queda mientras
+            # dovi_tool aún tiene trabajo. Medido: 201 s con el contador
+            # saturado. El resto queda reservado para lo que sí avanza luego.
+            pct = max(ultimo_pct, min(TOPE_LECTURA, leido / total * TOPE_LECTURA))
+            ultimo_pct = pct     # el total es una extrapolación y fluctúa: sin
+            leyendo = leido < total * 0.995   # esto la barra retrocede
 
             ahora = time.monotonic()
-            muestras.append((ahora, leido))
-            del muestras[:-15]
+            if not leyendo and fin_lectura is None:
+                fin_lectura = ahora
             eta = None
-            if len(muestras) >= 2:
-                dt = muestras[-1][0] - muestras[0][0]
-                db = muestras[-1][1] - muestras[0][1]
-                if dt > 0 and db > 0:
-                    eta = max(0.0, (total - leido) / (db / dt))
+            if leyendo:
+                muestras.append((ahora, leido))
+                del muestras[:-60]     # ventana de ~1 min: el ritmo del NAS
+                if len(muestras) >= 2:  # fluctúa y una ventana corta lo hacía
+                    dt = muestras[-1][0] - muestras[0][0]   # saltar ±2 min
+                    db = muestras[-1][1] - muestras[0][1]
+                    if dt > 0 and db > 0:
+                        eta = max(0.0, (total - leido) / (db / dt))
             tail_eta = eta
             await _emit_progress(
                 log_callback, offset + pct * weight / 100.0, label, eta)
@@ -1183,9 +1201,21 @@ async def _ffmpeg_extract_rpu_piped(
             if (log_callback and ff_eof
                     and (ahora - ultimo_log) >= PIPE_LOG_EVERY_S):
                 ultimo_log = ahora
-                await log_callback(
-                    f"  ⏱ ffmpeg terminó · extract-rpu procesando el stream — "
-                    f"{pct:.0f}% ({_gb(leido)} de {_gb(total)}) · {_fmt_eta(eta)}")
+                if leyendo:
+                    await log_callback(
+                        f"  ⏱ ffmpeg terminó · extract-rpu leyendo lo que queda "
+                        f"en el pipe — {pct:.0f}% ({_gb(leido)} de {_gb(total)})"
+                        f" · {_fmt_eta(eta)}")
+                else:
+                    # Sin señal de avance que dar: leyó los 73 GB y ahora está
+                    # cerrando el RPU. Decir un porcentaje aquí sería inventarlo
+                    # (era el "100% · casi listo" repetido veinte veces).
+                    espera = int(ahora - (fin_lectura or ahora))
+                    await log_callback(
+                        f"  ⏱ ffmpeg terminó · extract-rpu cerrando el RPU tras "
+                        f"leer {_gb(leido)} · lleva {espera // 60}min {espera % 60}s"
+                        + (f" · RPU {rpu_hasta_ahora / 1e6:.0f} MB"
+                           if rpu_hasta_ahora > 0 else ""))
 
     # Timeout del conjunto. Escala con la estimación (que se ancla a la carga
     # real del NAS) y nunca baja de una hora: el pipeline recorre el vídeo
