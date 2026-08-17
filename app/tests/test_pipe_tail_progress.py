@@ -233,6 +233,29 @@ class TestColaDelPipeline(unittest.IsolatedAsyncioTestCase):
         self.assertIn("de 10,0 GB", cola[0])
         self.assertTrue(any("quedan" in m or "casi listo" in m for m in cola), cola)
 
+    async def test_no_dice_casi_listo_al_2_por_ciento(self):
+        """Visto en el primer job con esto puesto:
+
+            [09:41:44]   ⏱ 0% leído del vídeo · … · quedan ~2min 25s
+            [09:41:54]   ⏱ 2% leído del vídeo · … · casi listo      ← ¡al 2 %!
+            [09:42:05]   ⏱ 4% leído del vídeo · … · quedan ~9min 2s
+
+        El ETA del pipeline necesita dos muestras con avance; en ese hueco
+        valía None y se imprimía tal cual, que `_fmt_eta` traduce a "casi
+        listo". Mientras no haya ETA propio manda el de ffmpeg.
+        """
+        ok, emitidos = await self._correr(
+            lecturas=[1_000_000_000] * 8,      # sin avance → nunca hay ETA propio
+            media_frac_por_tick=[0.02, 0.04, 0.06],
+            hevc_bytes=10_000_000_000,
+            ticks_hasta_fin_ffmpeg=3)
+        self.assertTrue(ok)
+        lineas = [m for m in emitidos if "leído del vídeo" in m]
+        self.assertTrue(lineas, emitidos)
+        pronto = [m for m in lineas
+                  if "casi listo" in m and not m.lstrip().startswith("  ⏱ 9")]
+        self.assertFalse(pronto, f"'casi listo' con el vídeo sin acabar: {pronto}")
+
     async def test_sin_senal_del_kernel_no_rompe_nada(self):
         """En un kernel que no exponga `rchar` el pipeline debe seguir
         funcionando con el progreso de ffmpeg de siempre."""

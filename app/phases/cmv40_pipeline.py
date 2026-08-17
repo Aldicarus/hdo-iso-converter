@@ -1060,8 +1060,9 @@ async def _ffmpeg_extract_rpu_piped(
     ff_tail: list[str] = []
     media_frac = 0.0          # posición de ffmpeg en el vídeo, 0..1
     ff_eof = False            # ffmpeg ya cerró su stderr → su salida es final
-    tail_eta: float | None = None   # ETA del pipeline completo, del consumidor
-    tail_ok = False           # ¿hay señal del kernel para el consumidor?
+    # ETA del pipeline completo (del consumidor). None mientras no haya dos
+    # muestras con avance; en ese hueco manda el ETA de ffmpeg.
+    tail_eta: float | None = None
 
     async def _drain_ffmpeg() -> None:
         nonlocal last_log, media_frac, ff_eof
@@ -1104,7 +1105,7 @@ async def _ffmpeg_extract_rpu_piped(
                         f"{_fmt_ffmpeg_frame(line, total_frames)}"
                         f"{tam + ' · ' if tam else ''}"
                         f"{_fmt_ffmpeg_speed(line).lstrip(' ·').strip()} · "
-                        f"{_fmt_eta(tail_eta if tail_ok else eta)}")
+                        f"{_fmt_eta(tail_eta if tail_eta is not None else eta)}")
         ff_eof = True
 
     step_start = time.monotonic()
@@ -1141,7 +1142,7 @@ async def _ffmpeg_extract_rpu_piped(
         Si `/proc` no da la señal, no se emite nada desde aquí y manda el
         progreso de ffmpeg de siempre.
         """
-        nonlocal tail_eta, tail_ok
+        nonlocal tail_eta
         ultimo_pct = 0.0
         ultimo_log = time.monotonic()
         muestras: list[tuple[float, int]] = []   # (monotonic, bytes leídos)
@@ -1163,7 +1164,6 @@ async def _ffmpeg_extract_rpu_piped(
                 continue
             pct = max(ultimo_pct, min(100.0, (leido / total) * 100.0))
             ultimo_pct = pct
-            tail_ok = True
 
             ahora = time.monotonic()
             muestras.append((ahora, leido))
