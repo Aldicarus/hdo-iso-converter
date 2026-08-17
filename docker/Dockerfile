@@ -72,16 +72,25 @@ LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 #
 # Para volver atras: comentar este bloque y reconstruir; el ffmpeg de apt
 # vuelve a ser el que se usa, sin tocar nada mas.
-ARG FFMPEG_BUILD=ffmpeg-n7.1-latest-linux64-gpl-7.1
+# Pin a un autobuild FECHADO, no a la release rodante `latest`. Su asset
+# `ffmpeg-n7.1-latest-...` desapareció el 2026-08-17 cuando BtbN rotó a n8.1 y
+# n9.0, y el build de la imagen v2.8.0 murió con wget exit 8 — mientras el NAS
+# seguía compilando bien porque tenía la capa en caché. Un pin contra una
+# etiqueta móvil no es un pin.
+#
+# Este es exactamente el binario con el que se validó el pipe de la Fase A y el
+# que corre en el NAS: n7.1.5-16-g9a4bb2c579-20260815.
+ARG FFMPEG_RELEASE=autobuild-2026-08-16-13-00
+ARG FFMPEG_BUILD=ffmpeg-n7.1.5-16-g9a4bb2c579-linux64-gpl-7.1
 RUN wget -q \
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${FFMPEG_BUILD}.tar.xz" \
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_BUILD}.tar.xz" \
     -O /tmp/ffmpeg.tar.xz \
     && tar xJf /tmp/ffmpeg.tar.xz -C /tmp \
     && mv /tmp/${FFMPEG_BUILD}/bin/ffmpeg /tmp/${FFMPEG_BUILD}/bin/ffprobe /usr/local/bin/ \
     && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
     && rm -rf /tmp/ffmpeg.tar.xz /tmp/${FFMPEG_BUILD} \
     && ffmpeg -version | head -1
-LABEL ffmpeg.build="${FFMPEG_BUILD}"
+LABEL ffmpeg.build="${FFMPEG_RELEASE}/${FFMPEG_BUILD}"
 
 # ── Python app ────────────────────────────────────────────────────────────────
 WORKDIR /app
