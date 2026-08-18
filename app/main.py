@@ -384,13 +384,20 @@ async def _broadcast_queue(status: dict) -> None:
 
 # ── Estáticos ─────────────────────────────────────────────────────────────────
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Ruta absoluta derivada de este fichero, no relativa al cwd: el contenedor
+# arranca uvicorn con WORKDIR /app y funcionaba por eso, pero importar main
+# desde cualquier otro sitio reventaba con "Directory 'static' does not
+# exist" — de ahí el `os.chdir(APP_DIR)` que arrastraban media docena de
+# tests antes de poder importarlo.
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @app.get("/", include_in_schema=False)
 async def index():
     """Sirve la SPA (Single Page Application)."""
-    return FileResponse("static/index.html")
+    return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
 # ── ISOs disponibles ──────────────────────────────────────────────────────────
