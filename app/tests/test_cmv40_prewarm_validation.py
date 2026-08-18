@@ -113,38 +113,10 @@ class TestPrewarmHelper(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(out.exists())
 
 
-class TestInvalidacion(unittest.TestCase):
-    """El RPU adelantado tiene que morir cuando el HEVC al que corresponde
-    se regenera. Si no, Fase H validaría el stream nuevo contra el RPU del
-    anterior — y como el frame count coincidiría, no lo detectaría."""
-
-    def test_fase_f_lo_borra_al_empezar(self):
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        i = src.find("async def run_phase_f_inject")
-        j = src.find("async def ", i + 10)
-        cuerpo = src[i:j]
-        self.assertIn('_validate_full_rpu.bin").unlink(missing_ok=True)', cuerpo)
-
-    def test_fase_g_lo_borra_antes_de_relanzarlo(self):
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        i = src.find("async def run_phase_g_remux")
-        j = src.find("async def ", i + 10)
-        cuerpo = src[i:j]
-        self.assertIn("prewarm_rpu.unlink(missing_ok=True)", cuerpo)
-
-    def test_no_se_adelanta_en_drop_in(self):
-        """El drop-in usa el fast path de Fase H: extraer el RPU sería tirar
-        240 s de CPU para nada."""
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        i = src.find("prewarm_task = None")
-        self.assertGreater(i, 0)
-        self.assertIn("if not drop_in_fel:", src[i:i + 300])
-
-    def test_fase_h_usa_el_adelantado_si_esta(self):
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        self.assertIn("prewarmed = full_rpu.exists() and full_rpu.stat().st_size > 0", src)
-        # …y si no está, lo extrae como siempre
-        self.assertIn("if not prewarmed:", src)
+# `TestInvalidacion` comprobaba por `grep` del fuente cuándo se borra y se
+# reutiliza `_validate_full_rpu.bin`. Ahora lo cubre `test_cmv40_fases_cgh`
+# ejecutando las fases: Fase F lo borra al empezar, Fase G no lo hereda de
+# otra pasada ni lo adelanta en drop-in, y Fase H lo reutiliza si está.
 
 
 class TestPipeBuffer(unittest.TestCase):

@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from models import CMv40Phase, CMv40PhaseRecord, CMv40Session, DoviInfo
+from phases.cmv40_strategy import resolve_plan
 from phases.phase_a import _parse_dovi_summary
 
 _logger = logging.getLogger(__name__)
@@ -3259,26 +3260,20 @@ async def run_phase_c_extract(
     if not rpu_target.exists():
         raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
 
-    workflow = session.source_workflow or "p7_fel"
-    drop_in_fel = is_drop_in_fel(session)
+    plan = resolve_plan(session)
+    extract = plan.extract
+    workflow = plan.inputs.source_workflow
 
-    # Para p8 no hace falta demux — el source ya es single-layer. Se mantiene
-    # source.hevc como "capa única" y no se generan BL.hevc/EL.hevc.
-    # Para p7_mel/p7_fel sí hay demux, SALVO en drop-in FEL (bin ya cocinado):
-    # ahí inject-rpu irá directo sobre source.hevc (BL+EL), ahorra ~90 GB I/O.
-    # MEL: se conserva BL y se descarta EL lógicamente.
-    needs_demux = workflow in ("p7_fel", "p7_mel") and not drop_in_fel
-    if drop_in_fel:
-        for skip in ("demux_dual_layer", "mux_dual_layer"):
-            if skip not in session.phases_skipped:
-                session.phases_skipped.append(skip)
-
-    # ¿Saltamos `per_frame_data.json`? Sí cuando el target es trusted y los
-    # gates pasan — Fase D se saltará → el chart no se mostrará. Ahorra
-    # ~2-5 min de CPU (2 pasadas de dovi_tool export sobre ambos RPUs).
-    # Si el usuario fuerza revisión manual tardía, el endpoint /sync-data
-    # regenera on-demand.
-    skip_pfd = bool(session.target_trust_ok) and session.trust_override != "force_interactive"
+    # Qué hay que hacer sale de la tabla de estrategia: demux salvo en p8 y en
+    # drop-in FEL (donde inject-rpu va directo sobre BL+EL y ahorra ~90 GB de
+    # I/O), y datos del chart salvo cuando Fase D se va a saltar (~2-5 min de
+    # CPU en dos pasadas de dovi_tool export). Si el usuario fuerza la revisión
+    # manual más tarde, /sync-data los regenera on-demand.
+    needs_demux = extract.needs_demux
+    skip_pfd = extract.skip_per_frame_data
+    for marker in extract.skipped_markers:
+        if marker not in session.phases_skipped:
+            session.phases_skipped.append(marker)
 
     # Pesos de progreso: demux 70% / PFD 30% si ambos, o 100% al que toque
     if needs_demux and not skip_pfd:
@@ -3290,25 +3285,16 @@ async def run_phase_c_extract(
     else:
         W_DEMUX, W_PFD = 0.0, 0.0  # no-op (poco frecuente: p8 + trusted)
 
-    # Plan de la fase segun lo que realmente vamos a hacer
+    # El plan y la decisión salen del mismo objeto: no pueden divergir.
     if log_callback:
-        plan_parts = []
-        if needs_demux:
-            plan_parts.append("separar el HEVC dual-layer en BL.hevc + EL.hevc (dovi_tool demux)")
-        if not skip_pfd:
-            plan_parts.append("generar per_frame_data.json con la luminancia por frame de source y target (para el chart de Fase D)")
-        if not plan_parts:
-            plan_parts.append("no hacer nada — tanto el demux como el per-frame se saltan porque el target es trusted drop-in")
-        await log_callback(
-            "[Fase C] 📋 Plan: " + " y ".join(plan_parts) + "."
-        )
+        await log_callback(extract.plan_text)
 
     if needs_demux:
         est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
         await _emit_progress(log_callback, 0, "Separando BL + EL")
         if log_callback:
-            label = "BL + EL" if workflow == "p7_fel" else "BL (EL MEL será ignorado)"
-            await log_callback(f"[Fase C] Separando {label} (dovi_tool demux)…")
+            await log_callback(
+                f"[Fase C] Separando {extract.demux_label} (dovi_tool demux)…")
         demux_done = wd / ".demux_done"
 
         def _cleanup_partial_demux() -> None:
@@ -3358,16 +3344,7 @@ async def run_phase_c_extract(
         await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
     else:
         if log_callback:
-            if drop_in_fel:
-                await log_callback(
-                    "[Fase C] ⏭ Demux omitido — drop-in FEL: inject-rpu irá "
-                    "directo sobre source.hevc (BL+EL), no hace falta separar capas. "
-                    "Ahorro ~90 GB I/O."
-                )
-            else:
-                await log_callback(
-                    "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
-                )
+            await log_callback(extract.skip_reason)
 
     if skip_pfd:
         if log_callback:
@@ -3376,8 +3353,6 @@ async def run_phase_c_extract(
                 "Fase D se saltará, no hace falta generar datos del chart). "
                 "Se regenerará on-demand si el usuario fuerza revisión manual."
             )
-        if "per_frame_data_skipped" not in session.phases_skipped:
-            session.phases_skipped.append("per_frame_data_skipped")
     else:
         if log_callback:
             await log_callback("[Fase C] Generando datos per-frame para el chart…")
@@ -3407,7 +3382,7 @@ async def run_phase_c_extract(
         except OSError as e:
             if log_callback:
                 await log_callback(f"[Fase C] No pude borrar source.hevc: {e}")
-    if workflow == "p7_mel" and el_hevc.exists():
+    if extract.discards_el and el_hevc.exists():
         try:
             sz = el_hevc.stat().st_size
             el_hevc.unlink()
@@ -3422,16 +3397,7 @@ async def run_phase_c_extract(
 
     # Resultado de la fase: qué ha quedado preparado para Fase F/G
     if log_callback:
-        result_parts = []
-        if needs_demux:
-            result_parts.append("BL.hevc" + (" + EL.hevc" if workflow == "p7_fel" else ""))
-        if not skip_pfd:
-            result_parts.append("per_frame_data.json para el chart")
-        if not result_parts:
-            result_parts.append("sin artefactos intermedios — la cadena drop-in usará directamente source.hevc")
-        await log_callback(
-            "[Fase C] 🎯 Resultado: " + ", ".join(result_parts) + "."
-        )
+        await log_callback(extract.result_text)
     # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
     await _emit_progress(log_callback, 100, "Completado")
 
@@ -3857,19 +3823,16 @@ async def run_phase_f_inject(
     # para que nadie valide un stream contra el RPU de una pasada anterior:
     # el frame count coincidiría y la comprobación no lo detectaría.
     (wd / "_validate_full_rpu.bin").unlink(missing_ok=True)
-    source_hevc  = wd / "source.hevc"
-    source_injected = wd / "source_injected.hevc"
-    bl_hevc      = wd / "BL.hevc"
-    el_hevc      = wd / "EL.hevc"
     rpu_source   = wd / "RPU_source.bin"
     rpu_synced   = wd / "RPU_synced.bin"
     rpu_target   = wd / "RPU_target.bin"
     rpu_merged   = wd / "RPU_merged.bin"
-    el_injected  = wd / "EL_injected.hevc"
-    bl_injected  = wd / "BL_injected.hevc"
 
-    workflow = session.source_workflow or "p7_fel"
-    drop_in_fel = is_drop_in_fel(session)
+    # Qué HEVC se lee, cuál se escribe y si hace falta merge o conversión a
+    # Profile 8.1 lo decide la tabla de estrategia (phases/cmv40_strategy.py).
+    plan = resolve_plan(session)
+    inject = plan.inject
+    workflow = plan.inputs.source_workflow
 
     # Safety net: compatibilidad estructural source × target. Aborta antes de
     # tocar ffmpeg/dovi_tool si la combinación es imposible (p.ej. source P8
@@ -3878,71 +3841,20 @@ async def run_phase_f_inject(
     if not compat_ok:
         raise RuntimeError(compat_msg)
 
-    # Inputs requeridos según workflow/modo
-    if drop_in_fel:
-        if not source_hevc.exists():
-            raise RuntimeError(
-                "source.hevc no existe — ejecuta Fase A primero (drop-in opera sobre BL+EL)"
-            )
-    elif workflow == "p7_fel":
-        if not el_hevc.exists():
-            raise RuntimeError("EL.hevc no existe — ejecuta Fase C primero")
-    elif workflow == "p7_mel":
-        if not bl_hevc.exists():
-            raise RuntimeError("BL.hevc no existe — ejecuta Fase C primero")
-    elif workflow == "p8":
-        if not source_hevc.exists():
-            raise RuntimeError("source.hevc no existe — ejecuta Fase A primero")
+    # Entrada requerida por esta rama (la elige la tabla de estrategia junto
+    # con el resto del plan, así el mensaje de error y la operación no pueden
+    # referirse a artefactos distintos).
+    if not (wd / inject.required_input).exists():
+        raise RuntimeError(inject.missing_input_error)
 
     # RPU target a usar: synced si el usuario aplicó sync, si no target original
     rpu_target_effective = rpu_synced if rpu_synced.exists() else rpu_target
     if not rpu_target_effective.exists():
         raise RuntimeError("No hay RPU target disponible")
 
-    # Plan de la fase — elige estrategia según workflow y trust
+    # El plan y la decisión salen del mismo objeto: no pueden divergir.
     if log_callback:
-        if drop_in_fel:
-            await log_callback(
-                "[Fase F] 📋 Plan: target P7 FEL CMv4.0 ya cocinado y gates trusted → "
-                "ruta DROP-IN. Inyectamos el RPU target directamente en source.hevc "
-                "(BL+EL intactos, sin demux previo ni mux posterior). Es la vía más "
-                "rápida y limpia — el byte-identical del RPU queda garantizado."
-            )
-        elif workflow == "p7_fel":
-            await log_callback(
-                "[Fase F] 📋 Plan: source P7 FEL + target P8.x (retail/generated) → "
-                "MERGE clásico. Transferimos L3/L8-L11 del target al RPU P7 del source "
-                "preservando la FEL, luego inyectamos el RPU merged en EL.hevc. "
-                "Resultado: P7 FEL con trims CMv4.0."
-            )
-        elif workflow == "p7_mel":
-            if session.target_type in ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic"):
-                await log_callback(
-                    "[Fase F] 📋 Plan: source P7 MEL + target P7/generic → descartamos "
-                    "el EL MEL del source y mergeamos los levels CMv4.0 del target "
-                    "en el RPU del source preservando profile. Inyectamos el RPU "
-                    "merged en BL.hevc. Resultado: MKV single-layer P8.1 CMv4.0."
-                )
-            else:
-                await log_callback(
-                    "[Fase F] 📋 Plan: source P7 MEL + target P8 retail → descartamos "
-                    "EL MEL e inyectamos el RPU target directamente en BL.hevc. "
-                    "Resultado: MKV single-layer P8.1 CMv4.0 — mismo profile, sin merge."
-                )
-        else:  # p8
-            if session.target_type in ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic"):
-                await log_callback(
-                    "[Fase F] 📋 Plan: source P8.1 + target P7/generic → mergeamos los "
-                    "levels CMv4.0 del target (L3/L8/L9/L11) en el RPU P8 del source. El output "
-                    "hereda el profile P8.1 del source (no se mezclan capas, solo metadata). "
-                    "Inyectamos el RPU merged en source.hevc. Resultado: P8.1 CMv4.0."
-                )
-            else:
-                await log_callback(
-                    "[Fase F] 📋 Plan: source P8.1 + target P8 retail → mismo profile, "
-                    "inyectamos el RPU target directamente en source.hevc (reemplaza el "
-                    "RPU CMv2.9 existente). Resultado: P8.1 con CMv4.0 refinado."
-                )
+        await log_callback(inject.plan_text)
 
     # ── Determinar qué RPU inyectar y en qué HEVC ────────────────────
     # p7_fel + target NO trusted (o user forzó interactivo):
@@ -3985,68 +3897,24 @@ async def run_phase_f_inject(
         had_merge = True
         await _emit_progress(log_callback, MERGE_WEIGHT, "RPU merged listo")
 
-    if drop_in_fel:
-        rpu_to_inject = rpu_target_effective
-        hevc_input    = source_hevc
-        hevc_output   = source_injected
-        inject_label  = "Inyectando RPU trusted directo sobre BL+EL (drop-in)"
-        # Marcar fase omitida para UI/log
-        if "merge_cmv40_transfer" not in session.phases_skipped:
-            session.phases_skipped.append("merge_cmv40_transfer")
-    elif workflow == "p7_fel":
-        # Merge preservando FEL (flujo clásico)
+    if inject.needs_merge:
         await _do_merge()
         rpu_to_inject = rpu_merged
-        hevc_input    = el_hevc
-        hevc_output   = el_injected
-        inject_label  = "Inyectando RPU merged en EL (preserva FEL)"
-    elif workflow == "p7_mel":
-        # P7 MEL: tras demux quedamos con BL single-layer (EL MEL descartada).
-        # Si el target es P8 (trusted_p8_source): inject directo — el P8 RPU
-        # encaja sobre el BL y produce un HEVC P8.1 CMv4.0.
-        # Si el target es P7 (fel o mel) o generic: mergeamos los levels CMv4.0
-        # del target en el RPU P7 MEL del source. El RPU resultante hereda el
-        # Profile 7 del source, así que ANTES de inyectarlo hay que convertirlo
-        # a Profile 8.1 (ver `_ensure_profile8_rpu`): sin eso el fichero queda
-        # sin capa de mejora pero anunciándose como dual-layer.
-        target_needs_merge = session.target_type in (
-            "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
-        )
-        if target_needs_merge:
-            await _do_merge()
-            rpu_to_inject = rpu_merged
-            inject_label  = "Inyectando RPU merged en BL (MEL descartado → P8.1 CMv4.0)"
-        else:
-            rpu_to_inject = rpu_target_effective
-            inject_label  = "Inyectando RPU target en BL (MEL descartado → P8.1)"
-        hevc_input    = bl_hevc
-        hevc_output   = bl_injected
-    else:  # workflow == "p8"
-        # P8 source single-layer: si el target es P8 CMv4.0 (mismo profile),
-        # inject directo. Si el target es P7 (fel o mel) o generic, mergeamos
-        # los levels CMv4.0 del target en el RPU P8 del source — el output
-        # hereda el profile P8.1 del source con los levels CMv4.0 copiados
-        # del target. Evita que un RPU P7 dual-layer acabe inyectado en un
-        # HEVC single-layer con metadata incoherente.
-        target_needs_merge = session.target_type in (
-            "trusted_p7_fel_final", "trusted_p7_mel_final", "generic",
-        )
-        if target_needs_merge:
-            await _do_merge()
-            rpu_to_inject = rpu_merged
-            inject_label  = "Inyectando RPU merged en source.hevc (P8.1 CMv4.0)"
-        else:
-            rpu_to_inject = rpu_target_effective
-            inject_label  = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
-        hevc_input    = source_hevc
-        hevc_output   = bl_injected  # reutilizamos el slot de artefacto
+    else:
+        rpu_to_inject = rpu_target_effective
+    hevc_input   = wd / inject.hevc_input
+    hevc_output  = wd / inject.hevc_output
+    inject_label = inject.inject_label
+    for marker in inject.skipped_markers:
+        if marker not in session.phases_skipped:
+            session.phases_skipped.append(marker)
 
     # Los workflows single-layer (p7_mel y p8) producen un HEVC SIN capa de
     # mejora. Si el RPU que vamos a inyectar declara Profile 7, el fichero
     # final se anuncia como dual-layer (dvhe.07 / BL+EL+RPU) sin tener EL:
     # un reproductor DV espera una capa que no existe. Convertimos el RPU a
     # Profile 8.1 para que la señalización case con el contenido real.
-    if workflow in ("p7_mel", "p8"):
+    if inject.needs_profile8:
         rpu_to_inject = await _ensure_profile8_rpu(
             rpu_to_inject, wd, log_callback)
 
@@ -4100,26 +3968,7 @@ async def run_phase_f_inject(
         # Descripción del artefacto generado (sin prometer qué hará Fase G —
         # cuando Fase G arranque emitirá su propio 📋 Plan según el artefacto
         # que encuentre en el workdir).
-        if drop_in_fel:
-            artifact_desc = (
-                "BL+EL intactos con el RPU CMv4.0 inyectado — stream dual-layer "
-                "íntegro listo para multiplexar."
-            )
-        elif workflow == "p7_fel":
-            artifact_desc = (
-                "EL con el RPU merged inyectado; BL.hevc original sin tocar — "
-                "stream dual-layer P7 FEL listo para combinar."
-            )
-        elif workflow == "p7_mel":
-            artifact_desc = (
-                "BL con el RPU inyectado (EL MEL descartado) — stream single-layer "
-                "P8.1 CMv4.0 listo para remuxar."
-            )
-        else:  # p8
-            artifact_desc = (
-                "HEVC single-layer con el RPU CMv4.0 inyectado — listo para "
-                "remuxar."
-            )
+        artifact_desc = inject.result_text
         await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {artifact_desc}")
     # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
     await _emit_progress(log_callback, 100, "RPU inyectado")
@@ -4389,11 +4238,6 @@ async def run_phase_g_remux(
     Devuelve la ruta del MKV final provisional (``{name}.mkv.tmp`` en /mnt/output).
     """
     wd = get_workdir(session)
-    bl_hevc         = wd / "BL.hevc"
-    el_injected     = wd / "EL_injected.hevc"
-    bl_injected     = wd / "BL_injected.hevc"
-    source_injected = wd / "source_injected.hevc"
-    dv_dual         = wd / "DV_dual.hevc"
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_mkv = OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
@@ -4401,89 +4245,62 @@ async def run_phase_g_remux(
         try: output_mkv.unlink()
         except Exception: pass
 
-    workflow = session.source_workflow or "p7_fel"
-    drop_in_fel = is_drop_in_fel(session)
+    # Qué HEVC se multiplexa y si hace falta recomponer BL+EL antes lo decide
+    # la tabla de estrategia (phases/cmv40_strategy.py).
+    plan = resolve_plan(session)
+    remux = plan.remux
+    workflow = plan.inputs.source_workflow
     frames = session.source_frame_count or 0
     est_mkv = frames / FPS_MKVMERGE if frames > 0 else 360.0
 
-    # Plan de la fase
+    # El plan y la decisión salen del mismo objeto: no pueden divergir.
     if log_callback:
-        if drop_in_fel:
-            await log_callback(
-                "[Fase G] 📋 Plan: ensamblar el MKV final. source_injected.hevc ya es "
-                "BL+EL dual-layer con el RPU CMv4.0 inyectado (drop-in) — solo "
-                "necesitamos mkvmerge para añadir audio/subs/capítulos del origen. "
-                "Saltamos el dovi_tool mux (innecesario, el stream ya está íntegro)."
-            )
-        elif workflow == "p7_fel":
-            await log_callback(
-                "[Fase G] 📋 Plan: ensamblar el MKV final. Workflow P7 FEL con merge "
-                "— primero dovi_tool mux combina BL.hevc + EL_injected.hevc en un "
-                "HEVC dual-layer, luego mkvmerge añade audio/subs/capítulos del origen."
-            )
-        elif workflow == "p7_mel":
-            await log_callback(
-                "[Fase G] 📋 Plan: ensamblar el MKV final single-layer. El EL MEL "
-                "se descarta (no aporta) → mkvmerge directo sobre BL_injected.hevc "
-                "con audio/subs/capítulos del origen. Resultado: P8.1 CMv4.0 ligero."
-            )
-        else:  # p8
-            await log_callback(
-                "[Fase G] 📋 Plan: ensamblar el MKV final. Source era P8.1 single-layer "
-                "→ mkvmerge directo sobre BL_injected.hevc con audio/subs/"
-                "capítulos del origen."
-            )
+        await log_callback(remux.plan_text)
 
     # ── Determinar qué HEVC multiplexar según workflow/modo ──────────
     # El 📋 Plan anterior ya describe la ruta de cada workflow. Las sub-
     # llamadas (_run_streaming de dovi_tool mux y mkvmerge) emiten el
     # detalle del comando concreto al arrancar.
-    if drop_in_fel:
-        # Drop-in: source_injected.hevc ya es BL+EL con el RPU CMv4.0 inyectado.
-        # No se ejecuta dovi_tool mux — el stream ya es dual-layer íntegro.
-        if not source_injected.exists():
+    hevc_for_mkv = wd / remux.hevc_for_mkv
+    if remux.needs_dovi_mux:
+        # Dual-layer clásico (p7_fel con merge): hay que recomponer BL + EL
+        # antes de multiplexar.
+        faltan = [n for n in remux.mux_inputs if not (wd / n).exists()]
+        if faltan:
             raise RuntimeError(
-                "source_injected.hevc no existe — ejecuta Fase F primero (drop-in FEL)"
-            )
-        hevc_for_mkv = source_injected
-        remux_offset = 0.0
-        remux_weight = 100.0
-    elif workflow == "p7_fel":
-        # Dual-layer clásico: primero mux BL + EL_injected, luego mkvmerge
-        if not bl_hevc.exists() or not el_injected.exists():
-            raise RuntimeError("BL.hevc o EL_injected.hevc no existen")
+                f"{' o '.join(faltan)} no existe{'n' if len(faltan) > 1 else ''} "
+                f"— ejecuta Fase F primero (workflow {workflow})")
 
         W_MUX, W_MKV = 38.0, 62.0
         est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)
+        mux_bl, mux_el = (wd / n for n in remux.mux_inputs)
 
         await _emit_progress(log_callback, 0, "Combinando BL + EL_injected (P7 FEL)")
         rc = await _run_streaming([
             DOVI_TOOL_BIN, "mux",
-            "--bl", str(bl_hevc),
-            "--el", str(el_injected),
-            "-o", str(dv_dual),
+            "--bl", str(mux_bl),
+            "--el", str(mux_el),
+            "-o", str(hevc_for_mkv),
         ], log_callback=log_callback, proc_callback=proc_callback,
            progress_ctx={
                "time_estimate_s": est_mux,
                "offset": 0.0, "weight": W_MUX,
                "label": "Combinando BL + EL (dovi_tool mux)",
-               "input_path": bl_hevc,
-               "output_path": dv_dual,
-               "expected_out_bytes": _tamano(bl_hevc) + _tamano(el_injected),
+               "input_path": mux_bl,
+               "output_path": hevc_for_mkv,
+               "expected_out_bytes": _tamano(mux_bl) + _tamano(mux_el),
            })
         if rc != 0:
             raise RuntimeError(f"dovi_tool mux falló (código {rc})")
         await _emit_progress(log_callback, W_MUX, "Dual-layer HEVC generado")
-        hevc_for_mkv = dv_dual
         remux_offset = W_MUX
         remux_weight = W_MKV
     else:
-        # p7_mel y p8: single-layer, sin dovi_tool mux. BL_injected.hevc es el stream final.
-        if not bl_injected.exists():
+        # Drop-in y single-layer: Fase F ya dejó el stream final listo.
+        if not hevc_for_mkv.exists():
             raise RuntimeError(
-                f"BL_injected.hevc no existe para workflow {workflow} — ejecuta Fase F primero"
-            )
-        hevc_for_mkv = bl_injected
+                f"{hevc_for_mkv.name} no existe para workflow {workflow} — "
+                f"ejecuta Fase F primero")
         remux_offset = 0.0
         remux_weight = 100.0
 
@@ -4503,7 +4320,7 @@ async def run_phase_g_remux(
     prewarm_task = None
     prewarm_rpu = wd / "_validate_full_rpu.bin"
     prewarm_rpu.unlink(missing_ok=True)   # nunca reutilizar el de otra pasada
-    if not drop_in_fel:
+    if remux.prewarm_validation:
         if log_callback:
             await log_callback(
                 "[Fase G] ├─ Extrayendo en paralelo el RPU para la validación "
@@ -4519,12 +4336,7 @@ async def run_phase_g_remux(
     if log_callback:
         await log_callback("[Fase G] Remuxando a MKV final (mkvmerge)…")
     title = session.output_mkv_name.removesuffix(".mkv")
-    if drop_in_fel or workflow == "p7_fel":
-        video_track_name = "HEVC DV P7 FEL CMv4.0"
-    elif workflow == "p7_mel":
-        video_track_name = "HEVC DV P8.1 CMv4.0 (from P7 MEL)"
-    else:
-        video_track_name = "HEVC DV P8.1 CMv4.0"
+    video_track_name = remux.video_track_name
     rc = await _run_streaming([
         MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
         "--title", title,
@@ -4699,27 +4511,14 @@ async def run_phase_h_validate(
             "volver a moverlo."
         )
 
-    drop_in_fel = is_drop_in_fel(session)
+    plan = resolve_plan(session)
+    validate = plan.validate
+    drop_in_fel = plan.drop_in
 
     if log_callback:
         mkv_gb = output_mkv.stat().st_size / 1e9
-        if drop_in_fel:
-            await log_callback(
-                "[Fase H] 📋 Plan (fast path drop-in FEL): el RPU del MKV es bit-a-bit "
-                "el RPU_target.bin — inject-rpu lo copió íntegro sin tocarlo. El bin ya "
-                "pasó pre-flight + Fase B con CMv4.0 confirmado y trust gates OK, así "
-                "que la cadena upstream garantiza Profile 7 FEL CMv4.0 en el output. "
-                "Validamos integridad del MKV con mkvmerge -J y frame count con ffprobe; "
-                "saltamos el extract-rpu completo (ahorra ~5-8 min en UHD)."
-            )
-        else:
-            await log_callback(
-                "[Fase H] 📋 Plan: validar el resultado antes de mover el MKV al output "
-                "final. Leemos el RPU del HEVC resultante, confirmamos que tiene CMv4.0 "
-                "y que el frame count coincide con el source. Si todo OK, rename atómico "
-                ".tmp → .mkv (instantáneo, mismo filesystem) y cleanup de artefactos "
-                "intermedios."
-            )
+        # El plan y la decisión salen del mismo objeto: no pueden divergir.
+        await log_callback(validate.plan_text)
         await log_callback(f"[Fase H] ┌─ Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
 
     # ── result_info: estructura común que ambas ramas rellenan para el log
@@ -4728,7 +4527,7 @@ async def run_phase_h_validate(
     # (target_type=trusted_p7_fel_final + trust_ok + pre-flight CMv4.0).
     expected_frames = session.target_frame_count or session.source_frame_count or 0
 
-    if drop_in_fel:
+    if validate.fast_path:
         # ── FAST PATH (drop-in FEL puro) ────────────────────────────────
         # Lo único que falta verificar tras la cadena upstream es:
         #   1. Que el MKV es leíble y no está truncado (frame count vs expected)
@@ -4915,7 +4714,7 @@ async def run_phase_h_validate(
                 )
 
             # ── Validación el_type según workflow ─────────────────────
-            expected_el = "FEL" if (session.source_workflow or "p7_fel") == "p7_fel" else None
+            expected_el = validate.expected_el_type
             if expected_el and rpu_info.el_type != expected_el:
                 raise RuntimeError(
                     f"RPU del MKV final tiene el_type={rpu_info.el_type!r} "

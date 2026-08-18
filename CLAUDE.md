@@ -69,6 +69,7 @@ ISO2MKVFEL/
     │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
     │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo + light-profile DV L1)
     │   ├── rpu_analyze.py     ← Clasificación L8 (classify_l8 + tiers) para el modelo Mantener/Inyectar (pre-flight)
+    │   ├── cmv40_strategy.py  ← Tab 3: la matriz (workflow × target_type × trust) como datos
     │   └── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync + pre-flight)
     ├── dev_fixtures.py      ← Fixtures (DEV_MODE=1): ISOs/MKVs/RPUs fake para devel UI sin discos reales
     ├── services/            ← Integraciones externas
@@ -83,6 +84,7 @@ ISO2MKVFEL/
     │   ├── app.js           ← Toda la lógica UI
     │   └── style.css
     ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
+    │   └── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
     └── tools/
         └── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
 ```
@@ -352,12 +354,52 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Criterio para avanzar**: `Δ frames = 0` Y `confianza ≥ 85%`
 5. **Fase E — Aplicar corrección** (parte de D): `dovi_tool editor -j editor_config.json` con `remove`/`duplicate`. NO avanza de fase — el usuario sigue iterando hasta pulsar "Confirmar sync".
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
-   - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py`, que incluye un guard de código sobre la Fase F.
+   - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Solo verifica integridad del MKV con `mkvmerge -J` y frame count con `ffprobe`. ~segundos.
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
+
+### La matriz de workflows vive en `cmv40_strategy.py`, no en las fases
+
+Qué hace cada fase depende de `(source_workflow, target_type, trust)`. Esa combinación estaba desplegada como cascadas `if/elif` en ~30 puntos de las fases C, F, G y H, con dos consecuencias: añadir un workflow eran ~30 sitios sin lista de verificación, y **cada fase ramificaba dos veces sobre las mismas entradas** — una para emitir su `📋 Plan` y otra decenas de líneas más abajo para decidir de verdad. Nada obligaba a que coincidieran, y fue exactamente el fallo de "Te van a matar" (2026-08-15): la pista decía "P8.1 CMv4.0" y MediaInfo leía `dvhe.07`.
+
+`phases/cmv40_strategy.py` resuelve la matriz completa en un objeto:
+
+```python
+plan = resolve_plan(session)          # WorkflowPlan
+plan.drop_in                          # ¿ruta drop-in?
+plan.extract.needs_demux              # Fase C
+plan.inject.hevc_input / hevc_output  # Fase F: qué lee y qué escribe
+plan.inject.needs_merge / needs_profile8
+plan.remux.needs_dovi_mux / video_track_name   # Fase G
+plan.validate.fast_path               # Fase H
+plan.inject.plan_text                 # el 📋 Plan, del MISMO objeto
+```
+
+**Regla**: cualquier decisión que dependa de workflow/target_type/trust va en la tabla, no en la fase. El grep `workflow ==`/`target_type ==` dentro de un `run_phase_*` debe seguir dando **cero**. Y el texto que se le cuenta al usuario sale del mismo `plan`, así que no puede describir algo distinto de lo que la fase hace.
+
+El módulo es puro (sin IO ni subprocess), así que `test_cmv40_strategy.py` recorre las **48 combinaciones** en 0,2 s fijando invariantes: todo stream single-layer exige RPU Profile 8, la Fase G lee lo que la Fase F escribe, el fast path de validación es exclusivo del drop-in, etc.
+
+**Lo que deliberadamente NO decide la tabla**: los `rpu_levels` del merge (dependen del `el_type` que `dovi_tool info` lee del RPU real, no del `source_workflow` que arrastra la sesión — los elige `_merge_cmv40_into_p7`) y si un RPU ya es Profile 8 (eso lo comprueba `_ensure_profile8_rpu` con el fichero delante).
+
+### Las fases se ejecutan en los tests: `tests/cmv40_harness.py`
+
+Las fases C/F/G/H no se podían invocar en un test —lanzan `ffmpeg`/`dovi_tool`/`mkvmerge` sobre ficheros de decenas de GB— así que lo poco que se comprobaba de ellas se comprobaba **leyendo el fuente** (`src.find("async def run_phase_f_inject")` + `assertIn`), que pasa en verde aunque el comportamiento esté roto. La validación real ocurría en el NAS, a 40 minutos por iteración.
+
+`FakeToolbox` instala en el `PATH` cuatro binarios falsos que el pipeline resuelve por nombre, así que **no hace falta tocar el código de producción**. No son mudos: modelan la semántica de `dovi_tool` lo justo para que las validaciones internas del pipeline tengan sentido. Cada artefacto producido lleva un sidecar `.meta.json` con las propiedades del RPU que contiene, y se propagan por la cadena igual que en el NAS (`editor + allow_cmv4_transfer` → CM v4.0 con L8; `editor {"mode": 2}` → Profile 8; `inject-rpu` → el HEVC hereda las del RPU; `mux` → hereda las de la EL; `extract-rpu` → el bin hereda las del HEVC). Sin esa fidelidad las verificaciones post-merge fallarían siempre.
+
+Con eso un test afirma **qué RPU se inyecta en qué HEVC** en cada rama, y el criterio de aceptación es de mutación: reintroducir el bug (quitar la llamada a `_ensure_profile8_rpu`) tiene que hacer fallar un test. Verificado también para el demux truncado de Proyecto Salvación, el adelanto del RPU en drop-in y la validación de L8.
+
+```python
+tb.define_rpu("RPU_source.bin", profile=7, el_type="MEL", cm_version="v2.9", frames=1000)
+await run_phase_f_inject(session, log)
+self.assertEqual(tb.one("dovi_tool", "inject-rpu").opt_name("-i"), "BL.hevc")
+self.assertEqual(tb.props_of(hevc_out).profile, 8)   # ← el bug de "Te van a matar"
+```
+
+Cubierto en `test_cmv40_fase_f_matriz.py` (29 tests) y `test_cmv40_fases_cgh.py` (35). **Regla: un test de fase ejecuta la fase.** Si hace `read_text()` del pipeline para buscar una cadena, no es un test — es un recordatorio frágil.
 
 ### Fase A en una sola pasada: ffmpeg | extract-rpu por un pipe
 
@@ -936,7 +978,8 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
   python3 -m unittest discover -s app/tests -v        # toda la suite
   python3 -m unittest app.tests.test_rpu_analyze -v   # un módulo
   ```
-- Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV y la abstracción Source. No requieren discos reales.
+- Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV, la abstracción Source y **las fases C/F/G/H del pipeline CMv4.0 ejecutadas de verdad** (via `cmv40_harness.py`). No requieren discos reales ni los binarios instalados.
+- Un test de una fase **ejecuta la fase**. Los `assertIn` sobre el fuente del pipeline no cuentan como cobertura: pasan en verde aunque el comportamiento esté invertido. Al añadir un test de comportamiento, verificar que falla reintroduciendo el bug.
 
 ---
 

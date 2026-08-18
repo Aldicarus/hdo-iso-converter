@@ -104,22 +104,11 @@ class TestEnsureProfile8(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("frame count" in m for m in self.logs))
 
 
-class TestSingleLayerWorkflows(unittest.TestCase):
-    def test_las_ramas_single_layer_llaman_al_helper(self):
-        """Guard de código: p7_mel y p8 deben pasar por _ensure_profile8_rpu.
-
-        Si alguien reordena la Fase F y se salta la conversión, el fichero
-        vuelve a quedar anunciado como dual-layer sin EL — un fallo que no se
-        ve en el log ni en la validación, solo con MediaInfo sobre el output.
-        """
-        src = Path(pipeline.__file__).read_text(encoding="utf-8")
-        i = src.index("async def run_phase_f_inject")
-        j = src.index("async def run_phase_g_remux")
-        body = src[i:j]
-        self.assertIn("_ensure_profile8_rpu", body)
-        call_idx = body.index("_ensure_profile8_rpu(")
-        guard = body[max(0, call_idx - 400):call_idx]
-        self.assertIn('workflow in ("p7_mel", "p8")', guard)
+# El guard que comprobaba por `grep` del fuente que la Fase F llama a
+# `_ensure_profile8_rpu` se retiró: `test_cmv40_fase_f_matriz` ejecuta la fase
+# y comprueba el efecto observable — que el RPU dentro del HEVC producido
+# declara Profile 8 — en vez de la presencia de un identificador en un rango
+# de caracteres del fichero.
 
 
 if __name__ == "__main__":
