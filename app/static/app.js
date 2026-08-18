@@ -15011,12 +15011,57 @@ function _updateCMv40Panel(project) {
   _cmv40SyncPermanentLog(project);
 }
 
+/** ¿Debe cubrirse el panel con el overlay modal de ejecución?
+ *
+ *  Sale aparte para poder probarla: el overlay es `position:fixed; inset:0`
+ *  con z-index 2000, así que mientras esté puesto **se come cualquier clic**
+ *  sobre el panel. Mostrarlo cuando el pipeline en realidad está esperando al
+ *  usuario no es un defecto cosmético: deja botones que se ven pero no se
+ *  pueden pulsar.
+ *
+ *  Caso real (2026-08-19, The Mandalorian and Grogu): al acabar Fase B con
+ *  gates pendientes de ACK, `recentRunning` seguía activo y el overlay tapaba
+ *  el banner ámbar. El usuario pulsó "Continuar igualmente", el clic se lo
+ *  quedó el overlay, y como no hubo POST tampoco hubo toast de error: el
+ *  pipeline se quedó parado y hubo que lanzar cada fase a mano.
+ */
+function _cmv40PipelineHalted(s) {
+  // Estados en los que el pipeline NO va a avanzar solo: o terminó, o está
+  // esperando una decisión del usuario. En ambos casos el panel tiene que
+  // ser operable.
+  return (
+    s.phase === 'done'
+    || s.phase === 'error'
+    || !!s.error_message
+    // El pre-flight decidió "Keep recomendado" y espera aceptar o forzar.
+    || !!(s.preflight_decision && s.preflight_decision !== 'ok')
+    // Gates degradados pendientes de confirmación: el banner ámbar tiene los
+    // botones "Cambiar target" y "Continuar igualmente", y hay que poder
+    // pulsarlos.
+    || !!s.awaiting_critical_ack
+  );
+}
+
+function _cmv40ShouldShowOverlay(s, project) {
+  if (s.running_phase) return true;
+  if (_cmv40PipelineHalted(s)) return false;
+  if (!project.autoContinue) return false;
+  // Puente del auto-pipeline: entre una fase y la siguiente el backend deja
+  // running_phase=null un instante. Sin esto el overlay parpadearía.
+  //   (a) autoChaining — se enciende al disparar una fase.
+  //   (b) recentRunning — hace menos de 15 s había una fase corriendo; red de
+  //       seguridad si (a) no se seteó a tiempo.
+  const recentRunning = (Date.now() - (project.lastRunningPhaseAt || 0)) < 15000;
+  return !!project.autoChaining || recentRunning;
+}
+
 function _renderCMv40RunningOverlay(project) {
   const s = project.session;
   const pid = project.id;
   const panel = document.getElementById(`cmv40-panel-${pid}`);
   if (!panel) return;
   let overlay = panel.querySelector('.cmv40-running-overlay');
+  const terminalPhase = _cmv40PipelineHalted(s);
 
   // Auto-pipeline "puente": entre una fase y la siguiente el backend pone
   // running_phase=null brevemente. Dos heurísticas para mantener el overlay
@@ -15028,19 +15073,13 @@ function _renderCMv40RunningOverlay(project) {
   //       (ej. polling tarda en captar el cambio).
   // Se apaga al llegar a terminal o al intervenir manualmente.
   //
-  // preflight_decision != "ok" (y no vacío) es estado terminal: el pre-flight
-  // decidió "Keep recomendado" y el pipeline no avanza más sin acción del
-  // usuario. Sin esto, el modal se quedaba colgado en "bridge auto" después
-  // de un keep_l8_default porque autoContinue=true seguía verdadero.
-  const isPreflightHalted = !!(s.preflight_decision && s.preflight_decision !== 'ok');
-  const terminalPhase = (s.phase === 'done' || s.phase === 'error'
-                          || !!s.error_message || isPreflightHalted);
   if (terminalPhase) project._autoChaining = false;
   if (s.running_phase) project._lastRunningPhaseAt = Date.now();
-  const recentRunning = (Date.now() - (project._lastRunningPhaseAt || 0)) < 15000;
-  const bridgingAuto  = !s.running_phase && project.autoContinue && !terminalPhase
-                        && (!!project._autoChaining || recentRunning);
-  const shouldShow    = !!s.running_phase || bridgingAuto;
+  const shouldShow = _cmv40ShouldShowOverlay(s, {
+    autoContinue: project.autoContinue,
+    autoChaining: project._autoChaining,
+    lastRunningPhaseAt: project._lastRunningPhaseAt,
+  });
 
   if (shouldShow) {
     // Crear o actualizar overlay
