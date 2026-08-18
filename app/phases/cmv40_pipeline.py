@@ -4577,11 +4577,16 @@ async def run_phase_h_validate(
         # más sensible del pipeline y vale la pena verificarla en serio.
         # Drop-in (que es el caso típico) NO paga este coste — usa el fast
         # path que confía en la cadena upstream determinista.
+        # El HEVC pre-mux según lo que dejó la Fase F/G de cada rama (ver la
+        # tabla en phases/cmv40_strategy.py). El ORDEN importa: en p7_fel
+        # existen a la vez EL_injected.hevc y el DV_dual.hevc que salió del
+        # mux, y hay que validar el segundo — es el stream completo que
+        # mkvmerge multiplexó, no solo su capa de mejora.
         pre_mux_candidates = [
-            wd / "source_injected.hevc",   # drop-in P7 FEL (force_interactive)
-            wd / "DV_dual.hevc",           # workflow p7_fel dual-layer
-            wd / "EL_injected.hevc",       # workflow p7_mel
-            wd / "BL_injected.hevc",       # workflow p8 single-layer
+            wd / "source_injected.hevc",   # drop-in P7 FEL (con force_interactive)
+            wd / "DV_dual.hevc",           # p7_fel con merge: salida del dovi_tool mux
+            wd / "EL_injected.hevc",       # p7_fel: capa de mejora, si no hubo mux
+            wd / "BL_injected.hevc",       # p7_mel y p8: single-layer
         ]
         pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
         if not pre_mux_hevc:

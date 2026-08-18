@@ -197,6 +197,20 @@ def load_session(session_id: str) -> Session | None:
     return Session.model_validate(data)
 
 
+# Ficheros de /config que no son sesiones de Tab 1 (caches y settings).
+# Se saltan sin ruido; para lo que no esté aquí, el guard de "todo Session
+# tiene 'id'" hace de red — una lista negra siempre acaba quedándose corta.
+_NON_SESSION_FILES = frozenset({
+    "settings.json",
+    "queue_state.json",
+    "app_settings.json",
+    "tmdb_cache.json",
+    "rec999_drive_cache.json",
+    "rec999_sheet_cache.json",
+    "update_check_cache.json",
+})
+
+
 def list_sessions() -> list[Session]:
     """
     Devuelve todas las sesiones ordenadas por fecha de modificación
@@ -213,18 +227,21 @@ def list_sessions() -> list[Session]:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     ):
-        # Ficheros conocidos que no son sesiones
-        if path.name in (
-            "settings.json",
-            "queue_state.json",
-            "app_settings.json",
-            "tmdb_cache.json",
-            "rec999_drive_cache.json",
-            "rec999_sheet_cache.json",
-        ):
+        if path.name in _NON_SESSION_FILES:
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Sesión corrupta o inválida, omitida: %s — %s", path.name, e)
+            continue
+        # Un Session siempre tiene 'id'. Sin este guard, cualquier cache nuevo
+        # de /config que no esté en la lista negra se intenta validar como
+        # sesión y suelta un warning de Pydantic en cada arranque — pasó con
+        # update_check_cache.json, que sí estaba contemplado en el listado del
+        # sidebar pero no aquí.
+        if not isinstance(data, dict) or "id" not in data:
+            continue
+        try:
             sessions.append(Session.model_validate(data))
         except Exception as e:
             logger.warning("Sesión corrupta o inválida, omitida: %s — %s", path.name, e)
@@ -252,17 +269,6 @@ _sessions_summary_lock = threading.Lock()
 _sessions_summary_by_file: dict[str, tuple[int, int, dict]] = {}
 
 # Ficheros de /config que no son sesiones de Tab 1 (caches y settings).
-_NON_SESSION_FILES = frozenset({
-    "settings.json",
-    "queue_state.json",
-    "app_settings.json",
-    "tmdb_cache.json",
-    "rec999_drive_cache.json",
-    "rec999_sheet_cache.json",
-    "update_check_cache.json",
-})
-
-
 def _strip_session_summary(data: dict) -> dict:
     """Vacía los campos pesados que el sidebar no necesita; el detalle
     completo está en GET /api/sessions/{id}. Mantiene la metadata y el status
