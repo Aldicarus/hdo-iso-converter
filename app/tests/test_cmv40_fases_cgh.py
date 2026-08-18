@@ -473,5 +473,144 @@ class TestFaseHValidacion(CmvPhaseCase):
         self.assertIn("Fase G", str(cm.exception))
 
 
+
+class TestProgresoDeLasFases(CmvPhaseCase):
+    """El `progress_ctx` de las operaciones largas no viaja en el argv, así
+    que hay que comprobarlo aparte.
+
+    De él salen la barra y el ETA, y la señal correcta depende de qué
+    fichero lee y escribe cada proceso (ver `_ReadProgress`): apuntar al
+    fichero equivocado deja la barra clavada o dando un ETA inventado
+    durante los minutos que dura la operación.
+    """
+
+    def capture_streaming(self):
+        """Intercepta `_run_streaming` guardando su `progress_ctx`."""
+        from phases import cmv40_pipeline as P
+        capturado = []
+        orig = P._run_streaming
+
+        async def espia(cmd, log_callback=None, proc_callback=None, progress_ctx=None):
+            capturado.append((cmd, progress_ctx))
+            return await orig(cmd, log_callback=log_callback,
+                             proc_callback=proc_callback, progress_ctx=progress_ctx)
+
+        P._run_streaming = espia
+        self.addCleanup(lambda: setattr(P, "_run_streaming", orig))
+        return capturado
+
+    def ctx_de(self, capturado, subcomando):
+        for cmd, ctx in capturado:
+            if subcomando in cmd:
+                return ctx
+        raise AssertionError(
+            f"no se lanzó ningún proceso con {subcomando!r}; "
+            f"lanzados: {[c[0][:2] for c in capturado]}")
+
+    async def test_el_mux_mide_el_progreso_sobre_bl_y_el_dual_layer(self):
+        capturado = self.capture_streaming()
+        session = self.prepare(trust_ok=False,
+                               artifacts=("BL.hevc", "EL_injected.hevc"),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_g_remux
+        await run_phase_g_remux(session, self.log)
+
+        ctx = self.ctx_de(capturado, "mux")
+        self.assertEqual(Path(ctx["input_path"]).name, "BL.hevc")
+        self.assertEqual(Path(ctx["output_path"]).name, "DV_dual.hevc")
+        # El dual-layer pesa lo que suman las dos capas: es lo que permite
+        # dar un ETA real mientras dovi_tool escribe.
+        esperado = ((self.wd / "BL.hevc").stat().st_size
+                    + (self.wd / "EL_injected.hevc").stat().st_size)
+        self.assertEqual(ctx["expected_out_bytes"], esperado)
+
+    async def test_el_remux_final_arranca_donde_acabo_el_mux(self):
+        # La barra de la fase es monotónica: si el remux empezara en 0 tras
+        # el mux, retrocedería del 38% al 0%.
+        capturado = self.capture_streaming()
+        session = self.prepare(trust_ok=False,
+                               artifacts=("BL.hevc", "EL_injected.hevc"),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_g_remux
+        await run_phase_g_remux(session, self.log)
+
+        mux = self.ctx_de(capturado, "mux")
+        mkv = self.ctx_de(capturado, "--gui-mode")
+        self.assertEqual(mux["offset"], 0.0)
+        self.assertEqual(mkv["offset"], mux["weight"])
+        self.assertAlmostEqual(mkv["offset"] + mkv["weight"], 100.0)
+
+    async def test_sin_mux_el_remux_ocupa_toda_la_barra(self):
+        capturado = self.capture_streaming()
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_g_remux
+        await run_phase_g_remux(session, self.log)
+
+        mkv = self.ctx_de(capturado, "--gui-mode")
+        self.assertEqual(mkv["offset"], 0.0)
+        self.assertEqual(mkv["weight"], 100.0)
+
+    async def test_el_inject_mide_las_dos_pasadas_sobre_su_entrada(self):
+        # `inject-rpu` recorre la entrada dos veces (orden de frames y
+        # reescritura). Los bytes leídos acumulados son la única señal que
+        # cubre ambas sin saltos — ver `_ReadProgress`.
+        capturado = self.capture_streaming()
+        session = self.prepare(artifacts=("source.hevc",),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_f_inject
+        await run_phase_f_inject(session, self.log)
+
+        ctx = self.ctx_de(capturado, "inject-rpu")
+        entrada = self.wd / "source.hevc"
+        self.assertEqual(Path(ctx["input_path"]).name, "source.hevc")
+        self.assertEqual(Path(ctx["output_path"]).name, "source_injected.hevc")
+        self.assertEqual(ctx["expected_read_bytes"], 2 * entrada.stat().st_size)
+        self.assertEqual(ctx["expected_out_bytes"], entrada.stat().st_size)
+
+    async def test_el_inject_arranca_tras_el_merge_cuando_lo_hay(self):
+        capturado = self.capture_streaming()
+        session = self.prepare(trust_ok=False, artifacts=("EL.hevc",),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_f_inject
+        await run_phase_f_inject(session, self.log)
+
+        ctx = self.ctx_de(capturado, "inject-rpu")
+        self.assertGreater(ctx["offset"], 0.0,
+                           "el merge ya movió la barra: el inject no vuelve a 0")
+        self.assertAlmostEqual(ctx["offset"] + ctx["weight"], 100.0)
+
+    async def test_el_inject_del_drop_in_ocupa_toda_la_barra(self):
+        capturado = self.capture_streaming()
+        session = self.prepare(artifacts=("source.hevc",),
+                               injected_props=INJ_FEL_V40)
+        from phases.cmv40_pipeline import run_phase_f_inject
+        await run_phase_f_inject(session, self.log)
+
+        ctx = self.ctx_de(capturado, "inject-rpu")
+        self.assertEqual(ctx["offset"], 0.0, "sin merge previo no hay nada que descontar")
+        self.assertEqual(ctx["weight"], 100.0)
+
+    async def test_el_demux_mide_sobre_el_hevc_completo(self):
+        capturado = []
+        from phases import cmv40_pipeline as P
+        orig = P._run_with_time_estimate
+
+        async def espia(cmd, **kw):
+            capturado.append((cmd, kw))
+            return await orig(cmd, **kw)
+
+        P._run_with_time_estimate = espia
+        self.addCleanup(lambda: setattr(P, "_run_with_time_estimate", orig))
+
+        session = self.prepare(trust_ok=False, artifacts=("source.hevc",))
+        from phases.cmv40_pipeline import run_phase_c_extract
+        await run_phase_c_extract(session, self.log)
+
+        demux = next((kw for cmd, kw in capturado if "demux" in cmd), None)
+        self.assertIsNotNone(demux, "no se lanzó el demux")
+        self.assertEqual(Path(demux["progress_input"]).name, "source.hevc")
+
+
 if __name__ == "__main__":
     unittest.main()
