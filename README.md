@@ -400,6 +400,7 @@ hdo-iso-converter/                ← repo / docker image (técnico)
 │   │   ├── phase_e.py            ← Escritura final + validación
 │   │   ├── mkv_analyze.py        ← Tab 2: análisis + edición MKV
 │   │   ├── rpu_analyze.py        ← Tab 3: análisis L2/L8 del bin
+│   │   ├── cmv40_strategy.py     ← Tab 3: matriz workflow × target × trust (pura)
 │   │   └── cmv40_pipeline.py     ← Tab 3: pipeline completo CMv4.0
 │   ├── services/
 │   │   ├── settings_store.py     ← /config/app_settings.json
