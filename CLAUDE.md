@@ -444,6 +444,18 @@ Dos guards en el servidor, que es el único con el estado real:
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
 
+### La UI no re-deriva el plan: lo lee
+
+`GET /api/cmv40/{id}` incluye `session.plan` con las decisiones ya resueltas por `cmv40_strategy` (`drop_in`, `trust_effective`, `target_needs_merge`, y por fase `needs_demux` / `needs_merge` / `needs_profile8` / `needs_dovi_mux` / `fast_path`…). `app.js` lo lee con tres helpers: **`_cmv40Trust`**, **`_cmv40DropIn`** y **`_cmv40TargetNeedsMerge`**.
+
+Antes esas reglas estaban escritas a mano: el trust efectivo **once veces** y en dos variantes sintácticas distintas. Una réplica de una regla del backend se desincroniza en silencio — de esa familia era el bug del overlay.
+
+Los helpers conservan un **fallback local** porque el plan no llega en tres situaciones: sesiones cacheadas de antes del cambio, el summary del sidebar (que vacía campos pesados) y el modal de creación (sin sesión todavía). Es UNA implementación, y `test_cmv40_plan_frontend.py` comprueba en node que coincide con la tabla de Python.
+
+**Regla**: cualquier decisión que dependa de workflow/target_type/trust se lee del plan. `test_cmv40_plan_frontend::TestNoQuedanReplicas` falla si la expresión `force_interactive` reaparece a mano (hay 3 usos legítimos: el fallback, la predicción de drop-in previa a los gates y la regla de auto-avance, que incluye el ACK).
+
+**Divergencia conocida, sin resolver**: la regla de auto-avance no coincide entre las dos partes. El backend hace `trusted_auto or user_acked`; el frontend, `(trust_ok or acked) and override != force_interactive`. Con el ACK dado **y** `force_interactive`, el backend se salta Fase D y el frontend no. Está anotado junto al código en ambos lados.
+
 ### Dónde vive el código del Tab 3
 
 Los endpoints y la orquestación salieron de `main.py` a **`routers/cmv40.py`** (3.395 líneas). `main.py` conserva Tab 1 y Tab 2 y hace `app.include_router(...)`; **las URLs no cambiaron**.
