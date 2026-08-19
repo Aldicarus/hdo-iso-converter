@@ -91,16 +91,22 @@ class TestLimpiezaDeIntermedios(AuditoriaCase):
     """El HEVC son ~45 GB: si no se borra, el /mnt/tmp del NAS se llena."""
 
     def _restos(self):
-        # Los `.meta.json` son sidecars del arnés (las props del RPU que
-        # contiene cada artefacto), no intermedios del pipeline.
-        return [p.name for p in self.trabajo.rglob("*")
-                if p.is_file() and not p.name.endswith(".meta.json")
-                and p.suffix in (".hevc", ".bin", ".json")]
+        """Todo lo que quede bajo el workdir base, sin excepciones.
+
+        El arnés ya no deja sidecars aquí, así que esto es exactamente lo
+        que el pipeline dejó: ficheros Y directorios. Los directorios
+        cuentan porque el `finally` hace `tmpdir.rmdir()`, que falla en
+        silencio si dentro queda algo — un intermedio nuevo que alguien
+        olvide borrar aparecería como un directorio huérfano en /mnt/tmp.
+        """
+        return sorted(str(p.relative_to(self.trabajo))
+                      for p in self.trabajo.rglob("*"))
 
     async def test_no_deja_intermedios_al_terminar(self):
         await self.auditar()
         self.assertEqual(self._restos(), [],
-                         "el HEVC/RPU/JSON deben borrarse en el finally")
+                         "el HEVC/RPU/JSON deben borrarse y el tmpdir "
+                         "desaparecer en el finally")
 
     async def test_tampoco_los_deja_si_falla(self):
         # El caso que de verdad llena el disco: un fallo a mitad.

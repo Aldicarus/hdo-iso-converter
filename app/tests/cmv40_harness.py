@@ -39,6 +39,7 @@ Uso típico:
     await run_phase_f_inject(session, log)
     self.assertEqual(tb.one("dovi_tool", "inject-rpu").opt("-i"), ".../BL.hevc")
 """
+import hashlib
 import json
 import os
 import shutil
@@ -384,10 +385,13 @@ class FakeToolbox:
         Es la forma de comprobar, por ejemplo, que el HEVC inyectado en un
         workflow single-layer lleva un RPU Profile 8 y no Profile 7.
         """
-        meta = Path(str(path) + ".meta.json")
+        meta = self._meta_path(path)
         if not meta.exists():
             return None
         return RpuProps.from_dict(json.loads(meta.read_text(encoding="utf-8")))
+
+    def _meta_path(self, path) -> Path:
+        return sidecar_path(path, self.state_dir)
 
     def _flush(self) -> None:
         if self.state_dir.exists():
@@ -420,19 +424,39 @@ def make_session(workdir: Path, **overrides):
     return CMv40Session(**fields)
 
 
+def sidecar_path(path, state_dir=None) -> Path:
+    """Ruta del sidecar de props de un artefacto.
+
+    Vive bajo el `state_dir` del arnés, NO junto al artefacto: así el
+    directorio de trabajo que ve un test contiene exactamente lo que el
+    pipeline dejó ahí, sin excepciones que haya que recordar en cada
+    assert. Debe coincidir con `meta_path` del script embebido.
+    """
+    if state_dir is None:
+        base = os.environ.get("CMV40_FAKE_STATE")
+        if not base:
+            raise RuntimeError(
+                "sidecar_path necesita un FakeToolbox instalado "
+                "(CMV40_FAKE_STATE sin definir) o un state_dir explícito")
+        state_dir = base
+    return Path(state_dir) / "meta" / (hashlib.sha1(
+        str(Path(path).resolve()).encode("utf-8")).hexdigest() + ".json")
+
+
 def write_artifacts(workdir: Path, *names: str, props: RpuProps | None = None) -> None:
     """Crea artefactos falsos con tamaño suficiente para los guards del pipeline.
 
-    Si se pasan `props`, se escribe también el sidecar `.meta.json` para que
-    los falsos sepan qué RPU contiene cada fichero.
+    Si se pasan `props`, se escribe también su sidecar para que los falsos
+    sepan qué RPU contiene cada fichero (ver `sidecar_path`).
     """
     workdir.mkdir(parents=True, exist_ok=True)
     for n in names:
         p = workdir / n
         p.write_bytes(_FILLER)
         if props is not None:
-            Path(str(p) + ".meta.json").write_text(
-                json.dumps(props.as_dict()), encoding="utf-8")
+            mp = sidecar_path(p)
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            mp.write_text(json.dumps(props.as_dict()), encoding="utf-8")
 
 
 class CollectingLog:
@@ -497,6 +521,7 @@ class PhaseTestCase(unittest.IsolatedAsyncioTestCase):
 
 _FAKE_SCRIPT = r'''#!@@PYTHON@@
 """Binario falso del arnés CMv4.0 — ver app/tests/cmv40_harness.py."""
+import hashlib
 import json
 import os
 import sys
@@ -504,6 +529,7 @@ from pathlib import Path
 
 FILLER = b"\x00" * 4096
 STATE = Path(os.environ["CMV40_FAKE_STATE"])
+META_DIR = STATE / "meta"
 BINARY = Path(sys.argv[0]).name
 ARGV = sys.argv[1:]
 
@@ -534,7 +560,15 @@ DEFAULT_PROPS = {
 
 
 def meta_path(p):
-    return Path(str(p) + ".meta.json")
+    """Sidecar de props, FUERA del directorio del artefacto.
+
+    Adyacente (`fichero.hevc.meta.json`) obligaba a todo test que mirase
+    restos en un workdir a excluirlo a mano, y esa excepción tapa restos
+    de verdad: un `.meta.json` que dejara el pipeline sería invisible.
+    Los binarios reales no dejan sidecars, así que el arnés tampoco.
+    """
+    return META_DIR / (hashlib.sha1(
+        str(Path(p).resolve()).encode("utf-8")).hexdigest() + ".json")
 
 
 def read_props(path, sc):
@@ -553,11 +587,23 @@ def read_props(path, sc):
 
 
 def write_props(path, props):
-    meta_path(Path(path)).write_text(json.dumps(props))
+    mp = meta_path(Path(path))
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(json.dumps(props))
 
 
 def produce(path, props=None):
-    """Crea un artefacto de salida con su sidecar de props."""
+    """Crea un artefacto de salida con su sidecar de props.
+
+    Exige ruta absoluta: un fake que reciba una relativa escribiría en el
+    cwd del test, que es la raíz del repo. Así apareció commiteado un
+    fichero llamado `pipe:1`, porque el fake de ffmpeg trataba la salida
+    del pipe como si fuera un nombre de fichero.
+    """
+    if not str(path).startswith("/"):
+        raise RuntimeError(
+            "produce() con ruta relativa %r: escribiría en el cwd del test. "
+            "Si es una salida especial (pipe:N, -), trátala antes." % (path,))
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(FILLER)
@@ -708,16 +754,23 @@ def dovi_tool(sc, sub, json_args):
         return 0
 
     if sub == "extract-rpu":
-        positional = [a for a in ARGV if not a.startswith("-") and a != "extract-rpu"]
+        # `-` es la entrada por stdin, no una opción: sin la excepción se
+        # filtraba como tal y el modo pipe de la Fase A nunca se reconocía.
+        positional = [a for a in ARGV
+                      if (a == "-" or not a.startswith("-")) and a != "extract-rpu"]
         src = positional[0] if positional else None
         out = opt("-o")
         if src == "-":
-            # Modo pipe (Fase A): consumir stdin para no bloquear al productor.
+            # Modo pipe (Fase A): hay que sacar del pipe TODO lo que el
+            # productor escribió o ffmpeg no puede terminar. Las props
+            # llegan en la cabecera del stream, no por sidecar.
+            datos = b""
             try:
-                sys.stdin.buffer.read()
+                datos = sys.stdin.buffer.read()
             except Exception:
                 pass
-            src = None
+            produce(out, props_from_stream(datos, sc))
+            return 0
         produce(out, read_props(src, sc))
         return 0
 
@@ -902,13 +955,51 @@ def ffprobe(sc):
     return 0
 
 
+def stream_bytes(props):
+    """El "HEVC" que viaja por un pipe, con sus props en cabecera.
+
+    Por un pipe no hay sidecar al que mirar, así que las props van en el
+    propio stream: es lo que permite que el consumidor sepa qué RPU
+    contiene lo que está leyendo.
+    """
+    return b"#HARNESS-PROPS " + json.dumps(props).encode("utf-8") + b"\n" + FILLER
+
+
+def props_from_stream(datos, sc):
+    cab = b"#HARNESS-PROPS "
+    if datos.startswith(cab):
+        try:
+            d = dict(DEFAULT_PROPS)
+            d.update(json.loads(datos.split(b"\n", 1)[0][len(cab):]))
+            return d
+        except ValueError:
+            pass
+    return dict(DEFAULT_PROPS)
+
+
 def ffmpeg(sc):
-    # El output es el último argumento posicional; `-f hevc` va justo antes.
+    props = read_props(opt("-i"), sc)
     positional = [a for a in ARGV if not a.startswith("-")]
-    if positional:
-        out = positional[-1]
-        if out not in ("hevc", "copy") and not out.startswith("0:"):
-            produce(out, read_props(opt("-i"), sc))
+    salidas = []
+    if opt("-f") == "tee" and positional:
+        # Muxer tee, el del pipe de Fase A: una pasada, varias salidas.
+        # "[f=hevc]/ruta/source.hevc|[f=hevc]pipe:1"
+        for trozo in positional[-1].split("|"):
+            if trozo.startswith("["):
+                trozo = trozo.split("]", 1)[-1]
+            salidas.append(trozo)
+    elif positional:
+        ultimo = positional[-1]
+        if ultimo not in ("hevc", "copy", "tee") and not ultimo.startswith("0:"):
+            salidas.append(ultimo)
+    for destino in salidas:
+        if destino.startswith("pipe:") or destino == "-":
+            # A stdout, como el ffmpeg real. Tratar "pipe:1" como una ruta
+            # creaba un fichero llamado así en el directorio del test.
+            sys.stdout.buffer.write(stream_bytes(props))
+            sys.stdout.buffer.flush()
+        else:
+            produce(destino, props)
     sys.stderr.write("frame= 1000 fps=100 speed=2.0x\n")
     return 0
 
