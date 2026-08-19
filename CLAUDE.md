@@ -84,7 +84,8 @@ ISO2MKVFEL/
     │   ├── app.js           ← Toda la lógica UI
     │   └── style.css
     ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
-    │   └── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
+    │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
+    │   └── api_harness.py    ← TestClient con /config aislado + espía de lanzamiento de fases (no es un test)
     └── tools/
         └── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
 ```
@@ -442,6 +443,48 @@ Dos guards en el servidor, que es el único con el estado real:
 ### Abortar antes de gastar, no después
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
+
+### Lanzar una fase: un solo sitio, y una tabla
+
+Los nueve endpoints de fase y los cinco dispatchers del auto-pipeline eran
+el mismo bloque copiado **14 veces** (el `_coro` + `_run` con su try/except
+y un comentario de seis líneas). Hoy:
+
+- `_cmv40_launch_phase(session, fase, coro_factory, nueva_fase)` — el
+  `create_task` con su red de seguridad. El try/except **no es decorativo**:
+  `_run_cmv40_phase` ya captura los errores DE LA FASE, así que lo que llega
+  ahí es un fallo del wrapper (p. ej. el save de arranque); tragárselo mudo
+  dejaba el job zombie sin una pista en el log.
+- `_CMV40_RUNNERS: fase → (función del pipeline, fase destino)` +
+  `_cmv40_dispatch_phase(session, fase)` — sustituyen a los cinco
+  dispatchers, que solo diferían en ese par. Los endpoints de fase sin
+  parámetros propios delegan aquí también.
+
+**Regla**: una fase nueva se añade con una fila en `_CMV40_RUNNERS`, no
+copiando un endpoint. El nombre de la fase y su runner viajan por separado,
+así que `test_cmv40_endpoints` comprueba los dos (una fila cruzada daría un
+`phase_name` correcto ejecutando otra cosa).
+
+### Los endpoints se prueban con TestClient: `tests/api_harness.py`
+
+`ApiTestCase` levanta la app real con `/config`, `/mnt/output` y el workdir
+en un tmpdir. **No usa variables de entorno** — llegarían tarde si otro test
+importó `main` antes, y solo se puede importar una vez por proceso: parchea
+los directorios ya resueltos, igual que `cmv40_harness` con `OUTPUT_DIR`.
+
+La pieza que lo hace posible es el **espía de `_run_cmv40_phase`**. Los
+endpoints de fase son fire-and-forget; dejándolos correr, el `TestClient` se
+cuelga al cerrar esperando la tarea (y lanza ffmpeg de verdad). Con el espía,
+un test afirma qué fase se pidió arrancar sin ejecutarla, y
+`mockear_runners()` — que hay que llamar **antes** de la petición, porque el
+runner se resuelve al despachar — cubre qué función del pipeline se eligió.
+
+Tres matices del contrato HTTP que no son obvios y están fijados en tests:
+`cancel` **no** devuelve 404 a propósito (libera flags aunque la sesión ya no
+esté: mejor eso que una UI bloqueada), `apply-sync` lanza `correct_sync`
+**sin avanzar de fase** (Fase E se repite hasta que el Δ es 0), y los cuatro
+endpoints con body devuelven **422** antes de llegar a los guards, porque
+FastAPI valida el body primero.
 
 ### Estados de la sesión
 
