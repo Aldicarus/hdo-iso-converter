@@ -408,6 +408,8 @@ Los dos pasos grandes de Fase A recorren el vídeo entero y se estorbaban: medid
 
 Consecuencia contraintuitiva pero estructural: **ffmpeg termina bastante antes que el pipeline**. Medido en 5 jobs, la "cola" en la que `extract-rpu` sigue solo es el 23-38% de la fase (71s/263s · 119s/495s · 198s/519s · 201s/733s · 197s/863s). `source.hevc` queda con su mtime final mientras `RPU_source.bin` se escribe minutos después.
 
+**Para testear este camino, los binarios falsos tienen que entender que `pipe:1` es stdout.** El arnés lo trataba como una ruta: creaba un fichero llamado literalmente `pipe:1` en el cwd de la suite (llegó a commitearse uno), el pipe quedaba vacío, la función devolvía `False` y todos los tests de Fase A verificaban el camino en dos pasos — el que **no** corre en el NAS. Hay dos formas reales que el fake debe cubrir: el muxer `tee` (`[f=hevc]fichero|[f=hevc]pipe:1`) y `-f hevc pipe:1`. Y `dovi_tool extract-rpu -` lee de stdin: `-` no es una opción aunque empiece por guion. Las props del RPU viajan en la cabecera del stream, porque por un pipe no hay sidecar que consultar — sin eso el RPU extraído sale con los valores por defecto y el pipe *parece* funcionar mientras pierde el contenido. Cubierto por `test_pipe_fase_a.py`.
+
 ### Progreso: medirlo, no estimarlo — y saber qué NO se puede medir
 
 Regla del proyecto tras la auditoría de progreso: la barra y el ETA salen de **evidencia** (bytes leídos/escritos, frames, `Progress:` de mkvmerge), no de `elapsed / constante`. Las constantes envejecen con cada cambio del pipeline — el pipe de Fase A y el adelanto de la validación dejaron las suyas desfasadas en horas, y un job de 26 min llegó a anunciar 49.
