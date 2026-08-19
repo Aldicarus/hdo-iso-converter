@@ -444,6 +444,23 @@ Dos guards en el servidor, que es el único con el estado real:
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
 
+### El log del pipeline: `_log`, no `if log_callback:`
+
+`await _log(log_callback, "…")` hace el guard dentro, así que el callback es
+opcional de verdad y las fases se pueden ejecutar sin log (los tests lo
+hacen). Quedan 25 `if log_callback:` a propósito: los que construyen el
+texto condicionalmente o emiten varias líneas, donde sin el guard se haría
+el trabajo para tirarlo.
+
+**Los textos se quedan junto a los datos que interpolan.** Se evaluó sacarlos
+a un módulo de narrativa y los números no lo sostienen: de 136 llamadas al
+log, solo 33 llevan texto fijo; 95 son f-strings con 2-5 variables locales
+(tamaños, frame counts, profiles del RPU). Separarlas costaría ~475 líneas de
+módulo para quitar 180 del pipeline, y obligaría a saltar entre ficheros para
+saber qué se emite. Los `📋 Plan` que SÍ salieron son los de las fases que
+ramifican por workflow, y viven en `cmv40_strategy` porque allí la decisión y
+su explicación tienen que ser el mismo objeto.
+
 ### La UI no re-deriva el plan: lo lee
 
 `GET /api/cmv40/{id}` incluye `session.plan` con las decisiones ya resueltas por `cmv40_strategy` (`drop_in`, `trust_effective`, `target_needs_merge`, y por fase `needs_demux` / `needs_merge` / `needs_profile8` / `needs_dovi_mux` / `fast_path`…). `app.js` lo lee con tres helpers: **`_cmv40Trust`**, **`_cmv40DropIn`** y **`_cmv40TargetNeedsMerge`**.
