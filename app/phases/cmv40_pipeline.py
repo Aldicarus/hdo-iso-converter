@@ -3690,17 +3690,42 @@ async def run_phase_e_correct_sync(
     if not rpu_target.exists():
         raise RuntimeError("RPU_target.bin no existe")
 
+    # La corrección se aplica ENCADENADA sobre el resultado anterior, no
+    # siempre sobre el target original. El usuario dibuja cada corrección
+    # mirando el RPU que tiene delante —que ya lleva las anteriores— así que
+    # ese es el sistema de coordenadas en el que la expresó.
+    #
+    # Antes cada pasada partía de RPU_target.bin, y para no perder las
+    # correcciones previas el endpoint sumaba los frames de todas y las
+    # colapsaba en un único rango en la cabecera. Con correcciones del mismo
+    # signo sale lo mismo, pero al alternar (quitar 10 y luego duplicar 5) el
+    # ORDEN importa: "quitar 10 y duplicar 5" no toca los mismos frames que
+    # "duplicar 5 y quitar 10", aunque el Δ final coincida. Encadenando, el
+    # orden se respeta por construcción y no hay nada que recomponer.
+    entrada = rpu_synced if rpu_synced.exists() else rpu_target
+    salida_tmp = wd / "RPU_synced.tmp.bin"
+
     config_json.write_text(json.dumps(editor_config, indent=2), encoding="utf-8")
     await _log(log_callback, f"[Fase E] Aplicando editor config: {json.dumps(editor_config)}")
+    if entrada is rpu_synced:
+        await _log(log_callback,
+                   "[Fase E] Se aplica sobre RPU_synced.bin (corrección encadenada "
+                   "a las anteriores), no sobre el target original.")
 
     rc, out, err = await _run([
         DOVI_TOOL_BIN, "editor",
-        "-i", str(rpu_target),
+        "-i", str(entrada),
         "-j", str(config_json),
-        "-o", str(rpu_synced),
+        "-o", str(salida_tmp),
     ], log_callback=log_callback, timeout=120)
     if rc != 0:
+        salida_tmp.unlink(missing_ok=True)
         raise RuntimeError(f"dovi_tool editor falló: {err[:300]}")
+    if not salida_tmp.exists():
+        raise RuntimeError("dovi_tool editor terminó sin escribir el RPU corregido")
+    # Solo ahora se sustituye: un fallo a medias deja intacta la corrección
+    # anterior en vez de dejar el proyecto sin RPU corregido.
+    os.replace(salida_tmp, rpu_synced)
 
     # Actualizar frame count del RPU corregido
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_synced)], timeout=30)
@@ -3709,7 +3734,9 @@ async def run_phase_e_correct_sync(
         session.target_frame_count = dovi_info.frame_count
         session.sync_delta = dovi_info.frame_count - session.source_frame_count
 
-    session.sync_config = editor_config
+    # NO se sobreescribe `session.sync_config`: el endpoint ya dejó ahí el
+    # historial completo de pasos y este es solo el último. Escribirlo aquí
+    # borraba los anteriores en cuanto la fase terminaba.
     await _log(
         log_callback,
         f"[Fase E] RPU corregido: {session.target_frame_count} frames "
@@ -5092,43 +5119,73 @@ def sheet_sync_hint(session: CMv40Session, suggested: dict | None) -> dict | Non
 def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
     """
     Detecta el offset de frames entre source y target por cross-correlation
-    sobre MaxCLL en los primeros N frames no-negros.
+    sobre MaxCLL en los primeros N frames.
 
     Devuelve {"offset": int, "confidence": float, "reason": str}.
+
+    **La ventana se recorta con un origen COMÚN a las dos series.** Antes cada
+    una buscaba su propio primer frame con brillo, y eso borraba justo lo que
+    hay que medir: el desfase típico es un logo de estudio al principio del BD
+    que la versión de streaming no tiene, y un logo es oscuro. Con el recorte
+    por separado, las dos ventanas empezaban en "primer frame con contenido" y
+    la correlación devolvía **offset 0 con 100 % de confianza** — la señal más
+    tranquilizadora posible justo cuando se equivoca. Comprobado: con un logo
+    oscuro de 72 frames daba 0; con el mismo desfase y un logo brillante daba
+    -72. Cubierto por `test_cmv40_sync_offset.py`.
     """
     data = per_frame_data.get("data", [])
-    src_vals = [d.get("src_maxcll", 0) for d in data]
-    tgt_vals = [d.get("tgt_maxcll", 0) for d in data]
+    src_vals = [d.get("src_maxcll", 0) or 0 for d in data]
+    tgt_vals = [d.get("tgt_maxcll", 0) or 0 for d in data]
 
-    # Ventana de análisis: primeros 1000 frames con variación significativa
-    def _window(vals, size=1000):
-        non_zero_idx = next((i for i, v in enumerate(vals) if v > 10), 0)
-        return vals[non_zero_idx:non_zero_idx + size]
+    # Origen común: el primer frame con contenido de CUALQUIERA de las dos.
+    # Salta un tramo negro que compartan (créditos de apertura en ambas) sin
+    # tocar el desfase relativo, que es la magnitud que se busca.
+    def _first_bright(vals) -> int:
+        return next((i for i, v in enumerate(vals) if v > 10), 0)
 
-    src_w = _window(src_vals)
-    tgt_w = _window(tgt_vals)
+    start = min(_first_bright(src_vals), _first_bright(tgt_vals))
+    WINDOW = 1000
+    src_w = src_vals[start:start + WINDOW]
+    tgt_w = tgt_vals[start:start + WINDOW]
 
     if len(src_w) < 100 or len(tgt_w) < 100:
         return {"offset": 0, "confidence": 0.0, "reason": "Pocos frames con contenido"}
+
+    # Sin variación no hay forma que correlacionar: TODOS los offsets dan el
+    # mismo error y gana el primero que cumpla el solape, con confianza 100 %.
+    # `compute_sync_confidence` ya trataba este caso aparte ("no_variance");
+    # aquí faltaba.
+    if len(set(src_w)) < 2 or len(set(tgt_w)) < 2:
+        return {"offset": 0, "confidence": 0.0,
+                "reason": "Una de las series no tiene variación (datos planos) — "
+                          "no se puede estimar el desfase"}
 
     # Cross-correlation simple: buscar offset con menor error RMS
     best_offset = 0
     best_error  = float("inf")
     compare_len = min(200, len(src_w) // 2, len(tgt_w) // 2)
+    # Un offset grande deja fuera de rango casi todas las comparaciones: con
+    # `max_offset` y `compare_len` ambos a 200, en el extremo queda UNA, y una
+    # coincidencia por casualidad gana con RMS 0 y confianza 100 %. Se exige
+    # que al menos la mitad de la ventana solape.
+    min_overlap = max(20, compare_len // 2)
 
     for offset in range(-max_offset, max_offset + 1):
         errors = []
         for i in range(compare_len):
-            src_i = i
             tgt_i = i + offset
-            if 0 <= tgt_i < len(tgt_w) and src_i < len(src_w):
-                errors.append((src_w[src_i] - tgt_w[tgt_i]) ** 2)
-        if not errors:
+            if 0 <= tgt_i < len(tgt_w) and i < len(src_w):
+                errors.append((src_w[i] - tgt_w[tgt_i]) ** 2)
+        if len(errors) < min_overlap:
             continue
         rms = (sum(errors) / len(errors)) ** 0.5
         if rms < best_error:
             best_error = rms
             best_offset = offset
+
+    if best_error == float("inf"):
+        return {"offset": 0, "confidence": 0.0,
+                "reason": "Ventanas demasiado cortas para comparar"}
 
     # Confianza: qué tan bajo es el error vs la varianza de la señal
     src_mean = sum(src_w) / len(src_w) if src_w else 1

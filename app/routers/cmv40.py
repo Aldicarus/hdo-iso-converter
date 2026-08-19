@@ -2360,7 +2360,7 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
                             f.unlink()
                         except Exception as e:
                             _logger.warning("[Bulk cleanup] %s: %s", f, e)
-            for extra in ["RPU_synced.bin", "editor_config.json"]:
+            for extra in ["RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json"]:
                 f = wd / extra
                 if f.exists() and f.is_file():
                     try:
@@ -2396,7 +2396,7 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
     "source_analyzed": ["source.hevc", "RPU_source.bin"],
     "target_provided": ["RPU_target.bin"],
     "extracted":       ["BL.hevc", "EL.hevc", "per_frame_data.json"],
-    "sync_corrected":  ["RPU_synced.bin", "editor_config.json"],
+    "sync_corrected":  ["RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json"],
     "injected":        ["EL_injected.hevc", "BL_injected.hevc", "source_injected.hevc",
                         "RPU_merged.bin",
                         # Conversión a Profile 8.1 de los workflows single-layer
@@ -3191,28 +3191,49 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
 
-    # Acumular corrección con la previa (si existía)
+    # Historial de correcciones. La Fase E aplica CADA paso sobre el resultado
+    # del anterior (ver `run_phase_e_correct_sync`), así que aquí solo se anota
+    # lo que el usuario pidió — sin recomponer nada.
+    #
+    # Antes se sumaban los frames de todos los pasos y se emitía un único
+    # rango en la cabecera, porque la Fase E partía siempre del target
+    # original. Con pasos del mismo signo daba lo mismo; alternando quitar y
+    # duplicar, no: el orden decide QUÉ frames se tocan, aunque el Δ coincida.
     def _count_remove(cfg: dict) -> int:
         total = 0
-        for r in cfg.get("remove", []):
+        for r in cfg.get("remove") or []:
+            r = str(r)
             if "-" in r:
-                a, b = r.split("-")
-                total += int(b) - int(a) + 1
+                a, b = r.split("-", 1)
+                try:
+                    total += int(b) - int(a) + 1
+                except ValueError:
+                    pass
+            else:
+                total += 1
         return total
 
     def _count_duplicate(cfg: dict) -> int:
-        return sum(d.get("length", 0) for d in cfg.get("duplicate", []))
+        return sum(int(d.get("length") or 0)
+                   for d in (cfg.get("duplicate") or []) if isinstance(d, dict))
 
     prev_cfg = session.sync_config or {}
     new_cfg = body.editor_config or {}
-    total_remove = _count_remove(prev_cfg) + _count_remove(new_cfg)
-    total_dup = _count_duplicate(prev_cfg) + _count_duplicate(new_cfg)
+    # Compat: las sesiones anteriores a los pasos guardan el config aplanado
+    # directamente en `sync_config` (sin clave "steps").
+    prev_steps = prev_cfg.get("steps")
+    if not isinstance(prev_steps, list):
+        prev_steps = [prev_cfg] if prev_cfg else []
+    steps = [*prev_steps, new_cfg] if new_cfg else list(prev_steps)
 
-    combined_cfg: dict = {}
-    if total_remove > 0:
-        combined_cfg["remove"] = [f"0-{total_remove - 1}"]
-    if total_dup > 0:
-        combined_cfg["duplicate"] = [{"source": 0, "offset": 0, "length": total_dup}]
+    total_remove = sum(_count_remove(st) for st in steps)
+    total_dup = sum(_count_duplicate(st) for st in steps)
+
+    combined_cfg: dict = {
+        "steps": steps,
+        "total_removed": total_remove,
+        "total_duplicated": total_dup,
+    } if steps else {}
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3229,8 +3250,10 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
         )
         return session.model_dump()
 
-    # Sustituimos el editor_config del request por el acumulado
-    body.editor_config = combined_cfg
+    # A la fase va EL PASO DEL USUARIO, tal cual: se aplica encadenado sobre
+    # la corrección anterior. `combined_cfg` es solo el historial que se
+    # persiste para la UI.
+    paso = new_cfg
     # Persistimos sync_config aqui para que el frontend lo vea inmediatamente
     # (la respuesta sale antes de que termine la fase real). El backend lo
     # escribira de nuevo al finalizar — idempotente.
@@ -3242,7 +3265,7 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     captured_phase = session.phase  # mantenemos fase D activa
 
     async def _coro(log_cb, proc_cb):
-        await run_phase_e_correct_sync(session, body.editor_config, log_cb)
+        await run_phase_e_correct_sync(session, paso, log_cb)
 
     # Fire-and-forget como extract/inject/remux: la respuesta vuelve al
     # instante, el log fluye via WebSocket. Antes hacia await sobre la fase
@@ -3287,6 +3310,7 @@ async def cmv40_reset_sync(session_id: str):
 
     # Borrar RPU_synced.bin + editor_config.json
     (wd / "RPU_synced.bin").unlink(missing_ok=True)
+    (wd / "RPU_synced.tmp.bin").unlink(missing_ok=True)
     (wd / "editor_config.json").unlink(missing_ok=True)
 
     try:

@@ -384,7 +384,20 @@ class FakeToolbox:
 
         Es la forma de comprobar, por ejemplo, que el HEVC inyectado en un
         workflow single-layer lleva un RPU Profile 8 y no Profile 7.
+
+        Mira la cabecera del contenido antes del sidecar: el sidecar está
+        indexado por ruta, así que un artefacto que el pipeline haya movido
+        (`os.replace`, el `.mkv.tmp` -> `.mkv` de la Fase H) solo se
+        identifica por la cabecera.
         """
+        try:
+            with open(path, "rb") as f:
+                primera = f.readline()
+            cab = b"#HARNESS-PROPS "
+            if primera.startswith(cab):
+                return RpuProps.from_dict(json.loads(primera[len(cab):]))
+        except (OSError, ValueError):
+            pass
         meta = self._meta_path(path)
         if not meta.exists():
             return None
@@ -572,10 +585,22 @@ def meta_path(p):
 
 
 def read_props(path, sc):
-    """Props del fichero: sidecar si existe, escenario por basename si no."""
+    """Props del fichero: cabecera del contenido, sidecar, o escenario.
+
+    La cabecera va PRIMERO porque es la que sobrevive a un rename. El
+    pipeline mueve artefactos (`os.replace` del RPU corregido, el
+    `.mkv.tmp` -> `.mkv` de la Fase H) y el sidecar está indexado por
+    ruta absoluta, así que tras mover el fichero apuntaba al nombre viejo
+    y el artefacto movido volvía a los valores por defecto. El
+    `dovi_tool` real lleva la metadata DENTRO del fichero: un rename no
+    se la lleva por delante.
+    """
     if path is None:
         return dict(DEFAULT_PROPS)
     path = Path(path)
+    cab = props_in_file(path)
+    if cab is not None:
+        return cab
     mp = meta_path(path)
     if mp.exists():
         d = dict(DEFAULT_PROPS)
@@ -584,6 +609,24 @@ def read_props(path, sc):
     d = dict(DEFAULT_PROPS)
     d.update(sc.get("rpus", {}).get(path.name, {}))
     return d
+
+
+def props_in_file(path):
+    """Props escritas en la cabecera del artefacto, o None si no las lleva."""
+    try:
+        with open(str(path), "rb") as f:
+            primera = f.readline()
+    except OSError:
+        return None
+    cab = b"#HARNESS-PROPS "
+    if not primera.startswith(cab):
+        return None
+    try:
+        d = dict(DEFAULT_PROPS)
+        d.update(json.loads(primera[len(cab):]))
+        return d
+    except ValueError:
+        return None
 
 
 def write_props(path, props):
@@ -606,9 +649,13 @@ def produce(path, props=None):
             "Si es una salida especial (pipe:N, -), trátala antes." % (path,))
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(FILLER)
     if props is not None:
+        # Cabecera en el contenido + sidecar. La cabecera es la que viaja si
+        # el pipeline mueve el fichero (ver `read_props`).
+        p.write_bytes(stream_bytes(props))
         write_props(p, props)
+    else:
+        p.write_bytes(FILLER)
 
 
 def summary(props):
@@ -720,6 +767,25 @@ def dovi_tool(sc, sub, json_args):
             # cambia, el resto de metadata se preserva.
             props["profile"] = 8
             props["el_type"] = ""
+        # remove / duplicate cambian el numero de frames del RPU. Sin esto un
+        # test no puede comprobar que las correcciones de sync se acumulan:
+        # el frame count saldria igual tras cada pasada.
+        quitados = 0
+        for r in json_args.get("remove") or []:
+            try:
+                if "-" in str(r):
+                    a, b = str(r).split("-")
+                    quitados += int(b) - int(a) + 1
+                else:
+                    quitados += 1
+            except ValueError:
+                pass
+        anadidos = 0
+        for d in json_args.get("duplicate") or []:
+            if isinstance(d, dict):
+                anadidos += int(d.get("length") or 0)
+        if quitados or anadidos:
+            props["frames"] = max(0, int(props.get("frames") or 0) - quitados + anadidos)
         produce(out, props)
         return 0
 
