@@ -444,6 +444,16 @@ Dos guards en el servidor, que es el único con el estado real:
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
 
+### El análisis de MKV (Tab 2) se ejecuta en tests
+
+`analyze_mkv` no tenía ninguna prueba que la ejecutara. Ahora `test_mkv_analyze.py` la corre con el arnés (`cmv40_harness`, extendido con `mediainfo`, `mkvextract` y `mkvpropedit` falsos, `mkvmerge -J` configurable y `ffprobe -show_packets`): metadata HDR, pistas, detección de la Enhancement Layer, enriquecimiento con MediaInfo, capítulos, conteo PGS y los pasos del modal de progreso.
+
+**El fake devuelve el formato REAL, con unidad.** MediaInfo da `MaxCLL` como `'300 cd/m2'`, y el código hacía `int(rt["MaxCLL"])`: ValueError, `except: pass`, campo a None — **siempre**, en los 20 MKVs cacheados del NAS. MaxCLL/MaxFALL nunca llegaron a la radiografía DV+HDR ni a las líneas de referencia del perfil de luminancia. Lo parsea `_nits_de_mediainfo`.
+
+Demostrado por mutación que la fidelidad del fake es lo que hace útil el test: con la unidad, reintroducir el bug **falla**; con el número pelado, el mismo bug **pasa en verde**. Antes de escribir un binario falso, comprobar el formato real con `docker exec ... mediainfo --Output=JSON`.
+
+**El conteo PGS muestrea y escala**: lee los primeros 1.200 s y multiplica por `duración / 1200`; por debajo de 1.800 s cuenta entero. Un test que espere el valor crudo falla — y con razón.
+
 ### `CMv40Session` se queda plana — y por qué
 
 El modelo tiene **78 campos planos** con grupos evidentes por prefijo (`target_l8_*`, `pending_target_*`…). Anidarlos en sub-modelos **está descartado**, con dos motivos medidos:
