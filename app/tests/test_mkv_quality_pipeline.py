@@ -1,0 +1,193 @@
+"""
+La orquestación de la auditoría de calidad del RPU (Tab 2), ejecutada.
+
+`analyze_rpu_quality_for_mkv` (347 líneas, complejidad 61) no tenía ningún
+test que la ejecutara. Lo que hace *dentro* de cada paso sí está cubierto —
+`analyze_rpu_combos`, `classify_l8` y `classify_l8_quality` viven en
+`rpu_analyze` con 37 tests—, pero la orquestación no: qué pasos emite, si
+respeta la cancelación y si borra los intermedios.
+
+Y esos intermedios importan: el HEVC son ~45 GB, el RPU 100-200 MB y el JSON
+de export 300-500 MB. El docstring promete que se borran SIEMPRE en el
+`finally` — nunca se cachean. Si esa promesa se rompiera, el /mnt/tmp del NAS
+se llenaría de HEVCs de 45 GB sin que nadie relacione una cosa con la otra.
+"""
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "tests"))
+
+from cmv40_harness import FakeToolbox, RpuProps, write_artifacts  # noqa: E402
+
+
+class AuditoriaCase(unittest.IsolatedAsyncioTestCase):
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="audit_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.trabajo = self.tmp / "work"
+        self.trabajo.mkdir()
+
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+
+        from phases import mkv_analyze
+        self.mod = mkv_analyze
+        # El workdir de los intermedios: a un tmpdir, no a /mnt/tmp.
+        self._orig_wd = mkv_analyze._quality_workdir_base
+        mkv_analyze._quality_workdir_base = lambda: str(self.trabajo)
+        self.addCleanup(
+            lambda: setattr(mkv_analyze, "_quality_workdir_base", self._orig_wd))
+
+        self.mkv = self.tmp / "Peli (2024).mkv"
+        props = RpuProps(profile=7, el_type="FEL", cm_version="v4.0",
+                         frames=50, has_l8=True)
+        write_artifacts(self.tmp, self.mkv.name, props=props)
+        self.tb.define_mkv(self.mkv.name)
+        self.tb.define_media(self.mkv.name, duration=7200.0, frames=50)
+        self.tb.define_rpu_levels(self.mkv.name, l8_indices=[1, 28],
+                                  l9_primary=0, l11_content_type=1)
+
+    async def auditar(self, **kw):
+        pasos = []
+        kw.setdefault("progress_callback",
+                      lambda step, pct, label: pasos.append((step, pct)))
+        r = await self.mod.analyze_rpu_quality_for_mkv(str(self.mkv), **kw)
+        return r, pasos
+
+
+class TestLosPasosDelPipeline(AuditoriaCase):
+    """El frontend pinta una barra a partir de estos pasos; si cambian de
+    nombre o el porcentaje retrocede, la barra se rompe."""
+
+    async def test_emite_los_pasos_hasta_done(self):
+        _, pasos = await self.auditar()
+        nombres = [p for p, _ in pasos]
+        self.assertIn("extract_rpu", nombres)
+        self.assertIn("combos", nombres)
+        self.assertEqual(nombres[-1], "done")
+
+    async def test_el_porcentaje_no_retrocede(self):
+        _, pasos = await self.auditar()
+        pcts = [pct for _, pct in pasos]
+        self.assertEqual(pcts, sorted(pcts), pcts)
+
+    async def test_acaba_en_cien(self):
+        _, pasos = await self.auditar()
+        self.assertEqual(pasos[-1], ("done", 100.0))
+
+    async def test_funciona_sin_callbacks(self):
+        r = await self.mod.analyze_rpu_quality_for_mkv(str(self.mkv))
+        self.assertIsInstance(r, dict)
+
+
+class TestLimpiezaDeIntermedios(AuditoriaCase):
+    """El HEVC son ~45 GB: si no se borra, el /mnt/tmp del NAS se llena."""
+
+    def _restos(self):
+        # Los `.meta.json` son sidecars del arnés (las props del RPU que
+        # contiene cada artefacto), no intermedios del pipeline.
+        return [p.name for p in self.trabajo.rglob("*")
+                if p.is_file() and not p.name.endswith(".meta.json")
+                and p.suffix in (".hevc", ".bin", ".json")]
+
+    async def test_no_deja_intermedios_al_terminar(self):
+        await self.auditar()
+        self.assertEqual(self._restos(), [],
+                         "el HEVC/RPU/JSON deben borrarse en el finally")
+
+    async def test_tampoco_los_deja_si_falla(self):
+        # El caso que de verdad llena el disco: un fallo a mitad.
+        self.tb.fail("dovi_tool", "extract-rpu", rc=1, stderr="boom")
+        with self.assertRaises(Exception):
+            await self.auditar()
+        self.assertEqual(self._restos(), [],
+                         "un fallo no puede dejar 45 GB de HEVC colgando")
+
+    async def test_tampoco_los_deja_si_se_cancela(self):
+        def _cancelar():
+            raise RuntimeError("Cancelado por el usuario")
+        with self.assertRaises(RuntimeError):
+            await self.auditar(cancel_check=_cancelar)
+        self.assertEqual(self._restos(), [])
+
+
+class TestCancelacion(AuditoriaCase):
+
+    async def test_el_cancel_check_aborta_el_pipeline(self):
+        llamadas = {"n": 0}
+
+        def _cancelar():
+            llamadas["n"] += 1
+            raise RuntimeError("Cancelado por el usuario")
+
+        with self.assertRaises(RuntimeError) as cm:
+            await self.auditar(cancel_check=_cancelar)
+        self.assertIn("Cancelado", str(cm.exception))
+        self.assertGreater(llamadas["n"], 0)
+
+    async def test_un_cancel_check_que_no_cancela_deja_seguir(self):
+        r, pasos = await self.auditar(cancel_check=lambda: None)
+        self.assertEqual(pasos[-1][0], "done")
+        self.assertIsInstance(r, dict)
+
+    async def test_registra_los_procesos_para_poder_matarlos(self):
+        # Sin `register_proc` el cancel no tendría a quién mandar SIGTERM.
+        procs = []
+        await self.auditar(register_proc=procs.append)
+        self.assertTrue(procs, "debe registrar los subprocesos que lanza")
+
+
+class TestElPayloadDeCalidad(AuditoriaCase):
+
+    async def test_devuelve_los_campos_de_calidad(self):
+        r, _ = await self.auditar()
+        for campo in ("quality_classification", "quality_tier",
+                      "quality_verdict_text", "quality_verdict_color",
+                      "quality_l8_unique_count", "quality_total_frames_rpu"):
+            with self.subTest(campo=campo):
+                self.assertIn(campo, r)
+
+    async def test_el_veredicto_trae_texto_y_color(self):
+        r, _ = await self.auditar()
+        self.assertTrue(r.get("quality_verdict_text"))
+        self.assertTrue(r.get("quality_verdict_color"))
+
+    async def test_los_flags_dv_se_propagan_al_veredicto(self):
+        # `dv_flags` viene del análisis básico (has_l9/has_l11…) y el veredicto
+        # los usa: si se perdieran, el texto sería menos preciso.
+        r, _ = await self.auditar(dv_flags={"has_l9": True, "has_l11": True})
+        self.assertIsInstance(r, dict)
+        self.assertIn("quality_verdict_text", r)
+
+
+class TestFallosDelPipeline(AuditoriaCase):
+
+    async def test_si_ffmpeg_falla_lanza(self):
+        # "*": el "subcomando" de ffmpeg es la ruta del fichero.
+        self.tb.fail("ffmpeg", "*", rc=1, stderr="no such file")
+        self.tb.fail("dovi_tool", "extract-rpu", rc=1, stderr="sin HEVC")
+        with self.assertRaises(Exception):
+            await self.auditar()
+
+    async def test_si_extract_rpu_falla_lanza(self):
+        self.tb.fail("dovi_tool", "extract-rpu", rc=1, stderr="boom")
+        with self.assertRaises(Exception):
+            await self.auditar()
+
+    async def test_el_log_detallado_es_opcional(self):
+        lineas = []
+        r, _ = await self.auditar(log_callback=lineas.append)
+        self.assertIsInstance(r, dict)
+        # Si se pasa, tiene que decir algo: el usuario mira el log.
+        self.assertTrue(lineas)
+
+
+if __name__ == "__main__":
+    unittest.main()

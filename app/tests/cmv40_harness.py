@@ -603,7 +603,11 @@ def main():
     sc = scenario()
     sub = subcommand()
 
-    forced = sc.get("fail", {}).get("%s:%s" % (BINARY, sub))
+    # "*" como subcomando: falla cualquier invocación de ese binario. Útil con
+    # ffmpeg, cuyo "subcomando" (primer argumento sin guion) es en realidad la
+    # ruta del fichero de entrada.
+    forced = (sc.get("fail", {}).get("%s:%s" % (BINARY, sub))
+              or sc.get("fail", {}).get("%s:*" % BINARY))
 
     json_args = {}
     cfg = opt("-j")
