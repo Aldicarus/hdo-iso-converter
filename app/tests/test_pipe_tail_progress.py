@@ -145,15 +145,33 @@ class TestColaDelPipeline(unittest.IsolatedAsyncioTestCase):
             f"printf 'rpu' > {rpu}\n")
         dv.chmod(0o755)
 
-        # El consumidor avanza con el reloj, no con el número de consultas:
-        # así el test no depende de cuántas veces se le pregunte.
-        import time as _t
-        t0 = _t.monotonic()
-        paso = (0.25 * len(media_frac_por_tick) + 0.6) / len(lecturas)
+        # El consumidor avanza con el AVANCE DEL FICHERO, no con el reloj ni
+        # con el número de consultas.
+        #
+        # Con el reloj el test era intermitente (1 fallo por cada ~12 pasadas
+        # de la suite completa, invisible al correrlo aislado): el porcentaje
+        # sale de `leido / (escrito / media_frac)`, y ahí conviven dos relojes
+        # independientes — los `sleep` del shell que simula ffmpeg y el
+        # `monotonic()` de aquí. Bajo carga el shell se retrasa, así que
+        # cuando por fin llega su línea `time=` el reloj de las lecturas ya
+        # está al final: todas las muestras salían topadas al 95 % y el
+        # `assert any(p < 90)` fallaba.
+        #
+        # Indexando por el tamaño del HEVC, los dos van acoplados por
+        # construcción: si la máquina va lenta se retrasan juntos y el
+        # porcentaje sale igual en una máquina ociosa que con la suite entera
+        # corriendo. El índice es monótono porque el fichero solo crece.
+        indice_max = {"i": 0}
 
         def _rchar_falso(pid):
-            i = min(int((_t.monotonic() - t0) / paso), len(lecturas) - 1)
-            return lecturas[i]
+            try:
+                escrito = hevc.stat().st_size
+            except OSError:
+                escrito = 0
+            frac = (escrito / hevc_bytes) if hevc_bytes else 0.0
+            i = min(int(frac * len(lecturas)), len(lecturas) - 1)
+            indice_max["i"] = max(indice_max["i"], i)
+            return lecturas[indice_max["i"]]
 
         orig = (pipe.FFMPEG_BIN, pipe.DOVI_TOOL_BIN, pipe._proc_rchar,
                 pipe.PIPE_TICK_EVERY_S)

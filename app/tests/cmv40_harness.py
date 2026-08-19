@@ -57,7 +57,8 @@ if str(APP_DIR) not in sys.path:
 # descarta una conversión que deje <1000.
 _FILLER = b"\x00" * 4096
 
-FAKE_BINARIES = ("dovi_tool", "ffmpeg", "ffprobe", "mkvmerge")
+FAKE_BINARIES = ("dovi_tool", "ffmpeg", "ffprobe", "mkvmerge",
+                 "mediainfo", "mkvextract", "mkvpropedit")
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -171,7 +172,9 @@ class FakeToolbox:
         self.bin_dir = self.root / "fakebin"
         self.state_dir = self.root / "fakestate"
         self._scenario: dict = {"rpus": {}, "media": {}, "fail": {},
-                                "fail_json": []}
+                                "fail_json": [], "mediainfo": {},
+                                "chapters": {}, "mkvs": {},
+                                "pgs": {}}
         self._old_path: str | None = None
 
     # ── configuración del escenario ──────────────────────────────────
@@ -187,6 +190,81 @@ class FakeToolbox:
                      frames: int = 1000) -> None:
         """Duración y frame count que `ffprobe` reportará para un fichero."""
         self._scenario["media"][name] = {"duration": duration, "frames": frames}
+        self._flush()
+
+    def define_mkv(self, name: str, *, tracks: list[dict] | None = None,
+                   title: str = "", duration_s: float = 7200.0) -> None:
+        """Las pistas que `mkvmerge -J` reportará para un MKV.
+
+        Cada pista es un dict con `type` ("video"/"audio"/"subtitles") y los
+        campos que `analyze_mkv` lee: `codec`, `language`, `track_name`,
+        `default`, `forced`, `channels`, `dimensions`, `fps`.
+
+        Por defecto describe un UHD Blu-ray dual-layer con Dolby Vision: dos
+        pistas HEVC (la segunda a 1920x1080 es la Enhancement Layer, que es
+        cómo `analyze_mkv` detecta la FEL), audio y subtítulos.
+        """
+        if tracks is None:
+            tracks = [
+                {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+                 "dimensions": "3840x2160", "fps": 23.976},
+                {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+                 "dimensions": "1920x1080", "fps": 23.976},
+                {"type": "audio", "codec": "TrueHD Atmos", "language": "spa",
+                 "channels": 8, "default": True},
+                {"type": "audio", "codec": "TrueHD Atmos", "language": "eng",
+                 "channels": 8},
+                {"type": "subtitles", "codec": "HDMV PGS", "language": "spa",
+                 "forced": True},
+                {"type": "subtitles", "codec": "HDMV PGS", "language": "spa"},
+            ]
+        self._scenario.setdefault("mkvs", {})[name] = {
+            "tracks": tracks, "title": title, "duration_s": duration_s,
+        }
+        self._flush()
+
+    def define_mediainfo(self, name: str, *, video: dict | None = None,
+                         audio: list[dict] | None = None,
+                         subs: list[dict] | None = None,
+                         duration_s: float = 7200.0,
+                         size_bytes: int = 80_000_000_000) -> None:
+        """Lo que `mediainfo --Output=JSON` reportará para un fichero.
+
+        Tab 2 lo usa para el bitrate real, el `Format_Commercial_IfAny` (que es
+        la señal definitiva de Atmos/DTS:X) y la metadata HDR10. Los defaults
+        describen un UHD con HDR10 y una pista TrueHD Atmos.
+        """
+        if audio is None:
+            # Coherente con el MKV por defecto de `define_mkv`: dos TrueHD
+            # Atmos. Bitrates tomados de un UHD real del NAS.
+            audio = [{"bitrate": 4_423_581, "language": "es"},
+                     {"bitrate": 4_151_159, "language": "en"}]
+        if subs is None:
+            subs = [{"language": "es"}, {"language": "es"}]
+        self._scenario.setdefault("mediainfo", {})[name] = {
+            "video": video, "audio": audio, "subs": subs,
+            "duration_s": duration_s, "size_bytes": size_bytes,
+        }
+        self._flush()
+
+    def define_pgs_packets(self, name: str, por_pista: dict[int, int]) -> None:
+        """Paquetes PGS por índice de stream, que `ffprobe -show_packets`
+        emitirá como una línea por paquete.
+
+        Es la señal con la que Fase B distingue un subtítulo forzado de uno
+        completo (los forzados tienen muchos menos), y la que Tab 2 muestra
+        como "paquetes PGS".
+        """
+        self._scenario.setdefault("pgs", {})[name] = {
+            str(k): v for k, v in por_pista.items()}
+        self._flush()
+
+    def define_chapters(self, name: str, capitulos: list[tuple[str, str]]) -> None:
+        """Capítulos que `mkvextract chapters --simple` devolverá.
+
+        `capitulos` es una lista de (timestamp, nombre).
+        """
+        self._scenario.setdefault("chapters", {})[name] = capitulos
         self._flush()
 
     def fail(self, binary: str, subcommand: str, rc: int = 1,
@@ -535,6 +613,12 @@ def main():
         return ffmpeg(sc)
     if BINARY == "mkvmerge":
         return mkvmerge(sc)
+    if BINARY == "mediainfo":
+        return mediainfo(sc)
+    if BINARY == "mkvextract":
+        return mkvextract(sc)
+    if BINARY == "mkvpropedit":
+        return mkvpropedit(sc)
     return 0
 
 
@@ -663,12 +747,102 @@ def dovi_tool(sc, sub, json_args):
     return 0
 
 
+def mediainfo(sc):
+    """`mediainfo --Output=JSON <fichero>`.
+
+    Tab 2 lo consume vía `phase_a.run_mediainfo`, que espera el árbol
+    `{"media": {"track": [...]}}` con `@type` por pista. Los defaults
+    describen un UHD con HDR10 y TrueHD Atmos, que es el caso dominante.
+    """
+    positional = [a for a in ARGV if not a.startswith("-")]
+    name = Path(positional[-1]).name if positional else ""
+    spec = sc.get("mediainfo", {}).get(name)
+    if spec is None:
+        # Sin declarar: mediainfo "no encuentra nada útil". El caller lo
+        # tolera (el enriquecimiento es opcional).
+        sys.stdout.write(json.dumps({"media": {"track": []}}))
+        return 0
+
+    tracks = [{
+        "@type": "General",
+        "Duration": str(spec["duration_s"]),
+        "FileSize": str(spec["size_bytes"]),
+    }]
+    v = spec.get("video")
+    if v is None:
+        v = {}
+    if v is not False:
+        tracks.append({
+            "@type": "Video",
+            "StreamOrder": "0",
+            "BitRate": str(v.get("bitrate", 60_000_000)),
+            "BitDepth": str(v.get("bit_depth", 10)),
+            "colour_primaries": v.get("primaries", "BT.2020"),
+            "transfer_characteristics": v.get("transfer", "PQ"),
+            "MasteringDisplay_Luminance": v.get(
+                "mastering", "min: 0.0001 cd/m2, max: 1000 cd/m2"),
+            "MasteringDisplay_ColorPrimaries": v.get("mastering_primaries",
+                                                     "Display P3"),
+            # CON UNIDAD, como el mediainfo real: verificado contra el
+            # contenedor, devuelve "300 cd/m2". Un fake que diera el número
+            # pelado habría ocultado el bug de `int(rt["MaxCLL"])`.
+            "MaxCLL": str(v.get("maxcll", 1000)) + " cd/m2",
+            "MaxFALL": str(v.get("maxfall", 400)) + " cd/m2",
+            "Format": v.get("format", "HEVC"),
+        })
+    for i, a in enumerate(spec["audio"]):
+        tracks.append({
+            "@type": "Audio",
+            "StreamOrder": str(i + 1),
+            "BitRate": str(a.get("bitrate", 3_000_000)),
+            "Format_Commercial_IfAny": a.get("commercial", "Dolby TrueHD with Dolby Atmos"),
+            "Channels": str(a.get("channels", 8)),
+            "Compression_Mode": a.get("compression", "Lossless"),
+            "Language": a.get("language", "es"),
+        })
+    for i, t in enumerate(spec["subs"]):
+        tracks.append({
+            "@type": "Text",
+            "StreamOrder": str(len(spec["audio"]) + i + 1),
+            "Width": str(t.get("width", 1920)),
+            "Height": str(t.get("height", 1080)),
+            "Language": t.get("language", "es"),
+        })
+    sys.stdout.write(json.dumps({"media": {"track": tracks}}))
+    return 0
+
+
+def mkvextract(sc):
+    """`mkvextract <mkv> chapters --simple`: capítulos en formato OGM."""
+    positional = [a for a in ARGV if not a.startswith("-") and a != "chapters"]
+    name = Path(positional[0]).name if positional else ""
+    caps = sc.get("chapters", {}).get(name, [])
+    for i, (ts, titulo) in enumerate(caps, start=1):
+        sys.stdout.write(f"CHAPTER{i:02d}={ts}\n")
+        sys.stdout.write(f"CHAPTER{i:02d}NAME={titulo}\n")
+    return 0
+
+
+def mkvpropedit(sc):
+    """`mkvpropedit` edita cabeceras in-place: no produce fichero nuevo."""
+    sys.stdout.write("The changes are written to the file.\n")
+    return 0
+
+
 def ffprobe(sc):
     media = sc.get("media", {})
     positional = [a for a in ARGV if not a.startswith("-")]
     name = Path(positional[-1]).name if positional else ""
     info = media.get(name, {})
     joined = " ".join(ARGV)
+
+    # Conteo de paquetes por pista de subtítulos: una línea por paquete con el
+    # índice del stream. Es como Fase B separa forzados de completos.
+    if "-show_packets" in ARGV:
+        for idx, n in sorted(sc.get("pgs", {}).get(name, {}).items()):
+            for _ in range(int(n)):
+                sys.stdout.write(f"{idx}\n")
+        return 0
     if "nb_frames" in joined:
         sys.stdout.write("%d\n" % int(info.get("frames", 1000)))
     elif "format=duration" in joined:
@@ -689,10 +863,39 @@ def ffmpeg(sc):
 
 def mkvmerge(sc):
     if "-J" in ARGV:
+        positional = [a for a in ARGV if not a.startswith("-")]
+        name = Path(positional[-1]).name if positional else ""
+        spec = sc.get("mkvs", {}).get(name)
+        if spec is None:
+            # Sin declarar: un MKV mínimo válido (una pista de vídeo).
+            spec = {"tracks": [{"type": "video", "codec": "HEVC/H.265/MPEG-H",
+                                "dimensions": "3840x2160", "fps": 23.976}],
+                    "title": "", "duration_s": 7200.0}
+        out = []
+        for i, t in enumerate(spec["tracks"]):
+            props = {
+                "language": t.get("language", "und"),
+                "track_name": t.get("track_name", ""),
+                "default_track": bool(t.get("default", False)),
+                "forced_track": bool(t.get("forced", False)),
+            }
+            if t.get("dimensions"):
+                props["pixel_dimensions"] = t["dimensions"]
+            if t.get("fps"):
+                # mkvmerge expone default_duration en ns por frame.
+                props["default_duration"] = int(round(1e9 / float(t["fps"])))
+            if t.get("channels"):
+                props["audio_channels"] = t["channels"]
+            if t.get("sample_rate"):
+                props["audio_sampling_frequency"] = t["sample_rate"]
+            out.append({"id": i, "type": t["type"],
+                        "codec": t.get("codec", ""), "properties": props})
         sys.stdout.write(json.dumps({
-            "container": {"supported": True, "properties": {"duration": 7200000000000}},
-            "tracks": [{"id": 0, "type": "video",
-                        "properties": {"codec_id": "V_MPEGH/ISO/HEVC"}}],
+            "container": {"supported": True, "properties": {
+                "title": spec["title"],
+                "duration": int(spec["duration_s"] * 1e9),
+            }},
+            "tracks": out,
             "chapters": [],
         }))
         return 0

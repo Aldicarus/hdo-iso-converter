@@ -51,6 +51,9 @@ async def _probe_duration_seconds(media_path: str) -> float:
 
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
+
+# `MaxCLL`/`MaxFALL` de MediaInfo llegan como "300 cd/m2".
+_RE_PRIMER_ENTERO = re.compile(r"\s*(\d+)")
 MKVEXTRACT_BIN  = "mkvextract"
 FFMPEG_BIN      = "ffmpeg"
 DOVI_TOOL_BIN   = "dovi_tool"
@@ -94,6 +97,28 @@ def _quality_workdir_base() -> str | None:
 # ══════════════════════════════════════════════════════════════════════
 #  ANÁLISIS
 # ══════════════════════════════════════════════════════════════════════
+
+def _nits_de_mediainfo(valor) -> int | None:
+    """Extrae el número de un campo de luminancia de MediaInfo.
+
+    MediaInfo devuelve `MaxCLL` y `MaxFALL` **con unidad**: `'300 cd/m2'`, no
+    `'300'`. El código hacía `int(valor)` directamente, así que lanzaba
+    ValueError y un `except: pass` lo dejaba en None — verificado sobre los 20
+    MKVs cacheados del NAS: los 20 tenían `max_cll: None`, y esos dos valores
+    nunca han llegado a la radiografía DV+HDR ni a las líneas de referencia
+    del perfil de luminancia.
+
+    Se acepta también el número puro, por si alguna versión de MediaInfo lo
+    diera así.
+    """
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    m = _RE_PRIMER_ENTERO.match(texto)
+    return int(m.group(1)) if m else None
+
 
 async def analyze_mkv(
     mkv_path: str,
@@ -294,14 +319,8 @@ async def analyze_mkv(
                 if mi.raw_json:
                     for rt in mi.raw_json.get("media", {}).get("track", []):
                         if rt.get("@type") == "Video" and rt.get("@typeorder", "1") == "1":
-                            try:
-                                hdr_meta.max_cll = int(rt["MaxCLL"]) if rt.get("MaxCLL") else None
-                            except (ValueError, TypeError):
-                                pass
-                            try:
-                                hdr_meta.max_fall = int(rt["MaxFALL"]) if rt.get("MaxFALL") else None
-                            except (ValueError, TypeError):
-                                pass
+                            hdr_meta.max_cll = _nits_de_mediainfo(rt.get("MaxCLL"))
+                            hdr_meta.max_fall = _nits_de_mediainfo(rt.get("MaxFALL"))
                             hdr_meta.mastering_display_luminance = rt.get("MasteringDisplay_Luminance", "")
                             hdr_meta.mastering_display_primaries = rt.get("MasteringDisplay_ColorPrimaries", "")
                             break
