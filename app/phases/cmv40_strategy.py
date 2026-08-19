@@ -201,6 +201,47 @@ class WorkflowPlan:
     def drop_in(self) -> bool:
         return self.inputs.drop_in
 
+    def to_dict(self) -> dict:
+        """Lo que la UI necesita saber del plan, para que no lo re-derive.
+
+        `app.js` calculaba por su cuenta el trust efectivo (once veces, en dos
+        variantes sintácticas distintas), el drop-in, si el target necesita
+        merge y si hay demux o mux. Cada réplica es una copia de una regla
+        que vive aquí, y se desincroniza en silencio — la misma clase de
+        problema que el `📋 Plan` divergiendo de la decisión.
+
+        Solo van booleanos y nombres de artefactos: los textos largos del
+        plan ya viajan por el log, y esto se serializa en cada GET de la
+        sesión.
+        """
+        return {
+            "drop_in": self.inputs.drop_in,
+            "trust_effective": self.inputs.trust_effective,
+            "single_layer_output": self.inputs.single_layer_output,
+            "target_needs_merge": self.inputs.target_needs_merge,
+            "extract": {
+                "needs_demux": self.extract.needs_demux,
+                "skip_per_frame_data": self.extract.skip_per_frame_data,
+                "discards_el": self.extract.discards_el,
+            },
+            "inject": {
+                "needs_merge": self.inject.needs_merge,
+                "needs_profile8": self.inject.needs_profile8,
+                "hevc_input": self.inject.hevc_input,
+                "hevc_output": self.inject.hevc_output,
+            },
+            "remux": {
+                "needs_dovi_mux": self.remux.needs_dovi_mux,
+                "hevc_for_mkv": self.remux.hevc_for_mkv,
+                "video_track_name": self.remux.video_track_name,
+                "prewarm_validation": self.remux.prewarm_validation,
+            },
+            "validate": {
+                "fast_path": self.validate.fast_path,
+                "expected_el_type": self.validate.expected_el_type,
+            },
+        }
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  Resolución

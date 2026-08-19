@@ -73,6 +73,7 @@ from phases.cmv40_pipeline import (
 )
 
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
+from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
 # Conexiones WebSocket específicas de CMv4.0
 _cmv40_ws_connections: dict[str, list[WebSocket]] = {}
@@ -1975,6 +1976,11 @@ async def cmv40_get(session_id: str, include_log: bool = True):
         data["artifacts"] = fake_arts
     else:
         data["artifacts"] = _cmv40_scan_artifacts(session)
+    # El plan de la matriz de workflows, para que la UI no lo re-derive: el
+    # trust efectivo, el drop-in y si hay demux/merge/mux estaban calculados a
+    # mano en app.js (la regla de trust, once veces y en dos variantes). Cada
+    # réplica se desincroniza en silencio de la tabla que manda.
+    data["plan"] = resolve_plan(session).to_dict()
     return data
 
 

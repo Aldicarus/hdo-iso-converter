@@ -12412,12 +12412,59 @@ const CMV40_ETA = {
   ffmpeg_wall_fallback_s: 260,
 };
 
+/* ── El plan de la matriz de workflows ────────────────────────────────
+ *
+ * Estas reglas viven en `phases/cmv40_strategy.py` y llegan resueltas en
+ * `session.plan`. Aquí solo se leen.
+ *
+ * Antes se calculaban a mano: el trust efectivo aparecía ONCE veces y en
+ * dos variantes sintácticas distintas (`s.trust_override !==
+ * 'force_interactive'` y `(s.trust_override || 'auto') !== ...`), señal de
+ * que se habían ido copiando. Una réplica de una regla del backend se
+ * desincroniza en silencio, y de esa familia era el bug del overlay: la UI
+ * decidiendo por su cuenta sobre estado que el servidor ya sabía.
+ *
+ * El fallback local existe porque el plan no está en tres situaciones:
+ * sesiones cacheadas de antes de este cambio, el summary del sidebar (que
+ * vacía campos pesados) y el modal de creación (donde aún no hay sesión).
+ * Es UNA implementación, no once.
+ */
+function _cmv40Plan(s) {
+  return (s && s.plan) || null;
+}
+
+/** Trust que el pipeline honra: gates OK y sin revisión manual forzada. */
+function _cmv40Trust(s) {
+  const plan = _cmv40Plan(s);
+  if (plan) return !!plan.trust_effective;
+  return !!s.target_trust_ok && (s.trust_override || 'auto') !== 'force_interactive';
+}
+
+/** Bin P7 FEL CMv4.0 ya cocinado sobre source P7 FEL con gates OK: se
+ *  inyecta sobre BL+EL sin demux ni mux. */
+function _cmv40DropIn(s) {
+  const plan = _cmv40Plan(s);
+  if (plan) return !!plan.drop_in;
+  return _cmv40Trust(s)
+    && s.target_type === 'trusted_p7_fel_final'
+    && (s.source_workflow || 'p7_fel') === 'p7_fel';
+}
+
+/** El bin no encaja como reemplazo directo del RPU del source: hay que
+ *  transferirle los levels CMv4.0. */
+function _cmv40TargetNeedsMerge(s) {
+  const plan = _cmv40Plan(s);
+  if (plan) return !!plan.target_needs_merge;
+  return ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic']
+    .includes(s.target_type);
+}
+
 /** Deduce el label de la siguiente fase que el auto-pipeline disparara,
  *  a partir del phase actual (sin running_phase). Usado en el subtitulo del
  *  overlay durante el "puente" entre fases para mostrar algo util en vez
  *  del antiguo "Preparando siguiente fase..." vago. */
 function _cmv40GuessNextPhase(s) {
-  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const trust = _cmv40Trust(s);
   switch (s.phase) {
     case 'created':          return 'Fase A — Analizando MKV origen';
     case 'source_analyzed':  return 'Fase B — Preparando RPU target';
@@ -12565,12 +12612,15 @@ function _cmv40PhaseStartedSecs(s, phase) {
  *  Devuelve array ordenado de objetos con {key, icon, title, what, etaSecs}. */
 function _cmv40PlanAutoSteps(s, project) {
   const wf = s.source_workflow || 'p7_fel';
-  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const trust = _cmv40Trust(s);
   // `target_trust_ok` no se evalúa hasta Fase B, pero el pre-flight ya dejó
   // clasificado el bin. Sin anticiparlo, durante toda la Fase A el plan
   // asume ruta merge y suma un demux, un export y una validación completa
   // que no van a ejecutarse: ~13 min de fantasma en un UHD BD (reportado
   // con M3GAN 2.0: 49 min estimados para un job de ~26).
+  // NO es `_cmv40DropIn`: esto es una PREDICCIÓN válida solo antes de que
+  // Fase B evalúe los gates (no mira target_trust_ok, que aún no existe).
+  // El drop-in real lo dice el plan del backend.
   const dropInProbable = s.target_type === 'trusted_p7_fel_final'
                        && s.trust_override !== 'force_interactive'
                        && (wf === 'p7_fel')
@@ -12810,7 +12860,7 @@ function _cmv40PlanAutoSteps(s, project) {
   // - p7_mel y p8: merge solo cuando target ∈ {p7_fel_final, p7_mel_final, generic};
   //   con target P8 retail (trusted_p8_source) es inject directo sin merge.
   //   Alineado con _do_merge() y target_needs_merge en cmv40_pipeline.py.
-  const targetNeedsMerge = ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic'].includes(s.target_type);
+  const targetNeedsMerge = _cmv40TargetNeedsMerge(s);
   let fWhat;
   if (dropIn) {
     fWhat = 'Drop-in — inyecta el RPU del bin sobre source.hevc (BL+EL juntos, sin merge ni mux posterior)';
@@ -13131,7 +13181,7 @@ function _cmv40RenderTimeline(s, project) {
   let trustBadge;
   if (beforeGates) {
     trustBadge = '<span class="cmv40-tl-trust-badge pending">⏳ Auto · pendiente validaciones</span>';
-  } else if (s.target_trust_ok && s.trust_override !== 'force_interactive') {
+  } else if (_cmv40Trust(s)) {
     trustBadge = '<span class="cmv40-tl-trust-badge trusted">🚀 Auto · trusted</span>';
   } else {
     trustBadge = '<span class="cmv40-tl-trust-badge manual">🔬 Manual · revisión visual</span>';
@@ -15296,7 +15346,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     let cls2, txt2;
     if (beforeGates2) {
       cls2 = 'pending'; txt2 = '⏳ Auto · pendiente validaciones';
-    } else if (s.target_trust_ok && s.trust_override !== 'force_interactive') {
+    } else if (_cmv40Trust(s)) {
       cls2 = 'trusted'; txt2 = '🚀 Auto · trusted';
     } else {
       cls2 = 'manual'; txt2 = '🔬 Manual · revisión visual';
@@ -15632,7 +15682,7 @@ function _renderCMv40Info(s, pid) {
         ${canAuto ? `
         <button class="btn btn-${autoOn ? 'primary' : 'ghost'} btn-sm" onclick="cmv40ToggleAuto('${pid}')"
           data-tooltip="${(() => {
-            const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+            const trust = _cmv40Trust(s);
             if (trust) return 'Auto-ejecuta el pipeline completo A→H sin pausas. Los trust gates ya aprobaron alineación, Fase D se omite automáticamente.';
             if (s.target_type) return 'Auto-ejecuta cada fase tras la anterior. Si los trust gates no aprueban, pausa en Fase D para revisión manual del chart.';
             return 'Auto-ejecuta cada fase tras la anterior. La pausa en Fase D depende del target — sin gates trusted requiere revisión manual del chart.';
@@ -16279,8 +16329,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   // Usamos la misma condicion que el body (_cmv40FaseDoneBody key==='D') —
   // asi es robusta a reload del proyecto (phases_skipped no se persiste
   // desde el frontend y solo estaria disponible mid-sesion).
-  const trustedSkippedD = !!s.target_trust_ok
-                           && (s.trust_override || 'auto') !== 'force_interactive';
+  const trustedSkippedD = _cmv40Trust(s);
   const isSkippedD = fase.key === 'D'
                      && (skipped.includes('sync_verification_pause') || trustedSkippedD)
                      && state === 'done';
@@ -16771,8 +16820,7 @@ function _cmv40FaseSummary(key, s) {
     return total > 0 ? `BL.hevc, EL.hevc y per_frame_data (${_fmtBytes(total)} total)` : 'BL.hevc, EL.hevc y datos per-frame generados';
   }
   if (key === 'D') {
-    const trustedSkipped = !!s.target_trust_ok
-                            && (s.trust_override || 'auto') !== 'force_interactive';
+    const trustedSkipped = _cmv40Trust(s);
     if (trustedSkipped) return 'Omitida — target trusted: sync validado por gates';
     return s.sync_config ? `Corrección aplicada (Δ = ${s.sync_delta})` : 'Sincronización verificada (Δ = 0)';
   }
@@ -16848,8 +16896,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
   //       → el plot existe; mostrar chart + stats + controles de navegación
   //       (zoom + frame range) en modo read-only.
   if (key === 'D') {
-    const trustedSkipped = s.target_trust_ok
-      && (s.trust_override || 'auto') !== 'force_interactive';
+    const trustedSkipped = _cmv40Trust(s);
     if (trustedSkipped) {
       // Sin trust panel aqui — la tarjeta 🛡️ Validaciones arriba ya lo muestra.
       return `
@@ -17118,7 +17165,7 @@ function _cmv40FaseBBody(pid, s) {
 function _cmv40FaseCBody(pid, s) {
   // El warning del Δ frames debe matizar que Fase D puede omitirse si los
   // trust gates aprobaron alineación (no siempre habrá "revisión visual").
-  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const trust = _cmv40Trust(s);
   const deltaNote = trust
     ? 'Los trust gates ya validaron la alineación; la diferencia se considera tolerable y Fase D se omitirá.'
     : 'Se evaluará en Fase D (chart de sincronización) — podrás aplicar corrección si hace falta.';
@@ -17148,10 +17195,10 @@ function _cmv40FaseFBody(pid, s) {
   // Texto dinámico según workflow y target_type (igual estrategia que el
   // sidebar de la timeline). El banner "verifica el gráfico" solo aplica si
   // Fase D fue ejecutada visualmente — con trust_ok o ack se omite.
-  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const trust = _cmv40Trust(s);
   const wf = s.source_workflow || 'p7_fel';
-  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
-  const targetNeedsMerge = ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic'].includes(s.target_type);
+  const dropIn = _cmv40DropIn(s);
+  const targetNeedsMerge = _cmv40TargetNeedsMerge(s);
   const userAcked = !!s.user_acknowledged_degradation;
   const faseDExecutedVisually = !trust && !userAcked;
   let desc;
@@ -17181,9 +17228,9 @@ function _cmv40FaseFBody(pid, s) {
 
 function _cmv40FaseGBody(pid, s) {
   // Texto dinámico según workflow + drop-in. Misma lógica que el sidebar.
-  const trust = !!s.target_trust_ok && s.trust_override !== 'force_interactive';
+  const trust = _cmv40Trust(s);
   const wf = s.source_workflow || 'p7_fel';
-  const dropIn = trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel';
+  const dropIn = _cmv40DropIn(s);
   let desc;
   if (dropIn) {
     desc = 'mkvmerge directo sobre source_injected.hevc (BL+EL dual-layer ya combinado en Fase F) con audio/subs/capítulos del MKV origen.';
@@ -17396,6 +17443,14 @@ function _cmv40MaybeAutoAdvance(project) {
       // pero aceptó continuar — Fase D no puede arreglar nada en ese caso,
       // saltamos directamente a inject/remux/validate.
       const s = project.session;
+      // NO es `_cmv40Trust`: aquí cuenta también el ACK de gates
+      // degradados. OJO — esta regla NO coincide con la del backend
+      // (`_cmv40_dispatch_next_phase`, que hace `trusted_auto or
+      // user_acked`): con user_acked=true Y force_interactive, el backend
+      // avanza saltándose Fase D y esto no. Divergencia conocida, sin
+      // resolver; la de aquí parece la correcta, porque pedir revisión
+      // manual del sync y aceptar que el grading diverge son dos cosas
+      // distintas.
       const trustedAuto = (s.target_trust_ok === true || s.user_acknowledged_degradation === true)
         && s.trust_override !== 'force_interactive';
       if (trustedAuto) {

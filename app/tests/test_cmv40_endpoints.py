@@ -332,6 +332,95 @@ class TestQueFaseDisparaCadaEndpoint(ApiTestCase):
         self.assertTrue(r.json().get("started"))
 
 
+class TestElPlanViajaAlFrontend(ApiTestCase):
+    """El detalle de la sesión incluye el plan de la matriz de workflows.
+
+    `app.js` calculaba por su cuenta el trust efectivo (once veces, en dos
+    variantes sintácticas), el drop-in, si el target necesita merge y si hay
+    demux o mux. Son réplicas de reglas que viven en `cmv40_strategy`, y una
+    réplica se desincroniza en silencio: el bug del overlay fue de esa misma
+    familia — la UI decidiendo por su cuenta sobre estado del backend.
+    """
+
+    def plan_de(self, **campos) -> dict:
+        sid = self.crear_sesion(**campos)
+        r = self.client.get(f"/api/cmv40/{sid}")
+        self.assertEqual(r.status_code, 200)
+        cuerpo = r.json()
+        self.assertIn("plan", cuerpo, "el detalle debe traer el plan")
+        return cuerpo["plan"]
+
+    def test_el_drop_in_llega_resuelto(self):
+        plan = self.plan_de(source_workflow="p7_fel",
+                            target_type="trusted_p7_fel_final",
+                            target_trust_ok=True, trust_override="auto")
+        self.assertTrue(plan["drop_in"])
+        self.assertTrue(plan["trust_effective"])
+        self.assertFalse(plan["extract"]["needs_demux"])
+        self.assertFalse(plan["inject"]["needs_merge"])
+        self.assertFalse(plan["remux"]["needs_dovi_mux"])
+        self.assertTrue(plan["validate"]["fast_path"])
+
+    def test_la_rama_merge_llega_resuelta(self):
+        plan = self.plan_de(source_workflow="p7_fel",
+                            target_type="trusted_p8_source",
+                            target_trust_ok=False)
+        self.assertFalse(plan["drop_in"])
+        self.assertTrue(plan["extract"]["needs_demux"])
+        self.assertTrue(plan["inject"]["needs_merge"])
+        self.assertTrue(plan["remux"]["needs_dovi_mux"])
+        self.assertEqual(plan["inject"]["hevc_input"], "EL.hevc")
+        self.assertEqual(plan["inject"]["hevc_output"], "EL_injected.hevc")
+        self.assertFalse(plan["validate"]["fast_path"])
+
+    def test_el_single_layer_pide_la_conversion_a_p8(self):
+        for wf in ("p7_mel", "p8"):
+            with self.subTest(workflow=wf):
+                plan = self.plan_de(sid=f"cmv40_plan_{wf}", source_workflow=wf,
+                                    target_type="trusted_p8_source",
+                                    target_trust_ok=True)
+                self.assertTrue(plan["single_layer_output"])
+                self.assertTrue(plan["inject"]["needs_profile8"])
+                self.assertIn("P8.1", plan["remux"]["video_track_name"])
+
+    def test_force_interactive_apaga_el_trust_y_el_drop_in(self):
+        plan = self.plan_de(source_workflow="p7_fel",
+                            target_type="trusted_p7_fel_final",
+                            target_trust_ok=True,
+                            trust_override="force_interactive")
+        self.assertFalse(plan["trust_effective"])
+        self.assertFalse(plan["drop_in"])
+        self.assertTrue(plan["extract"]["needs_demux"])
+        # Y con Fase D activa, hacen falta los datos del chart.
+        self.assertFalse(plan["extract"]["skip_per_frame_data"])
+
+    def test_una_sesion_recien_creada_ya_trae_un_plan_coherente(self):
+        # En `created` no hay target todavía: el plan asume p7_fel y sin
+        # trust, que es lo conservador — la UI puede pintar algo sin
+        # inventarse nada.
+        plan = self.plan_de()
+        self.assertFalse(plan["drop_in"])
+        self.assertFalse(plan["trust_effective"])
+        self.assertIn("needs_demux", plan["extract"])
+
+    def test_el_plan_coincide_con_la_tabla(self):
+        # Si la serialización se desviara de la tabla, el frontend recibiría
+        # una tercera versión de la verdad.
+        from phases.cmv40_strategy import WorkflowInputs, plan_for
+        casos = [
+            ("p7_fel", "trusted_p7_fel_final", True, "auto"),
+            ("p7_mel", "trusted_p7_mel_final", True, "auto"),
+            ("p8", "generic", False, "auto"),
+        ]
+        for wf, tt, trust, ov in casos:
+            with self.subTest(wf=wf, target=tt):
+                enviado = self.plan_de(
+                    sid=f"cmv40_cmp_{wf}_{tt}", source_workflow=wf,
+                    target_type=tt, target_trust_ok=trust, trust_override=ov)
+                esperado = plan_for(WorkflowInputs(wf, tt, trust, ov)).to_dict()
+                self.assertEqual(enviado, esperado)
+
+
 class TestListadoYResumen(ApiTestCase):
 
     def test_listado_vacio(self):
