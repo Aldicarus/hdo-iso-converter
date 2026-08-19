@@ -5043,6 +5043,8 @@ from phases.cmv40_pipeline import (
     CMV40_WORK_BASE,
 )
 
+import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
+
 # Conexiones WebSocket específicas de CMv4.0
 _cmv40_ws_connections: dict[str, list[WebSocket]] = {}
 _cmv40_active_procs: dict[str, asyncio.subprocess.Process] = {}
@@ -5631,6 +5633,12 @@ async def _run_cmv40_phase_locked(
         def _proc_cb(proc):
             _cmv40_proc_register(session.id, proc)
 
+        # Cancelación cooperativa: el pipeline consulta este predicado antes
+        # de cada subproceso. Sin él, cancelar solo mataba el proceso en curso
+        # y la fase seguía con el comando siguiente.
+        _cmv40_pipeline_mod.set_cancel_check(
+            lambda: bool(_cmv40_cancel_flags.get(session.id)))
+
         try:
             # Estado del dedup de progreso limpio: la primera barra de esta
             # fase debe emitirse siempre, aunque coincida con la última de
@@ -5657,6 +5665,19 @@ async def _run_cmv40_phase_locked(
                     else "restore_merge"
                 )
             await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
+        except _cmv40_pipeline_mod.CMv40Cancelled:
+            # No es un fallo: el usuario canceló. Se registra como cancelada y
+            # NO se puebla error_message — así el guard de 409 no bloquea el
+            # reintento y el usuario puede relanzar la fase sin descartar nada.
+            record.status = "cancelled"
+            record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
+            session.phase = previous_phase
+            await _cmv40_log(
+                session,
+                f"🛑 Cancelado: fase {phase_name} detenida a petición del usuario "
+                f"tras {record.elapsed_seconds:.1f}s. Los artefactos completados "
+                f"se conservan; relanza la fase cuando quieras.")
         except Exception as e:
             record.status = "error"
             record.finished_at = datetime.now(timezone.utc)
@@ -7670,6 +7691,11 @@ async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
         save_cmv40_session(session)
         await _cmv40_log(session, f"[DEV] RPU target: CM v4.0, 137992 frames (Δ = {session.sync_delta:+d})")
         return session.model_dump()
+
+    # El flag de cancelación es de la fase anterior: limpiarlo antes de
+    # arrancar. Ahora que el pipeline lo consulta de verdad
+    # (`raise_if_cancelled`), no hacerlo abortaría esta fase al instante.
+    _cmv40_cancel_flags.pop(session_id, None)
 
     async def _coro(log_cb, proc_cb):
         await run_phase_b_target_from_path(session, body.rpu_path, log_cb)

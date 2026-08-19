@@ -15,6 +15,7 @@ Cada fase escribe artefactos en /mnt/tmp/cmv40/{session_id}/ y actualiza
 el estado de la sesión. Las fases largas streaman progreso via callback.
 """
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -322,8 +323,50 @@ def validate_artifacts(session: CMv40Session) -> dict:
     return result
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  CANCELACIÓN COOPERATIVA
+# ══════════════════════════════════════════════════════════════════════
+
+class CMv40Cancelled(Exception):
+    """La fase se abortó porque el usuario canceló el proyecto.
+
+    No es un error del pipeline: quien la reciba debe registrar la fase como
+    cancelada, no como fallida.
+    """
+
+
+# El predicado lo instala el orquestador antes de arrancar cada fase (ver
+# `_run_cmv40_phase` en main.py). Va en un ContextVar y no como parámetro
+# porque los `run_phase_*` reciben (session, log_callback, proc_callback) y
+# añadir un cuarto argumento obligaría a tocar las nueve firmas, sus catorce
+# call-sites y todos los tests. Las tasks de asyncio heredan el contexto, así
+# que el valor llega a las corrutinas hijas sin propagarlo a mano.
+_cancel_check: contextvars.ContextVar = contextvars.ContextVar(
+    "cmv40_cancel_check", default=None)
+
+
+def set_cancel_check(predicado) -> None:
+    """Instala el predicado de cancelación para la fase en curso."""
+    _cancel_check.set(predicado)
+
+
+def raise_if_cancelled() -> None:
+    """Aborta la fase si el usuario ha cancelado.
+
+    Se llama antes de cada subproceso: es el punto natural, porque entre uno
+    y otro es donde una fase puede parar sin dejar un artefacto a medias.
+    Hasta ahora la cancelación dependía solo del SIGTERM al proceso en curso,
+    así que cancelar entre dos pasos no tenía efecto y la fase seguía
+    adelante con el siguiente comando.
+    """
+    predicado = _cancel_check.get()
+    if predicado is not None and predicado():
+        raise CMv40Cancelled("Cancelado por el usuario")
+
+
 async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) -> tuple[int, str, str]:
     """Ejecuta un comando y devuelve (returncode, stdout, stderr)."""
+    raise_if_cancelled()
     if log_callback:
         await log_callback(f"$ {' '.join(cmd)}")
     # start_new_session=True para que cancel pueda hacer killpg si el
@@ -656,6 +699,7 @@ async def _run_streaming(
     """
     # Antes de lanzar nada: el bloque que lee progress_ctx vive más abajo, y
     # estas dos se usan en cuanto existe el pid.
+    raise_if_cancelled()
     progress_input = progress_ctx.get("input_path") if progress_ctx else None
     progress_output = progress_ctx.get("output_path") if progress_ctx else None
     progress_expected = int(progress_ctx.get("expected_out_bytes") or 0) if progress_ctx else 0
@@ -1345,6 +1389,7 @@ async def _run_with_time_estimate(
     real. Sin él —o si el kernel no lo expone— se cae a la estimación por
     reloj de siempre, `elapsed / estimated_s` con tope al 95 %.
     """
+    raise_if_cancelled()
     stop = asyncio.Event()
     start = time.monotonic()
     reader: _ReadProgress | None = None
