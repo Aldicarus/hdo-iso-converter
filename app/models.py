@@ -20,10 +20,14 @@ Jerarquía de modelos:
 """
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+_logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1147,6 +1151,81 @@ class L8Combo(BaseModel):
     occurrence_count: int = 0
 
 
+
+# ══════════════════════════════════════════════════════════════════════
+#  VISTAS AGRUPADORAS DE CMv40Session
+# ══════════════════════════════════════════════════════════════════════
+#
+# `CMv40Session` tiene 78 campos planos, con grupos evidentes por prefijo
+# (`target_l8_*`, `pending_target_*`, …). Se evaluó anidarlos de verdad y se
+# descartó: `session.model_dump()` va tal cual a la UI, que lee 61 de esos
+# campos, y —peor— Pydantic ignora en silencio las claves que no reconoce, así
+# que un JSON existente cargado con un modelo anidado devolvería los
+# sub-modelos vacíos y el primer save reescribiría el fichero SIN el análisis
+# L8 ni los combos L2. Con proyectos en el /config de usuarios que no podemos
+# inspeccionar, eso no tiene vuelta atrás.
+#
+# Estas vistas dan la legibilidad sin ese riesgo: son properties calculadas al
+# vuelo, así que **no entran en `model_dump()`** y el JSON de la API no cambia.
+# El código nuevo puede escribir `session.l8.classification` en vez de
+# `session.target_l8_classification`.
+
+
+@dataclass(frozen=True)
+class L8View:
+    """El análisis L8 del bin target, agrupado (11 campos planos)."""
+    classification: str
+    quality_tier: str
+    quality_label: str
+    quality_description: str
+    unique_count: int
+    neutral_frames_pct: float
+    has_mid_contrast: bool
+    has_clip_trim: bool
+    scene_cuts: int
+    target_indices: list
+    combos: list
+
+    @property
+    def is_real(self) -> bool:
+        """L8 trabajado por un colorista: restaurarlo aporta calidad."""
+        return self.classification == "real"
+
+    @property
+    def is_synthetic(self) -> bool:
+        """Bin sintético — restaurar equivale a la conversión al vuelo."""
+        return self.classification == "default"
+
+
+@dataclass(frozen=True)
+class PendingTargetView:
+    """El target que el usuario eligió al crear y aún no se ha provisto."""
+    kind: str
+    rpu_path: str
+    file_id: str
+    file_name: str
+    source_mkv_path: str
+
+    @property
+    def exists(self) -> bool:
+        return bool(self.kind)
+
+
+@dataclass(frozen=True)
+class RecommendationView:
+    """La decisión Mantener/Inyectar del pre-flight."""
+    decision: str
+    message: str
+    action: str
+    action_label: str
+    action_reason: str
+
+    @property
+    def says_keep(self) -> bool:
+        """El pre-flight recomienda quedarse con el MKV actual."""
+        return self.action == "keep"
+
+
 class CMv40Session(BaseModel):
     """
     Proyecto CMv4.0 — convierte un MKV con CMv2.9 a CMv4.0 inyectando
@@ -1502,3 +1581,100 @@ class CMv40Session(BaseModel):
                            hace la conversión CMv4.0 al vuelo en runtime.
       - '':               proyecto aún no terminado o cierre legacy.
     """
+
+    # ── Vistas agrupadoras (no se serializan: ver L8View arriba) ──────
+
+    @property
+    def l8(self) -> L8View:
+        """El análisis L8 del bin, agrupado."""
+        return L8View(
+            classification=self.target_l8_classification,
+            quality_tier=self.target_l8_quality_tier,
+            quality_label=self.target_l8_quality_label,
+            quality_description=self.target_l8_quality_description,
+            unique_count=self.target_l8_unique_count,
+            neutral_frames_pct=self.target_l8_neutral_frames_pct,
+            has_mid_contrast=self.target_l8_has_mid_contrast,
+            has_clip_trim=self.target_l8_has_clip_trim,
+            scene_cuts=self.target_l8_scene_cuts,
+            target_indices=list(self.target_l8_target_indices or []),
+            combos=list(self.target_l8_combos or []),
+        )
+
+    @property
+    def pending_target(self) -> PendingTargetView:
+        """El target elegido al crear el proyecto, aún sin proveer."""
+        return PendingTargetView(
+            kind=self.pending_target_kind,
+            rpu_path=self.pending_target_rpu_path,
+            file_id=self.pending_target_file_id,
+            file_name=self.pending_target_file_name,
+            source_mkv_path=self.pending_target_source_mkv_path,
+        )
+
+    @property
+    def recommendation(self) -> RecommendationView:
+        """La decisión Mantener/Inyectar del pre-flight."""
+        return RecommendationView(
+            decision=self.preflight_decision,
+            message=self.preflight_message,
+            action=self.recommended_action,
+            action_label=self.recommended_action_label,
+            action_reason=self.recommended_action_reason,
+        )
+
+    # ── Invariantes ──────────────────────────────────────────────────
+    #
+    # NORMALIZA Y AVISA; NO LANZA. Un validador que reventara convertiría una
+    # incoherencia menor en "la app no carga tu proyecto", y estos JSON viven
+    # en el /config de usuarios cuyos datos no podemos inspeccionar ni
+    # restaurar. Las 110 sesiones del NAS de referencia no tienen ninguna de
+    # estas combinaciones, pero puede haber estados de versiones intermedias
+    # que no hemos visto.
+    #
+    # Para el código NUEVO el valor está en los tests, que sí fallan si se
+    # produce una de estas combinaciones.
+
+    @model_validator(mode="after")
+    def _normalizar_incoherencias(self):
+        def avisa(que: str, arreglo: str) -> None:
+            _logger.warning(
+                "CMv40Session %s incoherente: %s — %s", self.id, que, arreglo)
+
+        # Un bin sin clasificar o inservible no puede tener los gates en
+        # verde: target_trust_ok solo se pone tras clasificar el bin.
+        if self.target_trust_ok and self.target_type in ("", "incompatible"):
+            avisa(f"target_trust_ok con target_type={self.target_type!r}",
+                  "se baja el trust (conservador: fuerza revisión manual)")
+            self.target_trust_ok = False
+
+        # El banner de confirmación se pinta desde `critical_gate_failures`:
+        # sin motivos, el usuario vería un bloqueo sin explicación ni salida.
+        if self.awaiting_critical_ack and not self.critical_gate_failures:
+            avisa("awaiting_critical_ack sin critical_gate_failures",
+                  "se levanta el bloqueo (no habría banner con el que salir)")
+            self.awaiting_critical_ack = False
+
+        # El endpoint de ACK limpia el flag al aceptar: las dos cosas a la vez
+        # significan que el ACK se registró a medias.
+        if self.awaiting_critical_ack and self.user_acknowledged_degradation:
+            avisa("awaiting_critical_ack con el ACK ya dado",
+                  "se levanta el bloqueo: el usuario ya aceptó")
+            self.awaiting_critical_ack = False
+
+        # Un job terminado no arrastra error: `_run_cmv40_phase` limpia
+        # error_message al completar la fase.
+        if self.phase == CMv40Phase.DONE and self.error_message:
+            avisa("phase=done con error_message",
+                  "se descarta el error (el job terminó)")
+            self.error_message = ""
+
+        # `running_phase` es estado de proceso y el recovery de arranque lo
+        # limpia; con el job terminado es residuo.
+        if self.phase == CMv40Phase.DONE and self.running_phase:
+            avisa(f"phase=done con running_phase={self.running_phase!r}",
+                  "se limpia (el job ya terminó)")
+            self.running_phase = None
+
+        return self
+
