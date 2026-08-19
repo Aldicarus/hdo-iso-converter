@@ -68,6 +68,7 @@ class WorkflowInputs:
     target_type: str = ""
     target_trust_ok: bool = False
     trust_override: str = "auto"
+    user_acknowledged: bool = False
 
     @classmethod
     def from_session(cls, session) -> "WorkflowInputs":
@@ -76,6 +77,7 @@ class WorkflowInputs:
             target_type=session.target_type or "",
             target_trust_ok=bool(session.target_trust_ok),
             trust_override=session.trust_override or "auto",
+            user_acknowledged=bool(session.user_acknowledged_degradation),
         )
 
     @property
@@ -87,6 +89,28 @@ class WorkflowInputs:
         `app.js`.
         """
         return self.target_trust_ok and self.trust_override != "force_interactive"
+
+    @property
+    def skip_sync_review(self) -> bool:
+        """¿Puede el pipeline saltarse la revisión visual de la Fase D?
+
+        Dos vías la habilitan: que los gates hayan pasado (trust efectivo) o
+        que el usuario haya aceptado la degradación de un gate que la Fase D
+        no puede arreglar. **Ninguna sobrevive a `force_interactive`.**
+
+        Ese último punto arregla una divergencia real: el orquestador hacía
+        `trusted_auto or user_acked` —con el ACK dado se saltaba la Fase D
+        aunque el usuario hubiera pedido revisión manual— mientras el
+        frontend exigía además que no hubiera `force_interactive`. Con
+        user_acked=True y force_interactive, uno avanzaba y el otro no.
+
+        Manda la lectura del frontend, que es la coherente: pedir revisar el
+        sync a mano y aceptar que el grading diverge son decisiones
+        distintas, y aceptar la segunda no anula la primera.
+        """
+        if self.trust_override == "force_interactive":
+            return False
+        return self.target_trust_ok or self.user_acknowledged
 
     @property
     def drop_in(self) -> bool:
@@ -217,6 +241,7 @@ class WorkflowPlan:
         return {
             "drop_in": self.inputs.drop_in,
             "trust_effective": self.inputs.trust_effective,
+            "skip_sync_review": self.inputs.skip_sync_review,
             "single_layer_output": self.inputs.single_layer_output,
             "target_needs_merge": self.inputs.target_needs_merge,
             "extract": {

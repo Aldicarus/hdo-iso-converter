@@ -41,7 +41,7 @@ class TestHelpersDelPlan(unittest.TestCase):
     """Evalúa los helpers reales de app.js en node."""
 
     HELPERS = ("_cmv40Plan", "_cmv40Trust", "_cmv40DropIn",
-               "_cmv40TargetNeedsMerge")
+               "_cmv40SkipSyncReview", "_cmv40TargetNeedsMerge")
 
     def evaluar(self, fn: str, session: dict):
         script = "".join(_extraer(h) for h in self.HELPERS) + (
@@ -105,6 +105,51 @@ class TestHelpersDelPlan(unittest.TestCase):
         self.assertTrue(self.evaluar("_cmv40DropIn", s))
 
 
+class TestLaReglaDeSaltarLaRevisionNoVuelveADivergir(unittest.TestCase):
+    """`skip_sync_review` es la regla que las dos partes tenían distinta.
+
+    El backend hacía `trusted_auto or user_acked`: con el ACK dado se saltaba
+    la Fase D aunque el usuario hubiera pedido revisión manual. El frontend
+    exigía además que no hubiera `force_interactive`. Se unificó en esta
+    última lectura, y aquí se comprueba que el helper de JS y la tabla de
+    Python siguen dando lo mismo en las ocho combinaciones.
+    """
+
+    def evaluar(self, session: dict):
+        script = "".join(_extraer(h) for h in
+                         ("_cmv40Plan", "_cmv40SkipSyncReview")) + (
+            "\nprocess.stdout.write(JSON.stringify("
+            "_cmv40SkipSyncReview(JSON.parse(process.argv[1]))));")
+        r = subprocess.run([NODE, "-e", script, json.dumps(session)],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[:400]}")
+        return json.loads(r.stdout)
+
+    @unittest.skipUnless(NODE, "node no disponible")
+    def test_el_fallback_js_coincide_con_la_tabla(self):
+        from phases.cmv40_strategy import WorkflowInputs
+        for trust_ok in (True, False):
+            for acked in (True, False):
+                for ov in ("auto", "force_interactive"):
+                    with self.subTest(trust_ok=trust_ok, acked=acked, override=ov):
+                        s = {"target_trust_ok": trust_ok,
+                             "user_acknowledged_degradation": acked,
+                             "trust_override": ov,
+                             "target_type": "trusted_p8_source",
+                             "source_workflow": "p7_fel"}
+                        esperado = WorkflowInputs(
+                            "p7_fel", "trusted_p8_source", trust_ok, ov,
+                            acked).skip_sync_review
+                        self.assertEqual(self.evaluar(s), esperado)
+
+    @unittest.skipUnless(NODE, "node no disponible")
+    def test_el_plan_del_backend_tiene_prioridad(self):
+        s = {"plan": {"skip_sync_review": False},
+             "target_trust_ok": True, "trust_override": "auto",
+             "user_acknowledged_degradation": True}
+        self.assertFalse(self.evaluar(s))
+
 class TestNoQuedanReplicas(unittest.TestCase):
     """Guard: la regla no debe volver a escribirse a mano.
 
@@ -113,8 +158,8 @@ class TestNoQuedanReplicas(unittest.TestCase):
     ejecutando. El comportamiento lo cubre la clase de arriba.
     """
 
-    # Los tres usos legítimos: el fallback del helper, la predicción previa a
-    # los gates y la regla de auto-avance (que incluye el ACK del usuario).
+    # Los tres usos legítimos: los fallbacks de `_cmv40Trust` y
+    # `_cmv40SkipSyncReview`, y la predicción de drop-in previa a los gates.
     USOS_LEGITIMOS = 3
 
     def test_la_regla_no_esta_replicada(self):
@@ -129,7 +174,7 @@ class TestNoQuedanReplicas(unittest.TestCase):
 
     def test_los_helpers_existen(self):
         for h in ("_cmv40Plan", "_cmv40Trust", "_cmv40DropIn",
-                  "_cmv40TargetNeedsMerge"):
+                  "_cmv40SkipSyncReview", "_cmv40TargetNeedsMerge"):
             self.assertIn(f"function {h}(", JS)
 
 

@@ -888,13 +888,13 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
     elif phase == CMv40Phase.TARGET_PROVIDED:
         await _cmv40_dispatch_phase(fresh, "extract")
     elif phase == CMv40Phase.EXTRACTED:
-        # Trusted target → auto mark-synced → seguir cadena
-        trusted_auto = (
-            fresh.target_trust_ok
-            and fresh.trust_override != "force_interactive"
-        )
-        user_acked = fresh.user_acknowledged_degradation
-        if trusted_auto or user_acked:
+        # ¿Se puede saltar la revisión visual de Fase D? La regla vive en
+        # `cmv40_strategy` y la comparten este orquestador, el endpoint de ACK
+        # y la UI (via `plan.skip_sync_review`). Antes estaba escrita aquí
+        # como `trusted_auto or user_acked`, que con el ACK dado se saltaba
+        # Fase D aunque el usuario hubiera pedido revisión manual — el
+        # frontend no lo hacía, y las dos partes decidían distinto.
+        if resolve_plan(fresh).inputs.skip_sync_review:
             fresh.phase = CMv40Phase.SYNC_VERIFIED
             if "sync_verification_pause" not in fresh.phases_skipped:
                 fresh.phases_skipped.append("sync_verification_pause")
@@ -2222,8 +2222,14 @@ async def cmv40_acknowledge_critical_gates(session_id: str):
     session.user_acknowledged_degradation = True
     if session.phases_skipped is None:
         session.phases_skipped = []
-    if "sync_verification_pause" not in session.phases_skipped:
-        session.phases_skipped.append("sync_verification_pause")
+    # Marcar Fase D como omitida SOLO si de verdad se va a omitir: con
+    # `force_interactive` el usuario pidió revisar el sync a mano, y aceptar
+    # que el grading diverge no anula esa petición. Antes se marcaba siempre,
+    # así que la UI mostraba la fase omitida y luego el pipeline se paraba
+    # ahí.
+    if resolve_plan(session).inputs.skip_sync_review:
+        if "sync_verification_pause" not in session.phases_skipped:
+            session.phases_skipped.append("sync_verification_pause")
     save_cmv40_session(session)
     # Si auto-pipeline backend activo, retoma la cadena (la sesión ya no
     # tiene awaiting_critical_ack — el orquestador puede avanzar).
@@ -3128,7 +3134,7 @@ async def cmv40_sync_data(session_id: str):
         # aqui con running_phase != None es una llamada parasita del render
         # del frontend y regenerar superpone ~2 min de dovi_tool export
         # sobre la fase en curso (contamina Fase F inject).
-        if session.running_phase and session.target_trust_ok and session.trust_override != "force_interactive":
+        if session.running_phase and resolve_plan(session).inputs.trust_effective:
             raise HTTPException(
                 status_code=409,
                 detail=("per_frame_data.json omitido por target trusted; "
@@ -3327,9 +3333,14 @@ async def cmv40_mark_synced(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     session.phase = CMv40Phase.SYNC_VERIFIED
-    trusted_auto = session.target_trust_ok and session.trust_override != "force_interactive"
-    if trusted_auto and "sync_verification_pause" not in session.phases_skipped:
-        session.phases_skipped.append("sync_verification_pause")
+    # Pregunta distinta de la del ACK: aquí el usuario ACABA de confirmar el
+    # sync, y lo que se decide es si lo revisó de verdad o solo lo dio por
+    # bueno porque el target era trusted. Con `force_interactive` lo revisó,
+    # así que no se marca omitida. Es `trust_effective`, no
+    # `skip_sync_review` (que además cuenta el ACK de gates degradados).
+    if resolve_plan(session).inputs.trust_effective:
+        if "sync_verification_pause" not in session.phases_skipped:
+            session.phases_skipped.append("sync_verification_pause")
     save_cmv40_session(session)
     return session.model_dump()
 

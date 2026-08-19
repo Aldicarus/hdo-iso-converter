@@ -207,6 +207,72 @@ class TestMergeSegunTarget(unittest.TestCase):
                     self.assertTrue(plan_for(inp).inject.needs_merge)
 
 
+class TestSaltarLaRevisionDeSync(unittest.TestCase):
+    """`skip_sync_review`: la regla que backend y frontend tenían distinta.
+
+    El orquestador hacía `trusted_auto or user_acked` —con el ACK dado se
+    saltaba la Fase D aunque el usuario hubiera pedido revisión manual— y el
+    frontend exigía además que no hubiera `force_interactive`. Con
+    user_acked=True y force_interactive, uno avanzaba y el otro no.
+
+    Se unificó en la lectura del frontend: pedir revisar el sync a mano y
+    aceptar que el grading diverge son decisiones distintas, y aceptar la
+    segunda no anula la primera.
+    """
+
+    def regla(self, trust_ok, acked, override):
+        return WorkflowInputs("p7_fel", "trusted_p8_source", trust_ok,
+                              override, acked).skip_sync_review
+
+    def test_force_interactive_manda_siempre(self):
+        # Las cuatro combinaciones de (trust_ok, acked) con revisión forzada.
+        for trust_ok in (True, False):
+            for acked in (True, False):
+                with self.subTest(trust_ok=trust_ok, acked=acked):
+                    self.assertFalse(
+                        self.regla(trust_ok, acked, "force_interactive"),
+                        "el usuario pidió revisar el sync a mano")
+
+    def test_el_ack_del_usuario_habilita_el_salto(self):
+        # Es la vía para gates que Fase D no puede arreglar (l6_div, l5_div
+        # grande): el usuario reconoce la degradación y el pipeline sigue.
+        self.assertTrue(self.regla(False, True, "auto"))
+
+    def test_los_gates_ok_habilitan_el_salto(self):
+        self.assertTrue(self.regla(True, False, "auto"))
+
+    def test_sin_trust_ni_ack_hay_que_revisar(self):
+        self.assertFalse(self.regla(False, False, "auto"))
+
+    def test_la_tabla_de_verdad_completa(self):
+        esperado = {
+            (True,  True,  "auto"):              True,
+            (True,  True,  "force_interactive"): False,
+            (True,  False, "auto"):              True,
+            (True,  False, "force_interactive"): False,
+            (False, True,  "auto"):              True,
+            (False, True,  "force_interactive"): False,
+            (False, False, "auto"):              False,
+            (False, False, "force_interactive"): False,
+        }
+        for (trust_ok, acked, ov), val in esperado.items():
+            with self.subTest(trust_ok=trust_ok, acked=acked, override=ov):
+                self.assertEqual(self.regla(trust_ok, acked, ov), val)
+
+    def test_no_es_lo_mismo_que_el_trust_efectivo(self):
+        # `trust_effective` no cuenta el ACK; `skip_sync_review` sí. Confundir
+        # las dos es lo que produjo la divergencia.
+        solo_ack = WorkflowInputs("p7_fel", "x", False, "auto", True)
+        self.assertFalse(solo_ack.trust_effective)
+        self.assertTrue(solo_ack.skip_sync_review)
+
+    def test_el_drop_in_no_lo_habilita_el_ack(self):
+        # Aceptar una degradación no convierte un bin en drop-in: eso exige
+        # gates OK de verdad.
+        inp = WorkflowInputs("p7_fel", "trusted_p7_fel_final", False, "auto", True)
+        self.assertTrue(inp.skip_sync_review)
+        self.assertFalse(inp.drop_in)
+
 class TestElTextoNoPuedeDivergirDeLaDecision(unittest.TestCase):
     """El `📋 Plan` y la decisión salen del mismo objeto. Estas
     comprobaciones fijan que sigan describiendo lo mismo."""

@@ -245,6 +245,27 @@ class TestConfirmacionDeGatesDegradados(ApiTestCase):
         self.assertEqual(len(fallos), 1)
         self.assertEqual(fallos[0]["gate"], "l6_div")
 
+    def test_con_revision_forzada_el_ack_no_marca_la_fase_omitida(self):
+        # El ACK dice "acepto que el grading diverge", no "renuncio a revisar
+        # el sync". Antes se marcaba `sync_verification_pause` siempre, así
+        # que la UI pintaba Fase D omitida y el pipeline se paraba ahí.
+        sid = self.sesion_con_ack_pendiente(trust_override="force_interactive")
+        r = self.client.post(f"/api/cmv40/{sid}/acknowledge-critical-gates")
+        self.assertEqual(r.status_code, 200)
+        s = self.leer_sesion(sid)
+        self.assertTrue(s.user_acknowledged_degradation)
+        self.assertNotIn("sync_verification_pause", s.phases_skipped,
+                         "con force_interactive la Fase D NO se omite")
+
+    def test_el_plan_refleja_el_ack(self):
+        sid = self.sesion_con_ack_pendiente()
+        antes = self.client.get(f"/api/cmv40/{sid}").json()["plan"]
+        self.assertFalse(antes["skip_sync_review"])
+        self.client.post(f"/api/cmv40/{sid}/acknowledge-critical-gates")
+        despues = self.client.get(f"/api/cmv40/{sid}").json()["plan"]
+        self.assertTrue(despues["skip_sync_review"],
+                        "tras el ACK el pipeline puede saltarse la Fase D")
+
     def test_sin_confirmacion_pendiente_da_400(self):
         sid = self.crear_sesion(phase="target_provided")
         r = self.client.post(f"/api/cmv40/{sid}/acknowledge-critical-gates")
@@ -419,6 +440,7 @@ class TestElPlanViajaAlFrontend(ApiTestCase):
                     target_type=tt, target_trust_ok=trust, trust_override=ov)
                 esperado = plan_for(WorkflowInputs(wf, tt, trust, ov)).to_dict()
                 self.assertEqual(enviado, esperado)
+
 
 
 class TestListadoYResumen(ApiTestCase):

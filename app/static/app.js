@@ -12440,6 +12440,25 @@ function _cmv40Trust(s) {
   return !!s.target_trust_ok && (s.trust_override || 'auto') !== 'force_interactive';
 }
 
+/** ¿Se puede saltar la revisión visual de Fase D?
+ *
+ *  Dos vías: gates OK, o el usuario aceptó una degradación que Fase D no
+ *  puede arreglar. Ninguna sobrevive a `force_interactive`.
+ *
+ *  Esta regla estaba escrita distinta en las dos partes: el backend hacía
+ *  `trusted_auto or user_acked` (con el ACK dado se saltaba Fase D aunque el
+ *  usuario hubiera pedido revisión manual) y aquí se exigía además que no
+ *  hubiera `force_interactive`. Ahora manda la tabla del backend, que adoptó
+ *  esta lectura: pedir revisar el sync a mano y aceptar que el grading
+ *  diverge son decisiones distintas.
+ */
+function _cmv40SkipSyncReview(s) {
+  const plan = _cmv40Plan(s);
+  if (plan && plan.skip_sync_review !== undefined) return !!plan.skip_sync_review;
+  if ((s.trust_override || 'auto') === 'force_interactive') return false;
+  return !!s.target_trust_ok || !!s.user_acknowledged_degradation;
+}
+
 /** Bin P7 FEL CMv4.0 ya cocinado sobre source P7 FEL con gates OK: se
  *  inyecta sobre BL+EL sin demux ni mux. */
 function _cmv40DropIn(s) {
@@ -17443,16 +17462,11 @@ function _cmv40MaybeAutoAdvance(project) {
       // pero aceptó continuar — Fase D no puede arreglar nada en ese caso,
       // saltamos directamente a inject/remux/validate.
       const s = project.session;
-      // NO es `_cmv40Trust`: aquí cuenta también el ACK de gates
-      // degradados. OJO — esta regla NO coincide con la del backend
-      // (`_cmv40_dispatch_next_phase`, que hace `trusted_auto or
-      // user_acked`): con user_acked=true Y force_interactive, el backend
-      // avanza saltándose Fase D y esto no. Divergencia conocida, sin
-      // resolver; la de aquí parece la correcta, porque pedir revisión
-      // manual del sync y aceptar que el grading diverge son dos cosas
-      // distintas.
-      const trustedAuto = (s.target_trust_ok === true || s.user_acknowledged_degradation === true)
-        && s.trust_override !== 'force_interactive';
+      // La regla vive en la tabla del backend y llega en el plan; el
+      // backend la adoptó al unificar (antes hacía `trusted_auto or
+      // user_acked`, que se saltaba Fase D con el ACK dado aunque el
+      // usuario hubiera pedido revisión manual).
+      const trustedAuto = _cmv40SkipSyncReview(s);
       if (trustedAuto) {
         if (!s.phases_skipped) s.phases_skipped = [];
         if (!s.phases_skipped.includes('sync_verification_pause')) {

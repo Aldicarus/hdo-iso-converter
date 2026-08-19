@@ -192,13 +192,11 @@ def is_drop_in_fel(session: CMv40Session) -> bool:
     gates de trust OK + usuario en modo auto. En este modo inject-rpu se
     ejecuta directamente sobre source.hevc (BL+EL combinados) — evita demux
     en Fase C y mux en Fase G, ahorra ~90 GB de I/O temporal.
+
+    La condición vive en `cmv40_strategy`: aquí solo se consulta, para que no
+    haya dos definiciones del drop-in que puedan separarse.
     """
-    return (
-        (session.source_workflow or "p7_fel") == "p7_fel"
-        and session.target_type == "trusted_p7_fel_final"
-        and bool(session.target_trust_ok)
-        and session.trust_override != "force_interactive"
-    )
+    return resolve_plan(session).drop_in
 
 
 # Artefactos requeridos para haber completado cada fase.
