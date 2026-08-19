@@ -174,7 +174,7 @@ class FakeToolbox:
         self._scenario: dict = {"rpus": {}, "media": {}, "fail": {},
                                 "fail_json": [], "mediainfo": {},
                                 "chapters": {}, "mkvs": {},
-                                "pgs": {}}
+                                "pgs": {}, "levels": {}}
         self._old_path: str | None = None
 
     # ── configuración del escenario ──────────────────────────────────
@@ -185,6 +185,27 @@ class FakeToolbox:
         self._scenario["rpus"][name] = p.as_dict()
         self._flush()
         return p
+
+    def define_rpu_levels(self, name: str, *, l8_indices: list[int] | None = None,
+                          l9_primary: int | None = None,
+                          l11_content_type: int | None = None) -> None:
+        """Los niveles que `dovi_tool export --levels` devolverá para un RPU.
+
+        Formatos verificados contra RPUs reales del repo DoviTools:
+          level8  → {"frame", "length", "target_display_index", "trim_*"}
+          level9  → {"frame", "length", "source_primary_index"}
+          level11 → {"frame", "content_type", "whitepoint",
+                     "reference_mode_flag"}
+
+        `l9_primary` es 0 (BT.709) en los RPUs reales, así que `None` y `0`
+        tienen que poder distinguirse: pasar 0 declara el nivel, no lo omite.
+        """
+        self._scenario.setdefault("levels", {})[name] = {
+            "l8_indices": l8_indices,
+            "l9_primary": l9_primary,
+            "l11_content_type": l11_content_type,
+        }
+        self._flush()
 
     def define_media(self, name: str, duration: float = 7200.0,
                      frames: int = 1000) -> None:
@@ -706,6 +727,7 @@ def dovi_tool(sc, sub, json_args):
         # Es el que se usa en el NAS; volcar el RPU entero son 682 MB frente a 8.
         levels_arg = opt("--levels")
         if levels_arg:
+            niveles = sc.get("levels", {}).get(Path(src).name if src else "", {})
             for spec in levels_arg.split(","):
                 if "=" not in spec:
                     continue
@@ -726,8 +748,34 @@ def dovi_tool(sc, sub, json_args):
                                      "max_display_mastering_luminance": 1000,
                                      "max_content_light_level": 1000,
                                      "max_frame_average_light_level": 400})
+                    elif lv == "level8":
+                        # Un registro por (frame, target display), como el
+                        # real: en Zootopia salen 2 índices × 155.001 frames.
+                        for idx in (niveles.get("l8_indices") or []):
+                            rows.append({
+                                "frame": i, "length": 25,
+                                "target_display_index": idx,
+                                "trim_slope": 2312, "trim_offset": 2059,
+                                "trim_power": 2034, "trim_chroma_weight": 2048,
+                                "trim_saturation_gain": 2048, "ms_weight": 2048,
+                            })
+                    elif lv == "level9":
+                        # OJO: 0 es un valor válido (BT.709) y el que traen los
+                        # RPUs reales. `is None` distingue ausente de cero.
+                        if niveles.get("l9_primary") is not None:
+                            rows.append({"frame": i, "length": 1,
+                                         "source_primary_index": niveles["l9_primary"]})
+                    elif lv == "level11":
+                        if niveles.get("l11_content_type") is not None:
+                            rows.append({
+                                "frame": i,
+                                "content_type": niveles["l11_content_type"],
+                                "whitepoint": 0, "reference_mode_flag": False,
+                                "reserved_byte2": 0, "reserved_byte3": 0,
+                            })
                     else:
-                        rows.append({"frame": i})
+                        # level10 sale vacío en los RPUs reales probados.
+                        pass
                 Path(dest).write_text(json.dumps(rows))
             return 0
 
