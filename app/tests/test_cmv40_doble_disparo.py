@@ -126,14 +126,13 @@ class TestGuardDeErrorSinResolver(unittest.TestCase):
             self.assertIn("_cmv40_guard_no_pending_error(session)", cabecera,
                           f"{nombre} puede re-dispararse tras un error")
 
-    def test_el_guard_va_antes_de_lanzar_la_fase(self):
-        """Después del arranque no serviría de nada."""
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
-        i = src.index("async def cmv40_validate(")
-        cuerpo = src[i:src.index("\n@app.", i + 10) if "\n@app." in src[i:] else i + 3000]
-        pos_guard = cuerpo.index("_cmv40_guard_no_pending_error(session)")
-        pos_run = cuerpo.index("asyncio.create_task")
-        self.assertLess(pos_guard, pos_run)
+    # El guard debe aplicarse ANTES de lanzar la fase. Se comprobaba aquí
+    # midiendo la posición de "asyncio.create_task" dentro del texto del
+    # endpoint; al unificar el boilerplate en `_cmv40_launch_phase` ese
+    # `create_task` dejó de estar en el endpoint y el test reventó pese a
+    # seguir el comportamiento intacto. Ahora lo cubre por ejecución
+    # `test_cmv40_endpoints.TestGuardDeErrorPendiente`, que comprueba que con
+    # un error pendiente NINGUNA fase llega a lanzarse.
 
     def test_clear_error_sigue_existiendo_para_reintentar(self):
         """El guard solo es aceptable si hay forma de quitarlo."""

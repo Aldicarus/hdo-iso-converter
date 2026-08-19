@@ -131,9 +131,14 @@ class TestGuardDeErrorPendiente(ApiTestCase):
                 sid = self.crear_sesion(
                     sid=f"cmv40_err_{nombre.replace('-', '_')}",
                     phase="injected", error_message="Ya existe un MKV con ese nombre")
+                self.fases_lanzadas.clear()
                 r = _post(self.client, f"/api/cmv40/{sid}/{nombre}", body)
                 self.assertEqual(r.status_code, 409, f"{nombre} no aplica el guard")
                 self.assertIn("Ya existe un MKV", r.json()["detail"])
+                # El guard tiene que ir ANTES de lanzar: rechazar después de
+                # haber arrancado la fase no serviría de nada.
+                self.assertEqual(self.fases_lanzadas, [],
+                                 f"{nombre} lanzó la fase pese a devolver 409")
 
     def test_clear_error_desbloquea(self):
         sid = self.crear_sesion(phase="injected", error_message="algo falló")
@@ -280,6 +285,31 @@ class TestQueFaseDisparaCadaEndpoint(ApiTestCase):
                 self.assertEqual(lanzada["phase"], fase)
                 self.assertEqual(lanzada["new_phase"], destino)
                 self.assertEqual(lanzada["session_id"], sid)
+
+    def test_cada_fase_ejecuta_el_runner_del_pipeline_que_le_toca(self):
+        """La tabla `_CMV40_RUNNERS` asocia fase → función del pipeline.
+
+        El nombre de la fase y la función que la ejecuta se pasan por
+        separado, así que una fila cruzada (`inject` apuntando al remuxer)
+        daría un `phase_name` correcto y ejecutaría otra cosa: el MKV
+        saldría mal sin que nada lo delatara.
+        """
+        esperado = {
+            "analyze-source": "run_phase_a_analyze_source",
+            "extract":        "run_phase_c_extract",
+            "inject":         "run_phase_f_inject",
+            "remux":          "run_phase_g_remux",
+            "validate":       "run_phase_h_validate",
+        }
+        for endpoint, runner in esperado.items():
+            with self.subTest(endpoint=endpoint):
+                llamados = self.mockear_runners()
+                sid = self.crear_sesion(
+                    sid=f"cmv40_run_{endpoint.replace('-', '_')}", phase="extracted")
+                self.fases_lanzadas.clear()
+                self.client.post(f"/api/cmv40/{sid}/{endpoint}")
+                self.ejecutar_fase_lanzada()
+                self.assertEqual(llamados, [runner])
 
     def test_la_correccion_de_sync_no_avanza_de_fase(self):
         # Fase E se puede repetir: el usuario itera sobre el chart hasta que

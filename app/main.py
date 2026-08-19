@@ -5715,6 +5715,35 @@ async def _run_cmv40_phase_locked(
         asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
 
+def _cmv40_launch_phase(
+    session: CMv40Session,
+    phase_name: str,
+    coro_factory,
+    new_phase: str,
+) -> None:
+    """Lanza una fase en segundo plano y devuelve al instante.
+
+    Los endpoints de fase son fire-and-forget: responden `started` y el
+    progreso viaja por WebSocket. Este helper es el `create_task` con su red
+    de seguridad, que estaba copiado literalmente en los nueve endpoints y
+    los cinco dispatchers.
+
+    El try/except no es decorativo: `_run_cmv40_phase` ya captura y persiste
+    los errores DE LA FASE, así que lo que llega aquí es un fallo del propio
+    wrapper (por ejemplo, el save de arranque). Tragárselo mudo dejaba el job
+    zombie sin una sola pista en el log — pasó el 2026-08-16 con 'La trama
+    fenicia'.
+    """
+    async def _run():
+        try:
+            await _run_cmv40_phase(session, phase_name, coro_factory, new_phase)
+        except Exception:
+            _logger.exception(
+                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
+
+    asyncio.create_task(_run())
+
+
 def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
     """409 si la sesión arrastra un error sin resolver.
 
@@ -5798,7 +5827,7 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
             # (el caso "sin pending target" pasaría si el usuario creó el
             # proyecto sin elegir target — Fase A puede correr igualmente
             # y luego Fase B requiere acción manual.)
-            await _cmv40_dispatch_analyze_source(fresh)
+            await _cmv40_dispatch_phase(fresh, "analyze_source")
     elif phase == CMv40Phase.SOURCE_ANALYZED:
         # Fase A completada. Si hay pending_target persistido, dispara Fase B.
         # Si NO hay pending_target, pausa — Fase B requiere acción manual
@@ -5806,7 +5835,7 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
         if fresh.pending_target_kind:
             await _cmv40_dispatch_target_provision(fresh)
     elif phase == CMv40Phase.TARGET_PROVIDED:
-        await _cmv40_dispatch_extract(fresh)
+        await _cmv40_dispatch_phase(fresh, "extract")
     elif phase == CMv40Phase.EXTRACTED:
         # Trusted target → auto mark-synced → seguir cadena
         trusted_auto = (
@@ -5828,125 +5857,51 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
             await _cmv40_dispatch_next_phase(session_id)
         # else: pausa manual Fase D (no trusted) — espera acción del usuario
     elif phase in (CMv40Phase.SYNC_VERIFIED, CMv40Phase.SYNC_CORRECTED):
-        await _cmv40_dispatch_inject(fresh)
+        await _cmv40_dispatch_phase(fresh, "inject")
     elif phase == CMv40Phase.INJECTED:
-        await _cmv40_dispatch_remux(fresh)
+        await _cmv40_dispatch_phase(fresh, "remux")
     elif phase == CMv40Phase.REMUXED:
-        await _cmv40_dispatch_validate(fresh)
+        await _cmv40_dispatch_phase(fresh, "validate")
     # phase == VALIDATED / DONE → terminal, no hace nada
     # phase == SOURCE_ANALYZED → requiere target manual, no avanzamos
     # phase == CREATED → requiere target/source — flow normal Fase A
     #   ya disparado por endpoint de creación
 
 
-async def _cmv40_dispatch_extract(session: CMv40Session) -> None:
-    """Dispara Fase C como task asyncio."""
-    from phases.cmv40_pipeline import run_phase_c_extract
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_c_extract(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "extract", _coro, CMv40Phase.EXTRACTED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+# Fase → (función del pipeline que la ejecuta, fase a la que avanza).
+# Los cinco dispatchers eran la misma función copiada cinco veces; lo único
+# que cambiaba era este par. El import del pipeline es tardío a propósito: a
+# nivel de módulo cerraría un ciclo con `models`.
+_CMV40_RUNNERS: dict[str, tuple[str, str]] = {
+    "analyze_source": ("run_phase_a_analyze_source", CMv40Phase.SOURCE_ANALYZED),
+    "extract":        ("run_phase_c_extract",        CMv40Phase.EXTRACTED),
+    "inject":         ("run_phase_f_inject",         CMv40Phase.INJECTED),
+    "remux":          ("run_phase_g_remux",          CMv40Phase.REMUXED),
+    "validate":       ("run_phase_h_validate",       CMv40Phase.DONE),
+}
 
 
-async def _cmv40_dispatch_inject(session: CMv40Session) -> None:
-    """Dispara Fase F como task asyncio."""
-    from phases.cmv40_pipeline import run_phase_f_inject
+async def _cmv40_dispatch_phase(session: CMv40Session, phase_name: str) -> None:
+    """Arranca una fase del pipeline en segundo plano.
+
+    El flag de cancelación se limpia antes de arrancar: es de la fase
+    anterior. (Hoy solo lo consulta el simulador de DEV_MODE — la cancelación
+    real llega por SIGTERM al subproceso, ver `cmv40_cancel`.)
+    """
+    import phases.cmv40_pipeline as pipeline
+
+    runner_name, new_phase = _CMV40_RUNNERS[phase_name]
+    runner = getattr(pipeline, runner_name)
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _coro(log_cb, proc_cb):
-        await run_phase_f_inject(session, log_cb, proc_cb)
+        result = await runner(session, log_cb, proc_cb)
+        # Solo Fase H devuelve algo: el resumen de la validación, que se deja
+        # en el log para que quede en el historial del proyecto.
+        if result is not None:
+            session.output_log.append(f"Validación final: {result}")
 
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "inject", _coro, CMv40Phase.INJECTED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
-
-
-async def _cmv40_dispatch_remux(session: CMv40Session) -> None:
-    """Dispara Fase G como task asyncio."""
-    from phases.cmv40_pipeline import run_phase_g_remux
-    _cmv40_cancel_flags.pop(session.id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_g_remux(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "remux", _coro, CMv40Phase.REMUXED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
-
-
-async def _cmv40_dispatch_validate(session: CMv40Session) -> None:
-    """Dispara Fase H como task asyncio."""
-    from phases.cmv40_pipeline import run_phase_h_validate
-    _cmv40_cancel_flags.pop(session.id, None)
-
-    async def _coro(log_cb, proc_cb):
-        result = await run_phase_h_validate(session, log_cb, proc_cb)
-        session.output_log.append(f"Validación final: {result}")
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
-
-
-async def _cmv40_dispatch_analyze_source(session: CMv40Session) -> None:
-    """Dispara Fase A (analyze_source) como task asyncio."""
-    from phases.cmv40_pipeline import run_phase_a_analyze_source
-    _cmv40_cancel_flags.pop(session.id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_a_analyze_source(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "analyze_source", _coro, CMv40Phase.SOURCE_ANALYZED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    _cmv40_launch_phase(session, phase_name, _coro, new_phase)
 
 
 async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool:
@@ -6201,18 +6156,7 @@ async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
         await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
         return
 
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, phase_name, _coro, CMv40Phase.TARGET_PROVIDED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    _cmv40_launch_phase(session, phase_name, _coro, CMv40Phase.TARGET_PROVIDED)
 
 
 # ── Endpoints CRUD ────────────────────────────────────────────────────────────
@@ -7699,23 +7643,7 @@ async def cmv40_analyze_source(session_id: str):
                                                  CMv40Phase.SOURCE_ANALYZED, _apply, total_seconds=4.0))
         return {"ok": True, "started": True}
 
-    _cmv40_cancel_flags.pop(session_id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_a_analyze_source(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "analyze_source", _coro, CMv40Phase.SOURCE_ANALYZED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    await _cmv40_dispatch_phase(session, "analyze_source")
     return {"ok": True, "started": True}
 
 
@@ -7809,18 +7737,7 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
     async def _coro(log_cb, proc_cb):
         await run_phase_b_target_from_drive(session, body.file_id, body.file_name, log_cb)
 
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "target_rpu_drive", _coro, CMv40Phase.TARGET_PROVIDED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    _cmv40_launch_phase(session, "target_rpu_drive", _coro, CMv40Phase.TARGET_PROVIDED)
     return {"ok": True, "started": True}
 
 
@@ -7849,18 +7766,7 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     async def _coro(log_cb, proc_cb):
         await run_phase_b_target_from_mkv(session, body.source_mkv_path, log_cb, proc_cb)
 
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "target_rpu_mkv", _coro, CMv40Phase.TARGET_PROVIDED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    _cmv40_launch_phase(session, "target_rpu_mkv", _coro, CMv40Phase.TARGET_PROVIDED)
     return {"ok": True, "started": True}
 
 
@@ -8126,23 +8032,7 @@ async def cmv40_extract(session_id: str):
                                                  CMv40Phase.EXTRACTED, total_seconds=6.0))
         return {"ok": True, "started": True}
 
-    _cmv40_cancel_flags.pop(session_id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_c_extract(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "extract", _coro, CMv40Phase.EXTRACTED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    await _cmv40_dispatch_phase(session, "extract")
     return {"ok": True, "started": True}
 
 
@@ -8287,24 +8177,15 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     async def _coro(log_cb, proc_cb):
         await run_phase_e_correct_sync(session, body.editor_config, log_cb)
 
-    async def _run():
-        try:
-            # new_phase = session.phase capturado: Fase D sigue activa, no
-            # avanzamos automaticamente — el usuario confirma manualmente.
-            await _run_cmv40_phase(session, "correct_sync", _coro, captured_phase)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
     # Fire-and-forget como extract/inject/remux: la respuesta vuelve al
     # instante, el log fluye via WebSocket. Antes hacia await sobre la fase
     # entera (1-5 min para dovi_tool editor) y el frontend disparaba el
     # toast 'el servidor no responde en 30s' aunque el backend trabajaba ok.
-    asyncio.create_task(_run())
+    #
+    # El destino es `captured_phase`, la fase ACTUAL: Fase D sigue activa y no
+    # avanzamos solos — el usuario itera sobre el chart hasta que el Δ es 0 y
+    # confirma el sync a mano.
+    _cmv40_launch_phase(session, "correct_sync", _coro, captured_phase)
     return {"ok": True, "started": True}
 
 
@@ -8417,23 +8298,7 @@ async def cmv40_inject(session_id: str):
                                                  CMv40Phase.INJECTED, total_seconds=3.0))
         return {"ok": True, "started": True}
 
-    _cmv40_cancel_flags.pop(session_id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_f_inject(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "inject", _coro, CMv40Phase.INJECTED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    await _cmv40_dispatch_phase(session, "inject")
     return {"ok": True, "started": True}
 
 
@@ -8467,23 +8332,7 @@ async def cmv40_remux(session_id: str):
                                                  CMv40Phase.REMUXED, total_seconds=7.0))
         return {"ok": True, "started": True}
 
-    _cmv40_cancel_flags.pop(session_id, None)
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_g_remux(session, log_cb, proc_cb)
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "remux", _coro, CMv40Phase.REMUXED)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    await _cmv40_dispatch_phase(session, "remux")
     return {"ok": True, "started": True}
 
 
@@ -8502,24 +8351,7 @@ async def cmv40_validate(session_id: str):
         await _cmv40_log(session, "[DEV] Fase H OK — MKV CMv4.0 validado")
         return session.model_dump()
 
-    _cmv40_cancel_flags.pop(session_id, None)
-
-    async def _coro(log_cb, proc_cb):
-        result = await run_phase_h_validate(session, log_cb, proc_cb)
-        session.output_log.append(f"Validación final: {result}")
-
-    async def _run():
-        try:
-            await _run_cmv40_phase(session, "validate", _coro, CMv40Phase.DONE)
-        except Exception:
-            # _run_cmv40_phase ya captura y persiste los errores DE LA FASE;
-            # lo que llega aquí es un fallo del propio wrapper (p.ej. el save
-            # de arranque). Tragárselo mudo dejaba el job zombie sin una sola
-            # pista en el log — pasó el 2026-08-16 con 'La trama fenicia'.
-            _logger.exception(
-                "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-
-    asyncio.create_task(_run())
+    await _cmv40_dispatch_phase(session, "validate")
     return {"ok": True, "started": True}
 
 

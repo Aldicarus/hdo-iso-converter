@@ -94,12 +94,50 @@ class ApiTestCase(unittest.TestCase):
                 "session_id": session.id,
                 "phase": phase_name,
                 "new_phase": new_phase,
+                # Se guarda para poder ejecutarlo con el pipeline mockeado:
+                # el nombre de la fase y la función que la ejecuta se pasan
+                # por separado, así que sin esto una tabla con las filas
+                # cruzadas (`inject` → run_phase_g_remux) pasaría el test.
+                "coro_factory": coro_factory,
             })
 
         self._orig_run_phase = self.main._run_cmv40_phase
         self.main._run_cmv40_phase = _espia
         self.addCleanup(
             lambda: setattr(self.main, "_run_cmv40_phase", self._orig_run_phase))
+
+
+    def mockear_runners(self) -> list[str]:
+        """Sustituye todos los `run_phase_*` del pipeline por falsos.
+
+        Hay que llamarlo ANTES de la petición: `_cmv40_dispatch_phase`
+        resuelve el runner con `getattr` al despachar, así que el `_coro`
+        que queda guardado ya lleva la referencia capturada.
+
+        Devuelve la lista donde se anotan los runners que se ejecuten.
+        """
+        import phases.cmv40_pipeline as pipeline
+
+        llamados: list[str] = []
+        for nombre in [n for n in dir(pipeline) if n.startswith("run_phase_")]:
+            original = getattr(pipeline, nombre)
+
+            async def _falso(*a, _n=nombre, **k):
+                llamados.append(_n)
+
+            setattr(pipeline, nombre, _falso)
+            self.addCleanup(
+                lambda n=nombre, o=original: setattr(pipeline, n, o))
+        return llamados
+
+    def ejecutar_fase_lanzada(self) -> None:
+        """Corre el `coro_factory` que el endpoint dejó preparado."""
+        import asyncio
+
+        async def _noop_log(*a, **k):
+            return None
+
+        asyncio.run(self.fase_lanzada()["coro_factory"](_noop_log, lambda *a: None))
 
     def fase_lanzada(self):
         """La única fase que se pidió arrancar. Falla si hay 0 o más de una."""
