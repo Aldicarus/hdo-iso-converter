@@ -454,6 +454,15 @@ Demostrado por mutación que la fidelidad del fake es lo que hace útil el test:
 
 **El conteo PGS muestrea y escala**: lee los primeros 1.200 s y multiplica por `duración / 1200`; por debajo de 1.800 s cuenta entero. Un test que espere el valor crudo falla — y con razón.
 
+**Los niveles L8/L9/L11 tampoco llegaban.** `_enrich_dovi_from_json_export` recorría `vdr_dm_data.ext_metadata_blocks`, y en el volcado real de `dovi_tool export` los bloques viven un nivel más abajo —separados en `cmv29_metadata` y `cmv40_metadata`— y el nivel es la **clave** del bloque (`{"Level8": {…}}`), no un campo. Con las dos incompatibilidades la función retornaba sin tocar nada, y sin lanzar: el `except: pass` del caller no tenía qué registrar. Los chips de trim targets y el tipo de contenido L11 de la «Cadena de mastering» nunca aparecieron.
+
+Reescrita sobre **`rpu_analyze.export_levels`** (198 líneas y CC 82 → 63 y 13). **Regla: un solo parser de ese JSON en el repo.** Tener dos permitió que este divergiera del formato real, y el que funcionaba era justo el que tenía tests.
+
+Dos datos verificados sobre RPUs reales que condicionan el parseo:
+- **`source_primary_index` es 0** (BT.709) en los RPUs reales, así que hay que distinguir *ausente* de *cero*: un `or` lo descarta por falsy. Mismo cuidado con `content_type` de L11.
+- **L10 sale vacío** en los RPUs probados aunque `--levels` lo acepte, así que no se pide.
+
+
 ### `CMv40Session` se queda plana — y por qué
 
 El modelo tiene **78 campos planos** con grupos evidentes por prefijo (`target_l8_*`, `pending_target_*`…). Anidarlos en sub-modelos **está descartado**, con dos motivos medidos:
