@@ -47,8 +47,14 @@ class TestPipeFaseA(PhaseTestCase):
         from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped
         rpu = self.tmp / "RPU_source.bin"
         log = CollectingLog()
-        ok = await _ffmpeg_extract_rpu_piped(
-            str(self.mkv), rpu, hevc_out=hevc_out, log_callback=log, **kw)
+        # Acotado a 30 s: con binarios falsos esto tarda menos de un
+        # segundo, y el timeout interno de la función es adaptativo con
+        # suelo de 20 min. Sin este límite, un fallo que dejase el pipe
+        # sin cerrar —el consumidor no vería nunca el EOF— colgaría la
+        # suite en vez de fallar.
+        ok = await asyncio.wait_for(_ffmpeg_extract_rpu_piped(
+            str(self.mkv), rpu, hevc_out=hevc_out, log_callback=log, **kw),
+            timeout=30)
         return ok, rpu, log
 
     async def test_el_camino_piped_produce_el_rpu(self):
