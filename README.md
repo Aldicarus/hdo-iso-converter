@@ -390,6 +390,8 @@ hdo-iso-converter/                ← repo / docker image (técnico)
 │   ├── main.py                   ← FastAPI + WebSocket + endpoints (3 tabs)
 │   ├── models.py                 ← Pydantic models
 │   ├── storage.py                ← Persistencia JSON + fingerprint
+│   ├── routers/
+│   │   └── cmv40.py             ← Tab 3: endpoints + orquestación (salió de main.py)
 │   ├── queue_manager.py          ← Cola FIFO asyncio
 │   ├── dev_fixtures.py           ← Fixtures cuando DEV_MODE=1
 │   ├── phases/

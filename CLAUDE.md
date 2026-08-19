@@ -444,6 +444,17 @@ Dos guards en el servidor, que es el único con el estado real:
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
 
+### Dónde vive el código del Tab 3
+
+Los endpoints y la orquestación salieron de `main.py` a **`routers/cmv40.py`** (3.395 líneas). `main.py` conserva Tab 1 y Tab 2 y hace `app.include_router(...)`; **las URLs no cambiaron**.
+
+La dependencia es unidireccional — `main` incluye el router, el router **no** importa `main`. Se sostiene porque:
+- `DEV_MODE` vive en `dev_fixtures.py`, no en `main`.
+- El output se referencia como `_cmv40_pipeline_mod.OUTPUT_DIR` (la constante que `main` llamaba `OUTPUT_DIR_MKV` era un duplicado literal: ambas leen `OUTPUT_DIR` del entorno).
+- `_dev_simulate_phase` se fue con el router: era un helper exclusivo de CMv4.0.
+
+**Al tocar tests que parcheen por módulo**: lo de CMv4.0 se parchea en `routers.cmv40`, no en `main`. Los directorios, en cambio, siguen en `storage` (`CONFIG_DIR`, `CMV40_DIR`) y en `phases.cmv40_pipeline` (`OUTPUT_DIR`, `CMV40_WORK_BASE`) — ver `tests/api_harness.py`, que ya los redirige todos.
+
 ### Lanzar una fase: un solo sitio, y una tabla
 
 Los nueve endpoints de fase y los cinco dispatchers del auto-pipeline eran
