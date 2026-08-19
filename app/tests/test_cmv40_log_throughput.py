@@ -25,22 +25,19 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 
 _orig_cwd = None
-main = None
+cmv40_routes = None
 
 
 def setUpModule():
     """main.py monta StaticFiles('static') con ruta RELATIVA, así que solo
     importa con el cwd en app/. La suite se lanza desde la raíz del repo."""
-    global _orig_cwd, main
-    _orig_cwd = os.getcwd()
-    os.chdir(APP_DIR)
-    import main as _main
-    main = _main
-
-
-def tearDownModule():
-    if _orig_cwd:
-        os.chdir(_orig_cwd)
+    # El `os.chdir(APP_DIR)` que había aquí era para que
+    # `StaticFiles(directory="static")` de main.py encontrara el
+    # directorio; desde que se monta por ruta absoluta ya no hace
+    # falta cambiar el cwd del proceso de test.
+    global cmv40_routes
+    from routers import cmv40 as _routes
+    cmv40_routes = _routes
 
 
 PROGRESS = '§§PROGRESS§§{"pct": 95.0, "label": "Inyectando RPU"}'
@@ -51,48 +48,48 @@ class TestProgressDedup(unittest.TestCase):
 
     def setUp(self):
         self.sid = "sess_dedup"
-        main._cmv40_last_progress.pop(self.sid, None)
+        cmv40_routes._cmv40_last_progress.pop(self.sid, None)
 
     def tearDown(self):
-        main._cmv40_last_progress.pop(self.sid, None)
+        cmv40_routes._cmv40_last_progress.pop(self.sid, None)
 
     def test_primera_emision_pasa(self):
-        self.assertTrue(main._cmv40_progress_should_emit(self.sid, PROGRESS))
+        self.assertTrue(cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS))
 
     def test_repeticion_identica_se_descarta(self):
-        main._cmv40_progress_should_emit(self.sid, PROGRESS)
+        cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS)
         for _ in range(10):
-            self.assertFalse(main._cmv40_progress_should_emit(self.sid, PROGRESS))
+            self.assertFalse(cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS))
 
     def test_cambio_de_pct_pasa(self):
-        main._cmv40_progress_should_emit(self.sid, PROGRESS)
+        cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS)
         otro = '§§PROGRESS§§{"pct": 96.0, "label": "Inyectando RPU"}'
-        self.assertTrue(main._cmv40_progress_should_emit(self.sid, otro))
+        self.assertTrue(cmv40_routes._cmv40_progress_should_emit(self.sid, otro))
 
     def test_cambio_de_label_pasa(self):
-        main._cmv40_progress_should_emit(self.sid, PROGRESS)
+        cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS)
         otro = '§§PROGRESS§§{"pct": 95.0, "label": "Remuxando"}'
-        self.assertTrue(main._cmv40_progress_should_emit(self.sid, otro))
+        self.assertTrue(cmv40_routes._cmv40_progress_should_emit(self.sid, otro))
 
     def test_heartbeat_reemite_tras_la_ventana(self):
         """Un cliente que se reconecta debe recuperar la barra aunque el pct
         lleve minutos congelado."""
-        main._cmv40_progress_should_emit(self.sid, PROGRESS)
-        self.assertFalse(main._cmv40_progress_should_emit(self.sid, PROGRESS))
+        cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS)
+        self.assertFalse(cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS))
         # Envejecemos el timestamp más allá del heartbeat
-        payload, _ts = main._cmv40_last_progress[self.sid]
-        main._cmv40_last_progress[self.sid] = (
-            payload, _ts - main._CMV40_PROGRESS_HEARTBEAT_S - 1.0)
-        self.assertTrue(main._cmv40_progress_should_emit(self.sid, PROGRESS))
+        payload, _ts = cmv40_routes._cmv40_last_progress[self.sid]
+        cmv40_routes._cmv40_last_progress[self.sid] = (
+            payload, _ts - cmv40_routes._CMV40_PROGRESS_HEARTBEAT_S - 1.0)
+        self.assertTrue(cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS))
 
     def test_sesiones_distintas_no_se_pisan(self):
         other = "sess_dedup_2"
-        main._cmv40_last_progress.pop(other, None)
+        cmv40_routes._cmv40_last_progress.pop(other, None)
         try:
-            self.assertTrue(main._cmv40_progress_should_emit(self.sid, PROGRESS))
-            self.assertTrue(main._cmv40_progress_should_emit(other, PROGRESS))
+            self.assertTrue(cmv40_routes._cmv40_progress_should_emit(self.sid, PROGRESS))
+            self.assertTrue(cmv40_routes._cmv40_progress_should_emit(other, PROGRESS))
         finally:
-            main._cmv40_last_progress.pop(other, None)
+            cmv40_routes._cmv40_last_progress.pop(other, None)
 
 
 class TestProgressNoPersiste(unittest.IsolatedAsyncioTestCase):
@@ -103,27 +100,27 @@ class TestProgressNoPersiste(unittest.IsolatedAsyncioTestCase):
         self.session = CMv40Session(
             id="sess_log", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
             output_mkv_name="out.mkv")
-        main._cmv40_last_progress.pop(self.session.id, None)
-        main._cmv40_log_throttle.pop(self.session.id, None)
+        cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
+        cmv40_routes._cmv40_log_throttle.pop(self.session.id, None)
         self.persisted = []
-        self._orig_persist = main._cmv40_maybe_persist_log
+        self._orig_persist = cmv40_routes._cmv40_maybe_persist_log
 
         async def _fake_persist(session, line):
             self.persisted.append(line)
 
-        main._cmv40_maybe_persist_log = _fake_persist
+        cmv40_routes._cmv40_maybe_persist_log = _fake_persist
 
     def tearDown(self):
-        main._cmv40_maybe_persist_log = self._orig_persist
-        main._cmv40_last_progress.pop(self.session.id, None)
+        cmv40_routes._cmv40_maybe_persist_log = self._orig_persist
+        cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
 
     async def test_progreso_no_entra_en_output_log(self):
-        await main._cmv40_log(self.session, PROGRESS)
+        await cmv40_routes._cmv40_log(self.session, PROGRESS)
         self.assertEqual(self.session.output_log, [])
         self.assertEqual(self.persisted, [])
 
     async def test_linea_normal_si_entra_y_persiste(self):
-        await main._cmv40_log(self.session, "[Fase F] algo pasó")
+        await cmv40_routes._cmv40_log(self.session, "[Fase F] algo pasó")
         self.assertEqual(len(self.session.output_log), 1)
         self.assertIn("algo pasó", self.session.output_log[0])
         self.assertEqual(len(self.persisted), 1)
@@ -131,7 +128,7 @@ class TestProgressNoPersiste(unittest.IsolatedAsyncioTestCase):
     async def test_rafaga_de_progreso_identico_no_infla_nada(self):
         """El escenario real: 450 ticks idénticos durante una fase larga."""
         for _ in range(450):
-            await main._cmv40_log(self.session, PROGRESS)
+            await cmv40_routes._cmv40_log(self.session, PROGRESS)
         self.assertEqual(self.session.output_log, [])
         self.assertEqual(self.persisted, [])
 
@@ -188,22 +185,22 @@ class TestIncludeLog(unittest.IsolatedAsyncioTestCase):
             id="sess_get", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
             output_mkv_name="out.mkv")
         self.session.output_log = ["a", "b", "c"]
-        self._orig_load = main.load_cmv40_session
-        self._orig_scan = main._cmv40_scan_artifacts
-        main.load_cmv40_session = lambda sid: self.session
-        main._cmv40_scan_artifacts = lambda s: {}
+        self._orig_load = cmv40_routes.load_cmv40_session
+        self._orig_scan = cmv40_routes._cmv40_scan_artifacts
+        cmv40_routes.load_cmv40_session = lambda sid: self.session
+        cmv40_routes._cmv40_scan_artifacts = lambda s: {}
 
     def tearDown(self):
-        main.load_cmv40_session = self._orig_load
-        main._cmv40_scan_artifacts = self._orig_scan
+        cmv40_routes.load_cmv40_session = self._orig_load
+        cmv40_routes._cmv40_scan_artifacts = self._orig_scan
 
     async def test_por_defecto_trae_el_log(self):
-        data = await main.cmv40_get(self.session.id)
+        data = await cmv40_routes.cmv40_get(self.session.id)
         self.assertEqual(data["output_log"], ["a", "b", "c"])
         self.assertNotIn("output_log_omitted", data)
 
     async def test_include_log_false_lo_omite_pero_informa(self):
-        data = await main.cmv40_get(self.session.id, include_log=False)
+        data = await cmv40_routes.cmv40_get(self.session.id, include_log=False)
         self.assertEqual(data["output_log"], [])
         self.assertTrue(data["output_log_omitted"])
         self.assertEqual(data["output_log_len"], 3)
@@ -230,10 +227,10 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
         self.session = CMv40Session(
             id="sess_prog", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
             output_mkv_name="out.mkv")
-        main._cmv40_last_progress.pop(self.session.id, None)
-        main._cmv40_progress_persist_ts.pop(self.session.id, None)
-        self._orig_persist = main._cmv40_maybe_persist_log
-        self._orig_save = main._save_cmv40_session_async
+        cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
+        cmv40_routes._cmv40_progress_persist_ts.pop(self.session.id, None)
+        self._orig_persist = cmv40_routes._cmv40_maybe_persist_log
+        self._orig_save = cmv40_routes._save_cmv40_session_async
         self.saves = []
 
         async def _fake_persist(session, line):
@@ -242,38 +239,38 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
         async def _fake_save(session):
             self.saves.append(session.id)
 
-        main._cmv40_maybe_persist_log = _fake_persist
-        main._save_cmv40_session_async = _fake_save
+        cmv40_routes._cmv40_maybe_persist_log = _fake_persist
+        cmv40_routes._save_cmv40_session_async = _fake_save
 
     def tearDown(self):
-        main._cmv40_maybe_persist_log = self._orig_persist
-        main._save_cmv40_session_async = self._orig_save
-        main._cmv40_last_progress.pop(self.session.id, None)
-        main._cmv40_progress_persist_ts.pop(self.session.id, None)
+        cmv40_routes._cmv40_maybe_persist_log = self._orig_persist
+        cmv40_routes._save_cmv40_session_async = self._orig_save
+        cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
+        cmv40_routes._cmv40_progress_persist_ts.pop(self.session.id, None)
 
     async def test_el_progreso_queda_en_la_sesion(self):
-        await main._cmv40_log(self.session, PROGRESS)
+        await cmv40_routes._cmv40_log(self.session, PROGRESS)
         self.assertEqual(self.session.last_progress,
                          {"pct": 95.0, "label": "Inyectando RPU"})
         # …y sigue sin ensuciar el log
         self.assertEqual(self.session.output_log, [])
 
     async def test_se_actualiza_con_cada_valor_nuevo(self):
-        await main._cmv40_log(self.session, PROGRESS)
-        await main._cmv40_log(
+        await cmv40_routes._cmv40_log(self.session, PROGRESS)
+        await cmv40_routes._cmv40_log(
             self.session, '§§PROGRESS§§{"pct": 96.5, "label": "Inyectando RPU"}')
         self.assertEqual(self.session.last_progress["pct"], 96.5)
 
     async def test_payload_invalido_no_revienta(self):
-        await main._cmv40_log(self.session, "§§PROGRESS§§no-es-json")
+        await cmv40_routes._cmv40_log(self.session, "§§PROGRESS§§no-es-json")
         self.assertIsNone(self.session.last_progress)
 
     async def test_la_persistencia_va_throttled(self):
         """Debe tocar disco, pero no en cada tick."""
         import asyncio as _a
-        await main._cmv40_log(self.session, PROGRESS)
+        await cmv40_routes._cmv40_log(self.session, PROGRESS)
         for i in range(20):
-            await main._cmv40_log(
+            await cmv40_routes._cmv40_log(
                 self.session, f'§§PROGRESS§§{{"pct": {i}, "label": "X"}}')
         await _a.sleep(0)  # deja correr las tasks de save en background
         self.assertLessEqual(len(self.saves), 1,
@@ -301,14 +298,14 @@ class TestEndpointActivo(unittest.IsolatedAsyncioTestCase):
     async def test_sin_jobs(self):
         self.rows = [{"id": "a", "running_phase": None},
                      {"id": "b", "running_phase": ""}]
-        data = await main.cmv40_active()
+        data = await cmv40_routes.cmv40_active()
         self.assertFalse(data["active"])
         self.assertEqual(data["ids"], [])
 
     async def test_con_job_en_curso(self):
         self.rows = [{"id": "a", "running_phase": None},
                      {"id": "b", "running_phase": "inject"}]
-        data = await main.cmv40_active()
+        data = await cmv40_routes.cmv40_active()
         self.assertTrue(data["active"])
         self.assertEqual(data["ids"], ["b"])
 
@@ -316,5 +313,5 @@ class TestEndpointActivo(unittest.IsolatedAsyncioTestCase):
         """El payload debe ser mínimo — nada de arrastrar los summaries."""
         self.rows = [{"id": f"s{i}", "running_phase": None,
                       "peso": "x" * 5000} for i in range(50)]
-        data = await main.cmv40_active()
+        data = await cmv40_routes.cmv40_active()
         self.assertEqual(set(data.keys()), {"active", "ids"})

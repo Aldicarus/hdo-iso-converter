@@ -230,8 +230,8 @@ class TestJobPct(unittest.TestCase):
         import os
         self._cwd = os.getcwd()
         os.chdir(APP_DIR)
-        import main
-        self.main = main
+        from routers import cmv40 as cmv40_routes
+        self.cmv40_routes = cmv40_routes
 
     def tearDown(self):
         import os
@@ -247,15 +247,15 @@ class TestJobPct(unittest.TestCase):
 
     def test_sin_fase_en_curso_no_hay_porcentaje(self):
         s = self._session(running_phase=None)
-        self.assertIsNone(self.main._cmv40_job_pct(s, 50))
+        self.assertIsNone(self.cmv40_routes._cmv40_job_pct(s, 50))
 
     def test_avanza_con_las_fases(self):
         from models import CMv40PhaseRecord
         from datetime import datetime, timezone
         ahora = datetime.now(timezone.utc)
         s = self._session(running_phase="analyze_source")
-        al_principio = self.main._cmv40_job_pct(s, 0)
-        a_medias = self.main._cmv40_job_pct(s, 50)
+        al_principio = self.cmv40_routes._cmv40_job_pct(s, 0)
+        a_medias = self.cmv40_routes._cmv40_job_pct(s, 50)
         self.assertLess(al_principio, a_medias)
 
         # Con analyze ya hecha y el remux en curso, el job va mucho más allá
@@ -264,12 +264,12 @@ class TestJobPct(unittest.TestCase):
             CMv40PhaseRecord(phase=p, started_at=ahora, status="done")
             for p in ("analyze_source", "extract", "inject")
         ]
-        self.assertGreater(self.main._cmv40_job_pct(s2, 50),
-                           self.main._cmv40_job_pct(s, 100))
+        self.assertGreater(self.cmv40_routes._cmv40_job_pct(s2, 50),
+                           self.cmv40_routes._cmv40_job_pct(s, 100))
 
     def test_nunca_se_pasa_de_100(self):
         s = self._session(running_phase="validate")
-        self.assertLessEqual(self.main._cmv40_job_pct(s, 100), 100.0)
+        self.assertLessEqual(self.cmv40_routes._cmv40_job_pct(s, 100), 100.0)
 
     def test_drop_in_reparte_distinto(self):
         """En drop-in no hay demux y la validación son 4 s: el mismo avance
@@ -278,8 +278,8 @@ class TestJobPct(unittest.TestCase):
         s_drop = self._session(running_phase="inject",
                                target_type="trusted_p7_fel_final",
                                target_trust_ok=True, source_workflow="p7_fel")
-        self.assertNotEqual(self.main._cmv40_job_pct(s_merge, 50),
-                            self.main._cmv40_job_pct(s_drop, 50))
+        self.assertNotEqual(self.cmv40_routes._cmv40_job_pct(s_merge, 50),
+                            self.cmv40_routes._cmv40_job_pct(s_drop, 50))
 
 
 class TestModeloEtaMedido(unittest.TestCase):
@@ -295,14 +295,14 @@ class TestModeloEtaMedido(unittest.TestCase):
         import os, tempfile
         self._cwd = os.getcwd()
         os.chdir(APP_DIR)
-        import main
-        self.main = main
+        from routers import cmv40 as cmv40_routes
+        self.cmv40_routes = cmv40_routes
         self._td = tempfile.TemporaryDirectory()
         import storage
         self._orig_cfg = storage.CONFIG_DIR
         storage.CONFIG_DIR = Path(self._td.name)
         (Path(self._td.name) / "cmv40").mkdir()
-        main._ETA_MODEL_CACHE.update({"at": 0.0, "data": None})
+        cmv40_routes._ETA_MODEL_CACHE.update({"at": 0.0, "data": None})
 
     def tearDown(self):
         import os, storage
@@ -339,7 +339,7 @@ class TestModeloEtaMedido(unittest.TestCase):
         for i in range(3):
             self._job(f"d{i}", 300, 360, 390, 3, dropin=True)
             self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["n"], 6)
         self.assertAlmostEqual(m["dropin"]["inject"], 1.2, places=2)
         self.assertAlmostEqual(m["merge"]["inject"], 1.6, places=2)
@@ -354,7 +354,7 @@ class TestModeloEtaMedido(unittest.TestCase):
         drop-in jobs que habían hecho un demux de 217 s ("Te van a matar")."""
         for i in range(3):
             self._job(f"m{i}", 300, 480, 660, 2, extract=210, dropin=False)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["dropin"], {}, "no debe haber ningún drop-in")
         self.assertAlmostEqual(m["merge"]["remux"], 2.2, places=1)
 
@@ -362,17 +362,17 @@ class TestModeloEtaMedido(unittest.TestCase):
         """Con menos de 3 el frontend se queda con su constante."""
         self._job("uno", 300, 360, 390, 3)
         self._job("dos", 300, 366, 396, 4)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["dropin"], {})
 
     def test_ignora_jobs_sin_fase_a_medible(self):
         self._job("corto", 5, 360, 390, 3)     # analyze de 5s: no sirve de base
         self._job("vacio", 0, 0, 0, 0)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["n"], 0)
 
     def test_sin_historico_devuelve_modelo_vacio(self):
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["dropin"], {})
         self.assertEqual(m["merge"], {})
         self.assertEqual(m["n"], 0)
@@ -386,7 +386,7 @@ class TestModeloEtaMedido(unittest.TestCase):
             self._job(f"d{i}", 300, 360, 390, 3, dropin=True)
         for i in range(2):
             self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertAlmostEqual(m["share_dropin"], 0.75, places=2)
 
     def test_la_ventana_se_cuenta_por_ruta(self):
@@ -395,7 +395,7 @@ class TestModeloEtaMedido(unittest.TestCase):
             self._job(f"d{i:02d}", 300, 360, 390, 3, dropin=True)
         for i in range(4):
             self._job(f"m{i}", 300, 480, 600, 240, extract=210, dropin=False)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         # Los 4 merge son los más recientes, pero aunque hubiera 14 drop-in
         # por delante, ambas rutas deben tener ratios.
         self.assertIn("inject", m["dropin"])
@@ -406,7 +406,7 @@ class TestModeloEtaMedido(unittest.TestCase):
         (Path(self._td.name) / "cmv40" / "malo.json").write_text("{", encoding="utf-8")
         for i in range(3):
             self._job(f"d{i}", 300, 360, 390, 3)
-        m = self.main._cmv40_build_eta_model()
+        m = self.cmv40_routes._cmv40_build_eta_model()
         self.assertEqual(m["n"], 3)
 
 

@@ -31,10 +31,16 @@ if str(APP_DIR) not in sys.path:
 
 
 def _load_app():
-    """Importa main una sola vez y devuelve (main, TestClient)."""
+    """Importa la app una sola vez y devuelve (módulo del router, TestClient).
+
+    El TestClient se construye sobre `main.app`, pero lo que los tests
+    parchean vive en `routers.cmv40` desde que los endpoints salieron de
+    main.py — por eso se devuelve ese módulo y no `main`.
+    """
     from fastapi.testclient import TestClient
     import main
-    return main, TestClient(main.app)
+    from routers import cmv40 as cmv40_routes
+    return main, cmv40_routes, TestClient(main.app)
 
 
 class ApiTestCase(unittest.TestCase):
@@ -42,7 +48,7 @@ class ApiTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.main, cls.client = _load_app()
+        cls.main, cls.cmv40, cls.client = _load_app()
 
     def setUp(self):
         import storage
@@ -60,6 +66,9 @@ class ApiTestCase(unittest.TestCase):
         # Los directorios están resueltos como constantes de módulo en varios
         # sitios; hay que redirigirlos todos o los tests escribirían en el
         # /config real (o fallarían por no existir en el Mac).
+        # Cada constante donde de verdad vive. El router referencia el output
+        # como `_cmv40_pipeline_mod.OUTPUT_DIR`, así que parchear el módulo del
+        # pipeline le llega; `main.OUTPUT_DIR_MKV` sigue siendo la de Tab 1/2.
         self._parches = [
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
@@ -101,10 +110,10 @@ class ApiTestCase(unittest.TestCase):
                 "coro_factory": coro_factory,
             })
 
-        self._orig_run_phase = self.main._run_cmv40_phase
-        self.main._run_cmv40_phase = _espia
+        self._orig_run_phase = self.cmv40._run_cmv40_phase
+        self.cmv40._run_cmv40_phase = _espia
         self.addCleanup(
-            lambda: setattr(self.main, "_run_cmv40_phase", self._orig_run_phase))
+            lambda: setattr(self.cmv40, "_run_cmv40_phase", self._orig_run_phase))
 
 
     def mockear_runners(self) -> list[str]:

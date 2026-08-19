@@ -100,22 +100,24 @@ class TestNombreDeSalidaOcupado(unittest.IsolatedAsyncioTestCase):
 
 class TestGuardDeErrorSinResolver(unittest.TestCase):
     def test_lanza_409_con_error_pendiente(self):
-        import main
+        from routers import cmv40 as cmv40_routes
         from fastapi import HTTPException
         with self.assertRaises(HTTPException) as ctx:
-            main._cmv40_guard_no_pending_error(
+            cmv40_routes._cmv40_guard_no_pending_error(
                 _sesion(error_message="Ya existe un MKV con ese nombre: x.mkv"))
         self.assertEqual(ctx.exception.status_code, 409)
         # El detalle repite el motivo: el frontend lo muestra tal cual
         self.assertIn("Ya existe un MKV", ctx.exception.detail)
 
     def test_deja_pasar_sin_error(self):
-        import main
-        main._cmv40_guard_no_pending_error(_sesion())      # no debe lanzar
+        from routers import cmv40 as cmv40_routes
+        cmv40_routes._cmv40_guard_no_pending_error(_sesion())      # no debe lanzar
 
     def test_todos_los_endpoints_que_arrancan_fase_lo_tienen(self):
         """Si uno se queda fuera, la duplicación vuelve solo por esa ruta."""
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
+        # Los endpoints viven en routers/cmv40.py desde que salieron de
+        # main.py.
+        src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
         endpoints = ("cmv40_analyze_source", "cmv40_target_path",
                      "cmv40_target_from_drive", "cmv40_target_from_mkv",
                      "cmv40_extract", "cmv40_apply_sync", "cmv40_inject",
@@ -136,7 +138,9 @@ class TestGuardDeErrorSinResolver(unittest.TestCase):
 
     def test_clear_error_sigue_existiendo_para_reintentar(self):
         """El guard solo es aceptable si hay forma de quitarlo."""
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
+        # Los endpoints viven en routers/cmv40.py desde que salieron de
+        # main.py.
+        src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
         self.assertIn("async def cmv40_clear_error(", src)
 
 

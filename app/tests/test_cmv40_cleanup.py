@@ -21,20 +21,17 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 
 _orig_cwd = None
-main = None
+cmv40_routes = None
 
 
 def setUpModule():
-    global _orig_cwd, main
-    _orig_cwd = os.getcwd()
-    os.chdir(APP_DIR)          # main.py monta StaticFiles con ruta relativa
-    import main as _main
-    main = _main
-
-
-def tearDownModule():
-    if _orig_cwd:
-        os.chdir(_orig_cwd)
+    # El `os.chdir(APP_DIR)` que había aquí era para que
+    # `StaticFiles(directory="static")` de main.py encontrara el
+    # directorio; desde que se monta por ruta absoluta ya no hace
+    # falta cambiar el cwd del proceso de test.
+    global cmv40_routes
+    from routers import cmv40 as _routes
+    cmv40_routes = _routes
 
 
 class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
@@ -43,15 +40,15 @@ class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
         self.wd = Path(self._tmp.name) / "cmv40_peli_2025_1"
         self.wd.mkdir(parents=True)
         self.saved = {}
-        self._orig_load = main.load_cmv40_session
-        self._orig_save = main.save_cmv40_session
-        self._orig_log = main._cmv40_log
-        main.load_cmv40_session = lambda sid: self.saved.get(sid)
-        main.save_cmv40_session = lambda s: self.saved.__setitem__(s.id, s)
+        self._orig_load = cmv40_routes.load_cmv40_session
+        self._orig_save = cmv40_routes.save_cmv40_session
+        self._orig_log = cmv40_routes._cmv40_log
+        cmv40_routes.load_cmv40_session = lambda sid: self.saved.get(sid)
+        cmv40_routes.save_cmv40_session = lambda s: self.saved.__setitem__(s.id, s)
 
         async def _fake_log(s, msg):
             pass
-        main._cmv40_log = _fake_log
+        cmv40_routes._cmv40_log = _fake_log
 
         from models import CMv40Session
         s = CMv40Session(
@@ -61,9 +58,9 @@ class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
         self.saved["sX"] = s
 
     def tearDown(self):
-        main.load_cmv40_session = self._orig_load
-        main.save_cmv40_session = self._orig_save
-        main._cmv40_log = self._orig_log
+        cmv40_routes.load_cmv40_session = self._orig_load
+        cmv40_routes.save_cmv40_session = self._orig_save
+        cmv40_routes._cmv40_log = self._orig_log
         self._tmp.cleanup()
 
     def _write(self, name, size=1024):
@@ -77,7 +74,7 @@ class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
         self._write("RPU_merged_p81.bin", 2048)      # nuevo (el del bug)
         self._write("_profile8_mode.json", 16)       # nuevo
         self._write("algo_que_aun_no_existe.bin")    # futuro artefacto
-        res = await main.cmv40_cleanup("sX")
+        res = await cmv40_routes.cmv40_cleanup("sX")
         self.assertTrue(res["ok"])
         self.assertFalse(self.wd.exists(),
                          "el workdir debe quedar borrado por completo")
@@ -85,17 +82,17 @@ class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
     async def test_contabiliza_el_espacio_liberado(self):
         self._write("BL.hevc", 5000)
         self._write("desconocido.bin", 3000)
-        res = await main.cmv40_cleanup("sX")
+        res = await cmv40_routes.cmv40_cleanup("sX")
         self.assertEqual(res["freed_bytes"], 8000)
 
     async def test_marca_el_proyecto_como_archivado(self):
         self._write("BL.hevc")
-        await main.cmv40_cleanup("sX")
+        await cmv40_routes.cmv40_cleanup("sX")
         self.assertTrue(self.saved["sX"].archived)
 
     async def test_sin_workdir_no_revienta(self):
         self._tmp.cleanup()                      # el directorio ya no existe
-        res = await main.cmv40_cleanup("sX")
+        res = await cmv40_routes.cmv40_cleanup("sX")
         self.assertTrue(res["ok"])
         self.assertEqual(res["freed_bytes"], 0)
 
@@ -107,7 +104,7 @@ class TestPhaseArtifactsMap(unittest.TestCase):
         Sin esto, rehacer desde Fase F dejaría el RPU convertido de la
         ejecución anterior en el workdir.
         """
-        arts = main._CMV40_PHASE_ARTIFACTS["injected"]
+        arts = cmv40_routes._CMV40_PHASE_ARTIFACTS["injected"]
         for name in ("RPU_merged_p81.bin", "_profile8_mode.json"):
             self.assertIn(name, arts)
 
