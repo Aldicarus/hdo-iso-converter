@@ -444,6 +444,22 @@ Dos guards en el servidor, que es el único con el estado real:
 
 `check_disk_space_preflight` y `check_output_name_free` corren juntas al empezar Fase A: las dos responden "¿podrá terminar esto?". El nombre de salida se comprueba porque Fase H se niega a sobrescribir —y hace bien— pero se enteraba al final: un job real gastó 826s de Fase A + 851s de inject + 755s de remux para morir con "Ya existe un MKV con ese nombre". No borra ni renombra el destino: puede ser una versión que el usuario quiere conservar.
 
+### `CMv40Session` se queda plana — y por qué
+
+El modelo tiene **78 campos planos** con grupos evidentes por prefijo (`target_l8_*`, `pending_target_*`…). Anidarlos en sub-modelos **está descartado**, con dos motivos medidos:
+
+- `session.model_dump()` va tal cual a la UI, y `app.js` lee **61 de los 78 campos**. Anidarlos no produce un error: produce `undefined` en 61 puntos.
+- **Pydantic ignora en silencio las claves que no reconoce.** Verificado ejecutándolo: un JSON actual cargado con un modelo anidado devuelve los sub-modelos vacíos, y el primer `save_cmv40_session()` reescribe el fichero **sin** el análisis L8 ni los combos L2 — horas de `dovi_tool export` perdidas sin un mensaje. Con proyectos en el `/config` de usuarios que no podemos inspeccionar, no hay vuelta atrás: volver a la imagen anterior no recupera un fichero ya reescrito.
+
+Ningún bug conocido viene de que el modelo sea plano.
+
+**Lo que sí hay**, con el beneficio y sin el riesgo:
+
+- **Vistas agrupadoras**: `session.l8`, `session.pending_target`, `session.recommendation` — properties calculadas al vuelo, con predicados (`l8.is_real`, `recommendation.says_keep`). **No entran en `model_dump()`**, así que el JSON no cambia. El código nuevo escribe `session.l8.classification`.
+- **Invariantes** que **normalizan y avisan, sin lanzar**. Un validador estricto convertiría una incoherencia menor en «la app no carga tu proyecto»; con datos de usuarios, cargar gana a validar. La garantía para el código nuevo la dan los tests.
+
+**Si alguna vez se retoma el anidado**, el camino seguro es: añadir `schema_version` a las sesiones nuevas, aceptar los dos formatos durante al menos una versión, esperar a que el parque rote, y escribir un `.bak` antes de migrar. Meses, no una sesión.
+
 ### El log del pipeline: `_log`, no `if log_callback:`
 
 `await _log(log_callback, "…")` hace el guard dentro, así que el callback es
