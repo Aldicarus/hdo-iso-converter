@@ -67,6 +67,7 @@ from phases.cmv40_pipeline import (
     run_phase_e_correct_sync, run_phase_f_inject,
     run_phase_g_remux, run_phase_h_validate,
     detect_sync_offset, compute_sync_confidence, sheet_sync_hint,
+    evaluate_sync_gate,
     validate_artifacts as _validate_cmv40_artifacts,
     cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
     CMV40_WORK_BASE,
@@ -1989,6 +1990,10 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if session.running_phase:
+        # Borrar el proyecto entero con una fase corriendo deja el subproceso
+        # huérfano escribiendo en un workdir que ya no tiene dueño.
+        _cmv40_guard_not_running(session, "borrar el proyecto")
     if clean_artifacts and session.artifacts_dir:
         wd = Path(session.artifacts_dir)
         if wd.exists():
@@ -2007,6 +2012,24 @@ def _cmv40_guard_mutable(session: CMv40Session):
         raise HTTPException(status_code=400, detail="Proyecto archivado — solo lectura")
     if session.phase == "done":
         raise HTTPException(status_code=400, detail="Proyecto completado — usa 'Rehacer' para iterar")
+
+
+def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
+    """Lanza 409 si hay una fase en curso. Para las operaciones DESTRUCTIVAS.
+
+    `cleanup` y `delete?clean_artifacts=true` hacían `rmtree` del workdir sin
+    comprobarlo, así que se podían borrar los artefactos por debajo del
+    `dovi_tool` que los estaba escribiendo — y el resultado es un fallo
+    incomprensible en el log, no un mensaje. Los nueve endpoints de fase ya
+    tienen su guard (`_cmv40_guard_no_pending_error`); estos dos no tenían
+    ninguno. `reset-sync` sí lo comprueba, con el mismo criterio.
+    """
+    if session.running_phase:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Hay una fase en curso ({session.running_phase}). "
+                    f"Cancélala antes de {accion}."),
+        )
 
 
 @router.post("/api/cmv40/{session_id}/rename-output", summary="Edita el nombre del MKV de salida")
@@ -2036,6 +2059,7 @@ async def cmv40_cleanup(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    _cmv40_guard_not_running(session, "borrar los artefactos")
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None
     freed = 0
     if wd and wd.exists():
@@ -3177,6 +3201,10 @@ async def cmv40_sync_data(session_id: str):
     data["suggested_offset"] = detect_sync_offset(data)
     data["confidence"] = compute_sync_confidence(data)
     data["sheet_sync"] = sheet_sync_hint(session, data["suggested_offset"])
+    # El criterio de avance lo resuelve el backend y la UI lo LEE, igual que
+    # el plan de workflows. Antes lo calculaba solo `app.js` y el endpoint de
+    # confirmación no lo comprobaba.
+    data["sync_gate"] = evaluate_sync_gate(data, session.sync_delta)
     return data
 
 
@@ -3348,14 +3376,52 @@ async def cmv40_reset_sync(session_id: str):
     return session.model_dump()
 
 
+def _cmv40_sync_gate_for(session: CMv40Session) -> dict | None:
+    """Evalúa el criterio de avance de la Fase D leyendo `per_frame_data.json`.
+
+    Devuelve None si el volcado no está: sin datos no hay criterio que aplicar
+    y bloquear al usuario por un fichero ausente sería peor que dejarle pasar
+    (la Fase F valida el frame count de todas formas). Se llama en un thread:
+    el volcado de un UHD son decenas de MB de JSON.
+    """
+    if not session.artifacts_dir:
+        return None
+    pf = Path(session.artifacts_dir) / "per_frame_data.json"
+    if not pf.exists():
+        return None
+    try:
+        import json as _json
+        data = _json.loads(pf.read_text(encoding="utf-8"))
+    except Exception as e:
+        _logger.warning("per_frame_data.json ilegible para el gate de sync: %s", e)
+        return None
+    return evaluate_sync_gate(data, session.sync_delta)
+
+
 @router.post("/api/cmv40/{session_id}/mark-synced", summary="Marca sync OK sin corrección")
-async def cmv40_mark_synced(session_id: str):
+async def cmv40_mark_synced(session_id: str, force: bool = False):
     """Usuario confirma que no hace falta corrección (Δ=0 y curvas alineadas).
     Si el target es trusted, anotamos `sync_verification_pause` en phases_skipped
-    para que la UI muestre Fase D como "omitida" incluso tras recargar."""
+    para que la UI muestre Fase D como "omitida" incluso tras recargar.
+
+    El criterio (Δ=0 ∧ confianza ≥ 85 %) se comprueba AQUÍ. Vivía solo en
+    `app.js`, que deshabilitaba el botón, mientras este endpoint aceptaba
+    cualquier cosa: un frontend cacheado viejo o una llamada a mano se lo
+    saltaban sin dejar rastro. `force=true` es la salida explícita para el
+    caso legítimo (grading que diverge de verdad y el usuario ya lo validó
+    mirando el gráfico); antes ese caso simplemente no tenía salida.
+
+    NO se comprueba cuando la Fase D se omite (`plan.skip_sync_review`): ahí
+    nadie ha mirado el gráfico porque no había que mirarlo, y
+    `per_frame_data.json` puede no existir siquiera.
+    """
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if not force and not resolve_plan(session).inputs.skip_sync_review:
+        gate = await asyncio.to_thread(_cmv40_sync_gate_for, session)
+        if gate is not None and not gate["ok"]:
+            raise HTTPException(status_code=409, detail=gate["reason"])
     session.phase = CMv40Phase.SYNC_VERIFIED
     # Pregunta distinta de la del ACK: aquí el usuario ACABA de confirmar el
     # sync, y lo que se decide es si lo revisó de verdad o solo lo dio por

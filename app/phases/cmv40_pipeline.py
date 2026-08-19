@@ -5057,7 +5057,49 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
         "confidence_pct": confidence_pct,
         "rating": rating,
         "reason": reason,
-        "threshold_ok": pearson >= 0.85,
+        "threshold_ok": pearson >= SYNC_CONFIDENCE_THRESHOLD,
+    }
+
+
+SYNC_CONFIDENCE_THRESHOLD = 0.85
+
+
+def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None) -> dict:
+    """El criterio para avanzar de la Fase D: Δ frames = 0 **y** confianza ≥ 85 %.
+
+    Vivía SOLO en `app.js` (`canConfirm = delta === 0 && confOk`) mientras
+    `POST /mark-synced` aceptaba cualquier cosa. Una réplica de una regla en la
+    UI se desincroniza en silencio, y aquí además era la única copia: un
+    `app.js` viejo en caché o una llamada a mano se saltaban el criterio sin
+    dejar rastro. Misma razón por la que el plan de workflows se lee del
+    backend en vez de re-derivarse.
+
+    `sync_delta` es el de la sesión (lo actualiza la Fase E tras cada
+    corrección); si no se pasa, se deduce de los frame counts del volcado.
+    """
+    conf = compute_sync_confidence(per_frame_data)
+    if sync_delta is None:
+        sync_delta = ((per_frame_data.get("target_frames") or 0)
+                      - (per_frame_data.get("source_frames") or 0))
+    delta_ok = sync_delta == 0
+    conf_ok = bool(conf.get("threshold_ok"))
+    if not delta_ok:
+        reason = (f"Hay diferencia de frames (Δ = {sync_delta:+d}); "
+                  "corrígela antes de confirmar")
+    elif not conf_ok:
+        reason = (f"Confianza {conf.get('confidence_pct', 0)}% inferior al umbral "
+                  f"{int(SYNC_CONFIDENCE_THRESHOLD * 100)}% — revisa el gráfico o "
+                  "verifica que el RPU target corresponda a esta película")
+    else:
+        reason = ""
+    return {
+        "ok": delta_ok and conf_ok,
+        "delta": sync_delta,
+        "delta_ok": delta_ok,
+        "confidence_pct": conf.get("confidence_pct", 0),
+        "confidence_ok": conf_ok,
+        "threshold_pct": int(SYNC_CONFIDENCE_THRESHOLD * 100),
+        "reason": reason,
     }
 
 

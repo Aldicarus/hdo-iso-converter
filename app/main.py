@@ -97,6 +97,10 @@ from storage import (
 ISOS_DIR   = Path(os.environ.get("ISOS_DIR", "/mnt/isos"))
 TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
+# Vivía 2.700 líneas más abajo, junto a LIBRARY_ROOTS. Aquí, con el resto de
+# constantes de directorio, porque el barrido de huérfanos del arranque
+# (`_cleanup_obvious_orphans_at_startup`, que corre en el import) la necesita.
+OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
 
 # ── Recuperación de sesiones interrumpidas ───────────────────────────────────
 # Al arrancar, las sesiones que quedaron en 'running' o 'queued' (por un
@@ -233,6 +237,87 @@ _recover_interrupted_cmv40_sessions()
 # no están realmente montados según /proc/mounts. Otros tipos (workdirs CMv4.0,
 # .mkv.tmp grandes) se dejan para limpieza manual con preview en la UI.
 
+# ── Inventario de basura: UNA tabla, tres consumidores ──────────────────────
+#
+# El barrido de arranque, el panel de Limpieza y el whitelist del borrado
+# describían cada uno su propia lista, y se habían desincronizado:
+#
+#   · el barrido miraba `/tmp` Y `TMP_DIR`; el panel solo `/tmp`, que es donde
+#     los workdirs NO están desde que se movieron a `/mnt/tmp` — así que un
+#     huérfano de hasta ~90 GB de HEVC era invisible en la UI;
+#   · `mkv_quality_audit_*` lo limpiaba el barrido pero el panel no lo listaba;
+#   · y el whitelist solo aceptaba `/tmp/lightprof_`, así que la ruta real
+#     tampoco se habría podido borrar aunque el panel la hubiera enseñado.
+#
+# `bases` puede traer varios directorios (los tmp viven en TMP_DIR, pero se
+# sigue mirando /tmp por los restos de versiones anteriores). `patron` es un
+# glob del nombre RELATIVO a la base, y limita qué se puede borrar ahí:
+# `/mnt/output` solo admite `*.mkv.tmp`, no cualquier MKV.
+def _cleanup_targets() -> list[dict]:
+    """Se calcula al vuelo, no en import: los tests redirigen los directorios."""
+    from phases.cmv40_pipeline import CMV40_WORK_BASE
+    from phases.iso_mount import MOUNT_BASE
+    from storage import MKV_AUDIT_DIR
+    tmp_bases = []
+    for b in ("/tmp", TMP_DIR):
+        if b and b not in tmp_bases:
+            tmp_bases.append(b)
+    # `category` identifica el TIPO de objetivo. El panel puede desglosar uno
+    # en varios hallazgos (el cache de MKV sale como orphan / corrupt /
+    # stale-version / invalid-quality); lo que la tabla decide es qué rutas son
+    # tocables, no cómo se etiqueta cada hallazgo.
+    return [
+        {"category": "cmv40_workdir",     "bases": [str(CMV40_WORK_BASE)],
+         "patron": "*"},
+        {"category": "iso_mount_zombie",  "bases": [str(MOUNT_BASE)],
+         "patron": "*"},
+        {"category": "lightprofile_tmp",  "bases": tmp_bases,
+         "patron": "lightprof_*"},
+        {"category": "quality_audit_tmp", "bases": tmp_bases,
+         "patron": "mkv_quality_audit_*"},
+        {"category": "remux_mkv_tmp",     "bases": [str(OUTPUT_DIR_MKV)],
+         "patron": "*.mkv.tmp"},
+        {"category": "mkv_cache",         "bases": [str(MKV_AUDIT_DIR)],
+         "patron": "*.json"},
+    ]
+
+
+def _cleanup_path_allowed(path_str: str) -> tuple[bool, str]:
+    """¿Es `path_str` un objetivo legítimo de borrado? (ruta ya normalizada).
+
+    Antes se comprobaba con `path_str.startswith(prefix)` sobre la cadena
+    CRUDA, así que `"/mnt/tmp/cmv40/../../library"` pasaba el filtro y llegaba
+    a `rmtree` — con `/mnt/output`, `/mnt/tmp` y `/config` montados `rw` y el
+    contenedor en modo privileged. Los otros dos validadores de rutas del
+    fichero (`_safe_library_path`, `_resolve_mkv_path_safe`) ya resolvían antes
+    de comparar; el único que no lo hacía era justo el que borra.
+    """
+    from fnmatch import fnmatch
+    try:
+        real = Path(path_str).resolve()
+    except OSError as e:
+        return (False, f"ruta no resoluble: {e}")
+    for target in _cleanup_targets():
+        for base in target["bases"]:
+            try:
+                base_real = Path(base).resolve()
+            except OSError:
+                continue
+            try:
+                rel = real.relative_to(base_real)
+            except ValueError:
+                continue
+            if str(rel) in ("", "."):
+                return (False, "es el propio directorio raíz, no un huérfano")
+            # Solo el primer nivel: nada de borrar un fichero de DENTRO de un
+            # workdir suelto, y desde luego nada de subir por el árbol.
+            if len(rel.parts) != 1:
+                continue
+            if fnmatch(rel.parts[0], target["patron"]):
+                return (True, target["category"])
+    return (False, "path fuera de los roots permitidos")
+
+
 def _cleanup_obvious_orphans_at_startup() -> None:
     """Borra silenciosamente huérfanos triviales (tmps cortos, mount points
     sin entry en /proc/mounts). Logging info por cada item borrado."""
@@ -240,17 +325,17 @@ def _cleanup_obvious_orphans_at_startup() -> None:
     import time as _time_so
     from pathlib import Path as _Path_so
 
-    # 1. lightprof_* + mkv_quality_audit_* mayores de 1 hora. Los workdirs
-    #    van a /mnt/tmp (TMP_DIR); /tmp se sigue escaneando por si quedaron
-    #    leftovers de versiones anteriores que caían al /tmp del contenedor.
-    _scan_bases = []
-    for _b in ("/tmp", TMP_DIR):
-        if _b and _b not in _scan_bases:
-            _scan_bases.append(_b)
-    for _base in _scan_bases:
-        for _pat in ("lightprof_*", "mkv_quality_audit_*"):
+    # 1. Workdirs temporales de Tab 2 mayores de 1 hora. Las bases y los
+    #    patrones salen de `_cleanup_targets()`, la misma tabla que usan el
+    #    panel de Limpieza y el whitelist del borrado: cuando estaban escritos
+    #    a mano en cada sitio, el panel se quedó mirando `/tmp` y los workdirs
+    #    llevaban tiempo en `/mnt/tmp`.
+    for _t in _cleanup_targets():
+        if _t["category"] not in ("lightprofile_tmp", "quality_audit_tmp"):
+            continue
+        for _base in _t["bases"]:
             try:
-                for lp in _Path_so(_base).glob(_pat):
+                for lp in _Path_so(_base).glob(_t["patron"]):
                     if not lp.is_dir():
                         continue
                     try:
@@ -264,11 +349,13 @@ def _cleanup_obvious_orphans_at_startup() -> None:
                         except Exception as e:
                             _logger.warning("[Startup cleanup] failed to remove %s: %s", lp, e)
             except Exception as e:
-                _logger.warning("[Startup cleanup] scan %s/%s failed: %s", _base, _pat, e)
+                _logger.warning("[Startup cleanup] scan %s/%s failed: %s",
+                                _base, _t["patron"], e)
 
-    # 2. /mnt/bd/* sin entry en /proc/mounts (mount points zombies)
+    # 2. Mount points de ISO sin entry en /proc/mounts (zombies)
     try:
-        mount_base = _Path_so("/mnt/bd")
+        from phases.iso_mount import MOUNT_BASE as _MB
+        mount_base = _Path_so(_MB)
         if mount_base.exists():
             mounted_paths: set[str] = set()
             try:
@@ -2868,7 +2955,6 @@ async def reorder_queue(body: QueueReorderRequest):
 from models import MkvEditRequest
 from phases.mkv_analyze import analyze_mkv, apply_mkv_edits
 
-OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
 LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
 
 
@@ -5340,8 +5426,9 @@ def _scan_orphans() -> list[dict]:
     now = _t.time()
 
     # 1. Workdirs CMv4.0 sin sesión JSON correspondiente
-    cmv40_work = Path("/mnt/tmp/cmv40")
-    cmv40_cfg = Path("/config/cmv40")
+    from phases.cmv40_pipeline import CMV40_WORK_BASE as _CWB
+    cmv40_work = Path(_CWB)
+    cmv40_cfg = CONFIG_DIR / "cmv40"
     if cmv40_work.exists() and cmv40_work.is_dir():
         valid_ids: set[str] = set()
         if cmv40_cfg.exists():
@@ -5372,7 +5459,8 @@ def _scan_orphans() -> list[dict]:
             pass
 
     # 2. Mount points de ISO sin entry en /proc/mounts
-    mount_base = Path("/mnt/bd")
+    from phases.iso_mount import MOUNT_BASE as _MB
+    mount_base = Path(_MB)
     if mount_base.exists():
         mounted: set[str] = set()
         try:
@@ -5402,29 +5490,45 @@ def _scan_orphans() -> list[dict]:
         except Exception:
             pass
 
-    # 3. Light-profile tmps en /tmp
-    try:
-        for lp in Path("/tmp").glob("lightprof_*"):
-            if not lp.is_dir():
-                continue
-            size = _dir_size(lp)
-            try: age = int(now - lp.stat().st_mtime)
-            except OSError: age = 0
-            out.append({
-                "category": "lightprofile_tmp",
-                "label": "Tmp del análisis de luminancia",
-                "path": str(lp),
-                "size_bytes": size,
-                "age_seconds": age,
-                "safe": age > 3600,
-                "reason": "Cancelación o crash durante extracción de luminancia (Tab 2)"
-                          + ("" if age > 3600 else " — RECIENTE, podría estar activo"),
-            })
-    except Exception:
-        pass
+    # 3. Workdirs temporales de Tab 2 (luminancia y auditoría de calidad).
+    #    Las bases salen de `_cleanup_targets()`: escritas a mano aquí, este
+    #    bloque miraba `/tmp` mientras los workdirs se creaban en `TMP_DIR`,
+    #    así que un huérfano de decenas de GB no aparecía en el panel. Y de
+    #    `mkv_quality_audit_*` no había categoría siquiera.
+    _etiquetas_tmp = {
+        "lightprofile_tmp": ("Tmp del análisis de luminancia",
+                             "Cancelación o crash durante extracción de luminancia (Tab 2)"),
+        "quality_audit_tmp": ("Tmp de la auditoría de calidad del RPU",
+                              "Cancelación o crash durante la auditoría del RPU (Tab 2)"),
+    }
+    for _t in _cleanup_targets():
+        etiqueta = _etiquetas_tmp.get(_t["category"])
+        if not etiqueta:
+            continue
+        label, motivo = etiqueta
+        for _base in _t["bases"]:
+            try:
+                for lp in Path(_base).glob(_t["patron"]):
+                    if not lp.is_dir():
+                        continue
+                    size = _dir_size(lp)
+                    try: age = int(now - lp.stat().st_mtime)
+                    except OSError: age = 0
+                    out.append({
+                        "category": _t["category"],
+                        "label": label,
+                        "path": str(lp),
+                        "size_bytes": size,
+                        "age_seconds": age,
+                        "safe": age > 3600,
+                        "reason": motivo + ("" if age > 3600
+                                            else " — RECIENTE, podría estar activo"),
+                    })
+            except Exception:
+                pass
 
     # 4. .mkv.tmp del remux (Fase G)
-    output_base = Path("/mnt/output")
+    output_base = OUTPUT_DIR_MKV
     if output_base.exists():
         try:
             for tf in output_base.glob("*.mkv.tmp"):
@@ -5535,14 +5639,14 @@ def _scan_orphans() -> list[dict]:
     return out
 
 
-def _delete_orphan_path(path_str: str, allowed_prefixes: list[str]) -> tuple[bool, int, str]:
-    """Borra un huérfano con validación de prefix (whitelist). Devuelve
-    (ok, bytes_freed, error_msg)."""
+def _delete_orphan_path(path_str: str) -> tuple[bool, int, str]:
+    """Borra un huérfano validando la ruta contra `_cleanup_targets`.
+    Devuelve (ok, bytes_freed, error_msg)."""
     import shutil as _sh
 
-    # Validación: el path tiene que estar bajo uno de los roots permitidos
-    if not any(path_str.startswith(prefix) for prefix in allowed_prefixes):
-        return (False, 0, "path fuera de los roots permitidos")
+    permitido, motivo = _cleanup_path_allowed(path_str)
+    if not permitido:
+        return (False, 0, motivo)
     p = Path(path_str)
     if not p.exists():
         return (False, 0, "path no existe")
@@ -5590,28 +5694,18 @@ class CleanupExecuteRequest(BaseModel):
 @app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados")
 async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     """Borra los paths indicados. Solo se aceptan paths bajo prefixes
-    conocidos (/mnt/tmp/cmv40/, /mnt/bd/, /tmp/lightprof_, /mnt/output/*.mkv.tmp,
-    /config/mkv_audits/). Cada item devuelve {ok, freed, error}."""
-    ALLOWED_PREFIXES = [
-        "/mnt/tmp/cmv40/",
-        "/mnt/bd/",
-        "/tmp/lightprof_",
-        "/mnt/output/",       # solo .mkv.tmp, validamos abajo
-        "/config/mkv_audits/", # cache Tab 2 (orphans, basura, stale-version)
-    ]
+    conocidos, que salen de `_cleanup_targets()` — la misma tabla que alimenta
+    el barrido de arranque y el panel. Cada item devuelve {ok, freed, error}.
+
+    La validación (base + patrón del nombre, sobre la ruta ya resuelta) vive en
+    `_cleanup_path_allowed`, así que las salvaguardas por extensión que había
+    aquí sueltas (`/mnt/output` solo .mkv.tmp, `/config/mkv_audits` solo .json)
+    son ahora el `patron` de su fila."""
     deleted = []
     failed = []
     total_freed = 0
     for path in body.paths or []:
-        # Salvaguarda extra para /mnt/output/: solo .mkv.tmp
-        if path.startswith("/mnt/output/") and not path.endswith(".mkv.tmp"):
-            failed.append({"path": path, "error": "/mnt/output/ solo permite borrar *.mkv.tmp"})
-            continue
-        # Salvaguarda extra para /config/mkv_audits/: solo .json
-        if path.startswith("/config/mkv_audits/") and not path.endswith(".json"):
-            failed.append({"path": path, "error": "/config/mkv_audits/ solo permite borrar *.json"})
-            continue
-        ok, freed, err = _delete_orphan_path(path, ALLOWED_PREFIXES)
+        ok, freed, err = _delete_orphan_path(path)
         if ok:
             deleted.append({"path": path, "freed_bytes": freed})
             total_freed += freed

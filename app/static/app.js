@@ -17538,6 +17538,19 @@ async function _cmv40AutoInject(pid) {
 
 // Para target trusted: confirma sync OK sin intervención manual y avanza
 // automáticamente a Fase F (inject).
+/** Fallback del criterio de la Fase D cuando la respuesta no trae `sync_gate`
+ *  (sesión cacheada de antes del cambio). La fuente de verdad es
+ *  `evaluate_sync_gate` en el backend; esto solo evita una UI en blanco. */
+function _cmv40SyncGateLocal(delta, confOk, confPct) {
+  if (delta !== 0) {
+    return { ok: false, reason: `Hay diferencia de frames (Δ = ${delta > 0 ? '+' : ''}${delta}); corrígela antes de confirmar` };
+  }
+  if (!confOk) {
+    return { ok: false, reason: `Confianza ${confPct}% inferior al umbral 85% — revisa el gráfico o verifica que el RPU target corresponda a esta película` };
+  }
+  return { ok: true, reason: '' };
+}
+
 async function _cmv40AutoMarkSynced(pid) {
   await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
   _cmv40PollPhase(pid, 'sync_verified');
@@ -18276,16 +18289,19 @@ function _renderCMv40SyncControls(project) {
   const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
   const suggested = d.suggested_offset || {};
   const hasSyncConfig = !!s.sync_config;
-  // Confianza y criterio para habilitar "Confirmar"
+  // Confianza y criterio para habilitar "Confirmar". El criterio se LEE del
+  // backend (`sync_gate`), que es quien lo aplica en POST /mark-synced. Antes
+  // se calculaba aquí y solo aquí: el endpoint aceptaba cualquier cosa, así
+  // que un app.js viejo en caché se lo saltaba sin dejar rastro.
   const conf = d.confidence || {};
   const confPct = conf.confidence_pct || 0;
   const confOk  = !!conf.threshold_ok;
-  const canConfirm = delta === 0 && confOk;
-  const confirmReason = delta !== 0
-    ? 'Hay diferencia de frames, debes corregir primero'
-    : !confOk
-      ? `Confianza ${confPct}% inferior al umbral 85% — revisa el gráfico o verifica compatibilidad del RPU`
-      : '';
+  // Fallback local para respuestas cacheadas de antes de `sync_gate` (mismo
+  // patrón que los helpers del plan). Es UNA implementación, no una réplica:
+  // `_cmv40SyncGateLocal` la comparte con quien la necesite.
+  const gate = d.sync_gate || _cmv40SyncGateLocal(delta, confOk, confPct);
+  const canConfirm = !!gate.ok;
+  const confirmReason = gate.reason || '';
   // Framerate real del vídeo origen (fallback 23.976)
   const FPS = s.source_fps || 23.976;
   const totalFrames = d.source_frames || d.target_frames || 0;
