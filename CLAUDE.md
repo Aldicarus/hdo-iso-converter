@@ -471,7 +471,13 @@ Los helpers conservan un **fallback local** porque el plan no llega en tres situ
 
 **Regla**: cualquier decisión que dependa de workflow/target_type/trust se lee del plan. `test_cmv40_plan_frontend::TestNoQuedanReplicas` falla si la expresión `force_interactive` reaparece a mano (hay 3 usos legítimos: el fallback, la predicción de drop-in previa a los gates y la regla de auto-avance, que incluye el ACK).
 
-**Divergencia conocida, sin resolver**: la regla de auto-avance no coincide entre las dos partes. El backend hace `trusted_auto or user_acked`; el frontend, `(trust_ok or acked) and override != force_interactive`. Con el ACK dado **y** `force_interactive`, el backend se salta Fase D y el frontend no. Está anotado junto al código en ambos lados.
+**Saltarse la Fase D: `skip_sync_review`, y solo ahí.** Dos vías la habilitan —gates OK, o el usuario aceptó una degradación que la Fase D no puede arreglar— y **ninguna sobrevive a `force_interactive`**. La consumen el orquestador, el endpoint de ACK y la UI (`plan.skip_sync_review`).
+
+Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_acked` (con el ACK dado se saltaba la fase aunque el usuario hubiera pedido revisión manual) y el frontend exigía además que no hubiera `force_interactive`. Manda esta última lectura: pedir revisar el sync a mano y aceptar que el grading diverge son decisiones distintas.
+
+**Ojo con confundirla con `trust_effective`**: `mark_synced` usa esa otra a propósito, porque responde otra pregunta —si el usuario *revisó* la Fase D o solo la dio por buena— y ahí el ACK no cuenta. Confundir las dos es lo que produjo la divergencia.
+
+**Regla**: ninguna condición de trust se escribe a mano fuera de `cmv40_strategy.py`. `is_drop_in_fel` del pipeline delega en `plan.drop_in` por lo mismo — era una segunda definición del drop-in.
 
 ### Dónde vive el código del Tab 3
 
