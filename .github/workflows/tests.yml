@@ -1,0 +1,66 @@
+name: Tests
+
+# La suite (730 tests) no corría en ningún sitio automáticamente: el único
+# workflow del repo publica la imagen en `release.published`, así que se podía
+# tagear con la suite roja y nadie se enteraba.
+#
+# Y hay dos tests que en el Mac se SALTAN siempre porque miran `/proc`
+# (`_ReadProgress`: el `rchar` de `/proc/<pid>/io` y el `pos:` de
+# `/proc/<pid>/fdinfo`). Cubren la medición de progreso, que es la maquinaria
+# más frágil del pipeline según su propia documentación, y no se ejecutaban en
+# ninguna parte. En un runner Linux sí corren.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un push nuevo cancela la ejecución anterior de la misma rama.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          # Misma minor que el contenedor (ubuntu:22.04 trae python3.10) para
+          # no descubrir en producción una incompatibilidad que aquí pasó.
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt
+
+      - name: Node (tests de frontend)
+        # `test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`,
+        # `test_cmv40_timeline_layout` y `test_cmv40_eta_sufijo` evalúan las
+        # funciones reales de app.js en node; sin él se auto-saltan.
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Comprobar que /proc está disponible
+        # Si un día el runner cambiara y estos tests volvieran a saltarse en
+        # silencio, mejor enterarse aquí que perder la cobertura sin ruido.
+        run: |
+          test -r "/proc/self/io" || { echo "::error::/proc/self/io no legible: los tests de _ReadProgress se saltarían"; exit 1; }
+          test -d "/proc/self/fdinfo" || { echo "::error::/proc/self/fdinfo no existe"; exit 1; }
+
+      - name: Suite completa
+        run: python3 -m unittest discover -s app/tests -v
+
+      - name: Sintaxis del frontend
+        # La coherencia del token de cache-bust la comprueba
+        # `test_frontend_cache_bust.py`, que corre en la suite de arriba.
+        run: node --check app/static/app.js
