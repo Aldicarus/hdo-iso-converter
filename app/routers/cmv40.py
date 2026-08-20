@@ -76,6 +76,34 @@ from phases.cmv40_pipeline import (
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
+# ── Qué proyectos tienen una fase en marcha, EN MEMORIA ─────────────────────
+#
+# Este proceso es el único que arranca fases, y al arrancar
+# `_recover_interrupted_cmv40_sessions` limpia los `running_phase` que quedaran
+# en disco: la memoria es la fuente de verdad. El punto verde del tab lo
+# consultaba cada 5 s con `list_cmv40_sessions_summary`, que hace un `glob` más
+# un `stat` por sesión — con 88 proyectos son ~88 syscalls cada 5 s, 1,5
+# millones al día, para decidir si se pinta un punto.
+#
+# Se mantiene desde `_cmv40_marcar_activa` / `_cmv40_marcar_libre`, que son los
+# ÚNICOS sitios que tocan `session.running_phase`. Un test guarda esa regla:
+# si alguien vuelve a asignarlo a mano, el registro se queda con un fantasma y
+# el punto verde no se apaga nunca.
+_cmv40_activas: dict[str, str] = {}
+
+
+def _cmv40_marcar_activa(session: CMv40Session, fase: str) -> None:
+    """Marca la sesión como ocupada por `fase` (en el objeto y en el registro)."""
+    session.running_phase = fase
+    _cmv40_activas[session.id] = fase
+
+
+def _cmv40_marcar_libre(session: CMv40Session) -> None:
+    """Libera la sesión: ya no hay fase en marcha."""
+    session.running_phase = None
+    _cmv40_activas.pop(session.id, None)
+
+
 # Conexiones WebSocket específicas de CMv4.0
 _cmv40_ws_connections: dict[str, list[WebSocket]] = {}
 _cmv40_active_procs: dict[str, asyncio.subprocess.Process] = {}
@@ -95,7 +123,7 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
     Al final aplica apply_fn(session) y avanza a new_phase.
     """
     import json as _json
-    session.running_phase = phase_name
+    _cmv40_marcar_activa(session, phase_name)
     session.error_message = ""
     save_cmv40_session(session)
     label = progress_label or phase_name
@@ -118,7 +146,7 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
         await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': 100, 'label': 'Completado', 'eta_s': 0})}")
         await _cmv40_log(session, f"✓ Fase {phase_name} completada")
     finally:
-        session.running_phase = None
+        _cmv40_marcar_libre(session)
         _cmv40_cancel_flags.pop(session.id, None)
         save_cmv40_session(session)
 
@@ -642,7 +670,7 @@ async def _run_cmv40_phase_locked(
         previous_phase = session.phase
         record = CMv40PhaseRecord(phase=phase_name, started_at=started, status="running")
         session.phase_history.append(record)
-        session.running_phase = phase_name  # ← bloquea la UI en modo modal
+        _cmv40_marcar_activa(session, phase_name)   # ← bloquea la UI en modo modal
         # Este save está FUERA del try de la fase, así que una excepción aquí
         # no se registra como fallo de fase: sube hasta el `except: pass` del
         # lanzador y el job muere en silencio con `running_phase` pegado en
@@ -741,7 +769,7 @@ async def _run_cmv40_phase_locked(
                     )
         finally:
             _cmv40_active_procs.pop(session.id, None)
-            session.running_phase = None  # ← desbloquea la UI
+            _cmv40_marcar_libre(session)  # ← desbloquea la UI
             # La barra pertenece a la fase que acaba de terminar: dejarla
             # puesta haría que la siguiente arrancara mostrando el progreso
             # de la anterior hasta su primer tick.
@@ -1106,7 +1134,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
 
     async def _run():
         async with lock:
-            session.running_phase = "preflight"
+            _cmv40_marcar_activa(session, "preflight")
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -1166,7 +1194,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             finally:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
-                session.running_phase = None
+                _cmv40_marcar_libre(session)
                 await _save_cmv40_session_async(session)
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
@@ -1365,17 +1393,19 @@ async def cmv40_eta_model():
 
 @router.get("/api/cmv40-active", summary="¿Hay algún job CMv4.0 en curso? (indicador de tab)")
 async def cmv40_active():
-    """Respuesta mínima para el punto verde del tab.
+    """Respuesta mínima para el punto verde del tab, SIN tocar el disco.
 
-    El frontend lo consulta cada 5 s. Antes usaba `GET /api/cmv40`, que con
-    88 proyectos devuelve **569 KB y tarda 193 ms** — pedir eso para pintar
-    un punto era ~10 % de un core del NAS mientras el pipeline pelea por
-    los 4 que hay. Aquí solo salen los ids que están corriendo.
+    El frontend lo consulta cada 5 s. Primero usaba `GET /api/cmv40`, que con
+    88 proyectos devuelve 569 KB y tarda 193 ms — ~10 % de un core del NAS
+    mientras el pipeline pelea por los 4 que hay. Después, el summary cacheado,
+    que sigue haciendo un `glob` más un `stat` por sesión: ~88 syscalls cada
+    5 s, 1,5 millones al día.
+
+    Este proceso es el único que arranca fases y el arranque limpia los
+    `running_phase` huérfanos del disco, así que la respuesta está en memoria
+    (`_cmv40_activas`) y cuesta cero.
     """
-    from storage import list_cmv40_sessions_summary
-    sessions = await asyncio.to_thread(list_cmv40_sessions_summary)
-    running = [s.get("id") for s in sessions if s.get("running_phase")]
-    return {"active": bool(running), "ids": running}
+    return {"active": bool(_cmv40_activas), "ids": sorted(_cmv40_activas)}
 
 
 @router.get("/api/cmv40/rpu-files", summary="Lista RPUs disponibles en /mnt/cmv40_rpus")
@@ -1997,7 +2027,10 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     if clean_artifacts and session.artifacts_dir:
         wd = Path(session.artifacts_dir)
         if wd.exists():
-            _cmv40_shutil.rmtree(wd, ignore_errors=True)
+            # A un thread: el workdir de un UHD son cientos de GB y borrarlos
+            # sobre ZFS tarda segundos. En el bucle, eso congela la app entera
+            # (incluido el healthcheck del contenedor).
+            await asyncio.to_thread(_cmv40_shutil.rmtree, wd, ignore_errors=True)
     delete_cmv40_session(session_id)
     return {"ok": True}
 
@@ -2072,14 +2105,24 @@ async def cmv40_cleanup(session_id: str):
         # y el proyecto quedaba archivado (solo lectura) sin forma de volver
         # a limpiarlo desde la UI. Caso real: los ficheros de la conversión a
         # Profile 8.1 dejaron 29 MB huérfanos en "Te van a matar".
-        for f in wd.rglob("*"):
-            if f.is_file():
-                try:
-                    freed += f.stat().st_size
-                except OSError:
-                    pass
+        def _medir_y_borrar(directorio: Path) -> int:
+            # Recuento + borrado en un thread: el workdir de un UHD son
+            # 250-400 GB (source.hevc + BL + EL + EL_injected + output.mkv) y
+            # tanto el `rglob` de stats como el unlink sobre ZFS tardan
+            # segundos. En el bucle congelaban la app entera — el log del job
+            # que estuviera corriendo en otro proyecto incluido.
+            total = 0
+            for f in directorio.rglob("*"):
+                if f.is_file():
+                    try:
+                        total += f.stat().st_size
+                    except OSError:
+                        pass
+            _cmv40_shutil.rmtree(directorio)
+            return total
+
         try:
-            _cmv40_shutil.rmtree(wd)
+            freed = await asyncio.to_thread(_medir_y_borrar, wd)
         except Exception as e:
             _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
             freed = 0
@@ -2139,7 +2182,7 @@ async def cmv40_accept_keep(session_id: str):
     session.phase = "done"
     session.output_workflow = "keep_cmv29"
     session.error_message = ""
-    session.running_phase = None
+    _cmv40_marcar_libre(session)
     save_cmv40_session(session)
     await _cmv40_log(
         session,
@@ -2271,69 +2314,80 @@ async def cmv40_acknowledge_critical_gates(session_id: str):
 async def cmv40_cleanup_preview():
     """Devuelve la lista de proyectos CMv4.0 con info necesaria para decidir
     qué limpiar: tamaño del workdir, fase actual, estado (done/error/archived/
-    en progreso), si hay running_phase. NO borra nada — solo lectura."""
-    sessions = list_cmv40_sessions()
-    items: list[dict] = []
-    total_bytes = 0
-    for s in sessions:
-        wd = Path(s.artifacts_dir) if s.artifacts_dir else None
-        size = 0
-        files_count = 0
-        wd_exists = bool(wd and wd.exists())
-        if wd_exists:
-            try:
-                for f in wd.rglob("*"):
-                    if f.is_file():
-                        try:
-                            size += f.stat().st_size
-                            files_count += 1
-                        except OSError:
-                            pass
-            except Exception:
-                pass
-        # Determinar estado y si es seguro borrar
-        running = bool(s.running_phase)
-        if running:
-            state = "running"
-            safe = False
-            reason = f"Fase {s.running_phase} en curso — no borrar"
-        elif s.archived:
-            state = "archived"
-            safe = False
-            reason = "Ya archivado (sin artefactos)"
-        elif s.phase == "done":
-            state = "done"
-            safe = True
-            reason = "Pipeline terminado, listo para limpiar"
-        elif s.error_message:
-            state = "error"
-            safe = True
-            reason = f"Última fase falló: {s.error_message[:80]}"
-        else:
-            state = "in_progress"
-            safe = True
-            reason = f"Pipeline detenido en fase {s.phase}"
+    en progreso), si hay running_phase. NO borra nada — solo lectura.
 
-        items.append({
-            "id": s.id,
-            # Titulo legible para la UI: el output_mkv_name ya viene formateado
-            # ("Title (Year) [DV FEL CMv4.0].mkv") cuando hay datos; si no,
-            # caemos al source_mkv_name; si tampoco, al id.
-            "title": s.output_mkv_name or s.source_mkv_name or s.id,
-            "phase": s.phase,
-            "running_phase": s.running_phase,
-            "state": state,
-            "size_bytes": size,
-            "files_count": files_count,
-            "wd_exists": wd_exists,
-            "artifacts_dir": str(wd) if wd else "",
-            "safe_to_delete": safe,
-            "reason": reason,
-            "error_message": s.error_message,
-            "output_mkv_name": s.output_mkv_name,
-            "output_mkv_path": s.output_mkv_path,
-        })
-        total_bytes += size
+    Todo el trabajo va a un thread, y las sesiones salen del **summary
+    cacheado**, no de `list_cmv40_sessions()`. Esa versión completa carga cada
+    JSON entero: con 88 proyectos son decenas de MB de `output_log` y, en un
+    caso real, 3.914 objetos `L2Combo` en una sola sesión — y de todo eso aquí
+    se usan nueve campos. Encima recorría los workdirs con `rglob` en el event
+    loop, con lo que un `/mnt/tmp` lento congelaba la app entera.
+    """
+    from storage import list_cmv40_sessions_summary
+
+    def _recolectar() -> tuple[list[dict], int]:
+        sessions = list_cmv40_sessions_summary()
+        items: list[dict] = []
+        total_bytes = 0
+        for s in sessions:
+            wd = Path(s["artifacts_dir"]) if s.get("artifacts_dir") else None
+            size = 0
+            files_count = 0
+            wd_exists = bool(wd and wd.exists())
+            if wd_exists:
+                try:
+                    for f in wd.rglob("*"):
+                        if f.is_file():
+                            try:
+                                size += f.stat().st_size
+                                files_count += 1
+                            except OSError:
+                                pass
+                except Exception:
+                    pass
+            # `running_phase` del disco puede ser un fantasma de un reinicio;
+            # la verdad está en memoria (ver `_cmv40_activas`).
+            fase_activa = _cmv40_activas.get(s["id"])
+            error_message = s.get("error_message")
+            if fase_activa:
+                state, safe = "running", False
+                reason = f"Fase {fase_activa} en curso — no borrar"
+            elif s.get("archived"):
+                state, safe = "archived", False
+                reason = "Ya archivado (sin artefactos)"
+            elif s.get("phase") == "done":
+                state, safe = "done", True
+                reason = "Pipeline terminado, listo para limpiar"
+            elif error_message:
+                state, safe = "error", True
+                reason = f"Última fase falló: {error_message[:80]}"
+            else:
+                state, safe = "in_progress", True
+                reason = f"Pipeline detenido en fase {s.get('phase')}"
+
+            items.append({
+                "id": s["id"],
+                # Titulo legible para la UI: el output_mkv_name ya viene
+                # formateado ("Title (Year) [DV FEL CMv4.0].mkv") cuando hay
+                # datos; si no, caemos al source_mkv_name; si tampoco, al id.
+                "title": s.get("output_mkv_name") or s.get("source_mkv_name") or s["id"],
+                "phase": s.get("phase"),
+                "running_phase": fase_activa,
+                "state": state,
+                "size_bytes": size,
+                "files_count": files_count,
+                "wd_exists": wd_exists,
+                "artifacts_dir": str(wd) if wd else "",
+                "safe_to_delete": safe,
+                "reason": reason,
+                "error_message": error_message,
+                "output_mkv_name": s.get("output_mkv_name"),
+                "output_mkv_path": s.get("output_mkv_path"),
+            })
+            total_bytes += size
+        return items, total_bytes
+
+    items, total_bytes = await asyncio.to_thread(_recolectar)
     return {
         "items": items,
         "total_count": len(items),
@@ -2676,7 +2730,7 @@ async def cmv40_cancel(session_id: str):
     # mejor sesión liberada con proceso zombi que UI bloqueada esperando.
     session = load_cmv40_session(session_id)
     if session:
-        session.running_phase = None
+        _cmv40_marcar_libre(session)
         for line in log_lines:
             await _cmv40_log(session, line)
         await _cmv40_log(session, "🛑 Cancelado por el usuario")
@@ -2962,7 +3016,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
 
     async def _run():
         async with lock:
-            session.running_phase = "preflight"
+            _cmv40_marcar_activa(session, "preflight")
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3016,7 +3070,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             finally:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
-                session.running_phase = None
+                _cmv40_marcar_libre(session)
                 await _save_cmv40_session_async(session)
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
@@ -3060,7 +3114,7 @@ async def cmv40_preflight_source(session_id: str):
 
     async def _run():
         async with lock:
-            session.running_phase = "preflight"
+            _cmv40_marcar_activa(session, "preflight")
             session.error_message = ""
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
@@ -3086,7 +3140,7 @@ async def cmv40_preflight_source(session_id: str):
             finally:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
-                session.running_phase = None
+                _cmv40_marcar_libre(session)
                 await _save_cmv40_session_async(session)
 
     asyncio.create_task(_run())
@@ -3127,8 +3181,125 @@ async def cmv40_extract(session_id: str):
     return {"ok": True, "started": True}
 
 
+# ── Caché de las series per-frame del chart de la Fase D ────────────────────
+#
+# `per_frame_data.json` de un UHD son 24,1 MB para 243.552 frames. Devolverlo
+# entero costaba, medido: 97 ms de `json.loads` + 79 ms de Pearson + 92 ms de
+# re-serializar (~300 ms de event loop en un Mac, ~1,2 s en el NAS) y 24 MB por
+# el cable — para pintar un canvas de ~1500 px, o sea 160 puntos por píxel. Y
+# el frontend volvía a pedirlo entero cada vez que se recargaba el proyecto.
+#
+# Se cachean solo las CUATRO series como `array('i')` (~8 MB para un UHD, contra
+# los ~250 MB que ocuparían los dicts) más las métricas, que se calculan una vez.
+# La invalidación es por stat del fichero, igual que los summary de sesiones.
+_PFD_CACHE: dict[str, dict] = {}
+# Cubos por defecto de la ventana devuelta. El canvas ronda los 1000-1500 px;
+# 2000 deja margen para que el zoom manual no se vea escalonado.
+PFD_CUBOS_DEFECTO = 2000
+
+
+def _cmv40_pfd_cargar(session_id: str, pf: Path, sync_delta: int | None) -> dict:
+    """Series + métricas de `per_frame_data.json`, cacheadas por stat.
+
+    Se llama SIEMPRE en un thread: el parseo del volcado es CPU-bound.
+    """
+    from array import array
+    st = pf.stat()
+    cache = _PFD_CACHE.get(session_id)
+    if cache and cache["mtime_ns"] == st.st_mtime_ns and cache["size"] == st.st_size:
+        return cache
+
+    import json as _json
+    data = _json.loads(pf.read_text(encoding="utf-8"))
+    filas = data.get("data") or []
+    series = {k: array("i", [0]) * 0 for k in
+              ("src_maxcll", "src_maxfall", "tgt_maxcll", "tgt_maxfall")}
+    frames = array("i")
+    for fila in filas:
+        if not isinstance(fila, dict):
+            continue
+        frames.append(int(fila.get("frame") or 0))
+        for clave, serie in series.items():
+            try:
+                serie.append(int(fila.get(clave) or 0))
+            except (TypeError, ValueError):
+                serie.append(0)
+
+    # Las métricas se calculan sobre la serie COMPLETA, no sobre la ventana que
+    # se devuelve: un desfase o una decorrelación fuera del rango visible
+    # seguirían siendo reales.
+    suggested = detect_sync_offset(data)
+    confidence = compute_sync_confidence(data)
+    cache = {
+        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+        "frames": frames, "series": series,
+        "source_frames": data.get("source_frames") or 0,
+        "target_frames": data.get("target_frames") or 0,
+        "suggested_offset": suggested,
+        "confidence": confidence,
+        "sync_gate": evaluate_sync_gate(data, sync_delta, confidence=confidence),
+    }
+    _PFD_CACHE[session_id] = cache
+    return cache
+
+
+def _cmv40_pfd_ventana(cache: dict, desde: int, hasta: int, cubos: int) -> dict:
+    """Recorta la ventana pedida y la reduce a `cubos` puntos.
+
+    Por cubo se emiten el MÍNIMO y el MÁXIMO de cada serie, no la media: la
+    gráfica sirve para detectar desalineación entre dos curvas y un promedio se
+    come justo los picos que delatan un corte de escena desplazado.
+
+    Si la ventana ya cabe en `cubos` puntos se devuelve tal cual — así los zooms
+    finos (el preset de 30 s son ~720 frames) siguen viendo el dato exacto.
+    """
+    frames = cache["frames"]
+    series = cache["series"]
+    n = len(frames)
+    if n == 0:
+        return {"data": [], "downsampled": False, "bucket_frames": 1}
+
+    # `frames` es creciente, así que la ventana se localiza por bisección en
+    # vez de recorriendo los 243.000 puntos.
+    import bisect
+    i0 = bisect.bisect_left(frames, desde)
+    i1 = bisect.bisect_left(frames, hasta)
+    i0 = max(0, min(i0, n))
+    i1 = max(i0, min(i1, n))
+    ancho = i1 - i0
+    if ancho == 0:
+        return {"data": [], "downsampled": False, "bucket_frames": 1}
+
+    claves = ("src_maxcll", "src_maxfall", "tgt_maxcll", "tgt_maxfall")
+    if ancho <= cubos:
+        datos = [{"frame": frames[i], **{k: series[k][i] for k in claves}}
+                 for i in range(i0, i1)]
+        return {"data": datos, "downsampled": False, "bucket_frames": 1}
+
+    paso = ancho / cubos
+    datos = []
+    for b in range(cubos):
+        a = i0 + int(b * paso)
+        z = i0 + int((b + 1) * paso)
+        if z <= a:
+            z = a + 1
+        if a >= i1:
+            break
+        z = min(z, i1)
+        punto = {"frame": frames[a]}
+        for k in claves:
+            trozo = series[k][a:z]
+            punto[k] = max(trozo)
+            punto[k + "_min"] = min(trozo)
+        datos.append(punto)
+    return {"data": datos, "downsampled": True,
+            "bucket_frames": max(1, int(round(paso)))}
+
+
 @router.get("/api/cmv40/{session_id}/sync-data", summary="Devuelve per_frame_data.json + métricas")
-async def cmv40_sync_data(session_id: str):
+async def cmv40_sync_data(session_id: str, desde: int | None = None,
+                          hasta: int | None = None,
+                          cubos: int = PFD_CUBOS_DEFECTO):
     # ⚠️ DEV MODE: el offset depende del estado (corregido o no)
     if DEV_MODE:
         session = load_cmv40_session(session_id)
@@ -3196,17 +3367,32 @@ async def cmv40_sync_data(session_id: str):
                 except Exception as e:
                     raise HTTPException(status_code=500,
                         detail=f"Fallo al regenerar per_frame_data on-demand: {e}")
-    import json as _json
-    data = _json.loads(pf.read_text(encoding="utf-8"))
-    data["suggested_offset"] = detect_sync_offset(data)
-    data["confidence"] = compute_sync_confidence(data)
-    data["sheet_sync"] = sheet_sync_hint(session, data["suggested_offset"])
-    # El criterio de avance lo resuelve el backend y la UI lo LEE, igual que
-    # el plan de workflows. Antes lo calculaba solo `app.js` y el endpoint de
-    # confirmación no lo comprobaba.
-    data["sync_gate"] = evaluate_sync_gate(data, session.sync_delta,
-                                          confidence=data["confidence"])
-    return data
+    # El parseo del volcado va a un thread y queda cacheado por stat: el
+    # frontend vuelve a pedir esto en cada cambio de zoom.
+    cache = await asyncio.to_thread(
+        _cmv40_pfd_cargar, session_id, pf, session.sync_delta)
+    total = cache["source_frames"] or cache["target_frames"] or len(cache["frames"])
+    desde = 0 if desde is None else max(0, desde)
+    hasta = total if hasta is None or hasta <= desde else hasta
+    cubos = max(50, min(20000, cubos or PFD_CUBOS_DEFECTO))
+    ventana = _cmv40_pfd_ventana(cache, desde, hasta, cubos)
+
+    return {
+        "source_frames": cache["source_frames"],
+        "target_frames": cache["target_frames"],
+        "total_frames": total,
+        "range": {"from": desde, "to": hasta},
+        # Las métricas van sobre la serie COMPLETA, no sobre la ventana: un
+        # desfase fuera del rango visible sigue siendo real.
+        "suggested_offset": cache["suggested_offset"],
+        "confidence": cache["confidence"],
+        "sheet_sync": sheet_sync_hint(session, cache["suggested_offset"]),
+        # El criterio de avance lo resuelve el backend y la UI lo LEE, igual que
+        # el plan de workflows. Antes lo calculaba solo `app.js` y el endpoint
+        # de confirmación no lo comprobaba.
+        "sync_gate": cache["sync_gate"],
+        **ventana,
+    }
 
 
 class CMv40SyncRequest(BaseModel):

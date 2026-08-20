@@ -147,91 +147,16 @@ class TestClasificacionSobreLevels(unittest.TestCase):
 
 
 
-class TestRpusFromLevels(unittest.TestCase):
-    """El adaptador debe producir exactamente la forma que espera el parser
-    del light-profile, que está validado contra `dovi_tool info --summary`.
-    """
-
-    def setUp(self):
-        import os
-        self._cwd = os.getcwd()
-        os.chdir(APP_DIR)
-        import main
-        self.main = main
-
-    def tearDown(self):
-        import os
-        os.chdir(self._cwd)
-
-    def test_forma_anidada_que_espera_el_parser(self):
-        levels = {
-            "level1": [{"frame": 0, "min_pq": 0, "max_pq": 2081, "avg_pq": 819}],
-            "level8": [{"frame": 0, "target_display_index": 1, "trim_slope": 2048}],
-        }
-        rpus = self.main._rpus_from_levels(levels)
-        self.assertEqual(len(rpus), 1)
-        vdr = rpus[0]["vdr_dm_data"]
-        # L1 va a CMv2.9, L8 a CMv4.0
-        l1 = vdr["cmv29_metadata"]["ext_metadata_blocks"][0]["Level1"]
-        self.assertEqual(l1["max_pq"], 2081)
-        l8 = vdr["cmv40_metadata"]["ext_metadata_blocks"][0]["Level8"]
-        self.assertEqual(l8["target_display_index"], 1)
-
-    def test_el_parser_real_encuentra_el_l1(self):
-        """Prueba de contrato: el parser del endpoint sobre el adaptador."""
-        levels = {"level1": [
-            {"frame": 0, "min_pq": 10, "max_pq": 3079, "avg_pq": 800},
-            {"frame": 1, "min_pq": 12, "max_pq": 2500, "avg_pq": 700},
-        ]}
-        rpus = self.main._rpus_from_levels(levels)
-        self.assertEqual(len(rpus), 2)
-        # Réplica de la extracción del endpoint: busca max_pq/avg_pq dentro
-        # de vdr_dm_data.cmv29_metadata.ext_metadata_blocks[].Level1
-        found = []
-        for rpu in rpus:
-            for blk in rpu["vdr_dm_data"]["cmv29_metadata"]["ext_metadata_blocks"]:
-                l1 = blk.get("Level1")
-                if l1 and "max_pq" in l1 and "avg_pq" in l1:
-                    found.append((l1["min_pq"], l1["avg_pq"], l1["max_pq"]))
-        self.assertEqual(found, [(10, 800, 3079), (12, 700, 2500)])
-        # min <= avg <= max, que es el sanity check del parser
-        for mn, av, mx in found:
-            self.assertLessEqual(mn, av)
-            self.assertLessEqual(av, mx)
-
-    def test_varios_bloques_del_mismo_nivel_en_un_frame(self):
-        """L2 y L8 traen un bloque por target display."""
-        levels = {
-            "level1": [{"frame": 0, "min_pq": 0, "max_pq": 2081, "avg_pq": 819}],
-            "level2": [{"frame": 0, "target_max_pq": 2081},
-                       {"frame": 0, "target_max_pq": 2851},
-                       {"frame": 0, "target_max_pq": 3079}],
-        }
-        rpus = self.main._rpus_from_levels(levels)
-        blocks = rpus[0]["vdr_dm_data"]["cmv29_metadata"]["ext_metadata_blocks"]
-        pqs = sorted(b["Level2"]["target_max_pq"] for b in blocks if "Level2" in b)
-        self.assertEqual(pqs, [2081, 2851, 3079])
-
-    def test_frames_sin_bloques_no_rompen_la_secuencia(self):
-        """El L5 solo aparece en algunos frames; los huecos deben existir
-        igualmente para que los índices sigan cuadrando con el vídeo."""
-        levels = {
-            "level1": [{"frame": i, "min_pq": 0, "max_pq": 2081, "avg_pq": 819}
-                       for i in range(5)],
-            "level5": [{"frame": 3, "active_area_top_offset": 276,
-                        "active_area_bottom_offset": 276,
-                        "active_area_left_offset": 0,
-                        "active_area_right_offset": 0}],
-        }
-        rpus = self.main._rpus_from_levels(levels)
-        self.assertEqual(len(rpus), 5)
-        self.assertNotIn("cmv40_metadata", rpus[0]["vdr_dm_data"])
-        blocks3 = rpus[3]["vdr_dm_data"]["cmv29_metadata"]["ext_metadata_blocks"]
-        self.assertTrue(any("Level5" in b for b in blocks3))
-
-    def test_sin_datos_devuelve_lista_vacia(self):
-        self.assertEqual(self.main._rpus_from_levels({}), [])
-        self.assertEqual(self.main._rpus_from_levels({"level1": []}), [])
+# `TestRpusFromLevels` vivía aquí y cubría `main._rpus_from_levels`, el
+# adaptador que RECONSTRUÍA la forma anidada del volcado a partir del export
+# por niveles para alimentar a un segundo parser del mismo JSON que vivía en el
+# endpoint del light-profile. Ese parser ya no existe: el volcado anidado se
+# adapta ahora al formato PLANO (`main._niveles_desde_volcado`) y desemboca en
+# un solo consumidor (`main._perfil_desde_niveles`).
+#
+# La cobertura equivalente —las tres formas que emite `dovi_tool export`, los
+# varios bloques del mismo nivel por frame, el sanity check min<=avg<=max— está
+# en `test_light_profile_pipe.TestUnSoloParserDelExport`.
 
 if __name__ == "__main__":
     unittest.main()

@@ -507,12 +507,18 @@ async def list_isos():
         return {"isos": DEV_FAKE_ISOS}
     if not ISOS_DIR.exists():
         return {"isos": []}
-    isos = sorted(
-        str(p.relative_to(ISOS_DIR))
-        for p in ISOS_DIR.rglob("*")
-        if p.is_file() and p.suffix.lower() == ".iso"
-    )
-    return {"isos": isos}
+
+    def _escanear() -> list[str]:
+        # En un thread: `rglob` sobre /mnt/isos son miles de `stat` contra el
+        # NAS y en el bucle paraba el log del job en curso. `/api/sources`, su
+        # reemplazo, ya lo hacía así.
+        return sorted(
+            str(p.relative_to(ISOS_DIR))
+            for p in ISOS_DIR.rglob("*")
+            if p.is_file() and p.suffix.lower() == ".iso"
+        )
+
+    return {"isos": await asyncio.to_thread(_escanear)}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -3497,66 +3503,159 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
 PESO_EXTRACCION = 90.0
 
 
-# Cada nivel exportado va a la metadata donde el parser lo espera: L1/L2/L5/L6
-# son CMv2.9 y L8/L9/L10/L11 son exclusivos de CMv4.0. El parser mira en las
-# dos, así que esto es por corrección más que por necesidad.
-_LEVEL_TO_META = {
-    "level1": "cmv29_metadata", "level2": "cmv29_metadata",
-    "level5": "cmv29_metadata", "level6": "cmv29_metadata",
-    "level8": "cmv40_metadata", "level9": "cmv40_metadata",
-    "level10": "cmv40_metadata", "level11": "cmv40_metadata",
-}
+def _niveles_desde_volcado(rpus: list) -> dict[str, list]:
+    """Adapta el volcado anidado de `dovi_tool export` al formato PLANO de
+    `rpu_analyze.export_levels`, que es el único que se consume.
 
+    Antes era al revés: se RECONSTRUÍA la forma anidada desde el export por
+    niveles para alimentar un segundo parser del mismo JSON que vivía aquí
+    dentro. Medido con 243.552 frames, esa reconstrucción costaba 4,8 s y un
+    pico de 475 MB de RAM — y era la duplicación que la regla del proyecto
+    prohíbe: dos parsers del mismo volcado permitieron que uno divergiera del
+    formato real, y el que funcionaba resultó ser el que tenía tests.
 
-def _rpus_from_levels(levels: dict[str, list]) -> list[dict]:
-    """Rehace la lista `rpus` del volcado a partir de los exports por nivel.
-
-    Los exports de `--levels` son listas planas con el índice de frame:
-        [{"frame":0,"max_pq":2081,…}, {"frame":1,…}, …]
-    y el parser del light-profile espera la forma anidada del volcado:
-        {"vdr_dm_data":{"cmv29_metadata":{"ext_metadata_blocks":[{"Level1":{…}}]}}}
-
-    Reconstruirla cuesta unos segundos y algo de RAM, pero mucho menos que
-    parsear el volcado entero (1,12 GB para 243.552 frames), y evita tocar un
-    parser que está validado campo a campo contra `dovi_tool info --summary`.
-
-    Los dicts de datos se reutilizan por referencia: no se copian.
+    Este camino solo se recorre si `export --levels` no está disponible
+    (dovi_tool anterior a 2.3.3), así que el coste da igual; lo que importa es
+    que desemboque en el MISMO consumidor.
     """
-    # Nº de frames = el mayor índice visto en cualquier nivel. L1 existe en
-    # todos los frames de un RPU válido, pero no damos por hecho que esté.
-    n = 0
-    for rows in levels.values():
-        for r in rows:
-            if isinstance(r, dict):
-                fr = r.get("frame")
-                if isinstance(fr, int) and fr + 1 > n:
-                    n = fr + 1
-    if n <= 0:
-        return []
+    niveles: dict[str, list] = {}
 
-    # Un frame puede tener varios bloques del mismo nivel (L2/L8 traen uno por
-    # target display), así que se acumulan en lista.
-    blocks: list[dict[str, list]] = [dict() for _ in range(n)]
-    for level, rows in levels.items():
-        meta = _LEVEL_TO_META.get(level)
-        if not meta:
+    def _anotar(nivel: str, frame: int, blk: dict) -> None:
+        fila = dict(blk)
+        fila["frame"] = frame
+        niveles.setdefault(nivel, []).append(fila)
+
+    for i, rpu in enumerate(rpus):
+        vdr = (rpu or {}).get("vdr_dm_data") if isinstance(rpu, dict) else None
+        if not isinstance(vdr, dict):
             continue
-        tag = "Level" + level.removeprefix("level")
-        for r in rows:
-            if not isinstance(r, dict):
+        for contenedor in (vdr, vdr.get("cmv29_metadata"), vdr.get("cmv40_metadata")):
+            if not isinstance(contenedor, dict):
                 continue
-            fr = r.get("frame")
-            if not isinstance(fr, int) or not (0 <= fr < n):
+            # Forma (b): {"level1": {...}} colgando del contenedor.
+            for clave, valor in contenedor.items():
+                if isinstance(valor, dict) and clave.lower().startswith("level"):
+                    _anotar(clave.lower(), i, valor)
+            # Forma (a)/(c): lista de bloques, cada uno {"Level1": {...}} o
+            # con un campo `level` numérico.
+            bloques = contenedor.get("ext_metadata_blocks") or contenedor.get("ext_blocks")
+            if not isinstance(bloques, list):
                 continue
-            blocks[fr].setdefault(meta, []).append({tag: r})
+            for item in bloques:
+                if not isinstance(item, dict):
+                    continue
+                etiquetado = False
+                for clave, valor in item.items():
+                    if isinstance(valor, dict) and clave.lower().startswith("level"):
+                        _anotar(clave.lower(), i, valor)
+                        etiquetado = True
+                if not etiquetado and isinstance(item.get("level"), int):
+                    _anotar(f"level{item['level']}", i, item)
+    return niveles
 
-    return [
-        {"vdr_dm_data": {
-            meta: {"ext_metadata_blocks": bl}
-            for meta, bl in per_frame.items()
-        }}
-        for per_frame in blocks
-    ]
+
+def _perfil_desde_niveles(niveles: dict[str, list]) -> dict:
+    """Extrae del export PLANO todo lo que alimenta el sparkline y sus refs.
+
+    Recorre cada nivel una vez y en su propia forma, sin árboles que navegar:
+      · L1 → las tres series por frame (peak / avg / min) en nits
+      · L5 → la zona de active area de cada frame (barras dinámicas)
+      · L8 → el max_pq más alto visto por target display
+      · L2 → el conjunto de trim targets
+      · L6 → el mastering display (nits directos, no PQ)
+
+    `frames` es el número de frames con L1, que es la longitud de las series.
+    """
+    def _a_nits(v) -> int:
+        v = float(v)
+        if v > 4096:
+            n = v
+        elif v < 1:
+            n = _pq_code_to_nits(v * 4095)
+        else:
+            n = _pq_code_to_nits(v)
+        return int(round(n))
+
+    cll: list[int] = []
+    fall: list[int] = []
+    minimos: list[int] = []
+    raw_max = 0
+    raw_suma = 0
+    for fila in niveles.get("level1") or []:
+        try:
+            mx, av, mn = int(fila["max_pq"]), int(fila["avg_pq"]), int(fila["min_pq"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Sanity: min<=avg<=max y en rango 12-bit. El parser anterior lo
+        # comprobaba porque la búsqueda a ciegas encontraba bloques hermanos
+        # con campos homónimos (en BR2049 daba un peak de ~176 nits en vez de
+        # ~1000). Aquí el nivel viene etiquetado, pero un registro incoherente
+        # sigue sin servir.
+        if not (0 <= mn <= av <= mx <= 8191):
+            continue
+        raw_max = max(raw_max, mx)
+        raw_suma += mx
+        cll.append(_a_nits(mx))
+        fall.append(_a_nits(av))
+        minimos.append(_a_nits(mn))
+
+    zonas_l5: list[tuple] = []
+    for fila in niveles.get("level5") or []:
+        try:
+            zonas_l5.append((
+                int(fila.get("active_area_top_offset", 0)),
+                int(fila.get("active_area_bottom_offset", 0)),
+                int(fila.get("active_area_left_offset", 0)),
+                int(fila.get("active_area_right_offset", 0)),
+            ))
+        except (TypeError, ValueError):
+            continue
+
+    l8_por_target: dict[int, int] = {}
+    for fila in niveles.get("level8") or []:
+        try:
+            tdi = int(fila.get("target_display_index", 0))
+            if not tdi:
+                continue
+            # `target_max_pq` es el campo bueno; los otros dos son el fallback
+            # histórico para exports que no lo traen.
+            pq = (int(fila.get("target_max_pq", 0))
+                  or int(fila.get("target_mid_pq", 0))
+                  or int(fila.get("trim_slope", 0)))
+        except (TypeError, ValueError):
+            continue
+        if pq > l8_por_target.get(tdi, 0):
+            l8_por_target[tdi] = pq
+
+    l2_targets: set[int] = set()
+    for fila in niveles.get("level2") or []:
+        try:
+            l2_targets.add(int(fila["target_max_pq"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    l6 = {"max_nits": 0, "min_nits": 0.0, "max_cll": 0, "max_fall": 0}
+    for fila in niveles.get("level6") or []:
+        try:
+            l6 = {
+                "max_nits": int(fila.get("max_display_mastering_luminance", 0)),
+                "min_nits": float(fila.get("min_display_mastering_luminance", 0)) / 10000.0,
+                "max_cll": int(fila.get("max_content_light_level", 0)),
+                "max_fall": int(fila.get("max_frame_average_light_level", 0)),
+            }
+        except (TypeError, ValueError):
+            pass
+        break   # es constante en todo el RPU: el primer registro basta
+
+    return {
+        "cll": cll, "fall": fall, "min": minimos,
+        "l5_zonas": zonas_l5,
+        "l8_por_target": l8_por_target,
+        "l2_targets_pq": l2_targets,
+        "l6": l6,
+        "raw_max_pq": raw_max,
+        "raw_avg_pq": (raw_suma / len(cll)) if cll else 0,
+    }
 
 
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
@@ -3868,30 +3967,26 @@ async def mkv_light_profile_endpoint(body: dict):
         # tarda ~100 s en generarse, más el json.load (decenas de segundos y
         # varios GB de RAM). De todo eso aquí solo se usan L1, L2, L5, L6 y
         # L8: pedirlos sueltos son ~157 MB y unos segundos.
-        #
-        # Se reconstruye la estructura que el parser de abajo espera en vez
-        # de reescribirlo: ese parser está validado contra
-        # `dovi_tool info --summary` (caso BR2049) y no merece la pena
-        # arriesgar una divergencia por ahorrarse un adaptador.
-        rpus = None
+        niveles = None
         try:
             from phases.rpu_analyze import export_levels
-            _lp_levels = await export_levels(
+            niveles = await export_levels(
                 rpu_path, ("level1", "level2", "level5", "level6", "level8"),
                 out_dir=tmp_dir, timeout=1800,
             )
-            if _lp_levels is not None and _lp_levels.get("level1"):
-                rpus = await asyncio.to_thread(_rpus_from_levels, _lp_levels)
+            if niveles is not None and niveles.get("level1"):
                 _lp_log(
-                    f"Paso 2/2 ✓ export por niveles ({len(rpus)} frames) en "
-                    f"{_time.monotonic() - t2:.1f}s — sin volcar el RPU entero"
+                    f"Paso 2/2 ✓ export por niveles ({len(niveles['level1'])} frames) "
+                    f"en {_time.monotonic() - t2:.1f}s — sin volcar el RPU entero"
                 )
                 _lp_set_step_pct(100, 98)
+            else:
+                niveles = None
         except Exception as _e:
             _logger.info("light-profile: export por niveles no disponible (%s)", _e)
-            rpus = None
+            niveles = None
 
-        if rpus is None:
+        if niveles is None:
             # Camino clásico: volcado completo del RPU. Sigue vivo por si el
             # binario es anterior a 2.3.3 o el export por niveles falla.
             proc = await asyncio.create_subprocess_exec(
@@ -3914,124 +4009,30 @@ async def mkv_light_profile_endpoint(body: dict):
                 _light_profile_state["error"] = f"export falló: {err}"
                 raise HTTPException(status_code=500, detail=f"export falló: {err}")
 
-            # Parse JSON
-            try:
+            # El volcado son cientos de MB o más de 1 GB: el parseo Y la
+            # adaptación al formato plano van a un thread. En el event loop
+            # bloqueaban decenas de segundos, y con un job de Tab 1 o Tab 3 en
+            # marcha eso para de leer su subproceso (ver la regla del event
+            # loop en CLAUDE.md).
+            def _leer_y_adaptar() -> dict[str, list]:
                 with open(json_path) as f:
                     data = _json.load(f)
+                rpus = data.get("rpus") if isinstance(data, dict) else data
+                if not isinstance(rpus, list):
+                    raise ValueError("formato inesperado (sin 'rpus')")
+                return _niveles_desde_volcado(rpus)
+
+            try:
+                niveles = await asyncio.to_thread(_leer_y_adaptar)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
             _lp_log(f"Paso 2/2 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
             _lp_set_step_pct(100, 98)
-            rpus = data.get("rpus") if isinstance(data, dict) else data
 
-        # El formato de dovi_tool export varia entre versiones. Soportamos:
-        #   (a) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{level:1, ...}, ...]
-        #       (array de bloques con clave 'level')
-        #   (b) data.rpus[*].vdr_dm_data.ext_metadata_blocks = {level1:{...}, ...}
-        #       (dict keyed por nombre de nivel)
-        #   (c) data.rpus[*].vdr_dm_data.ext_metadata_blocks = [{Level1:{...}}, ...]
-        #       (tagged enum de serde — variante más común en dovi_tool 2.3.x)
-        #   (d) reconstruido por _rpus_from_levels desde el export por niveles
-        if not isinstance(rpus, list):
-            raise HTTPException(status_code=500, detail="Formato JSON inesperado (sin 'rpus')")
-
-        # Busqueda del bloque L1 de CMv2.9/v4.0. Antes era recursiva ciega
-        # buscando "max_pq + avg_pq" → en BR2049 devolvia ~2329 (peak ~176
-        # nits) cuando el peak real es ~3079 (~1000 nits). Causa probable:
-        # algun bloque hermano (L8, L2 con "target_max_pq" alias en alguna
-        # version de dovi_tool, o un fallback con datos historicos) tenia
-        # esos campos y se encontraba antes en el orden de iteracion.
-        #
-        # Ahora intentamos paths conocidos primero (rapido y especifico) y
-        # solo caemos al fallback recursivo si no encontramos nada. Validamos
-        # min_pq <= avg_pq <= max_pq para descartar bloques con datos
-        # incoherentes.
-
-        def _l1_from_block(b):
-            """Devuelve (max_pq, avg_pq, min_pq) si b parece un bloque L1 valido."""
-            if not isinstance(b, dict):
-                return None, None, None
-            if "max_pq" not in b or "avg_pq" not in b:
-                return None, None, None
-            try:
-                mx = int(b.get("max_pq", 0))
-                av = int(b.get("avg_pq", 0))
-                mn = int(b.get("min_pq", 0))
-            except Exception:
-                return None, None, None
-            # Sanity: min<=avg<=max y todos en rango 12-bit.
-            if not (0 <= mn <= av <= mx <= 8191):
-                return None, None, None
-            return mx, av, mn
-
-        def _find_l1_block_full(obj, max_depth=8):
-            """Busca el bloque L1 en obj. Probamos paths explicitos primero
-            y caemos al fallback recursivo. Retorna (max_pq, avg_pq, min_pq)
-            en 12-bit PQ, o (None, None, None)."""
-            if not isinstance(obj, dict):
-                return None, None, None
-            # 1) Paths explicitos conocidos (dovi_tool 2.x estables)
-            cm29 = obj.get("cmv29_metadata") or {}
-            cm40 = obj.get("cmv40_metadata") or {}
-            for parent in (cm29, cm40, obj):
-                if not isinstance(parent, dict):
-                    continue
-                for key in ("level1", "Level1", "L1"):
-                    blk = parent.get(key)
-                    if isinstance(blk, dict):
-                        mx, av, mn = _l1_from_block(blk)
-                        if mx is not None:
-                            return mx, av, mn
-            # 2) ext_metadata_blocks list (formato tagged enum CMv4.0)
-            for src in (obj, cm29, cm40):
-                if not isinstance(src, dict):
-                    continue
-                blocks = src.get("ext_metadata_blocks")
-                if isinstance(blocks, list):
-                    for item in blocks:
-                        if not isinstance(item, dict):
-                            continue
-                        for key in ("Level1", "level1", "L1"):
-                            inner = item.get(key)
-                            if isinstance(inner, dict):
-                                mx, av, mn = _l1_from_block(inner)
-                                if mx is not None:
-                                    return mx, av, mn
-                        # Quiza el item ES directamente el L1
-                        mx, av, mn = _l1_from_block(item)
-                        if mx is not None:
-                            return mx, av, mn
-            # 3) Fallback recursivo (defensivo — versiones futuras)
-            def _walk(o, d):
-                if d <= 0:
-                    return None, None, None
-                if isinstance(o, dict):
-                    mx, av, mn = _l1_from_block(o)
-                    if mx is not None:
-                        return mx, av, mn
-                    for v in o.values():
-                        mx, av, mn = _walk(v, d - 1)
-                        if mx is not None:
-                            return mx, av, mn
-                elif isinstance(o, list):
-                    for v in o:
-                        mx, av, mn = _walk(v, d - 1)
-                        if mx is not None:
-                            return mx, av, mn
-                return None, None, None
-            return _walk(obj, max_depth)
-
-        # Sanity check ligero — log si no se encuentra el L1 en RPU[0]. El
-        # parser ya esta validado (BR2049: nuestro peak coincide exacto con
-        # dovi_tool info --summary), asi que el sample/dump diagnostico se
-        # quito tras commit 5023c3e.
-        if rpus and isinstance(rpus[0], dict):
-            vdr0 = rpus[0].get("vdr_dm_data", {})
-            test_cll, _test_avg, _test_min = _find_l1_block_full(vdr0)
-            if test_cll is None:
-                _logger.warning("light-profile: NO L1 en RPU[0]. top keys=%s",
-                                list(rpus[0].keys())[:12])
-                _logger.warning("  vdr keys=%s", list(vdr0.keys()))
+        # ── UN solo consumidor, sobre el formato plano ─────────────────
+        # Recorrer 243.552 frames extrayendo L1 + L5 + L8 costaba 2,4 s de
+        # event loop en un Mac (×3-4 en el NAS). Va a un thread.
+        perfil = await asyncio.to_thread(_perfil_desde_niveles, niveles)
 
         def _to_nits(v):
             """PQ code → nits. Detecta formato automáticamente."""
@@ -4040,143 +4041,31 @@ async def mkv_light_profile_endpoint(body: dict):
             if v < 1:    return _pq_code_to_nits(v * 4095)
             return _pq_code_to_nits(v)
 
-        per_frame_cll, per_frame_fall, per_frame_min = [], [], []
-        # Tracking de stats raw del max_pq (12-bit) para el log
-        raw_max_pq_max = 0
-        raw_max_pq_sum = 0
-        raw_max_pq_count = 0
-        # L5 zonas: tupla (top, bottom, left, right) por frame para detectar
-        # cambios de active area a lo largo del film (caso "L5 zoneado": films
-        # con barras dinamicas tipo IMAX 1.43:1 ↔ 2.40:1).
-        per_frame_l5: list[tuple] = []
-        # L8 trims a lo largo del film: target_display_index → max_pq.
-        # Iteramos TODOS los frames (vs solo el sample del extract-rpu --limit
-        # del flow original), capturamos cualquier target adicional.
-        l8_targets_full: dict[int, int] = {}  # {target_display_index: max_pq_seen}
+        per_frame_cll = perfil["cll"]
+        per_frame_fall = perfil["fall"]
+        per_frame_min = perfil["min"]
+        per_frame_l5 = perfil["l5_zonas"]
+        l8_targets_full = perfil["l8_por_target"]
+        l2_targets_pq = perfil["l2_targets_pq"]
+        l6_master_max_nits = perfil["l6"]["max_nits"]
+        l6_master_min_nits = perfil["l6"]["min_nits"]
+        l6_max_cll = perfil["l6"]["max_cll"]
+        l6_max_fall = perfil["l6"]["max_fall"]
 
-        def _scan_blocks_l5l8(vdr_obj: dict) -> tuple[tuple, dict]:
-            """Devuelve (l5_offsets|None, l8_trims_dict) del frame."""
-            l5 = None
-            l8_local: dict[int, int] = {}
-            for src_key in ("cmv29_metadata", "cmv40_metadata"):
-                src = vdr_obj.get(src_key) if isinstance(vdr_obj, dict) else None
-                if not isinstance(src, dict):
-                    continue
-                blocks = src.get("ext_metadata_blocks") or src.get("ext_blocks")
-                if not isinstance(blocks, list):
-                    continue
-                for item in blocks:
-                    if not isinstance(item, dict):
-                        continue
-                    # L5 active area
-                    l5_obj = item.get("Level5") or item.get("level5")
-                    if isinstance(l5_obj, dict) and l5 is None:
-                        try:
-                            l5 = (
-                                int(l5_obj.get("active_area_top_offset", 0)),
-                                int(l5_obj.get("active_area_bottom_offset", 0)),
-                                int(l5_obj.get("active_area_left_offset", 0)),
-                                int(l5_obj.get("active_area_right_offset", 0)),
-                            )
-                        except Exception:
-                            pass
-                    # L8 saturation/tone-mapping per target display
-                    l8_obj = item.get("Level8") or item.get("level8")
-                    if isinstance(l8_obj, dict):
-                        try:
-                            tdi = int(l8_obj.get("target_display_index", 0))
-                            mxpq = int(l8_obj.get("target_mid_pq", 0)) or int(l8_obj.get("trim_slope", 0))
-                            # target_max_pq es el field clave para L8 (peak nits del display objetivo)
-                            mxpq2 = int(l8_obj.get("target_max_pq", 0))
-                            if mxpq2:
-                                mxpq = mxpq2
-                            if tdi:
-                                l8_local[tdi] = mxpq or l8_local.get(tdi, 0)
-                        except Exception:
-                            pass
-            return l5, l8_local
-
-        for rpu in rpus:
-            vdr = (rpu or {}).get("vdr_dm_data", {})
-            cll, fall, mn = _find_l1_block_full(vdr)
-            if cll is not None:
-                if cll > raw_max_pq_max:
-                    raw_max_pq_max = cll
-                raw_max_pq_sum += cll
-                raw_max_pq_count += 1
-                try: per_frame_cll.append(int(round(_to_nits(cll))))
-                except Exception: per_frame_cll.append(0)
-            if fall is not None:
-                try: per_frame_fall.append(int(round(_to_nits(fall))))
-                except Exception: per_frame_fall.append(0)
-            if mn is not None:
-                try: per_frame_min.append(int(round(_to_nits(mn))))
-                except Exception: per_frame_min.append(0)
-            l5_frame, l8_frame = _scan_blocks_l5l8(vdr)
-            if l5_frame is not None:
-                per_frame_l5.append(l5_frame)
-            for tdi, mxpq in l8_frame.items():
-                # Guarda el max_pq mas alto visto para cada target_display_index
-                if mxpq > l8_targets_full.get(tdi, 0):
-                    l8_targets_full[tdi] = mxpq
-
-        raw_avg = (raw_max_pq_sum / raw_max_pq_count) if raw_max_pq_count else 0
         _logger.info(
-            "light-profile: parseo extrajo %d CLL + %d FALL frames de %d RPUs · "
-            "L1 peak max_pq=%d avg max_pq=%.0f",
-            len(per_frame_cll), len(per_frame_fall), len(rpus),
-            raw_max_pq_max, raw_avg,
+            "light-profile: parseo extrajo %d frames con L1 · peak max_pq=%d "
+            "avg max_pq=%.0f · %d zonas L5 · %d targets L8",
+            len(per_frame_cll), perfil["raw_max_pq"], perfil["raw_avg_pq"],
+            len(set(per_frame_l5)), len(l8_targets_full),
         )
 
         if not per_frame_cll:
             raise HTTPException(
                 status_code=500,
-                detail=f"El JSON de dovi_tool export ({len(rpus)} RPUs) no contiene bloques L1 con max_pq+avg_pq. Revisa los logs del contenedor para ver la estructura real de vdr_dm_data."
+                detail=("El export del RPU no contiene bloques L1 con "
+                        "max_pq/avg_pq/min_pq coherentes. Revisa los logs del "
+                        "contenedor para ver qué niveles devolvió dovi_tool."),
             )
-
-        # ── Referencias del RPU para overlay del chart ────────────────
-        # L2 trim targets (target_max_pq) → nits. Estos son los "displays
-        # objetivo" para los que el colorista hizo trims (tipico: 100/600/1000).
-        # Coleccionamos todos los unicos (en target_max_pq 12-bit) y los
-        # convertimos a nits.
-        l2_targets_pq = set()
-        # L6 mastering display (rango del display master)
-        l6_master_max_nits = 0
-        l6_master_min_nits = 0.0
-        # L6 max_content_light_level (raramente seteado pero util si lo esta)
-        l6_max_cll = 0
-        l6_max_fall = 0
-        # source_max_pq del top-level vdr_dm_data — peak del display master
-        # en PQ; suele coincidir con L6.max_display_mastering_luminance pero
-        # se mantiene por separado por si difieren.
-        if rpus and isinstance(rpus[0], dict):
-            vdr0 = rpus[0].get("vdr_dm_data", {})
-            # Recorrer ext_metadata_blocks para encontrar L2 + L6
-            cm29 = vdr0.get("cmv29_metadata", {}) or {}
-            for src in (cm29, vdr0.get("cmv40_metadata", {}) or {}):
-                blocks = src.get("ext_metadata_blocks") if isinstance(src, dict) else None
-                if not isinstance(blocks, list):
-                    continue
-                for item in blocks:
-                    if not isinstance(item, dict):
-                        continue
-                    # L2 trims: target_max_pq en 12-bit
-                    l2 = item.get("Level2") or item.get("level2")
-                    if isinstance(l2, dict) and "target_max_pq" in l2:
-                        try:
-                            l2_targets_pq.add(int(l2["target_max_pq"]))
-                        except Exception:
-                            pass
-                    # L6 mastering display (en NITS directos, no PQ)
-                    l6 = item.get("Level6") or item.get("level6")
-                    if isinstance(l6, dict):
-                        try:
-                            l6_master_max_nits = int(l6.get("max_display_mastering_luminance", 0))
-                            l6_master_min_nits = float(l6.get("min_display_mastering_luminance", 0)) / 10000.0
-                            l6_max_cll = int(l6.get("max_content_light_level", 0))
-                            l6_max_fall = int(l6.get("max_frame_average_light_level", 0))
-                        except Exception:
-                            pass
 
         l2_targets_nits = sorted({int(round(_to_nits(pq))) for pq in l2_targets_pq})
 

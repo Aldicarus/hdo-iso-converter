@@ -169,6 +169,11 @@ document.addEventListener('DOMContentLoaded', () => {
  * incorrecta y borrarla en el siguiente tick.
  */
 async function _refreshTabRunningDots() {
+  // Con la pestaña oculta no hay puntos que pintar, y esto son dos peticiones
+  // cada 5 s durante horas contra un NAS que además está procesando vídeo. Al
+  // volver a primer plano, `visibilitychange` dispara la recuperación y con
+  // ella el refresco.
+  if (document.hidden) return;
   const setDot = (n, on) => {
     const el = document.getElementById(`tab-running-dot-${n}`);
     if (el) el.style.display = on ? '' : 'none';
@@ -236,6 +241,11 @@ function _installVisibilityRecovery() {
  * preferimos garantizar datos al ahorrar conexión.
  */
 function _runRecoveryTasks() {
+  // Los puntos verdes de los tabs: su poller se salta las vueltas con la
+  // pestaña oculta, así que al volver hay que refrescarlos aquí o se quedan
+  // como estaban al ocultarse.
+  _refreshTabRunningDots();
+
   // ── Tab 3 — proyectos CMv4.0 abiertos ─────────────────────────
   if (Array.isArray(openCMv40Projects)) {
     for (const project of openCMv40Projects) {
@@ -18152,6 +18162,7 @@ async function _loadCMv40SyncChart(project) {
   if (!project.syncData) {
     project._syncDataLoading = true;
     try {
+      // Sin rango: el backend devuelve la película entera reducida a cubos.
       const data = await apiFetch(`/api/cmv40/${pid}/sync-data`);
       if (!data) return;
       project.syncData = data;
@@ -18418,12 +18429,36 @@ function _cmv40UpdateExpectedDelta(pid, currentDelta) {
   el.innerHTML = `<span style="color:${color}">${sign}${expected} frames</span>`;
 }
 
-function _cmv40SetRange(pid, start, end) {
+/** Cambia el rango visible del chart y pide esa ventana al servidor.
+ *
+ *  Antes el frontend se traía la película entera —24 MB para un UHD— y
+ *  filtraba en cliente. Ahora el backend reduce a cubos (min y max por cubo,
+ *  no la media: un promedio se come los picos que delatan el desfase) y sirve
+ *  la ventana pedida, así que un zoom fino recibe el dato EXACTO en vez de
+ *  filtrar una muestra gruesa. */
+async function _cmv40SetRange(pid, start, end) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
   project.chartRange = { start, end };
+  // Pinta ya con lo que hay (respuesta instantánea al clic) y refina cuando
+  // llegue la ventana.
   _renderCMv40Chart(project);
   _renderCMv40SyncControls(project);
+  if (project._syncRangeLoading) return;
+  project._syncRangeLoading = true;
+  try {
+    const data = await apiFetch(
+      `/api/cmv40/${pid}/sync-data?desde=${start}&hasta=${end}`, { silent: true });
+    if (!data) return;
+    // El rango pudo cambiar mientras la petición volvía (clics rápidos entre
+    // presets): si ya no es el que se pidió, se descarta.
+    if (project.chartRange.start !== start || project.chartRange.end !== end) return;
+    project.syncData = data;
+    _renderCMv40Chart(project);
+    _renderCMv40SyncControls(project);
+  } finally {
+    project._syncRangeLoading = false;
+  }
 }
 
 function _cmv40ApplyRangeFromInputs(pid) {
@@ -18542,6 +18577,8 @@ function _renderCMv40Chart(project) {
     if (s > srcMax) srcMax = s;
     if (t > tgtMax) tgtMax = t;
   }
+  // El backend ya emite el MÁXIMO de cada cubo, así que el techo del eje no
+  // cambia por la banda (su mínimo siempre queda por debajo).
   const yMax = Math.max(srcMax, tgtMax, 100) * 1.1;
   // Ancho en frames del rango visible (para mapeo X)
   const rangeSpan = end - start;
@@ -18590,6 +18627,28 @@ function _renderCMv40Chart(project) {
 
   // Helper: frame absoluto → posición X en el canvas
   const frameToX = (frame) => padding.left + (plotW * (frame - start) / rangeSpan);
+
+  // Banda min-max de cada cubo, cuando la ventana viene reducida por el
+  // backend. Sin ella, con ~160 frames por punto las dos curvas quedan
+  // convertidas en envolventes superiores parecidas y se puede PERDER la
+  // desalineación que esta gráfica existe para ver. La banda enseña cuánto
+  // recorrido hay dentro de cada cubo.
+  const reducido = !!project.syncData.downsampled;
+  if (reducido) {
+    const banda = (clave, color) => {
+      ctx.fillStyle = color;
+      data.forEach((d) => {
+        const lo = d[clave + '_min'];
+        if (lo === undefined) return;
+        const x = frameToX(d.frame);
+        const yTop = padding.top + plotH - (plotH * (d[clave] || 0) / yMax);
+        const yBot = padding.top + plotH - (plotH * lo / yMax);
+        ctx.fillRect(x - 0.5, yTop, 1.5, Math.max(1, yBot - yTop));
+      });
+    };
+    banda('tgt_maxcll', 'rgba(59, 130, 246, 0.28)');
+    banda('src_maxcll', 'rgba(239, 68, 68, 0.28)');
+  }
 
   // Curva target (azul) — se dibuja primero, más gruesa y con cierta transparencia
   ctx.strokeStyle = 'rgba(59, 130, 246, 0.85)';

@@ -460,14 +460,21 @@ class TestListadoYResumen(ApiTestCase):
                 self.assertIn(campo, fila)
 
     def test_activos_refleja_las_fases_en_curso(self):
-        self.crear_sesion(sid="cmv40_parado_1", phase="injected")
+        """La respuesta sale del registro EN MEMORIA, no del `running_phase`
+        del JSON: este proceso es el único que arranca fases y el arranque
+        limpia los fantasmas del disco. Detalle en
+        `test_cmv40_activas_en_memoria`."""
+        self.cmv40._cmv40_activas.clear()
+        self.addCleanup(self.cmv40._cmv40_activas.clear)
+        sid = self.crear_sesion(sid="cmv40_parado_1", phase="injected")
         r = self.client.get("/api/cmv40-active").json()
         self.assertFalse(r["active"])
-        self.crear_sesion(sid="cmv40_corriendo_1", phase="injected",
-                          running_phase="remux")
+        corriendo = self.crear_sesion(sid="cmv40_corriendo_1", phase="injected")
+        self.cmv40._cmv40_marcar_activa(self.leer_sesion(corriendo), "remux")
         r = self.client.get("/api/cmv40-active").json()
         self.assertTrue(r["active"])
         self.assertIn("cmv40_corriendo_1", r["ids"])
+        self.assertNotIn(sid, r["ids"])
 
     def test_el_detalle_puede_omitir_el_log(self):
         # Los pollers piden include_log=false mientras el WS entrega el log:

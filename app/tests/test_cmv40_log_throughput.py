@@ -280,38 +280,51 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
 class TestEndpointActivo(unittest.IsolatedAsyncioTestCase):
     """`GET /api/cmv40-active`: respuesta mínima para el punto verde del tab.
 
-    El frontend lo consulta cada 5 s. Antes pedía `GET /api/cmv40`, que con
-    88 proyectos son 569 KB y 193 ms — ~10 % de un core del NAS para decidir
-    si se pinta un punto.
+    El frontend lo consulta cada 5 s. Empezó pidiendo `GET /api/cmv40`, que con
+    88 proyectos son 569 KB y 193 ms; pasó al summary cacheado, que aún hace un
+    `glob` más un `stat` por sesión (~88 syscalls cada 5 s, 1,5 millones al
+    día); y ahora sale del registro en memoria, que cuesta cero.
+
+    El contrato de esa migración lo cubre `test_cmv40_activas_en_memoria`
+    (incluido el guard de que nadie asigne `running_phase` a mano); aquí solo
+    queda lo que le toca a este módulo: que el payload siga siendo mínimo.
     """
 
     def setUp(self):
-        import storage
-        self._orig = storage.list_cmv40_sessions_summary
-        self.rows = []
-        storage.list_cmv40_sessions_summary = lambda: self.rows
+        self.activas = cmv40_routes._cmv40_activas
+        self._orig = dict(self.activas)
+        self.activas.clear()
 
     def tearDown(self):
-        import storage
-        storage.list_cmv40_sessions_summary = self._orig
+        self.activas.clear()
+        self.activas.update(self._orig)
 
     async def test_sin_jobs(self):
-        self.rows = [{"id": "a", "running_phase": None},
-                     {"id": "b", "running_phase": ""}]
         data = await cmv40_routes.cmv40_active()
         self.assertFalse(data["active"])
         self.assertEqual(data["ids"], [])
 
     async def test_con_job_en_curso(self):
-        self.rows = [{"id": "a", "running_phase": None},
-                     {"id": "b", "running_phase": "inject"}]
+        self.activas["b"] = "inject"
         data = await cmv40_routes.cmv40_active()
         self.assertTrue(data["active"])
         self.assertEqual(data["ids"], ["b"])
 
     async def test_no_devuelve_el_listado_entero(self):
         """El payload debe ser mínimo — nada de arrastrar los summaries."""
-        self.rows = [{"id": f"s{i}", "running_phase": None,
-                      "peso": "x" * 5000} for i in range(50)]
+        for i in range(50):
+            self.activas[f"s{i}"] = "inject"
         data = await cmv40_routes.cmv40_active()
         self.assertEqual(set(data.keys()), {"active", "ids"})
+
+    async def test_no_toca_el_disco(self):
+        """Lo que hace que el poll de cada 5 s sea gratis."""
+        import storage
+        llamadas = []
+        original = storage.list_cmv40_sessions_summary
+        storage.list_cmv40_sessions_summary = lambda: llamadas.append(1) or []
+        try:
+            await cmv40_routes.cmv40_active()
+        finally:
+            storage.list_cmv40_sessions_summary = original
+        self.assertEqual(llamadas, [])
