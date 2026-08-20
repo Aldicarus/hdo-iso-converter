@@ -1125,7 +1125,15 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 
 La suite corre en **push a main, PR y `workflow_dispatch`**. Hasta entonces el único workflow del repo publicaba la imagen en `release.published`, así que se podía tagear en rojo sin que nada avisara.
 
-**Lo que CI aporta que el Mac no puede dar**: los dos tests de `_ReadProgress` miran `/proc/<pid>/io` (`rchar`) y `/proc/<pid>/fdinfo` (`pos:`), así que en macOS se **saltan siempre** — cubren la medición de progreso, la maquinaria que este repo documenta como la más frágil, y no se ejecutaban en ninguna parte. En el runner Linux corren: la señal es que el resumen dice `OK` a secas y no `OK (skipped=2)`. El job comprueba `/proc` **antes** de la suite, para que si el entorno cambiara no volvieran a saltarse en silencio.
+**Ningún entorno local ejecuta la suite entera.** Medido sobre los mismos 761 tests:
+
+| entorno | se salta | por qué |
+|---|---|---|
+| Mac (`.venv`) | **2** | `_ReadProgress` mira `/proc/<pid>/io` (`rchar`) y `/proc/<pid>/fdinfo` (`pos:`), que en macOS no existen |
+| Contenedor del NAS | **25** | la imagen no lleva `node` ni Chrome, y no debe llevarlos — son 4 módulos de frontend |
+| **CI (`ubuntu-latest` + node 20)** | **0** | tiene `/proc`, `node` y Chrome preinstalado |
+
+Los dos de `_ReadProgress` cubren la medición de progreso, la maquinaria que este repo documenta como la más frágil, y hasta que hubo CI **no se ejecutaban en ninguna parte**: en el Mac se saltaban y a nadie se le ocurría pasar la suite dentro del contenedor por eso. La señal de que corren es que el resumen diga `OK` a secas y no `OK (skipped=N)`. El job comprueba `/proc` **antes** de la suite, para que si el runner cambiara no volvieran a saltarse en silencio.
 
 Detalles que no son accidentales:
 - **Python 3.10**, la misma minor que el contenedor (`ubuntu:22.04`). En el Mac la suite corre sobre 3.12; fijar la del contenedor evita descubrir una incompatibilidad en producción.
