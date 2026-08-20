@@ -3204,7 +3204,8 @@ async def cmv40_sync_data(session_id: str):
     # El criterio de avance lo resuelve el backend y la UI lo LEE, igual que
     # el plan de workflows. Antes lo calculaba solo `app.js` y el endpoint de
     # confirmación no lo comprobaba.
-    data["sync_gate"] = evaluate_sync_gate(data, session.sync_delta)
+    data["sync_gate"] = evaluate_sync_gate(data, session.sync_delta,
+                                          confidence=data["confidence"])
     return data
 
 

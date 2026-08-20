@@ -5064,7 +5064,8 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
 SYNC_CONFIDENCE_THRESHOLD = 0.85
 
 
-def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None) -> dict:
+def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None,
+                       confidence: dict | None = None) -> dict:
     """El criterio para avanzar de la Fase D: Δ frames = 0 **y** confianza ≥ 85 %.
 
     Vivía SOLO en `app.js` (`canConfirm = delta === 0 && confOk`) mientras
@@ -5076,8 +5077,12 @@ def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None) -> d
 
     `sync_delta` es el de la sesión (lo actualiza la Fase E tras cada
     corrección); si no se pasa, se deduce de los frame counts del volcado.
+
+    `confidence` permite reutilizar un `compute_sync_confidence` ya hecho: la
+    correlación de Pearson recorre los 243.000 puntos de un UHD (~80 ms en un
+    Mac, ~300 ms en el NAS) y `sync-data` la calcula igualmente para la UI.
     """
-    conf = compute_sync_confidence(per_frame_data)
+    conf = confidence if confidence is not None else compute_sync_confidence(per_frame_data)
     if sync_delta is None:
         sync_delta = ((per_frame_data.get("target_frames") or 0)
                       - (per_frame_data.get("source_frames") or 0))
