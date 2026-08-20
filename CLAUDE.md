@@ -1317,7 +1317,20 @@ Las re-clasificaciones desde stats persistidas reusan los `target_l8_combos` gua
 Análisis on-demand del MKV completo que extrae el L1 metadata frame-a-frame del RPU para visualización en sparkline + stats.
 
 - Endpoint `POST /api/mkv/light-profile` extrae L1 metadata (max_pq, avg_pq, min_pq) por frame del RPU del MKV completo.
-- Pipeline: ffmpeg copy → HEVC → dovi_tool extract-rpu → dovi_tool export → JSON parse.
+- Pipeline: **`ffmpeg | dovi_tool extract-rpu` en una sola pasada** → `dovi_tool export` → parseo.
+
+**El HEVC intermedio no se escribe.** Se reutiliza `_ffmpeg_extract_rpu_piped(..., hevc_out=None)`, el mismo helper de la Fase A. Antes eran dos pasadas en serie, con dos costes medidos: escribir y volver a leer ~75 % del tamaño del MKV (~45 GB en un UHD) sobre el mismo pool por el que ffmpeg lee el MKV — y aquí ese HEVC **no se usa para nada más**, tanto que el código lo borraba tres líneas después—; y que los dos pasos se estorban (ffmpeg 574 s limitado por DISCO con la CPU ociosa, `extract-rpu` 372 s limitado por CPU con el disco medio ocioso, ~946 s usando media máquina cada vez).
+
+Lo que hubo que adaptar, y por qué:
+- **El progreso.** El helper emite `§§PROGRESS§§` (contrato del frontend de Tab 3) con el pct ya escalado; un adaptador lo traduce al estado que pollea el modal de Tab 2. El reparto pasa de 55/35/10 a **90/10** (`PESO_EXTRACCION`): por el pipe la extracción es un solo tramo continuo.
+- **La tira de pasos del modal tiene DOS filas.** Extraer el HEVC y extraer el RPU son el mismo trabajo cuando van conectados. El backend conserva los ids internos 1/2/3 porque el camino de reserva sí los hace en serie, y `_dvLightSetStep` mapea id → fila (`_DV_LIGHT_PASO_A_FILA`).
+- **La cancelación mata TODOS los procesos vivos.** `_lp_active_proc` guardaba uno; con el pipe hay dos y matar uno deja al otro colgado en el otro extremo.
+- **El pre-flight de espacio solo corre en la reserva.** Exigía ~45 GB libres para un HEVC que ya no se escribe: habría rechazado análisis que caben de sobra.
+- **La duración del MKV** se resuelve con un `ffprobe` best-effort (~1-3 s): es la referencia con la que ffmpeg traduce su `time=` a porcentaje. Sin ella el tramo de ffmpeg dependería solo de `/proc`.
+
+**El camino de reserva (dos pasadas) se conserva y se ejercita en el test**, porque el helper devuelve False *sin lanzar* ante cualquier problema y esa rama tiene que seguir funcionando el día que haga falta.
+
+`test_light_profile_pipe.py` **ejecuta el endpoint** con los binarios falsos. Una de las mutaciones destapó un test flojo que conviene recordar: *"no queda ningún `.hevc` en disco"* pasaba **también** con las dos pasadas, porque la reserva lo borra al terminar. La aserción útil es sobre el **argv** — que a ffmpeg no se le pida escribir ningún HEVC.
 - Parser específico vía paths conocidos (`cmv29_metadata.level1`, `cmv40_metadata.level1`, `ext_metadata_blocks[].Level1`) con fallback recursivo + sanity check (`min_pq <= avg_pq <= max_pq`).
 - Conversión PQ→nits via SMPTE ST 2084 EOTF inverse (`_pq_code_to_nits`).
 - Polling resiliente (`/api/mkv/light-profile/progress`) — chained-await en frontend (no setInterval, evita races out-of-order), guard monotónico anti-rollback.
