@@ -974,6 +974,39 @@ def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
     return f"frame {cur} · "
 
 
+def _total_del_stream(hevc_out: Path | None, ff_bytes: int,
+                     media_frac: float, ff_eof: bool) -> float | None:
+    """Cuántos bytes va a tener el stream que pasa por el pipe, o None.
+
+    Es el denominador del progreso del consumidor (`rchar / total`). Dos
+    fuentes para el numerador de la extrapolación:
+
+      · el fichero de salida, cuando se pide (`tee`), que es el dato de verdad;
+      · el `size=` que ffmpeg reporta en su stderr, que mide LO MISMO —los
+        bytes que ha metido en el pipe— y existe también sin fichero.
+
+    Mientras ffmpeg trabaja, lo escrito es solo la fracción del vídeo que
+    lleva, así que se extrapola; cuando cierra, lo escrito ES el total.
+
+    Devuelve None si no hay con qué estimar. Antes la única fuente era el
+    fichero, así que con `hevc_out=None` el consumidor no emitía progreso
+    NUNCA: daba igual mientras el único caller sin fichero era el pre-flight
+    (un sniff de 30 s), pero el perfil de luminancia de Tab 2 recorre la peli
+    entera — medido en el NAS, 300 s con la barra clavada en 0 % sobre un MKV
+    de 72 GB.
+    """
+    escrito = _tamano(hevc_out) if hevc_out is not None else ff_bytes
+    if escrito <= 0:
+        return None
+    if ff_eof:
+        return float(escrito)
+    if media_frac < 0.02:
+        # Muy al principio la extrapolación es ruido puro (dividir por 0,001
+        # multiplica el total por mil).
+        return None
+    return escrito / media_frac
+
+
 def _fmt_ffmpeg_size(line: str, out_path: Path | None = None) -> str:
     """Cuánto se lleva escrito, como `19,5 GB`. Cadena vacía si no se sabe.
 
@@ -1287,15 +1320,9 @@ async def _ffmpeg_extract_rpu_piped(
             except asyncio.TimeoutError:
                 pass
             leido = _proc_rchar(dv.pid)
-            # Con fichero de salida, su tamaño es el dato de verdad. Sin él
-            # (`hevc_out=None`), el `size=` que ffmpeg reporta mide lo mismo:
-            # los bytes que ha metido en el pipe.
-            escrito = _tamano(hevc_out) if hevc_out is not None else ff_bytes
             rpu_hasta_ahora = _tamano(rpu_out)
-            if leido is None or escrito <= 0 or (not ff_eof and media_frac < 0.02):
-                continue
-            total = escrito if ff_eof else escrito / media_frac
-            if total <= 0:
+            total = _total_del_stream(hevc_out, ff_bytes, media_frac, ff_eof)
+            if leido is None or total is None or total <= 0:
                 continue
             # Tope en TOPE_LECTURA: los bytes leídos se agotan antes que la
             # fase. El consumidor tiene que haber sacado del pipe TODO lo que

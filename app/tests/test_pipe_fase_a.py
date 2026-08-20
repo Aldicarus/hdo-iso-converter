@@ -153,22 +153,41 @@ class TestProgresoSinFicheroDeSalida(PhaseTestCase):
             duration=7200.0, log_callback=log), timeout=30)
         return ok, log
 
-    @unittest.skipUnless(Path("/proc/self/io").exists(),
-                         "/proc/<pid>/io no existe: el consumidor no puede medir")
-    async def test_emite_progreso_medido_sin_hevc(self):
-        ok, log = await self._correr(hevc_out=None)
-        self.assertTrue(ok)
-        marcadores = [l for l in log.lines if l.startswith("§§PROGRESS§§")]
-        self.assertTrue(marcadores,
-                        "sin fichero de salida no se emitió ningún progreso:\n  "
-                        + "\n  ".join(log.lines))
+    def test_sin_fichero_de_salida_el_total_sale_del_size_de_ffmpeg(self):
+        """EL BUG. `_total_del_stream` es el denominador del progreso: sin
+        total no se emite nada."""
+        from phases.cmv40_pipeline import _total_del_stream
+        # ffmpeg lleva 70 GB escritos y va por la mitad del vídeo.
+        total = _total_del_stream(None, 70_000_000_000, media_frac=0.5,
+                                 ff_eof=False)
+        self.assertIsNotNone(total, "sin fichero de salida no hay progreso")
+        self.assertAlmostEqual(total, 140_000_000_000, delta=1)
 
-    @unittest.skipUnless(Path("/proc/self/io").exists(), "/proc no disponible")
-    async def test_con_hevc_sigue_emitiendo(self):
-        """Que el arreglo no rompa el camino que ya funcionaba."""
-        ok, log = await self._correr(hevc_out=self.tmp / "source.hevc")
-        self.assertTrue(ok)
-        self.assertTrue([l for l in log.lines if l.startswith("§§PROGRESS§§")])
+    def test_cuando_ffmpeg_cierra_lo_escrito_es_el_total(self):
+        from phases.cmv40_pipeline import _total_del_stream
+        self.assertEqual(
+            _total_del_stream(None, 72_433_350 * 1024, 0.99, ff_eof=True),
+            float(72_433_350 * 1024))
+
+    def test_con_fichero_manda_el_fichero(self):
+        """Con `tee`, el tamaño real en disco es el dato de verdad; a ffmpeg no
+        se le puede preguntar porque con dos salidas emite `Lsize=N/A`."""
+        from phases.cmv40_pipeline import _total_del_stream
+        hevc = self.tmp / "source.hevc"
+        hevc.write_bytes(b"x" * 5000)
+        total = _total_del_stream(hevc, ff_bytes=999_999_999,
+                                 media_frac=0.5, ff_eof=True)
+        self.assertEqual(total, 5000.0)
+
+    def test_al_principio_no_se_extrapola(self):
+        """Con media_frac de 0,001 el total saldría multiplicado por mil."""
+        from phases.cmv40_pipeline import _total_del_stream
+        self.assertIsNone(_total_del_stream(None, 1_000_000, 0.001, False))
+
+    def test_sin_nada_escrito_no_hay_total(self):
+        from phases.cmv40_pipeline import _total_del_stream
+        self.assertIsNone(_total_del_stream(None, 0, 0.5, False))
+        self.assertIsNone(_total_del_stream(None, 0, 0.5, True))
 
     async def test_el_ffmpeg_falso_emite_size_y_time(self):
         """Fidelidad del fake: sin estos dos campos el progreso no se puede
