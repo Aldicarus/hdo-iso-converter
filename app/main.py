@@ -3335,13 +3335,16 @@ _light_profile_state: dict = {
 # análisis A llega tarde (NAS bajo carga) cuando el usuario ya relanzó B, el
 # requested_for_id no coincide con el job_id vivo → se ignora. Mismo patrón
 # que _mkv_quality_cancel (Tab 2 auditoría de calidad).
-_lp_active_proc: dict = {"proc": None}
+# Es una LISTA: el camino rápido conecta ffmpeg y dovi_tool por un pipe, así
+# que hay dos procesos vivos a la vez y matar solo uno deja al otro colgado
+# escribiendo (o leyendo) del otro extremo.
+_lp_active_proc: dict = {"procs": []}
 _lp_cancel: dict = {"requested_for_id": None}
 
 
 def _lp_reset() -> str:
     import uuid as _uuid
-    _lp_active_proc["proc"] = None
+    _lp_active_proc["procs"] = []
     _lp_cancel["requested_for_id"] = None
     job_id = _uuid.uuid4().hex[:12]
     _light_profile_state.update({
@@ -3356,8 +3359,16 @@ def _lp_reset() -> str:
 
 
 def _lp_register_proc(proc):
-    """Registra el subprocess activo para que cancel() pueda matarlo."""
-    _lp_active_proc["proc"] = proc
+    """Registra un subprocess activo para que cancel() pueda matarlo.
+
+    Se acumulan: el camino rápido tiene ffmpeg y dovi_tool corriendo a la vez.
+    Los ya terminados se descartan al registrar, para no arrastrar una lista
+    que crece con cada paso.
+    """
+    vivos = [p for p in _lp_active_proc.get("procs") or []
+             if p is not None and p.returncode is None]
+    vivos.append(proc)
+    _lp_active_proc["procs"] = vivos
 
 
 def _lp_check_cancel():
@@ -3380,12 +3391,20 @@ def _lp_log(msg: str):
     _logger.info("light-profile: %s", msg)
 
 
+# Los `step` del estado son ids internos (1 = extraer HEVC, 2 = extraer RPU
+# aparte, 3 = export + parseo) y no coinciden con lo que ve el usuario: por el
+# pipe los pasos 1 y 2 son UNO, así que la tira del modal tiene dos filas y el
+# 2 solo aparece en el camino de reserva. El mapa traduce id → "N/M" para el
+# log; la tira del frontend hace la misma traducción.
+_LP_PASO_VISIBLE = {1: "1/2", 2: "1/2", 3: "2/2"}
+
+
 def _lp_set_step(step: int, label: str, global_pct_base: int):
     _light_profile_state["step"] = step
     _light_profile_state["step_label"] = label
     _light_profile_state["step_pct"] = 0
     _light_profile_state["global_pct"] = global_pct_base
-    _lp_log(f"Paso {step}/3 — {label}")
+    _lp_log(f"Paso {_LP_PASO_VISIBLE.get(step, step)} — {label}")
 
 
 def _lp_set_step_pct(step_pct: float, global_pct: float):
@@ -3431,8 +3450,12 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
         )
         return {"ok": False, "reason": "stale_job_id"}
     _lp_cancel["requested_for_id"] = current_job_id
-    proc = _lp_active_proc.get("proc")
-    if proc:
+    # Todos los procesos vivos, no solo uno: el camino rápido tiene ffmpeg y
+    # dovi_tool conectados por un pipe y matar uno deja al otro colgado en el
+    # otro extremo.
+    for proc in list(_lp_active_proc.get("procs") or []):
+        if not proc or proc.returncode is not None:
+            continue
         try:
             proc.terminate()
             try:
@@ -3457,7 +3480,7 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
                     )
         except Exception as e:
             _logger.warning("light-profile cancel: kill subprocess fallo: %s", e)
-    _lp_active_proc["proc"] = None
+    _lp_active_proc["procs"] = []
     # Tras el reap bloqueante (hasta ~13s) el job pudo terminar y el usuario
     # relanzar otro. Solo finalizamos el estado si seguimos siendo ese job.
     if _light_profile_state.get("job_id") == current_job_id:
@@ -3465,6 +3488,13 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
         _light_profile_state["error"] = "Cancelado por el usuario"
         _light_profile_state["active"] = False
     return {"ok": True}
+
+
+# Reparto del progreso global del perfil de luminancia: la extracción
+# (HEVC + RPU) se lleva el 90 % y el export + parseo el 10 % restante. Antes
+# eran 55/35/10 con la extracción partida en dos pasos; conectados por un pipe
+# es un solo tramo continuo.
+PESO_EXTRACCION = 90.0
 
 
 # Cada nivel exportado va a la metadata donde el parser lo espera: L1/L2/L5/L6
@@ -3587,7 +3617,8 @@ async def mkv_light_profile_endpoint(body: dict):
     import json as _json, time as _time
     import shutil as _shutil
 
-    # Estimacion del HEVC final segun bitrate del MKV (para el pct de ffmpeg)
+    # Estimacion del HEVC final segun bitrate del MKV (para el pct de ffmpeg
+    # del camino de reserva, que sí lo escribe a disco).
     try:
         mkv_size = Path(mkv_full).stat().st_size
         # HEVC suele ser 70-85% del MKV (excluyendo audio/subs). Usamos 75%.
@@ -3595,156 +3626,236 @@ async def mkv_light_profile_endpoint(body: dict):
     except Exception:
         expected_hevc_size = 0
 
-    # Workdir en /mnt/tmp, NO el /tmp del contenedor: el HEVC pesa ~75% del MKV
-    # (~45 GB en UHD) y /tmp en QNAP es tmpfs pequeño → "No space left on device"
-    # a mitad de ffmpeg. Fallback al tempdir por defecto solo en dev sin /mnt/tmp.
+    # Duración del MKV: es la referencia con la que ffmpeg traduce su `time=`
+    # a porcentaje dentro del pipe. Sin ella el progreso del tramo de ffmpeg
+    # dependería solo de `/proc` (que en el Mac de desarrollo no existe).
+    # Best-effort: ~1-3 s de ffprobe, y si falla se sigue sin ella.
+    try:
+        from phases.phase_a import _ffprobe_duration_seconds
+        duration_s = await _ffprobe_duration_seconds(mkv_full)
+    except Exception as _e:
+        _logger.info("light-profile: duración no disponible (%s)", _e)
+        duration_s = 0.0
+
+    # Workdir en /mnt/tmp, NO el /tmp del contenedor. Por el camino rápido solo
+    # cae ahí el RPU (decenas de MB), pero el camino de reserva escribe el HEVC
+    # entero (~75% del MKV, ~45 GB en UHD) y /tmp en QNAP es tmpfs pequeño →
+    # "No space left on device" a mitad de ffmpeg. Fallback al tempdir por
+    # defecto solo en dev sin /mnt/tmp.
     _lp_workbase = TMP_DIR
     try:
         Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
     except Exception:
         _lp_workbase = None
-    # Pre-flight de espacio: un error claro AQUÍ es mejor que un "ffmpeg falló"
-    # críptico tras varios minutos de extracción.
-    if _lp_workbase and expected_hevc_size > 0:
-        try:
-            free = _shutil.disk_usage(_lp_workbase).free
-            if free < int(expected_hevc_size * 1.1):
-                _light_profile_state["active"] = False
-                raise HTTPException(
-                    status_code=507,
-                    detail=(f"Espacio insuficiente en {_lp_workbase}: el perfil de "
-                            f"luminancia necesita ~{expected_hevc_size * 1.1 / 1e9:.1f} GB "
-                            f"y solo hay {free / 1e9:.1f} GB libres."),
-                )
-        except FileNotFoundError:
-            pass
     tmp_dir = Path(tempfile.mkdtemp(prefix="lightprof_", dir=_lp_workbase))
     rpu_path = tmp_dir / "rpu.bin"
     hevc_path = tmp_dir / "sample.hevc"
 
+    def _comprobar_espacio_para_el_hevc() -> None:
+        """Pre-flight de espacio del camino de reserva.
+
+        Solo se llama si hay que escribir el HEVC. Por el pipe no se escribe,
+        así que exigir 45 GB libres habría rechazado análisis que caben de
+        sobra. Un error claro AQUÍ es mejor que un "ffmpeg falló" críptico tras
+        varios minutos de extracción.
+        """
+        if not (_lp_workbase and expected_hevc_size > 0):
+            return
+        try:
+            free = _shutil.disk_usage(_lp_workbase).free
+        except (FileNotFoundError, OSError):
+            return
+        if free < int(expected_hevc_size * 1.1):
+            raise HTTPException(
+                status_code=507,
+                detail=(f"Espacio insuficiente en {_lp_workbase}: extraer el HEVC "
+                        f"necesita ~{expected_hevc_size * 1.1 / 1e9:.1f} GB y solo "
+                        f"hay {free / 1e9:.1f} GB libres."),
+            )
+
     try:
-        # Estrategia: ffmpeg hace demux eficiente del MKV (stream-copy sin
-        # reencodar) → HEVC annex-B local → dovi_tool extract-rpu sobre HEVC.
-        # Mucho más rápido que dovi_tool directo sobre MKV (matroska-rs
-        # lento en NAS con HDD).
-        # Ambos escalan con la duración de la peli; 30 min de margen para no
-        # morir en NAS lentos / pelis largas (el antiguo dt=900 para un
+        # Ambos pasos escalan con la duración de la peli; 30 min de margen para
+        # no morir en NAS lentos / pelis largas (el antiguo dt=900 para un
         # extract-rpu completo era tan justo como el bug del demux de Fase C).
         ff_timeout = 1800  # full-movie ffmpeg extract
         dt_timeout = 1800  # full-movie extract-rpu
 
-        ff_cmd = [FFMPEG_BIN, "-y", "-v", "error",
-                  "-i", mkv_full,
-                  "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
-                  "-f", "hevc", str(hevc_path)]
-
-        # ═══════ Paso 1 · ffmpeg con monitor de progreso por file size ═══
+        # ═══════ Paso 1 · HEVC + RPU en una sola pasada ════════════════════
+        # `_ffmpeg_extract_rpu_piped` con `hevc_out=None` conecta ffmpeg y
+        # dovi_tool por un pipe y NO escribe el HEVC intermedio. Aquí el HEVC
+        # no se usa para nada más —solo interesa el RPU— así que se ahorra
+        # escribirlo Y releerlo: son ~45 GB en cada sentido sobre el mismo pool
+        # por el que ffmpeg está leyendo el MKV.
+        #
+        # Y los dos pasos dejan de estorbarse. Medido en la Fase A sobre John
+        # Wick 4 (243.552 frames, MKV de 88 GB): ffmpeg tarda 574 s limitado por
+        # DISCO con la CPU ociosa, y `extract-rpu` 372 s limitado por CPU con el
+        # disco medio ocioso — ~946 s en serie usando media máquina cada vez.
+        # Conectados, el conjunto va al ritmo del más lento.
+        #
+        # El helper devuelve False SIN lanzar si algo falla, para que aquí se
+        # pueda recurrir al camino en dos pasos de siempre.
         _lp_check_cancel()
-        _lp_set_step(1, "Extrayendo HEVC del MKV con ffmpeg", 0)
+        _lp_set_step(1, "Extrayendo HEVC + RPU del MKV", 0)
         t0 = _time.monotonic()
-        proc = await asyncio.create_subprocess_exec(
-            *ff_cmd,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        )
-        _lp_register_proc(proc)
-        # Monitor task: cada 1s leemos el tamaño del HEVC y actualizamos pct.
-        # Paso 1 ocupa 55% del pct global (55/35/10 aprox para las 3 fases).
-        stop_mon = asyncio.Event()
 
-        async def _ff_monitor():
-            while not stop_mon.is_set():
+        async def _log_del_pipe(msg: str) -> None:
+            """Adapta el log del pipeline CMv4.0 al estado del light-profile.
+
+            El helper emite el progreso como marcador `§§PROGRESS§§` (el
+            contrato del frontend de Tab 3) con el pct ya escalado a
+            offset+weight. Aquí no hay WebSocket: se traduce al estado que
+            pollea el modal de Tab 2.
+            """
+            if msg.startswith("§§PROGRESS§§"):
                 try:
-                    if hevc_path.exists() and expected_hevc_size > 0:
-                        size = hevc_path.stat().st_size
-                        pct = min(99, size * 100 / expected_hevc_size)
-                        _lp_set_step_pct(pct, pct * 0.55)
-                        if int(pct) % 10 == 0 and int(pct) > 0:
-                            pass  # evitamos spam del log
+                    payload = _json.loads(msg[len("§§PROGRESS§§"):])
                 except Exception:
-                    pass
-                try:
-                    await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
-                except asyncio.TimeoutError:
-                    pass
-
-        mon_task = asyncio.create_task(_ff_monitor())
-        try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=ff_timeout)
-        except asyncio.TimeoutError:
-            try: proc.kill()
-            except Exception: pass
-            stop_mon.set()
-            _light_profile_state["error"] = f"ffmpeg excedió {ff_timeout}s"
-            raise HTTPException(status_code=504,
-                                detail=f"ffmpeg excedió {ff_timeout}s extrayendo HEVC del MKV.")
-        finally:
-            stop_mon.set()
-            try: await mon_task
-            except Exception: pass
-
-        if proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
-            err = stderr.decode("utf-8", errors="replace")[:400]
-            _light_profile_state["error"] = f"ffmpeg falló: {err}"
-            raise HTTPException(status_code=500, detail=f"ffmpeg falló: {err}")
-        ff_gb = hevc_path.stat().st_size / 1e9
-        _lp_log(f"Paso 1/3 ✓ ffmpeg OK en {_time.monotonic()-t0:.1f}s ({ff_gb:.2f} GB HEVC)")
-
-        # ═══════ Paso 2 · dovi_tool extract-rpu ═══════════════════════════
-        _lp_check_cancel()
-        _lp_set_step(2, "Extrayendo RPU del HEVC con dovi_tool", 55)
-        t1 = _time.monotonic()
-        proc = await asyncio.create_subprocess_exec(
-            DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        )
-        _lp_register_proc(proc)
-        # dovi_tool no expone progreso estructurado, pero el kernel sí sabe
-        # cuánto lleva leído del HEVC: _ReadProgress lo saca de
-        # /proc/<pid>/fdinfo. La estimación por reloj (que era `elapsed /
-        # (tiempo_de_ffmpeg × 0,5)`) queda solo de reserva.
-        from phases.cmv40_pipeline import _ReadProgress as _RP
-        dt_reader = _RP(proc.pid, hevc_path)
-        expected_dt_s = max(20, int((_time.monotonic() - t0) * 0.5))
-        stop_mon2 = asyncio.Event()
-
-        async def _dt_monitor():
-            while not stop_mon2.is_set():
-                pct = dt_reader.sample()
-                if pct is None:
-                    elapsed = _time.monotonic() - t1
-                    pct = min(99, elapsed * 100 / expected_dt_s)
-                _lp_set_step_pct(pct, 55 + pct * 0.35)
-                eta = dt_reader.eta()
+                    return
+                glob = float(payload.get("pct") or 0.0)
+                _lp_set_step_pct(glob * 100.0 / PESO_EXTRACCION, glob)
+                eta = payload.get("eta_s")
                 if eta is not None:
                     _light_profile_state["eta_s"] = int(eta)
-                try:
-                    await asyncio.wait_for(stop_mon2.wait(), timeout=1.5)
-                except asyncio.TimeoutError:
-                    pass
+                return
+            _lp_log(msg.strip())
 
-        mon_task2 = asyncio.create_task(_dt_monitor())
+        piped = False
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=dt_timeout)
-        except asyncio.TimeoutError:
-            try: proc.kill()
-            except Exception: pass
-            stop_mon2.set()
-            _light_profile_state["error"] = f"dovi_tool excedió {dt_timeout}s"
-            raise HTTPException(status_code=504, detail=f"dovi_tool extract-rpu excedió {dt_timeout}s")
-        finally:
-            stop_mon2.set()
-            try: await mon_task2
-            except Exception: pass
+            from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped
+            piped = await _ffmpeg_extract_rpu_piped(
+                mkv_path=mkv_full,
+                rpu_out=rpu_path,
+                hevc_out=None,               # ← no escribimos el HEVC
+                duration=float(duration_s or 0.0),
+                log_callback=_log_del_pipe,
+                proc_callback=_lp_register_proc,
+                offset=0.0,
+                weight=PESO_EXTRACCION,
+                label="Extrayendo HEVC + RPU",
+            )
+        except Exception as e:
+            # El helper promete no lanzar, pero si lo hiciera no queremos
+            # perder el análisis: queda el camino de reserva.
+            _logger.info("light-profile: el pipe ffmpeg|extract-rpu falló (%s)", e)
+            piped = False
 
-        if proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
-            err = stderr.decode("utf-8", errors="replace")[:400]
-            _light_profile_state["error"] = f"extract-rpu falló: {err}"
-            raise HTTPException(status_code=500, detail=f"extract-rpu falló: {err}")
-        _lp_log(f"Paso 2/3 ✓ RPU extraído en {_time.monotonic()-t1:.1f}s ({rpu_path.stat().st_size/1e6:.2f} MB)")
+        if piped and rpu_path.exists() and rpu_path.stat().st_size >= 10:
+            _lp_log(f"Paso 1/2 ✓ HEVC + RPU en una pasada, {_time.monotonic()-t0:.1f}s "
+                    f"({rpu_path.stat().st_size/1e6:.2f} MB de RPU, sin HEVC intermedio)")
+            _lp_set_step_pct(100, PESO_EXTRACCION)
+        else:
+            # ── Camino de reserva: las dos pasadas de siempre ──────────────
+            _lp_check_cancel()
+            rpu_path.unlink(missing_ok=True)
+            _comprobar_espacio_para_el_hevc()
+            _lp_log("El camino de una pasada no estuvo disponible — "
+                    "extrayendo el HEVC a disco y leyéndolo después")
+            _lp_set_step(1, "Extrayendo HEVC del MKV con ffmpeg", 0)
+            t0 = _time.monotonic()
+            ff_cmd = [FFMPEG_BIN, "-y", "-v", "error",
+                      "-i", mkv_full,
+                      "-map", "0:v:0", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+                      "-f", "hevc", str(hevc_path)]
+            proc = await asyncio.create_subprocess_exec(
+                *ff_cmd,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            )
+            _lp_register_proc(proc)
+            # Monitor task: cada 1s leemos el tamaño del HEVC y actualizamos pct.
+            stop_mon = asyncio.Event()
 
-        # HEVC intermedio ya no hace falta (libera ~10-20 GB)
-        try: hevc_path.unlink(missing_ok=True)
-        except Exception: pass
+            async def _ff_monitor():
+                while not stop_mon.is_set():
+                    try:
+                        if hevc_path.exists() and expected_hevc_size > 0:
+                            size = hevc_path.stat().st_size
+                            pct = min(99, size * 100 / expected_hevc_size)
+                            _lp_set_step_pct(pct, pct * 0.55)
+                    except Exception:
+                        pass
+                    try:
+                        await asyncio.wait_for(stop_mon.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        pass
+
+            mon_task = asyncio.create_task(_ff_monitor())
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=ff_timeout)
+            except asyncio.TimeoutError:
+                try: proc.kill()
+                except Exception: pass
+                stop_mon.set()
+                _light_profile_state["error"] = f"ffmpeg excedió {ff_timeout}s"
+                raise HTTPException(status_code=504,
+                                    detail=f"ffmpeg excedió {ff_timeout}s extrayendo HEVC del MKV.")
+            finally:
+                stop_mon.set()
+                try: await mon_task
+                except Exception: pass
+
+            if proc.returncode != 0 or not hevc_path.exists() or hevc_path.stat().st_size < 1024:
+                err = stderr.decode("utf-8", errors="replace")[:400]
+                _light_profile_state["error"] = f"ffmpeg falló: {err}"
+                raise HTTPException(status_code=500, detail=f"ffmpeg falló: {err}")
+            ff_gb = hevc_path.stat().st_size / 1e9
+            _lp_log(f"Paso 1/2 (a) ✓ ffmpeg OK en {_time.monotonic()-t0:.1f}s ({ff_gb:.2f} GB HEVC)")
+
+            # ═══════ Paso 2 · dovi_tool extract-rpu ═══════════════════════
+            _lp_check_cancel()
+            _lp_set_step(2, "Extrayendo RPU del HEVC con dovi_tool", 55)
+            t1 = _time.monotonic()
+            proc = await asyncio.create_subprocess_exec(
+                DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            )
+            _lp_register_proc(proc)
+            # dovi_tool no expone progreso estructurado, pero el kernel sí sabe
+            # cuánto lleva leído del HEVC: _ReadProgress lo saca de
+            # /proc/<pid>/fdinfo. La estimación por reloj queda de reserva.
+            from phases.cmv40_pipeline import _ReadProgress as _RP
+            dt_reader = _RP(proc.pid, hevc_path)
+            expected_dt_s = max(20, int((_time.monotonic() - t0) * 0.5))
+            stop_mon2 = asyncio.Event()
+
+            async def _dt_monitor():
+                while not stop_mon2.is_set():
+                    pct = dt_reader.sample()
+                    if pct is None:
+                        elapsed = _time.monotonic() - t1
+                        pct = min(99, elapsed * 100 / expected_dt_s)
+                    _lp_set_step_pct(pct, 55 + pct * 0.35)
+                    eta = dt_reader.eta()
+                    if eta is not None:
+                        _light_profile_state["eta_s"] = int(eta)
+                    try:
+                        await asyncio.wait_for(stop_mon2.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        pass
+
+            mon_task2 = asyncio.create_task(_dt_monitor())
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=dt_timeout)
+            except asyncio.TimeoutError:
+                try: proc.kill()
+                except Exception: pass
+                stop_mon2.set()
+                _light_profile_state["error"] = f"dovi_tool excedió {dt_timeout}s"
+                raise HTTPException(status_code=504, detail=f"dovi_tool extract-rpu excedió {dt_timeout}s")
+            finally:
+                stop_mon2.set()
+                try: await mon_task2
+                except Exception: pass
+
+            if proc.returncode != 0 or not rpu_path.exists() or rpu_path.stat().st_size < 10:
+                err = stderr.decode("utf-8", errors="replace")[:400]
+                _light_profile_state["error"] = f"extract-rpu falló: {err}"
+                raise HTTPException(status_code=500, detail=f"extract-rpu falló: {err}")
+            _lp_log(f"Paso 1/2 (b) ✓ RPU extraído en {_time.monotonic()-t1:.1f}s ({rpu_path.stat().st_size/1e6:.2f} MB)")
+
+            # HEVC intermedio ya no hace falta (libera ~10-20 GB)
+            try: hevc_path.unlink(missing_ok=True)
+            except Exception: pass
 
         # ═══════ Paso 3 · export JSON + parseo ════════════════════════════
         _lp_check_cancel()
@@ -3772,7 +3883,7 @@ async def mkv_light_profile_endpoint(body: dict):
             if _lp_levels is not None and _lp_levels.get("level1"):
                 rpus = await asyncio.to_thread(_rpus_from_levels, _lp_levels)
                 _lp_log(
-                    f"Paso 3/3 ✓ export por niveles ({len(rpus)} frames) en "
+                    f"Paso 2/2 ✓ export por niveles ({len(rpus)} frames) en "
                     f"{_time.monotonic() - t2:.1f}s — sin volcar el RPU entero"
                 )
                 _lp_set_step_pct(100, 98)
@@ -3809,7 +3920,7 @@ async def mkv_light_profile_endpoint(body: dict):
                     data = _json.load(f)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"JSON parse falló: {e}")
-            _lp_log(f"Paso 3/3 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
+            _lp_log(f"Paso 2/2 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
             _lp_set_step_pct(100, 98)
             rpus = data.get("rpus") if isinstance(data, dict) else data
 

@@ -11230,18 +11230,27 @@ async function _dvLightCancel() {
 let _dvLightLastStep = 0;
 let _dvLightLastPct = 0;
 
+// El backend numera los pasos como ids internos: 1 = extraer HEVC, 2 = extraer
+// el RPU aparte, 3 = export + parseo, >=4 = terminado. La tira del modal tiene
+// DOS filas porque por el pipe los ids 1 y 2 son el mismo trabajo; el 2 solo
+// aparece si el pipe no estuvo disponible y hubo que hacerlo en serie.
+const _DV_LIGHT_PASO_A_FILA = { 1: 1, 2: 1, 3: 2 };
+const _DV_LIGHT_FILAS = 2;
+
 function _dvLightSetStep(activeStep) {
   if (activeStep < _dvLightLastStep) return;
   _dvLightLastStep = activeStep;
-  for (let i = 1; i <= 3; i++) {
+  const fila = activeStep >= 4 ? _DV_LIGHT_FILAS + 1
+                               : (_DV_LIGHT_PASO_A_FILA[activeStep] || activeStep);
+  for (let i = 1; i <= _DV_LIGHT_FILAS; i++) {
     const el = document.getElementById(`dv-light-step-${i}`);
     if (!el) continue;
     el.classList.remove('active', 'pending', 'done', 'error');
     const marker = el.querySelector('.dv-light-step-marker');
-    if (activeStep >= 4 || i < activeStep) {
+    if (activeStep >= 4 || i < fila) {
       el.classList.add('done');
       if (marker) marker.textContent = '✓';
-    } else if (i === activeStep) {
+    } else if (i === fila) {
       el.classList.add('active');
       if (marker) marker.textContent = '⟳';
     } else {
