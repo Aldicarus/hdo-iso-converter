@@ -389,7 +389,9 @@ El módulo es puro (sin IO ni subprocess), así que `test_cmv40_strategy.py` rec
 
 Las fases C/F/G/H no se podían invocar en un test —lanzan `ffmpeg`/`dovi_tool`/`mkvmerge` sobre ficheros de decenas de GB— así que lo poco que se comprobaba de ellas se comprobaba **leyendo el fuente** (`src.find("async def run_phase_f_inject")` + `assertIn`), que pasa en verde aunque el comportamiento esté roto. La validación real ocurría en el NAS, a 40 minutos por iteración.
 
-`FakeToolbox` instala en el `PATH` cuatro binarios falsos que el pipeline resuelve por nombre, así que **no hace falta tocar el código de producción**. No son mudos: modelan la semántica de `dovi_tool` lo justo para que las validaciones internas del pipeline tengan sentido. Cada artefacto producido lleva un sidecar `.meta.json` con las propiedades del RPU que contiene, y se propagan por la cadena igual que en el NAS (`editor + allow_cmv4_transfer` → CM v4.0 con L8; `editor {"mode": 2}` → Profile 8; `inject-rpu` → el HEVC hereda las del RPU; `mux` → hereda las de la EL; `extract-rpu` → el bin hereda las del HEVC). Sin esa fidelidad las verificaciones post-merge fallarían siempre.
+`FakeToolbox` instala en el `PATH` cuatro binarios falsos que el pipeline resuelve por nombre, así que **no hace falta tocar el código de producción**. No son mudos: modelan la semántica de `dovi_tool` lo justo para que las validaciones internas del pipeline tengan sentido. Cada artefacto producido lleva un sidecar `.meta.json` con las propiedades del RPU que contiene, y se propagan por la cadena igual que en el NAS (`editor + allow_cmv4_transfer` → CM v4.0 con L8; `editor {"mode": 2}` → Profile 8; `editor` con `remove`/`duplicate` → cambia el frame count, sin lo cual no se puede comprobar que las correcciones de sync se acumulen; `inject-rpu` → el HEVC hereda las del RPU; `mux` → hereda las de la EL; `extract-rpu` → el bin hereda las del HEVC). Sin esa fidelidad las verificaciones post-merge fallarían siempre.
+
+**Las props viajan en la cabecera del CONTENIDO, no en la ruta.** El sidecar está indexado por ruta absoluta, así que en cuanto el pipeline **mueve** un artefacto la metadata se queda apuntando al nombre viejo y el fichero movido vuelve a los valores por defecto — sin fallar, simplemente contestando otra cosa. Lo destapó el `os.replace` del RPU corregido de la Fase E, pero afecta igual al `.mkv.tmp` → `.mkv` de la Fase H. El `dovi_tool` real lleva la metadata dentro del fichero: `produce` escribe la cabecera que ya existía para el pipe y `read_props`/`props_of` la prefieren al sidecar.
 
 Con eso un test afirma **qué RPU se inyecta en qué HEVC** en cada rama, y el criterio de aceptación es de mutación: reintroducir el bug (quitar la llamada a `_ensure_profile8_rpu`) tiene que hacer fallar un test. Verificado también para el demux truncado de Proyecto Salvación, el adelanto del RPU en drop-in y la validación de L8.
 
@@ -669,13 +671,25 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 
 - **Δ frames** (`target_frame_count - source_frame_count`): alineación temporal exacta
 - **Correlación de Pearson** sobre MaxCLL de ambas series: similitud de forma. Insensible a diferencias de escala (los valores absolutos pueden diferir entre CMv2.9 y CMv4.0 por distinto grading) pero sensible a desalineación temporal
-- **Umbral de confianza**: 85% (>= 0.85 Pearson). Protege contra RPUs de películas incompatibles
+- **Umbral de confianza**: 85% (`SYNC_CONFIDENCE_THRESHOLD`, >= 0.85 Pearson). Protege contra RPUs de películas incompatibles
+
+**El recorte de la ventana usa un origen COMÚN a las dos series.** `detect_sync_offset` buscaba el primer frame con brillo *en cada serie por separado* — y el desfase típico es un logo de estudio al principio del BD que la versión de streaming no trae. Un logo es oscuro, así que el recorte alineaba las dos ventanas antes de correlacionarlas y devolvía **offset 0 con 100 % de confianza**: la señal más tranquilizadora posible justo cuando se equivoca. El contraste A/B lo delata y es el test de referencia: logo oscuro de 72 frames → 0; el MISMO desfase con logo brillante → −72. El algoritmo estaba bien; fallaba el recorte.
+
+Dos trampas más de la misma función, ambas con test:
+- **Solape mínimo.** Con `max_offset` y la ventana de comparación ambos a 200, en el extremo del barrido quedaba UNA comparación, así que una coincidencia por casualidad ganaba con RMS 0 y confianza 100 %. Reproducible: 300 muestras de dos pelis distintas con `tgt[0] = src[149]` → `offset=-149, 100 %`.
+- **Varianza cero.** Con una serie plana todos los offsets empatan y gana el primero. `compute_sync_confidence` ya trataba ese caso aparte (`no_variance`); aquí faltaba, y con `None` en el MaxCLL además reventaba con TypeError.
+
+Es una **función pura**: los tres casos se fijan con series sintéticas, sin disco ni RPU real (`test_cmv40_sync_offset.py`).
+
+**Las correcciones se ENCADENAN, no se recomponen.** `dovi_tool editor` no edita in situ, y la Fase E partía siempre de `RPU_target.bin`; para no perder los pasos anteriores el endpoint sumaba sus frames y los colapsaba en un único rango en la cabecera. Con pasos del mismo signo sale lo mismo, pero alternando (quitar 10 y luego duplicar 5) el **orden** decide qué frames se tocan y el Δ final coincide en ambos casos — que es justo lo que hace que el criterio de avance no lo note. Ahora cada paso se aplica sobre el resultado del anterior, que es el sistema de coordenadas en el que el usuario lo dibujó, y `sync_config` guarda `{"steps": [...], "total_removed", "total_duplicated"}` (acepta el formato aplanado de las sesiones ya existentes). La escritura pasa por `RPU_synced.tmp.bin` + `os.replace`: una pasada que falle deja intacta la corrección anterior. `run_phase_e_correct_sync` **no** toca `session.sync_config` — lo escribe el endpoint con todos los pasos, y sobreescribirlo desde la fase borraba los anteriores.
+
+**El criterio de avance (Δ=0 ∧ confianza ≥ 85 %) lo aplica el backend.** `evaluate_sync_gate` lo resuelve, `sync-data` lo expone como `sync_gate` y `POST /mark-synced` devuelve **409** si no se cumple. Vivía SOLO en `app.js` (`canConfirm = delta === 0 && confOk`, que deshabilitaba el botón) mientras el endpoint aceptaba cualquier cosa: no había copia en el servidor con la que desincronizarse porque no había servidor. `force=true` es la salida explícita para el caso legítimo (grading que diverge de verdad, validado a ojo en el gráfico), que antes no tenía ninguna. **No** se comprueba cuando `plan.inputs.skip_sync_review` (la Fase D se omite: nadie ha mirado el gráfico porque no había que mirarlo, y el volcado puede no existir) ni cuando falta `per_frame_data.json`.
 
 ### Reglas y principios
 
 - Cada transición de fase es explícita (click del usuario) — no hay cascadas automáticas
 - Los artefactos de fases anteriores se preservan para permitir reentrar tras crash/reinicio
-- Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura
+- Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura. `cleanup` y `delete?clean_artifacts=true` devuelven **409 con una fase en curso** (`_cmv40_guard_not_running`): hacían `rmtree` del workdir por debajo del `dovi_tool` que lo estaba escribiendo, y lo que veía el usuario era un fallo incomprensible en el log. `cleanup-bulk` ya saltaba los proyectos en ejecución
 - Errores NO bloquean el proyecto: mantienen la fase previa, solo escriben `error_message` descartable
 - Validación de CM version target = v4.0 (aviso, no bloqueante)
 
@@ -1107,6 +1121,19 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV, la abstracción Source y **las fases C/F/G/H del pipeline CMv4.0 ejecutadas de verdad** (via `cmv40_harness.py`). No requieren discos reales ni los binarios instalados.
 - Un test de una fase **ejecuta la fase**. Los `assertIn` sobre el fuente del pipeline no cuentan como cobertura: pasan en verde aunque el comportamiento esté invertido. Al añadir un test de comportamiento, verificar que falla reintroduciendo el bug.
 
+### CI — `.github/workflows/tests.yml`
+
+La suite corre en **push a main, PR y `workflow_dispatch`**. Hasta entonces el único workflow del repo publicaba la imagen en `release.published`, así que se podía tagear en rojo sin que nada avisara.
+
+**Lo que CI aporta que el Mac no puede dar**: los dos tests de `_ReadProgress` miran `/proc/<pid>/io` (`rchar`) y `/proc/<pid>/fdinfo` (`pos:`), así que en macOS se **saltan siempre** — cubren la medición de progreso, la maquinaria que este repo documenta como la más frágil, y no se ejecutaban en ninguna parte. En el runner Linux corren: la señal es que el resumen dice `OK` a secas y no `OK (skipped=2)`. El job comprueba `/proc` **antes** de la suite, para que si el entorno cambiara no volvieran a saltarse en silencio.
+
+Detalles que no son accidentales:
+- **Python 3.10**, la misma minor que el contenedor (`ubuntu:22.04`). En el Mac la suite corre sobre 3.12; fijar la del contenedor evita descubrir una incompatibilidad en producción.
+- **Node 20**, porque cuatro tests (`test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`, `test_cmv40_timeline_layout`, `test_cmv40_eta_sufijo`) evalúan las funciones reales de `app.js` en node y sin él se auto-saltan.
+- Wall time: **~56 s en CI** contra ~175 s en el Mac (los binarios falsos son scripts de Python y la suite paga un arranque de intérprete por cada llamada simulada).
+
+`test_frontend_cache_bust.py` va en la **suite**, no en el YAML: caza el error típico del token `?v=` de `index.html` —tocar una de las dos referencias y olvidar la otra, que deja el CSS y el JS en versiones distintas— y así también salta en local, que es donde se comete.
+
 ---
 
 ## Reglas de UX / Diseño visual
@@ -1154,7 +1181,7 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - No usar `alert()`, `confirm()` o `prompt()` del navegador
 - No mostrar IDs técnicos internos al usuario
 - No copiar el ISO bajo ninguna circunstancia
-- No hardcodear rutas de directorio en el backend
+- No hardcodear rutas de directorio en el backend. Lo que se puede borrar sale de **`_cleanup_targets()`** (`main.py`), con `bases` + `patron` por tipo de basura: la consumen el barrido de arranque, el panel de Limpieza y el whitelist del borrado. Estaba escrito por triplicado y había divergido — el panel se quedó mirando `/tmp` cuando los workdirs de Tab 2 ya se creaban en `TMP_DIR`, así que un huérfano de hasta ~90 GB era invisible, y el whitelist tampoco habría aceptado la ruta real. **La validación resuelve la ruta antes de comparar** (`_cleanup_path_allowed`): `path_str.startswith(prefix)` sobre la cadena cruda aceptaba `/mnt/tmp/cmv40/../../library` y llegaba a `rmtree`, con `/mnt/output`, `/mnt/tmp` y `/config` montados `rw` y el contenedor en privileged. Solo se admite el **primer nivel** bajo la base: ni el propio root ni un fichero de dentro de un workdir. Regla: **cualquier validación de ruta parte de `resolve()` + `relative_to()`**, como `_safe_library_path` y `_resolve_mkv_path_safe`
 - No añadir abstracción para un solo uso
 - **No cambiar `--active-hub` sin recalcular la interpolación** — romperá la continuidad del gradiente del hub
 - **No usar `idx + 1` sobre los `.tab` principales** para activar tabs — usar IDs (`tab-btn-N`) porque el orden visual no coincide con la numeración interna
