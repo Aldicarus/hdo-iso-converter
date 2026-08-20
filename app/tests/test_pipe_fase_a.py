@@ -119,3 +119,84 @@ class TestPipeFaseA(PhaseTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProgresoSinFicheroDeSalida(PhaseTestCase):
+    """Sin `hevc_out` el progreso también tiene que salir.
+
+    El consumidor mide su avance como `rchar / total`, y el total lo
+    extrapolaba del TAMAÑO DEL FICHERO de salida. Con `hevc_out=None` no hay
+    fichero, así que se rendía y no emitía nada. Daba igual mientras el único
+    caller sin fichero era el pre-flight (un sniff de 30 s), pero el perfil de
+    luminancia de Tab 2 recorre la película entera: medido en el NAS, 300 s con
+    la barra clavada en 0 % sobre un MKV de 72 GB.
+
+    Ahora el total sale del `size=` que ffmpeg reporta en su stderr, que mide
+    exactamente lo mismo: los bytes que ha metido en el pipe. El binario falso
+    tuvo que aprender a emitirlo — la línea que escribía antes no llevaba
+    `size=` ni `time=`, o sea justo los dos campos de los que sale el
+    porcentaje, y por eso ningún test lo cazó.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.mkv = self.tmp / "Origen.mkv"
+        write_artifacts(self.tmp, self.mkv.name,
+                        props=RpuProps(profile=7, el_type="FEL",
+                                       cm_version="v4.0", frames=243552))
+
+    async def _correr(self, hevc_out=None):
+        from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped
+        log = CollectingLog()
+        ok = await asyncio.wait_for(_ffmpeg_extract_rpu_piped(
+            str(self.mkv), self.tmp / "RPU.bin", hevc_out=hevc_out,
+            duration=7200.0, log_callback=log), timeout=30)
+        return ok, log
+
+    @unittest.skipUnless(Path("/proc/self/io").exists(),
+                         "/proc/<pid>/io no existe: el consumidor no puede medir")
+    async def test_emite_progreso_medido_sin_hevc(self):
+        ok, log = await self._correr(hevc_out=None)
+        self.assertTrue(ok)
+        marcadores = [l for l in log.lines if l.startswith("§§PROGRESS§§")]
+        self.assertTrue(marcadores,
+                        "sin fichero de salida no se emitió ningún progreso:\n  "
+                        + "\n  ".join(log.lines))
+
+    @unittest.skipUnless(Path("/proc/self/io").exists(), "/proc no disponible")
+    async def test_con_hevc_sigue_emitiendo(self):
+        """Que el arreglo no rompa el camino que ya funcionaba."""
+        ok, log = await self._correr(hevc_out=self.tmp / "source.hevc")
+        self.assertTrue(ok)
+        self.assertTrue([l for l in log.lines if l.startswith("§§PROGRESS§§")])
+
+    async def test_el_ffmpeg_falso_emite_size_y_time(self):
+        """Fidelidad del fake: sin estos dos campos el progreso no se puede
+        calcular, y un test sobre un fake mudo pasa en verde con la barra
+        muerta. Corre en cualquier plataforma."""
+        ok, log = await self._correr(hevc_out=self.tmp / "source.hevc")
+        self.assertTrue(ok)
+        from phases.cmv40_pipeline import _FFMPEG_SIZE_RE, _FFMPEG_TIME_RE
+        crudas = "\n".join(log.lines)
+        # El pipeline no reenvía las líneas crudas, así que se comprueba sobre
+        # lo que el fake escribe, invocándolo directamente.
+        import subprocess
+        r = subprocess.run(["ffmpeg", "-i", str(self.mkv), "-f", "hevc",
+                            str(self.tmp / "x.hevc")],
+                           capture_output=True, text=True)
+        self.assertTrue(_FFMPEG_SIZE_RE.search(r.stderr), r.stderr)
+        self.assertTrue(_FFMPEG_TIME_RE.search(r.stderr), r.stderr)
+
+    def test_el_regex_de_size_entiende_las_unidades_reales(self):
+        """Del log de un job real: `size=72402713KiB` y `Lsize=72433350KiB`.
+        El segundo lleva prefijo, así que el patrón tiene que casar dentro."""
+        from phases.cmv40_pipeline import _FFMPEG_SIZE_RE, _SIZE_UNIT_MB
+        for linea, esperado_mb in (
+            ("frame=207166 fps=1038 q=-1.0 size=72402713KiB time=02:24:00.54", 72402713 / 1024),
+            ("frame=209389 fps=1048 q=-1.0 Lsize=72433350KiB time=02:25:33.22", 72433350 / 1024),
+            ("size=  1024 kB time=00:00:10.00", 1.0),
+        ):
+            m = _FFMPEG_SIZE_RE.search(linea)
+            self.assertIsNotNone(m, linea)
+            mb = int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)]
+            self.assertAlmostEqual(mb, esperado_mb, places=2, msg=linea)

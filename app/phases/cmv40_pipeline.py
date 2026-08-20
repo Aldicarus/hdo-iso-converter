@@ -1182,12 +1182,19 @@ async def _ffmpeg_extract_rpu_piped(
     ff_tail: list[str] = []
     media_frac = 0.0          # posición de ffmpeg en el vídeo, 0..1
     ff_eof = False            # ffmpeg ya cerró su stderr → su salida es final
+    # Bytes que ffmpeg dice llevar escritos (su `size=`). Es la única forma de
+    # saber el tamaño del stream cuando NO hay fichero de salida: sin esto, el
+    # consumidor no tenía con qué extrapolar el total y no emitía progreso
+    # ninguno. Daba igual mientras el único caller sin fichero era el
+    # pre-flight (un sniff de 30 s), pero el perfil de luminancia de Tab 2
+    # recorre la peli entera: 300 s de barra clavada en 0 %.
+    ff_bytes = 0
     # ETA del pipeline completo (del consumidor). None mientras no haya dos
     # muestras con avance; en ese hueco manda el ETA de ffmpeg.
     tail_eta: float | None = None
 
     async def _drain_ffmpeg() -> None:
-        nonlocal last_log, media_frac, ff_eof
+        nonlocal last_log, media_frac, ff_eof, ff_bytes
         buf = b""
         while True:
             chunk = await ff.stderr.read(4096)
@@ -1206,6 +1213,10 @@ async def _ffmpeg_extract_rpu_piped(
                 ff_tail.append(line)
                 del ff_tail[:-40]
                 now = time.monotonic()
+                ms = _FFMPEG_SIZE_RE.search(line)
+                if ms:
+                    ff_bytes = max(ff_bytes, int(int(ms.group(1))
+                                                 * _SIZE_UNIT_MB[ms.group(2)] * 1024 * 1024))
                 m = _FFMPEG_TIME_RE.search(line) if duration > 0 else None
                 if not m:
                     continue
@@ -1276,11 +1287,11 @@ async def _ffmpeg_extract_rpu_piped(
             except asyncio.TimeoutError:
                 pass
             leido = _proc_rchar(dv.pid)
-            escrito = _tamano(hevc_out) if hevc_out is not None else 0
+            # Con fichero de salida, su tamaño es el dato de verdad. Sin él
+            # (`hevc_out=None`), el `size=` que ffmpeg reporta mide lo mismo:
+            # los bytes que ha metido en el pipe.
+            escrito = _tamano(hevc_out) if hevc_out is not None else ff_bytes
             rpu_hasta_ahora = _tamano(rpu_out)
-            # Sin fichero de salida (pre-flight sobre otro MKV) no hay con qué
-            # extrapolar el total; esas extracciones son cortas y se quedan
-            # con el progreso de ffmpeg.
             if leido is None or escrito <= 0 or (not ff_eof and media_frac < 0.02):
                 continue
             total = escrito if ff_eof else escrito / media_frac

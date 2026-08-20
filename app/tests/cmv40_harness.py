@@ -1066,7 +1066,31 @@ def ffmpeg(sc):
             sys.stdout.buffer.flush()
         else:
             produce(destino, props)
-    sys.stderr.write("frame= 1000 fps=100 speed=2.0x\n")
+    # Progreso en el FORMATO REAL. La línea que había aquí no llevaba `size=`
+    # ni `time=`, y son justo los dos campos de los que el pipeline saca el
+    # porcentaje: sin ellos, un test podía dar por bueno un camino que en el
+    # NAS dejaba la barra clavada en 0 % durante cinco minutos (pasó con el
+    # perfil de luminancia, que no escribe fichero de salida y por tanto solo
+    # tenía el `size=` de ffmpeg para estimar el total).
+    #
+    # Formato copiado de un job real del NAS:
+    #   frame=207166 fps=1038 q=-1.0 size=72402713KiB time=02:24:00.54 \
+    #     bitrate=68644.1kbits/s speed=43.3x
+    # y la última con `Lsize=` en vez de `size=`.
+    dur = float(props.get("duration") or 7200.0)
+    frames_tot = int(props.get("frames") or 1000)
+    for paso in range(1, 5):
+        frac = paso / 4.0
+        seg = dur * frac
+        sys.stderr.write(
+            "frame=%6d fps=1038 q=-1.0 %s=%dKiB time=%02d:%02d:%05.2f "
+            "bitrate=68644.1kbits/s speed=43.3x\n" % (
+                int(frames_tot * frac),
+                "Lsize" if paso == 4 else "size",
+                int(70_000_000 * frac),
+                int(seg // 3600), int((seg % 3600) // 60), seg % 60,
+            ))
+        sys.stderr.flush()
     return 0
 
 
