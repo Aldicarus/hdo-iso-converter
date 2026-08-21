@@ -74,6 +74,7 @@ from phases.cmv40_pipeline import (
 )
 
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
+import workload  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
 # ── Qué proyectos tienen una fase en marcha, EN MEMORIA ─────────────────────
@@ -818,13 +819,32 @@ def _cmv40_launch_phase(
     fenicia'.
     """
     async def _run():
+        # El hueco de trabajo pesado se ocupa con la CLAVE DE LA SESIÓN: así un
+        # proyecto que avanza a su fase siguiente no se bloquea a sí mismo, y
+        # otro proyecto (o otra pestaña) sí.
+        workload.registrar(session.id, workload.TAB_CMV40,
+                           f"{phase_name} de {session.output_mkv_name or session.id}")
         try:
             await _run_cmv40_phase(session, phase_name, coro_factory, new_phase)
         except Exception:
             _logger.exception(
                 "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
+        finally:
+            workload.liberar(session.id)
 
     asyncio.create_task(_run())
+
+
+def _cmv40_guard_sin_trabajo_pesado(session: CMv40Session) -> None:
+    """409 si hay trabajo pesado en OTRO sitio.
+
+    `excepto=session.id` es lo que permite que el auto-pipeline siga: cuando
+    una fase de este proyecto termina y dispara la siguiente, el hueco todavía
+    lo tiene él y no debe bloquearse a sí mismo. Lo que sí se bloquea es un
+    SEGUNDO proyecto de Tab 3 —el lock de fases es por `session_id`, así que
+    antes corrían N a la vez— y cualquier cosa pesada de Tab 1 o Tab 2.
+    """
+    workload.exigir_libre(session.id)
 
 
 def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
@@ -1139,6 +1159,8 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            workload.registrar(session.id, workload.TAB_CMV40,
+                               f"pre-flight de {session.output_mkv_name or session.id}")
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -1199,6 +1221,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 _cmv40_marcar_libre(session)
+                workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
@@ -2767,6 +2790,7 @@ async def cmv40_analyze_source(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE — simular fase A con logs realistas
     if DEV_MODE:
@@ -2817,6 +2841,7 @@ async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -2862,6 +2887,7 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -2912,6 +2938,7 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -2977,6 +3004,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
+    _cmv40_guard_sin_trabajo_pesado(session)
+
     # Guard contra re-disparo: si el pre-flight ya emitió una decisión
     # firme (keep_l8_default, keep_no_l8, abort_no_cmv40), NO re-ejecutar.
     # La decisión queda esperando acción del usuario (cancelar proyecto
@@ -3037,6 +3066,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            workload.registrar(session.id, workload.TAB_CMV40,
+                               f"pre-flight de {session.output_mkv_name or session.id}")
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3091,6 +3122,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 _cmv40_marcar_libre(session)
+                workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
@@ -3120,6 +3152,8 @@ async def cmv40_preflight_source(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
+    _cmv40_guard_sin_trabajo_pesado(session)
+
     if DEV_MODE:
         session.source_preflight_ok = True
         save_cmv40_session(session)
@@ -3135,6 +3169,8 @@ async def cmv40_preflight_source(session_id: str):
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            workload.registrar(session.id, workload.TAB_CMV40,
+                               f"pre-flight de {session.output_mkv_name or session.id}")
             session.error_message = ""
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
@@ -3161,6 +3197,7 @@ async def cmv40_preflight_source(session_id: str):
                 _cmv40_active_procs.pop(session.id, None)
                 _cmv40_cancel_flags.pop(session.id, None)
                 _cmv40_marcar_libre(session)
+                workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
 
     asyncio.create_task(_run())
@@ -3173,6 +3210,7 @@ async def cmv40_extract(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3425,6 +3463,7 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # Historial de correcciones. La Fase E aplica CADA paso sobre el resultado
     # del anterior (ver `run_phase_e_correct_sync`), así que aquí solo se anota
@@ -3648,6 +3687,7 @@ async def cmv40_inject(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3677,6 +3717,7 @@ async def cmv40_remux(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3711,6 +3752,7 @@ async def cmv40_validate(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:

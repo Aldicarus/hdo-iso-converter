@@ -80,6 +80,7 @@ from phases.phase_d import (
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
 from queue_manager import queue_manager
+import workload
 from storage import (
     compute_iso_fingerprint,
     delete_session,
@@ -227,6 +228,10 @@ def _recover_interrupted_cmv40_sessions() -> None:
         _logger.info("[Startup] %d sesión(es) CMv4.0 interrumpida(s) limpiada(s)", count)
 
 
+# Nada puede estar corriendo todavía: el registro de trabajo pesado vive en
+# memoria y un reinicio lo deja necesariamente vacío. Explícito para que no
+# quede un fantasma si algún día se persistiera.
+workload.limpiar()
 _recover_interrupted_sessions()
 _recover_interrupted_cmv40_sessions()
 
@@ -2171,6 +2176,11 @@ async def execute_session(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
+    # Nada de solapar trabajo pesado entre pestañas: 4 núcleos y un pool de
+    # discos. Se comprueba ANTES de encolar para que el usuario lo sepa al
+    # pulsar, no cuando la cola llegue a este job.
+    workload.exigir_libre(session_id)
+
     # Solo se puede ejecutar desde estados pending, error o done (re-ejecución tras editar)
     if session.status in ("running", "queued"):
         raise HTTPException(
@@ -2314,6 +2324,9 @@ async def _run_pipeline(session_id: str) -> None:
     session = load_session(session_id)
     if not session:
         return
+
+    workload.registrar(session_id, workload.TAB_RIP,
+                       f"rip de {session.mkv_name or session.id}")
 
     # Marcar como ejecutando
     session.status              = "running"
@@ -2599,6 +2612,9 @@ async def _run_pipeline(session_id: str) -> None:
         session.output_mkv_path = None
 
     finally:
+        # Libera el hueco de trabajo pesado SIEMPRE: si esto se escapara, la
+        # app quedaría bloqueada para todo lo demás hasta reiniciar.
+        workload.liberar(session_id)
         # Cierre del origen (siempre — éxito, error o cancelación). Para
         # ISO ejecuta el unmount; para bdmv_folder y m2ts es no-op pero
         # lo invocamos para mantener el contrato del context manager.
@@ -3750,13 +3766,18 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     if _mkv_quality_state.get("active"):
         raise HTTPException(
             status_code=409,
-            detail="Ya hay una auditoría en curso. Cancélala o espera a que termine.",
+            detail="Ya hay un análisis en curso. Cancélalo o espera a que termine.",
         )
+    # Y tampoco si lo pesado está en otra pestaña: extraer el RPU son ~10 min
+    # de disco y CPU, y solaparlo con un rip no hace que acaben antes.
+    workload.exigir_libre()
 
     # my_audit_id es el id propio de este audit — se usa para que except y
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
+    workload.registrar(my_audit_id, workload.TAB_MKV,
+                       f"análisis extendido de {mkv_path_obj.name}")
     _mkv_quality_state["request_id"] = request_id
     client_addr = (f"{request.client.host}:{request.client.port}"
                    if request and request.client else "?")
@@ -3851,6 +3872,9 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         _mkv_quality_state_finalize_if(my_audit_id, str(e), step="error")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        # El hueco de trabajo pesado se libera SIEMPRE y por MI clave: aunque
+        # el audit_id haya cambiado, el que ocupó el hueco fui yo.
+        workload.liberar(my_audit_id)
         # Mismo guard en el finally: si el audit_id ha cambiado (un nuevo
         # audit ya empezó), NO marcamos active=False — pertenece al nuevo.
         if _mkv_quality_state.get("audit_id") == my_audit_id:
@@ -4152,6 +4176,11 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                     detail=f"Ya existe un MKV con ese nombre en /mnt/output: "
                            f"{src_path.name}. Renómbralo o muévelo antes de continuar."
                 )
+            # La copia son decenas de GB de lectura y escritura en el NAS.
+            workload.exigir_libre()
+            _clave_copia = f"apply:{src_path.name}"
+            workload.registrar(_clave_copia, workload.TAB_MKV,
+                               f"copia de {src_path.name} a /mnt/output")
             OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
             _mkv_apply_reset(
                 total_bytes=src_path.stat().st_size,
@@ -4191,6 +4220,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 _mkv_apply_set_step("error", f"Error: {e}")
                 raise
             finally:
+                workload.liberar(_clave_copia)
                 # Mantenemos active=True hasta done/error/cancelled → el
                 # frontend cierra el modal en el siguiente poll. Limpiamos a
                 # los 5s para que un poll tardío no se confunda con el
@@ -5223,6 +5253,22 @@ async def app_version_ignore_update(body: dict):
 
 
 # ── Estado general de la app ──────────────────────────────────────────────────
+
+@app.get("/api/activity", summary="Qué trabajo pesado hay en curso (las 3 pestañas)")
+async def app_activity():
+    """Lo que impide arrancar otro trabajo pesado, y desde cuándo.
+
+    Sale de memoria (`workload`): este proceso es el único que arranca trabajo.
+    Es lo que hay detrás del 409 de los endpoints pesados, expuesto para que la
+    UI pueda decir *qué* bloquea, no solo que está bloqueado.
+    """
+    trabajos = [
+        {"clave": t.clave, "tab": t.tab, "que": t.que,
+         "segundos": int(t.segundos), "descripcion": t.describir()}
+        for t in workload.en_curso()
+    ]
+    return {"ocupado": bool(trabajos), "trabajos": trabajos}
+
 
 @app.get("/api/status", summary="Estado de la aplicación")
 async def app_status():

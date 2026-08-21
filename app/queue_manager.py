@@ -119,7 +119,27 @@ class QueueManager:
                 pass
 
     async def _process(self) -> None:
-        """Toma el siguiente trabajo de la cola y lo ejecuta."""
+        """Toma el siguiente trabajo de la cola y lo ejecuta.
+
+        Espera si hay trabajo pesado en otra pestaña. El endpoint de ejecución
+        ya rechaza con 409 al encolar, pero queda una ventana estrecha: el
+        trabajo N termina, libera el hueco, el usuario lanza algo en Tab 2 y la
+        cola va a arrancar el N+1. Aquí la cola **espera** en vez de fallar —
+        fallar un trabajo ya encolado por algo que el usuario hizo después
+        sería gratuito, y la cola es precisamente el sitio donde esperar es lo
+        natural.
+        """
+        import workload
+        while True:
+            bloqueo = workload.bloqueado_por()
+            if bloqueo is None:
+                break
+            async with self._lock:
+                if not self._queue:
+                    return          # ya no hay nada que esperar
+            logger.info("[QueueManager] en espera: %s", bloqueo.describir())
+            await asyncio.sleep(5)
+
         async with self._lock:
             if self._running is not None:
                 return
