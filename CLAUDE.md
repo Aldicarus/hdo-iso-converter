@@ -286,6 +286,7 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
+- `POST /api/mkv/quality-audit` — **análisis extendido**: combos L8/L2 + perfil de luminancia, con una sola extracción del RPU. Cachea los dos. (La URL conserva el nombre viejo; `POST /api/mkv/light-profile` ya no existe.)
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
 - `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
 - `POST /api/mkv/apply/cancel` — solicita la cancelación cooperativa de la copia. Solo efectiva durante `step=copying`.
@@ -1334,11 +1335,29 @@ Modos:
 
 Las re-clasificaciones desde stats persistidas reusan los `target_l8_combos` guardados en la session JSON para que la rama "real minimal" (que mira deltas por combo) funcione retroactivamente sin tocar el bin original.
 
-## Perfil de luminancia DV L1 (Tab 2)
+## Análisis extendido del RPU (Tab 2) — UN botón, dos análisis
 
-Análisis on-demand del MKV completo que extrae el L1 metadata frame-a-frame del RPU para visualización en sparkline + stats.
+**Un solo botón "🔬 Análisis extendido"** produce los combos L8/L2 clasificados **y** el perfil de luminancia L1, con **una sola extracción del RPU**. Antes eran dos botones, dos jobs singleton, dos modales y dos extracciones.
 
-- Endpoint `POST /api/mkv/light-profile` extrae L1 metadata (max_pq, avg_pq, min_pq) por frame del RPU del MKV completo.
+Se separaron porque cada uno era caro. Dejó de tener sentido cuando el pipe unió ffmpeg y `extract-rpu`: medido, extraer el RPU del MKV son **~650 s** y el export por niveles **~7 s**, o sea que la extracción es el **~97 %** del análisis. Mantenerlos aparte solo servía para pagar dos veces el 97 % y compartir el 3 %.
+
+Y había una asimetría peor que la repetición: la auditoría de calidad **se cacheaba** (bloque `quality` de `/config/mkv_audits/{fingerprint}.json`; en el NAS, 23 MKVs y 396 KB) y el perfil de luminancia **no se persistía en ninguna parte** — solo vivía en el state del job. La calidad costaba 10 min una vez; la luminancia, 10 min **cada vez que se miraba**.
+
+`analyze_rpu_quality_for_mkv(con_luminancia=True)` hace los dos y devuelve el perfil bajo `light_profile`. Puntos que no son obvios:
+
+- **El export es uno.** Los niveles se solapaban —calidad L1/L2/L8, luminancia L1/L2/L5/L6/L8, o sea que los de calidad son un SUBCONJUNTO— así que `_run_export_levels` acepta `niveles_extra` y se piden L5/L6 en la misma pasada. Sin el flag, el camino de solo calidad no paga los niveles que no usa.
+- **`DoviInfo.light_profile` tiene que existir en el modelo.** La re-inyección del cache filtra por `hasattr(result.dovi, k)`: sin el campo, el perfil se descarta **en silencio**. Verificado por mutación.
+- **La re-inyección solo ocurre si hay bloque `basic` cacheado** (`if cached and cached.get("basic")`), que es el orden real de uso: el usuario abre el MKV y después lanza el análisis.
+- **El render lee campos planos.** `_mkvAplicarPerfilLuminancia` mapea `dovi.light_profile` → `per_scene_max_cll` / `l1_stats` / `l1_references` en UN sitio, en vez de tocar las diez lecturas del render.
+- La reserva para dovi_tool < 2.3.3 (volcado completo) da los combos pero **no** L5/L6: el perfil se omite y se dice en el log en vez de fallar.
+
+`phases/luminance.py` contiene el análisis: `pq_code_to_nits`, `niveles_desde_volcado`, `perfil_desde_niveles` y `payload_de_luminancia`. Estaba **inline** en el endpoint — 668 líneas y complejidad ciclomática 170, la peor función del repositorio, y encima un route handler.
+
+**Hueco de cobertura que salió al escribir los tests**: `_run_dovi_on_mkv` escribe su RPU de muestreo en `TMP_DIR`, que por defecto es `/mnt/tmp` y en el Mac no existe. El sniff falla en silencio (`except: no bloquea`) y `result.dovi` queda en `None`, así que **ningún test había poblado nunca un `DoviInfo`** — y por eso el filtro `hasattr` nunca se había ejercitado. Un test de cache de MKV que dependa de `result.dovi` tiene que parchear `mkv_analyze.TMP_DIR`.
+
+### El perfil L1 en sí
+
+- Extrae L1 (max_pq, avg_pq, min_pq) por frame del RPU del MKV completo.
 - Pipeline: **`ffmpeg | dovi_tool extract-rpu` en una sola pasada** → `dovi_tool export` → parseo.
 
 **El HEVC intermedio no se escribe.** Se reutiliza `_ffmpeg_extract_rpu_piped(..., hevc_out=None)`, el mismo helper de la Fase A. Antes eran dos pasadas en serie, con dos costes medidos: escribir y volver a leer ~75 % del tamaño del MKV (~45 GB en un UHD) sobre el mismo pool por el que ffmpeg lee el MKV — y aquí ese HEVC **no se usa para nada más**, tanto que el código lo borraba tres líneas después—; y que los dos pasos se estorban (ffmpeg 574 s limitado por DISCO con la CPU ociosa, `extract-rpu` 372 s limitado por CPU con el disco medio ocioso, ~946 s usando media máquina cada vez).
@@ -1359,6 +1378,7 @@ Lo que hubo que adaptar, y por qué:
 - Conversión PQ→nits via SMPTE ST 2084 EOTF inverse (`_pq_code_to_nits`).
 - Polling resiliente (`/api/mkv/light-profile/progress`) — chained-await en frontend (no setInterval, evita races out-of-order), guard monotónico anti-rollback.
 - Resultado guardado en `_light_profile_state["result"]` para fallback si el POST aborta por timeout (frontend 60min timeout, backend hasta 35min).
+- **Cada serie se reduce con el agregador que le toca**: máximo para los picos, media para el avg, mínimo para el suelo. Reducir las tres con el máximo aplanaría la banda y el gráfico mentiría.
 - Sparkline SVG con 3 curvas superpuestas (peak/avg/min) + líneas de referencia (HDR10 MaxCLL/MaxFALL del SEI, L2 trim targets ámbar, L6 master display) + tooltip hover crosshair + chips de refs out-of-range.
 - Mini-card de stats: percentiles (peak/p99/p95/p50/avg) + clasificación de escenas por brillo (SDR-like <100n / midtone 100-300n / highlight ≥300n).
 
