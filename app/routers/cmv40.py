@@ -261,12 +261,19 @@ def _cmv40_augment_progress(session: CMv40Session, msg: str) -> tuple[str, str]:
 
 
 def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
-    """Guarda el progreso en la sesión y lo persiste de tanto en tanto.
+    """Guarda el progreso en la sesión y en su fichero aparte.
 
     Sin esto, un paso silencioso largo (extract-rpu son 2-3 min sin una sola
     línea) deja la UI sin ninguna señal si el WebSocket se cae: el log no
     lleva progreso y el GET tampoco lo traía.
+
+    Va a un **sidecar** (`{id}.progress.json`), no al JSON de la sesión. Son
+    ~50 bytes, y meterlos dentro obligaba a reescribir la sesión entera —0,86
+    MB con los 3.914 `L2Combo` de un caso real— cada 20 s durante todo el job.
+    Tras mover el log a un fichero, esto se convirtió en el coste dominante:
+    0,33 de los 0,38 GB por job que quedaban.
     """
+    from storage import write_cmv40_progress
     try:
         payload = json.loads(msg[len(_CMV40_PROGRESS_PREFIX):])
     except (ValueError, TypeError):
@@ -279,18 +286,62 @@ def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
     if now - last < _CMV40_PROGRESS_PERSIST_S:
         return
     _cmv40_progress_persist_ts[session.id] = now
-    lock = _get_cmv40_save_lock(session.id)
-    if lock.locked():
-        return  # hay un save en vuelo; ya se llevará el valor actual
+    asyncio.get_event_loop().create_task(
+        asyncio.to_thread(write_cmv40_progress, session.id, payload))
 
-    async def _bg_save():
-        try:
-            async with lock:
-                await _save_cmv40_session_async(session)
-        except Exception as e:
-            _logger.warning("[cmv40 progress save] sid=%s error: %s", session.id, e)
 
-    asyncio.create_task(_bg_save())
+# ── El log va a un fichero, no al JSON de la sesión ─────────────────────────
+#
+# Persistir UNA línea reescribía la sesión entera: 2,21 MB de JSON con 10.000
+# líneas, ~850 saves por job con el throttle a 5 s, **~1 GB escrito en /config**
+# contra el mismo pool ZFS por el que el pipeline mueve 70 GB. El coste era
+# cuadrático en la longitud del log — el throttle acotaba la frecuencia, no el
+# tamaño de cada escritura.
+#
+# Las líneas se acumulan en este buffer y se vuelcan al fichero cada segundo (o
+# cada 100 líneas). No es por ahorrar syscalls —añadir a un fichero es
+# barato— sino para no hacer una escritura por línea cuando `_run_streaming`
+# entrega una ráfaga. La pérdida máxima ante un `kill -9` baja de 5 s a 1 s.
+#
+# El buffer forma parte del log a efectos de lectura: `GET /api/cmv40/{id}` lo
+# concatena, así que una línea recién emitida nunca falta de la hidratación.
+_cmv40_log_buffer: dict[str, list[str]] = {}
+_cmv40_log_buffer_ts: dict[str, float] = {}
+_CMV40_LOG_FLUSH_S = 1.0
+_CMV40_LOG_FLUSH_LINES = 100
+
+
+def _cmv40_log_completo(session: CMv40Session) -> list[str]:
+    """El log entero: el prefijo que quedó en el JSON + el fichero + el buffer.
+
+    El prefijo existe porque las sesiones anteriores a este cambio tienen su
+    log dentro del JSON y **no se migran**: un proyecto terminado no vuelve a
+    escribir, así que reescribir el /config de un usuario para ahorrarse una
+    concatenación no vale la pena.
+    """
+    from storage import read_cmv40_log
+    return ((session.output_log or [])
+            + read_cmv40_log(session.id)
+            + list(_cmv40_log_buffer.get(session.id) or []))
+
+
+async def _cmv40_log_volcar(session_id: str, forzar: bool = False) -> None:
+    """Vuelca el buffer al fichero si toca (o siempre, con `forzar`)."""
+    import time as _t
+    from storage import append_cmv40_log
+
+    buf = _cmv40_log_buffer.get(session_id)
+    if not buf:
+        return
+    if not forzar:
+        transcurrido = _t.monotonic() - _cmv40_log_buffer_ts.get(session_id, 0.0)
+        if transcurrido < _CMV40_LOG_FLUSH_S and len(buf) < _CMV40_LOG_FLUSH_LINES:
+            return
+    # Se saca el lote ANTES de escribir: si llegan líneas mientras el thread
+    # escribe, van al lote siguiente y no se duplican ni se pierden.
+    lote, _cmv40_log_buffer[session_id] = buf, []
+    _cmv40_log_buffer_ts[session_id] = _t.monotonic()
+    await asyncio.to_thread(append_cmv40_log, session_id, lote)
 
 
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
@@ -332,8 +383,8 @@ async def _cmv40_log(session: CMv40Session, msg: str) -> None:
         msg, ts_msg = _cmv40_augment_progress(session, msg)
         _cmv40_store_last_progress(session, msg)
     else:
-        session.output_log.append(ts_msg)
-        await _cmv40_maybe_persist_log(session, ts_msg)
+        _cmv40_log_buffer.setdefault(session.id, []).append(ts_msg)
+        await _cmv40_log_volcar(session.id)
     # Broadcast a clientes WS — en TASKS PARALELOS con timeout corto.
     #
     # CRÍTICO: NO usar `await ws.send_text(...)` directo en este loop.
@@ -371,7 +422,7 @@ async def _cmv40_log_phase_failed(
     El prefijo `✗ Fase` es token de persistencia
     (`_CMV40_LOG_FORCE_PERSIST_MARKERS`) — no tocarlo.
     """
-    recientes = (session.output_log or [])[-3:]
+    recientes = _cmv40_log_completo(session)[-3:]
     if msg and any(msg in linea for linea in recientes):
         await _cmv40_log(session, f"✗ Fase {fase} FALLÓ")
     else:
@@ -425,7 +476,7 @@ async def _cmv40_send_with_timeout(sid: str, ws, msg: str) -> None:
 
 
 # Estado del throttle por sesión: { session_id: {last_save_ts: monotonic, lines_since: int} }
-_cmv40_log_throttle: dict[str, dict] = {}
+
 
 # Lock por sesión para serializar saves concurrentes — sin esto dos saves
 # en paralelo pueden corromper el JSON (ambos escriben al mismo .tmp y
@@ -453,6 +504,12 @@ def _get_cmv40_save_lock(sid: str) -> asyncio.Lock:
 #   - "━━━" no aparece nunca en stdout/stderr de ffmpeg/dovi_tool
 #   - "✓ Fase" / "✗ Fase" — "Fase" en español, ffmpeg habla inglés
 #   - Resto: emoji distintivos
+# NOTA (2026-08-21): estos marcadores NACIERON para decidir qué líneas forzaban
+# un save del JSON, y esa razón ya no existe — el log va a un fichero y se
+# persiste todo. Pero siguen siendo un CONTRATO, ahora con el frontend:
+# `app.js` clasifica y colorea el log por ellos, detecta el inicio y el fin de
+# fase con `━━━ Inicio fase:` y `✓ Fase X completada en`, y decide el
+# auto-avance con eso. Sus prefijos siguen sin poder cambiarse.
 _CMV40_LOG_FORCE_PERSIST_MARKERS = (
     "━━━",          # separador inicio/fin de fase
     "✓ Fase",       # fase completada (cubre tambien "✗ Fase ... FALLO")
@@ -470,81 +527,27 @@ _CMV40_LOG_FORCE_PERSIST_MARKERS = (
 from storage import save_cmv40_session_async as _save_cmv40_session_async  # noqa: E402
 
 
-async def _cmv40_maybe_persist_log(session: CMv40Session, line: str) -> None:
-    """Decide si persistir ahora o postponer.
-
-    Diseño FIRE-AND-FORGET para TODOS los triggers (markers + ruidosos):
-
-    Antes los markers hacían `await save` bloqueante para garantizar
-    durabilidad. PROBLEMA: si había un bg_save en curso (NAS lento), el
-    marker esperaba al lock que tardaba segundos. Mientras tanto el
-    reader del subprocess (`_run_streaming`) estaba bloqueado en
-    `await log_callback(...)` → ffmpeg llenaba el pipe → ffmpeg se
-    detenía → gap visible al usuario.
-
-    La durabilidad la garantiza `_cmv40_flush_log` que se invoca con
-    `await` al terminar cada fase desde `_run_cmv40_phase`. Entre saves,
-    las líneas viven en `session.output_log` RAM y el WS las entrega en
-    vivo al cliente.
-
-    Reglas:
-      1. Marker o >5s o >=50 líneas → trigger
-      2. Si lock libre → lanza task background, retorna inmediato (ms)
-      3. Si lock ocupado → descarta trigger, la línea queda en RAM y el
-         próximo trigger la captura
-
-    La ventana era 1s/20 líneas. En sesiones grandes cada save reescribe
-    megabytes (2,16 MB en John Wick 4) contra el mismo pool ZFS por el que
-    el pipeline streamea 70 GB, así que salía ~1 MB/s de escrituras
-    aleatorias compitiendo con el trabajo útil. Con 5s la pérdida máxima
-    ante un kill -9 sigue siendo irrelevante (el WS ya entregó las líneas
-    al cliente y `_cmv40_flush_log` cierra cada fase con un save completo).
-    """
-    import time as _t
-    sid = session.id
-    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
-    state["lines_since"] += 1
-    is_marker = any(m in line for m in _CMV40_LOG_FORCE_PERSIST_MARKERS)
-    elapsed = _t.monotonic() - state["last_save_ts"]
-    should_save = is_marker or elapsed > 5.0 or state["lines_since"] >= 50
-    if not should_save:
-        return
-
-    lock = _get_cmv40_save_lock(sid)
-    if lock.locked():
-        # Save en curso. NO esperamos — la línea está en session.output_log
-        # RAM y el siguiente trigger la persistirá cuando el lock se libere.
-        # Esto es la diferencia crítica vs el código anterior: NUNCA
-        # bloqueamos el reader del subprocess esperando al disco.
-        return
-
-    state["last_save_ts"] = _t.monotonic()
-    state["lines_since"] = 0
-
-    async def _bg_save():
-        try:
-            async with lock:
-                await _save_cmv40_session_async(session)
-        except Exception as e:
-            _logger.warning("[cmv40 throttled save] sid=%s error: %s", sid, e)
-
-    asyncio.create_task(_bg_save())
-
+# `_cmv40_maybe_persist_log` vivía aquí: decidía cuándo reescribir el JSON de
+# la sesión para persistir una línea de log, con marcadores que forzaban el save
+# y un throttle de 5 s / 50 líneas para el output ruidoso, más un lock por
+# sesión y una regla de "si el lock está ocupado, descarta el trigger".
+#
+# Toda esa maquinaria existía porque escribir una línea costaba megabytes. Con
+# el log en un fichero al que se AÑADE, el coste es O(1) y no hay nada que
+# throttlear: se vuelca el buffer y punto (`_cmv40_log_volcar`).
 
 async def _cmv40_flush_log(session: CMv40Session) -> None:
-    """Fuerza un save inmediato ignorando el throttle. Llamado al
-    completar cada fase. Espera al lock (saves previos terminan), luego
-    hace su propio save bajo el mismo lock — al volver de esta función,
-    `session.output_log` está garantizado en disco.
+    """Vuelca el log pendiente y persiste el estado. Al terminar cada fase.
+
+    Dos cosas distintas: las **líneas** van al fichero de log (donde ya está
+    todo lo anterior, porque añadir es O(1)) y el **estado** de la sesión a su
+    JSON. Cuando el log vivía dentro del JSON eran la misma escritura, y por eso
+    hacía falta un throttle: cada línea costaba megabytes.
     """
-    import time as _t
-    sid = session.id
-    state = _cmv40_log_throttle.setdefault(sid, {"last_save_ts": 0.0, "lines_since": 0})
-    lock = _get_cmv40_save_lock(sid)
+    await _cmv40_log_volcar(session.id, forzar=True)
+    lock = _get_cmv40_save_lock(session.id)
     async with lock:
         await _save_cmv40_session_async(session)
-        state["last_save_ts"] = _t.monotonic()
-        state["lines_since"] = 0
 
 
 def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
@@ -979,7 +982,8 @@ async def _cmv40_dispatch_phase(session: CMv40Session, phase_name: str) -> None:
         # Solo Fase H devuelve algo: el resumen de la validación, que se deja
         # en el log para que quede en el historial del proyecto.
         if result is not None:
-            session.output_log.append(f"Validación final: {result}")
+            _cmv40_log_buffer.setdefault(session.id, []).append(
+                f"Validación final: {result}")
 
     _cmv40_launch_phase(session, phase_name, _coro, new_phase)
 
@@ -1991,8 +1995,24 @@ async def cmv40_get(session_id: str, include_log: bool = True):
             )
 
     data = session.model_dump()
-    if not include_log:
-        data["output_log_len"] = len(data.get("output_log") or [])
+    # `last_progress` vive en su sidecar; el campo del JSON solo lo tienen las
+    # sesiones anteriores al cambio, así que el fichero manda si existe.
+    from storage import read_cmv40_progress
+    progreso = await asyncio.to_thread(read_cmv40_progress, session_id)
+    if progreso is not None:
+        data["last_progress"] = progreso
+    # El log vive en un fichero (`{id}.log`), no en el JSON. Se compone al
+    # servirlo para que el contrato con el frontend no cambie: sigue llegando
+    # como `output_log`, y el watermark de la UI sigue funcionando igual.
+    if include_log:
+        data["output_log"] = await asyncio.to_thread(
+            _cmv40_log_completo, session)
+    else:
+        from storage import cmv40_log_line_count
+        data["output_log_len"] = (
+            len(session.output_log or [])
+            + await asyncio.to_thread(cmv40_log_line_count, session_id)
+            + len(_cmv40_log_buffer.get(session_id) or []))
         data["output_log"] = []
         data["output_log_omitted"] = True
     if DEV_MODE:

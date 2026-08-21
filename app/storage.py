@@ -563,6 +563,14 @@ def list_cmv40_sessions_summary() -> list[dict]:
             # Nuevo o modificado → releer SOLO este fichero.
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
+                # Guard: un JSON de este directorio que no sea una sesión (un
+                # sidecar, un cache) no debe colarse en el listado. Es el mismo
+                # guard que ya tenía `list_sessions` de Tab 1, y su ausencia
+                # aquí reventaba con KeyError en cuanto apareció un fichero
+                # nuevo junto a las sesiones.
+                if not isinstance(data, dict) or "id" not in data:
+                    _cmv40_summary_by_file.pop(name, None)
+                    continue
                 # Sustituimos por listas vacías (no borramos la clave) para no
                 # romper consumidores que asumen el campo presente.
                 for field in _CMV40_SUMMARY_EMPTY_LIST_FIELDS:
@@ -579,8 +587,114 @@ def list_cmv40_sessions_summary() -> list[dict]:
         return summaries
 
 
+# ── El log de un proyecto CMv4.0: un fichero, no un campo del JSON ──────────
+#
+# El log vivía dentro de `session.output_log`, así que persistir UNA línea
+# reescribía la sesión entera. Medido: 0,86 MB de JSON con el log vacío y
+# **2,21 MB con 10.000 líneas** (coincide con los 2,16 MB documentados de John
+# Wick 4). Con el throttle a 5 s eso son ~850 saves por job y **~1 GB escrito
+# en /config**, contra el mismo pool ZFS por el que el pipeline mueve 70 GB. El
+# coste era CUADRÁTICO en la longitud del log: el throttle acotaba la
+# frecuencia, no el tamaño de cada escritura.
+#
+# Aquí el log es un fichero al que se AÑADE: escribir una línea es O(1) y el
+# JSON de la sesión se queda en su tamaño de estado.
+#
+# Compatibilidad: las sesiones ya existentes tienen su log dentro del JSON y
+# **no se migran**. El log completo es `session.output_log` (el prefijo que
+# quedó ahí) + las líneas del fichero, en ese orden. Un proyecto terminado no
+# vuelve a escribir, así que no hay nada que ganar tocándolo — y reescribir el
+# /config de un usuario para ahorrarse una concatenación no vale la pena.
+
+
+def cmv40_log_path(session_id: str) -> Path:
+    return CMV40_DIR / f"{session_id}.log"
+
+
+def append_cmv40_log(session_id: str, lines: list[str]) -> None:
+    """Añade líneas al log del proyecto. Síncrono: llamar en un thread."""
+    if not lines:
+        return
+    ruta = cmv40_log_path(session_id)
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        with open(ruta, "a", encoding="utf-8") as f:
+            f.write("".join(l.replace("\n", " ") + "\n" for l in lines))
+    except OSError as e:
+        logger.warning("No se pudo escribir el log de %s: %s", session_id, e)
+
+
+def read_cmv40_log(session_id: str) -> list[str]:
+    """Las líneas del fichero de log. Lista vacía si no existe."""
+    ruta = cmv40_log_path(session_id)
+    if not ruta.exists():
+        return []
+    try:
+        return ruta.read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        logger.warning("No se pudo leer el log de %s: %s", session_id, e)
+        return []
+
+
+def cmv40_log_line_count(session_id: str) -> int:
+    """Cuántas líneas tiene el fichero, sin cargarlo entero en memoria."""
+    ruta = cmv40_log_path(session_id)
+    if not ruta.exists():
+        return 0
+    try:
+        with open(ruta, "rb") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
+def cmv40_progress_path(session_id: str) -> Path:
+    # Extensión `.progress`, NO `.progress.json`: el listado de sesiones hace
+    # `glob("*.json")` sobre este directorio y el sidecar se colaba como si
+    # fuera una sesión (lo cazó un test en cuanto existió el fichero).
+    return CMV40_DIR / f"{session_id}.progress"
+
+
+def write_cmv40_progress(session_id: str, payload: dict) -> None:
+    """Persiste la última barra de progreso en un fichero aparte.
+
+    Es el mismo problema que el log a otra escala: `last_progress` son ~50
+    bytes y guardarlo dentro de la sesión reescribía el JSON entero — 0,86 MB
+    en un proyecto con los 3.914 `L2Combo` de un caso real, cada 20 s durante
+    todo el job. Medido: tras mover el log a un fichero, ESTO se convirtió en
+    el coste dominante (0,33 de los 0,38 GB que quedaban por job).
+
+    Aquí no hay escritura atómica a propósito: si se corrompe, se pierde la
+    posición de una barra. Un `.tmp` + rename por cada tick sería más I/O que
+    el dato que protege.
+    """
+    try:
+        CMV40_DIR.mkdir(parents=True, exist_ok=True)
+        cmv40_progress_path(session_id).write_text(
+            json.dumps(payload), encoding="utf-8")
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning("No se pudo escribir el progreso de %s: %s", session_id, e)
+
+
+def read_cmv40_progress(session_id: str) -> dict | None:
+    ruta = cmv40_progress_path(session_id)
+    if not ruta.exists():
+        return None
+    try:
+        d = json.loads(ruta.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def delete_cmv40_log(session_id: str) -> None:
+    cmv40_log_path(session_id).unlink(missing_ok=True)
+    cmv40_progress_path(session_id).unlink(missing_ok=True)
+
+
 def delete_cmv40_session(session_id: str) -> bool:
-    """Elimina el JSON de una sesión CMv4.0. No borra los artefactos."""
+    """Elimina el JSON de una sesión CMv4.0 y su log. No borra los artefactos."""
+    delete_cmv40_log(session_id)
     path = _cmv40_session_path(session_id)
     if path.exists():
         path.unlink()

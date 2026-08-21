@@ -16,6 +16,7 @@ real de John Wick 4: `dovi_tool` consumía el 94,7 % de un core y **uvicorn el
 Y el endpoint de detalle, que el frontend pollea cada 1,5-4 s mientras hay un
 job, debe poder responder sin el log (1,57 MB / 437 ms por tick).
 """
+import asyncio
 import os
 import sys
 import unittest
@@ -93,44 +94,79 @@ class TestProgressDedup(unittest.TestCase):
 
 
 class TestProgressNoPersiste(unittest.IsolatedAsyncioTestCase):
-    """`_cmv40_log`: el progreso va al WS pero nunca a `output_log`."""
+    """`_cmv40_log`: el progreso va al WS pero nunca al log persistido."""
 
     def setUp(self):
+        import shutil
+        import tempfile
+
+        import storage
         from models import CMv40Session
         self.session = CMv40Session(
             id="sess_log", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
             output_mkv_name="out.mkv")
         cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
-        cmv40_routes._cmv40_log_throttle.pop(self.session.id, None)
-        self.persisted = []
-        self._orig_persist = cmv40_routes._cmv40_maybe_persist_log
+        self.addCleanup(cmv40_routes._cmv40_last_progress.pop, self.session.id, None)
+        # El log vive en `/config/cmv40/{id}.log` desde que dejó de ir dentro
+        # del JSON: sin redirigirlo, este test escribiría en el /config real.
+        tmp = Path(tempfile.mkdtemp(prefix="log_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._orig_dir = storage.CMV40_DIR
+        storage.CMV40_DIR = tmp
+        self.addCleanup(setattr, storage, "CMV40_DIR", self._orig_dir)
+        for d in (cmv40_routes._cmv40_log_buffer, cmv40_routes._cmv40_log_buffer_ts):
+            d.pop(self.session.id, None)
+            self.addCleanup(d.pop, self.session.id, None)
 
-        async def _fake_persist(session, line):
-            self.persisted.append(line)
+    def log(self):
+        return cmv40_routes._cmv40_log_completo(self.session)
 
-        cmv40_routes._cmv40_maybe_persist_log = _fake_persist
-
-    def tearDown(self):
-        cmv40_routes._cmv40_maybe_persist_log = self._orig_persist
-        cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
-
-    async def test_progreso_no_entra_en_output_log(self):
+    async def test_progreso_no_entra_en_el_log(self):
         await cmv40_routes._cmv40_log(self.session, PROGRESS)
-        self.assertEqual(self.session.output_log, [])
-        self.assertEqual(self.persisted, [])
+        self.assertEqual(self.log(), [])
+        self.assertEqual(self.session.output_log, [],
+                         "el JSON de la sesión ya no acumula el log")
 
-    async def test_linea_normal_si_entra_y_persiste(self):
+    async def test_linea_normal_si_entra(self):
         await cmv40_routes._cmv40_log(self.session, "[Fase F] algo pasó")
-        self.assertEqual(len(self.session.output_log), 1)
-        self.assertIn("algo pasó", self.session.output_log[0])
-        self.assertEqual(len(self.persisted), 1)
+        self.assertEqual(len(self.log()), 1)
+        self.assertIn("algo pasó", self.log()[0])
 
     async def test_rafaga_de_progreso_identico_no_infla_nada(self):
         """El escenario real: 450 ticks idénticos durante una fase larga."""
         for _ in range(450):
             await cmv40_routes._cmv40_log(self.session, PROGRESS)
-        self.assertEqual(self.session.output_log, [])
-        self.assertEqual(self.persisted, [])
+        self.assertEqual(self.log(), [])
+
+    async def test_el_json_de_la_sesion_no_crece_con_el_log(self):
+        """EL PUNTO de la Tanda 3. Antes, mil líneas eran ~200 KB más de JSON
+        reescritos en cada save."""
+        antes = len(self.session.model_dump_json())
+        for i in range(1000):
+            await cmv40_routes._cmv40_log(self.session, f"[Fase C] línea {i}")
+        await cmv40_routes._cmv40_log_volcar(self.session.id, forzar=True)
+        despues = len(self.session.model_dump_json())
+        self.assertEqual(antes, despues,
+                         "el JSON de la sesión ha crecido con el log")
+        self.assertEqual(len(self.log()), 1000)
+
+    async def test_el_log_sobrevive_a_recargar_la_sesion(self):
+        """Está en un fichero, así que no depende del objeto en memoria."""
+        for i in range(5):
+            await cmv40_routes._cmv40_log(self.session, f"línea {i}")
+        await cmv40_routes._cmv40_log_volcar(self.session.id, forzar=True)
+        from storage import read_cmv40_log
+        self.assertEqual(len(read_cmv40_log(self.session.id)), 5)
+
+    async def test_el_prefijo_legacy_del_json_se_conserva(self):
+        """Las sesiones anteriores al cambio tienen su log dentro del JSON y no
+        se migran: el log completo es ese prefijo + el fichero."""
+        self.session.output_log = ["[10:00:00] línea vieja"]
+        await cmv40_routes._cmv40_log(self.session, "línea nueva")
+        completo = self.log()
+        self.assertEqual(len(completo), 2)
+        self.assertIn("línea vieja", completo[0])
+        self.assertIn("línea nueva", completo[1])
 
 
 class TestSnapshotBarato(unittest.TestCase):
@@ -229,21 +265,15 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
             output_mkv_name="out.mkv")
         cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
         cmv40_routes._cmv40_progress_persist_ts.pop(self.session.id, None)
-        self._orig_persist = cmv40_routes._cmv40_maybe_persist_log
         self._orig_save = cmv40_routes._save_cmv40_session_async
         self.saves = []
-
-        async def _fake_persist(session, line):
-            pass
 
         async def _fake_save(session):
             self.saves.append(session.id)
 
-        cmv40_routes._cmv40_maybe_persist_log = _fake_persist
         cmv40_routes._save_cmv40_session_async = _fake_save
 
     def tearDown(self):
-        cmv40_routes._cmv40_maybe_persist_log = self._orig_persist
         cmv40_routes._save_cmv40_session_async = self._orig_save
         cmv40_routes._cmv40_last_progress.pop(self.session.id, None)
         cmv40_routes._cmv40_progress_persist_ts.pop(self.session.id, None)
@@ -252,7 +282,7 @@ class TestLastProgressPersistido(unittest.IsolatedAsyncioTestCase):
         await cmv40_routes._cmv40_log(self.session, PROGRESS)
         self.assertEqual(self.session.last_progress,
                          {"pct": 95.0, "label": "Inyectando RPU"})
-        # …y sigue sin ensuciar el log
+        # …y sigue sin ensuciar el log (que ya no vive en el JSON)
         self.assertEqual(self.session.output_log, [])
 
     async def test_se_actualiza_con_cada_valor_nuevo(self):
@@ -328,3 +358,130 @@ class TestEndpointActivo(unittest.IsolatedAsyncioTestCase):
         finally:
             storage.list_cmv40_sessions_summary = original
         self.assertEqual(llamadas, [])
+
+
+async def _drenar_tasks() -> None:
+    """Espera a las tasks que el código bajo prueba haya lanzado.
+
+    Un `await asyncio.sleep(0.2)` aquí sería un test atado al reloj: pasa en un
+    Mac ocioso y falla bajo carga, que es la receta del intermitente. Esperar a
+    las tasks es determinista.
+    """
+    pendientes = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pendientes:
+        await asyncio.gather(*pendientes, return_exceptions=True)
+
+
+class TestEscriturasEnConfig(unittest.IsolatedAsyncioTestCase):
+    """Lo que la Tanda 3 vino a arreglar: cuánto se escribe en /config.
+
+    Persistir UNA línea de log reescribía la sesión entera. Medido: 0,86 MB de
+    JSON con el log vacío y 2,21 MB con 10.000 líneas, y con el throttle a 5 s
+    son ~850 saves por job → **~1,9 GB escritos** contra el mismo pool ZFS por
+    el que el pipeline mueve 70 GB. El coste era CUADRÁTICO en la longitud del
+    log: el throttle acotaba la frecuencia, no el tamaño de cada escritura.
+
+    Y al mover el log a un fichero, el coste dominante pasó a ser el otro dato
+    pequeño que vivía dentro del JSON: `last_progress`, ~50 bytes reescritos
+    con 0,86 MB cada 20 s. También a un sidecar.
+    """
+
+    def setUp(self):
+        import shutil
+        import tempfile
+
+        import storage
+        from models import CMv40Session, L2Combo
+        self.tmp = Path(tempfile.mkdtemp(prefix="escrituras_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self._orig = storage.CMV40_DIR
+        storage.CMV40_DIR = self.tmp
+        self.addCleanup(setattr, storage, "CMV40_DIR", self._orig)
+        self.storage = storage
+
+        self.session = CMv40Session(
+            id="sess_bytes", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+            output_mkv_name="out.mkv")
+        # Los 3.914 combos de un caso real: son lo que hace que el JSON de la
+        # sesión pese 0,86 MB aunque el log esté vacío.
+        self.session.target_l8_combos = [
+            L2Combo(**{k: 2048 for k in L2Combo.model_fields if k != "count"})
+            for _ in range(3914)]
+        for d in (cmv40_routes._cmv40_log_buffer, cmv40_routes._cmv40_log_buffer_ts,
+                  cmv40_routes._cmv40_last_progress,
+                  cmv40_routes._cmv40_progress_persist_ts):
+            d.pop(self.session.id, None)
+            self.addCleanup(d.pop, self.session.id, None)
+
+    async def test_mil_lineas_no_cambian_el_tamano_del_json(self):
+        antes = len(self.session.model_dump_json(indent=2))
+        for i in range(1000):
+            await cmv40_routes._cmv40_log(self.session, f"[Fase C] línea {i}")
+        await cmv40_routes._cmv40_log_volcar(self.session.id, forzar=True)
+        self.assertEqual(len(self.session.model_dump_json(indent=2)), antes)
+
+    async def test_el_log_acaba_completo_en_su_fichero(self):
+        for i in range(250):
+            await cmv40_routes._cmv40_log(self.session, f"línea {i}")
+        await cmv40_routes._cmv40_log_volcar(self.session.id, forzar=True)
+        lineas = self.storage.read_cmv40_log(self.session.id)
+        self.assertEqual(len(lineas), 250)
+        self.assertIn("línea 0", lineas[0])
+        self.assertIn("línea 249", lineas[-1])
+
+    async def test_una_linea_con_saltos_no_rompe_el_fichero(self):
+        """El log es una línea por registro: un `\\n` dentro rompería la cuenta."""
+        await cmv40_routes._cmv40_log(self.session, "primera\\nsegunda\\ntercera")
+        await cmv40_routes._cmv40_log_volcar(self.session.id, forzar=True)
+        self.assertEqual(len(self.storage.read_cmv40_log(self.session.id)), 1)
+
+    async def test_el_progreso_va_a_su_sidecar_no_al_json(self):
+        """Lo que importa no es el tamaño del objeto en memoria —el campo sigue
+        en el modelo por compatibilidad— sino que persistir la barra **no
+        reescriba el JSON de la sesión**, que son 0,86 MB con los combos."""
+        saves = []
+        orig = cmv40_routes._save_cmv40_session_async
+
+        async def _espia(session):
+            saves.append(session.id)
+
+        cmv40_routes._save_cmv40_session_async = _espia
+        self.addCleanup(setattr, cmv40_routes, "_save_cmv40_session_async", orig)
+
+        # Se espera a cada escritura antes de la siguiente. Lanzarlas juntas
+        # crearía una carrera que en producción no existe: el guard de
+        # `_CMV40_PROGRESS_PERSIST_S` las separa 20 s y cada una tarda ~1 ms.
+        # Sin esperar, el fichero acababa con el valor de la que ganase la
+        # carrera de threads y el test fallaba 1 de cada 5 veces.
+        for pct in (10.0, 40.0, 90.0):
+            cmv40_routes._cmv40_progress_persist_ts.pop(self.session.id, None)
+            cmv40_routes._cmv40_store_last_progress(
+                self.session, '§§PROGRESS§§{"pct": %s, "label": "Inyectando"}' % pct)
+            await _drenar_tasks()      # la escritura va en un thread
+
+        self.assertEqual(saves, [],
+                         "la barra de progreso ha reescrito el JSON de la sesión")
+        guardado = self.storage.read_cmv40_progress(self.session.id)
+        self.assertEqual(guardado["pct"], 90.0)
+        self.assertLess(self.storage.cmv40_progress_path(self.session.id).stat().st_size,
+                        500, "el sidecar del progreso son unos cientos de bytes")
+
+    def test_borrar_la_sesion_se_lleva_el_log_y_el_progreso(self):
+        self.storage.append_cmv40_log(self.session.id, ["una línea"])
+        self.storage.write_cmv40_progress(self.session.id, {"pct": 1.0})
+        self.storage.save_cmv40_session(self.session)
+        self.storage.delete_cmv40_session(self.session.id)
+        self.assertFalse(self.storage.cmv40_log_path(self.session.id).exists())
+        self.assertFalse(self.storage.cmv40_progress_path(self.session.id).exists())
+
+    def test_el_listado_de_sesiones_ignora_los_ficheros_nuevos(self):
+        """El sidebar hace `glob("*.json")`: el `.progress.json` NO puede colarse
+        como si fuera una sesión."""
+        self.storage.save_cmv40_session(self.session)
+        self.storage.write_cmv40_progress(self.session.id, {"pct": 1.0})
+        self.storage.append_cmv40_log(self.session.id, ["x"])
+        cache = getattr(self.storage, "_cmv40_summary_by_file", None)
+        if isinstance(cache, dict):
+            cache.clear()
+        ids = [s["id"] for s in self.storage.list_cmv40_sessions_summary()]
+        self.assertEqual(ids, [self.session.id], ids)

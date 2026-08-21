@@ -50,26 +50,37 @@ class TestCierreDeFaseFallida(unittest.IsolatedAsyncioTestCase):
         self.session = CMv40Session(
             id="sess_fallo", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
             output_mkv_name="out.mkv")
-        cmv40_routes._cmv40_log_throttle.pop(self.session.id, None)
-        self._orig_persist = cmv40_routes._cmv40_maybe_persist_log
+        self._aislar_log(self.session.id)
 
-        async def _no_persistir(session, line):
-            pass
+    def _aislar_log(self, session_id):
+        """Redirige el log a un tmpdir y limpia el buffer.
 
-        cmv40_routes._cmv40_maybe_persist_log = _no_persistir
+        El log de un proyecto vive en `/config/cmv40/{id}.log` desde que dejó
+        de ir dentro del JSON, así que un test que emita líneas escribe ahí si
+        no se redirige.
+        """
+        import shutil, tempfile, storage
+        tmp = Path(tempfile.mkdtemp(prefix="log_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        orig = storage.CMV40_DIR
+        storage.CMV40_DIR = tmp
+        self.addCleanup(setattr, storage, "CMV40_DIR", orig)
+        cmv40_routes._cmv40_log_buffer.pop(session_id, None)
+        cmv40_routes._cmv40_log_buffer_ts.pop(session_id, None)
+        self.addCleanup(cmv40_routes._cmv40_log_buffer.pop, session_id, None)
 
-    def tearDown(self):
-        cmv40_routes._cmv40_maybe_persist_log = self._orig_persist
-        cmv40_routes._cmv40_log_throttle.pop(self.session.id, None)
+    def log(self):
+        """El log completo del proyecto, como lo sirve el endpoint."""
+        return cmv40_routes._cmv40_log_completo(self.session)
 
     async def test_motivo_ya_en_el_log_no_se_repite(self):
         await cmv40_routes._cmv40_log(self.session, f"[Pre-flight] ⛔ {MOTIVO}")
         await cmv40_routes._cmv40_log_phase_failed(self.session, "preflight", MOTIVO)
 
-        veces = sum(1 for l in self.session.output_log if MOTIVO in l)
-        self.assertEqual(veces, 1, self.session.output_log)
-        self.assertTrue(self.session.output_log[-1].endswith("✗ Fase preflight FALLÓ"),
-                        self.session.output_log[-1])
+        veces = sum(1 for l in self.log() if MOTIVO in l)
+        self.assertEqual(veces, 1, self.log())
+        self.assertTrue(self.log()[-1].endswith("✗ Fase preflight FALLÓ"),
+                        self.log()[-1])
 
     async def test_motivo_nuevo_si_se_escribe(self):
         """Si la fase murió sin explicarse (excepción cruda de un subprocess),
@@ -78,7 +89,7 @@ class TestCierreDeFaseFallida(unittest.IsolatedAsyncioTestCase):
         await cmv40_routes._cmv40_log_phase_failed(self.session, "extract", "dovi_tool rc=137")
 
         self.assertIn("✗ Fase extract FALLÓ: dovi_tool rc=137",
-                      self.session.output_log[-1])
+                      self.log()[-1])
 
     async def test_motivo_antiguo_si_se_repite(self):
         """Solo se mira la cola del log: un motivo idéntico de hace 50 líneas
@@ -88,7 +99,7 @@ class TestCierreDeFaseFallida(unittest.IsolatedAsyncioTestCase):
             await cmv40_routes._cmv40_log(self.session, f"[Fase A] línea {i}")
         await cmv40_routes._cmv40_log_phase_failed(self.session, "preflight", MOTIVO)
 
-        self.assertIn(MOTIVO, self.session.output_log[-1])
+        self.assertIn(MOTIVO, self.log()[-1])
 
     async def test_sigue_siendo_marcador_de_persistencia(self):
         """`✗ Fase` fuerza el save inmediato y lo consume el frontend para
@@ -96,7 +107,7 @@ class TestCierreDeFaseFallida(unittest.IsolatedAsyncioTestCase):
         await cmv40_routes._cmv40_log(self.session, f"[Pre-flight] ⛔ {MOTIVO}")
         await cmv40_routes._cmv40_log_phase_failed(self.session, "preflight", MOTIVO)
 
-        cierre = self.session.output_log[-1]
+        cierre = self.log()[-1]
         self.assertTrue(
             any(cierre.startswith(m) or m in cierre
                 for m in cmv40_routes._CMV40_LOG_FORCE_PERSIST_MARKERS),
