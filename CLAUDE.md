@@ -620,6 +620,22 @@ Indicadores visuales:
   - **Regla**: `session.running_phase` solo se toca desde **`_cmv40_marcar_activa` / `_cmv40_marcar_libre`**. Una asignación cruda deja el registro con un fantasma y el punto no se apaga nunca; `test_cmv40_activas_en_memoria::TestNadieAsignaRunningPhaseAMano` lo guarda recorriendo el AST (no el texto: los docstrings del módulo mencionan `running_phase="preflight"` describiendo el flujo).
 - **Spinner animado en cards del sidebar CMv4.0** cuando `running_phase != null` — sustituye al icono estático de fase. Card con `border-left` verde + halo pulsante.
 
+### Control de admisión: un solo trabajo pesado a la vez — `workload.py`
+
+Cada pestaña serializaba lo suyo y ninguna sabía de las otras: Tab 1 con su cola FIFO de uno, Tab 2 con un análisis y una copia, y Tab 3 bloqueando **por `session_id`**, así que N proyectos podían correr fases a la vez. Sumado: tres o más `mkvmerge`/`ffmpeg`/`dovi_tool` peleándose por 4 núcleos y un solo pool ZFS.
+
+Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_timeout` y el modelo de ETA se anclan en `ffmpeg_wall_seconds`**, así que una medición tomada con contención envenena en silencio las dos calibraciones de las que depende todo el progreso medido, y un timeout calculado a partir de ella puede quedarse corto en el job siguiente.
+
+`workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
+
+Tres matices que son el contrato:
+
+- **Nadie se bloquea a sí mismo.** El hueco se ocupa con la clave de la sesión, así que un proyecto de Tab 3 que avanza a su fase siguiente pasa — es el mismo job. Sin eso el auto-pipeline se detendría solo tras la primera fase.
+- **La cola de Tab 1 espera, no falla.** El 409 al encolar deja una ventana estrecha (el trabajo N libera el hueco, el usuario lanza algo en Tab 2, la cola va a arrancar el N+1). Fallar un trabajo ya encolado por algo que el usuario hizo después sería gratuito, y la cola es justo donde esperar es lo natural.
+- **Abrir un MKV en Tab 2 NO se bloquea** (`/api/mkv/analyze`). Es cómo se navega, está acotado, y bloquearlo dejaría la pestaña inservible mientras corre un rip. Igual con `mkvpropedit`, que es O(1).
+
+**Regla**: el hueco se libera SIEMPRE en un `finally` y por la clave propia. Si eso se escapa, la app queda bloqueada para todo lo demás hasta reiniciar.
+
 ### Patrón crítico: NO bloquear el event loop con `model_dump_json` síncrono
 
 **Regla absoluta** para cualquier código async que se ejecute en hot paths (log callbacks de subprocess, broadcasts WS, polling intensivo): **NUNCA llamar `save_session()` o `save_cmv40_session()` síncronos**. Usar las versiones async (`save_session_async`, `save_cmv40_session_async`) que mueven la serialización JSON + write atómico al thread pool.
