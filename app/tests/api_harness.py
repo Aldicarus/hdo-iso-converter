@@ -69,14 +69,37 @@ class ApiTestCase(unittest.TestCase):
         # Cada constante donde de verdad vive. El router referencia el output
         # como `_cmv40_pipeline_mod.OUTPUT_DIR`, así que parchear el módulo del
         # pipeline le llega; `main.OUTPUT_DIR_MKV` sigue siendo la de Tab 1/2.
+        # Directorios de Tab 1 y Tab 2. `LIBRARY_ROOTS` es lo que decide qué
+        # rutas acepta el file browser, así que sin redirigirlo los tests de
+        # path traversal validarían contra el /mnt real del Mac (inexistente).
+        self.isos_dir = self.tmp / "isos"
+        self.library_dir = self.tmp / "library"
+        self.tmp_dir = self.tmp / "tmp"
+        for d in (self.isos_dir, self.library_dir, self.tmp_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        from phases import phase_e as _phase_e
+        from services import settings_store as _settings
         self._parches = [
+            # `settings_store` resuelve CONFIG_DIR en el import y escribe
+            # app_settings.json ahí: sin redirigirlo, un test de /api/settings
+            # intenta escribir en el /config real (read-only en el Mac).
+            (_settings, "CONFIG_DIR", self.config_dir),
+            (_settings, "SETTINGS_PATH", self.config_dir / "app_settings.json"),
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
             (storage, "MKV_AUDIT_DIR", self.config_dir / "mkv_audits"),
             (self.main, "CONFIG_DIR", self.config_dir),
             (self.main, "OUTPUT_DIR_MKV", self.output_dir),
+            (self.main, "ISOS_DIR", self.isos_dir),
+            (self.main, "LIBRARY_DIR", self.library_dir),
+            (self.main, "TMP_DIR", str(self.tmp_dir)),
+            (self.main, "LIBRARY_ROOTS", {"library": self.library_dir,
+                                          "output": self.output_dir,
+                                          "downloaded": self.isos_dir}),
             (pipeline, "OUTPUT_DIR", self.output_dir),
             (pipeline, "CMV40_WORK_BASE", self.work_base),
+            (_phase_e, "OUTPUT_DIR", str(self.output_dir)),
         ]
         self._originales = [(mod, attr, getattr(mod, attr, None))
                             for mod, attr, _ in self._parches]
@@ -114,6 +137,35 @@ class ApiTestCase(unittest.TestCase):
         self.cmv40._run_cmv40_phase = _espia
         self.addCleanup(
             lambda: setattr(self.cmv40, "_run_cmv40_phase", self._orig_run_phase))
+
+        # La cola de Tab 1 es un singleton de módulo con estado propio, y
+        # `enqueue` DISPARA el pipeline (`asyncio.create_task(self._process())`).
+        # Sin aislarla, un test de `POST /execute` lanzaría mkvmerge de verdad y
+        # el estado se filtraría al test siguiente.
+        import queue_manager as _qm
+        self.encolados: list[str] = []
+        cola = self.main.queue_manager
+        self._cola_estado = (list(cola._queue), cola._running, cola._run_fn)
+        cola._queue.clear()
+        cola._running = None
+        self._orig_enqueue = cola.enqueue
+
+        async def _enqueue_espia(session_id: str):
+            self.encolados.append(session_id)
+            return cola.get_status()
+
+        cola.enqueue = _enqueue_espia
+        self._orig_persist = cola._persist_state
+        cola._persist_state = lambda: None      # no escribir queue_state.json
+
+        def _restaurar_cola():
+            cola._queue[:] = self._cola_estado[0]
+            cola._running = self._cola_estado[1]
+            cola._run_fn = self._cola_estado[2]
+            cola.enqueue = self._orig_enqueue
+            cola._persist_state = self._orig_persist
+
+        self.addCleanup(_restaurar_cola)
 
 
     def mockear_runners(self) -> list[str]:
@@ -185,3 +237,30 @@ class ApiTestCase(unittest.TestCase):
     def leer_sesion(self, sid: str):
         import storage
         return storage.load_cmv40_session(sid)
+
+    # ── Tab 1 ────────────────────────────────────────────────────────
+
+    def crear_sesion_tab1(self, sid: str = "Peli_2024_1700000000", **campos):
+        """Escribe una `Session` (Tab 1) en el /config temporal."""
+        import storage
+        from models import Session
+
+        base = {
+            "id": sid,
+            "iso_path": str(self.isos_dir / "Peli (2024).iso"),
+            "mkv_name": "Peli (2024).mkv",
+            "status": "pending",
+        }
+        base.update(campos)
+        s = Session(**base)
+        storage.save_session(s)
+        # El summary del sidebar se cachea por fichero; sin limpiar, un test
+        # que cree una sesión con el mismo nombre vería la del anterior.
+        cache = getattr(storage, "_sessions_summary_by_file", None)
+        if isinstance(cache, dict):
+            cache.clear()
+        return sid
+
+    def leer_sesion_tab1(self, sid: str):
+        import storage
+        return storage.load_session(sid)
