@@ -290,7 +290,8 @@ class FakeToolbox:
         self._flush()
 
     def fail(self, binary: str, subcommand: str, rc: int = 1,
-             stderr: str = "fallo simulado", senal: int | None = None) -> None:
+             stderr: str = "fallo simulado", senal: int | None = None,
+             tras_producir: bool = False) -> None:
         """Fuerza un código de retorno para una invocación concreta.
 
         `senal` hace que el binario falso se MATE con esa señal en vez de salir
@@ -309,7 +310,28 @@ class FakeToolbox:
         ráfaga de avisos que no significaban nada.
         """
         self._scenario["fail"][f"{binary}:{subcommand}"] = {
-            "rc": rc, "stderr": stderr, "senal": senal}
+            "rc": rc, "stderr": stderr, "senal": senal,
+            "tras_producir": tras_producir}
+        self._flush()
+
+    def fail_when_arg(self, binary: str, subcadena: str, rc: int = 1,
+                      stderr: str = "fallo simulado",
+                      senal: int | None = None,
+                      tras_producir: bool = False) -> None:
+        """Falla solo las invocaciones cuyo argv contenga `subcadena`.
+
+        Modela un fallo que depende del FICHERO de entrada, no del comando. El
+        caso que lo pide es el reintento con el M2TS de Tab 1: mkvmerge aborta
+        sobre el `.mpls` de un disco UHD multi-segmento y funciona sobre el
+        `.m2ts`, así que el orquestador reintenta una vez. Con un `fail`
+        permanente no se puede distinguir el primer intento del segundo, y sin
+        distinguirlos no se puede comprobar que el reintento ocurre —ni que
+        ocurre UNA sola vez.
+        """
+        self._scenario.setdefault("fail_arg", []).append({
+            "binary": binary, "subcadena": subcadena,
+            "rc": rc, "stderr": stderr, "senal": senal,
+            "tras_producir": tras_producir})
         self._flush()
 
     def mkvmerge_sin_salida(self) -> None:
@@ -722,6 +744,10 @@ def record(json_args=None):
 
 
 def main():
+    global DESPACHO
+    DESPACHO = {"ffmpeg": ffmpeg, "ffprobe": ffprobe, "mkvmerge": mkvmerge,
+                "mediainfo": mediainfo, "mkvextract": mkvextract,
+                "mkvpropedit": mkvpropedit}
     sc = scenario()
     sub = subcommand()
 
@@ -741,12 +767,29 @@ def main():
     record(json_args)
 
     if forced is None:
+        for rule in sc.get("fail_arg", []):
+            if rule["binary"] != BINARY:
+                continue
+            if any(rule["subcadena"] in a for a in ARGV):
+                forced = rule
+                break
+
+    if forced is None:
         for rule in sc.get("fail_json", []):
             if rule["binary"] != BINARY or rule["subcommand"] != sub:
                 continue
             if all(json_args.get(k) == v for k, v in rule["json_match"].items()):
                 forced = rule
                 break
+
+    if forced and forced.get("tras_producir"):
+        # Hace su trabajo y DESPUÉS falla: así queda el fichero de salida a
+        # medias, que es lo que pasa cuando mkvmerge aborta durante el mux. Sin
+        # esto no se puede comprobar que alguien limpia el parcial.
+        try:
+            DESPACHO[BINARY](sc) if BINARY in DESPACHO else None
+        except Exception:
+            pass
 
     if forced:
         sys.stderr.write(forced.get("stderr", "fallo simulado"))

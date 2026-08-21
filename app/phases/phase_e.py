@@ -45,7 +45,9 @@ from pathlib import Path
 
 from models import Chapter, Session
 from phases.phase_a import ISO639_TO_ENGLISH
-from phases.phase_d import MkvmergePlaylistError, is_playlist_assertion_line
+from phases.phase_d import (
+    MkvmergePlaylistError, _limpiar_parcial, is_playlist_assertion_line,
+)
 
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
@@ -135,6 +137,9 @@ async def run_phase_e_direct(
     # invocar mkvmerge — sin esto, mkvmerge falla si el directorio padre
     # no existe.
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    # Si ya había un MKV con ese nombre, no es nuestro parcial: puede ser el
+    # resultado bueno de una ejecución anterior (ver `_limpiar_parcial`).
+    existia_antes = Path(output_path).exists()
     track_map    = await _identify_tracks(mpls_path, log_callback)
     chapters_xml = _write_chapters_xml(session.chapters) if session.chapters else None
 
@@ -206,6 +211,13 @@ async def run_phase_e_direct(
     # mkvmerge terminó (éxito o fallo): el XML de capítulos ya no se necesita.
     if chapters_xml:
         Path(chapters_xml).unlink(missing_ok=True)
+
+    # Cualquier salida que no sea un éxito deja el MKV final a medias, y con
+    # el nombre definitivo en /mnt/output: indistinguible de un rip terminado.
+    if hung or playlist_assert or proc.returncode not in (0, 1):
+        borrado = _limpiar_parcial(output_path, existia_antes)
+        if borrado and log_callback:
+            await log_callback(f"[Fase E] 🧹 MKV parcial eliminado: {borrado}")
 
     if hung:
         raise RuntimeError(
