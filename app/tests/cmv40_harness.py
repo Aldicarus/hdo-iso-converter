@@ -290,9 +290,38 @@ class FakeToolbox:
         self._flush()
 
     def fail(self, binary: str, subcommand: str, rc: int = 1,
-             stderr: str = "fallo simulado") -> None:
-        """Fuerza un código de retorno para una invocación concreta."""
-        self._scenario["fail"][f"{binary}:{subcommand}"] = {"rc": rc, "stderr": stderr}
+             stderr: str = "fallo simulado", senal: int | None = None) -> None:
+        """Fuerza un código de retorno para una invocación concreta.
+
+        `senal` hace que el binario falso se MATE con esa señal en vez de salir
+        con un código. Es la única forma de reproducir el crash de mkvmerge con
+        playlists UHD multi-segmento: aborta con SIGABRT, y `returncode` llega
+        como **-6**. El chequeo `>= 2` que había antes no capturaba los códigos
+        negativos, así que el fallo se enmascaraba y reventaba aguas abajo con
+        un críptico "[Errno 2] No such file or directory" (Avatar Fuego y
+        Ceniza, 2025).
+
+        **Usa SIGTERM, no SIGABRT ni SIGSEGV.** Al código bajo prueba solo le
+        importa que el `returncode` sea negativo, y en macOS morir con una de
+        esas dos dispara el informador de fallos del sistema: un `.ips` en
+        ~/Library/Logs/DiagnosticReports y una notificación de "Python se ha
+        cerrado inesperadamente" POR CADA test. Pasar la suite dejaba una
+        ráfaga de avisos que no significaban nada.
+        """
+        self._scenario["fail"][f"{binary}:{subcommand}"] = {
+            "rc": rc, "stderr": stderr, "senal": senal}
+        self._flush()
+
+    def mkvmerge_sin_salida(self) -> None:
+        """`mkvmerge` sale con 0 pero NO escribe el fichero de salida.
+
+        Es un fallo real y silencioso, y la razón de que las fases D y E tengan
+        un guard explícito de existencia del output: sin él, el `stat()` de
+        después revienta con un críptico "[Errno 2] No such file or directory"
+        en vez de decir qué pasó. No se puede simular con `fail`, porque el
+        código de salida tiene que ser 0.
+        """
+        self._scenario["mkvmerge_sin_salida"] = True
         self._flush()
 
     def fail_when_json(self, binary: str, subcommand: str, json_match: dict,
@@ -721,6 +750,12 @@ def main():
 
     if forced:
         sys.stderr.write(forced.get("stderr", "fallo simulado"))
+        sys.stderr.flush()
+        senal = forced.get("senal")
+        if senal:
+            # Morir por señal, no por código: `returncode` llega negativo.
+            import signal as _sig
+            os.kill(os.getpid(), int(senal))
         return int(forced.get("rc", 1))
 
     if BINARY == "dovi_tool":
@@ -1095,7 +1130,13 @@ def ffmpeg(sc):
 
 
 def mkvmerge(sc):
-    if "-J" in ARGV:
+    # `-J` y `--identify --identification-format json` son EQUIVALENTES en
+    # mkvmerge, y el pipeline usa las dos: Tab 2 y la Fase A van con `-J`, la
+    # Fase E de Tab 1 con `--identify`. El fake solo entendía `-J`, así que una
+    # llamada con `--identify` caía a la rama del mux, devolvía líneas de
+    # progreso donde se esperaba JSON y el mapa de pistas salía VACÍO — un test
+    # de la Fase E pasaba en verde sin seleccionar ni ordenar nada.
+    if "-J" in ARGV or "--identify" in ARGV:
         positional = [a for a in ARGV if not a.startswith("-")]
         name = Path(positional[-1]).name if positional else ""
         spec = sc.get("mkvs", {}).get(name)
@@ -1133,6 +1174,8 @@ def mkvmerge(sc):
         }))
         return 0
     out = opt("-o")
+    if out and sc.get("mkvmerge_sin_salida"):
+        out = None       # sale con 0 y no escribe nada
     if out:
         # El MKV final hereda el RPU del HEVC que se multiplexa: es el primer
         # positional tras las opciones de salida.
@@ -1143,7 +1186,14 @@ def mkvmerge(sc):
                 hevc = p
                 break
         produce(out, read_props(hevc, sc))
-    sys.stdout.write("#GUI#progress 100%\n")
+    # Progreso en el formato REAL de `--gui-mode`. Las fases D y E traducen
+    # "#GUI#progress 45%" a "Progress: 45%" (contrato del parser del panel de
+    # cola) y descartan el resto de líneas `#GUI#`; con una sola línea al 100 %
+    # ninguna de las dos cosas se ejercitaba.
+    sys.stdout.write("#GUI#begin_scanning_playlists\n")
+    for pct in (0, 25, 50, 75, 100):
+        sys.stdout.write("#GUI#progress %d%%\n" % pct)
+    sys.stdout.write("#GUI#end_scanning_playlists\n")
     return 0
 
 
