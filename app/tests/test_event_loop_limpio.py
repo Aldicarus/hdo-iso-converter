@@ -31,7 +31,8 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 
-_FICHEROS = ("main.py", "routers/cmv40.py")
+_FICHEROS = ("main.py", "routers/cmv40.py", "phases/mkv_analyze.py",
+             "phases/luminance.py")
 
 # Llamadas cuyo coste escala con el TAMAÑO del dato: un volcado de RPU, un
 # árbol de artefactos de 400 GB, un JSON de 24 MB.
@@ -119,7 +120,16 @@ class TestLosSitiosArregladosSiguenEnUnThread(unittest.TestCase):
     def test_el_volcado_del_perfil_de_luminancia(self):
         src = self._fuente("main.py")
         self.assertIn("await asyncio.to_thread(_leer_y_adaptar)", src)
-        self.assertIn("await asyncio.to_thread(_perfil_desde_niveles, niveles)", src)
+        self.assertIn("await asyncio.to_thread(payload_de_luminancia, niveles)", src)
+
+    def test_el_analisis_extendido(self):
+        """El pipeline combinado hace el parseo y las dos agregaciones en
+        threads: son 243.552 frames por nivel."""
+        src = self._fuente("phases/mkv_analyze.py")
+        for llamada in ("await asyncio.to_thread(analysis_desde_paths, utiles)",
+                        "await asyncio.to_thread(cargar_niveles, utiles)",
+                        "await asyncio.to_thread(payload_de_luminancia, niveles)"):
+            self.assertIn(llamada, src)
 
     def test_las_series_del_chart_de_sincronizacion(self):
         src = self._fuente("routers/cmv40.py")

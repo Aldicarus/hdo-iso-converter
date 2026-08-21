@@ -197,3 +197,83 @@ class TestFallosDelPipeline(AuditoriaCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAnalisisExtendido(AuditoriaCase):
+    """`con_luminancia=True`: los dos análisis con UNA sola extracción.
+
+    Estaban separados en dos botones porque cada uno era caro. Ya no lo son por
+    separado: extraer el RPU del MKV es el ~97 % del coste (medido: ~650 s de
+    ffmpeg | extract-rpu solapados, frente a ~7 s del export por niveles y
+    segundos de parseo). Hacerlos aparte significaba pagar dos veces ese 97 %
+    para compartir el 3 %.
+
+    Lo que fija este test es justo eso: que la extracción ocurre UNA vez y que
+    el export pide L5 y L6 en la misma pasada, que es lo que hace que el perfil
+    de luminancia salga gratis.
+    """
+
+    async def test_devuelve_los_dos_analisis(self):
+        r, _ = await self.auditar(con_luminancia=True)
+        self.assertIn("quality_verdict_text", r, "falta el veredicto de calidad")
+        self.assertIn("light_profile", r, "falta el perfil de luminancia")
+        luz = r["light_profile"]
+        self.assertTrue(luz["per_scene_max_cll"], "serie de picos vacía")
+        self.assertIn("stats", luz)
+        self.assertIn("references", luz)
+        self.assertNotIn("_raw", luz,
+                         "los valores PQ crudos son para el log, no para la UI")
+
+    async def test_una_sola_extraccion_para_los_dos(self):
+        """EL PUNTO. Un ffmpeg y un extract-rpu, no dos de cada."""
+        await self.auditar(con_luminancia=True)
+        self.assertEqual(len(self.tb.find("ffmpeg")), 1, self.tb.calls)
+        self.assertEqual(len(self.tb.find("dovi_tool", "extract-rpu")), 1,
+                         self.tb.calls)
+
+    async def test_un_solo_export_con_los_cinco_niveles(self):
+        await self.auditar(con_luminancia=True)
+        exports = self.tb.find("dovi_tool", "export")
+        self.assertEqual(len(exports), 1, self.tb.calls)
+        niveles = exports[0].opt("--levels") or ""
+        for nivel in ("level1", "level2", "level5", "level6", "level8"):
+            self.assertIn(nivel, niveles, f"falta {nivel} en: {niveles}")
+
+    async def test_sin_luminancia_no_se_piden_l5_ni_l6(self):
+        """El camino de solo calidad no debe pagar niveles que no usa."""
+        await self.auditar(con_luminancia=False)
+        niveles = self.tb.one("dovi_tool", "export").opt("--levels") or ""
+        self.assertIn("level1", niveles)
+        self.assertNotIn("level5", niveles, niveles)
+        self.assertNotIn("level6", niveles, niveles)
+
+    async def test_sin_luminancia_no_hay_perfil_en_el_resultado(self):
+        r, _ = await self.auditar(con_luminancia=False)
+        self.assertNotIn("light_profile", r)
+
+    async def test_el_log_dice_que_pide_l5_y_l6(self):
+        lineas = []
+        await self.auditar(con_luminancia=True, log_callback=lineas.append)
+        plan = [l for l in lineas if "📋 Plan" in l and "--levels" in l]
+        self.assertTrue(plan, lineas[:12])
+        self.assertIn("luminancia", " ".join(plan))
+
+    async def test_los_ficheros_del_export_se_borran(self):
+        """Cinco niveles de un RPU full-movie son ~157 MB."""
+        await self.auditar(con_luminancia=True)
+        sobrantes = list(self.trabajo.rglob("*_level*.json"))
+        self.assertEqual(sobrantes, [], sobrantes)
+
+    async def test_si_el_export_por_niveles_falla_sigue_habiendo_calidad(self):
+        """Reserva para dovi_tool < 2.3.3: el volcado completo da los combos
+        pero no L5/L6, así que el perfil se omite y se avisa."""
+        self.tb.fail("dovi_tool", "export", stderr="unknown flag --levels")
+        lineas = []
+        try:
+            r, _ = await self.auditar(con_luminancia=True,
+                                      log_callback=lineas.append)
+        except RuntimeError:
+            # Sin export no hay combos: el pipeline aborta, que es correcto.
+            self.assertTrue(any("no disponible" in l for l in lineas), lineas[-6:])
+            return
+        self.assertIsNone(r.get("light_profile"))

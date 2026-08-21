@@ -250,8 +250,14 @@ async def _run_export_levels(
     timeout: int = 60,
     log_callback=None,
     register_proc=None,
+    niveles_extra: tuple[str, ...] = (),
 ) -> tuple[int, str, dict[str, Path]]:
     """Export SELECTIVO por niveles — la vía rápida (dovi_tool >= 2.3.3).
+
+    `niveles_extra` añade niveles al export por encima de los que necesitan
+    los combos. Lo usa el análisis extendido de Tab 2, que pide también L5 y L6
+    para el perfil de luminancia: sacarlos en la MISMA pasada es gratis, y
+    volver a extraer el RPU para ellos costaría los ~650 s de la extracción.
 
     `export -d all` vuelca el RPU entero: medido sobre un bin real de 61 MB /
     145.303 frames son **682 MB en ~100 s**, que además hay que releer y
@@ -266,9 +272,11 @@ async def _run_export_levels(
 
     Devuelve (rc, stderr, paths) con los ficheros generados.
     """
-    paths = {lv: out_dir / f".{stem}_{lv}.json" for lv in _EXPORT_LEVELS}
+    pedidos = tuple(_EXPORT_LEVELS) + tuple(
+        lv for lv in niveles_extra if lv not in _EXPORT_LEVELS)
+    paths = {lv: out_dir / f".{stem}_{lv}.json" for lv in pedidos}
     paths["scenes"] = out_dir / f".{stem}_scenes.json"
-    levels_arg = ",".join(f"{lv}={paths[lv]}" for lv in _EXPORT_LEVELS)
+    levels_arg = ",".join(f"{lv}={paths[lv]}" for lv in pedidos)
     rc, stderr = await _run_export(
         rpu_path, out_dir, timeout=timeout,
         log_callback=log_callback, register_proc=register_proc,
@@ -310,6 +318,36 @@ def _is_l8_neutral(combo: tuple) -> bool:
     if clip is not None and clip != 2048:
         return False
     return True
+
+
+def cargar_niveles(paths: dict[str, Path]) -> dict[str, list]:
+    """Lee los ficheros de `--levels` y devuelve las listas planas por nivel.
+
+    Es la entrada de `luminance.perfil_desde_niveles`, que consume el mismo
+    formato que `export_levels` devuelve ya parseado. Aquí se lee de FICHERO
+    porque el análisis extendido hace un único export cuyos ficheros alimentan
+    a los dos consumidores: los combos L8/L2 y el perfil de luminancia.
+    """
+    fuera: dict[str, list] = {}
+    for clave, ruta in paths.items():
+        if clave == "scenes" or not ruta or not ruta.exists():
+            continue
+        try:
+            if ruta.stat().st_size == 0:
+                continue
+            with open(ruta, "r", encoding="utf-8") as f:
+                datos = json.load(f)
+        except (ValueError, OSError) as e:
+            logger.warning("No se pudo leer el export de %s: %s", clave, e)
+            continue
+        if isinstance(datos, list):
+            fuera[clave] = datos
+    return fuera
+
+
+def analysis_desde_paths(paths: dict[str, Path]) -> RpuAnalysis:
+    """`RpuAnalysis` a partir de ficheros de `--levels` ya generados."""
+    return _parse_export_levels(paths)
 
 
 def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:

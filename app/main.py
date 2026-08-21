@@ -2959,6 +2959,11 @@ async def reorder_queue(body: QueueReorderRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 from models import MkvEditRequest
+from phases.luminance import (
+    MAX_POINTS as LUM_MAX_POINTS,
+    niveles_desde_volcado,
+    payload_de_luminancia,
+)
 from phases.mkv_analyze import analyze_mkv, apply_mkv_edits
 
 LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
@@ -3503,161 +3508,6 @@ async def mkv_light_profile_cancel_endpoint(request: Request):
 PESO_EXTRACCION = 90.0
 
 
-def _niveles_desde_volcado(rpus: list) -> dict[str, list]:
-    """Adapta el volcado anidado de `dovi_tool export` al formato PLANO de
-    `rpu_analyze.export_levels`, que es el único que se consume.
-
-    Antes era al revés: se RECONSTRUÍA la forma anidada desde el export por
-    niveles para alimentar un segundo parser del mismo JSON que vivía aquí
-    dentro. Medido con 243.552 frames, esa reconstrucción costaba 4,8 s y un
-    pico de 475 MB de RAM — y era la duplicación que la regla del proyecto
-    prohíbe: dos parsers del mismo volcado permitieron que uno divergiera del
-    formato real, y el que funcionaba resultó ser el que tenía tests.
-
-    Este camino solo se recorre si `export --levels` no está disponible
-    (dovi_tool anterior a 2.3.3), así que el coste da igual; lo que importa es
-    que desemboque en el MISMO consumidor.
-    """
-    niveles: dict[str, list] = {}
-
-    def _anotar(nivel: str, frame: int, blk: dict) -> None:
-        fila = dict(blk)
-        fila["frame"] = frame
-        niveles.setdefault(nivel, []).append(fila)
-
-    for i, rpu in enumerate(rpus):
-        vdr = (rpu or {}).get("vdr_dm_data") if isinstance(rpu, dict) else None
-        if not isinstance(vdr, dict):
-            continue
-        for contenedor in (vdr, vdr.get("cmv29_metadata"), vdr.get("cmv40_metadata")):
-            if not isinstance(contenedor, dict):
-                continue
-            # Forma (b): {"level1": {...}} colgando del contenedor.
-            for clave, valor in contenedor.items():
-                if isinstance(valor, dict) and clave.lower().startswith("level"):
-                    _anotar(clave.lower(), i, valor)
-            # Forma (a)/(c): lista de bloques, cada uno {"Level1": {...}} o
-            # con un campo `level` numérico.
-            bloques = contenedor.get("ext_metadata_blocks") or contenedor.get("ext_blocks")
-            if not isinstance(bloques, list):
-                continue
-            for item in bloques:
-                if not isinstance(item, dict):
-                    continue
-                etiquetado = False
-                for clave, valor in item.items():
-                    if isinstance(valor, dict) and clave.lower().startswith("level"):
-                        _anotar(clave.lower(), i, valor)
-                        etiquetado = True
-                if not etiquetado and isinstance(item.get("level"), int):
-                    _anotar(f"level{item['level']}", i, item)
-    return niveles
-
-
-def _perfil_desde_niveles(niveles: dict[str, list]) -> dict:
-    """Extrae del export PLANO todo lo que alimenta el sparkline y sus refs.
-
-    Recorre cada nivel una vez y en su propia forma, sin árboles que navegar:
-      · L1 → las tres series por frame (peak / avg / min) en nits
-      · L5 → la zona de active area de cada frame (barras dinámicas)
-      · L8 → el max_pq más alto visto por target display
-      · L2 → el conjunto de trim targets
-      · L6 → el mastering display (nits directos, no PQ)
-
-    `frames` es el número de frames con L1, que es la longitud de las series.
-    """
-    def _a_nits(v) -> int:
-        v = float(v)
-        if v > 4096:
-            n = v
-        elif v < 1:
-            n = _pq_code_to_nits(v * 4095)
-        else:
-            n = _pq_code_to_nits(v)
-        return int(round(n))
-
-    cll: list[int] = []
-    fall: list[int] = []
-    minimos: list[int] = []
-    raw_max = 0
-    raw_suma = 0
-    for fila in niveles.get("level1") or []:
-        try:
-            mx, av, mn = int(fila["max_pq"]), int(fila["avg_pq"]), int(fila["min_pq"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        # Sanity: min<=avg<=max y en rango 12-bit. El parser anterior lo
-        # comprobaba porque la búsqueda a ciegas encontraba bloques hermanos
-        # con campos homónimos (en BR2049 daba un peak de ~176 nits en vez de
-        # ~1000). Aquí el nivel viene etiquetado, pero un registro incoherente
-        # sigue sin servir.
-        if not (0 <= mn <= av <= mx <= 8191):
-            continue
-        raw_max = max(raw_max, mx)
-        raw_suma += mx
-        cll.append(_a_nits(mx))
-        fall.append(_a_nits(av))
-        minimos.append(_a_nits(mn))
-
-    zonas_l5: list[tuple] = []
-    for fila in niveles.get("level5") or []:
-        try:
-            zonas_l5.append((
-                int(fila.get("active_area_top_offset", 0)),
-                int(fila.get("active_area_bottom_offset", 0)),
-                int(fila.get("active_area_left_offset", 0)),
-                int(fila.get("active_area_right_offset", 0)),
-            ))
-        except (TypeError, ValueError):
-            continue
-
-    l8_por_target: dict[int, int] = {}
-    for fila in niveles.get("level8") or []:
-        try:
-            tdi = int(fila.get("target_display_index", 0))
-            if not tdi:
-                continue
-            # `target_max_pq` es el campo bueno; los otros dos son el fallback
-            # histórico para exports que no lo traen.
-            pq = (int(fila.get("target_max_pq", 0))
-                  or int(fila.get("target_mid_pq", 0))
-                  or int(fila.get("trim_slope", 0)))
-        except (TypeError, ValueError):
-            continue
-        if pq > l8_por_target.get(tdi, 0):
-            l8_por_target[tdi] = pq
-
-    l2_targets: set[int] = set()
-    for fila in niveles.get("level2") or []:
-        try:
-            l2_targets.add(int(fila["target_max_pq"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-
-    l6 = {"max_nits": 0, "min_nits": 0.0, "max_cll": 0, "max_fall": 0}
-    for fila in niveles.get("level6") or []:
-        try:
-            l6 = {
-                "max_nits": int(fila.get("max_display_mastering_luminance", 0)),
-                "min_nits": float(fila.get("min_display_mastering_luminance", 0)) / 10000.0,
-                "max_cll": int(fila.get("max_content_light_level", 0)),
-                "max_fall": int(fila.get("max_frame_average_light_level", 0)),
-            }
-        except (TypeError, ValueError):
-            pass
-        break   # es constante en todo el RPU: el primer registro basta
-
-    return {
-        "cll": cll, "fall": fall, "min": minimos,
-        "l5_zonas": zonas_l5,
-        "l8_por_target": l8_por_target,
-        "l2_targets_pq": l2_targets,
-        "l6": l6,
-        "raw_max_pq": raw_max,
-        "raw_avg_pq": (raw_suma / len(cll)) if cll else 0,
-    }
-
-
 @app.post("/api/mkv/light-profile", summary="Extrae MaxCLL/MaxFALL por escena (on-demand)")
 async def mkv_light_profile_endpoint(body: dict):
     """Extrae el perfil de luminancia del MOVIE COMPLETO del MKV.
@@ -4020,7 +3870,7 @@ async def mkv_light_profile_endpoint(body: dict):
                 rpus = data.get("rpus") if isinstance(data, dict) else data
                 if not isinstance(rpus, list):
                     raise ValueError("formato inesperado (sin 'rpus')")
-                return _niveles_desde_volcado(rpus)
+                return niveles_desde_volcado(rpus)
 
             try:
                 niveles = await asyncio.to_thread(_leer_y_adaptar)
@@ -4029,115 +3879,27 @@ async def mkv_light_profile_endpoint(body: dict):
             _lp_log(f"Paso 2/2 ✓ export + parse JSON OK en {_time.monotonic() - t2:.1f}s")
             _lp_set_step_pct(100, 98)
 
-        # ── UN solo consumidor, sobre el formato plano ─────────────────
-        # Recorrer 243.552 frames extrayendo L1 + L5 + L8 costaba 2,4 s de
-        # event loop en un Mac (×3-4 en el NAS). Va a un thread.
-        perfil = await asyncio.to_thread(_perfil_desde_niveles, niveles)
-
-        def _to_nits(v):
-            """PQ code → nits. Detecta formato automáticamente."""
-            v = float(v)
-            if v > 4096: return v
-            if v < 1:    return _pq_code_to_nits(v * 4095)
-            return _pq_code_to_nits(v)
-
-        per_frame_cll = perfil["cll"]
-        per_frame_fall = perfil["fall"]
-        per_frame_min = perfil["min"]
-        per_frame_l5 = perfil["l5_zonas"]
-        l8_targets_full = perfil["l8_por_target"]
-        l2_targets_pq = perfil["l2_targets_pq"]
-        l6_master_max_nits = perfil["l6"]["max_nits"]
-        l6_master_min_nits = perfil["l6"]["min_nits"]
-        l6_max_cll = perfil["l6"]["max_cll"]
-        l6_max_fall = perfil["l6"]["max_fall"]
-
+        # ── El perfil, en un thread ────────────────────────────────────
+        # Recorrer 243.552 frames extrayendo L1 + L5 + L8 y reducir las series
+        # costaba 2,4 s de event loop en un Mac (×3-4 en el NAS).
+        payload = await asyncio.to_thread(payload_de_luminancia, niveles)
+        crudo = payload.pop("_raw", {})
         _logger.info(
-            "light-profile: parseo extrajo %d frames con L1 · peak max_pq=%d "
-            "avg max_pq=%.0f · %d zonas L5 · %d targets L8",
-            len(per_frame_cll), perfil["raw_max_pq"], perfil["raw_avg_pq"],
-            len(set(per_frame_l5)), len(l8_targets_full),
+            "light-profile: %d frames con L1 · peak max_pq=%d avg max_pq=%.0f · "
+            "%d zonas L5 · %d targets L8",
+            payload["total_frames"], crudo.get("max_pq", 0), crudo.get("avg_pq", 0),
+            len(payload["references"]["l5_zones"]),
+            len(payload["references"]["l8_trim_nits_full"]),
         )
-
-        if not per_frame_cll:
+        if not payload["total_frames"]:
             raise HTTPException(
                 status_code=500,
                 detail=("El export del RPU no contiene bloques L1 con "
                         "max_pq/avg_pq/min_pq coherentes. Revisa los logs del "
                         "contenedor para ver qué niveles devolvió dovi_tool."),
             )
-
-        l2_targets_nits = sorted({int(round(_to_nits(pq))) for pq in l2_targets_pq})
-
-        # ── L5 zonas: agrupar offsets unicos a lo largo del film ──────
-        # Si el film tiene letterbox dinamico (IMAX 1.43 ↔ 2.40, etc.), aqui
-        # detectamos las distintas zonas. Devolvemos la lista ordenada por
-        # frequencia (la mas comun primero) con conteo de frames.
-        from collections import Counter
-        l5_zones_counter = Counter(per_frame_l5)
-        l5_zones_list = []
-        for offsets, count in l5_zones_counter.most_common():
-            l5_zones_list.append({
-                "top": offsets[0],
-                "bottom": offsets[1],
-                "left": offsets[2],
-                "right": offsets[3],
-                "frames": count,
-                "pct": round(count / max(1, len(per_frame_l5)) * 100, 1),
-            })
-
-        # ── L8 trims: convertir target_max_pq a nits, ordenar ASC ────
-        # l8_targets_full = {target_display_index: target_max_pq}. Convertimos
-        # max_pq → nits y devolvemos lista unica ordenada.
-        l8_trim_nits_full = sorted({
-            int(round(_to_nits(mxpq))) for mxpq in l8_targets_full.values() if mxpq
-        })
-
-        # ── Stats: percentiles + buckets de clasificacion ─────────────
-        sorted_cll = sorted(per_frame_cll)
-
-        def _percentile(xs, p):
-            if not xs: return 0
-            idx = max(0, min(len(xs) - 1, int(round(p / 100.0 * (len(xs) - 1)))))
-            return xs[idx]
-
-        peak = max(per_frame_cll) if per_frame_cll else 0
-        p50 = _percentile(sorted_cll, 50)
-        p95 = _percentile(sorted_cll, 95)
-        p99 = _percentile(sorted_cll, 99)
-        avg_of_max = sum(per_frame_cll) / len(per_frame_cll) if per_frame_cll else 0
-        # Buckets sobre per_frame_cll (peak por escena/frame)
-        bucket_dim = sum(1 for v in per_frame_cll if v < 100)
-        bucket_mid = sum(1 for v in per_frame_cll if 100 <= v < 300)
-        bucket_high = sum(1 for v in per_frame_cll if v >= 300)
-        total = max(1, len(per_frame_cll))
-
-        # Downsample a ~240 buckets para la sparkline (no tiene sentido mostrar
-        # 186k frames uno a uno)
-        MAX_POINTS = 240
-        def _downsample_max(xs):
-            if len(xs) <= MAX_POINTS:
-                return xs
-            step = len(xs) / MAX_POINTS
-            return [max(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
-
-        def _downsample_avg(xs):
-            if len(xs) <= MAX_POINTS:
-                return xs
-            step = len(xs) / MAX_POINTS
-            out = []
-            for i in range(MAX_POINTS):
-                seg = xs[int(i * step):int((i + 1) * step)]
-                out.append(int(round(sum(seg) / len(seg))) if seg else 0)
-            return out
-
-        def _downsample_min(xs):
-            if len(xs) <= MAX_POINTS:
-                return xs
-            step = len(xs) / MAX_POINTS
-            return [min(xs[int(i * step):int((i + 1) * step)] or [0]) for i in range(MAX_POINTS)]
-
-        _lp_log(f"✓ Listo — {len(per_frame_cll):,} frames analizados, downsample a {MAX_POINTS} buckets")
+        _lp_log(f"✓ Listo — {payload['total_frames']:,} frames analizados, "
+                f"downsample a {LUM_MAX_POINTS} buckets")
         # Escrituras de estado guardadas por job_id: si el usuario canceló este
         # análisis y relanzó otro, NO pisamos el estado del nuevo.
         if _light_profile_state.get("job_id") == my_job_id:
@@ -4145,46 +3907,9 @@ async def mkv_light_profile_endpoint(body: dict):
             _light_profile_state["step_label"] = "Listo"
             _light_profile_state["step_pct"] = 100
             _light_profile_state["global_pct"] = 100
-        # Resultado tambien guardado en el state para que el frontend pueda
-        # recuperarlo via polling si el POST aborta (timeout en MKVs muy
-        # grandes que tardan >60 min). El POST sigue devolviendo el dato
-        # como antes — esto es solo un "buffer" para fallback.
-        result = {
-            "per_scene_max_cll":  _downsample_max(per_frame_cll),
-            # avg_pq por escena (anteriormente per_scene_max_fall, mantenemos
-            # nombre por compat) — promediado en cada bucket
-            "per_scene_max_fall": _downsample_avg(per_frame_fall) if per_frame_fall else [],
-            "per_scene_min":      _downsample_min(per_frame_min) if per_frame_min else [],
-            "total_frames": len(per_frame_cll),
-            # Stats globales (sobre per_frame_cll antes del downsample)
-            "stats": {
-                "peak":        peak,
-                "p99":         p99,
-                "p95":         p95,
-                "p50":         p50,
-                "avg_of_max":  int(round(avg_of_max)),
-                "bucket_dim":  bucket_dim,
-                "bucket_mid":  bucket_mid,
-                "bucket_high": bucket_high,
-                "total":       total,
-            },
-            # Referencias del RPU para overlay y leyenda
-            "references": {
-                "l2_trim_targets_nits":  l2_targets_nits,        # ej. [100, 600, 1000]
-                "l6_master_max_nits":    l6_master_max_nits,     # ej. 4000
-                "l6_master_min_nits":    l6_master_min_nits,     # ej. 0.005
-                "l6_max_cll":            l6_max_cll,              # ej. 0 (no seteado en BR2049)
-                "l6_max_fall":           l6_max_fall,
-                # L5 zonas detectadas a lo largo del film. Si len > 1,
-                # el film tiene active area dinamica (letterbox cambiante).
-                # Si len == 1, el active area es uniforme (caso normal).
-                "l5_zones":              l5_zones_list,
-                # L8 trim nits del film completo (reemplaza al sample).
-                # Usar este array en vez del DoviInfo.l8_trim_nits si esta
-                # presente — captura targets que solo aparecen en frames mid/late.
-                "l8_trim_nits_full":     l8_trim_nits_full,
-            },
-        }
+        # El resultado se guarda también en el state para que el frontend pueda
+        # recuperarlo por polling si el POST aborta (timeout en MKVs muy grandes).
+        result = payload
         if _light_profile_state.get("job_id") == my_job_id:
             _light_profile_state["result"] = result
         return result
@@ -4728,24 +4453,6 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         if _mkv_quality_state.get("audit_id") == my_audit_id:
             _mkv_quality_active_proc["proc"] = None
             _mkv_quality_state["active"] = False
-
-
-def _pq_code_to_nits(code_value: float) -> float:
-    """Convierte valor PQ (0-4095) a nits via SMPTE ST 2084 EOTF inverse."""
-    # PQ inverse EOTF: L = 10000 * ((max(0, V^(1/m2) - c1)) / (c2 - c3 * V^(1/m2)))^(1/m1)
-    # V = code_value / 4095
-    v = max(0.0, min(1.0, code_value / 4095.0))
-    m1 = 2610.0 / 16384.0
-    m2 = 2523.0 / 4096.0 * 128.0
-    c1 = 3424.0 / 4096.0
-    c2 = 2413.0 / 4096.0 * 32.0
-    c3 = 2392.0 / 4096.0 * 32.0
-    vm2 = v ** (1.0 / m2)
-    num = max(0.0, vm2 - c1)
-    den = c2 - c3 * vm2
-    if den <= 0:
-        return 0.0
-    return 10000.0 * (num / den) ** (1.0 / m1)
 
 
 # Estado global de la operación de apply (single-job singleton). Permite

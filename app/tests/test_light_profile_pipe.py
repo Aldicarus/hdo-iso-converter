@@ -213,8 +213,8 @@ class TestUnSoloParserDelExport(unittest.TestCase):
     """
 
     def setUp(self):
-        import main
-        self.main = main
+        from phases import luminance
+        self.lum = luminance
 
     # ── el formato plano de export_levels ────────────────────────────
     PLANO = {
@@ -235,7 +235,7 @@ class TestUnSoloParserDelExport(unittest.TestCase):
     }
 
     def test_las_tres_series_salen_del_l1(self):
-        r = self.main._perfil_desde_niveles(self.PLANO)
+        r = self.lum.perfil_desde_niveles(self.PLANO)
         self.assertEqual(len(r["cll"]), 2)
         self.assertEqual(len(r["fall"]), 2)
         self.assertEqual(len(r["min"]), 2)
@@ -244,11 +244,11 @@ class TestUnSoloParserDelExport(unittest.TestCase):
         self.assertLess(r["cll"][0], r["cll"][1])
 
     def test_l8_se_queda_con_el_max_pq_mas_alto_por_target(self):
-        r = self.main._perfil_desde_niveles(self.PLANO)
+        r = self.lum.perfil_desde_niveles(self.PLANO)
         self.assertEqual(r["l8_por_target"], {1: 2500})
 
     def test_l6_se_lee_del_primer_registro_y_min_va_en_diezmilesimas(self):
-        r = self.main._perfil_desde_niveles(self.PLANO)
+        r = self.lum.perfil_desde_niveles(self.PLANO)
         self.assertEqual(r["l6"]["max_nits"], 1000)
         self.assertAlmostEqual(r["l6"]["min_nits"], 0.0001)
         self.assertEqual(r["l6"]["max_cll"], 300)
@@ -262,12 +262,12 @@ class TestUnSoloParserDelExport(unittest.TestCase):
             {"frame": 1, "min_pq": 7, "avg_pq": 900, "max_pq": 99999},  # fuera de 12-bit
             {"frame": 2, "min_pq": 7, "avg_pq": 900, "max_pq": 2081},   # bueno
         ]}
-        r = self.main._perfil_desde_niveles(malo)
+        r = self.lum.perfil_desde_niveles(malo)
         self.assertEqual(len(r["cll"]), 1, "solo el coherente debe contar")
         self.assertEqual(r["raw_max_pq"], 2081)
 
     def test_sin_l1_no_hay_series(self):
-        r = self.main._perfil_desde_niveles({"level6": self.PLANO["level6"]})
+        r = self.lum.perfil_desde_niveles({"level6": self.PLANO["level6"]})
         self.assertEqual(r["cll"], [])
 
     # ── el volcado anidado desemboca en lo mismo ─────────────────────
@@ -297,9 +297,9 @@ class TestUnSoloParserDelExport(unittest.TestCase):
     def test_el_volcado_anidado_da_el_mismo_perfil_que_el_plano(self):
         """Es lo que hace que se pueda tener UN consumidor: el camino legacy
         se adapta, no se parsea aparte."""
-        niveles = self.main._niveles_desde_volcado(self._volcado_anidado())
-        desde_anidado = self.main._perfil_desde_niveles(niveles)
-        desde_plano = self.main._perfil_desde_niveles(self.PLANO)
+        niveles = self.lum.niveles_desde_volcado(self._volcado_anidado())
+        desde_anidado = self.lum.perfil_desde_niveles(niveles)
+        desde_plano = self.lum.perfil_desde_niveles(self.PLANO)
         for clave in ("cll", "fall", "min", "l8_por_target", "l2_targets_pq",
                       "l6", "raw_max_pq"):
             self.assertEqual(desde_anidado[clave], desde_plano[clave], clave)
@@ -309,7 +309,7 @@ class TestUnSoloParserDelExport(unittest.TestCase):
         `ext_metadata_blocks`."""
         rpus = [{"vdr_dm_data": {"cmv29_metadata": {
             "level1": {"min_pq": 7, "avg_pq": 900, "max_pq": 2081}}}}]
-        r = self.main._perfil_desde_niveles(self.main._niveles_desde_volcado(rpus))
+        r = self.lum.perfil_desde_niveles(self.lum.niveles_desde_volcado(rpus))
         self.assertEqual(len(r["cll"]), 1)
         self.assertEqual(r["raw_max_pq"], 2081)
 
@@ -317,12 +317,12 @@ class TestUnSoloParserDelExport(unittest.TestCase):
         """Forma (a): lista de bloques con un campo `level` entero."""
         rpus = [{"vdr_dm_data": {"cmv29_metadata": {"ext_metadata_blocks": [
             {"level": 1, "min_pq": 7, "avg_pq": 900, "max_pq": 2081}]}}}]
-        r = self.main._perfil_desde_niveles(self.main._niveles_desde_volcado(rpus))
+        r = self.lum.perfil_desde_niveles(self.lum.niveles_desde_volcado(rpus))
         self.assertEqual(len(r["cll"]), 1)
 
     def test_un_volcado_basura_no_revienta(self):
         for basura in ([], [None], [{}], [{"vdr_dm_data": None}],
                        [{"vdr_dm_data": {"cmv29_metadata": "no soy dict"}}]):
-            r = self.main._perfil_desde_niveles(
-                self.main._niveles_desde_volcado(basura))
+            r = self.lum.perfil_desde_niveles(
+                self.lum.niveles_desde_volcado(basura))
             self.assertEqual(r["cll"], [], basura)

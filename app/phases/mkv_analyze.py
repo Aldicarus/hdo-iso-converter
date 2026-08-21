@@ -606,6 +606,72 @@ def _fmt_elapsed(secs: float) -> str:
     return f"{secs // 3600}h {(secs % 3600) // 60:02d}m"
 
 
+async def _exportar_una_vez(
+    rpu_path: Path,
+    tmpdir: Path,
+    con_luminancia: bool,
+    export_timeout: int,
+    log_callback=None,
+    register_proc=None,
+):
+    """Un solo `dovi_tool export --levels` que alimenta a los DOS análisis.
+
+    Devuelve `(RpuAnalysis, payload_de_luminancia | None)`.
+
+    Extraer el RPU del MKV cuesta ~650 s medidos (ffmpeg limitado por disco +
+    extract-rpu limitado por CPU, solapados por el pipe) y el export por
+    niveles ~7 s: la extracción es el **97 %** del análisis. Hacer los combos
+    L8/L2 y el perfil de luminancia por separado significaba pagar dos veces
+    ese 97 % para compartir el 3 %. Pidiendo L5 y L6 en la misma pasada, el
+    segundo análisis sale prácticamente gratis.
+
+    Si `--levels` no está disponible (dovi_tool anterior a 2.3.3) se cae al
+    volcado completo, que da los combos pero **no** el perfil: es el precio de
+    un binario viejo, y se avisa en el log.
+    """
+    from phases.luminance import payload_de_luminancia
+    from phases.rpu_analyze import (
+        _run_export_levels, analysis_desde_paths, analyze_rpu_combos,
+        cargar_niveles,
+    )
+
+    extra = ("level5", "level6") if con_luminancia else ()
+    rc, stderr, paths = await _run_export_levels(
+        rpu_path, tmpdir, "combinado", timeout=export_timeout,
+        log_callback=log_callback, register_proc=register_proc,
+        niveles_extra=extra,
+    )
+    utiles = {k: v for k, v in paths.items()
+              if v.exists() and v.stat().st_size > 0}
+    if rc != 0 or "level1" not in utiles or "level8" not in utiles:
+        if log_callback:
+            log_callback("[Audit] `export --levels` no disponible — se usa el "
+                         "volcado completo. Los combos saldrán igual; el perfil "
+                         "de luminancia necesita L5/L6 y se omite.")
+        analisis = await analyze_rpu_combos(
+            rpu_path, export_timeout=export_timeout,
+            log_callback=log_callback, register_proc=register_proc)
+        return analisis, None
+
+    analisis = await asyncio.to_thread(analysis_desde_paths, utiles)
+    luz = None
+    if con_luminancia:
+        niveles = await asyncio.to_thread(cargar_niveles, utiles)
+        luz = await asyncio.to_thread(payload_de_luminancia, niveles)
+        # `_raw` son los valores PQ crudos, solo para el log: no forman parte
+        # del contrato con el frontend.
+        crudo = luz.pop("_raw", {})
+        if log_callback and crudo:
+            log_callback(f"[Audit] L1 crudo: peak max_pq={crudo.get('max_pq', 0)} "
+                         f"· avg max_pq={crudo.get('avg_pq', 0):.0f}")
+    for ruta in utiles.values():
+        try:
+            ruta.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return analisis, luz
+
+
 async def analyze_rpu_quality_for_mkv(
     mkv_path: str,
     progress_callback=None,
@@ -613,8 +679,14 @@ async def analyze_rpu_quality_for_mkv(
     register_proc=None,
     dv_flags: dict | None = None,
     log_callback=None,
+    con_luminancia: bool = False,
 ) -> dict:
     """Pipeline de auditoría profunda del RPU de un MKV (Tab 2, on-demand).
+
+    Con `con_luminancia=True` produce ADEMÁS el perfil de luminancia L1, bajo
+    la clave `light_profile` del resultado. Sale casi gratis: la extracción del
+    RPU es el ~97 % del coste (medido: ~650 s frente a ~7 s de export) y se
+    comparte, con L5 y L6 pedidos en la misma pasada del export.
 
     Pasos (con timings típicos en UHD BD 60 GB):
       1. ffmpeg → HEVC annex-B (2-7 min, I/O-bound NAS).
@@ -887,23 +959,20 @@ async def analyze_rpu_quality_for_mkv(
         _check()
         _emit("combos", 80.0, "Exportando metadata y agregando combos L8/L2…")
         _log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
-        _log("[Audit] 📋 Plan: dovi_tool export -d all sobre el RPU → JSON grande "
-             "(~3-5× el tamaño del RPU) → parsear y agregar combos únicos por frame.")
-        _log("[Audit] ⏱ Para UHD BD el export puede tardar 5-15 min (JSON 300-500 MB). "
-             "Verás líneas de progreso del dovi_tool a continuación.")
-        _log(f"$ dovi_tool export -i {rpu_path} -d all=<json_temp>")
+        _niveles_txt = ("L1, L2, L8 + L5 y L6 para el perfil de luminancia"
+                        if con_luminancia else "L1, L2, L8")
+        _log(f"[Audit] 📋 Plan: dovi_tool export --levels ({_niveles_txt}) sobre "
+             "el RPU → parsear y agregar combos únicos por frame"
+             + (" y construir el perfil de luminancia." if con_luminancia else "."))
+        _log("[Audit] ⏱ El export por niveles son segundos; el volcado completo "
+             "(reserva para dovi_tool < 2.3.3) puede tardar 5-15 min.")
         t_step = _t.monotonic()
-        # Timeout amplio (15 min) y streaming del stderr para que el log
-        # muestre progreso real en lugar de quedarse silencioso 5-15 min.
-        # register_proc para que el cancel pueda matarlo. Usamos _log (con
-        # wrapper de error handling) en lugar del callback crudo.
-        rpu_analysis = await analyze_rpu_combos(
-            rpu_path,
-            # export -d all de un RPU full-movie escala con los frames y puede
-            # superar 15 min en NAS lentos / pelis largas → 30 min de margen.
-            export_timeout=1800,
-            log_callback=_log,
-            register_proc=register_proc,
+        # UN solo export, dos consumidores. Timeout amplio (30 min) porque el
+        # export de un RPU full-movie escala con los frames, y streaming del
+        # stderr para que el log muestre progreso en vez de callarse minutos.
+        rpu_analysis, luz = await _exportar_una_vez(
+            rpu_path, tmpdir, con_luminancia,
+            export_timeout=1800, log_callback=_log, register_proc=register_proc,
         )
         _check()
         if rpu_analysis.total_frames == 0:
@@ -934,7 +1003,18 @@ async def analyze_rpu_quality_for_mkv(
         result = _build_quality_audit_from_rpu_analysis(
             rpu_analysis, is_cmv29_only, dv_flags=dv_flags,
         )
-        _emit("done", 100.0, "✓ Auditoría completada")
+        if luz is not None:
+            # El perfil viaja aparte del bloque quality_*: son dos análisis del
+            # mismo RPU y se cachean en bloques distintos, con su propia versión.
+            result["light_profile"] = luz
+            _log(f"[Audit] Perfil de luminancia: {luz['total_frames']:,} frames · "
+                 f"peak {luz['stats']['peak']} nits · "
+                 f"p95 {luz['stats']['p95']} nits · "
+                 f"{len(luz['references']['l5_zones'])} zona(s) L5")
+        elif con_luminancia:
+            _log("[Audit] ⚠ Sin perfil de luminancia: el export por niveles no "
+                 "estuvo disponible (hace falta dovi_tool >= 2.3.3).")
+        _emit("done", 100.0, "✓ Análisis completado")
         _log(f"[Audit] 🎯 Resultado: {result.get('quality_verdict_text', '—')}")
         if result.get("quality_tier_label"):
             _log(f"[Audit] Tier: {result['quality_tier_label']}")
