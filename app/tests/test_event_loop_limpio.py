@@ -117,11 +117,6 @@ class TestLosSitiosArregladosSiguenEnUnThread(unittest.TestCase):
     def _fuente(self, rel: str) -> str:
         return (APP_DIR / rel).read_text()
 
-    def test_el_volcado_del_perfil_de_luminancia(self):
-        src = self._fuente("main.py")
-        self.assertIn("await asyncio.to_thread(_leer_y_adaptar)", src)
-        self.assertIn("await asyncio.to_thread(payload_de_luminancia, niveles)", src)
-
     def test_el_analisis_extendido(self):
         """El pipeline combinado hace el parseo y las dos agregaciones en
         threads: son 243.552 frames por nivel."""

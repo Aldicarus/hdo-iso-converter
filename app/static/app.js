@@ -202,7 +202,7 @@ async function _refreshTabRunningDots() {
  * vía API y reconecta los WS si las sesiones siguen corriendo. Cubre
  * los tres tabs:
  *   - Tab 1 (ISO→MKV): sessions list + queue WS + executionWs activo
- *   - Tab 2 (Editar MKV): light-profile chained-await ya es resiliente
+ *   - Tab 2 (Editar MKV): el análisis extendido ya es resiliente
  *   - Tab 3 (CMv4.0): proyectos abiertos + WS log por proyecto
  *
  * Sin esto, tras el wake los logs se quedan congelados aunque el job
@@ -293,12 +293,14 @@ function _runRecoveryTasks() {
     }
     setTimeout(() => connectExecutionWebSocket(queueState.running), 50);
   }
-  // Tab 2 — light-profile resilience (sin cambios)
-  if (window._dvLightSession?.ctrl) {
-    apiFetch('/api/mkv/light-profile/progress', { silent: true }).then(st => {
+  // Tab 2 — el análisis extendido: si el job ya terminó en el backend, el
+  // modal puede haberse quedado esperando un POST que murió con el sleep del
+  // Mac. Se aborta el fetch y se recoge el resultado del state.
+  if (window._mkvQualitySession?.ctrl) {
+    apiFetch('/api/mkv/quality-audit/progress', { silent: true }).then(st => {
       if (st && st.active === false && (st.result || st.error)) {
-        window._dvLightSession.polledResult = st.result || null;
-        try { window._dvLightSession.ctrl?.abort(); } catch (_) {}
+        window._mkvQualitySession.polledResult = st.result || null;
+        try { window._mkvQualitySession.ctrl?.abort(); } catch (_) {}
       }
     }).catch(() => {});
   }
@@ -9270,6 +9272,10 @@ function _advanceMkvAnalyzeStep(fromStep, nextStep) {
 // ── Proyecto MKV ─────────────────────────────────────────────────
 
 function openMkvProject(analysis) {
+  // El perfil de luminancia llega dentro del análisis cuando está cacheado:
+  // sale del mismo análisis extendido que los campos quality_*, así que al
+  // reabrir el MKV el gráfico aparece poblado sin volver a analizar nada.
+  _mkvAplicarPerfilLuminancia(analysis && analysis.dovi);
   mkvProject = {
     fileName: analysis.file_name,
     filePath: analysis.file_path,
@@ -10184,7 +10190,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // BLOQUE 1 · Stream (profile + timing + structure)
   // ═══════════════════════════════════════════════════════════════
   // Scene cuts + density si la auditoría profunda lo ha calculado.
-  // Esto solo aparece cuando el usuario ha pulsado "Auditar calidad"
+  // Esto solo aparece cuando el usuario ha pulsado "Análisis extendido"
   // (los datos vienen del quality audit, no del análisis básico).
   const sceneCutsCell = (dv?.quality_scene_cuts || 0) > 0
     ? cell(
@@ -10403,11 +10409,13 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon">📊</div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Extrae MaxCLL y MaxFALL frame-a-frame del movie completo para visualizar la curva de luminancia y su distribución. ~3-5 min en UHD BDs.</div>
+         <div class="dv-chart-empty-hint">Sale del <b>Análisis extendido</b>, junto a la auditoría de calidad: extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los dos. ~5-10 min en UHD.</div>
        </div>`;
+  // Un solo botón: el perfil sale del mismo análisis extendido que la
+  // auditoría de calidad, compartiendo la extracción del RPU.
   const actionBtn = hasLightProfile
-    ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)" data-tooltip="Re-analizar si el MKV cambió"><span>↻</span> Re-analizar</button>`
-    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAnalyzeLight(event)"><span>▶</span> Analizar ahora</button>`;
+    ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span>↻</span> Re-analizar</button>`
+    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`;
   // Tooltip explicando que estos valores son metadata DV L1 (no medidas
   // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
   // medidas reales tras tone-mapping sean 500-600 nits — porque el
@@ -10449,7 +10457,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
 
 /**
  * Card de auditoría de calidad del RPU. Dos estados:
- *  - Sin datos (quality_classification vacío): CTA "Auditar calidad"
+ *  - Sin datos (quality_classification vacío): CTA "Análisis extendido"
  *  - Con datos: badge color + verdict + 4 mini-stats + descripción técnica
  *
  * El usuario pulsa la CTA → pipeline backend de 5-10 min → la card se
@@ -10467,18 +10475,20 @@ function _rgrfQualityAuditCard(dv, isV40) {
       <section class="dv-block dv-quality-card dv-quality-empty">
         <div class="dv-quality-empty-icon">🔬</div>
         <div class="dv-quality-empty-body">
-          <div class="dv-quality-empty-title">Auditoría de calidad ${cmLabel}</div>
+          <div class="dv-quality-empty-title">Análisis extendido ${cmLabel}</div>
           <div class="dv-quality-empty-text">
-            Extrae todos los combos L8/L2 del RPU completo del MKV y los clasifica
-            (FULL / CORE+ / CORE / sintético). Identifica si el master que tienes
-            es de calidad de referencia o si fue generado algorítmicamente.
+            Extrae el RPU completo del MKV y saca de él <b>dos cosas de una vez</b>:
+            los combos L8/L2 clasificados (FULL / CORE+ / CORE / sintético), que
+            dicen si el master es de referencia o generado algorítmicamente, y el
+            <b>perfil de luminancia L1</b> frame a frame.
           </div>
           <button class="btn btn-primary btn-sm dv-quality-cta"
                   onclick="_rgrfAuditQuality(event)">
-            <span>🔬</span> Auditar calidad (~5-10 min)
+            <span>🔬</span> Análisis extendido (~5-10 min)
           </button>
           <div class="dv-quality-empty-hint">
-            El MKV no se modifica · ficheros intermedios borrados al terminar
+            Extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los
+            dos · el MKV no se modifica · los intermedios se borran al terminar
           </div>
         </div>
       </section>`;
@@ -10515,7 +10525,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
         </div>
         <button class="btn btn-ghost btn-xs dv-quality-reaudit"
                 onclick="_rgrfAuditQuality(event)"
-                data-tooltip="Re-auditar (5-10 min). Útil si el clasificador mejoró.">↻ Re-auditar</button>
+                data-tooltip="Re-analizar (5-10 min). Útil si el clasificador mejoró o el MKV cambió.">↻ Re-analizar</button>
       </div>
       <div class="dv-quality-stats">
         <div class="dv-quality-stat">
@@ -10551,8 +10561,27 @@ function _rgrfQualityAuditCard(dv, isV40) {
 
 /**
  * Dispara la auditoría de calidad del MKV abierto. Igual patrón que
- * _rgrfAnalyzeLight: modal de progreso con steps + polling.
+ * _rgrfAuditQuality: modal de progreso con steps + polling. Produce los DOS
+ * análisis (combos L8/L2 y perfil de luminancia) con una sola extracción.
  */
+/** Copia el perfil de luminancia a los campos planos que lee el render.
+ *
+ *  El backend lo manda agrupado en `dovi.light_profile`, porque sale del MISMO
+ *  análisis que los campos `quality_*` y se cachea con ellos. El render lo lee
+ *  plano (`per_scene_max_cll`, `l1_stats`, `l1_references`) desde cuando eran
+ *  dos análisis distintos con dos endpoints. Se mapea en UN sitio en vez de
+ *  tocar las diez lecturas del render. */
+function _mkvAplicarPerfilLuminancia(dv) {
+  const lp = dv && dv.light_profile;
+  if (!lp || !Array.isArray(lp.per_scene_max_cll) || !lp.per_scene_max_cll.length) return false;
+  dv.per_scene_max_cll  = lp.per_scene_max_cll;
+  dv.per_scene_max_fall = lp.per_scene_max_fall || [];
+  dv.per_scene_min      = lp.per_scene_min || [];
+  dv.l1_stats           = lp.stats || null;
+  dv.l1_references      = lp.references || null;
+  return true;
+}
+
 async function _rgrfAuditQuality(evt) {
   if (!mkvProject) return;
   // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
@@ -10722,10 +10751,16 @@ async function _rgrfAuditQuality(evt) {
     }
     if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
     Object.assign(mkvProject.analysis.dovi, data);
+    // El mismo análisis trae el perfil de luminancia (comparte la extracción
+    // del RPU, que es el ~97 % del coste). A los campos planos del render.
+    const conPerfil = _mkvAplicarPerfilLuminancia(mkvProject.analysis.dovi);
     await new Promise(r => setTimeout(r, 500));
     closeModal('mkv-quality-modal');
     _renderMkvEditPanel();
-    showToast(`Auditoría completada — ${data.quality_verdict_text}`, 'success');
+    showToast(
+      `Análisis extendido completado — ${data.quality_verdict_text}`
+      + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
+      'success');
   } catch (e) {
     if (session.cancelledByUser) {
       closeModal('mkv-quality-modal');
@@ -10902,389 +10937,12 @@ async function _rgrfCopyToClipboard(evt) {
   showToast(ok ? '✓ Radiografía copiada como Markdown' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
-/** Lanza el análisis del perfil de luminancia del movie completo.
- *  Polling del endpoint /progress cada 1.5s para barra + mini log en vivo. */
-async function _rgrfAnalyzeLight(evt) {
-  if (!mkvProject) return;
-
-  // Guard anti-solapamiento. El estado de luminancia es ÚNICO en el backend
-  // (un solo _light_profile_state + cancelación global) y la sesión del
-  // navegador (window._dvLightSession) también. Lanzar un segundo análisis
-  // mientras corre el primero machacaba esa sesión global y reabría el modal
-  // COMPARTIDO; al intentar deshacerte del segundo (atascado en el 409 del
-  // backend) el botón "Cancelar" disparaba la cancelación GLOBAL que mataba al
-  // PRIMERO, con mensajes cruzados ("Cancelado por el usuario" + "Timeout tras
-  // 3600s"). Preguntamos al backend (fuente de verdad) y, si hay uno activo,
-  // avisamos sin tocar nada. El 409 del endpoint queda como red de seguridad
-  // para la race entre este check y el POST (o llamadas no-UI).
-  let prevJobId = null;
-  try {
-    const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
-    if (st && st.active) {
-      showToast('Ya hay un análisis de luminancia en curso. Espera a que termine o cancélalo.', 'info');
-      return;
-    }
-    // job_id del análisis ANTERIOR ya terminado: el backend retiene su
-    // result/done hasta que NUESTRO POST resetee. El poller debe ignorarlo o
-    // aplicaría el resultado viejo (mismo bug que en quality-audit).
-    prevJobId = (st && st.job_id) || null;
-  } catch (_) { /* si /progress falla, continuamos; el 409 del backend cubre la race */ }
-
-  // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
-  // el análisis, el resultado no debe aplicarse al proyecto equivocado.
-  const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
-  // request_id estable por lanzamiento (dedup de re-envíos del POST largo).
-  const requestId = (self.crypto && self.crypto.randomUUID)
-    ? self.crypto.randomUUID()
-    : (Date.now() + '-' + Math.random().toString(36).slice(2));
-  // Inicializa UI del modal
-  const fileEl = document.getElementById('dv-light-modal-file');
-  if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
-  // Cabecera: restaurar icono base (una apertura previa con match TMDb pudo
-  // dejar la cartela) antes de re-intentar la hidratación.
-  const lPoster = document.getElementById('dv-light-modal-poster');
-  if (lPoster) lPoster.innerHTML = '<span id="dv-light-modal-icon">📊</span>';
-  const lTitle = document.getElementById('dv-light-modal-title');
-  if (lTitle) lTitle.textContent = 'Análisis de perfil de luminancia';
-  _dvLightLastStep = 0;       // monotonic step guard — reset por sesión
-  _dvLightLastPct = 0;        // idem para progreso global
-  _dvLightSetStep(1);
-  _dvLightSetProgress(0);
-  _dvLightSetElapsed(0);
-  const logEl = document.getElementById('dv-light-log');
-  if (logEl) logEl.innerHTML = '';
-  openModal('dv-light-modal');
-  // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
-  // ficha que los demás modales de análisis, para consistencia entre flujos.
-  _hydrateModalWithTmdb({
-    name: mkvProject.analysis.file_name,
-    modalId: 'dv-light-modal',
-    posterId: 'dv-light-modal-poster',
-    titleId: 'dv-light-modal-title',
-    subId: 'dv-light-modal-file',
-    subText: mkvProject.analysis.file_name,
-  });
-
-  // Polling del backend para el estado real. Usamos chained await (no
-  // setInterval) para evitar que se solapen peticiones en vuelo: bajo
-  // carga del NAS una petición lenta podía responder DESPUÉS de una más
-  // reciente, y la respuesta vieja con step=2 pisaba la actual con step=3.
-  // Resultado: el modal se quedaba "Extrayendo RPU" mientras el log
-  // mostraba ya "Exportando JSON". Con chained await solo hay 1 fetch
-  // en vuelo a la vez → orden monotónico garantizado.
-  let lastLogCount = 0;
-  let polling = true;
-  // AbortController del POST se expone via _dvLightSession para que el
-  // handler de cancel y el polling lo aborten cuando el backend ya
-  // termino (recuperacion tras Mac sleep — el POST pendiente puede
-  // quedar colgado pero el polling ve el resultado).
-  // Sesión con scope LOCAL. window._dvLightSession sigue apuntando a la
-  // sesión actual (para el botón Cancelar y la recuperación de visibilidad),
-  // pero el poller/finally/abort de ESTA invocación operan sobre `session`
-  // local — así un análisis nuevo que tome el relevo no es pisado por el
-  // teardown del viejo (bug cancelar+relanzar, igual que en quality-audit).
-  const session = { ctrl: null, polledResult: null, cancelledByUser: false, jobId: null };
-  window._dvLightSession = session;
-  const pollTicker = { _stop: () => { polling = false; } };
-  async function _pollLoop() {
-    while (polling) {
-      // Si otro análisis tomó el relevo (usuario relanzó), este poller es
-      // obsoleto: autodetenerse para no volcar log cruzado ni abortar el POST
-      // del análisis nuevo.
-      if (window._dvLightSession !== session) { polling = false; return; }
-      try {
-        const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
-        if (!polling || window._dvLightSession !== session) { polling = false; return; }
-        // Mientras el state siga mostrando el análisis ANTERIOR (aún no
-        // reseteado por nuestro POST), ignorarlo — no es nuestro result.
-        if (st && !(prevJobId && st.job_id === prevJobId)) {
-          if (st.job_id) session.jobId = st.job_id;
-          if (st.step >= 1 && st.step <= 4) _dvLightSetStep(st.step);
-          _dvLightSetProgress(st.global_pct || 0);
-          _dvLightSetElapsed(st.elapsed_s || 0);
-          const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
-          if (lines.length > lastLogCount && logEl) {
-            const newLines = lines.slice(lastLogCount);
-            const wasAtBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 12;
-            for (const line of newLines) {
-              const div = document.createElement('div');
-              div.className = 'dv-light-log-line';
-              if (/Paso \d\/3/.test(line)) div.classList.add('step');
-              if (line.includes('✓ Listo') || line.includes('✓ export') || line.includes('✓ ffmpeg') || line.includes('✓ RPU')) div.classList.add('done');
-              if (st.error && line.includes(st.error)) div.classList.add('error');
-              div.textContent = line;
-              logEl.appendChild(div);
-            }
-            if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
-            lastLogCount = lines.length;
-          }
-          // Recuperacion tras sleep: si el backend ya termino (active=false
-          // con result o error) pero el POST sigue colgado, abortamos el
-          // POST para desbloquear el await — el catch path usa el resultado
-          // del polling como fallback. Esto cubre el caso "Mac sleep durante
-          // analisis → wake → POST nunca resuelve aunque backend ya acabo".
-          if (st.active === false && (st.result || st.error)) {
-            session.polledResult = st.result || null;
-            try { session.ctrl?.abort(); } catch (_) {}
-            polling = false;
-            return;
-          }
-        }
-      } catch (_) { /* silencioso */ }
-      await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  _pollLoop();
-
-  try {
-    // Timeout 60 min — antes era 25 min y un MKV de 63 GB con 238k frames
-    // puede tardar ~25 min (ffmpeg ~6 min + extract-rpu ~6 min + dovi_tool
-    // export ~13 min). El abort llegaba segundos antes de que el backend
-    // respondiera. Si el caso real supera 60 min, el polling puede recoger
-    // el resultado del state.result via fallback (ver catch).
-    // Enviamos la ruta ABSOLUTA (file_path), no el filename. Antes el
-    // backend prefijaba /mnt/output asumiendo que solo se inspeccionaban
-    // ficheros del converter; con el browser de Library/Output ahora la
-    // ruta completa la determina el frontend en analyze_mkv.
-    //
-    // Usamos fetch() crudo (no apiFetch) porque apiFetch dispara un toast
-    // automatico si la respuesta falla. Como tenemos fallback via polling,
-    // el toast prematuro confunde al usuario ("Error de red" mientras el
-    // perfil se renderiza correctamente). Manejamos el error in-line.
-    const POST_TIMEOUT_MS = 3600000;
-    let data = null;
-    let postError = null;
-    {
-      const ctrl = new AbortController();
-      // Expone el ctrl al polling para que pueda abortar cuando vea el
-      // backend completado (Mac sleep recovery) y al handler de cancel.
-      session.ctrl = ctrl;
-      const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
-      try {
-        const resp = await fetch('/api/mkv/light-profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: targetFilePath, request_id: requestId }),
-          signal: ctrl.signal,
-        });
-        if (resp.ok) {
-          data = await resp.json();
-        } else {
-          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-          postError = err.detail || resp.statusText;
-        }
-      } catch (e) {
-        // Aborto, fallo de red, etc. Guardamos el motivo pero no toasteamos
-        // todavia — vamos a intentar recuperar via polling antes.
-        postError = e.name === 'AbortError'
-          ? `Timeout tras ${POST_TIMEOUT_MS / 1000}s`
-          : (e.message || String(e));
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    // Fallback: si el POST fallo o devolvio sin datos, el backend pudo
-    // terminar igualmente y el resultado vive en state.result.
-    // 1) Si el polling ya capturo el resultado (recuperacion sleep), usalo.
-    // 2) Si no, sondea unas veces mas para darle tiempo a finalizar.
-    if (!data?.per_scene_max_cll) {
-      const polled = session.polledResult;
-      if (polled && polled.per_scene_max_cll) {
-        data = polled;
-      } else {
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 1500));
-          const st = await apiFetch('/api/mkv/light-profile/progress', { silent: true });
-          // Ignorar el estado obsoleto del análisis anterior (mismo motivo que el poller).
-          if (st && prevJobId && st.job_id === prevJobId) continue;
-          if (st && st.result && st.result.per_scene_max_cll) {
-            data = st.result;
-            break;
-          }
-          if (st && !st.active && st.error) {
-            throw new Error(st.error);
-          }
-          if (st && !st.active && st.step === 4) {
-            // Backend marca terminado pero no hay result — caso raro
-            break;
-          }
-        }
-      }
-    }
-    // Si tras el fallback seguimos sin datos, ahora SI fallamos con el
-    // motivo del POST original.
-    if (!data?.per_scene_max_cll) {
-      throw new Error(postError || 'respuesta vacía del servidor');
-    }
-
-    _dvLightSetStep(4);
-    _dvLightSetProgress(100);
-
-    // Guard: si el analyze inicial detecto dovi=null (raro pero posible si
-    // _run_dovi_on_mkv fallo silenciosamente), inicializamos el dict para no
-    // crashear al asignar. Antes este TypeError se tragaba en el catch que
-    // cerraba el modal sin error visible — el usuario veia "parado sin
-    // resultado" cuando en realidad el backend habia devuelto 200 OK.
-    if (!mkvProject || !mkvProject.analysis) {
-      throw new Error('El MKV se cerró durante el análisis — vuelve a abrirlo');
-    }
-    // Si el usuario abrió otro MKV mientras corría el análisis, NO aplicar el
-    // resultado al proyecto equivocado.
-    const curFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
-    if (curFilePath !== targetFilePath) {
-      closeModal('dv-light-modal');
-      showToast('Perfil de luminancia completado para el MKV anterior', 'info');
-      return;
-    }
-    if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
-    mkvProject.analysis.dovi.per_scene_max_cll = data.per_scene_max_cll;
-    mkvProject.analysis.dovi.per_scene_max_fall = data.per_scene_max_fall || [];
-    mkvProject.analysis.dovi.per_scene_min     = data.per_scene_min || [];
-    mkvProject.analysis.dovi.l1_stats          = data.stats || null;
-    mkvProject.analysis.dovi.l1_references     = data.references || null;
-
-    await new Promise(r => setTimeout(r, 700));
-    closeModal('dv-light-modal');
-    _renderMkvEditPanel();
-    showToast(
-      `Perfil extraído — ${data.total_frames?.toLocaleString() || data.per_scene_max_cll.length} frames · ${data.per_scene_max_cll.length} buckets`,
-      'success'
-    );
-  } catch (e) {
-    // Cancelación explícita por el usuario — cierre directo sin tratar
-    // como error. Toast informativo + closeModal. NO inyectamos el botón
-    // "Cerrar" (sería redundante: el usuario ya cliqueó Cancelar).
-    if (session.cancelledByUser) {
-      closeModal('dv-light-modal');
-      showToast('🛑 Análisis cancelado', 'info');
-      return;
-    }
-    // No cerramos el modal automaticamente — antes lo haciamos a los 2.2s y
-    // si el usuario no estaba mirando perdia el error y veia "parado sin
-    // resultado". Ahora lo dejamos abierto con el error inyectado al log
-    // del modal y un boton "Cerrar" explicito para descartar.
-    const activeStep = document.querySelector('.dv-light-step.active');
-    if (activeStep) {
-      activeStep.classList.remove('active');
-      activeStep.classList.add('error');
-      const marker = activeStep.querySelector('.dv-light-step-marker');
-      if (marker) marker.textContent = '✗';
-    }
-    const errMsg = e?.message || String(e);
-    if (logEl) {
-      const div = document.createElement('div');
-      div.className = 'dv-light-log-line error';
-      div.textContent = `✗ Error: ${errMsg}`;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    showToast(`Error perfil luminancia: ${errMsg}`, 'error', 8000);
-    // Sustituimos el progreso por un boton de cerrar para que el usuario
-    // pueda leer el error con calma. Idempotente: si ya existe, no lo
-    // duplicamos.
-    if (!document.getElementById('dv-light-error-close-btn')) {
-      const footer = document.querySelector('#dv-light-modal .modal-foot, #dv-light-modal .dv-light-foot');
-      const host = footer || document.querySelector('#dv-light-modal .modal-box') || document.getElementById('dv-light-modal');
-      if (host) {
-        const btn = document.createElement('button');
-        btn.id = 'dv-light-error-close-btn';
-        btn.className = 'btn btn-ghost btn-sm';
-        btn.textContent = 'Cerrar';
-        btn.style.marginTop = '12px';
-        btn.onclick = () => {
-          closeModal('dv-light-modal');
-          btn.remove();
-        };
-        host.appendChild(btn);
-      }
-    }
-  } finally {
-    pollTicker._stop();
-    session.ctrl = null;
-    session.polledResult = null;
-    session.cancelledByUser = false;
-    // Solo soltar la referencia global si seguimos siendo el análisis activo —
-    // si uno nuevo ya tomó el relevo NO la tocamos (era el clobber del bug).
-    if (window._dvLightSession === session) window._dvLightSession = null;
-  }
-}
-
-/** Cancela el análisis de perfil de luminancia activo. Llamado desde el
- *  botón "🛑 Cancelar análisis" del modal. Marca la sesión como cancelada
- *  por el usuario (para que el catch del POST cierre el modal sin
- *  mostrarlo como error), POST al backend para matar el subprocess y
- *  aborta el fetch local. */
-async function _dvLightCancel() {
-  const btn = document.getElementById('dv-light-cancel-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
-  // Flag para que el catch path NO muestre error ni boton Cerrar — fue
-  // intencional, cierre directo + toast informativo.
-  const session = window._dvLightSession;
-  if (session) session.cancelledByUser = true;
-  try {
-    // Enviamos el job_id que ESTE modal sigue: el backend ignora el cancel si
-    // ya no coincide con el análisis vivo (cancel obsoleto tras relanzar).
-    await apiFetch('/api/mkv/light-profile/cancel', {
-      method: 'POST', silent: true,
-      body: JSON.stringify({ job_id: session?.jobId || null }),
-    });
-  } catch (_) { /* el aborto local + state del backend bastan */ }
-  try { session?.ctrl?.abort(); } catch (_) {}
-}
-
-// Guard monotónico: ignora actualizaciones que llegan con un step inferior
-// al actual (orden de mensajes garantizado por el chained await del polling,
-// pero esto ofrece doble red por si el codigo manda updates desordenados
-// desde otros sitios — p.ej. el success path llama _dvLightSetStep(4) y
-// luego una respuesta vieja en vuelo querría volver a step=3).
-let _dvLightLastStep = 0;
-let _dvLightLastPct = 0;
-
-// El backend numera los pasos como ids internos: 1 = extraer HEVC, 2 = extraer
-// el RPU aparte, 3 = export + parseo, >=4 = terminado. La tira del modal tiene
-// DOS filas porque por el pipe los ids 1 y 2 son el mismo trabajo; el 2 solo
-// aparece si el pipe no estuvo disponible y hubo que hacerlo en serie.
-const _DV_LIGHT_PASO_A_FILA = { 1: 1, 2: 1, 3: 2 };
-const _DV_LIGHT_FILAS = 2;
-
-function _dvLightSetStep(activeStep) {
-  if (activeStep < _dvLightLastStep) return;
-  _dvLightLastStep = activeStep;
-  const fila = activeStep >= 4 ? _DV_LIGHT_FILAS + 1
-                               : (_DV_LIGHT_PASO_A_FILA[activeStep] || activeStep);
-  for (let i = 1; i <= _DV_LIGHT_FILAS; i++) {
-    const el = document.getElementById(`dv-light-step-${i}`);
-    if (!el) continue;
-    el.classList.remove('active', 'pending', 'done', 'error');
-    const marker = el.querySelector('.dv-light-step-marker');
-    if (activeStep >= 4 || i < fila) {
-      el.classList.add('done');
-      if (marker) marker.textContent = '✓';
-    } else if (i === fila) {
-      el.classList.add('active');
-      if (marker) marker.textContent = '⟳';
-    } else {
-      el.classList.add('pending');
-      if (marker) marker.textContent = '○';
-    }
-  }
-}
-function _dvLightSetProgress(pct) {
-  // Mismo guard monotonico que _dvLightSetStep
-  const clamped = Math.max(0, Math.min(100, pct));
-  if (clamped < _dvLightLastPct) return;
-  _dvLightLastPct = clamped;
-  const bar = document.getElementById('dv-light-progress-bar');
-  const txt = document.getElementById('dv-light-pct');
-  if (bar) bar.style.width = `${clamped}%`;
-  if (txt) txt.textContent = `${Math.round(clamped)}%`;
-}
-function _dvLightSetElapsed(secs) {
-  const el = document.getElementById('dv-light-elapsed');
-  if (!el) return;
-  const s = Math.max(0, Math.floor(secs));
-  el.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
-}
+// `_rgrfAnalyzeLight` y los helpers `_dvLight*` vivían aquí: modal propio,
+// polling propio, cancelación propia y teardown propio, ~370 líneas calcadas de
+// la auditoría de calidad para un análisis que hacía EXACTAMENTE la misma
+// extracción del RPU. Los dos botones se separaron porque cada uno era caro;
+// ya no lo son por separado (la extracción es el ~97 % y ahora se comparte),
+// así que hay un solo botón y un solo job: `_rgrfAuditQuality`.
 
 // ── Render del panel de edición ──────────────────────────────────
 
@@ -12187,6 +11845,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   });
 
   if (fresh) {
+    _mkvAplicarPerfilLuminancia(fresh && fresh.dovi);
     mkvProject.analysis = fresh;
     mkvProject.originalAnalysis = structuredClone(fresh);
     mkvProject.dirty = false;

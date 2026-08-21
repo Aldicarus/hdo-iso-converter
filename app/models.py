@@ -239,6 +239,18 @@ class DoviInfo(BaseModel):
     + L8 sintético', 'Master CMv4.0 pre-IQ (anterior a L11)'. Se
     muestran como bullets debajo del veredicto en la card de auditoría."""
 
+    light_profile: dict | None = None
+    """Perfil de luminancia L1 del film completo (`luminance.payload_de_luminancia`):
+    tres series de 240 cubos, percentiles, buckets de brillo y las referencias
+    del overlay (trims L2, master display L6, zonas L5, targets L8).
+
+    Sale del MISMO análisis que los campos `quality_*` y se cachea con ellos:
+    lo caro es extraer el RPU del MKV (~97 % del tiempo medido) y esa extracción
+    se comparte. Antes eran dos botones y dos extracciones. Como viaja en el
+    cache, al reabrir el MKV el gráfico aparece poblado sin volver a analizar —
+    que es lo que el perfil NO hacía cuando tenía su propio endpoint: no se
+    persistía en ninguna parte y se recalculaba desde cero cada visita."""
+
 
 class MediaInfoTrack(BaseModel):
     """Datos por pista extraídos de MediaInfo --Output=JSON."""

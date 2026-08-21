@@ -277,3 +277,80 @@ class TestAnalisisExtendido(AuditoriaCase):
             self.assertTrue(any("no disponible" in l for l in lineas), lineas[-6:])
             return
         self.assertIsNone(r.get("light_profile"))
+
+
+class TestElPerfilSobreviveAlCache(AuditoriaCase):
+    """El perfil de luminancia se persiste con los `quality_*` y se recupera al
+    reabrir el MKV.
+
+    Era la asimetría más rara de las dos: la auditoría de calidad se cacheaba en
+    `/config/mkv_audits/{fingerprint}.json` y reabrir el MKV la mostraba al
+    instante, mientras el perfil de luminancia **no se persistía en ninguna
+    parte** — solo vivía en el state del job, así que costaba ~10 min CADA vez
+    que se miraba.
+
+    La re-inyección del cache filtra por `hasattr(result.dovi, k)`, así que sin
+    el campo en `DoviInfo` el perfil se descartaría en silencio. Eso es lo que
+    este test protege.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import storage
+        self.cache_dir = self.tmp / "mkv_audits"
+        self.cache_dir.mkdir()
+        self._orig_cache = storage.MKV_AUDIT_DIR
+        storage.MKV_AUDIT_DIR = self.cache_dir
+        self.addCleanup(setattr, storage, "MKV_AUDIT_DIR", self._orig_cache)
+        # `_run_dovi_on_mkv` escribe su RPU de muestreo en TMP_DIR, que por
+        # defecto es /mnt/tmp y en el Mac no existe: el sniff falla en silencio
+        # (`except: no bloquea`) y `result.dovi` queda en None. Sin DoviInfo no
+        # hay dónde re-inyectar el cache, así que este test no probaría nada.
+        self._orig_tmp = self.mod.TMP_DIR
+        self.mod.TMP_DIR = str(self.trabajo)
+        self.addCleanup(setattr, self.mod, "TMP_DIR", self._orig_tmp)
+
+    async def _abrir_y_cachear(self):
+        """Primera apertura del MKV: deja el bloque `basic` en el cache.
+
+        El orden importa: la re-inyección del bloque `quality` solo ocurre
+        cuando hay `basic` cacheado (`if cached and cached.get("basic")`), que es
+        el orden real de uso — el usuario abre el MKV y DESPUÉS lanza el
+        análisis."""
+        from phases.mkv_analyze import persist_mkv_basic_to_cache
+        primero = await self.mod.analyze_mkv(str(self.mkv), use_cache=False)
+        persist_mkv_basic_to_cache(str(self.mkv), primero)
+        return primero
+
+    async def test_se_persiste_y_se_recupera_al_reabrir(self):
+        from phases.mkv_analyze import persist_mkv_quality_to_cache
+
+        await self._abrir_y_cachear()
+        r, _ = await self.auditar(con_luminancia=True)
+        self.assertTrue(r["light_profile"]["per_scene_max_cll"])
+        persist_mkv_quality_to_cache(str(self.mkv), r)
+
+        # Reabrir el MKV: sale del cache y re-inyecta quality + perfil.
+        analisis = await self.mod.analyze_mkv(str(self.mkv))
+        self.assertIsNotNone(analisis.dovi, "sin DoviInfo no hay dónde inyectar")
+        perfil = analisis.dovi.light_profile
+        self.assertIsNotNone(
+            perfil,
+            "el perfil no volvió del cache — ¿falta `light_profile` en DoviInfo? "
+            "la re-inyección filtra por hasattr y lo descartaría en silencio")
+        self.assertEqual(perfil["per_scene_max_cll"],
+                         r["light_profile"]["per_scene_max_cll"])
+        self.assertEqual(perfil["stats"], r["light_profile"]["stats"])
+
+    async def test_reabrir_no_relanza_el_analisis(self):
+        """Lo que hace que la segunda visita sea instantánea."""
+        from phases.mkv_analyze import persist_mkv_quality_to_cache
+        await self._abrir_y_cachear()
+        r, _ = await self.auditar(con_luminancia=True)
+        persist_mkv_quality_to_cache(str(self.mkv), r)
+        self.tb.reset_calls()
+        await self.mod.analyze_mkv(str(self.mkv))
+        self.assertEqual(self.tb.find("dovi_tool", "extract-rpu"), [],
+                         "reabrir el MKV ha vuelto a extraer el RPU")
+        self.assertEqual(self.tb.find("dovi_tool", "export"), [],
+                         "reabrir el MKV ha vuelto a exportar niveles")

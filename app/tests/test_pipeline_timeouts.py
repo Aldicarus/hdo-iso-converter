@@ -108,18 +108,22 @@ class TestPipelineTimeoutRobustness(unittest.TestCase):
             % (FLOOR, "\n  ".join(offenders)),
         )
 
-    def test_named_lightprofile_timeouts_are_generous(self):
-        """Los timeouts con nombre de variable de light-profile (main.py) van por
-        wait_for(..communicate()), no por _run, así que el escáner de arriba no
-        los ve. Los verificamos explícitamente: escalan con la peli → ≥ FLOOR."""
-        src = (_APP / "main.py").read_text(encoding="utf-8")
-        for var in ("ff_timeout", "dt_timeout", "_lp_export_timeout"):
-            m = re.search(rf"\b{re.escape(var)}\s*=\s*(\d+)\b", src)
-            self.assertIsNotNone(m, f"No encontré la asignación de {var} en main.py")
-            self.assertGreaterEqual(
-                int(m.group(1)), FLOOR,
-                f"{var}={m.group(1)} < {FLOOR}: timeout de op full-movie demasiado justo",
-            )
+    def test_named_export_timeout_is_generous(self):
+        """El timeout del export del análisis extendido va por parámetro, no por
+        `_run`, así que el escáner de arriba no lo ve. Escala con la peli, así
+        que se comprueba explícitamente.
+
+        Antes esta prueba cubría además `ff_timeout` y `dt_timeout` del perfil
+        de luminancia, que tenía su propio pipeline en `main.py`. Ya no lo
+        tiene: el perfil se calcula junto a la auditoría, compartiendo la
+        extracción, y esa extracción usa el timeout adaptativo del pipe."""
+        src = (_APP / "phases" / "mkv_analyze.py").read_text(encoding="utf-8")
+        m = re.search(r"export_timeout=(\d+)", src)
+        self.assertIsNotNone(m, "No encontré export_timeout en mkv_analyze.py")
+        self.assertGreaterEqual(
+            int(m.group(1)), FLOOR,
+            f"export_timeout={m.group(1)} < {FLOOR}: demasiado justo para un "
+            "RPU full-movie")
 
     def test_demux_uses_adaptive_timeout_and_reuse_guard(self):
         """Regresión directa del bug: el demux debe usar timeout ADAPTATIVO y
