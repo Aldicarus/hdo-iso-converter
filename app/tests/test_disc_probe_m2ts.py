@@ -106,6 +106,40 @@ class TestDiscProbe(ApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["media_type"], "series")
 
+    def test_bdmv_en_modo_pelicula_no_revienta(self):
+        """La rama que el usuario tocó de verdad (Mandalorian, `bdmv_folder`).
+
+        El local `paths` sombreaba la función COMPLETA, así que el 500 no era
+        exclusivo de la rama m2ts: la línea que fallaba en producción era el
+        `safe_source_path` del `else`, o sea que `disc-probe` estaba roto para
+        los TRES orígenes. Sin este caso el test cubriría el arreglo pero no
+        el camino reportado.
+        """
+        bdmv = self.isos_dir / "UNA_PELI_UHD"
+        (bdmv / "BDMV" / "PLAYLIST").mkdir(parents=True)
+        (bdmv / "BDMV" / "STREAM").mkdir(parents=True)
+        (bdmv / "BDMV" / "PLAYLIST" / "00800.mpls").write_bytes(b"\x00" * 512)
+        (bdmv / "BDMV" / "STREAM" / "00800.m2ts").write_bytes(b"\x47" + b"\x00" * 4096)
+
+        r = self._probe(source_type="bdmv_folder", source_path="UNA_PELI_UHD",
+                        media_type_hint="movie")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["media_type"], "movie")
+        self.assertEqual(r.json()["source_type"], "bdmv_folder")
+
+    def test_bdmv_de_un_solo_titulo_en_modo_serie_da_400_no_500(self):
+        """Caso real: el usuario eligió Serie sobre el BD de una película.
+        Tiene que explicarlo, no romperse."""
+        bdmv = self.isos_dir / "OTRA_PELI_UHD"
+        (bdmv / "BDMV" / "PLAYLIST").mkdir(parents=True)
+        (bdmv / "BDMV" / "STREAM").mkdir(parents=True)
+        with mock.patch("phases.phase_a.identify_episode_candidates",
+                        new=mock.AsyncMock(return_value=[])):
+            r = self._probe(source_type="bdmv_folder", source_path="OTRA_PELI_UHD",
+                            media_type_hint="series")
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("candidato a episodio", r.json()["detail"])
+
     def test_una_ruta_de_fuera_del_root_da_400(self):
         """La validación de traversal es lo PRIMERO que hace la función, y es
         justo la línea que reventaba."""
