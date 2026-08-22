@@ -80,6 +80,7 @@ class ApiTestCase(unittest.TestCase):
 
         from phases import phase_e as _phase_e
         from services import settings_store as _settings
+        import paths as _paths
         self._parches = [
             # `settings_store` resuelve CONFIG_DIR en el import y escribe
             # app_settings.json ahí: sin redirigirlo, un test de /api/settings
@@ -89,14 +90,17 @@ class ApiTestCase(unittest.TestCase):
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
             (storage, "MKV_AUDIT_DIR", self.config_dir / "mkv_audits"),
-            (self.main, "CONFIG_DIR", self.config_dir),
-            (self.main, "OUTPUT_DIR_MKV", self.output_dir),
-            (self.main, "ISOS_DIR", self.isos_dir),
-            (self.main, "LIBRARY_DIR", self.library_dir),
-            (self.main, "TMP_DIR", str(self.tmp_dir)),
-            (self.main, "LIBRARY_ROOTS", {"library": self.library_dir,
-                                          "output": self.output_dir,
-                                          "downloaded": self.isos_dir}),
+            # Los directorios de Tab 1/2 viven en `paths.py`, y main y los
+            # routers los referencian como `paths.X`: se parchea ahí, en un
+            # solo sitio, y lo ve todo el mundo.
+            (_paths, "CONFIG_DIR", self.config_dir),
+            (_paths, "OUTPUT_DIR_MKV", self.output_dir),
+            (_paths, "ISOS_DIR", self.isos_dir),
+            (_paths, "LIBRARY_DIR", self.library_dir),
+            (_paths, "TMP_DIR", str(self.tmp_dir)),
+            (_paths, "LIBRARY_ROOTS", {"library": self.library_dir,
+                                       "output": self.output_dir,
+                                       "downloaded": self.isos_dir}),
             (pipeline, "OUTPUT_DIR", self.output_dir),
             (pipeline, "CMV40_WORK_BASE", self.work_base),
             (_phase_e, "OUTPUT_DIR", str(self.output_dir)),

@@ -1,0 +1,822 @@
+{
+ "rutas": {
+  "DELETE /api/cmv40/{session_id}": {
+   "body": [],
+   "params": [
+    [
+     "clean_artifacts",
+     "query",
+     false
+    ],
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/mkv/cache-info": {
+   "body": [],
+   "params": [
+    [
+     "file_path",
+     "query",
+     false
+    ]
+   ]
+  },
+  "DELETE /api/queue/{session_id}": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "DELETE /api/sessions/{session_id}": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/activity": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/analyze/progress": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cleanup/scan": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40-active": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40/cleanup/preview": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40/eta-model": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40/recommend": {
+   "body": [],
+   "params": [
+    [
+     "title",
+     "query",
+     true
+    ],
+    [
+     "year",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/cmv40/recommend-from-filename": {
+   "body": [],
+   "params": [
+    [
+     "filename",
+     "query",
+     true
+    ]
+   ]
+  },
+  "GET /api/cmv40/repo-rpus": {
+   "body": [],
+   "params": [
+    [
+     "filename",
+     "query",
+     false
+    ],
+    [
+     "title",
+     "query",
+     false
+    ],
+    [
+     "year",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/cmv40/repo-survey": {
+   "body": [],
+   "params": [
+    [
+     "refresh",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/cmv40/rpu-files": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/cmv40/{session_id}": {
+   "body": [],
+   "params": [
+    [
+     "include_log",
+     "query",
+     false
+    ],
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/cmv40/{session_id}/reset-preview/{target_phase}": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ],
+    [
+     "target_phase",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/cmv40/{session_id}/sync-data": {
+   "body": [],
+   "params": [
+    [
+     "cubos",
+     "query",
+     false
+    ],
+    [
+     "desde",
+     "query",
+     false
+    ],
+    [
+     "hasta",
+     "query",
+     false
+    ],
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/disc-probe/progress": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/health": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/isos": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/library/browse": {
+   "body": [],
+   "params": [
+    [
+     "filter",
+     "query",
+     false
+    ],
+    [
+     "path",
+     "query",
+     false
+    ],
+    [
+     "root",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/mkv/apply/progress": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/mkv/cache-info": {
+   "body": [],
+   "params": [
+    [
+     "file_path",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/mkv/files": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/mkv/files-in-isos": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/mkv/quality-audit/progress": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/queue": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/series-create-progress": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/sessions": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/sessions/{session_id}": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/sessions/{session_id}/check-iso": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/settings": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/sources": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/status": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/tv-details/{tmdb_id}": {
+   "body": [],
+   "params": [
+    [
+     "tmdb_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/tv-search": {
+   "body": [],
+   "params": [
+    [
+     "query",
+     "query",
+     true
+    ],
+    [
+     "year",
+     "query",
+     false
+    ]
+   ]
+  },
+  "GET /api/tv-season/{tmdb_id}/{season_number}": {
+   "body": [],
+   "params": [
+    [
+     "mpls_durations",
+     "query",
+     false
+    ],
+    [
+     "season_number",
+     "path",
+     true
+    ],
+    [
+     "tmdb_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "GET /api/version": {
+   "body": [],
+   "params": []
+  },
+  "GET /api/version/check-updates": {
+   "body": [],
+   "params": [
+    [
+     "force",
+     "query",
+     false
+    ],
+    [
+     "simulate_current",
+     "query",
+     false
+    ]
+   ]
+  },
+  "POST /api/analyze": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/check-duplicate": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cleanup/execute": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cmv40/cleanup/bulk": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cmv40/create": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cmv40/tmdb-lookup": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cmv40/tmdb-search": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/cmv40/{session_id}/accept-keep": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/acknowledge-critical-gates": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/analyze-source": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/apply-sync": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/auto-pipeline": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/cancel": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/cleanup": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/clear-error": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/extract": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/inject": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/mark-synced": {
+   "body": [],
+   "params": [
+    [
+     "force",
+     "query",
+     false
+    ],
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/override-recommendation": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/preflight-source": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/preflight-target": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/refresh-sheet": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/remux": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/rename-output": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/reset-sync": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/reset-to/{target_phase}": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ],
+    [
+     "target_phase",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/target-rpu-from-drive": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/target-rpu-from-mkv": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/target-rpu-path": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/tmdb-refresh": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/validate": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/cmv40/{session_id}/verify-artifacts": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/create-series-sessions": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/disc-probe": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/mkv/analyze": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/mkv/apply": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/mkv/apply/cancel": {
+   "body": [],
+   "params": []
+  },
+  "POST /api/mkv/quality-audit": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/mkv/quality-audit/cancel": {
+   "body": [],
+   "params": []
+  },
+  "POST /api/queue/reorder": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/sessions/{session_id}/cancel": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/sessions/{session_id}/execute": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/sessions/{session_id}/reapply-rules": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/sessions/{session_id}/recalculate-name": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/sessions/{session_id}/reset-chapters": {
+   "body": [],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  },
+  "POST /api/settings": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/settings/test-drive-folder": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/settings/test-google": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/settings/test-sheet": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/settings/test-tmdb": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "POST /api/version/ignore-update": {
+   "body": [
+    "application/json"
+   ],
+   "params": []
+  },
+  "PUT /api/sessions/{session_id}": {
+   "body": [
+    "application/json"
+   ],
+   "params": [
+    [
+     "session_id",
+     "path",
+     true
+    ]
+   ]
+  }
+ },
+ "websockets": [
+  "/ws/cmv40/{session_id}",
+  "/ws/queue",
+  "/ws/{session_id}"
+ ]
+}

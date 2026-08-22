@@ -95,13 +95,11 @@ from storage import (
 
 # ── Constantes de entorno ─────────────────────────────────────────────────────
 
-ISOS_DIR   = Path(os.environ.get("ISOS_DIR", "/mnt/isos"))
-TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
-CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
-# Vivía 2.700 líneas más abajo, junto a LIBRARY_ROOTS. Aquí, con el resto de
-# constantes de directorio, porque el barrido de huérfanos del arranque
-# (`_cleanup_obvious_orphans_at_startup`, que corre en el import) la necesita.
-OUTPUT_DIR_MKV = Path(os.environ.get("OUTPUT_DIR", "/mnt/output"))
+# Los directorios viven en `paths.py` — los necesitan main y los routers por
+# pestaña, y el router no debe importar main. Se referencian SIEMPRE como
+# `paths.X` (no `from paths import X`): así un test que parchee `paths.X` lo ve
+# todo el mundo, sin bindings que puedan divergir.
+import paths
 
 # ── Recuperación de sesiones interrumpidas ───────────────────────────────────
 # Al arrancar, las sesiones que quedaron en 'running' o 'queued' (por un
@@ -247,14 +245,14 @@ _recover_interrupted_cmv40_sessions()
 # El barrido de arranque, el panel de Limpieza y el whitelist del borrado
 # describían cada uno su propia lista, y se habían desincronizado:
 #
-#   · el barrido miraba `/tmp` Y `TMP_DIR`; el panel solo `/tmp`, que es donde
+#   · el barrido miraba `/tmp` Y `paths.TMP_DIR`; el panel solo `/tmp`, que es donde
 #     los workdirs NO están desde que se movieron a `/mnt/tmp` — así que un
 #     huérfano de hasta ~90 GB de HEVC era invisible en la UI;
 #   · `mkv_quality_audit_*` lo limpiaba el barrido pero el panel no lo listaba;
 #   · y el whitelist solo aceptaba `/tmp/lightprof_`, así que la ruta real
 #     tampoco se habría podido borrar aunque el panel la hubiera enseñado.
 #
-# `bases` puede traer varios directorios (los tmp viven en TMP_DIR, pero se
+# `bases` puede traer varios directorios (los tmp viven en paths.TMP_DIR, pero se
 # sigue mirando /tmp por los restos de versiones anteriores). `patron` es un
 # glob del nombre RELATIVO a la base, y limita qué se puede borrar ahí:
 # `/mnt/output` solo admite `*.mkv.tmp`, no cualquier MKV.
@@ -264,7 +262,7 @@ def _cleanup_targets() -> list[dict]:
     from phases.iso_mount import MOUNT_BASE
     from storage import MKV_AUDIT_DIR
     tmp_bases = []
-    for b in ("/tmp", TMP_DIR):
+    for b in ("/tmp", paths.TMP_DIR):
         if b and b not in tmp_bases:
             tmp_bases.append(b)
     # `category` identifica el TIPO de objetivo. El panel puede desglosar uno
@@ -283,7 +281,7 @@ def _cleanup_targets() -> list[dict]:
          "patron": "lightprof_*"},
         {"category": "quality_audit_tmp", "bases": tmp_bases,
          "patron": "mkv_quality_audit_*"},
-        {"category": "remux_mkv_tmp",     "bases": [str(OUTPUT_DIR_MKV)],
+        {"category": "remux_mkv_tmp",     "bases": [str(paths.OUTPUT_DIR_MKV)],
          "patron": "*.mkv.tmp"},
         {"category": "mkv_cache",         "bases": [str(MKV_AUDIT_DIR)],
          "patron": "*.json"},
@@ -408,7 +406,7 @@ from dev_fixtures import (
     DEV_FAKE_RPU_FILES, build_fake_per_frame_data,
 )
 if DEV_MODE:
-    seed_dev_sessions(CONFIG_DIR)
+    seed_dev_sessions(paths.CONFIG_DIR)
 
 
 # ── Aplicación FastAPI ────────────────────────────────────────────────────────
@@ -513,7 +511,7 @@ async def list_isos():
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return {"isos": DEV_FAKE_ISOS}
-    if not ISOS_DIR.exists():
+    if not paths.ISOS_DIR.exists():
         return {"isos": []}
 
     def _escanear() -> list[str]:
@@ -521,8 +519,8 @@ async def list_isos():
         # NAS y en el bucle paraba el log del job en curso. `/api/sources`, su
         # reemplazo, ya lo hacía así.
         return sorted(
-            str(p.relative_to(ISOS_DIR))
-            for p in ISOS_DIR.rglob("*")
+            str(p.relative_to(paths.ISOS_DIR))
+            for p in paths.ISOS_DIR.rglob("*")
             if p.is_file() and p.suffix.lower() == ".iso"
         )
 
@@ -554,14 +552,14 @@ _SOURCES_CACHE_TTL = 60.0
 
 
 def _scan_sources_in_dir() -> list[dict]:
-    """Escanea ISOS_DIR y devuelve lista clasificada. Operación síncrona —
+    """Escanea paths.ISOS_DIR y devuelve lista clasificada. Operación síncrona —
     el caller la ejecuta en thread pool si quiere evitar bloquear el event
     loop con discos lentos."""
     import time
-    if not ISOS_DIR.exists():
+    if not paths.ISOS_DIR.exists():
         return []
 
-    root = ISOS_DIR.resolve()
+    root = paths.ISOS_DIR.resolve()
     results: list[dict] = []
     # Dirs que ya hemos identificado como BDMV_folder — para no
     # devolver sus m2ts internos como entradas separadas.
@@ -797,7 +795,7 @@ async def check_duplicate(body: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
 
     try:
-        source_abs = safe_source_path(spath, str(ISOS_DIR))
+        source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
     except SourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -882,12 +880,12 @@ async def analyze_iso(body: AnalyzeRequest):
 
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
-        session = build_fake_session(str(ISOS_DIR / (spath or body.iso_path or "")))
+        session = build_fake_session(str(paths.ISOS_DIR / (spath or body.iso_path or "")))
         return session.model_dump()
 
     # Validación path-traversal estricta
     try:
-        source_abs = safe_source_path(spath, str(ISOS_DIR))
+        source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
     except SourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1189,11 +1187,11 @@ async def disc_probe(body: DiscProbeRequest):
     try:
         if stype == "m2ts" and body.m2ts_paths:
             validated_paths = [
-                safe_source_path(p, str(ISOS_DIR)) for p in body.m2ts_paths
+                safe_source_path(p, str(paths.ISOS_DIR)) for p in body.m2ts_paths
             ]
             spath_abs = validated_paths[0] if validated_paths else ""
         else:
-            spath_abs = safe_source_path(spath, str(ISOS_DIR))
+            spath_abs = safe_source_path(spath, str(paths.ISOS_DIR))
             validated_paths = None
     except SourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1613,10 +1611,10 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     try:
         if stype == "m2ts" and body.m2ts_paths:
             for p in body.m2ts_paths:
-                safe_source_path(p, str(ISOS_DIR))
-            source_abs = safe_source_path(body.m2ts_paths[0], str(ISOS_DIR))
+                safe_source_path(p, str(paths.ISOS_DIR))
+            source_abs = safe_source_path(body.m2ts_paths[0], str(paths.ISOS_DIR))
         else:
-            source_abs = safe_source_path(spath, str(ISOS_DIR))
+            source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
     except SourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1809,7 +1807,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                 else:
                     # m2ts: ep.mpls_path apunta directamente al fichero
                     try:
-                        ep_source_path = safe_source_path(ep.mpls_path, str(ISOS_DIR))
+                        ep_source_path = safe_source_path(ep.mpls_path, str(paths.ISOS_DIR))
                     except SourceError as e:
                         failed_episodes.append({
                             "episode_number": ep.episode_number,
@@ -2524,7 +2522,7 @@ async def _run_pipeline(session_id: str) -> None:
                     _mark_phase("extract")
                     intermediate_mkv = await run_phase_d(
                         share_path=mount_point or "",
-                        tmp_dir=TMP_DIR,
+                        tmp_dir=paths.TMP_DIR,
                         log_callback=log,
                         proc_callback=_register_proc,
                         source_path=(
@@ -2980,7 +2978,6 @@ async def reorder_queue(body: QueueReorderRequest):
 from models import MkvEditRequest
 from phases.mkv_analyze import analyze_mkv, apply_mkv_edits
 
-LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
 
 
 # Roots disponibles para el file browser (Tab 2 y Tab 3).
@@ -2990,11 +2987,7 @@ LIBRARY_DIR    = Path(os.environ.get("LIBRARY_DIR", "/mnt/library"))
 # (carpeta de descargas, que contiene ISOs y tambien MKVs sueltos).
 # Solo paths bajo estos roots son aceptados por endpoints downstream
 # (analyze, light-profile) — proteccion contra path traversal arbitrario.
-LIBRARY_ROOTS: dict[str, Path] = {
-    "library":    LIBRARY_DIR,
-    "output":     OUTPUT_DIR_MKV,
-    "downloaded": ISOS_DIR,
-}
+
 
 
 # Directorios "no peliculas" que NUNCA queremos exponer en el browser:
@@ -3002,17 +2995,14 @@ LIBRARY_ROOTS: dict[str, Path] = {
 #   - @eaDir, .DS_Store, Thumbs.db — metadata de Synology/macOS/Windows
 #   - .Recycle, #recycle, $RECYCLE.BIN — papeleras varias
 #   - dotfiles — ocultos en general
-_LIBRARY_HIDDEN_DIRS = {
-    ".zfs", "@eaDir", ".DS_Store", ".Recycle", "#recycle",
-    "$RECYCLE.BIN", "@Recycle", ".Trash", "lost+found",
-}
+
 
 def _safe_library_path(rel_path: str, root_key: str = "library") -> tuple[Path, Path]:
     """Resuelve `rel_path` relativo al root indicado validando que no escape.
     Lanza HTTPException 400 si root es desconocido o si la path escapa.
     Devuelve (path_absoluta_resuelta, path_base_resuelta).
     """
-    base = LIBRARY_ROOTS.get(root_key)
+    base = paths.LIBRARY_ROOTS.get(root_key)
     if base is None:
         raise HTTPException(status_code=400, detail=f"Root desconocido: {root_key}")
     rel = (rel_path or "").strip().lstrip("/")
@@ -3034,10 +3024,10 @@ def _resolve_mkv_path_safe(input_path: str) -> Path:
     p = (input_path or "").strip()
     if not p:
         raise HTTPException(status_code=400, detail="file_path vacío")
-    candidate = Path(p) if p.startswith("/") else (OUTPUT_DIR_MKV / p)
+    candidate = Path(p) if p.startswith("/") else (paths.OUTPUT_DIR_MKV / p)
     candidate = candidate.resolve()
     # Acepta si cae bajo CUALQUIER root configurado
-    for root in LIBRARY_ROOTS.values():
+    for root in paths.LIBRARY_ROOTS.values():
         try:
             candidate.relative_to(root.resolve())
             return candidate
@@ -3055,7 +3045,7 @@ async def library_browse(
     path: str = "",
     filter: str = "mkv",
 ):
-    """Lista subdirectorios + ficheros bajo LIBRARY_ROOTS[root]/<path>
+    """Lista subdirectorios + ficheros bajo paths.LIBRARY_ROOTS[root]/<path>
     filtrando por extensión según `filter`.
 
     Roots soportados:
@@ -3097,7 +3087,7 @@ async def library_browse(
             ],
         }
 
-    base_dir = LIBRARY_ROOTS.get(root)
+    base_dir = paths.LIBRARY_ROOTS.get(root)
     if base_dir is None:
         raise HTTPException(status_code=400, detail=f"Root desconocido: {root}")
     if not base_dir.exists() or not base_dir.is_dir():
@@ -3127,11 +3117,11 @@ async def library_browse(
             name = child.name
             # Skip ocultos y especiales
             if name.startswith(".") and name not in {".", ".."}:
-                if name == ".zfs" or name in _LIBRARY_HIDDEN_DIRS:
+                if name == ".zfs" or name in paths.LIBRARY_HIDDEN_DIRS:
                     continue
                 # Otros dotfiles también ocultos
                 continue
-            if name in _LIBRARY_HIDDEN_DIRS:
+            if name in paths.LIBRARY_HIDDEN_DIRS:
                 continue
             if child.is_dir():
                 # En modo BDMV no exponemos la propia carpeta "BDMV" como
@@ -3189,10 +3179,10 @@ async def list_mkv_files():
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return {"files": DEV_FAKE_MKV_FILES}
-    if not OUTPUT_DIR_MKV.exists():
+    if not paths.OUTPUT_DIR_MKV.exists():
         return {"files": []}
     files = sorted(
-        [p.name for p in OUTPUT_DIR_MKV.glob("*.mkv")],
+        [p.name for p in paths.OUTPUT_DIR_MKV.glob("*.mkv")],
         key=str.lower,
     )
     return {"files": files}
@@ -3200,18 +3190,18 @@ async def list_mkv_files():
 
 @app.get("/api/mkv/files-in-isos", summary="Lista MKVs en el directorio de ISOs (para Tab 3 Fase B)")
 async def list_mkv_files_in_isos():
-    """Devuelve .mkv presentes en ISOS_DIR con su ruta absoluta.
+    """Devuelve .mkv presentes en paths.ISOS_DIR con su ruta absoluta.
 
-    Búsqueda NO recursiva — solo ficheros directos en ISOS_DIR. Evita recursar
+    Búsqueda NO recursiva — solo ficheros directos en paths.ISOS_DIR. Evita recursar
     en snapshots ZFS ocultos (`.zfs/snapshot/…`) de QNAP QuTS, que devolverían
     cientos de ficheros históricos con el mismo nombre.
     """
     if DEV_MODE:
         return {"files": [{"name": f, "path": f"/mnt/isos/{f}"} for f in DEV_FAKE_MKV_FILES]}
-    if not ISOS_DIR.exists():
+    if not paths.ISOS_DIR.exists():
         return {"files": []}
     files = sorted(
-        [{"name": p.name, "path": str(p)} for p in ISOS_DIR.glob("*.mkv") if p.is_file()],
+        [{"name": p.name, "path": str(p)} for p in paths.ISOS_DIR.glob("*.mkv") if p.is_file()],
         key=lambda x: x["name"].lower(),
     )
     return {"files": files}
@@ -3256,7 +3246,7 @@ async def analyze_mkv_endpoint(body: dict):
 
     # Acepta tanto rutas absolutas (file browser nuevo de Tab 2/3) como
     # filenames relativos a /mnt/output (compat legacy). Valida que la ruta
-    # cae bajo un root permitido (LIBRARY_ROOTS).
+    # cae bajo un root permitido (paths.LIBRARY_ROOTS).
     mkv_path_obj = _resolve_mkv_path_safe(rel_path)
     mkv_full = str(mkv_path_obj)
     if not mkv_path_obj.exists():
@@ -4000,9 +3990,9 @@ _recover_interrupted_mkv_apply()
 
 
 def _mkv_needs_copy_to_output(file_path: str) -> bool:
-    """True si el path cae bajo LIBRARY_DIR — read-only, hay que copiar."""
+    """True si el path cae bajo paths.LIBRARY_DIR — read-only, hay que copiar."""
     try:
-        Path(file_path).resolve().relative_to(LIBRARY_DIR.resolve())
+        Path(file_path).resolve().relative_to(paths.LIBRARY_DIR.resolve())
         return True
     except ValueError:
         return False
@@ -4169,7 +4159,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
 
     try:
         if needs_copy and body.copy_to_output:
-            dst_path = OUTPUT_DIR_MKV / src_path.name
+            dst_path = paths.OUTPUT_DIR_MKV / src_path.name
             if dst_path.exists():
                 raise HTTPException(
                     status_code=409,
@@ -4181,7 +4171,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
             _clave_copia = f"apply:{src_path.name}"
             workload.registrar(_clave_copia, workload.TAB_MKV,
                                f"copia de {src_path.name} a /mnt/output")
-            OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
+            paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
             _mkv_apply_reset(
                 total_bytes=src_path.stat().st_size,
                 src_path=str(src_path),
@@ -4568,7 +4558,7 @@ def _scan_orphans() -> list[dict]:
     # 1. Workdirs CMv4.0 sin sesión JSON correspondiente
     from phases.cmv40_pipeline import CMV40_WORK_BASE as _CWB
     cmv40_work = Path(_CWB)
-    cmv40_cfg = CONFIG_DIR / "cmv40"
+    cmv40_cfg = paths.CONFIG_DIR / "cmv40"
     if cmv40_work.exists() and cmv40_work.is_dir():
         valid_ids: set[str] = set()
         if cmv40_cfg.exists():
@@ -4632,7 +4622,7 @@ def _scan_orphans() -> list[dict]:
 
     # 3. Workdirs temporales de Tab 2 (luminancia y auditoría de calidad).
     #    Las bases salen de `_cleanup_targets()`: escritas a mano aquí, este
-    #    bloque miraba `/tmp` mientras los workdirs se creaban en `TMP_DIR`,
+    #    bloque miraba `/tmp` mientras los workdirs se creaban en `paths.TMP_DIR`,
     #    así que un huérfano de decenas de GB no aparecía en el panel. Y de
     #    `mkv_quality_audit_*` no había categoría siquiera.
     _etiquetas_tmp = {
@@ -4668,7 +4658,7 @@ def _scan_orphans() -> list[dict]:
                 pass
 
     # 4. .mkv.tmp del remux (Fase G)
-    output_base = OUTPUT_DIR_MKV
+    output_base = paths.OUTPUT_DIR_MKV
     if output_base.exists():
         try:
             for tf in output_base.glob("*.mkv.tmp"):

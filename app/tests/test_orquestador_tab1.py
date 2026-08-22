@@ -59,6 +59,7 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         import main
+        import paths
         import storage
         from phases import phase_d, phase_e
 
@@ -89,7 +90,7 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
 
         parches = [
             (storage, "CONFIG_DIR", self.config),
-            (main, "TMP_DIR", str(self.trabajo)),
+            (paths, "TMP_DIR", str(self.trabajo)),
             (phase_e, "OUTPUT_DIR", str(self.salida)),
             (phase_d, "MIN_MPLS_SIZE", 200),
         ]

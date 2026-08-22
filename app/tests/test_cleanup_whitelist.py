@@ -35,6 +35,7 @@ class CleanupTestCase(unittest.TestCase):
 
     def setUp(self):
         import main
+        import paths
         import storage
         from phases import cmv40_pipeline, iso_mount
 
@@ -53,9 +54,11 @@ class CleanupTestCase(unittest.TestCase):
             d.mkdir(parents=True, exist_ok=True)
 
         parches = [
-            (main, "TMP_DIR", str(self.work)),
-            (main, "OUTPUT_DIR_MKV", self.output),
-            (main, "CONFIG_DIR", self.tmp / "config"),
+            # Los directorios viven en `paths.py` y todo el mundo los lee
+            # como `paths.X`: se parchea ahí.
+            (paths, "TMP_DIR", str(self.work)),
+            (paths, "OUTPUT_DIR_MKV", self.output),
+            (paths, "CONFIG_DIR", self.tmp / "config"),
             (cmv40_pipeline, "CMV40_WORK_BASE", self.cmv40_work),
             (iso_mount, "MOUNT_BASE", self.mount_base),
             (storage, "MKV_AUDIT_DIR", self.audits),
