@@ -185,7 +185,8 @@ class TestCancelByAuditId(unittest.TestCase):
     audit falla con 'Cancelado por el usuario'" mediante una secuencia
     determinista sobre los singletons de estado.
 
-    El import de main.py necesita cwd en app/ porque la app monta
+    Los singletons viven en `routers/tab2.py` desde que Tab 2 salió de
+    `main.py`; el cwd tiene que estar en app/ porque la app monta
     StaticFiles("static") con path relativo.
     """
 
@@ -202,7 +203,7 @@ class TestCancelByAuditId(unittest.TestCase):
         os.chdir(cls._orig_cwd)
 
     def setUp(self):
-        from main import (
+        from routers.tab2 import (
             _mkv_quality_state, _mkv_quality_cancel,
             _mkv_quality_reset, _mkv_quality_check_cancel,
         )
@@ -245,7 +246,7 @@ class TestCancelByAuditId(unittest.TestCase):
         al audit actual). Sin esto, el except del primer endpoint en race
         contra el reset del segundo audit metía 'Cancelado por el usuario'
         en el log del audit nuevo."""
-        from main import _mkv_quality_log
+        from routers.tab2 import _mkv_quality_log
         first_id = self.reset(file_name="first.mkv")
         # Reset al segundo audit (cambia audit_id)
         second_id = self.reset(file_name="second.mkv")
@@ -258,7 +259,7 @@ class TestCancelByAuditId(unittest.TestCase):
     def test_log_accepted_when_audit_id_matches(self):
         """Si target_audit_id coincide con el actual, la línea se añade
         normalmente. Caso del flujo legítimo (el audit actual loguea de sí mismo)."""
-        from main import _mkv_quality_log
+        from routers.tab2 import _mkv_quality_log
         audit_id = self.reset(file_name="movie.mkv")
         n_before = len(self.state["log_lines"])
         _mkv_quality_log("línea propia", target_audit_id=audit_id)
@@ -266,7 +267,7 @@ class TestCancelByAuditId(unittest.TestCase):
 
     def test_log_accepted_when_no_target_passed(self):
         """Sin target_audit_id, comportamiento legacy: siempre añade."""
-        from main import _mkv_quality_log
+        from routers.tab2 import _mkv_quality_log
         self.reset(file_name="movie.mkv")
         n_before = len(self.state["log_lines"])
         _mkv_quality_log("línea sin guard")
@@ -274,7 +275,7 @@ class TestCancelByAuditId(unittest.TestCase):
 
     def test_finalize_if_skipped_when_audit_obsolete(self):
         """_state_finalize_if NO modifica el state si audit_id ya cambió."""
-        from main import _mkv_quality_state_finalize_if
+        from routers.tab2 import _mkv_quality_state_finalize_if
         first_id = self.reset(file_name="first.mkv")
         # Simula que el segundo audit ya empezó
         second_id = self.reset(file_name="second.mkv")

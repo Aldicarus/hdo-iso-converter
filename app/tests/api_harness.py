@@ -111,6 +111,12 @@ class ApiTestCase(unittest.TestCase):
             setattr(mod, attr, nuevo)
         self.addCleanup(self._restaurar)
 
+        # El paso del análisis es estado de proceso compartido por Tab 1 y
+        # Tab 2: sin resetearlo, un test ve el `done=True` que dejó el
+        # anterior.
+        import analysis_progress
+        analysis_progress.fijar()
+
         # Caches en memoria que sobreviven entre tests y verían ficheros de
         # otro tmpdir.
         for nombre in ("_sessions_summary_by_file", "_cmv40_summary_by_file"):

@@ -27,6 +27,7 @@ MODULOS = [
     "storage.py",
     "models.py",
     "dev_fixtures.py",
+    "routers/tab2.py",
     "routers/cmv40.py",
     "phases/cmv40_pipeline.py",
     "phases/cmv40_strategy.py",

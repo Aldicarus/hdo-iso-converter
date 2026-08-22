@@ -27,6 +27,7 @@ _FILES = [
     _APP / "phases" / "cmv40_pipeline.py",
     _APP / "phases" / "mkv_analyze.py",
     _APP / "main.py",
+    _APP / "routers" / "tab2.py",
 ]
 
 # Suelo para timeouts FIJOS sobre operaciones pesadas: 1500s (25 min). Por

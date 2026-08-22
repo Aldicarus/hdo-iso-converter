@@ -56,7 +56,10 @@ ISO2MKVFEL/
 │   ├── .env.example
 │   └── entrypoint.sh
 └── app/
-    ├── main.py              ← FastAPI app + WebSocket + endpoints (3 tabs)
+    ├── main.py              ← FastAPI app + Tab 1 + endpoints transversales
+    ├── paths.py             ← Los directorios de la app, en un solo sitio
+    ├── workload.py          ← Control de admisión: un trabajo pesado a la vez
+    ├── analysis_progress.py ← El paso del análisis, compartido por Tab 1 y Tab 2
     ├── requirements.txt
     ├── models.py            ← Pydantic models (Session, BDInfoResult, MkvAnalysisResult, CMv40Session...)
     ├── storage.py           ← Persistencia JSON en /config + fingerprint ISO
@@ -531,16 +534,27 @@ Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_ack
 
 **Regla**: ninguna condición de trust se escribe a mano fuera de `cmv40_strategy.py`. `is_drop_in_fel` del pipeline delega en `plan.drop_in` por lo mismo — era una segunda definición del drop-in.
 
-### Dónde vive el código del Tab 3
+### Un router por pestaña, y la dependencia en un solo sentido
 
-Los endpoints y la orquestación salieron de `main.py` a **`routers/cmv40.py`** (3.395 líneas). `main.py` conserva Tab 1 y Tab 2 y hace `app.include_router(...)`; **las URLs no cambiaron**.
+`main.py` era un fichero de 6.000 líneas con las tres pestañas dentro. Hoy:
 
-La dependencia es unidireccional — `main` incluye el router, el router **no** importa `main`. Se sostiene porque:
-- `DEV_MODE` vive en `dev_fixtures.py`, no en `main`.
-- El output se referencia como `_cmv40_pipeline_mod.OUTPUT_DIR` (la constante que `main` llamaba `OUTPUT_DIR_MKV` era un duplicado literal: ambas leen `OUTPUT_DIR` del entorno).
-- `_dev_simulate_phase` se fue con el router: era un helper exclusivo de CMv4.0.
+| Fichero | Qué tiene |
+|---|---|
+| `main.py` (~4.000) | **Tab 1** completo (sesiones, `/api/sources`, análisis, series, cola, el orquestador `_run_pipeline`, el WS `/ws/{id}`) + lo transversal (health/status/activity, versión, ajustes, TMDb, estáticos, recovery de arranque) |
+| `routers/tab2.py` (1.310) | **Tab 2** — `/api/mkv/*`, el file browser, la auditoría de calidad del RPU y el apply con copia desde biblioteca |
+| `routers/cmv40.py` (3.789) | **Tab 3** — los 37 endpoints de `/api/cmv40/*` + el WS del log + el auto-pipeline |
+| `paths.py` · `workload.py` · `analysis_progress.py` | lo que comparten |
 
-**Al tocar tests que parcheen por módulo**: lo de CMv4.0 se parchea en `routers.cmv40`, no en `main`. Los directorios, en cambio, siguen en `storage` (`CONFIG_DIR`, `CMV40_DIR`) y en `phases.cmv40_pipeline` (`OUTPUT_DIR`, `CMV40_WORK_BASE`) — ver `tests/api_harness.py`, que ya los redirige todos.
+**Las URLs no cambiaron con ninguno de los dos movimientos**, y eso no es una promesa: `tests/test_rutas_no_cambian.py` compara el esquema OpenAPI real contra un golden de 93 rutas (con sus parámetros y su body) más los 3 websockets. Un endpoint nuevo es legítimo, pero hay que meterlo en el golden en el mismo commit.
+
+La dependencia es **unidireccional**: `main` incluye los routers, y ningún router importa `main` (lo fija `test_split_por_pestanas.py`, que además carga `routers/tab2` en un proceso limpio para comprobar que no arrastra `main`). Se sostiene porque:
+- `DEV_MODE` vive en `dev_fixtures.py` y los directorios en `paths.py`, no en `main`.
+- Lo que tiene que correr **al arrancar** se expone como función pública del router y lo llama `main`: `recuperar_apply_interrumpido()` limpia el `.mkv` a medias de una copia interrumpida antes de aceptar peticiones. Ese sentido (`main` → router) sí está permitido.
+- `_dev_simulate_phase` se fue con el router de CMv4.0: era un helper exclusivo suyo.
+
+**Cuidado con el estado que dos pestañas comparten.** `GET /api/analyze/progress` alimenta DOS modales —"Analizando disco" de Tab 1 y "Abriendo MKV" de Tab 2— y era una global con `global _analyze_progress`. Al separar los ficheros ese `global` habría rebindeado un nombre **propio del router**: Tab 2 seguiría escribiendo su progreso, el endpoint seguiría devolviendo 200, y el modal se quedaría en blanco sin un error ni una línea de log. Vive en **`analysis_progress.py`**, que se **muta** en vez de reasignarse (`fijar(...)` / `leer()`) para que quien tenga la referencia vea los cambios. Que dos análisis simultáneos se pisen el paso mostrado es anterior al corte y sigue igual: es cosmético, y de los solapamientos de verdad se encarga `workload`.
+
+**Al tocar tests que parcheen por módulo**: lo de CMv4.0 se parchea en `routers.cmv40` y lo de Tab 2 en `routers.tab2`. Los directorios van SIEMPRE en `paths` (`paths.OUTPUT_DIR_MKV`, nunca `from paths import ...`, para que un solo parche lo vea todo el mundo); los de CMv4.0 siguen en `storage` (`CONFIG_DIR`, `CMV40_DIR`) y `phases.cmv40_pipeline` (`OUTPUT_DIR`, `CMV40_WORK_BASE`) — ver `tests/api_harness.py`, que redirige todos.
 
 ### Lanzar una fase: un solo sitio, y una tabla
 

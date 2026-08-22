@@ -31,8 +31,8 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 
-_FICHEROS = ("main.py", "routers/cmv40.py", "phases/mkv_analyze.py",
-             "phases/luminance.py")
+_FICHEROS = ("main.py", "routers/tab2.py", "routers/cmv40.py",
+             "phases/mkv_analyze.py", "phases/luminance.py")
 
 # Llamadas cuyo coste escala con el TAMAÑO del dato: un volcado de RPU, un
 # árbol de artefactos de 400 GB, un JSON de 24 MB.

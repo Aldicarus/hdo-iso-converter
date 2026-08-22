@@ -110,9 +110,13 @@ class TestNoQuedanDosCaminos(unittest.TestCase):
                                 "faltan botones apuntando al análisis extendido")
 
     def test_el_backend_ya_no_expone_el_endpoint(self):
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
-        self.assertNotIn('@app.post("/api/mkv/light-profile"', src)
-        self.assertNotIn("_light_profile_state: dict", src)
+        # Se miran los dos ficheros: los endpoints de Tab 2 viven ahora en
+        # `routers/tab2.py`, así que buscar solo en `main.py` pasaría en verde
+        # aunque el endpoint volviera.
+        for rel in ("main.py", "routers/tab2.py"):
+            src = (APP_DIR / rel).read_text(encoding="utf-8")
+            self.assertNotIn('/api/mkv/light-profile"', src, rel)
+            self.assertNotIn("_light_profile_state: dict", src, rel)
 
     def test_el_perfil_esta_en_el_modelo(self):
         """Si `DoviInfo` no lo declara, la re-inyección del cache lo descarta en
