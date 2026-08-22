@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260821b">
+  <link rel="stylesheet" href="/static/style.css?v=20260822a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1413,6 +1413,17 @@
 <!-- ═══ Toast container ══════════════════════════════════════════ -->
 <div id="toast-container"></div>
 
-<script src="/static/app.js?v=20260821b"></script>
+<!-- El JS va en siete scripts CLÁSICOS, no módulos: los 154 handlers
+     inline (onclick="…") necesitan que las funciones sean globales, y
+     `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
+     de las piezas del app.js original — concatenarlos así es
+     equivalente al fichero único. -->
+<script src="/static/core.js?v=20260822a"></script>
+<script src="/static/settings.js?v=20260822a"></script>
+<script src="/static/cmv40_modals.js?v=20260822a"></script>
+<script src="/static/tab1.js?v=20260822a"></script>
+<script src="/static/tab2.js?v=20260822a"></script>
+<script src="/static/tab3.js?v=20260822a"></script>
+<script src="/static/browser.js?v=20260822a"></script>
 </body>
 </html>

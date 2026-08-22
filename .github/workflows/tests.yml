@@ -45,7 +45,7 @@ jobs:
       - name: Node (tests de frontend)
         # `test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`,
         # `test_cmv40_timeline_layout` y `test_cmv40_eta_sufijo` evalúan las
-        # funciones reales de app.js en node; sin él se auto-saltan.
+        # funciones reales del frontend en node; sin él se auto-saltan.
         uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -61,6 +61,15 @@ jobs:
         run: python3 -m unittest discover -s app/tests -v
 
       - name: Sintaxis del frontend
-        # La coherencia del token de cache-bust la comprueba
-        # `test_frontend_cache_bust.py`, que corre en la suite de arriba.
-        run: node --check app/static/app.js
+        # Una por pieza: `app.js` se partió en siete scripts clásicos y un
+        # `node --check` sobre un fichero que ya no existe pasaría... con
+        # error, pero antes bastaba con no actualizarlo para dejar de
+        # comprobar nada. La lista sale del propio index.html.
+        # El token de cache-bust y la carga real en Chrome las comprueban
+        # `test_frontend_cache_bust` y `test_frontend_troceado` en la suite.
+        run: |
+          set -e
+          for f in $(grep -o 'src="/static/[a-z0-9_]*\.js' app/static/index.html | sed 's|.*/static/||'); do
+            echo "node --check app/static/$f"
+            node --check "app/static/$f"
+          done

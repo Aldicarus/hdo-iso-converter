@@ -88,7 +88,13 @@ ISO2MKVFEL/
     │   └── cmv40_recommend.py   ← Orquesta filename → TMDb → match contra sheet
     ├── static/
     │   ├── index.html       ← SPA completa (Tab 1 + Tab 2 + Tab 3 + modales + config)
-    │   ├── app.js           ← Toda la lógica UI
+    │   ├── core.js          ← Estado global, arranque, tooltips, tabs, toasts, modales
+    │   ├── settings.js      ← ⚙︎ Configuración, versión/actualizaciones, mantenimiento
+    │   ├── cmv40_modals.js  ← Consulta rápida, manual CMv4.0, limpieza masiva
+    │   ├── tab1.js          ← Tab 1: nuevo proyecto, series, sesión, cola, consola
+    │   ├── tab2.js          ← Tab 2: editar MKV + radiografía DV+HDR
+    │   ├── tab3.js          ← Tab 3: proyectos CMv4.0, fases, sync, overlay
+    │   ├── browser.js       ← El file browser modal (lo usan Tab 2 y Tab 3)
     │   └── style.css
     ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
@@ -212,9 +218,9 @@ Modal "Nuevo proyecto" (con tipo elegido) → analyzeSelectedISO()
   - `high` si `|runtime_mpls - runtime_tmdb| ≤ 1 min`
   - `low` si fuera de tolerancia o TMDb sin runtime para ese episodio
   - `unknown` si MPLS sin episode asignado (más MPLS que episodios)
-- El frontend **recalcula la confianza on-the-fly** en cada render (`_computeMatchConfidence` en [app.js](app/static/app.js)) basándose en el episodio actualmente asignado, no en la sugerencia inicial del backend. Sin esto, al corregir el match manualmente el indicador 🟢/🟡 se quedaba en el valor inicial.
+- El frontend **recalcula la confianza on-the-fly** en cada render (`_computeMatchConfidence` en [tab1.js](app/static/tab1.js)) basándose en el episodio actualmente asignado, no en la sugerencia inicial del backend. Sin esto, al corregir el match manualmente el indicador 🟢/🟡 se quedaba en el valor inicial.
 
-**Episodios ya procesados** (v2.7+, frontend [app.js](app/static/app.js)):
+**Episodios ya procesados** (v2.7+, frontend [tab1.js](app/static/tab1.js)):
 
 Al reabrir un BDMV/ISO de serie con N episodios procesados:
 - `check-duplicate` devuelve `sessions[]` (todas las que comparten fingerprint).
@@ -1236,6 +1242,36 @@ Detalles que no son accidentales:
 
 ---
 
+## El frontend son siete scripts, y clásicos a propósito
+
+`app.js` eran **18.687 líneas** con 475 funciones: no había forma de tocar una parte sin cargar el todo. Hoy son siete ficheros que `index.html` carga en orden, con el mismo reparto por temas que el backend:
+
+| fichero | líneas | qué tiene |
+|---|---|---|
+| `core.js` | 1.084 | estado global, el `DOMContentLoaded`, tooltips, tabs y sub-tabs, toasts, confirm, helpers de modal |
+| `settings.js` | 656 | ⚙︎ Configuración, el pill de versión, el panel de Limpieza |
+| `cmv40_modals.js` | 1.991 | consulta rápida, manual CMv4.0, limpieza masiva (lo de Tab 3 que no toca una sesión) |
+| `tab1.js` | 5.342 | nuevo proyecto, modo serie, sidebar, render de sesión, cola, consola, WS |
+| `tab2.js` | 2.936 | editar MKV + radiografía DV+HDR |
+| `tab3.js` | 6.385 | proyectos CMv4.0, cards por fase, overlay, gráfico de sync |
+| `browser.js` | 289 | el file browser modal, que comparten Tab 2 y Tab 3 |
+
+**Son `<script>` clásicos, NO `type="module"`, y es una decisión medida**: **154 nombres de función** se referencian desde atributos inline (`onclick="openProject(…)"`) en `index.html` y en las plantillas que el propio JS emite con `innerHTML`. En un script clásico las declaraciones `function` van a `globalThis` y siguen funcionando sin tocar nada; con módulos quedan encerradas en el ámbito del módulo y haría falta un bloque de 154 `window.foo = foo` **mantenido a mano** — cada botón nuevo moriría en silencio hasta que alguien lo pulsara. No hay build step en este proyecto, así que nadie generaría ese bloque.
+
+Concatenar scripts clásicos en orden es equivalente al fichero único **con tres salvedades**, y las tres tienen test en `test_frontend_troceado.py`:
+
+1. **`'use strict'` es por script.** El original lo tenía en la línea 1; una pieza sin él pasa a modo sloppy —los globals accidentales dejan de lanzar, `this` cambia— sin dar un solo error.
+2. **El hoisting es por script.** Una sentencia top-level que use algo declarado en una pieza POSTERIOR ve `undefined` donde antes veía la función. Hay cuatro sentencias top-level en total (el `DOMContentLoaded`, un `keydown`, un `setInterval` y el `<style>` del spinner) y el test comprueba que ninguna cruza hacia adelante.
+3. **Una declaración duplicada** que antes se sombreaba en silencio puede caer ahora en piezas distintas. Había una: `_doFilterSidebarSessions` estaba declarada **dos veces** y la primera —sin filtro de estado ni ordenación— era código muerto que la segunda tapaba. Se quitó.
+
+**El orden de carga y los nombres salen de `index.html`, no de una lista en el test.** `tests/frontend_sources.py` lo parsea y ofrece `js_completo()`; los siete módulos de test que antes leían `app.js` van por ahí. Una lista hardcodeada se desincronizaría del HTML en el primer cambio y el test seguiría en verde midiendo otra cosa.
+
+**El test que de verdad protege el corte abre `index.html` en Chrome headless**: carga las siete piezas con su orden y su `?v=` real, y comprueba que no hay **ni un error de JS** y que los 154 handlers son funciones en `window`. Es el único sitio donde un fallo de carga (SyntaxError, TDZ, referencia adelantada) se ve; los demás tests leen fuente y no lo verían.
+
+**Si `tab3.js` sigue creciendo, la siguiente costura ya está marcada**: el gráfico de sincronización de la Fase D (el Canvas custom con su zoom) son 590 líneas autocontenidas al final del fichero. No se ha sacado ahora porque bajar de 6.393 a 5.802 no cambia nada práctico y sí añade un fichero.
+
+**Cache-bust: el token es uno para los ocho assets** (siete JS + el CSS). Con el token subido en seis de siete, el navegador sirve una pieza vieja contra seis nuevas — peor que no tenerlo, porque el desajuste es parcial. Lo comprueba `test_frontend_cache_bust`.
+
 ## Reglas de UX / Diseño visual
 
 ### Estilo general — macOS moderno
@@ -1309,7 +1345,7 @@ Reglas concretas:
 6. `_emit_progress(pct, label)` debe ser **monotónico** dentro de una fase. Si una operación intermedia consume tiempo sin reportar progreso (típico de `_run` sync vs `_run_streaming`), reservar un % fijo (ej. Fase F merge → 15%, inject → 85%).
 7. El `_emit_progress(100%, "X completado")` debe emitirse **después** del `🎯 Resultado` final, no antes (evita que la barra llegue al 100% mientras quedan logs útiles).
 
-Las funciones afectadas en `app/static/app.js`:
+Las funciones afectadas (en `app/static/tab3.js`, salvo indicación):
 - `_cmv40BuildPhaseSteps` (sidebar timeline)
 - `_renderCMv40Info`, `_renderCMv40RecommendationCard` (cabecera + card recomendación)
 - `_cmv40FaseCBody`, `_cmv40FaseDBody`, `_cmv40FaseFBody`, `_cmv40FaseGBody`, `_cmv40FaseHBody` (bodys de fase activa)

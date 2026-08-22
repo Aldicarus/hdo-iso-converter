@@ -19,10 +19,12 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import sys
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
-APP_JS = APP_DIR / "static" / "app.js"
+sys.path.insert(0, str(APP_DIR / "tests"))
+from frontend_sources import js_completo  # noqa: E402
 STYLE_CSS = APP_DIR / "static" / "style.css"
 
 _CHROME_CANDIDATOS = [
@@ -48,7 +50,7 @@ _SUSTITUCIONES = {
 def _extraer_fila_meta() -> str:
     """Saca del app.js el markup real de .cmv40-tl-progress-meta y resuelve
     los ${...} con valores de muestra."""
-    src = APP_JS.read_text(encoding="utf-8")
+    src = js_completo()
     i = src.index('<div class="cmv40-tl-progress-meta">')
     j = src.index("</div>", src.index('class="cmv40-tl-timer-remaining"', i))
     html = src[i:j + len("</div>")]

@@ -28,7 +28,10 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 
 NODE = shutil.which("node")
-JS = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+sys.path.insert(0, str(APP_DIR / "tests"))
+from frontend_sources import js_completo  # noqa: E402
+
+JS = js_completo()
 
 
 def _extraer(nombre: str) -> str:

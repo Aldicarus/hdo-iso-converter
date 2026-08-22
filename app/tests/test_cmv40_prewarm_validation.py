@@ -21,6 +21,8 @@ import unittest
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR / "tests"))
+from frontend_sources import js_completo  # noqa: E402
 sys.path.insert(0, str(APP_DIR))
 
 
@@ -497,7 +499,7 @@ class TestSufijoEtaEnTodosLosEscritores(unittest.TestCase):
     """
 
     def _js(self):
-        return (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        return js_completo()
 
     def test_ningun_sufijo_hardcodeado(self):
         js = self._js()

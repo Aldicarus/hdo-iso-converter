@@ -420,7 +420,8 @@ hdo-iso-converter/                ← repo / docker image (técnico)
 │   │   └── audit_cmv40_bins.py   ← CLI: auditoría retroactiva
 │   └── static/
 │       ├── index.html
-│       ├── app.js
+│       ├── core.js · settings.js · cmv40_modals.js
+│       ├── tab1.js · tab2.js · tab3.js · browser.js
 │       └── style.css
 ├── archive/                      ← Specs históricas
 ├── CLAUDE.md

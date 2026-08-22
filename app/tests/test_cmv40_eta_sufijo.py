@@ -27,19 +27,34 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
-APP_JS = APP_DIR / "static" / "app.js"
+sys.path.insert(0, str(APP_DIR / "tests"))
+from frontend_sources import js_completo  # noqa: E402
 
 NODE = shutil.which("node")
+
+
+def _js_en_disco() -> str:
+    """El JS concatenado en un temporal, que es lo que el driver de node lee.
+
+    Las siete piezas se leen del disco y se juntan aquí en vez de pasarle una
+    ruta suelta: extraer una función por nombre necesita ver TODO el JS, igual
+    que lo ve el navegador."""
+    import tempfile
+    f = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                    encoding="utf-8")
+    f.write(js_completo())
+    f.close()
+    return f.name
 
 # Extrae del app.js real las funciones implicadas y las evalúa juntas, sin
 # DOM ni resto del fichero. Lee casos por stdin y devuelve resultados.
 _DRIVER = r"""
 const fs = require('fs');
-const src = fs.readFileSync(process.env.APP_JS, 'utf8');
+const src = fs.readFileSync(process.env.JS_CONCAT, 'utf8');
 
 function grab(name) {
   const i = src.indexOf('function ' + name + '(');
-  if (i < 0) throw new Error('funcion no encontrada en app.js: ' + name);
+  if (i < 0) throw new Error('funcion no encontrada en el JS: ' + name);
   let depth = 0, abierto = false;
   for (let j = i; j < src.length; j++) {
     if (src[j] === '{') { depth++; abierto = true; }
@@ -73,7 +88,7 @@ console.log(JSON.stringify(casos.map(c => ({
 class TestSufijoEtaComportamiento(unittest.TestCase):
     def _evaluar(self, casos):
         proc = subprocess.run(
-            [NODE, "-e", _DRIVER], env={**os.environ, "APP_JS": str(APP_JS)},
+            [NODE, "-e", _DRIVER], env={**os.environ, "JS_CONCAT": _js_en_disco()},
             input=json.dumps(casos), capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -138,7 +153,7 @@ class TestSenalDeRutaDesconocida(unittest.TestCase):
         self.assertIn("session.target_type = _classify_target_type(dovi_info)", cuerpo)
 
     def test_frontend_no_usa_target_type_como_booleano(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = js_completo()
         codigo = "\n".join(l for l in js.splitlines()
                            if not l.lstrip().startswith(("*", "//", "/*")))
         self.assertNotIn("!s.target_type", codigo)
@@ -147,7 +162,7 @@ class TestSenalDeRutaDesconocida(unittest.TestCase):
     def test_ambos_consumidores_comparten_el_helper(self):
         """El sufijo y el reparto por share_dropin deben decidir con la misma
         señal: si divergen, el aviso dice una cosa y el número refleja otra."""
-        js = APP_JS.read_text(encoding="utf-8")
+        js = js_completo()
         self.assertIn("const rutaDesconocida = !gatesHechos && !_cmv40BinClasificado(s);", js)
         self.assertIn("const rutaPorSaber = !_cmv40BinClasificado(s)", js)
 
@@ -161,11 +176,12 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
     overlay de ejecución); el guard evita que vuelva por uno solo de ellos.
     """
 
-    _FICHEROS = ("static/app.js", "static/index.html")
+    _FICHEROS = ("static/index.html",)   # el JS va por `js_completo()`
 
     def test_no_queda_ningun_literal_eta_visible(self):
-        for rel in self._FICHEROS:
-            texto = (APP_DIR / rel).read_text(encoding="utf-8")
+        fuentes = [(rel, (APP_DIR / rel).read_text(encoding="utf-8"))
+                   for rel in self._FICHEROS] + [("el JS", js_completo())]
+        for rel, texto in fuentes:
             for i, linea in enumerate(texto.splitlines(), 1):
                 limpia = linea.strip()
                 if limpia.startswith(("*", "//", "/*", "<!--")):
@@ -174,7 +190,7 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
                     self.assertNotIn(delim, linea, f"{rel}:{i} — {limpia[:90]}")
 
     def test_los_sitios_conocidos_dicen_restante(self):
-        js = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        js = js_completo()
         self.assertEqual(js.count("` · Restante ${em}:${es}`"), 2)   # escaneo PGS ×2
         self.assertEqual(js.count("`Restante ${fmtSecs(remaining)}`"), 1)
         self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)

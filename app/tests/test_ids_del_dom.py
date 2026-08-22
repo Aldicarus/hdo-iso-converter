@@ -20,10 +20,14 @@ Ejecutar desde la raíz del repo:
 """
 import re
 import unittest
+import sys
 from pathlib import Path
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
-JS = (STATIC / "app.js").read_text(encoding="utf-8")
+sys.path.insert(0, str(STATIC.parent / "tests"))
+from frontend_sources import js_completo  # noqa: E402
+
+JS = js_completo()
 HTML = (STATIC / "index.html").read_text(encoding="utf-8")
 
 # `getElementById('x')` y `openModal('x')` con literal (sin `${`).

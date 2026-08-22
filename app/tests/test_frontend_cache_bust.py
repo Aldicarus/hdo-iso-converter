@@ -29,10 +29,24 @@ class TestCacheBust(unittest.TestCase):
         self.html = INDEX.read_text(encoding="utf-8")
         self.refs = _REF.findall(self.html)
 
-    def test_app_js_y_style_css_llevan_token(self):
+    def test_todas_las_piezas_del_js_y_el_css_llevan_token(self):
+        """El JS son SIETE ficheros desde el corte de `app.js`. Con el token en
+        seis de los siete, el navegador sirve una pieza vieja contra seis
+        nuevas: peor que no tener token, porque el desajuste es parcial."""
         ficheros = {f for f, _ in self.refs}
-        self.assertIn("app.js", ficheros, "app.js debe cargarse con ?v=")
         self.assertIn("style.css", ficheros, "style.css debe cargarse con ?v=")
+        js = sorted(f for f in ficheros if f.endswith(".js"))
+        self.assertEqual(js, ["browser.js", "cmv40_modals.js", "core.js",
+                              "settings.js", "tab1.js", "tab2.js", "tab3.js"],
+                         "faltan piezas del JS en index.html (o hay de más)")
+
+    def test_no_queda_rastro_del_app_js_monolitico(self):
+        self.assertFalse((STATIC / "app.js").exists(),
+                         "app.js se partió en siete; un fichero suelto con ese "
+                         "nombre es una copia que nadie carga")
+        # Sobre las referencias, no sobre el texto: el HTML menciona el
+        # `app.js` original en el comentario que explica el corte.
+        self.assertNotIn("app.js", {f for f, _ in self.refs})
 
     def test_todas_las_referencias_comparten_el_mismo_token(self):
         tokens = {t for _, t in self.refs}

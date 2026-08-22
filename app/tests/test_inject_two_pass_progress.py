@@ -32,6 +32,8 @@ from pathlib import Path
 from unittest import mock
 
 APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR / "tests"))
+from frontend_sources import js_completo  # noqa: E402
 sys.path.insert(0, str(APP_DIR))
 
 GB = 1_000_000_000
@@ -232,7 +234,7 @@ class TestLatidoEnFasesConProgresoExacto(unittest.IsolatedAsyncioTestCase):
         """El panel de cola de Tab 1 parsea "Progress:" del texto del log
         (app.js: msg.match(/Progress:\s*(\d+)%/i) → pc-bar-extract). Ese
         pipeline es otro código y no debe verse afectado."""
-        js = (APP_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        js = js_completo()
         self.assertIn("msg.match(/Progress:", js)
         tab1 = (APP_DIR / "phases" / "phase_d.py").read_text(encoding="utf-8")
         self.assertIn("gui-mode", tab1)
