@@ -851,7 +851,20 @@ def _select_subtitle_tracks(
                         ambiguous_idx.append(i)
                     continue
                 ratio = biggest.packet_count / t.packet_count
-                if ratio >= FORCED_RATIO_THRESHOLD:
+                # El ratio solo compara con `biggest`, y eso asume que el
+                # idioma tiene DOS magnitudes (una completa y sus forzados).
+                # Con TRES —normal + SDH + forzado— la del medio queda 4×
+                # por debajo de la SDH y el ratio la llamaba forzado. Caso
+                # real (The Mandalorian and Grogu, 3 bloques × 5 idiomas):
+                # ES 5591 (normal) · 23022 (SDH) · 248 (forzado) → el 5591
+                # salía como "Castellano Forzados" y el forzado de verdad se
+                # descartaba. El volumen absoluto lo desempata: por encima de
+                # COMPLETE_ABSOLUTE_THRESHOLD no cabe un forzado (los
+                # "grandes" rondan 2000-2200), que es la misma constante que
+                # ya rescataba la banda 2-3×. Aquí se aplica también a la
+                # decisión de forzado, no solo a la de elegibilidad.
+                if (ratio >= FORCED_RATIO_THRESHOLD
+                        and t.packet_count < COMPLETE_ABSOLUTE_THRESHOLD):
                     forced_idx.append(i)
                 else:
                     ambiguous_idx.append(i)

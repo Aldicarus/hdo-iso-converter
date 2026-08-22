@@ -1026,6 +1026,14 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
       Casos reales: Scream 7 ES 12569(1ª)+12817(2ª) y EN 13410(1ª)+17308(2ª) (banda <2× → 1ª) · Imaginary 2024 EN 4187(1ª, normal)+9634(2ª, SDH),
       ratio 2.30× pero 4187≥3000 → se elige la 1ª. Cubierto por `test_subtitle_classification.py`.
     - Caso edge (`biggest` <500): todas son forced; el idioma no tiene complete en este disco.
+    - **Un `packet_count ≥ COMPLETE_ABSOLUTE_THRESHOLD` (3000) NO puede ser forzado, tenga el ratio que tenga.**
+      El ratio solo compara con `biggest`, y eso asume que el idioma tiene DOS magnitudes (una completa y sus
+      forzados). Con **TRES** —normal + SDH + forzado— la del medio queda 4× por debajo de la SDH, cruza el
+      umbral de 3× y salía etiquetada como forzada. Caso real **The Mandalorian and Grogu** (15 subs = 3 bloques
+      × 5 idiomas): ES 5591 (normal) · 23022 (SDH) · 248 (forzado) → el MKV llevaba "Castellano Forzados" con
+      la completa normal, "Castellano Completos" con la SDH, y **el forzado de verdad descartado**. El desempate
+      es el volumen absoluto, la MISMA constante que ya rescataba la banda 2-3×: por encima de 3000 no cabe un
+      forzado (los "grandes" rondan 2000-2200). Cubierto por `test_subtitle_classification.py::TestTresBloquesPorIdioma`.
   - La detección de audiodescripción por packet_count se RETIRÓ — era estructuralmente incorrecta
     (cualquier completo+forzado cruzaba el threshold ×1.3 mal calibrado). Única señal fiable de AD: código ISO 639 `qad`.
 - **`DiscardedTrack.inferred_subtitle_type`** ([models.py](app/models.py)): cada sub descartado lleva su tipo inferido
@@ -1043,6 +1051,17 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
   cambiar de audio. recoverTrack respeta la misma regla: si recuperas un forzado de idioma no-Castellano,
   el label es "X Forzados (PGS)" pero flag_forced=false.
 - Labels: `{Idioma} Forzados (PGS)`, `{Idioma} Completos (PGS)`
+
+### Tres bloques de subtítulos: hay que arreglar los DOS extremos
+
+Un disco con `normal + SDH + forzado` por idioma rompe las **dos** señales estructurales, que asumían exactamente dos bloques:
+
+- **`phase_a._build_subtitle_tracks`** partía en la primera repetición de idioma y marcaba forzado (bitrate sintético 1.0) *todo lo posterior* → la SDH del bloque 2 salía como forzada.
+- **`phase_e._classify_sub_source_ids`** hacía lo mismo con los source ids → la categoría "forzados" de cada idioma contenía `[SDH, forzado]` y el matcher, que consume 1:1 y en orden, entregaba **la SDH** a la pista etiquetada "Forzados".
+
+**Arreglar solo una es peor que no arreglar ninguna**: la selección sale bien y el contenido cruzado, que es el bug de Obsession 2025 otra vez y no falla nada visible. La regla del proyecto ya lo decía — las dos tienen que usar la misma base.
+
+Generalización aplicada a las dos: **el forzado es la ÚLTIMA aparición de un idioma que se repite**. Con dos bloques da exactamente lo de antes (la última ES la del bloque 2); con tres, coloca la SDH donde toca; un idioma que solo aparece una vez sigue siendo completo. De paso desaparece el bail-out de `phase_a` («el bloque 2 tiene idiomas que no están en el 1 → no se detectan forzados»), que era una divergencia silenciosa: `phase_e` los marcaba igual. `test_tres_bloques_estructural.py` compara las dos señales con 1, 2, 3 y 4 bloques y con un idioma extra en el último.
 
 ### Capítulos (spec §5.3)
 - **Capítulos reales** extraídos del MPLS en Fase A (no en Fase D). Disponibles desde la creación del proyecto.

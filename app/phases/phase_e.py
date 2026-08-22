@@ -455,11 +455,19 @@ def _classify_sub_source_ids(
             else:
                 complete.setdefault(lang, []).append(sid)
         elif pattern == "blocks":
-            # Bloques: primera = completo, posterior = forzado
-            if count == 0:
-                complete.setdefault(lang, []).append(sid)
-            else:
+            # Bloques: el forzado es la ÚLTIMA aparición del idioma; las
+            # anteriores son completas. Con dos bloques esto es idéntico a
+            # "primera = completo, posterior = forzado"; con TRES —normal +
+            # SDH + forzado, caso The Mandalorian and Grogu— aquella regla
+            # metía la SDH en la categoría de forzados y el matcher entregaba
+            # el contenido CRUZADO. Tiene que usar la MISMA base que el
+            # `bitrate_kbps` sintético de phase_a, o los dos extremos dejan de
+            # estar alineados.
+            total = sum(1 for _, l in langs_in_order if l == lang)
+            if total >= 2 and count == total - 1:
                 forced.setdefault(lang, []).append(sid)
+            else:
+                complete.setdefault(lang, []).append(sid)
         else:
             # Sin patrón: todo completo
             complete.setdefault(lang, []).append(sid)

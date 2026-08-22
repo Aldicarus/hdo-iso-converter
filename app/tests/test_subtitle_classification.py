@@ -217,3 +217,82 @@ class TestSubtitleClassification(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTresBloquesPorIdioma(unittest.TestCase):
+    """The Mandalorian and Grogu (2026): TRES pistas por idioma, no dos.
+
+    15 subtítulos = 3 bloques × 5 idiomas, con los paquetes REALES medidos en
+    el NAS (muestreo distribuido de 4 GB sobre el m2ts):
+
+        bloque 1 (normal)  eng 7804 · fra 5228 · spa 5591 · deu 6591 · ita 5968
+        bloque 2 (SDH)     eng 29298 · fra 23535 · spa 23022 · deu 25585 · ita 24469
+        bloque 3 (forzado) eng 169 · fra 265 · spa 248 · deu 291 · ita 253
+
+    El ratio solo compara con `biggest`, y eso asume DOS magnitudes por idioma.
+    Con tres, la del medio queda 4,1× por debajo de la SDH (23022/5591) y
+    cruzaba el umbral de 3× → la completa normal salía como "Castellano
+    Forzados", la SDH como "Castellano Completos", y el forzado de verdad (248)
+    se descartaba como forzado sobrante. Es literalmente lo que el usuario vio.
+
+    El desempate es el volumen absoluto: por encima de 3000 paquetes no cabe un
+    forzado (los "grandes" rondan 2000-2200). Es la MISMA constante que ya
+    rescataba la banda 2-3×, aplicada también a la decisión de forzado.
+    """
+
+    # Los números reales del disco, en orden de disco.
+    _REAL = {
+        "English":  [7804, 29298, 169],
+        "French":   [5228, 23535, 265],
+        "Spanish":  [5591, 23022, 248],
+        "German":   [6591, 25585, 291],
+        "Italian":  [5968, 24469, 253],
+    }
+
+    def _tracks(self):
+        """Los 15 subs en el orden del disco: bloque 1, bloque 2, bloque 3."""
+        return [
+            _sub(lang, self._REAL[lang][bloque])
+            for bloque in (0, 1, 2)
+            for lang in ("English", "French", "Spanish", "German", "Italian")
+        ]
+
+    def test_la_completa_es_la_normal_no_la_sdh(self):
+        included, _ = _select_subtitle_tracks(self._tracks(),
+                                              vo_language="English")
+        self.assertEqual(_complete_packets(included, "Spanish"), 5591)
+        self.assertEqual(_complete_packets(included, "English"), 7804)
+
+    def test_el_forzado_es_el_del_tercer_bloque(self):
+        """EL BUG que reportó el usuario: el forzado de verdad se descartaba."""
+        included, _ = _select_subtitle_tracks(self._tracks(),
+                                              vo_language="English")
+        self.assertEqual(_forced_packets(included, "Spanish"), 248)
+        self.assertEqual(_forced_packets(included, "English"), 169)
+
+    def test_la_sdh_se_descarta_como_alternativa_ambigua(self):
+        """No se pierde en silencio: queda como alternativa recuperable, que es
+        lo que hace que la UI avise de que hay otra pista parecida."""
+        included, discarded = _select_subtitle_tracks(self._tracks(),
+                                                     vo_language="English")
+        self.assertNotIn(23022, _included_packets(included, "Spanish"))
+        self.assertIn(23022, {d.raw.packet_count for d in discarded})
+
+    def test_ninguna_completa_normal_acaba_etiquetada_forzada(self):
+        """La comprobación que falla con el bug, en los cinco idiomas."""
+        included, _ = _select_subtitle_tracks(self._tracks(),
+                                              vo_language="English")
+        for t in included:
+            if t.subtitle_type != "forced":
+                continue
+            self.assertLess(
+                t.raw.packet_count, 3000,
+                f"{t.label}: {t.raw.packet_count} paquetes es demasiado para "
+                f"un forzado — es una completa mal etiquetada")
+
+    def test_un_forzado_grande_de_verdad_sigue_siendo_forzado(self):
+        """El guard no abre la mano a los forzados "grandes" (~2000-2200), que
+        es de lo que protegía el umbral de 3000."""
+        tracks = [_sub("Spanish", 12000), _sub("Spanish", 2200)]
+        included, _ = _select_subtitle_tracks(tracks, vo_language="English")
+        self.assertEqual(_forced_packets(included, "Spanish"), 2200)

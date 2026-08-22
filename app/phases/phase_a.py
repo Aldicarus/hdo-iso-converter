@@ -919,39 +919,46 @@ def _build_subtitle_tracks(tracks: list[dict]) -> list[RawSubtitleTrack]:
             )
         else:
             # ── Patrón 1: bloques separados ──────────────────────
+            # El corte solo se usa para el log: la decisión es POR IDIOMA
+            # (la última aparición de un idioma repetido es el forzado), así
+            # que no hace falta que los bloques cuadren. Antes se exigía que
+            # el bloque 2 fuese un subconjunto del 1 y, si no, se renunciaba
+            # a detectar forzados — mientras `phase_e` los marcaba igual, con
+            # lo que los dos extremos discrepaban en silencio.
+            pattern = "blocks"
             split_idx = first_repeat_idx
-            block1_langs = {lang for lang, _ in raw_subs[:split_idx]}
-            block2_langs = {lang for lang, _ in raw_subs[split_idx:]}
-
-            if block2_langs.issubset(block1_langs):
-                pattern = "blocks"
-                _logger.info(
-                    "Subtítulos patrón bloques: corte en posición %d, "
-                    "bloque 1 = %s, bloque 2 = %s",
-                    split_idx, block1_langs, block2_langs,
-                )
-            else:
-                _logger.warning(
-                    "Subtítulos: bloque 2 tiene idiomas no presentes en bloque 1: %s. "
-                    "No se detectan forzados.",
-                    block2_langs - block1_langs,
-                )
-                split_idx = len(raw_subs)
+            bloques = 1 + max(
+                sum(1 for l, _ in raw_subs if l == lang) - 1
+                for lang, _ in raw_subs
+            )
+            _logger.info(
+                "Subtítulos patrón bloques: %d bloque(s), primera repetición "
+                "en la posición %d. Forzado = última aparición de cada idioma "
+                "que se repite.",
+                bloques, split_idx,
+            )
 
     # ── Construir pistas con bitrate sintético ───────────────────
-    block1_langs = {lang for lang, _ in raw_subs[:split_idx]} if pattern == "blocks" else set()
+    # En el patrón de bloques, el forzado es la ÚLTIMA aparición de cada
+    # idioma, no "todo lo que venga tras el primer bloque". La diferencia solo
+    # se nota con TRES bloques o más: el detector partía en la primera
+    # repetición y marcaba forzado todo lo posterior, así que en un disco con
+    # normal + SDH + forzado por idioma (caso real The Mandalorian and Grogu,
+    # 15 subs = 3 × 5 idiomas) la SDH quedaba etiquetada como forzada. Con dos
+    # bloques el resultado es idéntico al de antes — la última aparición ES la
+    # del bloque 2 — y un idioma que solo sale una vez sigue siendo completo.
+    ultima_aparicion = {lang: i for i, (lang, _) in enumerate(raw_subs)}
+    veces = Counter(lang for lang, _ in raw_subs)
     subtitle_tracks: list[RawSubtitleTrack] = []
 
     for i, (lang_iso, codec) in enumerate(raw_subs):
         lang_english = ISO639_TO_ENGLISH.get(lang_iso, lang_iso.capitalize())
 
         if pattern == "blocks":
-            if i < split_idx:
-                bitrate = 30.0  # bloque 1 → completo
-            elif lang_iso in block1_langs:
-                bitrate = 1.0   # bloque 2, idioma en bloque 1 → forzado
+            if veces[lang_iso] >= 2 and i == ultima_aparicion[lang_iso]:
+                bitrate = 1.0   # última de un idioma repetido → forzado
             else:
-                bitrate = 30.0  # bloque 2, idioma nuevo → completo
+                bitrate = 30.0  # las anteriores, y los idiomas únicos
         elif pattern == "adjacent":
             bitrate = 1.0 if i in adjacent_forced else 30.0
         else:
