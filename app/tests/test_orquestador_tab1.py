@@ -58,12 +58,13 @@ def _audio(language, codec, label, *, position=0, ch=0):
 class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
-        import main
         import paths
         import storage
         from phases import phase_d, phase_e
+        from routers import tab1
 
-        self.main, self.storage = main, storage
+        # `_run_pipeline` salió de `main.py` con el resto de Tab 1.
+        self.main, self.storage = tab1, storage
         self.tmp = Path(tempfile.mkdtemp(prefix="orq_test_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.config = self.tmp / "config"

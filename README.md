@@ -387,13 +387,14 @@ hdo-iso-converter/                ← repo / docker image (técnico)
 │   ├── .env.example
 │   └── entrypoint.sh
 ├── app/
-│   ├── main.py                   ← FastAPI app + Tab 1 + endpoints transversales
+│   ├── main.py                   ← FastAPI app + endpoints transversales + arranque
 │   ├── models.py                 ← Pydantic models
 │   ├── storage.py                ← Persistencia JSON + fingerprint
 │   ├── paths.py                  ← Los directorios de la app, en un solo sitio
 │   ├── workload.py               ← Control de admisión: un trabajo pesado a la vez
 │   ├── analysis_progress.py      ← El paso del análisis (lo comparten Tab 1 y Tab 2)
 │   ├── routers/
+│   │   ├── tab1.py              ← Tab 1: endpoints + orquestador del pipeline + WS
 │   │   ├── tab2.py              ← Tab 2: /api/mkv/* + browser + calidad + apply
 │   │   └── cmv40.py             ← Tab 3: endpoints + orquestación
 │   ├── queue_manager.py          ← Cola FIFO asyncio

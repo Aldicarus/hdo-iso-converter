@@ -148,22 +148,27 @@ class TestNadieAsignaRunningPhaseAMano(unittest.TestCase):
         un grep lo confunde con una asignación."""
         import ast
 
-        src = (APP_DIR / "routers" / "cmv40.py").read_text()
-        arbol = ast.parse(src)
+        # `main.py` va en la lista aunque hoy no toque `running_phase`: la
+        # recuperación de arranque vivía ahí y su `s.running_phase = None` no
+        # lo veía nadie, así que el guard parecía satisfecho sin estarlo.
+        # Salió al traer la función a su router.
         permitidas = {"_cmv40_marcar_activa", "_cmv40_marcar_libre"}
         crudas = []
-        for fn in ast.walk(arbol):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if fn.name in permitidas:
-                continue
-            for nodo in ast.walk(fn):
-                if not isinstance(nodo, (ast.Assign, ast.AugAssign)):
+        for rel in ("routers/cmv40.py", "main.py"):
+            arbol = ast.parse((APP_DIR / rel).read_text())
+            for fn in ast.walk(arbol):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
-                destinos = nodo.targets if isinstance(nodo, ast.Assign) else [nodo.target]
-                for d in destinos:
-                    if isinstance(d, ast.Attribute) and d.attr == "running_phase":
-                        crudas.append(f"{fn.name}() línea {nodo.lineno}")
+                if fn.name in permitidas:
+                    continue
+                for nodo in ast.walk(fn):
+                    if not isinstance(nodo, (ast.Assign, ast.AugAssign)):
+                        continue
+                    destinos = (nodo.targets if isinstance(nodo, ast.Assign)
+                                else [nodo.target])
+                    for d in destinos:
+                        if isinstance(d, ast.Attribute) and d.attr == "running_phase":
+                            crudas.append(f"{rel}:{nodo.lineno} en {fn.name}()")
         self.assertEqual(crudas, [],
                          "asignaciones a running_phase fuera de los helpers "
                          "(el registro en memoria se queda con un fantasma): "

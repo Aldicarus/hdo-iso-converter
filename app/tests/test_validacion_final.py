@@ -62,8 +62,9 @@ class ValidacionCase(unittest.IsolatedAsyncioTestCase):
         self.tb.install()
         self.addCleanup(self.tb.uninstall)
 
-        import main
-        self.main = main
+        # `_validate_final_mkv` salió de `main.py` con el resto de Tab 1.
+        from routers import tab1
+        self.main = tab1
         self.mkv = self.tmp / "Peli (2024).mkv"
         self.mkv.write_bytes(b"\x00" * 4096)
         self.log = CollectingLog()
@@ -152,7 +153,7 @@ class TestLaTablaIso639(ValidacionCase):
         `ISO639_TO_ENGLISH`, nunca de un subset local. Se comprueba por
         cobertura: la tabla de la validación tiene que cubrir el mapa entero."""
         from phases.phase_a import ISO639_TO_ENGLISH
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
+        src = (APP_DIR / "routers" / "tab1.py").read_text(encoding="utf-8")
         self.assertIn(
             "_iso = {code: name.lower() for code, name in ISO639_TO_ENGLISH.items()}",
             src,

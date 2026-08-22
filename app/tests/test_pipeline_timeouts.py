@@ -27,6 +27,7 @@ _FILES = [
     _APP / "phases" / "cmv40_pipeline.py",
     _APP / "phases" / "mkv_analyze.py",
     _APP / "main.py",
+    _APP / "routers" / "tab1.py",
     _APP / "routers" / "tab2.py",
 ]
 

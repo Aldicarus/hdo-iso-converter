@@ -56,10 +56,14 @@ ISO2MKVFEL/
 │   ├── .env.example
 │   └── entrypoint.sh
 └── app/
-    ├── main.py              ← FastAPI app + Tab 1 + endpoints transversales
+    ├── main.py              ← FastAPI app + endpoints transversales + arranque
     ├── paths.py             ← Los directorios de la app, en un solo sitio
     ├── workload.py          ← Control de admisión: un trabajo pesado a la vez
     ├── analysis_progress.py ← El paso del análisis, compartido por Tab 1 y Tab 2
+    ├── routers/
+    │   ├── tab1.py          ← Tab 1: endpoints + orquestador del pipeline + WS
+    │   ├── tab2.py          ← Tab 2: /api/mkv/* + browser + calidad + apply
+    │   └── cmv40.py         ← Tab 3: los 37 endpoints + WS del log + auto-pipeline
     ├── requirements.txt
     ├── models.py            ← Pydantic models (Session, BDInfoResult, MkvAnalysisResult, CMv40Session...)
     ├── storage.py           ← Persistencia JSON en /config + fingerprint ISO
@@ -540,21 +544,37 @@ Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_ack
 
 | Fichero | Qué tiene |
 |---|---|
-| `main.py` (~4.000) | **Tab 1** completo (sesiones, `/api/sources`, análisis, series, cola, el orquestador `_run_pipeline`, el WS `/ws/{id}`) + lo transversal (health/status/activity, versión, ajustes, TMDb, estáticos, recovery de arranque) |
-| `routers/tab2.py` (1.310) | **Tab 2** — `/api/mkv/*`, el file browser, la auditoría de calidad del RPU y el apply con copia desde biblioteca |
-| `routers/cmv40.py` (3.789) | **Tab 3** — los 37 endpoints de `/api/cmv40/*` + el WS del log + el auto-pipeline |
+| `main.py` (1.215) | La `app`, los estáticos y **lo que es de toda la aplicación**: salud/estado/actividad, versión y chequeo de actualizaciones, ajustes, el scan + borrado de huérfanos y el arranque |
+| `routers/tab1.py` (2.900) | **Tab 1** — orígenes, sesiones, análisis, series TV, la cola, el orquestador `_run_pipeline` + `_validate_final_mkv`, y los WS `/ws/{id}` y `/ws/queue` |
+| `routers/tab2.py` (1.311) | **Tab 2** — `/api/mkv/*`, el file browser, la auditoría de calidad del RPU y el apply con copia desde biblioteca |
+| `routers/cmv40.py` (3.829) | **Tab 3** — los 37 endpoints de `/api/cmv40/*` + el WS del log + el auto-pipeline |
 | `paths.py` · `workload.py` · `analysis_progress.py` | lo que comparten |
+
+Nótese que `main.py` **ya no tiene ninguna pestaña**: lo que queda no es "Tab 1 más cosas", es la aplicación. Un endpoint nuevo de una pestaña va a su router; uno transversal, a `main`.
 
 **Las URLs no cambiaron con ninguno de los dos movimientos**, y eso no es una promesa: `tests/test_rutas_no_cambian.py` compara el esquema OpenAPI real contra un golden de 93 rutas (con sus parámetros y su body) más los 3 websockets. Un endpoint nuevo es legítimo, pero hay que meterlo en el golden en el mismo commit.
 
-La dependencia es **unidireccional**: `main` incluye los routers, y ningún router importa `main` (lo fija `test_split_por_pestanas.py`, que además carga `routers/tab2` en un proceso limpio para comprobar que no arrastra `main`). Se sostiene porque:
+La dependencia es **unidireccional**: `main` incluye los routers, y ningún router importa `main` (lo fija `test_split_por_pestanas.py`, que además carga cada router en un proceso limpio para comprobar que no arrastra `main`). Se sostiene porque:
 - `DEV_MODE` vive en `dev_fixtures.py` y los directorios en `paths.py`, no en `main`.
-- Lo que tiene que correr **al arrancar** se expone como función pública del router y lo llama `main`: `recuperar_apply_interrumpido()` limpia el `.mkv` a medias de una copia interrumpida antes de aceptar peticiones. Ese sentido (`main` → router) sí está permitido.
-- `_dev_simulate_phase` se fue con el router de CMv4.0: era un helper exclusivo suyo.
+- **Cada router se recupera solo.** Lo que tiene que correr al arrancar se expone como función pública y lo llama `main`: `tab1.recuperar_sesiones_interrumpidas()` devuelve a `pending` las sesiones zombie, `tab2.recuperar_apply_interrumpido()` borra el `.mkv` a medias de una copia interrumpida, y `cmv40.recuperar_sesiones_interrumpidas()` limpia los `running_phase` fantasma. Ese sentido (`main` → router) sí está permitido; el recovery vive junto al estado que protege.
+- `_dev_simulate_phase` se fue con el router de CMv4.0 y `_run_fake_pipeline` con el de Tab 1: eran helpers exclusivos suyos.
+
+**Al añadir un endpoint de fase o un guard que escanee el fuente, mirar la lista de ficheros.** Cuatro tests recorren código fuente (`test_event_loop_limpio`, `test_pipeline_timeouts`, `test_imports_alcanzables`, `test_analisis_extendido_frontend`) y todos tenían `main.py` a secas: con el código en otro fichero habrían seguido pasando en verde vigilando el vacío. Están extendidos a los tres routers.
 
 **Cuidado con el estado que dos pestañas comparten.** `GET /api/analyze/progress` alimenta DOS modales —"Analizando disco" de Tab 1 y "Abriendo MKV" de Tab 2— y era una global con `global _analyze_progress`. Al separar los ficheros ese `global` habría rebindeado un nombre **propio del router**: Tab 2 seguiría escribiendo su progreso, el endpoint seguiría devolviendo 200, y el modal se quedaría en blanco sin un error ni una línea de log. Vive en **`analysis_progress.py`**, que se **muta** en vez de reasignarse (`fijar(...)` / `leer()`) para que quien tenga la referencia vea los cambios. Que dos análisis simultáneos se pisen el paso mostrado es anterior al corte y sigue igual: es cosmético, y de los solapamientos de verdad se encarga `workload`.
 
 **Al tocar tests que parcheen por módulo**: lo de CMv4.0 se parchea en `routers.cmv40` y lo de Tab 2 en `routers.tab2`. Los directorios van SIEMPRE en `paths` (`paths.OUTPUT_DIR_MKV`, nunca `from paths import ...`, para que un solo parche lo vea todo el mundo); los de CMv4.0 siguen en `storage` (`CONFIG_DIR`, `CMV40_DIR`) y `phases.cmv40_pipeline` (`OUTPUT_DIR`, `CMV40_WORK_BASE`) — ver `tests/api_harness.py`, que redirige todos.
+
+### Los dos job singleton de Tab 2 NO se unifican — y por qué
+
+`_mkv_quality_state` (la auditoría de calidad) y `_mkv_apply_state` (el apply con copia) tienen la misma **forma** —un dict de estado, un reset, un set_step, un flag de cancelación, un endpoint de progreso— y se evaluó sacar un `SingletonJob` común. Está descartado, con los números delante: son 432 y 235 líneas, y lo que comparten son unas **30**. Lo que NO comparten es justo lo que costó depurar:
+
+- la calidad cancela **dirigido por `audit_id`**, porque un cancel tarda 3-13 s (kill + reap) y en ese hueco el usuario ya ha lanzado otro audit: el viejo no debe matarlo. Todo —`_mkv_quality_log`, `_state_finalize_if`, `_check_cancel`— va filtrado por ese id;
+- el apply **sobrevive a un reinicio del contenedor**: persiste su estado en `/config/mkv_apply_state.json` y tiene recovery de arranque que borra el `.mkv` a medias.
+
+Una clase común uniría el 5 % trivial, dejaría el 95 % en subclases y añadiría una indirección entre cada endpoint y su estado. El riesgo real que motivaba el punto —dos trabajos pesados a la vez, que además envenenan `ffmpeg_wall_seconds` y con él `_adaptive_timeout` y el modelo de ETA— **ya lo cubre `workload.py`**, que es control de admisión entre pestañas y no tiene nada que ver con la forma de estos dos dicts.
+
+Los otros tres estados con pinta de job (`_disc_probe_progress`, `_series_create_progress`, `analysis_progress`) son dicts de progreso de solo lectura sin cancelación ni persistencia: meterlos en la abstracción sería inventarles maquinaria que no usan.
 
 ### Lanzar una fase: un solo sitio, y una tabla
 
@@ -662,7 +682,7 @@ Tres matices que son el contrato:
 **Solución estándar**:
 1. **Helpers en `storage.py`**: `save_session_async` y `save_cmv40_session_async` toman un snapshot en async (rápido, µs) y mueven `serialize + write` a `asyncio.to_thread` para no bloquear.
 2. **Snapshot barato**: `_log_safe_snapshot` (storage.py) sustituye al `model_copy(deep=True)` — copia solo las listas que crecen durante un job (`output_log`, `phase_history`/`execution_history`) y comparte el resto. El deep copy clonaba también campos estables y enormes (3.914 `L2Combo` en una sesión real) en cada save.
-3. **Throttle + lock por sesión** en main.py: `_maybe_save_session_throttled` (Tab 1, >1s o >=20 líneas) y `_cmv40_maybe_persist_log` (Tab 3, >5s o >=50 líneas). Si lock libre → fire-and-forget task; si lock ocupado → descartar trigger (la línea sigue en `output_log` RAM y se persistirá con el siguiente). Garantía: el callback `await` retorna en <1ms siempre.
+3. **Throttle + lock por sesión**: `_maybe_save_session_throttled` (`routers/tab1.py`, >1s o >=20 líneas) y `_cmv40_maybe_persist_log` (`routers/cmv40.py`, >5s o >=50 líneas). Si lock libre → fire-and-forget task; si lock ocupado → descartar trigger (la línea sigue en `output_log` RAM y se persistirá con el siguiente). Garantía: el callback `await` retorna en <1ms siempre.
 4. **Flush al terminar fase**: `_flush_session_save` (Tab 1) y `_cmv40_flush_log` (Tab 3) esperan al lock para garantizar durabilidad antes de marcar la sesión como done.
 5. **Broadcasts WS**: `_send_ws_with_timeout` con `asyncio.wait_for(timeout=2s)` en `asyncio.create_task` — un cliente zombie nunca bloquea el log loop.
 6. **El progreso no se persiste**: las líneas `§§PROGRESS§§` viajan SOLO por WS — no entran en `output_log` ni disparan save (`_cmv40_progress_should_emit`, dedup por (pct,label) con heartbeat de 5s). El ticker las emite cada 2s aunque el valor no cambie; con el pct saturado al 95% en la recta final de una fase larga eran cientos de reescrituras del JSON entero. El watermark del frontend (`_appendCMv40Log`) NO las cuenta, justamente porque ya no existen en `output_log`. Cubierto por `test_cmv40_log_throughput.py`.

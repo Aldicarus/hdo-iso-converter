@@ -162,6 +162,87 @@ class TestRecoveryDelApplyAlArrancar(unittest.TestCase):
             self.assertTrue(intacto.exists(), "sin estado que recuperar, nada se borra")
 
 
+class TestCadaRouterSeRecuperaSolo(unittest.TestCase):
+    """Las tres recuperaciones de arranque, y que `main` las llame.
+
+    Cada router expone la suya como función pública porque el recovery tiene
+    que vivir junto al estado que protege: el de CMv4.0 es lo que hace segura
+    la fuente de verdad EN MEMORIA de qué proyectos tienen fase en marcha, y
+    tenerlo en otro fichero es como se desincronizan estas cosas.
+    """
+
+    def test_los_tres_routers_exponen_su_recuperacion(self):
+        from routers import cmv40, tab1, tab2
+        for mod, nombre in ((tab1, "recuperar_sesiones_interrumpidas"),
+                            (tab2, "recuperar_apply_interrumpido"),
+                            (cmv40, "recuperar_sesiones_interrumpidas")):
+            self.assertTrue(callable(getattr(mod, nombre, None)),
+                            f"{mod.__name__} no expone {nombre}")
+
+    def test_main_las_llama_todas_al_arrancar(self):
+        """Comprobado sobre el AST: son llamadas a nivel de módulo, así que
+        corren en el import y no hay forma de observarlas dos veces en el
+        mismo proceso."""
+        import ast
+        arbol = ast.parse((APP_DIR / "main.py").read_text())
+        llamadas = set()
+        for nodo in arbol.body:
+            if (isinstance(nodo, ast.Expr) and isinstance(nodo.value, ast.Call)
+                    and isinstance(nodo.value.func, ast.Attribute)
+                    and isinstance(nodo.value.func.value, ast.Name)):
+                llamadas.add(f"{nodo.value.func.value.id}.{nodo.value.func.attr}")
+        for esperada in ("_tab1_routes.recuperar_sesiones_interrumpidas",
+                         "_tab2_routes.recuperar_apply_interrumpido",
+                         "_cmv40_routes.recuperar_sesiones_interrumpidas"):
+            self.assertIn(esperada, llamadas,
+                          "main tiene que llamarla en el arranque")
+
+    def test_main_no_se_queda_con_codigo_de_ninguna_pestana(self):
+        """Lo que queda en `main` es la aplicación, no una pestaña. Un endpoint
+        de pestaña ahí es una regresión del corte."""
+        import ast
+        arbol = ast.parse((APP_DIR / "main.py").read_text())
+        rutas = []
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deco in nodo.decorator_list:
+                if (isinstance(deco, ast.Call) and isinstance(deco.func, ast.Attribute)
+                        and deco.args and isinstance(deco.args[0], ast.Constant)):
+                    rutas.append(deco.args[0].value)
+        de_pestana = [r for r in rutas if isinstance(r, str) and (
+            r.startswith("/api/mkv/") or r.startswith("/api/cmv40")
+            or r.startswith("/api/sessions") or r.startswith("/api/queue")
+            or r in ("/api/analyze", "/api/disc-probe", "/api/sources"))]
+        self.assertEqual(de_pestana, [], "esas rutas van en su router")
+
+
+class TestElBloqueDevSigueRegistrando(unittest.TestCase):
+    """`/api/dev/simulate` está DENTRO de un `if DEV_MODE:`, o sea indentado.
+
+    El corte cambió los decoradores `@app.` por `@router.` y el de este
+    endpoint no empieza en columna 0: se quedó apuntando a un `app` que en el
+    router no existe. Como con DEV_MODE=0 el bloque no se ejecuta, ni el
+    golden de rutas ni los 940 tests lo habrían visto — solo un `NameError`
+    al arrancar en desarrollo.
+    """
+
+    def test_con_dev_mode_la_ruta_existe(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            r = subprocess.run(
+                [sys.executable, "-c",
+                 "import main; print([x.path for x in main.app.routes "
+                 "if x.path == '/api/dev/simulate'])"],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "PYTHONPATH": str(APP_DIR), "DEV_MODE": "1",
+                     "CONFIG_DIR": td, "ISOS_DIR": td, "OUTPUT_DIR": td,
+                     "LIBRARY_DIR": td, "TMP_DIR": td},
+                cwd=str(APP_DIR))
+            self.assertEqual(r.returncode, 0, r.stderr[-3000:])
+            self.assertIn("/api/dev/simulate", r.stdout)
+
+
 class TestLaDependenciaVaEnUnSoloSentido(unittest.TestCase):
     """`main` importa los routers; ningún router importa `main`.
 
@@ -185,18 +266,22 @@ class TestLaDependenciaVaEnUnSoloSentido(unittest.TestCase):
                 self.assertNotIn("main", nombres,
                                  f"{fichero.name}:{nodo.lineno} importa main")
 
-    def test_el_router_de_tab2_se_puede_cargar_solo(self):
+    def test_cada_router_se_puede_cargar_solo(self):
         """Sin `main` en `sys.modules`, para que el ciclo no pase inadvertido
-        por el orden de importación de la suite."""
-        r = subprocess.run(
-            [sys.executable, "-c",
-             "import sys; from routers import tab2; "
-             "assert 'main' not in sys.modules, 'arrastró main'; "
-             "print(len(tab2.router.routes))"],
-            capture_output=True, text=True, timeout=120,
-            env={**os.environ, "PYTHONPATH": str(APP_DIR)}, cwd=str(APP_DIR))
-        self.assertEqual(r.returncode, 0, r.stderr[-3000:])
-        self.assertEqual(int(r.stdout.strip()), 12, "los 12 endpoints de Tab 2")
+        por el orden de importación de la suite. Y con rutas: un router que
+        cargue pero no registre nada sería un import vacío."""
+        for nombre, minimo in (("tab1", 20), ("tab2", 12), ("cmv40", 30)):
+            with self.subTest(router=nombre):
+                r = subprocess.run(
+                    [sys.executable, "-c",
+                     f"import sys; from routers import {nombre} as m; "
+                     "assert 'main' not in sys.modules, 'arrastró main'; "
+                     "print(len(m.router.routes))"],
+                    capture_output=True, text=True, timeout=120,
+                    env={**os.environ, "PYTHONPATH": str(APP_DIR)},
+                    cwd=str(APP_DIR))
+                self.assertEqual(r.returncode, 0, r.stderr[-3000:])
+                self.assertGreaterEqual(int(r.stdout.strip()), minimo)
 
 
 if __name__ == "__main__":

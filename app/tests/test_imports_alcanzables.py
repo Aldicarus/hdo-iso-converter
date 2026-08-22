@@ -27,6 +27,7 @@ MODULOS = [
     "storage.py",
     "models.py",
     "dev_fixtures.py",
+    "routers/tab1.py",
     "routers/tab2.py",
     "routers/cmv40.py",
     "phases/cmv40_pipeline.py",
@@ -91,7 +92,7 @@ class TestElRestauradorDeCapitulos(unittest.TestCase):
     """La regresión concreta: el endpoint que estaba roto."""
 
     def test_importa_lo_que_usa(self):
-        src = (APP_DIR / "main.py").read_text(encoding="utf-8")
+        src = (APP_DIR / "routers" / "tab1.py").read_text(encoding="utf-8")
         i = src.index("async def reset_chapters")
         cuerpo = src[i:i + 3000]
         self.assertIn("run_mkvmerge_identify(", cuerpo)

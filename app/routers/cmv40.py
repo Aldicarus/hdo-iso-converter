@@ -80,8 +80,8 @@ from phases.cmv40_strategy import resolve_plan  # noqa: E402
 # ── Qué proyectos tienen una fase en marcha, EN MEMORIA ─────────────────────
 #
 # Este proceso es el único que arranca fases, y al arrancar
-# `_recover_interrupted_cmv40_sessions` limpia los `running_phase` que quedaran
-# en disco: la memoria es la fuente de verdad. El punto verde del tab lo
+# `recuperar_sesiones_interrumpidas` (aquí abajo) limpia los `running_phase` que
+# quedaran en disco: la memoria es la fuente de verdad. El punto verde del tab lo
 # consultaba cada 5 s con `list_cmv40_sessions_summary`, que hace un `glob` más
 # un `stat` por sesión — con 88 proyectos son ~88 syscalls cada 5 s, 1,5
 # millones al día, para decidir si se pinta un punto.
@@ -103,6 +103,51 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     """Libera la sesión: ya no hay fase en marcha."""
     session.running_phase = None
     _cmv40_activas.pop(session.id, None)
+
+
+def recuperar_sesiones_interrumpidas() -> None:
+    """Limpia sesiones CMv4.0 con running_phase != null tras un reinicio.
+
+    Sin esto, un proyecto que estaba en mid-fase cuando el contenedor cae
+    queda con running_phase persistido — la UI lo muestra eternamente como
+    "fase ejecutándose" cuando en realidad no hay ningún proceso vivo
+    corriendo. El usuario solo puede deshacerlo manualmente con cancelar
+    (que falla porque no hay proc) o forzando un reset de fase.
+
+    Estrategia (paralela a la de Tab 1 en `routers/tab1.py`):
+      - running_phase=None
+      - El último phase_history record con status="running" → status="error"
+        + error_message="Sesión interrumpida por reinicio del servidor"
+      - session.error_message también poblado para que el banner rojo de la
+        UI sea visible al cargar
+      - phase NO se modifica — el rebobinado/forward-roll del GET decidirán
+        a qué punto llevar al usuario en función de los artefactos en disco
+    """
+    from storage import list_cmv40_sessions, save_cmv40_session
+    count = 0
+    msg = "Sesión interrumpida por reinicio del servidor"
+    for s in list_cmv40_sessions():
+        if not s.running_phase:
+            continue
+        # Por el helper, no a mano: el registro en memoria arranca vacío, así
+        # que el pop es un no-op, pero la regla de "solo los helpers tocan
+        # running_phase" se queda sin excepciones. Mientras esta función vivía
+        # en `main.py` el guard no la veía — de hecho la asignación cruda
+        # llevaba aquí desde el principio y salió al traerla al router.
+        _cmv40_marcar_libre(s)
+        s.error_message = msg
+        # Marcar el último phase_history en running como error
+        if s.phase_history:
+            last = s.phase_history[-1]
+            if getattr(last, "status", "") == "running":
+                last.status = "error"
+                last.error_message = msg
+                from datetime import datetime as _dt, timezone as _tz
+                last.finished_at = _dt.now(_tz.utc)
+        save_cmv40_session(s)
+        count += 1
+    if count:
+        _logger.info("[Startup] %d sesión(es) CMv4.0 interrumpida(s) limpiada(s)", count)
 
 
 # Conexiones WebSocket específicas de CMv4.0
