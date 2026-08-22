@@ -947,14 +947,18 @@ async def disc_probe(body: DiscProbeRequest):
 
     try:
         if stype == "m2ts":
-            paths = validated_paths or [spath_abs]
+            # OJO con el nombre: `paths` es el MÓDULO de los directorios, y
+            # este ámbito lee `paths.ISOS_DIR` unas líneas más arriba. Una
+            # local con ese nombre lo sombrea en TODA la función y el
+            # `paths.ISOS_DIR` de antes revienta con UnboundLocalError.
+            m2ts_paths = validated_paths or [spath_abs]
             if hint == "movie":
                 # El usuario eligió película → solo permitimos 1 m2ts.
-                if len(paths) > 1:
+                if len(m2ts_paths) > 1:
                     raise HTTPException(
                         status_code=400,
                         detail=(
-                            f"Modo película seleccionado con {len(paths)} ficheros M2TS. "
+                            f"Modo película seleccionado con {len(m2ts_paths)} ficheros M2TS. "
                             f"Para procesar varios episodios, vuelve al modal y cambia a "
                             f"modo serie."
                         ),
@@ -969,12 +973,12 @@ async def disc_probe(body: DiscProbeRequest):
             elif hint == "series":
                 # El usuario eligió serie → cada m2ts es un episodio.
                 _disc_probe_progress.update({
-                    "current_label": f"Analizando {len(paths)} ficheros M2TS…",
+                    "current_label": f"Analizando {len(m2ts_paths)} ficheros M2TS…",
                     "pct": 0,
                     "step": "scan",
                 })
                 candidates = await identify_episode_candidates_from_m2ts_list(
-                    paths, progress_callback=_scan_progress,
+                    m2ts_paths, progress_callback=_scan_progress,
                 )
                 if not candidates:
                     raise HTTPException(
@@ -987,12 +991,12 @@ async def disc_probe(body: DiscProbeRequest):
                 media_type = "series"
             else:
                 # hint=None (frontend antiguo o flujo legacy) → auto-detect.
-                if len(paths) == 1:
+                if len(m2ts_paths) == 1:
                     media_type = "movie"
                     candidates = []
                 else:
                     candidates = await identify_episode_candidates_from_m2ts_list(
-                        paths, progress_callback=_scan_progress,
+                        m2ts_paths, progress_callback=_scan_progress,
                     )
                     media_type = "series" if candidates else "movie"
 
