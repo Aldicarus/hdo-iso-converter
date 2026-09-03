@@ -101,7 +101,16 @@ class TestNoQuedanDosCaminos(unittest.TestCase):
             self.assertNotIn(f"{muerto}(", JS, f"{muerto} sigue invocándose")
 
     def test_no_queda_el_endpoint_del_perfil(self):
-        self.assertNotIn("/api/mkv/light-profile", JS)
+        """Las URLs muertas son EXACTAMENTE estas dos, no todo lo que empiece
+        por `light-profile`. La comprobación era por subcadena y también
+        prohibía `/api/mkv/light-profile-cached`, que es el comparador A/B —
+        otro endpoint, de sólo lectura y que no lanza ningún análisis. Un guard
+        que caza código legítimo empuja a renombrar para esquivarlo, que es
+        justo lo contrario de lo que se busca."""
+        for muerta in ("'/api/mkv/light-profile'", '"/api/mkv/light-profile"',
+                       "/api/mkv/light-profile?", "/api/mkv/light-profile/progress",
+                       "/api/mkv/light-profile/cancel"):
+            self.assertNotIn(muerta, JS, f"vuelve a llamarse a {muerta}")
 
     def test_el_modal_del_perfil_ya_no_esta_en_el_html(self):
         self.assertNotIn('id="dv-light-modal"', HTML)
@@ -118,7 +127,10 @@ class TestNoQuedanDosCaminos(unittest.TestCase):
         # aunque el endpoint volviera.
         for rel in ("main.py", "routers/tab2.py"):
             src = (APP_DIR / rel).read_text(encoding="utf-8")
+            # Con la comilla final: `/api/mkv/light-profile-cached` es otro
+            # endpoint (el comparador A/B) y sí puede existir.
             self.assertNotIn('/api/mkv/light-profile"', src, rel)
+            self.assertNotIn('/api/mkv/light-profile/progress', src, rel)
             self.assertNotIn("_light_profile_state: dict", src, rel)
 
     def test_el_perfil_esta_en_el_modelo(self):

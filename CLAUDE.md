@@ -304,6 +304,7 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
 - `POST /api/mkv/quality-audit` — **análisis extendido**: combos L8/L2 + perfil de luminancia, con una sola extracción del RPU. Cachea los dos. (La URL conserva el nombre viejo; `POST /api/mkv/light-profile` ya no existe.)
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
+- `GET /api/mkv/light-profile-cached` — perfil de luminancia YA cacheado de otro MKV, para el comparador A/B. No analiza.
 - `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
 - `POST /api/mkv/apply/cancel` — solicita la cancelación cooperativa de la copia. Solo efectiva durante `step=copying`.
 
@@ -1551,6 +1552,14 @@ Lo que hubo que adaptar, y por qué:
 - **Cada serie se reduce con el agregador que le toca**: máximo para los picos, media para el avg, mínimo para el suelo. Reducir las tres con el máximo aplanaría la banda y el gráfico mentiría.
 - Sparkline SVG con 3 curvas superpuestas (peak/avg/min) + líneas de referencia (HDR10 MaxCLL/MaxFALL del SEI, L2 trim targets ámbar, L6 master display) + tooltip hover crosshair + chips de refs out-of-range.
 - Mini-card de stats: percentiles (peak/p99/p95/p50/avg) + clasificación de escenas por brillo (SDR-like <100n / midtone 100-300n / highlight ≥300n).
+
+### Comparador A/B del perfil de luminancia (Tab 2)
+
+Superpone la curva L1 de **otro** MKV sobre la del que está abierto — el caso para el que existe es el mismo título antes y después del upgrade a CMv4.0, para responder *«¿mereció la pena?»* con el grading delante en vez de con `classify_l8`, que es un proxy. Botón **«⚖️ Comparar con…»** en la card del perfil; abre el file browser (Biblioteca + Output) y pinta la curva en rojo discontinuo más una tabla de deltas (peak, p99, p95, mediana, media de los picos).
+
+- **`GET /api/mkv/light-profile-cached` NO lanza análisis.** Devuelve sólo lo que ya está en `/config/mkv_audits/`. Extraer el RPU de un UHD son ~10 min y eso no puede dispararse por elegir un fichero en un navegador; si falta, el mensaje distingue *«sin análisis previo»* de *«analizado pero sin perfil»* (cache de la auditoría vieja) para llevar al botón correcto. Es un GET barato —fingerprint = SHA del primer 1 MB— y no toca `workload`.
+- **El eje X va normalizado a 0-100 % del metraje**, así que dos montajes con distinto número de frames se superponen ocupando el mismo ancho. Es deseado (así es como se ve un desfase) pero obliga a **avisar de la diferencia de duración**: por encima del 2 % la tabla lo dice, porque si no el usuario compara escenas que no se corresponden creyendo que sí.
+- Dos detalles del SVG que un cambio descuidado rompe en silencio, los dos con test: el **eje Y abarca las DOS curvas** (si no, una comparación más brillante se sale del chart sin decirlo) y la curva de comparación **se reparte por su propia longitud**, no con el `xOf` de la serie propia (que la aplastaría contra el margen izquierdo si trae otro número de cubos). Cubierto por `test_comparador_luminancia.py`.
 
 > **Distinción clave para usuarios**: L1 max_pq es la metadata DV codificada por el colorista, NO la luminancia real en pantalla tras tone-mapping. BR2049 etiqueta conservadoramente: peak L1 ~176 nits aunque medidas reales muestren ~600 nits. Confirmado: nuestro parser coincide al 100% con `dovi_tool info --summary`.
 

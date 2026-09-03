@@ -812,6 +812,16 @@
      true
     ]
    ]
+  },
+  "GET /api/mkv/light-profile-cached": {
+   "params": [
+    [
+     "file_path",
+     "query",
+     false
+    ]
+   ],
+   "body": []
   }
  },
  "websockets": [

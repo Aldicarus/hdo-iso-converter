@@ -8984,3 +8984,27 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-color: rgba(0, 122, 255, 0.22);
   color: var(--text-secondary);
 }
+
+/* ── Comparador A/B del perfil de luminancia (Tab 2) ──────────────── */
+.dv-cmp-card {
+  margin: 12px 0 4px; padding: 12px 14px;
+  background: rgba(225, 29, 72, 0.04);
+  border: 1px solid rgba(225, 29, 72, 0.16);
+  border-radius: 10px;
+}
+.dv-cmp-head { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.dv-cmp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.dv-cmp-table th {
+  text-align: right; font-weight: 600; color: var(--text-secondary);
+  padding: 3px 8px; border-bottom: 1px solid rgba(15,23,42,0.08);
+}
+.dv-cmp-table th:first-child { text-align: left; }
+.dv-cmp-table td { padding: 3px 8px; color: var(--text); }
+.dv-cmp-table .cmp-num { text-align: right; font-family: 'SF Mono', monospace; }
+.cmp-up   { color: #059669; font-weight: 600; }
+.cmp-down { color: #dc2626; font-weight: 600; }
+.cmp-flat { color: var(--text-secondary); }
+.cmp-aviso {
+  margin-top: 9px; font-size: 12px; line-height: 1.45;
+  color: var(--text-secondary);
+}

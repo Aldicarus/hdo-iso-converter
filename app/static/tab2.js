@@ -554,8 +554,17 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     ? opts.avgSeries : null;
   const minSeries = Array.isArray(opts.minSeries) && opts.minSeries.length === series.length
     ? opts.minSeries : null;
+  // Curva de comparación (otro MKV del mismo título). NO se exige que tenga la
+  // misma longitud que `series`: el eje X está normalizado a 0-100 % del
+  // metraje, así que dos montajes con distinto número de frames se superponen
+  // igual — y ver esa diferencia es justamente para lo que sirve la pantalla.
+  const cmpSeries = Array.isArray(opts.compareSeries) && opts.compareSeries.length > 1
+    ? opts.compareSeries : null;
+  const cmpLabel = opts.compareLabel || 'Comparación';
   const refs = (opts.refs && typeof opts.refs === 'object') ? opts.refs : {};
-  const peakV = Math.max(...series);
+  // El eje Y tiene que abarcar las DOS curvas o la de comparación se sale del
+  // chart sin decirlo.
+  const peakV = Math.max(...series, ...(cmpSeries || [0]));
   // Y-axis: peak con 10% headroom. Las referencias que caigan dentro se
   // pintan como lineas; las que excedan se listan como chips a la derecha.
   const yMax = Math.max(1, Math.ceil(peakV * 1.15 / 10) * 10);
@@ -594,6 +603,13 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     : '';
   const minPath = minSeries
     ? _smoothPath(minSeries.map((v, i) => [xOf(i), yOf(v)]))
+    : '';
+  // La comparación se dibuja con su PROPIO reparto del eje X: si trae otro
+  // número de cubos, mapearla con `xOf` (que asume la longitud de `series`)
+  // la comprimiría contra el margen izquierdo.
+  const cmpPath = cmpSeries
+    ? _smoothPath(cmpSeries.map((v, i) => [
+        padL + (i / (cmpSeries.length - 1)) * usableW, yOf(v)]))
     : '';
 
   // Grid en 0/25/50/75/100% del yMax
@@ -685,6 +701,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   ];
   if (avgPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#22c55e">Avg (avg_pq)</span>`);
   if (minPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#94a3b8">Min (min_pq)</span>`);
+  if (cmpPath) legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:#e11d48">${cmpLabel}</span>`);
   refsToDraw.slice(0, 4).forEach(r =>
     legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:${r.color}">${r.label}</span>`));
   const legendHtml = `<div class="dv-sparkline-legend">${legendParts.join('')}</div>`;
@@ -740,6 +757,8 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
             stroke-linejoin="round" stroke-linecap="round" opacity="0.85" />` : ''}
       <path d="${linePath}" fill="none" stroke="url(#${gid}-line)" stroke-width="2.2"
             stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
+      ${cmpPath ? `<path d="${cmpPath}" fill="none" stroke="#e11d48" stroke-width="1.8"
+            stroke-dasharray="6,3" opacity="0.9" stroke-linejoin="round" stroke-linecap="round" />` : ''}
       ${timeTicks}
       ${peakMarker}
       ${hoverCursor}
@@ -1321,12 +1340,15 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     hdr10_max_cll:  a.hdr?.max_cll  || 0,
     hdr10_max_fall: a.hdr?.max_fall || 0,
   } : {};
+  const cmp = hasLightProfile ? _mkvComparacion : null;
   const sparkOpts = hasLightProfile ? {
     avgSeries: dv.per_scene_max_fall && dv.per_scene_max_fall.length === dv.per_scene_max_cll.length
       ? dv.per_scene_max_fall : null,
     minSeries: dv.per_scene_min && dv.per_scene_min.length === dv.per_scene_max_cll.length
       ? dv.per_scene_min : null,
     refs: sparkRefs,
+    compareSeries: cmp ? cmp.serie : null,
+    compareLabel: cmp ? cmp.etiqueta : '',
   } : {};
   // Mini-card de stats (percentiles + clasificacion por brillo)
   const statsCardHtml = hasLightProfile && dv.l1_stats
@@ -1334,6 +1356,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : '';
   const sparklineArea = hasLightProfile
     ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits', a.duration_seconds, sparkOpts)}</div>
+       ${_mkvTablaComparacionHtml(dv, a)}
        ${statsCardHtml}
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
@@ -1343,9 +1366,14 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
        </div>`;
   // Un solo botón: el perfil sale del mismo análisis extendido que la
   // auditoría de calidad, compartiendo la extracción del RPU.
-  const actionBtn = hasLightProfile
+  const btnComparar = hasLightProfile
+    ? (_mkvComparacion
+       ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-tooltip="Volver a ver solo este MKV"><span>✕</span> Quitar comparación</button>`
+       : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span>⚖️</span> Comparar con…</button>`)
+    : '';
+  const actionBtn = (hasLightProfile
     ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span>↻</span> Re-analizar</button>`
-    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`;
+    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`) + btnComparar;
   // Tooltip explicando que estos valores son metadata DV L1 (no medidas
   // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
   // medidas reales tras tone-mapping sean 500-600 nits — porque el
@@ -2940,4 +2968,138 @@ function _fmtDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  COMPARADOR A/B DEL PERFIL DE LUMINANCIA
+// ═══════════════════════════════════════════════════════════════════
+//
+// Superpone la curva L1 de otro MKV sobre la del que está abierto. El caso
+// para el que existe: el mismo título antes y después del upgrade a CMv4.0,
+// para responder «¿mereció la pena?» con el grading delante en vez de con la
+// clasificación de `classify_l8`, que es un proxy.
+//
+// Dos decisiones que conviene no deshacer:
+//
+// * **No lanza análisis.** El endpoint (`/api/mkv/light-profile-cached`) sólo
+//   devuelve lo que YA está en `/config/mkv_audits/`. Extraer el RPU de un UHD
+//   son ~10 min y eso no puede dispararse por elegir un fichero en un
+//   navegador; si falta, se dice cuál falta.
+// * **El eje X está normalizado a 0-100 % del metraje**, así que dos montajes
+//   con distinto número de frames se superponen igual. Eso es deseado —es cómo
+//   se ve un desfase— pero hace falta AVISAR de la diferencia de duración, o
+//   el usuario compara dos cosas que no están alineadas creyendo que sí.
+
+/** {serie, etiqueta, stats, duracion, fichero} del MKV con el que se compara. */
+let _mkvComparacion = null;
+
+/** Diferencia de duración a partir de la cual las curvas ya no son
+ *  comparables sin avisar. 2 % de una peli de 2 h son ~2,5 min: eso ya no es
+ *  un logo de estudio, es otro montaje. */
+const _CMP_TOLERANCIA_DURACION = 0.02;
+
+function abrirComparadorLuminancia() {
+  openFileBrowser({
+    title: 'Comparar el perfil de luminancia con…',
+    subtitle: 'Normalmente, el mismo título antes o después del upgrade a CMv4.0',
+    roots: [
+      { key: 'library', label: 'Biblioteca', icon: '📚' },
+      { key: 'output',  label: 'Output',     icon: '📦' },
+    ],
+    onSelect: (absPath) => _cargarComparacionLuminancia(absPath),
+  });
+}
+
+async function _cargarComparacionLuminancia(ruta) {
+  if (!ruta) return;
+  if (mkvProject && ruta === mkvProject.filePath) {
+    showToast('Ese es el MKV que ya tienes abierto', 'info');
+    return;
+  }
+  try {
+    const r = await apiFetch(
+      `/api/mkv/light-profile-cached?file_path=${encodeURIComponent(ruta)}`);
+    if (!r || !r.cached) {
+      showToast(
+        `Sin perfil que comparar — ${r?.reason || 'no analizado'}. ` +
+        'Ábrelo en esta pestaña y lánzale el 🔬 Análisis extendido.',
+        'info', 8000);
+      return;
+    }
+    const perfil = r.light_profile || {};
+    const serie = perfil.per_scene_max_cll;
+    if (!Array.isArray(serie) || serie.length < 2) {
+      showToast('El análisis de ese MKV no trae curva de luminancia', 'info');
+      return;
+    }
+    _mkvComparacion = {
+      serie,
+      etiqueta: r.file_name || 'Comparación',
+      stats: perfil.stats || null,
+      duracion: r.duration_seconds || 0,
+      fichero: ruta,
+    };
+    _renderMkvEditPanel();
+    showToast(`⚖️ Comparando con ${r.file_name}`, 'success');
+  } catch (e) {
+    showToast(`No se pudo cargar la comparación: ${e.message}`, 'error', 6000);
+  }
+}
+
+function quitarComparacionLuminancia() {
+  _mkvComparacion = null;
+  _renderMkvEditPanel();
+}
+
+/** Tabla de deltas entre el MKV abierto y el de comparación. */
+function _mkvTablaComparacionHtml(dv, a) {
+  const cmp = _mkvComparacion;
+  if (!cmp) return '';
+  const propias = dv.l1_stats || {};
+  const otras = cmp.stats || {};
+  const filas = [
+    ['Peak', 'peak'], ['p99', 'p99'], ['p95', 'p95'],
+    ['Mediana', 'p50'], ['Media de los picos', 'avg_of_max'],
+  ];
+  const celdas = filas.map(([etiq, clave]) => {
+    const mia = propias[clave];
+    const suya = otras[clave];
+    if (mia == null || suya == null) return '';
+    const d = mia - suya;
+    // El signo se lee «este MKV respecto al de comparación».
+    const signo = d > 0 ? 'up' : (d < 0 ? 'down' : 'flat');
+    const pct = suya ? ` (${d >= 0 ? '+' : ''}${(d / suya * 100).toFixed(1)}%)` : '';
+    return `<tr>
+      <td>${etiq}</td>
+      <td class="cmp-num">${mia} n</td>
+      <td class="cmp-num">${suya} n</td>
+      <td class="cmp-num cmp-${signo}">${d >= 0 ? '+' : ''}${d} n${pct}</td>
+    </tr>`;
+  }).join('');
+
+  // El aviso que evita comparar dos montajes distintos creyendo que son el
+  // mismo: el eje X va normalizado, así que la diferencia no se ve sola.
+  const dMia = a.duration_seconds || 0;
+  const dSuya = cmp.duracion || 0;
+  let aviso = '';
+  if (dMia && dSuya) {
+    const rel = Math.abs(dMia - dSuya) / Math.max(dMia, dSuya);
+    if (rel > _CMP_TOLERANCIA_DURACION) {
+      aviso = `<div class="cmp-aviso">⚠️ Duran distinto (${_rgrfFmtTime(dMia)} vs
+        ${_rgrfFmtTime(dSuya)}, ${(rel * 100).toFixed(1)}%). El eje X va normalizado al
+        metraje, así que las dos curvas ocupan todo el ancho igualmente: pueden ser
+        montajes distintos y estar comparando escenas que no se corresponden.</div>`;
+    }
+  } else {
+    aviso = `<div class="cmp-aviso">ℹ︎ No se conoce la duración de uno de los dos,
+      así que no se puede confirmar que sean el mismo montaje.</div>`;
+  }
+
+  return `<div class="dv-cmp-card">
+    <div class="dv-cmp-head">⚖️ Comparación con <b>${cmp.etiqueta}</b></div>
+    ${celdas ? `<table class="dv-cmp-table">
+      <thead><tr><th></th><th>Este MKV</th><th>${cmp.etiqueta}</th><th>Δ</th></tr></thead>
+      <tbody>${celdas}</tbody></table>` : ''}
+    ${aviso}
+  </div>`;
 }
