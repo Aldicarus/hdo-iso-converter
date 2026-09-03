@@ -1495,6 +1495,79 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
         return [], f"exception: {type(e).__name__}: {e}"
 
 
+def asignar_packet_counts(
+    subtitle_tracks: list,
+    pgs_packets: dict[int, int],
+    mpls_pg_streams: list[dict] | None = None,
+) -> tuple[bool, str]:
+    """Empareja los conteos PGS con las pistas de subtítulo. Devuelve
+    ``(asignado, motivo)``; el motivo es para el log.
+
+    Antes esto era un ``zip(bdinfo.subtitle_tracks, sorted_counts)`` copiado en
+    los tres puntos de entrada del análisis, y ``zip`` **trunca en silencio por
+    la lista corta**. Eso importa porque la lista de conteos puede venir más
+    corta de lo que parece: la inicialización a 0 de todos los PIDs solo ocurre
+    cuando el MPLS aporta la lista, así que sin MPLS —y `run_full_analysis_for_m2ts`
+    va SIEMPRE sin él— un PGS que el muestreo no vio no sale con cero: **no sale**,
+    y todo lo que va detrás se desplaza un puesto. El resultado no es un error:
+    es cada pista con el conteo de su vecina, y sobre eso corre la clasificación
+    forzado/completo de phase_b con sus umbrales de 3.0x / 500 / 3000.
+
+    La regla es: **si no se puede garantizar el emparejamiento, no se asigna
+    nada.** phase_b tiene ya el camino para eso — cae al patrón estructural
+    (bitrate sintético), que es lo que pasa hoy cuando el conteo falla entero.
+    Un conteo desplazado es peor que ningún conteo, porque parece un dato.
+
+    El orden ascendente de PID se mantiene como preferente: es lo que se ha
+    ejecutado hasta ahora y coincide con el de mkvmerge en los 41 discos del
+    corpus. El orden del MPLS (la STN_table, que es el de presentación) solo
+    entra si el ascendente NO cuadra por idioma y el del MPLS sí — de ese modo
+    nada de lo que hoy funciona cambia de comportamiento.
+    """
+    if not pgs_packets or not subtitle_tracks:
+        return False, "sin conteos"
+
+    def _idiomas_cuadran(pids: list[int]) -> bool:
+        """¿La secuencia de idiomas del MPLS coincide con la de mkvmerge?"""
+        if not mpls_pg_streams:
+            return False
+        por_pid = {e["pid"]: e.get("language", "") for e in mpls_pg_streams}
+        for pid, track in zip(pids, subtitle_tracks):
+            code = (por_pid.get(pid) or "").strip().lower()
+            if not code:
+                return False
+            esperado = ISO639_TO_ENGLISH.get(code, code.capitalize())
+            if esperado.lower() != (track.language or "").lower():
+                return False
+        return True
+
+    ascendente = sorted(pgs_packets.keys())
+    del_mpls = [e["pid"] for e in (mpls_pg_streams or []) if e["pid"] in pgs_packets]
+
+    # 1) La longitud es innegociable: si no coincide, el zip truncaría y el
+    #    desplazamiento sería mudo.
+    candidatos = [o for o in (ascendente, del_mpls)
+                  if len(o) == len(subtitle_tracks)]
+    if not candidatos:
+        return False, (
+            f"{len(pgs_packets)} conteos para {len(subtitle_tracks)} pistas de "
+            "subtítulo — no se puede emparejar sin desplazar; se usará el patrón "
+            "estructural"
+        )
+
+    # 2) Entre los que cuadran en longitud, el ascendente manda salvo que el
+    #    idioma diga lo contrario.
+    elegido, motivo = candidatos[0], "orden ascendente de PID"
+    if (candidatos[0] is ascendente and del_mpls in candidatos
+            and del_mpls != ascendente
+            and not _idiomas_cuadran(ascendente) and _idiomas_cuadran(del_mpls)):
+        elegido, motivo = del_mpls, "orden del MPLS (el ascendente no cuadra por idioma)"
+
+    for pid, track in zip(elegido, subtitle_tracks):
+        track.packet_count = pgs_packets[pid]
+    return True, motivo
+
+
 async def count_pgs_packets_ts_parse(
     m2ts_path: str,
     sample_bytes: int = 4 * 1024 * 1024 * 1024,  # presupuesto total de lectura (4 GB)
@@ -2501,17 +2574,18 @@ async def run_full_analysis(
                 await log_callback(f"[Fase A] ├─   ⚠️ TS parse falló (no bloquea): {e}")
 
         if pgs_packets:
-            # Indices ya devueltos en orden ascendente de PID (= orden mkvmerge);
-            # asignamos por posicion a subtitle_tracks.
-            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
-            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
-                raw_sub.packet_count = pc
+            asignado, motivo = asignar_packet_counts(
+                bdinfo.subtitle_tracks, pgs_packets, mpls_pg_streams)
             if log_callback:
-                preview = ", ".join(
-                    f"{s.language[:3]}={s.packet_count}"
-                    for s in bdinfo.subtitle_tracks[:12]
-                )
-                await log_callback(f"[Fase A] ├─   ✓ PGS packet counts asignados — {preview}…")
+                if asignado:
+                    preview = ", ".join(
+                        f"{s.language[:3]}={s.packet_count}"
+                        for s in bdinfo.subtitle_tracks[:12]
+                    )
+                    await log_callback(
+                        f"[Fase A] ├─   ✓ PGS packet counts asignados ({motivo}) — {preview}…")
+                else:
+                    await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
@@ -2710,9 +2784,10 @@ async def run_full_analysis_for_mpls(
             _logger.warning("TS parse PGS falló (no bloquea): %s", e)
 
         if pgs_packets:
-            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
-            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
-                raw_sub.packet_count = pc
+            asignado, motivo = asignar_packet_counts(
+                bdinfo.subtitle_tracks, pgs_packets, mpls_pg_streams)
+            if log_callback and not asignado:
+                await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
 
         # dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
@@ -2850,9 +2925,14 @@ async def run_full_analysis_for_m2ts(
             pid_list=None,  # rango por defecto
         )
         if pgs_packets:
-            sorted_counts = [pgs_packets[k] for k in sorted(pgs_packets.keys())]
-            for raw_sub, pc in zip(bdinfo.subtitle_tracks, sorted_counts):
-                raw_sub.packet_count = pc
+            # Sin MPLS no hay lista autoritativa de PIDs, así que tampoco hay
+            # inicialización a 0: un PGS que el muestreo no vio desaparece de
+            # la lista y desplaza a todos los demás. Es la vía con más riesgo
+            # de las tres, y la única forma segura de tratarla es no asignar
+            # cuando las longitudes no cuadran.
+            asignado, motivo = asignar_packet_counts(bdinfo.subtitle_tracks, pgs_packets)
+            if log_callback and not asignado:
+                await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
     except Exception as e:
         _logger.warning("TS parse PGS falló (no bloquea): %s", e)
         if log_callback:

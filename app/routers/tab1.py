@@ -50,7 +50,10 @@ from models import (
     SessionUpdateRequest,
 )
 from phases.phase_a import ISO639_TO_ENGLISH, run_full_analysis
-from phases.phase_b import apply_rules, generate_auto_chapters
+from phases.phase_b import (
+    CODEC_TIER_NAMES, _codec_key, apply_rules, codec_key_de_mkvmerge,
+    generate_auto_chapters,
+)
 from phases.phase_d import (
     MkvmergePlaylistError,
     find_main_mpls,
@@ -2476,6 +2479,26 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 status = "❌"
                 detail = f" (esperado: {exp_lang}, real: {lang_name})"
                 warnings.append(f"Audio #{i+1}: idioma {lang_name} ≠ {exp_lang}")
+                all_ok = False
+
+            # Tier del codec: ¿el stream que quedó dentro es el que anuncia la
+            # etiqueta? Hasta ahora se comparaban idioma, flags y capítulos, así
+            # que una pista llamada "Castellano TrueHD Atmos 7.1" con un AC-3
+            # dentro salía en verde. Es la firma de los bugs del matcher de Fase
+            # E —el P0 de la auditoría y el core AC-3 subordinado—, y la única
+            # forma de que se vean en PRODUCCIÓN y no solo en un test.
+            tier_real = codec_key_de_mkvmerge(codec, props.get("audio_channels", 0) or 0)
+            tier_esp = _codec_key(exp.raw)
+            if (tier_real != "unknown" and tier_esp != "unknown"
+                    and tier_real != tier_esp):
+                nom_esp = CODEC_TIER_NAMES.get(tier_esp, tier_esp)
+                nom_real = CODEC_TIER_NAMES.get(tier_real, tier_real)
+                status = "❌"
+                detail += f" (codec esperado: {nom_esp}, real: {nom_real})"
+                warnings.append(
+                    f"Audio #{i+1}: la etiqueta dice {nom_esp} pero el stream "
+                    f"es {nom_real} ({codec})"
+                )
                 all_ok = False
         else:
             status = "⚠️"

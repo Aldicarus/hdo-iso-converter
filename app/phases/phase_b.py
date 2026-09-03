@@ -113,6 +113,20 @@ LANGUAGE_MAP: dict[str, str] = {
     "turkish": "Turco",
 }
 
+# Nombre comercial de cada tier. Lo usan el literal de la pista
+# (`_codec_literal`) y la validación final, que necesita decirle al usuario qué
+# codec esperaba y cuál encontró — con las claves internas ("truehd_atmos") el
+# mensaje no se entiende.
+CODEC_TIER_NAMES: dict[str, str] = {
+    "truehd_atmos": "TrueHD Atmos",
+    "truehd":       "TrueHD",
+    "ddplus_atmos": "DD+ Atmos",
+    "ddplus":       "DD+",
+    "dts_hd_ma":    "DTS-HD MA",
+    "dts":          "DTS",
+    "dd":           "DD",
+}
+
 # Prioridad de codec: menor número = mayor calidad (spec §5.1.6)
 CODEC_PRIORITY: dict[str, int] = {
     "truehd_atmos": 1,
@@ -574,21 +588,51 @@ def _codec_key(track: RawAudioTrack) -> str:
     return "unknown"
 
 
+def codec_key_de_mkvmerge(codec: str, channels: int = 0) -> str:
+    """El mismo `_codec_key` de siempre, pero partiendo del codec **tal y como
+    lo reporta mkvmerge sobre un MKV ya escrito** (``TrueHD Atmos``, ``AC-3``,
+    ``E-AC-3``, ``DTS-HD Master Audio``…) en vez de una `RawAudioTrack`.
+
+    Existe para que la validación final pueda comparar el **tier** que anuncia
+    la etiqueta con el tier del stream que realmente quedó dentro. Hasta ahora
+    esa validación comparaba idioma, flags y capítulos, así que una pista
+    llamada "Castellano TrueHD Atmos 7.1" con un AC-3 dentro pasaba sin una
+    sola línea en el log — que es justo la familia de bugs que ha dado el
+    matcher de Fase E (el P0 de la auditoría y el core AC-3 subordinado).
+
+    No define un vocabulario nuevo: traduce a la nomenclatura BDInfo con la
+    tabla de phase_a y delega en `_codec_key`, que es donde vive la única
+    definición de tier del repositorio. Replica también la heurística de
+    phase_a para el Atmos de DD+ (E-AC-3 con 8 canales o más es JOC en la
+    práctica), porque mkvmerge no lo distingue en el nombre del codec.
+    """
+    from phases.phase_a import MKVMERGE_CODEC_TO_BDINFO
+
+    bdinfo = MKVMERGE_CODEC_TO_BDINFO.get(codec)
+    if bdinfo is None:
+        # mkvmerge añade matices al nombre ("AC-3 Dolby Surround EX"), así que
+        # el fallback es por prefijo antes de rendirse.
+        for mk, bd in MKVMERGE_CODEC_TO_BDINFO.items():
+            if codec.startswith(mk):
+                bdinfo = bd
+                break
+    if bdinfo is None:
+        return "unknown"
+
+    desc = ""
+    if codec.startswith("E-AC-3") and channels >= 8:
+        desc = "7.1-Atmos"
+    return _codec_key(RawAudioTrack(
+        codec=bdinfo, language="", bitrate_kbps=0, description=desc))
+
+
 def _codec_literal(track: RawAudioTrack, audio_dcp: bool) -> str:
     """Construye el literal de codec con canales (spec §5.1.2, §5.1.3, §5.1.4, §5.1.5)."""
     channels = _extract_channels(track.description)
     key = _codec_key(track)
 
-    base_map = {
-        "truehd_atmos": f"TrueHD Atmos {channels}",
-        "truehd":       f"TrueHD {channels}",
-        "ddplus_atmos": f"DD+ Atmos {channels}",
-        "ddplus":       f"DD+ {channels}",
-        "dts_hd_ma":    f"DTS-HD MA {channels}",
-        "dts":          f"DTS {channels}",
-        "dd":           f"DD {channels}",
-    }
-    lit = base_map.get(key, f"{track.codec} {channels}")
+    nombre = CODEC_TIER_NAMES.get(key)
+    lit = f"{nombre} {channels}" if nombre else f"{track.codec} {channels}"
 
     # Sufijo DCP (spec §5.1.4)
     if audio_dcp and key == "truehd_atmos":

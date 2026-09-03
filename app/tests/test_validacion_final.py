@@ -112,6 +112,77 @@ class TestElCasoCorrecto(ValidacionCase):
         self.assertTrue(self.log.says("✅ Verificación correcta"), self.log.text)
 
 
+class TestElTierDelCodec(ValidacionCase):
+    """La etiqueta dice una cosa y el stream es otra.
+
+    Hasta ahora la validación comparaba idioma, flags y capítulos — nunca el
+    codec. Así que un MKV con la pista llamada «Castellano TrueHD Atmos 7.1»
+    y un AC-3 dentro se daba por bueno sin una sola línea en el log. Es
+    exactamente lo que producen los dos bugs que ha tenido el matcher de Fase
+    E (el P0 posicional y el core AC-3 subordinado del TrueHD), y esto es lo
+    que hace que se vean en PRODUCCIÓN y no solo en un test.
+    """
+
+    async def test_el_core_ac3_disfrazado_de_truehd_se_caza(self):
+        self._declarar_mkv([
+            self.VIDEO,
+            # lo que de verdad quedó dentro: el core AC-3, no el TrueHD
+            {"type": "audio", "codec": "AC-3", "language": "spa", "channels": 6,
+             "track_name": "Castellano TrueHD Atmos 7.1", "default": True},
+        ])
+        s = self._sesion(audios=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio", "Castellano TrueHD Atmos 7.1")])
+        self.assertFalse(await self._validar(s), self.log.text)
+        self.assertTrue(self.log.says("codec esperado: TrueHD Atmos"), self.log.text)
+        self.assertTrue(self.log.says("real: DD"), self.log.text)
+
+    async def test_dts_pelado_donde_se_esperaba_dts_hd_ma(self):
+        self._declarar_mkv([
+            self.VIDEO,
+            {"type": "audio", "codec": "DTS", "language": "spa", "channels": 6,
+             "track_name": "Castellano DTS-HD MA 5.1"},
+        ])
+        s = self._sesion(audios=[
+            _audio("Spanish", "DTS-HD Master Audio", "Castellano DTS-HD MA 5.1")])
+        self.assertFalse(await self._validar(s), self.log.text)
+
+    async def test_el_tier_correcto_pasa(self):
+        self._declarar_mkv([
+            self.VIDEO,
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa",
+             "channels": 8, "track_name": "Castellano TrueHD Atmos 7.1"},
+        ])
+        s = self._sesion(audios=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio", "Castellano TrueHD Atmos 7.1")])
+        self.assertTrue(await self._validar(s), self.log.text)
+
+    async def test_ddplus_atmos_se_distingue_de_ddplus_por_canales(self):
+        """mkvmerge no distingue el Atmos de un DD+ en el nombre del codec, así
+        que el tier sale de los canales — la misma heurística que phase_a."""
+        self._declarar_mkv([
+            self.VIDEO,
+            {"type": "audio", "codec": "E-AC-3", "language": "spa", "channels": 6,
+             "track_name": "Castellano DD+ Atmos 7.1"},
+        ])
+        s = self._sesion(audios=[
+            _audio("Spanish", "Dolby Digital Plus Audio", "Castellano DD+ Atmos 7.1")])
+        # la sesión espera ddplus_atmos (raw con description '7.1-Atmos')
+        s.included_tracks[0].raw.description = "7.1-Atmos / 48 kHz"
+        self.assertFalse(await self._validar(s), self.log.text)
+
+    async def test_un_codec_que_no_sabemos_clasificar_no_da_falso_negativo(self):
+        """PCM, FLAC y compañía caen en 'unknown'. Un desconocido NUNCA debe
+        marcar el job como fallido — sería el falso ❌ del catalán otra vez."""
+        self._declarar_mkv([
+            self.VIDEO,
+            {"type": "audio", "codec": "PCM", "language": "spa", "channels": 2,
+             "track_name": "Castellano LPCM 2.0"},
+        ])
+        s = self._sesion(audios=[
+            _audio("Spanish", "LPCM Audio", "Castellano LPCM 2.0")])
+        self.assertTrue(await self._validar(s), self.log.text)
+
+
 class TestLaTablaIso639(ValidacionCase):
     """El falso ❌ que costó una tarde.
 
