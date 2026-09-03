@@ -44,7 +44,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from models import Chapter, Session
-from phases.phase_a import ISO639_TO_ENGLISH
+from phases.phase_a import ISO639_TO_ENGLISH, _find_subordinate_track_ids
 from phases.phase_d import (
     MkvmergePlaylistError, _limpiar_parcial, is_playlist_assertion_line,
 )
@@ -143,13 +143,17 @@ async def run_phase_e_direct(
     track_map    = await _identify_tracks(mpls_path, log_callback)
     chapters_xml = _write_chapters_xml(session.chapters) if session.chapters else None
 
+    avisos_matcher: list[str] = []
     cmd = _build_mkvmerge_cmd(
         source_path=mpls_path,
         output_path=output_path,
         session=session,
         track_map=track_map,
         chapters_xml=chapters_xml,
+        avisos=avisos_matcher,
     )
+    for aviso in avisos_matcher:
+        await _avisar_empate(log_callback, aviso)
     if log_callback:
         await log_callback(
             "[Fase E] 📋 Generando el MKV final con un solo mkvmerge: selección "
@@ -293,11 +297,17 @@ async def run_phase_e_propedit(
     # que la ruta directa. Antes era posicional (`mkv_audio_ids[i]`) y cruzaba
     # las etiquetas en discos con el audio VO físicamente antes del Castellano.
     # mkvpropedit usa índice 1-based.
-    for tid, label, flag_default, flag_forced in _propedit_track_edits(session, track_map):
+    avisos_matcher: list[str] = []
+    for tid, label, flag_default, flag_forced in _propedit_track_edits(
+        session, track_map, avisos_matcher
+    ):
         cmd += ["--edit", f"track:{tid + 1}"]
         cmd += ["--set", f"name={label}"]
         cmd += ["--set", f"flag-default={'1' if flag_default else '0'}"]
         cmd += ["--set", f"flag-forced={'1' if flag_forced else '0'}"]
+
+    for aviso in avisos_matcher:
+        await _avisar_empate(log_callback, aviso)
 
     if log_callback:
         await log_callback(
@@ -349,6 +359,19 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
     Ejecuta ``mkvmerge --identify --identification-format json`` para obtener
     los IDs y tipos de las pistas del source (MPLS o MKV).
 
+    **Excluye los cores AC-3 subordinados de un TrueHD**, con la MISMA función
+    que usa Fase A (``_find_subordinate_track_ids``). Sin ese filtro las dos
+    puntas discrepaban sobre qué pistas existen en el disco: Fase A los quita
+    al construir las ``RawAudioTrack``, así que la "Castellano DD 5.1" que el
+    usuario ve descartada es la pista INDEPENDIENTE — pero el matcher los veía
+    aquí, y el core suele llevar el ID menor, así que ganaba. Recuperar esa
+    pista metía en el MKV el core lossy del TrueHD (audio ya presente, duplicado)
+    y la DD 5.1 real no entraba nunca. Medido sobre 41 discos reales: 22 casos
+    en 19 discos donde el core gana, 4 de ellos en castellano (La Momia,
+    Obsession, Scream 7, Te van a matar). Es la misma clase de divergencia que
+    los subtítulos de tres bloques: si las dos puntas no parten de la misma
+    base, la selección sale bien y el CONTENIDO sale cruzado.
+
     Returns:
         Diccionario ``{track_id: {"type": "video"|"audio"|"subtitles", ...}}``.
     """
@@ -367,9 +390,13 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
 
     try:
         data      = json.loads(stdout.decode("utf-8", errors="replace"))
+        tracks    = data.get("tracks", [])
+        subordinate_ids = _find_subordinate_track_ids(tracks)
         track_map = {}
-        for track in data.get("tracks", []):
+        for track in tracks:
             idx = track["id"]
+            if idx in subordinate_ids:
+                continue
             props = track.get("properties", {}) or {}
             track_map[idx] = {
                 "type":     track.get("type", ""),
@@ -520,6 +547,7 @@ def _match_tracks_to_source(
     included_tracks: list,
     source_ids: list[int],
     track_map: dict,
+    avisos: list[str] | None = None,
 ) -> dict[int, int]:
     """
     Mapea cada pista incluida a su ID en el source por idioma + codec.
@@ -531,6 +559,14 @@ def _match_tracks_to_source(
 
     El matching es por idioma normalizado + subcadena de codec.
     Si un source ID ya fue asignado, no se reutiliza (1:1).
+
+    ``avisos`` (opcional): lista donde se anotan las decisiones que el disco
+    NO permite desambiguar — varias pistas del mismo idioma, mismo codec y
+    mismos canales. Ahí gana el ID menor porque no hay con qué elegir
+    (mkvmerge devuelve ``track_name`` vacío en los orígenes Blu-ray), pero el
+    usuario merece enterarse en vez de que se resuelva en silencio. Caso
+    típico: los comentarios del director, que son AC-3 5.1 en inglés igual
+    que la pista principal.
 
     Returns:
         Diccionario {included_index: source_track_id}.
@@ -617,23 +653,49 @@ def _match_tracks_to_source(
 
             if candidates:
                 # 1ª preferencia: canales exactos.
-                if channels_inc > 0:
-                    for sid, ch in candidates:
-                        if ch == channels_inc:
-                            best_id = sid
-                            break
-                # Fallback: primer candidato por orden de source_ids
-                # (comportamiento legacy para sesiones sin info de
-                # canales en raw.description o sources sin
-                # audio_channels en track_map).
-                if best_id is None:
+                exactos = ([sid for sid, ch in candidates if ch == channels_inc]
+                           if channels_inc > 0 else [])
+                if exactos:
+                    best_id = exactos[0]
+                else:
+                    # Fallback: primer candidato por orden de source_ids
+                    # (comportamiento legacy para sesiones sin info de
+                    # canales en raw.description o sources sin
+                    # audio_channels en track_map).
                     best_id = candidates[0][0]
+                # ¿Quedó sin desempatar? Entonces ha ganado el ID menor y no
+                # por ningún criterio: hay que decirlo.
+                if len(exactos) > 1:
+                    empatan = exactos                            # mismos canales
+                elif not exactos and len(candidates) > 1:
+                    empatan = [sid for sid, _ in candidates]     # sin dato de canales
+                else:
+                    empatan = []                                 # unívoco o resuelto
+                if empatan and avisos is not None:
+                    detalle = ", ".join(
+                        f"id {sid} ({track_map.get(sid, {}).get('codec', '?')}"
+                        f" {track_map.get(sid, {}).get('audio_channels', 0)}ch)"
+                        for sid in empatan
+                    )
+                    avisos.append(
+                        f"«{getattr(track, 'label', raw.language)}» encaja con "
+                        f"{len(empatan)} pistas del disco indistinguibles entre sí "
+                        f"[{detalle}] — se usa la primera (id {best_id}). El disco no "
+                        f"aporta nombre de pista para elegir; suele pasar con los "
+                        f"comentarios del director."
+                    )
 
         if best_id is not None:
             result[i] = best_id
             used_ids.add(best_id)
 
     return result
+
+
+async def _avisar_empate(log_callback, aviso: str) -> None:
+    """Emite al log un empate que el disco no permite desambiguar."""
+    if log_callback:
+        await log_callback(f"[Fase E] ⚠️ {aviso}")
 
 
 def _codec_matches(included_codec: str, source_codec: str) -> bool:
@@ -646,6 +708,19 @@ def _codec_matches(included_codec: str, source_codec: str) -> bool:
         'dolby digital audio' matches 'ac-3'
         'dts-hd master audio' matches 'dts-hd master audio'
         'dts audio' matches 'dts'
+
+    **Es deliberadamente laxo y NO se ha endurecido**, con los números delante.
+    Los pares se prueban en orden y se cae al más genérico, así que una pista
+    incluida puede cruzar de tier: 'dolby truehd/atmos audio' encaja con
+    'e-ac-3 atmos' (por el par atmos) y 'dts-hd master audio' con 'dts' (por el
+    par dts). Para que eso hiciera daño harían falta DOS pistas del mismo
+    idioma en tiers distintos que compartan la subcadena — y sobre las 41
+    sesiones reales del NAS (457 pistas de audio, censo del 2026-09-03) eso
+    ocurre **cero veces**: no hay discos con TrueHD Atmos y DD+ Atmos del mismo
+    idioma, ni con DTS junto a DTS-HD MA. Endurecerlo pediría una tabla de
+    tiers mantenida en paralelo a MKVMERGE_CODEC_TO_BDINFO de phase_a — otra
+    réplica que se desincroniza. Si algún día aparece un disco así, el aviso de
+    empate de `_match_tracks_to_source` lo dirá en el log.
     """
     # Mapeo de subcadenas: included → source
     pairs = [
@@ -664,7 +739,9 @@ def _codec_matches(included_codec: str, source_codec: str) -> bool:
     return included_codec == source_codec
 
 
-def _propedit_track_edits(session, track_map: dict) -> list[tuple[int, str, bool, bool]]:
+def _propedit_track_edits(
+    session, track_map: dict, avisos: list[str] | None = None,
+) -> list[tuple[int, str, bool, bool]]:
     """Mapea cada pista incluida a su track del MKV intermedio POR CONTENIDO
     (idioma+codec+canales) — igual que la ruta directa vía
     ``_match_tracks_to_source``. Devuelve la lista de ediciones para mkvpropedit:
@@ -680,7 +757,7 @@ def _propedit_track_edits(session, track_map: dict) -> list[tuple[int, str, bool
     sub_tracks    = [t for t in session.included_tracks if t.track_type == "subtitle"]
     mkv_audio_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "audio"]
     mkv_sub_ids   = [idx for idx, t in sorted(track_map.items()) if t["type"] == "subtitles"]
-    audio_id_map  = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map)
+    audio_id_map  = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos)
     sub_id_map    = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
 
     edits: list[tuple[int, str, bool, bool]] = []
@@ -703,6 +780,7 @@ def _build_mkvmerge_cmd(
     session: Session,
     track_map: dict,
     chapters_xml: str | None,
+    avisos: list[str] | None = None,
 ) -> list[str]:
     """
     Construye la lista de argumentos para mkvmerge.
@@ -733,7 +811,7 @@ def _build_mkvmerge_cmd(
 
     # Mapeo por contenido: cada pista incluida se busca en el source
     # por coincidencia de idioma + codec (no por posición)
-    audio_id_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map)
+    audio_id_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos)
     sub_id_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
 
     # --track-order: vídeos + audio mapeado + subs mapeados

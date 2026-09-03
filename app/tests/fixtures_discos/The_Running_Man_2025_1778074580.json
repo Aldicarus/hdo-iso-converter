@@ -1,0 +1,434 @@
+{
+ "nombre": "The_Running_Man_2025_1778074580",
+ "source_type": "iso",
+ "tracks": [
+  {
+   "id": 0,
+   "type": "video",
+   "codec": "HEVC/H.265/MPEG-H",
+   "properties": {}
+  },
+  {
+   "id": 2,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "cze",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 5,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "ger",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     5,
+     6
+    ]
+   }
+  },
+  {
+   "id": 6,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "ger",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     5,
+     6
+    ]
+   }
+  },
+  {
+   "id": 7,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "id": 8,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "id": 9,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "ita",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 10,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "hun",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 11,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 2
+   }
+  },
+  {
+   "id": 12,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "eng"
+   }
+  },
+  {
+   "id": 13,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "cze"
+   }
+  },
+  {
+   "id": 14,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "ger"
+   }
+  },
+  {
+   "id": 15,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 16,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "ita"
+   }
+  },
+  {
+   "id": 17,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "hun"
+   }
+  },
+  {
+   "id": 18,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "slo"
+   }
+  },
+  {
+   "id": 19,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "tur"
+   }
+  },
+  {
+   "id": 20,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "eng"
+   }
+  },
+  {
+   "id": 21,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "ger"
+   }
+  },
+  {
+   "id": 22,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 23,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "ita"
+   }
+  },
+  {
+   "id": 24,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  }
+ ],
+ "included_tracks": [
+  {
+   "track_type": "audio",
+   "label": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "Inglés TrueHD Atmos 7.1",
+   "raw": {
+    "language": "English",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Forzados (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 1.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Inglés Completos (PGS)",
+   "raw": {
+    "language": "English",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Completos (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  }
+ ],
+ "discarded_tracks": [
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "Czech",
+    "codec": "Dolby Digital Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "German",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "Italian",
+    "codec": "Dolby Digital Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "Hungarian",
+    "codec": "Dolby Digital Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "English",
+    "codec": "Dolby Digital Audio",
+    "description": "2.0 / 48 kHz",
+    "bitrate_kbps": 224
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "English",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 1.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 1.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Czech",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "German",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "German",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 1.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Italian",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Italian",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 1.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Hungarian",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Slo",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Turkish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  }
+ ]
+}

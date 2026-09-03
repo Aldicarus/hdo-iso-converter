@@ -1198,6 +1198,29 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
     ambas AC-3 spa), el matcher prefiere la que coincide en canales con la pista incluida en lugar
     de coger la primera por orden de source_ids. Sin esto, seleccionar manualmente la DD 5.1 producía
     extracción de la DD 2.0 con el label "DD 5.1" mal puesto encima (bug histórico, arreglado v2.5.4).
+  - **`_identify_tracks` excluye los cores AC-3 subordinados, con la MISMA función que Fase A**
+    (`_find_subordinate_track_ids`). Cuando un TrueHD y su core AC-3 viajan multiplexados, mkvmerge
+    los reporta como dos pistas y lo señala con `properties.multiplexed_tracks`. Fase A quita el core
+    al construir las `RawAudioTrack`, así que la "Castellano DD 5.1" que el usuario ve **descartada**
+    es la pista INDEPENDIENTE — pero Fase E los veía, y el core suele llevar el **ID menor**, así que
+    ganaba el desempate. Recuperar esa pista con `recoverTrack` metía en el MKV el core lossy del
+    TrueHD (audio que ya está dentro, duplicado) y la DD 5.1 real no entraba nunca.
+    Es la misma clase de divergencia que los subtítulos de tres bloques: **si las dos puntas no parten
+    de la misma base, la selección sale bien y el CONTENIDO sale cruzado.**
+    Medido sobre los 41 discos reales del NAS (censo del 2026-09-03): 43 ocurrencias en 19 discos donde
+    el core compite, **22 en las que gana**, 4 de ellas en castellano (La Momia, Obsession, Scream 7,
+    Te van a matar). El camino automático **no** se veía afectado (Fase B incluye una sola pista por
+    idioma): 84 decisiones, 0 fallos. Cubierto por `test_golden_discos_reales.py`.
+  - **Lo que el disco NO permite desambiguar se AVISA, no se resuelve en silencio.** Varias AC-3
+    independientes del mismo idioma y mismos canales (los comentarios del director) son
+    indistinguibles: `mkvmerge` devuelve `track_name` vacío en todos los orígenes Blu-ray del corpus.
+    Ahí gana el ID menor porque no hay con qué elegir, y `_match_tracks_to_source` lo anota en su
+    parámetro opcional `avisos`, que las dos rutas de Fase E emiten al log. 26 casos en 10 discos.
+  - **`_codec_matches` es laxo A PROPÓSITO**: los pares se prueban en orden y se cae al genérico, así
+    que 'dolby truehd/atmos audio' encaja con 'e-ac-3 atmos' y 'dts-hd master audio' con 'dts'. Para
+    hacer daño harían falta dos pistas del mismo idioma en tiers distintos, y sobre las 457 pistas de
+    audio del corpus eso ocurre **cero veces**. Endurecerlo pediría una tabla de tiers en paralelo a
+    `MKVMERGE_CODEC_TO_BDINFO` — otra réplica que se desincroniza. Si aparece, el aviso lo dirá.
 - Subtítulos: por **idioma + identidad estructural forzado/completo**, no por posición ni por `subtitle_type`.
   - `_classify_sub_source_ids` clasifica cada source id como forzado/completo detectando el patrón del disco (bloques vs adyacentes). Cada pista incluida se empareja con un source id de la categoría correcta (forced↔forced, complete↔complete), con fallback a la otra categoría y luego a cualquier id del idioma. Consume IDs 1:1 (used_ids).
   - **La categoría de la pista incluida se decide por `raw.bitrate_kbps < 3.0` (señal sintética estructural de phase_a), NO por `track.subtitle_type`.** `subtitle_type` lo fija la clasificación por paquetes de phase_b y puede venir equivocado (un forzado que el muestreo PGS perdió → 0 paq. → marcado `complete`; o una pista recuperada a mano) — y **renombrar la etiqueta no cambia `subtitle_type`**. Al decidir por `subtitle_type` el matcher entregaba el contenido **CRUZADO**: la pista "Castellano Forzados" recibía el PGS completo y viceversa (caso real Obsession 2025 — dos castellanos ambos con `subtitle_type=complete`, consumidos en orden). `raw.bitrate_kbps` usa la MISMA base estructural que `_classify_sub_source_ids`, así que ambos extremos quedan alineados. Cubierto por `test_track_mapping.py::test_obsession_forced_subtitle_type_wrong_still_maps_by_structure`.
@@ -1236,6 +1259,20 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - **El pipeline de Tab 1 se ejecuta en tests** (`test_fases_de_tab1`, `test_orquestador_tab1`, `test_validacion_final`): las fases D y E con el argv real que recibe mkvmerge, `_run_pipeline` con las dos rutas y el reintento con el M2TS —que reintenta, que reintenta **una sola vez** y que con origen m2ts no vuelve a entrar—, y `_validate_final_mkv` con su tabla ISO 639. Se usa un origen `bdmv_folder`, que en `Source` es un no-op: ejercita el orquestador entero sin montar nada.
 - **Los endpoints de Tab 1 y Tab 2 se prueban por HTTP** (`test_endpoints_tab1_tab2`, sobre `api_harness`): path traversal del file browser, el whitelist del borrado, que `PUT /api/sessions/{id}` no acepte `has_fel`/`audio_dcp`, que los secretos no salgan en crudo. Los que salen a la red (TMDb, Google, GitHub) quedan fuera a propósito.
   - Al ampliar el arnés a Tab 1/2 hubo que redirigir dos cosas no obvias: **`services.settings_store` resuelve su `CONFIG_DIR` en el import**, así que un test de `/api/settings` escribía en el `/config` real; y **`queue_manager.enqueue` dispara el pipeline** (`create_task(_process())`), así que un test de `POST /execute` lanzaba mkvmerge de verdad y filtraba el estado de la cola al test siguiente.
+- **`test_golden_discos_reales.py` corre el mapeo de Fase E contra los 41 discos reales del NAS.**
+  Las fixtures de `tests/fixtures_discos/` son el recorte de las sesiones de `/config` (3,4 MB → 350 KB):
+  las pistas del `mkvmerge -J` del origen más los `raw` de incluidas y descartadas. Nada inventado — si
+  un test de ahí falla, hay un disco de verdad que se procesaría distinto. Cubre dos escenarios y la
+  diferencia entre ellos es el motivo del fichero: **incluidas solas** (lo que ya corrió en el NAS; ese
+  mapeo no puede cambiar nunca) e **incluidas + todas las descartadas** (simula `recoverTrack`, la única
+  vía por la que entra una segunda pista del mismo idioma — y donde el core competía).
+  `golden_mapeo_discos.json` guarda el codec y los canales de la pista elegida, no solo su id, para que
+  el diff se lea. Si el golden falta, el test **se salta** en vez de fallar: en CI eso se ve porque el
+  resumen deja de decir `OK` a secas.
+- **El `mkvmerge` falso emite `id` explícito y `multiplexed_tracks`.** Los ids de un origen Blu-ray no
+  empiezan en 0 ni son contiguos, y sin `multiplexed_tracks` el fake describía un disco **en el que los
+  cores AC-3 no existen** — por eso ningún test podía ver que Fase E los tomaba por pistas
+  independientes. Otro caso de la regla de fakes fieles, como el `MaxCLL` con unidad de mediainfo.
 - Un test de una fase **ejecuta la fase**. Los `assertIn` sobre el fuente del pipeline no cuentan como cobertura: pasan en verde aunque el comportamiento esté invertido. Al añadir un test de comportamiento, verificar que falla reintroduciendo el bug.
 
 ### CI — `.github/workflows/tests.yml`

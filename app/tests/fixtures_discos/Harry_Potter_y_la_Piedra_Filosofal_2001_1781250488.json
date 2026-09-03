@@ -1,0 +1,199 @@
+{
+ "nombre": "Harry_Potter_y_la_Piedra_Filosofal_2001_1781250488",
+ "source_type": "iso",
+ "tracks": [
+  {
+   "id": 0,
+   "type": "video",
+   "codec": "HEVC/H.265/MPEG-H",
+   "properties": {}
+  },
+  {
+   "id": 1,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "id": 2,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "audio",
+   "codec": "DTS-HD Master Audio",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 8
+   }
+  },
+  {
+   "id": 4,
+   "type": "audio",
+   "codec": "DTS-HD Master Audio",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 8
+   }
+  },
+  {
+   "id": 5,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "cat",
+    "audio_channels": 2
+   }
+  },
+  {
+   "id": 6,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 7,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "eng"
+   }
+  },
+  {
+   "id": 8,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 9,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "eng"
+   }
+  },
+  {
+   "id": 10,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "cat"
+   }
+  }
+ ],
+ "included_tracks": [
+  {
+   "track_type": "audio",
+   "label": "Castellano TrueHD Atmos 7.1",
+   "raw": {
+    "language": "Spanish",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 0
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "Inglés DTS-HD MA 7.1",
+   "raw": {
+    "language": "English",
+    "codec": "DTS-HD Master Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 0
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "Catalan DD 2.0",
+   "raw": {
+    "language": "Catalan",
+    "codec": "Dolby Digital Audio",
+    "description": "2.0 / 48 kHz",
+    "bitrate_kbps": 0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Forzados (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Inglés Completos (PGS)",
+   "raw": {
+    "language": "English",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Completos (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Inglés Forzados (PGS)",
+   "raw": {
+    "language": "English",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Catalan Forzados (PGS)",
+   "raw": {
+    "language": "Catalan",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  }
+ ],
+ "discarded_tracks": [
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "Spanish",
+    "codec": "DTS-HD Master Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 0
+   }
+  }
+ ]
+}

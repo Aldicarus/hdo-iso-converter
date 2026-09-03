@@ -222,6 +222,14 @@ class FakeToolbox:
         campos que `analyze_mkv` lee: `codec`, `language`, `track_name`,
         `default`, `forced`, `channels`, `dimensions`, `fps`.
 
+        Dos campos más, que existen en el mkvmerge de verdad y aquí faltaban:
+        `id` (si no se da, la posición — pero en un origen Blu-ray los ids NO
+        empiezan en 0 ni son contiguos) y `multiplexed_tracks`, la lista con la
+        que mkvmerge señala que un TrueHD y su core AC-3 viajan en el mismo
+        stream. Sin ese segundo campo, el fake describía un disco en el que los
+        cores no existen y NINGÚN test podía ver que Fase E los tomaba por
+        pistas independientes.
+
         Por defecto describe un UHD Blu-ray dual-layer con Dolby Vision: dos
         pistas HEVC (la segunda a 1920x1080 es la Enhancement Layer, que es
         cómo `analyze_mkv` detecta la FEL), audio y subtítulos.
@@ -1205,7 +1213,9 @@ def mkvmerge(sc):
                 props["audio_channels"] = t["channels"]
             if t.get("sample_rate"):
                 props["audio_sampling_frequency"] = t["sample_rate"]
-            out.append({"id": i, "type": t["type"],
+            if t.get("multiplexed_tracks"):
+                props["multiplexed_tracks"] = t["multiplexed_tracks"]
+            out.append({"id": t.get("id", i), "type": t["type"],
                         "codec": t.get("codec", ""), "properties": props})
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": {

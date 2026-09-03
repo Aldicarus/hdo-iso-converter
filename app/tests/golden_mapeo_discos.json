@@ -1,0 +1,3748 @@
+{
+ "28_años_después_El_templo_de_los_huesos_2026_1779729033": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 8,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 8,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English DTS-HD Master Audio 5.1",
+    "id": 4,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French DTS-HD Master Audio 5.1",
+    "id": 5,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German DTS-HD Master Audio 5.1",
+    "id": 7,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 10,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 21,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 11,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 16,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Alien__Romulus_2024_1779878342": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Japanese Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 8,
+    "codec": "E-AC-3",
+    "canales": 8
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 14,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 9,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 11,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Avatar_Fuego_y_ceniza_2025_1782679231": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Catalan DTS 5.1",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 6
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Catalan DTS 5.1",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English DTS-HD Master Audio 2.0",
+    "id": 4,
+    "codec": "DTS-HD Master Audio",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Czech Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 12,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 11,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 14,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Catalan Forzados (PGS)",
+    "id": 16,
+    "idioma": "cat"
+   }
+  ]
+ },
+ "El_día_de_la_revelación_2026_1787082021": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 6,
+    "codec": "E-AC-3",
+    "canales": 8
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 10,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 7,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 8,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "El_padrino_1972_1779447082": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD 5.1",
+    "id": 2,
+    "codec": "TrueHD",
+    "canales": 6
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD 5.1",
+    "id": 2,
+    "codec": "TrueHD",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 10,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 11,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Harry_Potter_y_la_Piedra_Filosofal_2001_1781250488": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1",
+    "id": 1,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés DTS-HD MA 7.1",
+    "id": 4,
+    "codec": "DTS-HD Master Audio",
+    "canales": 8
+   },
+   {
+    "pista": "Catalan DD 2.0",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1",
+    "id": 1,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés DTS-HD MA 7.1",
+    "id": 4,
+    "codec": "DTS-HD Master Audio",
+    "canales": 8
+   },
+   {
+    "pista": "Catalan DD 2.0",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Spanish DTS-HD Master Audio 7.1",
+    "id": 3,
+    "codec": "DTS-HD Master Audio",
+    "canales": 8
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 6,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 7,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 8,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Forzados (PGS)",
+    "id": 9,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Catalan Forzados (PGS)",
+    "id": 10,
+    "idioma": "cat"
+   }
+  ]
+ },
+ "Hoppers_2026_1780738042": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 4,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 8,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Japanese Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 11,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Japanese Dolby Digital Audio 2.0",
+    "id": 12,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 13,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Imaginary_2024_1784312766": {
+  "incluidas": [
+   {
+    "pista": "Castellano DTS-HD MA 5.1",
+    "id": 5,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DTS-HD MA 5.1",
+    "id": 5,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 12,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 8,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 10,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E01_1779722219": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E02_1779722263": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E03_1779722307": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E04_1779723451": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E05_1779723500": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 15,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E06_1779723561": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E07_1779723694": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 15,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E08_1779723768": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E09_1779723821": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 15,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S01E10_1779724090": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 5.1",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E01_1780929556": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E02_1780929616": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E03_1780929674": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 16,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 17,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E04_1780929854": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E05_1780929913": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 15,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 17,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E06_1780929977": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E07_1780930088": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E08_1780930148": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS-HD Master Audio 2.0",
+    "id": 14,
+    "codec": "DTS-HD Master Audio",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 16,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E09_1780930211": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 16,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 17,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Juego_de_tronos_S02E10_1780930328": {
+  "incluidas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DD 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 3,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 2,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Portuguese DTS Audio 2.0",
+    "id": 10,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Czech DTS Audio 2.0",
+    "id": 11,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Hungarian DTS Audio 2.0",
+    "id": 12,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish DTS Audio 2.0",
+    "id": 13,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Russian DTS Audio 2.0",
+    "id": 14,
+    "codec": "DTS",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 16,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 17,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "La_asistenta_2025_1775864931": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 5,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 5,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 10,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 11,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "La_momia_de_Lee_Cronin_2026_1783704275": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 10,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 10,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 2.0",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 5.1",
+    "id": 12,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 13,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 14,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 21,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Lilo_y_Stitch_2025_1778075606": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 5,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 6,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 7,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Dutch Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 8,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Dutch Dolby Digital Audio 5.1",
+    "id": 17,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Czech Dolby Digital Audio 5.1",
+    "id": 11,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Polish Dolby Digital Audio 5.1",
+    "id": 12,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Danish Dolby Digital Audio 5.1",
+    "id": 13,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Finnish Dolby Digital Audio 5.1",
+    "id": 14,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Norwegian Dolby Digital Audio 5.1",
+    "id": 15,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Swedish Dolby Digital Audio 5.1",
+    "id": 16,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish DTS Audio 5.1",
+    "id": 18,
+    "codec": "DTS",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 35,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 19,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 24,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Los_tipos_malos_2_2025_1782753587": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 6,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 11,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 8,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 9,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Marty_Supreme_2025_1775864886": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 7,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 9,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 8,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Obsession_2025_1785484968": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 4,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 12,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 9,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 10,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Proyecto_Salvación_2026_1785364049": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French DTS-HD Master Audio 5.1",
+    "id": 6,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 18,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 10,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Pulp_Fiction_1994_1779878474": {
+  "incluidas": [
+   {
+    "pista": "Castellano DTS-HD MA 5.1",
+    "id": 2,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés DTS-HD MA 5.1",
+    "id": 1,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano DTS-HD MA 5.1",
+    "id": 2,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "Inglés DTS-HD MA 5.1",
+    "id": 1,
+    "codec": "DTS-HD Master Audio",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Czech Dolby Digital Audio 2.0",
+    "id": 3,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] Polish Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 5,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 6,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "Red_One_2024_1779451168": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 10,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 10,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 19,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 12,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Forzados (PGS)",
+    "id": 20,
+    "idioma": "eng"
+   }
+  ]
+ },
+ "Scream_7_Audio_DCP_7_1_4___Custom_UHD_Fu_0000_1780738152": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 10,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 11,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Japanese Dolby Digital Audio 5.1",
+    "id": 12,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 13,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 17,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "THE_MANDALORIAN_AND_GROGU_UHD_0000_1787394248": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1",
+    "id": 6,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 2
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 5,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] German Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 8,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Plus Audio 7.1-Atmos",
+    "id": 9,
+    "codec": "E-AC-3",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 10,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 23,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 11,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 13,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Forzados (PGS)",
+    "id": 21,
+    "idioma": "eng"
+   }
+  ]
+ },
+ "Te_van_a_matar_2026_1782256943": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 9,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 5,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 5.1",
+    "id": 6,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] French Dolby Digital Audio 5.1",
+    "id": 7,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 8,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Spanish Dolby Digital Audio 5.1",
+    "id": 11,
+    "codec": "AC-3",
+    "canales": 6
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 21,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 12,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   }
+  ]
+ },
+ "The_Running_Man_2025_1778074580": {
+  "incluidas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   }
+  ],
+  "recuperadas": [
+   {
+    "pista": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+    "id": 7,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "Inglés TrueHD Atmos 7.1",
+    "id": 2,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Czech Dolby Digital Audio 5.1",
+    "id": 4,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] German Dolby TrueHD/Atmos Audio 7.1",
+    "id": 5,
+    "codec": "TrueHD Atmos",
+    "canales": 8
+   },
+   {
+    "pista": "[recuperada] Italian Dolby Digital Audio 5.1",
+    "id": 9,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] Hungarian Dolby Digital Audio 5.1",
+    "id": 10,
+    "codec": "AC-3",
+    "canales": 6
+   },
+   {
+    "pista": "[recuperada] English Dolby Digital Audio 2.0",
+    "id": 11,
+    "codec": "AC-3",
+    "canales": 2
+   }
+  ],
+  "subtitulos": [
+   {
+    "pista": "Castellano Forzados (PGS)",
+    "id": 24,
+    "idioma": "spa"
+   },
+   {
+    "pista": "Inglés Completos (PGS)",
+    "id": 12,
+    "idioma": "eng"
+   },
+   {
+    "pista": "Castellano Completos (PGS)",
+    "id": 15,
+    "idioma": "spa"
+   }
+  ]
+ }
+}

@@ -1,0 +1,291 @@
+{
+ "nombre": "Avatar_Fuego_y_ceniza_2025_1782679231",
+ "source_type": "iso",
+ "tracks": [
+  {
+   "id": 0,
+   "type": "video",
+   "codec": "HEVC/H.265/MPEG-H",
+   "properties": {}
+  },
+  {
+   "id": 2,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "type": "audio",
+   "codec": "DTS-HD Master Audio",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 2
+   }
+  },
+  {
+   "id": 5,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 2
+   }
+  },
+  {
+   "id": 6,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "eng",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 7,
+   "type": "audio",
+   "codec": "TrueHD Atmos",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 8,
+    "multiplexed_tracks": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "id": 8,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "spa",
+    "audio_channels": 6,
+    "multiplexed_tracks": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "id": 9,
+   "type": "audio",
+   "codec": "AC-3",
+   "properties": {
+    "language": "cze",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 10,
+   "type": "audio",
+   "codec": "DTS",
+   "properties": {
+    "language": "cat",
+    "audio_channels": 6
+   }
+  },
+  {
+   "id": 11,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "eng"
+   }
+  },
+  {
+   "id": 12,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 13,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "cze"
+   }
+  },
+  {
+   "id": 14,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "spa"
+   }
+  },
+  {
+   "id": 15,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "cze"
+   }
+  },
+  {
+   "id": 16,
+   "type": "subtitles",
+   "codec": "HDMV PGS",
+   "properties": {
+    "language": "cat"
+   }
+  }
+ ],
+ "included_tracks": [
+  {
+   "track_type": "audio",
+   "label": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "Inglés TrueHD Atmos 7.1",
+   "raw": {
+    "language": "English",
+    "codec": "Dolby TrueHD/Atmos Audio",
+    "description": "7.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "Catalan DTS 5.1",
+   "raw": {
+    "language": "Catalan",
+    "codec": "DTS Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 1509
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Forzados (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Inglés Completos (PGS)",
+   "raw": {
+    "language": "English",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Castellano Completos (PGS)",
+   "raw": {
+    "language": "Spanish",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "Catalan Forzados (PGS)",
+   "raw": {
+    "language": "Catalan",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  }
+ ],
+ "discarded_tracks": [
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "English",
+    "codec": "DTS-HD Master Audio",
+    "description": "2.0 / 48 kHz",
+    "bitrate_kbps": 0
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "English",
+    "codec": "Dolby Digital Audio",
+    "description": "2.0 / 48 kHz",
+    "bitrate_kbps": 320
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "English",
+    "codec": "Dolby Digital Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "audio",
+   "label": "",
+   "raw": {
+    "language": "Czech",
+    "codec": "Dolby Digital Audio",
+    "description": "5.1 / 48 kHz",
+    "bitrate_kbps": 640
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Czech",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  },
+  {
+   "track_type": "subtitle",
+   "label": "",
+   "raw": {
+    "language": "Czech",
+    "codec": "",
+    "description": "",
+    "bitrate_kbps": 30.0
+   }
+  }
+ ]
+}
