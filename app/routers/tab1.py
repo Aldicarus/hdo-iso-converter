@@ -52,7 +52,7 @@ from models import (
 from phases.phase_a import ISO639_TO_ENGLISH, run_full_analysis
 from phases.phase_b import (
     CODEC_TIER_NAMES, _codec_key, apply_rules, codec_key_de_mkvmerge,
-    generate_auto_chapters,
+    estimate_output_size_bytes, generate_auto_chapters,
 )
 from phases.phase_d import (
     MkvmergePlaylistError,
@@ -399,7 +399,13 @@ async def get_session(session_id: str):
     session = load_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
-    return session.model_dump()
+    payload = session.model_dump()
+    # Campo CALCULADO, no persistido: depende de qué pistas están incluidas y
+    # eso cambia cada vez que el usuario toca la selección. Guardarlo obligaría
+    # a recalcularlo en cada PUT y a migrar las sesiones viejas; sale gratis
+    # aquí porque el bdinfo ya está cargado.
+    payload["estimated_size_bytes"] = estimate_output_size_bytes(session)
+    return payload
 
 
 @router.delete("/api/sessions/{session_id}", summary="Elimina una sesión")

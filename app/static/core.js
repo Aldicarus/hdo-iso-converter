@@ -145,6 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
   switchSubTab(null);
   _installSubtabScrollBindings();
   _installVisibilityRecovery();
+  _instalarVigilanciaDeFin();
   _initUpdateCheckHeader();
   // Auto-detect de operaciones de Tab 2 en curso en el backend tras un
   // refresh de pestaña (caso: usuario cierra navegador con copia activa,
@@ -794,6 +795,8 @@ function buildProjectPanelHTML(pid) {
             data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
             🎵 Audio DCP — detectado en el nombre del ISO
           </div>
+          <div id="${pid}-mkv-size-chip" class="globals-mkv-chip globals-mkv-chip--size" style="display:none"
+            data-tooltip="Estimación del tamaño del MKV final.\nSale de restar al m2ts de origen las pistas de audio que se descartan y la sobrecarga del contenedor Blu-ray.\nEl pipeline copia los flujos sin recodificar, así que es contabilidad, no una predicción — pero el margen es de ±10%."></div>
         </div>
         <div class="globals-info-row">
           <div class="global-info-item" id="${pid}-dv-card">
@@ -1091,3 +1094,182 @@ function showConfirm(title, message, onConfirm, confirmLabel = 'Confirmar') {
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 /** Cierra un modal eliminando la clase 'open' del overlay. @param {string} id */
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ═══════════════════════════════════════════════════════════════════
+//  AVISO AL TERMINAR UN TRABAJO LARGO
+// ═══════════════════════════════════════════════════════════════════
+//
+// Un rip de Tab 1 son 20-40 min y una fase de Tab 3 puede pasar de la hora.
+// El usuario se va a hacer otra cosa y tiene que volver a mirar cada rato
+// para saber si acabó. Esto se lo dice.
+//
+// Dos decisiones que condicionan el diseño:
+//
+// 1. **El NAS va por HTTP, así que no hay contexto seguro** y la Notification
+//    API del navegador NO está disponible ahí (sí en `localhost`, o sea en
+//    desarrollo). El aviso que SIEMPRE funciona es el título parpadeante de la
+//    pestaña, que es el que se usa de base; la notificación de escritorio y el
+//    pitido son extras cuando el navegador los permite.
+//
+// 2. **No se añade tráfico cuando no hace falta.** El poller de los puntos
+//    verdes se salta las vueltas con `document.hidden` a propósito (eran dos
+//    peticiones cada 5 s durante horas contra un NAS que está procesando
+//    vídeo), y eso no se toca. En su lugar, al ocultarse la pestaña se toma
+//    una foto de qué tabs tenían trabajo; si no había ninguno **no se pollea
+//    nada**, y si lo había se pregunta cada 20 s hasta que termine. O sea: 3
+//    peticiones por minuto sólo mientras estás fuera y con algo corriendo.
+
+const _AVISO_INTERVALO_MS = 20000;
+const _AVISO_PREF = 'hdo_avisar_fin_trabajo';
+const _AVISO_SONIDO_PREF = 'hdo_avisar_con_sonido';
+const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: 'Editar MKV', 3: 'Upgrade CMv4.0' };
+
+let _avisoTrabajosPrevios = null;   // {1,2,3} → bool, foto al ocultarse
+let _avisoTimer = null;
+let _avisoTituloOriginal = null;
+let _avisoParpadeoTimer = null;
+
+/** ¿Está activado el aviso? Por defecto sí — es informativo y no invasivo. */
+function avisoFinActivado() {
+  return localStorage.getItem(_AVISO_PREF) !== '0';
+}
+
+function setAvisoFinActivado(on) {
+  localStorage.setItem(_AVISO_PREF, on ? '1' : '0');
+  if (!on) _pararParpadeo();
+}
+
+function avisoSonidoActivado() {
+  return localStorage.getItem(_AVISO_SONIDO_PREF) === '1';
+}
+
+function setAvisoSonidoActivado(on) {
+  localStorage.setItem(_AVISO_SONIDO_PREF, on ? '1' : '0');
+}
+
+/**
+ * ¿Se puede usar la Notification API? Requiere contexto seguro (HTTPS o
+ * localhost), así que en el NAS por HTTP la respuesta es NO y el usuario
+ * se queda con el título parpadeante.
+ */
+function avisoNotificacionDisponible() {
+  return typeof Notification !== 'undefined' && window.isSecureContext;
+}
+
+/** Pide permiso de notificación. Devuelve el permiso resultante. */
+async function pedirPermisoNotificaciones() {
+  if (!avisoNotificacionDisponible()) return 'unsupported';
+  if (Notification.permission !== 'default') return Notification.permission;
+  try { return await Notification.requestPermission(); }
+  catch (_) { return 'denied'; }
+}
+
+/** Lee el estado de trabajo de los tres tabs. Silencioso: es background. */
+async function _leerTrabajosActivos() {
+  const estado = { 1: false, 2: false, 3: false };
+  estado[1] = !!(queueState && (queueState.running ||
+                                (queueState.queue && queueState.queue.length)));
+  const [apply, cmv40] = await Promise.all([
+    apiFetch('/api/mkv/apply/progress', { silent: true }).catch(() => null),
+    apiFetch('/api/cmv40-active', { silent: true }).catch(() => null),
+  ]);
+  estado[2] = !!(apply && apply.active);
+  estado[3] = !!(cmv40 && cmv40.active);
+  return estado;
+}
+
+/** Un pitido corto con WebAudio — sin fichero de audio que servir. */
+function _pitido() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+    osc.start(); osc.stop(ctx.currentTime + 0.5);
+    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 800);
+  } catch (_) { /* el audio nunca debe romper nada */ }
+}
+
+function _pararParpadeo() {
+  if (_avisoParpadeoTimer) { clearInterval(_avisoParpadeoTimer); _avisoParpadeoTimer = null; }
+  if (_avisoTituloOriginal !== null) { document.title = _avisoTituloOriginal; _avisoTituloOriginal = null; }
+}
+
+/** Alterna el título de la pestaña hasta que el usuario vuelva. */
+function _arrancarParpadeo(texto) {
+  if (_avisoParpadeoTimer) clearInterval(_avisoParpadeoTimer);
+  if (_avisoTituloOriginal === null) _avisoTituloOriginal = document.title;
+  let alterno = false;
+  document.title = texto;
+  _avisoParpadeoTimer = setInterval(() => {
+    alterno = !alterno;
+    document.title = alterno ? _avisoTituloOriginal : texto;
+  }, 1200);
+}
+
+/**
+ * Avisa de que un trabajo terminó. `tab` es el número interno (1/2/3).
+ * No comprueba `document.hidden`: quien llama ya sabe que el usuario no está
+ * mirando — avisar de algo que se ve en pantalla sería ruido.
+ */
+function avisarFinDeTrabajo(tab) {
+  if (!avisoFinActivado()) return;
+  const nombre = _AVISO_NOMBRES[tab] || 'Trabajo';
+  _arrancarParpadeo(`✅ ${nombre} — terminado`);
+  if (avisoSonidoActivado()) _pitido();
+  if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
+    try {
+      const n = new Notification('HDO Blu-ray Toolkit', {
+        body: `${nombre}: el trabajo ha terminado.`,
+        tag: `hdo-fin-${tab}`,       // sustituye al anterior del mismo tab
+      });
+      n.onclick = () => { window.focus(); try { n.close(); } catch (_) {} };
+    } catch (_) { /* el título parpadeante ya cumple */ }
+  }
+}
+
+async function _avisoTick() {
+  let ahora;
+  try { ahora = await _leerTrabajosActivos(); }
+  catch (_) { return; }   // red caída: se reintenta en el siguiente tick
+  let quedaAlguno = false;
+  for (const tab of [1, 2, 3]) {
+    if (_avisoTrabajosPrevios && _avisoTrabajosPrevios[tab] && !ahora[tab]) {
+      avisarFinDeTrabajo(tab);
+    } else if (ahora[tab]) {
+      quedaAlguno = true;
+    }
+  }
+  _avisoTrabajosPrevios = ahora;
+  if (!quedaAlguno) _pararVigilancia();
+}
+
+function _pararVigilancia() {
+  if (_avisoTimer) { clearInterval(_avisoTimer); _avisoTimer = null; }
+  _avisoTrabajosPrevios = null;
+}
+
+/**
+ * Al ocultarse la pestaña: si había algo corriendo, vigilar hasta que acabe.
+ * Si no había nada, no se pollea — la foto vacía evita el tráfico inútil.
+ */
+async function _instalarVigilanciaDeFin() {
+  document.addEventListener('visibilitychange', async () => {
+    if (!document.hidden) { _pararParpadeo(); _pararVigilancia(); return; }
+    if (!avisoFinActivado() || _avisoTimer) return;
+    try {
+      const foto = await _leerTrabajosActivos();
+      if (![1, 2, 3].some(t => foto[t])) return;   // nada que vigilar
+      _avisoTrabajosPrevios = foto;
+      _avisoTimer = setInterval(_avisoTick, _AVISO_INTERVALO_MS);
+    } catch (_) { /* si falla, simplemente no se vigila esta vez */ }
+  });
+  window.addEventListener('focus', _pararParpadeo);
+}

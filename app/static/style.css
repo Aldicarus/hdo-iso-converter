@@ -8967,3 +8967,20 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--green);
   font-weight: 700;
 }
+
+/* ── Aviso al terminar un trabajo (⚙︎ Configuración) ───────────────── */
+.settings-aviso-row { flex-wrap: wrap; gap: 14px; align-items: center; }
+.settings-check {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; color: var(--text); cursor: pointer; user-select: none;
+}
+.settings-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; margin: 0; }
+.settings-check span { line-height: 1; }
+
+/* Chip del tamaño estimado del MKV (Tab 1) — mismo molde que el de Audio DCP
+   pero en tono neutro: es un dato informativo, no un aviso. */
+.globals-mkv-chip--size {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.22);
+  color: var(--text-secondary);
+}

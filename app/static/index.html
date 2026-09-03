@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260822a">
+  <link rel="stylesheet" href="/static/style.css?v=20260904a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1308,6 +1308,29 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
+        🔔 Aviso al terminar un trabajo
+        <span id="settings-aviso-status" class="settings-status"></span>
+      </div>
+      <div class="settings-section-desc">
+        Un rip son 20-40 min y una fase CMv4.0 puede pasar de la hora. Si cambias de pestaña, la app te avisa cuando acaba en vez de tener que volver a mirar. El aviso base es el <strong>título de la pestaña parpadeando</strong>, que funciona siempre. Las notificaciones del escritorio necesitan HTTPS, así que sobre el NAS (que va por HTTP) no están disponibles.
+      </div>
+      <div class="settings-field-row settings-aviso-row">
+        <label class="settings-check">
+          <input type="checkbox" id="settings-aviso-check" onchange="onToggleAvisoFin(this.checked)">
+          <span>Avisarme cuando termine</span>
+        </label>
+        <label class="settings-check">
+          <input type="checkbox" id="settings-aviso-sonido-check" onchange="onToggleAvisoSonido(this.checked)">
+          <span>Con un pitido</span>
+        </label>
+        <button class="btn btn-secondary btn-sm" id="settings-aviso-permiso-btn"
+          onclick="onPedirPermisoNotificaciones()" style="display:none">🔔 Permitir notificaciones</button>
+        <button class="btn btn-ghost btn-xs" onclick="probarAvisoFin()">Probar</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">
         🎬 TMDb — Clave de la API
         <span id="settings-tmdb-status" class="settings-status"></span>
       </div>
@@ -1418,12 +1441,12 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260822a"></script>
-<script src="/static/settings.js?v=20260822a"></script>
-<script src="/static/cmv40_modals.js?v=20260822a"></script>
-<script src="/static/tab1.js?v=20260822a"></script>
-<script src="/static/tab2.js?v=20260822a"></script>
-<script src="/static/tab3.js?v=20260822a"></script>
-<script src="/static/browser.js?v=20260822a"></script>
+<script src="/static/core.js?v=20260904a"></script>
+<script src="/static/settings.js?v=20260904a"></script>
+<script src="/static/cmv40_modals.js?v=20260904a"></script>
+<script src="/static/tab1.js?v=20260904a"></script>
+<script src="/static/tab2.js?v=20260904a"></script>
+<script src="/static/tab3.js?v=20260904a"></script>
+<script src="/static/browser.js?v=20260904a"></script>
 </body>
 </html>

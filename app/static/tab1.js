@@ -2408,6 +2408,7 @@ function renderProjectPanel(project) {
   _renderVideoHdrCard(session);
   const dcpChip = E('mkv-dcp-chip');
   if (dcpChip) dcpChip.style.display = session.audio_dcp ? '' : 'none';
+  _renderTamanoEstimado(session);
 
   const mkvInput = E('mkv-name-input');
   if (mkvInput) mkvInput.value = session.mkv_name || '';
@@ -3905,6 +3906,30 @@ function _classifyDvStatus(session) {
     detail: hdrFmt ? `El disco es ${hdrFmt} sin capa Dolby Vision` : (bd.fel_reason || ''),
     note: '', unconfirmed: false,
   };
+}
+
+/**
+ * Chip con el tamaño estimado del MKV final.
+ *
+ * Lo calcula el backend (`estimate_output_size_bytes`, en phase_b) y llega en
+ * `estimated_size_bytes` — CALCULADO al servir la sesión, no persistido,
+ * porque cambia en cuanto el usuario toca la selección de pistas.
+ *
+ * Si vale `null` el chip se OCULTA en vez de enseñar un "?" o un cero: la
+ * función devuelve null justamente cuando el dato de origen no es fiable (el
+ * caso real son dos episodios de Juego de Tronos en los que MediaInfo midió
+ * otro m2ts y la cuenta salía al doble). Preferimos un hueco a una cifra
+ * inventada con pinta de dato.
+ */
+function _renderTamanoEstimado(session) {
+  const chip = E('mkv-size-chip');
+  if (!chip) return;
+  const bytes = session.estimated_size_bytes;
+  if (!bytes || bytes <= 0) { chip.style.display = 'none'; return; }
+  const gb = bytes / 1e9;
+  const texto = gb >= 10 ? gb.toFixed(0) : gb.toFixed(1);
+  chip.textContent = `💾 Ocupará ~${texto} GB`;
+  chip.style.display = '';
 }
 
 /** Pinta la tarjeta de estado Dolby Vision (solo lectura). */

@@ -588,6 +588,96 @@ def _codec_key(track: RawAudioTrack) -> str:
     return "unknown"
 
 
+# El MKV pesa menos que el m2ts de origen aunque se copien los mismos flujos:
+# el contenedor de un Blu-ray es BDAV (paquetes de 192 bytes = 4 de ATC + 188 de
+# TS, y de esos 188 hay 4 de cabecera), mientras Matroska añade apenas medio por
+# ciento. El factor NO está deducido de la teoría: sale de contrastar 18 rips
+# reales del NAS contra su m2ts (censo del 2026-09-03). Con 0.89 el error
+# mediano es -1,9 % y los 16 casos válidos caen dentro de ±10 %; con 0.907 la
+# mediana mejora a -0,1 % pero uno se va al +11,9 %, así que se prefiere el
+# conservador.
+FACTOR_CONTENEDOR = 0.89
+
+# Bitrate implícito por encima del cual el tamaño del m2ts NO puede
+# corresponder al título que se va a extraer. El pico físico de un BD100 UHD
+# son 128 Mbps; por encima significa que MediaInfo midió OTRO fichero — pasa
+# cuando `_resolve_m2ts_from_mpls` cae al fallback de "el m2ts más grande" en un
+# disco de serie. Verificado: dos episodios de Juego de Tronos daban 146 y 128
+# Mbps y su estimación se iba al doble del tamaño real. Ahí no se estima.
+TOPE_MBPS_FISICO = 128.0
+
+
+def estimate_output_size_bytes(session) -> int | None:
+    """Estima cuánto va a pesar el MKV final, o ``None`` si no se puede.
+
+    La cuenta es de contabilidad, no de predicción: el pipeline **copia** los
+    flujos sin recodificar, así que el tamaño de salida es el del vídeo más el
+    de las pistas de audio seleccionadas, quitando la sobrecarga del contenedor
+    de origen. MediaInfo da las dos piezas que hacen falta — ``FileSize`` del
+    m2ts y ``StreamSize`` de cada pista de audio — y el vídeo sale por
+    diferencia, que es más fiable que su bitrate (que MediaInfo no calcula para
+    HEVC en BDAV con parseo rápido).
+
+    Los subtítulos PGS no traen ``StreamSize`` y son décimas de por ciento
+    sobre decenas de GB: se quedan dentro del margen.
+
+    Devuelve ``None`` en cuanto falta un dato o el m2ts medido no puede ser el
+    del título. **Preferimos no decir nada a decir el doble**: una cifra
+    inventada con pinta de dato es peor que un hueco.
+    """
+    b = getattr(session, "bdinfo_result", None)
+    if not b:
+        return None
+    mi = getattr(b, "mediainfo_result", None)
+    raw = (getattr(mi, "raw_json", None) or {}) if mi else {}
+    pistas = (raw.get("media") or {}).get("track") or []
+    general = next((t for t in pistas if t.get("@type") == "General"), None)
+    if not general or not general.get("FileSize"):
+        return None
+    try:
+        total = int(general["FileSize"])
+    except (TypeError, ValueError):
+        return None
+
+    duracion = float(getattr(b, "duration_seconds", 0) or 0)
+    if duracion <= 0 or (total * 8 / duracion / 1e6) > TOPE_MBPS_FISICO:
+        return None
+
+    audios_mi = [t for t in pistas if t.get("@type") == "Audio"]
+    tamanos = []
+    for t in audios_mi:
+        try:
+            tamanos.append(int(t["StreamSize"]))
+        except (KeyError, TypeError, ValueError):
+            return None       # sin todos los tamaños la resta del vídeo miente
+
+    origen = list(getattr(b, "audio_tracks", None) or [])
+    if len(tamanos) < len(origen):
+        return None           # MediaInfo vio menos pistas que mkvmerge
+
+    # Qué pistas de audio sobreviven: se emparejan con las del análisis por
+    # idioma + codec + layout, que es lo que las distingue en la lista.
+    incluidas = [t for t in getattr(session, "included_tracks", [])
+                 if t.track_type == "audio"]
+    elegidas: list[int] = []
+    for inc in incluidas:
+        for i, src in enumerate(origen):
+            if (i not in elegidas
+                    and src.language == inc.raw.language
+                    and src.codec == inc.raw.codec
+                    and src.description == inc.raw.description):
+                elegidas.append(i)
+                break
+    if len(elegidas) != len(incluidas):
+        return None
+
+    bytes_video = total - sum(tamanos)
+    bytes_audio = sum(tamanos[i] for i in elegidas if i < len(tamanos))
+    if bytes_video <= 0:
+        return None
+    return int(bytes_video * FACTOR_CONTENEDOR + bytes_audio)
+
+
 def codec_key_de_mkvmerge(codec: str, channels: int = 0) -> str:
     """El mismo `_codec_key` de siempre, pero partiendo del codec **tal y como
     lo reporta mkvmerge sobre un MKV ya escrito** (``TrueHD Atmos``, ``AC-3``,

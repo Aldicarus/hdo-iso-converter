@@ -30,6 +30,7 @@ async function openSettingsModal() {
   // Versión + chequeo de updates (no force, usa cache 1h)
   _renderVersionInfo();
   checkForUpdates(false);
+  renderAvisoFinSettings();
   openModal('settings-modal');
   setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
 }
@@ -662,4 +663,73 @@ function _cmv40RepoUnavailableBanner(repo) {
       ${escHtml(repo?.error || 'Error desconocido')}
     </div>
   </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  AVISO AL TERMINAR UN TRABAJO — controles de ⚙︎ Configuración
+// ═══════════════════════════════════════════════════════════════════
+//
+// La lógica vive en core.js (`avisarFinDeTrabajo` y la vigilancia); aquí
+// sólo están los controles y el texto de estado, que tiene que explicar por
+// qué las notificaciones del escritorio pueden no estar disponibles: sobre el
+// NAS la app se sirve por HTTP y la Notification API exige contexto seguro.
+
+/** Refresca los checks y el estado. Lo llama el render del modal. */
+function renderAvisoFinSettings() {
+  const check = document.getElementById('settings-aviso-check');
+  const sonido = document.getElementById('settings-aviso-sonido-check');
+  const btn = document.getElementById('settings-aviso-permiso-btn');
+  const status = document.getElementById('settings-aviso-status');
+  if (!check) return;
+
+  check.checked = avisoFinActivado();
+  if (sonido) sonido.checked = avisoSonidoActivado();
+
+  let texto, clase;
+  if (!avisoFinActivado()) {
+    texto = 'Desactivado'; clase = 'settings-status';
+  } else if (!avisoNotificacionDisponible()) {
+    texto = 'Título de la pestaña (sin HTTPS no hay notificaciones)';
+    clase = 'settings-status ok';
+  } else if (Notification.permission === 'granted') {
+    texto = 'Título + notificación del escritorio'; clase = 'settings-status ok';
+  } else if (Notification.permission === 'denied') {
+    texto = 'Título de la pestaña (notificaciones bloqueadas en el navegador)';
+    clase = 'settings-status ok';
+  } else {
+    texto = 'Título de la pestaña'; clase = 'settings-status ok';
+  }
+  if (status) { status.textContent = texto; status.className = clase; }
+
+  // El botón de permiso sólo tiene sentido si se puede pedir.
+  if (btn) {
+    const puede = avisoFinActivado() && avisoNotificacionDisponible()
+                  && Notification.permission === 'default';
+    btn.style.display = puede ? '' : 'none';
+  }
+}
+
+function onToggleAvisoFin(on) {
+  setAvisoFinActivado(on);
+  renderAvisoFinSettings();
+}
+
+function onToggleAvisoSonido(on) {
+  setAvisoSonidoActivado(on);
+  if (on) _pitido();          // que se oiga lo que se acaba de activar
+  renderAvisoFinSettings();
+}
+
+async function onPedirPermisoNotificaciones() {
+  const res = await pedirPermisoNotificaciones();
+  renderAvisoFinSettings();
+  if (res === 'granted') showToast('🔔 Notificaciones activadas', 'success');
+  else if (res === 'denied') showToast('Notificaciones bloqueadas en el navegador', 'info');
+}
+
+/** Botón "Probar": dispara el aviso completo sin esperar a un job real. */
+function probarAvisoFin() {
+  if (!avisoFinActivado()) { showToast('Actívalo primero para probarlo', 'info'); return; }
+  avisarFinDeTrabajo(1);
+  showToast('Mira el título de la pestaña — para al volver el foco', 'info', 5000);
 }
