@@ -963,6 +963,11 @@ def _fmt_miles(n: int) -> str:
     return f"{n:,}".replace(",", ".")
 
 
+def _fmt_dec(x: float, n: int = 2) -> str:
+    """11.6 → '11,6' (coma decimal española, como el resto del log)."""
+    return f"{x:.{n}f}".replace(".", ",")
+
+
 def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
     """`frame=58601` → `frame 58.601/145.303` (o sin total si no se conoce)."""
     m = _FFMPEG_FRAME_RE.search(line)
@@ -3236,14 +3241,15 @@ def _veredicto_l5(cmp: dict) -> tuple[str, bool, str]:
     desalineada de una escena entera con otro encuadre.
     """
     cob = cmp["body_coverage"]
-    pct = round(cob * 100, 2)
+    pct = _fmt_dec(cob * 100)
     seg = cmp["segundos_cuerpo_max"]
     body_total = cmp["por_zona"]["body"][1]
     base = (
-        f"Comparados {cmp['comparados']:,} frames: {cmp['divergentes']:,} divergen "
-        f"({cmp['divergentes'] / cmp['comparados'] * 100:.2f}%) — "
-        f"cuerpo {cmp['por_zona']['body'][0]:,}/{body_total:,}."
-    ).replace(",", ".")
+        f"Comparados {_fmt_miles(cmp['comparados'])} frames: "
+        f"{_fmt_miles(cmp['divergentes'])} divergen "
+        f"({_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100)}%) — "
+        f"cuerpo {_fmt_miles(cmp['por_zona']['body'][0])}/{_fmt_miles(body_total)}."
+    )
 
     if body_total <= 0:
         return ("ack_required", False, base + (
@@ -3254,14 +3260,14 @@ def _veredicto_l5(cmp: dict) -> tuple[str, bool, str]:
     tramo_largo = seg >= TRAMO_L5_MAX_SEGUNDOS
     if tramo_largo:
         return ("ack_required", False, base + (
-            f" Cobertura del cuerpo {pct}%, pero hay {seg} s seguidos con un "
+            f" Cobertura del cuerpo {pct}%, pero hay {_fmt_dec(seg, 1)} s seguidos con un "
             f"active area distinto (umbral {TRAMO_L5_MAX_SEGUNDOS:.0f} s): eso no "
             f"es una transición desalineada, es una escena entera con otro "
             f"encuadre. El TV calculará las bandas mal durante ese tramo."))
     if cob >= 0.90:
         return ("warn", True, base + (
             f" El cuerpo principal coincide en {pct}% y el mayor tramo divergente "
-            f"dura {seg} s — desalineaciones de transición, sin impacto real."))
+            f"dura {_fmt_dec(seg, 1)} s — desalineaciones de transición, sin impacto real."))
     if cob >= 0.70:
         return ("warn", True, base + (
             f" El cuerpo principal coincide en {pct}% (umbral 90% para no decir "
@@ -3299,7 +3305,7 @@ async def _refinar_gate_l5(gates: dict,
     await _log(
         log_callback,
         f"[Fase B] L5 estático sospechoso ({g.get('px_max', 0)} px > 30) — "
-        f"comparando los dos RPUs frame a frame ({total:,} frames)…".replace(",", ".")
+        f"comparando los dos RPUs frame a frame ({_fmt_miles(total)} frames)…"
     )
 
     src = await _l5_por_frame(rpu_source, source_frames)
@@ -3330,12 +3336,12 @@ async def _refinar_gate_l5(gates: dict,
             f"({v[0]},{v[1]},{v[2]},{v[3]}) {n / max(1, frames) * 100:.0f}%"
             for v, n in perfil["valores"]
         ) or "sin bloques"
-        extra = (f" · {perfil['sin_bloque']:,} sin bloque → neutro".replace(",", ".")
+        extra = (f" · {_fmt_miles(perfil['sin_bloque'])} sin bloque → neutro"
                  if perfil["sin_bloque"] else "")
         await _log(
             log_callback,
-            f"[Fase B] L5 {etiqueta}: {perfil['frames_con_bloque']:,}/{frames:,} "
-            f"con bloque · {reparto}{extra}".replace(",", ".")
+            f"[Fase B] L5 {etiqueta}: {_fmt_miles(perfil['frames_con_bloque'])}"
+            f"/{_fmt_miles(frames)} con bloque · {reparto}{extra}"
         )
     if perfil_src["variable"] or perfil_tgt["variable"]:
         cuales = ("ambos másters" if perfil_src["variable"] and perfil_tgt["variable"]
@@ -3349,11 +3355,12 @@ async def _refinar_gate_l5(gates: dict,
     pz = cmp["por_zona"]
     await _log(
         log_callback,
-        f"[Fase B] Comparados {cmp['comparados']:,}: {cmp['divergentes']:,} divergen "
-        f"({cmp['divergentes'] / cmp['comparados'] * 100:.2f}%) · "
-        f"intro {pz['intro'][0]:,}/{pz['intro'][1]:,} · "
-        f"cuerpo {pz['body'][0]:,}/{pz['body'][1]:,} · "
-        f"outro {pz['outro'][0]:,}/{pz['outro'][1]:,}".replace(",", ".")
+        f"[Fase B] Comparados {_fmt_miles(cmp['comparados'])}: "
+        f"{_fmt_miles(cmp['divergentes'])} divergen "
+        f"({_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100)}%) · "
+        f"intro {_fmt_miles(pz['intro'][0])}/{_fmt_miles(pz['intro'][1])} · "
+        f"cuerpo {_fmt_miles(pz['body'][0])}/{_fmt_miles(pz['body'][1])} · "
+        f"outro {_fmt_miles(pz['outro'][0])}/{_fmt_miles(pz['outro'][1])}"
     )
 
     # Cruce con lo que el propio bin declara en su nombre. NO cambia la
@@ -3384,8 +3391,9 @@ async def _refinar_gate_l5(gates: dict,
     icono = "✓" if ok else "⚠"
     await _log(
         log_callback,
-        f"[Fase B] {icono} L5 '{severidad}' — cuerpo {cmp['body_coverage'] * 100:.2f}% "
-        f"· mayor tramo {cmp['segundos_cuerpo_max']} s "
+        f"[Fase B] {icono} L5 '{severidad}' — cuerpo "
+        f"{_fmt_dec(cmp['body_coverage'] * 100)}% "
+        f"· mayor tramo {_fmt_dec(cmp['segundos_cuerpo_max'], 1)} s "
         f"(umbrales 90% y {TRAMO_L5_MAX_SEGUNDOS:.0f} s)."
     )
 

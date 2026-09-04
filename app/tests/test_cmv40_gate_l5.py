@@ -322,6 +322,17 @@ class TestLaFaseSeEjecuta(GateL5Case):
         self.assertTrue(g["ok"])
         self.assertIn("sin bloque → neutro", log)
 
+    async def test_los_numeros_del_log_van_a_la_espanola_sin_romper_las_tuplas(self):
+        """Los miles con punto y los decimales con coma, como el resto del log
+        del pipeline — pero un `.replace(",", ".")` de brocha gorda sobre la
+        línea entera convertía `(275,275,0,0)` en `(275.275.0.0)`."""
+        src, tgt = self._mandalorian()
+        _, log = await self.refinar(self.preparar(
+            frames=self.FRAMES, patron_src=src, patron_tgt=tgt), self.FRAMES)
+        self.assertIn("(275,275,0,0)", log, "la tupla L5 salió con puntos")
+        self.assertIn("20.000", log, "los miles van con punto")
+        self.assertNotIn("20,000", log)
+
     async def test_el_perfil_del_bd_sale_como_variable(self):
         """El dato que el muestreo viejo escribía al revés."""
         src, tgt = self._mandalorian()
