@@ -189,10 +189,12 @@ class FakeToolbox:
 
     def define_rpu_levels(self, name: str, *, l8_indices: list[int] | None = None,
                           l9_primary: int | None = None,
-                          l11_content_type: int | None = None) -> None:
+                          l11_content_type: int | None = None,
+                          l5_pattern: list | None = None) -> None:
         """Los niveles que `dovi_tool export --levels` devolverá para un RPU.
 
         Formatos verificados contra RPUs reales del repo DoviTools:
+          level5  → {"frame", "active_area_{top,bottom,left,right}_offset"}
           level8  → {"frame", "length", "target_display_index", "trim_*"}
           level9  → {"frame", "length", "source_primary_index"}
           level11 → {"frame", "content_type", "whitepoint",
@@ -200,11 +202,32 @@ class FakeToolbox:
 
         `l9_primary` es 0 (BT.709) en los RPUs reales, así que `None` y `0`
         tienen que poder distinguirse: pasar 0 declara el nivel, no lo omite.
+
+        `l5_pattern` describe el perfil L5 por tramos de frames INCLUSIVOS,
+        con los offsets en el orden `[top, bottom, left, right]`:
+
+            tb.define_rpu_levels("RPU_source.bin", l5_pattern=[
+                [24, 1000, [275, 275, 0, 0]],
+                [1500, 1999, [275, 275, 0, 0]],
+            ])
+
+        Los frames que NINGÚN tramo cubre (aquí 0-23 y 1001-1499) **no emiten
+        registro alguno**, que es justo lo que hay que poder expresar: un RPU
+        real puede no llevar bloque L5 en algunos frames y entonces el
+        decodificador asume el neutro (0,0,0,0). Medido sobre el Blu-ray de
+        "The Mandalorian and Grogu": 113.247 frames con bloque (275,275,0,0)
+        y 76.774 **sin bloque ninguno** (las escenas expandidas tipo IMAX).
+
+        Con `l5_pattern` el falso recorre el frame count declarado del RPU y
+        emite el número de frame REAL; sin él conserva su salida de siempre
+        (los primeros 200 frames con offsets 138), de la que dependen otros
+        tests.
         """
         self._scenario.setdefault("levels", {})[name] = {
             "l8_indices": l8_indices,
             "l9_primary": l9_primary,
             "l11_content_type": l11_content_type,
+            "l5_pattern": l5_pattern,
         }
         self._flush()
 
@@ -744,6 +767,31 @@ def summary(props):
     return "\n".join(lines) + "\n"
 
 
+def rows_l5(patron, frames):
+    """Registros L5 de un `l5_pattern` — ver `FakeToolbox.define_rpu_levels`.
+
+    Cada tramo es `[desde, hasta, [top, bottom, left, right]]` con los
+    extremos INCLUSIVOS. Lo que hace útil esto es lo que NO emite: los
+    frames que ningún tramo cubre se quedan sin registro, igual que un RPU
+    real que omite el bloque L5 y deja que el decodificador asuma el neutro.
+    El número de frame es el REAL, no el índice de la lista.
+    """
+    filas = []
+    for tramo in patron:
+        desde, hasta, offsets = tramo[0], tramo[1], tramo[2]
+        top, bottom, left, right = offsets
+        for f in range(max(0, int(desde)), min(int(hasta), int(frames) - 1) + 1):
+            filas.append({
+                "frame": f,
+                "active_area_left_offset": left,
+                "active_area_right_offset": right,
+                "active_area_top_offset": top,
+                "active_area_bottom_offset": bottom,
+            })
+    filas.sort(key=lambda r: r["frame"])
+    return filas
+
+
 def record(json_args=None):
     with (STATE / "calls.jsonl").open("a") as f:
         f.write(json.dumps({
@@ -941,6 +989,13 @@ def dovi_tool(sc, sub, json_args):
                 if "=" not in spec:
                     continue
                 lv, dest = spec.split("=", 1)
+                if lv == "level5" and niveles.get("l5_pattern"):
+                    # Perfil L5 declarado por tramos: recorre el frame count
+                    # ENTERO del RPU (sin el tope de 200) y deja sin registro
+                    # los frames que ningún tramo cubre.
+                    Path(dest).write_text(json.dumps(
+                        rows_l5(niveles["l5_pattern"], props["frames"])))
+                    continue
                 rows = []
                 for i in range(n):
                     if lv == "level1":

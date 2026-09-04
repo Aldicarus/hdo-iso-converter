@@ -4127,6 +4127,531 @@ function _cmv40GateRowHtml(status, title, result, explanation) {
     </div>`;
 }
 
+/* ───────── Card «🛡️ Validaciones» — el volcado completo ───────────────
+ *
+ * Antes esta card enseñaba SEIS veredictos y ningún dato: de los ~40 campos
+ * que la sesión ya tiene y que son evidencia de validación, usaba 6. En un
+ * job correcto no se veía ni el profile, ni los niveles, ni los frames de
+ * cada lado — no había forma de auditar la decisión, solo de leerla. Y el
+ * caso que lo destapó (The Mandalorian and Grogu, 2026-09-04) decía
+ * literalmente «1/1 muestras coinciden» sobre un veredicto que dependía de
+ * comparar UN frame.
+ *
+ * Cinco bloques:
+ *   ① veredicto y su CONSECUENCIA — qué fases se omiten y qué hará Fase F
+ *   ② los dos RPU lado a lado, SIEMPRE, también cuando todo pasa
+ *   ③ los gates con su umbral y su severidad literal
+ *   ④ el desglose L5 con los tramos divergentes y sus timecodes
+ *   ⑤ evidencia de apoyo (L2, L8, procedencia del bin, sheet, pre-flight)
+ *
+ * Los timecodes de ④ son el punto: «558 frames divergen» no es accionable y
+ * «00:10:11» sí — el usuario abre el MKV ahí y lo mira.
+ *
+ * Todos los campos nuevos son OPCIONALES. Una sesión anterior a este cambio
+ * trae `sampled_method: 'per_frame_zoned_24'` y ④ se pinta con lo que haya;
+ * sin `sampled_method` no se pinta ④ y ya.
+ */
+
+/** frame → "hh:mm:ss" con el fps de la sesión (23.976 si no viene). */
+function _cmv40Timecode(frame, fps) {
+  const f = Number(fps) > 0 ? Number(fps) : 23.976;
+  let seg = Math.floor((Number(frame) || 0) / f);
+  const h = Math.floor(seg / 3600); seg -= h * 3600;
+  const m = Math.floor(seg / 60);   seg -= m * 60;
+  const p2 = n => String(n).padStart(2, '0');
+  return `${p2(h)}:${p2(m)}:${p2(seg)}`;
+}
+
+/** Miles con punto. Manual y no `toLocaleString` para que el resultado no
+ *  dependa del ICU del entorno (los tests evalúan esto en node). */
+function _cmv40Num(n) {
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** Segundos → "1min 23s" / "45s". */
+function _cmv40Dur(segundos) {
+  const s = Math.round(Number(segundos) || 0);
+  return s >= 60 ? `${Math.floor(s / 60)}min ${s % 60}s` : `${s}s`;
+}
+
+/** Tupla de active area [top,bottom,left,right] → "275/275/0/0". */
+function _cmv40L5Tupla(t) {
+  return Array.isArray(t) ? t.map(v => Number(v) || 0).join('/') : '—';
+}
+
+/** Marcador de comparación entre los dos lados del bloque ②. */
+function _cmv40CmpMarca(a, b) {
+  if (a === null || a === undefined || a === '' || a === '—') {
+    return (b === null || b === undefined || b === '' || b === '—')
+      ? { txt: '', color: 'var(--text-3)' }
+      : { txt: 'nuevo', color: '#0a5cab' };
+  }
+  if (b === null || b === undefined || b === '' || b === '—') {
+    return { txt: 'solo BD', color: '#8a4a00' };
+  }
+  return String(a) === String(b)
+    ? { txt: '✓', color: '#0e6b2a' }
+    : { txt: '≠', color: '#8a4a00' };
+}
+
+/** Fila de dos columnas del bloque ②. */
+function _cmv40RpuFila(etiqueta, a, b, marcaOverride) {
+  const m = marcaOverride || _cmv40CmpMarca(a, b);
+  const val = v => (v === null || v === undefined || v === '') ? '—' : String(v);
+  return `
+    <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:4px 8px; border-bottom:1px solid rgba(15,23,42,0.05); font-size:11.5px">
+      <div style="color:var(--text-2); font-weight:600">${escHtml(etiqueta)}</div>
+      <div style="color:var(--text-1)">${escHtml(val(a))}</div>
+      <div style="color:var(--text-1)">${escHtml(val(b))}</div>
+      <div style="color:${m.color}; font-weight:700; text-align:right">${escHtml(m.txt)}</div>
+    </div>`;
+}
+
+/** Cabecera de bloque numerado. */
+function _cmv40BloqueHead(num, titulo, extra) {
+  return `
+    <div style="display:flex; align-items:baseline; gap:8px; margin:14px 0 6px">
+      <span style="font-size:12px; font-weight:800; color:#0a5cab">${escHtml(num)}</span>
+      <span style="font-size:11.5px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--text-2)">${escHtml(titulo)}</span>
+      ${extra ? `<span style="font-size:11px; color:var(--text-3)">${escHtml(extra)}</span>` : ''}
+    </div>`;
+}
+
+/** Los marcadores de `phases_skipped`, en nombres que signifiquen algo. */
+function _cmv40SkipLabel(marker) {
+  return ({
+    demux_dual_layer:       'demux dual-layer (Fase C)',
+    mux_dual_layer:         'mux dual-layer (Fase G)',
+    per_frame_data_skipped: 'datos per-frame del chart (Fase C)',
+    sync_verification_pause:'revisión visual de sync (Fases D/E)',
+    merge_cmv40_transfer:   'merge CMv4.0 (Fase F)',
+  })[marker] || marker;
+}
+
+// ── ① Veredicto y consecuencia ───────────────────────────────────────
+function _cmv40GateBloque1(pid, s) {
+  const trust   = _cmv40Trust(s);
+  const dropIn  = _cmv40DropIn(s);
+  const skipped = (s.phases_skipped || []).map(_cmv40SkipLabel);
+  const wf      = s.output_workflow || (dropIn ? 'restore_dropin' : 'restore_merge');
+
+  const queHaraF = dropIn
+    ? 'Fase F inyectará RPU_target.bin íntegro sobre source.hevc (BL+EL intactos).'
+    : 'Fase F transferirá los niveles CMv4.0 del bin al RPU del Blu-ray (merge) antes de inyectar.';
+
+  let ackHtml = '';
+  if (s.awaiting_critical_ack) {
+    // Los BOTONES viven en el banner ámbar del panel (arriba del todo, fuera
+    // de una card colapsable, que es donde tiene que estar un pause-point).
+    // Aquí van los NÚMEROS, que es lo que el banner no tiene: sin ellos el
+    // usuario acepta una degradación sin saber de cuánta película habla.
+    const l5 = (s.target_trust_gates || {}).l5_div || {};
+    const mt = l5.mayor_tramo || null;
+    const detalles = [];
+    if (typeof l5.body_coverage === 'number') {
+      detalles.push(`el cuerpo de la película coincide en un ${(l5.body_coverage * 100).toFixed(2)}%`);
+    }
+    if (mt && mt.frames) {
+      detalles.push(`el mayor tramo divergente son ${_cmv40Num(mt.frames)} frames (${_cmv40Dur(mt.segundos)})`);
+    }
+    if (l5.divergentes && l5.comparados) {
+      detalles.push(`${_cmv40Num(l5.divergentes)} de ${_cmv40Num(l5.comparados)} frames difieren`);
+    }
+    ackHtml = `
+      <div style="margin-top:8px; padding:10px 12px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px">
+        <div style="font-size:12px; font-weight:700; color:#8a4a00">⚠ Esperando tu confirmación</div>
+        <div style="font-size:11.5px; color:var(--text-2); line-height:1.5; margin-top:3px">
+          ${detalles.length
+            ? `Si continúas aceptas que ${escHtml(detalles.join(' · '))}.`
+            : 'Hay divergencias que la Fase D no puede corregir.'}
+          Los botones <em>Cambiar target</em> / <em>Continuar igualmente</em> están en el aviso ámbar de arriba del panel.
+        </div>
+      </div>`;
+  }
+
+  return `
+    ${_cmv40BloqueHead('①', 'Veredicto y consecuencia')}
+    <div style="font-size:12px; line-height:1.7; color:var(--text-1)">
+      <div><strong>${trust ? 'Trusted' : 'Sin trust automático'}</strong>
+        (${escHtml(s.trust_override || 'auto')}) → workflow <code>${escHtml(wf)}</code></div>
+      <div style="color:var(--text-2)">Se omiten: ${skipped.length ? escHtml(skipped.join(' · ')) : 'ninguna fase'}</div>
+      <div style="color:var(--text-2)">${escHtml(queHaraF)}</div>
+    </div>
+    ${ackHtml}`;
+}
+
+// ── ② Los dos RPU, lado a lado ───────────────────────────────────────
+function _cmv40GateBloque2(s) {
+  const sdv = s.source_dv_info || null;
+  const tdv = s.target_dv_info || null;
+  if (!sdv && !tdv) return '';
+  const l5g = (s.target_trust_gates || {}).l5_div || {};
+
+  const niveles = dv => {
+    if (!dv) return '—';
+    const ns = ['1','2','3','4','5','6','8','9','10','11']
+      .filter(n => dv['has_l' + n]).map(n => 'L' + n);
+    return ns.length ? ns.join(' ') : '—';
+  };
+  const l5txt = (dv, perfil) => {
+    if (perfil && Array.isArray(perfil.valores) && perfil.valores.length) {
+      const v = perfil.valores;
+      if (!perfil.variable && v.length === 1) return `${_cmv40L5Tupla(v[0][0])} constante`;
+      const tot = v.reduce((a, x) => a + (Number(x[1]) || 0), 0) + (Number(perfil.sin_bloque) || 0);
+      const trozos = v.slice(0, 2).map(x =>
+        `${_cmv40L5Tupla(x[0])} ${tot ? Math.round((Number(x[1]) || 0) / tot * 100) : 0}%`);
+      if (Number(perfil.sin_bloque) > 0) {
+        trozos.push(`sin bloque ${tot ? Math.round(Number(perfil.sin_bloque) / tot * 100) : 0}%`);
+      }
+      return `VARIABLE · ${trozos.join(' · ')}`;
+    }
+    if (!dv) return '—';
+    return `${dv.l5_top || 0}/${dv.l5_bottom || 0}/${dv.l5_left || 0}/${dv.l5_right || 0}`;
+  };
+  const l8txt = dv => {
+    if (!dv) return '—';
+    const nits = Array.isArray(dv.l8_trim_nits) && dv.l8_trim_nits.length
+      ? dv.l8_trim_nits.join(', ') + ' nits' : '';
+    const idx = Array.isArray(dv.l8_target_indices) && dv.l8_target_indices.length
+      ? ` · idx [${dv.l8_target_indices.join(', ')}]` : '';
+    return nits ? nits + idx : (dv.has_l8 ? 'presente' : '—');
+  };
+  const l1txt = dv => (!dv || (!dv.l1_max_cll && !dv.l1_max_fall)) ? '—'
+    : `${dv.l1_max_cll || 0} / ${dv.l1_max_fall || 0} nits`;
+  const l6txt = dv => !dv ? '—' : `${dv.l6_max_cll || 0} nits`;
+
+  const perfS = l5g.perfil_source || null;
+  const perfT = l5g.perfil_target || null;
+  const cmS = sdv ? (sdv.cm_version || '—') : '—';
+  const cmT = tdv ? (tdv.cm_version || '—') : '—';
+  const marcaCm = (cmS !== '—' && cmT !== '—' && cmS !== cmT)
+    ? { txt: '↑ upgrade', color: '#0a5cab' } : null;
+  const nivS = niveles(sdv), nivT = niveles(tdv);
+  const marcaNiv = (nivS !== nivT && tdv && tdv.has_l8 && sdv && !sdv.has_l8)
+    ? { txt: '+L8', color: '#0a5cab' } : null;
+  const l5S = l5txt(sdv, perfS), l5T = l5txt(tdv, perfT);
+
+  return `
+    ${_cmv40BloqueHead('②', 'Los dos RPU, lado a lado')}
+    <div style="border:1px solid rgba(15,23,42,0.08); border-radius:6px; overflow:hidden">
+      <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
+        <div></div><div>BD (source)</div><div>Bin (target)</div><div style="text-align:right">¿=?</div>
+      </div>
+      ${_cmv40RpuFila('Profile', sdv ? `${sdv.profile}${sdv.el_type ? ' (' + sdv.el_type + ')' : ''}` : '—',
+                                 tdv ? `${tdv.profile}${tdv.el_type ? ' (' + tdv.el_type + ')' : ''}` : '—')}
+      ${_cmv40RpuFila('CM version', cmS, cmT, marcaCm)}
+      ${_cmv40RpuFila('Frames', sdv ? _cmv40Num(sdv.frame_count) : '—', tdv ? _cmv40Num(tdv.frame_count) : '—')}
+      ${_cmv40RpuFila('Escenas', sdv ? _cmv40Num(sdv.scene_count) : '—', tdv ? _cmv40Num(tdv.scene_count) : '—')}
+      ${_cmv40RpuFila('Niveles', nivS, nivT, marcaNiv)}
+      ${_cmv40RpuFila('L1 CLL/FALL', l1txt(sdv), l1txt(tdv))}
+      ${_cmv40RpuFila('L5 active area', l5S, l5T)}
+      ${_cmv40RpuFila('L6 MaxCLL', l6txt(sdv), l6txt(tdv))}
+      ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}
+      ${_cmv40RpuFila('L9 primaries', (sdv && sdv.l9_primaries) || '—', (tdv && tdv.l9_primaries) || '—')}
+      ${_cmv40RpuFila('L11 contenido', (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
+    </div>`;
+}
+
+// ── ③ Gates: valor · umbral · severidad ──────────────────────────────
+/** Fila de gate con el umbral y la severidad literal al lado del valor.
+ *  `_cmv40GateRowHtml` se queda como está: lo usa también la card G/H. */
+function _cmv40GateFilaHtml(status, titulo, valor, umbral, sev, critical, explicacion) {
+  const icon  = { ok: '✓', warn: '⚠', ko: '✗', pending: '○' }[status] || '·';
+  const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
+  const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
+  const chip = (txt, c) => `<span style="font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; background:rgba(15,23,42,0.06); color:${c}">${escHtml(txt)}</span>`;
+  return `
+    <div style="display:grid; grid-template-columns:24px 1fr; gap:10px; padding:9px 12px; background:${bg}; border-radius:6px; margin-bottom:6px">
+      <div style="font-size:16px; font-weight:700; color:${color}; text-align:center">${icon}</div>
+      <div>
+        <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap">
+          <span style="font-size:12px; font-weight:700; color:var(--text-1)">${escHtml(titulo)}</span>
+          <span style="font-size:11px; color:${color}; font-weight:600">${escHtml(valor)}</span>
+          ${umbral ? `<span style="font-size:10.5px; color:var(--text-3)">umbral ${escHtml(umbral)}</span>` : ''}
+          ${sev ? chip(sev, color) : ''}
+          ${critical ? chip('crítico', 'var(--text-2)') : ''}
+        </div>
+        <div style="font-size:11px; color:var(--text-2); line-height:1.5; margin-top:2px">${escHtml(explicacion)}</div>
+      </div>
+    </div>`;
+}
+
+function _cmv40GateBloque3(s) {
+  const g = s.target_trust_gates || {};
+  const rows = [];
+  const estado = gate => {
+    const sev = gate.severity || (gate.ok ? 'ok' : 'ack_required');
+    if (sev === 'ok') return 'ok';
+    if (sev === 'hard_abort' || sev === 'ack_required') return 'ko';
+    return 'warn';
+  };
+
+  if (g.frames) {
+    const ok = g.frames.ok;
+    rows.push(_cmv40GateFilaHtml(estado(g.frames), 'Número de frames',
+      ok ? `${_cmv40Num(g.frames.bd)} = ${_cmv40Num(g.frames.target)}`
+         : `${_cmv40Num(g.frames.bd)} ≠ ${_cmv40Num(g.frames.target)}`,
+      'exacto', g.frames.severity, g.frames.critical,
+      ok ? 'Source y target tienen exactamente el mismo número de frames — condición crítica para que el RPU se inyecte alineado escena a escena.'
+         : 'Diferencia de frames ≠ 0. Suele indicar que el bin es de otra edición (theatrical vs extended, streaming recortado). Requiere sync manual en Fase D/E o buscar el bin correcto.'));
+  }
+  if (g.cm_version) {
+    rows.push(_cmv40GateFilaHtml(estado(g.cm_version), 'CM version del target',
+      `CM ${g.cm_version.value || '?'}`, '= v4.0', g.cm_version.severity, g.cm_version.critical,
+      g.cm_version.ok
+        ? 'El target está firmado como CMv4.0 — trae los niveles nuevos (L3/L8-L11) que justifican el upgrade.'
+        : 'El target no es CMv4.0. Sin CMv4.0 no hay upgrade posible — elige otro bin.'));
+  }
+  if (g.has_l8) {
+    rows.push(_cmv40GateFilaHtml(estado(g.has_l8), 'Presencia de L8',
+      g.has_l8.ok ? 'presente' : 'ausente', 'presente', g.has_l8.severity, g.has_l8.critical,
+      g.has_l8.ok
+        ? 'El bin contiene trims L8 auténticos — el nivel que aporta el tone-mapping fino de CMv4.0.'
+        : 'Bin «CMv4.0 vacío» sin L8. No añade nada sobre el v2.9 original — rechazado.'));
+  }
+  if (g.l5_div) {
+    const l5 = g.l5_div;
+    const completo = l5.sampled_method === 'per_frame_completo';
+    let valor, umbral;
+    if (completo && typeof l5.body_coverage === 'number') {
+      valor = `cuerpo ${(l5.body_coverage * 100).toFixed(2)}%`;
+      umbral = '≥ 90%';
+    } else if (l5.sampled_method === 'per_frame_zoned_24') {
+      valor = `${l5.sampled_matches || 0}/${l5.sampled_total || 0} muestras`;
+      umbral = 'cuerpo ≥ 90%';
+    } else {
+      valor = `div ${l5.px_max || 0} px`;
+      umbral = `≤ ${l5.soft_px != null ? l5.soft_px : 5} px`;
+    }
+    rows.push(_cmv40GateFilaHtml(estado(l5), 'L5 — letterbox (active area)',
+      valor, umbral, l5.severity, l5.critical,
+      l5.why || 'Compara el active area del bin con el del Blu-ray frame a frame.'));
+  }
+  if (g.l6_div) {
+    rows.push(_cmv40GateFilaHtml(estado(g.l6_div), 'L6 — MaxCLL/MaxFALL estático',
+      `Δ ${g.l6_div.nits_diff} nits`,
+      `≤ ${g.l6_div.threshold != null ? g.l6_div.threshold : 50} nits`,
+      g.l6_div.severity, g.l6_div.critical,
+      g.l6_div.why || 'La metadata HDR estática del target frente a la del BD. Por encima del umbral el carácter global de la imagen puede cambiar.'));
+  }
+  if (g.l1_div) {
+    rows.push(_cmv40GateFilaHtml(estado(g.l1_div), 'L1 — MaxCLL dinámico por escena',
+      `Δ ${g.l1_div.pct_diff}%`,
+      `≤ ${g.l1_div.threshold_pct != null ? g.l1_div.threshold_pct : 5}%`,
+      g.l1_div.severity, g.l1_div.critical,
+      g.l1_div.why || 'Promedio de brillo escena a escena. Por encima del umbral el grading del bin diverge del BD.'));
+  }
+  if (!rows.length) return '';
+  return _cmv40BloqueHead('③', 'Gates', 'valor · umbral · severidad') + rows.join('');
+}
+
+// ── ④ Desglose L5 ────────────────────────────────────────────────────
+function _cmv40GateBloque4(s) {
+  const l5 = (s.target_trust_gates || {}).l5_div || {};
+  const metodo = l5.sampled_method;
+  if (!metodo) return '';   // el gate no se refinó: no hay nada que desglosar
+
+  const fps = l5.fps || s.source_fps || 23.976;
+  const lin = (k, v) => `
+    <div style="display:grid; grid-template-columns:190px 1fr; gap:8px; font-size:11.5px; padding:2px 0">
+      <div style="color:var(--text-2)">${escHtml(k)}</div><div style="color:var(--text-1)">${escHtml(v)}</div>
+    </div>`;
+
+  // Sesiones anteriores al cambio: solo tenían el muestreo de 24.
+  if (metodo !== 'per_frame_completo') {
+    const zc = l5.sampled_zone_counts || {};
+    const zm = l5.sampled_zone_mismatches || {};
+    return `
+      ${_cmv40BloqueHead('④', 'Desglose L5', 'muestreo antiguo (24 frames)')}
+      <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
+        ${lin('Pares comparados', `${l5.sampled_matches || 0} coinciden de ${l5.sampled_total || 0}`)}
+        ${lin('Por zona (muestras)', `intro ${zm.intro || 0}/${zc.intro || 0} · cuerpo ${zm.body || 0}/${zc.body || 0} · outro ${zm.outro || 0}/${zc.outro || 0}`)}
+        ${lin('Cobertura del cuerpo', `${Math.round((l5.sampled_body_coverage || 0) * 100)}%`)}
+        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">
+          Proyecto analizado con el muestreo antiguo: solo se compararon ${l5.sampled_total || 0} frames. Vuelve a lanzar Fase B para obtener la comparación completa.
+        </div>
+      </div>`;
+  }
+
+  const pz = l5.por_zona || {};
+  const zonaTxt = z => {
+    const p = pz[z];
+    return Array.isArray(p) ? `${_cmv40Num(p[0])}/${_cmv40Num(p[1])}` : '—';
+  };
+  const perfil = (etiqueta, p) => {
+    if (!p) return lin(etiqueta, '—');
+    const vals = (p.valores || []).slice(0, 4)
+      .map(x => `${_cmv40L5Tupla(x[0])} ×${_cmv40Num(x[1])}`).join(' · ');
+    const sin = Number(p.sin_bloque) > 0
+      ? ` · ${_cmv40Num(p.sin_bloque)} sin bloque → neutro` : '';
+    return lin(etiqueta, `${_cmv40Num(p.frames_con_bloque)} con bloque${sin} — ${vals || '—'}${p.variable ? '  [VARIABLE]' : '  [constante]'}`);
+  };
+
+  const mt = l5.mayor_tramo || {};
+  const umbralT = l5.umbral_tramo_segundos != null ? l5.umbral_tramo_segundos : 40;
+  const tramos = (l5.tramos || []).map(t => {
+    const [desde, hasta, n, zona] = t;
+    return `
+      <div style="display:grid; grid-template-columns:1fr 1fr 70px 70px; gap:8px; font-size:11px; padding:2px 8px; border-bottom:1px solid rgba(15,23,42,0.04)">
+        <div style="color:var(--text-1)">${escHtml(_cmv40Num(desde))}–${escHtml(_cmv40Num(hasta))}</div>
+        <div style="color:var(--text-2)">${escHtml(_cmv40Timecode(desde, fps))} – ${escHtml(_cmv40Timecode(hasta, fps))}</div>
+        <div style="color:var(--text-1); text-align:right">${escHtml(_cmv40Num(n))} f</div>
+        <div style="color:var(--text-3); text-align:right">${escHtml(zona || '')}</div>
+      </div>`;
+  }).join('');
+
+  // La procedencia contradice a la medición: el nombre del bin declara L5
+  // variable (señal con precisión 100% sobre los 99 proyectos del corpus,
+  // cero falsos positivos) y aquí no la hemos detectado. Con esa precisión
+  // el error es NUESTRO, así que el aviso va pegado a la medición, no a los
+  // gates: no es un gate, la cuestiona.
+  const proc = l5.procedencia || {};
+  const avisoProc = proc.contradice ? `
+    <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:#8a4a00; line-height:1.5">
+      ⚠ El nombre del bin declara <strong>L5 variable</strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
+      pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.
+    </div>` : '';
+
+  return `
+    ${_cmv40BloqueHead('④', 'Desglose L5', 'comparación frame a frame')}
+    <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
+      ${perfil('Perfil BD (source)', l5.perfil_source)}
+      ${perfil('Perfil bin (target)', l5.perfil_target)}
+      ${lin('Comparados', `${_cmv40Num(l5.comparados)} frames · divergen ${_cmv40Num(l5.divergentes)}` +
+            (l5.comparados ? ` (${((l5.divergentes || 0) / l5.comparados * 100).toFixed(2)}%)` : ''))}
+      ${lin('Por zona (divergen/total)', `intro ${zonaTxt('intro')} · cuerpo ${zonaTxt('body')} · outro ${zonaTxt('outro')}`)}
+      ${lin('Cobertura del cuerpo', `${((l5.body_coverage || 0) * 100).toFixed(2)}%   (umbral 90%)`)}
+      ${lin('Mayor tramo contiguo', mt.frames
+            ? `${_cmv40Num(mt.frames)} frames · ${_cmv40Dur(mt.segundos)} · ${mt.zona || '—'} · desde ${_cmv40Num(mt.desde)}   (umbral ${umbralT}s)`
+            : '—')}
+      ${tramos ? `
+        <div style="margin-top:8px">
+          <div style="display:grid; grid-template-columns:1fr 1fr 70px 70px; gap:8px; font-size:10.5px; font-weight:800; color:var(--text-2); padding:3px 8px; background:rgba(0,122,255,0.06); border-radius:4px 4px 0 0">
+            <div>Frames</div><div>Timecode</div><div style="text-align:right">Longitud</div><div style="text-align:right">Zona</div>
+          </div>
+          ${tramos}
+        </div>` : ''}
+      ${avisoProc}
+    </div>`;
+}
+
+// ── ⑤ Evidencia de apoyo ─────────────────────────────────────────────
+function _cmv40GateBloque5(pid, s) {
+  const lin = (k, v) => v ? `
+    <div style="display:grid; grid-template-columns:110px 1fr; gap:8px; font-size:11.5px; padding:3px 0">
+      <div style="color:var(--text-2); font-weight:600">${escHtml(k)}</div>
+      <div style="color:var(--text-1)">${escHtml(v)}</div>
+    </div>` : '';
+
+  const l2 = s.l2_comparison
+    ? `${s.l2_comparison} · ${_cmv40Num(s.source_l2_unique_count)} combos BD vs ${_cmv40Num(s.target_l2_unique_count)} del bin`
+      + (Array.isArray(s.target_l2_target_pqs) && s.target_l2_target_pqs.length
+         ? ` · peaks ${s.target_l2_target_pqs.join('/')}` : '')
+    : '';
+
+  const l8 = s.target_l8_classification
+    ? `${s.target_l8_classification} · ${s.target_l8_quality_label || '—'} · ${_cmv40Num(s.target_l8_unique_count)} combos`
+      + (typeof s.target_l8_neutral_frames_pct === 'number'
+         ? ` · ${(s.target_l8_neutral_frames_pct * 100).toFixed(1)}% neutro` : '')
+      + (s.target_l8_has_mid_contrast ? ' · mid_contrast ✓' : '')
+      + (s.target_l8_has_clip_trim ? ' · clip_trim ✓' : '')
+    : '';
+
+  const proc = ((s.target_trust_gates || {}).l5_div || {}).procedencia || {};
+  const binName = s.target_rpu_source_label || s.target_rpu_path || s.pending_target_name || '';
+  const binCorto = binName ? binName.split('/').pop() : '';
+  const procTxt = binCorto
+    ? binCorto + (proc.declara_l5_variable
+        ? ` — declara L5 variable (${(proc.tokens || []).join(', ')})` : '')
+    : '';
+
+  const sr = s.sheet_recommendation || null;
+  const fila0 = sr && Array.isArray(sr.rows) && sr.rows.length ? sr.rows[0] : {};
+  const sheet = sr
+    ? `${sr.status || '—'}` + (fila0.dv_source ? ` · fuente ${fila0.dv_source}` : '')
+      + (fila0.sync_offset != null ? ` · sync ${fila0.sync_offset}` : '')
+      + (fila0.notes ? ` · «${fila0.notes}»` : '')
+    : '';
+
+  const pf = [
+    s.source_preflight_ok != null ? `source ${s.source_preflight_ok ? 'ok' : 'ko'}` : '',
+    s.target_preflight_ok != null ? `target ${s.target_preflight_ok ? 'ok' : 'ko'}` : '',
+    s.preflight_decision ? `decisión ${s.preflight_decision}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const filas = lin('L2', l2) + lin('L8', l8) + lin('Procedencia', procTxt)
+              + lin('Sheet', sheet) + lin('Pre-flight', pf)
+              + lin('Recomendación', s.recommended_action_label || '');
+  if (!filas) return '';
+
+  return `
+    ${_cmv40BloqueHead('⑤', 'Evidencia de apoyo')}
+    <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
+      ${filas}
+      <div style="margin-top:8px; text-align:right">
+        <button class="btn btn-ghost btn-xs" onclick="_cmv40CopiarDiagnostico('${pid}', this)"
+          data-tooltip="Vuelca los cinco bloques en texto plano al portapapeles">📋 Copiar diagnóstico</button>
+      </div>
+    </div>`;
+}
+
+/** El volcado en texto plano de los cinco bloques — para pegarlo en un
+ *  informe o en una conversación sin tener que capturar la pantalla. */
+function _cmv40GateDiagnosticoTexto(s) {
+  const L = [];
+  const g = s.target_trust_gates || {};
+  const l5 = g.l5_div || {};
+  const sdv = s.source_dv_info || {}, tdv = s.target_dv_info || {};
+  L.push(`=== Validaciones — ${s.output_mkv_name || s.id || ''}`);
+  L.push(`① ${_cmv40Trust(s) ? 'Trusted' : 'Sin trust'} (${s.trust_override || 'auto'}) · workflow ${s.output_workflow || '—'}`);
+  L.push(`   fases omitidas: ${(s.phases_skipped || []).map(_cmv40SkipLabel).join(' · ') || 'ninguna'}`);
+  L.push('② RPU                    BD (source)              Bin (target)');
+  const par = (k, a, b) => L.push(`   ${String(k).padEnd(20)} ${String(a).padEnd(24)} ${b}`);
+  par('Profile', `${sdv.profile || '—'} ${sdv.el_type || ''}`, `${tdv.profile || '—'} ${tdv.el_type || ''}`);
+  par('CM version', sdv.cm_version || '—', tdv.cm_version || '—');
+  par('Frames', _cmv40Num(sdv.frame_count), _cmv40Num(tdv.frame_count));
+  par('Escenas', _cmv40Num(sdv.scene_count), _cmv40Num(tdv.scene_count));
+  par('L1 CLL/FALL', `${sdv.l1_max_cll || 0}/${sdv.l1_max_fall || 0}`, `${tdv.l1_max_cll || 0}/${tdv.l1_max_fall || 0}`);
+  L.push('③ Gates');
+  Object.keys(g).forEach(k => {
+    const gate = g[k] || {};
+    L.push(`   ${String(k).padEnd(12)} sev=${gate.severity || '?'}  ok=${gate.ok}  ${gate.critical ? 'crítico' : ''}`);
+    if (gate.why) L.push(`                ${gate.why}`);
+  });
+  if (l5.sampled_method === 'per_frame_completo') {
+    const fps = l5.fps || s.source_fps || 23.976;
+    L.push('④ Desglose L5');
+    L.push(`   comparados ${_cmv40Num(l5.comparados)} · divergen ${_cmv40Num(l5.divergentes)}`);
+    const pz = l5.por_zona || {};
+    ['intro', 'body', 'outro'].forEach(z => {
+      if (Array.isArray(pz[z])) L.push(`   ${z.padEnd(6)} ${_cmv40Num(pz[z][0])}/${_cmv40Num(pz[z][1])}`);
+    });
+    L.push(`   cobertura cuerpo ${((l5.body_coverage || 0) * 100).toFixed(2)}%`);
+    (l5.tramos || []).forEach(t => L.push(
+      `   tramo ${_cmv40Num(t[0])}–${_cmv40Num(t[1])}  ${_cmv40Timecode(t[0], fps)}–${_cmv40Timecode(t[1], fps)}  ${t[2]} f  ${t[3] || ''}`));
+  }
+  L.push('⑤ Evidencia');
+  L.push(`   L2 ${s.l2_comparison || '—'} · ${_cmv40Num(s.source_l2_unique_count)} vs ${_cmv40Num(s.target_l2_unique_count)}`);
+  L.push(`   L8 ${s.target_l8_classification || '—'} · ${s.target_l8_quality_label || '—'} · ${_cmv40Num(s.target_l8_unique_count)} combos`);
+  L.push(`   bin ${(s.target_rpu_source_label || s.target_rpu_path || '').split('/').pop() || '—'}`);
+  return L.join('\n');
+}
+
+/** Handler del botón «Copiar diagnóstico». */
+async function _cmv40CopiarDiagnostico(pid, btn) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project || !project.session) return;
+  const texto = _cmv40GateDiagnosticoTexto(project.session);
+  const ok = await _copyTextToClipboardWithFallback(texto);
+  showToast(ok ? 'Diagnóstico copiado al portapapeles' : 'No se pudo copiar al portapapeles',
+            ok ? 'success' : 'error');
+  if (ok && btn) {
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copiado';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  }
+}
+
 function _cmv40RenderGateCardBC(pid, s, isExpanded) {
   const curIdx   = CMV40_PHASES_ORDER.indexOf(s.phase);
   const bIdx     = CMV40_PHASES_ORDER.indexOf('target_provided');
@@ -4137,131 +4662,50 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
   let overallIcon, overallLabel;
   if (compatErr) { overallIcon = '⛔'; overallLabel = 'Abortada · combinación incompatible'; }
   else if (!hasData) { overallIcon = '🔒'; overallLabel = 'Pendiente — se evalúa al cerrar Fase B'; }
+  else if (s.awaiting_critical_ack) { overallIcon = '⚠️'; overallLabel = 'Esperando tu confirmación'; }
   else if (trustOk) { overallIcon = '✅'; overallLabel = 'Trusted · todos los críticos pasan'; }
   else { overallIcon = '⚠️'; overallLabel = 'Sin trust automático · flujo completo manual'; }
 
-  // Resumen en el header
+  // Resumen del header: cuántos gates y qué se omite, que es la consecuencia.
   let summary;
   if (compatErr) summary = `Combinación ${s.source_workflow || '?'} + ${s.target_type || '?'} incompatible`;
   else if (!hasData) summary = 'Se evalúan al tener target — comparación con el RPU del Blu-ray';
-  else if (trustOk) summary = 'Bin pre-validado: se saltan fases manuales (D/E)';
-  else summary = 'Se ejecuta el flujo completo con revisión visual en Fase D';
+  else {
+    const g = s.target_trust_gates || {};
+    const claves = Object.keys(g);
+    const pasan = claves.filter(k => (g[k] || {}).ok).length;
+    const omitidas = (s.phases_skipped || []).length;
+    summary = `${pasan}/${claves.length} gates`
+      + (_cmv40DropIn(s) ? ' · drop-in' : '')
+      + (omitidas ? ` · ${omitidas} fases omitidas` : '');
+  }
 
   let body = '';
   if (isExpanded) {
-    const rows = [];
     if (compatErr) {
-      rows.push(_cmv40GateRowHtml('ko', 'Compatibilidad estructural',
-        'abortada',
-        s.compat_warning || 'Source y target estructuralmente incompatibles — la inyección produciría un MKV inválido.'));
-    } else if (hasData) {
-      const g = s.target_trust_gates || {};
-      // Frames
-      if (g.frames) {
-        const ok = g.frames.ok;
-        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
-          'Número de frames',
-          ok ? `coinciden · ${(g.frames.bd || 0).toLocaleString()} frames`
-             : `${(g.frames.bd || 0).toLocaleString()} ≠ ${(g.frames.target || 0).toLocaleString()}`,
-          ok
-            ? 'Source y target tienen exactamente el mismo número de frames — condición crítica para que el RPU target se inyecte alineado escena a escena.'
-            : 'Diferencia de frames ≠ 0. Suele indicar que el bin target es para otra edición (theatrical vs extended, streaming recortado). Requiere sync manual en Fase D/E o buscar el bin correcto.'));
-      }
-      // CM version
-      if (g.cm_version) {
-        const ok = g.cm_version.ok;
-        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
-          'CM version del target',
-          ok ? `CM ${g.cm_version.value}` : `CM ${g.cm_version.value || '?'}`,
-          ok
-            ? 'El target está firmado como CMv4.0 — tiene los niveles nuevos (L3/L8-L11) que justifican el upgrade.'
-            : 'El target no es CMv4.0. Sin CMv4.0 no hay upgrade posible — elige otro bin.'));
-      }
-      // L8
-      if (g.has_l8) {
-        const ok = g.has_l8.ok;
-        rows.push(_cmv40GateRowHtml(ok ? 'ok' : 'ko',
-          'Presencia de L8',
-          ok ? 'L8 detectado' : 'L8 ausente',
-          ok
-            ? 'El bin contiene trims L8 auténticos — el nivel que aporta el tone-mapping fino de CMv4.0.'
-            : 'Bin "CMv4.0 vacío" sin L8. No añade valor sobre el v2.9 original — rechazado.'));
-      }
-      // L5 divergence — usa el muestreo zoneado si se ejecutó (Fase B
-      // refina con dovi_tool export cuando el static check supera el umbral).
-      // En ese caso el `why` dinámico ya describe matches/mismatches por
-      // zona; el resultado visual refleja el veredicto final (warn/ack/ok).
-      if (g.l5_div) {
-        const l5 = g.l5_div;
-        const px = l5.px_max || 0;
-        const sampled = l5.sampled_method === 'per_frame_zoned_24';
-        let st, result, explanation;
-        if (sampled) {
-          const total = l5.sampled_total || 0;
-          const matches = l5.sampled_matches || 0;
-          const bodyCov = Math.round((l5.sampled_body_coverage || 0) * 100);
-          const zm = l5.sampled_zone_mismatches || {};
-          const sev = l5.severity || (l5.ok ? 'warn' : 'ack_required');
-          // Estado visual: ok si todos coinciden, warn si pasa con muestreo,
-          // ko si el muestreo confirmó divergencia legítima (ack_required).
-          if (sev === 'ack_required') st = 'ko';
-          else if (matches === total) st = 'ok';
-          else st = 'warn';
-          // Etiqueta corta: usa la métrica del muestreo en vez del Δpx
-          // estático (que en variable L5 confunde).
-          if (matches === total) {
-            result = `${total}/${total} muestras coinciden`;
-          } else if ((zm.body || 0) === 0) {
-            result = `${matches}/${total} · cuerpo OK`;
-          } else if (sev === 'ack_required') {
-            result = `cuerpo solo ${bodyCov}% · ack`;
-          } else {
-            result = `cuerpo ${bodyCov}% · ${matches}/${total}`;
-          }
-          // El `why` ya trae el desglose completo intro/body/outro generado
-          // en backend (_refine_l5_gate_with_sampling).
-          explanation = l5.why || `Muestreo per-frame: ${matches}/${total} coinciden, cuerpo principal ${bodyCov}%.`;
-        } else {
-          // Sin muestreo: gate estático puro (≤30 px). Solo aplica cuando
-          // el static check no necesitó refinamiento, así que st nunca es ko aquí.
-          st = px <= 5 ? 'ok' : 'warn';
-          result = px <= 5 ? `div ≤ 5 px` : `div ${px} px · warn`;
-          explanation = st === 'ok'
-            ? 'Los offsets de letterbox del target están a ≤5 px de los del BD — misma edición o recorte equivalente.'
-            : 'Divergencia moderada del active area (5-30 px). Puede ser la misma edición con recorte ligeramente distinto. La app avanza pero conviene revisar visualmente.';
-        }
-        rows.push(_cmv40GateRowHtml(st, 'L5 — letterbox (active area)', result, explanation));
-      }
-      // L6 divergence
-      if (g.l6_div) {
-        const nits = Math.abs(g.l6_div.nits_diff || 0);
-        const st = nits <= 50 ? 'ok' : 'warn';
-        rows.push(_cmv40GateRowHtml(st,
-          'L6 — MaxCLL/MaxFALL estático',
-          `Δ ${g.l6_div.nits_diff} nits`,
-          st === 'ok'
-            ? 'La metadata HDR estática del target coincide (≤50 nits de diferencia) con la del BD.'
-            : `Diferencia > 50 nits en L6. Sugiere que el target viene de un mastering con brillo global distinto. No bloquea pero el carácter de la imagen puede cambiar.`));
-      }
-      // L1 divergence
-      if (g.l1_div) {
-        const pct = Math.abs(g.l1_div.pct_diff || 0);
-        const st = pct <= 5 ? 'ok' : 'warn';
-        rows.push(_cmv40GateRowHtml(st,
-          'L1 — MaxCLL dinámico por escena',
-          `Δ ${g.l1_div.pct_diff}%`,
-          st === 'ok'
-            ? 'El promedio de brillo escena-a-escena coincide (≤5% de diferencia) — el grading es comparable.'
-            : 'Diferencia > 5% en el promedio de brillo por escena. Sugiere color grading distinto entre el target y el BD. Avanza pero el resultado puede verse diferente al original.'));
-      }
+      body = `
+        <div class="section-body">
+          ${_cmv40GateRowHtml('ko', 'Compatibilidad estructural', 'abortada',
+            s.compat_warning || 'Source y target estructuralmente incompatibles — la inyección produciría un MKV inválido.')}
+        </div>`;
+    } else if (!hasData) {
+      body = `
+        <div class="section-body">
+          <div style="font-size:12px; color:var(--text-3); font-style:italic">Aún sin datos — completa Fase B primero.</div>
+        </div>`;
+    } else {
+      body = `
+        <div class="section-body">
+          <div style="font-size:12px; color:var(--text-2); line-height:1.5">
+            <strong>Qué se valida aquí:</strong> al cerrar Fase B la app compara el RPU del bin con el del Blu-ray para decidir si puede saltarse las fases manuales o hace falta revisión visual, y para asegurar que la combinación no produce un MKV roto. Abajo está TODO lo que se ha medido, no solo el veredicto.
+          </div>
+          ${_cmv40GateBloque1(pid, s)}
+          ${_cmv40GateBloque2(s)}
+          ${_cmv40GateBloque3(s)}
+          ${_cmv40GateBloque4(s)}
+          ${_cmv40GateBloque5(pid, s)}
+        </div>`;
     }
-    body = `
-      <div class="section-body">
-        <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:10px">
-          <strong>Qué se valida aquí:</strong> al cerrar Fase B, la app compara automáticamente el RPU target con el RPU del Blu-ray para decidir si puede saltar las fases manuales (D/E) o si hace falta revisión visual. Las validaciones críticas además aseguran que la combinación source × target no producirá un MKV roto.
-        </div>
-        ${rows.join('') || '<div style="font-size:12px; color:var(--text-3); font-style:italic">Aún sin datos — completa Fase B primero.</div>'}
-      </div>`;
   }
 
   return `
@@ -4389,113 +4833,6 @@ const _CMV40_TARGET_TYPE_LABELS = {
   'incompatible':          { icon: '❌', label: 'Target incompatible',          desc: 'Sin CMv4.0 — no sirve como fuente de transfer' },
 };
 
-function _cmv40RenderTrustPanel(s) {
-  const tt = s.target_type || 'generic';
-  const meta = _CMV40_TARGET_TYPE_LABELS[tt] || _CMV40_TARGET_TYPE_LABELS.generic;
-  const gates = s.target_trust_gates || {};
-  const trustOk = s.target_trust_ok === true;
-  const isTrusted = tt !== 'generic' && tt !== 'incompatible';
-  const isIncompat = tt === 'incompatible';
-
-  let cls = 'generic';
-  if (isIncompat) cls = 'ko';
-  else if (isTrusted && trustOk) cls = 'ok';
-  else if (isTrusted && !trustOk) cls = 'warn';
-
-  // Renderizar cada gate con status visual
-  const gateItems = [];
-  const pushGate = (key, okText, failText, detail) => {
-    const g = gates[key];
-    if (!g) return;
-    const gClass = g.ok ? 'pass' : (g.critical ? 'fail' : 'soft');
-    const txt = g.ok ? okText : failText;
-    gateItems.push(`<span class="cmv40-trust-gate ${gClass}" data-tooltip="${escHtml(detail)}">
-      ${g.ok ? '✓' : '✗'} ${escHtml(txt)}
-    </span>`);
-  };
-  if (gates.frames) {
-    pushGate('frames',
-      `frames ${gates.frames.bd?.toLocaleString() || '?'}`,
-      `frames ${gates.frames.bd?.toLocaleString()} ≠ ${gates.frames.target?.toLocaleString()}`,
-      'Frame count del BD vs target — crítico'
-    );
-  }
-  if (gates.cm_version) {
-    pushGate('cm_version',
-      `CM ${gates.cm_version.value}`,
-      `CM ${gates.cm_version.value || '?'}`,
-      'Debe ser v4.0 para ser fuente de transfer — crítico'
-    );
-  }
-  if (gates.has_l8) {
-    pushGate('has_l8', 'L8 presente', 'sin L8',
-      'L8 = trims CMv4.0 — sin L8 no hay transfer útil'
-    );
-  }
-  if (gates.l5_div) {
-    const l5 = gates.l5_div;
-    // Si el muestreo per-frame con zonas se ejecutó, prioriza esa narrativa
-    // (matches por zona) sobre el Δpx estático del summary — en pelis con
-    // L5 variable este último engaña.
-    const sampled = l5.sampled_method === 'per_frame_zoned_24';
-    let okText, failText, tip;
-    if (sampled) {
-      const total = l5.sampled_total || 0;
-      const matches = l5.sampled_matches || 0;
-      const bodyCov = Math.round((l5.sampled_body_coverage || 0) * 100);
-      const zm = l5.sampled_zone_mismatches || {};
-      // Etiqueta corta con la métrica clave: matches del cuerpo principal
-      if (matches === total) {
-        okText = `L5 ${matches}/${total} idéntico`;
-      } else if ((zm.body || 0) === 0) {
-        okText = `L5 cuerpo OK · ${matches}/${total}`;
-      } else if (l5.ok) {
-        okText = `L5 cuerpo ${bodyCov}% · ${matches}/${total}`;
-      } else {
-        okText = `L5 cuerpo solo ${bodyCov}%`;
-      }
-      failText = okText;
-      tip = l5.why || `Muestreo per-frame con zonas (intro/body/outro).`;
-    } else {
-      okText = `L5 div ${l5.px_max}px`;
-      failText = `L5 div ${l5.px_max}px (>30)`;
-      tip = l5.why || `Divergencia L5 (active area). ≤5 ok · 5-30 warn · >30 aborta — posible edición distinta del disco`;
-    }
-    pushGate('l5_div', okText, failText, tip);
-  }
-  if (gates.l6_div) {
-    pushGate('l6_div',
-      `L6 Δ${gates.l6_div.nits_diff}n`,
-      `L6 Δ${gates.l6_div.nits_diff}n (>50)`,
-      'Divergencia L6 MaxCLL — soft warn si >50 nits'
-    );
-  }
-  if (gates.l1_div) {
-    pushGate('l1_div',
-      `L1 Δ${gates.l1_div.pct_diff}%`,
-      `L1 Δ${gates.l1_div.pct_diff}% (>5%)`,
-      'Divergencia L1 MaxCLL en % — soft warn si >5%'
-    );
-  }
-
-  const statusTxt = isIncompat
-    ? 'Incompatible — no sirve como target'
-    : isTrusted && trustOk ? 'TRUSTED — se saltarán pasos manuales'
-    : isTrusted && !trustOk ? 'Trust NO aprobado — flujo completo con revisión manual'
-    : 'Flujo estándar con merge + revisión';
-
-  return `
-    <div class="cmv40-trust-panel ${cls}" style="margin-top:10px">
-      <div class="cmv40-trust-header">
-        <span>${meta.icon}</span>
-        <span>${escHtml(meta.label)}</span>
-        <span class="cmv40-trust-status">${escHtml(statusTxt)}</span>
-      </div>
-      <div class="cmv40-trust-desc">${escHtml(meta.desc)}</div>
-      ${gateItems.length ? `<div class="cmv40-trust-gates">${gateItems.join('')}</div>` : ''}
-    </div>`;
-}
-
 function _cmv40FaseSummary(key, s) {
   const arts = s.artifacts || {};
   if (key === 'A' && s.source_dv_info) {
@@ -4567,8 +4904,6 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const hashLine = shortHash
       ? `<div><span style="color:var(--text-3)">SHA-256:</span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
       : '';
-    // NO incluimos _cmv40RenderTrustPanel aqui — los gates tienen su propia
-    // tarjeta dedicada (🛡️ Validaciones) que aparece justo debajo de Fase B.
     // Mostrarlo aqui ademas duplicaba la informacion.
     return `
       <div style="font-size:12px; line-height:1.8">

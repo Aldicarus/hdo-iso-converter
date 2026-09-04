@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -1044,3 +1045,97 @@ def recommend_action(session) -> tuple[str, str, str]:
         )
 
     return ("merge", "Inyectar RPU CMv4.0 (preserva L2)", reason)
+
+
+# ── Procedencia declarada en el nombre del bin ───────────────────────────────
+#
+# Los bins del repositorio DoviTools se nombran a mano y quien los genera
+# suele DECLARAR en el nombre que el L5 (active area / letterbox) varía a lo
+# largo de la película — títulos IMAX, open matte, escenas que se abren a
+# pantalla completa.
+#
+# Tokens en orden de tabla. `openmatte` va aparte de `open matte` porque la
+# normalización solo convierte `.`, `_` y `-` en espacio: un `openmatte` pegado
+# sigue siendo una sola palabra.
+_TOKENS_L5_VARIABLE = (
+    "variable l5",
+    "var l5",
+    "l5 variable",
+    "imax",
+    "open matte",
+    "openmatte",
+)
+
+# Separadores típicos de los nombres de release. Sin esto se escapa
+# `Hail.Mary.2026.UHD-BD_P7 MEL_variable_L5_(retail…)`, que es un caso real.
+_SEPARADORES_NOMBRE = re.compile(r"[._\-]+")
+_ESPACIOS = re.compile(r"\s+")
+
+# Máximo que se muestra de la nota de la hoja (texto libre de la comunidad,
+# a veces son párrafos enteros con URLs).
+_MAX_NOTA_SHEET = 200
+
+_RE_L5_EN_NOTAS = re.compile(r"\bl5\b")
+
+
+def _normalizar_nombre_bin(nombre: str) -> str:
+    """Minúsculas + `.`/`_`/`-` a espacio, colapsando espacios."""
+    return _ESPACIOS.sub(" ", _SEPARADORES_NOMBRE.sub(" ", (nombre or "").lower())).strip()
+
+
+def pistas_de_procedencia(nombre_bin: str, notas_sheet: str = "") -> dict:
+    """Pistas sobre el L5 del bin que se leen de su NOMBRE, no del RPU.
+
+    Función pura (sin IO, sin subprocess, sin logging). Tolera ``None`` y ``""``
+    en los dos argumentos.
+
+    Devuelve::
+
+        {
+          "declara_l5_variable": bool,    # algún token encontrado en el NOMBRE
+          "tokens": ["variable l5", …],   # los encontrados, en orden de tabla
+          "nota_sheet_l5": str | None,    # la nota recortada si menciona 'l5'
+        }
+
+    Medido sobre los 99 proyectos reales del NAS con nombre de bin y perfil L5
+    conocido::
+
+        n=99   TP=6   FP=0   FN=7   TN=86   →   precisión 100%, recall 46%
+
+    **Regla de uso: esta señal NUNCA relaja un veredicto, solo avisa de
+    contradicciones.** La asimetría de los números es la que manda: cuando el
+    nombre lo declara siempre es verdad (cero falsos positivos en todo el
+    corpus), pero se le escapa más de la mitad de los casos. Por tanto:
+
+      - nombre dice "variable" + medimos "constante"  → el error es NUESTRO,
+        hay que avisar de la contradicción;
+      - nombre calla                                  → no concluye nada, el
+        silencio NO es evidencia de L5 constante y no puede saltarse ningún
+        chequeo.
+
+    ``notas_sheet`` es texto libre de la hoja de recomendaciones de la
+    comunidad. Solo se mira si menciona L5, y **como contexto para mostrar al
+    usuario, no como detector**: en el corpus solo 1 de los 24 proyectos con
+    notas menciona L5, así que no da para clasificar. Por eso no toca
+    ``declara_l5_variable``.
+    """
+    normalizado = _normalizar_nombre_bin(nombre_bin)
+
+    tokens: list[str] = []
+    for token in _TOKENS_L5_VARIABLE:
+        # Con frontera de palabra: `imax` suelto es señal, pero dentro de
+        # `Climax` no lo es. La normalización ya dejó los separadores como
+        # espacios, así que `\b` basta.
+        if re.search(rf"\b{re.escape(token)}\b", normalizado) and token not in tokens:
+            tokens.append(token)
+
+    notas = (notas_sheet or "").strip()
+    nota_l5: str | None = None
+    if notas and _RE_L5_EN_NOTAS.search(notas.lower()):
+        nota_l5 = notas if len(notas) <= _MAX_NOTA_SHEET else notas[:_MAX_NOTA_SHEET].rstrip() + "…"
+
+    return {
+        "declara_l5_variable": bool(tokens),
+        "tokens": tokens,
+        "nota_sheet_l5": nota_l5,
+    }

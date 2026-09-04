@@ -895,7 +895,71 @@ Escalas por gate:
 - `l6_div` → ≤50 nits OK · 50-200 = `warn` · >200 = `ack_required` (peak muy distinto)
 - `l1_div` → ≤5% OK · 5-20 = `warn` · >20 = `ack_required`
 
-El gate L5 tiene además un refinamiento per-frame **zoneado** (intro/body/outro) usando `dovi_tool export` JSON. El `why` calculado del muestreo se propaga al banner del frontend en lugar de un texto estático. Esto descarta falsos positivos en pelis con L5 variable a lo largo del runtime.
+#### El gate L5 se mide frame a frame, y la ausencia de bloque es el neutro
+
+El summary de `dovi_tool` resume el L5 de toda la película en una línea, así que
+en un máster con escenas expandidas (IMAX / open matte) el gate estático dispara
+`ack_required` por un falso positivo. El refinamiento compara los dos RPUs con
+`export --levels level5` y **zonifica** el resultado: intro (primer 5%), cuerpo
+(90% central) y outro (último 5%); solo el cuerpo decide, porque una divergencia
+en un logo o en los créditos no afecta a nada.
+
+Dos cosas que costaron una tarde de medición y que no son opcionales:
+
+- **Un frame sin bloque L5 vale `(0,0,0,0)`, no "sin dato".** Así codifica el
+  Blu-ray las escenas expandidas: en The Mandalorian and Grogu son **76.774 de
+  190.021 frames** sin bloque, frente a un bin que sí escribe el `(0,0)`
+  explícito. Sin esa regla el disco pasa de un 0,29 % de divergencia a un 40 % y
+  un título correcto acaba pidiendo confirmación al usuario.
+- **El emparejamiento va por `row["frame"]`, nunca por el índice de la fila.**
+  Lo anterior muestreaba 24 frames y usaba el índice como si fuera el número de
+  frame; con 113.247 filas en el BD contra 190.021 en el bin la intersección de
+  los dos muestreos era **un único par** (el índice 0, que además comparaba el
+  frame 24 del source contra el frame 0 del target). Ese par cayó en 'intro', el
+  cuerpo se quedó con cero muestras y `body_coverage` valía `1.0` por el `else`
+  del denominador: **el gate aprobó sin haber mirado nada**, y acertó de
+  casualidad. Hoy `body_total == 0` mantiene `ack_required` — sin evidencia no se
+  aprueba. Muestrear tampoco hacía falta: el export ya devuelve todas las filas
+  y comparar los 190.021 frames son ~90 ms (en `asyncio.to_thread`, que escala
+  con la duración de la peli).
+
+**El criterio no es solo el porcentaje: también el tramo contiguo.** Veinte
+transiciones de medio segundo suman lo mismo que ocho minutos de película con
+otro encuadre, y no son lo mismo. Calibrado sobre los proyectos reales del NAS
+(112 sesiones; el refinamiento se ejecuta en el 5,4 % de los jobs): el mayor
+tramo divergente de un título cuyos dos másters SÍ coinciden son **278 frames
+(11,6 s)**, frente a **8.566 y 12.001** (5,9 y 8,3 min) en los que el bin trae
+las escenas IMAX abiertas y el BD no. Factor 30 entre los dos grupos, así que
+`TRAMO_L5_MAX_SEGUNDOS = 40` no está en zona de duda. Los umbrales porcentuales
+(90 % / 70 %) **no se tocaron**: con la medición corregida ningún proyecto del
+corpus pasa de aprobado a ACK por esa vía; los tres que cambian de veredicto lo
+hacen por el tramo, y son los tres bins «Variable L5» sobre un BD plano.
+
+**El detalle NO se persiste.** La comparación recorre ~190.000 frames y en la
+sesión solo entran los agregados, el histograma de valores (tope 8) y los 20
+tramos mayores. El proyecto más grande del `/config` real son 3,89 MB y no se va
+a multiplicar por un volcado.
+
+#### El nombre del bin como contra-chequeo — avisa, no decide
+
+Los bins de la comunidad suelen declarar el caso en el nombre
+(`…P7 MEL Variable L5 (retail cmv4.0 restored).bin`, `…2025 IMAX BD_P7 FEL…`).
+Medido sobre los 99 proyectos con nombre y perfil L5 conocido: **TP=6, FP=0,
+FN=7, TN=86 → precisión 100 %, recall 46 %**. Esa asimetría fija el uso:
+
+- el nombre declara variable **y** medimos constante → la contradicción apunta
+  **siempre a nuestra medición**, y se avisa. Este chequeo solo habría cazado el
+  fallo del muestreo: el gate escribió `tgt_variable_l5=False` sobre un bin
+  llamado literalmente «…VARIABLE L5.bin»;
+- el nombre calla → no concluye nada, y **no relaja ninguna severidad**.
+
+`pistas_de_procedencia` (en `rpu_analyze.py`, pura) normaliza `._-` a espacios
+—si no, `variable_L5` se escapa— y busca con frontera de palabra, porque `imax`
+es subcadena de `Climax`. La nota del sheet se muestra como contexto pero **no**
+se cruza: solo 1 de 24 proyectos con notas menciona L5, así que como detector no
+da. Cubierto por `test_cmv40_gate_l5.py` (24 tests, con los cuatro escenarios
+reales del corpus y el contraste A/B que justifica el umbral de tramo) y
+`test_cmv40_procedencia.py`.
 
 Campos relacionados en `CMv40Session`: `awaiting_critical_ack`, `critical_gate_failures`, `user_acknowledged_degradation`, `pipeline_aborted`. La flag `target_trust_ok` se mantiene como resumen booleano (true sólo si todos los gates son `ok`/`warn`).
 
@@ -1542,7 +1606,7 @@ Lo que hubo que adaptar, y por qué:
 
 **El camino de reserva (dos pasadas) se conserva y se ejercita en el test**, porque el helper devuelve False *sin lanzar* ante cualquier problema y esa rama tiene que seguir funcionando el día que haga falta.
 
-`test_light_profile_pipe.py` **ejecuta el endpoint** con los binarios falsos. Una de las mutaciones destapó un test flojo que conviene recordar: *"no queda ningún `.hevc` en disco"* pasaba **también** con las dos pasadas, porque la reserva lo borra al terminar. La aserción útil es sobre el **argv** — que a ffmpeg no se le pida escribir ningún HEVC.
+`test_mkv_quality_pipeline.py` **ejecuta el endpoint** con los binarios falsos. Una de las mutaciones destapó un test flojo que conviene recordar: *"no queda ningún `.hevc` en disco"* pasaba **también** con las dos pasadas, porque la reserva lo borra al terminar. La aserción útil es sobre el **argv** — que a ffmpeg no se le pida escribir ningún HEVC.
 - **Un solo consumidor del export**: `_perfil_desde_niveles` come el formato PLANO de `rpu_analyze.export_levels` (L1 → las tres series, L5 → zonas de active area, L8 → max_pq por target, L2 → trim targets, L6 → mastering display). El camino legacy (volcado completo, para dovi_tool anterior a 2.3.3) se **adapta** a plano con `_niveles_desde_volcado` en vez de parsearse aparte.
   - Antes había un segundo parser aquí dentro —tres formatos, paths conocidos y fallback recursivo— más `_rpus_from_levels`, que **reconstruía la forma anidada** desde el export por niveles solo para alimentarlo. Es la duplicación que la regla de "un solo parser de ese JSON" prohíbe desde `305689a`: dos parsers permitieron que uno divergiera del formato real, y el que funcionaba era el que tenía tests. Medido con 243.552 frames: reconstruir + navegar eran 3,50 s y un pico de **450 MB** de RAM (con el recorrido en el event loop); ahora 1,47 s y 26 MB, todo en un thread.
   - El sanity check `min_pq <= avg_pq <= max_pq` se conserva: venía del bug de BR2049 (la búsqueda a ciegas encontraba bloques hermanos con campos homónimos y daba un peak de ~176 nits donde el real era ~1000). Con el nivel ya etiquetado no puede pasar eso, pero un registro incoherente sigue sin servir.

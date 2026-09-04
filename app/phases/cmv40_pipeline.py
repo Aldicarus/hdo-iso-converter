@@ -2518,19 +2518,24 @@ async def _analyze_target_rpu(
                                              session.source_frame_count,
                                              session.target_frame_count)
 
-    # Refinamiento del gate L5 con muestreo per-frame: el summary de
-    # dovi_tool reporta una sola entrada L5 (frame 0 típicamente), lo que
-    # genera falsos positivos en pelis con L5 variable (iMAX expanded,
-    # split-aspect, REPACK). Si el gate estático dispara ack_required,
-    # muestreamos N frames en ambos RPUs y reclasificamos según patrones
-    # reales de active area. RPU_source.bin vive en el mismo workdir que
-    # RPU_target.bin (rpu_path.parent), generado en Fase A.
+    # Refinamiento del gate L5: el summary de dovi_tool reporta una sola
+    # entrada L5 (frame 0 típicamente), lo que genera falsos positivos en pelis
+    # con L5 variable (IMAX expanded, split-aspect, REPACK). Si el gate
+    # estático dispara ack_required, comparamos los dos RPUs frame a frame.
+    # RPU_source.bin vive en el mismo workdir que RPU_target.bin
+    # (rpu_path.parent), generado en Fase A.
     rpu_source_path = rpu_path.parent / "RPU_source.bin"
     if rpu_source_path.exists():
-        await _refine_l5_gate_with_sampling(
+        notas_sheet = " ".join(
+            str(r.get("notes") or "")
+            for r in ((session.sheet_recommendation or {}).get("rows") or [])
+        )
+        await _refinar_gate_l5(
             gates, rpu_source_path, rpu_path,
             session.source_frame_count, session.target_frame_count,
-            log_callback,
+            log_callback, fps=session.source_fps,
+            nombre_bin=(session.target_rpu_path or session.pending_target_rpu_path),
+            notas_sheet=notas_sheet,
         )
 
     session.target_trust_gates = gates
@@ -2967,50 +2972,93 @@ def _extract_l5_from_frame(frame: dict) -> tuple[int, int, int, int] | None:
     return None
 
 
-async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
-                                 samples: int = 24,
-                                 timeout: int = 180) -> list[tuple[int, tuple[int, int, int, int]]]:
-    """Exporta el RPU completo a JSON via `dovi_tool export -d all=…` y
-    muestrea L5 en N frames distribuidos uniformemente.
+# ── El gate L5, medido frame a frame ──────────────────────────────────────
+#
+# Un tramo divergente largo en el cuerpo de la película es una ESCENA con otro
+# encuadre; unos pocos frames son una transición mal alineada. El porcentaje
+# solo no distingue las dos cosas —veinte transiciones de medio segundo suman
+# lo mismo que ocho minutos de película—, así que el tamaño del tramo entra en
+# la decisión.
+#
+# Calibrado sobre los proyectos reales del NAS (2026-09-04): el mayor tramo
+# divergente de un título cuyos dos másters SÍ coinciden son 278 frames
+# (11,6 s — The Mandalorian and Grogu, los cambios de encuadre desplazados unos
+# frames), frente a 8.566 y 12.001 frames (5,9 y 8,3 min — Bring Her Back y
+# Sinners, escenas IMAX enteras que el bin abre a pantalla completa y el BD
+# no). Factor 30 entre los dos grupos: el umbral no está en zona de duda.
+#
+# Va en SEGUNDOS, no en frames, para no depender del framerate.
+TRAMO_L5_MAX_SEGUNDOS = 40.0
 
-    Usamos export en vez de `info --frame` porque el formato texto de
-    --frame NO incluye 'L5 offsets:' en muchas versiones de dovi_tool —
-    esa línea solo aparece en `info --summary`. Con export+JSON tenemos
-    L5 fiable frame-a-frame, mismo enfoque que L1 (_extract_l1_from_frame).
+# La comparación recorre los ~190.000 frames de un UHD y el detalle NO se
+# persiste: el proyecto más grande del /config real son 3,89 MB y no se va a
+# multiplicar por un volcado. Se guarda el resumen y los tramos mayores.
+TOPE_TRAMOS_PERSISTIDOS = 20
+TOPE_VALORES_PERSISTIDOS = 8
 
-    Coste: ~30-60s una sola vez por RPU (no 24 calls); el JSON puede ser
-    grande (~50 MB para una peli de 2h) pero se borra inmediatamente.
+# Un frame sin bloque L5 no es un frame sin dato: el decodificador asume el
+# valor neutro, que es "toda la imagen es activa". Así codifica el Blu-ray las
+# escenas expandidas.
+L5_NEUTRO = (0, 0, 0, 0)
 
-    Con dovi_tool >= 2.3.3 se pide SOLO el L5 (`--levels level5`): ~20 MB y
-    un par de segundos, en vez de volcar el RPU entero para leer cuatro
-    offsets por frame.
+
+async def _l5_por_frame(rpu_path: Path, frame_count: int,
+                        timeout: int = 1800) -> dict[int, tuple[int, int, int, int]]:
+    """L5 de cada frame del RPU, indexado por su número de frame REAL.
+
+    Sustituye a un muestreo de 24 frames que devolvía **el índice de la fila**
+    como si fuera el número de frame. Con dos RPUs de distinto número de
+    bloques L5 los índices no se corresponden con nada: sobre The Mandalorian
+    and Grogu (113.247 filas en el BD contra 190.021 en el bin) la intersección
+    de los dos muestreos era **un único par**, el índice 0, que además comparaba
+    el frame 24 del source contra el frame 0 del target. El gate decidía con
+    eso, y falla justo cuando importa — dos másters con distinto patrón de L5
+    es la definición del caso que este gate existe para juzgar.
+
+    Muestrear tampoco hace falta: `export --levels level5` ya devuelve todas
+    las filas y tarda segundos. Los 24 samples eran herencia del camino viejo
+    (`export -d all`, 682 MB de volcado para leer cuatro offsets por frame).
+
+    El `timeout` es generoso a propósito: el coste de `dovi_tool export` escala
+    con la duración de la película, y la reserva sigue usando `-d all`, que en
+    un UHD son cientos de MB. Un tope pequeño sobre una operación así es la
+    familia de fallos que documenta CLAUDE.md (el demux de Proyecto Salvación).
+
+    **Un frame ausente del resultado no tiene bloque L5**, y eso significa
+    `L5_NEUTRO`, no "sin dato" — 76.774 de los 190.021 frames en el caso
+    medido. Quien compare tiene que aplicar ese valor por defecto o inventará
+    divergencias en el 40% de la película.
     """
     if frame_count <= 0:
-        return []
+        return {}
 
-    # Vía rápida: solo el nivel que nos interesa.
+    # Vía rápida: solo el nivel que interesa.
     try:
         from phases.rpu_analyze import export_levels
         levels = await export_levels(rpu_path, ("level5",), timeout=timeout)
         if levels is not None:
             rows = levels.get("level5") or []
-            if rows:
-                step = max(1, len(rows) // max(2, samples))
-                return [
-                    (i, (
-                        int(rows[i].get("active_area_top_offset") or 0),
-                        int(rows[i].get("active_area_bottom_offset") or 0),
-                        int(rows[i].get("active_area_left_offset") or 0),
-                        int(rows[i].get("active_area_right_offset") or 0),
-                    ))
-                    for i in range(0, len(rows), step)
-                    if isinstance(rows[i], dict)
-                ]
-            # Sin bloques L5 en el RPU: es un resultado válido, no un fallo.
-            return []
+
+            def _indexar() -> dict[int, tuple[int, int, int, int]]:
+                return {
+                    int(r["frame"]): (
+                        int(r.get("active_area_top_offset") or 0),
+                        int(r.get("active_area_bottom_offset") or 0),
+                        int(r.get("active_area_left_offset") or 0),
+                        int(r.get("active_area_right_offset") or 0),
+                    )
+                    for r in rows
+                    if isinstance(r, dict) and r.get("frame") is not None
+                }
+
+            # Una fila por frame: en un UHD son ~190.000, y el coste escala con
+            # la duración de la película. Fuera del event loop.
+            return await asyncio.to_thread(_indexar)
     except Exception as e:
         _logger.info("export --levels level5 no disponible (%s) — usando export completo", e)
 
+    # Reserva para dovi_tool < 2.3.3: el volcado completo trae un registro por
+    # frame, así que ahí el índice SÍ es el número de frame.
     export_json = rpu_path.parent / f"_l5_export_{rpu_path.stem}.json"
     try:
         try:
@@ -3020,18 +3068,17 @@ async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
             ], timeout=timeout)
         except Exception as e:
             _logger.warning("dovi_tool export para L5 falló: %s", e)
-            return []
+            return {}
         if rc != 0 or not export_json.exists():
-            return []
+            return {}
         try:
             data = json.loads(export_json.read_text(encoding="utf-8"))
         except Exception as e:
             _logger.warning("L5 export JSON ilegible: %s", e)
-            return []
+            return {}
     finally:
         export_json.unlink(missing_ok=True)
 
-    # Normalizar a lista de frames (puede venir como list o dict.frames)
     if isinstance(data, list):
         frames = data
     elif isinstance(data, dict):
@@ -3040,17 +3087,13 @@ async def _sample_l5_per_frame(rpu_path: Path, frame_count: int,
             frames = []
     else:
         frames = []
-    if not frames:
-        return []
 
-    actual = len(frames)
-    step = max(1, actual // max(2, samples))
-    out_list: list[tuple[int, tuple[int, int, int, int]]] = []
-    for i in range(0, actual, step):
-        l5 = _extract_l5_from_frame(frames[i])
+    salida: dict[int, tuple[int, int, int, int]] = {}
+    for i, frame in enumerate(frames):
+        l5 = _extract_l5_from_frame(frame)
         if l5 is not None:
-            out_list.append((i, l5))
-    return out_list
+            salida[i] = l5
+    return salida
 
 
 def _l5_tuple_max_diff(a: tuple[int, int, int, int],
@@ -3078,26 +3121,173 @@ def _l5_zone_for_frame(frame: int, total: int) -> str:
     return "body"
 
 
-async def _refine_l5_gate_with_sampling(gates: dict,
-                                          rpu_source: Path, rpu_target: Path,
-                                          source_frames: int, target_frames: int,
-                                          log_callback) -> None:
-    """Si el gate L5 estático disparó ack_required, refina la decisión
-    muestreando 24 frames de cada RPU AL MISMO frame_number en ambos lados
-    y comparando frame-a-frame.
+def _perfil_l5(mapa: dict[int, tuple[int, int, int, int]], total: int) -> dict:
+    """Resume el L5 de un RPU: qué valores usa, cuántos frames cada uno y en
+    cuántos no emite bloque (que cuentan como `L5_NEUTRO`).
 
-    Estrategia:
-      1. Sample N frames distribuidos uniformemente en cada RPU.
-      2. Pair samples por frame_number → lista de (frame, src_l5, tgt_l5, diff).
-      3. Cada par marcado match (diff ≤30 px) o mismatch.
-      4. Mismatches clasificados por zona: intro (primer 5%) / body (90% central) /
-         outro (último 5%). Las zonas cosméticas no bloquean; solo body cuenta.
-      5. Decisión:
-         - body_coverage ≥ 90% → reclasifica a 'warn' (gate pasa).
-         - body_coverage ≥ 70% → reclasifica a 'warn' con aviso suave.
-         - body_coverage < 70% → mantiene ack_required.
+    `variable` mira el conjunto EFECTIVO de valores, ausencias incluidas. Sin
+    eso, el Blu-ray de Mandalorian —un solo valor explícito y 76.774 frames sin
+    bloque— se describiría como de encuadre constante cuando es justo lo
+    contrario: es un máster con escenas expandidas.
+    """
+    cuenta: dict[tuple[int, int, int, int], int] = {}
+    for v in mapa.values():
+        cuenta[v] = cuenta.get(v, 0) + 1
+    sin_bloque = max(0, total - len(mapa))
+    efectivos = set(cuenta)
+    if sin_bloque:
+        efectivos.add(L5_NEUTRO)
+    valores = sorted(cuenta.items(), key=lambda kv: -kv[1])[:TOPE_VALORES_PERSISTIDOS]
+    return {
+        "frames_con_bloque": len(mapa),
+        "sin_bloque": sin_bloque,
+        "valores": [[list(v), n] for v, n in valores],
+        "variable": len(efectivos) > 1,
+    }
 
-    Mutates `gates["l5_div"]` in-place.
+
+def _analizar_l5(src: dict[int, tuple[int, int, int, int]],
+                 tgt: dict[int, tuple[int, int, int, int]],
+                 source_frames: int, target_frames: int,
+                 total: int, fps: float) -> tuple[dict, dict, dict]:
+    """Los dos perfiles y la comparación, en una sola pasada síncrona.
+
+    Existe para tener UN punto que meter en `asyncio.to_thread`: medido sobre
+    los 190.021 frames de The Mandalorian and Grogu son ~90 ms, y el coste
+    escala con la duración de la película. La regla del proyecto es que nada
+    que escale con el dato corra dentro del event loop.
+    """
+    return (_perfil_l5(src, source_frames or total),
+            _perfil_l5(tgt, target_frames or total),
+            _comparar_l5(src, tgt, total, fps))
+
+
+def _comparar_l5(src: dict[int, tuple[int, int, int, int]],
+                 tgt: dict[int, tuple[int, int, int, int]],
+                 total: int, fps: float) -> dict:
+    """Compara los dos perfiles frame a frame y resume. Función pura.
+
+    Los frames ausentes en cualquiera de los dos lados valen `L5_NEUTRO`, que
+    es lo que asume el decodificador. Sin esa regla, el caso medido pasa de un
+    0,29% de divergencia a un 40% y un disco correcto acabaría pidiendo
+    confirmación al usuario.
+    """
+    umbral_px = 30
+    zonas = {"intro": 0, "body": 0, "outro": 0}
+    divergen = {"intro": 0, "body": 0, "outro": 0}
+    divergentes: list[int] = []
+    for f in range(total):
+        z = _l5_zone_for_frame(f, total)
+        zonas[z] += 1
+        a = src.get(f, L5_NEUTRO)
+        b = tgt.get(f, L5_NEUTRO)
+        if _l5_tuple_max_diff(a, b) > umbral_px:
+            divergen[z] += 1
+            divergentes.append(f)
+
+    # Tramos contiguos. El que decide es el que más frames del CUERPO tiene:
+    # un tramo largo dentro del cuerpo es una escena con otro encuadre; los de
+    # intro/outro son cosméticos por definición de las zonas.
+    tramos: list[dict] = []
+    if divergentes:
+        ini = prev = divergentes[0]
+        for f in divergentes[1:] + [None]:
+            if f is None or f != prev + 1:
+                cuerpo = sum(1 for x in range(ini, prev + 1)
+                             if _l5_zone_for_frame(x, total) == "body")
+                tramos.append({
+                    "desde": ini, "hasta": prev, "frames": prev - ini + 1,
+                    "cuerpo": cuerpo,
+                    "zona": "body" if cuerpo else _l5_zone_for_frame(ini, total),
+                })
+                ini = f
+            prev = f
+
+    body_total = zonas["body"]
+    body_ok = body_total - divergen["body"]
+    cobertura = (body_ok / body_total) if body_total > 0 else 0.0
+
+    mayor = max(tramos, key=lambda t: (t["cuerpo"], t["frames"]), default=None)
+    frames_cuerpo_max = mayor["cuerpo"] if mayor else 0
+    fps_ok = fps if fps and fps > 0 else 23.976
+
+    por_frames = sorted(tramos, key=lambda t: -t["frames"])[:TOPE_TRAMOS_PERSISTIDOS]
+    return {
+        "comparados": total,
+        "divergentes": len(divergentes),
+        "por_zona": {z: [divergen[z], zonas[z]] for z in zonas},
+        "body_coverage": round(cobertura, 4),
+        "tramos": [[t["desde"], t["hasta"], t["frames"], t["zona"]] for t in por_frames],
+        "mayor_tramo": ({
+            "frames": mayor["frames"], "frames_cuerpo": mayor["cuerpo"],
+            "segundos": round(mayor["frames"] / fps_ok, 1),
+            "zona": mayor["zona"], "desde": mayor["desde"],
+        } if mayor else None),
+        "segundos_cuerpo_max": round(frames_cuerpo_max / fps_ok, 1),
+        "umbral_tramo_segundos": TRAMO_L5_MAX_SEGUNDOS,
+        "fps": round(fps_ok, 3),
+    }
+
+
+def _veredicto_l5(cmp: dict) -> tuple[str, bool, str]:
+    """(severidad, ok, explicación) a partir de la comparación. Función pura.
+
+    Dos criterios, porque el porcentaje solo no separa una transición
+    desalineada de una escena entera con otro encuadre.
+    """
+    cob = cmp["body_coverage"]
+    pct = round(cob * 100, 2)
+    seg = cmp["segundos_cuerpo_max"]
+    body_total = cmp["por_zona"]["body"][1]
+    base = (
+        f"Comparados {cmp['comparados']:,} frames: {cmp['divergentes']:,} divergen "
+        f"({cmp['divergentes'] / cmp['comparados'] * 100:.2f}%) — "
+        f"cuerpo {cmp['por_zona']['body'][0]:,}/{body_total:,}."
+    ).replace(",", ".")
+
+    if body_total <= 0:
+        return ("ack_required", False, base + (
+            " La comparación no cubrió el cuerpo principal, así que no hay nada "
+            "que confirme que los dos másters usan el mismo encuadre. Sin "
+            "evidencia no se aprueba."))
+
+    tramo_largo = seg >= TRAMO_L5_MAX_SEGUNDOS
+    if tramo_largo:
+        return ("ack_required", False, base + (
+            f" Cobertura del cuerpo {pct}%, pero hay {seg} s seguidos con un "
+            f"active area distinto (umbral {TRAMO_L5_MAX_SEGUNDOS:.0f} s): eso no "
+            f"es una transición desalineada, es una escena entera con otro "
+            f"encuadre. El TV calculará las bandas mal durante ese tramo."))
+    if cob >= 0.90:
+        return ("warn", True, base + (
+            f" El cuerpo principal coincide en {pct}% y el mayor tramo divergente "
+            f"dura {seg} s — desalineaciones de transición, sin impacto real."))
+    if cob >= 0.70:
+        return ("warn", True, base + (
+            f" El cuerpo principal coincide en {pct}% (umbral 90% para no decir "
+            f"nada). Tolerable, pero conviene mirar el desglose antes de dar el "
+            f"resultado por bueno."))
+    return ("ack_required", False, base + (
+        f" El cuerpo principal coincide solo en {pct}% (umbral 70%) — el target "
+        f"tiene un patrón de active area distinto del BD en buena parte de la "
+        f"película."))
+
+
+async def _refinar_gate_l5(gates: dict,
+                           rpu_source: Path, rpu_target: Path,
+                           source_frames: int, target_frames: int,
+                           log_callback, fps: float = 0.0,
+                           nombre_bin: str = "", notas_sheet: str = "") -> None:
+    """Si el gate L5 estático disparó `ack_required`, lo decide comparando los
+    dos RPUs **frame a frame** en toda la película.
+
+    El gate estático solo ve la línea `L5 offsets` del summary, que en un
+    máster con escenas expandidas resume un rango entero en un valor. Este
+    refinamiento existe para no rechazar por eso un bin correcto — pero antes
+    muestreaba 24 frames emparejados por índice de fila, y con dos RPUs de
+    distinto número de bloques eso degeneraba en un único par.
+
+    Muta `gates["l5_div"]`.
     """
     g = gates.get("l5_div")
     if not isinstance(g, dict):
@@ -3105,167 +3295,99 @@ async def _refine_l5_gate_with_sampling(gates: dict,
     if g.get("severity") != "ack_required":
         return
 
+    total = max(source_frames, target_frames)
     await _log(
         log_callback,
-        "[Fase B] L5 estático sospechoso (>30 px) — muestreando 24 frames "
-        "en ambos RPUs para descartar falso positivo por L5 variable…"
+        f"[Fase B] L5 estático sospechoso ({g.get('px_max', 0)} px > 30) — "
+        f"comparando los dos RPUs frame a frame ({total:,} frames)…".replace(",", ".")
     )
 
-    src_samples = await _sample_l5_per_frame(rpu_source, source_frames)
-    tgt_samples = await _sample_l5_per_frame(rpu_target, target_frames)
+    src = await _l5_por_frame(rpu_source, source_frames)
+    tgt = await _l5_por_frame(rpu_target, target_frames)
+    g["sampled_method"] = "per_frame_completo"
 
-    g["sampled_method"] = "per_frame_zoned_24"
-
-    if not src_samples or not tgt_samples:
+    if not src or not tgt or total <= 0:
         await _log(
-        log_callback,
-            "[Fase B] ⚠ Muestreo L5 no produjo datos — gate L5 sigue como "
-            "ack_required basándose en el summary."
+            log_callback,
+            "[Fase B] ⚠ No se pudieron leer los bloques L5 de alguno de los dos "
+            "RPUs — el gate L5 se queda como ack_required basándose en el summary."
         )
         return
 
-    # Indexar por frame_number y emparejar samples comunes (mismo step en
-    # ambos lados normalmente coloca los samples en frames idénticos).
-    src_by_frame = dict(src_samples)
-    tgt_by_frame = dict(tgt_samples)
-    common_frames = sorted(set(src_by_frame.keys()) & set(tgt_by_frame.keys()))
+    perfil_src, perfil_tgt, cmp = await asyncio.to_thread(
+        _analizar_l5, src, tgt, source_frames, target_frames, total, fps)
 
-    if not common_frames:
+    g["perfil_source"] = perfil_src
+    g["perfil_target"] = perfil_tgt
+    g.update(cmp)
+    g["src_variable_l5"] = perfil_src["variable"]
+    g["tgt_variable_l5"] = perfil_tgt["variable"]
+    g.pop("sampled_per_frame", None)   # el detalle de 190.000 frames no se persiste
+
+    for etiqueta, perfil, frames in (("source", perfil_src, source_frames),
+                                     ("target", perfil_tgt, target_frames)):
+        reparto = " · ".join(
+            f"({v[0]},{v[1]},{v[2]},{v[3]}) {n / max(1, frames) * 100:.0f}%"
+            for v, n in perfil["valores"]
+        ) or "sin bloques"
+        extra = (f" · {perfil['sin_bloque']:,} sin bloque → neutro".replace(",", ".")
+                 if perfil["sin_bloque"] else "")
         await _log(
-        log_callback,
-            "[Fase B] ⚠ Muestreo L5: no hay frames comunes entre source y target "
-            "(frame counts muy distintos) — gate L5 sigue como ack_required."
+            log_callback,
+            f"[Fase B] L5 {etiqueta}: {perfil['frames_con_bloque']:,}/{frames:,} "
+            f"con bloque · {reparto}{extra}".replace(",", ".")
         )
-        return
+    if perfil_src["variable"] or perfil_tgt["variable"]:
+        cuales = ("ambos másters" if perfil_src["variable"] and perfil_tgt["variable"]
+                  else ("el BD" if perfil_src["variable"] else "el bin"))
+        await _log(
+            log_callback,
+            f"[Fase B] Encuadre VARIABLE en {cuales} — típico de un máster con "
+            f"escenas expandidas (IMAX / open matte)."
+        )
 
-    # Comparar frame-a-frame
-    total_frames_for_zone = max(source_frames, target_frames)
-    per_sample: list[dict] = []
-    for f in common_frames:
-        s = src_by_frame[f]
-        t = tgt_by_frame[f]
-        diff = _l5_tuple_max_diff(s, t)
-        per_sample.append({
-            "frame": f,
-            "src": list(s),
-            "tgt": list(t),
-            "diff_px": diff,
-            "ok": diff <= 30,
-            "zone": _l5_zone_for_frame(f, total_frames_for_zone),
-        })
-
-    total = len(per_sample)
-    matches = sum(1 for s in per_sample if s["ok"])
-    mismatches = total - matches
-
-    # Conteos por zona
-    zone_counts = {"intro": 0, "body": 0, "outro": 0}
-    zone_mismatches = {"intro": 0, "body": 0, "outro": 0}
-    body_mismatch_frames: list[int] = []
-    for s in per_sample:
-        z = s["zone"]
-        zone_counts[z] += 1
-        if not s["ok"]:
-            zone_mismatches[z] += 1
-            if z == "body":
-                body_mismatch_frames.append(s["frame"])
-
-    body_total = zone_counts["body"]
-    body_matches = body_total - zone_mismatches["body"]
-    body_coverage = (body_matches / body_total) if body_total > 0 else 1.0
-
-    # Variabilidad detectada — convertimos a tuplas (s["src"]/s["tgt"] ya
-    # vienen como list de la asignación previa por compatibilidad JSON).
-    # Antes había una linea adicional que hacia s["src"][0:4] (list slice,
-    # no hashable) y reventaba el set con 'unhashable type: list'.
-    src_distinct = {tuple(s["src"]) for s in per_sample}
-    tgt_distinct = {tuple(s["tgt"]) for s in per_sample}
-
-    g["sampled_total"] = total
-    g["sampled_matches"] = matches
-    g["sampled_mismatches"] = mismatches
-    g["sampled_zone_counts"] = zone_counts
-    g["sampled_zone_mismatches"] = zone_mismatches
-    g["sampled_body_coverage"] = round(body_coverage, 3)
-    g["sampled_overall_coverage"] = round(matches / total, 3) if total > 0 else 0.0
-    g["src_variable_l5"] = len(src_distinct) > 1
-    g["tgt_variable_l5"] = len(tgt_distinct) > 1
-    g["sampled_per_frame"] = per_sample  # detalle completo para UI
-
-    # Construir explicación human-friendly
-    parts: list[str] = []
-    parts.append(
-        f"Muestreo de {total} frames: {matches} coinciden ({round(matches/total*100)}%) "
-        f"y {mismatches} divergen."
+    pz = cmp["por_zona"]
+    await _log(
+        log_callback,
+        f"[Fase B] Comparados {cmp['comparados']:,}: {cmp['divergentes']:,} divergen "
+        f"({cmp['divergentes'] / cmp['comparados'] * 100:.2f}%) · "
+        f"intro {pz['intro'][0]:,}/{pz['intro'][1]:,} · "
+        f"cuerpo {pz['body'][0]:,}/{pz['body'][1]:,} · "
+        f"outro {pz['outro'][0]:,}/{pz['outro'][1]:,}".replace(",", ".")
     )
-    zone_msg_parts: list[str] = []
-    if zone_mismatches["intro"] > 0:
-        zone_msg_parts.append(
-            f"{zone_mismatches['intro']}/{zone_counts['intro']} en el principio (logos/avisos, primer 5%)"
-        )
-    if zone_mismatches["body"] > 0:
-        zone_msg_parts.append(
-            f"{zone_mismatches['body']}/{zone_counts['body']} en el cuerpo principal (90% central)"
-        )
-    if zone_mismatches["outro"] > 0:
-        zone_msg_parts.append(
-            f"{zone_mismatches['outro']}/{zone_counts['outro']} al final (créditos, último 5%)"
-        )
-    if zone_msg_parts:
-        parts.append("Discrepancias: " + " · ".join(zone_msg_parts) + ".")
 
-    body_pct = round(body_coverage * 100)
+    # Cruce con lo que el propio bin declara en su nombre. NO cambia la
+    # severidad: la señal tiene recall 46% (el silencio no concluye nada) pero
+    # precisión 100% sobre los 99 proyectos del NAS, así que una contradicción
+    # apunta SIEMPRE a nuestra medición, nunca al nombre. Este chequeo solo
+    # habría cazado el fallo del muestreo por índice: el gate escribió
+    # `tgt_variable_l5=False` sobre un bin llamado «…VARIABLE L5.bin».
+    from phases.rpu_analyze import pistas_de_procedencia
+    proc = pistas_de_procedencia(nombre_bin, notas_sheet)
+    medimos_variable = perfil_src["variable"] or perfil_tgt["variable"]
+    proc["contradice"] = bool(proc["declara_l5_variable"] and not medimos_variable)
+    g["procedencia"] = proc
+    if proc["contradice"]:
+        await _log(
+            log_callback,
+            f"[Fase B] ⚠ El bin se declara «{', '.join(proc['tokens'])}» en su "
+            f"nombre pero la medición no encuentra encuadre variable en ninguno "
+            f"de los dos RPUs. En el corpus del NAS esa declaración nunca ha "
+            f"fallado, así que revisa el desglose L5 antes de fiarte del veredicto."
+        )
 
-    if body_coverage >= 0.90:
-        g["ok"] = True
-        g["severity"] = "warn"
-        if mismatches == 0:
-            extra = "El muestreo per-frame confirma que el patrón de active area es idéntico en ambos masters."
-        elif zone_mismatches["body"] == 0:
-            extra = (
-                "Las discrepancias caen exclusivamente en zonas cosméticas "
-                "(logos/intro y créditos) — el cuerpo principal coincide al 100%. "
-                "Sin riesgo real."
-            )
-        else:
-            extra = (
-                f"El cuerpo principal coincide en {body_pct}%; las pocas discrepancias "
-                "no comprometen la experiencia."
-            )
-        g["why"] = " ".join(parts) + " " + extra
-        await _log(
+    severidad, ok, why = _veredicto_l5(cmp)
+    g["severity"] = severidad
+    g["ok"] = ok
+    g["why"] = why
+
+    icono = "✓" if ok else "⚠"
+    await _log(
         log_callback,
-            f"[Fase B] ✓ L5 reclasificado a 'warn' — body_coverage={body_pct}% "
-            f"(matches {matches}/{total} total · body {body_matches}/{body_total})."
-        )
-    elif body_coverage >= 0.70:
-        g["ok"] = True
-        g["severity"] = "warn"
-        g["why"] = " ".join(parts) + (
-            f" El cuerpo principal coincide en {body_pct}% — tolerable pero "
-            "merece la pena revisar visualmente la Fase D si quieres confirmar."
-        )
-        await _log(
-        log_callback,
-            f"[Fase B] ⚠ L5 reclasificado a 'warn' tolerable — "
-            f"body_coverage={body_pct}% (umbral 90% para silenciar)."
-        )
-    else:
-        # body_coverage < 70% → ack legítimo, masters distintos en lo que importa
-        sample_frames_str = ", ".join(str(f) for f in body_mismatch_frames[:6])
-        if len(body_mismatch_frames) > 6:
-            sample_frames_str += f" y {len(body_mismatch_frames) - 6} más"
-        g["why"] = " ".join(parts) + (
-            f" El cuerpo principal coincide solo en {body_pct}% (umbral 70%) — "
-            f"el target tiene un patrón de active area distinto del BD en escenas "
-            f"críticas (frames de ejemplo: {sample_frames_str}). "
-            f"El TV calculará bandas y tone-mapping mal → resultado degradado."
-        )
-        await _log(
-        log_callback,
-            f"[Fase B] ⚠ L5 confirmado divergente: body_coverage={body_pct}%. "
-            f"Source distinct={sorted(src_distinct)} · Target distinct={sorted(tgt_distinct)}"
-        )
+        f"[Fase B] {icono} L5 '{severidad}' — cuerpo {cmp['body_coverage'] * 100:.2f}% "
+        f"· mayor tramo {cmp['segundos_cuerpo_max']} s "
+        f"(umbrales 90% y {TRAMO_L5_MAX_SEGUNDOS:.0f} s)."
+    )
 
 
 def _classify_gate_failures(gates: dict) -> tuple[bool, list[dict], list[dict]]:
