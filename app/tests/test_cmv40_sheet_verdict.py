@@ -195,7 +195,16 @@ class TestBuildVerdict(unittest.TestCase):
 
 
 class TestSheetSyncHint(unittest.TestCase):
-    """Contraste offset del sheet vs detectado por cross-correlation."""
+    """El offset de la hoja es una corrección YA APLICADA al bin.
+
+    No es un desfase pendiente: es el que la comunidad detectó y corrigió. Por
+    tanto lo que se espera medir es CERO, y detectar justo el valor documentado
+    es la señal MALA. Antes estaba al revés —`agrees` premiaba la coincidencia—
+    y sobre los proyectos reales del NAS eso marcaba "algo no cuadra" en los 16
+    que tienen offset documentado, ninguno de los cuales necesitó corregir
+    nada; entre ellos La trama fenicia con −584 frames documentados, que
+    completó por drop-in sin tocar el sync.
+    """
 
     def setUp(self):
         from phases.cmv40_pipeline import sheet_sync_hint
@@ -206,6 +215,10 @@ class TestSheetSyncHint(unittest.TestCase):
             output_mkv_name="y.mkv", artifacts_dir="/tmp/x",
         )
 
+    def _con(self, **rec):
+        self.session.sheet_recommendation = {"rows": [], **rec}
+
+    # ── estructura ────────────────────────────────────────────────────
     def test_sin_recomendacion_no_hay_hint(self):
         self.assertIsNone(self.hint(self.session, {"offset": 24}))
 
@@ -213,37 +226,83 @@ class TestSheetSyncHint(unittest.TestCase):
         self.session.sheet_recommendation = {"rows": [{"sync_offset_frames": None}]}
         self.assertIsNone(self.hint(self.session, {"offset": 24}))
 
-    def test_coincidencia_exacta(self):
-        self.session.sheet_recommendation = {
-            "sync_offset_frames": 24, "sync_offset": "(+24)",
-            "match_title": "Obsession 2026", "rows": [],
-        }
-        out = self.hint(self.session, {"offset": 24})
-        self.assertTrue(out["agrees"])
-        self.assertEqual(out["delta"], 0)
-
-    def test_dentro_de_tolerancia(self):
-        self.session.sheet_recommendation = {"sync_offset_frames": 24, "rows": []}
-        self.assertTrue(self.hint(self.session, {"offset": 26})["agrees"])
-        self.assertFalse(self.hint(self.session, {"offset": 30})["agrees"])
-
-    def test_signo_invertido_se_distingue(self):
-        self.session.sheet_recommendation = {"sync_offset_frames": 24, "rows": []}
-        out = self.hint(self.session, {"offset": -24})
-        self.assertFalse(out["agrees"])
-        self.assertTrue(out["sign_flipped"])
-
     def test_offset_tomado_de_la_fila_cuando_falta_en_el_plano(self):
-        # La sección izquierda no trae sync; si la primaria es esa, el dato
-        # hay que sacarlo de la fila factible.
+        """La sección izquierda no trae sync; si la primaria es esa, el dato
+        hay que sacarlo de la fila factible."""
         self.session.sheet_recommendation = {
             "sync_offset_frames": None,
             "rows": [{"sync_offset_frames": None},
                      {"sync_offset_frames": 48, "sync_offset": "(+48)"}],
         }
-        out = self.hint(self.session, {"offset": 48})
+        out = self.hint(self.session, {"offset": 0})
         self.assertEqual(out["sheet_offset"], 48)
-        self.assertTrue(out["agrees"])
+        self.assertTrue(out["corregido"])
+
+    def test_sin_medida_propia_no_se_concluye(self):
+        self._con(sync_offset_frames=16)
+        out = self.hint(self.session, None)
+        self.assertIsNone(out["detected_offset"])
+        self.assertIsNone(out["corregido"])
+        self.assertFalse(out["parece_sin_corregir"])
+
+    # ── la semántica ──────────────────────────────────────────────────
+    def test_residuo_cero_es_la_señal_BUENA(self):
+        """Caso real: Minions & Monsters — hoja +16, medido 0 con Pearson 1,0."""
+        self._con(sync_offset_frames=16, sync_offset="(+16)",
+                  match_title="Minions and Monsters 2026")
+        out = self.hint(self.session, {"offset": 0})
+        self.assertTrue(out["corregido"])
+        self.assertFalse(out["parece_sin_corregir"])
+
+    def test_detectar_lo_documentado_es_la_señal_MALA(self):
+        """Si el residuo es el desfase que la hoja dice haber corregido, este
+        bin no parece ser el corregido."""
+        self._con(sync_offset_frames=16, sync_offset="(+16)")
+        out = self.hint(self.session, {"offset": 16})
+        self.assertFalse(out["corregido"])
+        self.assertTrue(out["parece_sin_corregir"])
+
+    def test_el_signo_contrario_cuenta_igual_de_sospechoso(self):
+        """La convención de la fila varía, así que la magnitud es lo que manda."""
+        self._con(sync_offset_frames=16)
+        out = self.hint(self.session, {"offset": -16})
+        self.assertFalse(out["corregido"])
+        self.assertTrue(out["parece_sin_corregir"])
+
+    def test_un_residuo_que_la_hoja_no_explica(self):
+        self._con(sync_offset_frames=16)
+        out = self.hint(self.session, {"offset": 300})
+        self.assertFalse(out["corregido"])
+        self.assertFalse(out["parece_sin_corregir"])
+
+    def test_tolerancia_alrededor_del_cero(self):
+        self._con(sync_offset_frames=584)
+        self.assertTrue(self.hint(self.session, {"offset": 2})["corregido"])
+        self.assertTrue(self.hint(self.session, {"offset": -2})["corregido"])
+        self.assertFalse(self.hint(self.session, {"offset": 5})["corregido"])
+
+    def test_la_hoja_sin_desfase_y_nosotros_tampoco(self):
+        self._con(sync_offset_frames=0, sync_offset="0.0")
+        out = self.hint(self.session, {"offset": 0})
+        self.assertTrue(out["corregido"])
+        self.assertFalse(out["parece_sin_corregir"])
+
+    def test_la_hoja_sin_desfase_pero_nosotros_detectamos_uno(self):
+        """Con la hoja a cero no hay nada que "no venga corregido": es un
+        desfase sin explicar, no un bin sin corregir."""
+        self._con(sync_offset_frames=0)
+        out = self.hint(self.session, {"offset": 40})
+        self.assertFalse(out["corregido"])
+        self.assertFalse(out["parece_sin_corregir"])
+
+    def test_los_offsets_reales_del_corpus_dan_todos_corregido(self):
+        """Los 16 proyectos del NAS con offset documentado midieron residuo 0
+        y ninguno necesitó corregir nada."""
+        for doc in (-584, -314, -8, -7, -1, 16, 40, 230, 280):
+            with self.subTest(documentado=doc):
+                self._con(sync_offset_frames=doc)
+                self.assertTrue(self.hint(self.session, {"offset": 0})["corregido"])
+
 
 
 class TestRecommendEndToEnd(unittest.TestCase):

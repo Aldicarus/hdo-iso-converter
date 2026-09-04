@@ -6212,11 +6212,13 @@ function _renderCMv40SyncStats(project) {
 }
 
 /**
- * Contraste entre el offset documentado en la hoja de DoviTools y el que
- * acaba de medir la cross-correlation. Son dos medidas independientes del
- * mismo desfase: coincidir es confirmación fuerte de que el bin es el
- * correcto; divergir es la señal más temprana de que el bin corresponde a
- * otra edición o a otro corte.
+ * Qué dice la hoja de DoviTools frente a lo que acabamos de medir.
+ *
+ * El offset de la hoja NO es un desfase pendiente: es el que la comunidad
+ * detectó y **ya corrigió** dentro del bin. Así que lo esperable es medir
+ * CERO, y detectar justo el valor documentado sería la señal mala. Antes esto
+ * estaba al revés y marcaba "algo no cuadra" sobre bins correctos — los 16
+ * proyectos del corpus con offset documentado caían ahí.
  */
 function _cmv40SheetSyncBannerHTML(sheetSync) {
   if (!sheetSync || sheetSync.sheet_offset === null
@@ -6228,34 +6230,43 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
     : `<b>${sign(sheetVal)} frames</b>`;
   const src = sheetSync.match_title
     ? ` (fila «${escHtml(sheetSync.match_title)}»)` : '';
+  const det = sheetSync.detected_offset;
 
-  if (sheetSync.agrees === true) {
+  if (sheetSync.corregido === true) {
+    if (!sheetVal) {
+      return `<div class="banner success" style="margin-top:8px">
+        <span class="banner-icon">✅</span>
+        <span>La hoja${src} no documenta ningún desfase para este bin, y aquí
+          tampoco se detecta. Alineación limpia.</span>
+      </div>`;
+    }
     return `<div class="banner success" style="margin-top:8px">
       <span class="banner-icon">✅</span>
-      <span>La hoja de DoviTools documenta el mismo desfase ${sheetTxt}${src} —
-        confirmación independiente de que el bin está bien alineado.</span>
+      <span>La hoja${src} documenta que la comunidad detectó y <b>ya corrigió</b>
+        ${sheetTxt} en este bin, y aquí no queda desfase residual
+        (detectado ${sign(det)}). La corrección está puesta.</span>
     </div>`;
   }
-  if (sheetSync.agrees === false && sheetSync.sign_flipped) {
-    return `<div class="banner info" style="margin-top:8px">
-      <span class="banner-icon">↔️</span>
-      <span>La hoja documenta ${sheetTxt}${src}: misma magnitud que el detectado
-        (${sign(sheetSync.detected_offset)}) pero con el signo al revés. Suele ser
-        la convención de la fila, no un desajuste — comprueba el chart.</span>
-    </div>`;
-  }
-  if (sheetSync.agrees === false) {
+  if (sheetSync.parece_sin_corregir) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon">⚠️</span>
-      <span>La hoja documenta ${sheetTxt}${src} pero aquí se ha detectado
-        <b>${sign(sheetSync.detected_offset)} frames</b> (Δ ${sign(sheetSync.delta)}).
-        Revisa el gráfico antes de inyectar: puede ser un bin de otra edición.</span>
+      <span>La hoja${src} dice que la comunidad corrigió ${sheetTxt}, pero aquí
+        se sigue detectando <b>${sign(det)} frames</b> — la misma magnitud. Parece
+        que este bin <b>no</b> es el corregido: revisa el chart antes de inyectar.</span>
     </div>`;
   }
-  // Sin offset detectado con el que comparar (aún no hay per-frame data).
+  if (sheetSync.corregido === false) {
+    return `<div class="banner warning" style="margin-top:8px">
+      <span class="banner-icon">⚠️</span>
+      <span>Se detecta un desfase de <b>${sign(det)} frames</b> que la hoja no
+        explica${src} (ahí ${sheetVal ? `${sheetTxt} ya venía corregido` : 'no consta ningún desfase'}).
+        Revisa el chart antes de inyectar.</span>
+    </div>`;
+  }
   return `<div class="banner info" style="margin-top:8px">
-    <span class="banner-icon">📋</span>
-    <span>La hoja de DoviTools documenta un desfase de ${sheetTxt}${src} para este título.</span>
+    <span class="banner-icon">ℹ️</span>
+    <span>La hoja${src} documenta ${sheetTxt} como corrección ya aplicada al bin.
+      Aún no hay medida propia con la que contrastarlo.</span>
   </div>`;
 }
 

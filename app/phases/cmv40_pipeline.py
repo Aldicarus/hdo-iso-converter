@@ -5291,13 +5291,23 @@ SHEET_OFFSET_TOLERANCE = 2
 
 
 def sheet_sync_hint(session: CMv40Session, suggested: dict | None) -> dict | None:
-    """Contrasta el offset documentado en la hoja de DoviTools con el que
-    la cross-correlation acaba de detectar.
+    """Contrasta lo que la hoja de DoviTools documenta con lo que la
+    cross-correlation acaba de medir.
 
-    Son dos medidas independientes del mismo desfase: si coinciden, es una
-    confirmación fuerte de que el bin es el correcto y está bien alineado;
-    si divergen, algo no cuadra (bin de otra edición, corte distinto) y
-    conviene revisar el chart a mano antes de inyectar.
+    **El offset de la hoja NO es un desfase pendiente: es el que la comunidad
+    detectó y YA corrigió dentro del bin.** Por tanto lo que se espera medir
+    aquí es **cero**, y detectar justo el valor documentado sería la señal
+    mala, no la buena.
+
+    Antes esto estaba al revés (`agrees = |detectado - hoja| <= tolerancia`,
+    con el texto "confirmación fuerte de que el bin está bien alineado"), de
+    modo que un bin correcto salía como "algo no cuadra". Sobre los proyectos
+    reales del NAS: **16 con offset documentado distinto de cero y ninguno
+    necesitó corrección de sync**; entre ellos La trama fenicia con −584 frames
+    (24 segundos) documentados, que completó por drop-in sin tocar nada. Si
+    fueran desfases pendientes, ese habría salido catastróficamente mal.
+    Medido además sobre Minions & Monsters: hoja +16, residuo detectado 0 con
+    Pearson 1,0 y RMS 0,0 — las dos curvas L1 son el mismo dato.
 
     Devuelve None si el sheet no aporta offset para este título.
     """
@@ -5322,20 +5332,22 @@ def sheet_sync_hint(session: CMv40Session, suggested: dict | None) -> dict | Non
         "sheet_offset_text": text,
         "match_title": rec.get("match_title", ""),
         "detected_offset": None,
-        "agrees": None,
-        "delta": None,
-        "sign_flipped": False,
+        "corregido": None,
+        "parece_sin_corregir": False,
     }
     detected = (suggested or {}).get("offset")
     if isinstance(detected, int):
         out["detected_offset"] = detected
-        out["delta"] = detected - frames
-        out["agrees"] = abs(out["delta"]) <= SHEET_OFFSET_TOLERANCE
-        # Misma magnitud, signo contrario: la comunidad anota el desfase en
-        # el sentido inverso en algunas filas. Distinguirlo evita leer como
-        # "no cuadra" lo que en realidad es el mismo desfase.
-        if not out["agrees"] and frames != 0:
-            out["sign_flipped"] = abs(detected + frames) <= SHEET_OFFSET_TOLERANCE
+        # La corrección está puesta cuando NO queda residuo.
+        out["corregido"] = abs(detected) <= SHEET_OFFSET_TOLERANCE
+        # Y si el residuo coincide en magnitud con lo que la hoja dice haber
+        # corregido, lo más probable es que este bin no sea el corregido. Se
+        # miran los dos signos porque la convención de la fila varía.
+        if not out["corregido"] and frames:
+            out["parece_sin_corregir"] = (
+                min(abs(detected - frames), abs(detected + frames))
+                <= SHEET_OFFSET_TOLERANCE
+            )
     return out
 
 
