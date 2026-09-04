@@ -4063,6 +4063,10 @@ async function saveSession() {
     showToast('Sesión guardada.', 'success');
     const project = getActiveProject();
     if (project) clearProjectDirty(project.id);
+    // El chip del tamaño describe la selección GUARDADA, y el PUT devuelve
+    // la sesión ya recalculada — sin esto se quedaba con la cifra de cuando
+    // se abrió el proyecto por muchas pistas que se quitaran.
+    _renderTamanoEstimado(data);
     // Actualizar cache local y re-renderizar sidebar con sort+filter
     const cached = _sessionsCache.find(s => s.id === currentSession.id);
     if (cached) cached.updated_at = data.updated_at;

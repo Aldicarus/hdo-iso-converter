@@ -382,6 +382,29 @@ async def list_sources():
 
 # ── CRUD de sesiones ──────────────────────────────────────────────────────────
 
+
+def _session_payload(session: Session) -> dict:
+    """El dump de la sesión **más los campos calculados** que la UI espera.
+
+    `estimated_size_bytes` no se persiste porque depende de qué pistas están
+    incluidas, y eso cambia en cuanto el usuario toca la selección: se calcula
+    al servir. Vivía SOLO en `GET /api/sessions/{id}`, pero el panel de Tab 1
+    se pinta con lo que devuelvan CINCO endpoints — el detalle, `/api/analyze`,
+    `check-duplicate` (el botón "Abrir" del diálogo de duplicado),
+    `reapply-rules` (los toggles de modo audio/subs) y
+    `create-series-sessions`. Por las cuatro últimas el chip "💾 Ocupará ~N GB"
+    salía **oculto**, que es justo como se abre un proyecto recién analizado:
+    el frontend esconde el chip cuando el campo es `null` o falta, y desde
+    fuera las dos cosas se ven igual.
+
+    Un campo calculado tiene que salir de UN sitio; repartido por endpoint se
+    olvida en el siguiente que se añada.
+    """
+    payload = session.model_dump()
+    payload["estimated_size_bytes"] = estimate_output_size_bytes(session)
+    return payload
+
+
 @router.get("/api/sessions", summary="Lista todas las sesiones")
 async def get_sessions():
     # Summary ligero (sin output_log/analysis_log/bdinfo_result) cacheado por
@@ -399,13 +422,7 @@ async def get_session(session_id: str):
     session = load_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
-    payload = session.model_dump()
-    # Campo CALCULADO, no persistido: depende de qué pistas están incluidas y
-    # eso cambia cada vez que el usuario toca la selección. Guardarlo obligaría
-    # a recalcularlo en cada PUT y a migrar las sesiones viejas; sale gratis
-    # aquí porque el bdinfo ya está cargado.
-    payload["estimated_size_bytes"] = estimate_output_size_bytes(session)
-    return payload
+    return _session_payload(session)
 
 
 @router.delete("/api/sessions/{session_id}", summary="Elimina una sesión")
@@ -433,7 +450,7 @@ async def update_session(session_id: str, body: SessionUpdateRequest):
     if body.chapters          is not None: session.chapters          = body.chapters
 
     save_session(session)
-    return session.model_dump()
+    return _session_payload(session)
 
 
 from pydantic import BaseModel, BaseModel as _BaseModel
@@ -482,7 +499,7 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
     if not session.mkv_name_manual:
         session.mkv_name = rules["mkv_name"]
     save_session(session)
-    return session.model_dump()
+    return _session_payload(session)
 
 
 # ── Comprobar ISO duplicado ───────────────────────────────────────────────────
@@ -539,8 +556,8 @@ async def check_duplicate(body: AnalyzeRequest):
 
     return {
         "duplicate": len(sessions) > 0,
-        "sessions": [s.model_dump() for s in sessions],
-        "session": sessions[0].model_dump() if sessions else None,  # legacy/compat
+        "sessions": [_session_payload(s) for s in sessions],
+        "session": _session_payload(sessions[0]) if sessions else None,  # legacy/compat
         "fingerprint": fingerprint,
     }
 
@@ -604,7 +621,7 @@ async def analyze_iso(body: AnalyzeRequest):
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         session = build_fake_session(str(paths.ISOS_DIR / (spath or body.iso_path or "")))
-        return session.model_dump()
+        return _session_payload(session)
 
     # Validación path-traversal estricta
     try:
@@ -774,7 +791,7 @@ async def analyze_iso(body: AnalyzeRequest):
         asyncio.create_task(_hydrate_session_tmdb(session.id))
 
     analysis_progress.fijar(step="done", done=True)
-    return session.model_dump()
+    return _session_payload(session)
 
 
 async def _hydrate_session_tmdb(session_id: str) -> None:
@@ -1693,7 +1710,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                 )
                 _series_create_progress["current_episode_step"] = "save"
                 save_session(session)
-                created_sessions.append(session.model_dump())
+                created_sessions.append(_session_payload(session))
                 _series_create_progress["completed"].append(ep_label)
                 _series_create_progress["current_episode_step"] = "done"
     except SourceError as e:
