@@ -86,13 +86,35 @@ class TestAusenciaEsNeutro(unittest.TestCase):
         self.assertEqual(c["body_coverage"], 1.0)
         self.assertEqual(_veredicto_l5(c)[0], "warn")
 
-    def test_sin_esa_regla_seria_el_40_por_ciento(self):
-        """Contraste: si los ausentes se ignorasen en vez de valer neutro, la
-        divergencia sería justo el tamaño de las escenas expandidas."""
-        src = mapa(self.TOTAL, huecos=self.EXPANDIDAS)
+    def test_una_ausencia_frente_a_un_valor_real_SI_es_divergencia(self):
+        """El otro lado de la moneda, y el que de verdad protege la regla.
+
+        Si los frames sin bloque se IGNORASEN en vez de valer neutro, un máster
+        que abre a pantalla completa (sin bloque) contra otro que mantiene el
+        letterbox ahí (bloque 275) no se compararía en ningún frame y la
+        divergencia pasaría entera desapercibida. Comparar solo la
+        intersección de claves da cero divergencias en este escenario.
+        """
+        src = mapa(self.TOTAL, huecos=self.EXPANDIDAS)      # sin bloque = abre
+        tgt = mapa(self.TOTAL)                              # letterbox siempre
+        c = _comparar_l5(src, tgt, self.TOTAL, FPS)
         expandidos = sum(b - a + 1 for a, b in self.EXPANDIDAS)
-        self.assertEqual(self.TOTAL - len(src), expandidos)
-        self.assertGreater(expandidos / self.TOTAL, 0.35)
+        self.assertEqual(c["divergentes"], expandidos)
+        self.assertEqual(_veredicto_l5(c)[0], "ack_required")
+
+    def test_los_bordes_desalineados_si_cuentan(self):
+        """La forma real de Mandalorian: los dos másters cambian de encuadre
+        casi en el mismo frame, pero no exactamente. Esos pocos frames de
+        desfase son divergencia de verdad y tienen que contarse — son los 593
+        que se midieron en el disco."""
+        desfase = 24
+        src = mapa(self.TOTAL, huecos=self.EXPANDIDAS)
+        tgt = mapa_explicito(self.TOTAL, neutro=[
+            (a + desfase, b + desfase) for a, b in self.EXPANDIDAS])
+        c = _comparar_l5(src, tgt, self.TOTAL, FPS)
+        self.assertEqual(c["divergentes"], desfase * 2 * len(self.EXPANDIDAS))
+        self.assertGreater(c["body_coverage"], 0.99)
+        self.assertEqual(_veredicto_l5(c)[0], "warn")
 
     def test_el_perfil_del_bd_es_variable_aunque_solo_tenga_un_valor(self):
         """El bug que el gate escribía: `tgt_variable_l5=False` sobre un bin
