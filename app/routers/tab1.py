@@ -1916,10 +1916,15 @@ async def execute_session(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    # Nada de solapar trabajo pesado entre pestañas: 4 núcleos y un pool de
+    # Nada de solapar trabajo pesado ENTRE PESTAÑAS: 4 núcleos y un pool de
     # discos. Se comprueba ANTES de encolar para que el usuario lo sepa al
     # pulsar, no cuando la cola llegue a este job.
-    workload.exigir_libre(session_id)
+    #
+    # Pero un rip de Tab 1 NO bloquea a otro rip de Tab 1: para eso está la
+    # cola FIFO, que ejecuta de uno en uno. Encolar tres ISOs seguidos —el
+    # flujo normal— daba 409 en el segundo, que es tanto como decirle al
+    # usuario que no puede usar la cola mientras la cola trabaja.
+    workload.exigir_libre(session_id, ignorar_tab=workload.TAB_RIP)
 
     # Solo se puede ejecutar desde estados pending, error o done (re-ejecución tras editar)
     if session.status in ("running", "queued"):

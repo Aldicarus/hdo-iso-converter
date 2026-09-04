@@ -679,7 +679,8 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 Tres matices que son el contrato:
 
 - **Nadie se bloquea a sí mismo.** El hueco se ocupa con la clave de la sesión, así que un proyecto de Tab 3 que avanza a su fase siguiente pasa — es el mismo job. Sin eso el auto-pipeline se detendría solo tras la primera fase.
-- **La cola de Tab 1 espera, no falla.** El 409 al encolar deja una ventana estrecha (el trabajo N libera el hueco, el usuario lanza algo en Tab 2, la cola va a arrancar el N+1). Fallar un trabajo ya encolado por algo que el usuario hizo después sería gratuito, y la cola es justo donde esperar es lo natural.
+- **Un rip NO bloquea a otro rip.** El 409 de `execute` mira solo el trabajo de OTRAS pestañas (`ignorar_tab=TAB_RIP`): quien serializa Tab 1 es su cola FIFO, no este registro. Sin esa excepción, encolar tres ISOs seguidos —uno corriendo y el resto esperando, que es el flujo normal— daba **409 en el segundo**, o sea que no podías usar la cola mientras la cola trabajaba. Por lo mismo, el bucle de espera de `QueueManager._process` también ignora `TAB_RIP`: contándolo, la cola se tomaba su propio rip por un bloqueo ajeno y se esperaba a sí misma.
+- **La cola de Tab 1 espera, no falla.** Ante trabajo de otra pestaña queda una ventana estrecha (el trabajo N libera el hueco, el usuario lanza algo en Tab 2, la cola va a arrancar el N+1). Ahí la cola **espera** en vez de fallar: cargarse un trabajo ya encolado por algo que el usuario hizo después sería gratuito, y la cola es justo donde esperar es lo natural.
 - **Abrir un MKV en Tab 2 NO se bloquea** (`/api/mkv/analyze`). Es cómo se navega, está acotado, y bloquearlo dejaría la pestaña inservible mientras corre un rip. Igual con `mkvpropedit`, que es O(1).
 
 **Regla**: el hueco se libera SIEMPRE en un `finally` y por la clave propia. Si eso se escapa, la app queda bloqueada para todo lo demás hasta reiniciar.

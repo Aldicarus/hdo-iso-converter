@@ -135,6 +135,77 @@ class TestCola(ApiTestCase):
         self.assertIn(r.status_code, (200, 404), r.text)
 
 
+class TestAdmisionDeLaCola(ApiTestCase):
+    """Encolar en Tab 1 con trabajo pesado en curso.
+
+    `workload` serializa el trabajo entre pestañas —4 núcleos y un pool de
+    discos— y el endpoint de ejecución lo comprobaba **antes de encolar**, sin
+    mirar de qué pestaña venía el bloqueo. Resultado: lanzar tres ISOs seguidos
+    (el flujo normal, uno corriendo y el resto esperando en FIFO) daba 409 en
+    el segundo, que es tanto como decir que no puedes usar la cola mientras la
+    cola trabaja. Un rip no puede bloquear a otro rip: para eso está la cola.
+
+    Lo que sí tiene que seguir bloqueando es el trabajo de OTRA pestaña, que es
+    para lo que se escribió `workload`.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import workload
+        self.workload = workload
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        (self.isos_dir / "Peli (2024).iso").write_bytes(b"x" * 4096)
+
+    def _ejecutar(self, sid):
+        return self.client.post(f"/api/sessions/{sid}/execute")
+
+    def test_un_rip_en_curso_no_impide_encolar_el_siguiente(self):
+        self.workload.registrar("otro_rip", self.workload.TAB_RIP,
+                                "rip de Otra peli (2024)")
+        sid = self.crear_sesion_tab1()
+        r = self._ejecutar(sid)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.encolados, [sid])
+
+    def test_se_pueden_encolar_varios_con_uno_corriendo(self):
+        """El caso del usuario: uno en ejecución y el resto en espera."""
+        self.workload.registrar("rip_en_curso", self.workload.TAB_RIP,
+                                "rip de La primera (2024)")
+        ids = [self.crear_sesion_tab1(f"Peli{i}_2024_170000000{i}")
+               for i in range(3)]
+        for sid in ids:
+            self.assertEqual(self._ejecutar(sid).status_code, 200)
+        self.assertEqual(self.encolados, ids)
+
+    def test_un_job_de_tab_3_SI_bloquea(self):
+        self.workload.registrar("cmv40_x", self.workload.TAB_CMV40,
+                                "Fase A de Peli (2024)")
+        sid = self.crear_sesion_tab1()
+        r = self._ejecutar(sid)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("Upgrade Dolby Vision", r.json()["detail"])
+        self.assertEqual(self.encolados, [])
+
+    def test_una_copia_de_tab_2_SI_bloquea(self):
+        self.workload.registrar("mkv_apply", self.workload.TAB_MKV,
+                                "copia de Peli (2024).mkv")
+        sid = self.crear_sesion_tab1()
+        self.assertEqual(self._ejecutar(sid).status_code, 409)
+        self.assertEqual(self.encolados, [])
+
+    def test_la_cola_no_se_espera_a_si_misma(self):
+        """El bucle de espera de `_process` contaba el rip de la propia cola
+        como bloqueo ajeno, así que daba vueltas esperándose."""
+        self.workload.registrar("rip_en_curso", self.workload.TAB_RIP, "rip")
+        self.assertIsNone(
+            self.workload.bloqueado_por(ignorar_tab=self.workload.TAB_RIP))
+        self.workload.registrar("cmv40_x", self.workload.TAB_CMV40, "Fase A")
+        self.assertIsNotNone(
+            self.workload.bloqueado_por(ignorar_tab=self.workload.TAB_RIP),
+            "un job de otra pestaña sí tiene que hacerla esperar")
+
+
 class TestFileBrowserYRutas(ApiTestCase):
     """Los endpoints que reciben una ruta del cliente."""
 

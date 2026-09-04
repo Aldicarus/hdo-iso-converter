@@ -28,6 +28,10 @@ verde del tab).
 
 Qué NO se bloquea, a propósito
 ──────────────────────────────
+**Un rip no bloquea a otro rip.** Tab 1 se serializa con su cola FIFO, así que
+`execute` pregunta con `ignorar_tab=TAB_RIP` y solo se rechaza por trabajo de
+OTRAS pestañas. Sin eso, encolar tres ISOs seguidos daba 409 en el segundo.
+
 `POST /api/mkv/analyze` — abrir un MKV en Tab 2. Es cómo se navega, no un job:
 está acotado (segundos a un par de minutos) y bloquearlo dejaría la pestaña
 inservible mientras corre un rip. Igual con `mkvpropedit`, que es O(1).
@@ -83,15 +87,26 @@ def en_curso() -> list[Trabajo]:
     return sorted(_activos.values(), key=lambda t: t.desde)
 
 
-def bloqueado_por(excepto: str | None = None) -> Trabajo | None:
+def bloqueado_por(excepto: str | None = None,
+                  ignorar_tab: str | None = None) -> Trabajo | None:
     """El trabajo que impide arrancar otro, o None si la casa está libre.
 
     `excepto` es la clave del que pregunta: un proyecto de Tab 3 que avanza a
     su fase siguiente NO se bloquea a sí mismo — es el mismo job, no uno nuevo.
+
+    `ignorar_tab` es para **la pestaña que ya se serializa sola**. Tab 1 tiene
+    una cola FIFO que ejecuta de uno en uno, así que un rip en curso no puede
+    impedir *encolar* el siguiente: esperar es justo lo que la cola hace. Sin
+    esto, lanzar tres ISOs seguidos —el flujo normal— daba 409 en el segundo.
+    NO vale para Tab 3, que bloquea por `session_id` y por eso necesita este
+    registro; ahí la pestaña no se serializa sola.
     """
     for t in en_curso():
-        if excepto is None or t.clave != excepto:
-            return t
+        if excepto is not None and t.clave == excepto:
+            continue
+        if ignorar_tab is not None and t.tab == ignorar_tab:
+            continue
+        return t
     return None
 
 
@@ -106,9 +121,10 @@ def hay_contencion(excepto: str | None = None) -> bool:
     return bloqueado_por(excepto) is not None
 
 
-def motivo_409(excepto: str | None = None) -> str | None:
+def motivo_409(excepto: str | None = None,
+               ignorar_tab: str | None = None) -> str | None:
     """El texto del 409, o None si no hay nada que bloquee."""
-    t = bloqueado_por(excepto)
+    t = bloqueado_por(excepto, ignorar_tab)
     if t is None:
         return None
     return (
@@ -119,9 +135,10 @@ def motivo_409(excepto: str | None = None) -> str | None:
     )
 
 
-def exigir_libre(excepto: str | None = None) -> None:
+def exigir_libre(excepto: str | None = None,
+                 ignorar_tab: str | None = None) -> None:
     """Lanza HTTPException 409 si hay trabajo pesado en curso."""
-    motivo = motivo_409(excepto)
+    motivo = motivo_409(excepto, ignorar_tab)
     if motivo is None:
         return
     from fastapi import HTTPException

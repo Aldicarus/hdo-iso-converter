@@ -128,10 +128,15 @@ class QueueManager:
         fallar un trabajo ya encolado por algo que el usuario hizo después
         sería gratuito, y la cola es precisamente el sitio donde esperar es lo
         natural.
+
+        El trabajo de la PROPIA cola se ignora (`ignorar_tab=TAB_RIP`): quien
+        serializa Tab 1 es el `self._running` de aquí abajo, no el registro de
+        `workload`. Contándolo, la cola se tomaba su propio rip en curso por un
+        bloqueo ajeno y daba vueltas en este bucle esperándose a sí misma.
         """
         import workload
         while True:
-            bloqueo = workload.bloqueado_por()
+            bloqueo = workload.bloqueado_por(ignorar_tab=workload.TAB_RIP)
             if bloqueo is None:
                 break
             async with self._lock:
