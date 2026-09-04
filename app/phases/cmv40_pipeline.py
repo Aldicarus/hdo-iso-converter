@@ -1903,12 +1903,20 @@ async def run_phase_a_analyze_source(
             await log_callback(
                 f"[Fase A] 🎯 Recomendación del modelo: {action_label} — {action_reason}"
             )
-    await _log(
-        log_callback,
-        "[Fase A] ⚠ No se pudo extraer la lista de combos L2 del source "
-        "(no impide continuar — la recomendación Mantener/Inyectar se calculará "
-        "con datos parciales del bin)."
-    )
+    else:
+        # El aviso vivía FUERA del `if`, así que se emitía SIEMPRE — también
+        # cuando el export había funcionado, justo debajo de la línea que
+        # acababa de decir cuántos combos había encontrado. Dos líneas
+        # seguidas contándose lo contrario, y la que asusta es la falsa.
+        # Visto en el NAS con The Mandalorian and Grogu (2026-09-04):
+        # «L2 source: 3545 combos únicos» seguido de «⚠ No se pudo extraer
+        # la lista de combos L2 del source».
+        await _log(
+            log_callback,
+            "[Fase A] ⚠ No se pudo extraer la lista de combos L2 del source "
+            "(no impide continuar — la recomendación Mantener/Inyectar se calculará "
+            "con datos parciales del bin)."
+        )
 
     if log_callback:
         await log_callback(
