@@ -1,0 +1,1039 @@
+{
+ "La_momia_de_Lee_Cronin_2026_1783704275": {
+  "titulo": "La momia de Lee Cronin (2026) [Audio DCP].mkv",
+  "file_size": "99932270592",
+  "playlist_size": 92496519168,
+  "duration": 8073.440355555,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "460544",
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": "197376",
+    "BitRate": "192000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "14501352",
+    "BitRate": "192000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "48337840",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "14501352",
+    "BitRate": "192000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Italian",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 80733100144,
+  "real_en": "/mnt/library/UHD 4K Movies/DV P8 - HDR10 - SDR/Audio DCP",
+  "esperado": 82043157744
+ },
+ "Minions___Monsters_2026_1788523016": {
+  "titulo": "Minions & Monsters (2026) [DV FEL] [Audio DCP].mkv",
+  "file_size": "91435266048",
+  "playlist_size": 70001713152,
+  "duration": 5399.143733333,
+  "audios_mediainfo": [
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 63960000000,
+  "real_en": "medido en /mnt/output al terminar el rip",
+  "esperado": 61920993055
+ },
+ "El_padrino_1972_1779447082": {
+  "titulo": "El padrino (1972) [DV FEL].mkv",
+  "file_size": "96431511552",
+  "playlist_size": 93877702656,
+  "duration": 10528.0592,
+  "audios_mediainfo": [
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "224000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "224000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "224000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "224000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Russian",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD Audio",
+    "5.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 83585918533,
+  "real_en": "/mnt/library/UHD 4K Movies/DoVi FEL",
+  "esperado": 81187816636
+ },
+ "Alien__Romulus_2024_1779878342": {
+  "titulo": "Alien. Romulus (2024) [DV FEL] [Audio DCP].mkv",
+  "file_size": "65286162432",
+  "playlist_size": 65286162432,
+  "duration": 7141.926444444,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "571354080",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "285676800",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "571353600",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "571265760",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "914165760",
+    "BitRate": "1024000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Japanese",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 57567767046,
+  "real_en": "/mnt/library/UHD 4K Movies/DoVi FEL/Audio DCP",
+  "esperado": 56654008164
+ },
+ "Lilo_y_Stitch_2025_1778075606": {
+  "titulo": "Lilo y Stitch (2025) [DV FEL] [Audio DCP].mkv",
+  "file_size": "68726980608",
+  "playlist_size": 68726980608,
+  "duration": 6460.9962,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "516879760",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "258440960",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "827011072",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "827011072",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "827011072",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "827011072",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "516826640",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "516881920",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "1218706691",
+    "BitRate": "1509000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Italian",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Dutch",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Czech",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Polish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Danish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Finnish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Norwegian",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Swedish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Dutch",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "DTS Audio",
+    "5.1 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 53777822750,
+  "real_en": "/mnt/library/Animation/UHD 4K/DoVi FEL/Audio DCP",
+  "esperado": 53801725257
+ },
+ "The_Mandalorian_and_Grogu_2026_1788522830": {
+  "titulo": "The Mandalorian and Grogu (2026) [DV FEL] [Audio DCP].mkv",
+  "file_size": "94820579328",
+  "playlist_size": 94820579328,
+  "duration": 7925.4592,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "636720400",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "318360200",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "1018752640",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "636723360",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "1018752640",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "1018752640",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "191016120",
+    "BitRate": "192000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Italian",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 83260000000,
+  "real_en": "medido en /mnt/output al terminar el rip",
+  "esperado": 81356979941
+ },
+ "Predator__Badlands_2025_1788522923": {
+  "titulo": "Predator. Badlands (2025) [DV FEL] [Audio DCP].mkv",
+  "file_size": "72386181120",
+  "playlist_size": 72386181120,
+  "duration": 6447.9832,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "515838640",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "257920000",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "825344000",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "825344000",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "825344000",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "516096640",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "154752000",
+    "BitRate": "192000"
+   },
+   {
+    "StreamSize": "1216251925",
+    "BitRate": "1509000"
+   },
+   {
+    "StreamSize": "515836640",
+    "BitRate": "640000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Italian",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "DTS Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Russian",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 56600000000,
+  "real_en": "medido en /mnt/output al terminar el rip",
+  "esperado": 60424708694
+ },
+ "Hoppers_2026_1780738042": {
+  "titulo": "Hoppers (2026) [DV FEL] [Audio DCP].mkv",
+  "file_size": "72893675520",
+  "playlist_size": 58262200320,
+  "duration": 6272.933333334,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "1271360",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "2035712",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "1273440",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "636720",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "636720",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "2035712",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "1272320",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "303104",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "2035712",
+    "BitRate": "1024000"
+   },
+   {
+    "StreamSize": "636720",
+    "BitRate": "320000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Japanese",
+    "Dolby Digital Plus Audio",
+    "7.1-Atmos / 48 kHz"
+   ],
+   [
+    "Japanese",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": null,
+  "real_en": null,
+  "esperado": 51845099572
+ },
+ "Juego_de_tronos_S02E01_1780929556": {
+  "titulo": "Juego de tronos (2011)/Season 02/Juego de tronos (2011) - S02E01 - El Norte no olvida [DV FEL].mkv",
+  "file_size": "97390718976",
+  "playlist_size": 31936094208,
+  "duration": 3164.202688888,
+  "audios_mediainfo": [
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "256000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "768000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": "448000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "French",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "German",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Italian",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Portuguese",
+    "DTS Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Czech",
+    "DTS Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Hungarian",
+    "DTS Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Polish",
+    "DTS Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "Russian",
+    "DTS Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": null,
+  "real_en": null,
+  "esperado": 26172489759
+ },
+ "Avatar_Fuego_y_ceniza_2025_1782679231": {
+  "titulo": "Avatar Fuego y ceniza (2025) [DV FEL] [Audio DCP].mkv",
+  "file_size": "102660298752",
+  "playlist_size": 104240510976,
+  "duration": 11840.703488894,
+  "audios_mediainfo": [
+   {
+    "StreamSize": "947256960",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": null,
+    "BitRate": null
+   },
+   {
+    "StreamSize": "473632000",
+    "BitRate": "320000"
+   },
+   {
+    "StreamSize": "947264000",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "948456640",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "947264000",
+    "BitRate": "640000"
+   },
+   {
+    "StreamSize": "2233462789",
+    "BitRate": "1509000"
+   }
+  ],
+  "origen": [
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "DTS-HD Master Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "2.0 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Czech",
+    "Dolby Digital Audio",
+    "5.1 / 48 kHz"
+   ],
+   [
+    "Catalan",
+    "DTS Audio",
+    "5.1 / 48 kHz"
+   ]
+  ],
+  "incluidas": [
+   [
+    "Spanish",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "English",
+    "Dolby TrueHD/Atmos Audio",
+    "7.1 / 48 kHz"
+   ],
+   [
+    "Catalan",
+    "DTS Audio",
+    "5.1 / 48 kHz"
+   ]
+  ],
+  "real_bytes": 95832755914,
+  "real_en": "/mnt/library/UHD 4K Movies/DoVi FEL/Audio DCP",
+  "esperado": null
+ }
+}

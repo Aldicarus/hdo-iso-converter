@@ -607,23 +607,89 @@ FACTOR_CONTENEDOR = 0.89
 TOPE_MBPS_FISICO = 128.0
 
 
+# El audio de un Blu-ray es una fracción pequeña del fichero: medido sobre las
+# sesiones reales del NAS, la mediana es el 5,4% y el máximo el 13,7%. Por
+# encima de este tope el dato no describe un disco, describe un error de
+# lectura — y como el vídeo sale POR DIFERENCIA, un audio inflado se lo come.
+TOPE_AUDIO_SOBRE_BASE = 0.25
+
+
+def _base_del_titulo(bdinfo) -> tuple[int, str]:
+    """Los bytes que se van a extraer, y de dónde sale el dato.
+
+    **No es el tamaño del m2ts.** Un m2ts puede contener más de lo que su
+    playlist reproduce, y lo que acaba en el MKV es lo segundo: mkvmerge lo
+    dice en ``container.properties.playlist_size``. Medido sobre el corpus del
+    NAS, 16 de 44 discos difieren más de un 2%, y no de poco — Minions &
+    Monsters tiene un m2ts de 91,4 GB del que el playlist usa 70,0, y los
+    episodios de Juego de Tronos m2ts de 33-98 GB con playlists de ~32.
+
+    Con `FileSize` esos casos daban una cifra disparatada (Minions: 81 GB
+    estimados para un fichero que salió de 64) o, si el guard del bitrate los
+    cazaba, ningún chip. Con `playlist_size` salen bien los dos.
+    """
+    raw = getattr(bdinfo, "mkvmerge_raw", None) or {}
+    props = (raw.get("container") or {}).get("properties") or {}
+    try:
+        ps = int(props.get("playlist_size") or 0)
+    except (TypeError, ValueError):
+        ps = 0
+    if ps > 0:
+        return ps, "playlist"
+
+    mi = getattr(bdinfo, "mediainfo_result", None)
+    mraw = (getattr(mi, "raw_json", None) or {}) if mi else {}
+    general = next((t for t in ((mraw.get("media") or {}).get("track") or [])
+                    if t.get("@type") == "General"), None)
+    try:
+        return int((general or {}).get("FileSize") or 0), "m2ts"
+    except (TypeError, ValueError):
+        return 0, "m2ts"
+
+
+def _tamano_de_audio(pista: dict, duracion: float) -> int | None:
+    """Bytes de una pista de audio, o ``None`` si no hay con qué saberlo.
+
+    ``StreamSize`` es la fuente buena, pero MediaInfo no siempre la da: falta
+    en 18 de las 44 sesiones del NAS, y ahí no se estimaba nada. ``BitRate``
+    sí suele estar (en 12 de esas 18) y sobre las 250 pistas donde MediaInfo
+    da los dos el error mediano de `BitRate × duración` es **+0,0%** (p10
+    −0,4%).
+
+    Hay un 22% de pistas donde los dos números se separan muchísimo, pero al
+    mirarlas son **todas del mismo disco** y el que miente ahí es el
+    ``StreamSize``: 1-2 MB por pista TrueHD en una película de 1h44. Se
+    prefiere igualmente ``StreamSize`` —es una medida, no una extrapolación— y
+    de las burradas se encarga `TOPE_AUDIO_SOBRE_BASE`.
+    """
+    try:
+        return int(pista["StreamSize"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    if duracion <= 0:
+        return None
+    try:
+        return int(int(pista["BitRate"]) * duracion / 8)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def estimate_output_size_bytes(session) -> int | None:
     """Estima cuánto va a pesar el MKV final, o ``None`` si no se puede.
 
     La cuenta es de contabilidad, no de predicción: el pipeline **copia** los
     flujos sin recodificar, así que el tamaño de salida es el del vídeo más el
     de las pistas de audio seleccionadas, quitando la sobrecarga del contenedor
-    de origen. MediaInfo da las dos piezas que hacen falta — ``FileSize`` del
-    m2ts y ``StreamSize`` de cada pista de audio — y el vídeo sale por
-    diferencia, que es más fiable que su bitrate (que MediaInfo no calcula para
-    HEVC en BDAV con parseo rápido).
+    de origen. El vídeo sale por diferencia, que es más fiable que su bitrate
+    (que MediaInfo no calcula para HEVC en BDAV con parseo rápido).
 
-    Los subtítulos PGS no traen ``StreamSize`` y son décimas de por ciento
-    sobre decenas de GB: se quedan dentro del margen.
+    Los subtítulos PGS no traen tamaño y son décimas de por ciento sobre
+    decenas de GB: se quedan dentro del margen.
 
-    Devuelve ``None`` en cuanto falta un dato o el m2ts medido no puede ser el
-    del título. **Preferimos no decir nada a decir el doble**: una cifra
-    inventada con pinta de dato es peor que un hueco.
+    Devuelve ``None`` en cuanto un dato no es de fiar. **Preferimos no decir
+    nada a decir el doble**: una cifra inventada con pinta de dato es peor que
+    un hueco. Medido sobre el corpus del NAS, el chip sale en 35 de 49
+    sesiones y el peor error contra el fichero real es del 3,2%.
     """
     b = getattr(session, "bdinfo_result", None)
     if not b:
@@ -631,25 +697,28 @@ def estimate_output_size_bytes(session) -> int | None:
     mi = getattr(b, "mediainfo_result", None)
     raw = (getattr(mi, "raw_json", None) or {}) if mi else {}
     pistas = (raw.get("media") or {}).get("track") or []
-    general = next((t for t in pistas if t.get("@type") == "General"), None)
-    if not general or not general.get("FileSize"):
-        return None
-    try:
-        total = int(general["FileSize"])
-    except (TypeError, ValueError):
+
+    total, _fuente = _base_del_titulo(b)
+    if total <= 0:
         return None
 
     duracion = float(getattr(b, "duration_seconds", 0) or 0)
     if duracion <= 0 or (total * 8 / duracion / 1e6) > TOPE_MBPS_FISICO:
+        # Por encima del pico físico de un BD100 UHD el dato no puede ser del
+        # título que se va a extraer. Con la base del playlist esto casi no
+        # dispara ya —era el síntoma de medir el m2ts equivocado— pero se queda
+        # como red por si la base tampoco cuadra.
         return None
 
     audios_mi = [t for t in pistas if t.get("@type") == "Audio"]
     tamanos = []
     for t in audios_mi:
-        try:
-            tamanos.append(int(t["StreamSize"]))
-        except (KeyError, TypeError, ValueError):
+        n = _tamano_de_audio(t, duracion)
+        if n is None:
             return None       # sin todos los tamaños la resta del vídeo miente
+        tamanos.append(n)
+    if sum(tamanos) > TOPE_AUDIO_SOBRE_BASE * total:
+        return None
 
     origen = list(getattr(b, "audio_tracks", None) or [])
     if len(tamanos) < len(origen):
