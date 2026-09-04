@@ -5372,6 +5372,25 @@ function _cmv40MaybeAutoAdvance(project) {
   if (!project.autoContinue) return;
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
+  // ABRIR UN PROYECTO NO ARRANCA TRABAJO.
+  //
+  // En `created` el auto-avance no *reanuda* nada: *empieza* el job (el
+  // pre-flight o los 12 min de Fase A). Y esta función la llaman también la
+  // apertura del proyecto (a los 100 ms) y el safety poller (cada 4 s), así
+  // que con `auto_pipeline=true` persistido en el backend bastaba con hacer
+  // clic en el proyecto del sidebar para lanzar Fase A sin pedirlo — y al
+  // cancelar, el poller volvía a dispararla.
+  //
+  // Caso real (El día de la revelación, 2026-09-04): dos arranques a las
+  // 10:45 y las 11:00 UTC sobre un proyecto cuyo MKV origen ya no existe.
+  //
+  // `_autoChaining` distingue las dos cosas: lo enciende quien SÍ pidió
+  // arrancar —la creación del proyecto— y se mantiene mientras la cadena
+  // avanza, así que el encadenado pre-flight → Fase A sigue funcionando. En
+  // una apertura viene sin definir. Es el mismo razonamiento que ya llevaba
+  // escrito el toggle de auto: «el switch solo marca el modo de trabajo, NO
+  // dispara fases por sí mismo; lanzar con el toggle sería sorprendente».
+  if (s.phase === 'created' && !project._autoChaining) return;
   // Pause point por gates críticos pendientes de ACK del usuario. Banner
   // ámbar en el panel pide confirmación; sin ack no se progresa. Apagamos
   // _autoChaining para que el overlay se oculte y se vea el banner.
