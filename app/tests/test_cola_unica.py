@@ -88,14 +88,23 @@ class TestElRunnerSeResuelvePorTipo(ColaCase):
         self.assertEqual(pico, 1, "la cola dejó correr dos a la vez")
         self.assertEqual(len(self.hechos), 4)
 
-    async def test_un_tipo_sin_runner_no_bloquea_la_cola(self):
-        """Una entrada que sobrevivió a un cambio de versión. Dejarla al frente
-        pararía la cola entera para siempre."""
+    async def test_un_tipo_sin_runner_se_descarta_diciendolo(self):
+        """Una entrada que sobrevivió a un cambio de versión.
+
+        Que la cola siga NO distingue el guard de un `KeyError`: el `finally`
+        reanuda igual en los dos casos. Lo que cambia es el rastro — un aviso
+        que nombra el tipo, contra un «Task exception was never retrieved» que
+        asyncio suelta cuando le viene bien y no dice de qué trabajo era.
+        """
         self._runner(qm.TIPO_RIP)
-        await self.cola.encolar(_t("tipo_que_ya_no_existe", "x"))
-        await self.cola.encolar(_t(qm.TIPO_RIP, "peli"))
-        await asyncio.sleep(0.2)
-        self.assertEqual(self.hechos, ["rip:peli"])
+        with self.assertLogs("queue_manager", level="WARNING") as cm:
+            await self.cola.encolar(_t("tipo_que_ya_no_existe", "x"))
+            await self.cola.encolar(_t(qm.TIPO_RIP, "peli"))
+            await asyncio.sleep(0.2)
+        self.assertTrue(
+            any("tipo_que_ya_no_existe" in l and "x" in l for l in cm.output),
+            f"el aviso no nombra el tipo ni el trabajo: {cm.output}")
+        self.assertEqual(self.hechos, ["rip:peli"], "la cola se bloqueó")
         self.assertEqual(self.cola._queue, [])
 
     async def test_set_run_fn_sigue_valiendo_para_los_rips(self):
