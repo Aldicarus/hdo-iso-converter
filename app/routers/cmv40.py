@@ -313,7 +313,7 @@ def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
     línea) deja la UI sin ninguna señal si el WebSocket se cae: el log no
     lleva progreso y el GET tampoco lo traía.
 
-    Va a un **sidecar** (`{id}.progress.json`), no al JSON de la sesión. Son
+    Va a un **sidecar** (`{id}.progress`), no al JSON de la sesión. Son
     ~50 bytes, y meterlos dentro obligaba a reescribir la sesión entera —0,86
     MB con los 3.914 `L2Combo` de un caso real— cada 20 s durante todo el job.
     Tras mover el log a un fichero, esto se convirtió en el coste dominante:

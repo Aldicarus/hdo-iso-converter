@@ -196,6 +196,22 @@ class TestElEndpointDeActividad(AdmisionApiCase):
         self.assertIn("rip de Peli (2024)", t["descripcion"])
         self.assertGreaterEqual(t["segundos"], 0)
 
+    def test_lleva_un_id_de_pestaña_estable_para_comparar(self):
+        """La etiqueta con emoji es para leerla; comparar contra ella ata la UI
+        a un texto que existe justamente para poder cambiarse."""
+        workload.registrar("s1", workload.TAB_MKV, "análisis extendido")
+        workload.registrar("s2", workload.TAB_CMV40, "Fase A")
+        ids = {t["tab_id"] for t in self.client.get("/api/activity").json()["trabajos"]}
+        self.assertEqual(ids, {"mkv", "cmv40"})
+
+    def test_el_analisis_extendido_de_tab_2_sale_en_actividad(self):
+        """Es el trabajo más largo de esa pestaña y era el único invisible: el
+        punto verde solo miraba la copia desde biblioteca."""
+        workload.registrar("audit-1", workload.TAB_MKV,
+                           "análisis extendido de Peli (2024).mkv")
+        trabajos = self.client.get("/api/activity").json()["trabajos"]
+        self.assertEqual([t["tab_id"] for t in trabajos], ["mkv"])
+
 
 class TestLaColaEspera(unittest.IsolatedAsyncioTestCase):
     """La cola de Tab 1 espera en vez de fallar un trabajo ya encolado."""

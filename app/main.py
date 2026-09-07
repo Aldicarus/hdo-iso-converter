@@ -1160,7 +1160,10 @@ async def app_activity():
     UI pueda decir *qué* bloquea, no solo que está bloqueado.
     """
     trabajos = [
-        {"clave": t.clave, "tab": t.tab, "que": t.que,
+        {"clave": t.clave, "tab": t.tab,
+         # `tab_id` es lo que la UI compara; `tab` es lo que enseña.
+         "tab_id": workload.TAB_IDS.get(t.tab, ""),
+         "que": t.que,
          "segundos": int(t.segundos), "descripcion": t.describir()}
         for t in workload.en_curso()
     ]

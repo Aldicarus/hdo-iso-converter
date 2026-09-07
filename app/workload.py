@@ -48,6 +48,11 @@ TAB_RIP = "💿 Blu-Ray ISO → MKV"
 TAB_MKV = "✏️ Consultar / Editar MKV"
 TAB_CMV40 = "✨ Upgrade Dolby Vision CMv4.0"
 
+# Las etiquetas de arriba son para leerlas; esto es para compararlas. La UI
+# necesita saber de qué pestaña es un trabajo, y hacerlo contra el literal con
+# emoji la ata a un texto que existe para poder cambiarse.
+TAB_IDS = {TAB_RIP: "rip", TAB_MKV: "mkv", TAB_CMV40: "cmv40"}
+
 
 @dataclass(frozen=True)
 class Trabajo:

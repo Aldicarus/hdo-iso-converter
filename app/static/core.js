@@ -65,9 +65,8 @@ const MAX_PROJECTS = Infinity;
 /**
  * Proyectos abiertos (sub-tabs de proyecto en Tab 1).
  * @type {Array<{id:string, sessionId:string, session:Object|null, name:string,
- *   isoPath:string, ws:WebSocket|null, sortable:any, sortableAudio:any, sortableSubs:any,
- *   mkvNameWasManual:boolean, activePhaseE:boolean,
- *   executionStartTime:number|null, executionTimer:number|null}>}
+ *   isoPath:string, ws:WebSocket|null, sortableAudio:any, sortableSubs:any,
+ *   mkvNameWasManual:boolean}>}
  */
 const openProjects = [];
 
@@ -192,18 +191,23 @@ async function _refreshTabRunningDots() {
   // Tab 1: queueState (ya en memoria, lleno por queueWs) + sesiones
   const t1 = !!(queueState && (queueState.running || (queueState.queue && queueState.queue.length)));
   setDot(1, t1);
-  // Tab 2: apply progress
+  // Tabs 2 y 3 salen de la MISMA petición: `/api/activity` es el registro de
+  // trabajo pesado de toda la app y se responde desde memoria, sin tocar disco.
+  //
+  // Antes eran dos peticiones y a Tab 2 se le preguntaba solo por la copia
+  // desde biblioteca (`/api/mkv/apply/progress`), así que **un análisis
+  // extendido de 10 minutos corría con el punto apagado**: el trabajo más
+  // largo de esa pestaña era el único invisible.
+  //
+  // Tab 1 sigue saliendo de `queueState` porque su punto también se enciende
+  // con trabajos *encolados*, y `activity` solo conoce lo que está corriendo.
   try {
-    const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
-    setDot(2, !!(st && st.active));
-  } catch (_) { setDot(2, false); }
-  // Tab 3: cualquier sesión con running_phase. Endpoint dedicado — pedir
-  // /api/cmv40 entero para esto costaba 569 KB y 193 ms cada 5s (~10% de un
-  // core del NAS) solo para decidir si se pinta un punto.
-  try {
-    const data = await apiFetch('/api/cmv40-active', { silent: true });
-    setDot(3, !!data?.active);
-  } catch (_) { setDot(3, false); }
+    const act = await apiFetch('/api/activity', { silent: true });
+    const trabajos = (act && act.trabajos) || [];
+    const hay = id => trabajos.some(t => t.tab_id === id);
+    setDot(2, hay('mkv'));
+    setDot(3, hay('cmv40'));
+  } catch (_) { setDot(2, false); setDot(3, false); }
 }
 
 /**
@@ -578,9 +582,6 @@ function openProject(session) {
     sortableAudio: null,
     sortableSubs: null,
     mkvNameWasManual: session.mkv_name_manual || false,
-    activePhaseE: false,
-    executionStartTime: null,
-    executionTimer: null,
   };
 
   openProjects.push(project);
@@ -987,15 +988,39 @@ function closeProject(pid, e) {
   }
 }
 
+/**
+ * Aviso al cerrar la pestaña de un rip que está corriendo o encolado.
+ *
+ * NO es una confirmación, a propósito: cerrar la pestaña no toca el trabajo.
+ * La cola vive en el backend y el log se persiste en la sesión, así que el rip
+ * sigue y al reabrir el proyecto se ve entero. Lo único que se pierde es la
+ * consola en vivo, y eso el usuario no tiene por qué saberlo — de ahí el toast
+ * en vez del modal, que solo añadiría un clic para decir "sí, ciérralo".
+ */
+function _avisarSiCerramosUnRipEnMarcha(project) {
+  const estado = project.session?.status;
+  if (estado !== 'running' && estado !== 'queued') return;
+  showToast(
+    estado === 'running'
+      ? `"${project.name}" sigue ejecutándose — míralo en la Cola`
+      : `"${project.name}" sigue en la cola — míralo en la Cola`,
+    'info');
+}
+
 /** Elimina el proyecto del array y limpia el DOM. */
 function _doCloseProject(pid) {
   const idx = openProjects.findIndex(p => p.id === pid);
   if (idx === -1) return;
 
   const project = openProjects[idx];
+  _avisarSiCerramosUnRipEnMarcha(project);
   if (project.ws) { project.ws.close(); project.ws = null; }
-  if (project.sortable) { project.sortable.destroy(); }
-  clearInterval(project.executionTimer);
+  // Los dos Sortable del panel. Antes se destruía `project.sortable`, que Tab 1
+  // no asigna nunca, y los dos que sí existen se quedaban vivos con sus
+  // listeners sobre un DOM que estamos a punto de borrar.
+  for (const k of ['sortableAudio', 'sortableSubs']) {
+    if (project[k]) { project[k].destroy(); project[k] = null; }
+  }
 
   document.getElementById(`panel-project-${pid}`)?.remove();
   document.querySelector(`.subtab-proj[data-pid="${pid}"]`)?.remove();

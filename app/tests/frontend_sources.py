@@ -43,3 +43,25 @@ def js_completo() -> str:
 
 def html() -> str:
     return INDEX.read_text(encoding="utf-8")
+
+
+def pieza_de(funcion: str) -> tuple[str, str]:
+    """(nombre, fuente) del script que DECLARA esa función.
+
+    Para las pocas aserciones que son por pieza y no sobre el todo: comprobar
+    que un patrón no aparece en Tab 1 cuando en Tab 3 es legítimo (`p.subTabId`
+    es un campo del proyecto de Tab 3). Leer `tab1.js` por su ruta valdría hoy
+    y pasaría en verde vacío el día que la función se mueva a otra pieza —que
+    es justo lo que vigila `TestNadieLeeUnaPiezaSuelta`—, así que el ancla es
+    la función: si se mueve, el helper la sigue; si desaparece o se duplica,
+    falla.
+    """
+    marca = f"function {funcion}("
+    encontradas = [(nombre, ruta.read_text(encoding="utf-8"))
+                   for nombre, ruta in zip([n for n, _ in piezas()], rutas())
+                   if marca in ruta.read_text(encoding="utf-8")]
+    if len(encontradas) != 1:
+        raise AssertionError(
+            f"`{funcion}` se declara en {len(encontradas)} piezas "
+            f"({[n for n, _ in encontradas]}); se esperaba exactamente una")
+    return encontradas[0]
