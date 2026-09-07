@@ -60,18 +60,28 @@ class TestElToastAlCrearOReanalizar(unittest.TestCase):
     """El texto tiene que distinguir un proyecto nuevo de uno re-analizado."""
 
     def _correr(self, abiertos: list) -> dict:
-        # El bloque que decide el texto, extraído del final de `analyzeSelectedISO`.
-        i = JS.index("  const yaEstabaAbierto = openProjects.some")
-        bloque = JS[i:JS.index("'success');", i) + len("'success');")]
+        """Evalúa la cola real de `_doAnalyzeSource`, la que decide el texto.
+
+        Los dos extremos del recorte están en cualquier versión del bloque
+        (`if (!session)` y `await loadSessions()`), a propósito: anclarlo al
+        código nuevo haría que una mutación se detectara por reventar el
+        `index()` en vez de por dar el toast equivocado.
+        """
+        cuerpo = JS[JS.index("async function _doAnalyzeSource("):]
+        ini = cuerpo.index("  if (!session) {")
+        bloque = cuerpo[ini:cuerpo.index("  await loadSessions();", ini)]
         guion = f"""
 const openProjects = {json.dumps(abiertos)};
 const session = {{ id: 's-nueva', mkv_name: 'Peli (2024).mkv' }};
 const sourceName = 'peli.iso';
 const abiertosVistos = [];
 globalThis.openProject = s => abiertosVistos.push(s.id);
+globalThis.escHtml = t => t;
 let toast = null;
 globalThis.showToast = (t) => {{ toast = t; }};
+(() => {{
 {bloque}
+}})();
 console.log(JSON.stringify({{ toast, abiertosVistos }}));
 """
         return _node(guion)
@@ -149,23 +159,28 @@ console.log(JSON.stringify({{ hay: !!_resetHasMpls }}));
 class TestCerrarLaPestana(unittest.TestCase):
     """Qué se suelta y qué se le dice al usuario."""
 
-    def _cerrar(self, project: dict) -> dict:
+    def _cerrar(self, proyecto: dict) -> dict:
+        """Ejecuta el cuerpo REAL de `_doCloseProject` hasta que toca el DOM.
+
+        Reimplementarlo aquí no valdría: quitar de producción la llamada al
+        aviso dejaría el test en verde, porque estaría probando la copia del
+        test. Los dos extremos del recorte (`const project = openProjects[idx]`
+        y el primer `document.getElementById`) existen en cualquier versión.
+        """
+        cuerpo = JS[JS.index("function _doCloseProject("):]
+        ini = cuerpo.index("  const project = openProjects[idx];")
+        bloque = cuerpo[ini:cuerpo.index("  document.getElementById(", ini)]
         guion = f"""
 {_fn('_avisarSiCerramosUnRipEnMarcha')}
 const destruidos = [];
-const project = {json.dumps(project)};
+const openProjects = [{json.dumps(proyecto)}];
+const idx = 0;
 for (const k of ['sortable', 'sortableAudio', 'sortableSubs']) {{
-  if (project[k]) project[k] = {{ destroy: () => destruidos.push(k) }};
+  if (openProjects[0][k]) openProjects[0][k] = {{ destroy: () => destruidos.push(k) }};
 }}
 let toast = null;
 globalThis.showToast = (t) => {{ toast = t; }};
-
-// El cuerpo real de `_doCloseProject` hasta donde toca el DOM.
-_avisarSiCerramosUnRipEnMarcha(project);
-if (project.ws) {{ project.ws.close(); project.ws = null; }}
-for (const k of ['sortableAudio', 'sortableSubs']) {{
-  if (project[k]) {{ project[k].destroy(); project[k] = null; }}
-}}
+{bloque}
 console.log(JSON.stringify({{ destruidos, toast, sueltos: {{
   sortableAudio: project.sortableAudio, sortableSubs: project.sortableSubs }} }}));
 """
