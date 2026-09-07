@@ -293,19 +293,32 @@ class TestQueFaseDisparaCadaEndpoint(ApiTestCase):
         "validate":              ("validate",         "done"),
     }
 
-    def test_cada_endpoint_lanza_su_fase(self):
+    # Las dos que NO pasan por la cola: 2 s y 3 s de mediana medidos, el
+    # usuario está delante del asistente eligiendo un bin.
+    INMEDIATAS = {"target-rpu-path", "target-rpu-from-drive"}
+
+    def test_cada_endpoint_pide_su_fase(self):
         for endpoint, (fase, destino) in self.MAPEO.items():
             with self.subTest(endpoint=endpoint):
                 sid = self.crear_sesion(
                     sid=f"cmv40_map_{endpoint.replace('-', '_')}", phase="extracted")
                 self.fases_lanzadas.clear()
+                self.trabajos_encolados.clear()
                 r = _post(self.client, f"/api/cmv40/{sid}/{endpoint}",
                           ENDPOINTS_DE_FASE[endpoint])
                 self.assertEqual(r.status_code, 200)
-                lanzada = self.fase_lanzada()
-                self.assertEqual(lanzada["phase"], fase)
-                self.assertEqual(lanzada["new_phase"], destino)
-                self.assertEqual(lanzada["session_id"], sid)
+                if endpoint in self.INMEDIATAS:
+                    lanzada = self.fase_lanzada()
+                    self.assertEqual(lanzada["phase"], fase)
+                    self.assertEqual(lanzada["new_phase"], destino)
+                    self.assertEqual(lanzada["session_id"], sid)
+                    continue
+                encolada = self.fase_encolada()
+                self.assertEqual(encolada["fase"], fase)
+                self.assertEqual(encolada["clave"], sid)
+                self.assertEqual(self.reconstruir_fase_encolada()[1], destino)
+                self.assertEqual(self.fases_lanzadas, [],
+                                 "encolar no puede ejecutar en el acto")
 
     def test_cada_fase_ejecuta_el_runner_del_pipeline_que_le_toca(self):
         """La tabla `_CMV40_RUNNERS` asocia fase → función del pipeline.
@@ -327,9 +340,11 @@ class TestQueFaseDisparaCadaEndpoint(ApiTestCase):
                 llamados = self.mockear_runners()
                 sid = self.crear_sesion(
                     sid=f"cmv40_run_{endpoint.replace('-', '_')}", phase="extracted")
-                self.fases_lanzadas.clear()
+                self.trabajos_encolados.clear()
                 self.client.post(f"/api/cmv40/{sid}/{endpoint}")
-                self.ejecutar_fase_lanzada()
+                # Reconstruida como lo haría la cola, no con la closure del
+                # endpoint: es el camino que corre en producción.
+                self.ejecutar_fase_encolada()
                 self.assertEqual(llamados, [runner])
 
     def test_la_correccion_de_sync_no_avanza_de_fase(self):
@@ -339,10 +354,13 @@ class TestQueFaseDisparaCadaEndpoint(ApiTestCase):
         r = self.client.post(f"/api/cmv40/{sid}/apply-sync",
                              json={"editor_config": {"remove": ["0-12"]}})
         self.assertEqual(r.status_code, 200)
-        lanzada = self.fase_lanzada()
-        self.assertEqual(lanzada["phase"], "correct_sync")
-        self.assertEqual(lanzada["new_phase"], "extracted",
+        encolada = self.fase_encolada()
+        self.assertEqual(encolada["fase"], "correct_sync")
+        self.assertEqual(self.reconstruir_fase_encolada()[1], "extracted",
                          "correct_sync debe dejar la fase donde estaba")
+        self.assertEqual(encolada["datos"].get("paso", {}).get("remove"), ["0-12"],
+                         "el paso de corrección tiene que viajar con el trabajo: "
+                         "la cola reconstruye la fase, no reusa la closure")
 
     def test_los_endpoints_de_fase_responden_sin_esperar(self):
         # Son fire-and-forget: devuelven `started` y el progreso viaja por WS.

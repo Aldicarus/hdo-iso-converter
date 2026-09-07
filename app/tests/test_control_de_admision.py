@@ -142,17 +142,23 @@ class TestTab2(AdmisionApiCase):
 
 
 class TestTab3(AdmisionApiCase):
+    """Desde la cola única, Tab 3 **encola** en vez de rechazar con 409.
 
-    def test_un_segundo_proyecto_da_409(self):
-        """El lock de fases es por `session_id`, así que antes corrían N a la
-        vez. Es el caso que más daño hacía: dos `dovi_tool` a la vez."""
+    Antes el lock de fases era por `session_id`, así que N proyectos podían
+    correr a la vez —el caso que más daño hacía: dos `dovi_tool` peleándose—
+    y el guard lo cortaba con un 409. Rechazar era mejor que solaparse, pero
+    peor que esperar: el usuario tenía que acordarse de volver.
+    """
+
+    def test_un_segundo_proyecto_se_encola_en_vez_de_fallar(self):
         a = self.crear_sesion(sid="cmv40_a", phase="extracted")
         b = self.crear_sesion(sid="cmv40_b", phase="extracted")
         workload.registrar(a, workload.TAB_CMV40, "inject de A")
         r = self.client.post(f"/api/cmv40/{b}/inject")
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("CMv4.0", r.json()["detail"])
-        self.assertEqual(self.fases_lanzadas, [])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.fase_encolada()["clave"], b)
+        self.assertEqual(self.fases_lanzadas, [],
+                         "encolar no puede ejecutar en el acto")
 
     def test_el_mismo_proyecto_encadena_sus_fases(self):
         """Sin esto el auto-pipeline se detendría solo tras la primera fase."""
@@ -160,22 +166,48 @@ class TestTab3(AdmisionApiCase):
         workload.registrar(a, workload.TAB_CMV40, "extract de A")
         r = self.client.post(f"/api/cmv40/{a}/inject")
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self.fase_lanzada()["phase"], "inject")
+        self.assertEqual(self.fase_encolada()["fase"], "inject")
 
-    def test_los_nueve_endpoints_de_fase_lo_aplican(self):
-        """Igual que el guard de error pendiente: si uno se queda sin él, ese
-        es el hueco por el que se solapan dos jobs."""
+    def test_la_fase_siguiente_va_a_la_cabeza(self):
+        """Un proyecto a medias tiene 250-400 GB de artefactos ocupando
+        /mnt/tmp: dejarlo detrás de dos rips de 40 min es peor que
+        terminarlo."""
+        a = self.crear_sesion(sid="cmv40_a", phase="extracted")
+        self.client.post(f"/api/cmv40/{a}/inject")
+        self.assertTrue(self.fase_encolada()["a_la_cabeza"])
+
+    def test_pero_la_primera_fase_de_un_proyecto_nuevo_no_se_cuela(self):
+        """Ahí todavía no ha gastado nada."""
+        a = self.crear_sesion(sid="cmv40_a", phase="created")
+        self.client.post(f"/api/cmv40/{a}/analyze-source")
+        self.assertFalse(self.fase_encolada()["a_la_cabeza"])
+
+    def test_las_fases_pesadas_encolan_y_las_de_segundos_no(self):
+        """`target_rpu_path` y `target_rpu_drive` tienen mediana de 2 s y 3 s
+        medidos sobre los proyectos del NAS. Encolar una descarga de tres
+        segundos detrás de un rip de 40 minutos no protegería nada."""
+        import queue_manager as _qm
+        from routers import cmv40 as r
+        self.assertEqual(
+            r._CMV40_FASES_DIFERIDAS,
+            {"analyze_source", "extract", "correct_sync", "inject", "remux",
+             "validate", "target_rpu_mkv"})
+
+    def test_solo_los_pre_flight_conservan_el_409(self):
+        """No pasan por la cola todavía, así que siguen rechazando."""
         import re
         src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
         n = len(re.findall(r"_cmv40_guard_sin_trabajo_pesado\(session\)", src))
-        self.assertGreaterEqual(
-            n, 9, f"solo {n} sitios con el guard; deberían ser los 9 de fase "
-                  "más los dos pre-flight")
+        self.assertEqual(n, 2, f"{n} sitios con el guard; se esperaban los dos "
+                               "pre-flight y nada más")
 
-    def test_con_la_casa_libre_arranca(self):
+    def test_con_la_casa_libre_tambien_encola(self):
+        """La cola es el camino único: no hay una vía rápida que se salte el
+        turno cuando parece que no hay nadie. Esa vía sería una carrera."""
         a = self.crear_sesion(sid="cmv40_a", phase="extracted")
         r = self.client.post(f"/api/cmv40/{a}/inject")
         self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.fase_encolada()["fase"], "inject")
 
 
 class TestElEndpointDeActividad(AdmisionApiCase):

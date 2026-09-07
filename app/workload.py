@@ -289,8 +289,6 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/mkv/quality-audit":                    CLASE_DIFERIDO,  # análisis extendido
     "POST /api/mkv/apply":                            CLASE_DIFERIDO,  # copia desde biblioteca
     "POST /api/cmv40/{session_id}/analyze-source":    CLASE_DIFERIDO,  # Fase A
-    "POST /api/cmv40/{session_id}/target-rpu-path":   CLASE_DIFERIDO,  # Fase B1
-    "POST /api/cmv40/{session_id}/target-rpu-from-drive": CLASE_DIFERIDO,  # Fase B1'
     "POST /api/cmv40/{session_id}/target-rpu-from-mkv":   CLASE_DIFERIDO,  # Fase B2
     "POST /api/cmv40/{session_id}/extract":           CLASE_DIFERIDO,  # Fase C
     "POST /api/cmv40/{session_id}/apply-sync":        CLASE_DIFERIDO,  # Fase E
@@ -307,6 +305,12 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/analyze":                    CLASE_INTERACTIVO,  # Fase A+B del disco
     "POST /api/disc-probe":                 CLASE_INTERACTIVO,  # escaneo de candidatos
     "POST /api/mkv/analyze":                CLASE_INTERACTIVO,  # abrir un MKV
+    # Las dos formas rápidas de dar el RPU target. Medido sobre los proyectos
+    # del NAS: mediana de 2 s y 3 s (p90 10 s). Encolar una descarga de tres
+    # segundos detrás de un rip de 40 minutos no protegería nada y dejaría al
+    # usuario mirando el asistente. La tercera (`from-mkv`) sí es pesada.
+    "POST /api/cmv40/{session_id}/target-rpu-path":       CLASE_INTERACTIVO,
+    "POST /api/cmv40/{session_id}/target-rpu-from-drive": CLASE_INTERACTIVO,
     "POST /api/sessions/{session_id}/reset-chapters": CLASE_INTERACTIVO,  # re-monta el ISO
     # Analiza N episodios: es lo más largo de esta clase. → con la cola única
     # pasa a DIFERIDO; hoy sigue interactivo porque la cola aún no existe y

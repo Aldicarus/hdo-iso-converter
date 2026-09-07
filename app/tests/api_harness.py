@@ -162,12 +162,24 @@ class ApiTestCase(unittest.TestCase):
         cola._queue.clear()
         cola._running = None
         self._orig_enqueue = cola.enqueue
+        self._orig_encolar = cola.encolar
+        # Lo que se ha pedido encolar, en orden: `[(tipo, clave, datos)]`.
+        self.trabajos_encolados: list[tuple] = []
+
+        async def _encolar_espia(trabajo, *, a_la_cabeza=False):
+            self.trabajos_encolados.append(
+                (trabajo.tipo, trabajo.clave, dict(trabajo.datos), a_la_cabeza))
+            return cola.get_status()
 
         async def _enqueue_espia(session_id: str):
             self.encolados.append(session_id)
             return cola.get_status()
 
+        # Las DOS: Tab 1 sigue usando `enqueue(session_id)` y Tab 3 usa
+        # `encolar(TrabajoEnCola)`. Sin espiar la segunda, un test de un
+        # endpoint de fase dispararía `_process` de verdad y con él ffmpeg.
         cola.enqueue = _enqueue_espia
+        cola.encolar = _encolar_espia
         self._orig_persist = cola._persist_state
         cola._persist_state = lambda: None      # no escribir queue_state.json
 
@@ -177,10 +189,28 @@ class ApiTestCase(unittest.TestCase):
             cola._runners.clear()
             cola._runners.update(self._cola_estado[2])
             cola.enqueue = self._orig_enqueue
+            cola.encolar = self._orig_encolar
             cola._persist_state = self._orig_persist
 
         self.addCleanup(_restaurar_cola)
 
+
+    def fase_encolada(self) -> dict:
+        """La única fase CMv4.0 que se pidió encolar. Falla si hay 0 o >1.
+
+        Desde la cola única, un endpoint de fase **no ejecuta**: encola. El
+        espía de `_run_cmv40_phase` (`fase_lanzada`) sigue valiendo para lo que
+        se ejecuta al instante, pero lo diferido se comprueba aquí.
+        """
+        import queue_manager as _qm
+        fases = [t for t in self.trabajos_encolados
+                 if t[0] == _qm.TIPO_FASE_CMV40]
+        if len(fases) != 1:
+            raise AssertionError(
+                f"se esperaba 1 fase encolada, hay {len(fases)}: {fases}")
+        tipo, clave, datos, a_la_cabeza = fases[0]
+        return {"clave": clave, "fase": datos.get("fase"),
+                "datos": datos, "a_la_cabeza": a_la_cabeza}
 
     def mockear_runners(self) -> list[str]:
         """Sustituye todos los `run_phase_*` del pipeline por falsos.
@@ -213,6 +243,31 @@ class ApiTestCase(unittest.TestCase):
             return None
 
         asyncio.run(self.fase_lanzada()["coro_factory"](_noop_log, lambda *a: None))
+
+    def reconstruir_fase_encolada(self):
+        """`(coro_factory, fase_destino)` de la fase que se pidió encolar.
+
+        Reconstruye igual que la cola: por `(fase, datos)` y con la sesión
+        recién leída del disco, **sin usar ninguna closure**. Es lo delicado
+        del diseño —la cola puede despachar cuarenta minutos después y la
+        closure del endpoint traería un `CMv40Session` caduco— así que el test
+        tiene que pasar por ahí y no por un atajo.
+        """
+        from routers import cmv40 as r
+        from storage import load_cmv40_session
+        j = self.fase_encolada()
+        session = load_cmv40_session(j["clave"])
+        return r._cmv40_construir_fase(session, j["fase"], j["datos"])
+
+    def ejecutar_fase_encolada(self) -> None:
+        """Corre la fase encolada, reconstruida como lo haría la cola."""
+        import asyncio
+
+        async def _noop_log(*a, **k):
+            return None
+
+        coro_factory, _ = self.reconstruir_fase_encolada()
+        asyncio.run(coro_factory(_noop_log, lambda *a: None))
 
     def fase_lanzada(self):
         """La única fase que se pidió arrancar. Falla si hay 0 o más de una."""

@@ -75,7 +75,9 @@ from phases.cmv40_pipeline import (
 
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
 import historial  # noqa: E402
+import queue_manager as queue_manager_mod  # noqa: E402
 import workload  # noqa: E402
+from queue_manager import queue_manager  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
 # ── Qué proyectos tienen una fase en marcha, EN MEMORIA ─────────────────────
@@ -1060,6 +1062,136 @@ _CMV40_RUNNERS: dict[str, tuple[str, str]] = {
 }
 
 
+# Fases que pasan por la cola única. Las que NO están aquí se ejecutan al
+# instante, y no es un olvido: medido sobre los proyectos del NAS,
+# `target_rpu_path` tiene mediana de **2 s** y `target_rpu_drive` **3 s**
+# (p90 10 s). Encolar una descarga de tres segundos detrás de un rip de 40
+# minutos no protegería nada y dejaría al usuario mirando el asistente.
+_CMV40_FASES_DIFERIDAS = {
+    "analyze_source",   # 598 s de mediana
+    "extract",          # hasta 535 s
+    "correct_sync",     # 112 s
+    "inject",           # 614 s
+    "remux",            # 630 s
+    "validate",         # 194 s
+    "target_rpu_mkv",   # ffmpeg + extract-rpu sobre OTRO MKV
+}
+
+
+def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
+    """`(coro_factory, fase_destino)` de una fase diferida, sobre esta sesión.
+
+    La cola puede ejecutar una fase **cuarenta minutos después** de encolarla,
+    así que no puede quedarse con la closure que construyó el endpoint: esa
+    captura el `CMv40Session` de aquel momento y guardarlo encima del de disco
+    borraría lo que hubiera pasado entretanto (un renombrado del MKV de salida,
+    un ACK de gates…). Por eso la fase se **reconstruye al despachar**, con la
+    sesión recién leída, y lo que no está en la sesión viaja en `datos`.
+
+    Es además lo que permite que la cola sobreviva a un reinicio: un callable
+    no se persiste, un `(fase, datos)` sí.
+    """
+    import phases.cmv40_pipeline as pipeline
+
+    _cmv40_cancel_flags.pop(session.id, None)
+
+    if fase in _CMV40_RUNNERS:
+        runner_name, new_phase = _CMV40_RUNNERS[fase]
+        runner = getattr(pipeline, runner_name)
+
+        async def _coro(log_cb, proc_cb):
+            result = await runner(session, log_cb, proc_cb)
+            # Solo Fase H devuelve algo: el resumen de la validación, que se
+            # deja en el log para que quede en el historial del proyecto.
+            if result is not None:
+                _cmv40_log_buffer.setdefault(session.id, []).append(
+                    f"Validación final: {result}")
+
+        return _coro, new_phase
+
+    if fase == "correct_sync":
+        paso = datos.get("paso") or {}
+
+        async def _coro(log_cb, proc_cb):
+            await pipeline.run_phase_e_correct_sync(session, paso, log_cb)
+
+        # La fase ACTUAL: Fase D sigue viva y no avanzamos solos — el usuario
+        # itera sobre el gráfico hasta que el Δ es 0 y confirma a mano.
+        return _coro, session.phase
+
+    if fase == "target_rpu_mkv":
+        mkv = datos.get("mkv") or session.pending_target_source_mkv_path or ""
+
+        async def _coro(log_cb, proc_cb):
+            await pipeline.run_phase_b_target_from_mkv(session, mkv, log_cb, proc_cb)
+
+        return _coro, CMv40Phase.TARGET_PROVIDED
+
+    raise KeyError(fase)
+
+
+async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
+                              datos: dict | None = None) -> None:
+    """Mete una fase en la cola única de trabajo diferido.
+
+    **A la cabeza salvo la primera.** Un proyecto a medias tiene 250-400 GB de
+    artefactos intermedios ocupando `/mnt/tmp`, así que dejar su fase siguiente
+    detrás de dos rips de 40 minutos es peor que terminarlo. La excepción es
+    `analyze_source`: ahí el proyecto todavía no ha gastado nada y no tiene por
+    qué colarse.
+    """
+    await queue_manager.encolar(
+        queue_manager_mod.TrabajoEnCola(
+            tab="cmv40",
+            tipo=queue_manager_mod.TIPO_FASE_CMV40,
+            clave=session.id,
+            que=f"Fase {fase} de {session.output_mkv_name or session.id}",
+            datos={"fase": fase, **(datos or {})},
+        ),
+        a_la_cabeza=(fase != "analyze_source"),
+    )
+
+
+def _cmv40_posicion_en_cola(session_id: str) -> dict | None:
+    """`{fase, posicion, por_delante}` si este proyecto espera turno, o None.
+
+    `posicion` es 1-based y cuenta la cola ENTERA, no solo lo de esta pestaña:
+    lo que hay por delante puede ser un rip de 40 minutos y el usuario merece
+    saberlo. `por_delante` describe lo primero de la fila para poder decir qué
+    se está esperando.
+    """
+    estado = queue_manager.get_status()
+    trabajos = estado.get("jobs") or []
+    for i, j in enumerate(trabajos):
+        if j.get("clave") == session_id and j.get("tipo") == queue_manager_mod.TIPO_FASE_CMV40:
+            corriendo = estado.get("running_job") or {}
+            return {
+                "fase": (j.get("datos") or {}).get("fase") or "",
+                "posicion": i + 1,
+                "total": len(trabajos),
+                "por_delante": corriendo.get("que") or "",
+            }
+    return None
+
+
+async def _cmv40_runner_de_la_cola(trabajo) -> None:
+    """Lo que la cola ejecuta cuando le toca el turno a una fase CMv4.0."""
+    fase = (trabajo.datos or {}).get("fase") or ""
+    session = load_cmv40_session(trabajo.clave)
+    if session is None:
+        _logger.warning("[cola] la sesión %s ya no existe — fase %s descartada",
+                        trabajo.clave, fase)
+        return
+    try:
+        coro_factory, nueva_fase = _cmv40_construir_fase(
+            session, fase, trabajo.datos or {})
+    except KeyError:
+        _logger.warning("[cola] fase desconocida %r en %s — descartada",
+                        fase, trabajo.clave)
+        return
+    await _run_cmv40_phase(session, fase, coro_factory, nueva_fase)
+
+
 async def _cmv40_dispatch_phase(session: CMv40Session, phase_name: str) -> None:
     """Arranca una fase del pipeline en segundo plano.
 
@@ -1067,21 +1199,7 @@ async def _cmv40_dispatch_phase(session: CMv40Session, phase_name: str) -> None:
     anterior. (Hoy solo lo consulta el simulador de DEV_MODE — la cancelación
     real llega por SIGTERM al subproceso, ver `cmv40_cancel`.)
     """
-    import phases.cmv40_pipeline as pipeline
-
-    runner_name, new_phase = _CMV40_RUNNERS[phase_name]
-    runner = getattr(pipeline, runner_name)
-    _cmv40_cancel_flags.pop(session.id, None)
-
-    async def _coro(log_cb, proc_cb):
-        result = await runner(session, log_cb, proc_cb)
-        # Solo Fase H devuelve algo: el resumen de la validación, que se deja
-        # en el log para que quede en el historial del proyecto.
-        if result is not None:
-            _cmv40_log_buffer.setdefault(session.id, []).append(
-                f"Validación final: {result}")
-
-    _cmv40_launch_phase(session, phase_name, _coro, new_phase)
+    await _cmv40_encolar_fase(session, phase_name)
 
 
 async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool:
@@ -1331,10 +1449,12 @@ async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
             await run_phase_b_target_from_drive(session, file_id, file_name, log_cb)
         phase_name = "target_rpu_drive"
     elif kind == "mkv":
-        mkv_path = session.pending_target_source_mkv_path
-        async def _coro(log_cb, proc_cb):
-            await run_phase_b_target_from_mkv(session, mkv_path, log_cb, proc_cb)
-        phase_name = "target_rpu_mkv"
+        # La única de las tres que es pesada de verdad (ffmpeg + extract-rpu
+        # sobre OTRO MKV), así que va a la cola.
+        await _cmv40_encolar_fase(
+            session, "target_rpu_mkv",
+            {"mkv": session.pending_target_source_mkv_path or ""})
+        return
     else:
         await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
         return
@@ -2094,6 +2214,12 @@ async def cmv40_get(session_id: str, include_log: bool = True):
             )
 
     data = session.model_dump()
+    # Dónde está en la cola, si es que está. Sin esto, encolar una fase deja al
+    # usuario mirando un botón que ya pulsó: el endpoint responde `started` al
+    # instante pero `running_phase` no se pone hasta que la cola despacha, que
+    # puede ser cuarenta minutos después. No se persiste — es estado de la
+    # cola, y la cola ya lo tiene.
+    data["cola"] = _cmv40_posicion_en_cola(session_id)
     # `last_progress` vive en su sidecar; el campo del JSON solo lo tienen las
     # sesiones anteriores al cambio, así que el fichero manda si existe.
     from storage import read_cmv40_progress
@@ -2871,7 +2997,6 @@ async def cmv40_analyze_source(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE — simular fase A con logs realistas
     if DEV_MODE:
@@ -2916,13 +3041,13 @@ class CMv40TargetPathRequest(BaseModel):
     rpu_path: str
 
 
-@router.post("/api/cmv40/{session_id}/target-rpu-path", summary="Fase B1: RPU target desde path")
+@router.post("/api/cmv40/{session_id}/target-rpu-path", summary="Fase B1: RPU target desde path",
+             dependencies=[Depends(workload.marca("elección del RPU target", workload.TAB_CMV40))])
 async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -2962,13 +3087,14 @@ class CMv40TargetDriveRequest(BaseModel):
 
 
 @router.post("/api/cmv40/{session_id}/target-rpu-from-drive",
-          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive")
+          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive",
+          dependencies=[Depends(workload.marca("descarga del RPU target",
+                                               workload.TAB_CMV40))])
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3019,7 +3145,6 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3036,10 +3161,8 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
 
     _cmv40_cancel_flags.pop(session_id, None)
 
-    async def _coro(log_cb, proc_cb):
-        await run_phase_b_target_from_mkv(session, body.source_mkv_path, log_cb, proc_cb)
-
-    _cmv40_launch_phase(session, "target_rpu_mkv", _coro, CMv40Phase.TARGET_PROVIDED)
+    await _cmv40_encolar_fase(session, "target_rpu_mkv",
+                              {"mkv": body.source_mkv_path})
     return {"ok": True, "started": True}
 
 
@@ -3291,7 +3414,6 @@ async def cmv40_extract(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3544,7 +3666,6 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # Historial de correcciones. La Fase E aplica CADA paso sobre el resultado
     # del anterior (ver `run_phase_e_correct_sync`), así que aquí solo se anota
@@ -3617,20 +3738,14 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
 
     _cmv40_cancel_flags.pop(session_id, None)
 
-    captured_phase = session.phase  # mantenemos fase D activa
-
-    async def _coro(log_cb, proc_cb):
-        await run_phase_e_correct_sync(session, paso, log_cb)
-
-    # Fire-and-forget como extract/inject/remux: la respuesta vuelve al
-    # instante, el log fluye via WebSocket. Antes hacia await sobre la fase
-    # entera (1-5 min para dovi_tool editor) y el frontend disparaba el
-    # toast 'el servidor no responde en 30s' aunque el backend trabajaba ok.
+    # A la cola como el resto de fases pesadas (mediana 112 s). La respuesta
+    # vuelve al instante y el log fluye por WebSocket: antes se hacía `await`
+    # sobre la fase entera y el frontend disparaba el toast de "el servidor no
+    # responde en 30 s" aunque el backend estuviera trabajando bien.
     #
-    # El destino es `captured_phase`, la fase ACTUAL: Fase D sigue activa y no
-    # avanzamos solos — el usuario itera sobre el chart hasta que el Δ es 0 y
-    # confirma el sync a mano.
-    _cmv40_launch_phase(session, "correct_sync", _coro, captured_phase)
+    # El paso viaja en `datos` porque la cola reconstruye la fase al
+    # despachar, con la sesión recién leída del disco.
+    await _cmv40_encolar_fase(session, "correct_sync", {"paso": paso})
     return {"ok": True, "started": True}
 
 
@@ -3768,7 +3883,6 @@ async def cmv40_inject(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3798,7 +3912,6 @@ async def cmv40_remux(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3833,7 +3946,6 @@ async def cmv40_validate(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3868,3 +3980,11 @@ async def cmv40_ws(websocket: WebSocket, session_id: str):
     finally:
         if websocket in _cmv40_ws_connections.get(session_id, []):
             _cmv40_ws_connections[session_id].remove(websocket)
+
+
+# ── Registro en la cola única ─────────────────────────────────────────────────
+# Se hace al final para que `_cmv40_runner_de_la_cola` esté definida. El tipo
+# es un literal y el runner se registra al importar el router, que es lo que
+# permite que una fase encolada sobreviva a un reinicio del contenedor.
+queue_manager.registrar_runner(queue_manager_mod.TIPO_FASE_CMV40,
+                               _cmv40_runner_de_la_cola)
