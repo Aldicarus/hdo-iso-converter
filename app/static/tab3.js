@@ -2786,6 +2786,10 @@ function _cmv40PipelineHalted(s) {
 
 function _cmv40ShouldShowOverlay(s, project) {
   if (s.running_phase) return true;
+  // En cola no es en marcha: no hay log que enseñar y sí decisiones que tomar
+  // (quitarlo de la cola, cambiar el target). Taparlo con el overlay sería la
+  // misma trampa de agosto — botones que se ven y no se pueden pulsar.
+  if (s.cola) return false;
   if (_cmv40PipelineHalted(s)) return false;
   if (!project.autoContinue) return false;
   // Puente del auto-pipeline: entre una fase y la siguiente el backend deja
@@ -3889,6 +3893,34 @@ function _renderCMv40ActivePhase(project) {
     }
   });
 
+  // Banner de "esperando turno". Sin esto, encolar una fase deja al usuario
+  // mirando un botón que ya pulsó: el endpoint responde al instante pero la
+  // fase puede tardar cuarenta minutos en arrancar si hay un rip por delante.
+  let colaHtml = '';
+  if (s.cola) {
+    const c = s.cola;
+    const posicion = c.total > 1
+      ? `puesto ${c.posicion} de ${c.total}` : 'siguiente en la cola';
+    const delante = c.por_delante
+      ? `<div style="font-size:12px; color:var(--text-2)">Esperando a: ${escHtml(c.por_delante)}</div>`
+      : '';
+    colaHtml = `
+      <div class="section-card" style="margin-top:12px; border:1px solid var(--amber)">
+        <div class="section-body" style="display:flex; align-items:center; gap:12px">
+          <span style="font-size:20px">⏳</span>
+          <div style="flex:1">
+            <div style="font-weight:600; margin-bottom:2px">
+              ${escHtml(CMV40_RUNNING_LABELS[c.fase] || c.fase)} en cola — ${posicion}
+            </div>
+            ${delante}
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="cmv40CancelRunning('${pid}')"
+            data-tooltip="Sácalo de la cola; el proyecto se queda como está">
+            Quitar de la cola</button>
+        </div>
+      </div>`;
+  }
+
   // Banner de error de la última acción intentada (no bloquea el flujo)
   let errorHtml = '';
   if (s.error_message) {
@@ -3980,7 +4012,7 @@ function _renderCMv40ActivePhase(project) {
   // pause-point bloqueante: hasta que el usuario decida, el auto-pipeline
   // no avanza. Ver _cmv40MaybeAutoAdvance.
   const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
-  container.innerHTML = ackBannerHtml + errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
+  container.innerHTML = ackBannerHtml + colaHtml + errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
 
   // Lanzar cargas asíncronas donde aplique. En Fase B el tab default es
   // "Repo DoviTools" — disparamos su loader; los otros tabs (path / MKV)

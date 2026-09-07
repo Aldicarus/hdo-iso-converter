@@ -2927,7 +2927,12 @@ async def cmv40_cancel(session_id: str):
          lanzó hijos (algunos ffmpeg lo hacen con hwaccel).
       6. Limpia running_phase y registro de procs en cualquier caso —
          así el pipeline puede arrancar otra fase sin estado zombi.
+      7. Y lo saca de la COLA si estaba esperando turno: desde la cola única,
+         «cancelar» tiene dos significados según dónde esté el trabajo, y para
+         el usuario es el mismo botón.
     """
+    # Lo primero, porque es lo barato y lo que no depende de que haya proceso.
+    await queue_manager.cancel(session_id)
     import os
     import signal
     _cmv40_cancel_flags[session_id] = True
