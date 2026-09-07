@@ -109,6 +109,35 @@ import paths
 # relanzarlas. Esto se aplica siempre, no solo en DEV_MODE.
 
 import logging as _logging
+
+
+def _configurar_logging() -> None:
+    """Hace que los `logger.info` de la aplicación se vean.
+
+    No había ninguna configuración de logging, así que el logger raíz se
+    quedaba en su default (WARNING) y sin handler: **los 65 `logger.info` del
+    código nunca han salido por `docker logs`**. Lo único visible eran las
+    líneas de acceso de uvicorn, que configura sus propios loggers aparte, y
+    nuestros `warning` — de ahí que haya mensajes claramente informativos
+    escritos como `warning` para poder verlos (`[QualityAudit] START`).
+
+    Se descubrió midiendo: la contención del registro de `workload` se lee con
+    un `grep "[workload]"` de este log, y no había nada que grepear.
+
+    `basicConfig` no duplica las líneas de uvicorn: sus loggers llevan
+    `propagate=False`, así que no suben al raíz. Y `httpx` sí sube, con una
+    línea por petición a TMDb / Drive / la hoja, que taparía lo nuestro.
+    """
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for ruidoso in ("httpx", "httpcore"):
+        _logging.getLogger(ruidoso).setLevel(_logging.WARNING)
+
+
+_configurar_logging()
 _logger = _logging.getLogger(__name__)
 
 # Nada puede estar corriendo todavía: el registro de trabajo pesado vive en

@@ -805,7 +805,15 @@ pre-flight son diferidos **hoy** porque registran y por tanto bloquean, y
 lo que la app hace, no lo que hará.
 
 Para medir la contención antes de tocar la política, `grep "\[workload\]"` del
-log del contenedor: cada línea lleva la clase y cuánto duró.
+log del contenedor: cada línea lleva la clase y cuánto duró. **Que eso se vea
+depende de `_configurar_logging()`** (en `main.py`): no había ninguna
+configuración de logging, así que el logger raíz se quedaba en WARNING y sin
+handler, y los 65 `logger.info` del código **nunca han salido por `docker
+logs`** — lo único visible eran las líneas de acceso de uvicorn, que configura
+sus propios loggers aparte, y nuestros `warning`. De ahí que haya mensajes
+claramente informativos escritos como `warning` para poder verlos
+(`[QualityAudit] START`). Se descubrió desplegando el bloque 1 y comprobando
+que el grep no devolvía nada.
 
 Tres matices que son el contrato:
 
