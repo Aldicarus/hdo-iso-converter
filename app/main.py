@@ -57,7 +57,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -728,7 +728,8 @@ class CleanupExecuteRequest(BaseModel):
     paths: list[str]
 
 
-@app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados")
+@app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados",
+          dependencies=[Depends(workload.marca("borrado de huérfanos", workload.TAB_MKV))])
 async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     """Borra los paths indicados. Solo se aceptan paths bajo prefixes
     conocidos, que salen de `_cleanup_targets()` — la misma tabla que alimenta
@@ -1164,10 +1165,15 @@ async def app_activity():
          # `tab_id` es lo que la UI compara; `tab` es lo que enseña.
          "tab_id": workload.TAB_IDS.get(t.tab, ""),
          "que": t.que,
+         # `clase` distingue lo que BLOQUEA (diferido) de lo que solo se ve
+         # (interactivo: el usuario está delante esperando). El dashboard los
+         # pinta distinto y el 409 solo lo provoca el diferido.
+         "clase": t.clase, "bloquea": t.bloquea,
          "segundos": int(t.segundos), "descripcion": t.describir()}
         for t in workload.en_curso()
     ]
-    return {"ocupado": bool(trabajos), "trabajos": trabajos}
+    return {"ocupado": any(t["bloquea"] for t in trabajos),
+            "trabajos": trabajos}
 
 
 @app.get("/api/status", summary="Estado de la aplicación")

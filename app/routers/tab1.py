@@ -35,7 +35,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel as _BaseModel
 
 import analysis_progress
@@ -647,7 +647,8 @@ async def disc_probe_progress():
     return _disc_probe_progress
 
 
-@router.post("/api/analyze", summary="Analiza un ISO (Fase A + B)")
+@router.post("/api/analyze", summary="Analiza un ISO (Fase A + B)",
+             dependencies=[Depends(workload.marca("análisis del disco", workload.TAB_RIP))])
 async def analyze_iso(body: AnalyzeRequest):
     """
     Lanza el análisis completo de un origen (ISO, carpeta BDMV o M2TS).
@@ -937,7 +938,8 @@ class DiscProbeRequest(_BaseModel):
 
 
 @router.post("/api/disc-probe",
-          summary="Detecta tipo y devuelve candidatos. Soporta ISO, carpeta BDMV y m2ts sueltos")
+          summary="Detecta tipo y devuelve candidatos. Soporta ISO, carpeta BDMV y m2ts sueltos",
+          dependencies=[Depends(workload.marca("detección de contenido del disco", workload.TAB_RIP))])
 async def disc_probe(body: DiscProbeRequest):
     """Detecta media_type y devuelve candidatos a episodio para los 3
     tipos de fuente. NO crea sesión.
@@ -1362,7 +1364,8 @@ async def series_create_progress():
 
 
 @router.post("/api/create-series-sessions",
-          summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie")
+          summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie",
+          dependencies=[Depends(workload.marca("análisis de los episodios de la serie", workload.TAB_RIP))])
 async def create_series_sessions(body: CreateSeriesSessionsRequest):
     """Analiza cada MPLS/M2TS seleccionado completamente y crea una
     sesión `pending` por episodio.
@@ -1832,6 +1835,7 @@ async def recalculate_mkv_name(session_id: str):
 @router.post(
     "/api/sessions/{session_id}/reset-chapters",
     summary="Restaura los capítulos originales del disco",
+    dependencies=[Depends(workload.marca("relectura de capítulos del disco", workload.TAB_RIP))],
 )
 async def reset_chapters(session_id: str):
     """

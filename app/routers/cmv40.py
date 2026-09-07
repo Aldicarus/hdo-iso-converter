@@ -31,7 +31,7 @@ import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from dev_fixtures import (
@@ -2115,7 +2115,8 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     return data
 
 
-@router.delete("/api/cmv40/{session_id}", summary="Borra un proyecto CMv4.0")
+@router.delete("/api/cmv40/{session_id}", summary="Borra un proyecto CMv4.0",
+               dependencies=[Depends(workload.marca("borrado de un proyecto", workload.TAB_CMV40))])
 async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
@@ -2181,7 +2182,8 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
     return session.model_dump()
 
 
-@router.post("/api/cmv40/{session_id}/cleanup", summary="Borra artefactos intermedios")
+@router.post("/api/cmv40/{session_id}/cleanup", summary="Borra artefactos intermedios",
+             dependencies=[Depends(workload.marca("limpieza de artefactos", workload.TAB_CMV40))])
 async def cmv40_cleanup(session_id: str):
     """
     Borra todos los artefactos intermedios del workdir. Tras esta acción el
@@ -2504,6 +2506,7 @@ class CMv40CleanupBulkRequest(BaseModel):
 @router.post(
     "/api/cmv40/cleanup/bulk",
     summary="Limpia artefactos de varios proyectos CMv4.0 a la vez",
+    dependencies=[Depends(workload.marca("limpieza masiva de artefactos", workload.TAB_CMV40))],
 )
 async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
     """Borra los artefactos del workdir de cada session_id de la lista. Marca
@@ -2618,7 +2621,9 @@ async def cmv40_reset_preview(session_id: str, target_phase: str):
     return {"files": existing, "total_bytes": total_bytes}
 
 
-@router.post("/api/cmv40/{session_id}/reset-to/{target_phase}", summary="Resetea a una fase anterior (para rehacer)")
+@router.post("/api/cmv40/{session_id}/reset-to/{target_phase}",
+             summary="Resetea a una fase anterior (para rehacer)",
+             dependencies=[Depends(workload.marca("borrado de artefactos para rehacer", workload.TAB_CMV40))])
 async def cmv40_reset_to(session_id: str, target_phase: str):
     """
     Rebobina el estado de la sesión a una fase anterior y borra los

@@ -35,7 +35,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 import analysis_progress
 import paths
@@ -283,7 +283,8 @@ async def list_mkv_files_in_isos():
     return {"files": files}
 
 
-@router.post("/api/mkv/analyze", summary="Analiza un MKV existente")
+@router.post("/api/mkv/analyze", summary="Analiza un MKV existente",
+             dependencies=[Depends(workload.marca("apertura de un MKV", workload.TAB_MKV))])
 async def analyze_mkv_endpoint(body: dict):
     """
     Ejecuta mkvmerge -J + MediaInfo + ffprobe (packet counts) + dovi_tool

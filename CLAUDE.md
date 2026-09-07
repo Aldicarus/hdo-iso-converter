@@ -679,6 +679,61 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### Las tres clases de trabajo, y por qué no basta con "pesado"
+
+`workload` empezó con una sola pregunta —¿hay algo pesado?— y eso deja fuera lo
+que decide qué se puede hacer con un trabajo: **quién está esperando**. El censo
+de los 94 endpoints dio el reparto real: **70 son navegación**, 14 hacen trabajo
+diferido y 10 hacen trabajo pesado con el usuario delante. Y de esos 10, **cinco
+corrían a ciegas** —`POST /api/analyze`, `disc-probe`, `reset-chapters`,
+`create-series-sessions` y `POST /api/mkv/analyze`— sin aparecer en ninguna
+parte, aunque leen gigabytes: el conteo PGS solo son ~4 GB por análisis.
+
+| clase | se registra | bloquea | qué es |
+|---|---|---|---|
+| `CLASE_LIGERO` | no | no | listar, leer metadata, `mkvpropedit` (O(1)), una consulta a TMDb |
+| `CLASE_INTERACTIVO` | sí | **no** | pesado con el usuario delante: abrir un MKV, analizar un disco, un `rmtree` |
+| `CLASE_DIFERIDO` | sí | sí | pesado y puede esperar: el rip, las 9 fases, el análisis extendido |
+
+Lo interactivo **se apunta para verse, no para vetar**: negarle abrir un MKV a
+alguien porque hay un rip en curso deja la pestaña inservible durante media
+hora. `Trabajo.bloquea` es lo que consulta `bloqueado_por`, así que el 409 solo
+lo provoca el diferido y la política **no cambió** al clasificar.
+
+Dos cosas que no son simétricas y son a propósito:
+
+- **`hay_contencion` sí cuenta lo interactivo**, al revés que `bloqueado_por`.
+  Para una medición un `ffmpeg` es un `ffmpeg` lo lance quien lo lance: que no
+  vetemos abrir un MKV durante un rip no significa que el rip no lo note, y de
+  `ffmpeg_wall_seconds` salen `_adaptive_timeout` y el modelo de ETA.
+- **El default de `registrar` es `CLASE_DIFERIDO`.** Los siete puntos que ya
+  registraban no pasan clase; con el default al revés dejarían de bloquear en
+  silencio y la app entera cambiaría de política sin que nadie lo pidiera.
+
+**`CLASE_POR_RUTA` no es documentación: se ejecuta.** La aplica
+`workload.marca(que, tab)` como dependencia de FastAPI en el decorador de la
+ruta, con `registrar` al entrar y `liberar` en la teardown —que corre también si
+el endpoint lanza o si el cliente se desconecta—. `marca` **no recibe la
+`Request`** a propósito: así `workload.py` no importa FastAPI y se puede cargar
+en un test puro. La clave lleva un contador, no el id de sesión: `registrar` es
+idempotente por clave, así que dos "abrir MKV" simultáneos con clave compartida
+harían que el `liberar` del primero soltase el hueco del segundo.
+
+`test_clasificacion_del_trabajo.py` compara la tabla contra el esquema OpenAPI
+real **en las dos direcciones** (una entrada huérfana es peor que ninguna:
+parece cobertura) y comprueba que los decoradores coinciden con la tabla. Una
+ruta diferida **no** puede llevar la marca: se registran ellas mismas dentro de
+la tarea, y la de la petición se liberaría al devolver el 200 —los endpoints de
+fase son fire-and-forget— dejando un hueco fantasma.
+
+Dos entradas de la tabla llevan nota de en qué bloque del plan cambian: los dos
+pre-flight son diferidos **hoy** porque registran y por tanto bloquean, y
+`create-series-sessions` es interactivo hoy y se va a la cola. La tabla describe
+lo que la app hace, no lo que hará.
+
+Para medir la contención antes de tocar la política, `grep "\[workload\]"` del
+log del contenedor: cada línea lleva la clase y cuánto duró.
+
 Tres matices que son el contrato:
 
 - **Nadie se bloquea a sí mismo.** El hueco se ocupa con la clave de la sesión, así que un proyecto de Tab 3 que avanza a su fase siguiente pasa — es el mismo job. Sin eso el auto-pipeline se detendría solo tras la primera fase.
