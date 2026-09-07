@@ -40,6 +40,7 @@ from pydantic import BaseModel as _BaseModel
 
 import analysis_progress
 import paths
+import historial
 import workload
 from dev_fixtures import DEV_FAKE_ISOS, DEV_MODE, build_fake_session
 from models import (
@@ -2735,6 +2736,24 @@ def _append_execution_record(
         output_log      = list(session.output_log),
     )
     session.execution_history.append(record)
+
+    # Y una línea en el historial transversal. El `ExecutionRecord` de arriba
+    # vive DENTRO de la sesión y guarda el detalle por fase; esto es la vista
+    # de "qué ha pasado hoy", que antes exigía abrir las 130 sesiones del
+    # /config y ordenarlas a mano.
+    historial.anotar(
+        id      = session.id,
+        tab     = historial.TAB_RIP,
+        tipo    = historial.TIPO_RIP,
+        que     = f"rip de {session.mkv_name or session.id}",
+        inicio  = record.started_at,
+        fin     = record.finished_at,
+        estado  = record.status,
+        error   = record.error_message,
+        # El log de esta ejecución concreta, no el de la sesión: una sesión
+        # re-ejecutada tiene varios.
+        ref_log = f"sesion:{session.id}#{record.run_number}",
+    )
 
 
 # ── Cola de ejecución ────────────────────────────────────────────────────────

@@ -33,11 +33,13 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 import analysis_progress
+import historial
 import paths
 import workload
 from dev_fixtures import (
@@ -896,6 +898,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
+    _historial_inicio = datetime.now(timezone.utc)
     workload.registrar(my_audit_id, workload.TAB_MKV,
                        f"análisis extendido de {mkv_path_obj.name}")
     _mkv_quality_state["request_id"] = request_id
@@ -995,6 +998,24 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         # El hueco de trabajo pesado se libera SIEMPRE y por MI clave: aunque
         # el audit_id haya cambiado, el que ocupó el hueco fui yo.
         workload.liberar(my_audit_id)
+        # Y la línea del historial, que para esta pestaña es lo NUEVO: hasta
+        # ahora un análisis extendido de diez minutos no dejaba rastro de haber
+        # existido en cuanto se cerraba el modal. El estado del job es la
+        # fuente porque cubre las tres salidas, cancelación incluida — pero
+        # solo si sigo siendo el audit actual; si otro me relevó, su `step` no
+        # habla de mí.
+        _mio = _mkv_quality_state.get("audit_id") == my_audit_id
+        _paso = _mkv_quality_state.get("step") if _mio else None
+        historial.anotar(
+            id     = my_audit_id,
+            tab    = historial.TAB_MKV,
+            tipo   = historial.TIPO_ANALISIS_EXTENDIDO,
+            que    = f"análisis extendido de {mkv_path_obj.name}",
+            inicio = _historial_inicio,
+            estado = _paso if _paso in ("done", "cancelled", "error") else "error",
+            error  = _mkv_quality_state.get("error") if _mio else
+                     "relevado por un análisis posterior",
+        )
         # Mismo guard en el finally: si el audit_id ha cambiado (un nuevo
         # audit ya empezó), NO marcamos active=False — pertenece al nuevo.
         if _mkv_quality_state.get("audit_id") == my_audit_id:
@@ -1296,6 +1317,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
             # La copia son decenas de GB de lectura y escritura en el NAS.
             workload.exigir_libre()
             _clave_copia = f"apply:{src_path.name}"
+            _historial_inicio = datetime.now(timezone.utc)
             workload.registrar(_clave_copia, workload.TAB_MKV,
                                f"copia de {src_path.name} a /mnt/output")
             paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
@@ -1338,6 +1360,15 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 raise
             finally:
                 workload.liberar(_clave_copia)
+                historial.anotar(
+                    id     = _clave_copia,
+                    tab    = historial.TAB_MKV,
+                    tipo   = historial.TIPO_COPIA_BIBLIOTECA,
+                    que    = f"copia de {src_path.name} a /mnt/output",
+                    inicio = _historial_inicio,
+                    estado = _mkv_apply_state.get("step") or "error",
+                    error  = _mkv_apply_state.get("error"),
+                )
                 # Mantenemos active=True hasta done/error/cancelled → el
                 # frontend cierra el modal en el siguiente poll. Limpiamos a
                 # los 5s para que un poll tardío no se confunda con el

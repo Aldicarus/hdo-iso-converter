@@ -195,6 +195,16 @@
    "body": [],
    "params": []
   },
+  "GET /api/historial": {
+   "body": [],
+   "params": [
+    [
+     "limite",
+     "query",
+     false
+    ]
+   ]
+  },
   "GET /api/isos": {
    "body": [],
    "params": []
@@ -240,6 +250,16 @@
   "GET /api/mkv/files-in-isos": {
    "body": [],
    "params": []
+  },
+  "GET /api/mkv/light-profile-cached": {
+   "body": [],
+   "params": [
+    [
+     "file_path",
+     "query",
+     false
+    ]
+   ]
   },
   "GET /api/mkv/quality-audit/progress": {
    "body": [],
@@ -812,16 +832,6 @@
      true
     ]
    ]
-  },
-  "GET /api/mkv/light-profile-cached": {
-   "params": [
-    [
-     "file_path",
-     "query",
-     false
-    ]
-   ],
-   "body": []
   }
  },
  "websockets": [

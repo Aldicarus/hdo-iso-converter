@@ -315,6 +315,7 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/health":                      CLASE_LIGERO,
     "GET /api/status":                      CLASE_LIGERO,
     "GET /api/activity":                    CLASE_LIGERO,
+    "GET /api/historial":                   CLASE_LIGERO,
     "GET /api/version":                     CLASE_LIGERO,
     "GET /api/version/check-updates":       CLASE_LIGERO,
     "POST /api/version/ignore-update":      CLASE_LIGERO,

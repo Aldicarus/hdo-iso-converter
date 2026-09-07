@@ -74,6 +74,7 @@ from phases.cmv40_pipeline import (
 )
 
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
+import historial  # noqa: E402
 import workload  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
@@ -834,6 +835,24 @@ async def _run_cmv40_phase_locked(
             _cmv40_active_procs.pop(session.id, None)
             _cmv40_marcar_libre(session)  # ← desbloquea la UI
             workload.liberar(session.id)
+            # Una línea en el historial transversal, pase lo que pase — las
+            # tres salidas (done, cancelled, error) importan igual, y de hecho
+            # las dos que no son el camino feliz son las que uno quiere mirar
+            # después. Va en el `finally` por lo mismo que el `liberar`.
+            historial.anotar(
+                id      = session.id,
+                tab     = historial.TAB_CMV40,
+                tipo    = historial.TIPO_FASE_CMV40,
+                que     = f"Fase {phase_name} de "
+                          f"{session.output_mkv_name or session.id}",
+                inicio  = started,
+                fin     = record.finished_at,
+                estado  = record.status,
+                error   = record.error_message,
+                # El log de la fase son ~2.000 líneas y ya está en su fichero:
+                # aquí va dónde mirar, no una copia.
+                ref_log = f"cmv40:{session.id}",
+            )
             # La barra pertenece a la fase que acaba de terminar: dejarla
             # puesta haría que la siguiente arrancara mostrando el progreso
             # de la anterior hasta su primer tick.

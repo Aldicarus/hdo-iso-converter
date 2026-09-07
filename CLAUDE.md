@@ -679,6 +679,49 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### El historial transversal: `historial.jsonl`
+
+Cada pestaña guardaba lo suyo con su forma y en su sitio —un `ExecutionRecord`
+dentro de `Session.execution_history`, un `CMv40PhaseRecord` dentro de
+`CMv40Session.phase_history`— y **Tab 2 no guardaba nada**: un análisis
+extendido de diez minutos no dejaba rastro de haber existido en cuanto se
+cerraba el modal. Los dos primeros además viven DENTRO de la sesión, así que
+responder «qué ha pasado hoy» exigía abrir las 130 sesiones del `/config` y
+ordenarlas a mano.
+
+`historial.py` escribe **una línea por trabajo terminado** en
+`/config/historial.jsonl`, con la misma forma para las tres pestañas
+(`id, tab, tipo, que, inicio, fin, segundos, estado, error, ref_log`), y
+`GET /api/historial?limite=N` la sirve del más reciente al más antiguo. **No
+sustituye** a los dos historiales de siempre, que siguen con su detalle por
+fase; da la vista transversal que no existía.
+
+Cuatro decisiones que lo definen:
+
+- **No puede tumbar un trabajo.** `anotar` se traga cualquier error: perder una
+  línea es un inconveniente; que un rip de 40 minutos muera al terminar porque
+  `/config` está lleno, no.
+- **Se anota en el `finally`**, así que cuentan las tres salidas — y la
+  cancelada y la que falla son justo las que uno mira después.
+- **Una línea a medias no se lleva el resto.** Se escribe con `append` y un
+  `kill -9` a mitad la deja cortada; el lector la salta. Perder el historial
+  entero por un byte sería el peor canje posible.
+- **`ref_log` dice DÓNDE está el log, no lo copia.** El de una fase CMv4.0 son
+  ~2.000 líneas y ya vive en `/config/cmv40/{id}.log`. El de Tab 1 apunta a la
+  ejecución concreta (`sesion:{id}#{run}`), porque una sesión re-ejecutada tiene
+  varias.
+
+**No se migra lo viejo**: append-only desde hoy. Reescribir el `/config` de un
+usuario para rellenar un historial no compensa, y una sesión terminada no vuelve
+a escribirse. Un registro son 236 bytes y a los 5 MB (~22.000 trabajos, año y
+medio del peor caso realista) el fichero pasa a `.jsonl.1` y se empieza de cero;
+el lector mira las dos generaciones, porque si no, justo después de rotar el
+historial parecería vacío. Solo se guarda una: esto es para ver qué ha pasado,
+no un archivo histórico.
+
+Los `tab_id` son **los mismos** que expone `/api/activity` (`workload.TAB_IDS`),
+para que el dashboard no traduzca entre dos vocabularios.
+
 ### «Qué está pasando» se pregunta UNA vez
 
 Cada consumidor preguntaba por su cuenta a los endpoints que le sonaban —el

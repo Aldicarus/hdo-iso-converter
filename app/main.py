@@ -80,6 +80,7 @@ from phases.phase_d import (
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
 from queue_manager import queue_manager
+import historial
 import workload
 from storage import (
     compute_iso_fingerprint,
@@ -1174,6 +1175,23 @@ async def app_activity():
     ]
     return {"ocupado": any(t["bloquea"] for t in trabajos),
             "trabajos": trabajos}
+
+
+@app.get("/api/historial", summary="Qué trabajo se ha hecho, en las tres pestañas")
+async def app_historial(limite: int = 200):
+    """Los últimos trabajos terminados, del más reciente al más antiguo.
+
+    Complementa a `/api/activity`, que solo sabe del presente. Los dos
+    historiales de siempre (`execution_history` de Tab 1, `phase_history` de
+    Tab 3) siguen donde estaban con su detalle por fase; esto es la vista
+    transversal, que además es la única que existe para Tab 2.
+
+    Se lee en un thread: son unos cientos de KB y el guard del event loop
+    prohíbe —con razón— la lectura de un fichero que crece dentro de una
+    corrutina.
+    """
+    limite = max(1, min(limite, 1000))
+    return {"trabajos": await asyncio.to_thread(historial.leer, limite)}
 
 
 @app.get("/api/status", summary="Estado de la aplicación")
