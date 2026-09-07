@@ -33,6 +33,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
+from api_harness import ApiTestCase  # noqa: E402
 import queue_manager as qm  # noqa: E402
 import workload  # noqa: E402
 
@@ -260,3 +261,93 @@ class TestLaColaSobreviveAUnReinicio(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTab3PasaPorLaCola(ApiTestCase):
+    """El contrato nuevo de Tab 3: encolar en vez de rechazar."""
+
+    def setUp(self):
+        super().setUp()
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+
+    def test_la_posicion_en_la_cola_se_ve_en_el_GET(self):
+        """Sin esto, encolar una fase deja al usuario mirando un botón que ya
+        pulsó: el endpoint responde al instante pero `running_phase` no se pone
+        hasta que la cola despacha, que puede ser cuarenta minutos después."""
+        sid = self.crear_sesion(sid="cmv40_q", phase="extracted")
+        cola = self.main.queue_manager
+        cola._running = qm.TrabajoEnCola(
+            tab="rip", tipo=qm.TIPO_RIP, clave="rip1", que="rip de Peli (2024)")
+        cola._queue = [qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+            que="Fase inject", datos={"fase": "inject"})]
+        c = self.client.get(f"/api/cmv40/{sid}").json()["cola"]
+        self.assertEqual(c["fase"], "inject")
+        self.assertEqual(c["posicion"], 1)
+        self.assertEqual(c["por_delante"], "rip de Peli (2024)")
+
+    def test_un_proyecto_que_no_espera_no_trae_cola(self):
+        sid = self.crear_sesion(sid="cmv40_q", phase="extracted")
+        self.assertIsNone(self.client.get(f"/api/cmv40/{sid}").json()["cola"])
+
+    def test_cancelar_saca_de_la_cola(self):
+        """Desde la cola única, «cancelar» tiene dos significados según dónde
+        esté el trabajo — y para el usuario es el mismo botón."""
+        sid = self.crear_sesion(sid="cmv40_q", phase="extracted")
+        cola = self.main.queue_manager
+        cola._queue = [qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+            que="Fase inject", datos={"fase": "inject"})]
+        self.client.post(f"/api/cmv40/{sid}/cancel")
+        self.assertEqual(cola._queue, [])
+
+
+class TestElOverlayNoTapaUnTrabajoEnCola(unittest.TestCase):
+    """La lección de agosto: el overlay es `fixed; inset:0` y se come los
+    clics. Un trabajo que solo espera turno no tiene log que enseñar y sí
+    decisiones que ofrecer (quitarlo de la cola), así que el panel tiene que
+    seguir siendo operable."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        cls.node = shutil.which("node")
+        if cls.node is None:
+            raise unittest.SkipTest("node no está instalado")
+        sys.path.insert(0, str(APP_DIR / "tests"))
+        from frontend_sources import js_completo
+        js = js_completo()
+        i = js.index("function _cmv40ShouldShowOverlay(")
+        cls.fn = js[i:js.index("\n}\n", i) + 3]
+        j = js.index("function _cmv40PipelineHalted(")
+        cls.fn = js[j:js.index("\n}\n", j) + 3] + cls.fn
+
+    def _overlay(self, sesion, project=None) -> bool:
+        import subprocess
+        guion = f"""
+{self.fn}
+const s = {json.dumps(sesion)};
+const project = {json.dumps(project or {"autoContinue": True, "autoChaining": True})};
+console.log(JSON.stringify(!!_cmv40ShouldShowOverlay(s, project)));
+"""
+        r = subprocess.run([self.node, "-e", guion], capture_output=True,
+                           text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr[:600])
+        return json.loads(r.stdout.strip())
+
+    def test_en_cola_no_se_tapa(self):
+        self.assertFalse(self._overlay(
+            {"phase": "extracted", "cola": {"fase": "inject", "posicion": 2}}))
+
+    def test_corriendo_si_se_tapa(self):
+        self.assertTrue(self._overlay(
+            {"phase": "extracted", "running_phase": "inject"}))
+
+    def test_corriendo_gana_a_en_cola(self):
+        """La cola despacha y pone `running_phase`; entre los dos pollers puede
+        verse el estado a medias."""
+        self.assertTrue(self._overlay(
+            {"phase": "extracted", "running_phase": "inject",
+             "cola": {"fase": "inject", "posicion": 1}}))
