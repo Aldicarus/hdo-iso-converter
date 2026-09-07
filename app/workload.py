@@ -63,8 +63,15 @@ logger = logging.getLogger(__name__)
 #                extendido. Se registra **y bloquea** — hoy con un 409, en el
 #                bloque 3 con la cola única.
 #
-# La clase describe cómo trata la app al trabajo HOY, no una aspiración: dos
-# entradas llevan una nota de en qué bloque del plan cambian.
+# La clase describe cómo trata la app al trabajo HOY, no una aspiración.
+#
+# La política, decidida el 2026-09-07 con las medidas delante: **solo las
+# consultas van en paralelo**. Todo lo largo —rips, las nueve fases, el
+# análisis extendido, las copias— comparte una cola. El coste medido de que una
+# consulta se solape con un trabajo largo es **+15 %** para el largo, que es
+# barato a cambio de que la pestaña siga usable durante los 20-40 min de un
+# rip; el de solapar dos trabajos largos no es la lentitud sino que **contamina
+# `ffmpeg_wall_seconds`**, y de ahí salen `_adaptive_timeout` y el ETA.
 CLASE_LIGERO = "ligero"
 CLASE_INTERACTIVO = "interactivo"
 CLASE_DIFERIDO = "diferido"
@@ -290,8 +297,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/{session_id}/inject":            CLASE_DIFERIDO,  # Fase F
     "POST /api/cmv40/{session_id}/remux":             CLASE_DIFERIDO,  # Fase G
     "POST /api/cmv40/{session_id}/validate":          CLASE_DIFERIDO,  # Fase H
-    # Los dos pre-flight registran y por tanto bloquean, así que hoy son
-    # diferidos. → bloque 4: pasan a interactivos y se expropia por ellos.
+    # Los dos pre-flight registran y por tanto bloquean. Se quedan diferidos:
+    # son cortos, pero descargan un bin y corren un `dovi_tool export`, y la
+    # decisión de 2026-09-07 es que TODO lo que no sea consulta va a la cola.
     "POST /api/cmv40/{session_id}/preflight-target":  CLASE_DIFERIDO,
     "POST /api/cmv40/{session_id}/preflight-source":  CLASE_DIFERIDO,
 
@@ -300,8 +308,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/disc-probe":                 CLASE_INTERACTIVO,  # escaneo de candidatos
     "POST /api/mkv/analyze":                CLASE_INTERACTIVO,  # abrir un MKV
     "POST /api/sessions/{session_id}/reset-chapters": CLASE_INTERACTIVO,  # re-monta el ISO
-    # Analiza N episodios: es lo más largo de esta clase, y por eso el plan lo
-    # manda a la cola. → bloque 3: pasa a diferido.
+    # Analiza N episodios: es lo más largo de esta clase. → con la cola única
+    # pasa a DIFERIDO; hoy sigue interactivo porque la cola aún no existe y
+    # ponerlo a bloquear sin ella sería un 409 nuevo, no una mejora.
     "POST /api/create-series-sessions":     CLASE_INTERACTIVO,
     # Borrados: `rmtree` de decenas o cientos de GB sobre ZFS.
     "DELETE /api/cmv40/{session_id}":       CLASE_INTERACTIVO,

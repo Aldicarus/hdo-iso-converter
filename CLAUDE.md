@@ -679,6 +679,49 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### La máquina, y qué cuesta de verdad solaparse (medido 2026-09-07)
+
+| | |
+|---|---|
+| CPU | 4× Celeron N5095 @ 2,0 GHz (sin HT), 97 % ocioso en reposo |
+| RAM | 31 GB |
+| Almacenamiento | **un solo vdev RAIDZ1 de 4 discos**: `isos`, `output`, `tmp`, `library` y `config` son **el mismo dataset** (`zpool1/zfs19`) |
+
+En RAIDZ los IOPS **no escalan con los discos**, son los de uno solo, y un rip
+lee y escribe sobre el mismo vdev del que tira todo lo demás. Así que **el
+cuello de botella es siempre el pool, nunca la CPU**: `dovi_tool` es monohilo,
+y con 4 núcleos tres trabajos concurrentes no llenan el procesador.
+
+**Coste medido del solape**: abrir el mismo UHD de 79 GB con la caché de
+análisis borrada, con el pool libre y con una lectura secuencial compitiendo →
+**49,7 s → 57,1 s, +15 %**. Es un suelo: la ARC de ZFS favorecía a la segunda
+medición.
+
+**El histórico NO sirve para dimensionar esto.** Sobre los 634 trabajos pesados
+de mayo a septiembre hay **cero solapes**, y 606 de ellos son anteriores a que
+existiera `workload.py`, así que no los impedía nada. Pero eso mide **la
+disciplina del usuario**, que esperaba a mano a que cada trabajo terminara
+justamente para no tener problemas — no la demanda. Sesgo de selección: usar
+ese cero como tendencia lleva a concluir que no hay nada que soportar.
+
+**La política, decidida con las medidas delante:**
+
+- **Solo las consultas van en paralelo** — abrir un MKV, analizar un disco,
+  `disc-probe`, los borrados. +15 % al trabajo largo es barato a cambio de que
+  la pestaña siga usable durante los 20-40 min de un rip.
+- **Todo lo largo comparte una cola** — rips, las nueve fases, el análisis
+  extendido, las copias. El daño de solapar dos trabajos largos no es la
+  lentitud: es que **contamina `ffmpeg_wall_seconds`**, y de ahí salen
+  `_adaptive_timeout` y el modelo de ETA. Esa regresión es silenciosa.
+- **La expropiación (`SIGSTOP`/`SIGCONT` del trabajo largo) queda descartada.**
+  Con +15 % medido, congelar un rip para que abrir un MKV baje de 57 a 50 s no
+  paga su complejidad: habría que adaptar el watchdog de inactividad
+  (`MKVMERGE_INACTIVITY_S`, que mataría un proceso congelado), los timeouts de
+  reloj de pared, y congelar **los dos extremos** del pipe de Fase A.
+- **Diferir el conteo PGS también queda descartado**, aunque es el 78 % de una
+  consulta (60,5 s de los 77 s de un análisis de disco; y domina los ~50 s de
+  abrir un UHD). Se evaluó y no compensa el cambio de flujo.
+
 ### El historial transversal: `historial.jsonl`
 
 Cada pestaña guardaba lo suyo con su forma y en su sitio —un `ExecutionRecord`
