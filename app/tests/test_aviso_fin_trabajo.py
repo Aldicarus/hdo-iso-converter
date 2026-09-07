@@ -37,6 +37,9 @@ FUNCIONES = (
     "setAvisoSonidoActivado", "avisoNotificacionDisponible", "_pitido",
     "_pararParpadeo", "_arrancarParpadeo", "avisarFinDeTrabajo",
     "_leerTrabajosActivos", "_avisoTick", "_pararVigilancia",
+    # El aviso ya no pregunta por su cuenta: lee el estado compartido de
+    # actividad, el mismo del punto verde (ver `test_actividad_una_sola_fuente`).
+    "leerActividad", "actividadDeTab",
 )
 CONSTANTES = (
     "const _AVISO_INTERVALO_MS", "const _AVISO_PREF", "const _AVISO_SONIDO_PREF",
@@ -90,6 +93,7 @@ globalThis.apiFetch = async (url) => {
 globalThis.__respuestas = {};
 let _avisoTrabajosPrevios = null, _avisoTimer = null;
 let _avisoTituloOriginal = null, _avisoParpadeoTimer = null;
+let actividad = { trabajos: [], leidoEn: 0 };
 """
 
 

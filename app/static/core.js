@@ -178,36 +178,74 @@ document.addEventListener('DOMContentLoaded', () => {
  * indicador es solo un "atajo visual" — no hay riesgo de mostrar info
  * incorrecta y borrarla en el siguiente tick.
  */
+/**
+ * Lo último que dijo `/api/activity`: el trabajo pesado en curso de toda la
+ * aplicación.
+ *
+ * Una sola lectura para todos los consumidores. Antes cada uno preguntaba por
+ * su cuenta a los endpoints que le sonaban —el punto verde a tres, el aviso de
+ * fin a dos— y ninguno sabía de los demás, así que cada consumidor tenía su
+ * propia idea de qué estaba pasando y las tres se equivocaban de forma
+ * distinta. `trabajos[]` viene del registro de `workload`, con `clase` para
+ * distinguir lo que BLOQUEA (diferido) de lo que solo se ve (interactivo).
+ */
+let actividad = { trabajos: [], leidoEn: 0 };
+
+/** Pregunta por el trabajo en curso y refresca el estado compartido. */
+async function leerActividad() {
+  const act = await apiFetch('/api/activity', { silent: true }).catch(() => null);
+  // Un fallo de red NO se interpreta como "no hay nada": dejar el último dato
+  // bueno con su marca de tiempo permite que quien lo lea sepa que está viejo.
+  if (act && Array.isArray(act.trabajos)) {
+    actividad = { trabajos: act.trabajos, leidoEn: Date.now() };
+  }
+  return actividad;
+}
+
+/** El trabajo en curso de una pestaña (`'rip'`, `'mkv'`, `'cmv40'`). */
+function actividadDeTab(tabId) {
+  return actividad.trabajos.filter(t => t.tab_id === tabId);
+}
+
+/** "análisis extendido de X (3 min)" — lo que se enseña en un tooltip. */
+function _describirTrabajo(t) {
+  const s = t.segundos || 0;
+  const tiempo = s >= 60 ? `${Math.floor(s / 60)} min` : `${s} s`;
+  return `${t.que} (${tiempo})`;
+}
+
 async function _refreshTabRunningDots() {
-  // Con la pestaña oculta no hay puntos que pintar, y esto son dos peticiones
-  // cada 5 s durante horas contra un NAS que además está procesando vídeo. Al
-  // volver a primer plano, `visibilitychange` dispara la recuperación y con
-  // ella el refresco.
+  // Con la pestaña oculta no hay puntos que pintar, y esto es tráfico cada 5 s
+  // durante horas contra un NAS que además está procesando vídeo. Al volver a
+  // primer plano, `visibilitychange` dispara la recuperación y con ella el
+  // refresco.
   if (document.hidden) return;
-  const setDot = (n, on) => {
+  // El tooltip dice QUÉ está corriendo, no solo que algo corre. Los tres
+  // decían un literal fijo ("Hay un job en curso"), y el de Tab 2 encima se
+  // quedó desfasado: hablaba de "copia/edición" cuando el punto se enciende
+  // también con el análisis extendido.
+  const setDot = (n, on, texto) => {
     const el = document.getElementById(`tab-running-dot-${n}`);
-    if (el) el.style.display = on ? '' : 'none';
+    if (!el) return;
+    el.style.display = on ? '' : 'none';
+    el.dataset.tooltip = texto || 'Hay trabajo en curso';
   };
   // Tab 1: queueState (ya en memoria, lleno por queueWs) + sesiones
-  const t1 = !!(queueState && (queueState.running || (queueState.queue && queueState.queue.length)));
-  setDot(1, t1);
-  // Tabs 2 y 3 salen de la MISMA petición: `/api/activity` es el registro de
-  // trabajo pesado de toda la app y se responde desde memoria, sin tocar disco.
-  //
-  // Antes eran dos peticiones y a Tab 2 se le preguntaba solo por la copia
-  // desde biblioteca (`/api/mkv/apply/progress`), así que **un análisis
-  // extendido de 10 minutos corría con el punto apagado**: el trabajo más
-  // largo de esa pestaña era el único invisible.
-  //
-  // Tab 1 sigue saliendo de `queueState` porque su punto también se enciende
-  // con trabajos *encolados*, y `activity` solo conoce lo que está corriendo.
-  try {
-    const act = await apiFetch('/api/activity', { silent: true });
-    const trabajos = (act && act.trabajos) || [];
-    const hay = id => trabajos.some(t => t.tab_id === id);
-    setDot(2, hay('mkv'));
-    setDot(3, hay('cmv40'));
-  } catch (_) { setDot(2, false); setDot(3, false); }
+  const enCola = (queueState && queueState.queue && queueState.queue.length) || 0;
+  const t1 = !!(queueState && (queueState.running || enCola));
+  setDot(1, t1, t1
+    ? [queueState.running ? '1 rip en curso' : null,
+       enCola ? `${enCola} en cola` : null].filter(Boolean).join(' · ')
+    : null);
+  // Tabs 2 y 3 salen del estado compartido (ver `leerActividad`). Tab 1 no,
+  // porque su punto se enciende también con trabajos *encolados* y el
+  // registro de `workload` solo conoce lo que está corriendo.
+  await leerActividad();
+  for (const [n, tabId] of [[2, 'mkv'], [3, 'cmv40']]) {
+    const trabajos = actividadDeTab(tabId);
+    setDot(n, trabajos.length > 0,
+           trabajos.map(_describirTrabajo).join(' · '));
+  }
 }
 
 /**
@@ -1207,10 +1245,9 @@ async function _leerTrabajosActivos() {
   const estado = { 1: false, 2: false, 3: false };
   estado[1] = !!(queueState && (queueState.running ||
                                 (queueState.queue && queueState.queue.length)));
-  const act = await apiFetch('/api/activity', { silent: true }).catch(() => null);
-  const trabajos = (act && act.trabajos) || [];
-  estado[2] = trabajos.some(t => t.tab_id === 'mkv');
-  estado[3] = trabajos.some(t => t.tab_id === 'cmv40');
+  await leerActividad();
+  estado[2] = actividadDeTab('mkv').length > 0;
+  estado[3] = actividadDeTab('cmv40').length > 0;
   return estado;
 }
 

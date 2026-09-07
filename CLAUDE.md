@@ -679,6 +679,36 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### «Qué está pasando» se pregunta UNA vez
+
+Cada consumidor preguntaba por su cuenta a los endpoints que le sonaban —el
+punto verde a tres, el aviso de fin de trabajo a dos— y ninguno sabía de los
+demás, así que cada uno tenía su propia idea de qué estaba pasando y **las tres
+se equivocaban de forma distinta**. `leerActividad()` (en `core.js`) es la única
+que pide `/api/activity`; el resultado vive en `actividad = {trabajos, leidoEn}`
+y se consulta con `actividadDeTab(tabId)`. Lo guarda
+`test_actividad_una_sola_fuente::TestNoQuedanLectoresSueltos`.
+
+- **Un fallo de red NO se interpreta como «no hay nada»**: se conserva el último
+  dato bueno con su `leidoEn`, para que quien lo lea pueda saber que está viejo.
+  Sobrescribirlo con la lista vacía apagaría los puntos como si la casa
+  estuviera libre.
+- **Los tooltips dicen QUÉ corre**, no que algo corre: `Fase C de Predator
+  (6 min)`. Los tres eran un literal fijo, y el de Tab 2 encima mentía —
+  hablaba de «copia/edición» cuando el punto se enciende también con el
+  análisis extendido.
+- **Tab 1 no sale de ahí**, y es a propósito: su punto se enciende también con
+  trabajos *encolados*, y el registro de `workload` solo conoce lo que corre.
+
+**El 409 de admisión no es un error, es «ahora no».** La app usa el 409 para
+otras cinco cosas (el MKV de salida ya existe, hay una fase en curso, el gate de
+sync no pasa…), así que el código de estado por sí solo no lo distingue y
+`apiFetch` lo pintaba todo en rojo como «Error:». `exigir_libre` añade la
+cabecera **`X-Trabajo-En-Curso`** —no toca el cuerpo, que es lo que leen los
+tests y el resto de la UI— y el frontend lo muestra como aviso ámbar, sin
+prefijo y **9 s en pantalla**: el texto ya es una frase con qué bloquea, en qué
+pestaña y desde cuándo, y 3,5 s es una duración pensada para «Guardado».
+
 ### Las tres clases de trabajo, y por qué no basta con "pesado"
 
 `workload` empezó con una sola pregunta —¿hay algo pesado?— y eso deja fuera lo

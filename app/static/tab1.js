@@ -5332,8 +5332,21 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     const resp = await fetch(url, opts);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      if (!silent) showToast(`Error: ${err.detail || resp.statusText}`, 'error');
-      console.warn(`[Error API] ${url}: ${err.detail || resp.statusText}`);
+      const detalle = err.detail || resp.statusText;
+      // El 409 de admisión no es un error, es "ahora no". El backend lo marca
+      // con una cabecera porque el estado 409 lo usa la app para otras cinco
+      // cosas (el MKV de salida ya existe, hay una fase en curso, el gate de
+      // sync no pasa…) y no se pueden distinguir por el código. El texto ya
+      // dice qué bloquea, en qué pestaña y desde cuándo, así que sobra
+      // prefijarlo de "Error:" en rojo — y hace falta más tiempo en pantalla,
+      // porque es una frase, no un aviso de tres palabras.
+      if (resp.status === 409 && resp.headers.get('X-Trabajo-En-Curso')) {
+        if (!silent) showToast(detalle, 'warning', 9000);
+        console.warn(`[Ocupado] ${url}: ${detalle}`);
+        return null;
+      }
+      if (!silent) showToast(`Error: ${detalle}`, 'error');
+      console.warn(`[Error API] ${url}: ${detalle}`);
       return null;
     }
     return await resp.json();

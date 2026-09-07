@@ -204,6 +204,14 @@ def motivo_409(excepto: str | None = None,
     )
 
 
+# El 409 de admisión no es un error: es "ahora no, espera". La app usa el 409
+# para otras cinco cosas (el MKV de salida ya existe, hay una fase en curso, el
+# gate de sync no pasa…), así que el estado por sí solo no lo distingue y el
+# frontend lo pintaba todo en rojo como "Error:". Esta cabecera lo separa sin
+# tocar el cuerpo, que es lo que leen los tests y el resto de la UI.
+CABECERA_OCUPADO = "X-Trabajo-En-Curso"
+
+
 def exigir_libre(excepto: str | None = None,
                  ignorar_tab: str | None = None) -> None:
     """Lanza HTTPException 409 si hay trabajo pesado en curso."""
@@ -211,7 +219,8 @@ def exigir_libre(excepto: str | None = None,
     if motivo is None:
         return
     from fastapi import HTTPException
-    raise HTTPException(status_code=409, detail=motivo)
+    raise HTTPException(status_code=409, detail=motivo,
+                        headers={CABECERA_OCUPADO: "1"})
 
 
 # Contador para dar clave única a cada petición interactiva. No vale el id de
