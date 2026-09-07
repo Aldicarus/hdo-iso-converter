@@ -332,6 +332,17 @@ app.include_router(_tab1_routes.router)
 _tab1_routes.recuperar_sesiones_interrumpidas()
 
 
+@app.on_event("startup")
+async def _reanudar_cola_al_arrancar() -> None:
+    """La cola de Tab 1 se reanuda sola tras un reinicio.
+
+    Va en el evento de arranque y no en el import porque necesita un event loop
+    para lanzar el `_process`. Lo demás del arranque es síncrono y puede correr
+    arriba; esto no.
+    """
+    await _tab1_routes.reanudar_cola()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TAB 2 — CONSULTAR / EDITAR MKV
 # ══════════════════════════════════════════════════════════════════════════════

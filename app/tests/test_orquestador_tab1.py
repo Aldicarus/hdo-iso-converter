@@ -141,6 +141,57 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
                 if c.opt("-o") and "--identify" not in c.argv]
 
 
+class TestLaValidacionQueNoCuadra(OrquestadorCase):
+    """Una verificación final con discrepancias tiene que dejar rastro.
+
+    La sesión termina en `done` **a propósito**: el MKV existe y se reproduce,
+    así que marcarlo `error` sería mentir en la otra dirección. Pero antes la
+    discrepancia vivía **solo en el log**, y una sesión con una pista cruzada
+    quedaba indistinguible de una correcta — que es justo la familia de bugs
+    que ha dado el matcher de Fase E. Ahora se persiste en `error_message`, que
+    en Tab 1 no pinta banner (solo se muestra con running/queued) y que el
+    historial copia.
+    """
+
+    AUDIO_OTRO_IDIOMA = {"type": "audio", "codec": "TrueHD Atmos",
+                         "language": "fra", "channels": 8,
+                         "track_name": "Castellano TrueHD Atmos 7.1",
+                         "default": True}
+
+    async def test_una_validacion_limpia_no_deja_aviso(self):
+        s = self._sesion()
+        # Hay que declarar el MKV de SALIDA: sin esto el falso no sabe qué
+        # contiene y la verificación encuentra discrepancias. (Todos los demás
+        # tests de este fichero corrían así, con la validación fallando sin que
+        # nada lo dijera — que es exactamente el hueco que se está tapando.)
+        self.tb.define_mkv(s.mkv_name, duration_s=7200.0,
+                           tracks=[VIDEO, AUDIO_ES, AUDIO_EN])
+        salida = await self._correr(s)
+        self.assertEqual(salida.status, "done")
+        self.assertIsNone(salida.error_message, "avisa de algo que sí cuadra")
+
+    async def test_con_discrepancias_queda_done_pero_con_constancia(self):
+        s = self._sesion()
+        # El MKV final sale con el castellano etiquetado como francés.
+        self.tb.define_mkv(s.mkv_name, duration_s=7200.0,
+                           tracks=[VIDEO, self.AUDIO_OTRO_IDIOMA, AUDIO_EN])
+        salida = await self._correr(s)
+        self.assertEqual(salida.status, "done", "el MKV existe: no es un error")
+        self.assertIsNotNone(salida.error_message,
+                             "la discrepancia se quedó solo en el log")
+        self.assertIn("discrepancias", salida.error_message.lower())
+
+    async def test_la_constancia_llega_al_historial(self):
+        s = self._sesion()
+        self.tb.define_mkv(s.mkv_name, duration_s=7200.0,
+                           tracks=[VIDEO, self.AUDIO_OTRO_IDIOMA, AUDIO_EN])
+        salida = await self._correr(s)
+        self.assertTrue(salida.execution_history)
+        registro = salida.execution_history[-1]
+        self.assertEqual(registro.status, "done")
+        self.assertIn("discrepancias", (registro.error_message or "").lower())
+
+
 class TestLasDosRutas(OrquestadorCase):
 
     async def test_sin_reordenacion_va_por_el_intermedio(self):

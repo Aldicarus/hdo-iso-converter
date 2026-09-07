@@ -142,16 +142,69 @@ async def _flush_session_save(session) -> None:
         state["lines_since"] = 0
 
 def recuperar_sesiones_interrumpidas() -> None:
-    """Resetea sesiones zombie (running/queued) a pending tras un reinicio."""
-    count = 0
+    """Deja el estado coherente tras un reinicio, distinguiendo dos casos.
+
+    No es lo mismo un trabajo que **estaba corriendo** que uno que **estaba
+    esperando**:
+
+    · `running` → murió a mitad, con temporales a medias y sin saber por dónde
+      iba. Vuelve a `pending` con el aviso, y que el usuario decida si lo
+      relanza. Reanudarlo solo sería adivinar.
+    · `queued` → no había empezado nada. Su sitio en la cola sigue en
+      `queue_state.json`, así que se queda `queued` y se reanuda al arrancar.
+
+    Antes los dos iban a `pending` y **nadie volvía a mirar la cola**:
+    `_process()` solo se llama desde `enqueue` y desde su propio `finally`, así
+    que los ids seguían en el fichero, `GET /api/queue` los devolvía y no los
+    ejecutaba nadie hasta que un `execute` nuevo despertaba el bucle. El estado
+    del backend y el del disco divergían sin que nada los reconciliara.
+    """
+    en_cola = set(queue_manager.get_status().get("queue") or [])
+    rotas = esperando = 0
     for s in list_sessions():
-        if s.status in ("running", "queued"):
+        if s.status == "running":
             s.status = "pending"
             s.error_message = "Sesión interrumpida por reinicio del servidor"
             save_session(s)
-            count += 1
-    if count:
-        _logger.info("[Startup] %d sesión(es) interrumpida(s) reseteada(s) a 'pending'", count)
+            rotas += 1
+        elif s.status == "queued":
+            if s.id in en_cola:
+                esperando += 1          # sigue en la cola: se reanudará
+            else:
+                # `queued` sin sitio en la cola es un estado imposible: la cola
+                # es la única que lo concede. Se corrige en vez de dejarlo.
+                s.status = "pending"
+                save_session(s)
+                rotas += 1
+    if rotas:
+        _logger.info("[Startup] %d sesión(es) interrumpida(s) reseteada(s) a 'pending'", rotas)
+    if esperando:
+        _logger.info("[Startup] %d sesión(es) siguen encoladas y se reanudarán", esperando)
+
+
+async def reanudar_cola() -> None:
+    """Despierta la cola tras el arranque, si quedó trabajo esperando.
+
+    Va aparte de `recuperar_sesiones_interrumpidas` y **después** de ella y de
+    `set_run_fn`: sin la función de ejecución instalada, `_process` no tendría
+    con qué arrancar el trabajo. Y es `async` porque necesita un event loop
+    corriendo para el `create_task`, así que `main` la llama desde el evento de
+    arranque, no en el import (ver la nota de dependencias de este módulo).
+
+    También limpia de la cola los ids cuya sesión ya no existe — borrarla no
+    tocaba `queue_state.json`.
+    """
+    en_cola = list(queue_manager.get_status().get("queue") or [])
+    if not en_cola:
+        return
+    vivas = [sid for sid in en_cola if load_session(sid) is not None]
+    fantasmas = len(en_cola) - len(vivas)
+    if fantasmas:
+        await queue_manager.reorder(vivas)
+        _logger.info("[Startup] %d id(s) de la cola sin sesión: descartados", fantasmas)
+    if vivas:
+        _logger.info("[Startup] Reanudando la cola con %d trabajo(s)", len(vivas))
+        asyncio.create_task(queue_manager._process())
 
 # Conexiones WebSocket activas: session_id → [WebSocket, ...]
 _ws_connections: dict[str, list[WebSocket]] = {}
@@ -2317,7 +2370,22 @@ async def _run_pipeline(session_id: str) -> None:
         # ── Validación final del MKV ─────────────────────────────
         validation_ok = await _validate_final_mkv(session, final_mkv, log)
 
-        session.status         = "done" if validation_ok else "done"
+        # `done` en los dos casos, y a propósito: el MKV existe y se puede
+        # reproducir, así que marcarlo `error` sería mentir en la otra
+        # dirección. (Antes esto era un `"done" if validation_ok else "done"`
+        # con las dos ramas idénticas, que se lee como un bug.)
+        #
+        # Lo que sí faltaba es que la discrepancia **sobreviviera al log**: la
+        # sesión quedaba indistinguible de una correcta, y un MKV con una pista
+        # cruzada no se ve hasta que alguien lo reproduce. Va en
+        # `error_message`, que en Tab 1 no pinta banner —solo se muestra con
+        # running/queued— y que `_append_execution_record` copia al historial.
+        session.status         = "done"
+        session.error_message  = None if validation_ok else (
+            "Completado con discrepancias en la verificación final. "
+            "Revisa el log de esta ejecución: las líneas con ⚠️ o ❌ dicen qué "
+            "campo no cuadra (pista, idioma, flag, tier de codec o capítulos)."
+        )
         session.last_executed  = datetime.now(timezone.utc)
 
         if validation_ok:
