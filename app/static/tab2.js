@@ -10,8 +10,75 @@
 //  TAB 2 — EDITAR MKV
 // ═══════════════════════════════════════════════════════════════════
 
-/** MKV abierto en Tab 2. null = sin MKV cargado. */
-let mkvProject = null;  // {fileName, filePath, analysis, originalAnalysis, dirty}
+/**
+ * Proyectos MKV abiertos en Tab 2, uno por sub-pestaña. Tab 1 y Tab 3 ya
+ * tenían sub-pestañas desde hace tiempo; esto iguala Tab 2.
+ *
+ * Cada entrada es `{id, fileName, filePath, analysis, originalAnalysis,
+ * dirty, comparacion}`. El `id` es un token corto generado aquí y se usa como
+ * SUFIJO de los ids del DOM del panel (`mkv-audio-list-m1`), igual que hace
+ * Tab 3 — así dos paneles abiertos a la vez nunca comparten un id.
+ */
+const openMkvProjects = [];
+
+/** id del proyecto cuya pestaña está visible, o null si no hay ninguna. */
+let activeMkvProjectId = null;
+
+/** Tope de pestañas abiertas, el mismo que Tab 3. */
+const MAX_MKV_PROJECTS = 5;
+
+/** Contador para generar ids de proyecto. */
+let _mkvProjectSeq = 0;
+
+/**
+ * Compat shim: `mkvProject` sigue significando "el MKV abierto" y devuelve el
+ * proyecto ACTIVO. Es un getter y no una variable espejo justamente para que
+ * no pueda desincronizarse. Lo lee `showRawMkvData` desde `tab1.js`, además de
+ * casi todo este fichero.
+ *
+ * No tiene setter a propósito: una asignación (`mkvProject = …`) lanza en modo
+ * estricto en vez de crear un segundo estado en la sombra.
+ */
+Object.defineProperty(window, 'mkvProject', {
+  configurable: true,
+  get() {
+    return openMkvProjects.find(p => p.id === activeMkvProjectId) || null;
+  },
+});
+
+/**
+ * Resuelve un id de dentro del panel de un proyecto: los ids del panel llevan
+ * el id del proyecto como sufijo.
+ *
+ * NO se usa el helper `E()` de `core.js`: ese resuelve contra `activeSubTabId`,
+ * que es el sub-tab de TAB 1, no el de esta pestaña.
+ */
+function _mkvEl(id, pid) {
+  const p = pid || activeMkvProjectId;
+  return p ? document.getElementById(`${id}-${p}`) : null;
+}
+
+/** La ruta con la que se identifica un proyecto ya abierto. */
+function _mkvRutaDe(p) {
+  return p.filePath || p.analysis?.file_path || p.fileName;
+}
+
+/** Marca un proyecto como modificado y enciende el punto de su pestaña. */
+function _mkvMarkDirty(project = mkvProject) {
+  if (!project) return;
+  project.dirty = true;
+  const dot = document.getElementById(`mkv-unsaved-dot-${project.id}`);
+  if (dot) dot.style.display = 'inline';
+}
+
+/** Apaga el punto de "cambios sin guardar" de un proyecto. */
+function _mkvClearDirty(project) {
+  if (!project) return;
+  project.dirty = false;
+  const dot = document.getElementById(`mkv-unsaved-dot-${project.id}`);
+  if (dot) dot.style.display = 'none';
+}
+
 let _mkvPickerSelected = null;
 
 // ── MKV Picker — usa el file browser con roots Library + Output ───
@@ -23,14 +90,11 @@ let _mkvPickerSelected = null;
 //      ruta cae bajo un root permitido.
 
 async function openMkvPickerModal() {
-  // Si hay MKV abierto con cambios pendientes, confirmar antes de abrir
-  if (mkvProject?.dirty) {
-    showConfirm(
-      'Cambios sin guardar',
-      'Hay cambios sin guardar en el MKV actual. ¿Descartar y abrir otro?',
-      () => _openMkvBrowserNow(),
-      'Descartar y abrir',
-    );
+  // Con sub-pestañas, abrir otro MKV ya no descarta el actual: va a una
+  // pestaña nueva. El tope se comprueba AQUÍ y no al terminar el análisis
+  // porque ese análisis son 1-3 min y sería cruel avisar después.
+  if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
+    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
     return;
   }
   _openMkvBrowserNow();
@@ -206,39 +270,155 @@ function openMkvProject(analysis) {
   // sale del mismo análisis extendido que los campos quality_*, así que al
   // reabrir el MKV el gráfico aparece poblado sin volver a analizar nada.
   _mkvAplicarPerfilLuminancia(analysis && analysis.dovi);
-  mkvProject = {
+
+  const ruta = analysis.file_path || analysis.file_name;
+  const existente = openMkvProjects.find(p => _mkvRutaDe(p) === ruta);
+  if (existente) {
+    // Re-análisis, o reapertura del mismo fichero desde el browser: refresca
+    // su pestaña en vez de duplicarla.
+    existente.fileName = analysis.file_name;
+    existente.analysis = analysis;
+    existente.originalAnalysis = structuredClone(analysis);
+    _mkvClearDirty(existente);
+    _mkvRefreshSubTab(existente);
+    switchMkvSubTab(existente.id);
+    _renderMkvEditPanel(existente);
+    showToast(`MKV actualizado: ${analysis.file_name}`, 'success');
+    return existente;
+  }
+
+  if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
+    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
+    return null;
+  }
+
+  const project = {
+    id: `m${++_mkvProjectSeq}`,
     fileName: analysis.file_name,
     filePath: analysis.file_path,
     analysis: analysis,
     originalAnalysis: structuredClone(analysis),
     dirty: false,
+    comparacion: null,   // curva del comparador A/B — es POR proyecto
   };
-  document.getElementById('mkv-empty-state').style.display = 'none';
-  const panel = document.getElementById('mkv-edit-panel');
-  panel.style.display = '';
-  _renderMkvEditPanel();
+  openMkvProjects.push(project);
+  _mkvCreateSubTab(project);
+  _mkvCreatePanel(project);
+  switchMkvSubTab(project.id);
+  _renderMkvEditPanel(project);
   showToast(`MKV abierto: ${analysis.file_name}`, 'success');
+  return project;
 }
 
-function closeMkvEditor() {
-  if (!mkvProject) return;
-  if (mkvProject.dirty) {
+// ── Sub-pestañas de Tab 2 ────────────────────────────────────────
+// Mismo markup y mismas clases que Tab 1/3 (`.subtab-proj`, `.subtab-projects`)
+// para que el look sea idéntico sin tocar el CSS.
+
+/** El HTML interior del botón de sub-pestaña. */
+function _mkvSubTabInnerHtml(project) {
+  const nombre = (project.fileName || '').replace(/\.mkv$/i, '');
+  const corto = nombre.slice(0, 24) + (nombre.length > 24 ? '…' : '');
+  return `
+    <span class="unsaved-dot" id="mkv-unsaved-dot-${project.id}"
+      style="display:${project.dirty ? 'inline' : 'none'}"
+      data-tooltip="Cambios sin guardar">●</span>
+    <span class="subtab-proj-icon">✏️</span>
+    <span class="subtab-proj-name" data-tooltip="${escHtml(project.fileName || '')}">${escHtml(corto)}</span>
+    <button class="subtab-proj-close" onclick="closeMkvProject('${project.id}');event.stopPropagation()"
+      data-tooltip="Cerrar este MKV">×</button>`;
+}
+
+function _mkvCreateSubTab(project) {
+  const container = document.getElementById('mkv-subtab-projects');
+  if (!container) return;
+  const btn = document.createElement('button');
+  btn.className = 'subtab-proj';
+  btn.id = `mkv-stab-${project.id}`;
+  btn.dataset.pid = project.id;
+  btn.innerHTML = _mkvSubTabInnerHtml(project);
+  btn.onclick = (e) => {
+    if (!e.target.closest('.subtab-proj-close')) switchMkvSubTab(project.id);
+  };
+  container.appendChild(btn);
+  _installSubtabScrollBindings();
+  _updateSubtabScrollState();
+}
+
+/** Repinta el botón de sub-pestaña (cambió el nombre del fichero). */
+function _mkvRefreshSubTab(project) {
+  const btn = document.getElementById(`mkv-stab-${project.id}`);
+  if (btn) btn.innerHTML = _mkvSubTabInnerHtml(project);
+}
+
+/** Crea el panel vacío del proyecto dentro del contenedor con scroll. */
+function _mkvCreatePanel(project) {
+  const host = document.getElementById('mkv-edit-panel');
+  if (!host) return;
+  const panel = document.createElement('div');
+  panel.className = 'mkv-panel subtab-panel';
+  panel.id = `mkv-panel-${project.id}`;
+  panel.style.display = 'none';
+  host.appendChild(panel);
+}
+
+function switchMkvSubTab(pid) {
+  activeMkvProjectId = pid;
+  document.querySelectorAll('#mkv-edit-panel > .mkv-panel').forEach(el => {
+    el.style.display = 'none';
+  });
+  const activo = document.getElementById(`mkv-panel-${pid}`);
+  if (activo) activo.style.display = 'block';
+  document.querySelectorAll('#mkv-subtab-projects .subtab-proj').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pid === pid);
+  });
+  _mkvUpdateEmptyState();
+}
+
+/** Empty state visible sólo cuando no queda ninguna pestaña abierta. */
+function _mkvUpdateEmptyState() {
+  const hay = openMkvProjects.length > 0;
+  const empty = document.getElementById('mkv-empty-state');
+  const panel = document.getElementById('mkv-edit-panel');
+  const area  = document.getElementById('mkv-subtab-projects-area');
+  if (empty) empty.style.display = hay ? 'none' : '';
+  if (panel) panel.style.display = hay ? '' : 'none';
+  if (area)  area.style.display  = hay ? '' : 'none';
+}
+
+/** Cierra una pestaña. Con cambios pendientes, el mismo aviso de siempre. */
+function closeMkvProject(pid) {
+  const project = openMkvProjects.find(p => p.id === pid);
+  if (!project) return;
+  if (project.dirty) {
     showConfirm(
       'Cambios sin guardar',
-      'Hay cambios sin guardar. ¿Cerrar de todas formas?',
-      () => _doCloseMkvEditor(),
+      `Hay cambios sin guardar en ${project.fileName}. ¿Cerrar de todas formas?`,
+      () => _doCloseMkvProject(pid),
       'Cerrar sin guardar',
     );
     return;
   }
-  _doCloseMkvEditor();
+  _doCloseMkvProject(pid);
 }
 
-function _doCloseMkvEditor() {
-  mkvProject = null;
-  document.getElementById('mkv-edit-panel').style.display = 'none';
-  document.getElementById('mkv-edit-panel').innerHTML = '';
-  document.getElementById('mkv-empty-state').style.display = '';
+function _doCloseMkvProject(pid) {
+  const idx = openMkvProjects.findIndex(p => p.id === pid);
+  if (idx === -1) return;
+  openMkvProjects.splice(idx, 1);
+  document.getElementById(`mkv-stab-${pid}`)?.remove();
+  document.getElementById(`mkv-panel-${pid}`)?.remove();
+  if (activeMkvProjectId === pid) {
+    activeMkvProjectId = null;
+    const siguiente = openMkvProjects[openMkvProjects.length - 1];
+    if (siguiente) switchMkvSubTab(siguiente.id);
+  }
+  _mkvUpdateEmptyState();
+  _updateSubtabScrollState();
+}
+
+/** Cierra el MKV activo — el botón "✕ Cerrar" del pie del panel. */
+function closeMkvEditor() {
+  if (activeMkvProjectId) closeMkvProject(activeMkvProjectId);
 }
 
 /**
@@ -282,7 +462,7 @@ async function reanalyzeMkv() {
   if (mkvProject.dirty) {
     showConfirm(
       'Cambios sin guardar',
-      'Hay cambios sin guardar en el MKV actual. Re-analizar los descartará. ¿Continuar?',
+      'Hay cambios sin guardar en este MKV. Re-analizar los descartará. ¿Continuar?',
       doRun,
       'Descartar y re-analizar',
     );
@@ -292,10 +472,11 @@ async function reanalyzeMkv() {
 }
 
 function undoMkvEdits() {
-  if (!mkvProject) return;
-  mkvProject.analysis = structuredClone(mkvProject.originalAnalysis);
-  mkvProject.dirty = false;
-  _renderMkvEditPanel();
+  const project = mkvProject;
+  if (!project) return;
+  project.analysis = structuredClone(project.originalAnalysis);
+  _mkvClearDirty(project);
+  _renderMkvEditPanel(project);
   showToast('Cambios revertidos', 'info');
 }
 
@@ -1019,9 +1200,12 @@ function _rgrfDistributionSvg(series) {
     ['#dc2626', '#ef4444'],   // red
   ];
 
+  // Sufijo aleatorio: con dos paneles abiertos, unos ids fijos harían que el
+  // segundo SVG redefiniera los gradientes del primero (y los pintara mal).
+  const gid = `hist-${Math.random().toString(36).slice(2, 7)}`;
   let defs = '<defs>';
   colors.forEach((c, i) => {
-    defs += `<linearGradient id="hist-${i}" x1="0" y1="0" x2="0" y2="1">
+    defs += `<linearGradient id="${gid}-${i}" x1="0" y1="0" x2="0" y2="1">
                <stop offset="0%" stop-color="${c[1]}" stop-opacity="0.95"/>
                <stop offset="100%" stop-color="${c[0]}" stop-opacity="0.80"/>
              </linearGradient>`;
@@ -1044,7 +1228,7 @@ function _rgrfDistributionSvg(series) {
     const y = padT + usableH - h;
     // Barra con radius top + shadow sutil
     bars += `<rect x="${x + 8}" y="${y}" width="${barW - 16}" height="${Math.max(h, 1)}"
-               fill="url(#hist-${i})" rx="3" />`;
+               fill="url(#${gid}-${i})" rx="3" />`;
     bars += `<text x="${x + barW/2}" y="${padT + usableH + 18}" fill="#475569" font-size="12"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${binLabels[i]}</text>`;
     if (c > 0) {
@@ -1072,7 +1256,7 @@ function _rgrfDistributionSvg(series) {
  *  Diseño compacto, profesional — se inserta DENTRO del card de Vídeo.
  *  Agrupa todos los parámetros DV+HDR en bloques temáticos densos con
  *  visualizadores inline. */
-function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
+function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) {
   const hdr = a.hdr || {};
   // FPS real desde el track de vídeo (mkvmerge default_duration → fps).
   // NO computamos fps = dv.frame_count / duration porque dv.frame_count
@@ -1340,7 +1524,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     hdr10_max_cll:  a.hdr?.max_cll  || 0,
     hdr10_max_fall: a.hdr?.max_fall || 0,
   } : {};
-  const cmp = hasLightProfile ? _mkvComparacion : null;
+  const cmp = hasLightProfile ? comparacion : null;
   const sparkOpts = hasLightProfile ? {
     avgSeries: dv.per_scene_max_fall && dv.per_scene_max_fall.length === dv.per_scene_max_cll.length
       ? dv.per_scene_max_fall : null,
@@ -1356,7 +1540,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : '';
   const sparklineArea = hasLightProfile
     ? `<div class="dv-chart-large">${_rgrfSparklineSvg(dv.per_scene_max_cll, Math.max(...dv.per_scene_max_cll) + ' nits', a.duration_seconds, sparkOpts)}</div>
-       ${_mkvTablaComparacionHtml(dv, a)}
+       ${_mkvTablaComparacionHtml(dv, a, cmp)}
        ${statsCardHtml}
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
@@ -1367,7 +1551,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // Un solo botón: el perfil sale del mismo análisis extendido que la
   // auditoría de calidad, compartiendo la extracción del RPU.
   const btnComparar = hasLightProfile
-    ? (_mkvComparacion
+    ? (comparacion
        ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-tooltip="Volver a ver solo este MKV"><span>✕</span> Quitar comparación</button>`
        : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span>⚖️</span> Comparar con…</button>`)
     : '';
@@ -1541,7 +1725,8 @@ function _mkvAplicarPerfilLuminancia(dv) {
 }
 
 async function _rgrfAuditQuality(evt) {
-  if (!mkvProject) return;
+  const proyecto = mkvProject;
+  if (!proyecto) return;
   // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
   // el estado del audit es un singleton global en el backend; lanzar un 2º
   // mientras hay uno activo pisaría ese estado y dejaría pollers cruzados.
@@ -1561,7 +1746,7 @@ async function _rgrfAuditQuality(evt) {
   } catch (_) { /* si /progress falla seguimos: el guard 409 del backend es la red de seguridad */ }
   // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
   // la auditoría, el resultado no debe aplicarse al proyecto equivocado.
-  const targetFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
+  const targetFilePath = proyecto.analysis.file_path || proyecto.filePath || proyecto.analysis.file_name;
   // request_id estable por lanzamiento: si el navegador/proxy re-envía el POST
   // largo (al perder foco / caer la conexión), reusa el MISMO body → el backend
   // lo dedup y NO arranca un audit duplicado.
@@ -1569,7 +1754,7 @@ async function _rgrfAuditQuality(evt) {
     ? self.crypto.randomUUID()
     : (Date.now() + '-' + Math.random().toString(36).slice(2));
   const fileEl = document.getElementById('mkv-quality-modal-file');
-  if (fileEl) fileEl.textContent = mkvProject.analysis.file_name;
+  if (fileEl) fileEl.textContent = proyecto.analysis.file_name;
   // Cabecera: restaurar icono base (una apertura previa con match TMDb pudo
   // dejar la cartela) antes de re-intentar la hidratación.
   const qPoster = document.getElementById('mkv-quality-modal-poster');
@@ -1585,12 +1770,12 @@ async function _rgrfAuditQuality(evt) {
   // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
   // ficha que los demás modales de análisis, para consistencia entre flujos.
   _hydrateModalWithTmdb({
-    name: mkvProject.analysis.file_name,
+    name: proyecto.analysis.file_name,
     modalId: 'mkv-quality-modal',
     posterId: 'mkv-quality-modal-poster',
     titleId: 'mkv-quality-modal-title',
     subId: 'mkv-quality-modal-file',
-    subText: mkvProject.analysis.file_name,
+    subText: proyecto.analysis.file_name,
   });
 
   let lastLogCount = 0;
@@ -1695,26 +1880,28 @@ async function _rgrfAuditQuality(evt) {
     }
 
     _mkvQualitySetProgress(100);
-    if (!mkvProject || !mkvProject.analysis) {
-      throw new Error('El MKV se cerró durante la auditoría — vuelve a abrirlo');
-    }
-    // Si el usuario abrió otro MKV mientras corría la auditoría, NO aplicar el
-    // resultado al proyecto equivocado. El backend ya lo cacheó bajo el path
-    // correcto, así que al reabrir aquel MKV aparecerá poblado.
-    const curFilePath = mkvProject.analysis.file_path || mkvProject.filePath || mkvProject.analysis.file_name;
-    if (curFilePath !== targetFilePath) {
+    // El proyecto pudo cerrarse (o el fichero moverse) durante los ~10 min que
+    // dura la extracción del RPU. El backend ya lo cacheó bajo la ruta
+    // correcta, así que al reabrirlo aparecerá poblado.
+    if (!openMkvProjects.includes(proyecto) || !proyecto.analysis) {
       closeModal('mkv-quality-modal');
-      showToast('Auditoría completada para el MKV anterior (guardada en caché)', 'info');
+      showToast('El MKV se cerró durante el análisis — el resultado quedó en caché', 'info');
       return;
     }
-    if (!mkvProject.analysis.dovi) mkvProject.analysis.dovi = {};
-    Object.assign(mkvProject.analysis.dovi, data);
+    const curFilePath = proyecto.analysis.file_path || proyecto.filePath || proyecto.analysis.file_name;
+    if (curFilePath !== targetFilePath) {
+      closeModal('mkv-quality-modal');
+      showToast('Análisis completado para el fichero anterior (guardado en caché)', 'info');
+      return;
+    }
+    if (!proyecto.analysis.dovi) proyecto.analysis.dovi = {};
+    Object.assign(proyecto.analysis.dovi, data);
     // El mismo análisis trae el perfil de luminancia (comparte la extracción
     // del RPU, que es el ~97 % del coste). A los campos planos del render.
-    const conPerfil = _mkvAplicarPerfilLuminancia(mkvProject.analysis.dovi);
+    const conPerfil = _mkvAplicarPerfilLuminancia(proyecto.analysis.dovi);
     await new Promise(r => setTimeout(r, 500));
     closeModal('mkv-quality-modal');
-    _renderMkvEditPanel();
+    _renderMkvEditPanel(proyecto);
     showToast(
       `Análisis extendido completado — ${data.quality_verdict_text}`
       + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
@@ -1904,9 +2091,10 @@ async function _rgrfCopyToClipboard(evt) {
 
 // ── Render del panel de edición ──────────────────────────────────
 
-function _renderMkvEditPanel() {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
+function _renderMkvEditPanel(project = mkvProject) {
+  if (!project) return;
+  const pid = project.id;
+  const a = project.analysis;
   const videoTracks = a.tracks.filter(t => t.type === 'video');
   const audioTracks = a.tracks.filter(t => t.type === 'audio');
   const subTracks   = a.tracks.filter(t => t.type === 'subtitles');
@@ -1983,12 +2171,13 @@ function _renderMkvEditPanel() {
     dvProfileLine = a.has_fel ? 'P7 FEL (detectado por estructura)' : (hasElByCount ? 'P7 MEL (detectado por estructura)' : 'Dolby Vision detectado');
   }
 
-  const panel = document.getElementById('mkv-edit-panel');
+  const panel = document.getElementById(`mkv-panel-${pid}`);
+  if (!panel) return;
   panel.innerHTML = `
     <div class="project-panel-inner" style="max-width:900px; margin:0 auto; padding:24px 20px">
 
       <!-- Ficha TMDb (hidratada en async) -->
-      <div id="mkv-edit-tmdb-card" class="tmdb-card-slot"></div>
+      <div id="mkv-edit-tmdb-card-${pid}" class="tmdb-card-slot"></div>
 
       <!-- Info del fichero (solo lectura) -->
       <div class="section-card">
@@ -2027,7 +2216,7 @@ function _renderMkvEditPanel() {
             <strong>${escHtml(videoCodecLine)}</strong>
             ${elVideo ? `<span class="video-el">+EL ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString() + ' kbps' : ''}</span>` : ''}
           </div>
-          ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : '')}
+          ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo, project.comparacion) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : '')}
         </div>
       </div>` : ''}
 
@@ -2038,7 +2227,7 @@ function _renderMkvEditPanel() {
           <div class="section-subtitle">Edita nombres y flag default</div></div>
         </div>
         <div class="section-body">
-          <ul class="track-list" id="mkv-audio-list"></ul>
+          <ul class="track-list" id="mkv-audio-list-${pid}"></ul>
         </div>
       </div>
 
@@ -2049,7 +2238,7 @@ function _renderMkvEditPanel() {
           <div class="section-subtitle">Edita nombres, flags default y forzado</div></div>
         </div>
         <div class="section-body">
-          <ul class="track-list" id="mkv-sub-list"></ul>
+          <ul class="track-list" id="mkv-sub-list-${pid}"></ul>
         </div>
       </div>
 
@@ -2058,27 +2247,27 @@ function _renderMkvEditPanel() {
         <div class="section-header">
           <div><div class="section-title">📖 Capítulos</div>
           <div class="section-subtitle">Clic en la barra para añadir · arrastra marcas para ajustar</div></div>
-          <button class="btn btn-xs" id="mkv-chapters-generic-btn" style="display:none; margin-left:auto"
+          <button class="btn btn-xs" id="mkv-chapters-generic-btn-${pid}" style="display:none; margin-left:auto"
             onclick="setMkvGenericChapterNames()"
             data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)">🏷️ Nombres genéricos</button>
         </div>
         <div class="section-body">
-          <div id="mkv-chapters-banner" class="banner info" style="display:none">
-            <span class="banner-icon" id="mkv-chapters-icon">💿</span>
-            <span id="mkv-chapters-text"></span>
-            <button class="btn btn-xs" id="mkv-chapters-autogen-btn" style="display:none; margin-left:auto"
+          <div id="mkv-chapters-banner-${pid}" class="banner info" style="display:none">
+            <span class="banner-icon" id="mkv-chapters-icon-${pid}">💿</span>
+            <span id="mkv-chapters-text-${pid}"></span>
+            <button class="btn btn-xs" id="mkv-chapters-autogen-btn-${pid}" style="display:none; margin-left:auto"
               onclick="generateMkvAutoChapters()"
               data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)">📑 Generar cada 10 min</button>
           </div>
-          <div id="mkv-chapter-timeline-wrap" class="chapter-timeline-wrap"
+          <div id="mkv-chapter-timeline-wrap-${pid}" class="chapter-timeline-wrap"
             onclick="onMkvTimelineClick(event)"
             onmousemove="onMkvTimelineHover(event)"
             onmouseleave="onMkvTimelineLeave()">
             <div class="chapter-timeline-track"></div>
-            <div class="timeline-marks" id="mkv-timeline-marks"></div>
-            <div class="timeline-cursor" id="mkv-timeline-cursor" style="display:none"></div>
+            <div class="timeline-marks" id="mkv-timeline-marks-${pid}"></div>
+            <div class="timeline-cursor" id="mkv-timeline-cursor-${pid}" style="display:none"></div>
           </div>
-          <div id="mkv-chapters-list" class="chapter-list"></div>
+          <div id="mkv-chapters-list-${pid}" class="chapter-list"></div>
         </div>
       </div>
 
@@ -2099,10 +2288,10 @@ function _renderMkvEditPanel() {
     </div>`;
 
   // Hidratar ficha TMDb (async, no bloquea el render de pistas)
-  hydrateTmdbCard('mkv-edit-tmdb-card', mkvProject.fileName || a.file_name);
+  hydrateTmdbCard(`mkv-edit-tmdb-card-${pid}`, project.fileName || a.file_name);
 
-  _renderMkvTracks();
-  _renderMkvChapters();
+  _renderMkvTracks(project);
+  _renderMkvChapters(project);
   _attachSparklineHover();
 }
 
@@ -2202,11 +2391,12 @@ function _attachSparklineHover() {
 
 // ── Render helpers ───────────────────────────────────────────────
 
-function _renderMkvTracks() {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
-  const audioList = document.getElementById('mkv-audio-list');
-  const subList   = document.getElementById('mkv-sub-list');
+function _renderMkvTracks(project = mkvProject) {
+  if (!project) return;
+  const a = project.analysis;
+  const audioList = _mkvEl('mkv-audio-list', project.id);
+  const subList   = _mkvEl('mkv-sub-list', project.id);
+  if (!audioList || !subList) return;
 
   // Audio
   const audioTracks = a.tracks.filter(t => t.type === 'audio');
@@ -2361,12 +2551,12 @@ const ISO639_MAP = {
   und:'Undetermined',
 };
 
-function _renderMkvChapters() {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
-  const banner = document.getElementById('mkv-chapters-banner');
-  const text   = document.getElementById('mkv-chapters-text');
-  const autogenBtn = document.getElementById('mkv-chapters-autogen-btn');
+function _renderMkvChapters(project = mkvProject) {
+  if (!project) return;
+  const a = project.analysis;
+  const banner = _mkvEl('mkv-chapters-banner', project.id);
+  const text   = _mkvEl('mkv-chapters-text', project.id);
+  const autogenBtn = _mkvEl('mkv-chapters-autogen-btn', project.id);
 
   if (a.chapters.length > 0) {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner info'; }
@@ -2384,14 +2574,14 @@ function _renderMkvChapters() {
   }
 
   // Botón nombres genéricos: visible solo si algún capítulo tiene nombre custom
-  const genericBtn = document.getElementById('mkv-chapters-generic-btn');
+  const genericBtn = _mkvEl('mkv-chapters-generic-btn', project.id);
   if (genericBtn) {
     const hasCustomNames = a.chapters.some(ch => ch.name_custom);
     genericBtn.style.display = hasCustomNames ? '' : 'none';
   }
 
-  _renderMkvChapterMarks();
-  _renderMkvChapterList();
+  _renderMkvChapterMarks(project);
+  _renderMkvChapterList(project);
 }
 
 /**
@@ -2424,15 +2614,15 @@ function generateMkvAutoChapters() {
     num += 1;
   }
   a.chapters = chapters;
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
   _renderMkvChapters();
   showToast(`✓ ${chapters.length} capítulos generados — pulsa "Aplicar cambios" para escribirlos al MKV`, 'success');
 }
 
-function _renderMkvChapterMarks() {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
-  const container = document.getElementById('mkv-timeline-marks');
+function _renderMkvChapterMarks(project = mkvProject) {
+  if (!project) return;
+  const a = project.analysis;
+  const container = _mkvEl('mkv-timeline-marks', project.id);
   if (!container) return;
   container.innerHTML = '';
 
@@ -2453,10 +2643,10 @@ function _renderMkvChapterMarks() {
   });
 }
 
-function _renderMkvChapterList() {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
-  const container = document.getElementById('mkv-chapters-list');
+function _renderMkvChapterList(project = mkvProject) {
+  if (!project) return;
+  const a = project.analysis;
+  const container = _mkvEl('mkv-chapters-list', project.id);
   if (!container) return;
   container.innerHTML = '';
 
@@ -2481,7 +2671,7 @@ function onMkvTrackEdit(trackId, field, value) {
   if (!mkvProject) return;
   const track = mkvProject.analysis.tracks.find(t => t.id === trackId);
   if (track) track[field] = value;
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
 }
 
 function onMkvTrackFlag(trackId, flag, trackType) {
@@ -2496,7 +2686,7 @@ function onMkvTrackFlag(trackId, flag, trackType) {
     if (track) track.flag_forced = !track.flag_forced;
   }
 
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
   _renderMkvTracks();
 }
 
@@ -2507,7 +2697,8 @@ function onMkvTimelineClick(e) {
   const duration = mkvProject.analysis.duration_seconds;
   if (!duration) return;
 
-  const wrap = document.getElementById('mkv-chapter-timeline-wrap');
+  const wrap = _mkvEl('mkv-chapter-timeline-wrap');
+  if (!wrap) return;
   const rect = wrap.getBoundingClientRect();
   const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   const secs = pct * duration;
@@ -2517,17 +2708,18 @@ function onMkvTimelineClick(e) {
   });
   _renumberMkvChapters();
   _renderMkvChapters();
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
 }
 
 function onMkvTimelineHover(e) {
   if (!mkvProject) return;
   const duration = mkvProject.analysis.duration_seconds;
   if (!duration) return;
-  const wrap  = document.getElementById('mkv-chapter-timeline-wrap');
+  const wrap  = _mkvEl('mkv-chapter-timeline-wrap');
+  if (!wrap) return;
   const rect  = wrap.getBoundingClientRect();
   const pct   = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  const label = document.getElementById('mkv-timeline-cursor');
+  const label = _mkvEl('mkv-timeline-cursor');
   if (label) {
     label.style.display = '';
     label.style.left = `${e.clientX - rect.left}px`;
@@ -2536,7 +2728,7 @@ function onMkvTimelineHover(e) {
 }
 
 function onMkvTimelineLeave() {
-  const el = document.getElementById('mkv-timeline-cursor');
+  const el = _mkvEl('mkv-timeline-cursor');
   if (el) el.style.display = 'none';
 }
 
@@ -2545,7 +2737,7 @@ function deleteMkvChapter(idx) {
   mkvProject.analysis.chapters.splice(idx, 1);
   _renumberMkvChapters();
   _renderMkvChapters();
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
 }
 
 function onMkvChapterTsChange(idx, value) {
@@ -2553,16 +2745,16 @@ function onMkvChapterTsChange(idx, value) {
   mkvProject.analysis.chapters[idx].timestamp = value;
   _renumberMkvChapters();
   _renderMkvChapters();
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
 }
 
 function onMkvChapterNameChange(idx, value) {
   if (!mkvProject) return;
   mkvProject.analysis.chapters[idx].name = value;
   mkvProject.analysis.chapters[idx].name_custom = value.trim() !== '';
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
   // Actualizar visibilidad del botón "Nombres genéricos"
-  const genericBtn = document.getElementById('mkv-chapters-generic-btn');
+  const genericBtn = _mkvEl('mkv-chapters-generic-btn');
   if (genericBtn) {
     const hasCustom = mkvProject.analysis.chapters.some(ch => ch.name_custom);
     genericBtn.style.display = hasCustom ? '' : 'none';
@@ -2573,13 +2765,14 @@ function startMkvChapterDrag(_e, markEl, idx) {
   if (!mkvProject) return;
   const duration = mkvProject.analysis.duration_seconds;
   if (!duration) return;
-  const wrap = document.getElementById('mkv-chapter-timeline-wrap');
+  const wrap = _mkvEl('mkv-chapter-timeline-wrap');
+  if (!wrap) return;
   let dragged = false;
 
   markEl.classList.add('selected');
   document.body.style.cursor = 'grabbing';
 
-  const marksEl = document.getElementById('mkv-timeline-marks');
+  const marksEl = _mkvEl('mkv-timeline-marks');
   const dragTip = document.createElement('div');
   dragTip.className = 'chapter-drag-tip';
   dragTip.style.display = 'none';
@@ -2605,7 +2798,7 @@ function startMkvChapterDrag(_e, markEl, idx) {
     if (dragged) {
       _renumberMkvChapters();
       _renderMkvChapters();
-      mkvProject.dirty = true;
+      _mkvMarkDirty();
     } else {
       markEl.classList.remove('selected');
     }
@@ -2631,7 +2824,7 @@ function setMkvGenericChapterNames() {
     ch.name = `Capítulo ${String(i + 1).padStart(2, '0')}`;
     ch.name_custom = false;
   });
-  mkvProject.dirty = true;
+  _mkvMarkDirty();
   _renderMkvChapters();
   showToast('Nombres de capítulo reemplazados por genéricos.', 'info');
 }
@@ -2684,8 +2877,9 @@ const MKV_APPLY_LONG_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 let _mkvApplyUserCancelled = false;
 
 async function _doApplyMkvEdits(copyToOutput) {
-  if (!mkvProject) return;
-  const a = mkvProject.analysis;
+  const project = mkvProject;
+  if (!project) return;
+  const a = project.analysis;
 
   const audioEdits = a.tracks.filter(t => t.type === 'audio').map(t => ({
     id: t.id, name: t.name || '', flag_default: t.flag_default, flag_forced: t.flag_forced,
@@ -2695,7 +2889,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   }));
 
   const body = {
-    file_path: mkvProject.filePath,
+    file_path: project.filePath,
     title: null,
     audio_tracks: audioEdits,
     subtitle_tracks: subEdits,
@@ -2785,11 +2979,13 @@ async function _doApplyMkvEdits(copyToOutput) {
 
   // Si se copió a /mnt/output, actualizar el estado del proyecto al nuevo
   // path para que ediciones posteriores trabajen sobre la copia editable.
-  let newFilePath = mkvProject.filePath;
+  let newFilePath = project.filePath;
   if (result.copied_from_library && result.new_file_path) {
     newFilePath = result.new_file_path;
-    mkvProject.filePath = newFilePath;
-    showToast(`✓ MKV copiado a Output con tus cambios: ${newFilePath.split('/').pop()}`, 'success');
+    project.filePath = newFilePath;
+    project.fileName = newFilePath.split('/').pop();
+    _mkvRefreshSubTab(project);
+    showToast(`✓ MKV copiado a Output con tus cambios: ${project.fileName}`, 'success');
   }
 
   statusEl.innerHTML = '<span style="color:var(--green)">✓ Cambios aplicados correctamente</span>';
@@ -2799,15 +2995,15 @@ async function _doApplyMkvEdits(copyToOutput) {
   // bajo un root permitido (Library / Output).
   const fresh = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
-    body: JSON.stringify({ file_path: newFilePath || mkvProject.fileName }),
+    body: JSON.stringify({ file_path: newFilePath || project.fileName }),
   });
 
   if (fresh) {
     _mkvAplicarPerfilLuminancia(fresh && fresh.dovi);
-    mkvProject.analysis = fresh;
-    mkvProject.originalAnalysis = structuredClone(fresh);
-    mkvProject.dirty = false;
-    _renderMkvEditPanel();
+    project.analysis = fresh;
+    project.originalAnalysis = structuredClone(fresh);
+    _mkvClearDirty(project);
+    _renderMkvEditPanel(project);
   }
 
   titleEl.textContent = 'Cambios aplicados';
@@ -2990,8 +3186,9 @@ function _fmtDuration(seconds) {
 //   se ve un desfase— pero hace falta AVISAR de la diferencia de duración, o
 //   el usuario compara dos cosas que no están alineadas creyendo que sí.
 
-/** {serie, etiqueta, stats, duracion, fichero} del MKV con el que se compara. */
-let _mkvComparacion = null;
+// La comparación es POR PROYECTO (`project.comparacion`), no una global:
+// con varias pestañas abiertas una global haría que la curva de referencia de
+// un MKV apareciera pintada sobre el de al lado.
 
 /** Diferencia de duración a partir de la cual las curvas ya no son
  *  comparables sin avisar. 2 % de una peli de 2 h son ~2,5 min: eso ya no es
@@ -3011,8 +3208,9 @@ function abrirComparadorLuminancia() {
 }
 
 async function _cargarComparacionLuminancia(ruta) {
-  if (!ruta) return;
-  if (mkvProject && ruta === mkvProject.filePath) {
+  const project = mkvProject;
+  if (!ruta || !project) return;
+  if (ruta === project.filePath) {
     showToast('Ese es el MKV que ya tienes abierto', 'info');
     return;
   }
@@ -3032,14 +3230,14 @@ async function _cargarComparacionLuminancia(ruta) {
       showToast('El análisis de ese MKV no trae curva de luminancia', 'info');
       return;
     }
-    _mkvComparacion = {
+    project.comparacion = {
       serie,
       etiqueta: r.file_name || 'Comparación',
       stats: perfil.stats || null,
       duracion: r.duration_seconds || 0,
       fichero: ruta,
     };
-    _renderMkvEditPanel();
+    _renderMkvEditPanel(project);
     showToast(`⚖️ Comparando con ${r.file_name}`, 'success');
   } catch (e) {
     showToast(`No se pudo cargar la comparación: ${e.message}`, 'error', 6000);
@@ -3047,13 +3245,14 @@ async function _cargarComparacionLuminancia(ruta) {
 }
 
 function quitarComparacionLuminancia() {
-  _mkvComparacion = null;
-  _renderMkvEditPanel();
+  const project = mkvProject;
+  if (!project) return;
+  project.comparacion = null;
+  _renderMkvEditPanel(project);
 }
 
 /** Tabla de deltas entre el MKV abierto y el de comparación. */
-function _mkvTablaComparacionHtml(dv, a) {
-  const cmp = _mkvComparacion;
+function _mkvTablaComparacionHtml(dv, a, cmp) {
   if (!cmp) return '';
   const propias = dv.l1_stats || {};
   const otras = cmp.stats || {};

@@ -616,10 +616,11 @@ function renderProjectSubTabButton(project) {
   _updateSubtabScrollState();
 }
 
-/** Config de los dos scrollers de pestañas (Tab 1 y Tab 3). Misma lógica, IDs distintos. */
+/** Config de los scrollers de pestañas de las TRES pestañas. Misma lógica, IDs distintos. */
 const _SUBTAB_SCROLLERS = [
   { areaId: 'subtab-projects-area',       scrollId: 'subtab-projects',       leftId: 'subtab-scroll-left',       rightId: 'subtab-scroll-right'       },
   { areaId: 'cmv40-subtab-projects-area', scrollId: 'cmv40-subtab-projects', leftId: 'cmv40-subtab-scroll-left', rightId: 'cmv40-subtab-scroll-right' },
+  { areaId: 'mkv-subtab-projects-area',   scrollId: 'mkv-subtab-projects',   leftId: 'mkv-subtab-scroll-left',   rightId: 'mkv-subtab-scroll-right'   },
 ];
 
 /** Comprueba overflow horizontal de un scroller y activa/desactiva sus chevrones. */
@@ -652,6 +653,7 @@ function _scrollSubtabContainer(scrollId, direction) {
 /** Handlers invocados desde los chevrones (HTML onclick). */
 function scrollSubtabProjects(direction)      { _scrollSubtabContainer('subtab-projects', direction); }
 function scrollCmv40SubtabProjects(direction) { _scrollSubtabContainer('cmv40-subtab-projects', direction); }
+function scrollMkvSubtabProjects(direction)   { _scrollSubtabContainer('mkv-subtab-projects', direction); }
 
 /** Instala wheel→horizontal + listeners de scroll/resize en todos los scrollers. Idempotente. */
 function _installSubtabScrollBindings() {
