@@ -232,5 +232,86 @@ class TestLaColaEspera(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cola._queue, [], "el trabajo no se ha perdido")
 
 
+class TestElHuecoDuraLoQueDuraLaFase(unittest.IsolatedAsyncioTestCase):
+    """Un disparo duplicado no puede soltar el hueco de la fase que corre.
+
+    El hueco se ocupaba en `_cmv40_launch_phase`, **antes** de los guards. Como
+    el auto-pipeline tiene dos disparadores —backend y frontend— y el duplicado
+    es sistemático, pasaba esto: el segundo disparo hacía `registrar` sobre la
+    misma clave, rebotaba en el guard de in-flight y su `finally` llamaba a
+    `liberar`. El hueco quedaba libre **con la fase real todavía corriendo**, y
+    a partir de ahí otra pestaña podía arrancar trabajo pesado y
+    `hay_contencion()` mentía — envenenando `_adaptive_timeout` y el modelo de
+    ETA, que es justo lo que este registro existe para impedir.
+
+    Visto en producción el 2026-09-04 con Predator Badlands: «⏭ Fase inject
+    ignorada — ya hay otra fase (extract) en curso», y ese inject soltó el hueco.
+    """
+
+    def setUp(self):
+        import shutil, tempfile
+        import storage
+        from models import CMv40Session
+
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        self.tmp = Path(tempfile.mkdtemp(prefix="hueco_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        cmv40_dir = self.tmp / "cmv40"
+        cmv40_dir.mkdir(parents=True)
+        self._orig = (storage.CONFIG_DIR, storage.CMV40_DIR)
+        storage.CONFIG_DIR, storage.CMV40_DIR = self.tmp, cmv40_dir
+        self.addCleanup(
+            lambda: setattr(storage, "CMV40_DIR", self._orig[1]))
+        self.addCleanup(
+            lambda: setattr(storage, "CONFIG_DIR", self._orig[0]))
+
+        self.session = CMv40Session(
+            id="cmv40_hueco", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+            output_mkv_name="y.mkv", artifacts_dir=str(self.tmp),
+            phase="extracted",
+        )
+        storage.save_cmv40_session(self.session)
+
+    async def test_el_duplicado_no_suelta_el_hueco(self):
+        import asyncio
+        from routers import cmv40 as r
+
+        arrancada, soltar = asyncio.Event(), asyncio.Event()
+
+        def _factory(log_cb, proc_cb):
+            async def _fase():
+                arrancada.set()
+                await soltar.wait()
+            return _fase()
+
+        real = asyncio.create_task(
+            r._run_cmv40_phase(self.session, "inject", _factory, "injected"))
+        await asyncio.wait_for(arrancada.wait(), timeout=5)
+        self.assertIsNotNone(
+            workload.bloqueado_por(),
+            "la fase que corre de verdad debería tener el hueco ocupado")
+
+        # El disparo duplicado: rebota en el guard de in-flight y retorna.
+        await r._run_cmv40_phase(self.session, "inject", _factory, "injected")
+        self.assertIsNotNone(
+            workload.bloqueado_por(),
+            "el disparo duplicado soltó el hueco de la fase que sigue corriendo")
+
+        soltar.set()
+        await asyncio.wait_for(real, timeout=5)
+        self.assertIsNone(workload.bloqueado_por(),
+                          "al terminar la fase el hueco tiene que quedar libre")
+
+    async def test_el_lanzador_ya_no_toca_el_registro(self):
+        """El `registrar`/`liberar` vive donde está el trabajo, no en el
+        wrapper que solo hace `create_task`."""
+        import inspect
+        from routers import cmv40 as r
+        src = inspect.getsource(r._cmv40_launch_phase)
+        self.assertNotIn("workload.registrar", src)
+        self.assertNotIn("workload.liberar", src)
+
+
 if __name__ == "__main__":
     unittest.main()

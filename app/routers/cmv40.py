@@ -720,6 +720,20 @@ async def _run_cmv40_phase_locked(
         record = CMv40PhaseRecord(phase=phase_name, started_at=started, status="running")
         session.phase_history.append(record)
         _cmv40_marcar_activa(session, phase_name)   # ← bloquea la UI en modo modal
+        # El hueco de trabajo pesado se ocupa AQUÍ, no en `_cmv40_launch_phase`:
+        # allí se registraba antes de los guards, así que un disparo duplicado
+        # —que es sistemático, el frontend y el backend disparan los dos—
+        # registraba sobre la misma clave, rebotaba en el guard de in-flight y
+        # su `finally` **liberaba el hueco con la fase real todavía corriendo**.
+        # A partir de ahí otro proyecto o cualquier pestaña podía arrancar
+        # trabajo pesado, y `hay_contencion()` daba una medición limpia sobre un
+        # NAS ocupado — envenenando `_adaptive_timeout` y el modelo de ETA, que
+        # es justo lo que este registro existe para evitar. Visto en producción
+        # el 2026-09-04 (Predator Badlands: «⏭ Fase inject ignorada — ya hay
+        # otra fase (extract) en curso», y ese inject soltó el hueco).
+        # Dentro del lock la ocupación y el trabajo real son lo mismo.
+        workload.registrar(session.id, workload.TAB_CMV40,
+                           f"{phase_name} de {session.output_mkv_name or session.id}")
         # Este save está FUERA del try de la fase, así que una excepción aquí
         # no se registra como fallo de fase: sube hasta el `except: pass` del
         # lanzador y el job muere en silencio con `running_phase` pegado en
@@ -819,6 +833,7 @@ async def _run_cmv40_phase_locked(
         finally:
             _cmv40_active_procs.pop(session.id, None)
             _cmv40_marcar_libre(session)  # ← desbloquea la UI
+            workload.liberar(session.id)
             # La barra pertenece a la fase que acaba de terminar: dejarla
             # puesta haría que la siguiente arrancara mostrando el progreso
             # de la anterior hasta su primer tick.
@@ -864,18 +879,15 @@ def _cmv40_launch_phase(
     fenicia'.
     """
     async def _run():
-        # El hueco de trabajo pesado se ocupa con la CLAVE DE LA SESIÓN: así un
-        # proyecto que avanza a su fase siguiente no se bloquea a sí mismo, y
-        # otro proyecto (o otra pestaña) sí.
-        workload.registrar(session.id, workload.TAB_CMV40,
-                           f"{phase_name} de {session.output_mkv_name or session.id}")
+        # Aquí NO se ocupa el hueco de `workload`: eso pasa dentro de
+        # `_run_cmv40_phase_locked`, cuando los guards ya han dejado claro que
+        # hay trabajo real. Registrarlo antes hacía que un disparo duplicado
+        # liberase el hueco de la fase que sí estaba corriendo.
         try:
             await _run_cmv40_phase(session, phase_name, coro_factory, new_phase)
         except Exception:
             _logger.exception(
                 "Fallo no capturado al lanzar una fase CMv4.0 (sid=%s)", session.id)
-        finally:
-            workload.liberar(session.id)
 
     asyncio.create_task(_run())
 
