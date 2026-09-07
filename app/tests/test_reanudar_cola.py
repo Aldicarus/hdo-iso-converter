@@ -27,6 +27,14 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 
+def _rip(session_id: str):
+    """La cola guarda trabajos tipados desde que es única para las tres
+    pestañas; antes era una lista de `session_id` pelados."""
+    from queue_manager import TIPO_RIP, TrabajoEnCola
+    return TrabajoEnCola(tab="rip", tipo=TIPO_RIP, clave=session_id,
+                         que=f"rip de {session_id}")
+
+
 class ColaCase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
@@ -81,7 +89,7 @@ class TestElRecoveryDistingueLosDosCasos(ColaCase):
         import storage
         from routers import tab1
         self.sesion("esperando", "queued")
-        self.cola._queue.append("esperando")
+        self.cola._queue.append(_rip("esperando"))
         tab1.recuperar_sesiones_interrumpidas()
         s = storage.load_session("esperando")
         self.assertEqual(s.status, "queued", "se ha perdido su sitio en la cola")
@@ -107,7 +115,7 @@ class TestLaColaArranca(ColaCase):
 
         self.cola.set_run_fn(_run)
         self.sesion("job1", "queued")
-        self.cola._queue.append("job1")
+        self.cola._queue.append(_rip("job1"))
 
         await tab1.reanudar_cola()
         for _ in range(60):
@@ -134,14 +142,15 @@ class TestLaColaArranca(ColaCase):
 
         self.cola.set_run_fn(_run)
         self.sesion("viva", "queued")
-        self.cola._queue.extend(["fantasma", "viva"])
+        self.cola._queue.extend([_rip("fantasma"), _rip("viva")])
 
         await tab1.reanudar_cola()
         for _ in range(60):
             await asyncio.sleep(0.05)
             if arrancados:
                 break
-        self.assertNotIn("fantasma", self.cola._queue + arrancados)
+        self.assertNotIn("fantasma",
+                         [t.clave for t in self.cola._queue] + arrancados)
         self.assertEqual(arrancados, ["viva"])
 
 

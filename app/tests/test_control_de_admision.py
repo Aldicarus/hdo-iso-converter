@@ -223,7 +223,7 @@ class TestLaColaEspera(unittest.IsolatedAsyncioTestCase):
     async def test_no_arranca_mientras_haya_trabajo_pesado(self):
         import asyncio
 
-        from queue_manager import QueueManager
+        from queue_manager import TIPO_RIP, QueueManager, TrabajoEnCola
         cola = QueueManager()
         cola._persist_state = lambda: None
         arrancados = []
@@ -233,7 +233,9 @@ class TestLaColaEspera(unittest.IsolatedAsyncioTestCase):
 
         cola.set_run_fn(_run)
         workload.registrar("otro", workload.TAB_MKV, "análisis extendido")
-        cola._queue.append("job1")
+        # La cola guarda trabajos tipados desde que es única.
+        cola._queue.append(TrabajoEnCola(tab="rip", tipo=TIPO_RIP,
+                                         clave="job1", que="rip de job1"))
         tarea = asyncio.create_task(cola._process())
         await asyncio.sleep(0.05)
         self.assertEqual(arrancados, [], "ha arrancado con la casa ocupada")

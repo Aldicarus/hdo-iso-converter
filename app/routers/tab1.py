@@ -199,10 +199,14 @@ async def reanudar_cola() -> None:
     if not en_cola:
         return
     vivas = [sid for sid in en_cola if load_session(sid) is not None]
-    fantasmas = len(en_cola) - len(vivas)
+    fantasmas = set(en_cola) - set(vivas)
     if fantasmas:
-        await queue_manager.reorder(vivas)
-        _logger.info("[Startup] %d id(s) de la cola sin sesión: descartados", fantasmas)
+        # `descartar`, no `reorder`: desde que la cola es única, reordenar
+        # CONSERVA lo que no se menciona (si no, una reordenación del panel de
+        # Tab 1 se llevaría las fases CMv4.0 que hubiera detrás).
+        await queue_manager.descartar(fantasmas)
+        _logger.info("[Startup] %d id(s) de la cola sin sesión: descartados",
+                     len(fantasmas))
     if vivas:
         _logger.info("[Startup] Reanudando la cola con %d trabajo(s)", len(vivas))
         asyncio.create_task(queue_manager._process())

@@ -155,7 +155,10 @@ class ApiTestCase(unittest.TestCase):
         import queue_manager as _qm
         self.encolados: list[str] = []
         cola = self.main.queue_manager
-        self._cola_estado = (list(cola._queue), cola._running, cola._run_fn)
+        # `_runners` es un dict tipo→corutina desde que la cola es única;
+        # antes era un solo `_run_fn`.
+        self._cola_estado = (list(cola._queue), cola._running,
+                             dict(cola._runners))
         cola._queue.clear()
         cola._running = None
         self._orig_enqueue = cola.enqueue
@@ -171,7 +174,8 @@ class ApiTestCase(unittest.TestCase):
         def _restaurar_cola():
             cola._queue[:] = self._cola_estado[0]
             cola._running = self._cola_estado[1]
-            cola._run_fn = self._cola_estado[2]
+            cola._runners.clear()
+            cola._runners.update(self._cola_estado[2])
             cola.enqueue = self._orig_enqueue
             cola._persist_state = self._orig_persist
 
