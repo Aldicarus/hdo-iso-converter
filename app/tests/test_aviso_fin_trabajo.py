@@ -114,11 +114,23 @@ class AvisoCase(unittest.IsolatedAsyncioTestCase):
         return json.loads(r.stdout or "null")
 
 
+def _actividad(*tab_ids) -> dict:
+    """La respuesta de `/api/activity` con esos tabs ocupados.
+
+    Un solo endpoint para los tres tabs: antes eran dos peticiones y a Tab 2
+    se le preguntaba solo por la copia desde biblioteca, así que un análisis
+    extendido terminaba sin avisar.
+    """
+    return {"/api/activity": {
+        "ocupado": bool(tab_ids),
+        "trabajos": [{"clave": f"k-{t}", "tab_id": t, "que": "algo",
+                      "segundos": 30, "descripcion": "algo"} for t in tab_ids]}}
+
+
 class TestLaTransicion(AvisoCase):
     """El aviso salta al pasar de 'hay trabajo' a 'no hay'."""
 
-    RESP_LIBRE = {"/api/mkv/apply/progress": {"active": False},
-                  "/api/cmv40-active": {"active": False}}
+    RESP_LIBRE = _actividad()
 
     async def test_un_job_que_termina_hace_parpadear_el_titulo(self):
         out = self.correr("""
@@ -137,10 +149,33 @@ class TestLaTransicion(AvisoCase):
           _avisoTimer = 1;
           await _avisoTick();
           process.stdout.write(JSON.stringify({titulo: document.title, timer: _avisoTimer}));
-        """, respuestas={"/api/mkv/apply/progress": {"active": False},
-                         "/api/cmv40-active": {"active": True}})
+        """, respuestas=_actividad('cmv40'))
         self.assertNotIn("terminado", out["titulo"])
         self.assertEqual(out["timer"], 1, "sigue vigilando")
+
+    async def test_el_analisis_extendido_de_tab_2_cuenta_como_trabajo(self):
+        """El caso que este aviso se perdía.
+
+        Se preguntaba solo por `/api/mkv/apply/progress`, o sea la copia desde
+        biblioteca. El análisis extendido —diez minutos de `extract-rpu`, el
+        trabajo más largo de esa pestaña— no salía por ahí, así que terminaba
+        sin avisar. Ahora los tres tabs salen del registro de `workload`, que
+        es donde el análisis extendido sí se apunta.
+        """
+        out = self.correr("""
+          const st = await _leerTrabajosActivos();
+          process.stdout.write(JSON.stringify(st));
+        """, respuestas=_actividad('mkv'))
+        self.assertTrue(out["2"], "un análisis extendido en curso no se veía")
+
+    async def test_al_terminar_el_analisis_extendido_avisa(self):
+        out = self.correr("""
+          _avisoTrabajosPrevios = {1: false, 2: true, 3: false};
+          await _avisoTick();
+          process.stdout.write(JSON.stringify(document.title));
+        """, respuestas=_actividad())
+        self.assertIn("terminado", out)
+        self.assertIn("MKV", out)
 
     async def test_avisa_del_tab_correcto(self):
         out = self.correr("""
@@ -211,14 +246,13 @@ class TestElContextoInseguro(AvisoCase):
 class TestElTrafico(AvisoCase):
     """La razón por la que esto no pollea a lo tonto."""
 
-    async def test_un_tick_son_dos_peticiones(self):
+    async def test_un_tick_es_una_sola_peticion(self):
         out = self.correr("""
           _avisoTrabajosPrevios = {1: false, 2: false, 3: false};
           await _avisoTick();
           process.stdout.write(JSON.stringify(globalThis.__peticiones));
-        """, respuestas={"/api/mkv/apply/progress": {"active": False},
-                         "/api/cmv40-active": {"active": False}})
-        self.assertEqual(len(out), 2, out)
+        """, respuestas=_actividad())
+        self.assertEqual(out, ["/api/activity"], out)
         self.assertNotIn("/api/cmv40", out, "el endpoint gordo no, el de memoria")
 
     async def test_tab1_sale_de_queueState_sin_pedir_nada(self):
@@ -226,8 +260,7 @@ class TestElTrafico(AvisoCase):
         out = self.correr("""
           const st = await _leerTrabajosActivos();
           process.stdout.write(JSON.stringify({st, peticiones: globalThis.__peticiones}));
-        """, respuestas={"/api/mkv/apply/progress": {"active": False},
-                         "/api/cmv40-active": {"active": False}},
+        """, respuestas=_actividad(),
              queue_state={"running": "Peli_2024", "queue": []})
         self.assertTrue(out["st"]["1"])
         self.assertNotIn("/api/queue", out["peticiones"])

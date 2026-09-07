@@ -1191,17 +1191,26 @@ async function pedirPermisoNotificaciones() {
   catch (_) { return 'denied'; }
 }
 
-/** Lee el estado de trabajo de los tres tabs. Silencioso: es background. */
+/**
+ * Lee el estado de trabajo de los tres tabs. Silencioso: es background.
+ *
+ * Una sola petición a `/api/activity`, que es el registro de trabajo pesado de
+ * toda la app y se responde desde memoria. Antes eran dos, y a Tab 2 se le
+ * preguntaba solo por la copia desde biblioteca: **un análisis extendido de
+ * diez minutos terminaba sin avisar**, que es justo el caso para el que existe
+ * este aviso.
+ *
+ * Tab 1 sale de `queueState` (en memoria, lo llena el WS de la cola) porque
+ * cuenta también lo *encolado*, y `activity` solo conoce lo que corre.
+ */
 async function _leerTrabajosActivos() {
   const estado = { 1: false, 2: false, 3: false };
   estado[1] = !!(queueState && (queueState.running ||
                                 (queueState.queue && queueState.queue.length)));
-  const [apply, cmv40] = await Promise.all([
-    apiFetch('/api/mkv/apply/progress', { silent: true }).catch(() => null),
-    apiFetch('/api/cmv40-active', { silent: true }).catch(() => null),
-  ]);
-  estado[2] = !!(apply && apply.active);
-  estado[3] = !!(cmv40 && cmv40.active);
+  const act = await apiFetch('/api/activity', { silent: true }).catch(() => null);
+  const trabajos = (act && act.trabajos) || [];
+  estado[2] = trabajos.some(t => t.tab_id === 'mkv');
+  estado[3] = trabajos.some(t => t.tab_id === 'cmv40');
   return estado;
 }
 

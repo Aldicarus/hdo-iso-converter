@@ -319,6 +319,54 @@ class TestElHuecoDuraLoQueDuraLaFase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(workload.bloqueado_por(),
                           "al terminar la fase el hueco tiene que quedar libre")
 
+    async def test_una_fase_que_falla_suelta_el_hueco(self):
+        """La garantía es el `finally`, no el camino feliz.
+
+        Si una fase que revienta se queda con el hueco, la aplicación entera
+        contesta 409 «ya hay trabajo pesado en curso» hasta que se reinicie el
+        contenedor — y sin una sola línea que lo explique, porque el error de
+        la fase sí se registra pero el hueco no aparece en ninguna parte.
+        """
+        import asyncio
+        from routers import cmv40 as r
+
+        def _factory(log_cb, proc_cb):
+            async def _fase():
+                raise RuntimeError("dovi_tool se cayó")
+            return _fase()
+
+        await asyncio.wait_for(
+            r._run_cmv40_phase(self.session, "inject", _factory, "injected"),
+            timeout=5)
+        self.assertIsNone(
+            workload.bloqueado_por(),
+            "una fase que falla tiene que soltar el hueco igual que una que "
+            "termina bien")
+
+    async def test_una_fase_cancelada_suelta_el_hueco(self):
+        """`cmv40_cancel` libera `running_phase` pero NO toca el registro, a
+        propósito: el hueco se suelta por la clave propia en el `finally` de la
+        tarea que lo tomó. Si esa cadena se rompe, cancelar deja la casa
+        ocupada para siempre — y cancelar es justo lo que hace el usuario
+        cuando algo va mal."""
+        import asyncio
+        import storage
+        from routers import cmv40 as r
+        from phases.cmv40_pipeline import CMv40Cancelled
+
+        def _factory(log_cb, proc_cb):
+            async def _fase():
+                raise CMv40Cancelled()
+            return _fase()
+
+        await asyncio.wait_for(
+            r._run_cmv40_phase(self.session, "inject", _factory, "injected"),
+            timeout=5)
+        self.assertIsNone(workload.bloqueado_por(),
+                          "cancelar dejó el hueco ocupado")
+        s = storage.load_cmv40_session(self.session.id)
+        self.assertIsNone(s.running_phase, "y la UI se quedaría bloqueada")
+
     async def test_el_lanzador_ya_no_toca_el_registro(self):
         """El `registrar`/`liberar` vive donde está el trabajo, no en el
         wrapper que solo hace `create_task`."""
