@@ -767,6 +767,38 @@ modelo por tamaño saldría malo: el ritmo va de **38 a 253 MB/s** —factor 6,6
 con un error del 173 % en el peor caso. El de la serie sí es un modelo (media
 por episodio terminado) y va marcado.
 
+#### Los iconos: SVG, no emoji
+
+Los emoji los dibuja el sistema operativo: cambian de forma y de color entre
+máquinas, no heredan la paleta y a un ⏳ o un ⬜ no hay manera de quitarles el
+aire de conversación de chat. Un `<svg>` con `currentColor` hereda el color, se
+anima con CSS y pesa lo mismo que un carácter.
+
+`iconoDeTrabajo(tipo)` e `iconoDeEstado(estado)` (en `workbar.js`) devuelven un
+**chip**: fondo con la variante `-dim` de la paleta y trazo con la sólida — de
+ahí sale el aspecto pastel **sin inventar colores**. El trazo es 1.6 con
+extremos redondeados sobre rejilla de 24, que es lo que los hace leerse como
+una familia (el criterio de Material Symbols en su variante *outlined*).
+
+- **El tamaño va en el chip, no en el SVG** (`icono-chip-sm|lg`): el mismo
+  icono sirve en la columna y en la cabecera del modal sin tocar el marcado.
+- **El color lo lleva el TIPO; el estado va neutro** salvo cuando significa
+  algo (verde en marcha, rojo error). Un reloj ámbar competía con el icono del
+  tipo y sugería alarma donde solo hay turno.
+- **Solo «en curso» se anima**, con un arco abierto que gira. Si se animaran
+  todos, el movimiento no distinguiría nada. Se respeta
+  `prefers-reduced-motion`.
+- **El icono del modal sale del `tipo`, no de la vista.** Si cada vista trajera
+  el suyo, la columna y el modal podrían acabar enseñando distintos para el
+  mismo trabajo.
+
+**Ninguna variable CSS puede usarse sin definirse**, y lo guarda un test. Una
+`var()` que no existe **invalida la declaración entera** y el estilo cae al
+heredado, que casi siempre se parece lo bastante para no notarlo: había cuatro
+así en CSS vivo (`--text`, `--accent`, `--text-secondary`, `--font-stack`) y
+una quinta recién metida (`--border`, cuando la app usa `--sep`) que dejaba los
+bordes de la columna sin pintar.
+
 #### El modal de detalle
 
 Un armazón para los cinco: cabecera, tira de fases, barra, transcurrido/ETA,

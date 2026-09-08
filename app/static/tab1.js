@@ -5274,7 +5274,6 @@ registrarDetalleDeTrabajo('rip', async (a) => {
   // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
   const s = await apiFetch(`/api/sessions/${a.id}`, { silent: true }).catch(() => null);
   return {
-    icono: '💿',
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
     pasos: ['Abrir origen', 'Extraer pistas', 'Metadatos', 'Cerrar origen'],
@@ -5290,7 +5289,6 @@ registrarDetalleDeTrabajo('serie', async (a) => {
   const hechos = (p?.completed || []).length;
   const fallidos = (p?.failed || []).length;
   return {
-    icono: '📺',
     titulo: a.que,
     sub: p?.current_label || '',
     pasos: ['Preparar origen', 'Analizar episodios', 'Crear proyectos'],

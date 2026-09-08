@@ -75,8 +75,14 @@ function _workbarActivoHTML(a) {
     <div class="workbar-seccion">
       <div class="workbar-seccion-titulo">En curso</div>
       <div class="workbar-activo">
-        <div class="workbar-activo-que">${escHtml(a.que || '')}</div>
-        <div class="workbar-activo-fase">${escHtml(fase)}</div>
+        <div class="workbar-activo-cab">
+          ${iconoDeTrabajo(a.tipo)}
+          <div style="flex:1; min-width:0">
+            <div class="workbar-activo-que">${escHtml(a.que || '')}</div>
+            <div class="workbar-activo-fase">${escHtml(fase)}</div>
+          </div>
+          ${iconoDeEstado('corriendo', 'icono-chip-sm')}
+        </div>
         ${barra}
         <div class="workbar-tiempos">
           <span>${escHtml(izq)}</span>
@@ -117,13 +123,21 @@ function _workbarRender(st) {
       : 'Mostrar u ocultar la columna de trabajo';
   }
 
-  if (!total) {
-    body.innerHTML = '<div class="workbar-vacio">No hay nada en marcha</div>'
-      + _workbarListaHTML('Últimos trabajos', st.recientes.slice(0, 5), r => `
+  // Los últimos trabajos van SIEMPRE, no solo con la casa libre: saber qué
+  // acaba de pasar es la mitad de la pregunta que esta columna responde, y
+  // esconderlo justo cuando hay algo en marcha es esconderlo casi siempre.
+  const recientes = _workbarListaHTML('Últimos trabajos', st.recientes.slice(0, 5), r => `
         <div class="workbar-item">
+          ${iconoDeEstado(r.estado === 'done' ? 'hecho'
+                          : r.estado === 'cancelled' ? 'cancelado' : 'error',
+                          'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(r.que || '')}</span>
           <span class="workbar-item-meta">${escHtml(_workbarTiempo(r.segundos))}</span>
         </div>`);
+
+  if (!total) {
+    body.innerHTML = '<div class="workbar-vacio">No hay nada en marcha</div>'
+                     + recientes;
     return;
   }
 
@@ -131,17 +145,20 @@ function _workbarRender(st) {
     (st.activo ? _workbarActivoHTML(st.activo) : '')
     + _workbarListaHTML('Esperando turno', st.cola, j => `
         <div class="workbar-item">
-          <span class="workbar-item-pos">${j.posicion}</span>
+          ${iconoDeTrabajo(j.tipo, 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(j.que || '')}</span>
+          <span class="workbar-item-pos">${j.posicion}</span>
         </div>`)
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
     + _workbarListaHTML('En paralelo', st.interactivo, t => `
         <div class="workbar-item">
+          ${iconoDeEstado('corriendo', 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(t.que || '')}</span>
           <span class="workbar-item-meta">${escHtml(_workbarTiempo(t.segundos))}</span>
-        </div>`);
+        </div>`)
+    + recientes;
 }
 
 async function refrescarWorkbar() {
@@ -244,8 +261,14 @@ function _trabajoPasosHTML(a, pasos) {
     const n = i + 1;
     const clase = a.fase_n && n < a.fase_n ? 'hecha'
                 : a.fase_n === n ? 'activa' : '';
-    const icono = clase === 'hecha' ? '✓' : clase === 'activa' ? '⏳' : '⬜';
-    return `<div class="trabajo-paso ${clase}">${icono} ${escHtml(p)}</div>`;
+    // La activa gira, la hecha lleva su check y las pendientes solo un punto:
+    // un ⬜ pesaba visualmente lo mismo que un paso ya hecho.
+    const icono = clase === 'hecha'
+      ? iconoDeEstado('hecho', 'icono-chip-sm')
+      : clase === 'activa'
+      ? iconoDeEstado('corriendo', 'icono-chip-sm')
+      : '<span class="trabajo-paso-punto"></span>';
+    return `<div class="trabajo-paso ${clase}">${icono}${escHtml(p)}</div>`;
   }).join('');
 }
 
@@ -254,7 +277,8 @@ function _trabajoModalPinta(a, vista) {
     const el = document.getElementById(id);
     if (el) el.textContent = txt;
   };
-  set('trabajo-modal-icono', vista.icono || '⚙︎');
+  const iconoEl = document.getElementById('trabajo-modal-icono');
+  if (iconoEl) iconoEl.innerHTML = iconoDeTrabajo(a.tipo, 'icono-chip-lg');
   set('trabajo-modal-titulo', vista.titulo || a.que || 'Trabajo');
   set('trabajo-modal-sub', vista.sub || '');
   const pasos = document.getElementById('trabajo-modal-pasos');
@@ -334,4 +358,71 @@ async function _trabajoModalAbrir(a) {
   await refrescar();
   if (_trabajoModalTimer) clearInterval(_trabajoModalTimer);
   _trabajoModalTimer = setInterval(refrescar, 1500);
+}
+
+// ── Iconos ───────────────────────────────────────────────────────────────────
+// SVG en línea, no emoji. Los emoji los dibuja el sistema operativo: cambian de
+// forma y de color entre máquinas, no heredan la paleta y a un ⏳ o un ⬜ no hay
+// manera de quitarles el aire de chat. Un `<svg>` con `currentColor` sí hereda,
+// se anima con CSS y pesa lo mismo que un carácter.
+//
+// El trazo es de 1.6 con extremos redondeados sobre una rejilla de 24, que es
+// lo que hace que se lean como una familia — el mismo criterio de Material
+// Symbols en su variante `outlined`. El color va en un chip: fondo con la
+// variante `-dim` de la paleta y trazo con la sólida, que es de donde sale el
+// aspecto pastel sin inventar colores nuevos.
+
+/** Envuelve un `path` en el `<svg>` común. Todo comparte rejilla y trazo. */
+function _svg(cuerpo, extra = '') {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+    aria-hidden="true"${extra}>${cuerpo}</svg>`;
+}
+
+/** Por TIPO de trabajo: dice qué se está haciendo. */
+const _ICONOS_TRABAJO = {
+  // Disco: dos círculos concéntricos, como el `album` de Material.
+  rip: ['azul', _svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>')],
+  // Pantalla con antena: una serie de televisión.
+  crear_serie: ['morado', _svg('<rect x="3" y="7.5" width="18" height="12.5" rx="2"/>'
+                             + '<path d="m8 3.5 4 4 4-4"/>')],
+  // Lupa sobre una onda: analizar la señal, no "buscar un fichero".
+  analisis_extendido: ['turquesa', _svg('<circle cx="10.5" cy="10.5" r="6.5"/>'
+                                      + '<path d="m20 20-4.6-4.6"/>'
+                                      + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>')],
+  // Flecha entrando en una bandeja: copiar hacia Output.
+  copia_biblioteca: ['turquesa', _svg('<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
+                                    + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>')],
+  // Destellos: el upgrade de metadata, sin tocar la imagen.
+  fase_cmv40: ['naranja', _svg('<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
+                             + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>')],
+};
+
+/** Por ESTADO: dice en qué punto está. */
+const _ICONOS_ESTADO = {
+  // Arco abierto que gira. Sustituye al ⏳: un reloj de arena sugiere que hay
+  // que esperar sin hacer nada, y esto sugiere que algo se mueve.
+  corriendo: ['verde', _svg('<circle cx="12" cy="12" r="8.5" stroke-dasharray="40 14"/>',
+                            ' class="icono-girando"')],
+  // Reloj, no reloj de arena: es "le toca a las y cuarto", no "aguanta".
+  en_cola: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>')],
+  hecho:   ['verde', _svg('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')],
+  error:   ['rojo',  _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v4.6"/>'
+                        + '<path d="M12 16.1h.01"/>')],
+  cancelado: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
+};
+
+/** El chip con su icono. `clase` añade tamaño (`icono-chip-sm`). */
+function _chipIcono(par, clase = '') {
+  if (!par) return '';
+  const [tono, svg] = par;
+  return `<span class="icono-chip icono-${tono} ${clase}">${svg}</span>`;
+}
+
+function iconoDeTrabajo(tipo, clase = '') {
+  return _chipIcono(_ICONOS_TRABAJO[tipo], clase);
+}
+
+function iconoDeEstado(estado, clase = '') {
+  return _chipIcono(_ICONOS_ESTADO[estado], clase);
 }

@@ -8153,13 +8153,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-family: inherit;
 }
 .ctt-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--blue);
   background: var(--surface-2);
 }
 .ctt-btn.active {
-  border-color: var(--accent);
+  border-color: var(--blue);
   background: rgba(30, 111, 230, 0.10);
-  box-shadow: 0 0 0 1px var(--accent) inset;
+  box-shadow: 0 0 0 1px var(--blue) inset;
 }
 
 .ctt-icon {
@@ -8257,8 +8257,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--text-2);
   cursor: pointer;
 }
-.src-fb-sort:hover { border-color: var(--accent); }
-.src-fb-sort:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.src-fb-sort:hover { border-color: var(--blue); }
+.src-fb-sort:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 .src-fb-list {
   max-height: 380px;
@@ -8319,7 +8319,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 2px 6px;
   border-radius: 8px;
   font-weight: 600;
-  font-family: var(--font-stack);
+  font-family: inherit;
 }
 .src-fb-row .src-fb-check {
   width: 14px;
@@ -9001,7 +9001,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .settings-aviso-row { flex-wrap: wrap; gap: 14px; align-items: center; }
 .settings-check {
   display: inline-flex; align-items: center; gap: 7px;
-  font-size: 13px; color: var(--text); cursor: pointer; user-select: none;
+  font-size: 13px; color: var(--text-1); cursor: pointer; user-select: none;
 }
 .settings-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; margin: 0; }
 .settings-check span { line-height: 1; }
@@ -9011,7 +9011,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .globals-mkv-chip--size {
   background: rgba(0, 122, 255, 0.08);
   border-color: rgba(0, 122, 255, 0.22);
-  color: var(--text-secondary);
+  color: var(--text-2);
 }
 
 /* ── Comparador A/B del perfil de luminancia (Tab 2) ──────────────── */
@@ -9021,21 +9021,21 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border: 1px solid rgba(225, 29, 72, 0.16);
   border-radius: 10px;
 }
-.dv-cmp-head { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.dv-cmp-head { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
 .dv-cmp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .dv-cmp-table th {
-  text-align: right; font-weight: 600; color: var(--text-secondary);
+  text-align: right; font-weight: 600; color: var(--text-2);
   padding: 3px 8px; border-bottom: 1px solid rgba(15,23,42,0.08);
 }
 .dv-cmp-table th:first-child { text-align: left; }
-.dv-cmp-table td { padding: 3px 8px; color: var(--text); }
+.dv-cmp-table td { padding: 3px 8px; color: var(--text-1); }
 .dv-cmp-table .cmp-num { text-align: right; font-family: 'SF Mono', monospace; }
 .cmp-up   { color: #059669; font-weight: 600; }
 .cmp-down { color: #dc2626; font-weight: 600; }
-.cmp-flat { color: var(--text-secondary); }
+.cmp-flat { color: var(--text-2); }
 .cmp-aviso {
   margin-top: 9px; font-size: 12px; line-height: 1.45;
-  color: var(--text-secondary);
+  color: var(--text-2);
 }
 
 /* ── Columna de trabajo ────────────────────────────────────────────
@@ -9051,7 +9051,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-shrink: 0;
   display: flex;
   background: rgba(235, 235, 240, 0.98);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--sep);
   transition: width 0.18s ease;
   overflow: hidden;
 }
@@ -9071,7 +9071,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-right: 1px solid transparent;
 }
 .workbar-toggle:hover { background: rgba(0,0,0,0.04); color: var(--text-1); }
-#workbar:not(.collapsed) .workbar-toggle { border-right-color: var(--border); }
+#workbar:not(.collapsed) .workbar-toggle { border-right-color: var(--sep); }
 
 .workbar-inner {
   flex: 1;
@@ -9100,7 +9100,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 .workbar-activo {
   background: var(--surface-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--sep);
   border-left: 3px solid var(--green);
   border-radius: 8px;
   padding: 10px 11px;
@@ -9196,7 +9196,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .trabajo-detalle-vacio {
   padding: 16px; margin-top: 10px;
-  border: 1px dashed var(--border); border-radius: 8px;
+  border: 1px dashed var(--sep); border-radius: 8px;
   font-size: 11px; color: var(--text-3); text-align: center;
 }
 .trabajo-kv {
@@ -9206,3 +9206,74 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .trabajo-kv dt { color: var(--text-3); }
 .trabajo-kv dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* ── Iconos de trabajo ─────────────────────────────────────────────
+   Chip redondeado con el icono dentro: fondo con la variante `-dim` de la
+   paleta y trazo con la sólida. De ahí sale el aspecto pastel sin inventar
+   colores — son los mismos que usa el resto de la aplicación.
+
+   El tamaño va en el chip, no en el SVG: así un icono se puede reusar en la
+   columna (24px) y en la cabecera del modal (34px) sin tocar el marcado. */
+.icono-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.icono-chip svg { width: 17px; height: 17px; display: block; }
+
+.icono-chip-sm    { width: 20px; height: 20px; border-radius: 6px; }
+.icono-chip-sm svg { width: 13px; height: 13px; }
+.icono-chip-lg    { width: 34px; height: 34px; border-radius: 10px; }
+.icono-chip-lg svg { width: 21px; height: 21px; }
+
+.icono-azul     { background: var(--blue-dim);    color: var(--blue); }
+.icono-verde    { background: var(--green-dim);   color: var(--green); }
+.icono-naranja  { background: var(--orange-dim);  color: var(--orange); }
+.icono-rojo     { background: var(--red-dim);     color: var(--red); }
+.icono-morado   { background: rgba(175, 82, 222, 0.12); color: var(--purple); }
+.icono-turquesa { background: rgba(50, 173, 230, 0.14); color: var(--teal); }
+.icono-gris     { background: rgba(0, 0, 0, 0.06);      color: var(--text-3); }
+
+/* «En curso» tiene que verse en movimiento sin llamar la atención: un arco
+   abierto que gira, no un parpadeo. `transform-origin` al centro de la rejilla
+   de 24 — sin él el arco describe una órbita en vez de girar sobre sí. */
+.icono-girando { animation: icono-giro 1.15s linear infinite; transform-origin: 50% 50%; }
+@keyframes icono-giro { to { transform: rotate(360deg); } }
+
+/* Respeta a quien pidió menos movimiento en su sistema. */
+@media (prefers-reduced-motion: reduce) {
+  .icono-girando { animation: none; }
+  .workbar-barra.indeterminada .workbar-barra-fill { animation: none; width: 100% !important; opacity: .45; }
+}
+
+/* La cabecera de la tarjeta activa: icono · texto · estado. */
+.workbar-activo-cab { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 8px; }
+.workbar-activo-cab .workbar-activo-fase { margin-bottom: 0; }
+
+/* El puesto en la cola pasa a la derecha, discreto: lo primero que hay que
+   leer es QUÉ espera, no en qué número va. */
+.workbar-item-pos {
+  margin-left: auto;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  width: auto; height: auto;
+}
+.workbar-item-pos::before { content: '#'; opacity: .55; }
+
+/* Un paso pendiente de la tira: un punto, no un cuadro. Un ⬜ pesaba
+   visualmente lo mismo que un paso ya hecho y la tira se leía plana. */
+.trabajo-paso-punto {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--surface-4);
+  flex-shrink: 0;
+}
+.trabajo-paso { align-items: center; }
+.trabajo-paso .icono-chip { background: transparent; }
+
+/* La cabecera del modal ya no lleva un emoji dentro, sino el chip. */
+#trabajo-modal-icono { display: flex; align-items: center; justify-content: center; }

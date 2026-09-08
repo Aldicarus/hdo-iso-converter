@@ -46,6 +46,19 @@ def _fn(nombre: str) -> str:
     return JS[JS.rindex("\n", 0, i) + 1:JS.index("\n}\n", i) + 3]
 
 
+def _bloque(marca: str) -> str:
+    i = JS.index(marca)
+    return JS[i:JS.index("\n};\n", i) + 4]
+
+
+def _iconos() -> str:
+    """Lo que hace falta para que el marcado de los iconos se pueda evaluar."""
+    return "\n".join([_bloque("const _ICONOS_TRABAJO = {"),
+                      _bloque("const _ICONOS_ESTADO = {"),
+                      _fn("_svg"), _fn("_chipIcono"),
+                      _fn("iconoDeTrabajo"), _fn("iconoDeEstado")])
+
+
 def _node(guion: str) -> dict:
     r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
@@ -109,6 +122,7 @@ globalThis.document = {{ hidden: false, getElementById: id => _els[id] || null }
 let _peticiones = [];
 globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return {json.dumps(None)} ?? RESP; }};
 globalThis.escHtml = t => String(t);
+{_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}

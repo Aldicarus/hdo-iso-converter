@@ -3648,9 +3648,9 @@ function _renderCMv40ActivePhase(project) {
       ? `<div style="font-size:12px; color:var(--text-2)">Esperando a: ${escHtml(c.por_delante)}</div>`
       : '';
     colaHtml = `
-      <div class="section-card" style="margin-top:12px; border:1px solid var(--amber)">
+      <div class="section-card" style="margin-top:12px; border:1px solid var(--orange-border)">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
-          <span style="font-size:20px">⏳</span>
+          ${iconoDeEstado('en_cola')}
           <div style="flex:1">
             <div style="font-weight:600; margin-bottom:2px">
               ${escHtml(CMV40_RUNNING_LABELS[c.fase] || c.fase)} en cola — ${posicion}
@@ -6541,7 +6541,6 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
   const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
     .catch(() => null);
   return {
-    icono: '✨',
     titulo: s?.output_mkv_name || a.que,
     sub: s?.source_mkv_name || '',
     pasos: ['Analizar origen', 'RPU target', 'Extraer BL/EL', 'Verificar sync',

@@ -42,6 +42,20 @@ def _fn(nombre: str) -> str:
     return JS[JS.rindex("\n", 0, i) + 1:JS.index("\n}\n", i) + 3]
 
 
+def _bloque(marca: str) -> str:
+    """Un objeto literal de nivel superior, tal cual."""
+    i = JS.index(marca)
+    return JS[i:JS.index("\n};\n", i) + 4]
+
+
+def _iconos() -> str:
+    """Lo que hace falta para que el marcado de los iconos se pueda evaluar."""
+    return "\n".join([_bloque("const _ICONOS_TRABAJO = {"),
+                      _bloque("const _ICONOS_ESTADO = {"),
+                      _fn("_svg"), _fn("_chipIcono"),
+                      _fn("iconoDeTrabajo"), _fn("iconoDeEstado")])
+
+
 def _node(guion: str) -> dict:
     r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
@@ -74,12 +88,13 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 }}
 globalThis.document = {{ getElementById: id => _els[id] || null }};
 globalThis.escHtml = t => String(t);
+{_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_trabajoPasosHTML')}
 {_fn('_trabajoModalPinta')}
 _trabajoModalPinta({json.dumps(activo)}, {json.dumps(vista)});
 console.log(JSON.stringify({{
-  icono: _els['trabajo-modal-icono'].textContent,
+  icono: _els['trabajo-modal-icono'].innerHTML,
   titulo: _els['trabajo-modal-titulo'].textContent,
   sub: _els['trabajo-modal-sub'].textContent,
   pasos: _els['trabajo-modal-pasos'].innerHTML,
@@ -94,17 +109,27 @@ console.log(JSON.stringify({{
         return _node(guion)
 
     def test_la_cabecera_sale_de_la_vista_del_tipo(self):
-        r = self._pintar(ACTIVO, {"icono": "✨", "titulo": "Predator.mkv",
+        r = self._pintar(ACTIVO, {"titulo": "Predator.mkv",
                                   "sub": "origen.mkv", "pasos": [], "cuerpo": ""})
-        self.assertEqual(r["icono"], "✨")
         self.assertEqual(r["titulo"], "Predator.mkv")
         self.assertEqual(r["sub"], "origen.mkv")
 
+    def test_el_icono_lo_deriva_del_TIPO_no_de_la_vista(self):
+        """Si cada vista trajera el suyo, la columna y el modal podrían acabar
+        enseñando iconos distintos para el mismo trabajo."""
+        r = self._pintar(ACTIVO, {"titulo": "X", "pasos": []})
+        self.assertIn("icono-naranja", r["icono"], "fase_cmv40 va en naranja")
+        self.assertIn("icono-chip-lg", r["icono"])
+
     def test_la_tira_marca_hechas_activa_y_pendientes(self):
         r = self._pintar(ACTIVO, {"pasos": ["A", "B", "C", "D"]})
-        self.assertEqual(r["pasos"].count("hecha"), 2, "las dos anteriores")
-        self.assertEqual(r["pasos"].count("activa"), 1)
-        self.assertIn("⬜ D", r["pasos"])
+        self.assertEqual(r["pasos"].count("trabajo-paso hecha"), 2,
+                         "las dos anteriores")
+        self.assertEqual(r["pasos"].count("trabajo-paso activa"), 1)
+        # La activa gira; las pendientes son un punto, no un cuadro que pesa
+        # lo mismo que un paso ya hecho.
+        self.assertEqual(r["pasos"].count("icono-girando"), 1)
+        self.assertIn("trabajo-paso-punto", r["pasos"])
 
     def test_con_porcentaje_medido_la_barra_avanza(self):
         r = self._pintar(ACTIVO, {"pasos": []})
@@ -140,6 +165,7 @@ class TestElCuerpoSegunElTipo(unittest.TestCase):
     def _correr(self, fn_nombre, arg) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_iconos()}
 {_fn(fn_nombre)}
 console.log(JSON.stringify({fn_nombre}({json.dumps(arg)})));
 """

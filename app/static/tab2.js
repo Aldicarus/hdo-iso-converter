@@ -3400,7 +3400,6 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
   const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
     .catch(() => null);
   return {
-    icono: '🔬',
     titulo: 'Análisis extendido del RPU',
     sub: st?.file_name || a.que,
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
@@ -3417,7 +3416,6 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
   // La copia no produce log: su detalle son los bytes.
   const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
   return {
-    icono: '📦',
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
     pasos: ['Copiar el MKV', 'Aplicar cambios'],
