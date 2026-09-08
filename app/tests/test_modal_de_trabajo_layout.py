@@ -180,6 +180,11 @@ def _medir(tipo: str) -> dict:
       icono: r(document.getElementById('trabajo-modal-icono')),
       titulo: r(document.getElementById('trabajo-modal-titulo')),
       pie: r(document.querySelector('#trabajo-modal .modal-footer')),
+      cabecera: r(document.querySelector('#trabajo-modal .modal-header')),
+      cancelar: r(document.getElementById('trabajo-modal-cancelar')),
+      copiar: r(document.getElementById('trabajo-modal-copiar')),
+      hayCerrar: [...document.querySelectorAll('#trabajo-modal button')]
+        .some(b => /cerrar/i.test(b.textContent)),
       log: r(log),
       logScroll: log ? {alto: log.scrollHeight, visible: log.clientHeight,
                         pos: log.scrollTop} : null,
@@ -242,14 +247,29 @@ class TestElModalCabeEnLaVentana(unittest.TestCase):
                                  f"{tipo}: se sale por abajo {c['b']} > {v['h']}")
             self.assertLessEqual(round(c["r"]), v["w"], f"{tipo}: se sale por la derecha")
 
-    def test_el_pie_con_los_botones_se_ve(self):
-        """Cancelar y Cerrar viven ahí: fuera de la caja son inalcanzables."""
+    def test_los_botones_viven_en_la_CABECERA(self):
+        """Abajo empujaban el log y le quitaban alto, que es lo único que se
+        mira durante una fase de veinte minutos. Es donde los tenía el
+        overlay."""
         for tipo, d in self.m.items():
-            pie, c = d["pie"], d["caja"]
-            self.assertIsNotNone(pie, tipo)
-            self.assertLessEqual(round(pie["b"]), round(c["b"]) + 1,
-                                 f"{tipo}: el pie cae por debajo de la caja")
-            self.assertGreater(pie["h"], 0, f"{tipo}: el pie no ocupa nada")
+            self.assertIsNone(d["pie"], f"{tipo}: quedó un pie")
+            for cual in ("cancelar", "copiar"):
+                b, cab = d[cual], d["cabecera"]
+                self.assertIsNotNone(b, f"{tipo}: falta el botón {cual}")
+                self.assertLessEqual(round(b["b"]), round(cab["b"]) + 1,
+                                     f"{tipo}: {cual} no está en la cabecera")
+
+    def test_no_hay_boton_de_cerrar(self):
+        """Se cierra con ESC o clicando fuera; un tercer botón solo compite
+        con el de cancelar, que es el que importa."""
+        for tipo, d in self.m.items():
+            self.assertFalse(d["hayCerrar"], tipo)
+
+    def test_el_log_llega_hasta_abajo(self):
+        """Sin pie, lo que sobra es del log."""
+        for tipo, d in self.m.items():
+            self.assertLess(round(d["caja"]["b"]) - round(d["log"]["b"]), 40,
+                            f"{tipo}: sobra hueco bajo el log")
 
     def test_el_icono_va_al_lado_del_titulo_no_encima(self):
         """`.modal-header` tampoco existía en el CSS."""

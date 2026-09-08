@@ -384,6 +384,134 @@ _workbarDetalles['cmv40'] = async (a) => ({{
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")
+class TestElLateralNoSeReescribeSinMotivo(unittest.TestCase):
+    """Reemplazar el innerHTML de la columna en cada tick tiene dos efectos que
+    solo se ven usándola: el scroll vuelve al principio en cuanto el usuario lo
+    mueve, y la animación del icono de la fase en curso se reinicia cada 1,5 s,
+    así que se ve parada. Las dos las reportó el usuario probando en el NAS, y
+    las dos las evitaba ya el overlay con su actualización incremental.
+    """
+
+    def _correr(self, laterales) -> dict:
+        guion = f"""
+const _els = {{}};
+for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
+  'trabajo-modal-timeline','trabajo-modal-barra-wrap','trabajo-modal-barra',
+  'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
+  'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
+  'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
+  'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta']) {{
+  _els[id] = {{ textContent: '', _html: '', dataset: {{}}, style: {{}},
+    escrituras: 0,
+    get innerHTML() {{ return this._html; }},
+    set innerHTML(v) {{ this._html = v; this.escrituras += 1; }},
+    querySelector: () => null, closest: () => null, classList: {{
+      _v: new Set(), toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+      has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
+globalThis.escHtml = t => String(t);
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('timelineDeTrabajo')}
+{_fn('_trabajoCartelPinta')}
+{_fn('_trabajoModalPinta')}
+const _fnLlamadas = [];
+const laterales = {json.dumps(laterales)}.map(
+  l => l === '@fn' ? ((el) => _fnLlamadas.push(el === _els['trabajo-modal-timeline'])) : l);
+for (const lateral of laterales) {{
+  _trabajoModalPinta({json.dumps(ACTIVO)}, {{ lateral, pasos: [] }});
+}}
+console.log(JSON.stringify({{
+  escrituras: _els['trabajo-modal-timeline'].escrituras,
+  html: _els['trabajo-modal-timeline']._html,
+  fnLlamadas: _fnLlamadas,
+}}));
+"""
+        return _node(guion)
+
+    def test_el_mismo_html_tres_veces_se_escribe_UNA(self):
+        r = self._correr(["<div>fases</div>"] * 3)
+        self.assertEqual(r["escrituras"], 1,
+                         "cada reescritura devuelve el scroll al principio y "
+                         "reinicia la animación de la fase activa")
+
+    def test_si_cambia_si_se_reescribe(self):
+        r = self._correr(["<div>a</div>", "<div>a</div>", "<div>b</div>"])
+        self.assertEqual(r["escrituras"], 2)
+        self.assertIn("b", r["html"])
+
+    def test_un_lateral_que_es_FUNCION_actualiza_en_sitio(self):
+        """Es como CMv4.0 conserva su timeline: la función recibe el
+        contenedor y la modifica, sin destruir el DOM."""
+        r = self._correr(["@fn", "@fn"])
+        self.assertEqual(r["fnLlamadas"], [True, True])
+        self.assertEqual(r["escrituras"], 0)
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestUnaVistaVaciaNoBorraLaAnterior(unittest.TestCase):
+    """Las cinco vistas piden su estado al backend con `.catch(() => null)`, y
+    con el NAS ocupado ese GET tarda. Visto en el NAS: en mitad de la Fase A el
+    modal perdió la columna, la cartela y el log durante un minuto, y luego
+    volvió solo."""
+
+    def test_el_refresco_sin_datos_conserva_lo_ultimo_bueno(self):
+        guion = f"""
+const _els = {{}};
+for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
+  'trabajo-modal-timeline','trabajo-modal-barra-wrap','trabajo-modal-barra',
+  'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
+  'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
+  'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
+  'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta']) {{
+  _els[id] = {{ textContent: '', innerHTML: '', dataset: {{}}, style: {{}},
+    querySelector: () => null, closest: () => null, classList: {{
+      _v: new Set(), toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+      has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
+globalThis.escHtml = t => String(t);
+globalThis.openModal = () => {{}};
+globalThis.setInterval = () => 1;
+globalThis.clearInterval = () => {{}};
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('timelineDeTrabajo')}
+{_fn('_trabajoCartelPinta')}
+{_fn('_trabajoModalPinta')}
+let workbarEstado = {{ activo: {json.dumps(ACTIVO)}, cola: [] }};
+let _trabajoModalTimer = null, _trabajoModalTipo = null;
+let _trabajoModalRef = null, _trabajoModalUltimo = null;
+let _trabajoModalSinActivo = 0, _trabajoModalVista = null;
+const _workbarDetalles = {{}};
+let _vacia = false;
+_workbarDetalles['cmv40'] = async () => _vacia ? {{}} : {{
+  lateral: '<div>siete fases</div>', cuerpo: '<div class="cmv40-log">log</div>',
+  cartel: {{ url: '', titulo: 'Predator', meta: '2026' }},
+}};
+{_fn('_trabajoModalRefrescar')}
+{_fn('_trabajoModalAbrir')}
+(async () => {{
+  await _trabajoModalAbrir({json.dumps(ACTIVO)});
+  _vacia = true;                       // el GET se cae
+  await _trabajoModalRefrescar();
+  console.log(JSON.stringify({{
+    timeline: _els['trabajo-modal-timeline'].innerHTML,
+    cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
+    cartel: _els['trabajo-modal-cartel-titulo'].textContent,
+  }}));
+}})();
+"""
+        r = _node(guion)
+        self.assertIn("siete fases", r["timeline"])
+        self.assertIn("cmv40-log", r["cuerpo"])
+        self.assertEqual(r["cartel"], "Predator")
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
 class TestCancelarNuncaSeVaDeVacio(unittest.TestCase):
     """Se vio en el NAS: el usuario pulsa Cancelar y no pasa NADA — ni
     petición en el log del servidor, ni toast, ni error de JS. La función leía
@@ -402,6 +530,7 @@ const _llamadas = [], _toasts = [];
 globalThis.apiFetch = async (url, o) => {{ _llamadas.push([url, o?.method]); }};
 globalThis.showToast = (t, k) => _toasts.push([t, k]);
 globalThis._mkvQualityCancel = () => _llamadas.push(['_mkvQualityCancel']);
+globalThis.cmv40TrasCancelar = (id) => _llamadas.push(['cmv40TrasCancelar', id]);
 globalThis.cancelMkvApply = () => _llamadas.push(['cancelMkvApply']);
 globalThis.refrescarWorkbar = () => {{}};
 let _confirm = null;
@@ -418,17 +547,25 @@ setTimeout(() => console.log(JSON.stringify(
 
     def test_con_activo_manda_la_peticion(self):
         r = self._pulsar(self._ACTIVO)
-        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+        self.assertEqual(r["llamadas"][0], ["/api/cmv40/p1/cancel", "POST"])
+
+    def test_cancelar_una_fase_corta_la_cadena_automatica(self):
+        """El poller del auto-pipeline mira `running_phase`; el cancel lo deja
+        a null con la fase todavía en `created`, así que lo interpreta como
+        «hay que empezar» y vuelve a lanzar el pre-flight. Visto en el NAS al
+        cancelar la Fase A."""
+        r = self._pulsar(self._ACTIVO)
+        self.assertIn(["cmv40TrasCancelar", "p1"], r["llamadas"])
 
     def test_sin_activo_cae_en_el_que_el_modal_esta_mirando(self):
         """El hueco entre dos fases duraba más que la paciencia del usuario."""
         r = self._pulsar(None, ultimo=self._ACTIVO)
-        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+        self.assertEqual(r["llamadas"][0], ["/api/cmv40/p1/cancel", "POST"])
 
     def test_el_modal_manda_su_trabajo_aunque_haya_otro_activo(self):
         otro = dict(self._ACTIVO, id="p2", tab="rip", detalle="rip")
         r = self._pulsar(otro, arg=json.dumps(self._ACTIVO))
-        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+        self.assertEqual(r["llamadas"][0], ["/api/cmv40/p1/cancel", "POST"])
 
     def test_sin_nada_que_cancelar_LO_DICE(self):
         r = self._pulsar(None)
