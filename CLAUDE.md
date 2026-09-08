@@ -760,6 +760,29 @@ corre, así que su `finally` —el que pone `active = False`— tampoco, y el pr
 test que encole un análisis deja a los siguientes con «Ya hay un análisis en
 curso». `api_harness` los limpia en el `setUp`.
 
+**`create-series-sessions` también se encola**, y era el último POST síncrono
+largo: ~30 s de montaje más 15-30 s por episodio, con un timeout de 10 min en
+el navegador. **Lo que el endpoint decide sigue decidiéndose en el acto** —el
+diálogo de conflictos (saltar / reemplazar / cancelar) tiene que responderse al
+pulsar, no cuando la cola llegue al trabajo—, así que la lista de episodios ya
+filtrada, los saltados, los reemplazados y el `fingerprint` viajan en `datos`.
+Mandar `body.episodes` en su lugar volvería a analizar los que el usuario pidió
+saltar: media hora de disco por nada y sesiones machacadas.
+
+### El 409 de admisión ya no existe
+
+Era el contrato anterior —«ahora no puedes»— y lo sustituyó la cola: lo
+diferido espera turno, lo interactivo nunca se rechazó. Con el último llamador
+fuera (`execute` de Tab 1), `exigir_libre`, `motivo_409` y la cabecera
+`X-Trabajo-En-Curso` se quedaron sin producir nada y se borraron, junto con la
+rama de `apiFetch` que los pintaba en ámbar. De `workload` quedan
+`bloqueado_por` —que la cola consulta para esperar— y `hay_contencion`, que
+protege las calibraciones de `_adaptive_timeout` y del ETA.
+
+Lo guarda `test_cola_unica::TestYaNoQuedaNingun409DeAdmision`, y no es
+decorativo: un `exigir_libre` nuevo **sin la cabecera** daría un 409 rojo de
+«Error:», que es justo lo que el bloque 2 arregló.
+
 **En Tab 3 ya no queda ningún 409 de admisión.** Los dos pre-flight fueron los
 últimos y tampoco se encolan: medidos sobre los 91 del NAS son **9 s de
 mediana** (p90 49 s, máximo 116 s), y son **lo primero que corre al crear un

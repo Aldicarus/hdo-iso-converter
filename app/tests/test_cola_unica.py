@@ -521,6 +521,41 @@ class TestLaSerieEnteraPasaPorLaCola(ApiTestCase):
         self.assertIn("fingerprint", datos)
         self.assertIn("body", datos, "el runner necesita el body serializado")
 
+    def test_los_episodios_que_se_saltan_NO_viajan(self):
+        """La distinción que importa: con `skip_existing`, el trabajo lleva
+        los episodios FILTRADOS, no los que pidió el usuario. Mandar
+        `body.episodes` volvería a analizar los que ya existen — media hora de
+        disco por nada — y machacaría sesiones que el usuario decidió
+        conservar.
+        """
+        import storage
+        from models import Session
+        from phases.phase_a import find_main_m2ts
+        from storage import compute_iso_fingerprint
+
+        fp = compute_iso_fingerprint(find_main_m2ts(str(self.carpeta)))
+        storage.save_session(Session(
+            id="serie_s01e01", iso_path=str(self.carpeta),
+            mkv_name="Serie - S01E01.mkv", status="done",
+            iso_fingerprint=fp, media_type="series",
+            season_number=1, episode_number=1))
+
+        r = self.client.post("/api/create-series-sessions", json={
+            "source_type": "bdmv_folder",
+            "source_path": "Serie (2024)",
+            "series_name": "Serie",
+            "season_number": 1,
+            "mode": "skip_existing",
+            "episodes": [{"mpls_path": "00801.mpls", "episode_number": i + 1,
+                          "episode_title": f"Ep {i + 1}"} for i in range(2)],
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        _, _, datos, _ = [t for t in self.trabajos_encolados
+                          if t[0] == qm.TIPO_SERIE][0]
+        self.assertEqual([e["episode_number"] for e in datos["episodios"]], [2],
+                         "viajó el episodio que el usuario pidió saltar")
+        self.assertEqual(len(datos["skipped_existing"]), 1)
+
     def test_va_al_final_de_la_cola(self):
         """No es una fase de un proyecto a medias: no tiene por qué colarse."""
         self._crear()
