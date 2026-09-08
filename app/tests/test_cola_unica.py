@@ -373,3 +373,88 @@ console.log(JSON.stringify(!!_cmv40ShouldShowOverlay(s, project)));
         self.assertTrue(self._overlay(
             {"phase": "extracted", "running_phase": "inject",
              "cola": {"fase": "inject", "posicion": 1}}))
+
+
+class TestTab2PasaPorLaCola(ApiTestCase):
+    """Los dos trabajos largos de Tab 2, que eran POST síncronos.
+
+    El análisis extendido son ~10 min y el navegador mantenía el POST abierto
+    **hasta una hora**; la copia desde biblioteca son decenas de GB con un
+    tope de cuatro horas. Encolarlos obliga a que respondan al instante y a
+    que el resultado viaje por el estado del job — que es lo que el modal ya
+    polleaba para pintar la barra.
+    """
+
+    def setUp(self):
+        super().setUp()
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        self.mkv = self.output_dir / "Peli.mkv"
+        self.mkv.write_bytes(b"x" * 4096)
+
+    def _encolados(self, tipo):
+        return [t for t in self.trabajos_encolados if t[0] == tipo]
+
+    def test_el_analisis_extendido_responde_al_instante(self):
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(self.mkv)})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["queued"])
+        self.assertTrue(r.json()["audit_id"])
+
+    def test_y_el_modal_ve_que_esta_esperando(self):
+        """Sin esto el modal se queda con el primer paso en ⏳ sin que nada
+        esté pasando todavía."""
+        self.client.post("/api/mkv/quality-audit",
+                         json={"file_path": str(self.mkv)})
+        st = self.client.get("/api/mkv/quality-audit/progress").json()
+        self.assertEqual(st["step"], "en_cola")
+        self.assertTrue(st["active"])
+
+    def test_el_trabajo_lleva_lo_que_el_runner_necesita(self):
+        """La cola puede despachar mucho después: el `body` de Pydantic no se
+        persiste, así que lo que haga falta viaja serializado."""
+        self.client.post("/api/mkv/quality-audit",
+                         json={"file_path": str(self.mkv)})
+        _, clave, datos, _ = self._encolados(qm.TIPO_ANALISIS_EXTENDIDO)[0]
+        # `resolve()` en los dos lados: en macOS el tmpdir es /var, que es
+        # un symlink a /private/var, y el backend resuelve la ruta.
+        self.assertEqual(Path(datos["mkv"]).resolve(), self.mkv.resolve())
+        self.assertEqual(datos["nombre"], "Peli.mkv")
+        self.assertTrue(datos["inicio"])
+
+    def test_cancelar_saca_de_la_cola_el_analisis(self):
+        cola = self.main.queue_manager
+        self.client.post("/api/mkv/quality-audit",
+                         json={"file_path": str(self.mkv)})
+        aid = self.client.get("/api/mkv/quality-audit/progress").json()["audit_id"]
+        cola._queue = [qm.TrabajoEnCola(tab="mkv",
+                                        tipo=qm.TIPO_ANALISIS_EXTENDIDO,
+                                        clave=aid, que="análisis")]
+        self.client.post("/api/mkv/quality-audit/cancel", json={})
+        self.assertEqual(cola._queue, [])
+
+    def test_la_copia_desde_biblioteca_se_encola(self):
+        src = self.library_dir / "Desde.mkv"
+        src.write_bytes(b"x" * 4096)
+        r = self.client.post("/api/mkv/apply",
+                             json={"file_path": str(src), "copy_to_output": True,
+                                   "audio_tracks": [], "subtitle_tracks": []})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["queued"])
+        _, _, datos, _ = self._encolados(qm.TIPO_COPIA_BIBLIOTECA)[0]
+        self.assertEqual(Path(datos["src"]).resolve(), src.resolve())
+        self.assertIn("body", datos, "el runner necesita el body serializado")
+
+    def test_pero_una_edicion_SIN_copia_sigue_siendo_instantanea(self):
+        """`mkvpropedit` es O(1) y el mismo endpoint hace las dos cosas.
+        Encolar una edición de cabeceras detrás de un rip sería absurdo."""
+        r = self.client.post("/api/mkv/apply",
+                             json={"file_path": str(self.mkv),
+                                   "audio_tracks": [], "subtitle_tracks": []})
+        self.assertEqual(self._encolados(qm.TIPO_COPIA_BIBLIOTECA), [],
+                         f"se encoló una edición sin copia: {r.text}")
+
+    def test_ya_no_queda_ningun_409_de_admision_en_tab_2(self):
+        src = (APP_DIR / "routers" / "tab2.py").read_text(encoding="utf-8")
+        self.assertNotIn("workload.exigir_libre", src)
