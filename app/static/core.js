@@ -70,7 +70,7 @@ const MAX_PROJECTS = Infinity;
  */
 const openProjects = [];
 
-/** Sub-tab activo: null (ninguno), 'cola', o el id del proyecto. @type {string|null} */
+/** Sub-tab activo: null, 'empty' o el id del proyecto. @type {string|null} */
 let activeSubTabId = null;
 
 /** Sesión activa (siempre apunta a activeProject.session). @type {Object|null} */
@@ -454,9 +454,9 @@ function switchTab(n) {
  * @param {string} id - project.id, o 'empty' si no hay ninguno abierto
  */
 function switchSubTab(id) {
-  // Si no hay proyectos abiertos, estado vacío. La sub-pestaña 'cola' se
-  // retiró: su contenido es hoy el modal de detalle de un rip, y el centro de
-  // las tres pestañas es solo proyectos.
+  // Si no hay proyectos abiertos, estado vacío. La sub-pestaña de trabajos
+  // se retiró: su contenido es hoy el modal de detalle de un rip, y el
+  // centro de las tres pestañas es solo proyectos.
   if (!id && openProjects.length === 0) id = 'empty';
   activeSubTabId = id;
   document.querySelectorAll('.subtab-proj').forEach(btn => {
@@ -977,7 +977,7 @@ function _doCloseProject(pid) {
   // Activar el sub-tab más cercano
   if (activeSubTabId === pid) {
     const next = openProjects[idx] || openProjects[idx - 1];
-    switchSubTab(next ? next.id : (openProjects.length === 0 ? 'empty' : 'cola'));
+    switchSubTab(next ? next.id : 'empty');
   }
   _doFilterSidebarSessions();
 }
