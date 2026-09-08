@@ -325,54 +325,21 @@ class TestTab3PasaPorLaCola(ApiTestCase):
         self.assertEqual(cola._queue, [])
 
 
-class TestElOverlayNoTapaUnTrabajoEnCola(unittest.TestCase):
-    """La lección de agosto: el overlay es `fixed; inset:0` y se come los
-    clics. Un trabajo que solo espera turno no tiene log que enseñar y sí
-    decisiones que ofrecer (quitarlo de la cola), así que el panel tiene que
-    seguir siendo operable."""
+class TestUnTrabajoEnColaNoTapaElPanel(unittest.TestCase):
+    """Lo que aquella clase comprobaba, dicho de la forma que hoy aplica.
 
-    @classmethod
-    def setUpClass(cls):
-        import shutil
-        cls.node = shutil.which("node")
-        if cls.node is None:
-            raise unittest.SkipTest("node no está instalado")
-        sys.path.insert(0, str(APP_DIR / "tests"))
+    Se probaba que `_cmv40ShouldShowOverlay` devolviera `false` con el trabajo
+    en cola. Esa función ya no existe: **el overlay entero se retiró** porque
+    la premisa era mala —abrir un modal bloqueante por su cuenta— y se le
+    fueron añadiendo excepciones sin arreglarlo. Ver
+    `test_cmv40_overlay_bloqueante`.
+    """
+
+    def test_no_queda_nada_que_tape_el_panel_por_su_cuenta(self):
         from frontend_sources import js_completo
         js = js_completo()
-        i = js.index("function _cmv40ShouldShowOverlay(")
-        cls.fn = js[i:js.index("\n}\n", i) + 3]
-        j = js.index("function _cmv40PipelineHalted(")
-        cls.fn = js[j:js.index("\n}\n", j) + 3] + cls.fn
-
-    def _overlay(self, sesion, project=None) -> bool:
-        import subprocess
-        guion = f"""
-{self.fn}
-const s = {json.dumps(sesion)};
-const project = {json.dumps(project or {"autoContinue": True, "autoChaining": True})};
-console.log(JSON.stringify(!!_cmv40ShouldShowOverlay(s, project)));
-"""
-        r = subprocess.run([self.node, "-e", guion], capture_output=True,
-                           text=True, timeout=30)
-        if r.returncode != 0:
-            raise AssertionError(r.stderr[:600])
-        return json.loads(r.stdout.strip())
-
-    def test_en_cola_no_se_tapa(self):
-        self.assertFalse(self._overlay(
-            {"phase": "extracted", "cola": {"fase": "inject", "posicion": 2}}))
-
-    def test_corriendo_si_se_tapa(self):
-        self.assertTrue(self._overlay(
-            {"phase": "extracted", "running_phase": "inject"}))
-
-    def test_corriendo_gana_a_en_cola(self):
-        """La cola despacha y pone `running_phase`; entre los dos pollers puede
-        verse el estado a medias."""
-        self.assertTrue(self._overlay(
-            {"phase": "extracted", "running_phase": "inject",
-             "cola": {"fase": "inject", "posicion": 1}}))
+        self.assertNotIn("_cmv40ShouldShowOverlay", js)
+        self.assertNotIn("cmv40-running-overlay", js)
 
 
 class TestTab2PasaPorLaCola(ApiTestCase):

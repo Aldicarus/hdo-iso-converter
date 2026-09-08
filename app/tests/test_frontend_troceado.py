@@ -249,3 +249,32 @@ window.addEventListener('error', e => window.__errores.push(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNingunModuloDeTestSeEnsombreceASiMismo(unittest.TestCase):
+    """Una clase de test declarada dos veces en el mismo módulo.
+
+    Python no se queja: la segunda definición sustituye a la primera y **sus
+    tests dejan de ejecutarse**, sin que el resumen baje de forma visible. Este
+    repo ya tuvo la versión JS del mismo fallo —`_doFilterSidebarSessions`
+    declarada dos veces, con la primera muerta bajo la segunda— y salió al
+    partir `app.js`, no cuando se introdujo.
+
+    Aquí pasó al reordenar dos clases con un corte mal ordenado: quedaron dos
+    copias idénticas y cuatro tests dejaron de correr en silencio.
+    """
+
+    def test_ninguna_clase_ni_funcion_se_declara_dos_veces(self):
+        import re
+        from collections import Counter
+        DECL = re.compile(r"^(?:class|def|async def)\s+([A-Za-z_]\w*)", re.M)
+        culpables = []
+        for ruta in sorted(Path(__file__).parent.glob("*.py")):
+            nombres = Counter(DECL.findall(ruta.read_text(encoding="utf-8")))
+            for nombre, n in nombres.items():
+                if n > 1:
+                    culpables.append(f"{ruta.name}: {nombre} ×{n}")
+        self.assertEqual(
+            culpables, [],
+            "declaraciones de nivel superior repetidas; la segunda ensombrece "
+            f"a la primera y sus tests no se ejecutan: {culpables}")

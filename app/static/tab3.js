@@ -2609,28 +2609,6 @@ function _cmv40SyncPermanentLog(project) {
   }
 }
 
-function _cmv40SyncRunningLog(project) {
-  if (!project || !project.session) return;
-  const pid = project.id;
-  const containerEl = document.getElementById(`cmv40-running-log-${pid}`);
-  if (!containerEl) return;
-  const logArr = project.session.output_log || [];
-  const watermark = project._renderedRunningLogCount || 0;
-  if (!_cmv40LogIsConsistent(containerEl, logArr, watermark)) {
-    containerEl.innerHTML = '';
-    project._renderedRunningLogCount = 0;
-  }
-  if ((project._renderedRunningLogCount || 0) >= logArr.length) return;
-  let lastProg = null;
-  const newLines = logArr.slice(project._renderedRunningLogCount || 0);
-  for (const line of newLines) {
-    const prog = _cmv40ParseProgress(line);
-    if (prog) { lastProg = prog; continue; }
-    _appendLogLine(containerEl, line);
-  }
-  project._renderedRunningLogCount = logArr.length;
-  if (lastProg) _cmv40UpdateProgressUI(pid, lastProg);
-}
 
 function _appendCMv40Log(project, line) {
   if (!project || !project.session) return;
@@ -2647,14 +2625,10 @@ function _appendCMv40Log(project, line) {
     return;
   }
   _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
-  _appendLogLine(document.getElementById(`cmv40-running-log-${pid}`), line);
   // Watermark++: el WS acaba de entregar una línea que también está
   // (o estará en milisegundos) en session.output_log. Sin este incremento,
   // un refresh posterior intentaría pintarla de nuevo.
   project._renderedLogCount = (project._renderedLogCount || 0) + 1;
-  if (document.getElementById(`cmv40-running-log-${pid}`)) {
-    project._renderedRunningLogCount = (project._renderedRunningLogCount || 0) + 1;
-  }
 }
 
 async function _refreshCMv40Session(pid, { includeLog = true } = {}) {
@@ -2743,7 +2717,11 @@ function _updateCMv40Panel(project) {
   _renderCMv40Info(s, pid);
   _renderCMv40PhaseStrip(s, pid);
   _renderCMv40ActivePhase(project);
-  _renderCMv40RunningOverlay(project);
+  // El overlay de ejecución se retiró: se abría SOLO y tapaba el panel entero
+  // —de ahí el bug de agosto en que el banner de ACK se veía y no se podía
+  // pulsar— y lo que enseñaba de más (la cartela y la timeline) ya está en el
+  // panel, que ahora se ve. El progreso vive en la columna de trabajo y el
+  // log en el modal común, que se abre a petición.
   // Hidrata el log permanente (card "📜 Log" del panel del proyecto) con
   // las líneas que aún no estén pintadas. CRÍTICO para el caso "Mac dormido
   // toda la noche": el job sigue en backend, output_log crece a miles de
@@ -2753,187 +2731,8 @@ function _updateCMv40Panel(project) {
   _cmv40SyncPermanentLog(project);
 }
 
-/** ¿Debe cubrirse el panel con el overlay modal de ejecución?
- *
- *  Sale aparte para poder probarla: el overlay es `position:fixed; inset:0`
- *  con z-index 2000, así que mientras esté puesto **se come cualquier clic**
- *  sobre el panel. Mostrarlo cuando el pipeline en realidad está esperando al
- *  usuario no es un defecto cosmético: deja botones que se ven pero no se
- *  pueden pulsar.
- *
- *  Caso real (2026-08-19, The Mandalorian and Grogu): al acabar Fase B con
- *  gates pendientes de ACK, `recentRunning` seguía activo y el overlay tapaba
- *  el banner ámbar. El usuario pulsó "Continuar igualmente", el clic se lo
- *  quedó el overlay, y como no hubo POST tampoco hubo toast de error: el
- *  pipeline se quedó parado y hubo que lanzar cada fase a mano.
- */
-function _cmv40PipelineHalted(s) {
-  // Estados en los que el pipeline NO va a avanzar solo: o terminó, o está
-  // esperando una decisión del usuario. En ambos casos el panel tiene que
-  // ser operable.
-  return (
-    s.phase === 'done'
-    || s.phase === 'error'
-    || !!s.error_message
-    // El pre-flight decidió "Keep recomendado" y espera aceptar o forzar.
-    || !!(s.preflight_decision && s.preflight_decision !== 'ok')
-    // Gates degradados pendientes de confirmación: el banner ámbar tiene los
-    // botones "Cambiar target" y "Continuar igualmente", y hay que poder
-    // pulsarlos.
-    || !!s.awaiting_critical_ack
-  );
-}
 
-function _cmv40ShouldShowOverlay(s, project) {
-  if (s.running_phase) return true;
-  // En cola no es en marcha: no hay log que enseñar y sí decisiones que tomar
-  // (quitarlo de la cola, cambiar el target). Taparlo con el overlay sería la
-  // misma trampa de agosto — botones que se ven y no se pueden pulsar.
-  if (s.cola) return false;
-  if (_cmv40PipelineHalted(s)) return false;
-  if (!project.autoContinue) return false;
-  // Puente del auto-pipeline: entre una fase y la siguiente el backend deja
-  // running_phase=null un instante. Sin esto el overlay parpadearía.
-  //   (a) autoChaining — se enciende al disparar una fase.
-  //   (b) recentRunning — hace menos de 15 s había una fase corriendo; red de
-  //       seguridad si (a) no se seteó a tiempo.
-  const recentRunning = (Date.now() - (project.lastRunningPhaseAt || 0)) < 15000;
-  return !!project.autoChaining || recentRunning;
-}
 
-function _renderCMv40RunningOverlay(project) {
-  const s = project.session;
-  const pid = project.id;
-  const panel = document.getElementById(`cmv40-panel-${pid}`);
-  if (!panel) return;
-  let overlay = panel.querySelector('.cmv40-running-overlay');
-  const terminalPhase = _cmv40PipelineHalted(s);
-
-  // Auto-pipeline "puente": entre una fase y la siguiente el backend pone
-  // running_phase=null brevemente. Dos heurísticas para mantener el overlay
-  // sin parpadeo durante esa ventana:
-  //   (a) project._autoChaining — flag que se enciende al disparar una fase
-  //       desde _cmv40MaybeAutoAdvance o desde el arranque inicial de Fase A.
-  //   (b) "recent running" — hace menos de 15s vimos running_phase no-null.
-  //       Actúa como red de seguridad si _autoChaining no se seteo a tiempo
-  //       (ej. polling tarda en captar el cambio).
-  // Se apaga al llegar a terminal o al intervenir manualmente.
-  //
-  if (terminalPhase) project._autoChaining = false;
-  if (s.running_phase) project._lastRunningPhaseAt = Date.now();
-  const shouldShow = _cmv40ShouldShowOverlay(s, {
-    autoContinue: project.autoContinue,
-    autoChaining: project._autoChaining,
-    lastRunningPhaseAt: project._lastRunningPhaseAt,
-  });
-
-  if (shouldShow) {
-    // Crear o actualizar overlay
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.className = 'cmv40-running-overlay';
-      overlay.innerHTML = `
-        <div class="cmv40-running-box">
-          <div class="cmv40-running-timeline-wrap">
-            <!-- Mini cabecera con la pelicula que se esta procesando — vive en
-                 el TOP de la columna izquierda, encima del timeline. Solo ocupa
-                 el ancho de la columna (330px), no el de todo el modal. -->
-            <div class="cmv40-running-movie" id="cmv40-running-movie-${pid}">
-              <div class="cmv40-running-movie-poster" id="cmv40-running-movie-poster-${pid}">🎬</div>
-              <div class="cmv40-running-movie-info">
-                <div class="cmv40-running-movie-title" id="cmv40-running-movie-title-${pid}"></div>
-                <div class="cmv40-running-movie-meta" id="cmv40-running-movie-meta-${pid}"></div>
-              </div>
-            </div>
-            <div class="cmv40-running-timeline-inner" id="cmv40-running-timeline-${pid}"></div>
-          </div>
-          <div class="cmv40-running-main">
-            <div class="cmv40-running-header">
-              <div class="cmv40-running-spinner"></div>
-              <div style="flex:1">
-                <div class="cmv40-running-title" id="cmv40-running-title-${pid}"></div>
-                <div class="cmv40-running-subtitle" id="cmv40-running-subtitle-${pid}">El proyecto está bloqueado mientras se ejecuta la tarea</div>
-              </div>
-              <button class="btn btn-ghost btn-sm"
-                onclick="copyLogToClipboard('cmv40-running-log-${pid}', this)"
-                data-tooltip="Copiar el log actual al portapapeles">📋 Copiar log</button>
-              <button class="btn btn-danger btn-sm" onclick="cmv40CancelRunning('${pid}')">🛑 Cancelar</button>
-            </div>
-            <div class="cmv40-progress" id="cmv40-progress-${pid}"
-              style="padding:14px 18px; background:#1a1e2a; border-bottom:1px solid #2a2f3d; display:flex; flex-direction:column; gap:10px">
-              <div class="cmv40-progress-meta"
-                style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; font-size:12px">
-                <span class="cmv40-progress-label" id="cmv40-progress-label-${pid}"
-                  style="font-weight:600; color:#e8ecf4; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1">Preparando…</span>
-                <span class="cmv40-progress-right"
-                  style="display:flex; align-items:baseline; gap:12px; flex-shrink:0; font-variant-numeric:tabular-nums">
-                  <span class="cmv40-progress-eta" id="cmv40-progress-eta-${pid}"
-                    style="color:#9aa3b2; font-size:11px"></span>
-                  <span class="cmv40-progress-pct" id="cmv40-progress-pct-${pid}"
-                    style="color:#4da3ff; font-weight:700; font-size:15px; min-width:54px; text-align:right">—</span>
-                </span>
-              </div>
-              <div class="cmv40-progress-track"
-                style="height:14px; background:#0b0e17; border:1px solid #2a2f3d; border-radius:8px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.5)">
-                <div class="cmv40-progress-bar indeterminate" id="cmv40-progress-bar-${pid}"></div>
-              </div>
-            </div>
-            <div class="cmv40-running-log" id="cmv40-running-log-${pid}"></div>
-          </div>
-        </div>`;
-      panel.appendChild(overlay);
-      // Suscribe al WebSocket para actualizar el log en tiempo real
-      _cmv40BindRunningLog(project);
-    }
-    // Hidratar la mini cabecera de pelicula (poster + titulo). Si la sesion
-    // ya tiene tmdb_info cacheado, usarlo directo; si no, usar source_mkv_name
-    // como fallback de texto y disparar lookup TMDb async.
-    _cmv40HydrateRunningMovieHeader(project);
-    // Actualizar título + subtítulo según estemos en una fase o "puente"
-    const titleEl    = document.getElementById(`cmv40-running-title-${pid}`);
-    const subtitleEl = document.getElementById(`cmv40-running-subtitle-${pid}`);
-    if (titleEl) {
-      if (s.running_phase) {
-        const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
-        titleEl.textContent = autoTag + (CMV40_RUNNING_LABELS[s.running_phase] || `Ejecutando: ${s.running_phase}`);
-        if (subtitleEl) subtitleEl.textContent = 'El proyecto está bloqueado mientras se ejecuta la tarea';
-      } else {
-        // Modo puente: fase X completada, siguiente a punto de arrancar.
-        // En vez de mostrar "Preparando siguiente fase" (redundante y vago),
-        // mostramos el titulo de la proxima fase deducida del estado actual.
-        const nextPhase = _cmv40GuessNextPhase(s);
-        const autoTag = project.autoContinue ? '🤖 Auto · ' : '';
-        if (nextPhase) {
-          titleEl.textContent = autoTag + nextPhase;
-          if (subtitleEl) subtitleEl.textContent = 'Transición entre fases — arrancando en un instante';
-        } else {
-          titleEl.textContent = autoTag + 'Encadenando fases…';
-          if (subtitleEl) subtitleEl.textContent = '';
-        }
-      }
-    }
-    // Actualizar timeline en cada tick — incremental, NO innerHTML wholesale.
-    // Antes reemplazabamos todo el HTML, lo que (a) reiniciaba la animación
-    // del spinner de la fase en curso (elemento destruido/recreado cada tick),
-    // (b) rompía el CSS transition de la barra de progreso total (cada vez
-    // un elemento nuevo con width inicial 0% → sin transición), y (c) saltaba
-    // el scroll de .cmv40-tl-steps a 0 (nuevo DOM).
-    const tlWrap = document.getElementById(`cmv40-running-timeline-${pid}`);
-    if (tlWrap) _cmv40UpdateTimelineIncremental(tlWrap, s, project);
-    // CRÍTICO: sincronizar el running log desde session.output_log en cada
-    // tick (no solo cuando se crea el overlay). Antes el running log solo
-    // se actualizaba via WS messages — si el cliente WS estaba zombie tras
-    // Mac sleep, las líneas que llegaban via REST refresh NO aparecían en
-    // el running overlay (solo en el log permanente). El watermark +
-    // consistency check del helper evita duplicados con las líneas que SÍ
-    // llegaron por WS.
-    _cmv40SyncRunningLog(project);
-  } else if (overlay) {
-    // Quitar overlay con animación — solo cuando SEGURO que no hay más fases
-    overlay.classList.add('closing');
-    setTimeout(() => overlay.remove(), 200);
-  }
-}
 
 /** Update incremental del timeline — actualiza solo los campos que cambian
  *  sin reemplazar el DOM (preserva animación del spinner, CSS transition de
@@ -3182,64 +2981,8 @@ function _cmv40UpdateProgressUI(pid, prog) {
   }
 }
 
-/** Hidrata la mini cabecera del overlay con la pelicula que se procesa.
- *  Pinta poster (de tmdb_info si existe, fallback emoji) + titulo + año.
- *  Si la sesion no tiene tmdb_info, dispara hydrateTmdbCard logica
- *  tras un pequeño defer (no bloquea el render del overlay). */
-function _cmv40HydrateRunningMovieHeader(project) {
-  const pid = project.id;
-  const posterEl = document.getElementById(`cmv40-running-movie-poster-${pid}`);
-  const titleEl  = document.getElementById(`cmv40-running-movie-title-${pid}`);
-  const metaEl   = document.getElementById(`cmv40-running-movie-meta-${pid}`);
-  if (!posterEl || !titleEl || !metaEl) return;
-
-  const s = project.session || {};
-  const t = s.tmdb_info || null;
-
-  // Poster: usa tmdb si tenemos URL, sino emoji 🎬 placeholder
-  if (t && t.poster_url) {
-    posterEl.innerHTML = `<img src="${escHtml(t.poster_url)}" alt="${escHtml(t.title || '')}" loading="lazy">`;
-  } else {
-    posterEl.textContent = '🎬';
-  }
-
-  // Titulo: tmdb.title > source_mkv_name limpio > id
-  let titleText = '';
-  if (t && t.title) titleText = t.title;
-  else if (s.source_mkv_name) {
-    // Limpia .mkv y reemplaza separadores comunes por espacios para
-    // hacer el filename mas legible mientras llega tmdb_info.
-    titleText = s.source_mkv_name.replace(/\.mkv$/i, '').replace(/[\._]+/g, ' ');
-  }
-  else titleText = s.id || '—';
-  titleEl.textContent = titleText;
-
-  // Meta: año + runtime + génenros (si tmdb), si no nada
-  if (t) {
-    const parts = [];
-    if (t.year) parts.push(String(t.year));
-    if (t.runtime_minutes) parts.push(`${Math.floor(t.runtime_minutes/60)}h ${t.runtime_minutes%60}min`);
-    if (t.genres && t.genres.length) parts.push(t.genres.slice(0, 2).join(' · '));
-    metaEl.textContent = parts.join(' · ');
-  } else {
-    metaEl.textContent = '';
-  }
-}
 
 
-function _cmv40BindRunningLog(project) {
-  // El overlay running se acaba de crear → reset del watermark del running
-  // log y delega la hidratación al helper centralizado, que pinta toda la
-  // sesión y trackea el contador para futuras incrementales.
-  const pid = project.id;
-  const logEl = document.getElementById(`cmv40-running-log-${pid}`);
-  if (!logEl) return;
-  logEl.innerHTML = '';
-  project._renderedRunningLogCount = 0;
-  _cmv40SyncRunningLog(project);
-  // Primera hidratación: al fondo (el usuario aún no ha scrolleado)
-  logEl.scrollTop = logEl.scrollHeight;
-}
 
 async function cmv40CancelRunning(pid) {
   const project = openCMv40Projects.find(p => p.id === pid);

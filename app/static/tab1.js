@@ -1494,105 +1494,7 @@ function _seriesUpdateCreateButton() {
   btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
 }
 
-/** Sub-pasos del análisis por episodio. Las "weights" son acumulativas
- *  (0-100) y representan el % completado al ARRANCAR cada paso. La barra
- *  avanza gradualmente entre `weight[i]` y `weight[i+1]` mientras el paso
- *  está activo; el caso pgs usa pgs_pct para interpolación fina dado que
- *  es el paso más largo y phase_a ya emite progreso (bytes leídos).
- *
- *  Las etiquetas son las que se ven en la checklist del modal.
- */
-const _SERIES_EP_SUBSTEPS = [
-  { key: 'identify',  label: 'Identificando pistas del episodio',      weight: 0  },
-  { key: 'chapters',  label: 'Extrayendo capítulos',                   weight: 8  },
-  { key: 'mediainfo', label: 'Analizando metadatos (codecs, HDR)',     weight: 18 },
-  { key: 'pgs',       label: 'Analizando subtítulos del episodio',     weight: 30 },
-  { key: 'dovi',      label: 'Analizando Dolby Vision',                weight: 75 },
-  { key: 'rules',     label: 'Aplicando reglas automáticas',           weight: 90 },
-  { key: 'save',      label: 'Guardando proyecto',                     weight: 97 },
-];
 
-/** Construye el payload de updateProgressModal a partir del estado del
- *  backend (progress) y la lista local de episodios elegidos. Calcula
- *  la barra gradual, etiqueta legible y checklist del episodio en curso. */
-function _buildSeriesProgressUpdate(prog, episodes) {
-  // Esperando turno en la cola: todavía no hay episodio en curso, así que
-  // interpolar dentro de un slot inexistente pintaría una barra avanzando sin
-  // que nada esté pasando. `en_cola` no está en _SERIES_EP_SUBSTEPS, y el
-  // `findIndex` daría -1 con el mismo efecto silencioso.
-  if (prog.current_episode_step === 'en_cola') {
-    return {
-      pct: 0,
-      current: '⏳ Esperando turno — arrancará cuando termine el trabajo que hay por delante',
-      checklist: [],
-    };
-  }
-  const total = prog.total || 1;
-  const epIdx = Math.max(1, prog.current_index || 1);  // 1-based
-  const epLabel = prog.current_episode_title || '';
-  const step = prog.current_episode_step || 'identify';
-
-  // Posición del step actual y siguiente en _SERIES_EP_SUBSTEPS.
-  const stepIdx = _SERIES_EP_SUBSTEPS.findIndex(s => s.key === step);
-  const currentWeight = stepIdx >= 0 ? _SERIES_EP_SUBSTEPS[stepIdx].weight : 0;
-  const nextWeight = stepIdx >= 0 && stepIdx < _SERIES_EP_SUBSTEPS.length - 1
-    ? _SERIES_EP_SUBSTEPS[stepIdx + 1].weight
-    : 100;
-
-  // Interpolación dentro del paso. Solo PGS reporta % granular; el resto
-  // queda al inicio de su slot (avance discreto cada vez que cambia el step).
-  // Caso especial step='done': episodio cerrado → 100% del slot del episodio
-  // (el backend ya saltó al siguiente o terminó).
-  let inEpisodePct;
-  if (step === 'done') {
-    inEpisodePct = 100;
-  } else {
-    let withinPct = 0;
-    if (step === 'pgs' && prog.pgs_pct) {
-      withinPct = Math.min(1, Math.max(0, prog.pgs_pct / 100));
-    }
-    inEpisodePct = currentWeight + (nextWeight - currentWeight) * withinPct;
-  }
-  const totalPct = ((epIdx - 1) + inEpisodePct / 100) / total * 100;
-
-  // Checklist: marca como done los pasos anteriores, active el actual,
-  // pending los siguientes. Si stepIdx<0 (estado inicial / desconocido),
-  // todo queda pendiente excepto el primero como activo. Caso especial
-  // step='done' (episodio terminado): todos completados (transición a
-  // siguiente episodio o cierre del job).
-  const allDone = step === 'done';
-  const checklist = _SERIES_EP_SUBSTEPS.map((s, i) => {
-    let status;
-    if (allDone) status = 'done';
-    else if (stepIdx < 0) status = i === 0 ? 'active' : 'pending';
-    else if (i < stepIdx) status = 'done';
-    else if (i === stepIdx) status = 'active';
-    else status = 'pending';
-    let detail = '';
-    if (i === stepIdx && step === 'pgs' && prog.pgs_pct) {
-      const eta = prog.pgs_eta_s
-        ? `· ETA ${Math.floor(prog.pgs_eta_s / 60)}:${String(prog.pgs_eta_s % 60).padStart(2, '0')}`
-        : '';
-      detail = `${prog.pgs_pct.toFixed(0)}% ${eta}`.trim();
-    }
-    return { key: s.key, label: s.label, status, detail };
-  });
-
-  // Footnote: resumen compacto de episodios completados/pendientes.
-  const epsBefore = epIdx - 1;
-  const epsAfter = total - epIdx;
-  const parts = [];
-  if (epsBefore > 0) parts.push(`✓ ${epsBefore} completado${epsBefore === 1 ? '' : 's'}`);
-  parts.push(`⏳ E${String(epIdx).padStart(2, '0')}`);
-  if (epsAfter > 0) parts.push(`⏸ ${epsAfter} pendiente${epsAfter === 1 ? '' : 's'}`);
-  const footnote = parts.join(' · ');
-
-  const current = epLabel
-    ? `Episodio ${epIdx}/${total}: ${epLabel}`
-    : (prog.current_label || `Episodio ${epIdx}/${total}`);
-
-  return { current, pct: totalPct, checklist, footnote };
-}
 
 /** Pregunta al usuario qué hacer con N episodios marcados que ya tienen
  *  sesión previa. Devuelve una promesa que resuelve a:
@@ -1719,25 +1621,13 @@ async function seriesCreateSessions() {
   const seriesTitle = s.selectedSeries.name || '—';
   const seriesYear = s.selectedSeries.year ? ` (${s.selectedSeries.year})` : '';
   const seasonLabel = `Temporada ${s.selectedSeason.season_number}`;
-  showProgressModal({
-    title: `${seriesTitle}${seriesYear}`,
-    sub: `${seasonLabel} · Analizando ${episodes.length} episodio${episodes.length === 1 ? '' : 's'} y creando proyecto${episodes.length === 1 ? '' : 's'}`,
-    icon: '📺',
-    posterUrl: s.selectedSeries.poster_url || '',
-  });
-
-  // Polling del progreso. /api/series-create-progress devuelve current_index,
-  // current_episode_step + pgs_pct para construir gradual progress + checklist.
-  // Sin esto la barra saltaba 33%/66%/100% sin detalle del trabajo interno.
-  const pollId = setInterval(async () => {
-    try {
-      const prog = await apiFetch('/api/series-create-progress');
-      if (prog && prog.running && prog.total > 0) {
-        const update = _buildSeriesProgressUpdate(prog, episodes);
-        updateProgressModal(update);
-      }
-    } catch (_) { /* silenciar errores de polling */ }
-  }, 500);
+  // Este flujo tampoco monta su propio modal: analizar N episodios es un
+  // trabajo de la cola como cualquier otro, y su progreso lo enseña la columna
+  // de trabajo. El acuse —se pulsó «Crear N proyectos» y son minutos— es el
+  // modal común, que se abre una vez y se puede cerrar.
+  //
+  // `showProgressModal` sigue existiendo para `disc-probe`, que NO va a la
+  // cola: es interactivo, dura 10-30 s y el usuario está esperando delante.
 
   // El backend procesa cada MPLS/M2TS y crea las sesiones.
   // Coste: ~30s (mount ISO) + N × 15-30s. Para 4 episodios típicos: ~2 min.
@@ -1777,6 +1667,8 @@ async function seriesCreateSessions() {
   // El resultado llega por `/api/series-create-progress`, que es el mismo
   // sitio del que ya salía la barra.
   if (data?.queued) {
+    await refrescarWorkbar();
+    abrirDetalleDeTrabajo();
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
@@ -1787,10 +1679,8 @@ async function seriesCreateSessions() {
     }
   }
 
-  clearInterval(pollId);
-
   if (!data) {
-    closeProgressModal();
+    cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = `➕ Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
@@ -1803,15 +1693,7 @@ async function seriesCreateSessions() {
   const failed = data.failed || [];
   _seriesState = null;
 
-  // Marcamos el modal como done (barra verde 100% + checkmark, sin
-  // spinner gris): da cierre visual antes de pasar a abrir las pestañas.
-  // Pequeño delay para que el usuario lo perciba (300ms es suficiente).
-  updateProgressModal({
-    current: `✓ ${created.length} proyecto${created.length === 1 ? '' : 's'} creado${created.length === 1 ? '' : 's'}`,
-    done: true,
-  });
-  await new Promise(r => setTimeout(r, 350));
-  closeProgressModal();
+  cerrarModalDeTrabajo();
 
   const skippedExisting = data.skipped_existing || [];
   const replacedIds = data.replaced_ids || [];

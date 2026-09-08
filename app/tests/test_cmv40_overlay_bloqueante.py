@@ -1,163 +1,89 @@
+"""El overlay de ejecución de CMv4.0 ya no existe, y no debe volver.
+
+Qué era
+───────
+`.cmv40-running-overlay` era `position:fixed; inset:0` con `z-index:2000`, se
+pintaba **solo** en cuanto una fase arrancaba y tapaba el panel del proyecto
+entero. Mientras estaba puesto **se comía cualquier clic**, así que la
+condición que decidía mostrarlo no era cosmética: si se pintaba con el pipeline
+esperando una decisión del usuario, dejaba botones que se veían pero no se
+podían pulsar.
+
+Caso real (2026-08-19, «The Mandalorian and Grogu»): Fase B terminó con el gate
+`l6_div` pendiente de ACK. Como la condición sólo trataba como «parado» los
+estados done/error/preflight, y `recentRunning` seguía activo tras la fase
+recién acabada, el overlay tapó el banner ámbar. El usuario pulsó «Continuar
+igualmente», el clic se lo quedó el overlay y —al no haber POST— tampoco hubo
+toast de error. El pipeline quedó bloqueado y hubo que lanzar cada fase a mano.
+
+Por qué se fue
+──────────────
+Se le fueron añadiendo excepciones —done, error, preflight detenido, ACK
+pendiente, y dos heurísticas (`autoChaining` y `recentRunning`) para que no
+parpadeara en el puente entre fases— y aun así seguía tapando cosas. El
+problema de fondo era la premisa: **abrir un modal bloqueante por su cuenta**.
+
+Con la columna de trabajo, el progreso se ve sin tapar nada y el detalle se
+abre a petición desde un modal común a los cinco tipos de trabajo. Y lo que el
+overlay enseñaba de más —la cartela de la película y la timeline de fases— ya
+está en el panel, que ahora se ve.
+
+Este fichero es lo que queda: el guardián de que no vuelva. Si alguien
+reintroduce un overlay que se abre solo, que lo haga sabiendo esto.
 """
-El overlay de ejecución no debe tapar un panel con el que hay que interactuar.
-
-`.cmv40-running-overlay` es `position:fixed; inset:0` con `z-index:2000`:
-mientras está puesto **se come cualquier clic** sobre el panel. Por eso la
-condición que decide mostrarlo no es cosmética — si se pinta cuando el
-pipeline está esperando una decisión del usuario, deja botones que se ven
-pero no se pueden pulsar.
-
-Caso real (2026-08-19, "The Mandalorian and Grogu"): Fase B terminó con el
-gate `l6_div` pendiente de ACK. Como la condición sólo trataba como
-"parado" los estados done/error/preflight, y `recentRunning` seguía activo
-tras la fase recién acabada, el overlay tapó el banner ámbar. El usuario
-pulsó "Continuar igualmente", el clic se lo quedó el overlay y —al no haber
-POST— tampoco hubo toast de error. El pipeline quedó bloqueado y hubo que
-lanzar cada fase a mano.
-
-Se evalúan las funciones reales extraídas de `app.js` en node.
-"""
-import json
-import shutil
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
-
-NODE = shutil.which("node")
 sys.path.insert(0, str(APP_DIR / "tests"))
+
 from frontend_sources import js_completo  # noqa: E402
 
 JS = js_completo()
 
 
-def _extraer(nombre: str) -> str:
-    """Saca una función top-level de app.js por nombre."""
-    marca = f"function {nombre}("
-    i = JS.index(marca)
-    j = JS.index("\n}\n", i) + 3
-    return JS[i:j]
+class TestElOverlayNoVuelve(unittest.TestCase):
+
+    def test_no_queda_la_funcion_que_decidia_mostrarlo(self):
+        self.assertNotIn("_cmv40ShouldShowOverlay", JS)
+
+    def test_ni_la_que_lo_pintaba(self):
+        self.assertNotIn("_renderCMv40RunningOverlay", JS)
+
+    def test_ni_las_dos_heuristicas_del_puente_entre_fases(self):
+        """`recentRunning` y `lastRunningPhaseAt` existían SOLO para que el
+        overlay no parpadeara entre una fase y la siguiente. Sin overlay no
+        tienen nada que sostener, y `recentRunning` fue justo la que mantuvo
+        tapado el banner de ACK."""
+        self.assertNotIn("recentRunning", JS)
+        self.assertNotIn("lastRunningPhaseAt", JS)
+
+    def test_el_flag_del_auto_pipeline_SI_se_queda(self):
+        """`_autoChaining` no era del overlay: distingue «el usuario abrió el
+        proyecto» de «la cadena está avanzando», que es lo que impide que abrir
+        un proyecto en `created` arranque la Fase A sola (bug del 2026-09-04)."""
+        self.assertIn("_autoChaining", JS)
+
+    def test_nadie_pinta_un_overlay_que_tape_el_panel(self):
+        """La clase sigue en el CSS —limpiarlo es otra pasada— pero nada la
+        usa. Que reaparezca en el JS es la señal de alarma."""
+        self.assertNotIn("cmv40-running-overlay", JS)
 
 
-@unittest.skipUnless(NODE, "node no disponible")
-class OverlayCase(unittest.TestCase):
-    """Evalúa `_cmv40ShouldShowOverlay` con las entradas de cada escenario."""
+class TestLoQueLoSustituye(unittest.TestCase):
+    """El detalle se abre a petición, y es el mismo para los cinco tipos."""
 
-    def should_show(self, session: dict, project: dict) -> bool:
-        script = (
-            _extraer("_cmv40PipelineHalted")
-            + "\n"
-            + _extraer("_cmv40ShouldShowOverlay")
-            + "\n"
-            + "const [s, p] = JSON.parse(process.argv[1]);\n"
-            + "process.stdout.write(JSON.stringify(_cmv40ShouldShowOverlay(s, p)));"
-        )
-        out = subprocess.run(
-            [NODE, "-e", script, json.dumps([session, project])],
-            capture_output=True, text=True, timeout=30,
-        )
-        if out.returncode != 0:
-            raise AssertionError(f"node falló: {out.stderr[:400]}")
-        return json.loads(out.stdout)
+    def test_hay_un_modal_comun_y_cmv40_registra_el_suyo(self):
+        self.assertIn("registrarDetalleDeTrabajo('cmv40'", JS)
+        self.assertIn("function abrirDetalleDeTrabajo(", JS)
 
-    # Un proyecto que acaba de terminar una fase y sigue encadenando.
-    ENCADENANDO = {"autoContinue": True, "autoChaining": True,
-                   "lastRunningPhaseAt": None}
-
-
-class TestPausePoints(OverlayCase):
-    """Si el pipeline espera al usuario, el panel tiene que ser operable."""
-
-    def test_gates_pendientes_de_ack_destapan_el_panel(self):
-        # La regresión: el banner ámbar lleva los botones "Cambiar target" y
-        # "Continuar igualmente"; con el overlay encima no se pueden pulsar.
-        s = {"running_phase": None, "phase": "target_provided",
-             "awaiting_critical_ack": True}
-        self.assertFalse(self.should_show(s, self.ENCADENANDO))
-
-    def test_preflight_detenido_destapa_el_panel(self):
-        s = {"running_phase": None, "phase": "created",
-             "preflight_decision": "keep_l8_default"}
-        self.assertFalse(self.should_show(s, self.ENCADENANDO))
-
-    def test_error_destapa_el_panel(self):
-        s = {"running_phase": None, "phase": "injected",
-             "error_message": "mkvmerge falló (código -15)"}
-        self.assertFalse(self.should_show(s, self.ENCADENANDO))
-
-    def test_job_terminado_destapa_el_panel(self):
-        s = {"running_phase": None, "phase": "done"}
-        self.assertFalse(self.should_show(s, self.ENCADENANDO))
-
-    def test_ack_pendiente_manda_sobre_una_fase_recien_acabada(self):
-        # `recentRunning` era justo lo que mantenía el overlay puesto en el
-        # momento en que el banner aparece.
-        import time
-        s = {"running_phase": None, "phase": "target_provided",
-             "awaiting_critical_ack": True}
-        p = {"autoContinue": True, "autoChaining": False,
-             "lastRunningPhaseAt": time.time() * 1000}   # hace un instante
-        self.assertFalse(self.should_show(s, p))
-
-
-class TestOverlayCuandoTocaMostrarlo(OverlayCase):
-    """El puente entre fases sigue funcionando: no hay que reintroducir el
-    parpadeo que estas heurísticas venían a evitar."""
-
-    def test_fase_en_curso_siempre_muestra_el_overlay(self):
-        s = {"running_phase": "inject", "phase": "sync_verified"}
-        self.assertTrue(self.should_show(s, {"autoContinue": False,
-                                             "autoChaining": False,
-                                             "lastRunningPhaseAt": None}))
-
-    def test_fase_en_curso_manda_aunque_haya_ack_pendiente(self):
-        # Con una fase corriendo no hay nada que pulsar, y ocultar el overlay
-        # dejaría al usuario sin el log en vivo.
-        s = {"running_phase": "remux", "phase": "injected",
-             "awaiting_critical_ack": True}
-        self.assertTrue(self.should_show(s, self.ENCADENANDO))
-
-    def test_puente_entre_fases_mantiene_el_overlay(self):
-        s = {"running_phase": None, "phase": "extracted"}
-        self.assertTrue(self.should_show(s, self.ENCADENANDO))
-
-    def test_puente_por_fase_recien_acabada(self):
-        import time
-        s = {"running_phase": None, "phase": "extracted"}
-        p = {"autoContinue": True, "autoChaining": False,
-             "lastRunningPhaseAt": time.time() * 1000}
-        self.assertTrue(self.should_show(s, p))
-
-    def test_sin_auto_pipeline_no_hay_puente(self):
-        s = {"running_phase": None, "phase": "extracted"}
-        p = {"autoContinue": False, "autoChaining": True,
-             "lastRunningPhaseAt": None}
-        self.assertFalse(self.should_show(s, p))
-
-    def test_pasados_los_15s_sin_encadenar_se_destapa(self):
-        import time
-        s = {"running_phase": None, "phase": "extracted"}
-        p = {"autoContinue": True, "autoChaining": False,
-             "lastRunningPhaseAt": (time.time() - 60) * 1000}
-        self.assertFalse(self.should_show(s, p))
-
-
-class TestElOverlayTapaDeVerdad(unittest.TestCase):
-    """El motivo por el que lo anterior importa: si el CSS dejara de cubrir
-    la pantalla, esto sería cosmético. Mientras siga así, no lo es."""
-
-    def test_cubre_la_pantalla_y_captura_los_clics(self):
-        css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
-        i = css.index(".cmv40-running-overlay {")
-        bloque = css[i:css.index("}", i)]
-        self.assertIn("position: fixed", bloque)
-        self.assertIn("inset: 0", bloque)
-        self.assertIn("z-index: 2000", bloque)
-        self.assertNotIn("pointer-events: none", bloque,
-                         "si dejara pasar los clics, taparlo sería inocuo")
+    def test_el_panel_conserva_la_cartela_y_la_timeline(self):
+        """Eran lo único que el overlay enseñaba de más, y siguen ahí — ahora
+        visibles, porque ya no hay nada encima."""
+        self.assertIn("cmv40-running-timeline", JS)
+        self.assertIn("cmv40-tl-header", JS)
 
 
 if __name__ == "__main__":
