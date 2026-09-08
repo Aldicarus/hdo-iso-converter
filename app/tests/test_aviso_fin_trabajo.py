@@ -37,9 +37,6 @@ FUNCIONES = (
     "setAvisoSonidoActivado", "avisoNotificacionDisponible", "_pitido",
     "_pararParpadeo", "_arrancarParpadeo", "avisarFinDeTrabajo",
     "_leerTrabajosActivos", "_avisoTick", "_pararVigilancia",
-    # El aviso ya no pregunta por su cuenta: lee el estado compartido de
-    # actividad, el mismo del punto verde (ver `test_actividad_una_sola_fuente`).
-    "leerActividad", "actividadDeTab",
 )
 CONSTANTES = (
     "const _AVISO_INTERVALO_MS", "const _AVISO_PREF", "const _AVISO_SONIDO_PREF",
@@ -93,7 +90,6 @@ globalThis.apiFetch = async (url) => {
 globalThis.__respuestas = {};
 let _avisoTrabajosPrevios = null, _avisoTimer = null;
 let _avisoTituloOriginal = null, _avisoParpadeoTimer = null;
-let actividad = { trabajos: [], leidoEn: 0 };
 """
 
 
@@ -119,16 +115,19 @@ class AvisoCase(unittest.IsolatedAsyncioTestCase):
 
 
 def _actividad(*tab_ids) -> dict:
-    """La respuesta de `/api/activity` con esos tabs ocupados.
+    """La respuesta de `/api/trabajos` con esos tabs ocupados.
 
-    Un solo endpoint para los tres tabs: antes eran dos peticiones y a Tab 2
-    se le preguntaba solo por la copia desde biblioteca, así que un análisis
-    extendido terminaba sin avisar.
+    La misma fuente que la columna de trabajo. Antes esto preguntaba a dos
+    endpoints y a Tab 2 solo por la copia desde biblioteca, así que un análisis
+    extendido de diez minutos terminaba sin avisar.
     """
-    return {"/api/activity": {
-        "ocupado": bool(tab_ids),
-        "trabajos": [{"clave": f"k-{t}", "tab_id": t, "que": "algo",
-                      "segundos": 30, "descripcion": "algo"} for t in tab_ids]}}
+    tabs = list(tab_ids)
+    return {"/api/trabajos": {
+        "activo": ({"id": "k0", "tab": tabs[0], "que": "algo"} if tabs else None),
+        "cola": [{"id": f"k-{t}", "tab": t, "que": "algo", "posicion": i + 1}
+                 for i, t in enumerate(tabs[1:])],
+        "interactivo": [],
+        "recientes": []}}
 
 
 class TestLaTransicion(AvisoCase):
@@ -256,7 +255,7 @@ class TestElTrafico(AvisoCase):
           await _avisoTick();
           process.stdout.write(JSON.stringify(globalThis.__peticiones));
         """, respuestas=_actividad())
-        self.assertEqual(out, ["/api/activity"], out)
+        self.assertEqual(out, ["/api/trabajos"], out)
         self.assertNotIn("/api/cmv40", out, "el endpoint gordo no, el de memoria")
 
     async def test_tab1_sale_de_queueState_sin_pedir_nada(self):

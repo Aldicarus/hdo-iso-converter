@@ -87,96 +87,146 @@ def _trabajo(tab_id, que, segundos=30, clase="diferido"):
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")
-class TestUnaSolaLectura(unittest.TestCase):
+class TestLaColumnaDeTrabajo(unittest.TestCase):
+    """Sustituye a los puntos verdes de las pestañas, y hace más.
 
-    def _correr(self, respuesta, queue_state=None) -> dict:
-        guion = _sandbox("leerActividad", "actividadDeTab", "_describirTrabajo",
-                         "_refreshTabRunningDots",
-                         respuesta=respuesta, queue_state=queue_state)
-        guion = "let actividad = { trabajos: [], leidoEn: 0 };\n" + guion + """
-(async () => {
-  await _refreshTabRunningDots();
-  console.log(JSON.stringify({
+    Los puntos decían «hay algo» y nada más; la columna dice qué, en qué fase,
+    cuánto lleva y cuánto queda, y es la misma en las tres pestañas porque la
+    cola es una. Con ella puesta, los tres puntos y su poller se retiraron.
+    """
+
+    def _correr(self, respuesta, extra="") -> dict:
+        guion = f"""
+let workbarEstado = {{ activo: null, cola: [], interactivo: [], recientes: [] }};
+const _els = {{}};
+for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
+  _els[id] = {{ style: {{}}, dataset: {{}}, classList: {{
+    _v: new Set(),
+    toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+    has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ hidden: false, getElementById: id => _els[id] || null }};
+let _peticiones = [];
+globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return {json.dumps(None)} ?? RESP; }};
+globalThis.escHtml = t => String(t);
+{_fn('_workbarTiempo')}
+{_fn('_workbarActivoHTML')}
+{_fn('_workbarListaHTML')}
+{_fn('_workbarRender')}
+{_fn('refrescarWorkbar')}
+(async () => {{
+  globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return RESP; }};
+  await refrescarWorkbar();
+  {extra}
+  console.log(JSON.stringify({{
     peticiones: _peticiones,
-    puntos: [1,2,3].map(n => document.getElementById(`tab-running-dot-${n}`).style.display),
-    tooltips: [1,2,3].map(n => document.getElementById(`tab-running-dot-${n}`).dataset.tooltip),
-    actividad: actividad.trabajos.length,
-  }));
-})();
-"""
+    html: _els['workbar-body'].innerHTML || '',
+    cuenta: _els['workbar-count'].textContent,
+    conTrabajo: _els['workbar-toggle'].classList.has('con-trabajo'),
+    estado: workbarEstado,
+  }}));
+}})();
+""".replace("RESP", json.dumps(respuesta))
         return _node(guion)
 
-    def test_un_refresco_es_una_sola_peticion(self):
-        """Eran tres: `/api/mkv/apply/progress`, `/api/cmv40-active` y la cola."""
-        r = self._correr(_actividad())
-        self.assertEqual(r["peticiones"], ["/api/activity"])
+    def test_un_refresco_es_UNA_peticion(self):
+        r = self._correr({"activo": None, "cola": [], "interactivo": [],
+                          "recientes": []})
+        self.assertEqual(r["peticiones"], ["/api/trabajos"])
 
-    def test_deja_el_resultado_en_el_estado_compartido(self):
-        r = self._correr(_actividad(_trabajo("cmv40", "Fase C de Predator")))
-        self.assertEqual(r["actividad"], 1)
+    def test_pinta_la_fase_el_porcentaje_y_lo_que_queda(self):
+        r = self._correr({"activo": {
+            "id": "p1", "tab": "cmv40", "tipo": "fase_cmv40",
+            "que": "Fase C de Predator", "fase": "extract",
+            "fase_label": "Extrayendo BL/EL", "fase_n": 3, "fases_total": 7,
+            "pct": 40, "pct_medido": True, "segundos": 300,
+            "eta_s": 450, "eta_fuente": "medido", "cancelable": True,
+            "detalle": "cmv40"}, "cola": [], "interactivo": [], "recientes": []})
+        self.assertIn("Fase C de Predator", r["html"])
+        self.assertIn("Extrayendo BL/EL · 3/7", r["html"])
+        self.assertIn("40%", r["html"])
+        self.assertIn("quedan 7 min", r["html"])
 
-    def test_enciende_el_punto_de_la_pestana_correcta(self):
-        r = self._correr(_actividad(_trabajo("cmv40", "Fase C de Predator")))
-        self.assertEqual(r["puntos"], ["none", "none", ""])
+    def test_sin_porcentaje_medido_la_barra_es_indeterminada(self):
+        """La regla del proyecto: una cifra inventada con pinta de dato es
+        peor que un hueco. `extract-rpu` escribe el RPU de golpe al cerrar y
+        ese tramo NO es medible."""
+        r = self._correr({"activo": {
+            "id": "p1", "tab": "cmv40", "tipo": "fase_cmv40", "que": "Fase H",
+            "fase": "validate", "fase_label": "Validando", "fase_n": 7,
+            "fases_total": 7, "pct": None, "pct_medido": False,
+            "segundos": 60, "eta_s": None, "eta_fuente": None,
+            "cancelable": True}, "cola": [], "interactivo": [], "recientes": []})
+        self.assertIn("indeterminada", r["html"])
+        self.assertIn("sin medir", r["html"])
+        self.assertNotIn("%<", r["html"])
 
-    def test_el_analisis_extendido_enciende_el_punto_de_tab_2(self):
-        """El bug que este bloque cierra: el trabajo más largo de esa pestaña
-        era el único que corría con el punto apagado."""
-        r = self._correr(_actividad(_trabajo("mkv", "análisis extendido de X")))
-        self.assertEqual(r["puntos"][1], "")
+    def test_un_eta_de_modelo_se_marca_como_aproximado(self):
+        r = self._correr({"activo": {
+            "id": "s1", "tab": "rip", "tipo": "crear_serie", "que": "4 episodios",
+            "fase": "pgs", "fase_label": "Episodio 2/4", "fase_n": 2,
+            "fases_total": 4, "pct": 25, "pct_medido": True, "segundos": 120,
+            "eta_s": 360, "eta_fuente": "modelo", "cancelable": True},
+            "cola": [], "interactivo": [], "recientes": []})
+        self.assertIn("(aprox.)", r["html"])
 
-    def test_el_tooltip_dice_que_esta_corriendo(self):
-        r = self._correr(_actividad(_trabajo("cmv40", "Fase C de Predator", 372)))
-        self.assertIn("Fase C de Predator", r["tooltips"][2])
-        self.assertIn("6 min", r["tooltips"][2])
+    def test_la_cola_sale_con_su_puesto(self):
+        r = self._correr({"activo": None, "interactivo": [], "recientes": [],
+                          "cola": [{"id": "a", "tab": "rip", "que": "rip de A",
+                                    "posicion": 1},
+                                   {"id": "b", "tab": "mkv", "que": "análisis de B",
+                                    "posicion": 2}]})
+        self.assertIn("rip de A", r["html"])
+        self.assertIn("análisis de B", r["html"])
+        self.assertEqual(r["cuenta"], "2")
 
-    def test_con_menos_de_un_minuto_lo_dice_en_segundos(self):
-        r = self._correr(_actividad(_trabajo("mkv", "apertura de un MKV", 12)))
-        self.assertIn("12 s", r["tooltips"][1])
+    def test_lo_interactivo_sale_aparte(self):
+        r = self._correr({"activo": None, "cola": [], "recientes": [],
+                          "interactivo": [{"id": "k", "tab": "mkv",
+                                           "que": "apertura de un MKV",
+                                           "segundos": 12}]})
+        self.assertIn("En paralelo", r["html"])
+        self.assertIn("apertura de un MKV", r["html"])
 
-    def test_dos_trabajos_en_la_misma_pestana_salen_los_dos(self):
-        r = self._correr(_actividad(
-            _trabajo("cmv40", "Fase C de A"), _trabajo("cmv40", "pre-flight de B")))
-        self.assertIn("Fase C de A", r["tooltips"][2])
-        self.assertIn("pre-flight de B", r["tooltips"][2])
+    def test_con_la_casa_libre_lo_dice_y_no_enciende_el_aviso(self):
+        r = self._correr({"activo": None, "cola": [], "interactivo": [],
+                          "recientes": []})
+        self.assertIn("No hay nada en marcha", r["html"])
+        self.assertEqual(r["cuenta"], "0")
+        self.assertFalse(r["conTrabajo"])
 
-    def test_tab_1_sale_de_la_cola_no_de_activity(self):
-        """El punto de Tab 1 también se enciende con trabajos ENCOLADOS, y
-        `activity` solo conoce lo que corre."""
-        r = self._correr(_actividad(), queue_state={"running": "s1", "queue": ["s2", "s3"]})
-        self.assertEqual(r["puntos"][0], "")
-        self.assertIn("1 rip en curso", r["tooltips"][0])
-        self.assertIn("2 en cola", r["tooltips"][0])
+    def test_plegada_el_aviso_del_boton_dice_cuántos(self):
+        """Es lo que permite retirar los puntos verdes: si al plegar la columna
+        dejara de haber señal, cerrarla te dejaría a ciegas."""
+        r = self._correr({"activo": None, "interactivo": [], "recientes": [],
+                          "cola": [{"id": "a", "tab": "rip", "que": "rip de A",
+                                    "posicion": 1}]})
+        self.assertTrue(r["conTrabajo"])
 
-    def test_solo_encolado_tambien_enciende(self):
-        r = self._correr(_actividad(), queue_state={"running": None, "queue": ["s2"]})
-        self.assertEqual(r["puntos"][0], "")
-        self.assertIn("1 en cola", r["tooltips"][0])
-        self.assertNotIn("en curso", r["tooltips"][0])
-
-    def test_con_la_casa_libre_los_tres_apagados(self):
-        r = self._correr(_actividad())
-        self.assertEqual(r["puntos"], ["none", "none", "none"])
+    def test_un_fallo_de_red_conserva_el_ultimo_dato_bueno(self):
+        """Vaciar la columna haría creer que el trabajo terminó."""
+        guion_extra = "globalThis.apiFetch = async () => null; await refrescarWorkbar();"
+        r = self._correr({"activo": None, "interactivo": [], "recientes": [],
+                          "cola": [{"id": "a", "tab": "rip", "que": "rip de A",
+                                    "posicion": 1}]}, extra=guion_extra)
+        self.assertEqual(len(r["estado"]["cola"]), 1)
 
 
-@unittest.skipIf(NODE is None, "node no está instalado")
-class TestUnFalloDeRedNoEsSilencio(unittest.TestCase):
-    """`null` de la API no significa «no hay nada»."""
+class TestNoQuedanLectoresSueltosDeActividad(unittest.TestCase):
+    """El punto entero: una sola fuente para «qué está pasando»."""
 
-    def test_conserva_el_ultimo_dato_bueno(self):
-        guion = ("let actividad = { trabajos: [], leidoEn: 0 };\n"
-                 + _sandbox("leerActividad", "actividadDeTab", respuesta=None)
-                 + """
-(async () => {
-  actividad = { trabajos: [""" + json.dumps(_trabajo("cmv40", "Fase C")) + """], leidoEn: 1 };
-  await leerActividad();
-  console.log(JSON.stringify({ trabajos: actividad.trabajos.length, leidoEn: actividad.leidoEn }));
-})();
-""")
-        r = _node(guion)
-        self.assertEqual(r["trabajos"], 1,
-                         "un fallo de red apagaría los puntos como si nada corriera")
-        self.assertEqual(r["leidoEn"], 1, "y la marca de tiempo delata que el dato es viejo")
+    def test_todo_el_frontend_pregunta_por_api_trabajos(self):
+        apariciones = [l for l in JS.splitlines() if "'/api/activity'" in l]
+        self.assertEqual(apariciones, [],
+                         "`/api/activity` es el registro crudo de workload; la "
+                         "UI va por `/api/trabajos`, que es la vista unificada: "
+                         f"{apariciones}")
+
+    def test_ya_no_quedan_los_puntos_verdes_de_las_pestanas(self):
+        """Los sustituyó la columna, que dice estrictamente más."""
+        self.assertNotIn("tab-running-dot", JS)
+        self.assertNotIn("tab-running-dot", html())
+        self.assertNotIn("_refreshTabRunningDots", JS)
 
 
 class TestElBackendYaNoRechazaPorAdmision(ApiTestCase):
@@ -212,30 +262,11 @@ class TestElBackendYaNoRechazaPorAdmision(ApiTestCase):
         self.assertNotIn("X-Trabajo-En-Curso", js_completo())
 
 
-class TestNoQuedanLectoresSueltos(unittest.TestCase):
-    """Guard: el punto entero del bloque es que haya UNA fuente."""
+class TestLosTooltiposDeArranqueNoMienten(unittest.TestCase):
+    """Lo único que sobrevive de los puntos verdes: el HTML no puede afirmar
+    algo que la app ya no hace."""
 
-    def test_solo_leeractividad_pide_api_activity(self):
-        apariciones = [l for l in JS.splitlines() if "'/api/activity'" in l]
-        self.assertEqual(
-            len(apariciones), 1,
-            "más de un sitio pregunta por la actividad; usar `leerActividad()` "
-            f"y el estado compartido: {apariciones}")
-
-    def test_nadie_pregunta_ya_por_cmv40_active_ni_por_apply_progress_para_los_puntos(self):
-        """Los dos endpoints siguen existiendo y tienen su uso (el modal de
-        progreso de la copia), pero ya no son la fuente de «qué corre»."""
-        import re
-        for fn in ("_refreshTabRunningDots", "_leerTrabajosActivos"):
-            # Solo las LLAMADAS: los comentarios de estas funciones cuentan de
-            # dónde venían los datos antes, y esa historia debe poder escribirse.
-            llamadas = re.findall(r"apiFetch\(\s*'([^']+)'", _fn(fn))
-            self.assertNotIn("/api/cmv40-active", llamadas)
-            self.assertNotIn("/api/mkv/apply/progress", llamadas)
-
-    def test_los_tooltipos_de_arranque_no_mienten(self):
-        """El de Tab 2 decía "copia/edición" cuando el punto se enciende
-        también con el análisis extendido."""
+    def test_no_queda_el_literal_desfasado_de_tab_2(self):
         self.assertNotIn("Hay una copia/edición en curso", html())
 
 

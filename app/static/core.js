@@ -158,8 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // apaga los indicadores. Coste mínimo (3 endpoints livianos) pero da al
   // usuario visibilidad inmediata de cualquier job, esté o no en el tab
   // del que viene.
-  _refreshTabRunningDots();
-  setInterval(_refreshTabRunningDots, 5000);
+  arrancarWorkbar();
   // Modelo de ETA medido del histórico. Se refresca cada 10 min: cada job
   // que termina lo afina, así que sigue a los cambios del pipeline solo.
   _cmv40LoadEtaModel();
@@ -178,84 +177,6 @@ document.addEventListener('DOMContentLoaded', () => {
  * indicador es solo un "atajo visual" — no hay riesgo de mostrar info
  * incorrecta y borrarla en el siguiente tick.
  */
-/**
- * Lo último que dijo `/api/activity`: el trabajo pesado en curso de toda la
- * aplicación.
- *
- * Una sola lectura para todos los consumidores. Antes cada uno preguntaba por
- * su cuenta a los endpoints que le sonaban —el punto verde a tres, el aviso de
- * fin a dos— y ninguno sabía de los demás, así que cada consumidor tenía su
- * propia idea de qué estaba pasando y las tres se equivocaban de forma
- * distinta. `trabajos[]` viene del registro de `workload`, con `clase` para
- * distinguir lo que BLOQUEA (diferido) de lo que solo se ve (interactivo).
- */
-let actividad = { trabajos: [], leidoEn: 0 };
-
-/** Pregunta por el trabajo en curso y refresca el estado compartido. */
-async function leerActividad() {
-  const act = await apiFetch('/api/activity', { silent: true }).catch(() => null);
-  // Un fallo de red NO se interpreta como "no hay nada": dejar el último dato
-  // bueno con su marca de tiempo permite que quien lo lea sepa que está viejo.
-  if (act && Array.isArray(act.trabajos)) {
-    actividad = { trabajos: act.trabajos, leidoEn: Date.now() };
-  }
-  return actividad;
-}
-
-/** El trabajo en curso de una pestaña (`'rip'`, `'mkv'`, `'cmv40'`). */
-function actividadDeTab(tabId) {
-  return actividad.trabajos.filter(t => t.tab_id === tabId);
-}
-
-/** "análisis extendido de X (3 min)" — lo que se enseña en un tooltip. */
-function _describirTrabajo(t) {
-  const s = t.segundos || 0;
-  const tiempo = s >= 60 ? `${Math.floor(s / 60)} min` : `${s} s`;
-  return `${t.que} (${tiempo})`;
-}
-
-async function _refreshTabRunningDots() {
-  // Con la pestaña oculta no hay puntos que pintar, y esto es tráfico cada 5 s
-  // durante horas contra un NAS que además está procesando vídeo. Al volver a
-  // primer plano, `visibilitychange` dispara la recuperación y con ella el
-  // refresco.
-  if (document.hidden) return;
-  // El tooltip dice QUÉ está corriendo, no solo que algo corre. Los tres
-  // decían un literal fijo ("Hay un job en curso"), y el de Tab 2 encima se
-  // quedó desfasado: hablaba de "copia/edición" cuando el punto se enciende
-  // también con el análisis extendido.
-  const setDot = (n, on, texto) => {
-    const el = document.getElementById(`tab-running-dot-${n}`);
-    if (!el) return;
-    el.style.display = on ? '' : 'none';
-    el.dataset.tooltip = texto || 'Hay trabajo en curso';
-  };
-  // Tab 1: queueState (ya en memoria, lleno por queueWs) + sesiones
-  // `queue` y `running` son solo los RIPS (el panel de la cola los lee así),
-  // pero Tab 1 también encola el análisis de una serie entera. Eso vive en
-  // `jobs`/`running_job`, la vista completa de la cola.
-  const enCola = (queueState && queueState.queue && queueState.queue.length) || 0;
-  const otrosDeTab1 = ((queueState && queueState.jobs) || [])
-    .filter(j => j.tab === 'rip').length;
-  const corriendoDeTab1 = (queueState && queueState.running_job
-                           && queueState.running_job.tab === 'rip');
-  const t1 = !!(queueState && (queueState.running || enCola
-                               || otrosDeTab1 || corriendoDeTab1));
-  setDot(1, t1, t1
-    ? [corriendoDeTab1 ? queueState.running_job.que
-       : queueState.running ? '1 rip en curso' : null,
-       enCola ? `${enCola} en cola` : null].filter(Boolean).join(' · ')
-    : null);
-  // Tabs 2 y 3 salen del estado compartido (ver `leerActividad`). Tab 1 no,
-  // porque su punto se enciende también con trabajos *encolados* y el
-  // registro de `workload` solo conoce lo que está corriendo.
-  await leerActividad();
-  for (const [n, tabId] of [[2, 'mkv'], [3, 'cmv40']]) {
-    const trabajos = actividadDeTab(tabId);
-    setDot(n, trabajos.length > 0,
-           trabajos.map(_describirTrabajo).join(' · '));
-  }
-}
 
 /**
  * Tras Mac sleep / cambio de pestaña / suspend de red, los WebSockets
@@ -303,10 +224,10 @@ function _installVisibilityRecovery() {
  * preferimos garantizar datos al ahorrar conexión.
  */
 function _runRecoveryTasks() {
-  // Los puntos verdes de los tabs: su poller se salta las vueltas con la
-  // pestaña oculta, así que al volver hay que refrescarlos aquí o se quedan
-  // como estaban al ocultarse.
-  _refreshTabRunningDots();
+  // La columna de trabajo: su poller se salta las vueltas con la pestaña
+  // oculta, así que al volver hay que refrescarla aquí o se queda como estaba
+  // al ocultarse.
+  refrescarWorkbar();
 
   // ── Tab 3 — proyectos CMv4.0 abiertos ─────────────────────────
   if (Array.isArray(openCMv40Projects)) {
@@ -1241,22 +1162,30 @@ async function pedirPermisoNotificaciones() {
 /**
  * Lee el estado de trabajo de los tres tabs. Silencioso: es background.
  *
- * Una sola petición a `/api/activity`, que es el registro de trabajo pesado de
- * toda la app y se responde desde memoria. Antes eran dos, y a Tab 2 se le
- * preguntaba solo por la copia desde biblioteca: **un análisis extendido de
- * diez minutos terminaba sin avisar**, que es justo el caso para el que existe
- * este aviso.
+ * De `/api/trabajos`, la misma fuente que la columna de trabajo — que es lo
+ * que hay que mirar cuando la pestaña está oculta y la columna no pollea.
+ * Antes esto preguntaba a dos endpoints y a Tab 2 solo por la copia desde
+ * biblioteca, así que **un análisis extendido de diez minutos terminaba sin
+ * avisar**, justo el caso para el que existe.
  *
- * Tab 1 sale de `queueState` (en memoria, lo llena el WS de la cola) porque
- * cuenta también lo *encolado*, y `activity` solo conoce lo que corre.
+ * `queueState` se sigue consultando para Tab 1 porque llega por WebSocket y
+ * ya está en memoria: no cuesta nada y cubre el instante entre encolar y que
+ * el servidor lo refleje.
  */
 async function _leerTrabajosActivos() {
   const estado = { 1: false, 2: false, 3: false };
   estado[1] = !!(queueState && (queueState.running ||
                                 (queueState.queue && queueState.queue.length)));
-  await leerActividad();
-  estado[2] = actividadDeTab('mkv').length > 0;
-  estado[3] = actividadDeTab('cmv40').length > 0;
+  const st = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
+  if (!st) return estado;
+  const tabs = new Set([
+    ...(st.activo ? [st.activo.tab] : []),
+    ...(st.cola || []).map(j => j.tab),
+    ...(st.interactivo || []).map(t => t.tab),
+  ]);
+  estado[1] = estado[1] || tabs.has('rip');
+  estado[2] = tabs.has('mkv');
+  estado[3] = tabs.has('cmv40');
   return estado;
 }
 

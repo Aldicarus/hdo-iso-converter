@@ -239,8 +239,12 @@ window.addEventListener('error', e => window.__errores.push(
                          "handlers inline que NO son funciones globales: el "
                          "botón se ve y no hace nada")
 
-    def test_el_html_carga_las_siete(self):
-        self.assertEqual(len(self.datos["piezas"]), 7)
+    def test_el_html_carga_todas_las_piezas(self):
+        """Ocho desde que la columna de trabajo salió a la suya. El número no
+        se fija a mano: se compara contra lo que `index.html` declara, que es
+        la fuente de verdad del orden y del contenido."""
+        from frontend_sources import piezas
+        self.assertEqual(len(self.datos["piezas"]), len(piezas()))
 
 
 if __name__ == "__main__":

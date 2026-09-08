@@ -30,14 +30,20 @@ class TestCacheBust(unittest.TestCase):
         self.refs = _REF.findall(self.html)
 
     def test_todas_las_piezas_del_js_y_el_css_llevan_token(self):
-        """El JS son SIETE ficheros desde el corte de `app.js`. Con el token en
-        seis de los siete, el navegador sirve una pieza vieja contra seis
-        nuevas: peor que no tener token, porque el desajuste es parcial."""
+        """Con el token en siete de las ocho piezas, el navegador sirve una
+        vieja contra siete nuevas: peor que no tener token, porque el desajuste
+        es parcial.
+
+        La lista se fija a mano a propósito: añadir una pieza tiene que obligar
+        a mirar este test, que es donde está escrito por qué el token es uno
+        solo.
+        """
         ficheros = {f for f, _ in self.refs}
         self.assertIn("style.css", ficheros, "style.css debe cargarse con ?v=")
         js = sorted(f for f in ficheros if f.endswith(".js"))
         self.assertEqual(js, ["browser.js", "cmv40_modals.js", "core.js",
-                              "settings.js", "tab1.js", "tab2.js", "tab3.js"],
+                              "settings.js", "tab1.js", "tab2.js", "tab3.js",
+                              "workbar.js"],
                          "faltan piezas del JS en index.html (o hay de más)")
 
     def test_no_queda_rastro_del_app_js_monolitico(self):

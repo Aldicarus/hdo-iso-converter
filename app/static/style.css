@@ -9008,3 +9008,141 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-top: 9px; font-size: 12px; line-height: 1.45;
   color: var(--text-secondary);
 }
+
+/* ── Columna de trabajo ────────────────────────────────────────────
+   La tercera columna, a la derecha de #main-panel. Es la misma en las tres
+   pestañas porque la cola es única.
+
+   El ancho es 288px y no 320 como el sidebar izquierdo a propósito: 320+320
+   son 640px de cromo, y en un portátil de 1440 eso deja el centro sin sitio
+   para la radiografía DV+HDR de Tab 2, que es la vista más ancha de la app.
+   Por lo mismo se puede plegar a 28px, y el estado se recuerda. */
+#workbar {
+  width: 288px;
+  flex-shrink: 0;
+  display: flex;
+  background: rgba(235, 235, 240, 0.98);
+  border-left: 1px solid var(--border);
+  transition: width 0.18s ease;
+  overflow: hidden;
+}
+#workbar.collapsed { width: 28px; }
+#workbar.collapsed .workbar-inner { display: none; }
+
+.workbar-toggle {
+  width: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 10px 0 0;
+  align-self: stretch;
+  border-right: 1px solid transparent;
+}
+.workbar-toggle:hover { background: rgba(0,0,0,0.04); color: var(--text-1); }
+#workbar:not(.collapsed) .workbar-toggle { border-right-color: var(--border); }
+
+.workbar-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.workbar-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 14px 8px;
+  flex-shrink: 0;
+}
+.workbar-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.workbar-count {
+  font-size: 10px; font-variant-numeric: tabular-nums;
+  background: rgba(0,0,0,0.07); color: var(--text-2);
+  border-radius: 9px; padding: 1px 7px; margin-left: auto;
+}
+
+.workbar-seccion { padding: 0 14px 12px; }
+.workbar-seccion-titulo {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-3); margin: 6px 0 6px;
+}
+
+.workbar-activo {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+.workbar-activo-que {
+  font-size: 12px; font-weight: 600; color: var(--text-1);
+  margin-bottom: 2px; overflow-wrap: anywhere;
+}
+.workbar-activo-fase {
+  font-size: 11px; color: var(--text-2); margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+.workbar-barra {
+  height: 6px; background: rgba(0,0,0,0.08);
+  border-radius: 3px; overflow: hidden; margin-bottom: 5px;
+}
+.workbar-barra-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, #1e6fe6, #5ab3ff);
+  transition: width 0.4s ease;
+}
+/* Sin porcentaje medido no se pinta una barra que avanza: se pinta una
+   indeterminada. Es la misma regla que el resto del proyecto — una cifra
+   inventada con pinta de dato es peor que un hueco. */
+.workbar-barra.indeterminada .workbar-barra-fill {
+  width: 35% !important;
+  animation: workbar-vaiven 1.6s ease-in-out infinite;
+  background: linear-gradient(90deg, rgba(90,179,255,0.25), #5ab3ff, rgba(90,179,255,0.25));
+}
+@keyframes workbar-vaiven {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
+.workbar-tiempos {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.workbar-acciones { display: flex; gap: 6px; margin-top: 9px; }
+.workbar-acciones .btn { flex: 1; }
+
+.workbar-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; font-size: 11px; color: var(--text-2);
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+.workbar-item:last-child { border-bottom: none; }
+.workbar-item-pos {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,0.07); color: var(--text-3);
+  font-size: 9px; display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.workbar-item-que { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.workbar-item-meta { flex-shrink: 0; font-size: 10px; color: var(--text-3); }
+
+.workbar-vacio {
+  padding: 18px 14px; text-align: center;
+  font-size: 11px; color: var(--text-3);
+}
+
+/* La tira plegada tiene que avisar de que hay algo: es lo que sustituye a los
+   puntos verdes de las pestañas. Sin esto, cerrar la columna te dejaba sin
+   ninguna señal de trabajo en marcha. */
+.workbar-toggle.con-trabajo::after {
+  content: '';
+  display: block;
+  width: 7px; height: 7px;
+  margin: 7px auto 0;
+  border-radius: 50%;
+  background: #1ed760;
+  box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25);
+  animation: tab-running-pulse 1.6s ease-in-out infinite;
+}
