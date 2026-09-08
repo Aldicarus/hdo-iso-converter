@@ -108,30 +108,40 @@ function _openMkvBrowserNow() {
       { key: 'library', label: 'Biblioteca', icon: '📚' },
       { key: 'output',  label: 'Output',     icon: '📦' },
     ],
-    onSelect: async (absPath, name) => {
-      // 1) Sync: setup + abrir modal analisis (queda BAJO el browser por z-index).
-      const fileEl = document.getElementById('mkv-analyze-modal-file');
-      if (fileEl) fileEl.textContent = name;
-      _resetMkvAnalyzeSteps();
-      openModal('mkv-analyze-modal');
-      // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
-      // ficha que el modal de análisis de Tab 1, para consistencia entre flujos.
-      _hydrateModalWithTmdb({
-        name,
-        modalId: 'mkv-analyze-modal',
-        posterId: 'mkv-analyze-modal-poster',
-        titleId: 'mkv-analyze-modal-title',
-        subId: 'mkv-analyze-modal-file',
-        subText: name,
-      });
-      // 2) Async (NO await): el fetch de analisis tarda 1-3 min. Lo lanzamos en
-      //    background para que onSelect resuelva inmediatamente y _fileBrowserSelect
-      //    cierre el browser → quedando solo el modal de analisis visible.
-      _doAnalyzeMkvFromPickerPath(absPath, name).catch(e => {
-        console.error('analyze MKV error:', e);
-        showToast(`Error en analisis: ${e.message || e}`, 'error');
-      });
-    },
+    onSelect: async (absPath, name) => _mkvAbrirRuta(absPath, name),
+  });
+}
+
+/**
+ * Abre un MKV por su ruta: modal de análisis + petición en background.
+ *
+ * Lo llaman las DOS puertas de entrada — el file browser y las tarjetas de la
+ * columna izquierda—, y por eso está aquí fuera: era el cuerpo del `onSelect`
+ * del browser, y duplicarlo habría dejado dos sitios donde recordar el modal,
+ * la cartela de TMDb y el `catch`.
+ */
+function _mkvAbrirRuta(absPath, name) {
+  // 1) Sync: setup + abrir modal analisis (queda BAJO el browser por z-index).
+  const fileEl = document.getElementById('mkv-analyze-modal-file');
+  if (fileEl) fileEl.textContent = name;
+  _resetMkvAnalyzeSteps();
+  openModal('mkv-analyze-modal');
+  // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
+  // ficha que el modal de análisis de Tab 1, para consistencia entre flujos.
+  _hydrateModalWithTmdb({
+    name,
+    modalId: 'mkv-analyze-modal',
+    posterId: 'mkv-analyze-modal-poster',
+    titleId: 'mkv-analyze-modal-title',
+    subId: 'mkv-analyze-modal-file',
+    subText: name,
+  });
+  // 2) Async (NO await): el fetch de analisis tarda 1-3 min. Lo lanzamos en
+  //    background para que onSelect resuelva inmediatamente y _fileBrowserSelect
+  //    cierre el browser → quedando solo el modal de analisis visible.
+  _doAnalyzeMkvFromPickerPath(absPath, name).catch(e => {
+    console.error('analyze MKV error:', e);
+    showToast(`Error en analisis: ${e.message || e}`, 'error');
   });
 }
 
@@ -214,6 +224,10 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
   }
 
   openMkvProject(data);
+  // El análisis acaba de escribir (o refrescar) su entrada en la caché, que es
+  // de donde sale la columna izquierda: sin esto, el MKV recién abierto no
+  // aparece en la lista hasta cambiar de pestaña y volver.
+  refrescarMkvRecientes();
 }
 
 /** Resetea los pasos del modal de análisis de MKV. */
@@ -1880,6 +1894,12 @@ async function _rgrfAuditQuality(evt) {
     }
 
     _mkvQualitySetProgress(100);
+    // El backend acaba de persistir el bloque `quality` (y con él el perfil de
+    // luminancia) en la caché: la tarjeta de la columna izquierda pasa de 📋 a
+    // 🔬. Se refresca aquí y no en las tres salidas de abajo porque este es el
+    // punto en el que el análisis está hecho, pase lo que pase después con la
+    // pestaña — que puede haberse cerrado durante los diez minutos.
+    refrescarMkvRecientes();
     // El proyecto pudo cerrarse (o el fichero moverse) durante los ~10 min que
     // dura la extracción del RPU. El backend ya lo cacheó bajo la ruta
     // correcta, así que al reabrirlo aparecerá poblado.
@@ -3033,6 +3053,12 @@ async function _doApplyMkvEdits(copyToOutput) {
     _renderMkvEditPanel(project);
   }
 
+  // `apply` invalida la caché del MKV editado (mkvpropedit toca el primer MB,
+  // así que el fingerprint cambia) y el re-análisis de arriba la reescribe —
+  // con OTRA ruta si venía de la biblioteca. La columna izquierda sale de esa
+  // caché, así que sin repintarla se queda con la entrada de antes.
+  refrescarMkvRecientes();
+
   titleEl.textContent = 'Cambios aplicados';
   closeBtn.style.display = '';
 }
@@ -3335,4 +3361,314 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
       <tbody>${celdas}</tbody></table>` : ''}
     ${aviso}
   </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  COLUMNA IZQUIERDA — MKVs ANALIZADOS
+// ═══════════════════════════════════════════════════════════════════
+//
+// Las tres pestañas comparten armazón: primario arriba, cabecera con
+// contador, búsqueda, ordenación, filtros y una lista de tarjetas. Tab 2 lo
+// tenía vacío porque **no persiste proyectos**: `openMkvProjects` vive en
+// memoria y se va al recargar la página.
+//
+// Lo que sí sobrevive es la caché de análisis (`/config/mkv_audits/`), un
+// fichero por MKV abierto alguna vez. Eso es lo que se lista, y por eso la
+// columna no habla de «proyectos» sino de MKVs analizados: reabrir uno de
+// ahí es instantáneo (cache hit), que es justo lo que la hace útil.
+//
+// Se reutilizan las clases de Tab 1 y Tab 3 tal cual (`.session-card`,
+// `.sb-filter-pill`, `.sidebar-search-input`…). No hay helper común porque
+// los tres renders comparten la FORMA pero no los datos —fases CMv4.0,
+// estados de ejecución, análisis de MKV—, y el único trozo idéntico es el
+// bucle que pinta la tarjeta: sacarlo pediría parametrizar icono, chips, meta
+// y acciones, o sea reinventar una plantilla para tres usos.
+
+/** Lo último que devolvió el endpoint. Se conserva ante un fallo de red. */
+let _mkvRecientes = [];
+/** Cuántos hay en la caché, que puede ser más de lo que el endpoint sirve. */
+let _mkvRecientesTotal = 0;
+let _mkvRecientesSort = 'analizado';
+let _mkvRecientesSortAsc = false;   // lo natural en una lista de recientes
+let _mkvRecientesFilter = 'all';
+/** Ruta de la tarjeta desplegada (la que enseña sus acciones), o null. */
+let _mkvRecienteSeleccion = null;
+let _mkvRecientesDebounce = null;
+
+/** Pide la lista y repinta. Silencioso: se llama al entrar en la pestaña y
+ *  después de cada análisis, y un timeout puntual no es accionable. */
+async function refrescarMkvRecientes() {
+  const data = await apiFetch('/api/mkv/recientes', { silent: true });
+  if (!data) {
+    // NO vaciar la lista: machacarla con [] dejaría la columna en «0» y sería
+    // indistinguible de «no has analizado nada», que es una conclusión mucho
+    // peor que un dato viejo. Sin reintento automático a propósito — esto es
+    // navegación, no un monitor: volver a entrar en la pestaña la repide.
+    if (_mkvRecientes.length) _renderMkvRecientes();
+    else _renderMkvRecientesErrorDeCarga();
+    return;
+  }
+  _mkvRecientes = data.recientes || [];
+  _mkvRecientesTotal = data.total || _mkvRecientes.length;
+  _renderMkvRecientes();
+}
+
+function _renderMkvRecientesErrorDeCarga() {
+  const lista = document.getElementById('mkv-recientes-list');
+  if (!lista) return;
+  const contador = document.getElementById('mkv-recientes-count');
+  if (contador) contador.textContent = '—';
+  lista.innerHTML = `
+    <div class="empty-state" style="padding:24px 12px">
+      <div class="empty-state-icon">🔌</div>
+      <div>No se ha podido cargar la lista</div>
+      <div class="empty-state-desc" style="margin-top:6px">
+        Los análisis siguen guardados. Abrir un MKV funciona igual.
+      </div>
+      <button class="btn btn-ghost btn-xs" style="margin-top:10px"
+        onclick="refrescarMkvRecientes()">↻ Reintentar</button>
+    </div>`;
+}
+
+/** Búsqueda incremental con el mismo debounce que Tab 1 (150 ms): sin él se
+ *  reconstruye el DOM en cada pulsación. */
+function filtrarMkvRecientes() {
+  clearTimeout(_mkvRecientesDebounce);
+  _mkvRecientesDebounce = setTimeout(_renderMkvRecientes, 150);
+}
+
+function onMkvRecientesSortChange() {
+  _mkvRecientesSort = document.getElementById('mkv-recientes-sort')?.value || 'analizado';
+  // El nombre se lee de la A a la Z; la fecha y el tamaño, de mayor a menor.
+  _mkvRecientesSortAsc = (_mkvRecientesSort === 'name');
+  _actualizarBotonOrdenMkvRecientes();
+  _renderMkvRecientes();
+}
+
+function toggleMkvRecientesSortDir() {
+  _mkvRecientesSortAsc = !_mkvRecientesSortAsc;
+  _actualizarBotonOrdenMkvRecientes();
+  _renderMkvRecientes();
+}
+
+function _actualizarBotonOrdenMkvRecientes() {
+  const btn = document.getElementById('mkv-recientes-sort-dir');
+  if (btn) btn.textContent = _mkvRecientesSortAsc ? '↑' : '↓';
+}
+
+function onMkvRecientesFilterClick(btn) {
+  _mkvRecientesFilter = btn.dataset.filter || 'all';
+  _renderMkvRecientes();
+}
+
+/**
+ * El estado de una entrada, en un solo sitio: decide el icono, el texto del
+ * tooltip y la clave con la que filtran los pills.
+ *
+ * La caché caducada (ninguno de los dos bloques con la versión actual) cae en
+ * `basico` a propósito: el pill 📋 dice «sin análisis extendido», que es
+ * exactamente lo que es, y así ninguna tarjeta se queda sin pill que la
+ * alcance.
+ */
+function _mkvRecienteEstado(r) {
+  if (!r.existe) {
+    return { icono: '⚠️', clase: 'missing',
+             etiqueta: 'El MKV ya no está en la ruta que se analizó' };
+  }
+  if (r.tiene_extendido) {
+    return { icono: '🔬', clase: 'extendido',
+             etiqueta: 'Con análisis extendido del RPU' };
+  }
+  if (r.tiene_basico) {
+    return { icono: '📋', clase: 'basico',
+             etiqueta: 'Analizado — abrirlo es instantáneo' };
+  }
+  return { icono: '♻️', clase: 'basico',
+           etiqueta: 'Analizado con una versión anterior — al abrirlo se reanaliza' };
+}
+
+function _renderMkvRecientes() {
+  const lista = document.getElementById('mkv-recientes-list');
+  const contador = document.getElementById('mkv-recientes-count');
+  if (!lista) return;
+
+  // Los pills se re-marcan aquí y no solo en el click: `onSidebarFilterClick`
+  // de Tab 1 quita `.active` a TODOS los `.sb-filter-pill` del documento, así
+  // que tocar un filtro allí deja los de esta columna sin resaltar aunque el
+  // filtro siga puesto. Repintar desde el estado lo corrige al entrar.
+  document.querySelectorAll('#sidebar-tab-2 .sb-filter-pill').forEach(p =>
+    p.classList.toggle('active', p.dataset.filter === _mkvRecientesFilter));
+
+  const consulta = normalizeSearch(
+    document.getElementById('mkv-recientes-search')?.value || '');
+  let filtrada = _mkvRecientes.slice();
+  if (consulta) {
+    filtrada = filtrada.filter(r => normalizeSearch(r.nombre || '').includes(consulta));
+  }
+  if (_mkvRecientesFilter !== 'all') {
+    filtrada = filtrada.filter(r => _mkvRecienteEstado(r).clase === _mkvRecientesFilter);
+  }
+
+  const dir = _mkvRecientesSortAsc ? 1 : -1;
+  filtrada.sort((a, b) => {
+    let cmp = 0;
+    if (_mkvRecientesSort === 'name') {
+      cmp = (a.nombre || '').localeCompare(b.nombre || '');
+    } else if (_mkvRecientesSort === 'size') {
+      cmp = (a.tamano_bytes || 0) - (b.tamano_bytes || 0);
+    } else {
+      cmp = new Date(a.analizado_en || 0).getTime()
+          - new Date(b.analizado_en || 0).getTime();
+    }
+    return cmp * dir;
+  });
+
+  const filtrando = !!consulta || _mkvRecientesFilter !== 'all';
+  if (contador) {
+    contador.textContent = filtrando
+      ? `${filtrada.length} / ${_mkvRecientes.length}`
+      : filtrada.length;
+  }
+
+  if (!_mkvRecientes.length) {
+    lista.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">🗄️</div>
+      <div>Sin MKVs analizados</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Pulsa "Abrir MKV" para empezar</div>
+    </div>`;
+    return;
+  }
+  if (!filtrada.length) {
+    lista.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">🔎</div>
+      <div>Sin resultados</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Prueba con otro término o filtro</div>
+    </div>`;
+    return;
+  }
+
+  lista.innerHTML = '';
+  filtrada.forEach(r => {
+    const estado = _mkvRecienteEstado(r);
+    const nombre = (r.nombre || '').replace(/\.mkv$/i, '');
+    const abierto = !!openMkvProjects.find(p => _mkvRutaDe(p) === r.ruta);
+    const seleccionada = _mkvRecienteSeleccion === r.ruta;
+
+    const fecha = formatRelativeDate(r.analizado_en);
+    const fechaLarga = r.analizado_en
+      ? new Date(r.analizado_en).toLocaleString('es-ES', {
+          day: '2-digit', month: '2-digit', year: '2-digit',
+          hour: '2-digit', minute: '2-digit' })
+      : 'desconocido';
+    const tamano = r.tamano_bytes ? _fmtBytes(r.tamano_bytes) : '—';
+    const duracion = r.duracion_segundos ? ` · ${_fmtDuration(r.duracion_segundos)}` : '';
+
+    const chips = [
+      `<span class="mkv-reciente-chip ${r.tiene_extendido ? 'on' : ''}"
+        data-tooltip="${r.tiene_extendido
+          ? 'Combos L8/L2 del RPU ya analizados'
+          : 'Sin análisis extendido — el botón 🔬 del panel lo lanza'}">🔬 RPU</span>`,
+      `<span class="mkv-reciente-chip ${r.tiene_luminancia ? 'on' : ''}"
+        data-tooltip="${r.tiene_luminancia
+          ? 'Tiene perfil de luminancia: sirve para el comparador A/B'
+          : 'Sin perfil de luminancia'}">💡 Luz</span>`,
+    ];
+    if (!r.existe) {
+      chips.push(`<span class="mkv-reciente-chip warn"
+        data-tooltip="${escHtml(r.ruta)}">⚠️ No encontrado</span>`);
+    }
+
+    const card = document.createElement('div');
+    card.className = `session-card${seleccionada ? ' selected' : ''}`
+                   + (r.existe ? '' : ' no-encontrado');
+    card.dataset.ruta = r.ruta;
+    card.innerHTML = `
+      <div class="session-card-row">
+        <div class="session-card-status-badge" data-tooltip="${escHtml(estado.etiqueta)}">${estado.icono}</div>
+        <div class="session-card-body">
+          <div class="session-card-title" data-tooltip="${escHtml(r.ruta || nombre)}">${escHtml(nombre)}</div>
+          <div class="session-card-meta">
+            <div class="session-card-meta-row">
+              <span class="meta-label">Analiz.</span>
+              <span class="relative-date" data-iso="${r.analizado_en || ''}"
+                data-tooltip="${escHtml('Analizado: ' + fechaLarga)}">${escHtml(fecha)}</span>
+            </div>
+            <div class="session-card-meta-row">
+              <span class="meta-label">Fichero</span>
+              <span>${escHtml(tamano + duracion)}</span>
+            </div>
+          </div>
+          <div class="mkv-reciente-chips">${chips.join('')}</div>
+        </div>
+        ${abierto ? '<span class="session-item-badge">abierto</span>' : ''}
+      </div>
+      <div class="session-card-actions">
+        ${r.existe
+          ? `<button class="btn btn-primary btn-sm" data-abrir="1"
+               data-tooltip="Abrir este MKV en una sub-pestaña">📂 Abrir</button>`
+          : `<button class="btn btn-ghost btn-sm" disabled
+               data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">⚠️ Fichero no encontrado</button>`}
+      </div>`;
+    // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la
+    // plantilla: `escHtml` no escapa la comilla simple (no hace falta para un
+    // atributo entre comillas dobles), así que un título como «Ocean's Eleven»
+    // cerraría la cadena JS del atributo. El resultado sería un botón que no
+    // hace nada, sin un solo error visible — el modo de fallo de siempre.
+    // Tab 1 y Tab 3 sí interpolan, pero lo suyo es un id de sesión saneado.
+    const fila = card.querySelector('.session-card-row');
+    fila.onclick = () => _mkvToggleSeleccionReciente(r.ruta);
+    fila.ondblclick = () => abrirMkvReciente(r.ruta);
+    const abrir = card.querySelector('[data-abrir]');
+    if (abrir) abrir.onclick = (ev) => { ev.stopPropagation(); abrirMkvReciente(r.ruta); };
+    lista.appendChild(card);
+  });
+
+  // El endpoint recorta por arriba (ver TOPE_RECIENTES). Decirlo es más honesto
+  // que dejar que el usuario deduzca que un MKV viejo "ya no está analizado".
+  if (_mkvRecientesTotal > _mkvRecientes.length && !filtrando) {
+    const pie = document.createElement('div');
+    pie.className = 'empty-state-desc';
+    pie.style.cssText = 'padding:8px 6px 0;text-align:center;font-size:10px';
+    pie.textContent = `Los ${_mkvRecientes.length} más recientes de ${_mkvRecientesTotal}`;
+    lista.appendChild(pie);
+  }
+}
+
+/** Despliega/repliega las acciones de una tarjeta, como en Tab 1 y Tab 3. */
+function _mkvToggleSeleccionReciente(ruta) {
+  _mkvRecienteSeleccion = (_mkvRecienteSeleccion === ruta) ? null : ruta;
+  document.querySelectorAll('#mkv-recientes-list .session-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.ruta === _mkvRecienteSeleccion);
+  });
+}
+
+/**
+ * Abre un MKV de la lista. Tres caminos, en este orden:
+ *
+ *   1. **Ya está abierto** → se activa su pestaña. Volver a analizarlo daría
+ *      el mismo resultado (cache hit) pero abriendo el modal para nada.
+ *   2. **El fichero no está** → se avisa y no se llama al backend, que
+ *      respondería un 404 seco. El análisis se conserva igualmente.
+ *   3. Si no, el flujo normal, el mismo que el file browser.
+ */
+function abrirMkvReciente(ruta) {
+  const entrada = _mkvRecientes.find(r => r.ruta === ruta);
+  const nombre = entrada?.nombre || (ruta || '').split('/').pop();
+
+  const yaAbierto = openMkvProjects.find(p => _mkvRutaDe(p) === ruta);
+  if (yaAbierto) {
+    switchMkvSubTab(yaAbierto.id);
+    return;
+  }
+  if (entrada && !entrada.existe) {
+    showToast(`«${nombre}» ya no está en ${ruta} — el análisis se conserva`, 'warning');
+    return;
+  }
+  // El tope se comprueba ANTES de arrancar: el análisis puede tardar 1-3 min
+  // y avisar al terminar sería cruel (mismo motivo que en openMkvPickerModal).
+  if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
+    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
+    return;
+  }
+  _mkvAbrirRuta(ruta, nombre);
 }

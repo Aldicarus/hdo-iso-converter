@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260908c">
+  <link rel="stylesheet" href="/static/style.css?v=20260908d">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -134,8 +134,73 @@
 
       </div>
 
-      <!-- Sidebar Tab 2: sin contenido (Tab 2 usa ancho completo) -->
-      <div id="sidebar-tab-2" style="display:none"></div>
+      <!-- Sidebar Tab 2: los MKVs ya analizados.
+           Tab 2 no persiste proyectos (su estado vive en `openMkvProjects` y
+           se va al recargar), así que aquí no se pueden listar proyectos como
+           en Tab 1 y Tab 3. Lo que sí existe es la caché de análisis de
+           /config/mkv_audits/: un fichero por MKV abierto alguna vez. Mismo
+           armazón y mismas clases que las otras dos columnas — el objetivo del
+           bloque es que no se note el salto al cambiar de pestaña. -->
+      <div id="sidebar-tab-2" style="display:none">
+
+        <!-- Botón primario. Estaba en el centro (#mkv-action-bar); aquí ocupa
+             el mismo sitio que "Nuevo proyecto" de Tab 1 y Tab 3. -->
+        <div class="sidebar-new-project-area">
+          <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openMkvPickerModal()"
+            data-tooltip="Selecciona un MKV de tu biblioteca o del output para inspeccionarlo y editarlo">
+            <span>📂</span> Abrir MKV
+          </button>
+        </div>
+
+        <!-- Cabecera + búsqueda + controles -->
+        <div class="sidebar-sessions-header">
+          <span class="sidebar-section-title">🗄️ MKVs analizados</span>
+          <span class="sessions-count" id="mkv-recientes-count">0</span>
+        </div>
+        <div class="sidebar-search-wrap">
+          <span class="sidebar-search-icon">🔎</span>
+          <input type="text" id="mkv-recientes-search" class="sidebar-search-input"
+            placeholder="Buscar MKV…"
+            oninput="filtrarMkvRecientes()"
+            data-tooltip="Filtra por nombre ignorando mayúsculas, tildes y puntuación">
+        </div>
+
+        <!-- Ordenación + filtros.
+             Los tres criterios son los que distinguen una tarjeta de otra
+             AQUÍ: cuándo se analizó (el orden natural de una lista de
+             recientes), el nombre y el tamaño del fichero. No hay un sort por
+             "estado" como en Tab 1 porque el estado de un MKV analizado tiene
+             tres valores y ya se filtra con los pills — ordenar por él solo
+             agruparía lo que el pill deja ver directamente. -->
+        <div class="sidebar-controls">
+          <div class="sidebar-sort-row">
+            <select id="mkv-recientes-sort" class="sidebar-sort-select" onchange="onMkvRecientesSortChange()"
+              data-tooltip="Criterio de ordenación">
+              <option value="analizado">Analizado</option>
+              <option value="name">Nombre</option>
+              <option value="size">Tamaño</option>
+            </select>
+            <button class="sidebar-sort-dir-btn" id="mkv-recientes-sort-dir" onclick="toggleMkvRecientesSortDir()"
+              data-tooltip="Alternar ascendente / descendente">↓</button>
+          </div>
+          <!-- Los cuatro pills cubren TODAS las tarjetas: "sin extendido"
+               incluye también las de caché caducada, que si no serían
+               inalcanzables desde los filtros. -->
+          <div class="sidebar-status-filters">
+            <button class="sb-filter-pill active" data-filter="all" onclick="onMkvRecientesFilterClick(this)"
+              data-tooltip="Todos">All</button>
+            <button class="sb-filter-pill" data-filter="extendido" onclick="onMkvRecientesFilterClick(this)"
+              data-tooltip="Con análisis extendido del RPU">🔬</button>
+            <button class="sb-filter-pill" data-filter="basico" onclick="onMkvRecientesFilterClick(this)"
+              data-tooltip="Sin análisis extendido">📋</button>
+            <button class="sb-filter-pill" data-filter="missing" onclick="onMkvRecientesFilterClick(this)"
+              data-tooltip="El fichero ya no está en la ruta analizada">⚠️</button>
+          </div>
+        </div>
+
+        <div id="mkv-recientes-list"></div>
+
+      </div>
 
       <!-- Sidebar Tab 3: CMv4.0 BD (futuro) -->
       <!-- Sidebar Tab 3: CMv4.0 BD (mismo patrón que Tab 1) -->
@@ -460,21 +525,14 @@
       <!-- ── TAB 2: Editar MKV ── -->
       <div id="tab-panel-2" style="display:none; flex-direction:column">
 
-        <!-- Barra azul (uniformidad con Tab 1/3): botón Abrir MKV siempre accesible.
-             Reutiliza las mismas clases que el botón "Nuevo proyecto" del sidebar
-             para que el estilo sea LITERALMENTE idéntico (border-radius, shadow, altura). -->
+        <!-- Franja navy con las sub-pestañas de los MKVs abiertos (hasta 5),
+             igual que #subtab-bar en Tab 1 y #cmv40-subtab-bar en Tab 3. El
+             botón "Abrir MKV" que vivía aquí se fue a la columna izquierda,
+             donde está el primario de las otras dos pestañas. -->
         <div id="mkv-action-bar">
-          <div class="sidebar-new-project-area mkv-action-area">
-            <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openMkvPickerModal()"
-              data-tooltip="Selecciona un MKV de /mnt/output para editar sus metadatos">
-              <span>📂</span> Abrir MKV
-            </button>
-          </div>
-          <!-- Sub-pestañas de MKVs abiertos (hasta 5). Mismas clases que Tab 1/3
-               para que el look sea idéntico. `align-self:flex-end` porque
-               #mkv-action-bar estira sus hijos (align-items:stretch) y aquí las
-               pestañas tienen que apoyarse en la base de la franja navy, como en
-               los otros dos tabs. -->
+          <!-- `align-self:flex-end` porque #mkv-action-bar estira sus hijos
+               (align-items:stretch) y las pestañas tienen que apoyarse en la
+               base de la franja, como en los otros dos tabs. -->
           <div class="subtab-projects-area" id="mkv-subtab-projects-area"
             style="display:none; align-self:flex-end">
             <button class="subtab-scroll-btn subtab-scroll-left" id="mkv-subtab-scroll-left"
@@ -1460,12 +1518,12 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260908c"></script>
-<script src="/static/settings.js?v=20260908c"></script>
-<script src="/static/cmv40_modals.js?v=20260908c"></script>
-<script src="/static/tab1.js?v=20260908c"></script>
-<script src="/static/tab2.js?v=20260908c"></script>
-<script src="/static/tab3.js?v=20260908c"></script>
-<script src="/static/browser.js?v=20260908c"></script>
+<script src="/static/core.js?v=20260908d"></script>
+<script src="/static/settings.js?v=20260908d"></script>
+<script src="/static/cmv40_modals.js?v=20260908d"></script>
+<script src="/static/tab1.js?v=20260908d"></script>
+<script src="/static/tab2.js?v=20260908d"></script>
+<script src="/static/tab3.js?v=20260908d"></script>
+<script src="/static/browser.js?v=20260908d"></script>
 </body>
 </html>

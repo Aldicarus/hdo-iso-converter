@@ -499,9 +499,10 @@ body {
   border-color: var(--blue);
 }
 
-/* ── Lista de sesiones — Tab 1 (ISO) y Tab 3 (CMv4.0) ────────── */
+/* ── Lista del sidebar — Tab 1 (ISO), Tab 3 (CMv4.0) y Tab 2 (MKVs) ── */
 #sessions-list,
-#cmv40-sidebar-list {
+#cmv40-sidebar-list,
+#mkv-recientes-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -515,11 +516,14 @@ body {
   overscroll-behavior: contain;
 }
 #sessions-list::-webkit-scrollbar,
-#cmv40-sidebar-list::-webkit-scrollbar { width: 4px; }
+#cmv40-sidebar-list::-webkit-scrollbar,
+#mkv-recientes-list::-webkit-scrollbar { width: 4px; }
 #sessions-list::-webkit-scrollbar-track,
-#cmv40-sidebar-list::-webkit-scrollbar-track { background: transparent; }
+#cmv40-sidebar-list::-webkit-scrollbar-track,
+#mkv-recientes-list::-webkit-scrollbar-track { background: transparent; }
 #sessions-list::-webkit-scrollbar-thumb,
-#cmv40-sidebar-list::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
+#cmv40-sidebar-list::-webkit-scrollbar-thumb,
+#mkv-recientes-list::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
 
 /* ── Tarjeta de proyecto ─────────────────────────────────────── */
 .session-card {
@@ -538,6 +542,35 @@ body {
   border-color: var(--sep-strong);
   cursor: default;
 }
+/* Tab 2: el MKV ya no está en la ruta que se analizó (movido, renombrado o
+   borrado fuera de la app). La tarjeta se queda —el análisis sigue siendo
+   válido y se reaprovecha si el fichero vuelve— pero apagada, para que no
+   parezca abrible. El acento ámbar es el mismo lenguaje que el resto de
+   avisos no bloqueantes. */
+.session-card.no-encontrado {
+  opacity: .62;
+  background: var(--orange-dim);
+}
+.session-card.no-encontrado:hover:not(.selected) { background: var(--orange-dim); }
+/* Chips de "qué análisis tiene hecho" en la tarjeta de Tab 2. */
+.mkv-reciente-chips {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.mkv-reciente-chip {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.mkv-reciente-chip.on { background: var(--blue-dim); color: var(--blue); }
+.mkv-reciente-chip.warn { background: var(--orange-dim); color: var(--orange); }
 
 /* fila superior: badge estado + datos */
 .session-card-row {
@@ -2704,11 +2737,12 @@ select { appearance: none; cursor: pointer;
    ═════════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
-   TAB 2 — Editar MKV: barra azul superior con botón "Abrir MKV"
-   Reutiliza .sidebar-new-project-area + .sidebar-new-project-btn (mismo HTML
-   pattern que Tab 1/3) para que el estilo del botón sea IDÉNTICO al de Nuevo
-   proyecto. Solo añadimos .mkv-action-area para constrain el ancho a 320px
-   ya que aquí no hay un sidebar padre que lo limite.
+   TAB 2 — Editar MKV: franja azul superior con las sub-pestañas.
+   Los mismos 63px que #subtab-bar y #cmv40-subtab-bar, para que la franja
+   navy siga a la misma altura al cambiar de pestaña. El botón "Abrir MKV"
+   vivía aquí dentro de un .mkv-action-area de 320px que imitaba el ancho del
+   sidebar; desde que Tab 2 TIENE sidebar, el botón está donde los otros dos
+   primarios y esa regla sobra.
    ═══════════════════════════════════════════════════════════════ */
 #mkv-action-bar {
   flex-shrink: 0;
@@ -2716,11 +2750,6 @@ select { appearance: none; cursor: pointer;
   background: var(--active-hub-bar-grad);
   display: flex;
   align-items: stretch;           /* el area interior define su propia altura vía padding */
-}
-.mkv-action-area {
-  width: 320px;
-  box-sizing: border-box;
-  flex-shrink: 0;
 }
 
 /* Tab 3 subtab bar: mismo layout que Tab 1 */

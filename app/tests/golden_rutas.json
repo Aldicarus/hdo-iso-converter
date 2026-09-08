@@ -265,6 +265,16 @@
    "body": [],
    "params": []
   },
+  "GET /api/mkv/recientes": {
+   "body": [],
+   "params": [
+    [
+     "limite",
+     "query",
+     false
+    ]
+   ]
+  },
   "GET /api/queue": {
    "body": [],
    "params": []

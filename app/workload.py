@@ -333,6 +333,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/tv-season/{tmdb_id}/{season_number}": CLASE_LIGERO,
     # Tab 2
     "GET /api/mkv/files":                   CLASE_LIGERO,
+    # La columna izquierda de Tab 2. Un `glob` + un `json.loads` por MKV ya
+    # analizado (23 en el NAS), en un thread: es navegación, como `/api/sessions`.
+    "GET /api/mkv/recientes":               CLASE_LIGERO,
     "GET /api/mkv/files-in-isos":           CLASE_LIGERO,
     "GET /api/mkv/cache-info":              CLASE_LIGERO,
     "DELETE /api/mkv/cache-info":           CLASE_LIGERO,

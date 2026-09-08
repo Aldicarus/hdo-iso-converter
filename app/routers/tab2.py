@@ -33,7 +33,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -251,6 +251,112 @@ async def library_browse(
         "base": str(base_dir),
         "entries": entries,
     }
+
+
+# El tope de tarjetas que se sirven. La caché tiene un fichero por cada MKV
+# que se ha abierto alguna vez y no caduca sola, así que crece indefinidamente;
+# en el NAS son 23 hoy. Se ordena ANTES de recortar, así que lo que se pierde
+# es siempre lo más viejo, y `total` dice cuántos había.
+TOPE_RECIENTES = 100
+
+
+def _mkv_recientes_desde_cache(limite: int) -> tuple[list[dict], int]:
+    """Los MKVs analizados, del más reciente al más antiguo. Devuelve
+    `(tarjetas, total_antes_de_recortar)`.
+
+    Se lee de `/config/mkv_audits/`, que ya existe: la caché de análisis de
+    Tab 2 guarda un fichero por MKV con su ruta de origen, su fingerprint y los
+    bloques `basic` y `quality`. No hace falta persistencia nueva.
+
+    Tres decisiones que no son obvias:
+
+    * **Una entrada ilegible se salta, no tumba la lista.** Corrupta, sin
+      `original_file_path` (las escritas antes de que ese campo existiera) o
+      sin fecha: sin ruta no hay MKV que abrir y sin fecha no hay por dónde
+      ordenar, y devolver un 500 por un fichero roto dejaría la columna entera
+      en blanco sin decir cuál es el culpable.
+    * **Un bloque con la versión caducada NO cuenta como análisis hecho.**
+      `read_mkv_cache` no lo sirve, así que abrir ese MKV vuelve a analizarlo;
+      anunciar "🔬 extendido" sobre algo que la app va a recalcular sería
+      mentir. Vale igual para el perfil de luminancia, que vive DENTRO del
+      bloque `quality` y por tanto caduca con él.
+    * **El fingerprint no se recalcula.** Verificar que el MKV sigue siendo el
+      analizado costaría leer 1 MB de cada uno — sobre el pool del NAS, decenas
+      de segundos por abrir una pestaña. Se comprueba solo que el fichero
+      EXISTE (un `stat`), y de que el contenido coincide ya se encarga la
+      apertura, que ante un fingerprint distinto re-analiza.
+    """
+    from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
+    from storage import list_mkv_audit_entries
+
+    tarjetas: list[dict] = []
+    for e in list_mkv_audit_entries():
+        # Una entrada ilegible se salta por aquí también: cuando el JSON no
+        # se puede leer, `list_mkv_audit_entries` la devuelve SIN ruta ni
+        # fecha, que son justo los dos datos que se exigen.
+        ruta = e.get("original_file_path")
+        if not isinstance(ruta, str) or not ruta or not e.get("cached_at"):
+            continue
+        versiones = e.get("versions") or {}
+        basico = bool(e.get("basic_present")) and versiones.get("basic") == CACHE_VERSION_BASIC
+        extendido = (bool(e.get("quality_present"))
+                     and versiones.get("quality") == CACHE_VERSION_QUALITY)
+        tarjetas.append({
+            "ruta": ruta,
+            "nombre": Path(ruta).name,
+            "tamano_bytes": e.get("mkv_size_bytes"),
+            "duracion_segundos": e.get("duration_seconds"),
+            "analizado_en": e.get("cached_at"),
+            # El MKV puede haberse movido, renombrado o borrado fuera de la
+            # app: la caché va por fingerprint y la ruta es solo una pista. Se
+            # MARCA en vez de ocultarse — el análisis sigue siendo válido y se
+            # reaprovecha en cuanto el fichero reaparezca, así que esconderlo
+            # daría a entender que hay que rehacerlo.
+            "existe": Path(ruta).exists(),
+            "tiene_basico": basico,
+            "tiene_extendido": extendido,
+            "tiene_luminancia": extendido and bool(e.get("light_profile_present")),
+        })
+    tarjetas.sort(key=lambda t: t["analizado_en"], reverse=True)
+    return tarjetas[:limite], len(tarjetas)
+
+
+@router.get("/api/mkv/recientes", summary="MKVs analizados recientemente (columna izquierda de Tab 2)")
+async def mkv_recientes(limite: int = TOPE_RECIENTES):
+    """Lo que llena la columna izquierda de Tab 2.
+
+    Tab 2 no persiste proyectos —su estado es efímero, `openMkvProjects` en el
+    frontend— así que su columna no puede listar «proyectos» como hacen Tab 1 y
+    Tab 3. Lista lo que sí existe: **los MKVs que ya se han analizado**, que la
+    caché de `/config/mkv_audits/` conoce sin que haya que guardar nada nuevo.
+
+    El recorrido del directorio va en un thread. Son un `glob`, un `stat` y un
+    `json.loads` por entrada, y el guard del event loop prohíbe —con razón—
+    hacer eso dentro de una corrutina: este proceso es también el que lee el
+    pipe de los `ffmpeg` en marcha.
+    """
+    limite = max(1, min(limite, 500))
+    # ⚠️ DEV MODE — sin discos reales la caché está vacía y la columna saldría
+    # siempre en su estado vacío, que es justo lo que no se puede desarrollar.
+    if DEV_MODE:
+        ahora = datetime.now(timezone.utc)
+        falsos = [
+            {
+                "ruta": f"/mnt/output/{nombre}",
+                "nombre": nombre,
+                "tamano_bytes": 42_000_000_000 + i * 3_000_000_000,
+                "duracion_segundos": 7200 + i * 137,
+                "analizado_en": (ahora - timedelta(hours=i * 7)).isoformat(),
+                "existe": i != 2,                  # uno movido, para ver el aviso
+                "tiene_basico": True,
+                "tiene_extendido": i % 3 != 1,
+                "tiene_luminancia": i % 3 == 0,
+            }
+            for i, nombre in enumerate(DEV_FAKE_MKV_FILES)
+        ]
+        return {"recientes": falsos[:limite], "total": len(falsos)}
+    recientes, total = await asyncio.to_thread(_mkv_recientes_desde_cache, limite)
+    return {"recientes": recientes, "total": total}
 
 
 @router.get("/api/mkv/files", summary="Lista MKVs disponibles en /mnt/output")
