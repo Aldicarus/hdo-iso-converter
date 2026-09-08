@@ -60,8 +60,12 @@ IDS_DEL_PANEL = [
 ]
 
 # Los que NO se tocan: el armazón de la pestaña y los tres modales (singleton).
+# Los dos modales propios de Tab 2 —el del análisis extendido y el de la
+# copia— se retiraron: su progreso lo enseña la columna de trabajo y su
+# detalle, el modal común. Lo que queda es el de abrir un MKV, que no es un
+# trabajo de la cola sino navegación.
 IDS_GLOBALES = ["mkv-action-bar", "mkv-empty-state", "mkv-edit-panel",
-                "mkv-analyze-modal", "mkv-quality-modal", "mkv-apply-modal"]
+                "mkv-analyze-modal", "trabajo-modal"]
 
 
 def _funcion(nombre: str) -> str:
@@ -455,10 +459,8 @@ class TestLosGradientesDelHistograma(Tab2EnNode):
 class TestElArmazonYLosModalesSeQuedanGlobales(unittest.TestCase):
     """Los otros 39 ids no se tocan, y hay que poder demostrarlo.
 
-    Prefijar los del armazón rompería `core.js` (que llama a
-    `_mkvCheckActiveApply`) y prefijar los de los modales no tendría sentido:
-    los trabajos que muestran son singleton en el backend, así que sólo puede
-    haber uno a la vez.
+    Prefijar los de los modales no tendría sentido: los trabajos que muestran
+    son singleton en el backend, así que sólo puede haber uno a la vez.
     """
 
     def test_el_html_sigue_declarando_los_ids_del_armazon_y_los_modales(self):

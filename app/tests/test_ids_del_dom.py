@@ -61,7 +61,10 @@ class TestIdsQueElJsBusca(unittest.TestCase):
         """Los que abre un flujo entero: si falta uno, la pantalla se queda
         muda. Se comprueban por nombre para que borrar uno duela aquí."""
         for modal in ("mkv-analyze-modal",      # abrir un MKV en Tab 2
-                      "mkv-quality-modal",      # análisis extendido
+                      # El detalle de CUALQUIER trabajo. Sustituyó a los
+                      # modales propios del análisis extendido, la copia y la
+                      # creación de series, más el overlay de CMv4.0.
+                      "trabajo-modal",
                       "raw-analysis-modal",     # 🔬 Datos ISO (Tab 1)
                       "analyze-modal",          # análisis de origen (Tab 1)
                       "series-modal",           # multi-episodio (Tab 1)

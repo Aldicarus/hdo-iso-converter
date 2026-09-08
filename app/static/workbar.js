@@ -204,21 +204,23 @@ function abrirDetalleDeTrabajo() {
 function cancelarTrabajoActivo() {
   const a = workbarEstado.activo;
   if (!a) return;
-  const rutas = {
-    rip:   `/api/sessions/${a.id}/cancel`,
-    cmv40: `/api/cmv40/${a.id}/cancel`,
-    mkv:   a.detalle === 'analisis_extendido'
-             ? '/api/mkv/quality-audit/cancel' : '/api/mkv/apply/cancel',
+  // El análisis extendido NO se cancela con un POST a pelo: su función manda
+  // el `audit_id` que se está siguiendo y marca la sesión local como cancelada
+  // por el usuario. Sin eso, un cancel tardío del audit A mataba el B recién
+  // lanzado, y el error salía como fallo en vez de como cancelación — dos bugs
+  // que costaron su tarde.
+  const acciones = {
+    rip:   () => apiFetch(`/api/sessions/${a.id}/cancel`, { method: 'POST' }),
+    cmv40: () => apiFetch(`/api/cmv40/${a.id}/cancel`, { method: 'POST' }),
+    mkv:   () => (a.detalle === 'analisis_extendido'
+                    ? _mkvQualityCancel() : cancelMkvApply()),
   };
-  const url = rutas[a.tab];
-  if (!url) return;
+  const accion = acciones[a.tab];
+  if (!accion) return;
   showConfirm(
     'Cancelar el trabajo',
     `Se detendrá «${a.que}». Lo que ya esté hecho se conserva.`,
-    async () => {
-      await apiFetch(url, { method: 'POST', body: JSON.stringify({}) });
-      refrescarWorkbar();
-    },
+    async () => { await accion(); refrescarWorkbar(); },
     'Cancelar el trabajo',
   );
 }

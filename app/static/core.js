@@ -145,13 +145,6 @@ document.addEventListener('DOMContentLoaded', () => {
   _installVisibilityRecovery();
   _instalarVigilanciaDeFin();
   _initUpdateCheckHeader();
-  // Auto-detect de operaciones de Tab 2 en curso en el backend tras un
-  // refresh de pestaña (caso: usuario cierra navegador con copia activa,
-  // reabre y debería ver el modal con el progreso). El check es silencioso
-  // — si no hay nada activo, no abre nada.
-  setTimeout(() => {
-    if (typeof _mkvCheckActiveApply === 'function') _mkvCheckActiveApply();
-  }, 500);
   // Polling global de "jobs activos" para los dots verdes en los tabs.
   // Cada 5s pregunta al backend qué tabs tienen actividad y enciende /
   // apaga los indicadores. Coste mínimo (3 endpoints livianos) pero da al
@@ -288,9 +281,6 @@ function _runRecoveryTasks() {
   }
   // Tab 2 — apply (copia desde Library): si hay job activo en backend,
   // el modal puede estar congelado en "esperando" — forzar tick.
-  if (typeof _mkvCheckActiveApply === 'function') {
-    _mkvCheckActiveApply();
-  }
 
   // BURST refresh: la red Wi-Fi puede tardar varios segundos en
   // estabilizarse tras un wake del Mac. Un solo refresh inmediato puede
@@ -440,9 +430,6 @@ function switchTab(n) {
   // Tab 2: detectar si hay una operación de apply (copia + edición) en
   // curso desde otra sesión del navegador o un refresh de pestaña — si la
   // hay, reabrir el modal de progreso para que el usuario pueda seguirla.
-  if (n === 2 && typeof _mkvCheckActiveApply === 'function') {
-    _mkvCheckActiveApply();
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════

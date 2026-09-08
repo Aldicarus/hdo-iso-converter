@@ -1753,32 +1753,10 @@ async function _rgrfAuditQuality(evt) {
   const requestId = (self.crypto && self.crypto.randomUUID)
     ? self.crypto.randomUUID()
     : (Date.now() + '-' + Math.random().toString(36).slice(2));
-  const fileEl = document.getElementById('mkv-quality-modal-file');
-  if (fileEl) fileEl.textContent = proyecto.analysis.file_name;
-  // Cabecera: restaurar icono base (una apertura previa con match TMDb pudo
-  // dejar la cartela) antes de re-intentar la hidratación.
-  const qPoster = document.getElementById('mkv-quality-modal-poster');
-  if (qPoster) qPoster.innerHTML = '<span id="mkv-quality-modal-icon">🔬</span>';
-  const qTitle = document.getElementById('mkv-quality-modal-title');
-  if (qTitle) qTitle.textContent = 'Auditando calidad CMv4.0 / CMv2.9';
-  _mkvQualityResetSteps();
-  _mkvQualitySetProgress(0);
-  _mkvQualitySetElapsed(0);
-  const logEl = document.getElementById('mkv-quality-log');
-  if (logEl) logEl.innerHTML = '';
-  openModal('mkv-quality-modal');
-  // Cartela + título TMDb en la cabecera (best-effort, en paralelo) — misma
-  // ficha que los demás modales de análisis, para consistencia entre flujos.
-  _hydrateModalWithTmdb({
-    name: proyecto.analysis.file_name,
-    modalId: 'mkv-quality-modal',
-    posterId: 'mkv-quality-modal-poster',
-    titleId: 'mkv-quality-modal-title',
-    subId: 'mkv-quality-modal-file',
-    subText: proyecto.analysis.file_name,
-  });
-
-  let lastLogCount = 0;
+  // Este flujo ya no monta su propio modal. El progreso es el mismo que la
+  // columna de trabajo enseña para cualquier otro trabajo y el detalle es el
+  // modal común: tener dos formas de ver lo mismo era la duplicación que este
+  // bloque quita.
   let polling = true;
   // Sesión con scope LOCAL. window._mkvQualitySession sigue existiendo para
   // que el botón Cancelar lea el audit_id, pero el poller/finally/abort de
@@ -1800,19 +1778,9 @@ async function _rgrfAuditQuality(evt) {
         // por nuestro POST), ignorarlo — no es nuestro result.
         if (st && !(prevAuditId && st.audit_id === prevAuditId)) {
           if (st.audit_id) session.auditId = st.audit_id;
-          _mkvQualitySetStep(st.step);
-          _mkvQualitySetProgress(st.global_pct || 0);
-          _mkvQualitySetElapsed(st.elapsed_s || 0);
-          const lines = Array.isArray(st.log_lines) ? st.log_lines : [];
-          if (lines.length > lastLogCount && logEl) {
-            const newLines = lines.slice(lastLogCount);
-            // Reusa _appendLogLine que ya implementa scroll inteligente
-            // (_isScrolledNearBottom) y aplica la paleta semántica de
-            // .cmv40-log (clasifica por markers ━━━ / $ / 📋 / 🎯 / ✓ / ✗).
-            // Misma UX que el log del overlay de CMv4.0 — paridad visual.
-            for (const line of newLines) _appendLogLine(logEl, line);
-            lastLogCount = lines.length;
-          }
+          // Aquí ya no se pinta: de eso se encargan la columna de trabajo y el
+          // modal común, que leen este mismo estado. Este bucle solo existe
+          // para saber cuándo termina y quedarse con el resultado.
           if (st.active === false && (st.result || st.error)) {
             session.polledResult = st.result || null;
             try { session.ctrl?.abort(); } catch (_) {}
@@ -1855,42 +1823,50 @@ async function _rgrfAuditQuality(evt) {
         clearTimeout(timer);
       }
     }
-    // Fallback via polling
+    // El resultado llega por el POLLER, no por el POST.
+    //
+    // Desde la cola única el POST responde al instante con `{queued:true}`: el
+    // trabajo son ~10 min y puede tener por delante un rip de 40. Aquí había
+    // un respaldo de 20 intentos —30 segundos— que con una espera en cola se
+    // queda cortísimo y daba «respuesta vacía del servidor» con el análisis
+    // perfectamente vivo.
+    //
+    // `_pollLoop` ya vigila hasta que el job termina y deja el resultado en
+    // `session.polledResult`; aquí solo hay que esperarle. El bucle acaba
+    // porque el poller pone `polling = false` en cuanto ve `active === false`,
+    // y el usuario siempre puede cancelar.
     if (!data?.quality_classification) {
-      const polled = session.polledResult;
-      if (polled && polled.quality_classification) {
-        data = polled;
+      // Acuse de lo que se acaba de pulsar: son diez minutos y una línea
+      // apareciendo en una columna lateral es poco acuse. Se abre UNA vez, se
+      // puede cerrar, y no vuelve a abrirse solo.
+      await refrescarWorkbar();
+      abrirDetalleDeTrabajo();
+      while (polling && window._mkvQualitySession === session) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (session.polledResult?.quality_classification) {
+        data = session.polledResult;
       } else {
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 1500));
-          const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
-          // Ignorar el estado obsoleto del audit anterior (mismo motivo que el poller).
-          if (st && prevAuditId && st.audit_id === prevAuditId) continue;
-          if (st && st.result && st.result.quality_classification) {
-            data = st.result;
-            break;
-          }
-          if (st && !st.active && st.error) throw new Error(st.error);
-          if (st && !st.active && st.step === 'done') break;
-        }
+        const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
+        if (st && st.error) throw new Error(st.error);
+        if (st && st.result?.quality_classification) data = st.result;
       }
     }
     if (!data?.quality_classification) {
       throw new Error(postError || 'respuesta vacía del servidor');
     }
 
-    _mkvQualitySetProgress(100);
     // El proyecto pudo cerrarse (o el fichero moverse) durante los ~10 min que
     // dura la extracción del RPU. El backend ya lo cacheó bajo la ruta
     // correcta, así que al reabrirlo aparecerá poblado.
     if (!openMkvProjects.includes(proyecto) || !proyecto.analysis) {
-      closeModal('mkv-quality-modal');
+      cerrarModalDeTrabajo();
       showToast('El MKV se cerró durante el análisis — el resultado quedó en caché', 'info');
       return;
     }
     const curFilePath = proyecto.analysis.file_path || proyecto.filePath || proyecto.analysis.file_name;
     if (curFilePath !== targetFilePath) {
-      closeModal('mkv-quality-modal');
+      cerrarModalDeTrabajo();
       showToast('Análisis completado para el fichero anterior (guardado en caché)', 'info');
       return;
     }
@@ -1899,8 +1875,7 @@ async function _rgrfAuditQuality(evt) {
     // El mismo análisis trae el perfil de luminancia (comparte la extracción
     // del RPU, que es el ~97 % del coste). A los campos planos del render.
     const conPerfil = _mkvAplicarPerfilLuminancia(proyecto.analysis.dovi);
-    await new Promise(r => setTimeout(r, 500));
-    closeModal('mkv-quality-modal');
+    cerrarModalDeTrabajo();
     _renderMkvEditPanel(proyecto);
     showToast(
       `Análisis extendido completado — ${data.quality_verdict_text}`
@@ -1908,31 +1883,14 @@ async function _rgrfAuditQuality(evt) {
       'success');
   } catch (e) {
     if (session.cancelledByUser) {
-      closeModal('mkv-quality-modal');
+      cerrarModalDeTrabajo();
       showToast('🛑 Auditoría cancelada', 'info');
       return;
     }
-    const errMsg = e?.message || String(e);
-    if (logEl) {
-      // _appendLogLine clasifica automáticamente por marcador "✗" como log-error
-      _appendLogLine(logEl, `✗ Error: ${errMsg}`);
-    }
-    showToast(`Error auditoría: ${errMsg}`, 'error', 8000);
-    // Inyectar botón "Cerrar" para que el usuario lea el error sin presión
-    if (!document.getElementById('mkv-quality-error-close-btn')) {
-      const footer = document.querySelector('#mkv-quality-modal .modal-footer');
-      if (footer) {
-        const btn = document.createElement('button');
-        btn.id = 'mkv-quality-error-close-btn';
-        btn.className = 'btn btn-ghost btn-sm';
-        btn.textContent = 'Cerrar';
-        btn.onclick = () => { closeModal('mkv-quality-modal'); btn.remove(); };
-        footer.appendChild(btn);
-      }
-    }
-    // Deshabilita el botón cancelar (ya no aplica)
-    const cancelBtn = document.getElementById('mkv-quality-cancel-btn');
-    if (cancelBtn) cancelBtn.style.display = 'none';
+    // El error se cuenta con un toast largo y queda en el historial. Antes se
+    // fabricaba un botón «Cerrar» en el pie del modal propio para poder leerlo
+    // sin presión; el modal común ya tiene el suyo fijo.
+    showToast(`Error auditoría: ${e?.message || String(e)}`, 'error', 8000);
   } finally {
     polling = false;
     session.ctrl = null;
@@ -1945,8 +1903,6 @@ async function _rgrfAuditQuality(evt) {
 }
 
 async function _mkvQualityCancel() {
-  const btn = document.getElementById('mkv-quality-cancel-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelando…'; }
   const session = window._mkvQualitySession;
   if (session) session.cancelledByUser = true;
   try {
@@ -1961,67 +1917,9 @@ async function _mkvQualityCancel() {
   try { session?.ctrl?.abort(); } catch (_) {}
 }
 
-function _mkvQualityResetSteps() {
-  const enCola = document.getElementById('mkv-quality-en-cola');
-  if (enCola) enCola.style.display = 'none';
-  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i) => {
-    const el = document.getElementById(`mkv-quality-step-${s}`);
-    if (!el) return;
-    el.style.opacity = i === 0 ? '1' : '.4';
-    el.textContent = el.textContent.replace(/^[✅⏳⬜✗]\s*/, i === 0 ? '⏳ ' : '⬜ ');
-  });
-  // Resetear el guard monotónico de step para que una re-auditoría tras
-  // error vuelva a reconocer "ffmpeg" como step inicial (sin esto, si la
-  // sesión previa quedó en step "combos"/"error", la nueva llegaba con
-  // "ffmpeg" y se ignoraba como duplicado).
-  _mkvQualityLastStep = '';
-  const cancelBtn = document.getElementById('mkv-quality-cancel-btn');
-  if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = '🛑 Cancelar'; cancelBtn.style.display = ''; }
-  const closeBtn = document.getElementById('mkv-quality-error-close-btn');
-  if (closeBtn) closeBtn.remove();
-}
 
-let _mkvQualityLastStep = '';
-function _mkvQualitySetStep(step) {
-  if (!step || step === _mkvQualityLastStep) return;
-  const order = ['ffmpeg', 'extract_rpu', 'combos', 'done', 'error'];
-  const idx = order.indexOf(step);
-  if (idx < 0) return;
-  _mkvQualityLastStep = step;
-  const enCola = document.getElementById('mkv-quality-en-cola');
-  if (enCola) enCola.style.display = step === 'en_cola' ? '' : 'none';
-  // Los índices de los pasos reales van desplazados por `en_cola`.
-  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i0) => {
-    const i = i0 + 1;
-    const el = document.getElementById(`mkv-quality-step-${s}`);
-    if (!el) return;
-    if (step === 'done' || i < idx) {
-      el.style.opacity = '1';
-      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '✅ ');
-    } else if (i === idx) {
-      el.style.opacity = '1';
-      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '⏳ ');
-    } else {
-      el.style.opacity = '.4';
-      el.textContent = el.textContent.replace(/^[⏳⬜✅✗]\s*/, '⬜ ');
-    }
-  });
-}
 
-function _mkvQualitySetProgress(pct) {
-  const clamped = Math.max(0, Math.min(100, pct));
-  const bar = document.getElementById('mkv-quality-progress-bar');
-  const txt = document.getElementById('mkv-quality-pct');
-  if (bar) bar.style.width = `${clamped}%`;
-  if (txt) txt.textContent = `${Math.round(clamped)}%`;
-}
 
-function _mkvQualitySetElapsed(secs) {
-  const el = document.getElementById('mkv-quality-elapsed');
-  if (!el) return;
-  const s = Math.max(0, Math.floor(secs));
-  el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
 
 /** Copia la radiografía como Markdown al portapapeles. */
 async function _rgrfCopyToClipboard(evt) {
@@ -2904,65 +2802,15 @@ async function _doApplyMkvEdits(copyToOutput) {
   };
 
   // Mostrar modal de progreso
-  const titleEl = document.getElementById('mkv-apply-modal-title');
-  const subEl = document.getElementById('mkv-apply-modal-sub');
-  const logEl = document.getElementById('mkv-apply-modal-log');
-  const statusEl = document.getElementById('mkv-apply-modal-status');
-  const closeBtn = document.getElementById('mkv-apply-modal-close-btn');
-  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
-
-  titleEl.textContent = copyToOutput ? 'Copiando MKV a Output…' : 'Aplicando cambios…';
-  subEl.textContent = `${audioEdits.length} pistas de audio · ${subEdits.length} pistas de subtítulos · ${a.chapters.length} capítulos`;
-  logEl.style.display = 'none';
-  logEl.textContent = '';
-  statusEl.innerHTML = copyToOutput
-    ? '<div style="text-align:left"><div class="progress-bar-wrap"><div id="mkv-apply-progress-fill" class="progress-bar-fill" style="width:0%"></div></div><div id="mkv-apply-progress-text" style="font-size:12px; color:var(--text-3)">Iniciando copia…</div></div>'
-    : '<span class="spinner-inline"></span> Ejecutando mkvpropedit…';
-  closeBtn.style.display = 'none';
-  if (cancelBtn) cancelBtn.style.display = copyToOutput ? '' : 'none';
+  // Este flujo tampoco monta su propio modal. Con copia, el progreso lo
+  // enseña la columna de trabajo y el detalle es el modal común; sin copia,
+  // `mkvpropedit` es O(1) y lo único que hace falta es contar el resultado.
   _mkvApplyUserCancelled = false;
-  openModal('mkv-apply-modal');
-
-  // Polling de progreso (solo cuando hay copia que monitorizar). El POST
-  // sigue corriendo en paralelo — el polling solo lee estado, no espera al
-  // POST. Cuando el POST resuelve, paramos el polling.
-  let pollHandle = null;
-  let polling = copyToOutput;
   if (copyToOutput) {
-    const tick = async () => {
-      if (!polling) return;
-      try {
-        const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
-        if (st && polling) {
-          _renderMkvApplyProgress(st);
-          // Cuando entra en step="applying", la copia ha terminado y
-          // mkvpropedit está corriendo (instantáneo). Ocultamos el botón
-          // de cancelar — ya no aplica, y la copia ya no es lo que va a
-          // tardar.
-          if (st.step === 'applying' && cancelBtn) cancelBtn.style.display = 'none';
-        }
-      } catch (_) { /* ignora errores de poll */ }
-      if (polling) pollHandle = setTimeout(tick, 1000);
-    };
-    pollHandle = setTimeout(tick, 500);
-  }
-
-  /** Espera a que el trabajo encolado termine y devuelve su resultado.
-   *
-   *  Desde la cola única el POST responde al instante con `{queued:true}`: la
-   *  copia son decenas de GB y puede tener por delante un rip de 40 minutos.
-   *  El estado del job es el canal —el mismo que ya alimentaba la barra— y
-   *  ahí deja el runner tanto el resultado como el error.
-   */
-  async function _esperarCopiaEncolada() {
-    for (;;) {
-      await new Promise(r => setTimeout(r, 1000));
-      const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
-      if (!st) continue;
-      if (st.step === 'cancelled') { _mkvApplyUserCancelled = true; return null; }
-      if (st.step === 'error') return { ok: false, error: st.error };
-      if (st.active === false || st.step === 'done') return st.result || null;
-    }
+    // Acuse de lo que se acaba de pulsar. Se abre una vez tras encolar, se
+    // puede cerrar, y no vuelve a abrirse solo.
+    await refrescarWorkbar();
+    abrirDetalleDeTrabajo();
   }
 
   let result;
@@ -2979,29 +2827,24 @@ async function _doApplyMkvEdits(copyToOutput) {
     if (result?.queued) result = await _esperarCopiaEncolada();
   } finally {
     polling = false;
-    if (pollHandle) clearTimeout(pollHandle);
-    if (cancelBtn) cancelBtn.style.display = 'none';
   }
 
   // Cancelación por el usuario: prima sobre cualquier otro estado.
   if (_mkvApplyUserCancelled) {
-    titleEl.textContent = 'Cancelado';
-    statusEl.innerHTML = '<span style="color:var(--orange)">⚠ Copia cancelada — la biblioteca queda intacta y el destino parcial se borró</span>';
-    closeBtn.style.display = '';
+    cerrarModalDeTrabajo();
+    showToast('Copia cancelada — la biblioteca queda intacta y el destino '
+              + 'parcial se borró', 'warning', 8000);
     return;
   }
 
   if (!result?.ok) {
-    titleEl.textContent = 'Error';
-    statusEl.innerHTML = '<span style="color:var(--red)">Error al aplicar cambios</span>';
-    closeBtn.style.display = '';
+    // El detalle del fallo vive en el estado del job (lo enseña el modal
+    // común) y en el historial; aquí basta con decirlo y no cerrar el modal,
+    // para que se pueda leer.
+    showToast(`Error al aplicar cambios${result?.error ? ': ' + result.error : ''}`,
+              'error', 8000);
+    console.warn('[apply] salida de mkvpropedit:', result?.output);
     return;
-  }
-
-  // Mostrar output de mkvpropedit
-  if (result.output) {
-    logEl.textContent = result.output;
-    logEl.style.display = '';
   }
 
   // Si se copió a /mnt/output, actualizar el estado del proyecto al nuevo
@@ -3014,8 +2857,6 @@ async function _doApplyMkvEdits(copyToOutput) {
     _mkvRefreshSubTab(project);
     showToast(`✓ MKV copiado a Output con tus cambios: ${project.fileName}`, 'success');
   }
-
-  statusEl.innerHTML = '<span style="color:var(--green)">✓ Cambios aplicados correctamente</span>';
 
   // Re-analizar para refrescar estado — usamos el path ABSOLUTO del MKV
   // (potencialmente actualizado tras copia). El backend valida que cae
@@ -3033,8 +2874,8 @@ async function _doApplyMkvEdits(copyToOutput) {
     _renderMkvEditPanel(project);
   }
 
-  titleEl.textContent = 'Cambios aplicados';
-  closeBtn.style.display = '';
+  cerrarModalDeTrabajo();
+  showToast('✓ Cambios aplicados correctamente', 'success');
 }
 
 /**
@@ -3044,134 +2885,14 @@ async function _doApplyMkvEdits(copyToOutput) {
  * eventualmente devuelve 499 — el flujo principal lo trata como
  * cancelación del usuario y muestra el mensaje correcto.
  */
-/**
- * Auto-detect: al entrar a Tab 2 (o al recargar la pestaña con Tab 2 ya
- * activo), comprobar si hay una operación de apply activa en el backend
- * (caso típico: el usuario lanzó una copia de MKV de Library, cerró la
- * pestaña sin esperar, y ahora reabre). Si hay job activo, abrimos el
- * modal con el progreso al que va el backend, polling normal y botón
- * cancelar funcional. Si está terminado/error/cancelled, también lo
- * mostramos brevemente para que el usuario sepa el resultado.
- */
-let _mkvApplyResumePolling = false;  // evita loops de polling concurrentes (audit #6)
-async function _mkvCheckActiveApply() {
-  if (_mkvApplyResumePolling) return;  // ya hay un loop de reanudación activo
-  const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
-  if (!st || !st.active) {
-    // Si hay un step terminal pero active=false, no abrimos modal
-    // (probablemente el usuario ya vio el resultado en una sesión previa).
-    return;
-  }
-  // Hay un job activo. Reabrir el modal en estado coherente con el
-  // backend, sin volver a lanzar el apply (ya está corriendo).
-  const titleEl = document.getElementById('mkv-apply-modal-title');
-  const subEl = document.getElementById('mkv-apply-modal-sub');
-  const logEl = document.getElementById('mkv-apply-modal-log');
-  const statusEl = document.getElementById('mkv-apply-modal-status');
-  const closeBtn = document.getElementById('mkv-apply-modal-close-btn');
-  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
-  if (!titleEl) return;  // DOM no listo aún; el siguiente entrar a Tab 2 reintentará.
-  titleEl.textContent = 'Reanudando seguimiento del apply…';
-  const fileLabel = st.file_name ? ` · ${st.file_name}` : '';
-  subEl.textContent = `Operación en curso${fileLabel} (lanzada en otra sesión)`;
-  logEl.style.display = 'none';
-  logEl.textContent = '';
-  statusEl.innerHTML = (st.step === 'copying')
-    ? '<div style="text-align:left"><div class="progress-bar-wrap"><div id="mkv-apply-progress-fill" class="progress-bar-fill" style="width:0%"></div></div><div id="mkv-apply-progress-text" style="font-size:12px; color:var(--text-3)">Sincronizando con el progreso…</div></div>'
-    : '<span class="spinner-inline"></span> Sincronizando con el backend…';
-  if (cancelBtn) cancelBtn.style.display = (st.step === 'copying') ? '' : 'none';
-  closeBtn.style.display = 'none';
-  _mkvApplyUserCancelled = false;
-  openModal('mkv-apply-modal');
-  showToast('🔄 Hay una copia/edición de MKV en curso desde otra sesión — reanudando seguimiento', 'info');
-  // Pinta el primer estado inmediatamente
-  _renderMkvApplyProgress(st);
-  // Lanzar polling local que sigue hasta que step sea terminal. Sin POST
-  // que esperar — el backend ya está procesando.
-  _mkvApplyResumePolling = true;
-  let polling = true;
-  let lastStep = st.step;
-  const tick = async () => {
-    if (!polling) return;
-    try {
-      const stNew = await apiFetch('/api/mkv/apply/progress', { silent: true });
-      if (stNew && polling) {
-        _renderMkvApplyProgress(stNew);
-        if (stNew.step === 'applying' && cancelBtn) cancelBtn.style.display = 'none';
-        if (stNew.step === 'done' || stNew.step === 'error' || stNew.step === 'cancelled') {
-          polling = false;
-          if (cancelBtn) cancelBtn.style.display = 'none';
-          if (stNew.step === 'done') {
-            titleEl.textContent = 'Cambios aplicados';
-            statusEl.innerHTML = '<span style="color:var(--green)">✓ Operación completada</span>';
-          } else if (stNew.step === 'cancelled') {
-            titleEl.textContent = 'Cancelado';
-            statusEl.innerHTML = '<span style="color:var(--orange)">⚠ Copia cancelada — destino parcial borrado</span>';
-          } else {
-            titleEl.textContent = 'Error';
-            statusEl.innerHTML = `<span style="color:var(--red)">⚠ ${escHtml(stNew.error || 'Error desconocido')}</span>`;
-          }
-          closeBtn.style.display = '';
-        }
-        lastStep = stNew.step;
-      }
-    } catch (_) { /* ignora errores de poll */ }
-    if (polling) setTimeout(tick, 1000);
-    else _mkvApplyResumePolling = false;
-  };
-  setTimeout(tick, 500);
-}
 
 async function cancelMkvApply() {
+  // `_mkvApplyUserCancelled` es lo que hace que el flujo principal cuente
+  // «cancelada» en vez de «error» al volver del poller.
   _mkvApplyUserCancelled = true;
-  // Feedback inmediato: deshabilita el botón mientras esperamos al backend
-  const cancelBtn = document.getElementById('mkv-apply-modal-cancel-btn');
-  if (cancelBtn) {
-    cancelBtn.disabled = true;
-    cancelBtn.textContent = 'Cancelando…';
-  }
   await apiFetch('/api/mkv/apply/cancel', { method: 'POST', silent: true });
-  // Restauramos el botón al estado base por si el flujo se reabre después
-  // — el `display:none` lo gestiona el flujo principal en el finally.
-  if (cancelBtn) {
-    cancelBtn.disabled = false;
-    cancelBtn.textContent = '🛑 Cancelar copia';
-  }
 }
 
-/** Pinta la barra de progreso de la copia + texto con bytes/ETA. */
-function _renderMkvApplyProgress(st) {
-  const fill = document.getElementById('mkv-apply-progress-fill');
-  const text = document.getElementById('mkv-apply-progress-text');
-  const titleEl = document.getElementById('mkv-apply-modal-title');
-  if (!fill || !text) return;
-  if (st.step === 'en_cola') {
-    // Esperando turno: no hay bytes que contar todavía, y dejar la barra en
-    // "Iniciando copia…" haría creer que ya está trabajando.
-    if (titleEl) titleEl.textContent = 'En cola';
-    fill.style.width = '0%';
-    text.textContent = '⏳ Esperando turno — arrancará cuando termine el '
-                     + 'trabajo que hay por delante';
-  } else if (st.step === 'copying') {
-    if (titleEl) titleEl.textContent = 'Copiando MKV a Output…';
-    fill.style.width = `${st.pct || 0}%`;
-    const copiedGb = (st.bytes_copied || 0) / 1e9;
-    const totalGb  = (st.total_bytes  || 0) / 1e9;
-    const eta = st.eta_s > 0 ? ` · ETA ${_fmtSecs(st.eta_s)}` : '';
-    text.textContent = `${copiedGb.toFixed(1)} / ${totalGb.toFixed(1)} GB (${st.pct || 0}%)${eta}`;
-  } else if (st.step === 'applying') {
-    if (titleEl) titleEl.textContent = 'Aplicando cambios…';
-    fill.style.width = '100%';
-    text.textContent = '✓ Copia completada — ejecutando mkvpropedit…';
-  } else if (st.step === 'done') {
-    fill.style.width = '100%';
-    text.textContent = '✓ Cambios aplicados';
-  } else if (st.step === 'cancelled') {
-    text.textContent = '⚠ Copia cancelada — destino parcial borrado';
-  } else if (st.step === 'error') {
-    text.textContent = `⚠ ${st.error || 'Error desconocido'}`;
-  }
-}
 
 /** Formatea segundos como "Xh Ym" o "Ym Ks" o "Ks". */
 function _fmtSecs(s) {
