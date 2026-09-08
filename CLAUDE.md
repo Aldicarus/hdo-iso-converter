@@ -679,6 +679,76 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### La columna de trabajo, y un contrato de progreso para los cinco tipos
+
+Las tres pestañas comparten armazón: **proyectos a la izquierda · pestañas de
+proyecto en el centro · trabajo a la derecha**. La tercera columna vive **fuera
+de los tres tab-panels** a propósito: hay una sola cola, así que el sitio donde
+se consulta qué está pasando tiene que ser el mismo estés donde estés — si un
+rip está bloqueando tu fase CMv4.0, se ve sin cambiar de pestaña.
+
+**Solo consulta**: fase, porcentaje, transcurrido y ETA. El detalle va a un
+modal que se abre a petición.
+
+#### El contrato: `trabajos.py` y `GET /api/trabajos`
+
+Los cinco tipos medían su progreso de cinco maneras distintas y **el del rip no
+existía en el servidor** —la barra se parseaba del log en el navegador, así que
+cerrar la pestaña la borraba—. Una columna común habría necesitado cinco
+renderizadores y con el rip no habría funcionado.
+
+`trabajos.py` define un diccionario único y un **registro de adaptadores**:
+cada router aporta el suyo con `trabajos.registrar(tipo, fn)`, igual que con
+`queue_manager.registrar_runner` y por el mismo motivo — la dependencia sigue
+en un solo sentido y el módulo no conoce ninguna pestaña. El endpoint compone
+`activo` (el diferido que corre) + `cola` + `interactivo` (lo que va en
+paralelo, sin barra: explica por qué el NAS va cargado) + `recientes`.
+
+Tres reglas que hereda del resto del proyecto:
+
+- **`pct_medido` distingue una barra real de un hueco.** Sin evidencia se pinta
+  una barra indeterminada, no un número. Es lo mismo que ya hacía
+  `_ReadProgress`: el tramo final de un `extract-rpu` no es medible y no se
+  finge.
+- **`eta_fuente` distingue una medida de una extrapolación**, y la UI escribe
+  «(aprox.)» cuando es lo segundo.
+- **Un adaptador que falla no tumba la columna.** Quedarse sin el porcentaje es
+  un inconveniente; quedarse sin saber que hay algo corriendo, no.
+
+**El ETA del rip es medido, no un modelo.** Sobre los 42 rips completados del
+NAS, `extract` es el **100 %** del tiempo total (mediana) y `mount`/`unmount`
+son 0 %, así que el porcentaje que ya emite mkvmerge sirve para el total. Un
+modelo por tamaño saldría malo: el ritmo va de **38 a 253 MB/s** —factor 6,6—
+con un error del 173 % en el peor caso. El de la serie sí es un modelo (media
+por episodio terminado) y va marcado.
+
+#### El modal de detalle
+
+Un armazón para los cinco: cabecera, tira de fases, barra, transcurrido/ETA,
+cuerpo y cancelar. Cada pestaña registra qué poner dentro con
+`registrarDetalleDeTrabajo(clave, fn)`.
+
+- **El detalle no es siempre un log.** El rip, la fase CMv4.0 y el análisis
+  extendido producen uno; la copia y la creación de una serie no, y ahí son
+  bytes y episodios. Un log vacío sería peor que decirlo.
+- **Se abre a petición.** El overlay de CMv4.0 se abría SOLO y tapaba el panel,
+  con dos heurísticas para no parpadear entre fases; de esa familia era el bug
+  de agosto en que el banner de ACK se veía y no se podía pulsar.
+- **El panel «Trabajos en Curso» de Tab 1 se MOVIÓ al modal, no se borró**:
+  conserva sus ids, así que los círculos por fase, el transcurrido por fase, el
+  ETA de la extracción y la consola con sus filtros siguen funcionando sin
+  tocarlos. Lo que se retiró es su sub-pestaña del centro —la asimetría con las
+  otras dos— y con ella la cortinilla y las ramas `'cola'` de `switchSubTab`.
+
+**Los puntos verdes de las pestañas se retiraron.** Decían «hay algo» y la
+columna dice qué, en qué fase y cuánto queda. La tira plegada lleva el
+contador, que es lo que permite quitarlos sin dejar a nadie a ciegas: por eso
+la columna **pollea también plegada** (la respuesta sale de memoria).
+
+El ancho es **288 px y no 320** como el sidebar: 320+320 son 640 de cromo, y en
+un portátil de 1440 eso deja el centro sin sitio para la radiografía DV+HDR,
+que es la vista más ancha de la app.
+
 ### La cola única
 
 `queue_manager` era «una lista de `session_id` y una función que los ejecuta».
