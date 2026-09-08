@@ -452,6 +452,14 @@ class TestTab2PasaPorLaCola(ApiTestCase):
         r = self.client.post("/api/mkv/apply",
                              json={"file_path": str(self.mkv),
                                    "audio_tracks": [], "subtitle_tracks": []})
+        # Comprobar solo "no se encoló nada" no basta: si la rama de copia se
+        # tragara este caso, el endpoint moriría con un 409 de «ya existe un
+        # MKV con ese nombre» —el destino ES el origen— y la aserción se
+        # cumpliría por el motivo equivocado. El 500 de «Nothing to do» es
+        # correcto aquí: la petición no trae ninguna edición, y lo que importa
+        # es que llegó hasta `mkvpropedit`.
+        self.assertNotIn("Ya existe un MKV", r.text,
+                         "una edición sin copia tomó la rama de copia")
         self.assertEqual(self._encolados(qm.TIPO_COPIA_BIBLIOTECA), [],
                          f"se encoló una edición sin copia: {r.text}")
 

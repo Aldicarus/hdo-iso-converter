@@ -734,6 +734,32 @@ persiste**: es estado de la cola, y la cola ya lo tiene.
 subproceso o sacarlo de la fila— y para el usuario es el mismo botón, así que
 `cmv40_cancel` hace las dos cosas.
 
+**Los dos trabajos largos de Tab 2 también pasan por la cola**, y eso obligó a
+convertirlos de POST síncrono a fire-and-forget. El análisis extendido son ~10
+min y el navegador mantenía el POST abierto **hasta una hora**; la copia desde
+biblioteca son decenas de GB con un tope de cuatro. Ahora los dos responden al
+instante con `{"queued": true}` y **el resultado viaja por el estado del job**
+—`_mkv_quality_state` y `_mkv_apply_state`—, que es el mismo canal que el modal
+ya polleaba para pintar la barra.
+
+Tres cosas que decidió el corte:
+
+- **Los runners no lanzan `HTTPException`**: nadie estaría escuchando. Escriben
+  el error y el paso final en el estado, que es lo que el modal lee.
+- **El respaldo de 20 intentos del frontend se fue.** Eran 30 s, que con una
+  espera en cola se quedan cortísimos y daban «respuesta vacía del servidor»
+  con el análisis perfectamente vivo. Ahora se espera al poller, que ya sabe
+  parar cuando el job termina.
+- **Una edición SIN copia sigue siendo instantánea.** `POST /api/mkv/apply`
+  hace dos cosas muy distintas según el body: `mkvpropedit` es O(1) y solo la
+  rama de copia se encola. En la tabla la ruta figura como diferida porque es
+  la rama que registra y bloquea.
+
+**Ojo con los dos singleton en los tests**: con la cola espiada el runner no
+corre, así que su `finally` —el que pone `active = False`— tampoco, y el primer
+test que encole un análisis deja a los siguientes con «Ya hay un análisis en
+curso». `api_harness` los limpia en el `setUp`.
+
 **En Tab 3 ya no queda ningún 409 de admisión.** Los dos pre-flight fueron los
 últimos y tampoco se encolan: medidos sobre los 91 del NAS son **9 s de
 mediana** (p90 49 s, máximo 116 s), y son **lo primero que corre al crear un
