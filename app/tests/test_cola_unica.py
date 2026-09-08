@@ -466,3 +466,83 @@ class TestTab2PasaPorLaCola(ApiTestCase):
     def test_ya_no_queda_ningun_409_de_admision_en_tab_2(self):
         src = (APP_DIR / "routers" / "tab2.py").read_text(encoding="utf-8")
         self.assertNotIn("workload.exigir_libre", src)
+
+
+class TestLaSerieEnteraPasaPorLaCola(ApiTestCase):
+    """`create-series-sessions` era el último POST síncrono largo.
+
+    ~30 s de montaje más 15-30 s por episodio: para una temporada de diez,
+    cinco minutos largos de disco con un timeout de 10 min en el navegador.
+    """
+
+    def setUp(self):
+        super().setUp()
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        self.carpeta = self.isos_dir / "Serie (2024)"
+        (self.carpeta / "BDMV" / "PLAYLIST").mkdir(parents=True, exist_ok=True)
+        (self.carpeta / "BDMV" / "PLAYLIST" / "00801.mpls").write_bytes(b"\0" * 64)
+        (self.carpeta / "BDMV" / "STREAM").mkdir(parents=True, exist_ok=True)
+        (self.carpeta / "BDMV" / "STREAM" / "00801.m2ts").write_bytes(b"\0" * 4096)
+
+    def _crear(self, episodios=2):
+        return self.client.post("/api/create-series-sessions", json={
+            "source_type": "bdmv_folder",
+            "source_path": "Serie (2024)",
+            "series_name": "Serie",
+            "season_number": 1,
+            "episodes": [{"mpls_path": "00801.mpls", "episode_number": i + 1,
+                          "episode_title": f"Ep {i + 1}"} for i in range(episodios)],
+        })
+
+    def test_responde_al_instante(self):
+        r = self._crear()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["queued"])
+        self.assertEqual(r.json()["total"], 2)
+
+    def test_el_modal_ve_que_espera_turno(self):
+        self._crear()
+        prog = self.client.get("/api/series-create-progress").json()
+        self.assertEqual(prog["current_episode_step"], "en_cola")
+        self.assertTrue(prog["running"])
+
+    def test_lo_que_el_endpoint_decidio_viaja_con_el_trabajo(self):
+        """El diálogo de conflictos (saltar / reemplazar / cancelar) se
+        responde en el acto, no cuando la cola llegue al trabajo. Su resultado
+        tiene que ir con él: recalcularlo daría otra cosa si el /config cambió
+        entretanto."""
+        self._crear()
+        _, _, datos, _ = [t for t in self.trabajos_encolados
+                          if t[0] == qm.TIPO_SERIE][0]
+        self.assertEqual(len(datos["episodios"]), 2)
+        self.assertIn("skipped_existing", datos)
+        self.assertIn("replaced_ids", datos)
+        self.assertIn("fingerprint", datos)
+        self.assertIn("body", datos, "el runner necesita el body serializado")
+
+    def test_va_al_final_de_la_cola(self):
+        """No es una fase de un proyecto a medias: no tiene por qué colarse."""
+        self._crear()
+        self.assertFalse([t for t in self.trabajos_encolados
+                          if t[0] == qm.TIPO_SERIE][0][3])
+
+
+class TestYaNoQuedaNingun409DeAdmision(unittest.TestCase):
+    """El final del bloque 3: la app pasa de «no puedes» a «cuando toque»."""
+
+    def test_en_ninguno_de_los_tres_routers(self):
+        for f in ("tab1.py", "tab2.py", "cmv40.py"):
+            src = (APP_DIR / "routers" / f).read_text(encoding="utf-8")
+            self.assertNotIn("exigir_libre", src, f)
+
+    def test_ni_en_main(self):
+        self.assertNotIn("exigir_libre",
+                         (APP_DIR / "main.py").read_text(encoding="utf-8"))
+
+    def test_workload_conserva_lo_que_si_se_usa(self):
+        """`bloqueado_por` lo consulta la cola para esperar y `hay_contencion`
+        protege las calibraciones de `_adaptive_timeout` y el ETA."""
+        self.assertTrue(hasattr(workload, "bloqueado_por"))
+        self.assertTrue(hasattr(workload, "hay_contencion"))
+        self.assertTrue(hasattr(workload, "marca"))
