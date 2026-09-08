@@ -5870,7 +5870,7 @@ function _renderCMv40Sidebar() {
             </div>
           </div>
         </div>
-        ${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
+        ${typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : ''}${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>
       <div class="session-card-actions">
         <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')"
@@ -6554,4 +6554,11 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     conLog: true,
     cuerpo: _trabajoLogHTML(s?.output_log),
   };
+});
+
+
+// Mismo motivo que en las otras dos pestañas: el puesto en la cola de una fase
+// se ve en la tarjeta del proyecto, no solo en la columna de la derecha.
+alCambiarTrabajos(() => {
+  if (document.getElementById('cmv40-sidebar-list')) _renderCMv40Sidebar();
 });

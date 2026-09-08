@@ -1958,6 +1958,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         tab="rip",
         tipo=queue_manager_mod.TIPO_SERIE,
         clave=f"serie:{body.series_name or spath}:{body.season_number}",
+        sobre=spath,
         que=f"análisis de {len(body.episodes)} episodio(s) de "
             f"{body.series_name or 'la serie'}",
         datos={"body": body.model_dump(), "stype": stype, "spath": spath,

@@ -61,6 +61,19 @@ class TrabajoEnCola:
     clave: str      # id con el que se identifica: session id, audit id…
     que: str = ""   # descripción legible para la UI
     datos: dict = field(default_factory=dict)   # lo que el runner necesita
+    # SOBRE QUÉ actúa, con el identificador que usa su pestaña para pintarlo:
+    # el session id de un rip o de un proyecto CMv4.0, la ruta del MKV en un
+    # análisis extendido. Sirve para que la lista de proyectos de cada pestaña
+    # pueda marcar el suyo como «en cola» sin adivinarlo del texto de `que`.
+    # No es la clave: la de un análisis extendido es su `audit_id`.
+    sobre: str = ""
+
+    def __post_init__(self) -> None:
+        # Para rip, serie y fase CMv4.0 la clave YA es el identificador del
+        # proyecto, así que el default correcto es ella: solo los dos trabajos
+        # de Tab 2 —cuya clave es un audit id— tienen que decirlo.
+        if not self.sobre:
+            object.__setattr__(self, "sobre", self.clave)
 
     @property
     def id(self) -> str:
@@ -76,7 +89,7 @@ class TrabajoEnCola:
 
     def a_json(self) -> dict:
         return {"tab": self.tab, "tipo": self.tipo, "clave": self.clave,
-                "que": self.que, "datos": self.datos}
+                "que": self.que, "datos": self.datos, "sobre": self.sobre}
 
     @staticmethod
     def de_json(x) -> "TrabajoEnCola":
@@ -89,6 +102,10 @@ class TrabajoEnCola:
             clave=x.get("clave") or "",
             que=x.get("que") or "",
             datos=x.get("datos") or {},
+            # Ausente en las entradas escritas antes de que existiera; se cae a
+            # la clave, que es lo correcto para los tres tipos que la usan como
+            # identificador de su proyecto.
+            sobre=x.get("sobre") or x.get("clave") or "",
         )
 
 

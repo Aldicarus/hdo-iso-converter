@@ -1241,6 +1241,7 @@ async def app_trabajos(recientes: int = 8):
 
     en_cola = [
         {"id": j.get("clave"), "tab": j.get("tab"), "tipo": j.get("tipo"),
+         "sobre": j.get("sobre") or j.get("clave"),
          "que": j.get("que"), "posicion": i + 1}
         for i, j in enumerate(estado.get("jobs") or [])
     ]

@@ -1570,8 +1570,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
        : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span>⚖️</span> Comparar con…</button>`)
     : '';
   const actionBtn = (hasLightProfile
-    ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span>↻</span> Re-analizar</button>`
-    : `<button class="btn btn-primary btn-sm dv-chart-action" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`) + btnComparar;
+    ? `<button class="btn btn-ghost btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span>↻</span> Re-analizar</button>`
+    : `<button class="btn btn-primary btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`) + btnComparar;
   // Tooltip explicando que estos valores son metadata DV L1 (no medidas
   // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
   // medidas reales tras tone-mapping sean 500-600 nits — porque el
@@ -1639,6 +1639,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
             <b>perfil de luminancia L1</b> frame a frame.
           </div>
           <button class="btn btn-primary btn-sm dv-quality-cta"
+                  data-analisis-extendido="1"
                   onclick="_rgrfAuditQuality(event)">
             <span>🔬</span> Análisis extendido (~5-10 min)
           </button>
@@ -1738,9 +1739,59 @@ function _mkvAplicarPerfilLuminancia(dv) {
   return true;
 }
 
+/** La ruta con la que el backend identifica el MKV de un proyecto abierto.
+ *
+ *  Es la misma que `_rgrfAuditQuality` manda al encolar (`sobre` del trabajo),
+ *  así que las dos puntas comparan lo mismo.
+ */
+function _mkvRutaAnalisis(proyecto) {
+  if (!proyecto) return '';
+  return proyecto.analysis?.file_path || proyecto.filePath
+      || proyecto.analysis?.file_name || '';
+}
+
+/** Repinta los botones de análisis extendido según lo que haya en la cola.
+ *
+ *  No re-monta el panel: el panel se re-monta al terminar el análisis, y entre
+ *  medias lo único que cambia es el rótulo del botón. Se dispara desde
+ *  `alCambiarTrabajos`, o sea solo cuando el trabajo cambia de verdad.
+ */
+function _mkvPintarEstadoDeAnalisis() {
+  const t = typeof trabajoSobre === 'function'
+    ? trabajoSobre(_mkvRutaAnalisis(mkvProject)) : null;
+  document.querySelectorAll('[data-analisis-extendido]').forEach(btn => {
+    if (!btn.dataset.rotuloOriginal) btn.dataset.rotuloOriginal = btn.innerHTML;
+    if (!t) {
+      btn.innerHTML = btn.dataset.rotuloOriginal;
+      btn.classList.remove('ocupado');
+      btn.disabled = false;
+      return;
+    }
+    btn.classList.add('ocupado');
+    btn.disabled = false;   // sigue pulsable: abre el detalle
+    btn.innerHTML = t.estado === 'corriendo'
+      ? iconoDeEstado('corriendo', 'icono-chip-sm') + ' Analizando…'
+      : iconoDeEstado('en_cola', 'icono-chip-sm') + ` En cola (${t.posicion}º)`;
+  });
+}
+
 async function _rgrfAuditQuality(evt) {
   const proyecto = mkvProject;
   if (!proyecto) return;
+  // Un trabajo ESPERANDO TURNO no está «activo», así que el guard de abajo no
+  // lo veía y el usuario podía volver a pedirlo: el rechazo llegaba del
+  // backend, que es la peor forma de enterarse. Aquí se le enseña el que ya
+  // hay, que es lo que quería ver.
+  const _yaHay = typeof trabajoSobre === 'function'
+    ? trabajoSobre(_mkvRutaAnalisis(proyecto)) : null;
+  if (_yaHay) {
+    showToast(_yaHay.estado === 'corriendo'
+      ? 'El análisis extendido de este MKV ya está en curso'
+      : `El análisis extendido de este MKV está en la cola (${_yaHay.posicion}º)`,
+      'info');
+    if (_yaHay.estado === 'corriendo') abrirDetalleDeTrabajo();
+    return;
+  }
   // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
   // el estado del audit es un singleton global en el backend; lanzar un 2º
   // mientras hay uno activo pisaría ese estado y dejaría pollers cruzados.
@@ -3299,6 +3350,11 @@ function _renderMkvRecientes() {
         data-tooltip="${escHtml(r.ruta)}">⚠️ No encontrado</span>`);
     }
 
+    // Que un MKV tenga trabajo en marcha se ve AQUÍ, no solo en la columna:
+    // sin esto una lista de veinte no dice cuál se está analizando.
+    const insignia = typeof insigniaDeTrabajo === 'function'
+      ? insigniaDeTrabajo(r.ruta) : '';
+
     const card = document.createElement('div');
     card.className = `session-card${seleccionada ? ' selected' : ''}`
                    + (r.existe ? '' : ' no-encontrado');
@@ -3321,7 +3377,7 @@ function _renderMkvRecientes() {
           </div>
           <div class="mkv-reciente-chips">${chips.join('')}</div>
         </div>
-        ${abierto ? '<span class="session-item-badge">abierto</span>' : ''}
+        ${insignia}${abierto ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>
       <div class="session-card-actions">
         ${r.existe
@@ -3456,3 +3512,12 @@ async function _mkvBorrarReciente(r) {
     'Borrar el análisis',
   );
 }
+
+
+// Cuando el trabajo cambia, esta pestaña repinta lo suyo: el rótulo del botón
+// de análisis extendido y las insignias de la lista. Solo se dispara cuando el
+// conjunto de trabajos cambia de verdad (ver `_workbarFirma`), no en cada tick.
+alCambiarTrabajos(() => {
+  _mkvPintarEstadoDeAnalisis();
+  if (document.getElementById('mkv-recientes-list')) _renderMkvRecientes();
+});

@@ -56,6 +56,7 @@ def _vacio(trabajo) -> dict:
     """Lo que se sabe de cualquier trabajo sin preguntar a nadie."""
     return {
         "id": trabajo.clave,
+        "sobre": getattr(trabajo, "sobre", "") or trabajo.clave,
         "tab": trabajo.tab,
         "tipo": trabajo.tipo,
         "que": trabajo.que,

@@ -2159,7 +2159,7 @@ function renderSidebarSessions(sessions, query = '') {
             </div>
           </div>
         </div>
-        ${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
+        ${typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : ''}${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>
       <div class="session-card-actions">
         <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')"
@@ -4811,4 +4811,11 @@ registrarDetalleDeTrabajo('serie', async (a) => {
       ['Conteo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
     ]),
   };
+});
+
+
+// El puesto en la cola de un rip se ve en su tarjeta del sidebar, no solo en
+// la columna. Se repinta cuando el trabajo cambia, no en cada tick.
+alCambiarTrabajos(() => {
+  if (document.getElementById('sessions-list')) _doFilterSidebarSessions();
 });

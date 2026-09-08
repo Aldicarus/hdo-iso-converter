@@ -193,12 +193,75 @@ function _instalarReordenDeCola() {
   });
 }
 
+// Quién quiere enterarse de que el trabajo cambió. Lo usan las listas de las
+// tres pestañas para repintar sus insignias, y SOLO cuando hay algo que
+// repintar: el tick es cada 2 s y volver a montar tres listas en cada vuelta
+// costaría más que la petición.
+const _workbarOyentes = [];
+
+function alCambiarTrabajos(fn) { _workbarOyentes.push(fn); }
+
+function _workbarFirma(st) {
+  const a = st.activo;
+  return [a ? `${a.sobre || a.id}:${a.fase || ''}` : '',
+          ...(st.cola || []).map(j => j.sobre || j.id)].join('|');
+}
+
+let _workbarUltimaFirma = null;
+
 async function refrescarWorkbar() {
   const st = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
   // Un fallo de red NO se interpreta como "no hay nada": se conserva lo
   // último bueno. Vaciar la columna haría creer que el trabajo terminó.
   if (st && Array.isArray(st.cola)) workbarEstado = st;
   _workbarRender(workbarEstado);
+  const firma = _workbarFirma(workbarEstado);
+  if (firma !== _workbarUltimaFirma) {
+    _workbarUltimaFirma = firma;
+    for (const fn of _workbarOyentes) {
+      try { fn(workbarEstado); } catch (e) { console.error(e); }
+    }
+  }
+}
+
+/** Qué trabajo hay sobre un recurso: `null`, o `{estado, posicion, trabajo}`.
+ *
+ *  La columna dice lo que pasa en toda la app, pero cada pestaña necesita
+ *  marcarlo en SU lista: sin esto, un MKV con el análisis extendido corriendo
+ *  se veía igual que uno parado y se podía volver a pedir —el backend lo
+ *  rechazaba, que es la peor forma de enterarse.
+ *
+ *  `sobre` es el identificador con el que la pestaña conoce el recurso: el
+ *  session id de un rip o de un proyecto CMv4.0, la ruta del MKV en un
+ *  análisis extendido. NO es la clave del trabajo (la de un análisis es su
+ *  `audit_id`, que la pestaña no conoce).
+ */
+function trabajoSobre(sobre) {
+  if (!sobre) return null;
+  const a = workbarEstado.activo;
+  if (a && (a.sobre || a.id) === sobre) {
+    return { estado: 'corriendo', posicion: 0, trabajo: a };
+  }
+  const enCola = (workbarEstado.cola || [])
+    .find(j => (j.sobre || j.id) === sobre);
+  if (enCola) {
+    return { estado: 'en_cola', posicion: enCola.posicion, trabajo: enCola };
+  }
+  return null;
+}
+
+/** El distintivo de la lista de una pestaña: rueda girando o puesto en cola. */
+function insigniaDeTrabajo(sobre) {
+  const t = trabajoSobre(sobre);
+  if (!t) return '';
+  if (t.estado === 'corriendo') {
+    return `<span class="insignia-trabajo corriendo"
+      data-tooltip="${escHtml(t.trabajo.que || 'En ejecución')}">`
+      + iconoDeEstado('corriendo', 'icono-chip-sm') + 'En curso</span>';
+  }
+  return `<span class="insignia-trabajo en-cola"
+    data-tooltip="${escHtml(t.trabajo.que || 'Esperando turno')}">`
+    + iconoDeEstado('en_cola', 'icono-chip-sm') + `Cola · ${t.posicion}ª</span>`;
 }
 
 function _workbarTick() {

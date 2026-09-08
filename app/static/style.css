@@ -9367,3 +9367,35 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .workbar-seccion-cola .workbar-item { cursor: grab; }
 .workbar-seccion-cola .workbar-item:active { cursor: grabbing; }
 .workbar-seccion-cola .sortable-ghost { opacity: .4; }
+
+/* ── La insignia de trabajo en las listas de proyecto ──────────────────────
+   La columna de la derecha dice qué está pasando en toda la aplicación, pero
+   en una lista de veinte MKVs no dice CUÁL. Esto lo marca en la propia
+   tarjeta, con los mismos iconos que la columna para que se lean como lo
+   mismo. */
+.insignia-trabajo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 3px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.insignia-trabajo .icono-chip { background: transparent; width: 15px; height: 15px; }
+.insignia-trabajo .icono-chip svg { width: 13px; height: 13px; }
+.insignia-trabajo.corriendo { background: var(--green-dim);  color: var(--green); }
+.insignia-trabajo.en-cola   { background: rgba(0, 0, 0, 0.05); color: var(--text-3); }
+
+/* Un botón cuyo trabajo ya está en marcha: sigue pulsable —abre el detalle—
+   pero no invita a lanzarlo otra vez. */
+.btn.ocupado {
+  background: var(--surface-2);
+  border-color: var(--sep-strong);
+  color: var(--text-2);
+  gap: 5px;
+}
+.btn.ocupado .icono-chip { background: transparent; }
