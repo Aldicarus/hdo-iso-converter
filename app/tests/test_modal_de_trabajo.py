@@ -81,7 +81,10 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
                   'trabajo-modal-pasos','trabajo-modal-barra-wrap','trabajo-modal-barra',
                   'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
                   'trabajo-modal-cancelar']) {{
-  _els[id] = {{ textContent: '', innerHTML: '', style: {{}}, classList: {{
+  _els[id] = {{ textContent: '', innerHTML: '', style: {{}},
+    // El armazón consulta el log para decidir si baja el scroll y busca la
+    // caja para plegar el lateral: sin estos dos, el DOM falso revienta.
+    querySelector: () => null, closest: () => null, classList: {{
     _v: new Set(),
     toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
     has(c) {{ return this._v.has(c); }} }} }};
