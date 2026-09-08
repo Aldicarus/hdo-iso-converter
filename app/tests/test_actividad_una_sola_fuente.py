@@ -243,22 +243,35 @@ class TestElBackendMarcaEl409(ApiTestCase):
         workload.limpiar()
         self.addCleanup(workload.limpiar)
 
-    def _pedir_analisis_extendido(self):
-        mkv = self.output_dir / "Peli.mkv"
-        mkv.write_bytes(b"x" * 4096)
+    def _pedir_algo_bloqueado(self):
+        """Encolar un rip mientras otra pestaña tiene trabajo pesado.
+
+        Es el último 409 de admisión que queda: Tab 2 y Tab 3 pasaron a la
+        cola, y Tab 1 lo conserva porque su `execute` decide antes de entrar
+        en la cola. Si algún día también se encola, este test tendrá que
+        cambiar de vehículo o desaparecer con la cabecera.
+        """
+        sid = self.crear_sesion_tab1()
         workload.registrar("otro", workload.TAB_CMV40, "Fase C de Predator")
-        return self.client.post("/api/mkv/quality-audit",
-                                json={"file_path": str(mkv)})
+        return self.client.post(f"/api/sessions/{sid}/execute")
+
+    def crear_sesion_tab1(self) -> str:
+        import storage
+        from models import Session
+        s = Session(id="peli_2024_1", iso_path="/mnt/isos/peli.iso",
+                    mkv_name="Peli (2024).mkv", status="pending")
+        storage.save_session(s)
+        return s.id
 
     def test_el_409_de_admision_lleva_la_cabecera(self):
-        r = self._pedir_analisis_extendido()
+        r = self._pedir_algo_bloqueado()
         self.assertEqual(r.status_code, 409, r.text)
         self.assertEqual(r.headers.get(workload.CABECERA_OCUPADO), "1")
 
     def test_y_el_cuerpo_sigue_diciendo_que_bloquea(self):
         """La cabecera se añadió para no tener que tocar el cuerpo, que es lo
         que leen los tests y el resto de la UI."""
-        r = self._pedir_analisis_extendido()
+        r = self._pedir_algo_bloqueado()
         self.assertIn("Fase C de Predator", r.json()["detail"])
         self.assertIn("Upgrade Dolby Vision", r.json()["detail"])
 

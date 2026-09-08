@@ -152,6 +152,18 @@ class ApiTestCase(unittest.TestCase):
         # `enqueue` DISPARA el pipeline (`asyncio.create_task(self._process())`).
         # Sin aislarla, un test de `POST /execute` lanzaría mkvmerge de verdad y
         # el estado se filtraría al test siguiente.
+        # Los dos singleton de Tab 2. Con la cola espiada el runner no corre,
+        # así que su `finally` —el que pone `active = False`— tampoco: sin
+        # limpiarlos, el primer test que encole un análisis deja a los
+        # siguientes con «Ya hay un análisis en curso».
+        from routers import tab2 as _tab2
+        for _estado in (_tab2._mkv_quality_state, _tab2._mkv_apply_state):
+            _copia = dict(_estado)
+            _estado.update({"active": False, "step": "", "result": None,
+                            "error": None, "audit_id": None})
+            self.addCleanup(
+                lambda e=_estado, c=_copia: (e.clear(), e.update(c)))
+
         import queue_manager as _qm
         self.encolados: list[str] = []
         cola = self.main.queue_manager

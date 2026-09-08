@@ -304,7 +304,12 @@ class TestTab2LoAlimenta(ApiTestCase):
         self.mkv.write_bytes(b"x" * 4096)
 
     def test_el_analisis_extendido_deja_su_linea(self):
+        """Lo escribe el RUNNER, no el endpoint: desde la cola única el POST
+        solo encola y responde."""
+        import asyncio
+        import queue_manager as qm
         from phases import mkv_analyze
+        from routers import tab2
 
         async def _revienta(*a, **k):
             raise RuntimeError("extract-rpu falló")
@@ -313,8 +318,21 @@ class TestTab2LoAlimenta(ApiTestCase):
         self.addCleanup(lambda: setattr(
             mkv_analyze, "analyze_rpu_quality_for_mkv", orig))
 
-        self.client.post("/api/mkv/quality-audit",
-                         json={"file_path": str(self.mkv)})
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(self.mkv)})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json().get("queued"), r.text)
+        self.assertEqual(historial.leer(), [],
+                         "encolar no es trabajar: todavía no hay nada que anotar")
+
+        # Y ahora el turno.
+        encolados = [t for t in self.trabajos_encolados
+                     if t[0] == qm.TIPO_ANALISIS_EXTENDIDO]
+        self.assertEqual(len(encolados), 1, self.trabajos_encolados)
+        tipo, clave, datos, _ = encolados[0]
+        asyncio.run(tab2._runner_analisis_extendido(
+            qm.TrabajoEnCola(tab="mkv", tipo=tipo, clave=clave, datos=datos)))
+
         t = historial.leer()
         self.assertEqual(len(t), 1, "un análisis extendido no dejó rastro")
         self.assertEqual(t[0]["tab"], historial.TAB_MKV)
@@ -334,9 +352,24 @@ class TestTab2LoAlimenta(ApiTestCase):
         self.addCleanup(lambda: setattr(
             tab2, "_mkv_copy_to_output_with_progress", orig))
 
-        self.client.post("/api/mkv/apply",
-                         json={"file_path": str(src), "copy_to_output": True,
-                               "audio_tracks": [], "subtitle_tracks": []})
+        r = self.client.post("/api/mkv/apply",
+                             json={"file_path": str(src), "copy_to_output": True,
+                                   "audio_tracks": [], "subtitle_tracks": []})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json().get("queued"), r.text)
+        self.assertEqual(historial.leer(), [],
+                         "encolar no es trabajar: todavía no hay nada que anotar")
+
+        # Y ahora el turno.
+        import asyncio
+        import queue_manager as qm
+        encolados = [t for t in self.trabajos_encolados
+                     if t[0] == qm.TIPO_COPIA_BIBLIOTECA]
+        self.assertEqual(len(encolados), 1, self.trabajos_encolados)
+        tipo, clave, datos, _ = encolados[0]
+        asyncio.run(tab2._runner_copia_biblioteca(
+            qm.TrabajoEnCola(tab="mkv", tipo=tipo, clave=clave, datos=datos)))
+
         t = historial.leer()
         self.assertEqual(len(t), 1, "la copia no dejó rastro")
         self.assertEqual(t[0]["tipo"], historial.TIPO_COPIA_BIBLIOTECA)

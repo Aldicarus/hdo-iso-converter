@@ -41,7 +41,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 import analysis_progress
 import historial
 import paths
+import queue_manager as queue_manager_mod
 import workload
+from queue_manager import queue_manager
 from dev_fixtures import (
     DEV_FAKE_MKV_FILES,
     DEV_MODE,
@@ -585,6 +587,12 @@ async def mkv_quality_audit_cancel(request: Request):
          endpoint también usa _state_finalize_if con su audit_id snapshot —
          si el reset del audit nuevo ya pasó, no pisa nada.
     """
+    # Lo primero: si solo estaba esperando turno, sacarlo de la fila. Desde
+    # la cola única, "cancelar" tiene dos significados según dónde esté el
+    # trabajo, y para el usuario es el mismo botón.
+    _aid = _mkv_quality_state.get("audit_id")
+    if _aid:
+        await queue_manager.cancel(_aid)
     # Logging defensivo para diagnosticar "cancels fantasma" — quién hace
     # POST cancel, sobre qué audit_id, desde qué cliente.
     client_addr = f"{request.client.host}:{request.client.port}" if request.client else "?"
@@ -892,22 +900,43 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         )
     # Y tampoco si lo pesado está en otra pestaña: extraer el RPU son ~10 min
     # de disco y CPU, y solaparlo con un rip no hace que acaben antes.
-    workload.exigir_libre()
+    # A la cola: son ~10 minutos y el usuario no está esperando la respuesta
+    # HTTP, está mirando el modal, que se alimenta del poller. Antes esto era
+    # un POST que el navegador mantenía abierto hasta una hora.
+    my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
+    _mkv_quality_state["request_id"] = request_id
+    _mkv_quality_state["step"] = "en_cola"
+    _mkv_quality_state["step_label"] = "Esperando turno en la cola…"
+    _mkv_quality_log("[Audit] ⏳ En cola — arrancará cuando termine el trabajo "
+                     "que hay por delante.", target_audit_id=my_audit_id)
+    await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
+        tab="mkv",
+        tipo=queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
+        clave=my_audit_id,
+        que=f"análisis extendido de {mkv_path_obj.name}",
+        datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
+               "inicio": datetime.now(timezone.utc).isoformat()},
+    ))
+    return {"queued": True, "audit_id": my_audit_id}
 
+
+async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
+                                       mkv_path_obj, _historial_inicio):
+    """El trabajo del análisis extendido, ya con turno concedido.
+
+    Sale del endpoint porque el endpoint ya no espera: son ~10 minutos y
+    ahora pasan por la cola única, así que el POST responde al instante y
+    esto corre cuando le toca. **No lanza `HTTPException`**: nadie estaría
+    escuchando: el canal con la UI es `_mkv_quality_state`, que el modal
+    pollea, y ahí ya se escriben el error y el paso final.
+    """
     # my_audit_id es el id propio de este audit — se usa para que except y
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
-    my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
-    _historial_inicio = datetime.now(timezone.utc)
     workload.registrar(my_audit_id, workload.TAB_MKV,
                        f"análisis extendido de {mkv_path_obj.name}")
-    _mkv_quality_state["request_id"] = request_id
-    client_addr = (f"{request.client.host}:{request.client.port}"
-                   if request and request.client else "?")
-    _logger.warning(
-        "[QualityAudit] START audit_id=%s file=%s caller=%s",
-        my_audit_id, mkv_path_obj.name, client_addr,
-    )
+    _logger.warning("[QualityAudit] START audit_id=%s file=%s",
+                    my_audit_id, mkv_path_obj.name)
 
     # Los 3 callbacks van GUARDADOS por my_audit_id: si el usuario canceló este
     # audit y relanzó otro, el pipeline de ESTE (moribundo, aún vivo unos ms
@@ -988,12 +1017,11 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         # guard: solo pisa state si seguimos siendo el audit actual.
         # finalize_if ya emite "✗ {msg}" al log, no añadimos extra.
         _mkv_quality_state_finalize_if(my_audit_id, msg, step="error")
-        status = 499 if "Cancelado" in msg else 500
-        raise HTTPException(status_code=status, detail=msg)
+        return None
     except Exception as e:
         _logger.exception("quality-audit falló inesperadamente sobre %s", mkv_full)
         _mkv_quality_state_finalize_if(my_audit_id, str(e), step="error")
-        raise HTTPException(status_code=500, detail=str(e))
+        return None
     finally:
         # El hueco de trabajo pesado se libera SIEMPRE y por MI clave: aunque
         # el audit_id haya cambiado, el que ocupó el hueco fui yo.
@@ -1271,6 +1299,79 @@ async def mkv_apply_cancel():
     return {"ok": True}
 
 
+async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
+                                           _clave_copia,
+                                           _historial_inicio) -> None:
+    """La copia de biblioteca a /mnt/output, ya con turno concedido.
+
+    Sale del endpoint porque el endpoint ya no espera: son decenas de GB
+    de lectura y escritura sobre el mismo vdev del que tira todo lo demás,
+    así que pasa por la cola única. **No lanza `HTTPException`**: nadie
+    estaría escuchando. El canal con la UI es `_mkv_apply_state`, que el
+    modal ya polleaba para la barra de progreso, y ahí van también el
+    resultado y el error.
+    """
+    workload.registrar(_clave_copia, workload.TAB_MKV,
+                       f"copia de {src_path.name} a /mnt/output")
+    paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
+    _mkv_apply_reset(
+        total_bytes=src_path.stat().st_size,
+        src_path=str(src_path),
+        dst_path=str(dst_path),
+        file_name=src_path.name,
+    )
+    try:
+        await _mkv_copy_to_output_with_progress(src_path, dst_path)
+        _mkv_apply_set_step("applying", "Aplicando cambios con mkvpropedit…")
+        body.file_path = str(dst_path)
+        result = await apply_mkv_edits(body)
+        _mkv_apply_set_step("done", "Cambios aplicados correctamente")
+        # mkvpropedit cambia mtime y posiblemente el primer 1MB del
+        # MKV → cache previo (del source o del destino si existía)
+        # debe quedar invalidado para que el próximo open re-analice.
+        try:
+            from storage import invalidate_mkv_cache_by_path
+            invalidate_mkv_cache_by_path(str(dst_path))
+        except Exception as e:
+            _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
+        # Devolvemos el nuevo path para que el frontend actualice el state
+        if isinstance(result, dict):
+            result["new_file_path"] = str(dst_path)
+            result["copied_from_library"] = True
+        # El resultado va al ESTADO, no de vuelta por HTTP: el POST ya
+        # respondió hace rato. Es de donde lo saca el modal, que ya polleaba
+        # el progreso.
+        _mkv_apply_state["result"] = result
+        _persist_mkv_apply_state()
+    except MkvApplyCancelled:
+        _mkv_apply_set_step("cancelled", "Copia cancelada por el usuario")
+    except Exception as e:
+        _mkv_apply_state["error"] = str(e)
+        _mkv_apply_set_step("error", f"Error: {e}")
+        _logger.exception("La copia desde biblioteca falló (%s)", src_path.name)
+    finally:
+        workload.liberar(_clave_copia)
+        historial.anotar(
+            id     = _clave_copia,
+            tab    = historial.TAB_MKV,
+            tipo   = historial.TIPO_COPIA_BIBLIOTECA,
+            que    = f"copia de {src_path.name} a /mnt/output",
+            inicio = _historial_inicio,
+            estado = _mkv_apply_state.get("step") or "error",
+            error  = _mkv_apply_state.get("error"),
+        )
+        # Mantenemos active=True hasta done/error/cancelled → el
+        # frontend cierra el modal en el siguiente poll. Limpiamos a
+        # los 5s para que un poll tardío no se confunda con el
+        # próximo job.
+        async def _delayed_clear():
+            await asyncio.sleep(5)
+            _mkv_apply_state["active"] = False
+            _mkv_apply_cancel["requested"] = False
+            _persist_mkv_apply_state()
+        asyncio.create_task(_delayed_clear())
+
+
 @router.post("/api/mkv/apply", summary="Aplica ediciones a un MKV")
 async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     """
@@ -1314,71 +1415,27 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                     detail=f"Ya existe un MKV con ese nombre en /mnt/output: "
                            f"{src_path.name}. Renómbralo o muévelo antes de continuar."
                 )
-            # La copia son decenas de GB de lectura y escritura en el NAS.
-            workload.exigir_libre()
+            # A la cola: son decenas de GB sobre el mismo vdev del que tira
+            # todo lo demás. El POST responde al instante y el modal, que ya
+            # polleaba el progreso, se encarga del resto.
             _clave_copia = f"apply:{src_path.name}"
-            _historial_inicio = datetime.now(timezone.utc)
-            workload.registrar(_clave_copia, workload.TAB_MKV,
-                               f"copia de {src_path.name} a /mnt/output")
-            paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
             _mkv_apply_reset(
                 total_bytes=src_path.stat().st_size,
                 src_path=str(src_path),
                 dst_path=str(dst_path),
                 file_name=src_path.name,
             )
-            try:
-                await _mkv_copy_to_output_with_progress(src_path, dst_path)
-                _mkv_apply_set_step("applying", "Aplicando cambios con mkvpropedit…")
-                body.file_path = str(dst_path)
-                result = await apply_mkv_edits(body)
-                _mkv_apply_set_step("done", "Cambios aplicados correctamente")
-                # mkvpropedit cambia mtime y posiblemente el primer 1MB del
-                # MKV → cache previo (del source o del destino si existía)
-                # debe quedar invalidado para que el próximo open re-analice.
-                try:
-                    from storage import invalidate_mkv_cache_by_path
-                    invalidate_mkv_cache_by_path(str(dst_path))
-                except Exception as e:
-                    _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
-                # Devolvemos el nuevo path para que el frontend actualice el state
-                if isinstance(result, dict):
-                    result["new_file_path"] = str(dst_path)
-                    result["copied_from_library"] = True
-                return result
-            except MkvApplyCancelled:
-                _mkv_apply_set_step("cancelled", "Copia cancelada por el usuario")
-                raise HTTPException(
-                    status_code=499,  # Client closed request
-                    detail="Copia cancelada por el usuario antes de completar."
-                )
-            except HTTPException:
-                raise
-            except Exception as e:
-                _mkv_apply_state["error"] = str(e)
-                _mkv_apply_set_step("error", f"Error: {e}")
-                raise
-            finally:
-                workload.liberar(_clave_copia)
-                historial.anotar(
-                    id     = _clave_copia,
-                    tab    = historial.TAB_MKV,
-                    tipo   = historial.TIPO_COPIA_BIBLIOTECA,
-                    que    = f"copia de {src_path.name} a /mnt/output",
-                    inicio = _historial_inicio,
-                    estado = _mkv_apply_state.get("step") or "error",
-                    error  = _mkv_apply_state.get("error"),
-                )
-                # Mantenemos active=True hasta done/error/cancelled → el
-                # frontend cierra el modal en el siguiente poll. Limpiamos a
-                # los 5s para que un poll tardío no se confunda con el
-                # próximo job.
-                async def _delayed_clear():
-                    await asyncio.sleep(5)
-                    _mkv_apply_state["active"] = False
-                    _mkv_apply_cancel["requested"] = False
-                    _persist_mkv_apply_state()
-                asyncio.create_task(_delayed_clear())
+            _mkv_apply_set_step("en_cola", "Esperando turno en la cola…")
+            await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
+                tab="mkv",
+                tipo=queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
+                clave=_clave_copia,
+                que=f"copia de {src_path.name} a /mnt/output",
+                datos={"body": body.model_dump(), "src": str(src_path),
+                       "dst": str(dst_path),
+                       "inicio": datetime.now(timezone.utc).isoformat()},
+            ))
+            return {"ok": True, "queued": True}
 
         # Ruta directa (MKV en /mnt/output u otro root editable)
         result = await apply_mkv_edits(body)
@@ -1396,3 +1453,40 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     except Exception as e:
         _logger.exception("Error aplicando ediciones a %s", body.file_path)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Registro en la cola única ─────────────────────────────────────────────────
+# Al final del módulo, para que los runners estén definidos. El tipo es un
+# literal y el runner se registra al importar el router: es lo que permite que
+# un trabajo encolado sobreviva a un reinicio del contenedor.
+async def _runner_analisis_extendido(trabajo) -> None:
+    from datetime import datetime as _dt
+    d = trabajo.datos or {}
+    inicio = d.get("inicio")
+    try:
+        inicio = _dt.fromisoformat(inicio) if inicio else datetime.now(timezone.utc)
+    except ValueError:
+        inicio = datetime.now(timezone.utc)
+    await _ejecutar_analisis_extendido(
+        trabajo.clave, d.get("mkv") or "", Path(d.get("mkv") or ""), inicio)
+
+
+async def _runner_copia_biblioteca(trabajo) -> None:
+    from datetime import datetime as _dt
+    d = trabajo.datos or {}
+    try:
+        inicio = _dt.fromisoformat(d.get("inicio") or "")
+    except ValueError:
+        inicio = datetime.now(timezone.utc)
+    # `body` viaja serializado: la cola puede despachar mucho después y un
+    # modelo de Pydantic no se persiste.
+    await _ejecutar_copia_desde_biblioteca(
+        MkvEditRequest(**(d.get("body") or {})),
+        Path(d.get("src") or ""), Path(d.get("dst") or ""),
+        trabajo.clave, inicio)
+
+
+queue_manager.registrar_runner(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
+                               _runner_analisis_extendido)
+queue_manager.registrar_runner(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
+                               _runner_copia_biblioteca)

@@ -122,14 +122,19 @@ class TestTab1(AdmisionApiCase):
 
 class TestTab2(AdmisionApiCase):
 
-    def test_el_analisis_extendido_con_otra_pestana_ocupada_da_409(self):
+    def test_el_analisis_extendido_con_otra_pestana_ocupada_se_encola(self):
+        """Son ~10 min de disco y CPU: no puede correr a la vez que un rip,
+        pero rechazarlo obligaba al usuario a acordarse de volver."""
+        import queue_manager as qm
         mkv = self.output_dir / "Peli.mkv"
         mkv.write_bytes(b"x" * 4096)
         workload.registrar("otro", workload.TAB_RIP, "rip de Otra (2024)")
         r = self.client.post("/api/mkv/quality-audit",
                              json={"file_path": str(mkv)})
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("Blu-Ray ISO", r.json()["detail"])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json().get("queued"))
+        self.assertEqual([t[0] for t in self.trabajos_encolados],
+                         [qm.TIPO_ANALISIS_EXTENDIDO])
 
     def test_abrir_un_mkv_NO_se_bloquea(self):
         """Es cómo se navega, no un job: bloquearlo dejaría Tab 2 inservible

@@ -1962,6 +1962,8 @@ async function _mkvQualityCancel() {
 }
 
 function _mkvQualityResetSteps() {
+  const enCola = document.getElementById('mkv-quality-en-cola');
+  if (enCola) enCola.style.display = 'none';
   ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i) => {
     const el = document.getElementById(`mkv-quality-step-${s}`);
     if (!el) return;
@@ -1986,7 +1988,11 @@ function _mkvQualitySetStep(step) {
   const idx = order.indexOf(step);
   if (idx < 0) return;
   _mkvQualityLastStep = step;
-  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i) => {
+  const enCola = document.getElementById('mkv-quality-en-cola');
+  if (enCola) enCola.style.display = step === 'en_cola' ? '' : 'none';
+  // Los índices de los pasos reales van desplazados por `en_cola`.
+  ['ffmpeg', 'extract_rpu', 'combos'].forEach((s, i0) => {
+    const i = i0 + 1;
     const el = document.getElementById(`mkv-quality-step-${s}`);
     if (!el) return;
     if (step === 'done' || i < idx) {
@@ -2941,6 +2947,24 @@ async function _doApplyMkvEdits(copyToOutput) {
     pollHandle = setTimeout(tick, 500);
   }
 
+  /** Espera a que el trabajo encolado termine y devuelve su resultado.
+   *
+   *  Desde la cola única el POST responde al instante con `{queued:true}`: la
+   *  copia son decenas de GB y puede tener por delante un rip de 40 minutos.
+   *  El estado del job es el canal —el mismo que ya alimentaba la barra— y
+   *  ahí deja el runner tanto el resultado como el error.
+   */
+  async function _esperarCopiaEncolada() {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1000));
+      const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
+      if (!st) continue;
+      if (st.step === 'cancelled') { _mkvApplyUserCancelled = true; return null; }
+      if (st.step === 'error') return { ok: false, error: st.error };
+      if (st.active === false || st.step === 'done') return st.result || null;
+    }
+  }
+
   let result;
   try {
     // Para copia: silent + timeout largo. El polling cuenta el progreso
@@ -2950,6 +2974,9 @@ async function _doApplyMkvEdits(copyToOutput) {
     const opts = { method: 'POST', body: JSON.stringify(body) };
     if (copyToOutput) opts.silent = true;
     result = await apiFetch('/api/mkv/apply', opts, copyToOutput ? MKV_APPLY_LONG_TIMEOUT_MS : API_FETCH_TIMEOUT);
+    // Con copia, la respuesta es solo el acuse de encolado; el resultado de
+    // verdad llega por el estado del job.
+    if (result?.queued) result = await _esperarCopiaEncolada();
   } finally {
     polling = false;
     if (pollHandle) clearTimeout(pollHandle);
@@ -3118,7 +3145,14 @@ function _renderMkvApplyProgress(st) {
   const text = document.getElementById('mkv-apply-progress-text');
   const titleEl = document.getElementById('mkv-apply-modal-title');
   if (!fill || !text) return;
-  if (st.step === 'copying') {
+  if (st.step === 'en_cola') {
+    // Esperando turno: no hay bytes que contar todavía, y dejar la barra en
+    // "Iniciando copia…" haría creer que ya está trabajando.
+    if (titleEl) titleEl.textContent = 'En cola';
+    fill.style.width = '0%';
+    text.textContent = '⏳ Esperando turno — arrancará cuando termine el '
+                     + 'trabajo que hay por delante';
+  } else if (st.step === 'copying') {
     if (titleEl) titleEl.textContent = 'Copiando MKV a Output…';
     fill.style.width = `${st.pct || 0}%`;
     const copiedGb = (st.bytes_copied || 0) / 1e9;
