@@ -38,7 +38,7 @@ import queue_manager as qm  # noqa: E402
 import trabajos  # noqa: E402
 import workload  # noqa: E402
 
-CAMPOS = {"id", "tab", "tipo", "que", "fase", "fase_label", "fase_n",
+CAMPOS = {"id", "sobre", "tab", "tipo", "que", "fase", "fase_label", "fase_n",
           "fases_total", "pct", "pct_medido", "segundos", "eta_s",
           "eta_fuente", "cancelable"}
 
