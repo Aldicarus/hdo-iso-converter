@@ -4158,7 +4158,9 @@ async function _doExecute() {
 
   // Actualizar proyecto abierto: ahora está queued/running
   refreshOpenProjectState(sid);
-  switchSubTab('cola');
+  // El detalle del rip era una sub-pestaña del centro; ahora es su modal, que
+  // se abre desde la columna de trabajo o desde aquí.
+  abrirDetalleDeTrabajo();
 }
 
 /**
@@ -4189,7 +4191,7 @@ function renderExecResultBanner(session) {
           data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales">🛑 Cancelar</button>`
       : '';
     actions.innerHTML = `
-      <button class="btn btn-primary btn-xs" onclick="switchSubTab('cola')"
+      <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()"
         data-tooltip="Ver el progreso en tiempo real">📺 Ver progreso</button>${cancelBtn}`;
   } else {
     banner.style.display = 'none';
@@ -5380,3 +5382,43 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
 const spinStyle = document.createElement('style');
 spinStyle.textContent = '@keyframes spin { to { transform: rotate(360deg) } }';
 document.head.appendChild(spinStyle);
+
+// ── Vistas de detalle para el modal de trabajo ───────────────────────────────
+// Las registra esta pestaña porque son suyas; el armazón (`workbar.js`) no
+// sabe qué es un rip. Mismo patrón que los adaptadores del backend.
+
+registrarDetalleDeTrabajo('rip', async (a) => {
+  // El log del rip ya está en la sesión y llega por WebSocket a la consola.
+  // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
+  const s = await apiFetch(`/api/sessions/${a.id}`, { silent: true }).catch(() => null);
+  return {
+    icono: '💿',
+    titulo: s?.mkv_name || a.que,
+    sub: s?.iso_path || '',
+    pasos: ['Abrir origen', 'Extraer pistas', 'Metadatos', 'Cerrar origen'],
+    conLog: true,
+    cuerpo: _trabajoLogHTML(s?.output_log),
+  };
+});
+
+registrarDetalleDeTrabajo('serie', async (a) => {
+  // La creación de una serie no produce log: su detalle son los episodios.
+  const p = await apiFetch('/api/series-create-progress', { silent: true })
+    .catch(() => null);
+  const hechos = (p?.completed || []).length;
+  const fallidos = (p?.failed || []).length;
+  return {
+    icono: '📺',
+    titulo: a.que,
+    sub: p?.current_label || '',
+    pasos: ['Preparar origen', 'Analizar episodios', 'Crear proyectos'],
+    conLog: false,
+    cuerpo: _trabajoKvHTML([
+      ['Episodio en curso', p?.current_episode_title || '—'],
+      ['Paso', p?.current_episode_step || '—'],
+      ['Terminados', `${hechos} de ${p?.total || 0}`],
+      ['Con error', fallidos || '—'],
+      ['Conteo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
+    ]),
+  };
+});

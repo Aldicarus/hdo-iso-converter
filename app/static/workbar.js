@@ -187,12 +187,11 @@ function registrarDetalleDeTrabajo(clave, fn) {
 function abrirDetalleDeTrabajo() {
   const a = workbarEstado.activo;
   if (!a) return;
-  const fn = _workbarDetalles[a.detalle];
-  if (!fn) {
+  if (!_workbarDetalles[a.detalle]) {
     showToast('Este trabajo todavía no tiene vista de detalle', 'info');
     return;
   }
-  fn(a);
+  _trabajoModalAbrir(a);
 }
 
 /** Cancela el trabajo activo, sea del tipo que sea.
@@ -222,4 +221,115 @@ function cancelarTrabajoActivo() {
     },
     'Cancelar el trabajo',
   );
+}
+
+// ── El armazón del modal ─────────────────────────────────────────────────────
+// Uno para los cinco tipos. Cada uno registra una función que devuelve qué
+// poner: icono, subtítulo, la tira de fases y el cuerpo. El armazón no sabe de
+// ninguno, que es lo que permite añadir un tipo sin tocarlo.
+//
+// El detalle NO es siempre un log: el rip, la fase CMv4.0 y el análisis
+// extendido producen uno, pero la copia y la creación de una serie no — ahí el
+// detalle son bytes y episodios. Un log vacío sería peor que decirlo.
+
+let _trabajoModalTimer = null;
+let _trabajoModalTipo = null;
+
+/** Pinta la tira de fases a partir de los campos comunes. */
+function _trabajoPasosHTML(a, pasos) {
+  if (!pasos || !pasos.length) return '';
+  return pasos.map((p, i) => {
+    const n = i + 1;
+    const clase = a.fase_n && n < a.fase_n ? 'hecha'
+                : a.fase_n === n ? 'activa' : '';
+    const icono = clase === 'hecha' ? '✓' : clase === 'activa' ? '⏳' : '⬜';
+    return `<div class="trabajo-paso ${clase}">${icono} ${escHtml(p)}</div>`;
+  }).join('');
+}
+
+function _trabajoModalPinta(a, vista) {
+  const set = (id, txt) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  };
+  set('trabajo-modal-icono', vista.icono || '⚙︎');
+  set('trabajo-modal-titulo', vista.titulo || a.que || 'Trabajo');
+  set('trabajo-modal-sub', vista.sub || '');
+  const pasos = document.getElementById('trabajo-modal-pasos');
+  if (pasos) pasos.innerHTML = _trabajoPasosHTML(a, vista.pasos);
+
+  // La barra sigue la misma regla que en la columna: sin porcentaje medido no
+  // se pinta una que avanza.
+  const wrap = document.getElementById('trabajo-modal-barra-wrap');
+  const fill = document.getElementById('trabajo-modal-barra');
+  if (wrap && fill) {
+    wrap.classList.toggle('indeterminada', !a.pct_medido);
+    fill.style.width = a.pct_medido ? `${a.pct}%` : '';
+  }
+  set('trabajo-modal-tiempos', '');
+  const t = document.getElementById('trabajo-modal-tiempos');
+  if (t) {
+    t.innerHTML = `<span>${a.pct_medido ? a.pct + '%' : 'sin medir'}</span>`
+      + `<span>lleva ${escHtml(_workbarTiempo(a.segundos))}`
+      + (a.eta_s != null
+          ? ` · quedan ${escHtml(_workbarTiempo(a.eta_s))}`
+            + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+          : '')
+      + '</span>';
+  }
+
+  const cuerpo = document.getElementById('trabajo-modal-cuerpo');
+  if (cuerpo) cuerpo.innerHTML = vista.cuerpo || '';
+  // El botón de copiar solo tiene sentido con log delante.
+  const copiar = document.getElementById('trabajo-modal-copiar');
+  if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
+  const cancelar = document.getElementById('trabajo-modal-cancelar');
+  if (cancelar) cancelar.style.display = a.cancelable ? '' : 'none';
+}
+
+/** Un log con la paleta semántica de la app (marcadores ━━━ / $ / ✓ / ✗). */
+function _trabajoLogHTML(lineas) {
+  if (!lineas || !lineas.length) {
+    return '<div class="trabajo-detalle-vacio">Todavía no hay líneas de log</div>';
+  }
+  return `<div class="cmv40-log" id="trabajo-modal-log">`
+    + lineas.slice(-400).map(l => `<div>${escHtml(String(l))}</div>`).join('')
+    + '</div>';
+}
+
+/** Para los trabajos que no producen log: pares clave/valor. */
+function _trabajoKvHTML(pares) {
+  return '<dl class="trabajo-kv">'
+    + pares.filter(([, v]) => v !== undefined && v !== null && v !== '')
+           .map(([k, v]) => `<dt>${escHtml(k)}</dt><dd>${escHtml(String(v))}</dd>`)
+           .join('')
+    + '</dl>';
+}
+
+function cerrarModalDeTrabajo() {
+  if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
+  _trabajoModalTipo = null;
+  closeModal('trabajo-modal');
+}
+
+/** Abre el modal para el trabajo activo y lo mantiene al día. */
+async function _trabajoModalAbrir(a) {
+  const fn = _workbarDetalles[a.detalle];
+  if (!fn) return;
+  _trabajoModalTipo = a.detalle;
+  openModal('trabajo-modal');
+  const refrescar = async () => {
+    const act = workbarEstado.activo;
+    // El trabajo terminó o lo relevó otro: el modal deja de tener sujeto.
+    if (!act || act.detalle !== _trabajoModalTipo) {
+      _trabajoModalPinta(a, { titulo: a.que, sub: 'Terminado',
+                              pasos: [], cuerpo: '' });
+      if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
+      return;
+    }
+    _trabajoModalPinta(act, await fn(act));
+  };
+  await refrescar();
+  if (_trabajoModalTimer) clearInterval(_trabajoModalTimer);
+  _trabajoModalTimer = setInterval(refrescar, 1500);
 }

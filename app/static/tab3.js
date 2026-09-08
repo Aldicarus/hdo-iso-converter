@@ -6788,3 +6788,22 @@ function _renderCMv40Chart(project) {
     if (tooltip) tooltip.style.display = 'none';
   };
 }
+
+// ── Vista de detalle para el modal de trabajo ────────────────────────────────
+// La fase CMv4.0 ya tenía la vista más completa de la app —el overlay de
+// ejecución—, pero se abría SOLA y tapaba el panel. Aquí el mismo contenido se
+// abre a petición desde la columna de trabajo.
+
+registrarDetalleDeTrabajo('cmv40', async (a) => {
+  const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
+    .catch(() => null);
+  return {
+    icono: '✨',
+    titulo: s?.output_mkv_name || a.que,
+    sub: s?.source_mkv_name || '',
+    pasos: ['Analizar origen', 'RPU target', 'Extraer BL/EL', 'Verificar sync',
+            'Inyectar', 'Remuxar', 'Validar'],
+    conLog: true,
+    cuerpo: _trabajoLogHTML(s?.output_log),
+  };
+});

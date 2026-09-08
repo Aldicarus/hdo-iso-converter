@@ -109,9 +109,8 @@ let currentTab = 1;
 
 // ── Helpers de proyecto ───────────────────────────────────────────
 
-/** Devuelve el proyecto activo o null si el sub-tab activo es 'cola'. */
+/** Devuelve el proyecto activo, o null si no hay ninguno. */
 function getActiveProject() {
-  if (activeSubTabId === 'cola') return null;
   return openProjects.find(p => p.id === activeSubTabId) || null;
 }
 
@@ -123,7 +122,7 @@ function getActiveProject() {
  * @returns {HTMLElement|null}
  */
 function E(id) {
-  if (activeSubTabId && activeSubTabId !== 'cola') {
+  if (activeSubTabId) {
     const el = document.getElementById(`${activeSubTabId}-${id}`);
     if (el) return el;
   }
@@ -452,50 +451,30 @@ function switchTab(n) {
 
 /**
  * Cambia el sub-tab activo dentro de Tab 1.
- * @param {string} id - 'cola' o project.id
+ * @param {string} id - project.id, o 'empty' si no hay ninguno abierto
  */
 function switchSubTab(id) {
-  // Si no hay proyectos abiertos y no se pide Cola, mostrar estado vacío
+  // Si no hay proyectos abiertos, estado vacío. La sub-pestaña 'cola' se
+  // retiró: su contenido es hoy el modal de detalle de un rip, y el centro de
+  // las tres pestañas es solo proyectos.
   if (!id && openProjects.length === 0) id = 'empty';
   activeSubTabId = id;
-  document.getElementById('subtab-btn-cola')?.classList.toggle('active', id === 'cola');
   document.querySelectorAll('.subtab-proj').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.pid === id);
   });
   // Mostrar el panel correcto en #subtab-main (Cola, proyecto o estado vacío)
   document.querySelectorAll('#subtab-main .subtab-panel').forEach(panel => {
-    let active;
-    if (id === 'cola') active = panel.id === 'panel-cola';
-    else if (id === 'empty') active = panel.id === 'panel-empty-projects';
-    else active = panel.id === `panel-project-${id}`;
+    const active = id === 'empty'
+      ? panel.id === 'panel-empty-projects'
+      : panel.id === `panel-project-${id}`;
     panel.classList.toggle('active-panel', active);
   });
-  // Actualizar cortinilla: icono + posición (clase cola-panel-open)
-  const expandTab = document.getElementById('cola-expand-tab');
-  const icon = document.getElementById('cola-expand-icon');
-  if (expandTab) expandTab.classList.toggle('cola-panel-open', id === 'cola');
-  document.getElementById('cola-sidebar')?.classList.toggle('cola-panel-open', id === 'cola');
-  if (icon) icon.textContent = id === 'cola' ? '▶' : '◀';
-  // Scrollbar izquierda cuando Cola está activo
   const main = document.getElementById('subtab-main');
-  if (main) {
-    main.classList.toggle('cola-scroll-rtl', id === 'cola');
-    main.scrollTop = 0;
-  }
-  if (id === 'cola') renderColaDetailPanel();
+  if (main) main.scrollTop = 0;
   const project = getActiveProject();
   currentSession = project ? project.session : null;
 }
 
-/** Toggle cortinilla: muestra/oculta el panel Cola en el área principal. */
-function toggleColaSidebar() {
-  if (activeSubTabId === 'cola') {
-    const lastProject = openProjects[openProjects.length - 1];
-    switchSubTab(lastProject ? lastProject.id : null);
-  } else {
-    switchSubTab('cola');
-  }
-}
 
 /**
  * Abre o reutiliza un proyecto para una sesión dada.

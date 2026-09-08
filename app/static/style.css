@@ -9146,3 +9146,34 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25);
   animation: tab-running-pulse 1.6s ease-in-out infinite;
 }
+
+/* ── Modal de detalle de un trabajo ────────────────────────────────
+   La tira de fases: la misma para los cinco tipos, porque el objetivo del
+   bloque es que no se noten saltos entre pestañas. */
+.trabajo-pasos {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-3);
+  margin: 4px 0 2px;
+}
+.trabajo-paso {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 12px;
+  background: rgba(0,0,0,0.05);
+}
+.trabajo-paso.hecha  { color: var(--text-2); }
+.trabajo-paso.activa {
+  background: rgba(30,111,230,0.12);
+  color: var(--blue); font-weight: 600;
+}
+.trabajo-detalle-vacio {
+  padding: 16px; margin-top: 10px;
+  border: 1px dashed var(--border); border-radius: 8px;
+  font-size: 11px; color: var(--text-3); text-align: center;
+}
+.trabajo-kv {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 4px 14px; margin-top: 12px;
+  font-size: 11px; color: var(--text-2);
+}
+.trabajo-kv dt { color: var(--text-3); }
+.trabajo-kv dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }

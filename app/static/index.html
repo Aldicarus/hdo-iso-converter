@@ -206,24 +206,16 @@
               onclick="scrollSubtabProjects('right')"
               data-tooltip="Desplazar pestañas a la derecha">›</button>
           </div>
-          <div class="subtab-cola-area" id="subtab-cola-area">
-            <button class="subtab-cola-btn" id="subtab-btn-cola" onclick="switchSubTab('cola')"
-              data-tooltip="Monitorea el trabajo activo y la cola de ejecución">
-              🎞️ Trabajos en Curso
-            </button>
-          </div>
+
         </div>
 
         <!-- Área de contenido: paneles proyecto (izq) + sidebar Cola (der, siempre visible) -->
         <div id="subtab-content">
 
-          <!-- Cortinilla: se posiciona con CSS calc, viaja entre borde-cola y borde-izquierdo -->
-          <button class="cola-expand-tab" id="cola-expand-tab" onclick="toggleColaSidebar()"
-            title="Mostrar / ocultar panel detallado de trabajos en curso">
-            <span class="cola-expand-icon" id="cola-expand-icon">◀</span>
-          </button>
-
-          <!-- Área de proyecto — scroll container para paneles + panel Cola detallado -->
+          <!-- Área de proyecto — scroll container de los paneles.
+               La cortinilla que abría el panel de trabajos se retiró: ese
+               contenido es hoy el modal de detalle, y el centro de las tres
+               pestañas es solo proyectos. -->
           <div id="subtab-main">
 
             <!-- Estado vacío: sin proyectos abiertos -->
@@ -238,124 +230,6 @@
             </div>
 
             <!-- Panel Cola — panel de control de ejecución en curso -->
-            <div id="panel-cola" class="subtab-panel">
-              <div class="pc-wrap">
-
-                <!-- Estado vacío -->
-                <div id="pc-empty" class="pc-empty">
-                  <div class="pc-empty-icon">⏸</div>
-                  <div class="pc-empty-title">Sin ejecuciones activas</div>
-                  <div class="pc-empty-sub">Confirma un proyecto para iniciar la ejecución</div>
-                </div>
-
-                <!-- Panel de control activo -->
-                <div id="pc-running" style="display:none">
-
-                  <!-- Cabecera del trabajo -->
-                  <div class="pc-header">
-                    <div class="pc-header-left">
-                      <span class="pc-running-dot" data-tooltip="Ejecución activa"></span>
-                      <div>
-                        <div class="pc-job-name" id="pc-job-name">—</div>
-                        <div class="pc-job-paths" id="pc-job-paths">—</div>
-                      </div>
-                    </div>
-                    <div class="pc-total-elapsed" id="pc-total-elapsed"
-                      data-tooltip="Tiempo total transcurrido desde el inicio del trabajo">00:00</div>
-                  </div>
-
-                  <!-- Pipeline de fases (3 pasos: Montar → mkvmerge → Desmontar) -->
-                  <div class="pc-pipeline">
-
-                    <!-- Montar ISO -->
-                    <div class="pc-step pending" id="pc-step-mount"
-                      data-tooltip="Montar el ISO via loop mount (UDF 2.50)">
-                      <div class="pc-step-head">
-                        <div class="pc-step-circle" id="pc-circle-mount">💿</div>
-                        <div class="pc-step-info">
-                          <div class="pc-step-title">Montar ISO</div>
-                          <div class="pc-step-sub">loop mount UDF → /mnt/bd/</div>
-                        </div>
-                        <div class="pc-step-elapsed" id="pc-elapsed-mount"
-                          data-tooltip="Tiempo empleado en esta fase">—</div>
-                      </div>
-                      <div class="pc-step-cancel" id="pc-cancel-mount" style="display:none">
-                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
-                          data-tooltip="Cancela el montaje en curso">🛑 Cancelar</button>
-                      </div>
-                    </div>
-
-                    <div class="pc-step-conn" id="pc-conn-me"></div>
-
-                    <!-- mkvmerge (extracción + escritura) -->
-                    <div class="pc-step pending" id="pc-step-extract"
-                      data-tooltip="mkvmerge lee el MPLS y genera el MKV. Ruta directa (MPLS→final) o intermedia (MPLS→tmp→propedit→final)">
-                      <div class="pc-step-head">
-                        <div class="pc-step-circle" id="pc-circle-extract">⬇️</div>
-                        <div class="pc-step-info">
-                          <div class="pc-step-title">mkvmerge</div>
-                          <div class="pc-step-sub" id="pc-sub-extract">MPLS → MKV</div>
-                        </div>
-                        <div class="pc-step-elapsed" id="pc-elapsed-extract"
-                          data-tooltip="Tiempo empleado en esta fase">—</div>
-                      </div>
-                      <div class="pc-step-progress" id="pc-prog-extract" style="display:none">
-                        <div class="pc-prog-track">
-                          <div class="pc-prog-bar indeterminate" id="pc-bar-extract"></div>
-                        </div>
-                        <div class="pc-prog-meta">
-                          <span class="pc-prog-pct" id="pc-pct-extract"
-                            data-tooltip="Porcentaje completado reportado por mkvmerge"></span>
-                          <span class="pc-eta" id="pc-eta-extract"
-                            data-tooltip="Tiempo estimado hasta completar esta fase"></span>
-                        </div>
-                      </div>
-                      <div class="pc-step-cancel" id="pc-cancel-extract" style="display:none">
-                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
-                          data-tooltip="Cancela la extracción en curso">🛑 Cancelar</button>
-                      </div>
-                    </div>
-
-                    <div class="pc-step-conn" id="pc-conn-eu"></div>
-
-                    <!-- Desmontar ISO -->
-                    <div class="pc-step pending" id="pc-step-unmount"
-                      data-tooltip="Desmontar ISO y liberar loop device">
-                      <div class="pc-step-head">
-                        <div class="pc-step-circle" id="pc-circle-unmount">🔓</div>
-                        <div class="pc-step-info">
-                          <div class="pc-step-title">Desmontar ISO</div>
-                          <div class="pc-step-sub">umount loop device</div>
-                        </div>
-                        <div class="pc-step-elapsed" id="pc-elapsed-unmount"
-                          data-tooltip="Tiempo empleado en esta fase">—</div>
-                      </div>
-                      <div class="pc-step-cancel" id="pc-cancel-unmount" style="display:none">
-                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
-                          data-tooltip="Cancela el desmontaje en curso">🛑 Cancelar</button>
-                      </div>
-                    </div>
-
-                  </div><!-- /pc-pipeline -->
-
-                  <!-- Consola en vivo -->
-                  <div class="pc-console">
-                    <div class="pc-console-toolbar">
-                      <span class="pc-console-label" data-tooltip="Salida en tiempo real de mkvmerge y mkvpropedit">🖥️ Consola en vivo</span>
-                      <div class="pc-console-filters">
-                        <button class="cola-filter-btn active" id="pc-filter-all" onclick="setPcLogFilter('all')"
-                          data-tooltip="Mostrar todas las líneas de log">Todo</button>
-                        <button class="cola-filter-btn" id="pc-filter-warn" onclick="setPcLogFilter('warn')"
-                          data-tooltip="Mostrar solo advertencias y errores">⚠️ Avisos</button>
-                      </div>
-                    </div>
-                    <div class="pc-console-viewer" id="pc-log-viewer"></div>
-                  </div>
-
-                </div><!-- /pc-running -->
-
-              </div><!-- /pc-wrap -->
-            </div><!-- /panel-cola -->
 
           </div><!-- /subtab-main -->
 
@@ -977,6 +851,165 @@
 
 <!-- (Modal #mkv-picker-modal eliminado: reemplazado por el file browser
      unificado #file-browser-modal con roots [biblioteca, output]) -->
+
+<!-- ── MODAL DE DETALLE DE UN TRABAJO ─────────────────────────────────
+     Un solo armazón para los cinco tipos de trabajo. Antes el único con vista
+     de detalle era una fase CMv4.0, y su overlay se abría SOLO y tapaba el
+     panel entero — de esa familia era el bug de agosto en que el banner de
+     ACK se veía pero no se podía pulsar. Aquí se abre a petición, desde la
+     columna de trabajo.
+
+     La región `#trabajo-modal-cuerpo` la rellena cada tipo: log para el rip,
+     la fase CMv4.0 y el análisis extendido; un panel propio para la copia y
+     para la creación de una serie, que no producen log. -->
+<div class="modal-overlay" id="trabajo-modal">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-header">
+      <div class="modal-icon" id="trabajo-modal-icono">⚙︎</div>
+      <div style="flex:1; min-width:0">
+        <div class="modal-title" id="trabajo-modal-titulo">Trabajo</div>
+        <div class="modal-sub" id="trabajo-modal-sub" style="word-break:break-all"></div>
+      </div>
+    </div>
+    <div id="trabajo-modal-pasos" class="trabajo-pasos"></div>
+    <div class="workbar-barra" id="trabajo-modal-barra-wrap" style="margin:10px 0 4px">
+      <div class="workbar-barra-fill" id="trabajo-modal-barra"></div>
+    </div>
+    <div class="workbar-tiempos" id="trabajo-modal-tiempos"></div>
+    <div id="trabajo-modal-cuerpo"></div>
+    <!-- El detalle de un rip: era una sub-pestaña del centro y ahora es
+         el cuerpo de su modal. Conserva sus ids para que los círculos por
+         fase, el transcurrido por fase, el ETA de la extracción y la
+         consola con sus filtros sigan funcionando sin tocarlos. -->
+            <div id="panel-cola" class="panel-cola-en-modal">
+              <div class="pc-wrap">
+
+                <!-- Estado vacío -->
+                <div id="pc-empty" class="pc-empty">
+                  <div class="pc-empty-icon">⏸</div>
+                  <div class="pc-empty-title">Sin ejecuciones activas</div>
+                  <div class="pc-empty-sub">Confirma un proyecto para iniciar la ejecución</div>
+                </div>
+
+                <!-- Panel de control activo -->
+                <div id="pc-running" style="display:none">
+
+                  <!-- Cabecera del trabajo -->
+                  <div class="pc-header">
+                    <div class="pc-header-left">
+                      <span class="pc-running-dot" data-tooltip="Ejecución activa"></span>
+                      <div>
+                        <div class="pc-job-name" id="pc-job-name">—</div>
+                        <div class="pc-job-paths" id="pc-job-paths">—</div>
+                      </div>
+                    </div>
+                    <div class="pc-total-elapsed" id="pc-total-elapsed"
+                      data-tooltip="Tiempo total transcurrido desde el inicio del trabajo">00:00</div>
+                  </div>
+
+                  <!-- Pipeline de fases (3 pasos: Montar → mkvmerge → Desmontar) -->
+                  <div class="pc-pipeline">
+
+                    <!-- Montar ISO -->
+                    <div class="pc-step pending" id="pc-step-mount"
+                      data-tooltip="Montar el ISO via loop mount (UDF 2.50)">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-mount">💿</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">Montar ISO</div>
+                          <div class="pc-step-sub">loop mount UDF → /mnt/bd/</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-mount"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-mount" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela el montaje en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                    <div class="pc-step-conn" id="pc-conn-me"></div>
+
+                    <!-- mkvmerge (extracción + escritura) -->
+                    <div class="pc-step pending" id="pc-step-extract"
+                      data-tooltip="mkvmerge lee el MPLS y genera el MKV. Ruta directa (MPLS→final) o intermedia (MPLS→tmp→propedit→final)">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-extract">⬇️</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">mkvmerge</div>
+                          <div class="pc-step-sub" id="pc-sub-extract">MPLS → MKV</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-extract"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-progress" id="pc-prog-extract" style="display:none">
+                        <div class="pc-prog-track">
+                          <div class="pc-prog-bar indeterminate" id="pc-bar-extract"></div>
+                        </div>
+                        <div class="pc-prog-meta">
+                          <span class="pc-prog-pct" id="pc-pct-extract"
+                            data-tooltip="Porcentaje completado reportado por mkvmerge"></span>
+                          <span class="pc-eta" id="pc-eta-extract"
+                            data-tooltip="Tiempo estimado hasta completar esta fase"></span>
+                        </div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-extract" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela la extracción en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                    <div class="pc-step-conn" id="pc-conn-eu"></div>
+
+                    <!-- Desmontar ISO -->
+                    <div class="pc-step pending" id="pc-step-unmount"
+                      data-tooltip="Desmontar ISO y liberar loop device">
+                      <div class="pc-step-head">
+                        <div class="pc-step-circle" id="pc-circle-unmount">🔓</div>
+                        <div class="pc-step-info">
+                          <div class="pc-step-title">Desmontar ISO</div>
+                          <div class="pc-step-sub">umount loop device</div>
+                        </div>
+                        <div class="pc-step-elapsed" id="pc-elapsed-unmount"
+                          data-tooltip="Tiempo empleado en esta fase">—</div>
+                      </div>
+                      <div class="pc-step-cancel" id="pc-cancel-unmount" style="display:none">
+                        <button class="btn btn-danger btn-xs" onclick="cancelRunningFromCola()"
+                          data-tooltip="Cancela el desmontaje en curso">🛑 Cancelar</button>
+                      </div>
+                    </div>
+
+                  </div><!-- /pc-pipeline -->
+
+                  <!-- Consola en vivo -->
+                  <div class="pc-console">
+                    <div class="pc-console-toolbar">
+                      <span class="pc-console-label" data-tooltip="Salida en tiempo real de mkvmerge y mkvpropedit">🖥️ Consola en vivo</span>
+                      <div class="pc-console-filters">
+                        <button class="cola-filter-btn active" id="pc-filter-all" onclick="setPcLogFilter('all')"
+                          data-tooltip="Mostrar todas las líneas de log">Todo</button>
+                        <button class="cola-filter-btn" id="pc-filter-warn" onclick="setPcLogFilter('warn')"
+                          data-tooltip="Mostrar solo advertencias y errores">⚠️ Avisos</button>
+                      </div>
+                    </div>
+                    <div class="pc-console-viewer" id="pc-log-viewer"></div>
+                  </div>
+
+                </div><!-- /pc-running -->
+
+              </div><!-- /pc-wrap -->
+            </div><!-- /panel-cola -->
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-xs" id="trabajo-modal-copiar"
+              onclick="copyLogToClipboard('trabajo-modal-log', this)"
+              data-tooltip="Copiar todo el log al portapapeles">📋 Copiar log</button>
+      <button class="btn btn-danger btn-sm" id="trabajo-modal-cancelar"
+              onclick="cancelarTrabajoActivo()">🛑 Cancelar</button>
+      <button class="btn btn-ghost btn-sm" onclick="cerrarModalDeTrabajo()">Cerrar</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="mkv-quality-modal" data-no-escape>
   <div class="modal-box mkv-quality-modal-box">

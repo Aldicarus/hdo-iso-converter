@@ -3336,3 +3336,40 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
     ${aviso}
   </div>`;
 }
+
+// ── Vistas de detalle para el modal de trabajo ───────────────────────────────
+
+registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
+  const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
+    .catch(() => null);
+  return {
+    icono: '🔬',
+    titulo: 'Análisis extendido del RPU',
+    sub: st?.file_name || a.que,
+    // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
+    // que extraer el HEVC y extraer el RPU son el mismo trabajo.
+    pasos: ['Extraer el RPU', 'Combos y luminancia'],
+    conLog: true,
+    cuerpo: _trabajoLogHTML(st?.log_lines),
+  };
+});
+
+registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
+  const st = await apiFetch('/api/mkv/apply/progress', { silent: true })
+    .catch(() => null);
+  // La copia no produce log: su detalle son los bytes.
+  const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
+  return {
+    icono: '📦',
+    titulo: 'Copia a Output',
+    sub: st?.file_name || a.que,
+    pasos: ['Copiar el MKV', 'Aplicar cambios'],
+    conLog: false,
+    cuerpo: _trabajoKvHTML([
+      ['Copiado', `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
+      ['Origen', st?.src_path || '—'],
+      ['Destino', st?.dst_path || '—'],
+      ['Error', st?.error || '—'],
+    ]),
+  };
+});
