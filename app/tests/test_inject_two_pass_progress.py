@@ -231,13 +231,30 @@ class TestLatidoEnFasesConProgresoExacto(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any('"pct": 42' in m for m in emitidos), emitidos)
 
     def test_tab1_conserva_su_linea_cruda(self):
-        """El panel de cola de Tab 1 parsea "Progress:" del texto del log
-        (app.js: msg.match(/Progress:\s*(\d+)%/i) → pc-bar-extract). Ese
-        pipeline es otro código y no debe verse afectado."""
-        js = js_completo()
-        self.assertIn("msg.match(/Progress:", js)
-        tab1 = (APP_DIR / "phases" / "phase_d.py").read_text(encoding="utf-8")
-        self.assertIn("gui-mode", tab1)
+        """`Progress: N%` de mkvmerge es la ÚNICA evidencia de avance de un
+        rip, y ese pipeline es otro código que no debe verse afectado. Quien
+        lo lee ya no es el navegador —el panel que lo parseaba se retiró— sino
+        el backend, que lo mete en el contrato de progreso."""
+        from types import SimpleNamespace
+        from routers import tab1 as r1
+        trabajo = SimpleNamespace(clave="s1")
+        r1._rip_progress_reset("s1", "Peli")
+        r1._rip_progress_fase("extract")
+        self.assertIsNone(r1._rip_adaptador(trabajo)["pct"],
+                          "sin línea de mkvmerge no hay porcentaje medido")
+        for linea in ("Progress: 0%", "[Fase D] mkvmerge…", "Progress: 37%"):
+            if linea.startswith("Progress:"):
+                r1._rip_progress_pct(
+                    float(linea.split(":", 1)[1].strip().rstrip("%")))
+        a = r1._rip_adaptador(trabajo)
+        self.assertEqual(a["pct"], 37)
+        self.assertIs(a["pct_medido"], True)
+        self.assertEqual(a["eta_fuente"], "medido")
+        # Y al salir de la extracción deja de significar nada.
+        r1._rip_progress_fase("unmount")
+        self.assertIsNone(r1._rip_adaptador(trabajo)["pct"])
+        phase_d = (APP_DIR / "phases" / "phase_d.py").read_text(encoding="utf-8")
+        self.assertIn("gui-mode", phase_d)
 
 if __name__ == "__main__":
     unittest.main()

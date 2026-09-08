@@ -66,7 +66,7 @@ function _workbarActivoHTML(a) {
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
-    ? `${_workbarTiempo(a.segundos)} · quedan ${_workbarTiempo(a.eta_s)}`
+    ? `${_workbarTiempo(a.segundos)} · Restante ${_workbarTiempo(a.eta_s)}`
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : `lleva ${_workbarTiempo(a.segundos)}`;
   const fase = a.fases_total
@@ -330,7 +330,7 @@ function _trabajoModalPinta(a, vista) {
     t.innerHTML = `<span>${a.pct_medido ? a.pct + '%' : 'sin medir'}</span>`
       + `<span>lleva ${escHtml(_workbarTiempo(a.segundos))}`
       + (a.eta_s != null
-          ? ` · quedan ${escHtml(_workbarTiempo(a.eta_s))}`
+          ? ` · Restante ${escHtml(_workbarTiempo(a.eta_s))}`
             + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
           : '')
       + '</span>';

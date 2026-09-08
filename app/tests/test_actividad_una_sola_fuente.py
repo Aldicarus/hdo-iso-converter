@@ -118,7 +118,9 @@ for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
     toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
     has(c) {{ return this._v.has(c); }} }} }};
 }}
-globalThis.document = {{ hidden: false, getElementById: id => _els[id] || null }};
+globalThis.document = {{ hidden: false,
+  getElementById: id => _els[id] || null,
+  querySelector: sel => (globalThis._listaCola || null) }};
 let _peticiones = [];
 globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return {json.dumps(None)} ?? RESP; }};
 globalThis.escHtml = t => String(t);
@@ -126,6 +128,7 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}
+{_fn('_instalarReordenDeCola')}
 {_fn('_workbarRender')}
 {_fn('refrescarWorkbar')}
 (async () => {{
@@ -159,7 +162,7 @@ globalThis.escHtml = t => String(t);
         self.assertIn("Fase C de Predator", r["html"])
         self.assertIn("Extrayendo BL/EL · 3/7", r["html"])
         self.assertIn("40%", r["html"])
-        self.assertIn("quedan 7 min", r["html"])
+        self.assertIn("Restante 7 min", r["html"])
 
     def test_sin_porcentaje_medido_la_barra_es_indeterminada(self):
         """La regla del proyecto: una cifra inventada con pinta de dato es

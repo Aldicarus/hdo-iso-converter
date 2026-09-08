@@ -2976,13 +2976,18 @@ async def get_queue():
 @router.delete("/api/queue/{session_id}", summary="Cancela un trabajo encolado")
 async def cancel_queue_job(session_id: str):
     """Elimina session_id de la cola si aún no ha empezado a ejecutarse."""
+    # La columna de trabajo manda la identidad de la entrada (`tipo:clave`) y
+    # lo de Tab 1 manda el session id pelado; la cola acepta las dos, pero para
+    # devolver la sesión a `pending` hace falta la clave.
+    encolado = queue_manager.buscar(session_id)
+    clave = encolado.clave if encolado else session_id
     cancelled = await queue_manager.cancel(session_id)
     if cancelled:
-        session = load_session(session_id)
+        session = load_session(clave)
         if session:
             session.status = "pending"
             save_session(session)
-    return {"ok": cancelled, "session_id": session_id}
+    return {"ok": cancelled, "session_id": clave}
 
 
 @router.post(

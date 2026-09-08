@@ -195,6 +195,52 @@ class TestReordenarNoBorra(ColaCase):
         self.assertEqual(await self.cola.descartar({"fantasma"}), 0)
 
 
+class TestLaColumnaMandaLaIdentidad(ColaCase):
+    """La columna de trabajo pinta `data-clave="${j.id}"`, o sea `tipo:clave`,
+    porque es lo que identifica una entrada sin ambigüedad. La cola nació con
+    rips y su endpoint recibía el session id pelado; si solo se aceptara ese,
+    quitar y reordenar desde la columna **no harían nada** —sin error: la
+    entrada simplemente no se encuentra— que es como se vio en el NAS.
+    """
+
+    async def test_quitar_por_el_id_compuesto(self):
+        self.cola._queue = [_t(qm.TIPO_FASE_CMV40, "proj", tab="cmv40"),
+                            _t(qm.TIPO_RIP, "a")]
+        self.assertTrue(await self.cola.cancel("fase_cmv40:proj"))
+        self.assertEqual([t.clave for t in self.cola._queue], ["a"])
+
+    async def test_y_por_la_clave_pelada_que_es_lo_que_manda_tab1(self):
+        self.cola._queue = [_t(qm.TIPO_RIP, "a"), _t(qm.TIPO_RIP, "b")]
+        self.assertTrue(await self.cola.cancel("a"))
+        self.assertEqual([t.clave for t in self.cola._queue], ["b"])
+
+    async def test_reordenar_por_el_id_compuesto(self):
+        self.cola._queue = [_t(qm.TIPO_RIP, "a"),
+                            _t(qm.TIPO_FASE_CMV40, "proj", tab="cmv40"),
+                            _t(qm.TIPO_ANALISIS_EXTENDIDO, "mkv", tab="mkv")]
+        await self.cola.reorder(
+            ["analisis_extendido:mkv", "fase_cmv40:proj", "rip:a"])
+        self.assertEqual([t.clave for t in self.cola._queue],
+                         ["mkv", "proj", "a"])
+
+    async def test_mezclar_las_dos_formas_no_duplica_una_entrada(self):
+        """`indice` guarda cada trabajo bajo su id Y su clave: sin el control
+        de vistos, una lista que mencione las dos lo colocaría dos veces y la
+        cola crecería sola."""
+        self.cola._queue = [_t(qm.TIPO_RIP, "a"), _t(qm.TIPO_RIP, "b")]
+        await self.cola.reorder(["rip:b", "b", "a"])
+        self.assertEqual([t.clave for t in self.cola._queue], ["b", "a"])
+
+    async def test_el_endpoint_devuelve_la_clave_no_el_id(self):
+        """Quien lo llama la usa para refrescar la sesión."""
+        from routers import tab1 as r1
+        self.cola._queue = [_t(qm.TIPO_RIP, "peli_2024_1")]
+        previa, r1.queue_manager = r1.queue_manager, self.cola
+        self.addCleanup(setattr, r1, "queue_manager", previa)
+        r = await r1.cancel_queue_job("rip:peli_2024_1")
+        self.assertEqual(r, {"ok": True, "session_id": "peli_2024_1"})
+
+
 class TestElFormatoDelWsNoCambia(ColaCase):
     """`running` y `queue` los lee el frontend en una veintena de sitios."""
 

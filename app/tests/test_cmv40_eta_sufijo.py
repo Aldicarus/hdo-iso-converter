@@ -192,7 +192,12 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
     def test_los_sitios_conocidos_dicen_restante(self):
         js = js_completo()
         self.assertEqual(js.count("` · Restante ${em}:${es}`"), 2)   # escaneo PGS ×2
-        self.assertEqual(js.count("`Restante ${fmtSecs(remaining)}`"), 1)
+        # La columna de trabajo, que es donde se mira ahora un rip.
+        self.assertEqual(js.count(
+            "` · Restante ${escHtml(_workbarTiempo(a.eta_s))}`"), 1)
+        self.assertEqual(js.count(
+            "${_workbarTiempo(a.segundos)} · Restante "
+            "${_workbarTiempo(a.eta_s)}"), 1)
         self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)
         self.assertIn("`Restante ${m}:${String(s).padStart(2, '0')}`", js)
 

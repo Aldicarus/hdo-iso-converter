@@ -192,11 +192,26 @@ class QueueManager:
         return await self.encolar(TrabajoEnCola(
             tab="rip", tipo=TIPO_RIP, clave=session_id, que=f"rip de {session_id}"))
 
+    @staticmethod
+    def _es(trabajo: "TrabajoEnCola", ref: str) -> bool:
+        """¿Se refiere `ref` a este trabajo?
+
+        La identidad de una entrada es `tipo:clave` —la columna de trabajo la
+        manda así— pero la cola nació con rips y su endpoint recibe el session
+        id pelado, que es lo que sigue enviando todo lo de Tab 1. Se aceptan
+        las dos: un session id no lleva dos puntos, así que no hay ambigüedad.
+        """
+        return ref in (trabajo.id, trabajo.clave)
+
+    def buscar(self, ref: str):
+        """La entrada encolada a la que apunta `ref`, o None."""
+        return next((t for t in self._queue if self._es(t, ref)), None)
+
     async def cancel(self, session_id: str) -> bool:
         """Elimina de la cola lo que tenga esa clave, si aún no ha empezado."""
         cancelled = False
         async with self._lock:
-            restantes = [t for t in self._queue if t.clave != session_id]
+            restantes = [t for t in self._queue if not self._es(t, session_id)]
             if len(restantes) != len(self._queue):
                 self._queue = restantes
                 cancelled = True
@@ -209,14 +224,21 @@ class QueueManager:
         """Reordena la cola según la lista de CLAVES. Solo mueve lo ya encolado.
 
         Lo que no aparezca en `ordered_ids` **se conserva al final**, en su
-        orden. El panel de la cola de Tab 1 solo conoce sus rips, así que una
-        reordenación suya no puede tirar las fases CMv4.0 que haya detrás.
+        orden: un cliente que solo conozca una parte de la cola no puede tirar
+        el resto arrastrando una entrada.
         """
         async with self._lock:
-            por_clave = {t.clave: t for t in self._queue}
-            movidos = [por_clave[c] for c in ordered_ids if c in por_clave]
-            vistos = {t.clave for t in movidos}
-            self._queue = movidos + [t for t in self._queue if t.clave not in vistos]
+            indice = {}
+            for t in self._queue:
+                indice.setdefault(t.id, t)
+                indice.setdefault(t.clave, t)
+            movidos, vistos = [], set()
+            for ref in ordered_ids:
+                t = indice.get(ref)
+                if t is not None and t.id not in vistos:
+                    movidos.append(t)
+                    vistos.add(t.id)
+            self._queue = movidos + [t for t in self._queue if t.id not in vistos]
             self._persist_state()
         await self._notify()
 
@@ -231,7 +253,8 @@ class QueueManager:
         """
         claves = set(claves)
         async with self._lock:
-            restantes = [t for t in self._queue if t.clave not in claves]
+            restantes = [t for t in self._queue
+                         if not any(self._es(t, c) for c in claves)]
             n = len(self._queue) - len(restantes)
             if n:
                 self._queue = restantes

@@ -235,16 +235,39 @@ class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
         self.assertNotIn("cola-expand-tab", h)
         self.assertNotIn("toggleColaSidebar", JS)
 
-    def test_pero_el_panel_sigue_vivo_dentro_del_modal(self):
-        """Se MOVIÓ, no se borró: conserva sus ids para que los círculos por
-        fase, el transcurrido por fase, el ETA de la extracción y la consola
-        con sus filtros sigan funcionando sin tocarlos."""
+    def test_y_el_panel_con_el(self):
+        """El panel vivía pegado a la sub-pestaña y a su propio poller. Lo que
+        daba —las fases con su círculo y su transcurrido— lo da ahora el
+        lateral del modal, que es el mismo sitio en el que se mira una fase
+        CMv4.0. Sin ids `pc-*` sueltos que nadie actualiza."""
         h = html()
-        self.assertIn('id="panel-cola"', h)
-        i, j = h.index('id="trabajo-modal"'), h.index('id="panel-cola"')
-        self.assertLess(i, j, "el panel tiene que estar DENTRO del modal")
-        for ident in ("pc-step-mount", "pc-elapsed-extract", "pc-eta-extract"):
-            self.assertIn(ident, h)
+        for ident in ('id="panel-cola"', "pc-step-mount", "pc-elapsed-extract",
+                      "pc-eta-extract", "pc-bar-extract"):
+            self.assertNotIn(ident, h, f"{ident} quedó huérfano en el HTML")
+        self.assertNotIn("pc-step-mount", JS)
+
+    @unittest.skipIf(NODE is None, "node no está instalado")
+    def test_el_lateral_del_rip_da_las_fases_con_su_transcurrido(self):
+        """Lo que se perdería si el lateral se quedara vacío: en qué fase va,
+        cuáles pasó y cuánto costó cada una."""
+        guion = f"""
+{_fn("escHtml")}
+{_fn("_workbarTiempo")}
+{_iconos()}
+{_fn("_ripTimelineHTML")}
+const a = {{ fase_n: 2, segundos: 754 }};
+const sesion = {{ execution_history: [
+  {{ phase_elapsed: {{ mount: 12, extract: 754 }} }}] }};
+console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
+"""
+        h = _node(guion)["html"]
+        for titulo in ("Abrir origen", "Extraer pistas", "Metadatos", "Cerrar origen"):
+            self.assertIn(titulo, h)
+        self.assertIn("12 s", h)            # la fase 1, ya terminada
+        self.assertIn("12 min", h)          # la 2, en curso: el total del contrato
+        self.assertIn("rip-tl-fase done", h)
+        self.assertIn("rip-tl-fase active", h)
+        self.assertIn("rip-tl-fase pending", h)
 
     def test_switch_sub_tab_no_conserva_ramas_muertas(self):
         src = pieza_de("switchSubTab")[1]
