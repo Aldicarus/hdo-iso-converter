@@ -1907,7 +1907,6 @@ async function loadSessions() {
   _sessionsCache = [...data.sessions];
   // Siempre aplica sort + filter + búsqueda activa
   _doFilterSidebarSessions();
-  renderColaSidebar();
   // Actualizar spinner en el proyecto en ejecución (tras re-render del sidebar)
   _updateSidebarRunningIcon();
 }
@@ -4264,8 +4263,6 @@ function connectQueueWebSocket() {
   queueWs.onmessage = (e) => {
     const prevRunning = queueState.running;
     try { queueState = JSON.parse(e.data); } catch { return; }
-    renderColaSidebar();
-    renderColaDetailPanel();
     updateSubtabQueuePill();
     if (queueState.running && queueState.running !== prevRunning) {
       // Nuevo job arrancando — limpiar dedup de toasts terminales para
@@ -4274,12 +4271,10 @@ function connectQueueWebSocket() {
       // pasar con timestamps, pero defensivo).
       _resetTerminalToastDedup();
       connectExecutionWebSocket(queueState.running);
-      startColaExecTimer();
       // Actualizar proyecto abierto y sidebar: ahora está "running"
       refreshOpenProjectState(queueState.running);
       loadSessions();
     } else if (!queueState.running && prevRunning) {
-      stopColaExecTimer();
       loadSessions();
     }
     // Actualizar proyecto anterior que dejó de ejecutarse
@@ -4306,43 +4301,11 @@ function connectExecutionWebSocket(sessionId) {
     executionWs._closedByUser = true;  // evita reconnect en el onclose siguiente
     executionWs.close();
   }
-  _colaLogLines = [];  // Limpiar log del trabajo anterior
-  document.getElementById('csb-log-viewer') && (document.getElementById('csb-log-viewer').innerHTML = '');
-  document.getElementById('pc-log-viewer')  && (document.getElementById('pc-log-viewer').innerHTML  = '');
-
-  // Hidratación REST del log antes de conectar el WS — clave para el caso
-  // "Mac dormido / pestaña recargada con job en curso". Sin esto, el panel
-  // Cola arrancaba vacío y solo se llenaba con líneas nuevas tras reconectar
-  // el WS — el histórico se perdía visualmente aunque seguía en
-  // session.output_log del backend. Hacemos fetch sin bloquear: si tarda,
-  // el WS streaming ya empieza a llenar lineas mientras tanto y el dedupe
-  // del watermark evita duplicación cuando el fetch termina.
-  let _hydratedCount = 0;
-  apiFetch(`/api/sessions/${sessionId}`, { silent: true }).then(sess => {
-    if (!sess || !sess.output_log) return;
-    // Si el WS ya añadió líneas mientras esperábamos el fetch, mantenemos
-    // las que ya están al final y prefijamos las históricas. _colaLogLines
-    // tiene el ringbuffer de 500; si el histórico es enorme, mostramos solo
-    // últimas 500-N donde N son las que ya entraron via WS.
-    const wsLines = _colaLogLines.slice();
-    const historic = sess.output_log;
-    // Combinamos sin duplicar: el WS pudo haber traído alguna de las
-    // líneas finales del histórico si llegó simultáneo. Detectamos por
-    // contenido — si las últimas K líneas de historic coinciden con las
-    // primeras K de wsLines, no las repetimos.
-    let overlap = 0;
-    for (let k = Math.min(historic.length, wsLines.length, 50); k > 0; k--) {
-      const tail = historic.slice(historic.length - k).join('\n');
-      const head = wsLines.slice(0, k).join('\n');
-      if (tail === head) { overlap = k; break; }
-    }
-    const merged = historic.concat(wsLines.slice(overlap));
-    // Trim a últimas 500 (el ringbuffer) preservando el final
-    _colaLogLines = merged.length > 500 ? merged.slice(merged.length - 500) : merged;
-    _hydratedCount = _colaLogLines.length;
-    _renderCsbLog();
-  }).catch(() => { /* fetch silencioso, no rompe el flujo si falla */ });
-
+  // Aquí se hidrataba el log desde REST antes de conectar el WS, para que el
+  // panel de trabajos no arrancara vacío tras un Mac dormido. Ya no hace
+  // falta: el modal de detalle lee `session.output_log` en cada refresco, así
+  // que el histórico está siempre completo sin combinar dos fuentes ni
+  // detectar solapes.
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   executionWs = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
   executionWs.onmessage = (e) => handleExecutionWsMessage(e.data, sessionId);
@@ -4392,7 +4355,6 @@ function handleExecutionWsMessage(msg) {
     }
     _lastTerminalToastSessionId = finishedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
-    for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'done');
     updateSubtabQueuePill();
     showToast('Ejecución completada.', 'success');
     loadSessions();
@@ -4408,7 +4370,6 @@ function handleExecutionWsMessage(msg) {
     }
     _lastTerminalToastSessionId = cancelledId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
-    for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'pending');
     updateSubtabQueuePill();
     showToast('Ejecución cancelada. Temporales limpiados.', 'info');
     loadSessions();
@@ -4423,7 +4384,6 @@ function handleExecutionWsMessage(msg) {
     }
     _lastTerminalToastSessionId = failedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
-    for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'error');
     updateSubtabQueuePill();
     showToast('Error en la ejecución. Revisa el historial del proyecto.', 'error');
     loadSessions();
@@ -4433,24 +4393,12 @@ function handleExecutionWsMessage(msg) {
   }
 
   // Alimentar log en vivo
-  appendColaLog(msg);
 
-  // Progreso mkvmerge durante la extracción: "Progress: XX%"
-  const prgMatch = msg.match(/Progress:\s*(\d+)%/i);
-  if (prgMatch) {
-    const pct = parseInt(prgMatch[1], 10);
-    _pcLastPct = pct;
-    const csbBar = document.getElementById('csb-prog-bar');
-    if (csbBar) { csbBar.classList.remove('indeterminate'); csbBar.style.width = `${pct}%`; }
-    const csbPhaseEl = document.getElementById('csb-phase-label');
-    if (csbPhaseEl) csbPhaseEl.textContent = `${pct}%`;
-    const pcBar = document.getElementById('pc-bar-extract');
-    if (pcBar) { pcBar.classList.remove('indeterminate'); pcBar.style.width = `${pct}%`; }
-    const pcPct = document.getElementById('pc-pct-extract');
-    if (pcPct) pcPct.textContent = `${pct}%`;
-    updateColaMiniPipeline('extract', 'active');
-    return;
-  }
+  // El `Progress: XX%` de mkvmerge lo consume ahora el BACKEND (ver
+  // `_rip_progress_pct` en routers/tab1.py) y llega a la columna de trabajo
+  // por `/api/trabajos`. Aquí se pintaba en dos sitios —la columna vieja y el
+  // panel del centro— y solo mientras el navegador estuviera mirando: cerrar
+  // la pestaña borraba la barra.
 
   // Detectar cambios de fase por marcadores en el log. Los marcadores
   // `[Origen]` (v2.7+) reemplazaron a `[Montando ISO]` / `[Desmontando
@@ -4468,7 +4416,6 @@ function handleExecutionWsMessage(msg) {
     || msg.includes('[Desmontando ISO]')
   );
   if (isMountMarker) {
-    updateColaMiniPipeline('mount', 'active');
     const el = document.getElementById('csb-phase-label');
     if (el) {
       // Label según tipo de origen detectado en el propio mensaje
@@ -4483,8 +4430,6 @@ function handleExecutionWsMessage(msg) {
     if (subEl) subEl.textContent = 'Origen → MKV';
     updateSubtabQueuePill();
   } else if (msg.includes('[Fase D]') || msg.includes('[Fase E]')) {
-    updateColaMiniPipeline('mount', 'done');
-    updateColaMiniPipeline('extract', 'active');
     const csbBar = document.getElementById('csb-prog-bar');
     if (csbBar) { csbBar.classList.add('indeterminate'); csbBar.style.width = ''; }
     const el = document.getElementById('csb-phase-label');
@@ -4498,8 +4443,6 @@ function handleExecutionWsMessage(msg) {
     }
     updateSubtabQueuePill();
   } else if (isUnmountMarker) {
-    updateColaMiniPipeline('extract', 'done');
-    updateColaMiniPipeline('unmount', 'active');
     const el = document.getElementById('csb-phase-label');
     if (el) {
       el.textContent = msg.includes('ISO desmontado') ? 'Desmontando ISO…'
@@ -4514,300 +4457,23 @@ function handleExecutionWsMessage(msg) {
   }
 }
 
-/**
- * Inicia el temporizador de ejecución de un proyecto específico.
- * Actualiza el elapsed del panel del proyecto (si está activo) y del Cola panel.
- * @param {Object} project
- */
-/**
- * Inicia el timer standalone del trabajo en curso en la Cola.
- * No necesita un proyecto abierto — funciona con cualquier session_id en ejecución.
- */
-function startColaExecTimer() {
-  stopColaExecTimer();
-  _pcPhaseStart = { mount: null, extract: null, unmount: null };
-  _pcPhaseEnd   = { mount: null, extract: null, unmount: null };
-  _pcLastPct    = 0;
-  _colaExecStart = Date.now();
-  // Resetear visual de las 4 fases al arrancar un nuevo job
-  for (const ph of ['mount', 'extract', 'unmount']) {
-    updateColaMiniPipeline(ph, 'pending');
-    const elEl = document.getElementById(`pc-elapsed-${ph}`);
-    if (elEl) elEl.textContent = '—';
-  }
-  // Resetear barra de progreso del sidebar y etiqueta de fase
-  const csbBar = document.getElementById('csb-prog-bar');
-  if (csbBar) { csbBar.classList.add('indeterminate'); csbBar.style.width = ''; }
-  const csbPhase = document.getElementById('csb-phase-label');
-  if (csbPhase) csbPhase.textContent = 'Iniciando…';
-  document.getElementById('pc-total-elapsed') && (document.getElementById('pc-total-elapsed').textContent = '00:00');
-  document.getElementById('csb-elapsed')      && (document.getElementById('csb-elapsed').textContent      = '');
 
-  _colaExecTimer = setInterval(() => {
-    const now   = Date.now();
-    const total = Math.floor((now - _colaExecStart) / 1000);
-    const ts    = fmtSecs(total);
-
-    document.getElementById('csb-elapsed')      && (document.getElementById('csb-elapsed').textContent      = ts);
-    document.getElementById('pc-total-elapsed') && (document.getElementById('pc-total-elapsed').textContent = ts);
-
-    // Elapsed por fase
-    for (const ph of ['mount', 'extract', 'unmount']) {
-      if (_pcPhaseStart[ph] === null) continue;
-      const end  = _pcPhaseEnd[ph] ?? now;
-      const secs = Math.floor((end - _pcPhaseStart[ph]) / 1000);
-      const el   = document.getElementById(`pc-elapsed-${ph}`);
-      if (el) el.textContent = fmtSecs(secs);
-      // ETA solo para extract (fase con progreso de mkvmerge)
-      if (ph === 'extract' && _pcPhaseEnd.extract === null && _pcLastPct > 0 && _pcLastPct < 100) {
-        const remaining = Math.round(secs * (100 - _pcLastPct) / _pcLastPct);
-        const etaEl = document.getElementById('pc-eta-extract');
-        if (etaEl) etaEl.textContent = `Restante ${fmtSecs(remaining)}`;
-      }
-    }
-  }, 1000);
-}
-
-/** Detiene el timer standalone de la Cola. */
-function stopColaExecTimer() {
-  clearInterval(_colaExecTimer);
-  _colaExecTimer = null;
-  _colaExecStart = null;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 //  CONSOLA
 // ═══════════════════════════════════════════════════════════════════
 
 
-/**
- * Añade una línea al log en vivo de la Cola y lo re-renderiza según el filtro activo.
- * @param {string} text
- */
-function appendColaLog(text) {
-  _colaLogLines.push(text);
-  if (_colaLogLines.length > 500) _colaLogLines.shift();
-  _renderCsbLog();
-}
 
-/** Re-renderiza el log en vivo en el sidebar y en el panel detallado. */
-function _renderCsbLog() {
-  const lines = _colaLogFilter === 'warn'
-    ? _colaLogLines.filter(l => {
-        const low = l.toLowerCase();
-        return low.includes('error') || low.includes('fallo') || low.includes('aviso') || low.includes('warning');
-      })
-    : _colaLogLines;
 
-  // Renderiza en un elemento dado — misma paleta rica que Tab 3
-  const fill = (c) => {
-    if (!c) return;
-    // Smart scroll: capturar si el usuario estaba en el fondo ANTES de borrar.
-    // Si scrolleo arriba para leer lineas previas, respetamos su posicion.
-    const wasAtBottom = _isScrolledNearBottom(c);
-    const prevScrollTop = c.scrollTop;
-    c.innerHTML = '';
-    lines.forEach(text => {
-      const div = document.createElement('div');
-      // Clase base 'log-line' + clase semantica via classifier compartido
-      const semCls = _classifyLogLine(text);
-      // Caso especial: "Progress: X%" no lo captura el classifier — mantener
-      // clase dedicada para que no distraiga con color de fase.
-      const progressMatch = /^Progress:\s*\d+%/i.test(text) || /\] Progress:\s*\d+%/.test(text);
-      div.className = 'log-line ' + (progressMatch ? 'log-progress' : semCls);
-      div.textContent = text;
-      c.appendChild(div);
-    });
-    if (wasAtBottom) {
-      c.scrollTop = c.scrollHeight;
-    } else {
-      // Restaurar aproximadamente la posicion previa. Al re-render con
-      // innerHTML=""  el scrollTop se resetea a 0, asi que lo reponemos.
-      c.scrollTop = prevScrollTop;
-    }
-  };
 
-  fill(document.getElementById('csb-log-viewer'));  // sidebar compacto
-  fill(document.getElementById('pc-log-viewer'));    // panel de control
-}
-
-/**
- * Cambia el filtro del log en vivo del sidebar y re-renderiza.
- * @param {'all'|'warn'} mode
- */
-function setCsbLogFilter(mode) {
-  _colaLogFilter = mode;
-  document.getElementById('csb-filter-all')?.classList.toggle('active', mode === 'all');
-  document.getElementById('csb-filter-warn')?.classList.toggle('active', mode === 'warn');
-  document.getElementById('pc-filter-all')?.classList.toggle('active', mode === 'all');
-  document.getElementById('pc-filter-warn')?.classList.toggle('active', mode === 'warn');
-  _renderCsbLog();
-}
-
-/** Cambia el filtro del log desde el panel de control (alias sincronizado). */
-function setPcLogFilter(mode) { setCsbLogFilter(mode); }
-
-/** Toggle expand/collapse del detalle de log del trabajo en curso. */
-function toggleColaJobDetail() {
-  const detailEl = document.getElementById('csb-job-detail');
-  const btnEl    = document.getElementById('csb-detail-btn');
-  if (!detailEl) return;
-  const showing = detailEl.style.display !== 'none';
-  detailEl.style.display = showing ? 'none' : '';
-  if (btnEl) btnEl.classList.toggle('open', !showing);
-  if (!showing) {
-    _renderCsbLog();
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════
 //  COLA PANEL
 // ═══════════════════════════════════════════════════════════════════
 
-/** Actualiza el sidebar Cola unificado (En curso + Pendiente de inicio + Historial). */
-function renderColaSidebar() {
-  const running = !!queueState.running;
-  const runningProject = queueState.running
-    ? openProjects.find(p => p.sessionId === queueState.running) : null;
-  const runningSession = queueState.running
-    ? _sessionsCache.find(s => s.id === queueState.running) : null;
 
-  // — En curso —
-  const runIconEl  = document.getElementById('csb-running-icon');
-  if (runIconEl) {
-    runIconEl.innerHTML = running ? '<span class="spinner-inline"></span>' : '⏳';
-  }
-  const runCountEl = document.getElementById('csb-running-count');
-  const emptyEl    = document.getElementById('csb-empty');
-  const cardEl     = document.getElementById('csb-running-card');
-  if (runCountEl) runCountEl.textContent = running ? 1 : 0;
-  if (emptyEl) emptyEl.style.display  = running ? 'none' : '';
-  if (cardEl)  cardEl.style.display   = running ? '' : 'none';
-  if (running) {
-    const nameEl = document.getElementById('csb-job-name');
-    if (nameEl) {
-      const rawName = runningSession?.mkv_name || runningProject?.name || queueState.running || '';
-      nameEl.textContent = rawName.replace(/\.mkv$/i, '');
-    }
-    // Reconfigurar el strip de fases según el tipo de origen — solo si
-    // cambió respecto a la última sesión, para evitar reset visual en
-    // cada poll. Bdmv/m2ts marcan mount/unmount como skipped (⊘).
-    const currentType = runningSession?.source_type || 'iso';
-    if (currentType !== _lastConfiguredSourceType) {
-      _configurePhaseStripForSource(currentType);
-      _lastConfiguredSourceType = currentType;
-    }
-  } else {
-    // Resetear indicadores al quedar sin trabajo
-    // Volver a la configuración por defecto (iso) para que la próxima
-    // sesión arranque con labels correctos antes de saber su tipo.
-    if (_lastConfiguredSourceType !== 'iso') {
-      _configurePhaseStripForSource('iso');
-      _lastConfiguredSourceType = 'iso';
-    }
-    for (const ph of ['mount', 'extract', 'unmount']) updateColaMiniPipeline(ph, 'pending');
-    const csbBar = document.getElementById('csb-prog-bar');
-    if (csbBar) { csbBar.style.width = ''; csbBar.classList.add('indeterminate'); }
-    const csbPhaseEl = document.getElementById('csb-phase-label');
-    if (csbPhaseEl) csbPhaseEl.textContent = 'Iniciando…';
-    const csbElEl = document.getElementById('csb-elapsed');
-    if (csbElEl) csbElEl.textContent = '';
-  }
 
-  // — Pendiente de inicio —
-  const qCountEl = document.getElementById('csb-queue-count');
-  const qListEl  = document.getElementById('csb-queue-list');
-  const qLen = queueState.queue.length;
-  if (qCountEl) qCountEl.textContent = qLen;
-  if (qListEl) {
-    if (!qLen) {
-      qListEl.innerHTML = '<div class="csb-empty-inline">Sin trabajos en espera</div>';
-    } else {
-      qListEl.innerHTML = '';
-      queueState.queue.forEach((sid, idx) => {
-        const proj = openProjects.find(p => p.sessionId === sid);
-        const session = _sessionsCache.find(s => s.id === sid);
-        // Mismo criterio que el job en curso: manda el mkv_name (nombre
-        // formateado de la peli); proj.name solo si la pestaña está abierta;
-        // sid como último recurso. Antes solo miraba proj.name, así que los
-        // jobs encolados sin pestaña abierta mostraban el id técnico.
-        const name = (session?.mkv_name || proj?.name || sid).replace(/\.mkv$/i, '');
-        const dateStr = session ? formatRelativeDate(session.updated_at || session.created_at) : '';
-        const isExp = _colaQueueExpanded.has(sid);
-        const item = document.createElement('div');
-        item.className = 'csb-history-item' + (isExp ? ' expanded' : '');
-        item.dataset.sid = sid;
-        item.innerHTML = `
-          <div class="csb-history-row">
-            <span class="csb-queue-drag" data-tooltip="Arrastra para reordenar">⠿</span>
-            <span class="csb-history-status">⏳</span>
-            <div class="csb-history-body">
-              <div class="csb-history-name" data-tooltip="${escHtml(name)}">${escHtml(name)}</div>
-              <div class="csb-history-date">🕐 ${escHtml(dateStr)} · #${idx + 1} en cola</div>
-            </div>
-          </div>
-          <div class="csb-history-actions">
-            <div class="csb-history-actions-row">
-              <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${escHtml(sid)}','${escHtml(name)}');event.stopPropagation()"
-                data-tooltip="Abrir este proyecto en una sub-pestaña de revisión">📂 Abrir</button>
-              <button class="btn btn-danger btn-sm" onclick="cancelQueueItem('${escHtml(sid)}');event.stopPropagation()"
-                data-tooltip="Quitar de la cola sin ejecutar">✕ Eliminar</button>
-            </div>
-          </div>`;
-        item.querySelector('.csb-history-row').onclick = () => toggleQueueItem(sid);
-        qListEl.appendChild(item);
-      });
-      // Drag & drop para reordenar cola
-      _initQueueSortable(qListEl);
-    }
-  }
-
-}
-
-/**
- * Actualiza el panel de control de ejecución (#panel-cola).
- * Solo muestra el estado del trabajo activo; el historial/cola vive en el sidebar.
- */
-function renderColaDetailPanel() {
-  const running = !!queueState.running;
-  // Buscar sesión directamente en la caché (funciona aunque el proyecto no esté abierto)
-  const session = queueState.running
-    ? _sessionsCache.find(s => s.id === queueState.running) : null;
-  const runningProject = queueState.running
-    ? openProjects.find(p => p.sessionId === queueState.running) : null;
-
-  document.getElementById('pc-empty')  ?.style &&
-    (document.getElementById('pc-empty').style.display   = running ? 'none' : '');
-  document.getElementById('pc-running')?.style &&
-    (document.getElementById('pc-running').style.display = running ? '' : 'none');
-
-  if (!running) return;
-
-  // Nombre del trabajo: preferir mkv_name de la sesión, luego nombre del proyecto abierto
-  const rawName = session?.mkv_name || runningProject?.name || queueState.running || '';
-  const nameEl = document.getElementById('pc-job-name');
-  if (nameEl) nameEl.textContent = rawName.replace(/\.mkv$/i, '');
-
-  // Rutas iso → mkv
-  const pathsEl = document.getElementById('pc-job-paths');
-  if (pathsEl) {
-    const iso = session?.iso_path?.split('/').pop() || '—';
-    const mkv = session?.mkv_name || '—';
-    pathsEl.textContent = `${iso} → ${mkv}`;
-  }
-
-  _renderCsbLog();
-}
-
-/** Cambia el filtro del log en el panel de control y en el sidebar. */
-function setColaLogFilter(mode) {
-  _colaLogFilter = mode;
-  document.getElementById('csb-filter-all')?.classList.toggle('active', mode === 'all');
-  document.getElementById('csb-filter-warn')?.classList.toggle('active', mode === 'warn');
-  document.getElementById('pc-filter-all')?.classList.toggle('active', mode === 'all');
-  document.getElementById('pc-filter-warn')?.classList.toggle('active', mode === 'warn');
-  _renderCsbLog();
-}
 
 /** No-op: el sub-tab "Trabajos en Curso" ya no muestra contador ni icono dinámico. */
 /** Actualiza indicadores de ejecución: tab principal + sidebar proyectos. */
@@ -4911,75 +4577,6 @@ function _configurePhaseStripForSource(sourceType) {
   }
 }
 
-function updateColaMiniPipeline(phase, state) {
-  // No transitar el estado visual ni el icono de fases marcadas como
-  // 'skipped'. BDMV/M2TS no tienen mount/unmount real (aunque el
-  // backend emita el evento por compat con el ctx-manager Source).
-  // El icono ⊘ y la clase 'skipped' las pone _configurePhaseStripForSource
-  // al inicio; aquí nos limitamos a no tocarlas.
-  if (_pipelineSkippedPhases.has(phase)) {
-    return;
-  }
-  const ICONS = { mount: '💿', extract: '⬇️', unmount: '🔓' };
-  // Conector que sigue a cada fase (en sidebar y en panel)
-  const CONN = { mount: 'me', extract: 'eu', unmount: null };
-  const icon = state === 'done' ? '✓' : state === 'error' ? '✗' : ICONS[phase] || phase;
-
-  // — Timestamps de fase —
-  const now = Date.now();
-  if (state === 'active' && _pcPhaseStart[phase] === null) {
-    _pcPhaseStart[phase] = now;
-  }
-  if ((state === 'done' || state === 'error') && _pcPhaseEnd[phase] === null && _pcPhaseStart[phase] !== null) {
-    _pcPhaseEnd[phase] = now;
-    const elapsed = Math.floor((now - _pcPhaseStart[phase]) / 1000);
-    const elEl = document.getElementById(`pc-elapsed-${phase}`);
-    if (elEl) elEl.textContent = fmtSecs(elapsed);
-    const progEl = document.getElementById(`pc-prog-${phase}`);
-    if (progEl) progEl.style.display = 'none';
-  }
-
-  // — Sidebar compacto —
-  // Preservamos clase 'skipped' si está presente — no sobrescribimos
-  // todo el className para que mount/unmount en BDMV/M2TS no se
-  // resetee al estado por defecto (esos return-earlys arriba ya lo
-  // protegen pero el reset a pending pasa por aquí).
-  const csbPhaseEl  = document.getElementById(`csb-pipe-${phase}`);
-  const csbCircleEl = document.getElementById(`csb-pipe-circle-${phase}`);
-  if (csbPhaseEl) {
-    const wasSkipped = csbPhaseEl.classList.contains('skipped');
-    csbPhaseEl.className = `csb-pipe-phase ${state}${wasSkipped ? ' skipped' : ''}`;
-  }
-  if (csbCircleEl) csbCircleEl.textContent = icon;
-  if (CONN[phase]) {
-    const csbConn = document.getElementById(`csb-pipe-conn-${CONN[phase]}`);
-    if (csbConn) csbConn.className = `csb-pipe-conn${state === 'done' ? ' done' : state === 'active' ? ' active' : ''}`;
-  }
-
-  // — Panel de control —
-  const stepEl   = document.getElementById(`pc-step-${phase}`);
-  const circleEl = document.getElementById(`pc-circle-${phase}`);
-  const progEl   = document.getElementById(`pc-prog-${phase}`);
-  if (stepEl) {
-    const wasSkipped = stepEl.classList.contains('skipped');
-    stepEl.className = `pc-step ${state}${wasSkipped ? ' skipped' : ''}`;
-  }
-  if (circleEl) circleEl.textContent  = icon;
-  if (progEl)   progEl.style.display  = state === 'active' ? '' : 'none';
-  const cancelEl = document.getElementById(`pc-cancel-${phase}`);
-  if (cancelEl) cancelEl.style.display = state === 'active' ? '' : 'none';
-  if (CONN[phase]) {
-    const connEl = document.getElementById(`pc-conn-${CONN[phase]}`);
-    if (connEl) connEl.className = `pc-step-conn${state === 'done' ? ' done' : state === 'active' ? ' active' : ''}`;
-  }
-  if (state === 'active') {
-    const barEl = document.getElementById(`pc-bar-${phase}`);
-    // Solo volver a indeterminate si no hay progreso real aún
-    if (barEl && !barEl.style.width) {
-      barEl.classList.add('indeterminate');
-    }
-  }
-}
 
 /**
  * Quita una sesión de la cola de espera via DELETE /api/queue/{id}.
@@ -5008,14 +4605,6 @@ async function cancelRunningSession(sessionId) {
   }
 }
 
-/**
- * Cancela el trabajo en ejecución desde el panel Cola (Trabajos en Curso).
- * Lee el session_id del trabajo en curso desde el estado de cola.
- */
-function cancelRunningFromCola() {
-  const sid = queueState?.running;
-  if (sid) cancelRunningSession(sid);
-}
 
 /** Instancia Sortable para la cola (se recrea en cada render). */
 let _queueSortableInstance = null;
