@@ -349,8 +349,9 @@ class TestLoQueSePerdioAlUnificar(unittest.TestCase):
         """Con la cartela al lado, poner el nombre del MKV en el título y el
         del origen debajo dejaba tres líneas diciendo lo mismo."""
         d = self.m["cmv40"]
+        # Con el prefijo 🤖 que el overlay ponía cuando la cadena avanza sola.
         self.assertEqual(d["tituloTexto"],
-                         "Fase C — Extrayendo BL/EL y datos per-frame")
+                         "🤖 Auto · Fase C — Extrayendo BL/EL y datos per-frame")
         self.assertNotEqual(d["sub"], d["cartelTitulo"])
         self.assertNotIn(".mkv", d["tituloTexto"])
 

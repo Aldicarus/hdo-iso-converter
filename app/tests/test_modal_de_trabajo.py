@@ -83,7 +83,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
                   'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
                   'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
                   'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta']) {{
-  _els[id] = {{ textContent: '', innerHTML: '', style: {{}}, dataset: {{}},
+  _els[id] = {{ textContent: '', innerHTML: '', className: '', style: {{}}, dataset: {{}},
     // El armazón consulta el log para decidir si baja el scroll y busca la
     // caja para plegar el lateral: sin estos dos, el DOM falso revienta.
     querySelector: () => null, closest: () => null, classList: {{
@@ -102,6 +102,7 @@ globalThis.escHtml = t => String(t);
 _trabajoModalPinta({json.dumps(activo)}, {json.dumps(vista)});
 console.log(JSON.stringify({{
   icono: _els['trabajo-modal-icono'].innerHTML,
+  iconoClase: _els['trabajo-modal-icono'].className,
   titulo: _els['trabajo-modal-titulo'].textContent,
   sub: _els['trabajo-modal-sub'].textContent,
   pasos: _els['trabajo-modal-timeline'].innerHTML,
@@ -136,10 +137,17 @@ console.log(JSON.stringify({{
                          {"titulo": "Copia a Output", "pasos": []})
         self.assertEqual(r["titulo"], "Copia a Output")
 
-    def test_el_icono_lo_deriva_del_TIPO_no_de_la_vista(self):
+    def test_mientras_hay_trabajo_el_icono_es_el_ARO_que_gira(self):
+        """Es el `.cmv40-running-spinner` del overlay. Un chip quieto no dice
+        que la cosa siga viva, y es lo primero que se echó en falta."""
+        r = self._pintar(ACTIVO, {"titulo": "X", "pasos": []})
+        self.assertEqual(r["iconoClase"], "cmv40-running-spinner")
+
+    def test_parado_vuelve_el_icono_del_TIPO(self):
         """Si cada vista trajera el suyo, la columna y el modal podrían acabar
         enseñando iconos distintos para el mismo trabajo."""
-        r = self._pintar(ACTIVO, {"titulo": "X", "pasos": []})
+        r = self._pintar(dict(ACTIVO, cancelable=False),
+                         {"titulo": "X", "pasos": []})
         self.assertIn("icono-naranja", r["icono"], "fase_cmv40 va en naranja")
         self.assertIn("icono-chip-lg", r["icono"])
 
@@ -309,7 +317,7 @@ const _ids = ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
   'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
   'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta'];
 for (const id of _ids) {{
-  _els[id] = {{ textContent: '', innerHTML: '', style: {{}}, dataset: {{}},
+  _els[id] = {{ textContent: '', innerHTML: '', className: '', style: {{}}, dataset: {{}},
     querySelector: () => null, closest: () => null, classList: {{
       _v: new Set(), toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
       has(c) {{ return this._v.has(c); }} }} }};
@@ -533,6 +541,7 @@ globalThis._mkvQualityCancel = () => _llamadas.push(['_mkvQualityCancel']);
 globalThis.cmv40TrasCancelar = (id) => _llamadas.push(['cmv40TrasCancelar', id]);
 globalThis.cancelMkvApply = () => _llamadas.push(['cancelMkvApply']);
 globalThis.refrescarWorkbar = () => {{}};
+globalThis.cerrarModalDeTrabajo = () => _llamadas.push(['cerrar']);
 let _confirm = null;
 globalThis.showConfirm = (t, m, fn, label) => {{ _confirm = {{t, m, label}}; fn(); }};
 {_fn('cancelarTrabajoActivo')}
