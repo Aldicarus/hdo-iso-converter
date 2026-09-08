@@ -9458,7 +9458,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .trabajo-modal-principal .modal-title { margin-bottom: 2px; }
 .trabajo-modal-principal .modal-sub   { margin-bottom: 0; font-size: 11px; }
-.trabajo-modal-principal .modal-footer { margin-top: 12px; }
+.trabajo-modal-principal .modal-header .btn { flex-shrink: 0; }
 .trabajo-modal-principal .trabajo-detalle-vacio {
   flex: 1;
   display: flex;
@@ -9487,7 +9487,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-radius: 0 0 var(--r-md) var(--r-md);
 }
 .trabajo-modal-principal #trabajo-modal-cuerpo { margin-top: 0; }
-.trabajo-modal-principal .modal-footer { margin-top: 12px; flex-shrink: 0; }
+.trabajo-modal-principal #trabajo-modal-cuerpo { padding-bottom: 14px; }
 
 @media (max-width: 980px) {
   .trabajo-modal-caja {

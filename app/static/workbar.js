@@ -377,7 +377,13 @@ function cancelarTrabajoActivo(trabajo) {
   // que costaron su tarde.
   const acciones = {
     rip:   () => apiFetch(`/api/sessions/${a.id}/cancel`, { method: 'POST' }),
-    cmv40: () => apiFetch(`/api/cmv40/${a.id}/cancel`, { method: 'POST' }),
+    cmv40: async () => {
+      await apiFetch(`/api/cmv40/${a.id}/cancel`, { method: 'POST' });
+      // Sin esto el poller del auto-pipeline vuelve a arrancar la cadena a los
+      // pocos segundos — visto en el NAS: cancelas la Fase A y salta el
+      // pre-flight otra vez.
+      if (typeof cmv40TrasCancelar === 'function') cmv40TrasCancelar(a.id);
+    },
     mkv:   () => (a.detalle === 'analisis_extendido'
                     ? _mkvQualityCancel() : cancelMkvApply()),
   };
@@ -408,6 +414,7 @@ let _trabajoModalTipo = null;
 let _trabajoModalRef = null;      // `sobre` del trabajo que se está mirando
 let _trabajoModalUltimo = null;   // su último progreso conocido
 let _trabajoModalSinActivo = 0;   // refrescos seguidos sin sujeto
+let _trabajoModalVista = null;    // la última vista con contenido
 
 
 /** Una cartela a partir del `tmdb_info` que ya tiene la pestaña.
@@ -541,7 +548,19 @@ function _trabajoModalPinta(a, vista) {
   // modal se queda a una columna — no todos los trabajos tienen una timeline
   // que enseñar.
   const timeline = document.getElementById('trabajo-modal-timeline');
-  if (timeline) timeline.innerHTML = lateral;
+  if (timeline) {
+    // **NO se reescribe si no ha cambiado.** Reemplazar el innerHTML cada 1,5 s
+    // (a) devuelve el scroll al principio en cuanto el usuario lo mueve, y
+    // (b) reinicia la animación del icono de la fase en curso, que por eso se
+    // veía parado. Un tipo con timeline propia —CMv4.0— pasa una FUNCIÓN y la
+    // actualiza en sitio, que es lo que ya hacía su overlay.
+    if (typeof lateral === 'function') {
+      lateral(timeline);
+    } else if (timeline.dataset.pintado !== lateral) {
+      timeline.innerHTML = lateral;
+      timeline.dataset.pintado = lateral;
+    }
+  }
   document.querySelector('.trabajo-modal-caja')
     ?.classList.toggle('sin-lateral', !lateral && !vista.cartel);
   // El botón de copiar solo tiene sentido con log delante.
@@ -584,6 +603,9 @@ function cerrarModalDeTrabajo() {
   _trabajoModalTipo = null;
   _trabajoModalRef = null;
   _trabajoModalUltimo = null;
+  _trabajoModalVista = null;
+  const tl = document.getElementById('trabajo-modal-timeline');
+  if (tl) { tl.innerHTML = ''; delete tl.dataset.pintado; }
   closeModal('trabajo-modal');
 }
 
@@ -618,7 +640,14 @@ async function _trabajoModalRefrescar() {
     paso: enTransito ? 'Cambiando de fase…' : 'Terminado',
   };
   try {
-    _trabajoModalPinta(base, await fn(base));
+    const vista = await fn(base);
+    // Una vista vacía NO sustituye a la anterior. Las cinco piden su estado al
+    // backend y se lo tragan con `.catch(() => null)`, así que un GET lento
+    // durante una fase pesada devolvía todo en blanco: se veía cómo el modal
+    // perdía la columna, la cartela y el log durante un minuto y luego volvía.
+    const hayAlgo = vista && (vista.lateral || vista.cuerpo || vista.cartel);
+    if (hayAlgo) _trabajoModalVista = vista;
+    _trabajoModalPinta(base, hayAlgo ? vista : (_trabajoModalVista || vista || {}));
   } catch (e) {
     console.error('[trabajo-modal]', e);
   }

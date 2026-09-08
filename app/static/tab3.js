@@ -6550,7 +6550,15 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
     // la tenía el overlay de ejecución. Se reusa tal cual —misma función que
     // pinta la del panel— para que las dos digan exactamente lo mismo.
-    lateral: s ? _cmv40RenderTimeline(s, project || { session: s }) : '',
+    //
+    // Va como FUNCIÓN, no como cadena: `_cmv40UpdateTimelineIncremental`
+    // actualiza en sitio en vez de reemplazar el DOM, que es lo que evita que
+    // el scroll salte al principio y que la animación del icono de la fase en
+    // curso se reinicie en cada tick. Su comentario ya lo decía; lo perdimos
+    // al pasar por el modal común.
+    lateral: s
+      ? (el) => _cmv40UpdateTimelineIncremental(el, s, project || { session: s })
+      : '',
     // La tira de pasos de la cabecera sobra teniendo la timeline al lado, que
     // dice lo mismo y mejor.
     pasos: [],
@@ -6565,3 +6573,21 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
 alCambiarTrabajos(() => {
   if (document.getElementById('cmv40-sidebar-list')) _renderCMv40Sidebar();
 });
+
+
+/** Lo que hay que apagar en el frontend cuando se cancela un job CMv4.0.
+ *
+ *  El auto-pipeline tiene un poller cada 4 s que mira `running_phase`; el
+ *  cancel lo deja a null y la fase sigue en `created`, así que el poller
+ *  interpreta «hay que empezar» y **vuelve a lanzar el pre-flight**. Se vio en
+ *  el NAS al cancelar la Fase A. `_autoChaining` es justo la marca de «esta
+ *  cadena la pidió alguien», y cancelar es decir que ya no.
+ */
+function cmv40TrasCancelar(sessionId) {
+  const p = (typeof openCMv40Projects !== 'undefined' ? openCMv40Projects : [])
+    .find(x => x.session && x.session.id === sessionId);
+  if (!p) return;
+  p._autoChaining = false;
+  p._lastAutoFiredFor = null;
+  p.autoContinue = false;
+}
