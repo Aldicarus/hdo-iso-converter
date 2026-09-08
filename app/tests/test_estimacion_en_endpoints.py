@@ -181,8 +181,22 @@ class TestLasCincoViasDeApertura(_Base):
                           "episode_title": "Piloto"}],
         })
         self.assertEqual(r.status_code, 200, r.text)
-        creados = r.json()["created"]
-        self.assertEqual(len(creados), 1, r.json().get("failed"))
+        # Desde la cola única el POST solo acusa el encolado; el resultado sale
+        # del estado del job, que es de donde lo lee el modal.
+        self.assertTrue(r.json().get("queued"), r.text)
+        import asyncio
+        import queue_manager as qm
+        from routers import tab1 as rt
+        encolados = [t for t in self.trabajos_encolados if t[0] == qm.TIPO_SERIE]
+        self.assertEqual(len(encolados), 1, self.trabajos_encolados)
+        tipo, clave, datos, _ = encolados[0]
+        asyncio.run(rt._runner_creacion_de_serie(
+            qm.TrabajoEnCola(tab="rip", tipo=tipo, clave=clave, datos=datos)))
+
+        res = rt._series_create_progress.get("resultado") or {}
+        creados = res.get("created") or []
+        self.assertEqual(len(creados), 1,
+                         res.get("failed") or rt._series_create_progress)
         self.assertEstimado(creados[0], "(en created[])")
 
     # ── el análisis, con Fase A sustituida ────────────────────────────

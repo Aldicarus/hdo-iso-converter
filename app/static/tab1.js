@@ -1516,6 +1516,17 @@ const _SERIES_EP_SUBSTEPS = [
  *  backend (progress) y la lista local de episodios elegidos. Calcula
  *  la barra gradual, etiqueta legible y checklist del episodio en curso. */
 function _buildSeriesProgressUpdate(prog, episodes) {
+  // Esperando turno en la cola: todavía no hay episodio en curso, así que
+  // interpolar dentro de un slot inexistente pintaría una barra avanzando sin
+  // que nada esté pasando. `en_cola` no está en _SERIES_EP_SUBSTEPS, y el
+  // `findIndex` daría -1 con el mismo efecto silencioso.
+  if (prog.current_episode_step === 'en_cola') {
+    return {
+      pct: 0,
+      current: '⏳ Esperando turno — arrancará cuando termine el trabajo que hay por delante',
+      checklist: [],
+    };
+  }
   const total = prog.total || 1;
   const epIdx = Math.max(1, prog.current_index || 1);  // 1-based
   const epLabel = prog.current_episode_title || '';
@@ -1756,10 +1767,25 @@ async function seriesCreateSessions() {
   }
   // Compat con backend antiguo
   payload.iso_path = s.probe.iso_path || s.probe.source_path;
-  const data = await apiFetch('/api/create-series-sessions', {
+  let data = await apiFetch('/api/create-series-sessions', {
     method: 'POST',
     body: JSON.stringify(payload),
-  }, 600000);  // timeout 10 min
+  });
+
+  // Desde la cola única el POST solo acusa el encolado: son ~30 s de montaje
+  // más 15-30 s por episodio, y por delante puede haber un rip de 40 minutos.
+  // El resultado llega por `/api/series-create-progress`, que es el mismo
+  // sitio del que ya salía la barra.
+  if (data?.queued) {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 700));
+      const prog = await apiFetch('/api/series-create-progress', { silent: true });
+      if (!prog) continue;
+      if (prog.error) { data = null; break; }
+      if (prog.resultado) { data = prog.resultado; break; }
+      if (!prog.running) { data = null; break; }
+    }
+  }
 
   clearInterval(pollId);
 
@@ -5333,18 +5359,6 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       const detalle = err.detail || resp.statusText;
-      // El 409 de admisión no es un error, es "ahora no". El backend lo marca
-      // con una cabecera porque el estado 409 lo usa la app para otras cinco
-      // cosas (el MKV de salida ya existe, hay una fase en curso, el gate de
-      // sync no pasa…) y no se pueden distinguir por el código. El texto ya
-      // dice qué bloquea, en qué pestaña y desde cuándo, así que sobra
-      // prefijarlo de "Error:" en rojo — y hace falta más tiempo en pantalla,
-      // porque es una frase, no un aviso de tres palabras.
-      if (resp.status === 409 && resp.headers.get('X-Trabajo-En-Curso')) {
-        if (!silent) showToast(detalle, 'warning', 9000);
-        console.warn(`[Ocupado] ${url}: ${detalle}`);
-        return null;
-      }
       if (!silent) showToast(`Error: ${detalle}`, 'error');
       console.warn(`[Error API] ${url}: ${detalle}`);
       return null;

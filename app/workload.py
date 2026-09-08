@@ -20,21 +20,24 @@ siguiente job.
 
 Qué hace
 ────────
-Un registro en memoria de lo que está corriendo. Los puntos de entrada de
-trabajo pesado lo consultan antes de arrancar y **rechazan con 409** si ya hay
-algo, diciendo qué lo bloquea. Este proceso es el único que arranca trabajo, así
-que la memoria es la fuente de verdad (igual que `_cmv40_activas` para el punto
-verde del tab).
+Un registro en memoria de **lo que está corriendo ahora mismo**, para que la
+UI pueda decirlo y para que las mediciones sepan si se tomaron con contención.
+Este proceso es el único que arranca trabajo, así que la memoria es la fuente
+de verdad (igual que `_cmv40_activas` para el punto verde del tab).
 
-Qué NO se bloquea, a propósito
-──────────────────────────────
-**Un rip no bloquea a otro rip.** Tab 1 se serializa con su cola FIFO, así que
-`execute` pregunta con `ignorar_tab=TAB_RIP` y solo se rechaza por trabajo de
-OTRAS pestañas. Sin eso, encolar tres ISOs seguidos daba 409 en el segundo.
+**Ya no rechaza nada.** Hubo un `exigir_libre` que devolvía 409 cuando otra
+pestaña tenía trabajo pesado; con la cola única eso es justo lo que no hay que
+hacer —lo diferido espera turno— y el último llamador se fue con el bloque 3.
+Lo que queda es `bloqueado_por`, que la cola consulta para esperar, y
+`hay_contencion`, que protege las calibraciones.
 
-`POST /api/mkv/analyze` — abrir un MKV en Tab 2. Es cómo se navega, no un job:
-está acotado (segundos a un par de minutos) y bloquearlo dejaría la pestaña
-inservible mientras corre un rip. Igual con `mkvpropedit`, que es O(1).
+Qué NO entra en la cola, a propósito
+────────────────────────────────────
+Lo INTERACTIVO: abrir un MKV, analizar un disco, `disc-probe`, los pre-flight,
+un borrado. Es cómo se navega, dura segundos o pocos minutos y el usuario está
+delante; encolarlo dejaría la pestaña inservible mientras corre un rip de 40
+minutos. Igual con `mkvpropedit`, que es O(1). Medido: que una consulta se
+solape con un trabajo largo le cuesta a este un **+15 %**.
 """
 import contextlib
 import itertools
@@ -197,39 +200,6 @@ def hay_contencion(excepto: str | None = None) -> bool:
     return any(t.clave != excepto for t in en_curso())
 
 
-def motivo_409(excepto: str | None = None,
-               ignorar_tab: str | None = None) -> str | None:
-    """El texto del 409, o None si no hay nada que bloquee."""
-    t = bloqueado_por(excepto, ignorar_tab)
-    if t is None:
-        return None
-    return (
-        f"Ya hay trabajo pesado en curso: {t.describir()}. "
-        "Espera a que termine o cancélalo — el NAS tiene 4 núcleos y un solo "
-        "pool de discos, y solaparlos no va más rápido: además falsea las "
-        "estimaciones de tiempo, que se calibran midiendo cuánto tarda ffmpeg."
-    )
-
-
-# El 409 de admisión no es un error: es "ahora no, espera". La app usa el 409
-# para otras cinco cosas (el MKV de salida ya existe, hay una fase en curso, el
-# gate de sync no pasa…), así que el estado por sí solo no lo distingue y el
-# frontend lo pintaba todo en rojo como "Error:". Esta cabecera lo separa sin
-# tocar el cuerpo, que es lo que leen los tests y el resto de la UI.
-CABECERA_OCUPADO = "X-Trabajo-En-Curso"
-
-
-def exigir_libre(excepto: str | None = None,
-                 ignorar_tab: str | None = None) -> None:
-    """Lanza HTTPException 409 si hay trabajo pesado en curso."""
-    motivo = motivo_409(excepto, ignorar_tab)
-    if motivo is None:
-        return
-    from fastapi import HTTPException
-    raise HTTPException(status_code=409, detail=motivo,
-                        headers={CABECERA_OCUPADO: "1"})
-
-
 # Contador para dar clave única a cada petición interactiva. No vale el id de
 # sesión: dos "abrir MKV" simultáneos compartirían clave y el `liberar` del
 # primero soltaría el hueco del segundo — `registrar` es idempotente por clave.
@@ -248,8 +218,7 @@ def marca(que: str, tab: str):
     Registra al entrar y libera al salir, pase lo que pase — la teardown de una
     dependencia con `yield` corre también si el endpoint lanza o si el cliente
     se desconecta. No bloquea a nadie: la clase interactiva se apunta para
-    **verse** (en `/api/activity` y en el dashboard) y para que el bloque 4
-    sepa por quién expropiar.
+    **verse** (en `/api/activity` y en el dashboard), no para vetar.
 
     No recibe la `Request` a propósito: así este módulo no importa FastAPI, que
     es lo que le permite cargarse en un test puro sin levantar la app. El texto
@@ -288,6 +257,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/sessions/{session_id}/execute":        CLASE_DIFERIDO,  # el rip D+E
     "POST /api/mkv/quality-audit":                    CLASE_DIFERIDO,  # análisis extendido
     "POST /api/mkv/apply":                            CLASE_DIFERIDO,  # copia desde biblioteca
+    # ~30 s de montaje más 15-30 s por episodio: para una temporada de diez,
+    # cinco minutos largos de disco.
+    "POST /api/create-series-sessions":               CLASE_DIFERIDO,
     "POST /api/cmv40/{session_id}/analyze-source":    CLASE_DIFERIDO,  # Fase A
     "POST /api/cmv40/{session_id}/target-rpu-from-mkv":   CLASE_DIFERIDO,  # Fase B2
     "POST /api/cmv40/{session_id}/extract":           CLASE_DIFERIDO,  # Fase C
@@ -314,10 +286,6 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/{session_id}/preflight-target":      CLASE_INTERACTIVO,
     "POST /api/cmv40/{session_id}/preflight-source":      CLASE_INTERACTIVO,
     "POST /api/sessions/{session_id}/reset-chapters": CLASE_INTERACTIVO,  # re-monta el ISO
-    # Analiza N episodios: es lo más largo de esta clase. → con la cola única
-    # pasa a DIFERIDO; hoy sigue interactivo porque la cola aún no existe y
-    # ponerlo a bloquear sin ella sería un 409 nuevo, no una mejora.
-    "POST /api/create-series-sessions":     CLASE_INTERACTIVO,
     # Borrados: `rmtree` de decenas o cientos de GB sobre ZFS.
     "DELETE /api/cmv40/{session_id}":       CLASE_INTERACTIVO,
     "POST /api/cmv40/{session_id}/cleanup": CLASE_INTERACTIVO,

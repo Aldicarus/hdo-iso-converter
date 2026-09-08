@@ -41,6 +41,7 @@ from pydantic import BaseModel as _BaseModel
 import analysis_progress
 import paths
 import historial
+import queue_manager as queue_manager_mod
 import workload
 from dev_fixtures import DEV_FAKE_ISOS, DEV_MODE, build_fake_session
 from models import (
@@ -1368,151 +1369,44 @@ async def series_create_progress():
     return _series_create_progress
 
 
-@router.post("/api/create-series-sessions",
-          summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie",
-          dependencies=[Depends(workload.marca("análisis de los episodios de la serie", workload.TAB_RIP))])
-async def create_series_sessions(body: CreateSeriesSessionsRequest):
-    """Analiza cada MPLS/M2TS seleccionado completamente y crea una
-    sesión `pending` por episodio.
+async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
+                                      source_abs: str, episodios,
+                                      skipped_existing, to_replace_ids,
+                                      fingerprint: str) -> None:
+    """Analiza los N episodios y crea sus sesiones, ya con turno.
 
-    Soporta los 3 tipos de origen:
-      - 'iso': monta el ISO una vez, re-deriva cada MPLS del mount actual.
-      - 'bdmv_folder': los MPLS del payload son paths relativos a la
-        carpeta BDMV; los resuelve en su ubicación real.
-      - 'm2ts': el ep.mpls_path apunta directamente al fichero .m2ts
-        (cada m2ts = un episodio).
+    Sale del endpoint porque el endpoint ya no espera: son ~30 s de
+    montaje más 15-30 s por episodio —para una temporada de diez, cinco
+    minutos largos de disco— y eso pasa por la cola única. El POST
+    responde al instante y el modal, que ya polleaba
+    `/api/series-create-progress` para la barra, se encarga del resto.
 
-    El usuario lanza cada sesión manualmente desde el panel del proyecto.
-    Coste: ~30s + N × 15-30s.
+    **No lanza `HTTPException`**: nadie estaría escuchando. El resultado
+    y el error van al mismo estado que la barra.
     """
-    from phases.phase_a import run_full_analysis_for_mpls, run_full_analysis_for_m2ts, find_main_m2ts
+    from datetime import datetime
+    from pathlib import Path
+
+    from phases.phase_a import (run_full_analysis_for_mpls,
+                                run_full_analysis_for_m2ts, find_main_m2ts)
     from phases.phase_b import apply_rules, build_series_mkv_name
-    from phases.iso_mount import Source, SourceError, safe_source_path
+    from phases.iso_mount import Source, SourceError
     from models import Chapter
 
-    if DEV_MODE:
-        raise HTTPException(
-            status_code=400,
-            detail="DEV_MODE no soporta create-series-sessions (no hay sources reales)",
-        )
-
-    if not body.episodes:
-        raise HTTPException(status_code=400, detail="Lista de episodios vacía")
-
-    # Resolver source_type/source_path con compat para iso_path legacy
-    if body.source_type:
-        stype = body.source_type
-        spath = body.source_path or body.iso_path or ""
-    elif body.iso_path:
-        stype = "iso"
-        spath = body.iso_path
-    else:
-        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
-
-    # Validar path principal (no aplica para m2ts multi-fichero donde
-    # cada ep.mpls_path es el path directo)
-    try:
-        if stype == "m2ts" and body.m2ts_paths:
-            for p in body.m2ts_paths:
-                safe_source_path(p, str(paths.ISOS_DIR))
-            source_abs = safe_source_path(body.m2ts_paths[0], str(paths.ISOS_DIR))
-        else:
-            source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
-    except SourceError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    if not Path(source_abs).exists():
-        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
-
-    audio_dcp = "audio dcp" in (spath or "").lower()
-
-    # Fingerprint: para iso del .iso, para bdmv del m2ts más grande,
-    # para m2ts del primero (compartido entre todos los episodios).
-    if stype == "bdmv_folder":
-        fp_target = find_main_m2ts(source_abs) or source_abs
-    else:
-        fp_target = source_abs
-    fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
-
-    # ── Detección de conflictos por (fingerprint, season, episode_number) ──
-    # Para BDMV/ISO de serie, todas las sesiones de episodios del mismo
-    # disco comparten fingerprint. Si el usuario está rehaciendo solo
-    # uno (o añadiendo nuevos), NO queremos crear duplicados ni
-    # sobrescribir silenciosamente las existentes. find_sessions_by_
-    # fingerprint nos da el conjunto; cruzamos con (season, episode_number)
-    # para identificar conflictos exactos.
-    existing_by_episode: dict[tuple[int, int], "Session"] = {}
-    if fingerprint:
-        for s in find_sessions_by_fingerprint(fingerprint):
-            if s.media_type == "series" and s.season_number and s.episode_number:
-                existing_by_episode[(s.season_number, s.episode_number)] = s
-
-    requested_keys = [(body.season_number, ep.episode_number) for ep in body.episodes]
-    conflicts = [
-        existing_by_episode[k] for k in requested_keys if k in existing_by_episode
-    ]
-    mode = (body.mode or "add_only").lower()
-    if mode not in ("add_only", "replace", "skip_existing"):
-        raise HTTPException(status_code=400, detail=f"mode inválido: {body.mode}")
-    if conflicts and mode == "add_only":
-        # El frontend muestra la lista y deja al usuario elegir si quiere
-        # reemplazar o saltar los conflictos. Sin esta protección, el bug
-        # del usuario: rehacer 1 episodio duplicaba en disco (timestamps)
-        # o sobrescribía sesiones hermanas según el flujo.
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "episode_conflicts",
-                "message": (
-                    f"{len(conflicts)} episodio(s) ya tienen una sesión existente. "
-                    f"Reenvía con mode='replace' para sobrescribir o "
-                    f"mode='skip_existing' para crear solo los nuevos."
-                ),
-                "conflicts": [
-                    {
-                        "id": s.id,
-                        "mkv_name": s.mkv_name,
-                        "season_number": s.season_number,
-                        "episode_number": s.episode_number,
-                        "episode_title": s.episode_title,
-                        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-                    }
-                    for s in conflicts
-                ],
-            },
-        )
-
-    # Determinar qué episodios procesar y cuáles saltar/reemplazar
-    skipped_existing: list[dict] = []
-    to_replace_ids: list[str] = []
-    episodes_to_process = []
-    for ep in body.episodes:
-        key = (body.season_number, ep.episode_number)
-        existing = existing_by_episode.get(key)
-        if existing and mode == "skip_existing":
-            skipped_existing.append({
-                "season_number": body.season_number,
-                "episode_number": ep.episode_number,
-                "existing_id": existing.id,
-            })
-            continue
-        if existing and mode == "replace":
-            to_replace_ids.append(existing.id)
-        episodes_to_process.append(ep)
-
-    # Borrar las sesiones a reemplazar antes del bucle — evita ambigüedad
-    # si dos episodios en la misma petición apuntaran al mismo id (no
-    # debería pasar, pero por seguridad).
-    for sid in to_replace_ids:
-        try:
-            delete_session(sid)
-        except Exception as _e:
-            _logger.warning("No se pudo borrar sesión existente %s: %s", sid, _e)
-
+    # Qué episodios procesar y qué reportar ya lo decidió el endpoint: el
+    # diálogo de conflictos (saltar / reemplazar / cancelar) tiene que
+    # responderse en el acto, no cuando la cola llegue a este trabajo.
+    episodes_to_process = episodios
     created_sessions = []
     failed_episodes: list[dict] = []
-    # Reset del progreso global. Si otro job estaba en curso, lo
-    # sobrescribimos (el endpoint es single-job).
+    audio_dcp = "audio dcp" in (spath or "").lower()
+
+    _clave = (f"serie:{body.series_name or spath}:{body.season_number}")
+    _que = (f"análisis de {len(body.episodes)} episodio(s) de "
+            f"{body.series_name or 'la serie'}")
+    _inicio = datetime.now(timezone.utc)
+    workload.registrar(_clave, workload.TAB_RIP, _que)
+
     global _series_create_progress
     # Etiqueta de origen amigable según tipo — sin jerga ('source_type' /
     # 'stype' eran términos internos). El usuario ve "Montando el ISO…",
@@ -1790,13 +1684,208 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     )
     _series_create_progress["failed"] = failed_episodes
 
-    return {
+    # El resultado va al ESTADO, no de vuelta por HTTP: el POST respondió
+    # hace rato. Es de donde lo saca el modal, que ya polleaba el progreso.
+    _series_create_progress["running"] = False
+    _series_create_progress["resultado"] = {
         "created": created_sessions,
         "failed": failed_episodes,
         "skipped_existing": skipped_existing,  # mode=skip_existing
         "replaced_ids": to_replace_ids,        # mode=replace — sesiones borradas antes de crear las nuevas
         "iso_path": body.iso_path,
     }
+    workload.liberar(_clave)
+    historial.anotar(
+        id     = _clave,
+        tab    = historial.TAB_RIP,
+        tipo   = "crear_serie",
+        que    = _que,
+        inicio = _inicio,
+        estado = "error" if failed_episodes and not created_sessions else "done",
+        error  = f"{len(failed_episodes)} episodio(s) fallaron" if failed_episodes else None,
+    )
+
+
+@router.post("/api/create-series-sessions",
+          summary="Crea N sesiones (una por episodio) tras confirmar el mapping serie")
+async def create_series_sessions(body: CreateSeriesSessionsRequest):
+    """Analiza cada MPLS/M2TS seleccionado completamente y crea una
+    sesión `pending` por episodio.
+
+    Soporta los 3 tipos de origen:
+      - 'iso': monta el ISO una vez, re-deriva cada MPLS del mount actual.
+      - 'bdmv_folder': los MPLS del payload son paths relativos a la
+        carpeta BDMV; los resuelve en su ubicación real.
+      - 'm2ts': el ep.mpls_path apunta directamente al fichero .m2ts
+        (cada m2ts = un episodio).
+
+    El usuario lanza cada sesión manualmente desde el panel del proyecto.
+    Coste: ~30s + N × 15-30s.
+    """
+    from phases.phase_a import run_full_analysis_for_mpls, run_full_analysis_for_m2ts, find_main_m2ts
+    from phases.phase_b import apply_rules, build_series_mkv_name
+    from phases.iso_mount import Source, SourceError, safe_source_path
+    from models import Chapter
+
+    if DEV_MODE:
+        raise HTTPException(
+            status_code=400,
+            detail="DEV_MODE no soporta create-series-sessions (no hay sources reales)",
+        )
+
+    if not body.episodes:
+        raise HTTPException(status_code=400, detail="Lista de episodios vacía")
+
+    # Resolver source_type/source_path con compat para iso_path legacy
+    if body.source_type:
+        stype = body.source_type
+        spath = body.source_path or body.iso_path or ""
+    elif body.iso_path:
+        stype = "iso"
+        spath = body.iso_path
+    else:
+        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+
+    # Validar path principal (no aplica para m2ts multi-fichero donde
+    # cada ep.mpls_path es el path directo)
+    try:
+        if stype == "m2ts" and body.m2ts_paths:
+            for p in body.m2ts_paths:
+                safe_source_path(p, str(paths.ISOS_DIR))
+            source_abs = safe_source_path(body.m2ts_paths[0], str(paths.ISOS_DIR))
+        else:
+            source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not Path(source_abs).exists():
+        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+
+    audio_dcp = "audio dcp" in (spath or "").lower()
+
+    # Fingerprint: para iso del .iso, para bdmv del m2ts más grande,
+    # para m2ts del primero (compartido entre todos los episodios).
+    if stype == "bdmv_folder":
+        fp_target = find_main_m2ts(source_abs) or source_abs
+    else:
+        fp_target = source_abs
+    fingerprint = compute_iso_fingerprint(fp_target) if Path(fp_target).is_file() else ""
+
+    # ── Detección de conflictos por (fingerprint, season, episode_number) ──
+    # Para BDMV/ISO de serie, todas las sesiones de episodios del mismo
+    # disco comparten fingerprint. Si el usuario está rehaciendo solo
+    # uno (o añadiendo nuevos), NO queremos crear duplicados ni
+    # sobrescribir silenciosamente las existentes. find_sessions_by_
+    # fingerprint nos da el conjunto; cruzamos con (season, episode_number)
+    # para identificar conflictos exactos.
+    existing_by_episode: dict[tuple[int, int], "Session"] = {}
+    if fingerprint:
+        for s in find_sessions_by_fingerprint(fingerprint):
+            if s.media_type == "series" and s.season_number and s.episode_number:
+                existing_by_episode[(s.season_number, s.episode_number)] = s
+
+    requested_keys = [(body.season_number, ep.episode_number) for ep in body.episodes]
+    conflicts = [
+        existing_by_episode[k] for k in requested_keys if k in existing_by_episode
+    ]
+    mode = (body.mode or "add_only").lower()
+    if mode not in ("add_only", "replace", "skip_existing"):
+        raise HTTPException(status_code=400, detail=f"mode inválido: {body.mode}")
+    if conflicts and mode == "add_only":
+        # El frontend muestra la lista y deja al usuario elegir si quiere
+        # reemplazar o saltar los conflictos. Sin esta protección, el bug
+        # del usuario: rehacer 1 episodio duplicaba en disco (timestamps)
+        # o sobrescribía sesiones hermanas según el flujo.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "episode_conflicts",
+                "message": (
+                    f"{len(conflicts)} episodio(s) ya tienen una sesión existente. "
+                    f"Reenvía con mode='replace' para sobrescribir o "
+                    f"mode='skip_existing' para crear solo los nuevos."
+                ),
+                "conflicts": [
+                    {
+                        "id": s.id,
+                        "mkv_name": s.mkv_name,
+                        "season_number": s.season_number,
+                        "episode_number": s.episode_number,
+                        "episode_title": s.episode_title,
+                        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                    }
+                    for s in conflicts
+                ],
+            },
+        )
+
+    # Determinar qué episodios procesar y cuáles saltar/reemplazar
+    skipped_existing: list[dict] = []
+    to_replace_ids: list[str] = []
+    episodes_to_process = []
+    for ep in body.episodes:
+        key = (body.season_number, ep.episode_number)
+        existing = existing_by_episode.get(key)
+        if existing and mode == "skip_existing":
+            skipped_existing.append({
+                "season_number": body.season_number,
+                "episode_number": ep.episode_number,
+                "existing_id": existing.id,
+            })
+            continue
+        if existing and mode == "replace":
+            to_replace_ids.append(existing.id)
+        episodes_to_process.append(ep)
+
+    # Borrar las sesiones a reemplazar antes del bucle — evita ambigüedad
+    # si dos episodios en la misma petición apuntaran al mismo id (no
+    # debería pasar, pero por seguridad).
+    for sid in to_replace_ids:
+        try:
+            delete_session(sid)
+        except Exception as _e:
+            _logger.warning("No se pudo borrar sesión existente %s: %s", sid, _e)
+
+    created_sessions = []
+    failed_episodes: list[dict] = []
+    # Reset del progreso global. Si otro job estaba en curso, lo
+    # sobrescribimos (el endpoint es single-job).
+    # A la cola: ~30 s de montaje más 15-30 s por episodio, todo disco. El
+    # POST responde al instante y el modal se alimenta del poller.
+    global _series_create_progress
+    _series_create_progress = {
+        "running": True,
+        "current_index": 0,
+        "total": len(body.episodes),
+        "current_label": "Esperando turno en la cola…",
+        "completed": [],
+        "failed": [],
+        "current_episode_step": "en_cola",
+        "current_episode_title": "",
+        "pgs_pct": 0,
+        "pgs_eta_s": 0,
+        "resultado": None,
+    }
+    await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
+        tab="rip",
+        tipo=queue_manager_mod.TIPO_SERIE,
+        clave=f"serie:{body.series_name or spath}:{body.season_number}",
+        que=f"análisis de {len(body.episodes)} episodio(s) de "
+            f"{body.series_name or 'la serie'}",
+        datos={"body": body.model_dump(), "stype": stype, "spath": spath,
+               "source_abs": str(source_abs),
+               # La cola reconstruye el trabajo, así que lo que el endpoint
+               # decidió tiene que viajar con él: un modelo de Pydantic no se
+               # persiste y recalcularlo daría otro resultado si entretanto
+               # cambió el /config.
+               "episodios": [e.model_dump() for e in episodes_to_process],
+               "skipped_existing": skipped_existing,
+               "replaced_ids": to_replace_ids,
+               # Ya calculado para detectar conflictos: son 1 MB de lectura
+               # que no hay por qué repetir cuando llegue el turno.
+               "fingerprint": fingerprint},
+    ))
+    return {"queued": True, "total": len(body.episodes)}
 
 
 def _sanitize_id(s: str) -> str:
@@ -1978,15 +2067,10 @@ async def execute_session(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
-    # Nada de solapar trabajo pesado ENTRE PESTAÑAS: 4 núcleos y un pool de
-    # discos. Se comprueba ANTES de encolar para que el usuario lo sepa al
-    # pulsar, no cuando la cola llegue a este job.
-    #
-    # Pero un rip de Tab 1 NO bloquea a otro rip de Tab 1: para eso está la
-    # cola FIFO, que ejecuta de uno en uno. Encolar tres ISOs seguidos —el
-    # flujo normal— daba 409 en el segundo, que es tanto como decirle al
-    # usuario que no puede usar la cola mientras la cola trabaja.
-    workload.exigir_libre(session_id, ignorar_tab=workload.TAB_RIP)
+    # Aquí NO se rechaza nada. Antes había un 409 si otra pestaña tenía trabajo
+    # pesado, porque encolar sin cola compartida habría solapado; con la cola
+    # única eso es justo lo que hay que hacer: encolar y esperar turno. Era
+    # además el último 409 de admisión que quedaba en la aplicación.
 
     # Solo se puede ejecutar desde estados pending, error o done (re-ejecución tras editar)
     if session.status in ("running", "queued"):
@@ -3046,6 +3130,37 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # Se hace al final del módulo para que _run_pipeline y _broadcast_queue
 # estén ya definidas antes de registrarlas.
 # En DEV_MODE _run_fake_pipeline ya fue registrada arriba; no sobreescribir.
+async def _runner_creacion_de_serie(trabajo) -> None:
+    """Lo que la cola ejecuta cuando le toca crear los episodios de una serie.
+
+    El `body` viaja serializado: la cola puede despachar mucho después y un
+    modelo de Pydantic no se persiste.
+    """
+    d = trabajo.datos or {}
+    try:
+        cuerpo = CreateSeriesSessionsRequest(**(d.get("body") or {}))
+        episodios = [type(cuerpo.episodes[0])(**e) for e in (d.get("episodios") or [])] \
+            if cuerpo.episodes else []
+        await _ejecutar_creacion_de_serie(
+            cuerpo, d.get("stype") or "iso", d.get("spath") or "",
+            d.get("source_abs") or "", episodios,
+            d.get("skipped_existing") or [], d.get("replaced_ids") or [],
+            d.get("fingerprint") or "")
+    except Exception as e:                              # noqa: BLE001
+        _logger.exception("La creación de la serie falló")
+        _series_create_progress["running"] = False
+        _series_create_progress["error"] = str(e)
+    finally:
+        # Por si la excepción saltó ANTES del `liberar` del camino feliz: un
+        # hueco sin soltar deja la cola esperándose a sí misma.
+        d = trabajo.datos or {}
+        b = d.get("body") or {}
+        workload.liberar(f"serie:{b.get('series_name') or d.get('spath') or ''}:"
+                         f"{b.get('season_number')}")
+
+
 if not DEV_MODE:
     queue_manager.set_run_fn(_run_pipeline)
+queue_manager.registrar_runner(queue_manager_mod.TIPO_SERIE,
+                               _runner_creacion_de_serie)
 queue_manager.on_update(_broadcast_queue)

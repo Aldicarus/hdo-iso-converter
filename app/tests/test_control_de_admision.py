@@ -48,7 +48,6 @@ class TestElRegistro(unittest.TestCase):
 
     def test_vacio_no_bloquea(self):
         self.assertIsNone(workload.bloqueado_por())
-        self.assertIsNone(workload.motivo_409())
         self.assertFalse(workload.hay_contencion())
 
     def test_un_trabajo_bloquea_a_los_demas(self):
@@ -69,19 +68,19 @@ class TestElRegistro(unittest.TestCase):
     def test_liberar_algo_que_no_estaba_no_revienta(self):
         workload.liberar("no_existe")
 
-    def test_el_motivo_dice_qué_bloquea_y_dónde(self):
+    def test_describe_qué_bloquea_y_dónde(self):
+        """El texto lo enseña la UI (tooltip del punto verde, banner de cola)
+        y lo escribe el log del que la cola espera turno."""
         workload.registrar("s1", workload.TAB_RIP, "rip de Peli (2024)")
-        motivo = workload.motivo_409("otro")
-        self.assertIn("Blu-Ray ISO", motivo, motivo)
-        self.assertIn("rip de Peli (2024)", motivo)
+        d = workload.bloqueado_por().describir()
+        self.assertIn("Blu-Ray ISO", d, d)
+        self.assertIn("rip de Peli (2024)", d)
 
-    def test_exigir_libre_lanza_409(self):
-        from fastapi import HTTPException
-        workload.registrar("s1", workload.TAB_MKV, "análisis extendido")
-        with self.assertRaises(HTTPException) as ctx:
-            workload.exigir_libre()
-        self.assertEqual(ctx.exception.status_code, 409)
-        workload.exigir_libre("s1")      # el propio, no lanza
+    def test_ya_no_existe_el_409_de_admision(self):
+        """Lo sustituyó la cola: lo diferido espera turno en vez de que se le
+        diga que no. `exigir_libre` se quedó sin llamadores con el bloque 3."""
+        self.assertFalse(hasattr(workload, "exigir_libre"))
+        self.assertFalse(hasattr(workload, "motivo_409"))
 
 
 class AdmisionApiCase(ApiTestCase):
@@ -98,13 +97,14 @@ class TestTab1(AdmisionApiCase):
         (self.isos_dir / "Peli (2024).iso").write_bytes(b"x" * 4096)
         return self.crear_sesion_tab1()
 
-    def test_encolar_con_otra_pestana_ocupada_da_409(self):
+    def test_encolar_con_otra_pestana_ocupada_tambien_funciona(self):
+        """Era el último 409 de admisión. Con la cola única, encolar detrás de
+        un trabajo de otra pestaña es exactamente lo que hay que hacer."""
         sid = self._sesion_ejecutable()
         workload.registrar("otro", workload.TAB_MKV, "análisis extendido de X")
         r = self.client.post(f"/api/sessions/{sid}/execute")
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("Consultar / Editar MKV", r.json()["detail"])
-        self.assertEqual(self.encolados, [], "no debe haberse encolado")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.encolados, [sid])
 
     def test_encolar_con_la_casa_libre_funciona(self):
         sid = self._sesion_ejecutable()

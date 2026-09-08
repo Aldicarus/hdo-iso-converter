@@ -231,10 +231,19 @@ async function _refreshTabRunningDots() {
     el.dataset.tooltip = texto || 'Hay trabajo en curso';
   };
   // Tab 1: queueState (ya en memoria, lleno por queueWs) + sesiones
+  // `queue` y `running` son solo los RIPS (el panel de la cola los lee así),
+  // pero Tab 1 también encola el análisis de una serie entera. Eso vive en
+  // `jobs`/`running_job`, la vista completa de la cola.
   const enCola = (queueState && queueState.queue && queueState.queue.length) || 0;
-  const t1 = !!(queueState && (queueState.running || enCola));
+  const otrosDeTab1 = ((queueState && queueState.jobs) || [])
+    .filter(j => j.tab === 'rip').length;
+  const corriendoDeTab1 = (queueState && queueState.running_job
+                           && queueState.running_job.tab === 'rip');
+  const t1 = !!(queueState && (queueState.running || enCola
+                               || otrosDeTab1 || corriendoDeTab1));
   setDot(1, t1, t1
-    ? [queueState.running ? '1 rip en curso' : null,
+    ? [corriendoDeTab1 ? queueState.running_job.que
+       : queueState.running ? '1 rip en curso' : null,
        enCola ? `${enCola} en cola` : null].filter(Boolean).join(' · ')
     : null);
   // Tabs 2 y 3 salen del estado compartido (ver `leerActividad`). Tab 1 no,

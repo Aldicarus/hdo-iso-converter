@@ -178,21 +178,22 @@ class TestAdmisionDeLaCola(ApiTestCase):
             self.assertEqual(self._ejecutar(sid).status_code, 200)
         self.assertEqual(self.encolados, ids)
 
-    def test_un_job_de_tab_3_SI_bloquea(self):
+    def test_un_job_de_tab_3_ya_no_bloquea_encolar(self):
+        """Encolar detrás de otra pestaña es lo que hace la cola única. El
+        409 que había aquí fue el último de admisión de la aplicación."""
         self.workload.registrar("cmv40_x", self.workload.TAB_CMV40,
                                 "Fase A de Peli (2024)")
         sid = self.crear_sesion_tab1()
         r = self._ejecutar(sid)
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("Upgrade Dolby Vision", r.json()["detail"])
-        self.assertEqual(self.encolados, [])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.encolados, [sid])
 
-    def test_una_copia_de_tab_2_SI_bloquea(self):
+    def test_ni_una_copia_de_tab_2(self):
         self.workload.registrar("mkv_apply", self.workload.TAB_MKV,
                                 "copia de Peli (2024).mkv")
         sid = self.crear_sesion_tab1()
-        self.assertEqual(self._ejecutar(sid).status_code, 409)
-        self.assertEqual(self.encolados, [])
+        self.assertEqual(self._ejecutar(sid).status_code, 200)
+        self.assertEqual(self.encolados, [sid])
 
     def test_la_cola_no_se_espera_a_si_misma(self):
         """El bucle de espera de `_process` contaba el rip de la propia cola

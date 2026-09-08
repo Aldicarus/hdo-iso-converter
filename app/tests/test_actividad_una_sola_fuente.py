@@ -179,101 +179,37 @@ class TestUnFalloDeRedNoEsSilencio(unittest.TestCase):
         self.assertEqual(r["leidoEn"], 1, "y la marca de tiempo delata que el dato es viejo")
 
 
-@unittest.skipIf(NODE is None, "node no está instalado")
-class TestEl409DeAdmisionNoEsUnError(unittest.TestCase):
+class TestElBackendYaNoRechazaPorAdmision(ApiTestCase):
+    """El 409 de admisión existió entre el bloque 2 y el 3, y ya no.
 
-    def _correr(self, status, cabeceras, detalle="Ya hay trabajo pesado en curso: X") -> dict:
-        guion = f"""
-{_fn('apiFetch')}
-const toasts = [];
-globalThis.showToast = (msg, tipo, dur) => toasts.push({{ msg, tipo, dur }});
-globalThis.API_FETCH_TIMEOUT = 30000;
-globalThis.AbortController = class {{ constructor() {{ this.signal = null; }} abort() {{}} }};
-globalThis.fetch = async () => ({{
-  ok: false,
-  status: {status},
-  statusText: 'Conflict',
-  json: async () => ({{ detail: {json.dumps(detalle)} }}),
-  headers: {{ get: k => ({json.dumps(cabeceras)})[k] || null }},
-}});
-(async () => {{
-  const r = await apiFetch('/api/algo');
-  console.log(JSON.stringify({{ r, toasts }}));
-}})();
-"""
-        return _node(guion)
+    Lo sustituyó la cola única: lo diferido espera turno en vez de que se le
+    diga que no, y lo interactivo nunca se rechazó. Con el último llamador
+    fuera, `exigir_libre`, `motivo_409` y la cabecera `X-Trabajo-En-Curso`
+    quedaron sin producir nada, así que se borraron — con ellos también la
+    rama de `apiFetch` que los pintaba en ámbar.
 
-    def test_con_la_cabecera_es_un_aviso_no_un_error(self):
-        r = self._correr(409, {"X-Trabajo-En-Curso": "1"})
-        self.assertEqual(r["toasts"][0]["tipo"], "warning")
-
-    def test_no_se_prefija_de_error(self):
-        """El texto del backend ya es una frase que se explica sola."""
-        r = self._correr(409, {"X-Trabajo-En-Curso": "1"})
-        self.assertNotIn("Error:", r["toasts"][0]["msg"])
-        self.assertTrue(r["toasts"][0]["msg"].startswith("Ya hay trabajo"))
-
-    def test_dura_mas_en_pantalla(self):
-        """3,5 s es para "Guardado"; esto es una frase con qué bloquea, dónde
-        y desde cuándo."""
-        r = self._correr(409, {"X-Trabajo-En-Curso": "1"})
-        self.assertGreaterEqual(r["toasts"][0]["dur"], 9000)
-
-    def test_un_409_de_otra_cosa_sigue_siendo_un_error(self):
-        """La app usa el 409 para cinco cosas más; sin la cabecera no se
-        pueden distinguir por el código de estado."""
-        r = self._correr(409, {}, detalle="Ya existe un MKV con ese nombre")
-        self.assertEqual(r["toasts"][0]["tipo"], "error")
-        self.assertIn("Error:", r["toasts"][0]["msg"])
-
-    def test_los_otros_errores_no_cambian(self):
-        r = self._correr(500, {})
-        self.assertEqual(r["toasts"][0]["tipo"], "error")
-
-    def test_devuelve_null_igual(self):
-        """Los llamadores comprueban `if (!r) return;`: cambiar eso rompería
-        cincuenta sitios."""
-        self.assertIsNone(self._correr(409, {"X-Trabajo-En-Curso": "1"})["r"])
-
-
-class TestElBackendMarcaEl409(ApiTestCase):
+    Este test es el que evita que vuelvan a medias: un `exigir_libre` nuevo
+    sin la cabecera daría un 409 rojo de «Error:», que es justo lo que el
+    bloque 2 arregló.
+    """
 
     def setUp(self):
         super().setUp()
         workload.limpiar()
         self.addCleanup(workload.limpiar)
 
-    def _pedir_algo_bloqueado(self):
-        """Encolar un rip mientras otra pestaña tiene trabajo pesado.
-
-        Es el último 409 de admisión que queda: Tab 2 y Tab 3 pasaron a la
-        cola, y Tab 1 lo conserva porque su `execute` decide antes de entrar
-        en la cola. Si algún día también se encola, este test tendrá que
-        cambiar de vehículo o desaparecer con la cabecera.
-        """
+    def test_encolar_un_rip_con_otra_pestana_ocupada_funciona(self):
+        (self.isos_dir / "Peli (2024).iso").write_bytes(b"x" * 4096)
         sid = self.crear_sesion_tab1()
         workload.registrar("otro", workload.TAB_CMV40, "Fase C de Predator")
-        return self.client.post(f"/api/sessions/{sid}/execute")
+        r = self.client.post(f"/api/sessions/{sid}/execute")
+        self.assertEqual(r.status_code, 200, r.text)
 
-    def crear_sesion_tab1(self) -> str:
-        import storage
-        from models import Session
-        s = Session(id="peli_2024_1", iso_path="/mnt/isos/peli.iso",
-                    mkv_name="Peli (2024).mkv", status="pending")
-        storage.save_session(s)
-        return s.id
-
-    def test_el_409_de_admision_lleva_la_cabecera(self):
-        r = self._pedir_algo_bloqueado()
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertEqual(r.headers.get(workload.CABECERA_OCUPADO), "1")
-
-    def test_y_el_cuerpo_sigue_diciendo_que_bloquea(self):
-        """La cabecera se añadió para no tener que tocar el cuerpo, que es lo
-        que leen los tests y el resto de la UI."""
-        r = self._pedir_algo_bloqueado()
-        self.assertIn("Fase C de Predator", r.json()["detail"])
-        self.assertIn("Upgrade Dolby Vision", r.json()["detail"])
+    def test_no_queda_maquinaria_de_rechazo(self):
+        self.assertFalse(hasattr(workload, "exigir_libre"))
+        self.assertFalse(hasattr(workload, "motivo_409"))
+        self.assertFalse(hasattr(workload, "CABECERA_OCUPADO"))
+        self.assertNotIn("X-Trabajo-En-Curso", js_completo())
 
 
 class TestNoQuedanLectoresSueltos(unittest.TestCase):

@@ -107,12 +107,15 @@ class TestLaTablaSeEjecuta(ApiTestCase):
                    if c == workload.CLASE_LIGERO}
         self.assertEqual(_marcadas(self.main.app) & ligeras, set())
 
-    def test_los_cinco_que_corrian_a_ciegas_ya_se_ven(self):
-        """El objetivo del bloque: medir la contención real antes de tocar
-        la política."""
+    def test_los_que_corrian_a_ciegas_ya_se_ven(self):
+        """El objetivo del bloque: medir la contención real.
+
+        Eran cinco. `create-series-sessions` salió de esta lista al pasar a la
+        cola: los diferidos se registran desde su runner, cuando el trabajo
+        empieza de verdad, no cuando se pide.
+        """
         for ruta in ("POST /api/analyze",
                      "POST /api/disc-probe",
-                     "POST /api/create-series-sessions",
                      "POST /api/sessions/{session_id}/reset-chapters",
                      "POST /api/mkv/analyze"):
             self.assertIn(ruta, _marcadas(self.main.app), ruta)
