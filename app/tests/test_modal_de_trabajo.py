@@ -281,6 +281,100 @@ class TestCadaTipoRegistraSuVista(unittest.TestCase):
             self.assertIn("_trabajoKvHTML", bloque)
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElModalSobreviveAlCambioDeFase(unittest.TestCase):
+    """Un proyecto CMv4.0 encadena siete fases, y entre una y la siguiente el
+    contrato deja de traer `activo` un instante. El modal se comparaba por
+    TIPO, se daba por terminado, se sustituía por un armazón vacío —sin la
+    columna de fases y con «Todavía no hay líneas de log» en medio— y apagaba
+    su propio timer, así que no se recuperaba nunca. Visto en el NAS.
+    """
+
+    def _correr(self, secuencia) -> dict:
+        """Pinta el modal con esa sucesión de valores de `activo`."""
+        guion = f"""
+const _els = {{}};
+const _ids = ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
+  'trabajo-modal-timeline','trabajo-modal-barra-wrap','trabajo-modal-barra',
+  'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
+  'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
+  'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
+  'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta'];
+for (const id of _ids) {{
+  _els[id] = {{ textContent: '', innerHTML: '', style: {{}}, dataset: {{}},
+    querySelector: () => null, closest: () => null, classList: {{
+      _v: new Set(), toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+      has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
+globalThis.escHtml = t => String(t);
+globalThis.openModal = () => {{}};
+globalThis.setInterval = () => 1;      // el bucle lo dirige el test
+globalThis.clearInterval = () => {{ _timerApagado = true; }};
+let _timerApagado = false;
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('timelineDeTrabajo')}
+{_fn('_trabajoCartelPinta')}
+{_fn('_trabajoModalPinta')}
+let workbarEstado = {{ activo: null, cola: [] }};
+let _trabajoModalTimer = null, _trabajoModalTipo = null;
+let _trabajoModalRef = null, _trabajoModalUltimo = null;
+let _trabajoModalSinActivo = 0;
+const _workbarDetalles = {{}};
+// La vista del tipo lee su propia sesión, no el contrato: siempre tiene algo
+// que enseñar aunque el trabajo ya no esté activo.
+_workbarDetalles['cmv40'] = async (a) => ({{
+  titulo: 'Predator.mkv', lateral: '<div>timeline de siete fases</div>',
+  conLog: true, cuerpo: '<div class="cmv40-log">línea</div>',
+  cartel: {{ url: '', titulo: 'Predator', meta: '2026' }},
+}});
+{_fn('_trabajoModalRefrescar')}
+{_fn('_trabajoModalAbrir')}
+(async () => {{
+  const secuencia = {json.dumps(secuencia)};
+  workbarEstado.activo = secuencia[0];
+  await _trabajoModalAbrir(secuencia[0]);
+  const fotos = [];
+  for (const act of secuencia) {{
+    workbarEstado.activo = act;
+    await _trabajoModalRefrescar();
+    fotos.push({{ timeline: _els['trabajo-modal-timeline'].innerHTML,
+                 cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
+                 paso: _els['trabajo-modal-paso'].textContent,
+                 titulo: _els['trabajo-modal-titulo'].textContent }});
+  }}
+  console.log(JSON.stringify({{ fotos, timerApagado: _timerApagado }}));
+}})();
+"""
+        return _node(guion)
+
+    _FASE_C = {"id": "p1", "sobre": "p1", "tab": "cmv40", "tipo": "fase_cmv40",
+               "que": "Fase C de Predator", "fase": "extract", "fase_n": 3,
+               "fases_total": 7, "pct": 40, "pct_medido": True, "segundos": 300,
+               "cancelable": True, "detalle": "cmv40", "paso": "Demuxing"}
+    _FASE_F = dict(_FASE_C, fase="inject", fase_n=6,
+                   que="Fase F de Predator", paso="Inyectando el RPU")
+
+    def test_el_hueco_entre_dos_fases_no_vacia_el_modal(self):
+        r = self._correr([self._FASE_C, None, self._FASE_F])
+        for i, foto in enumerate(r["fotos"]):
+            self.assertIn("timeline de siete fases", foto["timeline"],
+                          f"foto {i}: se perdió la columna de fases")
+            self.assertIn("cmv40-log", foto["cuerpo"],
+                          f"foto {i}: se quedó sin log")
+        self.assertEqual(r["fotos"][1]["paso"], "Cambiando de fase…")
+        self.assertFalse(r["timerApagado"],
+                         "apagar el timer en el hueco lo deja clavado")
+
+    def test_un_trabajo_de_OTRO_proyecto_no_secuestra_el_modal(self):
+        otro = dict(self._FASE_C, id="p2", sobre="p2", que="Fase A de Otra")
+        r = self._correr([self._FASE_C, otro])
+        self.assertEqual(r["fotos"][1]["paso"], "Cambiando de fase…",
+                         "el modal sigue con SU trabajo, no salta al nuevo")
+
+
 class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
     """Era la asimetría: Tab 2 y Tab 3 no tienen nada equivalente en el centro,
     y además duplicaba lo que ahora dice la columna."""

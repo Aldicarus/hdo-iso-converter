@@ -363,6 +363,7 @@ let _trabajoModalTimer = null;
 let _trabajoModalTipo = null;
 let _trabajoModalRef = null;      // `sobre` del trabajo que se está mirando
 let _trabajoModalUltimo = null;   // su último progreso conocido
+let _trabajoModalSinActivo = 0;   // refrescos seguidos sin sujeto
 
 
 /** Una cartela a partir del `tmdb_info` que ya tiene la pestaña.
@@ -531,6 +532,48 @@ function cerrarModalDeTrabajo() {
 }
 
 /** Abre el modal para el trabajo activo y lo mantiene al día. */
+/** Un ciclo de refresco del modal abierto.
+ *
+ *  Sale del `_trabajoModalAbrir` para poder ejecutarla en un test: el bug que
+ *  arregla —el modal vaciándose en el hueco entre dos fases— solo se ve
+ *  encadenando varios refrescos, y desde dentro de una closure con su
+ *  `setInterval` no hay forma de provocarlo.
+ */
+async function _trabajoModalRefrescar() {
+  const fn = _workbarDetalles[_trabajoModalTipo];
+  if (!fn || !_trabajoModalUltimo) return;
+  const act = workbarEstado.activo;
+  const esElMismo = act && (act.sobre || act.id) === _trabajoModalRef;
+  if (esElMismo) { _trabajoModalUltimo = act; _trabajoModalSinActivo = 0; }
+  else _trabajoModalSinActivo += 1;
+  // Aunque el trabajo ya no esté activo se SIGUE pintando su vista: la
+  // timeline, el estado de las fases y el log los lee cada pestaña de su
+  // propia sesión, no del contrato de progreso. Lo único que deja de tener
+  // sentido es la barra.
+  // Entre dos fases de un mismo proyecto la cola se queda sin `running` un
+  // instante, así que «no hay activo» NO significa «terminó»: significa eso
+  // durante unos segundos, o mientras el trabajo siga esperando turno.
+  const enCola = (workbarEstado.cola || [])
+    .some(j => (j.sobre || j.id) === _trabajoModalRef);
+  const enTransito = enCola || _trabajoModalSinActivo <= 8;
+  const base = esElMismo ? act : {
+    ..._trabajoModalUltimo,
+    pct: null, pct_medido: false, eta_s: null, cancelable: enTransito,
+    paso: enTransito ? 'Cambiando de fase…' : 'Terminado',
+  };
+  try {
+    _trabajoModalPinta(base, await fn(base));
+  } catch (e) {
+    console.error('[trabajo-modal]', e);
+  }
+  // Se deja de pollear cuando lleva un rato sin sujeto, pero el contenido se
+  // queda: cerrarlo es del usuario.
+  if (_trabajoModalSinActivo > 20 && _trabajoModalTimer) {
+    clearInterval(_trabajoModalTimer);
+    _trabajoModalTimer = null;
+  }
+}
+
 async function _trabajoModalAbrir(a) {
   const fn = _workbarDetalles[a.detalle];
   if (!fn) return;
@@ -542,36 +585,11 @@ async function _trabajoModalAbrir(a) {
   // de log»— y APAGABA su propio timer, así que no se recuperaba nunca.
   _trabajoModalRef = a.sobre || a.id;
   _trabajoModalUltimo = a;
+  _trabajoModalSinActivo = 0;
   openModal('trabajo-modal');
-  let sinActivo = 0;
-  const refrescar = async () => {
-    const act = workbarEstado.activo;
-    const esElMismo = act && (act.sobre || act.id) === _trabajoModalRef;
-    if (esElMismo) { _trabajoModalUltimo = act; sinActivo = 0; }
-    else sinActivo += 1;
-    // Aunque el trabajo ya no esté activo se SIGUE pintando su vista: la
-    // timeline, el estado de las fases y el log los lee cada pestaña de su
-    // propia sesión, no del contrato de progreso. Lo único que deja de tener
-    // sentido es la barra.
-    const base = esElMismo ? act : {
-      ..._trabajoModalUltimo,
-      pct: null, pct_medido: false, eta_s: null, cancelable: false,
-      paso: act ? 'Cambiando de fase…' : 'Terminado',
-    };
-    try {
-      _trabajoModalPinta(base, await fn(base));
-    } catch (e) {
-      console.error('[trabajo-modal]', e);
-    }
-    // Se deja de pollear cuando lleva un rato sin sujeto, pero el contenido se
-    // queda: cerrarlo es del usuario.
-    if (sinActivo > 20 && _trabajoModalTimer) {
-      clearInterval(_trabajoModalTimer); _trabajoModalTimer = null;
-    }
-  };
-  await refrescar();
+  await _trabajoModalRefrescar();
   if (_trabajoModalTimer) clearInterval(_trabajoModalTimer);
-  _trabajoModalTimer = setInterval(refrescar, 1500);
+  _trabajoModalTimer = setInterval(_trabajoModalRefrescar, 1500);
 }
 
 // ── Iconos ───────────────────────────────────────────────────────────────────
