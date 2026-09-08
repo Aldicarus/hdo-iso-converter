@@ -563,6 +563,26 @@ class TestLaSerieEnteraPasaPorLaCola(ApiTestCase):
                           if t[0] == qm.TIPO_SERIE][0][3])
 
 
+class TestElEndpointDeLaColaLoDiceTodo(ApiTestCase):
+    """El WS y `GET /api/queue` no pueden discrepar: el dashboard usará el
+    segundo y se quedaría sin ver el trabajo de Tab 2 y Tab 3."""
+
+    def test_trae_la_vista_completa_ademas_de_los_campos_de_compat(self):
+        cola = self.main.queue_manager
+        cola._running = qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave="proj",
+            que="Fase C de Predator", datos={"fase": "extract"})
+        cola._queue = [qm.TrabajoEnCola(tab="mkv",
+                                        tipo=qm.TIPO_ANALISIS_EXTENDIDO,
+                                        clave="aud1", que="análisis de X")]
+        r = self.client.get("/api/queue").json()
+        self.assertEqual(r["running_job"]["que"], "Fase C de Predator")
+        self.assertEqual([j["clave"] for j in r["jobs"]], ["aud1"])
+        # Y los de siempre siguen siendo solo de Tab 1.
+        self.assertIsNone(r["running"])
+        self.assertEqual(r["queue"], [])
+
+
 class TestYaNoQuedaNingun409DeAdmision(unittest.TestCase):
     """El final del bloque 3: la app pasa de «no puedes» a «cuando toque»."""
 

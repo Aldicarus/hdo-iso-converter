@@ -2848,9 +2848,19 @@ def _append_execution_record(
 
 @router.get("/api/queue", summary="Estado de la cola de ejecución")
 async def get_queue():
-    """Devuelve el estado de la cola con objetos de sesión completos."""
+    """Estado de la cola.
+
+    `running` y `queue` traen **objetos de sesión completos** de Tab 1, que es
+    lo que este endpoint ha devuelto siempre (ojo: el WebSocket manda ids en
+    esos mismos campos, y es de ahí de donde sale el `queueState` del
+    frontend). `running_job` y `jobs` son la vista completa desde que la cola
+    es única — lo que hay de las tres pestañas, incluidas las fases CMv4.0 y
+    los trabajos de Tab 2, que en los campos de compatibilidad no caben.
+    """
     status = queue_manager.get_status()
-    result: dict = {"running": None, "queue": []}
+    result: dict = {"running": None, "queue": [],
+                    "running_job": status.get("running_job"),
+                    "jobs": status.get("jobs") or []}
 
     if status["running"]:
         s = load_session(status["running"])
