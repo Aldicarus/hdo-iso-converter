@@ -66,8 +66,9 @@ function _workbarActivoHTML(a) {
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
-    ? `quedan ${_workbarTiempo(a.eta_s)}${a.eta_fuente === 'modelo' ? ' (aprox.)' : ''}`
-    : `${_workbarTiempo(a.segundos)}`;
+    ? `${_workbarTiempo(a.segundos)} · quedan ${_workbarTiempo(a.eta_s)}`
+      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+    : `lleva ${_workbarTiempo(a.segundos)}`;
   const fase = a.fases_total
     ? `${a.fase_label || a.fase} · ${a.fase_n || '–'}/${a.fases_total}`
     : (a.fase_label || a.fase || '');
@@ -86,7 +87,7 @@ function _workbarActivoHTML(a) {
         ${barra}
         <div class="workbar-tiempos">
           <span>${escHtml(izq)}</span>
-          <span>${escHtml(a.eta_s != null ? der : 'lleva ' + der)}</span>
+          <span>${escHtml(der)}</span>
         </div>
         <div class="workbar-acciones">
           <button class="btn btn-ghost btn-xs" onclick="abrirDetalleDeTrabajo()"
@@ -98,12 +99,12 @@ function _workbarActivoHTML(a) {
     </div>`;
 }
 
-function _workbarListaHTML(titulo, items, render) {
+function _workbarListaHTML(titulo, items, render, clase = '') {
   if (!items.length) return '';
   return `
     <div class="workbar-seccion">
       <div class="workbar-seccion-titulo">${escHtml(titulo)}</div>
-      ${items.map(render).join('')}
+      <div class="${clase}">${items.map(render).join('')}</div>
     </div>`;
 }
 
@@ -144,11 +145,13 @@ function _workbarRender(st) {
   body.innerHTML =
     (st.activo ? _workbarActivoHTML(st.activo) : '')
     + _workbarListaHTML('Esperando turno', st.cola, j => `
-        <div class="workbar-item">
+        <div class="workbar-item" data-clave="${escHtml(j.id)}">
           ${iconoDeTrabajo(j.tipo, 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(j.que || '')}</span>
           <span class="workbar-item-pos">${j.posicion}</span>
-        </div>`)
+          <button class="workbar-item-quitar" onclick="quitarDeLaCola('${j.id}')"
+            data-tooltip="Sacarlo de la cola">✕</button>
+        </div>`, 'workbar-seccion-cola')
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
@@ -159,6 +162,35 @@ function _workbarRender(st) {
           <span class="workbar-item-meta">${escHtml(_workbarTiempo(t.segundos))}</span>
         </div>`)
     + recientes;
+  _instalarReordenDeCola();
+}
+
+
+/** Arrastrar para reordenar la cola.
+ *
+ *  Lo hacía el panel «Trabajos en Curso» y se perdió al retirarlo. Sortable ya
+ *  está cargado (lo usa el mismo Tab 1 para las pistas), así que es enganchar
+ *  la lista y mandar el orden.
+ *
+ *  Se reordena la cola ENTERA, no solo los rips: `reorder` mueve por clave y
+ *  conserva al final lo que no se mencione, así que arrastrar aquí no puede
+ *  perder nada.
+ */
+function _instalarReordenDeCola() {
+  const lista = document.querySelector('#workbar-body .workbar-seccion-cola');
+  if (!lista || typeof Sortable === 'undefined') return;
+  if (lista._sortable) lista._sortable.destroy();
+  lista._sortable = Sortable.create(lista, {
+    animation: 140,
+    onEnd: async () => {
+      const orden = [...lista.querySelectorAll('[data-clave]')]
+        .map(el => el.dataset.clave);
+      await apiFetch('/api/queue/reorder', {
+        method: 'POST', body: JSON.stringify({ ordered_ids: orden }),
+      });
+      refrescarWorkbar();
+    },
+  });
 }
 
 async function refrescarWorkbar() {
@@ -306,6 +338,11 @@ function _trabajoModalPinta(a, vista) {
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) cuerpo.innerHTML = vista.cuerpo || '';
+  // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
+  // modal se queda a una columna — no todos los trabajos tienen una timeline
+  // que enseñar.
+  const lateral = document.getElementById('trabajo-modal-lateral');
+  if (lateral) lateral.innerHTML = vista.lateral || '';
   // El botón de copiar solo tiene sentido con log delante.
   const copiar = document.getElementById('trabajo-modal-copiar');
   if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
@@ -425,4 +462,20 @@ function iconoDeTrabajo(tipo, clase = '') {
 
 function iconoDeEstado(estado, clase = '') {
   return _chipIcono(_ICONOS_ESTADO[estado], clase);
+}
+
+
+/** Saca un trabajo de la cola antes de que empiece.
+ *
+ *  Al retirar el panel «Trabajos en Curso» de Tab 1 se fue con él la única
+ *  forma de hacer esto, que es una regresión: encolar tres cosas y no poder
+ *  quitar la de en medio. `DELETE /api/queue/{clave}` sirve para cualquier
+ *  tipo — la cola borra por clave, no por sesión de Tab 1.
+ */
+async function quitarDeLaCola(clave) {
+  const r = await apiFetch(`/api/queue/${encodeURIComponent(clave)}`,
+                           { method: 'DELETE' });
+  if (r !== null) showToast('Sacado de la cola', 'info');
+  refrescarWorkbar();
+  if (typeof loadSessions === 'function') loadSessions();
 }

@@ -19,11 +19,9 @@
 async function checkAppStatus() {
   const data = await apiFetch('/api/status');
   if (!data) return;
-  // Mostrar sección Dev Tools en el sidebar Cola solo si el servidor corre en DEV_MODE
-  if (data.dev_mode) {
-    document.getElementById('csb-dev-section')?.style &&
-      (document.getElementById('csb-dev-section').style.display = '');
-  }
+  // Aquí se enseñaba la sección Dev Tools del panel de trabajos, que se
+  // retiró con él. `devSimulate` sigue existiendo y se puede llamar desde la
+  // consola del navegador, que es donde se usaba de verdad.
 }
 
 /**
@@ -31,10 +29,7 @@ async function checkAppStatus() {
  * Solo disponible cuando el servidor responde dev_mode: true.
  */
 async function devSimulate() {
-  const btn = document.querySelector('#csb-dev-section button');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Encolando…'; }
   const data = await apiFetch('/api/dev/simulate', { method: 'POST' });
-  if (btn) { btn.disabled = false; btn.textContent = '▶ Simular ejecución'; }
   if (!data) return;
   if (!data.ok) { showToast(data.detail || 'Sin sesiones disponibles', 'warning'); return; }
   showToast(`${data.enqueued?.length ?? 0} sesiones encoladas para simulación`, 'success');
@@ -4416,43 +4411,10 @@ function handleExecutionWsMessage(msg) {
     || msg.includes('[Desmontando ISO]')
   );
   if (isMountMarker) {
-    const el = document.getElementById('csb-phase-label');
-    if (el) {
-      // Label según tipo de origen detectado en el propio mensaje
-      el.textContent = msg.includes('Montando el ISO') || msg.includes('Montando ISO') ? 'Montando ISO…'
-        : msg.includes('carpeta BDMV') ? 'Preparando carpeta BDMV…'
-        : msg.includes('M2TS') ? 'Preparando M2TS…'
-        : 'Preparando origen…';
-    }
-    // Subtítulo de la fase extract: usaremos "origen → MKV" porque
-    // puede ser MPLS o m2ts directo según el caso.
-    const subEl = document.getElementById('pc-sub-extract');
-    if (subEl) subEl.textContent = 'Origen → MKV';
     updateSubtabQueuePill();
   } else if (msg.includes('[Fase D]') || msg.includes('[Fase E]')) {
-    const csbBar = document.getElementById('csb-prog-bar');
-    if (csbBar) { csbBar.classList.add('indeterminate'); csbBar.style.width = ''; }
-    const el = document.getElementById('csb-phase-label');
-    if (el) el.textContent = 'mkvmerge…';
-    // Detectar ruta por el contenido del mensaje
-    const subEl = document.getElementById('pc-sub-extract');
-    if (msg.includes('directo') || msg.includes('direct')) {
-      if (subEl) subEl.textContent = 'Origen → MKV final (ruta directa)';
-    } else if (msg.includes('intermedio') || msg.includes('propedit')) {
-      if (subEl) subEl.textContent = 'Origen → intermedio → propedit → final';
-    }
     updateSubtabQueuePill();
   } else if (isUnmountMarker) {
-    const el = document.getElementById('csb-phase-label');
-    if (el) {
-      el.textContent = msg.includes('ISO desmontado') ? 'Desmontando ISO…'
-        : msg.includes('carpeta BDMV') ? 'Cerrando carpeta…'
-        : msg.includes('fichero M2TS') ? 'Cerrando fichero…'
-        // Legacy fallbacks
-        : msg.includes('Carpeta BDMV liberada') ? 'Cerrando carpeta…'
-        : msg.includes('M2TS liberado') ? 'Cerrando fichero…'
-        : 'Cerrando origen…';
-    }
     updateSubtabQueuePill();
   }
 }
@@ -4524,58 +4486,13 @@ function _updateSidebarRunningIcon() {
 /** Fases del pipeline que NO aplican al tipo de origen actual.
  *  Para bdmv_folder y m2ts no hay montaje/desmontaje real — las
  *  marcamos como 'skipped' visualmente para que el panel no sugiera
- *  que se montó algo. Se popula desde _configurePhaseStripForSource. */
+ *  que se montó algo. */
 let _pipelineSkippedPhases = new Set();
 
 /** Último source_type configurado en el strip (para evitar reconfigurar
  *  en cada render si no cambió). */
 let _lastConfiguredSourceType = null;
 
-/** Adapta los títulos, subtítulos y estado visual del pipeline (panel
- *  cola + sidebar mini) al tipo de origen de la sesión en ejecución.
- *  Para iso muestra las 3 fases reales (montar → mkvmerge → desmontar).
- *  Para bdmv_folder y m2ts marca mount/unmount como 'skipped' (atenuado
- *  con ⊘) y cambia los textos para que no mientan al usuario. */
-function _configurePhaseStripForSource(sourceType) {
-  const isIso = sourceType === 'iso';
-  const sourceLabel = sourceType === 'bdmv_folder' ? 'Carpeta BDMV'
-    : sourceType === 'm2ts' ? 'Fichero M2TS'
-    : 'Origen';
-
-  _pipelineSkippedPhases = isIso ? new Set() : new Set(['mount', 'unmount']);
-
-  // Cola panel — títulos/subtítulos de los pasos
-  const set = (sel, text) => {
-    const el = document.querySelector(sel);
-    if (el) el.textContent = text;
-  };
-  if (isIso) {
-    set('#pc-step-mount .pc-step-title', 'Montar ISO');
-    set('#pc-step-mount .pc-step-sub', 'loop mount UDF → /mnt/bd/');
-    set('#pc-step-unmount .pc-step-title', 'Desmontar ISO');
-    set('#pc-step-unmount .pc-step-sub', 'umount del loop device');
-  } else {
-    set('#pc-step-mount .pc-step-title', 'Origen directo');
-    set('#pc-step-mount .pc-step-sub', `${sourceLabel} — no requiere montaje`);
-    set('#pc-step-unmount .pc-step-title', 'Cierre del origen');
-    set('#pc-step-unmount .pc-step-sub', `${sourceLabel} — sin operación de limpieza`);
-  }
-
-  // Marcado 'skipped' en cola panel + sidebar mini-pipe. Usamos
-  // classList.toggle para preservar otras clases (active/done/error)
-  // si las hubiera.
-  for (const ph of ['mount', 'unmount']) {
-    const stepEl = document.getElementById(`pc-step-${ph}`);
-    if (stepEl) stepEl.classList.toggle('skipped', !isIso);
-    const csbEl = document.getElementById(`csb-pipe-${ph}`);
-    if (csbEl) csbEl.classList.toggle('skipped', !isIso);
-    // Icono ⊘ en lugar de 💿/🔓 para fases que no aplican
-    const circleEl = document.getElementById(`pc-circle-${ph}`);
-    if (circleEl && !isIso) circleEl.textContent = '⊘';
-    const csbCircleEl = document.getElementById(`csb-pipe-circle-${ph}`);
-    if (csbCircleEl && !isIso) csbCircleEl.textContent = '⊘';
-  }
-}
 
 
 /**
@@ -4585,7 +4502,6 @@ function _configurePhaseStripForSource(sourceType) {
 async function cancelQueueItem(sessionId) {
   const data = await apiFetch(`/api/queue/${sessionId}`, { method: 'DELETE' });
   if (data !== null) {
-    _colaQueueExpanded.delete(sessionId);
     showToast('Trabajo eliminado de la cola.', 'info');
     // Refrescar proyecto abierto y sidebar
     refreshOpenProjectState(sessionId);
@@ -4607,49 +4523,11 @@ async function cancelRunningSession(sessionId) {
 
 
 /** Instancia Sortable para la cola (se recrea en cada render). */
-let _queueSortableInstance = null;
 
-/**
- * Inicializa drag & drop en la lista de cola de ejecución.
- * Al soltar, envía el nuevo orden al backend via POST /api/queue/reorder.
- * @param {HTMLElement} listEl — contenedor de los items de cola
- */
-function _initQueueSortable(listEl) {
-  if (_queueSortableInstance) _queueSortableInstance.destroy();
-  if (!listEl || listEl.children.length < 2) { _queueSortableInstance = null; return; }
-  _queueSortableInstance = Sortable.create(listEl, {
-    animation: 150,
-    ghostClass: 'sortable-ghost',
-    chosenClass: 'sortable-chosen',
-    handle: '.csb-queue-drag',
-    onEnd: async () => {
-      const ordered = [...listEl.querySelectorAll('.csb-history-item')]
-        .map(el => el.dataset.sid)
-        .filter(Boolean);
-      await apiFetch('/api/queue/reorder', {
-        method: 'POST',
-        body: JSON.stringify({ ordered_ids: ordered }),
-      });
-    },
-  });
-}
 
 // ── Historial y estadísticas ──────────────────────────────────────
 
 
-/**
- * Toggle expand/collapse de un item de la cola en la vista compacta.
- * @param {string} sessionId
- */
-function toggleQueueItem(sessionId) {
-  if (_colaQueueExpanded.has(sessionId)) {
-    _colaQueueExpanded.delete(sessionId);
-  } else {
-    _colaQueueExpanded.add(sessionId);
-  }
-  const item = document.querySelector(`#csb-queue-list .csb-history-item[data-sid="${CSS.escape(sessionId)}"]`);
-  if (item) item.classList.toggle('expanded', _colaQueueExpanded.has(sessionId));
-}
 
 
 /**
@@ -4858,6 +4736,48 @@ document.head.appendChild(spinStyle);
 // Las registra esta pestaña porque son suyas; el armazón (`workbar.js`) no
 // sabe qué es un rip. Mismo patrón que los adaptadores del backend.
 
+/** La timeline de un rip: las cuatro fases con su estado y su tiempo.
+ *
+ *  Es lo que enseñaba el panel «Trabajos en Curso» con sus círculos, y lo que
+ *  se perdió al retirarlo. Sale de `execution_history` —los tiempos por fase
+ *  que el backend ya guardaba— más la fase en curso del contrato de progreso,
+ *  así que funciona con la pestaña cerrada, cosa que el panel no hacía.
+ */
+function _ripTimelineHTML(a, sesion) {
+  const FASES = [
+    ['mount',   'Abrir origen',    'monta el ISO o abre la carpeta'],
+    ['extract', 'Extraer pistas',  'mkvmerge — la fase larga'],
+    ['write',   'Metadatos',       'flags, nombres y capítulos'],
+    ['unmount', 'Cerrar origen',   'desmonta y limpia temporales'],
+  ];
+  // Los tiempos de la ejecución EN CURSO son los de la última entrada del
+  // historial solo cuando ya terminó; mientras corre, el único dato firme es
+  // el total del contrato. Se enseña lo que hay y no se inventa el resto.
+  const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
+  const elapsed = ejec.phase_elapsed || {};
+  const filas = FASES.map(([id, titulo, sub], i) => {
+    const n = i + 1;
+    const estado = a.fase_n && n < a.fase_n ? 'done'
+                 : a.fase_n === n ? 'active' : 'pending';
+    const secs = elapsed[id];
+    const tiempo = secs != null ? _workbarTiempo(secs)
+                 : estado === 'active' ? _workbarTiempo(a.segundos) : '';
+    return `
+      <div class="rip-tl-fase ${estado}">
+        ${estado === 'active' ? iconoDeEstado('corriendo', 'icono-chip-sm')
+          : estado === 'done' ? iconoDeEstado('hecho', 'icono-chip-sm')
+          : '<span class="trabajo-paso-punto"></span>'}
+        <div style="flex:1; min-width:0">
+          <div class="rip-tl-titulo">${escHtml(titulo)}</div>
+          <div class="rip-tl-sub">${escHtml(sub)}</div>
+        </div>
+        <span class="rip-tl-tiempo">${escHtml(tiempo)}</span>
+      </div>`;
+  }).join('');
+  return `<div class="rip-tl-cabecera">Fases del rip</div>${filas}`;
+}
+
+
 registrarDetalleDeTrabajo('rip', async (a) => {
   // El log del rip ya está en la sesión y llega por WebSocket a la consola.
   // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
@@ -4865,7 +4785,8 @@ registrarDetalleDeTrabajo('rip', async (a) => {
   return {
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
-    pasos: ['Abrir origen', 'Extraer pistas', 'Metadatos', 'Cerrar origen'],
+    lateral: _ripTimelineHTML(a, s),
+    pasos: [],
     conLog: true,
     cuerpo: _trabajoLogHTML(s?.output_log),
   };

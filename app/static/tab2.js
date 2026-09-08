@@ -3329,6 +3329,8 @@ function _renderMkvRecientes() {
                data-tooltip="Abrir este MKV en una sub-pestaña">📂 Abrir</button>`
           : `<button class="btn btn-ghost btn-sm" disabled
                data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">⚠️ Fichero no encontrado</button>`}
+        <button class="btn btn-danger btn-sm" data-borrar="1"
+          data-tooltip="Quita el análisis guardado de la lista. NO borra el MKV.">🗑️ Borrar</button>
       </div>`;
     // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la
     // plantilla: `escHtml` no escapa la comilla simple (no hace falta para un
@@ -3341,6 +3343,8 @@ function _renderMkvRecientes() {
     fila.ondblclick = () => abrirMkvReciente(r.ruta);
     const abrir = card.querySelector('[data-abrir]');
     if (abrir) abrir.onclick = (ev) => { ev.stopPropagation(); abrirMkvReciente(r.ruta); };
+    const borrar = card.querySelector('[data-borrar]');
+    if (borrar) borrar.onclick = (ev) => { ev.stopPropagation(); _mkvBorrarReciente(r); };
     lista.appendChild(card);
   });
 
@@ -3428,3 +3432,27 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     ]),
   };
 });
+
+
+/** Quita de la lista el análisis guardado de un MKV.
+ *
+ *  Borra la ENTRADA DE CACHÉ, no el fichero, y el diálogo lo dice: en las
+ *  otras dos pestañas «Borrar» elimina un proyecto, y aquí no hay proyecto que
+ *  borrar — lo que hay es un análisis que se puede rehacer abriendo el MKV
+ *  otra vez.
+ */
+async function _mkvBorrarReciente(r) {
+  showConfirm(
+    'Quitar de la lista',
+    `Se borrará el análisis guardado de «${r.nombre || r.ruta}». El fichero MKV `
+    + 'NO se toca: al volver a abrirlo se analiza de nuevo.',
+    async () => {
+      const resp = await apiFetch(
+        `/api/mkv/cache-info?file_path=${encodeURIComponent(r.ruta)}`,
+        { method: 'DELETE' });
+      if (resp) showToast('Análisis borrado de la lista', 'info');
+      refrescarMkvRecientes();
+    },
+    'Borrar el análisis',
+  );
+}

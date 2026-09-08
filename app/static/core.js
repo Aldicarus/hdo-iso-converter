@@ -86,22 +86,14 @@ let queueWs = null;
 let executionWs = null;
 
 /** Temporizador standalone del trabajo en curso en la Cola. @type {number|null} */
-let _colaExecTimer = null;
 /** Timestamp de inicio del trabajo en curso (ms). @type {number|null} */
-let _colaExecStart = null;
 
 /** Líneas de log acumuladas del trabajo en curso (para filtrado). @type {string[]} */
-let _colaLogLines = [];
 /** Filtro activo del log en vivo: 'all' | 'warn'. @type {string} */
-let _colaLogFilter = 'all';
 /** Timestamps de inicio/fin de cada fase para calcular elapsed y ETA. */
-let _pcPhaseStart  = { mount: null, extract: null, unmount: null };
-let _pcPhaseEnd    = { mount: null, extract: null, unmount: null };
 /** Último porcentaje de progreso reportado por mkvmerge (Fase D). */
-let _pcLastPct = 0;
 /** IDs de items del historial actualmente expandidos. @type {Set<string>} */
 /** IDs de items de la cola actualmente expandidos. @type {Set<string>} */
-const _colaQueueExpanded = new Set();
 
 // Tabs (principales)
 /** @type {number} Tab activo (1, 2 o 3). */

@@ -6540,11 +6540,17 @@ function _renderCMv40Chart(project) {
 registrarDetalleDeTrabajo('cmv40', async (a) => {
   const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
     .catch(() => null);
+  const project = openCMv40Projects.find(p => p.session && p.session.id === a.id);
   return {
     titulo: s?.output_mkv_name || a.que,
     sub: s?.source_mkv_name || '',
-    pasos: ['Analizar origen', 'RPU target', 'Extraer BL/EL', 'Verificar sync',
-            'Inyectar', 'Remuxar', 'Validar'],
+    // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
+    // la tenía el overlay de ejecución. Se reusa tal cual —misma función que
+    // pinta la del panel— para que las dos digan exactamente lo mismo.
+    lateral: s ? _cmv40RenderTimeline(s, project || { session: s }) : '',
+    // La tira de pasos de la cabecera sobra teniendo la timeline al lado, que
+    // dice lo mismo y mejor.
+    pasos: [],
     conLog: true,
     cuerpo: _trabajoLogHTML(s?.output_log),
   };

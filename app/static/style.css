@@ -9277,3 +9277,93 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 /* La cabecera del modal ya no lleva un emoji dentro, sino el chip. */
 #trabajo-modal-icono { display: flex; align-items: center; justify-content: center; }
+
+/* ── Modal de trabajo: dos columnas ────────────────────────────────
+   La izquierda es la timeline de fases con sus tiempos —lo que tenía el
+   overlay de ejecución de CMv4.0, que este modal sustituye— y la derecha, la
+   cabecera, el progreso y el log. Si un tipo de trabajo no tiene timeline, la
+   columna se oculta y el modal se queda a una. */
+.trabajo-modal-caja {
+  max-width: 1120px;
+  width: calc(100vw - 80px);
+  display: flex;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.trabajo-modal-lateral {
+  width: 330px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border-right: 1px solid var(--sep);
+  padding: 16px 14px;
+}
+.trabajo-modal-lateral:empty { display: none; }
+.trabajo-modal-principal {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px 14px;
+  overflow: hidden;
+}
+.trabajo-modal-principal #trabajo-modal-cuerpo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+/* El log ocupa lo que sobra y hace scroll DENTRO, no arrastrando el modal:
+   el primer intento lo dejaba crecer y salía cortado por arriba y por abajo. */
+.trabajo-modal-principal .cmv40-log {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+}
+.trabajo-modal-principal .modal-footer { margin-top: 12px; flex-shrink: 0; }
+
+@media (max-width: 980px) {
+  .trabajo-modal-caja { flex-direction: column; width: calc(100vw - 32px); }
+  .trabajo-modal-lateral { width: auto; border-right: none; border-bottom: 1px solid var(--sep); }
+}
+
+/* La timeline del rip dentro del modal. Misma anatomía que la de CMv4.0 —una
+   fila por fase con su estado y su tiempo— para que las dos pestañas se lean
+   igual, que es de lo que va todo este bloque. */
+.rip-tl-cabecera {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-3); margin-bottom: 10px;
+}
+.rip-tl-fase {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 0; border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+.rip-tl-fase:last-child { border-bottom: none; }
+.rip-tl-fase.pending { opacity: .45; }
+.rip-tl-titulo { font-size: 12px; font-weight: 600; color: var(--text-1); }
+.rip-tl-fase.active .rip-tl-titulo { color: var(--blue); }
+.rip-tl-sub { font-size: 10px; color: var(--text-3); }
+.rip-tl-tiempo {
+  font-size: 11px; color: var(--text-2);
+  font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+
+/* El ✕ de cada trabajo en cola. Discreto hasta que se pasa por encima: lo
+   primero que hay que leer es qué espera, no cómo quitarlo. */
+.workbar-item-quitar {
+  flex-shrink: 0;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--text-3); font-size: 12px; line-height: 1;
+  padding: 3px 4px; border-radius: 5px; opacity: 0;
+  transition: opacity .12s ease, background .12s ease;
+}
+.workbar-item:hover .workbar-item-quitar { opacity: 1; }
+.workbar-item-quitar:hover { background: var(--red-dim); color: var(--red); }
+
+/* Arrastrar para reordenar la cola: el cursor lo dice. */
+.workbar-seccion-cola .workbar-item { cursor: grab; }
+.workbar-seccion-cola .workbar-item:active { cursor: grabbing; }
+.workbar-seccion-cola .sortable-ghost { opacity: .4; }

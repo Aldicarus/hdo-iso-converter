@@ -828,8 +828,9 @@ async def mkv_cache_delete_endpoint(file_path: str = ""):
         raise HTTPException(status_code=400, detail="file_path requerido")
     mkv_path_obj = _resolve_mkv_path_safe(file_path)
     mkv_full = str(mkv_path_obj)
-    if not mkv_path_obj.exists():
-        raise HTTPException(status_code=404, detail=f"MKV no encontrado: {file_path}")
+    # Sin el 404 de «MKV no encontrado» a propósito: un fichero movido o
+    # borrado deja su análisis en el cache para siempre, y ésa es justamente la
+    # entrada que uno quiere poder quitar de la lista.
     from storage import invalidate_mkv_cache_by_path
     removed = invalidate_mkv_cache_by_path(mkv_full)
     return {"ok": True, "cache_removed": removed, "file_path": mkv_full}

@@ -1056,13 +1056,32 @@ def invalidate_mkv_cache(fingerprint_sha: str) -> bool:
 
 
 def invalidate_mkv_cache_by_path(mkv_path: str) -> bool:
-    """Calcula el fingerprint del MKV y borra su cache si existe.
-    Tolerante: si el fichero no existe o no se puede leer, devuelve False
-    sin lanzar."""
+    """Borra el cache de un MKV. Tolerante: nunca lanza.
+
+    Con el fichero delante va por su fingerprint, que es como está indexado el
+    cache. **Si el fichero ya no está**, se busca la entrada cuya ruta
+    coincida: el fingerprint no se puede calcular sin el fichero, y ésa es
+    justamente la entrada que uno quiere poder quitar de la lista — un MKV
+    movido o borrado deja su análisis ahí para siempre.
+    """
     try:
         fp = compute_mkv_fingerprint(mkv_path)
-        if not fp:
-            return False
-        return invalidate_mkv_cache(fp["sha256_1mb"])
+        if fp:
+            return invalidate_mkv_cache(fp["sha256_1mb"])
     except OSError:
-        return False
+        pass
+    objetivo = str(Path(mkv_path))
+    try:
+        for f in MKV_AUDIT_DIR.glob("*.json"):
+            try:
+                datos = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(datos, dict):
+                continue
+            if str(datos.get("original_file_path") or "") == objetivo:
+                f.unlink()
+                return True
+    except OSError:
+        pass
+    return False
