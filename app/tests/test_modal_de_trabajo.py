@@ -375,6 +375,72 @@ _workbarDetalles['cmv40'] = async (a) => ({{
                          "el modal sigue con SU trabajo, no salta al nuevo")
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestCancelarNuncaSeVaDeVacio(unittest.TestCase):
+    """Se vio en el NAS: el usuario pulsa Cancelar y no pasa NADA — ni
+    petición en el log del servidor, ni toast, ni error de JS. La función leía
+    siempre el activo del último poll, y en el hueco entre dos fases eso es
+    `null`, así que salía por un `return` mudo.
+
+    Un botón que no hace nada y no lo dice es el peor modo de fallo que tiene
+    esta aplicación; ya pasó con el overlay que se comía los clics.
+    """
+
+    def _pulsar(self, activo, ultimo=None, arg="undefined") -> dict:
+        guion = f"""
+let workbarEstado = {{ activo: {json.dumps(activo)}, cola: [] }};
+let _trabajoModalUltimo = {json.dumps(ultimo)};
+const _llamadas = [], _toasts = [];
+globalThis.apiFetch = async (url, o) => {{ _llamadas.push([url, o?.method]); }};
+globalThis.showToast = (t, k) => _toasts.push([t, k]);
+globalThis._mkvQualityCancel = () => _llamadas.push(['_mkvQualityCancel']);
+globalThis.cancelMkvApply = () => _llamadas.push(['cancelMkvApply']);
+globalThis.refrescarWorkbar = () => {{}};
+let _confirm = null;
+globalThis.showConfirm = (t, m, fn, label) => {{ _confirm = {{t, m, label}}; fn(); }};
+{_fn('cancelarTrabajoActivo')}
+cancelarTrabajoActivo({arg});
+setTimeout(() => console.log(JSON.stringify(
+  {{ llamadas: _llamadas, toasts: _toasts, confirm: _confirm }})), 10);
+"""
+        return _node(guion)
+
+    _ACTIVO = {"id": "p1", "sobre": "p1", "tab": "cmv40", "que": "Fase C",
+               "detalle": "cmv40"}
+
+    def test_con_activo_manda_la_peticion(self):
+        r = self._pulsar(self._ACTIVO)
+        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+
+    def test_sin_activo_cae_en_el_que_el_modal_esta_mirando(self):
+        """El hueco entre dos fases duraba más que la paciencia del usuario."""
+        r = self._pulsar(None, ultimo=self._ACTIVO)
+        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+
+    def test_el_modal_manda_su_trabajo_aunque_haya_otro_activo(self):
+        otro = dict(self._ACTIVO, id="p2", tab="rip", detalle="rip")
+        r = self._pulsar(otro, arg=json.dumps(self._ACTIVO))
+        self.assertEqual(r["llamadas"], [["/api/cmv40/p1/cancel", "POST"]])
+
+    def test_sin_nada_que_cancelar_LO_DICE(self):
+        r = self._pulsar(None)
+        self.assertEqual(r["llamadas"], [])
+        self.assertTrue(r["toasts"], "un return mudo deja al usuario a ciegas")
+
+    def test_una_pestana_que_no_sabe_cancelar_LO_DICE(self):
+        r = self._pulsar(dict(self._ACTIVO, tab="marciano"))
+        self.assertEqual(r["llamadas"], [])
+        self.assertEqual(r["toasts"][0][1], "error")
+
+    def test_el_dialogo_no_ofrece_cancelar_dos_veces(self):
+        """El botón de confirmar decía «Cancelar el trabajo» al lado del de
+        descartar, que dice «Cancelar»: dos botones «Cancelar» con sentidos
+        opuestos en el mismo diálogo."""
+        r = self._pulsar(self._ACTIVO)
+        self.assertNotIn("Cancelar", r["confirm"]["label"])
+        self.assertNotIn("Cancelar", r["confirm"]["t"])
+
+
 class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
     """Era la asimetría: Tab 2 y Tab 3 no tienen nada equivalente en el centro,
     y además duplicaba lo que ahora dice la columna."""
