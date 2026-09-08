@@ -9276,25 +9276,33 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-paso .icono-chip { background: transparent; }
 
 /* La cabecera del modal ya no lleva un emoji dentro, sino el chip. */
-#trabajo-modal-icono { display: flex; align-items: center; justify-content: center; }
+#trabajo-modal-icono.modal-icon {
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* ── Modal de trabajo: dos columnas ────────────────────────────────
    La izquierda es la timeline de fases con sus tiempos —lo que tenía el
    overlay de ejecución de CMv4.0, que este modal sustituye— y la derecha, la
    cabecera, el progreso y el log. Si un tipo de trabajo no tiene timeline, la
    columna se oculta y el modal se queda a una. */
+/* Las medidas y los tonos son los de `.cmv40-running-box`, medidos contra el
+   overlay real: caja de 1180×580 con borde azul, radio medio y la sombra
+   fuerte. No son «parecidos»: se compararon las dos con getComputedStyle. */
 .trabajo-modal-caja {
-  max-width: 1120px;
-  width: calc(100vw - 80px);
+  width: min(1180px, 95vw);
+  max-width: none;
+  border: 1px solid var(--blue);
+  border-radius: var(--r-md);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  animation: none;
   /* El tope de altura NO es decorativo: sin él las dos columnas crecen con su
      contenido —una timeline de siete fases, un log de dos mil líneas— la caja
      se sale de la ventana y el pie con los botones queda debajo del borde
      inferior. Es lo que se veía como «contenido descentrado y log cortado».
      Con el tope, quien hace scroll es cada columna por dentro. */
-  height: calc(100vh - 72px);
-  max-height: 860px;
+  height: 580px;
+  max-height: 85vh;
   display: flex;
-  gap: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -9320,13 +9328,15 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
 }
+/* Los tipos sin timeline propia traen su lista, que sí scrolla. */
+.trabajo-tl-lista { flex: 1; min-height: 0; overflow-y: auto; }
 /* Los tipos que solo dan una lista de fases no traen su propio contenedor
    con padding, así que se lo pone la columna. La timeline de CMv4.0 sí lo
    trae, y ahí sobra: por eso va sobre las filas, no sobre el hueco. */
-#trabajo-modal-timeline > .trabajo-tl-cabecera { padding: 14px 14px 0; }
-#trabajo-modal-timeline > .trabajo-tl-fase { padding-left: 14px; padding-right: 14px; }
+#trabajo-modal-timeline > .trabajo-tl-cabecera { padding: 14px 14px 8px; flex-shrink: 0; }
+#trabajo-modal-timeline .trabajo-tl-fase { padding-left: 14px; padding-right: 14px; }
 
 /* La cartela de la película, arriba de la columna izquierda. Es la mini
    cabecera que tenía el overlay de ejecución de CMv4.0: fondo claro propio
@@ -9336,7 +9346,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: var(--surface-1);
+  background: #f5f5f7;
   border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
 }
@@ -9344,8 +9354,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-shrink: 0;
   width: 50px; height: 75px;
   border-radius: 4px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  background: var(--surface-4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  background: var(--surface-3);
   display: flex; align-items: center; justify-content: center;
   font-size: 22px;
   overflow: hidden;
@@ -9356,16 +9366,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-cartel-info { flex: 1; min-width: 0; display: flex;
   flex-direction: column; gap: 4px; }
 .trabajo-cartel-titulo {
-  font-size: 13px; font-weight: 700; color: var(--text-1);
+  font-size: 13px; font-weight: 700; color: #1a1d24;
   letter-spacing: .1px; line-height: 1.25;
-  /* Dos líneas: un título de película con año y tags no cabe en una y
-     cortarlo con puntos suspensivos es justo perder lo que distingue una
-     edición de otra. */
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .trabajo-cartel-meta {
-  font-size: 11.5px; color: var(--text-3); letter-spacing: .2px;
+  font-size: 11.5px; color: #5a616e; letter-spacing: .2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -9373,14 +9379,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    este modal sustituye. El porcentaje va en grande y con cifras de ancho fijo
    para que no baile al cambiar de 9 % a 10 %. */
 .trabajo-progreso {
-  flex-shrink: 0;
-  margin-top: 12px;
-  padding: 12px 14px;
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 14px 18px;
   background: #1a1e2a;
-  border: 1px solid #2a2f3d;
-  border-radius: var(--r-md) var(--r-md) 0 0;
-  border-bottom: none;
-  display: flex; flex-direction: column; gap: 9px;
+  border: none;
+  border-bottom: 1px solid #2a2f3d;
+  border-radius: 0;
+  display: flex; flex-direction: column; gap: 10px;
 }
 .trabajo-progreso-meta {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -9420,7 +9426,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(320%); }
 }
-.trabajo-progreso-tiempos { font-size: 11px; color: #9aa3b2; }
+
 @media (prefers-reduced-motion: reduce) {
   .trabajo-progreso-track.indeterminada .trabajo-progreso-fill {
     animation: none; width: 100%; opacity: .35;
@@ -9439,7 +9445,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 20px 22px 14px;
+  padding: 0;
   overflow: hidden;
 }
 /* `.modal-header` y `.modal-icon` no existían: los modales de esta aplicación
@@ -9451,13 +9457,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   align-items: center;
   gap: 14px;
   flex-shrink: 0;
-  margin: -20px -22px 0;
-  padding: 14px 20px;
+  margin: 0;
+  padding: 16px 20px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--sep);
 }
-.trabajo-modal-principal .modal-title { margin-bottom: 2px; }
-.trabajo-modal-principal .modal-sub   { margin-bottom: 0; font-size: 11px; }
+.trabajo-modal-principal .modal-title {
+  font-size: 14px; font-weight: 700; color: var(--text-1);
+  display: block; margin: 0; letter-spacing: normal; line-height: 1.5;
+  gap: normal; align-items: normal;
+}
+.trabajo-modal-principal .modal-sub {
+  font-size: 11px; color: var(--text-3); margin: 2px 0 0; line-height: 1.5;
+}
 .trabajo-modal-principal .modal-header .btn { flex-shrink: 0; }
 .trabajo-modal-principal .trabajo-detalle-vacio {
   flex: 1;
@@ -9471,23 +9483,24 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin-top: 12px;
+  margin: 0;
 }
 /* El log ocupa lo que sobra y hace scroll DENTRO, no arrastrando el modal:
    el primer intento lo dejaba crecer y salía cortado por arriba y por abajo. */
 .trabajo-modal-principal .cmv40-log {
-  flex: 1;
-  min-height: 160px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 16px;
   /* `.cmv40-log` viene con `max-height: 300px` para su uso en el panel de
      Tab 3. Aquí manda el alto de la caja: sin quitarlo, el log se quedaba en
      300 px con medio modal en blanco debajo. */
   max-height: none;
   overflow-y: auto;
   margin: 0;
-  border-radius: 0 0 var(--r-md) var(--r-md);
+  border-radius: 0;
 }
 .trabajo-modal-principal #trabajo-modal-cuerpo { margin-top: 0; }
-.trabajo-modal-principal #trabajo-modal-cuerpo { padding-bottom: 14px; }
+
 
 @media (max-width: 980px) {
   .trabajo-modal-caja {

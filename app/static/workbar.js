@@ -395,7 +395,14 @@ function cancelarTrabajoActivo(trabajo) {
   showConfirm(
     '¿Detener el trabajo?',
     `Se detendrá «${a.que}». Lo que ya esté hecho se conserva.`,
-    async () => { await accion(); refrescarWorkbar(); },
+    async () => {
+      await accion();
+      // El overlay desaparecía al llegar la fase a terminal; cancelar es
+      // terminal. Dejarlo abierto «en modo cancelado» obliga a cerrarlo a
+      // mano para ver el proyecto que hay debajo.
+      cerrarModalDeTrabajo();
+      refrescarWorkbar();
+    },
     'Sí, detenerlo',
   );
 }
@@ -492,7 +499,8 @@ function timelineDeTrabajo(pasos, a, titulo) {
         </div>
       </div>`;
   }).join('');
-  return `<div class="trabajo-tl-cabecera">${escHtml(titulo || 'Fases')}</div>${filas}`;
+  return `<div class="trabajo-tl-cabecera">${escHtml(titulo || 'Fases')}</div>`
+       + `<div class="trabajo-tl-lista">${filas}</div>`;
 }
 
 function _trabajoModalPinta(a, vista) {
@@ -501,11 +509,19 @@ function _trabajoModalPinta(a, vista) {
     if (el) el.textContent = txt;
   };
   const iconoEl = document.getElementById('trabajo-modal-icono');
-  if (iconoEl) iconoEl.innerHTML = iconoDeTrabajo(a.tipo, 'icono-chip-lg');
+  if (iconoEl) {
+    // Mientras hay trabajo, el aro que gira del overlay (`cmv40-running-spinner`,
+    // 28 px, `cmv40-spin` a 0,8 s). El chip del tipo es estático y ese
+    // movimiento es la señal de que la cosa sigue viva. Parado, el chip.
+    const enMarcha = a.cancelable !== false && a.paso !== 'Terminado';
+    iconoEl.className = enMarcha ? 'cmv40-running-spinner' : 'modal-icon';
+    iconoEl.innerHTML = enMarcha ? '' : iconoDeTrabajo(a.tipo, 'icono-chip-lg');
+  }
   // La cabecera dice QUÉ está pasando. El nombre del fichero no va aquí: lo
   // enseña la cartela de la columna, y repetirlo dejaba tres líneas con el
   // mismo título (cartela + nombre de salida + nombre de origen).
-  set('trabajo-modal-titulo', a.fase_label || vista.titulo || a.que || 'Trabajo');
+  set('trabajo-modal-titulo',
+      (vista.autoTag || '') + (a.fase_label || vista.titulo || a.que || 'Trabajo'));
   set('trabajo-modal-sub', vista.sub || '');
   _trabajoCartelPinta(vista.cartel);
   // La tira horizontal se retiró: las fases van SIEMPRE en la columna. Los
@@ -529,8 +545,8 @@ function _trabajoModalPinta(a, vista) {
     ? `Restante ${_workbarTiempo(a.eta_s)}`
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : '');
-  set('trabajo-modal-tiempos', `Lleva ${_workbarTiempo(a.segundos)}`
-    + (a.fase_n ? ` · fase ${a.fase_n} de ${a.fases_total}` : ''));
+  set('trabajo-modal-tiempos', a.segundos
+    ? `Lleva ${_workbarTiempo(a.segundos)}` : '');
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) {

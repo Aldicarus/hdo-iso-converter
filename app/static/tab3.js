@@ -6546,6 +6546,9 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     // El de SALIDA, que es lo que se está produciendo. El de origen ya está
     // dicho por la cartela.
     sub: s?.output_mkv_name || '',
+    // El overlay marcaba con 🤖 que la cadena avanza sola. Es información:
+    // dice si al terminar esta fase arrancará la siguiente.
+    autoTag: s?.auto_pipeline ? '🤖 Auto · ' : '',
     cartel: cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name, '✨'),
     // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
     // la tenía el overlay de ejecución. Se reusa tal cual —misma función que
