@@ -193,13 +193,27 @@ class TestTab3(AdmisionApiCase):
             {"analyze_source", "extract", "correct_sync", "inject", "remux",
              "validate", "target_rpu_mkv"})
 
-    def test_solo_los_pre_flight_conservan_el_409(self):
-        """No pasan por la cola todavía, así que siguen rechazando."""
-        import re
+    def test_ya_no_queda_ningun_409_en_tab_3(self):
+        """Ni siquiera en los pre-flight, que fueron los últimos en caer.
+
+        Se dispara **solo** al crear un proyecto con target, así que
+        rechazarlo dejaba el flujo muerto nada más empezar: el proyecto se
+        creaba, el pre-flight daba 409 y el auto-pipeline no arrancaba nunca
+        — con el poller de seguridad reintentando cada 4 s y un aviso ámbar
+        cada vez. Y encolarlo habría sido peor: 40 minutos de espera por
+        nueve segundos de trabajo (mediana medida sobre 91 pre-flights;
+        p90 49 s, máximo 116 s).
+        """
         src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
-        n = len(re.findall(r"_cmv40_guard_sin_trabajo_pesado\(session\)", src))
-        self.assertEqual(n, 2, f"{n} sitios con el guard; se esperaban los dos "
-                               "pre-flight y nada más")
+        self.assertNotIn("_cmv40_guard_sin_trabajo_pesado", src)
+        self.assertNotIn("workload.exigir_libre", src)
+
+    def test_el_pre_flight_no_bloquea_con_un_rip_en_curso(self):
+        """El caso concreto: crear un proyecto CMv4.0 mientras rippeas."""
+        sid = self.crear_sesion(sid="cmv40_pf", phase="created")
+        workload.registrar("rip1", workload.TAB_RIP, "rip de Peli (2024)")
+        r = self.client.post(f"/api/cmv40/{sid}/preflight-source")
+        self.assertNotEqual(r.status_code, 409, r.text)
 
     def test_con_la_casa_libre_tambien_encola(self):
         """La cola es el camino único: no hay una vía rápida que se salte el

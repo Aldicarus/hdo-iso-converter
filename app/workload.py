@@ -295,11 +295,6 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/{session_id}/inject":            CLASE_DIFERIDO,  # Fase F
     "POST /api/cmv40/{session_id}/remux":             CLASE_DIFERIDO,  # Fase G
     "POST /api/cmv40/{session_id}/validate":          CLASE_DIFERIDO,  # Fase H
-    # Los dos pre-flight registran y por tanto bloquean. Se quedan diferidos:
-    # son cortos, pero descargan un bin y corren un `dovi_tool export`, y la
-    # decisión de 2026-09-07 es que TODO lo que no sea consulta va a la cola.
-    "POST /api/cmv40/{session_id}/preflight-target":  CLASE_DIFERIDO,
-    "POST /api/cmv40/{session_id}/preflight-source":  CLASE_DIFERIDO,
 
     # ── Trabajo INTERACTIVO: pesado con el usuario delante. Se ve, no bloquea.
     "POST /api/analyze":                    CLASE_INTERACTIVO,  # Fase A+B del disco
@@ -311,6 +306,13 @@ CLASE_POR_RUTA: dict[str, str] = {
     # usuario mirando el asistente. La tercera (`from-mkv`) sí es pesada.
     "POST /api/cmv40/{session_id}/target-rpu-path":       CLASE_INTERACTIVO,
     "POST /api/cmv40/{session_id}/target-rpu-from-drive": CLASE_INTERACTIVO,
+    # Y los dos pre-flight: mediana **9 s**, p90 49 s y máximo 116 s sobre los
+    # 91 del NAS. Son lo PRIMERO que corre al crear un proyecto, así que
+    # bloquearlos dejaba el flujo muerto nada más empezar — y encolarlos
+    # detrás de un rip, peor: el asistente se queda esperando 40 minutos por
+    # nueve segundos de trabajo.
+    "POST /api/cmv40/{session_id}/preflight-target":      CLASE_INTERACTIVO,
+    "POST /api/cmv40/{session_id}/preflight-source":      CLASE_INTERACTIVO,
     "POST /api/sessions/{session_id}/reset-chapters": CLASE_INTERACTIVO,  # re-monta el ISO
     # Analiza N episodios: es lo más largo de esta clase. → con la cola única
     # pasa a DIFERIDO; hoy sigue interactivo porque la cola aún no existe y

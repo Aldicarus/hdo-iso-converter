@@ -734,6 +734,15 @@ persiste**: es estado de la cola, y la cola ya lo tiene.
 subproceso o sacarlo de la fila— y para el usuario es el mismo botón, así que
 `cmv40_cancel` hace las dos cosas.
 
+**En Tab 3 ya no queda ningún 409 de admisión.** Los dos pre-flight fueron los
+últimos y tampoco se encolan: medidos sobre los 91 del NAS son **9 s de
+mediana** (p90 49 s, máximo 116 s), y son **lo primero que corre al crear un
+proyecto** con target. Rechazarlos dejaba el flujo muerto nada más empezar —el
+proyecto se creaba, el pre-flight daba 409 y el auto-pipeline no arrancaba
+nunca, con el poller de seguridad reintentando cada 4 s—; y encolarlos habría
+sido peor, cuarenta minutos de espera por nueve segundos de trabajo. Son
+`CLASE_INTERACTIVO`: se ven en `/api/activity`, no vetan a nadie.
+
 ### La máquina, y qué cuesta de verdad solaparse (medido 2026-09-07)
 
 | | |

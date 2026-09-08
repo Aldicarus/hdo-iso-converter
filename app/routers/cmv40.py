@@ -913,18 +913,6 @@ def _cmv40_launch_phase(
     asyncio.create_task(_run())
 
 
-def _cmv40_guard_sin_trabajo_pesado(session: CMv40Session) -> None:
-    """409 si hay trabajo pesado en OTRO sitio.
-
-    `excepto=session.id` es lo que permite que el auto-pipeline siga: cuando
-    una fase de este proyecto termina y dispara la siguiente, el hueco todavía
-    lo tiene él y no debe bloquearse a sí mismo. Lo que sí se bloquea es un
-    SEGUNDO proyecto de Tab 3 —el lock de fases es por `session_id`, así que
-    antes corrían N a la vez— y cualquier cosa pesada de Tab 1 o Tab 2.
-    """
-    workload.exigir_libre(session.id)
-
-
 def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
     """409 si la sesión arrastra un error sin resolver.
 
@@ -1353,8 +1341,14 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
-            workload.registrar(session.id, workload.TAB_CMV40,
-                               f"pre-flight de {session.output_mkv_name or session.id}")
+            workload.registrar(
+                session.id, workload.TAB_CMV40,
+                f"pre-flight de {session.output_mkv_name or session.id}",
+                # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
+                # sobre 91 pre-flights del NAS. Se apunta para que se vea,
+                # pero no puede vetar a nadie — es lo primero que corre al
+                # crear un proyecto y bloquearlo dejaba el flujo muerto.
+                workload.CLASE_INTERACTIVO)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3188,6 +3182,7 @@ class CMv40PreflightRequest(BaseModel):
 @router.post(
     "/api/cmv40/{session_id}/preflight-target",
     summary="Pre-flight asíncrono: valida bin target antes de Fase A (ahorra ~12 min si bin sin CMv4.0)",
+    dependencies=[Depends(workload.marca("pre-flight del bin target", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     """
@@ -3213,7 +3208,6 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     # Guard contra re-disparo: si el pre-flight ya emitió una decisión
     # firme (keep_l8_default, keep_no_l8, abort_no_cmv40), NO re-ejecutar.
@@ -3275,8 +3269,14 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
-            workload.registrar(session.id, workload.TAB_CMV40,
-                               f"pre-flight de {session.output_mkv_name or session.id}")
+            workload.registrar(
+                session.id, workload.TAB_CMV40,
+                f"pre-flight de {session.output_mkv_name or session.id}",
+                # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
+                # sobre 91 pre-flights del NAS. Se apunta para que se vea,
+                # pero no puede vetar a nadie — es lo primero que corre al
+                # crear un proyecto y bloquearlo dejaba el flujo muerto.
+                workload.CLASE_INTERACTIVO)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3348,6 +3348,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
 @router.post(
     "/api/cmv40/{session_id}/preflight-source",
     summary="Pre-flight asíncrono: valida que el MKV origen tenga DV (sin target)",
+    dependencies=[Depends(workload.marca("pre-flight del origen", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_source(session_id: str):
     """Sniff de 30s del MKV origen + dovi_tool extract-rpu. Aborta si no hay
@@ -3361,7 +3362,6 @@ async def cmv40_preflight_source(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    _cmv40_guard_sin_trabajo_pesado(session)
 
     if DEV_MODE:
         session.source_preflight_ok = True
@@ -3378,8 +3378,14 @@ async def cmv40_preflight_source(session_id: str):
     async def _run():
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
-            workload.registrar(session.id, workload.TAB_CMV40,
-                               f"pre-flight de {session.output_mkv_name or session.id}")
+            workload.registrar(
+                session.id, workload.TAB_CMV40,
+                f"pre-flight de {session.output_mkv_name or session.id}",
+                # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
+                # sobre 91 pre-flights del NAS. Se apunta para que se vea,
+                # pero no puede vetar a nadie — es lo primero que corre al
+                # crear un proyecto y bloquearlo dejaba el flujo muerto.
+                workload.CLASE_INTERACTIVO)
             session.error_message = ""
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
