@@ -276,11 +276,11 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 ## Tab 2 — Editar MKV
 
 ### Arquitectura
-- **Sin persistencia**: estado ephemeral en el frontend (`mkvProject`). Un solo MKV abierto a la vez.
-- **Backend stateless**: 3 endpoints bajo `/api/mkv/`.
+- **Sin persistencia**: estado ephemeral en el frontend (`openMkvProjects`, hasta 5 sub-pestañas). No sobrevive a un refresco de la página.
+- **Backend stateless**: los endpoints de `/api/mkv/` no guardan sesión; lo único que persiste es la caché de análisis por fingerprint.
 - **Edición in-place**: solo `mkvpropedit` (O(1), instantáneo). Sin remux.
 - **Análisis extendido**: `mkvmerge -J` + MediaInfo (bitrate, format_commercial, HDR).
-- **Sin sidebar**: Tab 2 ocupa todo el ancho. Botón "Abrir MKV" centrado.
+- **Columna izquierda**: los MKVs analizados (ver abajo). El botón "Abrir MKV" vive ahí, donde el primario de las otras dos pestañas.
 
 ### Flujo
 1. "Abrir MKV" → file browser unificado con roots Library + Output
@@ -304,12 +304,57 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
+- `GET /api/mkv/recientes` — los MKVs analizados (columna izquierda). Solo lee `/config/mkv_audits/`; no analiza nada
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
 - `POST /api/mkv/quality-audit` — **análisis extendido**: combos L8/L2 + perfil de luminancia, con una sola extracción del RPU. Cachea los dos. (La URL conserva el nombre viejo; `POST /api/mkv/light-profile` ya no existe.)
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
 - `GET /api/mkv/light-profile-cached` — perfil de luminancia YA cacheado de otro MKV, para el comparador A/B. No analiza.
 - `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
 - `POST /api/mkv/apply/cancel` — solicita la cancelación cooperativa de la copia. Solo efectiva durante `step=copying`.
+
+### La columna izquierda: los MKVs analizados, no «proyectos»
+
+Las tres pestañas comparten armazón —primario arriba, cabecera con contador,
+búsqueda, ordenación, filtros y tarjetas— y la de Tab 2 estuvo **vacía** mucho
+tiempo, con `switchTab` escondiendo el `#sidebar` entero para que la pestaña
+ocupara todo el ancho. El motivo de fondo es que Tab 2 **no persiste
+proyectos**: `openMkvProjects` vive en memoria y se va al recargar.
+
+Lo que sí sobrevive es **la caché de análisis** (`/config/mkv_audits/`), un
+fichero por MKV abierto alguna vez, así que `GET /api/mkv/recientes` la lista
+sin añadir persistencia nueva. Reabrir uno de ahí es instantáneo (cache hit),
+que es justo lo que hace útil la columna.
+
+Cinco decisiones que la definen:
+
+- **El MKV que ya no está en su ruta se MARCA, no se oculta.** La caché va por
+  fingerprint y `original_file_path` es una pista: el análisis sigue siendo
+  válido y se reaprovecha si el fichero reaparece. La tarjeta sale apagada, con
+  chip ⚠️, y **sin botón de abrir** — llamar al backend daría un 404 seco.
+- **Un bloque con la versión caducada NO cuenta como análisis hecho.**
+  `read_mkv_cache` no lo sirve, así que abrir ese MKV lo reanaliza: anunciar
+  «🔬 extendido» sería prometer algo que la app va a recalcular. Arrastra al
+  perfil de luminancia, que vive DENTRO del bloque `quality`.
+- **El fingerprint NO se recalcula al listar.** Serían 1 MB leídos por MKV sobre
+  el pool del NAS cada vez que se entra en la pestaña. Solo se comprueba que el
+  fichero exista; de que el contenido coincida ya se encarga la apertura.
+- **Los cuatro pills cubren TODAS las tarjetas.** «Sin extendido» (📋) incluye
+  también las de caché caducada; si exigiera `tiene_basico`, esas solo saldrían
+  con «Todos» y quien filtra las daría por desaparecidas.
+- **Se refresca donde la caché cambia**, y solo ahí: al terminar un análisis, al
+  terminar el análisis extendido y tras un `apply` (que la invalida y la
+  reescribe, con otra ruta si el MKV venía de la biblioteca).
+
+**El historial (`historial.jsonl`) NO se cruza con esta lista.** No comparte
+clave con la caché —la única referencia al fichero es el texto libre de `que`,
+«análisis extendido de X.mkv»— así que unirlos sería un match por basename, y
+después de una copia desde biblioteca hay dos rutas con el mismo basename. La
+caché ya responde las cuatro preguntas de la tarjeta.
+
+El recorrido del directorio va en un `asyncio.to_thread` y lo lee
+`storage.list_mkv_audit_entries`, que es **el único lector de `mkv_audits/`**
+(lo comparte con el scan de huérfanos). Ojo con su `size_bytes`: es el del
+fichero de caché; el del MKV es `mkv_size_bytes` y sale del fingerprint.
 
 ### Editable
 - Pistas audio: nombre, flag default
@@ -559,7 +604,7 @@ Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_ack
 |---|---|
 | `main.py` (1.215) | La `app`, los estáticos y **lo que es de toda la aplicación**: salud/estado/actividad, versión y chequeo de actualizaciones, ajustes, el scan + borrado de huérfanos y el arranque |
 | `routers/tab1.py` (2.900) | **Tab 1** — orígenes, sesiones, análisis, series TV, la cola, el orquestador `_run_pipeline` + `_validate_final_mkv`, y los WS `/ws/{id}` y `/ws/queue` |
-| `routers/tab2.py` (1.311) | **Tab 2** — `/api/mkv/*`, el file browser, la auditoría de calidad del RPU y el apply con copia desde biblioteca |
+| `routers/tab2.py` (1.598) | **Tab 2** — `/api/mkv/*`, el file browser, la auditoría de calidad del RPU y el apply con copia desde biblioteca |
 | `routers/cmv40.py` (3.829) | **Tab 3** — los 37 endpoints de `/api/cmv40/*` + el WS del log + el auto-pipeline |
 | `paths.py` · `workload.py` · `analysis_progress.py` | lo que comparten |
 
@@ -1749,7 +1794,7 @@ Detalles que no son accidentales:
 | `settings.js` | 656 | ⚙︎ Configuración, el pill de versión, el panel de Limpieza |
 | `cmv40_modals.js` | 1.991 | consulta rápida, manual CMv4.0, limpieza masiva (lo de Tab 3 que no toca una sesión) |
 | `tab1.js` | 5.342 | nuevo proyecto, modo serie, sidebar, render de sesión, cola, consola, WS |
-| `tab2.js` | 2.936 | editar MKV + radiografía DV+HDR |
+| `tab2.js` | 3.667 | editar MKV + radiografía DV+HDR + la columna de MKVs analizados |
 | `tab3.js` | 6.385 | proyectos CMv4.0, cards por fase, overlay, gráfico de sync |
 | `browser.js` | 289 | el file browser modal, que comparten Tab 2 y Tab 3 |
 

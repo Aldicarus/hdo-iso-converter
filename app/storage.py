@@ -969,6 +969,16 @@ def list_mkv_audit_entries() -> list[dict]:
       - caches con quality_payload basura (total_frames_rpu == 0)
       - caches con versions obsoletas vs CACHE_VERSION_BASIC/QUALITY
       - ficheros corruptos (JSON inválido)
+
+    …y por `GET /api/mkv/recientes`, la columna izquierda de Tab 2, que
+    necesita además el tamaño y la duración del MKV y si la auditoría trae
+    perfil de luminancia. Van aquí y no en un segundo recorrido del
+    directorio porque el JSON ya está parseado: **un solo lector de
+    `mkv_audits/`**, la misma regla que dejó un único parser del export de
+    `dovi_tool`.
+
+    Ojo con `size_bytes`: es el del FICHERO DE CACHÉ (lo que ocuparía el
+    huérfano). El del MKV va en `mkv_size_bytes`, y sale del fingerprint.
     """
     if not MKV_AUDIT_DIR.exists():
         return []
@@ -993,19 +1003,39 @@ def list_mkv_audit_entries() -> list[dict]:
                 "error": str(e),
             })
             continue
+        if not isinstance(data, dict):
+            # JSON válido pero que no es una caché: una escritura de otra cosa
+            # en el directorio, o un fichero truncado a `[]`. Sin este guard el
+            # `data.get` de abajo lanza AttributeError y se lleva por delante
+            # al llamador entero — el scan de huérfanos y la lista de Tab 2.
+            out.append({
+                "cache_path": str(path),
+                "size_bytes": size,
+                "age_seconds": age,
+                "corrupt": True,
+                "error": f"el JSON no es un objeto ({type(data).__name__})",
+            })
+            continue
         quality = data.get("quality") or None
+        basic = data.get("basic") or None
+        fingerprint = data.get("fingerprint") or {}
         out.append({
             "cache_path": str(path),
-            "fingerprint_sha": (data.get("fingerprint") or {}).get("sha256_1mb", ""),
+            "fingerprint_sha": fingerprint.get("sha256_1mb", ""),
             "original_file_path": data.get("original_file_path"),
             "versions": data.get("versions") or {},
             "cached_at": data.get("cached_at"),
             "size_bytes": size,
             "age_seconds": age,
-            "basic_present": bool(data.get("basic")),
+            "basic_present": bool(basic),
             "quality_present": bool(quality),
             "quality_total_frames": quality.get("quality_total_frames_rpu") if quality else None,
             "quality_classification": quality.get("quality_classification") if quality else None,
+            # Del MKV, no del fichero de caché. El tamaño se sabe aunque el MKV
+            # ya no esté en su ruta: lo midió el fingerprint al analizarlo.
+            "mkv_size_bytes": fingerprint.get("size_bytes"),
+            "duration_seconds": basic.get("duration_seconds") if basic else None,
+            "light_profile_present": bool(quality.get("light_profile")) if quality else False,
             "corrupt": False,
         })
     return out

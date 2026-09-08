@@ -404,10 +404,9 @@ function switchTab(n) {
     if (btn) btn.classList.toggle('active', i === n);
   });
 
-  // Tab 2 no tiene sidebar — ocultar sidebar y usar ancho completo
-  const sidebar = document.getElementById('sidebar');
-  if (sidebar) sidebar.style.display = (n === 2) ? 'none' : '';
-
+  // Las tres pestañas tienen columna izquierda. Tab 2 la tuvo vacía mucho
+  // tiempo y aquí se ocultaba el #sidebar entero para que ocupara todo el
+  // ancho; desde que lista los MKVs analizados, ya no.
   [1, 2, 3].forEach(i => {
     const el = document.getElementById(`sidebar-tab-${i}`);
     if (el) el.style.display = i === n ? '' : 'none';
@@ -427,9 +426,17 @@ function switchTab(n) {
     _cmv40AutoResumeAttempted = false;
     refreshCMv40Sidebar();
   }
-  // Tab 2: detectar si hay una operación de apply (copia + edición) en
-  // curso desde otra sesión del navegador o un refresh de pestaña — si la
-  // hay, reabrir el modal de progreso para que el usuario pueda seguirla.
+  // Tab 2: refrescar la columna de MKVs analizados. Se pide al entrar y no al
+  // arrancar (igual que el sidebar de Tab 3): quien nunca abre esta pestaña no
+  // paga la petición.
+  //
+  // Aquí había también un `_mkvCheckActiveApply` que reabría el modal de una
+  // copia en curso al volver a la pestaña. Se retiró con los modales propios
+  // de Tab 2: la columna de trabajo enseña esa copia esté uno donde esté, sin
+  // que nadie tenga que reabrir nada.
+  if (n === 2 && typeof refrescarMkvRecientes === 'function') {
+    refrescarMkvRecientes();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
