@@ -116,6 +116,95 @@ class TestSesionInexistente(ApiTestCase):
         self.assertTrue(r.json()["ok"])
 
 
+class TestCancelarMataTodoElPipe(ApiTestCase):
+    """La Fase A conecta `ffmpeg` y `dovi_tool extract-rpu` por un pipe, así
+    que hay DOS subprocesos a la vez.
+
+    `_cmv40_active_procs` guardaba UNO por sesión, así que el segundo registro
+    pisaba al primero y cancelar mataba solo a `dovi_tool`: `ffmpeg` seguía
+    escribiendo su `tee` a disco y la fase no terminaba nunca. Comprobado en el
+    NAS el 2026-09-08 — con la fase «cancelada» cinco veces, el `ps` del
+    contenedor seguía enseñando el ffmpeg, y hubo que matarlo a mano.
+    """
+
+    class _Proc:
+        def __init__(self, pid):
+            self.pid = pid
+            self.returncode = None
+            self.matado = False
+
+        def terminate(self):
+            self.matado = True
+            self.returncode = -15
+
+        def kill(self):
+            self.matado = True
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    def test_los_dos_extremos_del_pipe_reciben_la_senal(self):
+        from routers import cmv40
+        ff, dv = self._Proc(101), self._Proc(102)
+        cmv40._cmv40_proc_register("s1", ff)
+        cmv40._cmv40_proc_register("s1", dv)
+        r = self.client.post("/api/cmv40/s1/cancel")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(ff.matado, "ffmpeg se quedó vivo escribiendo el tee")
+        self.assertTrue(dv.matado)
+
+    def test_los_que_ya_terminaron_no_estorban(self):
+        from routers import cmv40
+        viejo = self._Proc(1)
+        viejo.returncode = 0
+        vivo = self._Proc(2)
+        cmv40._cmv40_proc_register("s2", viejo)
+        cmv40._cmv40_proc_register("s2", vivo)
+        self.assertEqual(cmv40._cmv40_active_procs["s2"], {vivo},
+                         "el registro se limpia solo o crece sin fin")
+
+    def test_el_registro_queda_vacio_despues(self):
+        from routers import cmv40
+        cmv40._cmv40_proc_register("s3", self._Proc(9))
+        self.client.post("/api/cmv40/s3/cancel")
+        self.assertNotIn("s3", cmv40._cmv40_active_procs)
+
+
+class TestGuardDeFaseDuplicada(ApiTestCase):
+    """Los dos disparadores del auto-pipeline pueden pedir la misma fase a la
+    vez. Medido en el NAS: `POST /analyze-source` entró CUATRO veces para el
+    mismo proyecto en pocos segundos, y cada una arranca un ffmpeg sobre un MKV
+    de decenas de GB que además escribe el mismo `source.hevc`.
+    """
+
+    def test_con_una_fase_corriendo_el_segundo_intento_da_409(self):
+        import storage
+        sid = self.crear_sesion(phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = "analyze_source"
+        storage.save_cmv40_session(s)
+        r = self.client.post(f"/api/cmv40/{sid}/analyze-source")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("en curso", r.json()["detail"])
+
+    def test_con_una_fase_esperando_turno_tambien(self):
+        import queue_manager as qm
+        from routers import cmv40
+        sid = self.crear_sesion(phase="created")
+        cmv40.queue_manager._queue.append(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid, que="Fase A"))
+        self.addCleanup(cmv40.queue_manager._queue.clear)
+        r = self.client.post(f"/api/cmv40/{sid}/analyze-source")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("turno", r.json()["detail"])
+
+    def test_sin_nada_en_marcha_pasa(self):
+        sid = self.crear_sesion(phase="created")
+        r = self.client.post(f"/api/cmv40/{sid}/analyze-source")
+        self.assertEqual(r.status_code, 200)
+
+
 class TestGuardDeErrorPendiente(ApiTestCase):
     """Un error sin descartar bloquea con 409 los nueve endpoints de fase.
 
