@@ -9298,17 +9298,35 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 0;
   overflow: hidden;
 }
+/* La columna es un flex vertical con `overflow:hidden`, NO un bloque con
+   `overflow-y:auto`: la timeline de CMv4.0 gestiona su propio scroll dentro
+   (`.cmv40-tl-steps`), y para que pueda calcular su alto necesita un padre
+   flex con `min-height:0`. Con la columna en bloque, esa lista no scrollaba y
+   las últimas fases quedaban cortadas por abajo — exactamente lo que pasaba.
+   Es la misma anatomía que tenía `.cmv40-running-timeline-wrap`. */
 .trabajo-modal-lateral {
   width: 330px;
   flex-shrink: 0;
-  overflow-y: auto;
-  background: var(--surface-2);
-  border-right: 1px solid var(--sep);
-  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  border-right: 1px solid var(--sep-strong);
+  padding: 0;
 }
 .trabajo-modal-lateral:empty { display: none; }
-.trabajo-modal-lateral { padding: 0; }
-.trabajo-modal-lateral > #trabajo-modal-timeline { padding: 16px 14px; }
+#trabajo-modal-timeline {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+/* Los tipos que solo dan una lista de fases no traen su propio contenedor
+   con padding, así que se lo pone la columna. La timeline de CMv4.0 sí lo
+   trae, y ahí sobra: por eso va sobre las filas, no sobre el hueco. */
+#trabajo-modal-timeline > .trabajo-tl-cabecera { padding: 14px 14px 0; }
+#trabajo-modal-timeline > .trabajo-tl-fase { padding-left: 14px; padding-right: 14px; }
 
 /* La cartela de la película, arriba de la columna izquierda. Es la mini
    cabecera que tenía el overlay de ejecución de CMv4.0: fondo claro propio
@@ -9318,7 +9336,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: var(--surface-3);
+  background: var(--surface-1);
   border-bottom: 1px solid var(--sep);
   flex-shrink: 0;
 }
@@ -9431,9 +9449,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-modal-principal .modal-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   flex-shrink: 0;
-  padding-bottom: 12px;
+  margin: -20px -22px 0;
+  padding: 14px 20px;
+  background: var(--surface-2);
   border-bottom: 1px solid var(--sep);
 }
 .trabajo-modal-principal .modal-title { margin-bottom: 2px; }

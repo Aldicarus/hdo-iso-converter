@@ -1663,7 +1663,7 @@ async function seriesCreateSessions() {
   // sitio del que ya salía la barra.
   if (data?.queued) {
     await refrescarWorkbar();
-    abrirDetalleDeTrabajo();
+    abrirDetalleDeTrabajo({ tipo: 'crear_serie' });
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
@@ -4035,8 +4035,9 @@ async function _doExecute() {
   // Actualizar proyecto abierto: ahora está queued/running
   refreshOpenProjectState(sid);
   // El detalle del rip era una sub-pestaña del centro; ahora es su modal, que
-  // se abre desde la columna de trabajo o desde aquí.
-  abrirDetalleDeTrabajo();
+  // se abre desde la columna de trabajo o desde aquí. Con SU id: recién
+  // encolado no es el activo, y sin decirlo se abría el del trabajo de al lado.
+  abrirDetalleDeTrabajo(sid);
 }
 
 /**

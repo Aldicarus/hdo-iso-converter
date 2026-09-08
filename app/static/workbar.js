@@ -298,15 +298,59 @@ function registrarDetalleDeTrabajo(clave, fn) {
   _workbarDetalles[clave] = fn;
 }
 
-function abrirDetalleDeTrabajo() {
-  const a = workbarEstado.activo;
-  if (!a) return;
-  if (!_workbarDetalles[a.detalle]) {
+/** Abre el detalle de un trabajo.
+ *
+ *  `ref` dice CUÁL: la cadena `sobre` del recurso, o `{tipo}` cuando solo hay
+ *  uno de esa clase. Sin `ref` se abre el activo, que es lo que quiere el
+ *  botón de la columna.
+ *
+ *  Los cuatro sitios que lo llaman tras lanzar algo SÍ pasan el suyo. Antes no,
+ *  y como lo recién lanzado está en la COLA y no activo, el modal se abría
+ *  sobre el trabajo que estuviera corriendo — el de otro. Visto en el NAS: al
+ *  cancelar un job saltaba solo el modal del siguiente.
+ */
+function abrirDetalleDeTrabajo(ref) {
+  const coincide = (j) => {
+    if (!j) return false;
+    if (typeof ref === 'string') return (j.sobre || j.id) === ref;
+    return j.tipo === ref.tipo;
+  };
+  let a = workbarEstado.activo;
+  if (ref) {
+    a = coincide(workbarEstado.activo) ? workbarEstado.activo
+      : (workbarEstado.cola || []).find(coincide) || null;
+    // Sin encontrarlo NO se abre otro: enseñar el trabajo de al lado es peor
+    // que no enseñar ninguno.
+    if (!a) {
+      showToast('Ese trabajo ya no está en curso', 'info');
+      return;
+    }
+  }
+  if (!a) {
+    showToast('No hay ningún trabajo en curso', 'info');
+    return;
+  }
+  // Una entrada de la cola no trae los campos de progreso: se completan con
+  // los del contrato vacío para que el armazón no tenga que comprobarlos.
+  const trabajo = a.detalle ? a : {
+    ...a, pct: null, pct_medido: false, segundos: 0, eta_s: null,
+    fase_n: 0, fases_total: 0, cancelable: true,
+    detalle: _DETALLE_POR_TIPO[a.tipo] || a.tipo,
+    paso: a.posicion ? `Esperando turno · ${a.posicion}º de la cola` : '',
+  };
+  if (!_workbarDetalles[trabajo.detalle]) {
     showToast('Este trabajo todavía no tiene vista de detalle', 'info');
     return;
   }
-  _trabajoModalAbrir(a);
+  _trabajoModalAbrir(trabajo);
 }
+
+// Una entrada de la cola solo trae `tipo`; el `detalle` lo pone el adaptador,
+// que aún no ha corrido porque el trabajo no ha empezado.
+const _DETALLE_POR_TIPO = {
+  rip: 'rip', crear_serie: 'serie', fase_cmv40: 'cmv40',
+  analisis_extendido: 'analisis_extendido', copia_biblioteca: 'copia_biblioteca',
+};
 
 /** Cancela el trabajo activo, sea del tipo que sea.
  *
@@ -451,7 +495,10 @@ function _trabajoModalPinta(a, vista) {
   };
   const iconoEl = document.getElementById('trabajo-modal-icono');
   if (iconoEl) iconoEl.innerHTML = iconoDeTrabajo(a.tipo, 'icono-chip-lg');
-  set('trabajo-modal-titulo', vista.titulo || a.que || 'Trabajo');
+  // La cabecera dice QUÉ está pasando. El nombre del fichero no va aquí: lo
+  // enseña la cartela de la columna, y repetirlo dejaba tres líneas con el
+  // mismo título (cartela + nombre de salida + nombre de origen).
+  set('trabajo-modal-titulo', a.fase_label || vista.titulo || a.que || 'Trabajo');
   set('trabajo-modal-sub', vista.sub || '');
   _trabajoCartelPinta(vista.cartel);
   // La tira horizontal se retiró: las fases van SIEMPRE en la columna. Los
@@ -509,8 +556,17 @@ function _trabajoLogHTML(lineas) {
   if (!lineas || !lineas.length) {
     return '<div class="trabajo-detalle-vacio">Todavía no hay líneas de log</div>';
   }
+  // Con la paleta semántica de siempre (`log-phase`, `log-success`, `log-error`
+  // …). Se clasifica con la MISMA función que el panel de Tab 3: pintarlo en
+  // gris plano hacía ilegible un log de dos mil líneas donde lo único que se
+  // busca es el ✗ o el separador de fase.
+  const clase = typeof _classifyLogLine === 'function'
+    ? _classifyLogLine : () => '';
   return `<div class="cmv40-log" id="trabajo-modal-log">`
-    + lineas.slice(-400).map(l => `<div>${escHtml(String(l))}</div>`).join('')
+    + lineas.slice(-400).map(l => {
+        const t = String(l);
+        return `<div class="log-line ${clase(t)}">${escHtml(t)}</div>`;
+      }).join('')
     + '</div>';
 }
 

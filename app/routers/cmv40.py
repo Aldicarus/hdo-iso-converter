@@ -156,7 +156,15 @@ def recuperar_sesiones_interrumpidas() -> None:
 
 # Conexiones WebSocket específicas de CMv4.0
 _cmv40_ws_connections: dict[str, list[WebSocket]] = {}
-_cmv40_active_procs: dict[str, asyncio.subprocess.Process] = {}
+# Los subprocesos vivos de cada sesión. Es un CONJUNTO, no uno: la Fase A
+# conecta `ffmpeg` y `dovi_tool extract-rpu` por un pipe, así que hay DOS a la
+# vez. Con un solo hueco, el segundo registro pisaba al primero y cancelar
+# mataba únicamente a `dovi_tool`; `ffmpeg` seguía escribiendo el `tee` a
+# disco, la fase no terminaba nunca y el botón parecía roto. Comprobado en el
+# NAS el 2026-09-08: con la fase «cancelada» cinco veces, el `ps` del
+# contenedor seguía enseñando el ffmpeg. Es el mismo fallo que ya tuvo el
+# perfil de luminancia de Tab 2 con su `_lp_active_proc`.
+_cmv40_active_procs: dict[str, set[asyncio.subprocess.Process]] = {}
 _cmv40_cancel_flags: dict[str, bool] = {}
 # Locks por sesión para serializar la regeneración on-demand de per_frame_data.json
 # (evita N procesos `dovi_tool export` concurrentes cuando el frontend dispara
@@ -601,8 +609,15 @@ async def _cmv40_flush_log(session: CMv40Session) -> None:
 
 
 def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> None:
-    """Registra un subprocess activo para permitir cancelación."""
-    _cmv40_active_procs[session_id] = proc
+    """Registra un subprocess activo para permitir cancelación.
+
+    Se ACUMULAN: una fase puede tener varios a la vez (los dos extremos del
+    pipe de la Fase A). Los que ya terminaron se descartan aquí mismo, que es
+    el único punto por el que pasa todo el mundo.
+    """
+    vivos = _cmv40_active_procs.setdefault(session_id, set())
+    vivos.difference_update({p for p in vivos if p.returncode is not None})
+    vivos.add(proc)
 
 
 def _check_cmv40_cancel(session_id: str) -> None:
@@ -941,6 +956,31 @@ def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
                 f"reintentar la fase."
             ),
         )
+
+
+def _cmv40_guard_no_duplicado(session: CMv40Session) -> None:
+    """409 si el proyecto ya tiene una fase corriendo o esperando turno.
+
+    Los dos disparadores del auto-pipeline (el orquestador y
+    `_cmv40MaybeAutoAdvance`) pueden pedir la misma fase a la vez, y el guard
+    del error solo cubre el caso en que la anterior falló. Medido en el NAS el
+    2026-09-08: `POST /analyze-source` entró **cuatro veces** para el mismo
+    proyecto en pocos segundos. Cada una arranca un ffmpeg sobre un MKV de
+    decenas de GB contra el mismo pool, y todas escriben el mismo
+    `source.hevc`.
+
+    El servidor es el único que sabe si ya hay una en marcha: el frontend
+    decide sobre el snapshot de su último poll.
+    """
+    if session.running_phase:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya hay una fase en curso en este proyecto "
+                   f"({session.running_phase}).")
+    if queue_manager.buscar(f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}"):
+        raise HTTPException(
+            status_code=409,
+            detail="Este proyecto ya tiene una fase esperando turno.")
 
 
 async def _cmv40_dispatch_next_phase(session_id: str) -> None:
@@ -2931,14 +2971,17 @@ async def cmv40_cancel(session_id: str):
     import os
     import signal
     _cmv40_cancel_flags[session_id] = True
-    proc = _cmv40_active_procs.get(session_id)
     log_lines: list[str] = []
 
-    if proc:
+    # Todos los vivos, no el último registrado: los dos extremos del pipe de la
+    # Fase A cuentan, y matar uno solo deja al otro trabajando.
+    for proc in list(_cmv40_active_procs.get(session_id) or ()):
+        if proc.returncode is not None:
+            continue
         # Paso 1: SIGTERM
         try:
             proc.terminate()
-            log_lines.append("🛑 SIGTERM enviado al proceso, esperando salida limpia (máx. 5s)…")
+            log_lines.append(f"🛑 SIGTERM al proceso {proc.pid}, esperando salida limpia (máx. 5s)…")
         except ProcessLookupError:
             log_lines.append("ℹ El proceso ya había terminado antes del cancel.")
         except Exception as e:
@@ -2947,7 +2990,7 @@ async def cmv40_cancel(session_id: str):
         # Paso 2: esperar hasta 5s a que salga limpio
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-            log_lines.append(f"✓ Proceso terminado limpiamente (rc={proc.returncode}).")
+            log_lines.append(f"✓ Proceso {proc.pid} terminado limpiamente (rc={proc.returncode}).")
         except asyncio.TimeoutError:
             # Paso 3: SIGKILL
             log_lines.append("⏱ El proceso no respondió a SIGTERM en 5s — escalando a SIGKILL…")
@@ -2997,6 +3040,7 @@ async def cmv40_analyze_source(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE — simular fase A con logs realistas
     if DEV_MODE:
@@ -3048,6 +3092,7 @@ async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3095,6 +3140,7 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3145,6 +3191,7 @@ async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3426,6 +3473,7 @@ async def cmv40_extract(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3678,6 +3726,7 @@ async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # Historial de correcciones. La Fase E aplica CADA paso sobre el resultado
     # del anterior (ver `run_phase_e_correct_sync`), así que aquí solo se anota
@@ -3895,6 +3944,7 @@ async def cmv40_inject(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3924,6 +3974,7 @@ async def cmv40_remux(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:
@@ -3958,6 +4009,7 @@ async def cmv40_validate(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     _cmv40_guard_no_pending_error(session)
+    _cmv40_guard_no_duplicado(session)
 
     # ⚠️ DEV MODE
     if DEV_MODE:

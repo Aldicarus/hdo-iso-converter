@@ -6543,7 +6543,9 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
   const project = openCMv40Projects.find(p => p.session && p.session.id === a.id);
   return {
     titulo: s?.output_mkv_name || a.que,
-    sub: s?.source_mkv_name || '',
+    // El de SALIDA, que es lo que se está produciendo. El de origen ya está
+    // dicho por la cartela.
+    sub: s?.output_mkv_name || '',
     cartel: cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name, '✨'),
     // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
     // la tenía el overlay de ejecución. Se reusa tal cual —misma función que

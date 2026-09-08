@@ -1789,7 +1789,7 @@ async function _rgrfAuditQuality(evt) {
       ? 'El análisis extendido de este MKV ya está en curso'
       : `El análisis extendido de este MKV está en la cola (${_yaHay.posicion}º)`,
       'info');
-    if (_yaHay.estado === 'corriendo') abrirDetalleDeTrabajo();
+    abrirDetalleDeTrabajo(_mkvRutaAnalisis(proyecto));
     return;
   }
   // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
@@ -1905,7 +1905,7 @@ async function _rgrfAuditQuality(evt) {
       // apareciendo en una columna lateral es poco acuse. Se abre UNA vez, se
       // puede cerrar, y no vuelve a abrirse solo.
       await refrescarWorkbar();
-      abrirDetalleDeTrabajo();
+      abrirDetalleDeTrabajo(targetFilePath);
       while (polling && window._mkvQualitySession === session) {
         await new Promise(r => setTimeout(r, 500));
       }
@@ -2881,7 +2881,7 @@ async function _doApplyMkvEdits(copyToOutput) {
     // Acuse de lo que se acaba de pulsar. Se abre una vez tras encolar, se
     // puede cerrar, y no vuelve a abrirse solo.
     await refrescarWorkbar();
-    abrirDetalleDeTrabajo();
+    abrirDetalleDeTrabajo({ tipo: 'copia_biblioteca' });
   }
 
   let result;
