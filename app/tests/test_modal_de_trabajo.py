@@ -122,11 +122,19 @@ console.log(JSON.stringify({{
 """
         return _node(guion)
 
-    def test_la_cabecera_sale_de_la_vista_del_tipo(self):
+    def test_la_cabecera_dice_la_FASE_no_el_nombre_del_fichero(self):
+        """El nombre del MKV lo enseña la cartela de la columna. Ponerlo
+        también aquí dejaba tres líneas con el mismo título."""
         r = self._pintar(ACTIVO, {"titulo": "Predator.mkv",
-                                  "sub": "origen.mkv", "pasos": [], "cuerpo": ""})
-        self.assertEqual(r["titulo"], "Predator.mkv")
-        self.assertEqual(r["sub"], "origen.mkv")
+                                  "sub": "salida.mkv", "pasos": [], "cuerpo": ""})
+        self.assertEqual(r["titulo"], ACTIVO["fase_label"])
+        self.assertEqual(r["sub"], "salida.mkv")
+
+    def test_sin_fase_cae_en_el_titulo_de_la_vista(self):
+        """Un trabajo sin fases (la copia) sigue necesitando cabecera."""
+        r = self._pintar(dict(ACTIVO, fase_label=""),
+                         {"titulo": "Copia a Output", "pasos": []})
+        self.assertEqual(r["titulo"], "Copia a Output")
 
     def test_el_icono_lo_deriva_del_TIPO_no_de_la_vista(self):
         """Si cada vista trajera el suyo, la columna y el modal podrían acabar
