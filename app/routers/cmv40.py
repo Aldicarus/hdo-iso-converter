@@ -76,6 +76,7 @@ from phases.cmv40_pipeline import (
 import phases.cmv40_pipeline as _cmv40_pipeline_mod   # noqa: E402
 import historial  # noqa: E402
 import queue_manager as queue_manager_mod  # noqa: E402
+import trabajos  # noqa: E402
 import workload  # noqa: E402
 from queue_manager import queue_manager  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
@@ -3997,5 +3998,67 @@ async def cmv40_ws(websocket: WebSocket, session_id: str):
 # Se hace al final para que `_cmv40_runner_de_la_cola` esté definida. El tipo
 # es un literal y el runner se registra al importar el router, que es lo que
 # permite que una fase encolada sobreviva a un reinicio del contenedor.
+# ── Adaptador de progreso para la columna de trabajo ─────────────────────────
+# Las etiquetas legibles de las fases. Existen ya en el frontend
+# (`CMV40_RUNNING_LABELS` en tab3.js) y aquí hacen falta para que la columna
+# —que es la misma en las tres pestañas— no tenga que saber de CMv4.0.
+_CMV40_FASE_LABELS = {
+    "preflight":        "Validando el bin target",
+    "analyze_source":   "Fase A — Analizando el MKV origen",
+    "target_rpu_path":  "Fase B — Cargando el RPU de carpeta local",
+    "target_rpu_drive": "Fase B — Descargando el RPU del repositorio",
+    "target_rpu_mkv":   "Fase B — Extrayendo el RPU de otro MKV",
+    "extract":          "Fase C — Extrayendo BL/EL y datos per-frame",
+    "correct_sync":     "Fase E — Aplicando la corrección de sincronización",
+    "inject":           "Fase F — Inyectando el RPU en la EL",
+    "remux":            "Fase G — Remuxando el MKV final",
+    "validate":         "Fase H — Validando el MKV final",
+}
+
+# El orden que ve el usuario en la timeline, para poder decir "3 de 8".
+_CMV40_ORDEN = ("analyze_source", "target_rpu_path", "extract", "correct_sync",
+                "inject", "remux", "validate")
+
+
+def _cmv40_adaptador(trabajo) -> dict | None:
+    """El progreso de una fase CMv4.0, en la forma común de `trabajos.py`.
+
+    El `pct` sale de `last_progress`, que lo emite `_ReadProgress` desde
+    evidencia real (`rchar` de /proc, el tamaño del fichero de salida o la
+    posición de lectura). Cuando esa evidencia no existe —el tramo final de un
+    `extract-rpu`, que escribe el RPU de golpe al cerrar— el pipeline **no
+    manda pct**, y aquí eso se traduce en `pct_medido: False` en vez de
+    inventarse una cifra.
+    """
+    session = load_cmv40_session(trabajo.clave)
+    if session is None:
+        return None
+    fase = session.running_phase or (trabajo.datos or {}).get("fase") or ""
+    prog = session.last_progress or {}
+    pct = prog.get("pct")
+    eta = prog.get("eta_s")
+    segundos = 0
+    for r in reversed(session.phase_history or []):
+        if r.phase == fase and r.started_at:
+            from datetime import datetime as _dt, timezone as _tz
+            segundos = max(0, round(
+                (_dt.now(_tz.utc) - r.started_at).total_seconds()))
+            break
+    return {
+        "fase": fase,
+        # El `label` del progreso dice en qué PASO de la fase va (el demux, el
+        # merge…), que es más útil que el nombre de la fase a secas.
+        "fase_label": prog.get("label") or _CMV40_FASE_LABELS.get(fase, fase),
+        "fase_n": _CMV40_ORDEN.index(fase) + 1 if fase in _CMV40_ORDEN else 0,
+        "fases_total": len(_CMV40_ORDEN),
+        "pct": pct, "pct_medido": pct is not None,
+        "segundos": segundos,
+        "eta_s": eta or None,
+        "eta_fuente": "medido" if eta else None,
+        "detalle": "cmv40",
+    }
+
+
 queue_manager.registrar_runner(queue_manager_mod.TIPO_FASE_CMV40,
                                _cmv40_runner_de_la_cola)
+trabajos.registrar(queue_manager_mod.TIPO_FASE_CMV40, _cmv40_adaptador)

@@ -309,6 +309,16 @@
    "body": [],
    "params": []
   },
+  "GET /api/trabajos": {
+   "body": [],
+   "params": [
+    [
+     "recientes",
+     "query",
+     false
+    ]
+   ]
+  },
   "GET /api/tv-details/{tmdb_id}": {
    "body": [],
    "params": [

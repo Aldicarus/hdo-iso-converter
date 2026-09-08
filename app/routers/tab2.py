@@ -42,6 +42,7 @@ import analysis_progress
 import historial
 import paths
 import queue_manager as queue_manager_mod
+import trabajos
 import workload
 from queue_manager import queue_manager
 from dev_fixtures import (
@@ -1486,7 +1487,75 @@ async def _runner_copia_biblioteca(trabajo) -> None:
         trabajo.clave, inicio)
 
 
+# ── Adaptadores de progreso para la columna de trabajo ───────────────────────
+# Traducen los dos singleton de esta pestaña a la forma común de `trabajos.py`.
+# Van aquí y no en el módulo común por la regla de dependencias: `main` sirve,
+# los routers aportan, y nadie importa `main`.
+
+_PASOS_ANALISIS = (
+    ("en_cola",     "Esperando turno"),
+    ("ffmpeg",      "Extrayendo el RPU del MKV"),
+    ("extract_rpu", "Extrayendo el RPU del MKV"),
+    ("combos",      "Clasificando combos y luminancia"),
+)
+
+
+def _analisis_adaptador(trabajo) -> dict | None:
+    st = _mkv_quality_state
+    if not st.get("active") or st.get("audit_id") != trabajo.clave:
+        return None
+    paso = st.get("step") or ""
+    ids = [p for p, _ in _PASOS_ANALISIS]
+    pct = st.get("global_pct")
+    segundos = round(st.get("elapsed_s") or 0)
+    return {
+        "fase": paso,
+        # El `step_label` del backend es más específico que la etiqueta fija
+        # (dice en qué va el pipe), así que manda si está.
+        "fase_label": st.get("step_label") or dict(_PASOS_ANALISIS).get(paso, ""),
+        "fase_n": ids.index(paso) + 1 if paso in ids else 0,
+        "fases_total": len(ids),
+        "pct": pct, "pct_medido": paso != "en_cola" and pct is not None,
+        "segundos": segundos,
+        "eta_s": trabajos.eta_por_porcentaje(segundos, pct),
+        "eta_fuente": "medido" if paso != "en_cola" else None,
+        "detalle": "analisis_extendido",
+    }
+
+
+_PASOS_COPIA = (
+    ("en_cola",  "Esperando turno"),
+    ("copying",  "Copiando el MKV a Output"),
+    ("applying", "Aplicando cambios"),
+)
+
+
+def _copia_adaptador(trabajo) -> dict | None:
+    st = _mkv_apply_state
+    if not st.get("active"):
+        return None
+    paso = st.get("step") or ""
+    ids = [p for p, _ in _PASOS_COPIA]
+    pct = st.get("pct")
+    # `eta_s` de la copia sale de bytes/segundo, que es lo más medido que hay
+    # en toda la aplicación: no se extrapola de un porcentaje.
+    eta = st.get("eta_s") or None
+    return {
+        "fase": paso,
+        "fase_label": st.get("step_label") or dict(_PASOS_COPIA).get(paso, ""),
+        "fase_n": ids.index(paso) + 1 if paso in ids else 0,
+        "fases_total": len(ids),
+        "pct": pct, "pct_medido": paso == "copying" and pct is not None,
+        "segundos": round(st.get("elapsed_s") or 0),
+        "eta_s": eta,
+        "eta_fuente": "medido" if eta else None,
+        "detalle": "copia_biblioteca",
+    }
+
+
 queue_manager.registrar_runner(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
                                _runner_analisis_extendido)
 queue_manager.registrar_runner(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                                _runner_copia_biblioteca)
+trabajos.registrar(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO, _analisis_adaptador)
+trabajos.registrar(queue_manager_mod.TIPO_COPIA_BIBLIOTECA, _copia_adaptador)

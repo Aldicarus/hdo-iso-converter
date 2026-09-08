@@ -81,7 +81,10 @@ from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_pro
 from phases.iso_mount import mount_iso, unmount_iso, is_mount_available
 from queue_manager import queue_manager
 import historial
+import queue_manager as queue_manager_mod
+import trabajos
 import workload
+from queue_manager import queue_manager
 from storage import (
     compute_iso_fingerprint,
     delete_session,
@@ -1204,6 +1207,57 @@ async def app_activity():
     ]
     return {"ocupado": any(t["bloquea"] for t in trabajos),
             "trabajos": trabajos}
+
+
+@app.get("/api/trabajos", summary="Qué está pasando: activo, en cola y reciente")
+async def app_trabajos(recientes: int = 8):
+    """Todo el trabajo de la aplicación en **una sola forma**.
+
+    Es lo que alimenta la columna de trabajo, que es la misma en las tres
+    pestañas. Antes cada tipo de trabajo medía su progreso a su manera —el del
+    rip solo existía en el navegador— así que una vista común habría necesitado
+    cinco renderizadores. Aquí cada pestaña aporta su adaptador (ver
+    `trabajos.py`) y la respuesta sale con los mismos campos siempre.
+
+    Tres listas, y la distinción entre ellas es la política de concurrencia:
+
+    · `activo` — el trabajo DIFERIDO que la cola está ejecutando ahora. Uno,
+      porque la cola es única y ejecuta de uno en uno.
+    · `cola` — los diferidos esperando turno, en orden.
+    · `interactivo` — lo que corre EN PARALELO porque el usuario está delante
+      (abrir un MKV, analizar un disco, un pre-flight). No tiene fases ni
+      barra: se lista para que se entienda por qué el NAS va cargado.
+    · `recientes` — del historial, para cerrar el círculo.
+
+    Se responde desde memoria salvo `recientes`, que lee el historial en un
+    thread.
+    """
+    estado = queue_manager.get_status()
+    corriendo = estado.get("running_job")
+    activo = None
+    if corriendo:
+        activo = trabajos.progreso_de(
+            queue_manager_mod.TrabajoEnCola.de_json(corriendo))
+
+    en_cola = [
+        {"id": j.get("clave"), "tab": j.get("tab"), "tipo": j.get("tipo"),
+         "que": j.get("que"), "posicion": i + 1}
+        for i, j in enumerate(estado.get("jobs") or [])
+    ]
+
+    interactivo = [
+        {"id": t.clave, "tab": workload.TAB_IDS.get(t.tab, ""),
+         "que": t.que, "segundos": int(t.segundos)}
+        for t in workload.en_curso() if not t.bloquea
+    ]
+
+    return {
+        "activo": activo,
+        "cola": en_cola,
+        "interactivo": interactivo,
+        "recientes": await asyncio.to_thread(
+            historial.leer, max(0, min(recientes, 50))),
+    }
 
 
 @app.get("/api/historial", summary="Qué trabajo se ha hecho, en las tres pestañas")

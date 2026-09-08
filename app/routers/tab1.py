@@ -42,6 +42,7 @@ import analysis_progress
 import paths
 import historial
 import queue_manager as queue_manager_mod
+import trabajos
 import workload
 from dev_fixtures import DEV_FAKE_ISOS, DEV_MODE, build_fake_session
 from models import (
@@ -1345,6 +1346,90 @@ class CreateSeriesSessionsRequest(_BaseModel):
 # Progreso global de create_series_sessions (single-job singleton).
 # El frontend lo polleeará via /api/series-create-progress para mostrar
 # feedback durante el bucle de N episodios.
+# ── Progreso del rip ─────────────────────────────────────────────────────────
+# No existía. La barra del rip se parseaba del log **en el navegador**, así que
+# solo existía mientras un cliente estuviera escuchando el WebSocket: cerrar la
+# pestaña la borraba, y la columna de trabajo —que vigila la app entera, estés
+# donde estés— no tenía de dónde leerla.
+#
+# Un solo dict porque la cola ejecuta un rip a la vez, igual que los otros
+# singleton de progreso de la app.
+_RIP_FASES = (
+    ("mount",   "Abriendo el origen"),
+    ("extract", "Extrayendo las pistas"),
+    ("write",   "Escribiendo metadatos"),
+    ("unmount", "Cerrando el origen"),
+)
+
+_rip_progress: dict = {
+    "session_id": "",
+    "nombre": "",
+    "fase": "",
+    "pct": None,        # el de mkvmerge, 0-100; None mientras no lo haya dicho
+    "desde": 0.0,       # time.monotonic() del arranque del rip
+    "fase_desde": 0.0,  # y de la fase en curso
+}
+
+
+def _rip_progress_reset(session_id: str, nombre: str) -> None:
+    import time as _t
+    _rip_progress.update({
+        "session_id": session_id, "nombre": nombre, "fase": "",
+        "pct": None, "desde": _t.monotonic(), "fase_desde": _t.monotonic(),
+    })
+
+
+def _rip_progress_fase(fase: str) -> None:
+    import time as _t
+    if _rip_progress["fase"] == fase:
+        return
+    _rip_progress["fase"] = fase
+    _rip_progress["fase_desde"] = _t.monotonic()
+    # El % es de mkvmerge y vive dentro de la extracción: al cambiar de fase
+    # deja de significar nada. Arrastrarlo dejaría la barra clavada al 100 %
+    # durante el cierre del origen.
+    if fase != "extract":
+        _rip_progress["pct"] = None
+
+
+def _rip_progress_pct(pct: float) -> None:
+    _rip_progress["pct"] = max(0.0, min(100.0, pct))
+
+
+def _rip_adaptador(trabajo) -> dict | None:
+    """El progreso del rip, en la forma común de `trabajos.py`.
+
+    **El % del rip es el de la extracción, y no es una aproximación.** Medido
+    sobre los 42 rips completados del NAS, `extract` es el **100 %** del tiempo
+    total (mediana); `mount` y `unmount` son 0 %. Así que el porcentaje global
+    y el de la fase larga son el mismo número, y el ETA global sale MEDIDO del
+    avance de mkvmerge en vez de estimarse con un modelo — que además saldría
+    malo: el ritmo de extracción va de 38 a 253 MB/s según el disco, un factor
+    de 6,6 que da un error del 173 % en el peor caso.
+    """
+    import time as _t
+    if _rip_progress.get("session_id") != trabajo.clave:
+        return None
+    fase = _rip_progress.get("fase") or ""
+    ids = [f for f, _ in _RIP_FASES]
+    etiquetas = dict(_RIP_FASES)
+    pct = _rip_progress.get("pct")
+    segundos = max(0.0, _t.monotonic() - (_rip_progress.get("desde") or 0.0))
+    return {
+        "fase": fase,
+        "fase_label": etiquetas.get(fase, ""),
+        "fase_n": ids.index(fase) + 1 if fase in ids else 0,
+        "fases_total": len(ids),
+        "pct": round(pct) if pct is not None else None,
+        "pct_medido": pct is not None,
+        "segundos": round(segundos),
+        "eta_s": trabajos.eta_por_porcentaje(
+            max(0.0, _t.monotonic() - (_rip_progress.get("fase_desde") or 0.0)), pct),
+        "eta_fuente": "medido" if pct is not None else None,
+        "detalle": "rip",
+    }
+
+
 _series_create_progress: dict = {
     "running": False,
     "current_index": 0,
@@ -1865,6 +1950,9 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         "pgs_pct": 0,
         "pgs_eta_s": 0,
         "resultado": None,
+        # Reloj monotónico para el ETA del adaptador de `trabajos`. Empieza al
+        # encolar a propósito: lo que el usuario espera incluye la cola.
+        "_desde": __import__("time").monotonic(),
     }
     await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="rip",
@@ -2226,6 +2314,7 @@ async def _run_pipeline(session_id: str) -> None:
     session.execution_started_at = datetime.now(timezone.utc)
     session.output_mkv_path     = None
     save_session(session)
+    _rip_progress_reset(session_id, session.mkv_name or session_id)
 
     # Tracking de tiempos por fase
     _phase_starts: dict[str, datetime] = {}
@@ -2235,10 +2324,19 @@ async def _run_pipeline(session_id: str) -> None:
         now = datetime.now(timezone.utc)
         if not done:
             _phase_starts[phase] = now
+            _rip_progress_fase(phase)
         else:
             _phase_ends[phase] = now
 
     async def log(msg: str) -> None:
+        # `Progress: N%` lo emite mkvmerge con `--gui-mode`. Es la ÚNICA
+        # evidencia de avance que produce un rip, así que se aprovecha aquí en
+        # vez de dejar que solo la vea el navegador.
+        if msg.startswith("Progress:"):
+            try:
+                _rip_progress_pct(float(msg.split(":", 1)[1].strip().rstrip("%")))
+            except (ValueError, IndexError):
+                pass
         if not msg.startswith("Progress:"):
             ts = datetime.now().strftime("%H:%M:%S")  # hora local (TZ del contenedor)
             msg = f"[{ts}] {msg}"
@@ -3173,4 +3271,49 @@ if not DEV_MODE:
     queue_manager.set_run_fn(_run_pipeline)
 queue_manager.registrar_runner(queue_manager_mod.TIPO_SERIE,
                                _runner_creacion_de_serie)
+def _serie_adaptador(trabajo) -> dict | None:
+    """El progreso de crear los episodios de una serie.
+
+    **El ETA aquí SÍ es un modelo**, y por eso va marcado como tal: sale de la
+    media de segundos por episodio ya terminado. Es lo mejor que hay —los
+    episodios de una temporada duran lo mismo, así que la media es buena— pero
+    con uno solo hecho todavía no dice nada, y hasta entonces no se anuncia.
+    """
+    import time as _t
+    prog = _series_create_progress
+    if not prog.get("running"):
+        return None
+    total = prog.get("total") or 0
+    hechos = len(prog.get("completed") or []) + len(prog.get("failed") or [])
+    paso = prog.get("current_episode_step") or ""
+    # Mientras espera turno no hay episodio en curso: cero, no interpolación.
+    if paso == "en_cola":
+        return {"fase": "en_cola", "fase_label": "Esperando turno",
+                "fase_n": 0, "fases_total": total, "pct": 0,
+                "pct_medido": False, "detalle": "serie"}
+    desde = prog.get("_desde") or 0.0
+    segundos = max(0.0, _t.monotonic() - desde) if desde else 0.0
+    pct = round(100.0 * hechos / total) if total else None
+    eta = None
+    if hechos >= 1 and total > hechos and segundos > 0:
+        eta = round(segundos / hechos * (total - hechos))
+    return {
+        "fase": paso,
+        "fase_label": (f"Episodio {prog.get('current_index') or hechos + 1}"
+                       f"/{total}"
+                       + (f" · {prog.get('current_episode_title')}"
+                          if prog.get("current_episode_title") else "")),
+        "fase_n": prog.get("current_index") or 0,
+        "fases_total": total,
+        # Medido: son episodios TERMINADOS, no una interpolación dentro del
+        # que está en curso.
+        "pct": pct, "pct_medido": pct is not None,
+        "segundos": round(segundos),
+        "eta_s": eta, "eta_fuente": "modelo" if eta is not None else None,
+        "detalle": "serie",
+    }
+
+
+trabajos.registrar(queue_manager_mod.TIPO_RIP, _rip_adaptador)
+trabajos.registrar(queue_manager_mod.TIPO_SERIE, _serie_adaptador)
 queue_manager.on_update(_broadcast_queue)
