@@ -3277,6 +3277,19 @@ if not DEV_MODE:
     queue_manager.set_run_fn(_run_pipeline)
 queue_manager.registrar_runner(queue_manager_mod.TIPO_SERIE,
                                _runner_creacion_de_serie)
+# Los siete pasos del análisis de un episodio, con el nombre que ve el
+# usuario. Los emite `phase_a` en `current_episode_step`.
+_SERIE_PASOS = {
+    "identify":  "Identificando pistas",
+    "chapters":  "Extrayendo capítulos",
+    "mediainfo": "Analizando metadatos",
+    "pgs":       "Analizando subtítulos",
+    "dovi":      "Analizando Dolby Vision",
+    "rules":     "Aplicando reglas automáticas",
+    "save":      "Guardando el proyecto",
+}
+
+
 def _serie_adaptador(trabajo) -> dict | None:
     """El progreso de crear los episodios de una serie.
 
@@ -3303,12 +3316,18 @@ def _serie_adaptador(trabajo) -> dict | None:
     eta = None
     if hechos >= 1 and total > hechos and segundos > 0:
         eta = round(segundos / hechos * (total - hechos))
+    pgs = prog.get("pgs_pct")
     return {
         "fase": paso,
         "fase_label": (f"Episodio {prog.get('current_index') or hechos + 1}"
                        f"/{total}"
                        + (f" · {prog.get('current_episode_title')}"
                           if prog.get("current_episode_title") else "")),
+        # Analizar un episodio son siete pasos y el de los PGS se lleva la
+        # mayor parte, así que decir solo «episodio 3 de 6» deja diez minutos
+        # sin ninguna señal de avance.
+        "paso": _SERIE_PASOS.get(paso, paso)
+                + (f" · {pgs} %" if paso == "pgs" and pgs else ""),
         "fase_n": prog.get("current_index") or 0,
         "fases_total": total,
         # Medido: son episodios TERMINADOS, no una interpolación dentro del

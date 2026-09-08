@@ -3459,11 +3459,16 @@ function abrirMkvReciente(ruta) {
 registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
   const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
     .catch(() => null);
+  // La ficha ya la pidió el panel al abrir el MKV (`hydrateTmdbCard`), así
+  // que aquí sale de su caché: no se vuelve a salir a la red por una cartela.
+  const nombre = st?.file_name || a.sobre?.split('/').pop() || '';
   return {
     titulo: 'Análisis extendido del RPU',
     sub: st?.file_name || a.que,
+    cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬'),
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
+    pasosTitulo: 'Pasos del análisis',
     pasos: ['Extraer el RPU', 'Combos y luminancia'],
     conLog: true,
     cuerpo: _trabajoLogHTML(st?.log_lines),
@@ -3475,9 +3480,12 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     .catch(() => null);
   // La copia no produce log: su detalle son los bytes.
   const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
+  const nombre = st?.file_name || a.sobre?.split('/').pop() || '';
   return {
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
+    cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦'),
+    pasosTitulo: 'Pasos de la copia',
     pasos: ['Copiar el MKV', 'Aplicar cambios'],
     conLog: false,
     cuerpo: _trabajoKvHTML([

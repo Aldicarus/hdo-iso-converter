@@ -38,7 +38,8 @@ import queue_manager as qm  # noqa: E402
 import trabajos  # noqa: E402
 import workload  # noqa: E402
 
-CAMPOS = {"id", "sobre", "tab", "tipo", "que", "fase", "fase_label", "fase_n",
+CAMPOS = {"id", "sobre", "tab", "tipo", "que", "fase", "fase_label", "paso",
+          "fase_n",
           "fases_total", "pct", "pct_medido", "segundos", "eta_s",
           "eta_fuente", "cancelable"}
 
@@ -228,9 +229,34 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
                               datos={"fase": "inject"}))
         self.assertEqual(p["pct"], 55)
-        self.assertEqual(p["fase_label"], "Inyectando el RPU")
+        # La fase y el PASO dentro de ella son dos cosas, y las dos se ven.
+        # Colapsarlas dejaba de decir en qué fase del pipeline va el proyecto,
+        # que es la mitad de la información.
+        self.assertEqual(p["fase_label"], "Fase F — Inyectando el RPU en la EL")
+        self.assertEqual(p["paso"], "Inyectando el RPU")
         self.assertEqual(p["eta_s"], 300)
         self.assertEqual(p["detalle"], "cmv40")
+
+    def test_el_progreso_sale_del_SIDECAR_no_del_json(self):
+        """`last_progress` vive en `{id}.progress` desde que se sacó del JSON
+        (eran 0,86 MB reescritos cada 20 s). El adaptador leía solo el modelo,
+        que en una sesión escrita por OTRO proceso viene vacío: el pct salía
+        `None` siempre y las siete fases se anunciaban «sin medir» con la
+        medición perfectamente hecha al otro lado."""
+        import storage
+        sid = self.crear_sesion(sid="cmv40_side", phase="extracted")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = "extract"
+        s.last_progress = None          # como llega de disco
+        storage.save_cmv40_session(s)
+        storage.write_cmv40_progress(sid, {"pct": 63, "eta_s": 120,
+                                           "label": "Demuxing BL/EL"})
+        p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
+                              datos={"fase": "extract"}))
+        self.assertEqual(p["pct"], 63)
+        self.assertIs(p["pct_medido"], True)
+        self.assertEqual(p["eta_s"], 120)
+        self.assertEqual(p["paso"], "Demuxing BL/EL")
 
     def test_una_fase_cmv40_sin_progreso_no_finge(self):
         """`extract-rpu` escribe el RPU de golpe al cerrar: ese tramo NO es

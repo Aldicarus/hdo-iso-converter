@@ -55,7 +55,7 @@ _ACTIVOS = {
         "fase": "extract", "fase_label": "Extrayendo BL/EL", "fase_n": 3,
         "fases_total": 7, "pct": 41, "pct_medido": True, "segundos": 742,
         "eta_s": 1060, "eta_fuente": "medido", "cancelable": True,
-        "detalle": "cmv40",
+        "paso": "Demuxing BL/EL", "detalle": "cmv40",
     },
     "rip": {
         "id": "dune_2024_1", "sobre": "dune_2024_1", "tab": "rip",
@@ -84,6 +84,9 @@ _SESION_CMV40 = {
         {"phase": "analyze_source", "status": "done", "elapsed_seconds": 862},
         {"phase": "extract", "status": "running"},
     ],
+    "tmdb_info": {"title": "Predator: Tierra de Ojos", "year": 2026,
+                  "runtime_minutes": 107, "genres": ["Acción"],
+                  "poster_url": ""},
     "source_workflow": "p7_fel", "target_type": "trusted_p7_fel_final",
     "source_frame_count": 225177, "target_frame_count": 225177,
     "auto_pipeline": True, "target_trust_ok": True,
@@ -153,7 +156,13 @@ def _medir(tipo: str) -> dict:
       caja: r(caja),
       fondo: caja ? getComputedStyle(caja).backgroundColor : null,
       lateral: r(lateral),
-      lateralTexto: (lateral && lateral.textContent.trim().length) || 0,
+      lateralTexto: (document.getElementById('trabajo-modal-timeline')
+                     ?.textContent.trim().length) || 0,
+      cartel: r(document.getElementById('trabajo-modal-cartel')),
+      cartelTitulo: document.getElementById('trabajo-modal-cartel-titulo')
+                      ?.textContent || '',
+      paso: document.getElementById('trabajo-modal-paso')?.textContent || '',
+      pct: document.getElementById('trabajo-modal-pct')?.textContent || '',
       icono: r(document.getElementById('trabajo-modal-icono')),
       titulo: r(document.getElementById('trabajo-modal-titulo')),
       pie: r(document.querySelector('#trabajo-modal .modal-footer')),
@@ -290,12 +299,24 @@ class TestLaColumnaLateral(unittest.TestCase):
             self.assertGreater(d["lateral"]["w"], 200,
                                f"{tipo}: el lateral no ocupa nada")
 
-    def test_sin_timeline_el_modal_se_queda_a_una_columna(self):
-        """Un trabajo sin fases no necesita el ancho de dos: dejarlo igual
-        dejaba media pantalla en blanco."""
+    def test_el_analisis_extendido_tambien_trae_la_suya(self):
+        """Su tira horizontal de pasos se movió a la columna: los cinco tipos
+        enseñan sus fases en el mismo sitio, que era el punto de unificar."""
         d = self.m["analisis_extendido"]
-        self.assertEqual(d["lateralTexto"], 0)
-        self.assertLess(d["caja"]["w"], self.m["cmv40"]["caja"]["w"])
+        self.assertGreater(d["lateralTexto"], 20)
+        self.assertGreater(d["lateral"]["w"], 200)
+
+    def test_los_tres_traen_cartela_con_titulo(self):
+        """El póster y el título largo los tenía el overlay de CMv4.0."""
+        for tipo, d in self.m.items():
+            self.assertTrue(d["cartel"], f"{tipo}: sin cartela")
+            self.assertGreater(len(d["cartelTitulo"]), 3, tipo)
+            # Y va DENTRO de la columna, arriba del todo — no ocupando el
+            # ancho del modal, que se comería el sitio del log.
+            self.assertLessEqual(round(d["cartel"]["r"]),
+                                 round(d["lateral"]["r"]) + 1, tipo)
+            self.assertLessEqual(round(d["cartel"]["t"]),
+                                 round(d["lateral"]["t"]) + 1, tipo)
 
 
 if __name__ == "__main__":

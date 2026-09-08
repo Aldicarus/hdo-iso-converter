@@ -62,6 +62,12 @@ def _vacio(trabajo) -> dict:
         "que": trabajo.que,
         "fase": "",
         "fase_label": "",
+        # El PASO dentro de la fase ("Demuxing BL/EL", "Episodio 3 · PGS").
+        # Va aparte de `fase_label` porque son dos cosas: el overlay viejo de
+        # CMv4.0 enseñaba las dos —la fase en el título y el paso sobre la
+        # barra— y al unificar se colapsaron en una, así que dejó de verse en
+        # qué punto de la fase iba. Vacío cuando la fase no tiene pasos.
+        "paso": "",
         "fase_n": 0,
         "fases_total": 0,
         "pct": None,

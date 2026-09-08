@@ -6544,6 +6544,7 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
   return {
     titulo: s?.output_mkv_name || a.que,
     sub: s?.source_mkv_name || '',
+    cartel: cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name, '✨'),
     // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
     // la tenía el overlay de ejecución. Se reusa tal cual —misma función que
     // pinta la del panel— para que las dos digan exactamente lo mismo.

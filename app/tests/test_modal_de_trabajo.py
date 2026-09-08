@@ -78,10 +78,12 @@ class TestElArmazonPinta(unittest.TestCase):
         guion = f"""
 const _els = {{}};
 for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
-                  'trabajo-modal-pasos','trabajo-modal-barra-wrap','trabajo-modal-barra',
+                  'trabajo-modal-timeline','trabajo-modal-barra-wrap','trabajo-modal-barra',
                   'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
-                  'trabajo-modal-cancelar']) {{
-  _els[id] = {{ textContent: '', innerHTML: '', style: {{}},
+                  'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
+                  'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
+                  'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta']) {{
+  _els[id] = {{ textContent: '', innerHTML: '', style: {{}}, dataset: {{}},
     // El armazón consulta el log para decidir si baja el scroll y busca la
     // caja para plegar el lateral: sin estos dos, el DOM falso revienta.
     querySelector: () => null, closest: () => null, classList: {{
@@ -89,19 +91,28 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
     toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
     has(c) {{ return this._v.has(c); }} }} }};
 }}
-globalThis.document = {{ getElementById: id => _els[id] || null }};
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
 globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
-{_fn('_trabajoPasosHTML')}
+{_fn('timelineDeTrabajo')}
+{_fn('_trabajoCartelPinta')}
 {_fn('_trabajoModalPinta')}
 _trabajoModalPinta({json.dumps(activo)}, {json.dumps(vista)});
 console.log(JSON.stringify({{
   icono: _els['trabajo-modal-icono'].innerHTML,
   titulo: _els['trabajo-modal-titulo'].textContent,
   sub: _els['trabajo-modal-sub'].textContent,
-  pasos: _els['trabajo-modal-pasos'].innerHTML,
-  tiempos: _els['trabajo-modal-tiempos'].innerHTML,
+  pasos: _els['trabajo-modal-timeline'].innerHTML,
+  tiempos: _els['trabajo-modal-tiempos'].textContent,
+  paso: _els['trabajo-modal-paso'].textContent,
+  pct: _els['trabajo-modal-pct'].textContent,
+  eta: _els['trabajo-modal-eta'].textContent,
+  cartelVisible: _els['trabajo-modal-cartel'].style.display !== 'none',
+  cartelTitulo: _els['trabajo-modal-cartel-titulo'].textContent,
+  cartelMeta: _els['trabajo-modal-cartel-meta'].textContent,
+  cartelPoster: _els['trabajo-modal-cartel-poster'].innerHTML,
   cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
   indeterminada: _els['trabajo-modal-barra-wrap'].classList.has('indeterminada'),
   anchoBarra: _els['trabajo-modal-barra'].style.width,
@@ -124,32 +135,74 @@ console.log(JSON.stringify({{
         self.assertIn("icono-naranja", r["icono"], "fase_cmv40 va en naranja")
         self.assertIn("icono-chip-lg", r["icono"])
 
-    def test_la_tira_marca_hechas_activa_y_pendientes(self):
+    def test_las_fases_van_a_la_COLUMNA_no_a_una_tira(self):
+        """Los cinco tipos las enseñan en el mismo sitio. Antes la fase CMv4.0
+        tenía su timeline a la izquierda y los otros cuatro una tira horizontal
+        sobre la barra: dos trabajos de la misma aplicación se miraban en
+        sitios distintos."""
         r = self._pintar(ACTIVO, {"pasos": ["A", "B", "C", "D"]})
-        self.assertEqual(r["pasos"].count("trabajo-paso hecha"), 2,
+        self.assertEqual(r["pasos"].count("trabajo-tl-fase done"), 2,
                          "las dos anteriores")
-        self.assertEqual(r["pasos"].count("trabajo-paso activa"), 1)
-        # La activa gira; las pendientes son un punto, no un cuadro que pesa
-        # lo mismo que un paso ya hecho.
+        self.assertEqual(r["pasos"].count("trabajo-tl-fase active"), 1)
         self.assertEqual(r["pasos"].count("icono-girando"), 1)
         self.assertIn("trabajo-paso-punto", r["pasos"])
+
+    def test_el_lateral_propio_de_un_tipo_gana_a_la_lista(self):
+        r = self._pintar(ACTIVO, {"pasos": ["A", "B"], "lateral": "<i>mía</i>"})
+        self.assertEqual(r["pasos"], "<i>mía</i>")
+
+    def test_el_paso_dentro_de_la_fase_se_ve(self):
+        """Era lo que enseñaba el overlay de CMv4.0 sobre la barra y se perdió
+        al unificar: sin él, diez minutos de demux se ven igual que diez de
+        merge."""
+        r = self._pintar(dict(ACTIVO, paso="Demuxing BL/EL"), {"pasos": []})
+        self.assertEqual(r["paso"], "Demuxing BL/EL")
+
+    def test_sin_paso_cae_en_el_nombre_de_la_fase(self):
+        r = self._pintar(dict(ACTIVO, paso=""), {"pasos": []})
+        self.assertEqual(r["paso"], ACTIVO["fase_label"])
 
     def test_con_porcentaje_medido_la_barra_avanza(self):
         r = self._pintar(ACTIVO, {"pasos": []})
         self.assertFalse(r["indeterminada"])
         self.assertEqual(r["anchoBarra"], "40%")
-        self.assertIn("40%", r["tiempos"])
+        self.assertEqual(r["pct"], "40%")
+        self.assertIn("Lleva", r["tiempos"])
 
     def test_sin_porcentaje_medido_la_barra_es_indeterminada(self):
         a = dict(ACTIVO, pct=None, pct_medido=False, eta_s=None, eta_fuente=None)
         r = self._pintar(a, {"pasos": []})
         self.assertTrue(r["indeterminada"])
         self.assertEqual(r["anchoBarra"], "")
-        self.assertIn("sin medir", r["tiempos"])
+        self.assertEqual(r["pct"], "—", "un guion, no un cero inventado")
+        self.assertEqual(r["eta"], "")
 
     def test_el_eta_de_modelo_se_marca(self):
         r = self._pintar(dict(ACTIVO, eta_fuente="modelo"), {"pasos": []})
-        self.assertIn("(aprox.)", r["tiempos"])
+        self.assertIn("(aprox.)", r["eta"])
+
+    def test_la_cartela_sale_de_la_vista_del_tipo(self):
+        """El póster y el título largo los tenía el overlay de CMv4.0 y se
+        perdieron al unificar. No vienen del contrato de progreso: los trae la
+        pestaña, que ya tiene el `tmdb_info` delante."""
+        r = self._pintar(ACTIVO, {"pasos": [], "cartel": {
+            "url": "https://img/p.jpg", "titulo": "Predator: Tierra de Ojos",
+            "meta": "2026 · 1h 47min · Acción"}})
+        self.assertTrue(r["cartelVisible"])
+        self.assertEqual(r["cartelTitulo"], "Predator: Tierra de Ojos")
+        self.assertEqual(r["cartelMeta"], "2026 · 1h 47min · Acción")
+        self.assertIn("<img", r["cartelPoster"])
+
+    def test_sin_poster_queda_el_icono_del_tipo_no_un_hueco(self):
+        r = self._pintar(ACTIVO, {"pasos": [], "cartel": {
+            "url": "", "titulo": "Sin ficha", "meta": "", "icono": "✨"}})
+        self.assertTrue(r["cartelVisible"])
+        self.assertNotIn("<img", r["cartelPoster"])
+        self.assertIn("✨", r["cartelPoster"])
+
+    def test_sin_cartela_no_se_pinta_una_vacia(self):
+        r = self._pintar(ACTIVO, {"pasos": []})
+        self.assertFalse(r["cartelVisible"])
 
     def test_copiar_el_log_solo_aparece_si_hay_log(self):
         con = self._pintar(ACTIVO, {"pasos": [], "conLog": True})
@@ -268,9 +321,9 @@ console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
             self.assertIn(titulo, h)
         self.assertIn("12 s", h)            # la fase 1, ya terminada
         self.assertIn("12 min", h)          # la 2, en curso: el total del contrato
-        self.assertIn("rip-tl-fase done", h)
-        self.assertIn("rip-tl-fase active", h)
-        self.assertIn("rip-tl-fase pending", h)
+        self.assertIn("trabajo-tl-fase done", h)
+        self.assertIn("trabajo-tl-fase active", h)
+        self.assertIn("trabajo-tl-fase pending", h)
 
     def test_switch_sub_tab_no_conserva_ramas_muertas(self):
         src = pieza_de("switchSubTab")[1]

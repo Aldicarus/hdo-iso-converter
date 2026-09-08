@@ -4763,18 +4763,18 @@ function _ripTimelineHTML(a, sesion) {
     const tiempo = secs != null ? _workbarTiempo(secs)
                  : estado === 'active' ? _workbarTiempo(a.segundos) : '';
     return `
-      <div class="rip-tl-fase ${estado}">
+      <div class="trabajo-tl-fase ${estado}">
         ${estado === 'active' ? iconoDeEstado('corriendo', 'icono-chip-sm')
           : estado === 'done' ? iconoDeEstado('hecho', 'icono-chip-sm')
           : '<span class="trabajo-paso-punto"></span>'}
         <div style="flex:1; min-width:0">
-          <div class="rip-tl-titulo">${escHtml(titulo)}</div>
-          <div class="rip-tl-sub">${escHtml(sub)}</div>
+          <div class="trabajo-tl-titulo">${escHtml(titulo)}</div>
+          <div class="trabajo-tl-sub">${escHtml(sub)}</div>
         </div>
-        <span class="rip-tl-tiempo">${escHtml(tiempo)}</span>
+        <span class="trabajo-tl-tiempo">${escHtml(tiempo)}</span>
       </div>`;
   }).join('');
-  return `<div class="rip-tl-cabecera">Fases del rip</div>${filas}`;
+  return `<div class="trabajo-tl-cabecera">Fases del rip</div>${filas}`;
 }
 
 
@@ -4785,6 +4785,7 @@ registrarDetalleDeTrabajo('rip', async (a) => {
   return {
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
+    cartel: cartelDeTmdb(s?.tmdb_info, s?.mkv_name, '💿'),
     lateral: _ripTimelineHTML(a, s),
     pasos: [],
     conLog: true,
@@ -4801,6 +4802,10 @@ registrarDetalleDeTrabajo('serie', async (a) => {
   return {
     titulo: a.que,
     sub: p?.current_label || '',
+    // La serie no guarda su `tmdb_info` en el progreso —lo tiene cada sesión
+    // de episodio, que aún no existe—, así que la cartela es el nombre.
+    cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
+    pasosTitulo: 'Pasos de la creación',
     pasos: ['Preparar origen', 'Analizar episodios', 'Crear proyectos'],
     conLog: false,
     cuerpo: _trabajoKvHTML([

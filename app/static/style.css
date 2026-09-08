@@ -9307,6 +9307,107 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 16px 14px;
 }
 .trabajo-modal-lateral:empty { display: none; }
+.trabajo-modal-lateral { padding: 0; }
+.trabajo-modal-lateral > #trabajo-modal-timeline { padding: 16px 14px; }
+
+/* La cartela de la película, arriba de la columna izquierda. Es la mini
+   cabecera que tenía el overlay de ejecución de CMv4.0: fondo claro propio
+   para separarla del resto de la columna, y el póster con sombra. */
+.trabajo-cartel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--sep);
+  flex-shrink: 0;
+}
+.trabajo-cartel-poster {
+  flex-shrink: 0;
+  width: 50px; height: 75px;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  background: var(--surface-4);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  overflow: hidden;
+}
+.trabajo-cartel-poster img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.trabajo-cartel-info { flex: 1; min-width: 0; display: flex;
+  flex-direction: column; gap: 4px; }
+.trabajo-cartel-titulo {
+  font-size: 13px; font-weight: 700; color: var(--text-1);
+  letter-spacing: .1px; line-height: 1.25;
+  /* Dos líneas: un título de película con año y tags no cabe en una y
+     cortarlo con puntos suspensivos es justo perder lo que distingue una
+     edición de otra. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.trabajo-cartel-meta {
+  font-size: 11.5px; color: var(--text-3); letter-spacing: .2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* El bloque de progreso: isla oscura pegada al log, como en el overlay que
+   este modal sustituye. El porcentaje va en grande y con cifras de ancho fijo
+   para que no baile al cambiar de 9 % a 10 %. */
+.trabajo-progreso {
+  flex-shrink: 0;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #1a1e2a;
+  border: 1px solid #2a2f3d;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  border-bottom: none;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.trabajo-progreso-meta {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; font-size: 12px;
+}
+.trabajo-progreso-paso {
+  font-weight: 600; color: #e8ecf4; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+}
+.trabajo-progreso-der {
+  display: flex; align-items: baseline; gap: 12px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.trabajo-progreso-eta { color: #9aa3b2; font-size: 11px; }
+.trabajo-progreso-pct {
+  color: #4da3ff; font-weight: 700; font-size: 15px;
+  min-width: 54px; text-align: right;
+}
+.trabajo-progreso-track {
+  height: 14px; background: #0b0e17; border: 1px solid #2a2f3d;
+  border-radius: 8px; overflow: hidden; position: relative;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5);
+}
+.trabajo-progreso-fill {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--blue), #6cc0ff);
+  border-radius: 8px;
+  transition: width .35s var(--ease);
+}
+/* Sin porcentaje medido no se pinta una barra que avanza: se pinta una que
+   dice que hay trabajo pero no cuánto. Es la misma regla que la columna. */
+.trabajo-progreso-track.indeterminada .trabajo-progreso-fill {
+  width: 35%;
+  animation: trabajo-indet 1.4s ease-in-out infinite;
+}
+@keyframes trabajo-indet {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+.trabajo-progreso-tiempos { font-size: 11px; color: #9aa3b2; }
+@media (prefers-reduced-motion: reduce) {
+  .trabajo-progreso-track.indeterminada .trabajo-progreso-fill {
+    animation: none; width: 100%; opacity: .35;
+  }
+}
 /* Un trabajo sin timeline (el análisis extendido, la copia, la creación de una
    serie) no necesita el ancho de dos columnas ni el alto fijo: la caja se
    ajusta a lo que tenga. */
@@ -9363,8 +9464,9 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   max-height: none;
   overflow-y: auto;
   margin: 0;
-  border-radius: var(--r-md);
+  border-radius: 0 0 var(--r-md) var(--r-md);
 }
+.trabajo-modal-principal #trabajo-modal-cuerpo { margin-top: 0; }
 .trabajo-modal-principal .modal-footer { margin-top: 12px; flex-shrink: 0; }
 
 @media (max-width: 980px) {
@@ -9375,23 +9477,23 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   .trabajo-modal-lateral { width: auto; border-right: none; border-bottom: 1px solid var(--sep); }
 }
 
-/* La timeline del rip dentro del modal. Misma anatomía que la de CMv4.0 —una
+/* La timeline de fases del modal, la MISMA para los cinco tipos. Misma anatomía que la de CMv4.0 —una
    fila por fase con su estado y su tiempo— para que las dos pestañas se lean
    igual, que es de lo que va todo este bloque. */
-.rip-tl-cabecera {
+.trabajo-tl-cabecera {
   font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
   color: var(--text-3); margin-bottom: 10px;
 }
-.rip-tl-fase {
+.trabajo-tl-fase {
   display: flex; align-items: center; gap: 9px;
   padding: 9px 0; border-bottom: 1px solid rgba(0,0,0,0.05);
 }
-.rip-tl-fase:last-child { border-bottom: none; }
-.rip-tl-fase.pending { opacity: .45; }
-.rip-tl-titulo { font-size: 12px; font-weight: 600; color: var(--text-1); }
-.rip-tl-fase.active .rip-tl-titulo { color: var(--blue); }
-.rip-tl-sub { font-size: 10px; color: var(--text-3); }
-.rip-tl-tiempo {
+.trabajo-tl-fase:last-child { border-bottom: none; }
+.trabajo-tl-fase.pending { opacity: .45; }
+.trabajo-tl-titulo { font-size: 12px; font-weight: 600; color: var(--text-1); }
+.trabajo-tl-fase.active .trabajo-tl-titulo { color: var(--blue); }
+.trabajo-tl-sub { font-size: 10px; color: var(--text-3); }
+.trabajo-tl-tiempo {
   font-size: 11px; color: var(--text-2);
   font-variant-numeric: tabular-nums; flex-shrink: 0;
 }
@@ -9446,3 +9548,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   gap: 5px;
 }
 .btn.ocupado .icono-chip { background: transparent; }
+
+/* El paso dentro de la fase, bajo el nombre de la fase. Son dos cosas —«Fase C
+   · 3/7» y «Demuxing BL/EL»— y el plan del bloque 7 pedía las dos. */
+.workbar-activo-paso {
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

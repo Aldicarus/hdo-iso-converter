@@ -81,6 +81,7 @@ function _workbarActivoHTML(a) {
           <div style="flex:1; min-width:0">
             <div class="workbar-activo-que">${escHtml(a.que || '')}</div>
             <div class="workbar-activo-fase">${escHtml(fase)}</div>
+            ${a.paso ? `<div class="workbar-activo-paso">${escHtml(a.paso)}</div>` : ''}
           </div>
           ${iconoDeEstado('corriendo', 'icono-chip-sm')}
         </div>
@@ -314,9 +315,17 @@ function abrirDetalleDeTrabajo() {
  *  elegir cuál. Se pregunta antes: cancelar un remux de 10 minutos por un clic
  *  de más duele.
  */
-function cancelarTrabajoActivo() {
-  const a = workbarEstado.activo;
-  if (!a) return;
+function cancelarTrabajoActivo(trabajo) {
+  // El trabajo llega por parámetro cuando se pulsa desde el modal, que sabe a
+  // cuál está mirando. Antes SIEMPRE se leía el activo del último poll: si
+  // ese hueco caía entre dos fases, la función se iba de vacío con un `return`
+  // mudo — sin petición, sin toast, sin nada en el log del servidor. Es lo que
+  // se veía como «no me deja cancelar».
+  const a = trabajo || _trabajoModalUltimo || workbarEstado.activo;
+  if (!a) {
+    showToast('No hay ningún trabajo que cancelar', 'info');
+    return;
+  }
   // El análisis extendido NO se cancela con un POST a pelo: su función manda
   // el `audit_id` que se está siguiendo y marca la sesión local como cancelada
   // por el usuario. Sin eso, un cancel tardío del audit A mataba el B recién
@@ -329,12 +338,15 @@ function cancelarTrabajoActivo() {
                     ? _mkvQualityCancel() : cancelMkvApply()),
   };
   const accion = acciones[a.tab];
-  if (!accion) return;
+  if (!accion) {
+    showToast(`No sé cancelar un trabajo de «${a.tab || '?'}»`, 'error');
+    return;
+  }
   showConfirm(
-    'Cancelar el trabajo',
+    '¿Detener el trabajo?',
     `Se detendrá «${a.que}». Lo que ya esté hecho se conserva.`,
     async () => { await accion(); refrescarWorkbar(); },
-    'Cancelar el trabajo',
+    'Sí, detenerlo',
   );
 }
 
@@ -349,23 +361,86 @@ function cancelarTrabajoActivo() {
 
 let _trabajoModalTimer = null;
 let _trabajoModalTipo = null;
+let _trabajoModalRef = null;      // `sobre` del trabajo que se está mirando
+let _trabajoModalUltimo = null;   // su último progreso conocido
 
-/** Pinta la tira de fases a partir de los campos comunes. */
-function _trabajoPasosHTML(a, pasos) {
+
+/** Una cartela a partir del `tmdb_info` que ya tiene la pestaña.
+ *
+ *  Las tres pestañas guardan el mismo dict (ver `services/tmdb.py`), así que
+ *  la traducción a cartela se hace UNA vez. Sin match de TMDb sigue habiendo
+ *  cartela: el nombre del fichero limpio dice bastante más que nada.
+ */
+function cartelDeTmdb(tmdb, nombreFallback, icono) {
+  const t = tmdb || null;
+  let titulo = t?.title || '';
+  if (!titulo && nombreFallback) {
+    titulo = String(nombreFallback).replace(/\.mkv$/i, '').replace(/[._]+/g, ' ');
+  }
+  if (!titulo) return null;
+  const partes = [];
+  if (t?.year) partes.push(String(t.year));
+  if (t?.runtime_minutes) {
+    partes.push(`${Math.floor(t.runtime_minutes / 60)}h ${t.runtime_minutes % 60}min`);
+  }
+  if (t?.genres?.length) partes.push(t.genres.slice(0, 2).join(' · '));
+  return { url: t?.poster_url || '', titulo, meta: partes.join(' · '),
+           icono: icono || '🎬' };
+}
+
+/** La cartela: póster, título largo y ficha (año · duración · géneros).
+ *
+ *  La trae la vista de cada tipo, no el armazón: sacarla del backend obligaría
+ *  a meter TMDb en el contrato de progreso, y quien tiene el `tmdb_info`
+ *  delante es la pestaña, que ya lo pide para su panel.
+ */
+function _trabajoCartelPinta(cartel) {
+  const caja = document.getElementById('trabajo-modal-cartel');
+  if (!caja) return;
+  caja.style.display = cartel ? '' : 'none';
+  if (!cartel) return;
+  const poster = document.getElementById('trabajo-modal-cartel-poster');
+  if (poster) {
+    poster.innerHTML = cartel.url
+      ? `<img src="${escHtml(cartel.url)}" alt="" loading="lazy">`
+      : (cartel.icono || '🎬');
+  }
+  const t = document.getElementById('trabajo-modal-cartel-titulo');
+  if (t) {
+    t.textContent = cartel.titulo || '';
+    t.dataset.tooltip = cartel.titulo || '';
+  }
+  const m = document.getElementById('trabajo-modal-cartel-meta');
+  if (m) m.textContent = cartel.meta || '';
+}
+
+/** La timeline de fases a partir de una simple lista de nombres.
+ *
+ *  Los cinco tipos enseñan sus fases en la MISMA columna. Antes la fase
+ *  CMv4.0 tenía su timeline a la izquierda y los otros una tira horizontal
+ *  sobre la barra, así que dos trabajos de la misma aplicación se miraban en
+ *  sitios distintos — que es de lo que va todo este bloque.
+ */
+function timelineDeTrabajo(pasos, a, titulo) {
   if (!pasos || !pasos.length) return '';
-  return pasos.map((p, i) => {
+  const filas = pasos.map((p, i) => {
     const n = i + 1;
-    const clase = a.fase_n && n < a.fase_n ? 'hecha'
-                : a.fase_n === n ? 'activa' : '';
-    // La activa gira, la hecha lleva su check y las pendientes solo un punto:
-    // un ⬜ pesaba visualmente lo mismo que un paso ya hecho.
-    const icono = clase === 'hecha'
-      ? iconoDeEstado('hecho', 'icono-chip-sm')
-      : clase === 'activa'
-      ? iconoDeEstado('corriendo', 'icono-chip-sm')
-      : '<span class="trabajo-paso-punto"></span>';
-    return `<div class="trabajo-paso ${clase}">${icono}${escHtml(p)}</div>`;
+    const estado = a.fase_n && n < a.fase_n ? 'done'
+                 : a.fase_n === n ? 'active' : 'pending';
+    const nombre = typeof p === 'string' ? p : (p.titulo || '');
+    const sub = typeof p === 'string' ? '' : (p.sub || '');
+    return `
+      <div class="trabajo-tl-fase ${estado}">
+        ${estado === 'active' ? iconoDeEstado('corriendo', 'icono-chip-sm')
+          : estado === 'done' ? iconoDeEstado('hecho', 'icono-chip-sm')
+          : '<span class="trabajo-paso-punto"></span>'}
+        <div style="flex:1; min-width:0">
+          <div class="trabajo-tl-titulo">${escHtml(nombre)}</div>
+          ${sub ? `<div class="trabajo-tl-sub">${escHtml(sub)}</div>` : ''}
+        </div>
+      </div>`;
   }).join('');
+  return `<div class="trabajo-tl-cabecera">${escHtml(titulo || 'Fases')}</div>${filas}`;
 }
 
 function _trabajoModalPinta(a, vista) {
@@ -377,8 +452,11 @@ function _trabajoModalPinta(a, vista) {
   if (iconoEl) iconoEl.innerHTML = iconoDeTrabajo(a.tipo, 'icono-chip-lg');
   set('trabajo-modal-titulo', vista.titulo || a.que || 'Trabajo');
   set('trabajo-modal-sub', vista.sub || '');
-  const pasos = document.getElementById('trabajo-modal-pasos');
-  if (pasos) pasos.innerHTML = _trabajoPasosHTML(a, vista.pasos);
+  _trabajoCartelPinta(vista.cartel);
+  // La tira horizontal se retiró: las fases van SIEMPRE en la columna. Los
+  // tipos que solo aportan una lista de nombres se la fabrica el armazón.
+  const lateral = vista.lateral
+    || timelineDeTrabajo(vista.pasos, a, vista.pasosTitulo);
 
   // La barra sigue la misma regla que en la columna: sin porcentaje medido no
   // se pinta una que avanza.
@@ -388,17 +466,16 @@ function _trabajoModalPinta(a, vista) {
     wrap.classList.toggle('indeterminada', !a.pct_medido);
     fill.style.width = a.pct_medido ? `${a.pct}%` : '';
   }
-  set('trabajo-modal-tiempos', '');
-  const t = document.getElementById('trabajo-modal-tiempos');
-  if (t) {
-    t.innerHTML = `<span>${a.pct_medido ? a.pct + '%' : 'sin medir'}</span>`
-      + `<span>lleva ${escHtml(_workbarTiempo(a.segundos))}`
-      + (a.eta_s != null
-          ? ` · Restante ${escHtml(_workbarTiempo(a.eta_s))}`
-            + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
-          : '')
-      + '</span>';
-  }
+  // El PASO dentro de la fase. Sin él la barra dice cuánto queda pero no de
+  // qué: diez minutos de demux se ven igual que diez de merge.
+  set('trabajo-modal-paso', a.paso || vista.paso || a.fase_label || 'Preparando…');
+  set('trabajo-modal-pct', a.pct_medido ? `${a.pct}%` : '—');
+  set('trabajo-modal-eta', a.eta_s != null
+    ? `Restante ${_workbarTiempo(a.eta_s)}`
+      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+    : '');
+  set('trabajo-modal-tiempos', `Lleva ${_workbarTiempo(a.segundos)}`
+    + (a.fase_n ? ` · fase ${a.fase_n} de ${a.fases_total}` : ''));
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) {
@@ -415,14 +492,10 @@ function _trabajoModalPinta(a, vista) {
   // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
   // modal se queda a una columna — no todos los trabajos tienen una timeline
   // que enseñar.
-  const lateral = document.getElementById('trabajo-modal-lateral');
-  if (lateral) {
-    lateral.innerHTML = vista.lateral || '';
-    // Sin timeline el modal no necesita ni el ancho ni el alto de dos
-    // columnas: dejarlo igual dejaba media pantalla en blanco bajo el log.
-    lateral.closest('.trabajo-modal-caja')
-      ?.classList.toggle('sin-lateral', !vista.lateral);
-  }
+  const timeline = document.getElementById('trabajo-modal-timeline');
+  if (timeline) timeline.innerHTML = lateral;
+  document.querySelector('.trabajo-modal-caja')
+    ?.classList.toggle('sin-lateral', !lateral && !vista.cartel);
   // El botón de copiar solo tiene sentido con log delante.
   const copiar = document.getElementById('trabajo-modal-copiar');
   if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
@@ -452,6 +525,8 @@ function _trabajoKvHTML(pares) {
 function cerrarModalDeTrabajo() {
   if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
   _trabajoModalTipo = null;
+  _trabajoModalRef = null;
+  _trabajoModalUltimo = null;
   closeModal('trabajo-modal');
 }
 
@@ -460,17 +535,39 @@ async function _trabajoModalAbrir(a) {
   const fn = _workbarDetalles[a.detalle];
   if (!fn) return;
   _trabajoModalTipo = a.detalle;
+  // El modal se ancla al TRABAJO, no al tipo. Un proyecto CMv4.0 encadena
+  // siete fases y entre una y la siguiente el contrato deja de traer activo un
+  // instante; comparando el tipo, el modal se daba por terminado, se sustituía
+  // por un armazón vacío —sin la columna de fases y con «Todavía no hay líneas
+  // de log»— y APAGABA su propio timer, así que no se recuperaba nunca.
+  _trabajoModalRef = a.sobre || a.id;
+  _trabajoModalUltimo = a;
   openModal('trabajo-modal');
+  let sinActivo = 0;
   const refrescar = async () => {
     const act = workbarEstado.activo;
-    // El trabajo terminó o lo relevó otro: el modal deja de tener sujeto.
-    if (!act || act.detalle !== _trabajoModalTipo) {
-      _trabajoModalPinta(a, { titulo: a.que, sub: 'Terminado',
-                              pasos: [], cuerpo: '' });
-      if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
-      return;
+    const esElMismo = act && (act.sobre || act.id) === _trabajoModalRef;
+    if (esElMismo) { _trabajoModalUltimo = act; sinActivo = 0; }
+    else sinActivo += 1;
+    // Aunque el trabajo ya no esté activo se SIGUE pintando su vista: la
+    // timeline, el estado de las fases y el log los lee cada pestaña de su
+    // propia sesión, no del contrato de progreso. Lo único que deja de tener
+    // sentido es la barra.
+    const base = esElMismo ? act : {
+      ..._trabajoModalUltimo,
+      pct: null, pct_medido: false, eta_s: null, cancelable: false,
+      paso: act ? 'Cambiando de fase…' : 'Terminado',
+    };
+    try {
+      _trabajoModalPinta(base, await fn(base));
+    } catch (e) {
+      console.error('[trabajo-modal]', e);
     }
-    _trabajoModalPinta(act, await fn(act));
+    // Se deja de pollear cuando lleva un rato sin sujeto, pero el contenido se
+    // queda: cerrarlo es del usuario.
+    if (sinActivo > 20 && _trabajoModalTimer) {
+      clearInterval(_trabajoModalTimer); _trabajoModalTimer = null;
+    }
   };
   await refrescar();
   if (_trabajoModalTimer) clearInterval(_trabajoModalTimer);

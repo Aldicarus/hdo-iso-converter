@@ -4034,7 +4034,14 @@ def _cmv40_adaptador(trabajo) -> dict | None:
     if session is None:
         return None
     fase = session.running_phase or (trabajo.datos or {}).get("fase") or ""
-    prog = session.last_progress or {}
+    # `last_progress` vive en su SIDECAR (`{id}.progress`), no en el JSON: el
+    # campo del modelo solo lo llenan las sesiones anteriores a ese cambio y
+    # el proceso en curso, que no es el que atiende esta petición. Leyendo
+    # solo el modelo, el pct salía `None` SIEMPRE y las siete fases se
+    # anunciaban como «sin medir» — con la medición perfectamente hecha al
+    # otro lado. Son ~50 bytes; el `read` no escala con nada.
+    from storage import read_cmv40_progress
+    prog = read_cmv40_progress(trabajo.clave) or session.last_progress or {}
     pct = prog.get("pct")
     eta = prog.get("eta_s")
     segundos = 0
@@ -4046,9 +4053,11 @@ def _cmv40_adaptador(trabajo) -> dict | None:
             break
     return {
         "fase": fase,
+        "fase_label": _CMV40_FASE_LABELS.get(fase, fase),
         # El `label` del progreso dice en qué PASO de la fase va (el demux, el
-        # merge…), que es más útil que el nombre de la fase a secas.
-        "fase_label": prog.get("label") or _CMV40_FASE_LABELS.get(fase, fase),
+        # merge…). Va aparte, no en lugar de la fase: pisándola se perdía de
+        # vista en qué fase del pipeline estaba el proyecto.
+        "paso": prog.get("label") or "",
         "fase_n": _CMV40_ORDEN.index(fase) + 1 if fase in _CMV40_ORDEN else 0,
         "fases_total": len(_CMV40_ORDEN),
         "pct": pct, "pct_medido": pct is not None,

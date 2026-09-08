@@ -1619,9 +1619,10 @@ def _analisis_adaptador(trabajo) -> dict | None:
     segundos = round(st.get("elapsed_s") or 0)
     return {
         "fase": paso,
-        # El `step_label` del backend es más específico que la etiqueta fija
-        # (dice en qué va el pipe), así que manda si está.
-        "fase_label": st.get("step_label") or dict(_PASOS_ANALISIS).get(paso, ""),
+        "fase_label": dict(_PASOS_ANALISIS).get(paso, ""),
+        # El `step_label` dice en qué va el pipe dentro del paso; es más
+        # específico que la etiqueta fija, así que acompaña en vez de sustituir.
+        "paso": st.get("step_label") or "",
         "fase_n": ids.index(paso) + 1 if paso in ids else 0,
         "fases_total": len(ids),
         "pct": pct, "pct_medido": paso != "en_cola" and pct is not None,
@@ -1639,6 +1640,10 @@ _PASOS_COPIA = (
 )
 
 
+def _gb(n) -> str:
+    return f"{(n or 0) / 1024 ** 3:.1f} GB"
+
+
 def _copia_adaptador(trabajo) -> dict | None:
     st = _mkv_apply_state
     if not st.get("active"):
@@ -1651,7 +1656,11 @@ def _copia_adaptador(trabajo) -> dict | None:
     eta = st.get("eta_s") or None
     return {
         "fase": paso,
-        "fase_label": st.get("step_label") or dict(_PASOS_COPIA).get(paso, ""),
+        "fase_label": dict(_PASOS_COPIA).get(paso, ""),
+        # Los bytes son el paso: una barra al 40 % no dice si quedan 3 GB o 30.
+        "paso": (f"{_gb(st.get('bytes_copied'))} de {_gb(st.get('total_bytes'))}"
+                 if paso == "copying" and st.get("total_bytes")
+                 else st.get("step_label") or ""),
         "fase_n": ids.index(paso) + 1 if paso in ids else 0,
         "fases_total": len(ids),
         "pct": pct, "pct_medido": paso == "copying" and pct is not None,
