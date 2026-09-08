@@ -291,6 +291,28 @@ class TestTab3PasaPorLaCola(ApiTestCase):
         sid = self.crear_sesion(sid="cmv40_q", phase="extracted")
         self.assertIsNone(self.client.get(f"/api/cmv40/{sid}").json()["cola"])
 
+    def test_los_parametros_viajan_con_el_trabajo(self):
+        """La cola reconstruye la fase; no reusa la closure del endpoint.
+
+        El campo de la sesión existe como respaldo, pero lo que manda es
+        `datos`: es lo único que sigue siendo cierto si la sesión cambió entre
+        encolar y despachar, y lo único que sobrevive a un reinicio con la
+        cola llena.
+        """
+        from routers import cmv40 as r
+        from storage import load_cmv40_session
+        sid = self.crear_sesion(sid="cmv40_q", phase="target_provided")
+        session = load_cmv40_session(sid)
+        session.pending_target_source_mkv_path = "/mnt/library/VIEJO.mkv"
+        coro, _ = r._cmv40_construir_fase(session, "target_rpu_mkv",
+                                          {"mkv": "/mnt/library/EL BUENO.mkv"})
+        # El path acaba dentro del closure que se acaba de construir.
+        capturado = coro.__closure__ and [
+            c.cell_contents for c in coro.__closure__
+            if isinstance(c.cell_contents, str)]
+        self.assertIn("/mnt/library/EL BUENO.mkv", capturado or [],
+                      "ganó el campo de la sesión sobre lo que se encoló")
+
     def test_cancelar_saca_de_la_cola(self):
         """Desde la cola única, «cancelar» tiene dos significados según dónde
         esté el trabajo — y para el usuario es el mismo botón."""

@@ -679,6 +679,61 @@ Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_tim
 
 `workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
+### La cola única
+
+`queue_manager` era «una lista de `session_id` y una función que los ejecuta».
+Hoy cada entrada es un **`TrabajoEnCola(tab, tipo, clave, que, datos)`** y el
+runner se resuelve **por el tipo, al despachar**: es lo único que permite que
+la cola sobreviva a un reinicio, porque un callable no se persiste y un literal
+sí. Es el patrón de `_CMV40_RUNNERS`.
+
+Cinco cosas que no son obvias:
+
+- **La identidad para deduplicar es `(tipo, clave)`, no la clave.** Un proyecto
+  CMv4.0 encola fases sucesivas con la misma clave —su session id—, así que con
+  la clave sola la Fase F se descartaría por duplicada mientras la Fase C sigue
+  en la cola.
+- **Reordenar NO borra.** `reorder` conserva lo que no se menciona: el panel de
+  la cola de Tab 1 solo conoce sus rips, y si filtrara a lo mencionado,
+  arrastrar una tarjeta se llevaría por delante las fases CMv4.0 de detrás.
+  Descartar es otra intención y tiene su método (`descartar`).
+- **El formato del WS no cambia.** `running` y `queue` siguen siendo **ids de
+  sesión de Tab 1** porque el frontend los lee así en una veintena de sitios;
+  la vista completa va en `running_job` y `jobs`.
+- **La fase siguiente va a la CABEZA, salvo la primera.** Un proyecto a medias
+  tiene 250-400 GB de artefactos ocupando `/mnt/tmp`: dejarlo detrás de dos
+  rips de 40 minutos es peor que terminarlo. `analyze_source` no se cuela
+  porque ahí el proyecto todavía no ha gastado nada.
+- **Un tipo sin runner se descarta con un aviso que lo nombra.** Que la cola
+  siga no distingue el guard de un `KeyError` —el `finally` reanuda igual—; lo
+  que cambia es el rastro.
+
+**La cola reconstruye la fase, no reusa la closure del endpoint.** Puede
+despachar **cuarenta minutos** después de encolar, y la closure captura el
+`CMv40Session` de aquel momento: guardarlo encima del de disco borraría lo que
+hubiera pasado entretanto (un renombrado del MKV de salida, un ACK de gates).
+Por eso `_cmv40_construir_fase(session, fase, datos)` la arma con la sesión
+recién leída y lo que no está en la sesión viaja en `datos` — el `paso` de
+`correct_sync`, el MKV de `target_rpu_mkv`.
+
+**No todas las «fases» son pesadas.** Medido sobre los proyectos del NAS,
+`target_rpu_path` tiene mediana de **2 s** y `target_rpu_drive` **3 s** (p90
+10 s): encolar una descarga de tres segundos detrás de un rip de 40 minutos no
+protegería nada y dejaría al usuario mirando el asistente. Las dos son
+`CLASE_INTERACTIVO` y se ejecutan al instante; `_CMV40_FASES_DIFERIDAS` tiene
+las otras siete.
+
+**Un trabajo en cola NO lleva overlay.** `_cmv40ShouldShowOverlay` devuelve
+`false` con `s.cola`: no hay log que enseñar y sí decisiones que ofrecer
+(quitarlo de la cola), y taparlo sería la trampa de agosto otra vez — botones
+que se ven y no se pueden pulsar. En su lugar hay un banner ámbar con el puesto
+y qué se está esperando, que sale de `_cmv40_posicion_en_cola` y **no se
+persiste**: es estado de la cola, y la cola ya lo tiene.
+
+**Cancelar tiene dos significados** según dónde esté el trabajo —matar el
+subproceso o sacarlo de la fila— y para el usuario es el mismo botón, así que
+`cmv40_cancel` hace las dos cosas.
+
 ### La máquina, y qué cuesta de verdad solaparse (medido 2026-09-07)
 
 | | |
