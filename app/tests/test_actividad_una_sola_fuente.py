@@ -128,6 +128,9 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}
+const _workbarOyentes = [];
+let _workbarUltimaFirma = null;
+{_fn('_workbarFirma')}
 {_fn('_instalarReordenDeCola')}
 {_fn('_workbarRender')}
 {_fn('refrescarWorkbar')}
@@ -227,6 +230,92 @@ globalThis.escHtml = t => String(t);
                           "cola": [{"id": "a", "tab": "rip", "que": "rip de A",
                                     "posicion": 1}]}, extra=guion_extra)
         self.assertEqual(len(r["estado"]["cola"]), 1)
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestCadaPestanaMarcaLoSuyo(unittest.TestCase):
+    """La columna dice lo que pasa en la aplicación; la lista de cada pestaña
+    tiene que decir en CUÁL. Sin esto, un MKV con el análisis extendido
+    esperando turno se veía igual que uno parado y se podía volver a pedir: el
+    rechazo llegaba del backend, que es la peor forma de enterarse.
+
+    El emparejamiento va por `sobre` —el identificador con el que la pestaña
+    conoce el recurso— y NO por la clave del trabajo: la de un análisis
+    extendido es su `audit_id`, que la pestaña no ha visto nunca.
+    """
+
+    def _mirar(self, estado, sobre) -> dict:
+        guion = f"""
+let workbarEstado = {json.dumps(estado)};
+globalThis.escHtml = t => String(t);
+{_iconos()}
+{_fn('trabajoSobre')}
+{_fn('insigniaDeTrabajo')}
+console.log(JSON.stringify({{
+  t: trabajoSobre({json.dumps(sobre)}),
+  html: insigniaDeTrabajo({json.dumps(sobre)}),
+}}));
+"""
+        return _node(guion)
+
+    def test_el_activo_se_reconoce_por_sobre_y_no_por_la_clave(self):
+        estado = {"activo": {"id": "aud-7f3", "sobre": "/mnt/output/Dune.mkv",
+                             "que": "análisis extendido de Dune.mkv"},
+                  "cola": []}
+        r = self._mirar(estado, "/mnt/output/Dune.mkv")
+        self.assertEqual(r["t"]["estado"], "corriendo")
+        self.assertIn("En curso", r["html"])
+        self.assertIn("icono-girando", r["html"], "la rueda tiene que girar")
+        # Y la clave, que es lo que la pestaña NO conoce, no cuela por error.
+        self.assertIsNone(self._mirar(estado, "aud-7f3")["t"])
+
+    def test_en_cola_dice_el_puesto(self):
+        estado = {"activo": None,
+                  "cola": [{"id": "a", "sobre": "otro", "posicion": 1},
+                           {"id": "b", "sobre": "/mnt/output/Dune.mkv",
+                            "que": "análisis extendido de Dune.mkv",
+                            "posicion": 2}]}
+        r = self._mirar(estado, "/mnt/output/Dune.mkv")
+        self.assertEqual(r["t"]["estado"], "en_cola")
+        self.assertEqual(r["t"]["posicion"], 2)
+        self.assertIn("2ª", r["html"])
+
+    def test_sin_trabajo_no_hay_insignia(self):
+        r = self._mirar({"activo": None, "cola": []}, "/mnt/output/Dune.mkv")
+        self.assertIsNone(r["t"])
+        self.assertEqual(r["html"], "")
+
+    def test_un_recurso_vacio_no_empareja_con_lo_que_no_tiene_sobre(self):
+        """Un trabajo sin `sobre` cae a su id; preguntar por '' no puede
+        devolverlo."""
+        r = self._mirar({"activo": {"id": "", "que": "x"}, "cola": []}, "")
+        self.assertIsNone(r["t"])
+
+
+class TestElContratoDiceSobreQueActua(unittest.TestCase):
+    """`sobre` viaja en `/api/trabajos` para el activo y para la cola."""
+
+    def test_para_los_tres_que_usan_su_clave_es_la_clave(self):
+        import queue_manager as qm
+        import trabajos
+        for tipo in (qm.TIPO_RIP, qm.TIPO_FASE_CMV40, qm.TIPO_SERIE):
+            t = qm.TrabajoEnCola(tab="rip", tipo=tipo, clave="proj_1")
+            self.assertEqual(trabajos.progreso_de(t)["sobre"], "proj_1")
+
+    def test_y_el_analisis_extendido_lo_dice_aparte(self):
+        import queue_manager as qm
+        import trabajos
+        t = qm.TrabajoEnCola(tab="mkv", tipo=qm.TIPO_ANALISIS_EXTENDIDO,
+                             clave="aud-7f3", sobre="/mnt/output/Dune.mkv")
+        p = trabajos.progreso_de(t)
+        self.assertEqual(p["id"], "aud-7f3")
+        self.assertEqual(p["sobre"], "/mnt/output/Dune.mkv")
+
+    def test_una_entrada_vieja_del_fichero_de_cola_no_se_queda_sin_sobre(self):
+        import queue_manager as qm
+        t = qm.TrabajoEnCola.de_json(
+            {"tab": "rip", "tipo": "rip", "clave": "peli_2024_1", "que": "x"})
+        self.assertEqual(t.sobre, "peli_2024_1")
 
 
 class TestNoQuedanLectoresSueltosDeActividad(unittest.TestCase):
