@@ -52,7 +52,9 @@ _ACTIVOS = {
     "cmv40": {
         "id": "predator_2026_1", "sobre": "predator_2026_1", "tab": "cmv40",
         "tipo": "fase_cmv40", "que": "Fase C de Predator (2026)",
-        "fase": "extract", "fase_label": "Extrayendo BL/EL", "fase_n": 3,
+        "fase": "extract",
+        "fase_label": "Fase C — Extrayendo BL/EL y datos per-frame",
+        "fase_n": 3,
         "fases_total": 7, "pct": 41, "pct_medido": True, "segundos": 742,
         "eta_s": 1060, "eta_fuente": "medido", "cancelable": True,
         "paso": "Demuxing BL/EL", "detalle": "cmv40",
@@ -162,6 +164,18 @@ def _medir(tipo: str) -> dict:
       cartelTitulo: document.getElementById('trabajo-modal-cartel-titulo')
                       ?.textContent || '',
       paso: document.getElementById('trabajo-modal-paso')?.textContent || '',
+      tituloTexto: document.getElementById('trabajo-modal-titulo')?.textContent || '',
+      sub: document.getElementById('trabajo-modal-sub')?.textContent || '',
+      // ¿La columna puede desplazarse? Con `overflow-y` en un bloque en vez de
+      // un flex, la lista interna de fases no calcula alto y no scrolla.
+      lateralScroll: (() => {
+        const t = document.getElementById('trabajo-modal-timeline');
+        const dentro = t && t.querySelector('.cmv40-tl-steps');
+        const el = dentro || t;
+        return el ? {alto: el.scrollHeight, visible: el.clientHeight} : null;
+      })(),
+      clasesLog: [...document.querySelectorAll('#trabajo-modal-log .log-line')]
+        .map(d => d.className).filter(c => c !== 'log-line ').length,
       pct: document.getElementById('trabajo-modal-pct')?.textContent || '',
       icono: r(document.getElementById('trabajo-modal-icono')),
       titulo: r(document.getElementById('trabajo-modal-titulo')),
@@ -278,6 +292,47 @@ class TestElLogSeVeEntero(unittest.TestCase):
                                f"{tipo}: el log no tiene nada que desplazar")
             self.assertGreaterEqual(s["pos"], s["alto"] - s["visible"] - 24,
                                     f"{tipo}: el log no está al final")
+
+
+@unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
+class TestLoQueSePerdioAlUnificar(unittest.TestCase):
+    """Tres cosas que tenía el overlay de CMv4.0 y no sobrevivieron al modal
+    común. Ninguna se ve leyendo el CSS: el markup y las reglas se leen bien
+    en los dos casos."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = {t: _medir(t) for t in ("cmv40", "rip", "analisis_extendido")}
+
+    def test_la_columna_de_fases_se_puede_desplazar(self):
+        """Un pipeline CMv4.0 son diez pasos con su descripción: no caben. La
+        columna era un bloque con `overflow-y:auto` y la lista interna, que
+        gestiona su propio scroll, no podía calcular alto — las últimas fases
+        quedaban cortadas y no había forma de llegar a ellas."""
+        d = self.m["cmv40"]
+        sc = d["lateralScroll"]
+        self.assertIsNotNone(sc)
+        self.assertGreater(sc["alto"], sc["visible"],
+                           "la columna no tiene nada que desplazar: revisa el "
+                           "fixture antes que el CSS")
+        self.assertGreater(sc["visible"], 200, "la columna no ocupa alto")
+
+    def test_el_log_conserva_su_paleta(self):
+        """Se clasificaba línea a línea (`log-phase`, `log-success`…) y el
+        modal común lo pintaba en gris plano: en dos mil líneas, lo único que
+        se busca es el ✗ y el separador de fase."""
+        for tipo in ("cmv40", "rip"):
+            self.assertGreater(self.m[tipo]["clasesLog"], 3,
+                               f"{tipo}: el log salió sin colorear")
+
+    def test_la_cabecera_dice_la_FASE_no_repite_el_fichero(self):
+        """Con la cartela al lado, poner el nombre del MKV en el título y el
+        del origen debajo dejaba tres líneas diciendo lo mismo."""
+        d = self.m["cmv40"]
+        self.assertEqual(d["tituloTexto"],
+                         "Fase C — Extrayendo BL/EL y datos per-frame")
+        self.assertNotEqual(d["sub"], d["cartelTitulo"])
+        self.assertNotIn(".mkv", d["tituloTexto"])
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
