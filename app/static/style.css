@@ -9286,6 +9286,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-modal-caja {
   max-width: 1120px;
   width: calc(100vw - 80px);
+  /* El tope de altura NO es decorativo: sin él las dos columnas crecen con su
+     contenido —una timeline de siete fases, un log de dos mil líneas— la caja
+     se sale de la ventana y el pie con los botones queda debajo del borde
+     inferior. Es lo que se veía como «contenido descentrado y log cortado».
+     Con el tope, quien hace scroll es cada columna por dentro. */
+  height: calc(100vh - 72px);
+  max-height: 860px;
   display: flex;
   gap: 0;
   padding: 0;
@@ -9300,6 +9307,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 16px 14px;
 }
 .trabajo-modal-lateral:empty { display: none; }
+/* Un trabajo sin timeline (el análisis extendido, la copia, la creación de una
+   serie) no necesita el ancho de dos columnas ni el alto fijo: la caja se
+   ajusta a lo que tenga. */
+.trabajo-modal-caja.sin-lateral {
+  max-width: 820px;
+  height: auto;
+  max-height: calc(100vh - 72px);
+}
 .trabajo-modal-principal {
   flex: 1;
   min-width: 0;
@@ -9307,6 +9322,28 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-direction: column;
   padding: 20px 22px 14px;
   overflow: hidden;
+}
+/* `.modal-header` y `.modal-icon` no existían: los modales de esta aplicación
+   ponen el título y el subtítulo en un `<div>` propio por modal (ver
+   `.cmv40-new-head`). Sin estas dos reglas el icono caía sobre el título en
+   vez de a su lado, que es lo que se veía como cabecera descentrada. */
+.trabajo-modal-principal .modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--sep);
+}
+.trabajo-modal-principal .modal-title { margin-bottom: 2px; }
+.trabajo-modal-principal .modal-sub   { margin-bottom: 0; font-size: 11px; }
+.trabajo-modal-principal .modal-footer { margin-top: 12px; }
+.trabajo-modal-principal .trabajo-detalle-vacio {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
 }
 .trabajo-modal-principal #trabajo-modal-cuerpo {
   flex: 1;
@@ -9320,13 +9357,21 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-modal-principal .cmv40-log {
   flex: 1;
   min-height: 160px;
+  /* `.cmv40-log` viene con `max-height: 300px` para su uso en el panel de
+     Tab 3. Aquí manda el alto de la caja: sin quitarlo, el log se quedaba en
+     300 px con medio modal en blanco debajo. */
+  max-height: none;
   overflow-y: auto;
   margin: 0;
+  border-radius: var(--r-md);
 }
 .trabajo-modal-principal .modal-footer { margin-top: 12px; flex-shrink: 0; }
 
 @media (max-width: 980px) {
-  .trabajo-modal-caja { flex-direction: column; width: calc(100vw - 32px); }
+  .trabajo-modal-caja {
+    flex-direction: column; width: calc(100vw - 32px);
+    height: calc(100vh - 32px);
+  }
   .trabajo-modal-lateral { width: auto; border-right: none; border-bottom: 1px solid var(--sep); }
 }
 
@@ -9357,9 +9402,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-shrink: 0;
   border: none; background: transparent; cursor: pointer;
   color: var(--text-3); font-size: 12px; line-height: 1;
-  padding: 3px 4px; border-radius: 5px; opacity: 0;
+  padding: 3px 4px; border-radius: 5px; opacity: .45;
   transition: opacity .12s ease, background .12s ease;
 }
+/* Visible siempre, no solo al pasar por encima: era la única forma de sacar
+   algo de la cola y escondida detrás de un hover no se encontraba. */
 .workbar-item:hover .workbar-item-quitar { opacity: 1; }
 .workbar-item-quitar:hover { background: var(--red-dim); color: var(--red); }
 

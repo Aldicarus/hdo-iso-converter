@@ -149,7 +149,8 @@ function _workbarRender(st) {
           ${iconoDeTrabajo(j.tipo, 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(j.que || '')}</span>
           <span class="workbar-item-pos">${j.posicion}</span>
-          <button class="workbar-item-quitar" onclick="quitarDeLaCola('${j.id}')"
+          <button class="workbar-item-quitar"
+            onclick="quitarDeLaCola(this.closest('[data-clave]').dataset.clave)"
             data-tooltip="Sacarlo de la cola">✕</button>
         </div>`, 'workbar-seccion-cola')
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
@@ -400,12 +401,28 @@ function _trabajoModalPinta(a, vista) {
   }
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
-  if (cuerpo) cuerpo.innerHTML = vista.cuerpo || '';
+  if (cuerpo) {
+    // El log es un directo: interesa el final. Pero solo se baja si el usuario
+    // YA estaba abajo — si ha subido a leer algo, el refresco cada dos
+    // segundos no puede arrastrarlo de vuelta.
+    const antes = cuerpo.querySelector('.cmv40-log');
+    const abajo = !antes
+      || antes.scrollTop + antes.clientHeight >= antes.scrollHeight - 24;
+    cuerpo.innerHTML = vista.cuerpo || '';
+    const log = cuerpo.querySelector('.cmv40-log');
+    if (log && abajo) log.scrollTop = log.scrollHeight;
+  }
   // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
   // modal se queda a una columna — no todos los trabajos tienen una timeline
   // que enseñar.
   const lateral = document.getElementById('trabajo-modal-lateral');
-  if (lateral) lateral.innerHTML = vista.lateral || '';
+  if (lateral) {
+    lateral.innerHTML = vista.lateral || '';
+    // Sin timeline el modal no necesita ni el ancho ni el alto de dos
+    // columnas: dejarlo igual dejaba media pantalla en blanco bajo el log.
+    lateral.closest('.trabajo-modal-caja')
+      ?.classList.toggle('sin-lateral', !vista.lateral);
+  }
   // El botón de copiar solo tiene sentido con log delante.
   const copiar = document.getElementById('trabajo-modal-copiar');
   if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
