@@ -46,6 +46,37 @@ function _aplicarEstadoWorkbar() {
 }
 
 /** "6 min" · "45 s" · "1 h 12 min" — la misma escala en toda la columna. */
+/** Un reloj que corre en el NAVEGADOR, anclado al último dato del servidor.
+ *
+ *  El transcurrido venía del contrato y solo se refrescaba con el poll —cada
+ *  2 s en la columna, 1,5 s en el modal—, así que por debajo del minuto se
+ *  veía saltar de dos en dos segundos. La timeline de CMv4.0 no tenía ese
+ *  problema porque su reloj lo lleva un tick local de 1 s; esto es lo mismo
+ *  para el resto.
+ *
+ *  El ancla se recalcula en cada render, así que el navegador interpola pero
+ *  el servidor sigue mandando: no puede desviarse.
+ */
+function _relojHTML(segundos, prefijo = '', sufijo = '', clase = '') {
+  const desde = Date.now() - Math.max(0, segundos || 0) * 1000;
+  return `<span class="workbar-reloj ${clase}" data-desde="${desde}"`
+       + ` data-pre="${escHtml(prefijo)}" data-post="${escHtml(sufijo)}">`
+       + `${escHtml(prefijo + _workbarTiempo(segundos) + sufijo)}</span>`;
+}
+
+function _arrancarRelojes() {
+  if (window._workbarRelojTick) return;
+  window._workbarRelojTick = setInterval(() => {
+    document.querySelectorAll('.workbar-reloj[data-desde]').forEach(el => {
+      const desde = parseInt(el.dataset.desde, 10);
+      if (!desde) return;
+      el.textContent = (el.dataset.pre || '')
+        + _workbarTiempo((Date.now() - desde) / 1000)
+        + (el.dataset.post || '');
+    });
+  }, 1000);
+}
+
 function _workbarTiempo(segundos) {
   const s = Math.max(0, Math.round(segundos || 0));
   if (s < 60) return `${s} s`;
@@ -66,9 +97,9 @@ function _workbarActivoHTML(a) {
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
-    ? `${_workbarTiempo(a.segundos)} · Restante ${_workbarTiempo(a.eta_s)}`
-      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
-    : `lleva ${_workbarTiempo(a.segundos)}`;
+    ? _relojHTML(a.segundos, '', ` · Restante ${_workbarTiempo(a.eta_s)}`
+        + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
+    : _relojHTML(a.segundos, 'lleva ');
   const fase = a.fases_total
     ? `${a.fase_label || a.fase} · ${a.fase_n || '–'}/${a.fases_total}`
     : (a.fase_label || a.fase || '');
@@ -88,7 +119,7 @@ function _workbarActivoHTML(a) {
         ${barra}
         <div class="workbar-tiempos">
           <span>${escHtml(izq)}</span>
-          <span>${escHtml(der)}</span>
+          <span>${der}</span>
         </div>
         <div class="workbar-acciones">
           <button class="btn btn-ghost btn-xs" onclick="abrirDetalleDeTrabajo()"
@@ -249,7 +280,7 @@ function _workbarRender(st) {
         <div class="workbar-item" data-clave="${escHtml(t.id)}">
           ${iconoDeEstado('corriendo', 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(t.que || '')}</span>
-          <span class="workbar-item-meta">${escHtml(_workbarTiempo(t.segundos))}</span>
+          <span class="workbar-item-meta">${_relojHTML(t.segundos)}</span>
         </div>
         ${(t.detalle || t.cancelable) ? `
           <div class="workbar-acciones workbar-acciones-item">
@@ -378,6 +409,7 @@ function _workbarTick() {
 
 function arrancarWorkbar() {
   _aplicarEstadoWorkbar();
+  _arrancarRelojes();
   if (_workbarTimer) clearInterval(_workbarTimer);
   _workbarTimer = setInterval(_workbarTick, _WORKBAR_INTERVALO_MS);
   refrescarWorkbar();
@@ -653,7 +685,9 @@ function timelineDeTrabajo(pasos, a, titulo) {
           <div class="cmv40-tl-progress-meta">
             <span class="cmv40-tl-timer">
               <span class="cmv40-tl-timer-icon">⏱</span>
-              <span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>
+              ${term
+                ? `<span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>`
+                : _relojHTML(a.segundos, '', '', 'cmv40-tl-timer-elapsed')}
             </span>
             <span class="cmv40-tl-progress-pct">${hechas}/${total} · ${pct}%</span>
             <span class="cmv40-tl-timer-remaining">${escHtml(restante)}</span>
@@ -714,9 +748,13 @@ function _trabajoModalPinta(a, vista) {
     ? `Restante ${_workbarTiempo(a.eta_s)}`
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : ''));
-  set('trabajo-modal-tiempos', !a.segundos ? ''
-    : a.terminal ? `Duró ${_workbarTiempo(a.segundos)}`
-    : `Lleva ${_workbarTiempo(a.segundos)}`);
+  const tiemposEl = document.getElementById('trabajo-modal-tiempos');
+  if (tiemposEl) {
+    // Terminado el reloj se para: es un dato, no un contador.
+    tiemposEl.innerHTML = !a.segundos ? ''
+      : a.terminal ? `Duró ${escHtml(_workbarTiempo(a.segundos))}`
+      : _relojHTML(a.segundos, 'Lleva ');
+  }
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) {

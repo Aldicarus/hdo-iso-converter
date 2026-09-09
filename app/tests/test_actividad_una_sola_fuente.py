@@ -126,6 +126,7 @@ globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return {json.dump
 globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}
 const _workbarOyentes = [];
@@ -316,6 +317,117 @@ class TestElContratoDiceSobreQueActua(unittest.TestCase):
         t = qm.TrabajoEnCola.de_json(
             {"tab": "rip", "tipo": "rip", "clave": "peli_2024_1", "que": "x"})
         self.assertEqual(t.sobre, "peli_2024_1")
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElRelojLoLLevaElNavegador(unittest.TestCase):
+    """El transcurrido venía del contrato y solo cambiaba con el poll —cada
+    2 s en la columna, 1,5 s en el modal—, así que por debajo del minuto se
+    veía saltar de dos en dos segundos. La timeline de CMv4.0 no tenía ese
+    problema porque su reloj lo lleva un tick local de 1 s; esto es lo mismo
+    para el resto.
+    """
+
+    def _correr(self, extra="") -> dict:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+globalThis.window = {{}};
+let _cb = null;
+globalThis.setInterval = (fn) => {{ _cb = fn; return 1; }};
+let _els = [];
+globalThis.document = {{ querySelectorAll: () => _els }};
+{_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
+{_fn('_relojHTML')}
+{_fn('_arrancarRelojes')}
+const html = _relojHTML(5, 'lleva ');
+// El elemento que el tick va a tocar, con el ancla que acaba de emitirse.
+const desde = /data-desde="(\\d+)"/.exec(html)[1];
+_els = [{{ dataset: {{ desde, pre: 'lleva ', post: '' }}, textContent: '' }}];
+_arrancarRelojes();
+{extra}
+console.log(JSON.stringify({{ html, texto: _els[0].textContent,
+                             hayTick: !!_cb }}));
+"""
+        return _node(guion)
+
+    def test_la_columna_lo_USA_para_el_trabajo_activo(self):
+        """No basta con que el helper sepa hacerlo: hay que emitirlo. Sin
+        esto, la tarjeta seguiría pintando el número del servidor y saltando
+        de dos en dos segundos."""
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
+{_fn('_workbarActivoHTML')}
+console.log(JSON.stringify({{ html: _workbarActivoHTML(
+  {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,
+     pct: 10, pct_medido: true, segundos: 7, eta_s: 240,
+     eta_fuente: 'medido', cancelable: true }}) }}));
+"""
+        h = _node(guion)["html"]
+        self.assertIn('class="workbar-reloj', h)
+        self.assertIn("data-desde=", h)
+        # Y el resto de la línea sigue ahí, en el sufijo del reloj.
+        self.assertIn("Restante 4 min", h)
+
+    def test_tambien_cuando_no_hay_ETA(self):
+        """La otra rama: un trabajo sin porcentaje medido no tiene restante,
+        pero el transcurrido corre igual."""
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
+{_fn('_workbarActivoHTML')}
+console.log(JSON.stringify({{ html: _workbarActivoHTML(
+  {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,
+     pct: null, pct_medido: false, segundos: 7, eta_s: null,
+     cancelable: true }}) }}));
+"""
+        h = _node(guion)["html"]
+        self.assertIn('class="workbar-reloj', h)
+        self.assertIn("lleva 7 s", h)
+
+    def test_el_ancla_sale_del_dato_del_servidor(self):
+        r = self._correr()
+        self.assertIn('class="workbar-reloj', r["html"])
+        self.assertIn("lleva 5 s", r["html"])
+        self.assertIn("data-desde=", r["html"])
+        self.assertTrue(r["hayTick"])
+
+    def test_el_tick_avanza_sin_esperar_al_poll(self):
+        """Lo que arregla el salto: entre dos respuestas del servidor el
+        navegador sigue contando."""
+        r = self._correr("""
+// Tres segundos después, sin que haya llegado nada del servidor.
+const real = Date.now;
+Date.now = () => real() + 3000;
+_cb();
+Date.now = real;
+""")
+        self.assertEqual(r["texto"], "lleva 8 s")
+
+    def test_el_prefijo_y_el_sufijo_sobreviven_al_tick(self):
+        """El tick reescribe el nodo entero: sin conservarlos se comía el
+        «Restante 4 min» que va al lado."""
+        guion = f"""
+globalThis.escHtml = t => String(t);
+globalThis.window = {{}};
+let _cb = null;
+globalThis.setInterval = (fn) => {{ _cb = fn; return 1; }};
+let _els = [{{ dataset: {{ desde: String(Date.now() - 7000), pre: '',
+                          post: ' · Restante 4 min' }}, textContent: '' }}];
+globalThis.document = {{ querySelectorAll: () => _els }};
+{_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
+{_fn('_arrancarRelojes')}
+_arrancarRelojes();
+_cb();
+console.log(JSON.stringify({{ texto: _els[0].textContent }}));
+"""
+        self.assertEqual(_node(guion)["texto"], "7 s · Restante 4 min")
 
 
 class TestNoQuedanLectoresSueltosDeActividad(unittest.TestCase):

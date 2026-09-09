@@ -192,11 +192,11 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
     def test_los_sitios_conocidos_dicen_restante(self):
         js = js_completo()
         self.assertEqual(js.count("` · Restante ${em}:${es}`"), 2)   # escaneo PGS ×2
-        # La columna de trabajo y el bloque de progreso del modal, que es
-        # donde se mira ahora cualquier trabajo.
+        # La columna de trabajo. El transcurrido ya no se interpola aquí: lo
+        # cuenta el navegador con su propio reloj y el restante viaja como
+        # sufijo de ese span.
         self.assertEqual(js.count(
-            "${_workbarTiempo(a.segundos)} · Restante "
-            "${_workbarTiempo(a.eta_s)}"), 1)
+            "` · Restante ${_workbarTiempo(a.eta_s)}`"), 1)
         # Dos: el bloque de progreso del modal y la cabecera de la timeline
         # común, que es la de CMv4.0 alimentada por los otros cuatro tipos.
         self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 2)

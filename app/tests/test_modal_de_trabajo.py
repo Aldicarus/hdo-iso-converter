@@ -96,6 +96,7 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
 globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoModalPinta')}
@@ -106,7 +107,7 @@ console.log(JSON.stringify({{
   titulo: _els['trabajo-modal-titulo'].textContent,
   sub: _els['trabajo-modal-sub'].textContent,
   pasos: _els['trabajo-modal-timeline'].innerHTML,
-  tiempos: _els['trabajo-modal-tiempos'].textContent,
+  tiempos: _els['trabajo-modal-tiempos'].innerHTML,
   paso: _els['trabajo-modal-paso'].textContent,
   pct: _els['trabajo-modal-pct'].textContent,
   eta: _els['trabajo-modal-eta'].textContent,
@@ -190,6 +191,14 @@ console.log(JSON.stringify({{
     def test_sin_paso_cae_en_el_nombre_de_la_fase(self):
         r = self._pintar(dict(ACTIVO, paso=""), {"pasos": []})
         self.assertEqual(r["paso"], ACTIVO["fase_label"])
+
+    def test_el_transcurrido_lo_cuenta_el_NAVEGADOR(self):
+        """Venía del contrato y solo cambiaba con el refresco de 1,5 s, así
+        que por debajo del minuto saltaba de dos en dos segundos."""
+        r = self._pintar(dict(ACTIVO, segundos=7), {"pasos": []})
+        self.assertIn("workbar-reloj", r["tiempos"])
+        self.assertIn("data-desde=", r["tiempos"])
+        self.assertIn("Lleva 7 s", r["tiempos"])
 
     def test_con_porcentaje_medido_la_barra_avanza(self):
         r = self._pintar(ACTIVO, {"pasos": []})
@@ -344,6 +353,7 @@ globalThis.clearInterval = () => {{ _timerApagado = true; }};
 let _timerApagado = false;
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoModalPinta')}
@@ -435,6 +445,7 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
 globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoModalPinta')}
@@ -500,6 +511,7 @@ globalThis.setInterval = () => 1;
 globalThis.clearInterval = () => {{}};
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoModalPinta')}
@@ -564,6 +576,7 @@ globalThis.setInterval = () => 7;
 globalThis.clearInterval = () => {{ _apagado = true; }};
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoKvHTML')}
@@ -592,7 +605,7 @@ const _workbarDetalles = {{ rip: async () => {{
   console.log(JSON.stringify({{
     llamadas: _llamadas, apagado: _apagado,
     paso: _els['trabajo-modal-paso'].textContent,
-    tiempos: _els['trabajo-modal-tiempos'].textContent,
+    tiempos: _els['trabajo-modal-tiempos'].innerHTML,
     pct: _els['trabajo-modal-pct'].textContent,
     icono: _els['trabajo-modal-icono'].innerHTML,
     cancelar: _els['trabajo-modal-cancelar'].style.display,
@@ -634,6 +647,7 @@ const _workbarDetalles = {{ rip: async () => {{
         guion = f"""
 globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
@@ -679,6 +693,7 @@ console.log(JSON.stringify(_trabajoModalConResumen(
         guion = f"""
 globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
@@ -710,6 +725,7 @@ console.log(JSON.stringify(v));
         guion = f"""
 globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
@@ -826,6 +842,7 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
 globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_fn('_workbarRefReciente')}
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}
@@ -861,6 +878,7 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
         guion = f"""
 globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
+{_fn('_relojHTML')}
 {_iconos()}
 {_fn('timelineDeTrabajo')}
 console.log(JSON.stringify({{ html: timelineDeTrabajo(
@@ -950,6 +968,7 @@ class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
         guion = f"""
 {_fn("escHtml")}
 {_fn("_workbarTiempo")}
+{_fn("_relojHTML")}
 {_iconos()}
 {_fn("timelineDeTrabajo")}
 {_fn("_ripTimelineHTML")}
@@ -974,6 +993,7 @@ console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
         guion = f"""
 {_fn("escHtml")}
 {_fn("_workbarTiempo")}
+{_fn("_relojHTML")}
 {_iconos()}
 {_fn("timelineDeTrabajo")}
 {_fn("_ripTimelineHTML")}
