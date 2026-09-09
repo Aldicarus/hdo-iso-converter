@@ -171,12 +171,12 @@ async def run_phase_d(
         # "Origen" en vez de "MPLS" porque puede ser un m2ts directo
         # (modo película desde fichero suelto o serie multi-m2ts).
         await log_callback(
-            "[Fase D] 📋 Extrayendo todas las pistas del origen a un MKV "
+            "[Fase B] 📋 Extrayendo todas las pistas del origen a un MKV "
             "intermedio en /mnt/tmp con mkvmerge (lectura directa, sin "
             "re-codificar). La selección y los metadatos se aplican después."
         )
-        await log_callback(f"[Fase D] ┌─ Origen: {Path(mpls_path).name}")
-        await log_callback(f"[Fase D] └─ $ {' '.join(cmd)}")
+        await log_callback(f"[Fase B] ┌─ Origen: {Path(mpls_path).name}")
+        await log_callback(f"[Fase B] └─ $ {' '.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -232,7 +232,7 @@ async def run_phase_d(
     if hung or playlist_assert or proc.returncode not in (0, 1):
         borrado = _limpiar_parcial(out_path, existia_antes)
         if borrado and log_callback:
-            await log_callback(f"[Fase D] 🧹 Intermedio parcial eliminado: {borrado}")
+            await log_callback(f"[Fase B] 🧹 Intermedio parcial eliminado: {borrado}")
 
     if hung:
         raise RuntimeError(
@@ -257,10 +257,10 @@ async def run_phase_d(
 
     if log_callback:
         size_gb = Path(out_path).stat().st_size / 1e9
-        await log_callback(f"[Fase D] ✓ Intermedio: {Path(out_path).name} ({size_gb:.1f} GB)")
+        await log_callback(f"[Fase B] ✓ Intermedio: {Path(out_path).name} ({size_gb:.1f} GB)")
         await log_callback(
-            "[Fase D] 🎯 Resultado: intermedio con todas las pistas del origen, "
-            "sin recodificar. Listo para Fase E."
+            "[Fase B] 🎯 Resultado: intermedio con todas las pistas del origen, "
+            "sin recodificar. Listo para la Fase C."
         )
 
     return out_path

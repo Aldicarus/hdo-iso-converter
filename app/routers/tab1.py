@@ -1354,11 +1354,17 @@ class CreateSeriesSessionsRequest(_BaseModel):
 #
 # Un solo dict porque la cola ejecuta un rip a la vez, igual que los otros
 # singleton de progreso de la app.
+# Las cuatro fases de la conversión, con la letra que también usa el log.
+# NO son las «Fase A/B/D/E» internas del proyecto (análisis, reglas,
+# extracción, escritura): aquéllas numeran el ciclo de vida completo y aquí se
+# describe UNA ejecución, que empieza al abrir el origen. Que el log dijera
+# «[Fase D]» para lo que la UI llama la segunda fase era esa numeración
+# interna asomando.
 _RIP_FASES = (
-    ("mount",   "Apertura del origen"),
-    ("extract", "Extracción de pistas"),
-    ("write",   "Escritura de metadatos"),
-    ("unmount", "Cierre del origen"),
+    ("mount",   "Fase A — Apertura del origen"),
+    ("extract", "Fase B — Extracción de pistas"),
+    ("write",   "Fase C — Escritura de metadatos"),
+    ("unmount", "Fase D — Cierre del origen"),
 )
 
 _rip_progress: dict = {
@@ -2406,11 +2412,11 @@ async def _run_pipeline(session_id: str) -> None:
         # ── 1. Preparar origen (Source abstraction) ───────────────
         _mark_phase("mount")
         if stype == "iso":
-            await log("[Origen] ┌─ Paso 1: Montando el ISO en /mnt/bd…")
+            await log("[Fase A] ┌─ Paso 1: Montando el ISO en /mnt/bd…")
         elif stype == "bdmv_folder":
-            await log("[Origen] ┌─ Paso 1: Origen directo — leyendo la carpeta BDMV")
+            await log("[Fase A] ┌─ Paso 1: Origen directo — leyendo la carpeta BDMV")
         else:  # m2ts
-            await log("[Origen] ┌─ Paso 1: Origen directo — leyendo el fichero M2TS")
+            await log("[Fase A] ┌─ Paso 1: Origen directo — leyendo el fichero M2TS")
 
         source_obj = await Source.open(session.iso_path)
         await source_obj.__aenter__()
@@ -2420,11 +2426,11 @@ async def _run_pipeline(session_id: str) -> None:
         _mark_phase("mount", done=True)
 
         if stype == "iso":
-            await log(f"[Origen] └─ ✓ ISO montado en: {mount_point}")
+            await log(f"[Fase A] └─ ✓ ISO montado en: {mount_point}")
         elif stype == "bdmv_folder":
-            await log(f"[Origen] └─ ✓ Carpeta lista: {mount_point}")
+            await log(f"[Fase A] └─ ✓ Carpeta lista: {mount_point}")
         else:
-            await log(f"[Origen] └─ ✓ Fichero listo: {session.iso_path}")
+            await log(f"[Fase A] └─ ✓ Fichero listo: {session.iso_path}")
 
         _check_cancel()
 
@@ -2440,7 +2446,7 @@ async def _run_pipeline(session_id: str) -> None:
                 if session.mpls_path and Path(session.mpls_path).exists()
                 else session.iso_path
             )
-            await log(f"[Origen] Fichero de origen: {Path(mkvmerge_source).name}")
+            await log(f"[Fase A] Fichero de origen: {Path(mkvmerge_source).name}")
         else:
             # Buscar el MPLS dentro del bdmv_root. Prioridades:
             #   1. session.mpls_path (modo serie — nombre del MPLS específico)
@@ -2464,7 +2470,7 @@ async def _run_pipeline(session_id: str) -> None:
                         break
             if not mkvmerge_source:
                 mkvmerge_source = find_main_mpls(mount_point)
-            await log(f"[Origen] Playlist principal: {Path(mkvmerge_source).name}")
+            await log(f"[Fase A] Playlist principal: {Path(mkvmerge_source).name}")
 
         # Alias mpls_path para no romper código posterior — semánticamente
         # ahora puede ser MPLS o m2ts según el tipo de origen.
@@ -2524,7 +2530,7 @@ async def _run_pipeline(session_id: str) -> None:
                         ),
                     )
                     _mark_phase("extract", done=True)
-                    await log(f"[Fase D] Intermedio listo en: {intermediate_mkv}")
+                    await log(f"[Fase B] Intermedio listo en: {intermediate_mkv}")
 
                     # Phase E: mkvpropedit in-place + mv
                     _mark_phase("write")
@@ -2632,11 +2638,11 @@ async def _run_pipeline(session_id: str) -> None:
             _mark_phase("unmount", done=True)
             stype_cleanup = session.source_type or "iso"
             if stype_cleanup == "iso":
-                await log("[Origen] ✓ ISO desmontado")
+                await log("[Fase D] ✓ ISO desmontado")
             elif stype_cleanup == "bdmv_folder":
-                await log("[Origen] ✓ Origen cerrado (carpeta BDMV)")
+                await log("[Fase D] ✓ Origen cerrado (carpeta BDMV)")
             else:
-                await log("[Origen] ✓ Origen cerrado (fichero M2TS)")
+                await log("[Fase D] ✓ Origen cerrado (fichero M2TS)")
 
         # Limpiar tracking de cancelación
         _cancel_flags.pop(session_id, None)
@@ -3041,7 +3047,7 @@ if DEV_MODE:
         """
         Simula un pipeline D+E completo emitiendo mensajes WS reales con delays.
         Replica exactamente el mismo flujo de señales que _run_pipeline:
-          [Fase D] → Progress: X% → [Fase E] → __DONE__ (o __ERROR__)
+          [Fase B] → Progress: X% → [Fase C] → __DONE__ (o __ERROR__)
         """
         session = load_session(session_id)
         if not session:
@@ -3078,13 +3084,13 @@ if DEV_MODE:
             await log("[Montando ISO] ISO montado en: /mnt/bd/fake_mount_12345")
             _pe["mount"] = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
-            await log("[Fase D] MPLS seleccionado: /mnt/bd/fake_mount_12345/BDMV/PLAYLIST/00800.mpls")
+            await log("[Fase B] MPLS seleccionado: /mnt/bd/fake_mount_12345/BDMV/PLAYLIST/00800.mpls")
 
             if do_reorder:
                 # ── RUTA DIRECTA: MPLS → MKV final ───────────────────
                 await log("[Pipeline] Pistas reordenadas/excluidas → ruta directa (MPLS → MKV final)")
                 _ps["extract"] = datetime.now(timezone.utc)
-                await log("[Fase E] mkvmerge directo: MPLS → MKV final")
+                await log("[Fase C] mkvmerge directo: MPLS → MKV final")
                 await asyncio.sleep(0.5)
                 for pct in range(5, 101, 5):
                     await log(f"Progress: {pct}%")
@@ -3096,7 +3102,7 @@ if DEV_MODE:
                 # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
                 await log("[Pipeline] Sin reordenación → ruta intermedio (mkvpropedit in-place)")
                 _ps["extract"] = datetime.now(timezone.utc)
-                await log("[Fase D] mkvmerge: extrayendo todas las pistas…")
+                await log("[Fase B] mkvmerge: extrayendo todas las pistas…")
                 await asyncio.sleep(0.5)
                 for pct in range(5, 101, 5):
                     await log(f"Progress: {pct}%")
@@ -3104,14 +3110,14 @@ if DEV_MODE:
                 if will_error:
                     raise RuntimeError("[DEV] Error simulado — mkvmerge falló")
                 _pe["extract"] = datetime.now(timezone.utc)
-                await log("[Fase D] MKV intermedio generado: /mnt/tmp/fake_intermediate.mkv")
+                await log("[Fase B] MKV intermedio generado: /mnt/tmp/fake_intermediate.mkv")
 
                 _ps["write"] = datetime.now(timezone.utc)
-                await log("[Fase E] mkvpropedit in-place: configurando metadatos…")
+                await log("[Fase C] mkvpropedit in-place: configurando metadatos…")
                 await asyncio.sleep(0.4)
-                await log("[Fase E] mkvpropedit: pistas + capítulos configurados")
+                await log("[Fase C] mkvpropedit: pistas + capítulos configurados")
                 await asyncio.sleep(0.3)
-                await log("[Fase E] MKV movido a: /mnt/output/")
+                await log("[Fase C] MKV movido a: /mnt/output/")
                 _pe["write"] = datetime.now(timezone.utc)
 
             mkv_out = f"/mnt/output/{session.mkv_name or 'fake_output.mkv'}"

@@ -772,7 +772,7 @@ async def analyze_rpu_quality_for_mkv(
         # CMv4.0, verificada bit a bit (mismo md5 del RPU).
         _check()
         _emit("ffmpeg", 0.0, "Extrayendo el RPU (ffmpeg → dovi_tool)")
-        _log("━━━ Pasos 1+2 · Extracción HEVC + RPU (en paralelo) ━━━")
+        _log("━━━ Fase A · Extracción del RPU (ffmpeg → dovi_tool) ━━━")
         _log("[Audit] 📋 Plan: ffmpeg lee el v:0 del MKV y se lo pasa a "
              "dovi_tool por un pipe. Sin escribir el HEVC a disco: son "
              f"~{_fmt_bytes(expected_hevc)} que solo servían de intermedio.")
@@ -815,7 +815,7 @@ async def analyze_rpu_quality_for_mkv(
             # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
             _check()
             _emit("ffmpeg", 0.0, "Extrayendo el HEVC con ffmpeg")
-            _log("━━━ Paso 1/3 · Extracción HEVC ━━━")
+            _log("━━━ Fase A · Extracción del HEVC ━━━")
             _log(f"[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. "
                  f"Tamaño esperado del HEVC: ~{_fmt_bytes(expected_hevc)} (75% del MKV, sin audio/subs).")
             ff_cmd = [
@@ -887,7 +887,7 @@ async def analyze_rpu_quality_for_mkv(
             # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
             _check()
             _emit("extract_rpu", 55.0, "Extrayendo el RPU Dolby Vision del HEVC")
-            _log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
+            _log("━━━ Fase A · Extracción del RPU Dolby Vision ━━━")
             _log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y "
                  "extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
             dt_cmd = [DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path)]
@@ -958,7 +958,7 @@ async def analyze_rpu_quality_for_mkv(
         # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
         _check()
         _emit("combos", 80.0, "Exportando niveles del RPU y agregando combos L8/L2")
-        _log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
+        _log("━━━ Fase B · Combos L8/L2 y perfil de luminancia ━━━")
         _niveles_txt = ("L1, L2, L8 + L5 y L6 para el perfil de luminancia"
                         if con_luminancia else "L1, L2, L8")
         _log(f"[Audit] 📋 Plan: dovi_tool export --levels ({_niveles_txt}) sobre "

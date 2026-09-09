@@ -1601,12 +1601,19 @@ async def _runner_copia_biblioteca(trabajo) -> None:
 # Van aquí y no en el módulo común por la regla de dependencias: `main` sirve,
 # los routers aportan, y nadie importa `main`.
 
+# El paso interno → (nº de fase visible, etiqueta). Son DOS fases, no cuatro:
+# `ffmpeg` y `extract_rpu` son los dos extremos del mismo pipe, y `en_cola`
+# no es una fase sino la espera previa. Numerando la lista de pasos tal cual,
+# la fase 1 salía como la 2 y el modal enseñaba la extracción terminada con
+# los combos en curso cuando en realidad iba por la extracción.
 _PASOS_ANALISIS = (
-    ("en_cola",     "Esperando turno"),
-    ("ffmpeg",      "Extrayendo el RPU del MKV"),
-    ("extract_rpu", "Extrayendo el RPU del MKV"),
-    ("combos",      "Clasificando combos L8/L2 y perfil L1"),
+    ("en_cola",     0, "Esperando turno"),
+    ("ffmpeg",      1, "Fase A — Extracción del RPU"),
+    ("extract_rpu", 1, "Fase A — Extracción del RPU"),
+    ("combos",      2, "Fase B — Combos y perfil de luminancia"),
+    ("done",        2, "Fase B — Combos y perfil de luminancia"),
 )
+_ANALISIS_FASES_TOTAL = 2
 
 
 def _analisis_adaptador(trabajo) -> dict | None:
@@ -1614,17 +1621,18 @@ def _analisis_adaptador(trabajo) -> dict | None:
     if not st.get("active") or st.get("audit_id") != trabajo.clave:
         return None
     paso = st.get("step") or ""
-    ids = [p for p, _ in _PASOS_ANALISIS]
+    tabla = {p: (n, etiqueta) for p, n, etiqueta in _PASOS_ANALISIS}
+    fase_n, fase_label = tabla.get(paso, (0, ""))
     pct = st.get("global_pct")
     segundos = round(st.get("elapsed_s") or 0)
     return {
         "fase": paso,
-        "fase_label": dict(_PASOS_ANALISIS).get(paso, ""),
-        # El `step_label` dice en qué va el pipe dentro del paso; es más
+        "fase_label": fase_label,
+        # El `step_label` dice en qué va el pipe dentro de la fase; es más
         # específico que la etiqueta fija, así que acompaña en vez de sustituir.
         "paso": st.get("step_label") or "",
-        "fase_n": ids.index(paso) + 1 if paso in ids else 0,
-        "fases_total": len(ids),
+        "fase_n": fase_n,
+        "fases_total": _ANALISIS_FASES_TOTAL,
         "pct": pct, "pct_medido": paso != "en_cola" and pct is not None,
         "segundos": segundos,
         "eta_s": trabajos.eta_por_porcentaje(segundos, pct),
@@ -1635,8 +1643,8 @@ def _analisis_adaptador(trabajo) -> dict | None:
 
 _PASOS_COPIA = (
     ("en_cola",  "Esperando turno"),
-    ("copying",  "Copiando el MKV a Output"),
-    ("applying", "Escribiendo metadatos (mkvpropedit)"),
+    ("copying",  "Fase A — Copia del MKV"),
+    ("applying", "Fase B — Escritura de metadatos"),
 )
 
 
@@ -1649,7 +1657,7 @@ def _copia_adaptador(trabajo) -> dict | None:
     if not st.get("active"):
         return None
     paso = st.get("step") or ""
-    ids = [p for p, _ in _PASOS_COPIA]
+    ids = [p for p, _ in _PASOS_COPIA if p != "en_cola"]
     pct = st.get("pct")
     # `eta_s` de la copia sale de bytes/segundo, que es lo más medido que hay
     # en toda la aplicación: no se extrapola de un porcentaje.

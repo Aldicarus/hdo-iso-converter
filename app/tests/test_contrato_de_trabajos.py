@@ -134,7 +134,7 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         tab1._rip_progress_pct(40)
         p = self._progreso(_t(qm.TIPO_RIP, "peli_1"))
         self.assertEqual(p["fase"], "extract")
-        self.assertEqual(p["fase_label"], "Extracción de pistas")
+        self.assertEqual(p["fase_label"], "Fase B — Extracción de pistas")
         self.assertEqual(p["fase_n"], 2)
         self.assertEqual(p["fases_total"], 4)
         self.assertEqual(p["pct"], 40)
@@ -200,6 +200,36 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         self.assertTrue(p["pct_medido"])
         self.assertEqual(p["eta_s"], 420)
         self.assertEqual(p["eta_fuente"], "medido")
+
+    def test_los_dos_extremos_del_pipe_son_LA_MISMA_fase(self):
+        """`ffmpeg` y `extract_rpu` son los dos extremos del mismo pipe, y
+        `en_cola` no es una fase sino la espera previa. Numerando la lista de
+        pasos tal cual, la fase 1 salía como la 2: el modal enseñaba la
+        extracción terminada y los combos en curso cuando iba por la
+        extracción."""
+        from routers import tab2
+        for paso in ("ffmpeg", "extract_rpu"):
+            with self.subTest(paso=paso):
+                tab2._mkv_quality_state.update({
+                    "active": True, "audit_id": "aud1", "step": paso,
+                    "global_pct": 30, "elapsed_s": 60})
+                p = self._progreso(
+                    _t(qm.TIPO_ANALISIS_EXTENDIDO, "aud1", tab="mkv"))
+                self.assertEqual(p["fase_n"], 1, "es la primera de dos")
+                self.assertEqual(p["fases_total"], 2)
+                self.assertEqual(p["fase_label"], "Fase A — Extracción del RPU")
+        tab2._mkv_quality_state.update({"step": "combos"})
+        p = self._progreso(_t(qm.TIPO_ANALISIS_EXTENDIDO, "aud1", tab="mkv"))
+        self.assertEqual(p["fase_n"], 2)
+        self.assertEqual(p["fase_label"],
+                         "Fase B — Combos y perfil de luminancia")
+
+    def test_esperando_turno_no_es_la_fase_uno(self):
+        from routers import tab2
+        tab2._mkv_quality_state.update({
+            "active": True, "audit_id": "aud1", "step": "en_cola"})
+        p = self._progreso(_t(qm.TIPO_ANALISIS_EXTENDIDO, "aud1", tab="mkv"))
+        self.assertEqual(p["fase_n"], 0)
 
     def test_el_analisis_de_OTRO_audit_no_se_confunde(self):
         from routers import tab2

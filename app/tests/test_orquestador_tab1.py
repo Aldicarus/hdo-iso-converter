@@ -282,12 +282,21 @@ class TestFallos(OrquestadorCase):
     async def test_una_sesion_que_no_existe_no_revienta(self):
         await self.main._run_pipeline("no_existe_esta_sesion")
 
-    async def test_el_log_lleva_los_marcadores_del_panel(self):
-        """El parser del panel de cola busca `[Origen]` y el cierre."""
+    async def test_el_log_va_numerado_como_las_fases_que_se_ven(self):
+        """Las cuatro fases de una conversión llevan letra en la UI y el log
+        usa la MISMA. Decía `[Fase D]` para lo que la columna llama la
+        segunda: era la numeración interna del proyecto (A análisis, B reglas,
+        D extracción, E escritura) asomando por una vista que describe UNA
+        ejecución."""
         s = await self._correr(self._sesion())
         log = "\n".join(s.output_log)
-        self.assertIn("[Origen]", log)
+        self.assertIn("[Fase A]", log, "la apertura del origen")
+        self.assertIn("[Fase B]", log, "la extracción con mkvmerge")
+        self.assertIn("[Fase D]", log, "el cierre del origen")
         self.assertIn("Origen cerrado", log)
+        # Y no queda rastro de la numeración vieja.
+        self.assertNotIn("[Fase E]", log)
+        self.assertNotIn("[Origen]", log)
 
 
 if __name__ == "__main__":

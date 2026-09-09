@@ -1663,7 +1663,6 @@ async function seriesCreateSessions() {
   // sitio del que ya salía la barra.
   if (data?.queued) {
     await refrescarWorkbar();
-    abrirDetalleDeTrabajo({ tipo: 'crear_serie' });
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
@@ -4034,10 +4033,8 @@ async function _doExecute() {
 
   // Actualizar proyecto abierto: ahora está queued/running
   refreshOpenProjectState(sid);
-  // El detalle del rip era una sub-pestaña del centro; ahora es su modal, que
-  // se abre desde la columna de trabajo o desde aquí. Con SU id: recién
-  // encolado no es el activo, y sin decirlo se abría el del trabajo de al lado.
-  abrirDetalleDeTrabajo(sid);
+  // Ya no se abre el modal al lanzar: el trabajo va a la cola y corre de
+  // fondo. El toast de arriba ya dice dónde mirarlo.
 }
 
 /**
@@ -4745,13 +4742,13 @@ document.head.appendChild(spinStyle);
  */
 function _ripTimelineHTML(a, sesion) {
   const FASES = [
-    ['mount',   '💿', 'Apertura del origen',
+    ['mount',   '💿', 'Fase A · Apertura del origen',
      'Monta el ISO o valida la estructura BDMV'],
-    ['extract', '🎞️', 'Extracción de pistas',
+    ['extract', '🎞️', 'Fase B · Extracción de pistas',
      'mkvmerge copia vídeo, audio y subtítulos sin recodificar'],
-    ['write',   '🏷️', 'Escritura de metadatos',
+    ['write',   '🏷️', 'Fase C · Escritura de metadatos',
      'Nombres de pista, flags default/forced y capítulos'],
-    ['unmount', '⏏️', 'Cierre del origen',
+    ['unmount', '⏏️', 'Fase D · Cierre del origen',
      'Desmonta el ISO y elimina los ficheros intermedios'],
   ];
   const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
@@ -4801,11 +4798,11 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
     pasosTitulo: 'Fases del análisis',
     pasos: [
-      { icono: '💿', titulo: 'Apertura del origen',
+      { icono: '💿', titulo: 'Fase A · Apertura del origen',
         sub: 'Monta el origen y localiza las playlists de cada episodio' },
-      { icono: '🔍', titulo: 'Análisis por episodio',
+      { icono: '🔍', titulo: 'Fase B · Análisis por episodio',
         sub: 'Pistas, capítulos, subtítulos PGS y Dolby Vision' },
-      { icono: '📁', titulo: 'Creación de proyectos',
+      { icono: '📁', titulo: 'Fase C · Creación de proyectos',
         sub: 'Un proyecto por episodio, con las reglas ya aplicadas' },
     ],
     conLog: false,

@@ -1901,11 +1901,14 @@ async function _rgrfAuditQuality(evt) {
     // porque el poller pone `polling = false` en cuanto ve `active === false`,
     // y el usuario siempre puede cancelar.
     if (!data?.quality_classification) {
-      // Acuse de lo que se acaba de pulsar: son diez minutos y una línea
-      // apareciendo en una columna lateral es poco acuse. Se abre UNA vez, se
-      // puede cerrar, y no vuelve a abrirse solo.
+      // El trabajo va a la cola y corre de fondo. NO se abre el modal: el
+      // usuario pulsa «analizar», no «mírame analizar», y taparle el panel
+      // con un log que aún no tiene líneas es interrumpirle para nada. El
+      // acuse es el toast y la entrada en la columna, y el detalle se abre
+      // desde ahí cuando le interese.
       await refrescarWorkbar();
-      abrirDetalleDeTrabajo(targetFilePath);
+      showToast('Análisis extendido en marcha — el progreso está en la '
+                + 'columna de trabajo', 'success');
       while (polling && window._mkvQualitySession === session) {
         await new Promise(r => setTimeout(r, 500));
       }
@@ -2878,10 +2881,10 @@ async function _doApplyMkvEdits(copyToOutput) {
   // `mkvpropedit` es O(1) y lo único que hace falta es contar el resultado.
   _mkvApplyUserCancelled = false;
   if (copyToOutput) {
-    // Acuse de lo que se acaba de pulsar. Se abre una vez tras encolar, se
-    // puede cerrar, y no vuelve a abrirse solo.
+    // Tampoco aquí: a la cola y de fondo. El acuse es la columna.
     await refrescarWorkbar();
-    abrirDetalleDeTrabajo({ tipo: 'copia_biblioteca' });
+    showToast('Copia en marcha — el progreso está en la columna de trabajo',
+              'success');
   }
 
   let result;
@@ -3470,9 +3473,9 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
     pasosTitulo: 'Fases del análisis extendido',
     pasos: [
-      { icono: '🎬', titulo: 'Extracción del RPU',
+      { icono: '🎬', titulo: 'Fase A · Extracción del RPU',
         sub: 'ffmpeg y dovi_tool encadenados por un pipe, sin escribir el HEVC' },
-      { icono: '📊', titulo: 'Combos y perfil de luminancia',
+      { icono: '📊', titulo: 'Fase B · Combos y perfil de luminancia',
         sub: 'Export por niveles, combos L8/L2 y análisis L1 frame a frame' },
     ],
     conLog: true,
@@ -3492,9 +3495,9 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦'),
     pasosTitulo: 'Fases de la copia',
     pasos: [
-      { icono: '📦', titulo: 'Copia del MKV',
+      { icono: '📦', titulo: 'Fase A · Copia del MKV',
         sub: 'De la biblioteca (solo lectura) a /mnt/output' },
-      { icono: '🏷️', titulo: 'Escritura de metadatos',
+      { icono: '🏷️', titulo: 'Fase B · Escritura de metadatos',
         sub: 'mkvpropedit sobre la copia, sin remuxar' },
     ],
     conLog: false,
