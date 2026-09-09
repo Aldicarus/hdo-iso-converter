@@ -445,6 +445,117 @@ class TestLoInteractivoLoDeclaraElBackend(ApiTestCase):
         self.assertIs(visto.get("cancelable"), True)
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestForzarLaInyeccionNoLaPideDosVeces(unittest.TestCase):
+    """`override-recommendation` ya despacha la fase siguiente cuando
+    `auto_pipeline` está activo. Pedirla también desde el frontend daba un 409
+    del guard de duplicados —un toast rojo de «ya hay una fase en curso»—
+    mientras el trabajo se encolaba igual: el usuario veía un error sobre algo
+    que había funcionado."""
+
+    def _forzar(self) -> dict:
+        guion = f"""
+const _llamadas = [];
+globalThis.apiFetch = async (url, o) => {{
+  _llamadas.push([url, o && o.method]);
+  return {{ id: 'p1', auto_pipeline: true }};
+}};
+globalThis.cerrarPreflightCMv40 = () => {{}};
+globalThis._cmv40MaybeAutoAdvance = () => _llamadas.push(['_cmv40MaybeAutoAdvance']);
+globalThis.openCMv40Projects = [{{ id: 'p1', session: {{ id: 'p1' }} }}];
+globalThis._cmv40AssignSession = (p, d) => {{ p.session = d; }};
+globalThis._updateCMv40Panel = () => {{}};
+{_fn('_cmv40PfAplicar')}
+{_fn('_cmv40PfForzar')}
+(async () => {{
+  await _cmv40PfForzar('p1');
+  console.log(JSON.stringify({{
+    llamadas: _llamadas,
+    proyecto: openCMv40Projects[0]._lastAutoFiredFor,
+  }}));
+}})();
+"""
+        return _node(guion)
+
+    def test_solo_manda_el_override(self):
+        r = self._forzar()
+        self.assertEqual(
+            r["llamadas"],
+            [["/api/cmv40/p1/override-recommendation", "POST"]])
+
+    def test_no_dispara_la_fase_por_su_cuenta(self):
+        """La despacha el backend. Desde aquí sería la segunda petición, y es
+        la que se llevaba el 409."""
+        r = self._forzar()
+        self.assertNotIn(["_cmv40MaybeAutoAdvance"], r["llamadas"])
+        self.assertNotIn("analyze-source", json.dumps(r["llamadas"]))
+
+    def test_pero_limpia_el_dedup_del_poller(self):
+        """`preflight_decision` era su condición de parada y ya no está, así
+        que lo que venga después es legítimo y no puede quedar descartado por
+        un disparo viejo."""
+        self.assertIsNone(self._forzar()["proyecto"])
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestUnaFaseCanceladaPARA_el_cronometro(unittest.TestCase):
+    """Cancelar no cambia `phase` ni escribe `error_message` —a propósito: no
+    es un error— así que la timeline no lo veía como terminal y su cronómetro
+    seguía sumando segundos sobre un trabajo parado hace rato."""
+
+    def _timeline(self, sesion) -> dict:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+let _tickPuesto = false;
+globalThis.window = {{}};
+{_fn('_cmv40FmtClock')}
+{_fn('_cmv40EnsureTimerTick')}
+globalThis._cmv40EnsureTimerTick = () => {{ _tickPuesto = true; }};
+globalThis._cmv40PlanAutoSteps = () => [];
+globalThis._cmv40StepStatus = () => 'done';
+globalThis._cmv40ResolveStartedMs = () => Date.parse('2026-09-09T14:19:00Z');
+globalThis._cmv40ComputeRemainingSecs = () => 600;
+globalThis._cmv40TextoRestante = () => '~10:00 restantes';
+globalThis._cmv40SufijoEta = () => '(auto)';
+globalThis._cmv40Trust = () => true;
+globalThis.isTerminal0 = (s) => s.phase === 'done';
+globalThis.CMV40_PHASES_ORDER = ['created', 'source_analyzed'];
+{_fn('_cmv40RenderTimeline')}
+const html = _cmv40RenderTimeline({json.dumps(sesion)}, {{}});
+console.log(JSON.stringify({{ html, tick: _tickPuesto }}));
+"""
+        return _node(guion)
+
+    _CANCELADA = {
+        "id": "p1", "phase": "created", "running_phase": None,
+        "error_message": "", "target_trust_gates": {"frames": {}},
+        "phase_history": [{"phase": "analyze_source", "status": "cancelled",
+                           "started_at": "2026-09-09T14:19:00+00:00",
+                           "finished_at": "2026-09-09T14:20:02+00:00"}],
+    }
+
+    def test_no_deja_el_cronometro_corriendo(self):
+        r = self._timeline(self._CANCELADA)
+        self.assertNotIn("data-started-at", r["html"],
+                         "con ese atributo el tick de 1 s lo sigue sumando")
+        self.assertFalse(r["tick"], "ni se arranca el tick")
+
+    def test_se_queda_en_el_tiempo_de_la_cancelacion(self):
+        """1 min 2 s entre el `started_at` y el `finished_at` del registro."""
+        r = self._timeline(self._CANCELADA)
+        self.assertIn("01:02", r["html"])
+        self.assertIn("cancelado", r["html"])
+
+    def test_una_fase_viva_SIGUE_contando(self):
+        viva = dict(self._CANCELADA, running_phase="analyze_source",
+                    phase_history=[{"phase": "analyze_source",
+                                    "status": "running",
+                                    "started_at": "2026-09-09T14:19:00+00:00"}])
+        r = self._timeline(viva)
+        self.assertIn("data-started-at", r["html"])
+        self.assertTrue(r["tick"])
+
+
 class TestCerrarNoCancela(unittest.TestCase):
     """Mediana 9 s: cerrar el modal no puede tirar la validación, y el
     veredicto sigue quedando en el panel como hasta ahora."""

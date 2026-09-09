@@ -793,7 +793,14 @@ function _cmv40RenderTimeline(s, project) {
   const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
 
-  const isTerminal = (s.phase === 'done' || !!s.error_message);
+  // Una fase CANCELADA no cambia `phase` ni escribe `error_message` —cancelar
+  // no es un error, y así está a propósito—, así que sin mirar el
+  // `phase_history` el cronómetro seguía sumando segundos indefinidamente
+  // sobre un trabajo que se paró hace rato.
+  const ultimaFase = (s.phase_history || []).slice(-1)[0];
+  const cancelado = !s.running_phase && ultimaFase
+                    && ultimaFase.status === 'cancelled';
+  const isTerminal = (s.phase === 'done' || !!s.error_message || cancelado);
   let elapsedLabel  = '—';
   let remainingText = '';
   let timerAttrs    = '';
@@ -803,7 +810,9 @@ function _cmv40RenderTimeline(s, project) {
       const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
       const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
       elapsedSecs = (endMs - startedMs) / 1000;
-      remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
+      remainingText = s.phase === 'done' ? 'finalizado'
+                    : s.error_message ? 'con error'
+                    : cancelado ? 'cancelado' : '';
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
       // Tiempo restante de fases AUTO pendientes. Excluye fases manuales
@@ -2780,7 +2789,14 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   // entre fuentes server-time vs client-cached).
   const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
-  const isTerminal = (s.phase === 'done' || !!s.error_message);
+  // Una fase CANCELADA no cambia `phase` ni escribe `error_message` —cancelar
+  // no es un error, y así está a propósito—, así que sin mirar el
+  // `phase_history` el cronómetro seguía sumando segundos indefinidamente
+  // sobre un trabajo que se paró hace rato.
+  const ultimaFase = (s.phase_history || []).slice(-1)[0];
+  const cancelado = !s.running_phase && ultimaFase
+                    && ultimaFase.status === 'cancelled';
+  const isTerminal = (s.phase === 'done' || !!s.error_message || cancelado);
   let elapsedLabel  = '—';
   let remainingText = '';
   let newBaseRemaining = null;   // null = no actualizar data-base-remaining
@@ -2790,7 +2806,9 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
       const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
       const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
       elapsedSecs = (endMs - startedMs) / 1000;
-      remainingText = s.phase === 'done' ? 'finalizado' : (s.error_message ? 'con error' : '');
+      remainingText = s.phase === 'done' ? 'finalizado'
+                    : s.error_message ? 'con error'
+                    : cancelado ? 'cancelado' : '';
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
       newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
@@ -6987,8 +7005,15 @@ async function _cmv40PfForzar(pid) {
                               { method: 'POST' });
   cerrarPreflightCMv40();
   const p = _cmv40PfAplicar(pid, data);
-  // Forzar es pedir que la cadena siga: el poller del auto-pipeline no puede
-  // saberlo solo, porque `preflight_decision` era su condición de parada.
-  if (p) { p._autoChaining = true; _cmv40MaybeAutoAdvance(p); }
+  // **Aquí NO se dispara la fase.** `override-recommendation` ya despacha la
+  // siguiente cuando `auto_pipeline` está activo, así que pedirla también
+  // desde el frontend daba un 409 del guard de duplicados —un toast rojo de
+  // «ya hay una fase en curso»— mientras el trabajo se encolaba igual. Con
+  // auto desactivado tampoco se lanza: ahí el usuario lanza las fases a mano,
+  // y forzar es levantar el freno, no pulsar el acelerador.
+  //
+  // Sí se limpia el dedup del poller: `preflight_decision` era su condición
+  // de parada y ya no está, así que lo que venga después es legítimo.
+  if (p) p._lastAutoFiredFor = null;
 }
 
