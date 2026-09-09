@@ -9330,13 +9330,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   flex-direction: column;
   overflow: hidden;
 }
-/* Los tipos sin timeline propia traen su lista, que sí scrolla. */
-.trabajo-tl-lista { flex: 1; min-height: 0; overflow-y: auto; }
-/* Los tipos que solo dan una lista de fases no traen su propio contenedor
-   con padding, así que se lo pone la columna. La timeline de CMv4.0 sí lo
-   trae, y ahí sobra: por eso va sobre las filas, no sobre el hueco. */
-#trabajo-modal-timeline > .trabajo-tl-cabecera { padding: 14px 14px 8px; flex-shrink: 0; }
-#trabajo-modal-timeline .trabajo-tl-fase { padding-left: 14px; padding-right: 14px; }
 
 /* La cartela de la película, arriba de la columna izquierda. Es la mini
    cabecera que tenía el overlay de ejecución de CMv4.0: fondo claro propio
@@ -9508,27 +9501,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
     height: calc(100vh - 32px);
   }
   .trabajo-modal-lateral { width: auto; border-right: none; border-bottom: 1px solid var(--sep); }
-}
-
-/* La timeline de fases del modal, la MISMA para los cinco tipos. Misma anatomía que la de CMv4.0 —una
-   fila por fase con su estado y su tiempo— para que las dos pestañas se lean
-   igual, que es de lo que va todo este bloque. */
-.trabajo-tl-cabecera {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
-  color: var(--text-3); margin-bottom: 10px;
-}
-.trabajo-tl-fase {
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 0; border-bottom: 1px solid rgba(0,0,0,0.05);
-}
-.trabajo-tl-fase:last-child { border-bottom: none; }
-.trabajo-tl-fase.pending { opacity: .45; }
-.trabajo-tl-titulo { font-size: 12px; font-weight: 600; color: var(--text-1); }
-.trabajo-tl-fase.active .trabajo-tl-titulo { color: var(--blue); }
-.trabajo-tl-sub { font-size: 10px; color: var(--text-3); }
-.trabajo-tl-tiempo {
-  font-size: 11px; color: var(--text-2);
-  font-variant-numeric: tabular-nums; flex-shrink: 0;
 }
 
 /* El ✕ de cada trabajo en cola. Discreto hasta que se pasa por encima: lo

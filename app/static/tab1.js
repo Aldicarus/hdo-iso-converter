@@ -4737,45 +4737,34 @@ document.head.appendChild(spinStyle);
 // Las registra esta pestaña porque son suyas; el armazón (`workbar.js`) no
 // sabe qué es un rip. Mismo patrón que los adaptadores del backend.
 
-/** La timeline de un rip: las cuatro fases con su estado y su tiempo.
+/** Las fases de un rip, con el marcado común (el de CMv4.0).
  *
- *  Es lo que enseñaba el panel «Trabajos en Curso» con sus círculos, y lo que
- *  se perdió al retirarlo. Sale de `execution_history` —los tiempos por fase
- *  que el backend ya guardaba— más la fase en curso del contrato de progreso,
- *  así que funciona con la pestaña cerrada, cosa que el panel no hacía.
+ *  Los tiempos por fase salen de la última ejecución del historial y solo
+ *  cuando ya terminó; mientras corre, el único dato firme es el total del
+ *  contrato. Se enseña lo que hay y no se inventa el resto.
  */
 function _ripTimelineHTML(a, sesion) {
   const FASES = [
-    ['mount',   'Abrir origen',    'monta el ISO o abre la carpeta'],
-    ['extract', 'Extraer pistas',  'mkvmerge — la fase larga'],
-    ['write',   'Metadatos',       'flags, nombres y capítulos'],
-    ['unmount', 'Cerrar origen',   'desmonta y limpia temporales'],
+    ['mount',   '💿', 'Abrir origen',   'monta el ISO o abre la carpeta'],
+    ['extract', '🎞️', 'Extraer pistas', 'mkvmerge — la fase larga'],
+    ['write',   '🏷️', 'Metadatos',      'flags, nombres y capítulos'],
+    ['unmount', '⏏️', 'Cerrar origen',  'desmonta y limpia temporales'],
   ];
-  // Los tiempos de la ejecución EN CURSO son los de la última entrada del
-  // historial solo cuando ya terminó; mientras corre, el único dato firme es
-  // el total del contrato. Se enseña lo que hay y no se inventa el resto.
   const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
   const elapsed = ejec.phase_elapsed || {};
-  const filas = FASES.map(([id, titulo, sub], i) => {
-    const n = i + 1;
-    const estado = a.fase_n && n < a.fase_n ? 'done'
-                 : a.fase_n === n ? 'active' : 'pending';
+  const pasos = FASES.map(([id, icono, titulo, sub], i) => {
+    // «completado» SOLO si la fase quedó atrás. El historial registra también
+    // el transcurrido de la que está corriendo, así que fiarse de que el dato
+    // exista marcaba la fase activa como terminada — como en CMv4.0, el
+    // estado manda sobre el dato.
+    const yaPaso = a.fase_n && i + 1 < a.fase_n;
     const secs = elapsed[id];
-    const tiempo = secs != null ? _workbarTiempo(secs)
-                 : estado === 'active' ? _workbarTiempo(a.segundos) : '';
-    return `
-      <div class="trabajo-tl-fase ${estado}">
-        ${estado === 'active' ? iconoDeEstado('corriendo', 'icono-chip-sm')
-          : estado === 'done' ? iconoDeEstado('hecho', 'icono-chip-sm')
-          : '<span class="trabajo-paso-punto"></span>'}
-        <div style="flex:1; min-width:0">
-          <div class="trabajo-tl-titulo">${escHtml(titulo)}</div>
-          <div class="trabajo-tl-sub">${escHtml(sub)}</div>
-        </div>
-        <span class="trabajo-tl-tiempo">${escHtml(tiempo)}</span>
-      </div>`;
-  }).join('');
-  return `<div class="trabajo-tl-cabecera">Fases del rip</div>${filas}`;
+    return {
+      titulo, sub, icono,
+      nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
+    };
+  });
+  return timelineDeTrabajo(pasos, a, 'Fases del rip');
 }
 
 
@@ -4807,7 +4796,11 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     // de episodio, que aún no existe—, así que la cartela es el nombre.
     cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
     pasosTitulo: 'Pasos de la creación',
-    pasos: ['Preparar origen', 'Analizar episodios', 'Crear proyectos'],
+    pasos: [
+      { icono: '💿', titulo: 'Preparar origen', sub: 'montar y localizar los MPLS' },
+      { icono: '🔍', titulo: 'Analizar episodios', sub: 'pistas, capítulos, PGS y DV' },
+      { icono: '📁', titulo: 'Crear proyectos', sub: 'una sesión por episodio' },
+    ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
       ['Episodio en curso', p?.current_episode_title || '—'],

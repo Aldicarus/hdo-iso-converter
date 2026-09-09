@@ -51,7 +51,10 @@ def _extraer_fila_meta() -> str:
     """Saca del app.js el markup real de .cmv40-tl-progress-meta y resuelve
     los ${...} con valores de muestra."""
     src = js_completo()
-    i = src.index('<div class="cmv40-tl-progress-meta">')
+    # Desde `_cmv40RenderTimeline`: la timeline genérica del modal usa las
+    # MISMAS clases (a propósito), así que la primera aparición ya no es esta.
+    desde = src.index("function _cmv40RenderTimeline(")
+    i = src.index('<div class="cmv40-tl-progress-meta">', desde)
     j = src.index("</div>", src.index('class="cmv40-tl-timer-remaining"', i))
     html = src[i:j + len("</div>")]
     html = re.sub(r"<!--.*?-->", "", html, flags=re.S)

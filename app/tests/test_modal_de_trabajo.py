@@ -151,17 +151,30 @@ console.log(JSON.stringify({{
         self.assertIn("icono-naranja", r["icono"], "fase_cmv40 va en naranja")
         self.assertIn("icono-chip-lg", r["icono"])
 
-    def test_las_fases_van_a_la_COLUMNA_no_a_una_tira(self):
-        """Los cinco tipos las enseñan en el mismo sitio. Antes la fase CMv4.0
-        tenía su timeline a la izquierda y los otros cuatro una tira horizontal
-        sobre la barra: dos trabajos de la misma aplicación se miraban en
-        sitios distintos."""
+    def test_las_fases_van_a_la_COLUMNA_con_EL_MISMO_marcado_de_cmv40(self):
+        """Los cinco tipos las enseñan en el mismo sitio Y con las mismas
+        clases. No se parece a la timeline de CMv4.0: **es** ella, así que
+        hereda el raíl que conecta las fases, el resalte de la activa y el
+        punto que late. Una versión propia se veía distinta dentro de la misma
+        aplicación, que es justo lo que este modal vino a arreglar."""
         r = self._pintar(ACTIVO, {"pasos": ["A", "B", "C", "D"]})
-        self.assertEqual(r["pasos"].count("trabajo-tl-fase done"), 2,
+        self.assertEqual(r["pasos"].count("cmv40-tl-step cmv40-tl-done"), 2,
                          "las dos anteriores")
-        self.assertEqual(r["pasos"].count("trabajo-tl-fase active"), 1)
-        self.assertEqual(r["pasos"].count("icono-girando"), 1)
-        self.assertIn("trabajo-paso-punto", r["pasos"])
+        self.assertEqual(r["pasos"].count("cmv40-tl-step cmv40-tl-running"), 1)
+        self.assertEqual(r["pasos"].count("cmv40-tl-step cmv40-tl-pending"), 1)
+        # El raíl es lo que las conecta, y el icono de la activa el que late.
+        self.assertEqual(r["pasos"].count("cmv40-tl-rail"), 4)
+        self.assertIn('cmv40-tl-status-icon running', r["pasos"])
+        self.assertIn("<ol class=\"cmv40-tl-steps\">", r["pasos"])
+        # Y la cabecera con el reloj y el chip de progreso, como la de CMv4.0.
+        self.assertIn("cmv40-tl-progress-pct", r["pasos"])
+        self.assertIn("cmv40-tl-timer-elapsed", r["pasos"])
+
+    def test_ninguna_pieza_usa_clases_propias(self):
+        """Si la timeline genérica tuviera las suyas, cambiar el aspecto de la
+        de CMv4.0 dejaría a las otras cuatro atrás — que es lo que pasó."""
+        r = self._pintar(ACTIVO, {"pasos": ["A", "B"]})
+        self.assertNotIn("trabajo-tl-", r["pasos"])
 
     def test_el_lateral_propio_de_un_tipo_gana_a_la_lista(self):
         r = self._pintar(ACTIVO, {"pasos": ["A", "B"], "lateral": "<i>mía</i>"})
@@ -624,6 +637,7 @@ class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
 {_fn("escHtml")}
 {_fn("_workbarTiempo")}
 {_iconos()}
+{_fn("timelineDeTrabajo")}
 {_fn("_ripTimelineHTML")}
 const a = {{ fase_n: 2, segundos: 754 }};
 const sesion = {{ execution_history: [
@@ -633,11 +647,29 @@ console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
         h = _node(guion)["html"]
         for titulo in ("Abrir origen", "Extraer pistas", "Metadatos", "Cerrar origen"):
             self.assertIn(titulo, h)
-        self.assertIn("12 s", h)            # la fase 1, ya terminada
-        self.assertIn("12 min", h)          # la 2, en curso: el total del contrato
-        self.assertIn("trabajo-tl-fase done", h)
-        self.assertIn("trabajo-tl-fase active", h)
-        self.assertIn("trabajo-tl-fase pending", h)
+        self.assertIn("completado · 12 s", h)   # la fase 1, ya terminada
+        self.assertIn("cmv40-tl-step cmv40-tl-done", h)
+        self.assertIn("cmv40-tl-step cmv40-tl-running", h)
+        self.assertIn("cmv40-tl-step cmv40-tl-pending", h)
+
+    @unittest.skipIf(NODE is None, "node no está instalado")
+    def test_la_fase_en_curso_no_se_marca_como_completada(self):
+        """El historial registra también el transcurrido de la que está
+        corriendo: fiarse de que el dato exista la daba por terminada."""
+        guion = f"""
+{_fn("escHtml")}
+{_fn("_workbarTiempo")}
+{_iconos()}
+{_fn("timelineDeTrabajo")}
+{_fn("_ripTimelineHTML")}
+const a = {{ fase_n: 2, segundos: 754, pct: 63, pct_medido: true }};
+const sesion = {{ execution_history: [
+  {{ phase_elapsed: {{ mount: 12, extract: 754 }} }}] }};
+console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
+"""
+        h = _node(guion)["html"]
+        self.assertNotIn("completado · 12 min", h)
+        self.assertIn("en curso…", h)
 
     def test_switch_sub_tab_no_conserva_ramas_muertas(self):
         src = pieza_de("switchSubTab")[1]

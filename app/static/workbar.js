@@ -473,34 +473,71 @@ function _trabajoCartelPinta(cartel) {
   if (m) m.textContent = cartel.meta || '';
 }
 
-/** La timeline de fases a partir de una simple lista de nombres.
+/** La timeline de fases, con el MISMO marcado que la de CMv4.0.
  *
- *  Los cinco tipos enseñan sus fases en la MISMA columna. Antes la fase
- *  CMv4.0 tenía su timeline a la izquierda y los otros una tira horizontal
- *  sobre la barra, así que dos trabajos de la misma aplicación se miraban en
- *  sitios distintos — que es de lo que va todo este bloque.
+ *  No se parece a ella: **es** ella. Usa sus clases (`cmv40-tl-*`), así que
+ *  hereda el raíl que conecta las fases, el resalte de la activa, el punto que
+ *  late y los colores de completada / omitida / pendiente. Una versión propia
+ *  se veía distinta en la misma aplicación, que es justo lo que este modal
+ *  vino a arreglar.
+ *
+ *  Cada paso puede ser una cadena o `{titulo, sub, icono, nota}`.
  */
 function timelineDeTrabajo(pasos, a, titulo) {
   if (!pasos || !pasos.length) return '';
-  const filas = pasos.map((p, i) => {
+  const total = pasos.length;
+  const hechas = Math.max(0, Math.min(total, (a.fase_n || 0) - 1));
+  const pct = a.pct_medido ? a.pct : Math.round((hechas / total) * 100);
+  const items = pasos.map((p, i) => {
     const n = i + 1;
     const estado = a.fase_n && n < a.fase_n ? 'done'
-                 : a.fase_n === n ? 'active' : 'pending';
-    const nombre = typeof p === 'string' ? p : (p.titulo || '');
-    const sub = typeof p === 'string' ? '' : (p.sub || '');
-    return `
-      <div class="trabajo-tl-fase ${estado}">
-        ${estado === 'active' ? iconoDeEstado('corriendo', 'icono-chip-sm')
-          : estado === 'done' ? iconoDeEstado('hecho', 'icono-chip-sm')
-          : '<span class="trabajo-paso-punto"></span>'}
-        <div style="flex:1; min-width:0">
-          <div class="trabajo-tl-titulo">${escHtml(nombre)}</div>
-          ${sub ? `<div class="trabajo-tl-sub">${escHtml(sub)}</div>` : ''}
+                 : a.fase_n === n ? 'running' : 'pending';
+    const paso = typeof p === 'string' ? { titulo: p } : (p || {});
+    const nota = paso.nota || (estado === 'done' ? 'completado'
+                             : estado === 'running' ? 'en curso…' : '');
+    const icono = {
+      done:    '<span class="cmv40-tl-status-icon done">✓</span>',
+      running: '<span class="cmv40-tl-status-icon running"></span>',
+      pending: '<span class="cmv40-tl-status-icon pending"></span>',
+    }[estado];
+    return `<li class="cmv40-tl-step cmv40-tl-${estado}" data-step-key="p${n}">
+      <div class="cmv40-tl-rail">${icono}</div>
+      <div class="cmv40-tl-body">
+        <div class="cmv40-tl-title">
+          ${paso.icono ? `<span class="cmv40-tl-phase-icon">${paso.icono}</span>` : ''}
+          <span>${escHtml(paso.titulo || '')}</span>
         </div>
-      </div>`;
+        ${paso.sub ? `<div class="cmv40-tl-what">${escHtml(paso.sub)}</div>` : ''}
+        ${nota ? `<span class="cmv40-tl-eta ${estado}">${escHtml(nota)}</span>` : ''}
+      </div>
+    </li>`;
   }).join('');
-  return `<div class="trabajo-tl-cabecera">${escHtml(titulo || 'Fases')}</div>`
-       + `<div class="trabajo-tl-lista">${filas}</div>`;
+  const restante = a.eta_s != null
+    ? `Restante ${_workbarTiempo(a.eta_s)}`
+      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+    : '';
+  return `
+    <aside class="cmv40-running-timeline">
+      <div class="cmv40-tl-header">
+        <div class="cmv40-tl-header-top">
+          <span class="cmv40-tl-trust-badge pending">${escHtml(titulo || 'Fases')}</span>
+        </div>
+        <div class="cmv40-tl-progress">
+          <div class="cmv40-tl-progress-meta">
+            <span class="cmv40-tl-timer">
+              <span class="cmv40-tl-timer-icon">⏱</span>
+              <span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>
+            </span>
+            <span class="cmv40-tl-progress-pct">${hechas}/${total} · ${pct == null ? '—' : pct}%</span>
+            <span class="cmv40-tl-timer-remaining">${escHtml(restante)}</span>
+          </div>
+          <div class="cmv40-tl-progress-track">
+            <div class="cmv40-tl-progress-fill" style="width:${pct || 0}%"></div>
+          </div>
+        </div>
+      </div>
+      <ol class="cmv40-tl-steps">${items}</ol>
+    </aside>`;
 }
 
 function _trabajoModalPinta(a, vista) {

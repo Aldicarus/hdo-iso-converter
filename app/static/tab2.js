@@ -3469,7 +3469,12 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
     pasosTitulo: 'Pasos del análisis',
-    pasos: ['Extraer el RPU', 'Combos y luminancia'],
+    pasos: [
+      { icono: '🎬', titulo: 'Extraer el RPU',
+        sub: 'ffmpeg y dovi_tool por un pipe — el 97 % del trabajo' },
+      { icono: '📊', titulo: 'Combos y luminancia',
+        sub: 'export por niveles + perfil L1 frame a frame' },
+    ],
     conLog: true,
     cuerpo: _trabajoLogHTML(st?.log_lines),
   };
@@ -3486,7 +3491,10 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     sub: st?.file_name || a.que,
     cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦'),
     pasosTitulo: 'Pasos de la copia',
-    pasos: ['Copiar el MKV', 'Aplicar cambios'],
+    pasos: [
+      { icono: '📦', titulo: 'Copiar el MKV', sub: 'de biblioteca a /mnt/output' },
+      { icono: '🏷️', titulo: 'Aplicar cambios', sub: 'mkvpropedit sobre la copia' },
+    ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
       ['Copiado', `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],

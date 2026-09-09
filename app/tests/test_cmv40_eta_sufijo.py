@@ -197,7 +197,9 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
         self.assertEqual(js.count(
             "${_workbarTiempo(a.segundos)} · Restante "
             "${_workbarTiempo(a.eta_s)}"), 1)
-        self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 1)
+        # Dos: el bloque de progreso del modal y la cabecera de la timeline
+        # común, que es la de CMv4.0 alimentada por los otros cuatro tipos.
+        self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 2)
         self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)
         self.assertIn("`Restante ${m}:${String(s).padStart(2, '0')}`", js)
 

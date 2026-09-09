@@ -142,12 +142,16 @@ class TestNoQuedanEmojiEnLaColumnaNiEnElModal(unittest.TestCase):
         for emoji in ("⏳", "⬜", "✓ ", "⚙︎"):
             self.assertNotIn(emoji, src, f"queda {emoji!r} en la columna")
 
-    def test_las_cinco_vistas_no_traen_icono_propio(self):
-        """El icono lo deriva el modal del TIPO. Si cada vista trajera el
-        suyo, la columna y el modal podrían acabar enseñando distintos."""
+    def test_las_cinco_vistas_no_traen_icono_propio_DEL_TRABAJO(self):
+        """El icono del TRABAJO lo deriva el modal del tipo; si cada vista
+        trajera el suyo, la columna y el modal podrían enseñar distintos.
+
+        Los de cada FASE sí son de la vista —igual que `st.icon` en la
+        timeline de CMv4.0—: describen el paso, no el trabajo. Por eso se
+        mira solo la clave de primer nivel del objeto que devuelve."""
         for i in re.finditer(r"registrarDetalleDeTrabajo\('[a-z_]+'", JS):
             bloque = JS[i.start():JS.index("});", i.start())]
-            self.assertNotIn("icono:", bloque, bloque[:60])
+            self.assertNotIn("\n    icono:", bloque, bloque[:60])
 
     def test_el_html_de_la_columna_y_el_modal_no_lleva_emoji(self):
         h = html()
