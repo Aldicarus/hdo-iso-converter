@@ -98,6 +98,15 @@ class Trabajo:
     que: str        # descripción legible: "rip de Peli (2024)"
     desde: float    # time.monotonic() al registrarlo
     clase: str = CLASE_DIFERIDO   # ver las tres clases arriba
+    # Qué vista de detalle abre, si tiene. Lo DIFERIDO lo resuelve el adaptador
+    # de `trabajos.py` a partir del tipo de la cola; lo interactivo no pasa por
+    # ahí —no está encolado— así que lo dice quien lo registra. Vacío = no hay
+    # nada que enseñar, que es el caso de la mayoría (abrir un MKV, un
+    # `disc-probe`): son navegación, no trabajos que se sigan.
+    detalle: str = ""
+    # Y si se puede parar. Un `rmtree` o un `disc-probe` no: duran segundos y
+    # cortarlos a medias deja peor estado del que arreglan.
+    cancelable: bool = False
 
     @property
     def bloquea(self) -> bool:
@@ -123,10 +132,12 @@ _activos: dict[str, Trabajo] = {}
 
 
 def registrar(clave: str, tab: str, que: str,
-              clase: str = CLASE_DIFERIDO) -> None:
+              clase: str = CLASE_DIFERIDO, *,
+              detalle: str = "", cancelable: bool = False) -> None:
     """Marca un trabajo pesado como en curso. Idempotente por clave."""
     _activos[clave] = Trabajo(clave=clave, tab=tab, que=que,
-                              desde=time.monotonic(), clase=clase)
+                              desde=time.monotonic(), clase=clase,
+                              detalle=detalle, cancelable=cancelable)
     logger.info("[workload] arranca [%s] %s", clase, _activos[clave].describir())
 
 

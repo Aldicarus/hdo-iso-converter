@@ -9654,3 +9654,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .cmv40-pf-caja-modal .modal-footer {
   flex-shrink: 0; flex-wrap: wrap; margin-top: 16px;
 }
+
+/* Los dos botones de un trabajo interactivo: mismos que los del activo, pero
+   sin la caja — un trabajo en paralelo no compite en jerarquía con el que
+   ocupa la máquina. */
+.workbar-acciones-item {
+  display: flex; gap: 6px; justify-content: flex-end;
+  margin: -2px 0 6px; padding-right: 2px;
+}

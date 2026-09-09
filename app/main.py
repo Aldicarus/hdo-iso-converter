@@ -1247,8 +1247,14 @@ async def app_trabajos(recientes: int = 8):
     ]
 
     interactivo = [
-        {"id": t.clave, "tab": workload.TAB_IDS.get(t.tab, ""),
-         "que": t.que, "segundos": int(t.segundos)}
+        {"id": t.clave, "sobre": t.clave,
+         "tab": workload.TAB_IDS.get(t.tab, ""),
+         "que": t.que, "segundos": int(t.segundos),
+         # Con vista propia y cancelable, la columna ofrece los mismos dos
+         # botones que para el trabajo en curso. Sin ellos solo se listaba,
+         # así que un pre-flight cuyo modal se hubiera cerrado no se podía
+         # volver a abrir.
+         "detalle": t.detalle, "cancelable": t.cancelable}
         for t in workload.en_curso() if not t.bloquea
     ]
 

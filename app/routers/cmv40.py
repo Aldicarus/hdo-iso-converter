@@ -1402,7 +1402,10 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
                 # crear un proyecto y bloquearlo dejaba el flujo muerto.
-                workload.CLASE_INTERACTIVO)
+                workload.CLASE_INTERACTIVO,
+                # Tiene modal propio y se puede parar: la columna ofrece los
+                # dos botones, como con cualquier trabajo en curso.
+                detalle="preflight", cancelable=True)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3366,7 +3369,10 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
                 # crear un proyecto y bloquearlo dejaba el flujo muerto.
-                workload.CLASE_INTERACTIVO)
+                workload.CLASE_INTERACTIVO,
+                # Tiene modal propio y se puede parar: la columna ofrece los
+                # dos botones, como con cualquier trabajo en curso.
+                detalle="preflight", cancelable=True)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3478,7 +3484,10 @@ async def cmv40_preflight_source(session_id: str):
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
                 # crear un proyecto y bloquearlo dejaba el flujo muerto.
-                workload.CLASE_INTERACTIVO)
+                workload.CLASE_INTERACTIVO,
+                # Tiene modal propio y se puede parar: la columna ofrece los
+                # dos botones, como con cualquier trabajo en curso.
+                detalle="preflight", cancelable=True)
             session.error_message = ""
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")

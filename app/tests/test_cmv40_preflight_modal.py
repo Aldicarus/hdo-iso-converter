@@ -267,6 +267,73 @@ console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
         self.assertIn("_cmv40PfCambiarTarget('p1')", h)
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestSeVuelveDesdeLaColumna(unittest.TestCase):
+    """Al cerrar el modal, la validación sigue — y hay que poder volver a ella.
+
+    Lo interactivo se listaba en «En paralelo» sin botones, así que un
+    pre-flight cuyo modal se hubiera cerrado quedaba fuera de alcance hasta que
+    terminara: no había Detalle ni Cancelar como en el trabajo en curso.
+    """
+
+    def _render(self, interactivo) -> str:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_svg')}
+{_fn('_chipIcono')}
+""" + f"""
+const _ICONOS_ESTADO = {{ corriendo: ['verde', '<svg/>'] }};
+globalThis.iconoDeEstado = () => '<i></i>';
+globalThis.iconoDeTrabajo = () => '<i></i>';
+{_fn('_workbarTiempo')}
+{_fn('_workbarListaHTML')}
+const st = {{ activo: null, cola: [], interactivo: {json.dumps(interactivo)} }};
+const html = _workbarListaHTML('En paralelo', st.interactivo, t => `
+        <div class="workbar-item" data-clave="${{escHtml(t.id)}}">
+          ${{escHtml(t.que || '')}}
+        </div>
+        ${{(t.detalle || t.cancelable) ? `
+          <div class="workbar-acciones workbar-acciones-item">
+            ${{t.detalle ? `<button onclick="abrirDetalleDeTrabajo('${{escHtml(t.id)}}')">Detalle</button>` : ''}}
+            ${{t.cancelable ? `<button onclick="cancelarTrabajoInteractivo('${{escHtml(t.id)}}')">Cancelar</button>` : ''}}
+          </div>` : ''}}`);
+console.log(JSON.stringify({{ html }}));
+"""
+        return _node(guion)["html"]
+
+    def test_un_preflight_ofrece_detalle_y_cancelar(self):
+        h = self._render([{"id": "p1", "que": "pre-flight de Predator",
+                           "segundos": 6, "detalle": "preflight",
+                           "cancelable": True}])
+        self.assertIn("abrirDetalleDeTrabajo('p1')", h)
+        self.assertIn("cancelarTrabajoInteractivo('p1')", h)
+
+    def test_abrir_un_MKV_no_ofrece_nada(self):
+        """La mayoría de lo interactivo es navegación: dura segundos y no hay
+        nada que seguir ni que parar."""
+        h = self._render([{"id": "x", "que": "apertura de un MKV",
+                           "segundos": 1, "detalle": "", "cancelable": False}])
+        self.assertNotIn("abrirDetalleDeTrabajo", h)
+        self.assertNotIn("cancelarTrabajoInteractivo", h)
+
+    def test_la_apertura_busca_tambien_en_lo_interactivo(self):
+        """`workbarEstado.activo` es lo DIFERIDO que corre; un pre-flight por
+        definición no está ahí."""
+        i = JS.index("function abrirDetalleDeTrabajo(")
+        cuerpo = JS[i:JS.index("\n}\n", i)]
+        self.assertIn("workbarEstado.interactivo", cuerpo)
+
+    def test_su_vista_es_su_propio_modal(self):
+        """Devuelve null: el contrato del armazón para «ya lo he enseñado yo».
+        Sin eso, se montaría el modal genérico encima."""
+        i = JS.index("registrarDetalleDeTrabajo('preflight'")
+        bloque = JS[i:JS.index("});", i)]
+        self.assertIn("abrirPreflightCMv40", bloque)
+        self.assertIn("return null", bloque)
+        j = JS.index("async function _trabajoModalAbrir(")
+        self.assertIn("=== null) return", JS[j:JS.index("\n}\n", j)])
+
+
 class TestCerrarNoCancela(unittest.TestCase):
     """Mediana 9 s: cerrar el modal no puede tirar la validación, y el
     veredicto sigue quedando en el panel como hasta ahora."""

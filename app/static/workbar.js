@@ -158,11 +158,20 @@ function _workbarRender(st) {
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
     + _workbarListaHTML('En paralelo', st.interactivo, t => `
-        <div class="workbar-item">
+        <div class="workbar-item" data-clave="${escHtml(t.id)}">
           ${iconoDeEstado('corriendo', 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(t.que || '')}</span>
           <span class="workbar-item-meta">${escHtml(_workbarTiempo(t.segundos))}</span>
-        </div>`)
+        </div>
+        ${(t.detalle || t.cancelable) ? `
+          <div class="workbar-acciones workbar-acciones-item">
+            ${t.detalle ? `<button class="btn btn-ghost btn-xs"
+              onclick="abrirDetalleDeTrabajo('${escHtml(t.id)}')"
+              data-tooltip="Ver el detalle de esta validación">Detalle</button>` : ''}
+            ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
+              onclick="cancelarTrabajoInteractivo('${escHtml(t.id)}')"
+              data-tooltip="Detener este trabajo">Cancelar</button>` : ''}
+          </div>` : ''}`)
     + recientes;
   _instalarReordenDeCola();
 }
@@ -318,7 +327,8 @@ function abrirDetalleDeTrabajo(ref) {
   let a = workbarEstado.activo;
   if (ref) {
     a = coincide(workbarEstado.activo) ? workbarEstado.activo
-      : (workbarEstado.cola || []).find(coincide) || null;
+      : (workbarEstado.cola || []).find(coincide)
+      || (workbarEstado.interactivo || []).find(coincide) || null;
     // Sin encontrarlo NO se abre otro: enseñar el trabajo de al lado es peor
     // que no enseñar ninguno.
     if (!a) {
@@ -359,6 +369,19 @@ const _DETALLE_POR_TIPO = {
  *  elegir cuál. Se pregunta antes: cancelar un remux de 10 minutos por un clic
  *  de más duele.
  */
+/** Cancela un trabajo de la lista «En paralelo».
+ *
+ *  Va por el mismo camino que el activo —cada pestaña tiene su endpoint— pero
+ *  hay que buscarlo ahí: `workbarEstado.activo` es lo DIFERIDO que corre, y lo
+ *  interactivo por definición no lo es.
+ */
+function cancelarTrabajoInteractivo(ref) {
+  const t = (workbarEstado.interactivo || [])
+    .find(x => (x.sobre || x.id) === ref);
+  if (!t) { showToast('Ese trabajo ya no está en curso', 'info'); return; }
+  cancelarTrabajoActivo(t);
+}
+
 function cancelarTrabajoActivo(trabajo) {
   // El trabajo llega por parámetro cuando se pulsa desde el modal, que sabe a
   // cuál está mirando. Antes SIEMPRE se leía el activo del último poll: si
@@ -715,6 +738,10 @@ async function _trabajoModalRefrescar() {
 async function _trabajoModalAbrir(a) {
   const fn = _workbarDetalles[a.detalle];
   if (!fn) return;
+  // Un tipo con modal PROPIO —el pre-flight— lo abre él y devuelve null; el
+  // armazón no monta el suyo encima. Es un caso, no una familia: montar un
+  // segundo registro para él sería abstracción para un solo uso.
+  if (await fn(a) === null) return;
   _trabajoModalTipo = a.detalle;
   // El modal se ancla al TRABAJO, no al tipo. Un proyecto CMv4.0 encadena
   // siete fases y entre una y la siguiente el contrato deja de traer activo un

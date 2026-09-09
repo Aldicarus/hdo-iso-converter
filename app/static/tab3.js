@@ -6580,6 +6580,15 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
 });
 
 
+// El pre-flight tiene su propio modal, así que devuelve null: es el contrato
+// del armazón para «ya lo he enseñado yo». Sin esto, la columna listaba la
+// validación en «En paralelo» y no había forma de volver a ella.
+registrarDetalleDeTrabajo('preflight', async (a) => {
+  abrirPreflightCMv40(a.sobre || a.id);
+  return null;
+});
+
+
 // Mismo motivo que en las otras dos pestañas: el puesto en la cola de una fase
 // se ve en la tarjeta del proyecto, no solo en la columna de la derecha.
 alCambiarTrabajos(() => {
