@@ -9581,6 +9581,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-top: 14px;
 }
 
+/* El título de la película, como en el resto de modales con cartela. */
+.cmv40-pf-peli { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+
+/* El estado encabeza el CUERPO, no la cabecera: es lo que se está haciendo,
+   no de qué proyecto se habla. Al terminar, lleva el color del veredicto. */
+.cmv40-pf-seccion {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--text-3); margin-bottom: 8px;
+}
+.cmv40-pf-seccion.ok    { color: var(--green); }
+.cmv40-pf-seccion.aviso { color: var(--orange); }
+.cmv40-pf-seccion.error { color: var(--red); }
+
 .cmv40-pf-checks { display: flex; flex-direction: column; }
 .cmv40-pf-check {
   display: flex;

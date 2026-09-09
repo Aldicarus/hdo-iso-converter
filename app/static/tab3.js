@@ -6693,6 +6693,12 @@ async function _cmv40PfDondeQuedo(pid) {
  *  la fila que falla es la explicación.
  */
 function _cmv40PfChecks(s) {
+  // OJO con el origen: el pre-flight NO lo analiza, hace un **sniff de 30 s**
+  // que solo comprueba que hay NALs de Dolby Vision (`preflight_source`). El
+  // perfil, la CM version y el frame count los saca la Fase A extrayendo el
+  // RPU entero. Enganchada a `source_dv_info`, esta fila no podía ponerse
+  // verde nunca y se quedaba en gris toda la validación.
+  const srcOk = !!s?.source_preflight_ok;
   const src = s?.source_dv_info || null;
   const tgt = s?.target_dv_info || null;
   const dv = (i) => !i ? '' : [
@@ -6704,9 +6710,11 @@ function _cmv40PfChecks(s) {
   const filas = [];
 
   filas.push({
-    titulo: 'Dolby Vision en el MKV origen',
-    valor: dv(src) || 'Leyendo el RPU del origen…',
-    estado: src ? 'ok' : 'pend',
+    titulo: 'El MKV origen lleva Dolby Vision',
+    valor: src ? dv(src)
+         : srcOk ? 'RPU detectado en los primeros 30 s'
+         : 'Comprobando los primeros 30 s del vídeo…',
+    estado: (src || srcOk) ? 'ok' : 'pend',
   });
 
   const nombreBin = s?.pending_target_file_name
@@ -6715,7 +6723,7 @@ function _cmv40PfChecks(s) {
     titulo: 'RPU target disponible',
     valor: tgt ? (nombreBin || 'Obtenido en el directorio de trabajo')
                : (nombreBin ? `Obteniendo ${nombreBin}…` : 'Obteniendo el RPU…'),
-    estado: tgt ? 'ok' : (src ? 'curso' : 'pend'),
+    estado: tgt ? 'ok' : 'pend',
   });
 
   const esV40 = (tgt?.cm_version || '') === 'v4.0';
@@ -6755,6 +6763,13 @@ function _cmv40PfChecks(s) {
       estado: s.recommended_action === 'keep' ? 'aviso' : 'ok',
     });
   }
+  // Mientras corre, la primera sin resolver es la que se está haciendo. Sin
+  // esto la lista se queda entera en gris y solo se rellena al final, que es
+  // justo lo que hace que un checklist no parezca vivo.
+  if (s?.running_phase === 'preflight' && !abortado) {
+    const i = filas.findIndex(f => f.estado === 'pend');
+    if (i >= 0) filas[i].estado = 'curso';
+  }
   return filas;
 }
 
@@ -6793,17 +6808,24 @@ function _cmv40PfChecksHTML(filas) {
 
 function _cmv40PfPintar(s, veredicto) {
   const prog = s?.last_progress || {};
-  _cmv40PfSet('cmv40-pf-titulo', veredicto ? veredicto.titulo : 'Validación previa');
-  _cmv40PfSet('cmv40-pf-sub', s?.output_mkv_name || s?.source_mkv_name || '');
+  // La cabecera es la PELÍCULA, con la misma cartela que el modal de trabajo.
+  // El estado y el veredicto no van aquí: son lo que se está haciendo, y eso
+  // se cuenta en el cuerpo.
+  const cartel = (typeof cartelDeTmdb === 'function')
+    ? cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name || s?.output_mkv_name, '✨')
+    : null;
+  _cmv40PfSet('cmv40-pf-titulo', cartel?.titulo || 'Proyecto CMv4.0');
+  _cmv40PfSet('cmv40-pf-sub', cartel?.meta || s?.output_mkv_name || '');
   const poster = document.getElementById('cmv40-pf-poster');
-  const url = s?.tmdb_info?.poster_url;
   if (poster) {
-    const chip = veredicto
-      ? _cmv40PfChip({ ok: 'ok', aviso: 'aviso', error: 'fallo' }[veredicto.clase])
-      : iconoDeEstado('corriendo', 'icono-chip-lg');
-    poster.innerHTML = url
-      ? `<img src="${escHtml(url)}" alt="" loading="lazy">` : chip;
+    poster.innerHTML = cartel?.url
+      ? `<img src="${escHtml(cartel.url)}" alt="" loading="lazy">`
+      : `<span>${escHtml(cartel?.icono || '✨')}</span>`;
   }
+  // El estado encabeza el cuerpo, junto a lo que lo justifica.
+  _cmv40PfSet('cmv40-pf-estado', veredicto ? veredicto.titulo : 'Validación previa');
+  const est = document.getElementById('cmv40-pf-estado');
+  if (est) est.className = 'cmv40-pf-seccion' + (veredicto ? ' ' + veredicto.clase : '');
 
   const checks = document.getElementById('cmv40-pf-checks');
   if (checks) checks.innerHTML = _cmv40PfChecksHTML(_cmv40PfChecks(s));

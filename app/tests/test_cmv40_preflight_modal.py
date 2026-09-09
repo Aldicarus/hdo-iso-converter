@@ -168,6 +168,33 @@ console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
         # Y las de antes siguen en verde: el fallo está localizado.
         self.assertEqual(f[0]["estado"], "ok")
 
+    def test_el_origen_se_valida_con_el_SNIFF_no_con_el_analisis(self):
+        """El pre-flight no analiza el origen: hace un sniff de 30 s que solo
+        comprueba que hay NALs de Dolby Vision. El perfil y la CM version los
+        saca la Fase A. Enganchada a `source_dv_info`, esta fila se quedaba en
+        gris toda la validación porque ese campo no se llena aquí."""
+        f = self._checks({"source_preflight_ok": True})
+        self.assertEqual(f[0]["estado"], "ok")
+        self.assertIn("30 s", f[0]["valor"])
+        # Y si la Fase A ya corrió, se enseña el dato bueno.
+        f2 = self._checks({"source_preflight_ok": True,
+                           "source_dv_info": {"profile": 7, "el_type": "FEL",
+                                              "cm_version": "v2.9"}})
+        self.assertIn("Perfil 7 FEL", f2[0]["valor"])
+
+    def test_mientras_corre_la_fila_en_curso_se_ve(self):
+        """Sin esto la lista se queda entera en gris y solo se rellena al
+        final, que es lo que hace que un checklist no parezca vivo."""
+        f = self._checks({"running_phase": "preflight",
+                          "source_preflight_ok": True})
+        self.assertEqual(f[0]["estado"], "ok")
+        self.assertEqual(f[1]["estado"], "curso")
+        self.assertEqual(f[2]["estado"], "pend")
+
+    def test_terminado_no_deja_ninguna_fila_girando(self):
+        f = self._checks({"source_preflight_ok": True, "running_phase": ""})
+        self.assertNotIn("curso", [x["estado"] for x in f])
+
     def test_lo_que_no_se_llego_a_comprobar_lo_dice(self):
         """Con un abort duro, dejar «Analizando los combos…» sugiere que
         sigue trabajando."""
@@ -294,6 +321,9 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
             "preflight_message": "2 combos únicos, 99 % de frames neutros",
             "output_log": ["[Pre-flight] L2: 3 combos · L8: 2 combos únicos",
                            "🛑 Pre-flight: el bin no tiene un L8 trabajado real."],
+            "tmdb_info": {"title": "Predator: Tierra de Ojos", "year": 2026,
+                          "runtime_minutes": 107, "genres": ["Acción"],
+                          "poster_url": ""},
         }
         sonda = ("<script>window.__errores=[];"
                  "window.addEventListener('error',e=>window.__errores.push("
@@ -312,6 +342,8 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
     document.getElementById('__out').textContent = JSON.stringify({
       errores: window.__errores,
       abierto: m.classList.contains('open'),
+      estado: document.getElementById('cmv40-pf-estado').textContent,
+      subtitulo: document.getElementById('cmv40-pf-sub').textContent,
       checks: document.getElementById('cmv40-pf-checks').innerHTML,
       titulo: document.getElementById('cmv40-pf-titulo').textContent,
       veredicto: document.getElementById('cmv40-pf-veredicto').innerHTML,
@@ -350,9 +382,18 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
     def test_sin_errores_de_js(self):
         self.assertEqual(self.d["errores"], [])
 
-    def test_se_abre_y_pinta_el_veredicto(self):
+    def test_la_cabecera_es_la_PELICULA(self):
+        """Como en el resto de modales con cartela: el título es de qué
+        película se habla. El estado y el veredicto son otra cosa —lo que se
+        está haciendo— y van en el cuerpo."""
         self.assertTrue(self.d["abierto"])
-        self.assertIn("L8", self.d["titulo"])
+        self.assertEqual(self.d["titulo"], "Predator: Tierra de Ojos")
+        self.assertIn("2026", self.d["subtitulo"])
+        for palabra in ("L8", "Validación", "bin"):
+            self.assertNotIn(palabra, self.d["titulo"])
+
+    def test_el_veredicto_encabeza_el_CUERPO(self):
+        self.assertIn("L8", self.d["estado"])
         self.assertIn("cmv40-pf-check", self.d["checks"])
         self.assertIn("cmv40-pf-banner aviso", self.d["veredicto"])
         self.assertIn("combos", self.d["veredicto"])
