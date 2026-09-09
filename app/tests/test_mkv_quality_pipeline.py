@@ -87,6 +87,65 @@ class TestLosPasosDelPipeline(AuditoriaCase):
         self.assertIsInstance(r, dict)
 
 
+class TestElLogVaSincronizadoConLaFase(AuditoriaCase):
+    """Cada separador `━━━ Fase X` se escribe con la fase que el modal enseña.
+
+    Es el mismo control que en ISO → MKV, y por el mismo motivo: la columna y
+    el log son dos numeraciones de lo mismo delante del usuario, y en cuanto
+    divergen una de las dos miente. Aquí el riesgo concreto es que `ffmpeg` y
+    `extract_rpu` son pasos distintos del backend pero la MISMA fase (los dos
+    extremos del pipe), así que es fácil que un separador se escriba con la
+    letra de la siguiente.
+    """
+
+    # La misma tabla que consume el adaptador del contrato.
+    _FASE_DE = {"ffmpeg": "A", "extract_rpu": "A", "combos": "B", "done": "B"}
+
+    async def _correlacionar(self):
+        """[(letra de la fase activa, línea)] para las líneas con separador."""
+        import re
+        activa = {"paso": ""}
+        lineas: list[tuple[str, str]] = []
+
+        def _prog(step, pct, label):
+            activa["paso"] = step
+
+        def _log(msg):
+            m = re.search(r"━━━ Fase ([A-Z]) ", msg)
+            if m:
+                lineas.append((self._FASE_DE.get(activa["paso"], "?"),
+                               m.group(1), msg))
+
+        await self.mod.analyze_rpu_quality_for_mkv(
+            str(self.mkv), progress_callback=_prog, log_callback=_log)
+        return lineas
+
+    async def test_ningun_separador_lleva_la_letra_de_otra_fase(self):
+        lineas = await self._correlacionar()
+        self.assertTrue(lineas, "el pipeline no emitió ningún separador de fase")
+        malas = [f"fase {act} activa y la línea dice Fase {dice}: {msg[:70]}"
+                 for act, dice, msg in lineas if act != dice]
+        self.assertEqual(malas, [])
+
+    async def test_salen_las_dos_fases_y_en_orden(self):
+        lineas = await self._correlacionar()
+        letras = [dice for _, dice, _ in lineas]
+        self.assertEqual(sorted(set(letras)), ["A", "B"])
+        self.assertEqual(letras, sorted(letras),
+                         "un separador de A después de haber empezado la B")
+
+    async def test_los_dos_extremos_del_pipe_son_la_MISMA_fase(self):
+        """`ffmpeg` y `extract_rpu` no son dos fases: son ffmpeg y dovi_tool
+        conectados. Contarlos por separado es lo que hacía que el modal diera
+        la extracción por terminada yendo por ella."""
+        _, pasos = await self.auditar()
+        nombres = {p for p, _ in pasos}
+        self.assertLessEqual({"ffmpeg", "extract_rpu"} & nombres,
+                             {"ffmpeg", "extract_rpu"})
+        for paso in nombres & {"ffmpeg", "extract_rpu"}:
+            self.assertEqual(self._FASE_DE[paso], "A")
+
+
 class TestLimpiezaDeIntermedios(AuditoriaCase):
     """El HEVC son ~45 GB: si no se borra, el /mnt/tmp del NAS se llena."""
 
