@@ -540,7 +540,7 @@ class TestUnTerminadoNoSeSIGUE(unittest.TestCase):
     animado, con el botón de cancelar puesto y polleando veinte veces algo que
     ya no cambia."""
 
-    def _correr(self, terminal) -> dict:
+    def _correr(self, terminal, vacia=False) -> dict:
         guion = f"""
 const _els = {{}};
 for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
@@ -576,10 +576,12 @@ let _trabajoModalTimer = null, _trabajoModalTipo = null;
 let _trabajoModalRef = null, _trabajoModalUltimo = null;
 let _trabajoModalSinActivo = 0, _trabajoModalVista = null;
 let _llamadas = 0;
+const _VACIA = {{vacia}};
 const _workbarDetalles = {{ rip: async () => {{
   _llamadas += 1;
-  return {{ lateral: '<div>fases</div>',
-           cuerpo: '<div class="cmv40-log">log</div>' }};
+  return _VACIA ? {{ conLog: true, cuerpo: '' }}
+                : {{ lateral: '<div>fases</div>',
+                    cuerpo: '<div class="cmv40-log">log</div>' }};
 }} }};
 {_fn('_trabajoModalRefrescar')}
 {_fn('_trabajoModalAbrir')}
@@ -597,7 +599,7 @@ const _workbarDetalles = {{ rip: async () => {{
   }}));
 }})();
 """
-        return _node(guion)
+        return _node(guion.replace("{vacia}", "true" if vacia else "false"))
 
     _TERMINADO = {
         "id": "s1", "sobre": "s1", "tab": "rip", "tipo": "rip",
@@ -650,6 +652,14 @@ console.log(JSON.stringify(v));
         self.assertIn("Duración", v["cuerpo"])
         self.assertIs(v["conLog"], False, "no hay log que copiar")
         self.assertIn("no se conserva", v["cuerpo"])
+
+    def test_el_ciclo_APLICA_el_resumen_cuando_la_vista_viene_vacia(self):
+        """No basta con que `_trabajoModalConResumen` sepa hacerlo: hay que
+        llamarlo. Sin esto, el modal de un análisis extendido viejo salía en
+        blanco — que es como se vio."""
+        r = self._correr(self._TERMINADO, vacia=True)
+        self.assertIn("Duración", r["cuerpo"])
+        self.assertIn("no se conserva", r["cuerpo"])
 
     def test_pero_si_la_vista_trae_log_no_se_pisa(self):
         guion = f"""
