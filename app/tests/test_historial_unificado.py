@@ -177,6 +177,69 @@ class TestRotacion(HistorialCase):
         self.assertNotIn("s0", [t["id"] for t in historial.leer()])
 
 
+class TestQuitarUnaEntrada(HistorialCase):
+    """Un trabajo terminado se puede quitar de la lista.
+
+    El fichero es append-only, así que quitar una línea obliga a reescribirlo.
+    Se hace en el único sitio en que eso es aceptable: a petición del usuario,
+    sobre un fichero con tope de 5 MB y con `.tmp` + `os.replace`.
+    """
+
+    def test_borra_la_linea_y_deja_el_resto(self):
+        self.anotar(id="a", que="uno")
+        self.anotar(id="b", que="dos")
+        self.anotar(id="c", que="tres")
+        ini = historial.leer()[1]["inicio"]
+        self.assertTrue(historial.borrar("b", ini))
+        self.assertEqual([t["id"] for t in historial.leer()], ["c", "a"])
+
+    def test_la_clave_es_id_MAS_inicio(self):
+        """Una sesión re-ejecutada deja varias líneas con el mismo id, y borrar
+        «la de Dune» tendría que decidir cuál. `inicio` es lo único que las
+        distingue."""
+        self.anotar(id="s1", inicio=datetime(2026, 9, 7, 10, 0, tzinfo=timezone.utc))
+        self.anotar(id="s1", inicio=datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc))
+        historial.borrar("s1", "2026-09-07T10:00:00+00:00")
+        quedan = historial.leer()
+        self.assertEqual(len(quedan), 1)
+        self.assertEqual(quedan[0]["inicio"], "2026-09-07T12:00:00+00:00")
+
+    def test_lo_que_no_esta_devuelve_False(self):
+        """Para que el endpoint dé 404 y la UI no diga «borrado» sobre una
+        entrada que sigue ahí."""
+        self.anotar(id="a")
+        self.assertFalse(historial.borrar("a", "2020-01-01T00:00:00+00:00"))
+        self.assertFalse(historial.borrar("fantasma", historial.leer()[0]["inicio"]))
+        self.assertEqual(len(historial.leer()), 1)
+
+    def test_una_linea_ilegible_se_conserva(self):
+        """No es de nadie, y aprovechar un borrado para tirarla sería perder
+        datos por la puerta de atrás."""
+        self.anotar(id="a")
+        self.anotar(id="b")
+        f = historial.ruta()
+        f.write_text(f.read_text(encoding="utf-8") + "{roto\n", encoding="utf-8")
+        ini = next(t["inicio"] for t in historial.leer() if t["id"] == "a")
+        historial.borrar("a", ini)
+        self.assertIn("{roto", f.read_text(encoding="utf-8"))
+
+    def test_tambien_busca_en_la_generacion_rotada(self):
+        """`leer` mira las dos, así que borrar tiene que hacer lo mismo: si no,
+        una entrada borrada justo después de rotar seguiría apareciendo."""
+        self.anotar(id="viejo")
+        f = historial.ruta()
+        f.rename(f.with_suffix(f.suffix + ".1"))
+        self.anotar(id="nuevo")
+        ini = next(t["inicio"] for t in historial.leer() if t["id"] == "viejo")
+        self.assertTrue(historial.borrar("viejo", ini))
+        self.assertEqual([t["id"] for t in historial.leer()], ["nuevo"])
+
+    def test_no_deja_el_tmp_por_ahi(self):
+        self.anotar(id="a")
+        historial.borrar("a", historial.leer()[0]["inicio"])
+        self.assertEqual(list(historial.ruta().parent.glob("*.tmp")), [])
+
+
 class TestTab1LoAlimenta(HistorialCase):
     """Ejecutando `_append_execution_record`, no leyendo su fuente."""
 

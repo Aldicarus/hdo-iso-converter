@@ -608,6 +608,85 @@ setTimeout(() => console.log(JSON.stringify(
         self.assertNotIn("Cancelar", r["confirm"]["t"])
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestUnTrabajoTerminadoSeVuelveAMirar(unittest.TestCase):
+    """«Últimos trabajos» solo listaba. Ni se podía volver al log de una
+    ejecución ni quitarla de la lista."""
+
+    _RECIENTES = [
+        {"id": "dune_1", "tab": "rip", "tipo": "rip", "estado": "done",
+         "que": "conversión a MKV de Dune", "segundos": 1830,
+         "inicio": "2026-09-09T10:00:00+00:00"},
+        {"id": "dune_1", "tab": "rip", "tipo": "rip", "estado": "cancelled",
+         "que": "conversión a MKV de Dune", "segundos": 40,
+         "inicio": "2026-09-09T09:00:00+00:00"},
+    ]
+
+    def _pintar(self, seleccion=None) -> dict:
+        guion = f"""
+const _els = {{}};
+for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
+  _els[id] = {{ innerHTML: '', textContent: '', style: {{}}, dataset: {{}},
+    classList: {{ _v: new Set(),
+      toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+      has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
+globalThis.escHtml = t => String(t);
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('_workbarRefReciente')}
+{_fn('_workbarActivoHTML')}
+{_fn('_workbarListaHTML')}
+{_fn('_instalarReordenDeCola')}
+let _workbarRecienteSel = {json.dumps(seleccion)};
+{_fn('_workbarRender')}
+let workbarEstado = {{ activo: null, cola: [], interactivo: [],
+                       recientes: {json.dumps(self._RECIENTES)} }};
+_workbarRender(workbarEstado);
+console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
+"""
+        return _node(guion)
+
+    def test_sin_seleccionar_no_hay_botones(self):
+        h = self._pintar()["html"]
+        self.assertIn("seleccionarReciente(", h)
+        self.assertNotIn("abrirDetalleDeReciente(", h)
+
+    def test_al_seleccionar_salen_los_DOS(self):
+        h = self._pintar("dune_1|2026-09-09T10:00:00+00:00")["html"]
+        self.assertIn("abrirDetalleDeReciente('dune_1|2026-09-09T10:00:00+00:00')", h)
+        self.assertIn("borrarReciente('dune_1|2026-09-09T10:00:00+00:00')", h)
+
+    def test_solo_se_selecciona_UNA_con_el_mismo_id(self):
+        """Una sesión re-ejecutada deja varias líneas con el mismo id: la
+        referencia lleva el `inicio` para poder distinguirlas."""
+        h = self._pintar("dune_1|2026-09-09T09:00:00+00:00")["html"]
+        self.assertEqual(h.count("workbar-item reciente selected"), 1)
+        self.assertEqual(h.count("abrirDetalleDeReciente("), 1)
+        self.assertIn("09:00:00", h[h.index("selected"):])
+
+    def test_el_detalle_reusa_el_MISMO_modal(self):
+        """No hay una vista aparte para lo terminado: las cinco leen su propia
+        sesión, no el contrato de progreso, y por eso siguen teniendo algo que
+        enseñar cuando ya no corre nada."""
+        i = JS.index("function abrirDetalleDeReciente(")
+        cuerpo = JS[i:JS.index("\n}\n", i)]
+        self.assertIn("_trabajoModalAbrir", cuerpo)
+        self.assertIn("_DETALLE_POR_TIPO", cuerpo)
+        self.assertIn("cancelable: false", cuerpo,
+                      "lo terminado no se cancela")
+
+    def test_quitar_avisa_de_lo_que_NO_borra(self):
+        i = JS.index("function borrarReciente(")
+        cuerpo = JS[i:JS.index("\n}\n", i)]
+        self.assertIn("showConfirm", cuerpo)
+        self.assertIn("no se tocan", cuerpo)
+        self.assertIn("method: 'DELETE'", cuerpo)
+        self.assertIn("inicio=", cuerpo, "la clave es id + inicio")
+
+
 class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
     """Era la asimetría: Tab 2 y Tab 3 no tienen nada equivalente en el centro,
     y además duplicaba lo que ahora dice la columna."""

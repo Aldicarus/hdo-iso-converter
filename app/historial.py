@@ -134,3 +134,56 @@ def leer(limite: int = 200) -> list[dict]:
             if isinstance(registro, dict):
                 out.append(registro)
     return out
+
+
+def borrar(id: str, inicio: str) -> bool:
+    """Quita una línea del historial. Devuelve si había algo que quitar.
+
+    **La clave es `(id, inicio)`, no el id.** Una sesión re-ejecutada deja
+    varias líneas con el mismo id, y borrar «la del rip de Dune» tendría que
+    decidir cuál — así que se identifica por cuándo empezó, que es lo único
+    que las distingue.
+
+    El fichero es append-only, así que quitar una línea obliga a reescribirlo.
+    Se hace en el sitio en que es aceptable: a petición del usuario, sobre un
+    fichero con tope de 5 MB, y con `.tmp` + `os.replace` para que un fallo a
+    medias no se lleve el historial entero. Se recorren las DOS generaciones
+    porque `leer` también lo hace: si no, borrar una entrada justo después de
+    rotar no tendría efecto y la línea seguiría apareciendo.
+    """
+    borrado = False
+    f = ruta()
+    for candidato in (f, f.with_suffix(f.suffix + ".1")):
+        try:
+            texto = candidato.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        conservadas, quita = [], False
+        for linea in texto.splitlines():
+            cruda = linea.strip()
+            if not cruda:
+                continue
+            try:
+                registro = json.loads(cruda)
+            except ValueError:
+                # Una línea ilegible se conserva: no es de nadie y tirarla
+                # aquí sería aprovechar un borrado para perder datos.
+                conservadas.append(linea)
+                continue
+            if (isinstance(registro, dict) and registro.get("id") == id
+                    and registro.get("inicio") == inicio):
+                quita = True
+                continue
+            conservadas.append(linea)
+        if not quita:
+            continue
+        tmp = candidato.with_suffix(candidato.suffix + ".tmp")
+        try:
+            tmp.write_text("".join(l + "\n" for l in conservadas),
+                           encoding="utf-8")
+            os.replace(tmp, candidato)
+            borrado = True
+        except OSError as e:
+            logger.warning("[historial] no se pudo borrar %s: %s", id, e)
+            tmp.unlink(missing_ok=True)
+    return borrado

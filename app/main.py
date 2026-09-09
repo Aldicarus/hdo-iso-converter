@@ -1284,6 +1284,22 @@ async def app_historial(limite: int = 200):
     return {"trabajos": await asyncio.to_thread(historial.leer, limite)}
 
 
+@app.delete("/api/historial", summary="Quita una entrada del historial")
+async def app_historial_borrar(id: str, inicio: str):
+    """Borra UNA línea del historial, identificada por `(id, inicio)`.
+
+    El id no basta: una sesión re-ejecutada deja varias líneas con el mismo, y
+    `inicio` es lo único que las distingue.
+
+    404 si no había nada que borrar, para que el frontend no diga «borrado»
+    sobre una entrada que sigue ahí. Va a un thread: reescribe el fichero.
+    """
+    if not await asyncio.to_thread(historial.borrar, id, inicio):
+        raise HTTPException(status_code=404,
+                            detail="Esa entrada no está en el historial")
+    return {"ok": True}
+
+
 @app.get("/api/status", summary="Estado de la aplicación")
 async def app_status():
     """

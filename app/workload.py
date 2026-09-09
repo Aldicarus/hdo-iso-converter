@@ -310,6 +310,8 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/status":                      CLASE_LIGERO,
     "GET /api/activity":                    CLASE_LIGERO,
     "GET /api/historial":                   CLASE_LIGERO,
+    # Reescribe el fichero, pero tiene tope de 5 MB y lo pide el usuario.
+    "DELETE /api/historial":                CLASE_LIGERO,
     "GET /api/trabajos":                    CLASE_LIGERO,
     "GET /api/version":                     CLASE_LIGERO,
     "GET /api/version/check-updates":       CLASE_LIGERO,

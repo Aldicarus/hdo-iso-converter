@@ -100,6 +100,68 @@ function _workbarActivoHTML(a) {
     </div>`;
 }
 
+// Qué entrada del historial está seleccionada. La referencia es `id|inicio`,
+// no el id: una sesión re-ejecutada deja varias líneas con el mismo y `inicio`
+// es lo único que las distingue — la misma clave que usa el borrado.
+let _workbarRecienteSel = null;
+
+function _workbarRefReciente(r) {
+  return `${r.id || ''}|${r.inicio || ''}`;
+}
+
+function _workbarRecientePor(ref) {
+  return (workbarEstado.recientes || [])
+    .find(r => _workbarRefReciente(r) === ref) || null;
+}
+
+/** Despliega o repliega las acciones de un trabajo terminado. */
+function seleccionarReciente(ref) {
+  _workbarRecienteSel = (_workbarRecienteSel === ref) ? null : ref;
+  _workbarRender(workbarEstado);
+}
+
+/** Abre el MISMO modal de detalle que mientras se ejecutaba.
+ *
+ *  El `detalle` no viene en la línea del historial —eso lo resuelve el
+ *  adaptador de la cola, y aquí no hay cola— así que se deriva del tipo. Y las
+ *  vistas leen su propia sesión, no el contrato de progreso, que es lo que
+ *  hace que sigan teniendo algo que enseñar cuando ya no corre nada.
+ */
+function abrirDetalleDeReciente(ref) {
+  const r = _workbarRecientePor(ref);
+  if (!r) { showToast('Ese trabajo ya no está en la lista', 'info'); return; }
+  const detalle = _DETALLE_POR_TIPO[r.tipo] || r.tipo;
+  if (!_workbarDetalles[detalle]) {
+    showToast('Este trabajo no guarda un detalle que enseñar', 'info');
+    return;
+  }
+  _trabajoModalAbrir({
+    id: r.id, sobre: r.id, tab: r.tab, tipo: r.tipo, que: r.que,
+    detalle, fase: '', fase_label: '', paso: 'Terminado',
+    fase_n: 0, fases_total: 0, pct: null, pct_medido: false,
+    segundos: Math.round(r.segundos || 0), eta_s: null, cancelable: false,
+  });
+}
+
+/** Quita la entrada de la lista. NO toca el proyecto ni el MKV. */
+function borrarReciente(ref) {
+  const r = _workbarRecientePor(ref);
+  if (!r) return;
+  showConfirm(
+    '¿Quitar del historial?',
+    `Se borra la línea de «${r.que}». El proyecto y el MKV no se tocan, y `
+    + 'el historial del propio proyecto se conserva.',
+    async () => {
+      const q = `id=${encodeURIComponent(r.id || '')}`
+              + `&inicio=${encodeURIComponent(r.inicio || '')}`;
+      const ok = await apiFetch(`/api/historial?${q}`, { method: 'DELETE' });
+      if (ok) showToast('Quitado del historial', 'info');
+      _workbarRecienteSel = null;
+      refrescarWorkbar();
+    },
+    'Sí, quitarla');
+}
+
 function _workbarListaHTML(titulo, items, render, clase = '') {
   if (!items.length) return '';
   return `
@@ -128,14 +190,31 @@ function _workbarRender(st) {
   // Los últimos trabajos van SIEMPRE, no solo con la casa libre: saber qué
   // acaba de pasar es la mitad de la pregunta que esta columna responde, y
   // esconderlo justo cuando hay algo en marcha es esconderlo casi siempre.
-  const recientes = _workbarListaHTML('Últimos trabajos', st.recientes.slice(0, 5), r => `
-        <div class="workbar-item">
+  // Un trabajo terminado se selecciona y despliega sus dos acciones, igual
+  // que las tarjetas de los sidebars de las tres pestañas. Antes solo se
+  // listaba: ni se podía volver a su log ni quitarlo de la lista.
+  const recientes = _workbarListaHTML('Últimos trabajos', st.recientes.slice(0, 5), r => {
+    const ref = _workbarRefReciente(r);
+    const sel = _workbarRecienteSel === ref;
+    return `
+        <div class="workbar-item reciente${sel ? ' selected' : ''}"
+             onclick="seleccionarReciente('${escHtml(ref)}')">
           ${iconoDeEstado(r.estado === 'done' ? 'hecho'
                           : r.estado === 'cancelled' ? 'cancelado' : 'error',
                           'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(r.que || '')}</span>
           <span class="workbar-item-meta">${escHtml(_workbarTiempo(r.segundos))}</span>
-        </div>`);
+        </div>
+        ${sel ? `
+          <div class="workbar-acciones workbar-acciones-item">
+            <button class="btn btn-ghost btn-xs"
+              onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
+              data-tooltip="Ver el log y el detalle de esta ejecución">Detalle</button>
+            <button class="btn btn-ghost btn-xs"
+              onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
+              data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>
+          </div>` : ''}`;
+  });
 
   if (!total) {
     body.innerHTML = '<div class="workbar-vacio">No hay nada en marcha</div>'

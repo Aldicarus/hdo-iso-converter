@@ -9679,3 +9679,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: 22px;
 }
 .cmv40-pf-caja-modal .progress-modal-titles { padding-top: 0; }
+
+/* Un trabajo terminado se puede seleccionar para desplegar sus acciones. */
+.workbar-item.reciente { cursor: pointer; }
+.workbar-item.reciente:hover { background: var(--surface-2); }
+.workbar-item.reciente.selected {
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--blue);
+}
