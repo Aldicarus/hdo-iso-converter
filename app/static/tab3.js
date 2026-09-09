@@ -6551,6 +6551,9 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     .catch(() => null);
   const project = openCMv40Projects.find(p => p.session && p.session.id === a.id);
   return {
+    // Un 404 aquí significa que el proyecto se borró: su log vivía en
+    // `/config/cmv40/{id}.log` y se fue con él.
+    sinDetalle: s ? '' : 'borrado',
     titulo: s?.output_mkv_name || a.que,
     // El de SALIDA, que es lo que se está produciendo. El de origen ya está
     // dicho por la cartela.

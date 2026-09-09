@@ -3469,6 +3469,9 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
   // «aud-7f3» de título, ninguna — el subtítulo ya dice de qué MKV se habla.
   const nombre = st?.file_name || '';
   return {
+    // El estado del análisis es un singleton: lo resetea el trabajo
+    // siguiente, así que de una ejecución vieja no queda registro.
+    sinDetalle: st ? '' : 'efimero',
     titulo: 'Análisis extendido del RPU',
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬') : null,
@@ -3493,6 +3496,7 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
   const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
   const nombre = st?.file_name || '';
   return {
+    sinDetalle: st ? '' : 'efimero',
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦') : null,

@@ -9322,7 +9322,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-right: 1px solid var(--sep-strong);
   padding: 0;
 }
-.trabajo-modal-lateral:empty { display: none; }
+/* OJO: `:empty` no sirve aquí. La columna contiene siempre la cartela y el
+   hueco de la timeline, y un elemento con hijos no es `:empty` — se quedaba
+   ocupando sus 330 px en blanco. Quien sabe si hay algo que enseñar es el
+   render, y lo dice con la clase. */
+.trabajo-modal-caja.sin-lateral .trabajo-modal-lateral { display: none; }
 #trabajo-modal-timeline {
   flex: 1;
   min-height: 0;
@@ -9697,3 +9701,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-detalle-nota {
   margin-top: 12px; font-size: 11px; color: var(--text-3); line-height: 1.5;
 }
+
+/* El log llega a los cuatro bordes a propósito, pero un cuerpo de texto no:
+   sin esto la ficha de un trabajo terminado arrancaba pegada al borde. */
+.trabajo-modal-principal .trabajo-kv,
+.trabajo-modal-principal .trabajo-detalle-nota,
+.trabajo-modal-principal .trabajo-detalle-vacio { padding-left: 20px; padding-right: 20px; }
+.trabajo-modal-principal .trabajo-kv { padding-top: 16px; }
+.trabajo-modal-principal .trabajo-detalle-nota { padding-bottom: 18px; }

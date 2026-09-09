@@ -756,6 +756,17 @@ function _trabajoModalPinta(a, vista) {
   if (cancelar) cancelar.style.display = a.cancelable ? '' : 'none';
 }
 
+// Por qué no hay registro que enseñar. Son casos distintos y decirlos como
+// uno solo es contarle al usuario algo que no ha pasado: un proyecto borrado
+// no es «un estado que se sustituye».
+const _MOTIVO_SIN_LOG = {
+  borrado: 'El proyecto ya no existe: su registro se borró con él. La línea '
+         + 'del historial es lo que queda.',
+  efimero: 'El registro de esta ejecución no se conserva: su estado es de un '
+         + 'solo trabajo a la vez y lo sustituye el siguiente.',
+  desconocido: 'No hay registro guardado de esta ejecución.',
+};
+
 /** Completa la vista de un trabajo terminado con lo que el historial sabe.
  *
  *  Las cinco vistas leen su propia sesión, y tres de ellas la conservan (el
@@ -782,9 +793,8 @@ function _trabajoModalConResumen(a, vista) {
       ['Terminó', fecha(h.fin)],
       ['Duración', _workbarTiempo(h.segundos || a.segundos)],
       ['Error', h.error || '—'],
-    ]) + '<div class="trabajo-detalle-nota">El registro de esta ejecución no '
-       + 'se conserva: su estado es de un solo trabajo a la vez y lo sustituye '
-       + 'el siguiente.</div>',
+    ]) + `<div class="trabajo-detalle-nota">${escHtml(_MOTIVO_SIN_LOG[
+      vista.sinDetalle] || _MOTIVO_SIN_LOG.desconocido)}</div>`,
   };
 }
 

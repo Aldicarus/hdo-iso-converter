@@ -158,6 +158,7 @@ def _medir(tipo: str) -> dict:
       caja: r(caja),
       fondo: caja ? getComputedStyle(caja).backgroundColor : null,
       lateral: r(lateral),
+      lateralVisible: !!(lateral && getComputedStyle(lateral).display !== 'none'),
       lateralTexto: (document.getElementById('trabajo-modal-timeline')
                      ?.textContent.trim().length) || 0,
       cartel: r(document.getElementById('trabajo-modal-cartel')),
@@ -381,6 +382,17 @@ class TestLaColumnaLateral(unittest.TestCase):
         d = self.m["analisis_extendido"]
         self.assertGreater(d["lateralTexto"], 20)
         self.assertGreater(d["lateral"]["w"], 200)
+
+    def test_sin_nada_a_la_izquierda_la_columna_se_ESCONDE(self):
+        """`.trabajo-modal-lateral:empty` dejó de valer en cuanto la columna
+        pasó a contener la cartela y el hueco de la timeline: un elemento con
+        hijos no es `:empty`, así que se quedaba ocupando sus 330 px en blanco
+        —lo que se veía al abrir una fase de un proyecto ya borrado—. Quien
+        sabe si hay algo que enseñar es el render, y lo dice con la clase."""
+        import json as _j
+        css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
+        self.assertIn(".trabajo-modal-caja.sin-lateral .trabajo-modal-lateral", css)
+        self.assertNotIn(".trabajo-modal-lateral:empty", css)
 
     def test_los_tres_traen_cartela_con_titulo(self):
         """El póster y el título largo los tenía el overlay de CMv4.0."""

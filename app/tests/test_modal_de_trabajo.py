@@ -570,6 +570,7 @@ globalThis.clearInterval = () => {{ _apagado = true; }};
 {_fn('_trabajoModalConResumen')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado',
                       error: 'Terminado con error' }};
+{_bloque('const _MOTIVO_SIN_LOG = {')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
 let _trabajoModalTimer = null, _trabajoModalTipo = null;
@@ -629,6 +630,48 @@ const _workbarDetalles = {{ rip: async () => {{
         r = self._correr(self._TERMINADO)
         self.assertTrue(r["apagado"])
 
+    def _motivo(self, sinDetalle) -> str:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_workbarTiempo')}
+{_fn('_trabajoKvHTML')}
+const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
+{_bloque('const _MOTIVO_SIN_LOG = {')}
+{_fn('_trabajoModalConResumen')}
+console.log(JSON.stringify(_trabajoModalConResumen(
+  {{ terminal: true, historial: {{ estado: 'done' }} }},
+  {{ conLog: true, cuerpo: '', sinDetalle: {json.dumps(sinDetalle)} }})));
+"""
+        return _node(guion)["cuerpo"]
+
+    def test_un_proyecto_BORRADO_no_es_un_estado_efimero(self):
+        """Son casos distintos y contarlos como uno es decirle al usuario algo
+        que no ha pasado. Visto en el NAS: fases CMv4.0 de proyectos ya
+        borrados a las que se les explicaba que «su estado lo sustituye el
+        siguiente trabajo»."""
+        borrado = self._motivo("borrado")
+        self.assertIn("El proyecto ya no existe", borrado)
+        self.assertNotIn("lo sustituye el siguiente", borrado)
+        efimero = self._motivo("efimero")
+        self.assertIn("un solo trabajo a la vez", efimero)
+        self.assertNotIn("ya no existe", efimero)
+
+    def test_sin_motivo_no_se_inventa_uno(self):
+        self.assertIn("No hay registro guardado", self._motivo(""))
+
+    def test_cada_vista_declara_POR_QUE_no_tiene_registro(self):
+        """Es lo único que puede saberlo: la de CMv4.0 y la del rip miran si
+        su sesión sigue existiendo; las de Tab 2 saben que su estado es de un
+        solo trabajo."""
+        esperado = {"cmv40": "borrado", "rip": "borrado", "serie": "efimero",
+                    "analisis_extendido": "efimero", "copia_biblioteca": "efimero"}
+        for clave, motivo in esperado.items():
+            with self.subTest(clave=clave):
+                i = JS.index(f"registrarDetalleDeTrabajo('{clave}'")
+                bloque = JS[i:JS.index("});", i)]
+                self.assertIn("sinDetalle:", bloque)
+                self.assertIn(f"'{motivo}'", bloque)
+
     def test_sin_log_guardado_cuenta_lo_que_SI_consta(self):
         """Las dos vistas de Tab 2 leen un estado que se resetea con el
         trabajo siguiente: al abrir una ejecución vieja devolvían un cuerpo
@@ -638,13 +681,14 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
+{_bloque('const _MOTIVO_SIN_LOG = {')}
 {_fn('_trabajoModalConResumen')}
 const v = _trabajoModalConResumen({{
   terminal: true, segundos: 78,
   historial: {{ estado: 'cancelled', segundos: 78,
                inicio: '2026-09-09T09:00:00+00:00',
                fin: '2026-09-09T09:01:18+00:00', error: null }},
-}}, {{ conLog: true, cuerpo: '' }});
+}}, {{ conLog: true, cuerpo: '', sinDetalle: 'efimero' }});
 console.log(JSON.stringify(v));
 """
         v = _node(guion)
@@ -659,7 +703,8 @@ console.log(JSON.stringify(v));
         blanco — que es como se vio."""
         r = self._correr(self._TERMINADO, vacia=True)
         self.assertIn("Duración", r["cuerpo"])
-        self.assertIn("no se conserva", r["cuerpo"])
+        self.assertIn("trabajo-detalle-nota", r["cuerpo"],
+                      "y con el motivo de que no haya registro")
 
     def test_pero_si_la_vista_trae_log_no_se_pisa(self):
         guion = f"""
@@ -667,6 +712,7 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado' }};
+{_bloque('const _MOTIVO_SIN_LOG = {')}
 {_fn('_trabajoModalConResumen')}
 console.log(JSON.stringify(_trabajoModalConResumen(
   {{ terminal: true, historial: {{ estado: 'done' }} }},

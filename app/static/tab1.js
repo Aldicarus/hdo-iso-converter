@@ -4778,6 +4778,8 @@ registrarDetalleDeTrabajo('rip', async (a) => {
   // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
   const s = await apiFetch(`/api/sessions/${a.id}`, { silent: true }).catch(() => null);
   return {
+    // Sin sesión, el proyecto se borró y su log con él.
+    sinDetalle: s ? '' : 'borrado',
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
     cartel: cartelDeTmdb(s?.tmdb_info, s?.mkv_name, '💿'),
@@ -4795,6 +4797,7 @@ registrarDetalleDeTrabajo('serie', async (a) => {
   const hechos = (p?.completed || []).length;
   const fallidos = (p?.failed || []).length;
   return {
+    sinDetalle: 'efimero',
     titulo: a.que,
     sub: p?.current_label || '',
     // La serie no guarda su `tmdb_info` en el progreso —lo tiene cada sesión
