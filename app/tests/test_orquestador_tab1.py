@@ -303,6 +303,85 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestElLogVaSincronizadoConLaFase(OrquestadorCase):
+    """Cada línea del log lleva la letra de la fase que estaba corriendo.
+
+    No es cosmético: la columna dice «Fase B · Extracción de pistas» y el log
+    decía «[Fase C]» en la ruta directa, porque ese mkvmerge lo lanza
+    `run_phase_e_direct` —que vive en `phase_e.py` y arrastraba la letra de la
+    numeración interna del proyecto—. Dos numeraciones para lo mismo delante
+    del usuario.
+
+    La comprobación es exhaustiva a propósito: no busca marcadores concretos,
+    sino que recorre TODAS las líneas y compara la letra de cada una con la
+    fase activa en ese momento. Una fase nueva o un marcador movido de sitio
+    lo destapa sin tener que acordarse de este test.
+    """
+
+    _LETRA = {"mount": "A", "extract": "B", "write": "C", "unmount": "D"}
+
+    @staticmethod
+    def _colapsar(seq):
+        """Quita repeticiones consecutivas: interesa el ORDEN, no cuántas."""
+        salida = []
+        for x in seq:
+            if not salida or salida[-1] != x:
+                salida.append(x)
+        return salida
+
+    async def _secuencias(self, sesion):
+        """(fases que corrieron, letras que escribió el log), las dos en orden.
+
+        No se correlaciona línea a línea porque `_run_pipeline` carga su
+        propia sesión y el log crece dentro; comparar las dos secuencias
+        colapsadas dice lo mismo y no depende de eso.
+        """
+        import re
+        from routers import tab1 as r1
+        fases: list[str] = []
+        real = r1._rip_progress_fase
+
+        def espia(fase):
+            fases.append(self._LETRA.get(fase, "?"))
+            return real(fase)
+
+        r1._rip_progress_fase = espia
+        self.addCleanup(setattr, r1, "_rip_progress_fase", real)
+        s = await self._correr(sesion)
+        r1._rip_progress_fase = real
+        letras = [m.group(1) for l in s.output_log
+                  if (m := re.search(r"\[Fase ([A-Z])\]", l))]
+        return self._colapsar(fases), self._colapsar(letras), s
+
+    async def test_ruta_con_intermedio(self):
+        fases, letras, _ = await self._secuencias(self._sesion())
+        self.assertEqual(letras, fases)
+
+    async def test_ruta_directa(self):
+        """La que estaba mal: un solo mkvmerge hace la extracción y los
+        metadatos, y su log salía con la letra de la segunda."""
+        fases, letras, _ = await self._secuencias(self._sesion(incluidos=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                   "Castellano TrueHD Atmos 7.1", ch=8)]))
+        self.assertEqual(letras, fases)
+
+    async def test_la_ruta_directa_no_deja_la_fase_C_colgando(self):
+        """Los metadatos los escribe ese mismo mkvmerge, así que la fase se
+        ejecuta: sin marcarla, la columna la dejaba pendiente para siempre con
+        el trabajo ya terminado."""
+        _, _, s = await self._secuencias(self._sesion(incluidos=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                   "Castellano TrueHD Atmos 7.1", ch=8)]))
+        log = "\n".join(s.output_log)
+        self.assertIn("[Fase C]", log)
+        self.assertIn("misma pasada", log)
+
+    async def test_las_cuatro_letras_salen_y_en_orden(self):
+        fases, letras, _ = await self._secuencias(self._sesion())
+        self.assertEqual(fases, ["A", "B", "C", "D"])
+        self.assertEqual(letras, ["A", "B", "C", "D"])
+
+
 class TestParcialesQueSeQuedan(OrquestadorCase):
     """Un mkvmerge que aborta a mitad del mux deja el fichero a medias.
 

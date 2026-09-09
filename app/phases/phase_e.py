@@ -156,11 +156,11 @@ async def run_phase_e_direct(
         await _avisar_empate(log_callback, aviso)
     if log_callback:
         await log_callback(
-            "[Fase C] 📋 Generando el MKV final con un solo mkvmerge: selección "
+            "[Fase B] 📋 Generando el MKV final con un solo mkvmerge: selección "
             "de pistas, reordenación, nombres, flags y capítulos en una sola pasada. "
             "Ahorra una copia completa respecto a la ruta con intermedio."
         )
-        await log_callback(f"[Fase C] ┌─ Escribiendo: {output_path}")
+        await log_callback(f"[Fase B] ┌─ Escribiendo: {output_path}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -221,7 +221,7 @@ async def run_phase_e_direct(
     if hung or playlist_assert or proc.returncode not in (0, 1):
         borrado = _limpiar_parcial(output_path, existia_antes)
         if borrado and log_callback:
-            await log_callback(f"[Fase C] 🧹 MKV parcial eliminado: {borrado}")
+            await log_callback(f"[Fase B] 🧹 MKV parcial eliminado: {borrado}")
 
     if hung:
         raise RuntimeError(
@@ -247,9 +247,9 @@ async def run_phase_e_direct(
 
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
-        await log_callback(f"[Fase C] ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
+        await log_callback(f"[Fase B] ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
         await log_callback(
-            "[Fase C] 🎯 Resultado: MKV en /mnt/output con pistas, nombres, flags "
+            "[Fase B] 🎯 Resultado: MKV en /mnt/output con pistas, nombres, flags "
             "y capítulos correctos. Ruta directa — una sola copia."
         )
     return output_path
@@ -384,7 +384,7 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
     if proc.returncode not in (0, 1):
         if log_callback:
             await log_callback(
-                f"[Fase C] Aviso: mkvmerge --identify devolvió código {proc.returncode}"
+                f"[Pipeline] Aviso: mkvmerge --identify devolvió código {proc.returncode}"
             )
         return {}
 
@@ -695,7 +695,7 @@ def _match_tracks_to_source(
 async def _avisar_empate(log_callback, aviso: str) -> None:
     """Emite al log un empate que el disco no permite desambiguar."""
     if log_callback:
-        await log_callback(f"[Fase C] ⚠️ {aviso}")
+        await log_callback(f"[Pipeline] ⚠️ {aviso}")
 
 
 def _codec_matches(included_codec: str, source_codec: str) -> bool:

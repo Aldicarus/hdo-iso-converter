@@ -2504,6 +2504,13 @@ async def _run_pipeline(session_id: str) -> None:
                         proc_callback=_register_proc,
                     )
                     _mark_phase("extract", done=True)
+                    # La escritura de metadatos ocurrió DENTRO de ese mismo
+                    # mkvmerge; se marca para que la columna no deje la fase
+                    # pendiente con el trabajo ya terminado.
+                    _mark_phase("write")
+                    await log("[Fase C] ✓ Metadatos, flags y capítulos escritos "
+                              "en la misma pasada de mkvmerge")
+                    _mark_phase("write", done=True)
 
                 else:
                     # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
