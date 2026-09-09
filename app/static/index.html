@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260909c">
+  <link rel="stylesheet" href="/static/style.css?v=20260909d">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1007,6 +1007,43 @@
 </div>
 
 <!-- ═══ MODAL: Confirmación genérica CMv4.0 ═══════════════════════ -->
+<!-- Pre-flight del bin CMv4.0. El asistente lo abre al crear un proyecto con
+     target y polea hasta el veredicto.
+
+     Existe porque el pre-flight decide SI va a haber trabajo —el bin puede no
+     aportar CMv4.0, o ser sintético— y ese veredicto llegaba en diferido: se
+     cerraba el asistente y el motivo aparecía después como un banner en el
+     panel del proyecto, que hay que estar mirando para verlo.
+
+     CERRAR NO ES CANCELAR: son 9 s de mediana (p90 49 s, máx. 116 s medidos
+     sobre 91 pre-flights del NAS). Si el usuario cierra, la validación sigue y
+     el veredicto se queda en el panel, como hasta ahora. -->
+<div class="modal-overlay" id="cmv40-preflight-modal"
+     onclick="onModalOverlayClick(event,'cmv40-preflight-modal')">
+  <div class="modal-box progress-modal-box">
+    <div class="progress-modal-header">
+      <div class="progress-modal-poster" id="cmv40-pf-poster">
+        <span id="cmv40-pf-icono">🛫</span>
+      </div>
+      <div class="progress-modal-titles">
+        <div class="modal-title" id="cmv40-pf-titulo">Validando el bin CMv4.0</div>
+        <div class="modal-sub" id="cmv40-pf-sub"></div>
+      </div>
+    </div>
+
+    <div class="progress-modal-body">
+      <div id="cmv40-pf-paso" class="progress-modal-current">Iniciando…</div>
+      <div class="progress-modal-bar-wrap" id="cmv40-pf-barra-wrap">
+        <div id="cmv40-pf-barra" class="progress-modal-bar"></div>
+      </div>
+      <div id="cmv40-pf-pct" class="progress-modal-pct"></div>
+      <div id="cmv40-pf-veredicto" class="cmv40-pf-veredicto"></div>
+    </div>
+
+    <div class="modal-footer" id="cmv40-pf-pie"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="cmv40-confirm-modal">
   <div class="modal-box" style="max-width:520px">
     <div class="modal-title" id="cmv40-confirm-title"></div>
@@ -1334,13 +1371,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260909c"></script>
-<script src="/static/workbar.js?v=20260909c"></script>
-<script src="/static/settings.js?v=20260909c"></script>
-<script src="/static/cmv40_modals.js?v=20260909c"></script>
-<script src="/static/tab1.js?v=20260909c"></script>
-<script src="/static/tab2.js?v=20260909c"></script>
-<script src="/static/tab3.js?v=20260909c"></script>
-<script src="/static/browser.js?v=20260909c"></script>
+<script src="/static/core.js?v=20260909d"></script>
+<script src="/static/workbar.js?v=20260909d"></script>
+<script src="/static/settings.js?v=20260909d"></script>
+<script src="/static/cmv40_modals.js?v=20260909d"></script>
+<script src="/static/tab1.js?v=20260909d"></script>
+<script src="/static/tab2.js?v=20260909d"></script>
+<script src="/static/tab3.js?v=20260909d"></script>
+<script src="/static/browser.js?v=20260909d"></script>
 </body>
 </html>

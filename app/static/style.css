@@ -9562,3 +9562,29 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-top: 1px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── El veredicto del pre-flight ───────────────────────────────────────────
+   Tres desenlaces y cada uno pide una cosa distinta: el verde solo informa,
+   el ámbar y el rojo piden una decisión. El color lo dice antes de leer. */
+.cmv40-pf-veredicto:empty { display: none; }
+.cmv40-pf-caja {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid;
+  text-align: left;
+}
+.cmv40-pf-caja.ok    { background: var(--green-dim);  border-color: var(--green); }
+.cmv40-pf-caja.aviso { background: var(--orange-dim); border-color: var(--orange); }
+.cmv40-pf-caja.error { background: var(--red-dim);    border-color: var(--red); }
+.cmv40-pf-cuerpo { font-size: 12.5px; line-height: 1.5; color: var(--text-1); }
+.cmv40-pf-motivos { margin-top: 10px; }
+.cmv40-pf-motivos summary {
+  font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none;
+}
+/* Las líneas del log son la evidencia: con su paleta y con tope de alto para
+   que el modal no crezca con ellas. */
+.cmv40-pf-motivos .cmv40-log {
+  margin-top: 8px; max-height: 220px; border-radius: var(--r-sm);
+  font-size: 10.5px;
+}

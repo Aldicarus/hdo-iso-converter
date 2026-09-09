@@ -1401,10 +1401,30 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             def _proc_cb(proc):
                 _cmv40_proc_register(session.id, proc)
 
+            # El avance del pre-flight se emite como el de cualquier fase, con
+            # `§§PROGRESS§§`. Antes solo existía como texto en el log, y sacar
+            # el estado de la UI de un regex sobre líneas de log es el
+            # acoplamiento que este repo ya ha pagado más de una vez.
+            #
+            # Los pesos salen de los 91 pre-flights medidos en el NAS: el sniff
+            # del origen y la obtención del bin son segundos, y el `export` de
+            # combos se lleva el resto.
+            from phases.cmv40_pipeline import _emit_progress
+
+            async def _paso(pct: float, label: str):
+                await _emit_progress(_log_cb, pct, label)
+
             try:
+                await _paso(5, "Comprobando el Dolby Vision del MKV origen")
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
 
                 kind = session.pending_target_kind
+                await _paso(25, {
+                    "drive": "Descargando el RPU del repositorio",
+                    "repo":  "Descargando el RPU del repositorio",
+                    "path":  "Copiando el RPU de la carpeta local",
+                    "mkv":   "Extrayendo el RPU del MKV target",
+                }.get(kind, "Obteniendo el RPU target"))
                 if kind == "drive" or kind == "repo":
                     await preflight_target_drive(
                         session,
@@ -1421,8 +1441,11 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                         session, session.pending_target_source_mkv_path,
                         _log_cb, _proc_cb,
                     )
+                await _paso(55, "Validando que el bin aporta CMv4.0")
                 # Análisis profundo del bin + decisión Keep/continuar
+                await _paso(65, "Analizando los combos L2/L8 del bin")
                 avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
+                await _paso(100, "Validación terminada")
                 if avanzar:
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
@@ -3350,8 +3373,11 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 else:  # mkv
                     await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
 
+                await _paso(55, "Validando que el bin aporta CMv4.0")
                 # Análisis profundo del bin + decisión Keep/continuar
+                await _paso(65, "Analizando los combos L2/L8 del bin")
                 avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
+                await _paso(100, "Validación terminada")
                 if avanzar:
                     session.preflight_decision = "ok"
                     session.preflight_message = ""

@@ -1905,7 +1905,12 @@ async function createCMv40Project() {
       // Fase A manualmente cuando vea preflight OK.
       _cmv40FirePreflight(project.id, target);
     }
+    // Y se mira mientras pasa. El pre-flight decide SI va a haber trabajo, y
+    // su veredicto llegaba en diferido: se cerraba el asistente y el motivo
+    // aparecía después como un banner en el panel, que hay que estar mirando.
+    abrirPreflightCMv40(project.id);
   }
+  // Sin target no hay nada que validar: el proyecto se crea y ya está.
 }
 
 /**
@@ -5713,6 +5718,10 @@ async function refreshCMv40Sidebar() {
     if (running) {
       _cmv40AutoResumeAttempted = true;
       openCMv40Project(running);
+      // Un pre-flight en curso se reanuda en SU modal, no en el de trabajo:
+      // es lo que decide si va a haber trabajo, y su veredicto pide una
+      // respuesta del usuario en dos de los tres desenlaces.
+      if (running.running_phase === 'preflight') abrirPreflightCMv40(running.id);
       const niceName = running.source_mkv_name || running.id;
       const phaseLabel = (typeof CMV40_RUNNING_LABELS === 'object' && CMV40_RUNNING_LABELS)
         ? (CMV40_RUNNING_LABELS[running.running_phase] || running.running_phase)
@@ -6593,4 +6602,245 @@ function cmv40TrasCancelar(sessionId) {
   p._autoChaining = false;
   p._lastAutoFiredFor = null;
   p.autoContinue = false;
+}
+
+
+// ── El pre-flight, con su modal ──────────────────────────────────────────
+//
+// El pre-flight decide SI va a haber trabajo: valida que el MKV origen tiene
+// Dolby Vision, obtiene el bin target y comprueba que aporta CMv4.0 y que su
+// L8 no es sintético. Hasta que pasa, no se encola nada.
+//
+// El veredicto llegaba en diferido —se cerraba el asistente y el motivo
+// aparecía después como un banner en el panel—, así que había que estar
+// mirando ese proyecto para enterarse. Con el modal se ve en el momento y, si
+// falla, con los motivos delante.
+//
+// **Sigue siendo interactivo, no encolado**, y eso es deliberado: mediana 9 s
+// sobre los 91 pre-flights del NAS. Un modal síncrono es una decisión de
+// interfaz; encolarlo dejaría al usuario mirando «esperando turno» detrás de
+// una conversión de 40 minutos.
+//
+// **El encolado de la Fase A se queda en el backend**, en el `finally` del
+// pre-flight. Este modal observa; no decide. Moverlo aquí reproduciría la
+// familia de bugs de los dos disparadores.
+
+let _cmv40PfSesion = null;      // id del proyecto que se está validando
+let _cmv40PfPolling = false;
+
+const _CMV40_PF_INTERVALO_MS = 700;
+
+function _cmv40PfSet(id, txt) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = txt;
+}
+
+/** El veredicto: `{clase, titulo, cuerpo, motivos[]}` o null si sigue. */
+function _cmv40PfVeredicto(s, trabajo) {
+  if (!s) return null;
+  if (s.error_message) {
+    return {
+      clase: 'error',
+      titulo: 'El bin no sirve para este proyecto',
+      cuerpo: s.error_message,
+      motivos: _cmv40PfMotivosDelLog(s),
+    };
+  }
+  if (s.preflight_decision && s.preflight_decision !== 'ok') {
+    return {
+      clase: 'aviso',
+      titulo: 'El bin no aporta un L8 trabajado',
+      cuerpo: s.preflight_message
+        || 'El RPU es sintético: inyectarlo daría el mismo resultado visible '
+         + 'que dejar el MKV como está.',
+      motivos: _cmv40PfMotivosDelLog(s),
+    };
+  }
+  if (s.target_preflight_ok) {
+    const calidad = s.target_l8_quality_tier
+      ? ` · calidad ${String(s.target_l8_quality_tier).toUpperCase()}` : '';
+    return {
+      clase: 'ok',
+      titulo: 'Origen y bin validados',
+      cuerpo: (s.target_type ? `Bin ${s.target_type}` : 'Bin con CMv4.0')
+              + calidad + '. ' + (trabajo || 'El trabajo continúa en segundo plano.'),
+      motivos: [],
+    };
+  }
+  return null;
+}
+
+/** Las líneas `[Pre-flight]` del log: son los motivos, ya escritos. */
+function _cmv40PfMotivosDelLog(s) {
+  return (s.output_log || [])
+    .filter(l => l.includes('[Pre-flight]') || l.includes('🛑'))
+    .slice(-12);
+}
+
+/** Dónde ha quedado el trabajo tras un pre-flight que pasa. */
+async function _cmv40PfDondeQuedo(pid) {
+  const t = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
+  if (!t) return '';
+  if ((t.activo?.sobre || t.activo?.id) === pid) return 'La Fase A ya está en marcha.';
+  const enCola = (t.cola || []).find(j => (j.sobre || j.id) === pid);
+  if (enCola) return `La Fase A está en la cola, en el puesto ${enCola.posicion}.`;
+  return 'El trabajo continúa en segundo plano.';
+}
+
+function _cmv40PfPintar(s, veredicto) {
+  const prog = s?.last_progress || {};
+  _cmv40PfSet('cmv40-pf-titulo', veredicto ? veredicto.titulo
+                                           : 'Validando el bin CMv4.0');
+  _cmv40PfSet('cmv40-pf-sub', s?.output_mkv_name || s?.source_mkv_name || '');
+  const poster = document.getElementById('cmv40-pf-poster');
+  const url = s?.tmdb_info?.poster_url;
+  if (poster) {
+    poster.innerHTML = url
+      ? `<img src="${escHtml(url)}" alt="" loading="lazy">`
+      : `<span id="cmv40-pf-icono">${veredicto
+            ? {ok: '✅', aviso: '⚠️', error: '⛔'}[veredicto.clase] : '🛫'}</span>`;
+  }
+  _cmv40PfSet('cmv40-pf-paso', veredicto ? '' : (prog.label || 'Iniciando…'));
+  const barra = document.getElementById('cmv40-pf-barra');
+  const wrap = document.getElementById('cmv40-pf-barra-wrap');
+  if (wrap) wrap.style.display = veredicto ? 'none' : '';
+  if (barra) barra.style.width = `${Math.round(prog.pct || 0)}%`;
+  _cmv40PfSet('cmv40-pf-pct', veredicto || prog.pct == null
+                              ? '' : `${Math.round(prog.pct)}%`);
+
+  const caja = document.getElementById('cmv40-pf-veredicto');
+  if (caja) {
+    caja.innerHTML = !veredicto ? '' : `
+      <div class="cmv40-pf-caja ${veredicto.clase}">
+        <div class="cmv40-pf-cuerpo">${escHtml(veredicto.cuerpo)}</div>
+        ${veredicto.motivos.length ? `
+          <details class="cmv40-pf-motivos">
+            <summary>Ver lo que comprobó el pre-flight</summary>
+            <div class="cmv40-log">${veredicto.motivos
+              .map(l => `<div class="log-line ${typeof _classifyLogLine === 'function'
+                          ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`)
+              .join('')}</div>
+          </details>` : ''}
+      </div>`;
+  }
+  _cmv40PfPintarPie(s, veredicto);
+}
+
+function _cmv40PfPintarPie(s, veredicto) {
+  const pie = document.getElementById('cmv40-pf-pie');
+  if (!pie) return;
+  const pid = _cmv40PfSesion;
+  // Cerrar NO cancela: el pre-flight sigue y el veredicto queda en el panel.
+  const cerrar = `<button class="btn btn-ghost btn-sm"
+      onclick="cerrarPreflightCMv40()">Cerrar</button>`;
+  if (!veredicto) {
+    pie.innerHTML = `
+      <button class="btn btn-danger btn-sm"
+        onclick="cancelarPreflightCMv40()"
+        data-tooltip="Detiene la validación y deja el proyecto sin target">
+        🛑 Cancelar</button>${cerrar}`;
+    return;
+  }
+  if (veredicto.clase === 'ok') { pie.innerHTML = cerrar; return; }
+  // Los dos desenlaces que piden una decisión reusan los endpoints que ya
+  // existen para el banner del panel.
+  const forzar = veredicto.clase === 'aviso' ? `
+    <button class="btn btn-ghost btn-sm"
+      onclick="_cmv40PfForzar('${pid}')"
+      data-tooltip="Inyectar igualmente pese a la recomendación">
+      Inyectar igualmente</button>
+    <button class="btn btn-primary btn-sm"
+      onclick="_cmv40PfMantener('${pid}')"
+      data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está">
+      Mantener el MKV actual</button>` : '';
+  pie.innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="_cmv40PfCambiarTarget('${pid}')"
+      data-tooltip="Elegir otro RPU para este proyecto">Cambiar de target</button>
+    ${forzar}${cerrar}`;
+}
+
+/** Abre el modal y polea hasta el veredicto. */
+async function abrirPreflightCMv40(pid) {
+  _cmv40PfSesion = pid;
+  _cmv40PfPintar(null, null);
+  openModal('cmv40-preflight-modal');
+  if (_cmv40PfPolling) return;
+  _cmv40PfPolling = true;
+  try {
+    // Chained-await, no setInterval: garantiza una sola petición en vuelo y
+    // con ella el orden de las respuestas. Es el patrón del perfil de
+    // luminancia, y está ahí por un bug de respuestas cruzadas.
+    while (_cmv40PfSesion === pid
+           && document.getElementById('cmv40-preflight-modal')
+                ?.classList.contains('open')) {
+      const s = await apiFetch(`/api/cmv40/${pid}`, { silent: true })
+        .catch(() => null);
+      let veredicto = _cmv40PfVeredicto(s, null);
+      if (veredicto?.clase === 'ok') {
+        veredicto = _cmv40PfVeredicto(s, await _cmv40PfDondeQuedo(pid));
+      }
+      if (_cmv40PfSesion !== pid) break;
+      _cmv40PfPintar(s, veredicto);
+      // Mientras corre no hay veredicto; en cuanto lo hay, el modal se queda
+      // quieto esperando al usuario.
+      if (veredicto) break;
+      await new Promise(r => setTimeout(r, _CMV40_PF_INTERVALO_MS));
+    }
+  } finally {
+    _cmv40PfPolling = false;
+  }
+}
+
+function cerrarPreflightCMv40() {
+  _cmv40PfSesion = null;
+  closeModal('cmv40-preflight-modal');
+}
+
+function cancelarPreflightCMv40() {
+  const pid = _cmv40PfSesion;
+  if (!pid) return;
+  showConfirm(
+    '¿Detener la validación?',
+    'El proyecto se queda creado y sin target validado. Podrás elegir otro '
+    + 'RPU cuando quieras.',
+    async () => {
+      await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
+      if (typeof cmv40TrasCancelar === 'function') cmv40TrasCancelar(pid);
+      cerrarPreflightCMv40();
+      refrescarWorkbar();
+    },
+    'Sí, detenerla');
+}
+
+/** Aplica al proyecto abierto la sesión que devuelve el endpoint. */
+function _cmv40PfAplicar(pid, data) {
+  const p = openCMv40Projects.find(x => x.session && x.session.id === pid);
+  if (!p || !data) return p || null;
+  _cmv40AssignSession(p, data);
+  _updateCMv40Panel(p);
+  return p;
+}
+
+async function _cmv40PfMantener(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/accept-keep`, { method: 'POST' });
+  cerrarPreflightCMv40();
+  _cmv40PfAplicar(pid, data);
+  await refreshCMv40Sidebar();
+}
+
+async function _cmv40PfForzar(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/override-recommendation`,
+                              { method: 'POST' });
+  cerrarPreflightCMv40();
+  const p = _cmv40PfAplicar(pid, data);
+  // Forzar es pedir que la cadena siga: el poller del auto-pipeline no puede
+  // saberlo solo, porque `preflight_decision` era su condición de parada.
+  if (p) { p._autoChaining = true; _cmv40MaybeAutoAdvance(p); }
+}
+
+function _cmv40PfCambiarTarget(pid) {
+  cerrarPreflightCMv40();
+  switchTab(3);
+  switchCMv40SubTab(pid);
+  showToast('Elige otro RPU en la Fase B del proyecto', 'info');
 }
