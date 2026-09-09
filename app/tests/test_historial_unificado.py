@@ -195,7 +195,9 @@ class TestTab1LoAlimenta(HistorialCase):
             session,
             {"mount": ini, "extract": ini + timedelta(seconds=5)},
             {"mount": ini + timedelta(seconds=5),
-             "extract": ini + timedelta(minutes=20)})
+             "extract": ini + timedelta(minutes=20)},
+            # Lo mismo que hace el orquestador en su `finally`.
+            cancelado=(session.status == "pending"))
         return historial.leer()
 
     def test_un_rip_terminado_deja_su_linea(self):
@@ -210,6 +212,36 @@ class TestTab1LoAlimenta(HistorialCase):
         t = self._correr(s)[0]
         self.assertEqual(t["estado"], "error")
         self.assertEqual(t["error"], "mkvmerge abortó")
+
+    def test_una_conversion_CANCELADA_deja_su_linea(self):
+        """Se vio en el NAS: cancelar un ISO → MKV y no encontrarlo en
+        «Recientes». El guard decía literalmente «no registrar cancelaciones»
+        y es anterior al historial transversal, cuyo punto es justo el
+        contrario: cuentan las tres salidas, y la cancelada y la que falla son
+        las que uno mira después."""
+        s = self._sesion(status="pending")   # cancelar devuelve a pending
+        t = self._correr(s)[0]
+        self.assertEqual(t["estado"], "cancelled")
+        self.assertIn("Peli (2024)", t["que"])
+        self.assertIsNone(t["error"], "cancelar no es un error")
+
+    def test_pero_NO_entra_en_el_historial_del_proyecto(self):
+        """Son dos cosas: el del proyecto lista sus ejecuciones, y una
+        tentativa abortada no es una — el proyecto vuelve a `pending`, listo
+        para relanzarse."""
+        s = self._sesion(status="pending")
+        self._correr(s)
+        self.assertEqual(s.execution_history, [])
+
+    def test_y_no_apunta_a_una_ejecucion_que_no_existe(self):
+        s = self._sesion(status="pending")
+        self.assertIsNone(self._correr(s)[0]["ref_log"])
+
+    def test_una_terminada_si_entra_en_las_dos(self):
+        s = self._sesion()
+        t = self._correr(s)[0]
+        self.assertEqual(len(s.execution_history), 1)
+        self.assertEqual(t["estado"], "done")
 
     def test_el_ref_log_apunta_a_ESTA_ejecucion(self):
         """Una sesión re-ejecutada tiene varios logs; el de la sesión a secas

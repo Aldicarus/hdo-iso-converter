@@ -2655,9 +2655,10 @@ async def _run_pipeline(session_id: str) -> None:
         _cancel_flags.pop(session_id, None)
         _active_processes.pop(session_id, None)
 
-        # Registrar ejecución en historial (no registrar cancelaciones)
-        if session.status != "pending":
-            _append_execution_record(session, _phase_starts, _phase_ends)
+        # Cerrar la ejecución. Se llama SIEMPRE: la cancelación no entra en
+        # el historial del proyecto pero sí en el transversal (ver la función).
+        _append_execution_record(session, _phase_starts, _phase_ends,
+                                 cancelado=(session.status == "pending"))
         # Flush garantizado del log antes de marcar terminada la sesión:
         # cualquier línea que el throttle hubiera dejado en buffer se
         # vuelca a disco AHORA. Sin esto, las últimas N líneas del log
@@ -2910,8 +2911,20 @@ def _append_execution_record(
     session: Session,
     phase_starts: dict[str, datetime],
     phase_ends: dict[str, datetime],
+    *,
+    cancelado: bool = False,
 ) -> None:
-    """Construye un ExecutionRecord y lo añade al historial de la sesión."""
+    """Cierra la ejecución: el detalle por fase y la línea del historial.
+
+    **Una cancelación NO entra en `execution_history` pero SÍ en el historial
+    transversal.** Son dos cosas distintas: el primero es el historial de
+    ejecuciones *del proyecto*, donde una tentativa abortada no aporta (el
+    proyecto vuelve a `pending`, listo para relanzarse); el segundo responde
+    «qué ha pasado hoy», y ahí la cancelada es justo una de las que se miran.
+    El guard original —«no registrar cancelaciones»— es anterior al historial
+    transversal y se lo llevaba por delante: un rip cancelado desaparecía sin
+    dejar rastro en la columna de trabajo.
+    """
     now = datetime.now(timezone.utc)
     phase_elapsed: dict[str, float | None] = {}
     for phase in ("mount", "extract", "unmount", "write"):
@@ -2935,7 +2948,8 @@ def _append_execution_record(
         phase_elapsed   = phase_elapsed,
         output_log      = list(session.output_log),
     )
-    session.execution_history.append(record)
+    if not cancelado:
+        session.execution_history.append(record)
 
     # Y una línea en el historial transversal. El `ExecutionRecord` de arriba
     # vive DENTRO de la sesión y guarda el detalle por fase; esto es la vista
@@ -2948,11 +2962,13 @@ def _append_execution_record(
         que     = f"conversión a MKV de {session.mkv_name or session.id}",
         inicio  = record.started_at,
         fin     = record.finished_at,
-        estado  = record.status,
-        error   = record.error_message,
+        estado  = "cancelled" if cancelado else record.status,
+        error   = None if cancelado else record.error_message,
         # El log de esta ejecución concreta, no el de la sesión: una sesión
-        # re-ejecutada tiene varios.
-        ref_log = f"sesion:{session.id}#{record.run_number}",
+        # re-ejecutada tiene varios. Una cancelada no deja ejecución a la que
+        # apuntar, así que no se inventa una referencia rota.
+        ref_log = None if cancelado
+                  else f"sesion:{session.id}#{record.run_number}",
     )
 
 

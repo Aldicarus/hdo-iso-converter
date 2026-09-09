@@ -91,6 +91,9 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
 
         parches = [
             (storage, "CONFIG_DIR", self.config),
+            # `historial` resuelve su fichero desde aquí; sin el parche los
+            # tests escribirían en el /config real (o fallarían al no poder).
+            (paths, "CONFIG_DIR", self.config),
             (paths, "TMP_DIR", str(self.trabajo)),
             (phase_e, "OUTPUT_DIR", str(self.salida)),
             (phase_d, "MIN_MPLS_SIZE", 200),
@@ -301,6 +304,54 @@ class TestFallos(OrquestadorCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnaConversionCanceladaDejaRastro(OrquestadorCase):
+    """Cancelar un ISO → MKV y no encontrarlo en «Recientes».
+
+    El `finally` del pipeline decía «no registrar cancelaciones» y se saltaba
+    la anotación entera. Ese guard es anterior al historial transversal, cuyo
+    punto es el contrario: cuentan las tres salidas, y la cancelada y la que
+    falla son justo las que uno mira después.
+    """
+
+    async def _cancelar_a_media_extraccion(self):
+        """Levanta la bandera de cancelación desde dentro de la fase larga.
+
+        `_run_pipeline` la pone a False al arrancar, así que no vale
+        prepararla antes: hay que subirla mientras corre, que es lo que hace
+        el endpoint cuando el usuario pulsa el botón."""
+        from routers import tab1 as r1
+        from phases import phase_d
+        real = phase_d.run_phase_d
+        sid = "Peli_2024_1700000000"
+
+        async def cancelando(*a, **kw):
+            r1._cancel_flags[sid] = True
+            return await real(*a, **kw)
+
+        phase_d.run_phase_d = cancelando
+        r1.run_phase_d = cancelando
+        self.addCleanup(setattr, phase_d, "run_phase_d", real)
+        self.addCleanup(setattr, r1, "run_phase_d", real)
+        return await self._correr(self._sesion())
+
+    async def test_la_sesion_vuelve_a_pending_sin_error(self):
+        s = await self._cancelar_a_media_extraccion()
+        self.assertEqual(s.status, "pending")
+        self.assertIsNone(s.error_message)
+
+    async def test_y_el_historial_transversal_la_recoge(self):
+        import historial
+        s = await self._cancelar_a_media_extraccion()
+        lineas = [t for t in historial.leer(50) if t["id"] == s.id]
+        self.assertTrue(lineas, "la cancelación no dejó línea en el historial")
+        self.assertEqual(lineas[0]["estado"], "cancelled")
+        self.assertIsNone(lineas[0]["error"], "cancelar no es un error")
+
+    async def test_pero_no_cuenta_como_ejecucion_del_proyecto(self):
+        s = await self._cancelar_a_media_extraccion()
+        self.assertEqual(s.execution_history, [])
 
 
 class TestElLogVaSincronizadoConLaFase(OrquestadorCase):
