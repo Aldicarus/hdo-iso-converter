@@ -38,6 +38,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
+from api_harness import ApiTestCase  # noqa: E402
 from frontend_sources import html, js_completo  # noqa: E402
 
 NODE = shutil.which("node")
@@ -332,6 +333,94 @@ console.log(JSON.stringify({{ html }}));
         self.assertIn("return null", bloque)
         j = JS.index("async function _trabajoModalAbrir(")
         self.assertIn("=== null) return", JS[j:JS.index("\n}\n", j)])
+
+
+class TestLoInteractivoLoDeclaraElBackend(ApiTestCase):
+    """`/api/trabajos` tiene que decir si un trabajo interactivo se puede
+    abrir y parar. Sin eso la columna solo lo lista, y un pre-flight cuyo
+    modal se cerró queda fuera de alcance hasta que termine."""
+
+    def setUp(self):
+        super().setUp()
+        import workload
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+
+    def _interactivo(self):
+        r = self.client.get("/api/trabajos")
+        self.assertEqual(r.status_code, 200)
+        return r.json()["interactivo"]
+
+    def test_el_contrato_lleva_detalle_y_cancelable(self):
+        import workload
+        workload.registrar("p1", workload.TAB_CMV40, "pre-flight de Predator",
+                           workload.CLASE_INTERACTIVO,
+                           detalle="preflight", cancelable=True)
+        t = self._interactivo()[0]
+        self.assertEqual(t["detalle"], "preflight")
+        self.assertIs(t["cancelable"], True)
+        self.assertEqual(t["sobre"], "p1")
+
+    def test_lo_que_es_navegacion_no_los_lleva(self):
+        """Abrir un MKV dura segundos y no hay nada que seguir ni que parar."""
+        import workload
+        workload.registrar("x", workload.TAB_MKV, "apertura de un MKV",
+                           workload.CLASE_INTERACTIVO)
+        t = self._interactivo()[0]
+        self.assertEqual(t["detalle"], "")
+        self.assertIs(t["cancelable"], False)
+
+    def test_el_preflight_SE_declara_al_registrarse(self):
+        """Ejecutando el dispatcher, no leyendo su fuente: es lo único que
+        garantiza que el registro real lleva los dos campos."""
+        import asyncio
+        import workload
+        from routers import cmv40
+        visto = {}
+        real = workload.registrar
+
+        def espia(clave, tab, que, clase=workload.CLASE_DIFERIDO, **kw):
+            visto.update(kw)
+            return real(clave, tab, que, clase, **kw)
+
+        workload.registrar = espia
+        self.addCleanup(setattr, workload, "registrar", real)
+
+        # Los pasos reales lanzan ffmpeg y dovi_tool; aquí solo interesa cómo
+        # se registra el trabajo. Sin esto, la tarea sigue viva cuando el
+        # `asyncio.run` cierra el loop y el teardown escupe un traceback.
+        from phases import cmv40_pipeline as pipe
+        async def _nada(*a, **kw):
+            return None
+        for nombre in ("preflight_source", "preflight_target_path",
+                       "preflight_target_drive", "preflight_target_mkv"):
+            orig = getattr(pipe, nombre)
+            setattr(pipe, nombre, _nada)
+            self.addCleanup(setattr, pipe, nombre, orig)
+        orig_an = cmv40._cmv40_preflight_analyze_target
+        async def _analiza(*a, **kw):
+            return True
+        cmv40._cmv40_preflight_analyze_target = _analiza
+        self.addCleanup(setattr, cmv40, "_cmv40_preflight_analyze_target", orig_an)
+
+        sid = self.crear_sesion(sid="cmv40_pf", phase="created")
+        import storage
+        s = storage.load_cmv40_session(sid)
+        s.pending_target_kind = "path"
+        s.pending_target_rpu_path = "/no/existe.bin"
+        storage.save_cmv40_session(s)
+
+        async def _correr():
+            await cmv40._cmv40_dispatch_preflight(s)
+            # El dispatcher lanza una tarea; se le da margen a registrar.
+            for _ in range(40):
+                if visto:
+                    break
+                await asyncio.sleep(0.02)
+
+        asyncio.run(_correr())
+        self.assertEqual(visto.get("detalle"), "preflight")
+        self.assertIs(visto.get("cancelable"), True)
 
 
 class TestCerrarNoCancela(unittest.TestCase):
