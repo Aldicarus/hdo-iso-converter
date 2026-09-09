@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260909d">
+  <link rel="stylesheet" href="/static/style.css?v=20260909e">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1020,29 +1020,40 @@
      el veredicto se queda en el panel, como hasta ahora. -->
 <div class="modal-overlay" id="cmv40-preflight-modal"
      onclick="onModalOverlayClick(event,'cmv40-preflight-modal')">
-  <div class="modal-box progress-modal-box">
+  <div class="modal-box cmv40-pf-caja-modal">
     <div class="progress-modal-header">
       <div class="progress-modal-poster" id="cmv40-pf-poster">
         <span id="cmv40-pf-icono">🛫</span>
       </div>
       <div class="progress-modal-titles">
-        <div class="modal-title" id="cmv40-pf-titulo">Validando el bin CMv4.0</div>
+        <div class="modal-title" id="cmv40-pf-titulo">Validación previa</div>
         <div class="modal-sub" id="cmv40-pf-sub"></div>
       </div>
     </div>
 
-    <div class="progress-modal-body">
-      <div id="cmv40-pf-paso" class="progress-modal-current">Iniciando…</div>
-      <div class="progress-modal-bar-wrap" id="cmv40-pf-barra-wrap">
-        <div id="cmv40-pf-barra" class="progress-modal-bar"></div>
+    <!-- Las comprobaciones, una fila cada una, rellenándose según avanzan.
+         Es lo que hace que esto no sea un paso intermedio: se ve QUÉ ha
+         verificado y con qué dato, no solo una barra. -->
+    <div class="cmv40-pf-cuerpo">
+      <div id="cmv40-pf-checks" class="cmv40-pf-checks"></div>
+      <div class="cmv40-pf-progreso" id="cmv40-pf-barra-wrap">
+        <div class="cmv40-pf-track"><div id="cmv40-pf-barra" class="cmv40-pf-fill"></div></div>
+        <div class="cmv40-pf-linea">
+          <span id="cmv40-pf-paso">Iniciando…</span>
+          <span id="cmv40-pf-pct"></span>
+        </div>
       </div>
-      <div id="cmv40-pf-pct" class="progress-modal-pct"></div>
       <div id="cmv40-pf-veredicto" class="cmv40-pf-veredicto"></div>
+      <details class="cmv40-pf-motivos" id="cmv40-pf-detalle">
+        <summary>Registro de la validación</summary>
+        <div class="cmv40-log" id="cmv40-pf-log"></div>
+      </details>
     </div>
 
     <div class="modal-footer" id="cmv40-pf-pie"></div>
   </div>
 </div>
+
 
 <div class="modal-overlay" id="cmv40-confirm-modal">
   <div class="modal-box" style="max-width:520px">
@@ -1371,13 +1382,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260909d"></script>
-<script src="/static/workbar.js?v=20260909d"></script>
-<script src="/static/settings.js?v=20260909d"></script>
-<script src="/static/cmv40_modals.js?v=20260909d"></script>
-<script src="/static/tab1.js?v=20260909d"></script>
-<script src="/static/tab2.js?v=20260909d"></script>
-<script src="/static/tab3.js?v=20260909d"></script>
-<script src="/static/browser.js?v=20260909d"></script>
+<script src="/static/core.js?v=20260909e"></script>
+<script src="/static/workbar.js?v=20260909e"></script>
+<script src="/static/settings.js?v=20260909e"></script>
+<script src="/static/cmv40_modals.js?v=20260909e"></script>
+<script src="/static/tab1.js?v=20260909e"></script>
+<script src="/static/tab2.js?v=20260909e"></script>
+<script src="/static/tab3.js?v=20260909e"></script>
+<script src="/static/browser.js?v=20260909e"></script>
 </body>
 </html>

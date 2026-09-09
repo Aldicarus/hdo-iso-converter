@@ -6657,13 +6657,12 @@ function _cmv40PfVeredicto(s, trabajo) {
     };
   }
   if (s.target_preflight_ok) {
-    const calidad = s.target_l8_quality_tier
-      ? ` · calidad ${String(s.target_l8_quality_tier).toUpperCase()}` : '';
     return {
       clase: 'ok',
-      titulo: 'Origen y bin validados',
-      cuerpo: (s.target_type ? `Bin ${s.target_type}` : 'Bin con CMv4.0')
-              + calidad + '. ' + (trabajo || 'El trabajo continúa en segundo plano.'),
+      titulo: 'Validación superada',
+      // Solo lo que las filas NO dicen ya: dónde ha quedado el trabajo.
+      // Repetir la calidad del bin debajo de la fila que la enseña es ruido.
+      cuerpo: trabajo || 'El trabajo continúa en segundo plano.',
       motivos: [],
     };
   }
@@ -6672,7 +6671,7 @@ function _cmv40PfVeredicto(s, trabajo) {
 
 /** Las líneas `[Pre-flight]` del log: son los motivos, ya escritos. */
 function _cmv40PfMotivosDelLog(s) {
-  return (s.output_log || [])
+  return ((s && s.output_log) || [])
     .filter(l => l.includes('[Pre-flight]') || l.includes('🛑'))
     .slice(-12);
 }
@@ -6687,41 +6686,160 @@ async function _cmv40PfDondeQuedo(pid) {
   return 'El trabajo continúa en segundo plano.';
 }
 
+/** Las conclusiones del pre-flight, una fila por comprobación.
+ *
+ *  Se rellenan según avanza, y ése es el punto: un porcentaje solo dice
+ *  cuánto falta; esto dice QUÉ ha verificado y con qué dato. Cuando falla,
+ *  la fila que falla es la explicación.
+ */
+function _cmv40PfChecks(s) {
+  const src = s?.source_dv_info || null;
+  const tgt = s?.target_dv_info || null;
+  const dv = (i) => !i ? '' : [
+    `Perfil ${i.profile}${i.el_type ? ' ' + i.el_type : ''}`,
+    i.cm_version ? `CM ${i.cm_version}` : '',
+    i.frame_count ? `${i.frame_count.toLocaleString('es-ES')} frames` : '',
+  ].filter(Boolean).join(' · ');
+
+  const filas = [];
+
+  filas.push({
+    titulo: 'Dolby Vision en el MKV origen',
+    valor: dv(src) || 'Leyendo el RPU del origen…',
+    estado: src ? 'ok' : 'pend',
+  });
+
+  const nombreBin = s?.pending_target_file_name
+                 || (s?.target_rpu_path || '').split('/').pop() || '';
+  filas.push({
+    titulo: 'RPU target disponible',
+    valor: tgt ? (nombreBin || 'Obtenido en el directorio de trabajo')
+               : (nombreBin ? `Obteniendo ${nombreBin}…` : 'Obteniendo el RPU…'),
+    estado: tgt ? 'ok' : (src ? 'curso' : 'pend'),
+  });
+
+  const esV40 = (tgt?.cm_version || '') === 'v4.0';
+  const falloCm = !!s?.error_message && /CMv4\.0|CM v/i.test(s.error_message);
+  filas.push({
+    titulo: 'El RPU aporta CMv4.0',
+    valor: falloCm ? s.error_message
+         : tgt ? `${dv(tgt)}${tgt.has_l8 ? ' · L8 presente' : ' · sin L8'}`
+         : 'Pendiente de leer el RPU',
+    estado: falloCm ? 'fallo' : esV40 ? 'ok' : tgt ? 'aviso' : 'pend',
+  });
+
+  const abortado = !!s?.error_message;
+  const clase = s?.target_l8_classification || '';
+  const tier = { full: 'FULL', core_rich: 'CORE+', core: 'CORE' }[
+    s?.target_l8_quality_tier] || '';
+  const combos = s?.target_l8_unique_count;
+  const neutros = s?.target_l8_neutral_frames_pct;
+  filas.push({
+    titulo: 'El L8 es trabajo de colorista',
+    valor: !clase ? (abortado ? 'No se llegó a comprobar'
+                              : 'Analizando los combos del RPU…') : [
+      { real: tier ? `Sí — calidad ${tier}` : 'Sí',
+        indeterminate: 'No concluyente',
+        default: 'No — el RPU es sintético' }[clase] || clase,
+      combos != null ? `${combos} combos únicos` : '',
+      neutros != null ? `${Math.round(neutros * 100)} % de frames neutros` : '',
+    ].filter(Boolean).join(' · '),
+    estado: !clase ? 'pend' : clase === 'real' ? 'ok'
+          : clase === 'default' ? 'aviso' : 'duda',
+  });
+
+  if (s?.recommended_action_label) {
+    filas.push({
+      titulo: 'Recomendación',
+      valor: s.recommended_action_label,
+      estado: s.recommended_action === 'keep' ? 'aviso' : 'ok',
+    });
+  }
+  return filas;
+}
+
+const _CMV40_PF_ICONO = {
+  ok:    ['verde', '<path d="m7 12.5 3.2 3.2L17 8.8"/>'],
+  aviso: ['naranja', '<path d="M12 8v5"/><circle cx="12" cy="16.5" r=".9" fill="currentColor"/>'],
+  duda:  ['azul', '<path d="M9.6 9.4a2.5 2.5 0 1 1 2.9 3v1.4"/><circle cx="12.4" cy="16.8" r=".9" fill="currentColor"/>'],
+  fallo: ['rojo', '<path d="m8.5 8.5 7 7M15.5 8.5l-7 7"/>'],
+};
+
+/** El chip de estado, con la familia SVG de la aplicación (no emoji). */
+function _cmv40PfChip(estado, tam = 'icono-chip-sm') {
+  const [color, path] = _CMV40_PF_ICONO[estado] || _CMV40_PF_ICONO.duda;
+  return `<span class="icono-chip icono-${color} ${tam}">`
+       + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+       + ` stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`
+       + ` aria-hidden="true">${path}</svg></span>`;
+}
+
+function _cmv40PfChecksHTML(filas) {
+  return filas.map(f => {
+    const icono = f.estado === 'curso'
+      ? iconoDeEstado('corriendo', 'icono-chip-sm')
+      : f.estado === 'pend'
+      ? '<span class="trabajo-paso-punto"></span>'
+      : _cmv40PfChip(f.estado);
+    return `<div class="cmv40-pf-check ${f.estado}">
+      ${icono}
+      <div class="cmv40-pf-check-txt">
+        <div class="cmv40-pf-check-t">${escHtml(f.titulo)}</div>
+        <div class="cmv40-pf-check-v">${escHtml(f.valor)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function _cmv40PfPintar(s, veredicto) {
   const prog = s?.last_progress || {};
-  _cmv40PfSet('cmv40-pf-titulo', veredicto ? veredicto.titulo
-                                           : 'Validando el bin CMv4.0');
+  _cmv40PfSet('cmv40-pf-titulo', veredicto ? veredicto.titulo : 'Validación previa');
   _cmv40PfSet('cmv40-pf-sub', s?.output_mkv_name || s?.source_mkv_name || '');
   const poster = document.getElementById('cmv40-pf-poster');
   const url = s?.tmdb_info?.poster_url;
   if (poster) {
+    const chip = veredicto
+      ? _cmv40PfChip({ ok: 'ok', aviso: 'aviso', error: 'fallo' }[veredicto.clase])
+      : iconoDeEstado('corriendo', 'icono-chip-lg');
     poster.innerHTML = url
-      ? `<img src="${escHtml(url)}" alt="" loading="lazy">`
-      : `<span id="cmv40-pf-icono">${veredicto
-            ? {ok: '✅', aviso: '⚠️', error: '⛔'}[veredicto.clase] : '🛫'}</span>`;
+      ? `<img src="${escHtml(url)}" alt="" loading="lazy">` : chip;
   }
-  _cmv40PfSet('cmv40-pf-paso', veredicto ? '' : (prog.label || 'Iniciando…'));
-  const barra = document.getElementById('cmv40-pf-barra');
+
+  const checks = document.getElementById('cmv40-pf-checks');
+  if (checks) checks.innerHTML = _cmv40PfChecksHTML(_cmv40PfChecks(s));
+
+  // La barra desaparece con el veredicto: ya no hay nada que medir, y dejarla
+  // a media asta sugeriría que sigue.
   const wrap = document.getElementById('cmv40-pf-barra-wrap');
   if (wrap) wrap.style.display = veredicto ? 'none' : '';
+  const barra = document.getElementById('cmv40-pf-barra');
   if (barra) barra.style.width = `${Math.round(prog.pct || 0)}%`;
-  _cmv40PfSet('cmv40-pf-pct', veredicto || prog.pct == null
-                              ? '' : `${Math.round(prog.pct)}%`);
+  _cmv40PfSet('cmv40-pf-paso', prog.label || 'Iniciando…');
+  _cmv40PfSet('cmv40-pf-pct', prog.pct == null ? '' : `${Math.round(prog.pct)} %`);
 
   const caja = document.getElementById('cmv40-pf-veredicto');
   if (caja) {
-    caja.innerHTML = !veredicto ? '' : `
-      <div class="cmv40-pf-caja ${veredicto.clase}">
-        <div class="cmv40-pf-cuerpo">${escHtml(veredicto.cuerpo)}</div>
-        ${veredicto.motivos.length ? `
-          <details class="cmv40-pf-motivos">
-            <summary>Ver lo que comprobó el pre-flight</summary>
-            <div class="cmv40-log">${veredicto.motivos
-              .map(l => `<div class="log-line ${typeof _classifyLogLine === 'function'
-                          ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`)
-              .join('')}</div>
-          </details>` : ''}
-      </div>`;
+    // El banner solo si aporta algo que las filas no digan ya. Repetir palabra
+    // por palabra el valor de la fila que falla es ruido justo donde hay que
+    // leer con calma.
+    const yaDicho = _cmv40PfChecks(s)
+      .some(f => veredicto && f.valor === veredicto.cuerpo);
+    caja.innerHTML = (!veredicto || yaDicho) ? '' : `
+      <div class="cmv40-pf-banner ${veredicto.clase}">${escHtml(veredicto.cuerpo)}</div>`;
+  }
+
+  // El registro: siempre disponible, desplegado solo cuando hace falta leerlo.
+  const det = document.getElementById('cmv40-pf-detalle');
+  const log = document.getElementById('cmv40-pf-log');
+  const lineas = _cmv40PfMotivosDelLog(s);
+  if (det) det.style.display = lineas.length ? '' : 'none';
+  if (det && veredicto && veredicto.clase !== 'ok') det.open = true;
+  if (log) {
+    const abajo = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+    log.innerHTML = lineas.map(l =>
+      `<div class="log-line ${typeof _classifyLogLine === 'function'
+        ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`).join('');
+    if (abajo) log.scrollTop = log.scrollHeight;
   }
   _cmv40PfPintarPie(s, veredicto);
 }
@@ -6730,40 +6848,39 @@ function _cmv40PfPintarPie(s, veredicto) {
   const pie = document.getElementById('cmv40-pf-pie');
   if (!pie) return;
   const pid = _cmv40PfSesion;
-  // Cerrar NO cancela: el pre-flight sigue y el veredicto queda en el panel.
+  // Cerrar NO cancela: la validación sigue y el veredicto queda en el panel.
   const cerrar = `<button class="btn btn-ghost btn-sm"
       onclick="cerrarPreflightCMv40()">Cerrar</button>`;
   if (!veredicto) {
     pie.innerHTML = `
-      <button class="btn btn-danger btn-sm"
-        onclick="cancelarPreflightCMv40()"
-        data-tooltip="Detiene la validación y deja el proyecto sin target">
-        🛑 Cancelar</button>${cerrar}`;
+      <button class="btn btn-danger btn-sm" onclick="cancelarPreflightCMv40()"
+        data-tooltip="Detiene la validación; el proyecto se queda sin target validado">
+        Detener</button>${cerrar}`;
     return;
   }
   if (veredicto.clase === 'ok') { pie.innerHTML = cerrar; return; }
-  // Los dos desenlaces que piden una decisión reusan los endpoints que ya
-  // existen para el banner del panel.
+  // Los dos desenlaces que piden decisión reusan los endpoints del panel.
   const forzar = veredicto.clase === 'aviso' ? `
-    <button class="btn btn-ghost btn-sm"
-      onclick="_cmv40PfForzar('${pid}')"
-      data-tooltip="Inyectar igualmente pese a la recomendación">
+    <button class="btn btn-ghost btn-sm" onclick="_cmv40PfForzar('${pid}')"
+      data-tooltip="Inyectar el RPU pese a la recomendación">
       Inyectar igualmente</button>
-    <button class="btn btn-primary btn-sm"
-      onclick="_cmv40PfMantener('${pid}')"
+    <button class="btn btn-primary btn-sm" onclick="_cmv40PfMantener('${pid}')"
       data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está">
-      Mantener el MKV actual</button>` : '';
+      Mantener el MKV</button>` : '';
   pie.innerHTML = `
     <button class="btn btn-ghost btn-sm" onclick="_cmv40PfCambiarTarget('${pid}')"
-      data-tooltip="Elegir otro RPU para este proyecto">Cambiar de target</button>
+      data-tooltip="Elegir otro RPU para este proyecto">Cambiar de RPU</button>
     ${forzar}${cerrar}`;
 }
 
 /** Abre el modal y polea hasta el veredicto. */
 async function abrirPreflightCMv40(pid) {
   _cmv40PfSesion = pid;
-  _cmv40PfPintar(null, null);
+  // El modal se abre ANTES de pintarlo. Al revés, un fallo del render lo
+  // dejaba sin abrir y sin rastro: el `throw` viaja dentro de una función
+  // async, así que no lo caza ni el listener de errores de la página.
   openModal('cmv40-preflight-modal');
+  try { _cmv40PfPintar(null, null); } catch (e) { console.error('[pf]', e); }
   if (_cmv40PfPolling) return;
   _cmv40PfPolling = true;
   try {
@@ -6780,7 +6897,7 @@ async function abrirPreflightCMv40(pid) {
         veredicto = _cmv40PfVeredicto(s, await _cmv40PfDondeQuedo(pid));
       }
       if (_cmv40PfSesion !== pid) break;
-      _cmv40PfPintar(s, veredicto);
+      try { _cmv40PfPintar(s, veredicto); } catch (e) { console.error('[pf]', e); }
       // Mientras corre no hay veredicto; en cuanto lo hay, el modal se queda
       // quieto esperando al usuario.
       if (veredicto) break;

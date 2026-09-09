@@ -9563,28 +9563,81 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* ── El veredicto del pre-flight ───────────────────────────────────────────
-   Tres desenlaces y cada uno pide una cosa distinta: el verde solo informa,
-   el ámbar y el rojo piden una decisión. El color lo dice antes de leer. */
-.cmv40-pf-veredicto:empty { display: none; }
-.cmv40-pf-caja {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-md);
-  border: 1px solid;
-  text-align: left;
+/* ── El modal de validación previa ─────────────────────────────────────────
+   Su valor no es la barra: son las comprobaciones. Cada fila dice qué se ha
+   verificado y con qué dato, así que cuando algo falla la fila que falla ES
+   la explicación, sin tener que descifrar una frase. */
+.cmv40-pf-caja-modal {
+  width: 620px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
 }
-.cmv40-pf-caja.ok    { background: var(--green-dim);  border-color: var(--green); }
-.cmv40-pf-caja.aviso { background: var(--orange-dim); border-color: var(--orange); }
-.cmv40-pf-caja.error { background: var(--red-dim);    border-color: var(--red); }
-.cmv40-pf-cuerpo { font-size: 12.5px; line-height: 1.5; color: var(--text-1); }
-.cmv40-pf-motivos { margin-top: 10px; }
+.cmv40-pf-cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 14px;
+}
+
+.cmv40-pf-checks { display: flex; flex-direction: column; }
+.cmv40-pf-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--sep);
+}
+.cmv40-pf-check:last-child { border-bottom: none; }
+/* Lo que aún no se ha comprobado se atenúa: la lista se lee como una cuenta
+   atrás y no como un informe a medias. */
+.cmv40-pf-check.pend { opacity: .45; }
+.cmv40-pf-check-txt { flex: 1; min-width: 0; }
+.cmv40-pf-check-t {
+  font-size: 12.5px; font-weight: 600; color: var(--text-1); line-height: 1.35;
+}
+.cmv40-pf-check-v {
+  font-size: 11.5px; color: var(--text-2); line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.cmv40-pf-check.fallo .cmv40-pf-check-v { color: var(--red); }
+.cmv40-pf-check.aviso .cmv40-pf-check-v { color: var(--orange); }
+
+.cmv40-pf-progreso { margin-top: 14px; }
+.cmv40-pf-track {
+  height: 6px; border-radius: 3px; background: var(--surface-3);
+  overflow: hidden;
+}
+.cmv40-pf-fill {
+  height: 100%; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, var(--blue), #6cc0ff);
+  transition: width .35s var(--ease);
+}
+.cmv40-pf-linea {
+  display: flex; justify-content: space-between; gap: 12px;
+  margin-top: 6px; font-size: 11px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cmv40-pf-banner {
+  margin-top: 14px; padding: 11px 13px; border-radius: var(--r-md);
+  border: 1px solid; font-size: 12.5px; line-height: 1.5; color: var(--text-1);
+}
+.cmv40-pf-banner.ok    { background: var(--green-dim);  border-color: var(--green); }
+.cmv40-pf-banner.aviso { background: var(--orange-dim); border-color: var(--orange); }
+.cmv40-pf-banner.error { background: var(--red-dim);    border-color: var(--red); }
+
+.cmv40-pf-motivos { margin-top: 14px; }
 .cmv40-pf-motivos summary {
   font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none;
 }
-/* Las líneas del log son la evidencia: con su paleta y con tope de alto para
-   que el modal no crezca con ellas. */
 .cmv40-pf-motivos .cmv40-log {
-  margin-top: 8px; max-height: 220px; border-radius: var(--r-sm);
+  margin-top: 8px; max-height: 200px; border-radius: var(--r-sm);
   font-size: 10.5px;
+}
+
+/* Cuatro botones no caben en una línea de 620 px y se salían de la caja. */
+.cmv40-pf-caja-modal .modal-footer {
+  flex-shrink: 0; flex-wrap: wrap; margin-top: 16px;
 }

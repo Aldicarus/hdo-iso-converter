@@ -100,20 +100,98 @@ console.log(JSON.stringify({{v}}));
         self.assertEqual(v["clase"], "aviso")
         self.assertIn("combos", v["cuerpo"])
 
-    def test_ok_dice_donde_quedo_el_trabajo(self):
+    def test_ok_dice_SOLO_donde_quedo_el_trabajo(self):
+        """La calidad del bin ya está en su fila; repetirla debajo es ruido.
+        Y `target_type` es un identificador interno: no se enseña."""
         v = self._veredicto(
             {"target_preflight_ok": True, "target_type": "trusted_p7_fel_final",
              "target_l8_quality_tier": "full"},
             "La Fase A está en la cola, en el puesto 2.")
         self.assertEqual(v["clase"], "ok")
-        self.assertIn("FULL", v["cuerpo"])
         self.assertIn("puesto 2", v["cuerpo"])
+        self.assertNotIn("trusted_p7_fel_final", v["cuerpo"])
 
     def test_un_error_manda_sobre_una_decision_previa(self):
         """Si el bin se descargó y falló después, lo accionable es el error."""
         v = self._veredicto({"error_message": "Descarga falló",
                              "preflight_decision": "keep_l8_default"})
         self.assertEqual(v["clase"], "error")
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestLasConclusiones(unittest.TestCase):
+    """Lo que hace que el modal aporte y no sea un paso intermedio: una fila
+    por comprobación, con el dato que la sostiene. Cuando algo falla, la fila
+    que falla ES la explicación — no hay que descifrar una frase."""
+
+    def _checks(self, sesion) -> list:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_cmv40PfChecks')}
+console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
+"""
+        return _node(guion)["f"]
+
+    def test_al_principio_todo_esta_pendiente_y_se_ve(self):
+        f = self._checks({})
+        self.assertGreaterEqual(len(f), 4)
+        self.assertTrue(all(x["estado"] in ("pend", "curso") for x in f))
+
+    def test_cada_fila_trae_el_dato_que_la_sostiene(self):
+        f = self._checks({
+            "source_dv_info": {"profile": 7, "el_type": "FEL",
+                               "cm_version": "v2.9", "frame_count": 225177},
+            "target_dv_info": {"profile": 7, "el_type": "FEL",
+                               "cm_version": "v4.0", "frame_count": 225177,
+                               "has_l8": True},
+            "target_l8_classification": "real", "target_l8_quality_tier": "full",
+            "target_l8_unique_count": 412, "target_l8_neutral_frames_pct": 0.08})
+        valores = " · ".join(x["valor"] for x in f)
+        self.assertIn("Perfil 7 FEL", valores)
+        self.assertIn("CM v2.9", valores)
+        self.assertIn("CM v4.0", valores)
+        self.assertIn("L8 presente", valores)
+        self.assertIn("FULL", valores)
+        self.assertIn("412 combos", valores)
+        self.assertIn("8 % de frames neutros", valores)
+        self.assertTrue(all(x["estado"] == "ok" for x in f))
+
+    def test_el_bin_sintetico_marca_SU_fila_en_ambar(self):
+        f = self._checks({
+            "source_dv_info": {"profile": 7, "cm_version": "v2.9"},
+            "target_dv_info": {"profile": 7, "cm_version": "v4.0", "has_l8": True},
+            "target_l8_classification": "default", "target_l8_unique_count": 2,
+            "target_l8_neutral_frames_pct": 0.99})
+        l8 = next(x for x in f if "L8" in x["titulo"])
+        self.assertEqual(l8["estado"], "aviso")
+        self.assertIn("sintético", l8["valor"])
+        # Y las de antes siguen en verde: el fallo está localizado.
+        self.assertEqual(f[0]["estado"], "ok")
+
+    def test_lo_que_no_se_llego_a_comprobar_lo_dice(self):
+        """Con un abort duro, dejar «Analizando los combos…» sugiere que
+        sigue trabajando."""
+        f = self._checks({
+            "source_dv_info": {"profile": 7, "cm_version": "v2.9"},
+            "target_dv_info": {"profile": 8, "cm_version": "v2.9"},
+            "error_message": "El bin target no aporta CMv4.0 (CM v2.9)."})
+        cm = next(x for x in f if "CMv4.0" in x["titulo"])
+        self.assertEqual(cm["estado"], "fallo")
+        l8 = next(x for x in f if "colorista" in x["titulo"])
+        self.assertEqual(l8["valor"], "No se llegó a comprobar")
+
+    def test_no_se_cuela_ningun_identificador_interno(self):
+        """La regla del proyecto: nada de IDs técnicos en pantalla."""
+        f = self._checks({
+            "target_preflight_ok": True, "target_type": "trusted_p7_fel_final",
+            "target_l8_classification": "real", "target_l8_quality_tier": "core_rich",
+            "recommended_action": "dropin",
+            "recommended_action_label": "Inyectar RPU CMv4.0 (drop-in)"})
+        texto = " ".join(x["titulo"] + x["valor"] for x in f)
+        for interno in ("trusted_p7_fel_final", "core_rich", "keep_l8_default",
+                        "target_l8", "dropin"):
+            self.assertNotIn(interno, texto)
+        self.assertIn("CORE+", texto, "el tier se enseña con su nombre comercial")
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")
@@ -234,10 +312,13 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
     document.getElementById('__out').textContent = JSON.stringify({
       errores: window.__errores,
       abierto: m.classList.contains('open'),
+      checks: document.getElementById('cmv40-pf-checks').innerHTML,
       titulo: document.getElementById('cmv40-pf-titulo').textContent,
       veredicto: document.getElementById('cmv40-pf-veredicto').innerHTML,
       pie: document.getElementById('cmv40-pf-pie').innerHTML,
       barraOculta: document.getElementById('cmv40-pf-barra-wrap').style.display,
+      log: document.getElementById('cmv40-pf-log').textContent,
+      logAbierto: document.getElementById('cmv40-pf-detalle').open,
     });
   }, 1200);
 })();
@@ -272,16 +353,18 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
     def test_se_abre_y_pinta_el_veredicto(self):
         self.assertTrue(self.d["abierto"])
         self.assertIn("L8", self.d["titulo"])
-        self.assertIn("cmv40-pf-caja aviso", self.d["veredicto"])
+        self.assertIn("cmv40-pf-check", self.d["checks"])
+        self.assertIn("cmv40-pf-banner aviso", self.d["veredicto"])
         self.assertIn("combos", self.d["veredicto"])
 
     def test_con_veredicto_la_barra_desaparece(self):
         """Ya no hay nada que medir; dejarla al 65 % sugeriría que sigue."""
         self.assertEqual(self.d["barraOculta"], "none")
 
-    def test_los_motivos_estan_a_mano(self):
-        self.assertIn("<details", self.d["veredicto"])
-        self.assertIn("Pre-flight", self.d["veredicto"])
+    def test_el_registro_esta_a_mano_y_abierto_si_falla(self):
+        self.assertIn("Pre-flight", self.d["log"])
+        self.assertTrue(self.d["logAbierto"],
+                        "con un veredicto que no es OK, el registro se despliega")
 
     def test_el_pie_pide_la_decision(self):
         self.assertIn("_cmv40PfMantener", self.d["pie"])

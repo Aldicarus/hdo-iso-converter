@@ -107,6 +107,7 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     """Libera la sesión: ya no hay fase en marcha."""
     session.running_phase = None
     _cmv40_activas.pop(session.id, None)
+    _cmv40_progreso_vivo.pop(session.id, None)
 
 
 def recuperar_sesiones_interrumpidas() -> None:
@@ -251,6 +252,17 @@ def _cmv40_progress_should_emit(session_id: str, msg: str) -> bool:
 _CMV40_PROGRESS_PERSIST_S = 20.0
 _cmv40_progress_persist_ts: dict[str, float] = {}
 
+# El progreso VIVO, en memoria y sin throttle. El sidecar se escribe cada 20 s
+# —son ~50 bytes pero cada escritura toca el mismo pool ZFS por el que el
+# pipeline streamea 70 GB— y eso basta para una fase de veinte minutos. Para el
+# pre-flight no: dura 9 s de mediana, así que el `GET` solo llegaba a ver el
+# primer marcador y la barra se quedaba clavada en el 5 %.
+#
+# Se puede servir de memoria por lo mismo que `_cmv40_activas`: este proceso es
+# el único que ejecuta fases. El sidecar sigue siendo la fuente para lo que ya
+# no corre (tras un reinicio, o al abrir un proyecto viejo).
+_cmv40_progreso_vivo: dict[str, dict] = {}
+
 
 # Peso de cada fase dentro del job completo, en tanto por uno. Derivado del
 # reparto real de las 83 sesiones del histórico (analyze 28,6 % · inject
@@ -339,6 +351,7 @@ def _cmv40_store_last_progress(session: CMv40Session, msg: str) -> None:
     if not isinstance(payload, dict):
         return
     session.last_progress = payload
+    _cmv40_progreso_vivo[session.id] = payload
     now = _time.monotonic()
     last = _cmv40_progress_persist_ts.get(session.id, 0.0)
     if now - last < _CMV40_PROGRESS_PERSIST_S:
@@ -2281,9 +2294,15 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     # `last_progress` vive en su sidecar; el campo del JSON solo lo tienen las
     # sesiones anteriores al cambio, así que el fichero manda si existe.
     from storage import read_cmv40_progress
-    progreso = await asyncio.to_thread(read_cmv40_progress, session_id)
-    if progreso is not None:
-        data["last_progress"] = progreso
+    # Lo vivo manda sobre el sidecar: éste va con throttle de 20 s y en una
+    # fase corta —el pre-flight son 9 s— nunca llega a reflejar el avance.
+    vivo = _cmv40_progreso_vivo.get(session_id) if session.running_phase else None
+    if vivo is not None:
+        data["last_progress"] = vivo
+    else:
+        progreso = await asyncio.to_thread(read_cmv40_progress, session_id)
+        if progreso is not None:
+            data["last_progress"] = progreso
     # El log vive en un fichero (`{id}.log`), no en el JSON. Se compone al
     # servirlo para que el contrato con el frontend no cambie: sigue llegando
     # como `output_log`, y el watermark de la UI sigue funcionando igual.
