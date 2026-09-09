@@ -78,10 +78,22 @@ LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 # seguía compilando bien porque tenía la capa en caché. Un pin contra una
 # etiqueta móvil no es un pin.
 #
-# Este es exactamente el binario con el que se validó el pipe de la Fase A y el
-# que corre en el NAS: n7.1.5-16-g9a4bb2c579-20260816.
-ARG FFMPEG_RELEASE=autobuild-2026-08-16-13-00
-ARG FFMPEG_BUILD=ffmpeg-n7.1.5-16-g9a4bb2c579-linux64-gpl-7.1
+# **BtbN BORRA sus autobuilds diarios y solo conserva el ÚLTIMO DE CADA MES.**
+# Medido el 2026-09-09 sobre las 35 releases vivas de su repositorio: las que
+# aún tienen assets de la línea 7.1 son 2026-07-31, 06-30, 05-31, 04-30,
+# 03-31, 02-28… todas fin de mes. El pin anterior era `2026-08-16-13-00`, un
+# diario de mitad de mes, y ya devuelve 404 — el NAS seguía construyendo solo
+# porque tenía la capa en caché, y en cuanto hubo que purgarla por el bug ZFS
+# el build murió con `wget` código 8.
+#
+# Regla: pinear SIEMPRE al último autobuild del mes. Es el único que sobrevive.
+#
+# Se mantiene la línea 7.1.5, la misma con la que se validó el pipe de la Fase
+# A: cambiar de rama mayor (8.1 o 9.0, las que BtbN construye ahora) es tocar
+# el binario del que depende el paso íntegro del HEVC y del RPU, y eso no se
+# hace de rebote para arreglar un build.
+ARG FFMPEG_RELEASE=autobuild-2026-07-31-14-10
+ARG FFMPEG_BUILD=ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1
 RUN wget -q \
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_BUILD}.tar.xz" \
     -O /tmp/ffmpeg.tar.xz \
