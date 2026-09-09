@@ -251,21 +251,43 @@ console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
         self.assertNotIn("accept-keep", h)
         self.assertNotIn("cancelarPreflightCMv40()", h)
 
-    def test_el_aviso_ofrece_las_DOS_salidas(self):
+    def test_el_aviso_ofrece_las_DOS_salidas_que_existen(self):
         """Mantener el MKV o inyectar igualmente: las dos existen ya como
         endpoints, y son la decisión que el veredicto pide."""
         h = self._pie({"clase": "aviso", "titulo": "", "cuerpo": "",
                        "motivos": []})
         self.assertIn("_cmv40PfMantener('p1')", h)
         self.assertIn("_cmv40PfForzar('p1')", h)
-        self.assertIn("_cmv40PfCambiarTarget('p1')", h)
 
     def test_el_error_NO_ofrece_forzar(self):
         """Un bin sin CMv4.0 no se arregla insistiendo."""
         h = self._pie({"clase": "error", "titulo": "", "cuerpo": "",
                        "motivos": []})
         self.assertNotIn("_cmv40PfForzar", h)
-        self.assertIn("_cmv40PfCambiarTarget('p1')", h)
+        self.assertIn("cerrarPreflightCMv40()", h)
+
+    def test_NINGUNO_ofrece_cambiar_de_RPU(self):
+        """No se puede, y ofrecerlo es prometer una salida que no existe.
+
+        Con el pre-flight detenido la sesión se queda en `created`, y la card
+        de Fase B —donde se elige el bin— arranca en `source_analyzed`
+        (`startsFrom`), así que sale bloqueada. Para probar otro RPU hay que
+        crear el proyecto de nuevo.
+        """
+        for clase in ("aviso", "error"):
+            with self.subTest(clase=clase):
+                h = self._pie({"clase": clase, "titulo": "", "cuerpo": "",
+                               "motivos": []})
+                self.assertNotIn("CambiarTarget", h)
+                self.assertNotIn("Cambiar de RPU", h)
+
+    def test_y_la_fase_B_sigue_fuera_de_alcance_en_created(self):
+        """Si esto dejara de ser cierto —Fase B alcanzable desde `created`—
+        el botón volvería a tener sentido. El test lo dice en vez de dejarlo
+        en un comentario."""
+        i = JS.index("{ key: 'B',")
+        fila = JS[i:JS.index("},", i)]
+        self.assertIn("startsFrom: 'source_analyzed'", fila)
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")

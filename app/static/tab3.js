@@ -6890,18 +6890,21 @@ function _cmv40PfPintarPie(s, veredicto) {
     return;
   }
   if (veredicto.clase === 'ok') { pie.innerHTML = cerrar; return; }
-  // Los dos desenlaces que piden decisión reusan los endpoints del panel.
-  const forzar = veredicto.clase === 'aviso' ? `
+  // NO hay «cambiar de RPU»: con el pre-flight detenido la sesión se queda en
+  // `created`, y la card de Fase B arranca en `source_analyzed` (`startsFrom`),
+  // así que sale bloqueada. Para probar otro bin hay que crear el proyecto de
+  // nuevo. Un botón que lleva a una card que no se puede abrir es peor que no
+  // tenerlo: promete una salida que no existe.
+  //
+  // Los dos que sí funcionan reusan los endpoints del panel.
+  const decidir = veredicto.clase === 'aviso' ? `
     <button class="btn btn-ghost btn-sm" onclick="_cmv40PfForzar('${pid}')"
       data-tooltip="Inyectar el RPU pese a la recomendación">
       Inyectar igualmente</button>
     <button class="btn btn-primary btn-sm" onclick="_cmv40PfMantener('${pid}')"
       data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está">
       Mantener el MKV</button>` : '';
-  pie.innerHTML = `
-    <button class="btn btn-ghost btn-sm" onclick="_cmv40PfCambiarTarget('${pid}')"
-      data-tooltip="Elegir otro RPU para este proyecto">Cambiar de RPU</button>
-    ${forzar}${cerrar}`;
+  pie.innerHTML = decidir + cerrar;
 }
 
 /** Abre el modal y polea hasta el veredicto. */
@@ -6986,9 +6989,3 @@ async function _cmv40PfForzar(pid) {
   if (p) { p._autoChaining = true; _cmv40MaybeAutoAdvance(p); }
 }
 
-function _cmv40PfCambiarTarget(pid) {
-  cerrarPreflightCMv40();
-  switchTab(3);
-  switchCMv40SubTab(pid);
-  showToast('Elige otro RPU en la Fase B del proyecto', 'info');
-}
