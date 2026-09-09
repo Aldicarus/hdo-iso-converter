@@ -9687,3 +9687,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: var(--surface-2);
   box-shadow: inset 2px 0 0 var(--blue);
 }
+
+/* Un trabajo terminado: la barra llena y en el color del desenlace, no una
+   azul a medias que sugiera que sigue. */
+.trabajo-progreso-track.terminada .trabajo-progreso-fill {
+  background: #3a4459;
+  animation: none;
+}
+.trabajo-detalle-nota {
+  margin-top: 12px; font-size: 11px; color: var(--text-3); line-height: 1.5;
+}

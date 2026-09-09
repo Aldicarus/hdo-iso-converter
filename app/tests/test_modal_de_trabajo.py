@@ -533,6 +533,140 @@ _workbarDetalles['cmv40'] = async () => _vacia ? {{}} : {{
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestUnTerminadoNoSeSIGUE(unittest.TestCase):
+    """Abrir el detalle de un trabajo acabado entraba en la rama de «cambiando
+    de fase» —pensada para el hueco entre dos fases de un job vivo— y salía
+    animado, con el botón de cancelar puesto y polleando veinte veces algo que
+    ya no cambia."""
+
+    def _correr(self, terminal) -> dict:
+        guion = f"""
+const _els = {{}};
+for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
+  'trabajo-modal-timeline','trabajo-modal-barra-wrap','trabajo-modal-barra',
+  'trabajo-modal-tiempos','trabajo-modal-cuerpo','trabajo-modal-copiar',
+  'trabajo-modal-cancelar','trabajo-modal-paso','trabajo-modal-pct',
+  'trabajo-modal-eta','trabajo-modal-cartel','trabajo-modal-cartel-poster',
+  'trabajo-modal-cartel-titulo','trabajo-modal-cartel-meta']) {{
+  _els[id] = {{ textContent: '', innerHTML: '', className: '', style: {{}},
+    dataset: {{}}, querySelector: () => null, closest: () => null,
+    classList: {{ _v: new Set(),
+      toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
+      has(c) {{ return this._v.has(c); }} }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null,
+                         querySelector: () => null }};
+globalThis.escHtml = t => String(t);
+globalThis.openModal = () => {{}};
+let _apagado = false;
+globalThis.setInterval = () => 7;
+globalThis.clearInterval = () => {{ _apagado = true; }};
+{_iconos()}
+{_fn('_workbarTiempo')}
+{_fn('timelineDeTrabajo')}
+{_fn('_trabajoCartelPinta')}
+{_fn('_trabajoKvHTML')}
+{_fn('_trabajoModalConResumen')}
+const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado',
+                      error: 'Terminado con error' }};
+{_fn('_trabajoModalPinta')}
+let workbarEstado = {{ activo: null, cola: [] }};
+let _trabajoModalTimer = null, _trabajoModalTipo = null;
+let _trabajoModalRef = null, _trabajoModalUltimo = null;
+let _trabajoModalSinActivo = 0, _trabajoModalVista = null;
+let _llamadas = 0;
+const _workbarDetalles = {{ rip: async () => {{
+  _llamadas += 1;
+  return {{ lateral: '<div>fases</div>',
+           cuerpo: '<div class="cmv40-log">log</div>' }};
+}} }};
+{_fn('_trabajoModalRefrescar')}
+{_fn('_trabajoModalAbrir')}
+(async () => {{
+  await _trabajoModalAbrir({json.dumps(terminal)});
+  await _trabajoModalRefrescar();
+  console.log(JSON.stringify({{
+    llamadas: _llamadas, apagado: _apagado,
+    paso: _els['trabajo-modal-paso'].textContent,
+    tiempos: _els['trabajo-modal-tiempos'].textContent,
+    pct: _els['trabajo-modal-pct'].textContent,
+    icono: _els['trabajo-modal-icono'].innerHTML,
+    cancelar: _els['trabajo-modal-cancelar'].style.display,
+    cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
+  }}));
+}})();
+"""
+        return _node(guion)
+
+    _TERMINADO = {
+        "id": "s1", "sobre": "s1", "tab": "rip", "tipo": "rip",
+        "que": "conversión a MKV de Dune", "detalle": "rip",
+        "terminal": True, "paso": "Terminado", "segundos": 1830,
+        "cancelable": False, "pct_medido": False, "fase_n": 0,
+        "historial": {"estado": "done", "segundos": 1830,
+                      "inicio": "2026-09-09T10:00:00+00:00"},
+    }
+
+    def test_ni_se_anima_ni_ofrece_cancelar(self):
+        r = self._correr(self._TERMINADO)
+        self.assertNotIn("cmv40-running-spinner", r["icono"])
+        self.assertEqual(r["cancelar"], "none")
+
+    def test_dice_cuanto_duro_no_cuanto_lleva(self):
+        r = self._correr(self._TERMINADO)
+        self.assertIn("Duró", r["tiempos"])
+        self.assertNotIn("Lleva", r["tiempos"])
+        self.assertEqual(r["pct"], "", "no hay porcentaje que dar")
+
+    def test_no_dice_que_esta_cambiando_de_fase(self):
+        r = self._correr(self._TERMINADO)
+        self.assertEqual(r["paso"], "Terminado")
+
+    def test_para_el_reloj_en_vez_de_pollear_veinte_veces(self):
+        r = self._correr(self._TERMINADO)
+        self.assertTrue(r["apagado"])
+
+    def test_sin_log_guardado_cuenta_lo_que_SI_consta(self):
+        """Las dos vistas de Tab 2 leen un estado que se resetea con el
+        trabajo siguiente: al abrir una ejecución vieja devolvían un cuerpo
+        vacío. Antes que un modal en blanco, lo que el historial sabe."""
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_workbarTiempo')}
+{_fn('_trabajoKvHTML')}
+const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
+{_fn('_trabajoModalConResumen')}
+const v = _trabajoModalConResumen({{
+  terminal: true, segundos: 78,
+  historial: {{ estado: 'cancelled', segundos: 78,
+               inicio: '2026-09-09T09:00:00+00:00',
+               fin: '2026-09-09T09:01:18+00:00', error: null }},
+}}, {{ conLog: true, cuerpo: '' }});
+console.log(JSON.stringify(v));
+"""
+        v = _node(guion)
+        self.assertIn("Cancelado", v["cuerpo"])
+        self.assertIn("Duración", v["cuerpo"])
+        self.assertIs(v["conLog"], False, "no hay log que copiar")
+        self.assertIn("no se conserva", v["cuerpo"])
+
+    def test_pero_si_la_vista_trae_log_no_se_pisa(self):
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_workbarTiempo')}
+{_fn('_trabajoKvHTML')}
+const _CMV40_FIN = {{ done: 'Terminado' }};
+{_fn('_trabajoModalConResumen')}
+console.log(JSON.stringify(_trabajoModalConResumen(
+  {{ terminal: true, historial: {{ estado: 'done' }} }},
+  {{ conLog: true, cuerpo: '<div class="cmv40-log">hay log</div>' }})));
+"""
+        v = _node(guion)
+        self.assertIn("hay log", v["cuerpo"])
+        self.assertIs(v["conLog"], True)
+
+
 class TestCancelarNuncaSeVaDeVacio(unittest.TestCase):
     """Se vio en el NAS: el usuario pulsa Cancelar y no pasa NADA — ni
     petición en el log del servidor, ni toast, ni error de JS. La función leía
@@ -666,6 +800,51 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
         self.assertEqual(h.count("workbar-item reciente selected"), 1)
         self.assertEqual(h.count("abrirDetalleDeReciente("), 1)
         self.assertIn("09:00:00", h[h.index("selected"):])
+
+    def _timeline(self, a, pasos):
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_fn('_workbarTiempo')}
+{_iconos()}
+{_fn('timelineDeTrabajo')}
+console.log(JSON.stringify({{ html: timelineDeTrabajo(
+  {json.dumps(pasos)}, {json.dumps(a)}, 'Fases') }}));
+"""
+        return _node(guion)["html"]
+
+    def test_un_terminado_no_deja_la_columna_en_gris(self):
+        """`fase_n` describe el PRESENTE y en una línea del historial vale 0,
+        así que sin tratar el caso terminal la columna salía entera pendiente
+        —como si el trabajo no hubiera hecho nada— con «0/4 · 0%»."""
+        a = {"terminal": True, "historial": {"estado": "done"},
+             "fase_n": 0, "segundos": 1830}
+        h = self._timeline(a, ["A", "B", "C", "D"])
+        self.assertEqual(h.count("cmv40-tl-step cmv40-tl-done"), 4)
+        self.assertNotIn("cmv40-tl-running", h)
+        self.assertIn("4/4 · 100%", h)
+
+    def test_un_terminado_no_habla_de_lo_que_queda(self):
+        a = {"terminal": True, "historial": {"estado": "done"}, "fase_n": 0,
+             "segundos": 100, "eta_s": 300, "eta_fuente": "medido"}
+        self.assertNotIn("Restante", self._timeline(a, ["A", "B"]))
+
+    def test_una_cancelada_enseña_hasta_donde_llego(self):
+        """La fila fija su estado: el rip sabe por su historial de ejecución
+        cuáles corrieron, y eso es lo que se quiere ver de una cancelada."""
+        a = {"terminal": True, "historial": {"estado": "cancelled"},
+             "fase_n": 0, "segundos": 40}
+        h = self._timeline(a, [
+            {"titulo": "A", "estado": "done", "nota": "completado · 9 s"},
+            {"titulo": "B", "estado": "pending"},
+        ])
+        self.assertEqual(h.count("cmv40-tl-done"), 1)
+        self.assertIn("no llegó a ejecutarse", h)
+        self.assertIn("1/2 · 50%", h)
+
+    def test_vivo_sigue_marcando_la_fase_en_curso(self):
+        h = self._timeline({"fase_n": 2, "segundos": 60}, ["A", "B", "C"])
+        self.assertEqual(h.count("cmv40-tl-running"), 1)
+        self.assertIn("en curso…", h)
 
     def test_el_detalle_reusa_el_MISMO_modal(self):
         """No hay una vista aparte para lo terminado: las cinco leen su propia

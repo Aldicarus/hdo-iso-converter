@@ -4758,10 +4758,14 @@ function _ripTimelineHTML(a, sesion) {
     // el transcurrido de la que está corriendo, así que fiarse de que el dato
     // exista marcaba la fase activa como terminada — como en CMv4.0, el
     // estado manda sobre el dato.
-    const yaPaso = a.fase_n && i + 1 < a.fase_n;
+    //
+    // Con el trabajo ya terminado no hay «atrás»: ahí el dato SÍ manda, y es
+    // lo que permite ver hasta dónde llegó una conversión cancelada.
     const secs = elapsed[id];
+    const yaPaso = a.terminal ? secs != null : (a.fase_n && i + 1 < a.fase_n);
     return {
       titulo, sub, icono,
+      estado: a.terminal ? (secs != null ? 'done' : 'pending') : undefined,
       nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
     };
   });

@@ -3464,11 +3464,14 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     .catch(() => null);
   // La ficha ya la pidió el panel al abrir el MKV (`hydrateTmdbCard`), así
   // que aquí sale de su caché: no se vuelve a salir a la red por una cartela.
-  const nombre = st?.file_name || a.sobre?.split('/').pop() || '';
+  // Sin estado vivo no hay nombre de fichero: la clave de este trabajo es su
+  // `audit_id`, que no se le enseña a nadie. Antes que una cartela con
+  // «aud-7f3» de título, ninguna — el subtítulo ya dice de qué MKV se habla.
+  const nombre = st?.file_name || '';
   return {
     titulo: 'Análisis extendido del RPU',
     sub: st?.file_name || a.que,
-    cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬'),
+    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬') : null,
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
     pasosTitulo: 'Fases del análisis extendido',
@@ -3488,11 +3491,11 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     .catch(() => null);
   // La copia no produce log: su detalle son los bytes.
   const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
-  const nombre = st?.file_name || a.sobre?.split('/').pop() || '';
+  const nombre = st?.file_name || '';
   return {
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
-    cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦'),
+    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦') : null,
     pasosTitulo: 'Fases de la copia',
     pasos: [
       { icono: '📦', titulo: 'Fase A · Copia del MKV',

@@ -105,6 +105,11 @@ function _workbarActivoHTML(a) {
 // es lo único que las distingue — la misma clave que usa el borrado.
 let _workbarRecienteSel = null;
 
+// Cómo acabó, dicho para el usuario.
+const _CMV40_FIN = {
+  done: 'Terminado', cancelled: 'Cancelado', error: 'Terminado con error',
+};
+
 function _workbarRefReciente(r) {
   return `${r.id || ''}|${r.inicio || ''}`;
 }
@@ -137,9 +142,13 @@ function abrirDetalleDeReciente(ref) {
   }
   _trabajoModalAbrir({
     id: r.id, sobre: r.id, tab: r.tab, tipo: r.tipo, que: r.que,
-    detalle, fase: '', fase_label: '', paso: 'Terminado',
+    detalle, fase: '', fase_label: '',
     fase_n: 0, fases_total: 0, pct: null, pct_medido: false,
     segundos: Math.round(r.segundos || 0), eta_s: null, cancelable: false,
+    // Lo que distingue mirar un trabajo TERMINADO de uno en curso: no hay
+    // nada que seguir, así que ni se poltea ni se anima ni se habla de fases
+    // que vengan. Lo que se enseña es la última foto.
+    terminal: true, historial: r, paso: _CMV40_FIN[r.estado] || 'Terminado',
   });
 }
 
@@ -588,21 +597,31 @@ function _trabajoCartelPinta(cartel) {
 function timelineDeTrabajo(pasos, a, titulo) {
   if (!pasos || !pasos.length) return '';
   const total = pasos.length;
-  const hechas = Math.max(0, Math.min(total, (a.fase_n || 0) - 1));
-  const pct = a.pct_medido ? a.pct : Math.round((hechas / total) * 100);
-  const items = pasos.map((p, i) => {
+  // Un trabajo TERMINADO no tiene fase en curso: o pasaron todas, o se paró
+  // donde se parara. `fase_n` describe el presente y en una línea del
+  // historial vale 0, así que sin esta rama la columna salía entera en gris,
+  // como si el trabajo no hubiera hecho nada.
+  const term = !!a.terminal;
+  const todoHecho = term && (a.historial || {}).estado === 'done';
+  const filas = pasos.map((p, i) => {
     const n = i + 1;
-    const estado = a.fase_n && n < a.fase_n ? 'done'
-                 : a.fase_n === n ? 'running' : 'pending';
     const paso = typeof p === 'string' ? { titulo: p } : (p || {});
+    // La fila puede fijar su estado: el rip sabe por su historial de ejecución
+    // cuáles corrieron, incluso en una cancelada a medias.
+    const estado = paso.estado ? paso.estado
+                 : todoHecho ? 'done'
+                 : a.fase_n && n < a.fase_n ? 'done'
+                 : (!term && a.fase_n === n) ? 'running'
+                 : 'pending';
     const nota = paso.nota || (estado === 'done' ? 'completado'
-                             : estado === 'running' ? 'en curso…' : '');
+                             : estado === 'running' ? 'en curso…'
+                             : term ? 'no llegó a ejecutarse' : '');
     const icono = {
       done:    '<span class="cmv40-tl-status-icon done">✓</span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
     }[estado];
-    return `<li class="cmv40-tl-step cmv40-tl-${estado}" data-step-key="p${n}">
+    const html = `<li class="cmv40-tl-step cmv40-tl-${estado}" data-step-key="p${n}">
       <div class="cmv40-tl-rail">${icono}</div>
       <div class="cmv40-tl-body">
         <div class="cmv40-tl-title">
@@ -613,11 +632,17 @@ function timelineDeTrabajo(pasos, a, titulo) {
         ${nota ? `<span class="cmv40-tl-eta ${estado}">${escHtml(nota)}</span>` : ''}
       </div>
     </li>`;
-  }).join('');
-  const restante = a.eta_s != null
+    return { html, hecha: estado === 'done' };
+  });
+  // El contador sale de las filas, no de `fase_n`: así cuenta igual en un
+  // trabajo vivo y en uno terminado, sin dos maneras de calcular lo mismo.
+  const hechas = filas.filter(f => f.hecha).length;
+  const pct = a.pct_medido ? a.pct
+            : total ? Math.round((hechas / total) * 100) : 0;
+  const restante = term ? '' : (a.eta_s != null
     ? `Restante ${_workbarTiempo(a.eta_s)}`
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
-    : '';
+    : '');
   return `
     <aside class="cmv40-running-timeline">
       <div class="cmv40-tl-header">
@@ -630,15 +655,15 @@ function timelineDeTrabajo(pasos, a, titulo) {
               <span class="cmv40-tl-timer-icon">⏱</span>
               <span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>
             </span>
-            <span class="cmv40-tl-progress-pct">${hechas}/${total} · ${pct == null ? '—' : pct}%</span>
+            <span class="cmv40-tl-progress-pct">${hechas}/${total} · ${pct}%</span>
             <span class="cmv40-tl-timer-remaining">${escHtml(restante)}</span>
           </div>
           <div class="cmv40-tl-progress-track">
-            <div class="cmv40-tl-progress-fill" style="width:${pct || 0}%"></div>
+            <div class="cmv40-tl-progress-fill" style="width:${pct}%"></div>
           </div>
         </div>
       </div>
-      <ol class="cmv40-tl-steps">${items}</ol>
+      <ol class="cmv40-tl-steps">${filas.map(f => f.html).join('')}</ol>
     </aside>`;
 }
 
@@ -652,9 +677,13 @@ function _trabajoModalPinta(a, vista) {
     // Mientras hay trabajo, el aro que gira del overlay (`cmv40-running-spinner`,
     // 28 px, `cmv40-spin` a 0,8 s). El chip del tipo es estático y ese
     // movimiento es la señal de que la cosa sigue viva. Parado, el chip.
-    const enMarcha = a.cancelable !== false && a.paso !== 'Terminado';
+    const enMarcha = !a.terminal && a.cancelable !== false;
     iconoEl.className = enMarcha ? 'cmv40-running-spinner' : 'modal-icon';
-    iconoEl.innerHTML = enMarcha ? '' : iconoDeTrabajo(a.tipo, 'icono-chip-lg');
+    iconoEl.innerHTML = enMarcha ? ''
+      : a.terminal
+      ? iconoDeEstado({ done: 'hecho', cancelled: 'cancelado' }[
+          (a.historial || {}).estado] || 'error', 'icono-chip-lg')
+      : iconoDeTrabajo(a.tipo, 'icono-chip-lg');
   }
   // La cabecera dice QUÉ está pasando. El nombre del fichero no va aquí: lo
   // enseña la cartela de la columna, y repetirlo dejaba tres líneas con el
@@ -673,19 +702,21 @@ function _trabajoModalPinta(a, vista) {
   const wrap = document.getElementById('trabajo-modal-barra-wrap');
   const fill = document.getElementById('trabajo-modal-barra');
   if (wrap && fill) {
-    wrap.classList.toggle('indeterminada', !a.pct_medido);
-    fill.style.width = a.pct_medido ? `${a.pct}%` : '';
+    wrap.classList.toggle('indeterminada', !a.terminal && !a.pct_medido);
+    fill.style.width = a.terminal ? '100%' : (a.pct_medido ? `${a.pct}%` : '');
+    wrap.classList.toggle('terminada', !!a.terminal);
   }
   // El PASO dentro de la fase. Sin él la barra dice cuánto queda pero no de
   // qué: diez minutos de demux se ven igual que diez de merge.
   set('trabajo-modal-paso', a.paso || vista.paso || a.fase_label || 'Preparando…');
-  set('trabajo-modal-pct', a.pct_medido ? `${a.pct}%` : '—');
-  set('trabajo-modal-eta', a.eta_s != null
+  set('trabajo-modal-pct', a.terminal ? '' : (a.pct_medido ? `${a.pct}%` : '—'));
+  set('trabajo-modal-eta', a.terminal ? '' : (a.eta_s != null
     ? `Restante ${_workbarTiempo(a.eta_s)}`
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
-    : '');
-  set('trabajo-modal-tiempos', a.segundos
-    ? `Lleva ${_workbarTiempo(a.segundos)}` : '');
+    : ''));
+  set('trabajo-modal-tiempos', !a.segundos ? ''
+    : a.terminal ? `Duró ${_workbarTiempo(a.segundos)}`
+    : `Lleva ${_workbarTiempo(a.segundos)}`);
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) {
@@ -723,6 +754,38 @@ function _trabajoModalPinta(a, vista) {
   if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
   const cancelar = document.getElementById('trabajo-modal-cancelar');
   if (cancelar) cancelar.style.display = a.cancelable ? '' : 'none';
+}
+
+/** Completa la vista de un trabajo terminado con lo que el historial sabe.
+ *
+ *  Las cinco vistas leen su propia sesión, y tres de ellas la conservan (el
+ *  rip, la fase CMv4.0). Las dos de Tab 2 no: su estado es un singleton que se
+ *  resetea con el siguiente trabajo, así que al abrir una ejecución vieja
+ *  devolvían un cuerpo vacío. Antes que un modal en blanco, lo que sí consta.
+ */
+function _trabajoModalConResumen(a, vista) {
+  const h = a.historial || {};
+  if (vista.cuerpo && !/detalle-vacio/.test(vista.cuerpo)) return vista;
+  const fecha = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleString('es-ES',
+      { day: '2-digit', month: '2-digit', year: '2-digit',
+        hour: '2-digit', minute: '2-digit' });
+  };
+  return {
+    ...vista,
+    conLog: false,
+    cuerpo: _trabajoKvHTML([
+      ['Resultado', _CMV40_FIN[h.estado] || h.estado || '—'],
+      ['Empezó', fecha(h.inicio)],
+      ['Terminó', fecha(h.fin)],
+      ['Duración', _workbarTiempo(h.segundos || a.segundos)],
+      ['Error', h.error || '—'],
+    ]) + '<div class="trabajo-detalle-nota">El registro de esta ejecución no '
+       + 'se conserva: su estado es de un solo trabajo a la vez y lo sustituye '
+       + 'el siguiente.</div>',
+  };
 }
 
 /** Un log con la paleta semántica de la app (marcadores ━━━ / $ / ✓ / ✗). */
@@ -775,6 +838,19 @@ function cerrarModalDeTrabajo() {
 async function _trabajoModalRefrescar() {
   const fn = _workbarDetalles[_trabajoModalTipo];
   if (!fn || !_trabajoModalUltimo) return;
+  // Un trabajo terminado no se sigue: se pinta su última foto y se para el
+  // reloj. Sin esto entraba en la rama de «cambiando de fase» —pensada para
+  // el hueco entre dos fases de un job vivo— y salía animado, con el botón de
+  // cancelar puesto y polleando veinte veces algo que ya no cambia.
+  if (_trabajoModalUltimo.terminal) {
+    const base = _trabajoModalUltimo;
+    try {
+      const vista = (await fn(base)) || {};
+      _trabajoModalPinta(base, _trabajoModalConResumen(base, vista));
+    } catch (e) { console.error('[trabajo-modal]', e); }
+    if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
+    return;
+  }
   const act = workbarEstado.activo;
   const esElMismo = act && (act.sobre || act.id) === _trabajoModalRef;
   if (esElMismo) { _trabajoModalUltimo = act; _trabajoModalSinActivo = 0; }
