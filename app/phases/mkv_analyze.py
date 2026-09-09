@@ -771,7 +771,7 @@ async def analyze_rpu_quality_for_mkv(
         # stdout y dovi_tool lee de stdin. Misma técnica que la Fase A de
         # CMv4.0, verificada bit a bit (mismo md5 del RPU).
         _check()
-        _emit("ffmpeg", 0.0, "Extrayendo HEVC + RPU del MKV…")
+        _emit("ffmpeg", 0.0, "Extrayendo el RPU (ffmpeg → dovi_tool)")
         _log("━━━ Pasos 1+2 · Extracción HEVC + RPU (en paralelo) ━━━")
         _log("[Audit] 📋 Plan: ffmpeg lee el v:0 del MKV y se lo pasa a "
              "dovi_tool por un pipe. Sin escribir el HEVC a disco: son "
@@ -798,7 +798,7 @@ async def analyze_rpu_quality_for_mkv(
                 duration=await _probe_duration_seconds(str(p)),
                 log_callback=_pipe_log, proc_callback=register_proc,
                 offset=0.0, weight=80.0,
-                label="Extrayendo HEVC + RPU",
+                label="Extrayendo el RPU (ffmpeg → dovi_tool)",
                 estimated_s=0.0,
             )
         except Exception as e:
@@ -809,12 +809,12 @@ async def analyze_rpu_quality_for_mkv(
             rpu_size = rpu_path.stat().st_size
             _log(f"[Audit] ✓ RPU extraído en {_fmt_elapsed(_t.monotonic() - t_step)} "
                  f"· {_fmt_bytes(rpu_size)} (sin volcar el HEVC a disco)")
-            _emit("extract_rpu", 80.0, "✓ RPU extraído")
+            _emit("extract_rpu", 80.0, "RPU extraído")
 
         if not piped_ok:
             # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
             _check()
-            _emit("ffmpeg", 0.0, "Extrayendo HEVC del MKV con ffmpeg…")
+            _emit("ffmpeg", 0.0, "Extrayendo el HEVC con ffmpeg")
             _log("━━━ Paso 1/3 · Extracción HEVC ━━━")
             _log(f"[Audit] 📋 Plan: ffmpeg stream-copy del v:0 del MKV a HEVC annex-B local. "
                  f"Tamaño esperado del HEVC: ~{_fmt_bytes(expected_hevc)} (75% del MKV, sin audio/subs).")
@@ -844,7 +844,7 @@ async def analyze_rpu_quality_for_mkv(
                             size = hevc_path.stat().st_size
                             local_pct = min(99, size * 100 / expected_hevc)
                             global_pct = local_pct * 0.55
-                            _emit("ffmpeg", global_pct, "Extrayendo HEVC del MKV…")
+                            _emit("ffmpeg", global_pct, "Extrayendo el HEVC con ffmpeg")
                             # Loguear progreso cada 10% para no saturar
                             if int(local_pct) >= last_logged_pct + 10:
                                 last_logged_pct = int(local_pct // 10) * 10
@@ -881,12 +881,12 @@ async def analyze_rpu_quality_for_mkv(
                 _log(f"[Audit] ✗ ffmpeg falló: {err}")
                 raise RuntimeError(f"ffmpeg falló: {err}")
             hevc_size = hevc_path.stat().st_size
-            _emit("ffmpeg", 55.0, "✓ HEVC extraído")
+            _emit("ffmpeg", 55.0, "HEVC extraído")
             _log(f"[Audit] ✓ HEVC extraído en {_fmt_elapsed(_t.monotonic() - t_step)} · {_fmt_bytes(hevc_size)}")
 
             # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
             _check()
-            _emit("extract_rpu", 55.0, "Extrayendo RPU Dolby Vision del HEVC…")
+            _emit("extract_rpu", 55.0, "Extrayendo el RPU Dolby Vision del HEVC")
             _log("━━━ Paso 2/3 · Extracción RPU Dolby Vision ━━━")
             _log("[Audit] 📋 Plan: dovi_tool extract-rpu lee el HEVC bitstream y "
                  "extrae las NALUs DV RPU. CPU-bound, ~1-2 min para UHD.")
@@ -912,7 +912,7 @@ async def analyze_rpu_quality_for_mkv(
                     pct = dt_reader.sample()
                     if pct is not None:
                         _emit("extract_rpu", 55.0 + pct * 0.25,
-                              "Extrayendo RPU Dolby Vision del HEVC…")
+                              "Extrayendo el RPU Dolby Vision del HEVC")
                     try:
                         await asyncio.wait_for(stop_dt.wait(), timeout=1.5)
                     except asyncio.TimeoutError:
@@ -953,11 +953,11 @@ async def analyze_rpu_quality_for_mkv(
                 _log("[Audit] ⏬ HEVC intermedio liberado (no se vuelve a usar)")
             except Exception:
                 pass
-            _emit("extract_rpu", 80.0, "✓ RPU extraído")
+            _emit("extract_rpu", 80.0, "RPU extraído")
 
         # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
         _check()
-        _emit("combos", 80.0, "Exportando metadata y agregando combos L8/L2…")
+        _emit("combos", 80.0, "Exportando niveles del RPU y agregando combos L8/L2")
         _log("━━━ Paso 3/3 · Análisis de combos L8/L2 + clasificación ━━━")
         _niveles_txt = ("L1, L2, L8 + L5 y L6 para el perfil de luminancia"
                         if con_luminancia else "L1, L2, L8")
@@ -995,7 +995,7 @@ async def analyze_rpu_quality_for_mkv(
             _log(f"[Audit] L2: {rpu_analysis.l2_unique_count:,} combos únicos · "
                  f"{len(rpu_analysis.l2_target_pqs)} target_pqs ({rpu_analysis.l2_target_pqs})")
         _log(f"[Audit] ✓ Combos agregados en {_fmt_elapsed(_t.monotonic() - t_step)}")
-        _emit("combos", 95.0, "✓ Combos agregados")
+        _emit("combos", 95.0, "Combos agregados")
 
         # ── Paso 4: classify + verdict ───────────────────────────────
         is_cmv29_only = (rpu_analysis.frames_with_cmv40 == 0
@@ -1014,7 +1014,7 @@ async def analyze_rpu_quality_for_mkv(
         elif con_luminancia:
             _log("[Audit] ⚠ Sin perfil de luminancia: el export por niveles no "
                  "estuvo disponible (hace falta dovi_tool >= 2.3.3).")
-        _emit("done", 100.0, "✓ Análisis completado")
+        _emit("done", 100.0, "Análisis completado")
         _log(f"[Audit] 🎯 Resultado: {result.get('quality_verdict_text', '—')}")
         if result.get("quality_tier_label"):
             _log(f"[Audit] Tier: {result['quality_tier_label']}")

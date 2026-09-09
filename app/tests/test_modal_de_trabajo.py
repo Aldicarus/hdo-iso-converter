@@ -645,7 +645,8 @@ const sesion = {{ execution_history: [
 console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
 """
         h = _node(guion)["html"]
-        for titulo in ("Abrir origen", "Extraer pistas", "Metadatos", "Cerrar origen"):
+        for titulo in ("Apertura del origen", "Extracción de pistas",
+                       "Escritura de metadatos", "Cierre del origen"):
             self.assertIn(titulo, h)
         self.assertIn("completado · 12 s", h)   # la fase 1, ya terminada
         self.assertIn("cmv40-tl-step cmv40-tl-done", h)

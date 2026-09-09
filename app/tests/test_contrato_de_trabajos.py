@@ -134,7 +134,7 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         tab1._rip_progress_pct(40)
         p = self._progreso(_t(qm.TIPO_RIP, "peli_1"))
         self.assertEqual(p["fase"], "extract")
-        self.assertEqual(p["fase_label"], "Extrayendo las pistas")
+        self.assertEqual(p["fase_label"], "Extracción de pistas")
         self.assertEqual(p["fase_n"], 2)
         self.assertEqual(p["fases_total"], 4)
         self.assertEqual(p["pct"], 40)

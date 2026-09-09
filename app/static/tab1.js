@@ -4745,10 +4745,14 @@ document.head.appendChild(spinStyle);
  */
 function _ripTimelineHTML(a, sesion) {
   const FASES = [
-    ['mount',   '💿', 'Abrir origen',   'monta el ISO o abre la carpeta'],
-    ['extract', '🎞️', 'Extraer pistas', 'mkvmerge — la fase larga'],
-    ['write',   '🏷️', 'Metadatos',      'flags, nombres y capítulos'],
-    ['unmount', '⏏️', 'Cerrar origen',  'desmonta y limpia temporales'],
+    ['mount',   '💿', 'Apertura del origen',
+     'Monta el ISO o valida la estructura BDMV'],
+    ['extract', '🎞️', 'Extracción de pistas',
+     'mkvmerge copia vídeo, audio y subtítulos sin recodificar'],
+    ['write',   '🏷️', 'Escritura de metadatos',
+     'Nombres de pista, flags default/forced y capítulos'],
+    ['unmount', '⏏️', 'Cierre del origen',
+     'Desmonta el ISO y elimina los ficheros intermedios'],
   ];
   const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
   const elapsed = ejec.phase_elapsed || {};
@@ -4764,7 +4768,7 @@ function _ripTimelineHTML(a, sesion) {
       nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
     };
   });
-  return timelineDeTrabajo(pasos, a, 'Fases del rip');
+  return timelineDeTrabajo(pasos, a, 'Fases de la conversión');
 }
 
 
@@ -4795,19 +4799,22 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     // La serie no guarda su `tmdb_info` en el progreso —lo tiene cada sesión
     // de episodio, que aún no existe—, así que la cartela es el nombre.
     cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
-    pasosTitulo: 'Pasos de la creación',
+    pasosTitulo: 'Fases del análisis',
     pasos: [
-      { icono: '💿', titulo: 'Preparar origen', sub: 'montar y localizar los MPLS' },
-      { icono: '🔍', titulo: 'Analizar episodios', sub: 'pistas, capítulos, PGS y DV' },
-      { icono: '📁', titulo: 'Crear proyectos', sub: 'una sesión por episodio' },
+      { icono: '💿', titulo: 'Apertura del origen',
+        sub: 'Monta el origen y localiza las playlists de cada episodio' },
+      { icono: '🔍', titulo: 'Análisis por episodio',
+        sub: 'Pistas, capítulos, subtítulos PGS y Dolby Vision' },
+      { icono: '📁', titulo: 'Creación de proyectos',
+        sub: 'Un proyecto por episodio, con las reglas ya aplicadas' },
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
       ['Episodio en curso', p?.current_episode_title || '—'],
-      ['Paso', p?.current_episode_step || '—'],
-      ['Terminados', `${hechos} de ${p?.total || 0}`],
+      ['Paso', a.paso || '—'],
+      ['Episodios analizados', `${hechos} de ${p?.total || 0}`],
       ['Con error', fallidos || '—'],
-      ['Conteo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
+      ['Muestreo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
     ]),
   };
 });

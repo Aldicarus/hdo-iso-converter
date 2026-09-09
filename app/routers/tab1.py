@@ -1355,10 +1355,10 @@ class CreateSeriesSessionsRequest(_BaseModel):
 # Un solo dict porque la cola ejecuta un rip a la vez, igual que los otros
 # singleton de progreso de la app.
 _RIP_FASES = (
-    ("mount",   "Abriendo el origen"),
-    ("extract", "Extrayendo las pistas"),
-    ("write",   "Escribiendo metadatos"),
-    ("unmount", "Cerrando el origen"),
+    ("mount",   "Apertura del origen"),
+    ("extract", "Extracción de pistas"),
+    ("write",   "Escritura de metadatos"),
+    ("unmount", "Cierre del origen"),
 )
 
 _rip_progress: dict = {
@@ -2306,7 +2306,7 @@ async def _run_pipeline(session_id: str) -> None:
         return
 
     workload.registrar(session_id, workload.TAB_RIP,
-                       f"rip de {session.mkv_name or session.id}")
+                       f"conversión a MKV de {session.mkv_name or session.id}")
 
     # Marcar como ejecutando
     session.status              = "running"
@@ -2932,7 +2932,7 @@ def _append_execution_record(
         id      = session.id,
         tab     = historial.TAB_RIP,
         tipo    = historial.TIPO_RIP,
-        que     = f"rip de {session.mkv_name or session.id}",
+        que     = f"conversión a MKV de {session.mkv_name or session.id}",
         inicio  = record.started_at,
         fin     = record.finished_at,
         estado  = record.status,
@@ -3280,12 +3280,12 @@ queue_manager.registrar_runner(queue_manager_mod.TIPO_SERIE,
 # Los siete pasos del análisis de un episodio, con el nombre que ve el
 # usuario. Los emite `phase_a` en `current_episode_step`.
 _SERIE_PASOS = {
-    "identify":  "Identificando pistas",
-    "chapters":  "Extrayendo capítulos",
-    "mediainfo": "Analizando metadatos",
-    "pgs":       "Analizando subtítulos",
-    "dovi":      "Analizando Dolby Vision",
-    "rules":     "Aplicando reglas automáticas",
+    "identify":  "Identificando pistas (mkvmerge)",
+    "chapters":  "Extrayendo capítulos del MPLS",
+    "mediainfo": "Leyendo metadatos (MediaInfo)",
+    "pgs":       "Contando paquetes PGS",
+    "dovi":      "Analizando el RPU Dolby Vision",
+    "rules":     "Aplicando las reglas de selección",
     "save":      "Guardando el proyecto",
 }
 

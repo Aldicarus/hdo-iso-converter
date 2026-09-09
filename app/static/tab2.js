@@ -3468,12 +3468,12 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬'),
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
-    pasosTitulo: 'Pasos del análisis',
+    pasosTitulo: 'Fases del análisis extendido',
     pasos: [
-      { icono: '🎬', titulo: 'Extraer el RPU',
-        sub: 'ffmpeg y dovi_tool por un pipe — el 97 % del trabajo' },
-      { icono: '📊', titulo: 'Combos y luminancia',
-        sub: 'export por niveles + perfil L1 frame a frame' },
+      { icono: '🎬', titulo: 'Extracción del RPU',
+        sub: 'ffmpeg y dovi_tool encadenados por un pipe, sin escribir el HEVC' },
+      { icono: '📊', titulo: 'Combos y perfil de luminancia',
+        sub: 'Export por niveles, combos L8/L2 y análisis L1 frame a frame' },
     ],
     conLog: true,
     cuerpo: _trabajoLogHTML(st?.log_lines),
@@ -3490,16 +3490,18 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
     cartel: cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦'),
-    pasosTitulo: 'Pasos de la copia',
+    pasosTitulo: 'Fases de la copia',
     pasos: [
-      { icono: '📦', titulo: 'Copiar el MKV', sub: 'de biblioteca a /mnt/output' },
-      { icono: '🏷️', titulo: 'Aplicar cambios', sub: 'mkvpropedit sobre la copia' },
+      { icono: '📦', titulo: 'Copia del MKV',
+        sub: 'De la biblioteca (solo lectura) a /mnt/output' },
+      { icono: '🏷️', titulo: 'Escritura de metadatos',
+        sub: 'mkvpropedit sobre la copia, sin remuxar' },
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
       ['Copiado', `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
-      ['Origen', st?.src_path || '—'],
-      ['Destino', st?.dst_path || '—'],
+      ['Fichero de origen', st?.src_path || '—'],
+      ['Fichero de destino', st?.dst_path || '—'],
       ['Error', st?.error || '—'],
     ]),
   };

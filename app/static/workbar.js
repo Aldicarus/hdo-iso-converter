@@ -389,7 +389,7 @@ function cancelarTrabajoActivo(trabajo) {
   };
   const accion = acciones[a.tab];
   if (!accion) {
-    showToast(`No sé cancelar un trabajo de «${a.tab || '?'}»`, 'error');
+    showToast(`No hay acción de cancelación para un trabajo de «${a.tab || '?'}»`, 'error');
     return;
   }
   showConfirm(
@@ -808,7 +808,7 @@ function iconoDeEstado(estado, clase = '') {
 async function quitarDeLaCola(clave) {
   const r = await apiFetch(`/api/queue/${encodeURIComponent(clave)}`,
                            { method: 'DELETE' });
-  if (r !== null) showToast('Sacado de la cola', 'info');
+  if (r !== null) showToast('Retirado de la cola', 'info');
   refrescarWorkbar();
   if (typeof loadSessions === 'function') loadSessions();
 }

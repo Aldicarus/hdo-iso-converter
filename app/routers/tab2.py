@@ -1014,7 +1014,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
     _mkv_quality_state["request_id"] = request_id
     _mkv_quality_state["step"] = "en_cola"
-    _mkv_quality_state["step_label"] = "Esperando turno en la cola…"
+    _mkv_quality_state["step_label"] = "Esperando turno en la cola"
     _mkv_quality_log("[Audit] ⏳ En cola — arrancará cuando termine el trabajo "
                      "que hay por delante.", target_audit_id=my_audit_id)
     await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
@@ -1605,7 +1605,7 @@ _PASOS_ANALISIS = (
     ("en_cola",     "Esperando turno"),
     ("ffmpeg",      "Extrayendo el RPU del MKV"),
     ("extract_rpu", "Extrayendo el RPU del MKV"),
-    ("combos",      "Clasificando combos y luminancia"),
+    ("combos",      "Clasificando combos L8/L2 y perfil L1"),
 )
 
 
@@ -1636,7 +1636,7 @@ def _analisis_adaptador(trabajo) -> dict | None:
 _PASOS_COPIA = (
     ("en_cola",  "Esperando turno"),
     ("copying",  "Copiando el MKV a Output"),
-    ("applying", "Aplicando cambios"),
+    ("applying", "Escribiendo metadatos (mkvpropedit)"),
 )
 
 
