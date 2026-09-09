@@ -9662,3 +9662,20 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   display: flex; gap: 6px; justify-content: flex-end;
   margin: -2px 0 6px; padding-right: 2px;
 }
+
+/* La cabecera de este modal, más apretada que la del modal de progreso del
+   que hereda el marcado. Dos motivos medidos: `.modal-box` ya trae 24 px de
+   padding y `.progress-modal-header` añadía otros 20+24, y el póster de 60×90
+   sobra el alto de dos líneas de texto. Eran ~44 px de aire que le quitaba el
+   sitio al registro — que es lo que crece y acaba sacando un scroll. */
+.cmv40-pf-caja-modal .progress-modal-header {
+  padding: 0 0 12px;
+  align-items: center;
+  gap: 12px;
+}
+.cmv40-pf-caja-modal .progress-modal-poster {
+  width: 44px;
+  height: 66px;
+  font-size: 22px;
+}
+.cmv40-pf-caja-modal .progress-modal-titles { padding-top: 0; }

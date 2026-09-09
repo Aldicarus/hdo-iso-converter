@@ -505,6 +505,17 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
       veredicto: document.getElementById('cmv40-pf-veredicto').innerHTML,
       pie: document.getElementById('cmv40-pf-pie').innerHTML,
       barraOculta: document.getElementById('cmv40-pf-barra-wrap').style.display,
+      rects: (() => {
+        const r = el => { const b = el.getBoundingClientRect();
+          return {t: Math.round(b.top), h: Math.round(b.height),
+                  b: Math.round(b.bottom)}; };
+        return {
+          caja: r(document.querySelector('.cmv40-pf-caja-modal')),
+          cabecera: r(document.querySelector('.cmv40-pf-caja-modal .progress-modal-header')),
+          poster: r(document.getElementById('cmv40-pf-poster')),
+          log: r(document.getElementById('cmv40-pf-log')),
+        };
+      })(),
       log: document.getElementById('cmv40-pf-log').textContent,
       logAbierto: document.getElementById('cmv40-pf-detalle').open,
     });
@@ -562,6 +573,23 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
         self.assertIn("Pre-flight", self.d["log"])
         self.assertTrue(self.d["logAbierto"],
                         "con un veredicto que no es OK, el registro se despliega")
+
+    def test_la_cabecera_no_desperdicia_alto(self):
+        """El registro crece y acaba sacando un scroll; el alto que sobre
+        arriba se lo quita a él. `.modal-box` ya trae 24 px de padding y
+        `.progress-modal-header` añadía otros 20+24, con un póster de 60×90
+        más alto que las dos líneas de texto que acompaña."""
+        r = self.d["rects"]
+        self.assertLessEqual(r["poster"]["h"], 70,
+                             "el póster sobra el alto del texto que acompaña")
+        self.assertLessEqual(r["cabecera"]["h"], 96)
+        # Y sin aire muerto entre el póster y el borde de la cabecera.
+        self.assertLessEqual(r["cabecera"]["h"] - r["poster"]["h"], 24)
+
+    def test_el_modal_entero_cabe_en_la_ventana(self):
+        r = self.d["rects"]
+        self.assertGreaterEqual(r["caja"]["t"], 0)
+        self.assertLessEqual(r["caja"]["b"], 900)
 
     def test_el_pie_pide_la_decision(self):
         self.assertIn("_cmv40PfMantener", self.d["pie"])
