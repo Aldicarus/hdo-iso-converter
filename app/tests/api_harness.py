@@ -148,6 +148,7 @@ class ApiTestCase(unittest.TestCase):
         self.addCleanup(
             lambda: setattr(self.cmv40, "_run_cmv40_phase", self._orig_run_phase))
 
+
         # La cola de Tab 1 es un singleton de módulo con estado propio, y
         # `enqueue` DISPARA el pipeline (`asyncio.create_task(self._process())`).
         # Sin aislarla, un test de `POST /execute` lanzaría mkvmerge de verdad y
@@ -344,6 +345,19 @@ class ApiTestCase(unittest.TestCase):
             cache.clear()
         return sid
 
+
+    def ejecutar_fases_de_verdad(self) -> None:
+        """Devuelve `_run_cmv40_phase` a su versión real.
+
+        El espía existe para que un test pueda afirmar QUÉ fase se pidió
+        arrancar sin ejecutarla —los endpoints son fire-and-forget y dejarlos
+        correr cuelga el TestClient al cerrar—. Pero el turno de cola es
+        justamente lo contrario: lo que se prueba es el ENCADENADO de fases,
+        así que ahí hace falta el wrapper de verdad (con su lock, su
+        `phase_history` y su decisión de qué toca después) y son las FASES las
+        que se sustituyen.
+        """
+        self.cmv40._run_cmv40_phase = self._orig_run_phase
     def leer_sesion_tab1(self, sid: str):
         import storage
         return storage.load_session(sid)

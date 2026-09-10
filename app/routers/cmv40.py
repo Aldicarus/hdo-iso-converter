@@ -23,6 +23,7 @@ TestClient; el de las fases, en `test_cmv40_fase_f_matriz` y
 `test_cmv40_fases_cgh`.
 """
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -866,27 +867,16 @@ async def _run_cmv40_phase_locked(
             _cmv40_active_procs.pop(session.id, None)
             _cmv40_marcar_libre(session)  # ← desbloquea la UI
             workload.liberar(session.id)
-            # Una línea en el historial transversal, pase lo que pase — las
-            # tres salidas (done, cancelled, error) importan igual, y de hecho
-            # las dos que no son el camino feliz son las que uno quiere mirar
-            # después. Va en el `finally` por lo mismo que el `liberar`.
-            _titulo_hist, _poster_hist = _cartel_cmv40(session)
-            historial.anotar(
-                id      = session.id,
-                tab     = historial.TAB_CMV40,
-                tipo    = historial.TIPO_FASE_CMV40,
-                que     = (f"{_CMV40_FASE_LABELS.get(phase_name, phase_name)}"
-                           f" · {_titulo_hist or session.id}"),
-                titulo  = _titulo_hist,
-                poster  = _poster_hist,
-                inicio  = started,
-                fin     = record.finished_at,
-                estado  = record.status,
-                error   = record.error_message,
-                # El log de la fase son ~2.000 líneas y ya está en su fichero:
-                # aquí va dónde mirar, no una copia.
-                ref_log = f"cmv40:{session.id}",
-            )
+            # El historial es del PROYECTO, no de la fase: una película
+            # dejaba siete líneas «Fase X terminada» y un proyecto parado
+            # esperando respuesta se leía igual que uno acabado. El detalle
+            # por fase sigue donde estaba, en `phase_history`, que es lo que
+            # pinta la timeline del modal.
+            #
+            # Dentro de un turno de cola lo anota el runner UNA vez al final,
+            # cuando el proyecto ya ha quedado quieto.
+            if _cmv40_en_turno.get() is None:
+                _cmv40_anotar_estado(session)
             # La barra pertenece a la fase que acaba de terminar: dejarla
             # puesta haría que la siguiente arrancara mostrando el progreso
             # de la anterior hasta su primer tick.
@@ -909,7 +899,14 @@ async def _run_cmv40_phase_locked(
     if (session.auto_pipeline
             and not session.error_message
             and session.phase != previous_phase):  # solo si avanzó (no error)
-        asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
+        if _cmv40_en_turno.get() is not None:
+            # Con el turno en la mano el dispatch NO ejecuta nada: solo apunta
+            # qué toca, y lo corre el bucle del runner. Se espera aquí en vez
+            # de lanzarlo como task porque si no el runner podría leer el
+            # apunte antes de que exista.
+            await _cmv40_dispatch_next_phase(session.id)
+        else:
+            asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
 
 def _cmv40_launch_phase(
@@ -1172,12 +1169,113 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
 
         return _coro, CMv40Phase.TARGET_PROVIDED
 
+    if fase in ("target_rpu_path", "target_rpu_drive"):
+        # Las dos rápidas (mediana 2 s y 3 s). No van a la cola por su cuenta,
+        # pero sí se ejecutan DENTRO del turno del proyecto, así que el turno
+        # tiene que saber construirlas.
+        if fase == "target_rpu_path":
+            ruta = datos.get("rpu_path") or session.pending_target_rpu_path
+
+            async def _coro(log_cb, proc_cb):
+                await pipeline.run_phase_b_target_from_path(session, ruta, log_cb)
+        else:
+            fid = datos.get("file_id") or session.pending_target_file_id
+            fnom = datos.get("file_name") or session.pending_target_file_name
+
+            async def _coro(log_cb, proc_cb):
+                await pipeline.run_phase_b_target_from_drive(
+                    session, fid, fnom, log_cb)
+
+        return _coro, CMv40Phase.TARGET_PROVIDED
+
     raise KeyError(fase)
+
+
+def _cmv40_estado_del_proyecto(session: CMv40Session) -> str | None:
+    """En qué ha quedado el proyecto, o None si sigue en marcha.
+
+    None significa «no hay nada que anotar»: mientras corre o espera turno, el
+    sitio donde se ve es la columna de trabajo, no el historial.
+
+    `esperando` es un predicado, no una lista de casos: el proyecto necesita al
+    usuario cuando no ha terminado, no corre, no está en cola y no arrastra un
+    error. Con eso quedan cubiertos de un tiro los cuatro sitios donde el
+    pipeline se para —la decisión mantener/inyectar, el ACK de una degradación,
+    la revisión de sync de Fase D y el auto-pipeline desactivado— sin tener que
+    enumerarlos ni acordarse de añadir el quinto.
+    """
+    if session.running_phase:
+        return None
+    if _cmv40_posicion_en_cola(session.id):
+        return None
+    if session.error_message:
+        return historial.ESTADO_ERROR
+    if session.phase == CMv40Phase.DONE:
+        return historial.ESTADO_HECHO
+    ultima = (session.phase_history or [])
+    if ultima and ultima[-1].status == "cancelled":
+        # Más informativo que «requiere decisión»: dice POR QUÉ está parado.
+        return historial.ESTADO_CANCELADO
+    return historial.ESTADO_ESPERANDO
+
+
+def _cmv40_anotar_estado(session: CMv40Session) -> None:
+    """Deja UNA línea en el historial con el estado del proyecto.
+
+    Nunca lanza —`anotar` ya se traga lo suyo— y no escribe nada mientras el
+    proyecto sigue en marcha.
+    """
+    estado = _cmv40_estado_del_proyecto(session)
+    if estado is None:
+        return
+    titulo, poster = _cartel_cmv40(session)
+    # El tiempo que interesa es el de PROCESO, no el de reloj: un proyecto
+    # puede pasarse tres días esperando una respuesta y eso no es lo que ha
+    # costado convertirlo.
+    trabajo = sum((r.elapsed_seconds or 0) for r in (session.phase_history or []))
+    arranques = [r.started_at for r in (session.phase_history or []) if r.started_at]
+    mantener = session.output_workflow == "keep_cmv29"
+    historial.registrar_estado(
+        id      = session.id,
+        tab     = historial.TAB_CMV40,
+        tipo    = historial.TIPO_FASE_CMV40,
+        que     = (("Mantener el MKV actual · " if mantener
+                    else "Upgrade CMv4.0 · ") + (titulo or session.id)),
+        titulo  = titulo,
+        poster  = poster,
+        inicio  = min(arranques) if arranques else session.created_at,
+        estado  = estado,
+        error   = session.error_message or None,
+        segundos = trabajo,
+        # El log del proyecto son ~2.000 líneas y ya está en su fichero: aquí
+        # va dónde mirar, no una copia.
+        ref_log = f"cmv40:{session.id}",
+    )
+
+
+# ── El turno de cola de un proyecto CMv4.0 ──────────────────────────────────
+#
+# **Un turno = el proyecto entero, no una fase.** Una conversión a medias no es
+# un resultado: no hay MKV que enseñar y los 250-400 GB de artefactos siguen
+# ocupando `/mnt/tmp`. Así que el turno se retiene hasta que el proyecto
+# termina, falla o necesita al usuario — que es para lo que está la cola. Ahí
+# suelta el turno, y al contestar se encola otro.
+#
+# Antes cada fase era su propia entrada, con dos consecuencias: el historial se
+# llenaba de siete «Fase X terminada» por película, y un proyecto parado
+# esperando respuesta no se distinguía de uno acabado.
+#
+# El ContextVar es el patrón de `set_cancel_check`, y por el mismo motivo: la
+# alternativa era pasar un parámetro por las catorce llamadas que hay entre el
+# runner y el punto donde se decide la fase siguiente. Las tasks heredan el
+# contexto, así que llega solo.
+_cmv40_en_turno: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "cmv40_turno_de_cola", default=None)
 
 
 async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
                               datos: dict | None = None) -> None:
-    """Mete una fase en la cola única de trabajo diferido.
+    """Mete una fase en la cola única, o la deja para el turno en curso.
 
     **A la cabeza salvo la primera.** Un proyecto a medias tiene 250-400 GB de
     artefactos intermedios ocupando `/mnt/tmp`, así que dejar su fase siguiente
@@ -1185,6 +1283,15 @@ async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
     `analyze_source`: ahí el proyecto todavía no ha gastado nada y no tiene por
     qué colarse.
     """
+    turno = _cmv40_en_turno.get()
+    if turno is not None:
+        # El proyecto ya tiene el turno: la fase siguiente se ejecuta aquí en
+        # vez de volver a la cola. Ver el comentario de `_cmv40_en_turno`.
+        turno["siguiente"] = (fase, dict(datos or {}))
+        return
+    # Vuelve a ejecutarse: mientras corra, el sitio donde se ve es «En curso».
+    # Si arrastraba una línea de «esperando», deja de pedir.
+    historial.quitar_sin_cerrar(session.id)
     _titulo_fase, _poster_fase = _cartel_cmv40(session)
     await queue_manager.encolar(
         queue_manager_mod.TrabajoEnCola(
@@ -1230,21 +1337,51 @@ def _cmv40_posicion_en_cola(session_id: str) -> dict | None:
 
 
 async def _cmv40_runner_de_la_cola(trabajo) -> None:
-    """Lo que la cola ejecuta cuando le toca el turno a una fase CMv4.0."""
+    """Un turno de cola = TODO el proyecto, no una fase.
+
+    Se ejecuta fase tras fase sin soltar el turno hasta que el proyecto
+    termina, falla, se cancela o necesita al usuario. Ver el comentario de
+    `_cmv40_en_turno` para el porqué.
+
+    La sesión se **relee en cada vuelta**: el turno puede durar una hora y
+    entretanto el usuario ha podido renombrar el MKV de salida o dar un ACK.
+    Es la misma razón por la que la fase se reconstruye al despachar en vez de
+    arrastrar la closure del endpoint.
+    """
     fase = (trabajo.datos or {}).get("fase") or ""
-    session = load_cmv40_session(trabajo.clave)
-    if session is None:
-        _logger.warning("[cola] la sesión %s ya no existe — fase %s descartada",
-                        trabajo.clave, fase)
-        return
+    datos = dict(trabajo.datos or {})
+    turno: dict = {"siguiente": None}
+    ficha = _cmv40_en_turno.set(turno)
     try:
-        coro_factory, nueva_fase = _cmv40_construir_fase(
-            session, fase, trabajo.datos or {})
-    except KeyError:
-        _logger.warning("[cola] fase desconocida %r en %s — descartada",
-                        fase, trabajo.clave)
-        return
-    await _run_cmv40_phase(session, fase, coro_factory, nueva_fase)
+        while fase:
+            session = load_cmv40_session(trabajo.clave)
+            if session is None:
+                _logger.warning("[cola] la sesión %s ya no existe — %s descartada",
+                                trabajo.clave, fase)
+                return
+            if fase == "preflight":
+                # Interactivo por diseño (mediana 9 s) y además es lo que
+                # decide SI va a haber trabajo: no puede esperar turno.
+                await _cmv40_dispatch_preflight(session)
+                return
+            try:
+                coro_factory, nueva_fase = _cmv40_construir_fase(
+                    session, fase, datos)
+            except KeyError:
+                _logger.warning("[cola] fase desconocida %r en %s — descartada",
+                                fase, trabajo.clave)
+                return
+            turno["siguiente"] = None
+            await _run_cmv40_phase(session, fase, coro_factory, nueva_fase)
+            siguiente = turno["siguiente"]
+            fase, datos = siguiente if siguiente else ("", {})
+    finally:
+        _cmv40_en_turno.reset(ficha)
+        # Al soltar el turno el proyecto ya ha quedado quieto: aquí es donde
+        # se sabe en qué ha quedado, y donde se escribe su única línea.
+        final = load_cmv40_session(trabajo.clave)
+        if final is not None:
+            _cmv40_anotar_estado(final)
 
 
 async def _cmv40_dispatch_phase(session: CMv40Session, phase_name: str) -> None:
@@ -1406,8 +1543,6 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
-        from datetime import datetime as _dt, timezone as _tz
-        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
@@ -1512,30 +1647,15 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                if cancelado:
-                    estado = historial.ESTADO_CANCELADO
-                elif session.error_message:
-                    estado = historial.ESTADO_ERROR
-                elif (session.preflight_decision
-                      and session.preflight_decision != "ok"):
-                    # Terminó su trabajo, pero ahora depende del usuario.
-                    estado = historial.ESTADO_ESPERANDO
-                else:
-                    estado = historial.ESTADO_HECHO
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = estado,
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                # El pre-flight NO lleva línea propia: es el arranque del
+                # trabajo del proyecto, no otro trabajo. Y el estado ya no se
+                # calcula aquí a mano —lo decide
+                # `_cmv40_estado_del_proyecto`, que es el mismo predicado para
+                # las siete fases—; esto solo dice CUÁNDO se escribe: si el
+                # pipeline continúa, lo que hay que ver es «En curso», así que
+                # se anota únicamente cuando se para.
+                if not (session.auto_pipeline and not session.error_message):
+                    _cmv40_anotar_estado(session)
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
         # target_preflight_ok=True ahora.
@@ -1554,6 +1674,21 @@ async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
     )
     kind = session.pending_target_kind
     if not kind:
+        return
+
+    turno = _cmv40_en_turno.get()
+    if turno is not None:
+        # Dentro del turno del proyecto las tres van por el mismo camino: la
+        # de MKV es pesada y las otras dos duran segundos, pero ninguna tiene
+        # por qué soltar el turno para hacerse.
+        turno["siguiente"] = ({"path": "target_rpu_path",
+                               "drive": "target_rpu_drive",
+                               "repo": "target_rpu_drive",
+                               "mkv": "target_rpu_mkv"}.get(kind, ""),
+                              {"mkv": session.pending_target_source_mkv_path or ""})
+        if not turno["siguiente"][0]:
+            turno["siguiente"] = None
+            await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
         return
 
     if kind == "path":
@@ -2592,12 +2727,9 @@ async def cmv40_accept_keep(session_id: str):
         "/ LG modernos) hará la conversión al vuelo en runtime con el mismo "
         "resultado visible que tendría inyectar el RPU."
     )
-    # La decisión cierra la espera: esa línea del historial deja de pedir y
-    # pasa a ser lo que ha sido — un trabajo terminado, con lo que se decidió.
-    historial.resolver_espera(
-        session_id, nuevo_estado=historial.ESTADO_HECHO,
-        nuevo_que=f"Mantener el MKV actual · "
-                  f"{_cartel_cmv40(session)[0] or session.id}")
+    # La línea del proyecto pasa a «terminado», y su texto dice qué se
+    # decidió. Es la misma línea que estaba pidiendo la decisión.
+    _cmv40_anotar_estado(session)
     return session.model_dump()
 
 
@@ -2643,9 +2775,10 @@ async def cmv40_override_recommendation(session_id: str):
         "funcionalmente equivalente a la conversión al vuelo del reproductor, "
         "pero queda archivado como MKV CMv4.0 'completo' para compatibilidad."
     )
-    # La espera desaparece: el trabajo continúa y las fases que vengan
-    # escribirán las suyas. Dejarla pediría una decisión ya tomada.
-    historial.resolver_espera(session_id, nuevo_estado=None)
+    # La espera desaparece: el trabajo continúa y su línea se volverá a
+    # escribir cuando vuelva a quedarse quieto. Dejarla pediría una decisión
+    # ya tomada.
+    historial.quitar_sin_cerrar(session_id)
     # Despierta el orquestador si auto está activo
     if session.auto_pipeline:
         asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
@@ -3444,8 +3577,6 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
-        from datetime import datetime as _dt, timezone as _tz
-        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
@@ -3524,30 +3655,15 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                if cancelado:
-                    estado = historial.ESTADO_CANCELADO
-                elif session.error_message:
-                    estado = historial.ESTADO_ERROR
-                elif (session.preflight_decision
-                      and session.preflight_decision != "ok"):
-                    # Terminó su trabajo, pero ahora depende del usuario.
-                    estado = historial.ESTADO_ESPERANDO
-                else:
-                    estado = historial.ESTADO_HECHO
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = estado,
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                # El pre-flight NO lleva línea propia: es el arranque del
+                # trabajo del proyecto, no otro trabajo. Y el estado ya no se
+                # calcula aquí a mano —lo decide
+                # `_cmv40_estado_del_proyecto`, que es el mismo predicado para
+                # las siete fases—; esto solo dice CUÁNDO se escribe: si el
+                # pipeline continúa, lo que hay que ver es «En curso», así que
+                # se anota únicamente cuando se para.
+                if not (session.auto_pipeline and not session.error_message):
+                    _cmv40_anotar_estado(session)
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
         # este endpoint manualmente (en lugar del orquestador interno), Fase
@@ -3591,8 +3707,6 @@ async def cmv40_preflight_source(session_id: str):
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
-        from datetime import datetime as _dt, timezone as _tz
-        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
@@ -3640,30 +3754,15 @@ async def cmv40_preflight_source(session_id: str):
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                if cancelado:
-                    estado = historial.ESTADO_CANCELADO
-                elif session.error_message:
-                    estado = historial.ESTADO_ERROR
-                elif (session.preflight_decision
-                      and session.preflight_decision != "ok"):
-                    # Terminó su trabajo, pero ahora depende del usuario.
-                    estado = historial.ESTADO_ESPERANDO
-                else:
-                    estado = historial.ESTADO_HECHO
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = estado,
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                # El pre-flight NO lleva línea propia: es el arranque del
+                # trabajo del proyecto, no otro trabajo. Y el estado ya no se
+                # calcula aquí a mano —lo decide
+                # `_cmv40_estado_del_proyecto`, que es el mismo predicado para
+                # las siete fases—; esto solo dice CUÁNDO se escribe: si el
+                # pipeline continúa, lo que hay que ver es «En curso», así que
+                # se anota únicamente cuando se para.
+                if not (session.auto_pipeline and not session.error_message):
+                    _cmv40_anotar_estado(session)
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}
@@ -4137,6 +4236,13 @@ async def cmv40_mark_synced(session_id: str, force: bool = False):
         if "sync_verification_pause" not in session.phases_skipped:
             session.phases_skipped.append("sync_verification_pause")
     save_cmv40_session(session)
+    # Confirmar el sync es responder a una de las cuatro paradas del pipeline,
+    # así que reanuda el trabajo como las otras tres (el ACK de gates, forzar
+    # la inyección y activar el auto). Era el único que dejaba la reanudación
+    # al frontend: con la pestaña cerrada, el proyecto se quedaba parado
+    # después de haber contestado.
+    if session.auto_pipeline:
+        asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
     return session.model_dump()
 
 

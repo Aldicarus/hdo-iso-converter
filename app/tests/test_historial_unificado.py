@@ -240,53 +240,73 @@ class TestQuitarUnaEntrada(HistorialCase):
         self.assertEqual(list(historial.ruta().parent.glob("*.tmp")), [])
 
 
-class TestCerrarUnaEsperaDeDecision(HistorialCase):
-    """Un pre-flight que acaba pidiendo una decisión deja su línea en
-    `esperando`. En cuanto el usuario responde tiene que dejar de pedir: si
-    no, la columna sigue enseñando «Requiere decisión» sobre algo ya
-    resuelto."""
+class TestUnaSolaLineaPorTrabajo(HistorialCase):
+    """Un proyecto CMv4.0 es UN trabajo que atraviesa siete fases.
+
+    Cada fase dejaba su propia línea, así que una película llenaba el
+    historial con siete «Fase X terminada» y —peor— un proyecto parado
+    esperando respuesta se leía igual que uno acabado. Ahora la línea es del
+    proyecto y se reescribe según su estado.
+    """
 
     def _pendiente(self, id="p1"):
-        self.anotar(id=id, tipo=historial.TIPO_PREFLIGHT,
-                    que="Validación previa · El padrino.mkv",
-                    estado=historial.ESTADO_ESPERANDO)
+        historial.registrar_estado(
+            id=id, tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
+            que="Upgrade CMv4.0 · El padrino (1972)",
+            inicio=datetime.now(timezone.utc),
+            estado=historial.ESTADO_ESPERANDO)
 
-    def test_mantener_la_cierra_como_hecha(self):
+    def test_avanzar_de_estado_no_deja_dos_lineas(self):
         self._pendiente()
-        self.assertTrue(historial.resolver_espera(
-            "p1", nuevo_estado=historial.ESTADO_HECHO,
-            nuevo_que="Mantener el MKV actual · El padrino.mkv"))
-        t = historial.leer()[0]
-        self.assertEqual(t["estado"], historial.ESTADO_HECHO)
-        self.assertIn("Mantener el MKV", t["que"])
+        historial.registrar_estado(
+            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
+            que="Upgrade CMv4.0 · El padrino (1972)",
+            inicio=datetime.now(timezone.utc), estado=historial.ESTADO_HECHO)
+        t = historial.leer()
+        self.assertEqual(len(t), 1, t)
+        self.assertEqual(t[0]["estado"], historial.ESTADO_HECHO)
 
-    def test_inyectar_la_quita(self):
-        """El trabajo continúa: las fases que vengan escribirán las suyas, y
-        dejarla pediría una decisión ya tomada."""
+    def test_una_ya_cerrada_NO_se_reescribe(self):
+        """Si el usuario rehace una fase de un proyecto terminado, se abre
+        otra línea: es lo mismo que hace Tab 1 con una sesión re-ejecutada."""
+        historial.registrar_estado(
+            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
+            que="Upgrade CMv4.0 · X", inicio=datetime.now(timezone.utc),
+            estado=historial.ESTADO_HECHO)
+        historial.registrar_estado(
+            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
+            que="Upgrade CMv4.0 · X", inicio=datetime.now(timezone.utc),
+            estado=historial.ESTADO_HECHO)
+        self.assertEqual(len(historial.leer()), 2)
+
+    def test_al_volver_a_ejecutarse_la_linea_se_retira(self):
+        """Mientras corre, el sitio donde se ve es «En curso»."""
         self._pendiente()
-        self.assertTrue(historial.resolver_espera("p1", nuevo_estado=None))
+        self.assertTrue(historial.quitar_sin_cerrar("p1"))
         self.assertEqual(historial.leer(), [])
 
-    def test_no_toca_las_de_otros_proyectos(self):
-        self._pendiente("p1")
-        self._pendiente("p2")
-        historial.resolver_espera("p1", nuevo_estado=None)
-        self.assertEqual([t["id"] for t in historial.leer()], ["p2"])
-
-    def test_ni_las_que_ya_estaban_cerradas(self):
-        """Solo se resuelve lo que está esperando; una línea vieja del mismo
-        proyecto no se toca."""
+    def test_pero_no_se_lleva_las_cerradas(self):
         self.anotar(id="p1", estado=historial.ESTADO_CANCELADO, que="antes")
         self._pendiente("p1")
-        historial.resolver_espera("p1", nuevo_estado=historial.ESTADO_HECHO)
-        estados = sorted(t["estado"] for t in historial.leer())
-        self.assertEqual(estados, [historial.ESTADO_CANCELADO,
-                                   historial.ESTADO_HECHO])
+        historial.quitar_sin_cerrar("p1")
+        self.assertEqual([t["estado"] for t in historial.leer()],
+                         [historial.ESTADO_CANCELADO])
 
-    def test_sin_nada_pendiente_no_hace_nada(self):
-        self.anotar(id="p1", estado=historial.ESTADO_HECHO)
-        self.assertFalse(historial.resolver_espera("p1", nuevo_estado=None))
-        self.assertEqual(len(historial.leer()), 1)
+    def test_ni_las_de_otros_proyectos(self):
+        self._pendiente("p1")
+        self._pendiente("p2")
+        historial.quitar_sin_cerrar("p1")
+        self.assertEqual([t["id"] for t in historial.leer()], ["p2"])
+
+    def test_el_tiempo_puede_ser_el_de_PROCESO_y_no_el_de_reloj(self):
+        """Un proyecto puede pasar tres días esperando una respuesta, y eso
+        no es lo que ha costado convertirlo."""
+        hace_rato = datetime.now(timezone.utc) - timedelta(days=3)
+        historial.registrar_estado(
+            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
+            que="Upgrade CMv4.0 · X", inicio=hace_rato,
+            estado=historial.ESTADO_HECHO, segundos=2100)
+        self.assertEqual(historial.leer()[0]["segundos"], 2100)
 
 
 class TestTab1LoAlimenta(HistorialCase):
@@ -366,7 +386,11 @@ class TestTab1LoAlimenta(HistorialCase):
 
 
 class TestTab3LoAlimenta(unittest.IsolatedAsyncioTestCase):
-    """Ejecutando una fase de verdad, con sus tres salidas."""
+    """Ejecutando una fase de verdad, con sus tres salidas.
+
+    La línea es del PROYECTO, no de la fase: tras la fase el proyecto se queda
+    quieto esperando la siguiente acción, así que lo que se anota es su
+    estado. El detalle por fase vive en `phase_history`."""
 
     def setUp(self):
         import storage
@@ -403,17 +427,27 @@ class TestTab3LoAlimenta(unittest.IsolatedAsyncioTestCase):
         t = (await self._fase(_ok))[0]
         self.assertEqual(t["tab"], historial.TAB_CMV40)
         self.assertEqual(t["tipo"], historial.TIPO_FASE_CMV40)
-        # El nombre de la fase, no su clave interna: en «Trabajos recientes»
-        # no hay un `fase_label` al lado que lo traduzca.
-        self.assertIn("Fase F — Inyectando el RPU en la EL", t["que"])
+        # El PROYECTO, no la fase: sin esto una película dejaba siete líneas.
+        self.assertIn("Upgrade CMv4.0", t["que"])
+        self.assertNotIn("Fase F", t["que"])
         # La PELÍCULA, no el fichero: ni extensión ni los tags que la propia
         # app le añade al nombre de salida.
         self.assertIn("Predator", t["que"])
         self.assertNotIn(".mkv", t["que"])
         self.assertEqual(t["titulo"], "Predator")
         self.assertNotIn("inject", t["que"])
-        self.assertEqual(t["estado"], "done")
+        # Y el estado es el del proyecto: la fase salió bien, pero el proyecto
+        # se queda esperando la siguiente acción.
+        self.assertEqual(t["estado"], historial.ESTADO_ESPERANDO)
         self.assertEqual(t["ref_log"], "cmv40:cmv40_hist")
+
+    async def test_solo_UNA_linea_por_muchas_fases(self):
+        """Dos fases seguidas del mismo proyecto no dejan dos líneas."""
+        async def _ok():
+            return None
+        await self._fase(_ok)
+        t = await self._fase(_ok)
+        self.assertEqual(len(t), 1, t)
 
     async def test_una_fase_que_falla(self):
         async def _boom():

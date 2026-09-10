@@ -58,6 +58,10 @@ ESTADO_HECHO = "done"
 ESTADO_ERROR = "error"
 ESTADO_CANCELADO = "cancelled"
 ESTADO_ESPERANDO = "esperando"
+
+# Los estados que cierran un trabajo: una línea con uno de estos ya no se
+# reescribe. `esperando` NO está, justamente porque puede resolverse.
+_CERRADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO)
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 
@@ -80,7 +84,8 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
            inicio: datetime, fin: datetime | None = None,
            estado: str = "done", error: str | None = None,
            ref_log: str | None = None,
-           titulo: str = "", poster: str = "") -> None:
+           titulo: str = "", poster: str = "",
+           segundos: float | None = None) -> None:
     """Añade una línea al historial. Nunca lanza.
 
     `ref_log` dice DÓNDE está el log de ese trabajo, no lo copia: el de una
@@ -97,7 +102,13 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
             # no las llevan y se pintan con su icono — no se migra nada.
             "titulo": titulo, "poster": poster,
             "inicio": inicio.isoformat(), "fin": fin.isoformat(),
-            "segundos": round(max(0.0, (fin - inicio).total_seconds()), 1),
+            # Por defecto el reloj de pared. `segundos` se pasa a mano cuando
+            # eso no es lo que costó: un proyecto CMv4.0 puede pasar tres días
+            # esperando una respuesta del usuario, y lo que interesa es el
+            # tiempo de PROCESO.
+            "segundos": round(
+                max(0.0, (fin - inicio).total_seconds())
+                if segundos is None else max(0.0, segundos), 1),
             "estado": estado, "error": error, "ref_log": ref_log,
         }
         f = ruta()
@@ -205,34 +216,35 @@ def _reescribir(transformar) -> bool:
     return cambiado
 
 
-def resolver_espera(id: str, *, nuevo_estado: str | None,
-                    nuevo_que: str | None = None) -> bool:
-    """Cierra la entrada `esperando` de ese trabajo, si la hay.
+def registrar_estado(*, id: str, **campos) -> None:
+    """Deja **UNA** línea para ese trabajo, reemplazando la que no esté cerrada.
 
-    Un pre-flight que acaba pidiendo una decisión deja una línea en
-    `ESTADO_ESPERANDO`. En cuanto el usuario responde, esa línea **deja de
-    pedir**: o pasa a su desenlace real, o desaparece porque el trabajo
-    continúa y lo que venga después escribirá el suyo.
+    Un proyecto CMv4.0 es un trabajo único que atraviesa siete fases, y cada
+    fase dejaba su propia línea: una película llenaba el historial con siete
+    «Fase X terminada» y, peor, un proyecto parado esperando respuesta se leía
+    igual que uno acabado.
 
-    No hace falta el `inicio` para identificarla: solo puede haber una
-    decisión pendiente por proyecto a la vez.
-
-    `nuevo_estado=None` la quita.
+    Aquí la línea es del PROYECTO y se reescribe según su estado: `esperando`
+    mientras necesita al usuario, y `done`/`error`/`cancelled` al cerrarse. Una
+    ya cerrada NO se toca: si el usuario rehace una fase, se abre otra, que es
+    lo mismo que hace Tab 1 con una sesión re-ejecutada.
     """
-    def _t(r):
-        if r.get("id") != id or r.get("estado") != ESTADO_ESPERANDO:
-            return r
-        if nuevo_estado is None:
-            return None
-        r = dict(r, estado=nuevo_estado)
-        if nuevo_que:
-            r["que"] = nuevo_que
-        return r
-    try:
-        return _reescribir(_t)
-    except Exception as e:                      # noqa: BLE001
-        logger.warning("[historial] no se pudo resolver %s: %s", id, e)
-        return False
+    if not _reescribir(lambda r: (None if (r.get("id") == id
+                                           and r.get("estado") not in _CERRADOS)
+                                  else r)):
+        pass          # no había ninguna sin cerrar; se añade igual
+    anotar(id=id, **campos)
+
+
+def quitar_sin_cerrar(id: str) -> bool:
+    """Retira la línea sin cerrar de ese trabajo, si la hay.
+
+    La llama el orquestador cuando el proyecto vuelve a ejecutarse: mientras
+    corre, el sitio donde se ve es «En curso», no el historial.
+    """
+    return _reescribir(lambda r: (None if (r.get("id") == id
+                                           and r.get("estado") not in _CERRADOS)
+                                  else r))
 
 
 def borrar(id: str, inicio: str) -> bool:
