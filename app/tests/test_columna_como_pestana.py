@@ -108,6 +108,10 @@ def _medir() -> dict:
                 b: +b.bottom.toFixed(1), r: +b.right.toFixed(1)} : null; };
   const q = s => document.querySelector(s);
   setTimeout(async () => {
+    // La tira, con la casa libre y con trabajo: tiene que medir lo mismo.
+    _workbarRender({activo: null, cola: [], interactivo: [], recientes: []});
+    await new Promise(r => setTimeout(r, 30));
+    const barVacia = r(q('#tab-bar')).h;
     workbarEstado = window.__T;
     _workbarRender(workbarEstado);
     await new Promise(r => setTimeout(r, 80));
@@ -121,12 +125,16 @@ def _medir() -> dict:
       franja:     r(q('.workbar-shelf')),
       pills:      r(q('.workbar-pills')),
       tabBar:     r(q('#tab-bar')),
+      barVacia,
       tabActiva:  r(q('#tab-bar .tab.active')),
       tabInactiva:r(q('#tab-bar .tab:not(.active)')),
       franjaSidebar: r(q('#sidebar-tab-1 .sidebar-new-project-area')),
       franjaCentro:  r(q('#subtab-bar')),
       estiloTab: {
         bg:     getComputedStyle(tab).backgroundColor,
+        // El navy de la pestaña activa es un GRADIENTE, así que mirar solo el
+        // backgroundColor deja pasar justo la mutación que hay que cazar.
+        img:    getComputedStyle(tab).backgroundImage,
         sombra: getComputedStyle(tab).boxShadow,
         radio:  getComputedStyle(tab).borderTopLeftRadius,
       },
@@ -147,12 +155,14 @@ def _medir() -> dict:
     out.htmlFiltrado = document.getElementById('workbar-body').innerHTML;
     out.cuentaConFiltro = document.getElementById('workbar-count').textContent;
 
-    // Y plegada. Se aplica la clase a mano y no con `toggleWorkbar`: bajo
-    // file:// el `localStorage.setItem` no persiste, así que el toggle lee el
-    // valor viejo y no cambia nada.
+    // Y plegada. Se pliega llamando a `_aplicarEstadoWorkbar`, que es quien lo
+    // hace de verdad, en vez de poniendo las clases a mano: si no, el test no
+    // puede ver que la pestaña —que vive en otro subárbol— se quede sin
+    // plegar. Se fuerza el predicado en lugar de usar `toggleWorkbar` porque
+    // bajo file:// el `localStorage.setItem` no persiste.
     inp.value = '';
-    document.getElementById('workbar').classList.add('collapsed');
-    document.body.classList.add('workbar-plegada');
+    workbarAbierta = () => false;
+    _aplicarEstadoWorkbar();
     await new Promise(r => setTimeout(r, 30));
     out.plegada = r(q('#workbar'));
     out.tabPlegada = r(q('.workbar-tab'));
@@ -251,9 +261,11 @@ class TestLaColumnaEsUnaPestanaMas(unittest.TestCase):
     def test_la_pestana_NO_va_en_navy(self):
         """Decisión tomada: el navy significa «el panel que estás viendo» y
         habría dos a la vez. Se ata al hub con el filete de arriba."""
-        bg = self.m["estiloTab"]["bg"]
-        self.assertNotIn("34, 67, 108", bg)      # --active-hub
-        self.assertNotIn("38, 74, 120", bg)      # --active-hub-top
+        pintura = self.m["estiloTab"]["bg"] + " " + self.m["estiloTab"]["img"]
+        self.assertEqual(self.m["estiloTab"]["img"], "none",
+                         "la pestaña de la columna no lleva gradiente")
+        self.assertNotIn("34, 67, 108", pintura)      # --active-hub
+        self.assertNotIn("38, 74, 120", pintura)      # --active-hub-top
         self.assertIn("gradient", self.m["estiloTabActiva"]["bg"],
                       "la pestaña de contenido sí debe seguir en navy")
         self.assertIn("34, 67, 108", self.m["estiloTab"]["sombra"],
@@ -261,6 +273,12 @@ class TestLaColumnaEsUnaPestanaMas(unittest.TestCase):
 
     def test_tiene_forma_de_pestana(self):
         self.assertEqual(self.m["estiloTab"]["radio"], "8px")
+
+    def test_arrancar_un_trabajo_no_mueve_la_tira_de_pestanas(self):
+        """El punto verde de «hay trabajo» iba en el flujo del botón: crecía
+        10 px y con él la pestaña, así que la fila entera daba un salto de
+        3 px en cuanto empezaba un job. Va posicionado."""
+        self.assertEqual(self.m["tabBar"]["h"], self.m["barVacia"])
 
     def test_plegada_se_encoge_la_columna_Y_su_pestana(self):
         """Las dos, o la pestaña quedaría en voladizo sobre 28 px de columna."""

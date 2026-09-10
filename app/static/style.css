@@ -9085,6 +9085,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   line-height: 1;
   padding: 3px 2px 3px 4px;
   border-radius: 5px;
+  position: relative;   /* el punto de «hay trabajo» va encima, no al lado */
 }
 .workbar-toggle:hover { background: rgba(0,0,0,0.06); color: var(--text-1); }
 /* Plegada. La pestaña vive en #tab-bar y la columna en #app-body, así que el
@@ -9280,11 +9281,16 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 /* La tira plegada tiene que avisar de que hay algo: es lo que sustituye a los
    puntos verdes de las pestañas. Sin esto, cerrar la columna te dejaba sin
    ninguna señal de trabajo en marcha. */
+/* FUERA DEL FLUJO. Con `display:block` y su margen, el punto crecía el botón
+   10 px y con él la pestaña, así que **la fila de pestañas entera daba un
+   salto de 3 px en cuanto arrancaba un trabajo**. Lo cazó una mutación: sin
+   `align-self: stretch` la pestaña seguía casando de alto, que es imposible
+   salvo que algo la estuviera estirando por su cuenta. */
 .workbar-toggle.con-trabajo::after {
   content: '';
-  display: block;
+  position: absolute;
+  top: -2px; right: -3px;
   width: 7px; height: 7px;
-  margin: 3px auto 0;
   border-radius: 50%;
   background: #1ed760;
   box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25);
