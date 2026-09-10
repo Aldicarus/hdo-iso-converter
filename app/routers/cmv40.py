@@ -1191,6 +1191,48 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
     raise KeyError(fase)
 
 
+def _cmv40_anotar_preflight(session: CMv40Session, inicio, cancelado: bool
+                            ) -> None:
+    """La línea del pre-flight, **solo si no hubo trabajo detrás**.
+
+    El pre-flight es un trabajo APARTE del de conversión, y eso es
+    deliberado: decide *si va a haber trabajo*, dura 9 s de mediana, es
+    interactivo (no pasa por la cola) y su «Detalle» abre su propio modal.
+
+    Pero cuando acaba bien **el trabajo no ha terminado: acaba de empezar**, y
+    dejar un «Validación previa · terminada» al lado de la conversión que sí
+    está corriendo se lee como dos trabajos hechos. Así que solo queda rastro
+    cuando el pre-flight es el final del camino:
+
+      · **cancelado** — el usuario lo paró;
+      · **error** — el bin no sirve y no va a haber conversión;
+      · **esperando** — terminó su parte y ahora depende de una decisión.
+
+    Si pasa, la línea que cuenta es la de la conversión, que la escribe ella.
+    """
+    estado = (historial.ESTADO_CANCELADO if cancelado
+              else historial.ESTADO_ERROR if session.error_message
+              else historial.ESTADO_ESPERANDO
+              if (session.preflight_decision
+                  and session.preflight_decision != "ok")
+              else None)
+    if estado is None:
+        return
+    titulo, poster = _cartel_cmv40(session)
+    historial.anotar(
+        id      = session.id,
+        tab     = historial.TAB_CMV40,
+        tipo    = historial.TIPO_PREFLIGHT,
+        que     = f"Validación previa · {titulo or session.id}",
+        titulo  = titulo,
+        poster  = poster,
+        inicio  = inicio,
+        estado  = estado,
+        error   = session.error_message or None,
+        ref_log = f"cmv40:{session.id}",
+    )
+
+
 def _cmv40_estado_del_proyecto(session: CMv40Session) -> str | None:
     """En qué ha quedado el proyecto, o None si sigue en marcha.
 
@@ -1649,35 +1691,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                # El pre-flight es un TRABAJO APARTE del de conversión, con
-                # su propia línea, y eso es deliberado: decide **si va a haber
-                # trabajo**, dura 9 s de mediana, es interactivo (no pasa por
-                # la cola) y su «Detalle» abre su propio modal — no el log de
-                # la conversión ni la pestaña del proyecto.
-                #
-                # Lo que sí es una línea por proyecto es la CONVERSIÓN, que es
-                # la que atravesaba siete fases y dejaba siete líneas.
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = (historial.ESTADO_CANCELADO if cancelado
-                              else historial.ESTADO_ERROR if session.error_message
-                              # Terminó su parte, pero ahora depende del
-                              # usuario: ni «done» ni «error».
-                              else historial.ESTADO_ESPERANDO
-                              if (session.preflight_decision
-                                  and session.preflight_decision != "ok")
-                              else historial.ESTADO_HECHO),
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
         # target_preflight_ok=True ahora.
@@ -3683,35 +3697,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                # El pre-flight es un TRABAJO APARTE del de conversión, con
-                # su propia línea, y eso es deliberado: decide **si va a haber
-                # trabajo**, dura 9 s de mediana, es interactivo (no pasa por
-                # la cola) y su «Detalle» abre su propio modal — no el log de
-                # la conversión ni la pestaña del proyecto.
-                #
-                # Lo que sí es una línea por proyecto es la CONVERSIÓN, que es
-                # la que atravesaba siete fases y dejaba siete líneas.
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = (historial.ESTADO_CANCELADO if cancelado
-                              else historial.ESTADO_ERROR if session.error_message
-                              # Terminó su parte, pero ahora depende del
-                              # usuario: ni «done» ni «error».
-                              else historial.ESTADO_ESPERANDO
-                              if (session.preflight_decision
-                                  and session.preflight_decision != "ok")
-                              else historial.ESTADO_HECHO),
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
         # este endpoint manualmente (en lugar del orquestador interno), Fase
@@ -3804,35 +3790,7 @@ async def cmv40_preflight_source(session_id: str):
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
                 # desaparecía de la columna y había que ir a la pestaña.
-                # El pre-flight es un TRABAJO APARTE del de conversión, con
-                # su propia línea, y eso es deliberado: decide **si va a haber
-                # trabajo**, dura 9 s de mediana, es interactivo (no pasa por
-                # la cola) y su «Detalle» abre su propio modal — no el log de
-                # la conversión ni la pestaña del proyecto.
-                #
-                # Lo que sí es una línea por proyecto es la CONVERSIÓN, que es
-                # la que atravesaba siete fases y dejaba siete líneas.
-                _titulo_pf, _poster_pf = _cartel_cmv40(session)
-                historial.anotar(
-                    id     = session.id,
-                    tab    = historial.TAB_CMV40,
-                    tipo   = historial.TIPO_PREFLIGHT,
-                    que    = (f"Validación previa · "
-                              f"{_titulo_pf or session.id}"),
-                    titulo = _titulo_pf,
-                    poster = _poster_pf,
-                    inicio = _inicio_pf,
-                    estado = (historial.ESTADO_CANCELADO if cancelado
-                              else historial.ESTADO_ERROR if session.error_message
-                              # Terminó su parte, pero ahora depende del
-                              # usuario: ni «done» ni «error».
-                              else historial.ESTADO_ESPERANDO
-                              if (session.preflight_decision
-                                  and session.preflight_decision != "ok")
-                              else historial.ESTADO_HECHO),
-                    error  = session.error_message or None,
-                    ref_log = f"cmv40:{session.id}",
-                )
+                _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}
