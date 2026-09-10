@@ -176,10 +176,14 @@ class ApiTestCase(unittest.TestCase):
         self._orig_encolar = cola.encolar
         # Lo que se ha pedido encolar, en orden: `[(tipo, clave, datos)]`.
         self.trabajos_encolados: list[tuple] = []
+        # Y las entradas enteras, para poder mirar lo que el usuario LEE
+        # (`que`, `titulo`, `poster`) y no solo el tipo y la clave.
+        self.encolados_enteros: list = []
 
         async def _encolar_espia(trabajo, *, a_la_cabeza=False):
             self.trabajos_encolados.append(
                 (trabajo.tipo, trabajo.clave, dict(trabajo.datos), a_la_cabeza))
+            self.encolados_enteros.append(trabajo)
             # `encolados` es la lista de SESIONES de Tab 1 que se pidió
             # encolar, y la siguen mirando varios tests. Sale de aquí desde
             # que el atajo `enqueue(session_id)` desapareció: componía su

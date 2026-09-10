@@ -181,8 +181,32 @@ class TestLosEndpointsLoPonen(ApiTestCase):
         storage.save_session(s)
         r = self.client.post(f"/api/sessions/{sid}/execute")
         self.assertEqual(r.status_code, 200, r.text)
-        t = [x for x in self.trabajos_encolados if x[1] == sid]
-        self.assertEqual(len(t), 1, self.trabajos_encolados)
+        t = [x for x in self.encolados_enteros if x.clave == sid]
+        self.assertEqual(len(t), 1, self.encolados_enteros)
+        # Lo que el usuario LEE: la película, sin los tags que la propia app
+        # le pone al nombre del fichero.
+        self.assertEqual(t[0].titulo, "Drive (2011)")
+        self.assertEqual(t[0].que, "Conversión a MKV · Drive (2011)")
+        self.assertNotIn("[DV FEL]", t[0].que)
+        self.assertTrue(t[0].poster.endswith("/w92/d.jpg"), t[0].poster)
+
+    def test_una_fase_cmv40_encolada_tambien(self):
+        import storage
+        sid = self.crear_sesion(sid="cmv40_drive", phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.output_mkv_name = "Drive (2011) [CMv4 CORE].mkv"
+        s.tmdb_info = {"title": "Drive", "year": 2011,
+                       "poster_url": "https://image.tmdb.org/t/p/w342/d.jpg"}
+        storage.save_cmv40_session(s)
+        import asyncio
+        from routers import cmv40
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            cmv40._cmv40_encolar_fase(storage.load_cmv40_session(sid),
+                                      "analyze_source"))
+        t = self.encolados_enteros[-1]
+        self.assertEqual(t.titulo, "Drive (2011)")
+        self.assertNotIn("[CMv4", t.que)
+        self.assertTrue(t.poster.endswith("/w92/d.jpg"), t.poster)
 
     def test_lo_interactivo_dice_sobre_que_trabaja(self):
         """La marca de la ruta solo sabe «Apertura de un MKV»: es el endpoint
