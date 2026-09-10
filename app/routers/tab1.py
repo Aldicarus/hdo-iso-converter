@@ -1383,11 +1383,18 @@ _rip_progress: dict = {
 }
 
 
-def _rip_progress_reset(session_id: str, nombre: str) -> None:
+# Cómo se llama cada origen para el usuario. El `source_type` es interno.
+_RIP_ORIGEN = {"iso": "ISO", "bdmv_folder": "Carpeta BDMV", "m2ts": "M2TS"}
+
+
+def _rip_progress_reset(session_id: str, nombre: str, origen: str = "") -> None:
     import time as _t
     _rip_progress.update({
         "session_id": session_id, "nombre": nombre, "fase": "",
         "pct": None, "desde": _t.monotonic(), "fase_desde": _t.monotonic(),
+        # De dónde sale este rip. Se guarda al arrancar porque el adaptador
+        # corre en cada poll y no puede leer la sesión para averiguarlo.
+        "origen": origen,
     })
 
 
@@ -1467,6 +1474,10 @@ def _rip_adaptador(trabajo) -> dict | None:
         "eta_s": trabajos.eta_por_porcentaje(
             max(0.0, _t.monotonic() - (_rip_progress.get("fase_desde") or 0.0)), pct),
         "eta_fuente": "medido" if pct is not None else None,
+        # Un rip de un ISO, de una carpeta BDMV y de un m2ts suelto se ven
+        # igual en la columna y no hacen lo mismo: los dos últimos no montan
+        # nada.
+        "chips": [o] if (o := _rip_progress.get("origen")) else [],
         "detalle": "rip",
     }
 
@@ -2370,7 +2381,8 @@ async def _run_pipeline(session_id: str) -> None:
     session.execution_started_at = datetime.now(timezone.utc)
     session.output_mkv_path     = None
     save_session(session)
-    _rip_progress_reset(session_id, session.mkv_name or session_id)
+    _rip_progress_reset(session_id, session.mkv_name or session_id,
+                        _RIP_ORIGEN.get(session.source_type or "iso", ""))
 
     # Tracking de tiempos por fase
     _phase_starts: dict[str, datetime] = {}

@@ -4542,6 +4542,12 @@ def _cmv40_adaptador(trabajo) -> dict | None:
         # Siempre del modelo: el restante del PROCESO no puede ser otra cosa,
         # y la columna lo escribe con «(aprox.)».
         "eta_fuente": "modelo" if eta else None,
+        # Lo que distingue a una conversión de otra: por dónde va a ir y si
+        # encadena sola. Las dos rutas no se parecen —el drop-in sustituye el
+        # RPU entero y el merge lo transfiere frame a frame— y eso decide si
+        # el trabajo son quince minutos o cuarenta.
+        "chips": (["Drop-in"] if resolve_plan(session).drop_in else ["Merge"])
+                 + (["Auto"] if session.auto_pipeline else []),
         "detalle": "cmv40",
     }
 

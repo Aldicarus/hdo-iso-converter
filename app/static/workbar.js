@@ -185,6 +185,19 @@ function _workbarPips(a) {
        + `${a.fases_total}">${p.join('')}</div>`;
 }
 
+/** Lo que distingue a este trabajo de los otros cinco, en dos palabras.
+ *
+ *  Lo dice el ADAPTADOR de cada tipo, no esta función: la columna no sabe qué
+ *  es un rip ni una conversión, y ese es justo el punto. Aquí solo se pintan.
+ */
+function _workbarChips(t) {
+  const c = t.chips || [];
+  if (!c.length) return '';
+  return `<div class="wb-chips">`
+       + c.map(x => `<span class="wb-chip">${escHtml(x)}</span>`).join('')
+       + `</div>`;
+}
+
 /** El armazón común. `o` decide qué secciones del cuerpo salen. */
 function _workbarTarjeta(t, o) {
   const sel = _workbarSeleccion === o.ref
@@ -208,6 +221,7 @@ function _workbarTarjeta(t, o) {
           ${sub ? `<div class="wb-card-sub">${escHtml(sub)}</div>` : ''}
           ${o.paso ? `<div class="wb-card-paso">${escHtml(o.paso)}</div>` : ''}
           ${o.aviso ? `<div class="wb-card-error">${escHtml(o.aviso)}</div>` : ''}
+          ${_workbarChips(t)}
         </div>
         <div class="wb-card-der">
           ${o.estado || ''}

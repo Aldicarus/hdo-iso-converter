@@ -146,6 +146,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarDia')}
 {_fn('_workbarHace')}
@@ -390,6 +391,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
@@ -415,6 +417,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(

@@ -163,6 +163,13 @@ def _vacio(trabajo) -> dict:
         # barra— y al unificar se colapsaron en una, así que dejó de verse en
         # qué punto de la fase iba. Vacío cuando la fase no tiene pasos.
         "paso": "",
+        # Lo que distingue a ESTE tipo de trabajo de los otros cinco, en dos
+        # palabras: de qué disco sale un rip, si una conversión va por drop-in
+        # o por merge, si el pipeline encadena solo. Va como lista de etiquetas
+        # y no como un campo por tipo porque la columna no sabe —ni tiene que
+        # saber— qué es un rip: cada adaptador dice lo suyo y aquí se pintan
+        # igual.
+        "chips": [],
         "fase_n": 0,
         "fases_total": 0,
         "pct": None,
@@ -172,6 +179,29 @@ def _vacio(trabajo) -> dict:
         "eta_fuente": None,
         "cancelable": True,
     }
+
+
+# Cómo se llama cada fase encolada para el usuario. Es un subconjunto del
+# mapa de `routers/cmv40.py`, con la etiqueta corta: en una tarjeta de la cola
+# no cabe «Fase C — Extrayendo BL/EL y datos per-frame».
+_CHIP_FASE = {
+    "analyze_source": "Fase A", "target_rpu_path": "Fase B",
+    "target_rpu_drive": "Fase B", "target_rpu_mkv": "Fase B",
+    "extract": "Fase C", "correct_sync": "Fase E", "inject": "Fase F",
+    "remux": "Fase G", "validate": "Fase H",
+}
+
+
+def chips_de_lo_encolado(entrada: dict) -> list[str]:
+    """Las etiquetas de una entrada de la COLA, que aún no tiene adaptador.
+
+    Un trabajo en cola no está corriendo, así que nadie le pregunta su
+    progreso; lo único que se sabe de él es lo que se guardó al encolarlo. De
+    ahí sale lo que hace falta para no ver siete «Upgrade CMv4.0» iguales.
+    """
+    fase = ((entrada or {}).get("datos") or {}).get("fase") or ""
+    etiqueta = _CHIP_FASE.get(fase)
+    return [etiqueta] if etiqueta else []
 
 
 def progreso_de(trabajo) -> dict:

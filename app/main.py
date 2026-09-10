@@ -1243,6 +1243,10 @@ async def app_trabajos(recientes: int = 8):
         {"id": j.get("clave"), "tab": j.get("tab"), "tipo": j.get("tipo"),
          "sobre": j.get("sobre") or j.get("clave"),
          "que": j.get("que"), "posicion": i + 1,
+         # Lo que espera turno también dice qué es: una fase CMv4.0 encolada
+         # sin más es «Upgrade CMv4.0» en las siete, y saber CUÁL espera es la
+         # diferencia entre dos minutos y cuarenta.
+         "chips": trabajos.chips_de_lo_encolado(j),
          # Resueltos al encolar; una cola persistida de antes no los trae y
          # esas tarjetas se pintan con su icono.
          "titulo": j.get("titulo") or "", "poster": j.get("poster") or ""}

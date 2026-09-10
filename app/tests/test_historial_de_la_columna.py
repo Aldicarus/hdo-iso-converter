@@ -95,6 +95,7 @@ let workbarEstado = {{ activo: null, cola: [], interactivo: [],
 {_fn('_workbarRefReciente')}
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarDia')}
 {_fn('_workbarHace')}

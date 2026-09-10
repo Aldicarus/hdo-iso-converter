@@ -371,6 +371,7 @@ const _CMV40_FIN = {{done: 'Terminado'}};
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarDia')}
 {_fn('_workbarHace')}

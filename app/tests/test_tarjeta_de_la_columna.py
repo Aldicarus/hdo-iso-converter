@@ -113,6 +113,7 @@ let _workbarSeleccion = {json.dumps(seleccion)};
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
+{_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 {_fn('_instalarReordenDeCola')}
@@ -307,3 +308,38 @@ class TestLosPuntitosDeFase(TarjetaCase):
         h = self._render({"activo": activo, "cola": [], "interactivo": [],
                           "recientes": []})
         self.assertNotIn("wb-pips", h)
+
+
+class TestCadaTipoDiceLoSuyo(TarjetaCase):
+    """Los seis tipos se veían iguales salvo por el glifo y el color, y no
+    hacen lo mismo. Cada adaptador aporta sus etiquetas y la columna las pinta
+    — que no sepa qué es un rip es justo el punto: sin eso harían falta seis
+    renderizadores.
+    """
+
+    def test_las_etiquetas_del_trabajo_se_pintan(self):
+        activo = dict(_ACTIVO, chips=["Drop-in", "Auto"])
+        h = self._render({"activo": activo, "cola": [], "interactivo": [],
+                          "recientes": []})
+        self.assertIn(">Drop-in<", h)
+        self.assertIn(">Auto<", h)
+
+    def test_sin_etiquetas_no_se_pinta_una_fila_vacia(self):
+        h = self._render({"activo": _ACTIVO, "cola": [], "interactivo": [],
+                          "recientes": []})
+        self.assertNotIn("wb-chips", h)
+
+    def test_tambien_las_lleva_lo_que_espera_turno(self):
+        """Siete fases de un proyecto se encolan con el mismo texto: sin decir
+        CUÁL espera, no se distingue una de dos minutos de una de cuarenta."""
+        cola = [dict(_COLA[0], chips=["Fase C"])]
+        h = self._render({"activo": None, "cola": cola, "interactivo": [],
+                          "recientes": []})
+        self.assertIn(">Fase C<", h)
+
+    def test_llevan_el_color_de_su_pestaña(self):
+        """Atan la etiqueta al acento de la izquierda sin repetir el nombre de
+        la pestaña en el texto."""
+        css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
+        i = css.index(".wb-chip {")
+        self.assertIn("var(--wb-acento)", css[i:i + 260])

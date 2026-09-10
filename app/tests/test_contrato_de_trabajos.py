@@ -39,7 +39,7 @@ import trabajos  # noqa: E402
 import workload  # noqa: E402
 
 CAMPOS = {"id", "sobre", "tab", "tipo", "que", "titulo", "poster",
-          "fase", "fase_label", "paso", "fase_n",
+          "fase", "fase_label", "paso", "chips", "fase_n",
           "fases_total", "pct", "pct_medido", "segundos", "eta_s",
           "eta_fuente", "cancelable"}
 
@@ -429,3 +429,45 @@ class TestElEndpoint(ApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCadaTipoAportaSusEtiquetas(ApiTestCase):
+    """El `chips` lo llena cada adaptador con lo que distingue a SU tipo. La
+    columna no sabe qué es un rip, así que no puede deducirlo."""
+
+    def test_el_rip_dice_de_qué_origen_sale(self):
+        """Un rip de un ISO, de una carpeta BDMV y de un m2ts suelto se ven
+        igual y no hacen lo mismo: los dos últimos no montan nada."""
+        from routers import tab1
+        tab1._rip_progress_reset("s1", "Peli", "Carpeta BDMV")
+        self.addCleanup(tab1._rip_progress_reset, "", "")
+        p = trabajos.progreso_de(qm.TrabajoEnCola(
+            tab="rip", tipo=qm.TIPO_RIP, clave="s1", que="x"))
+        self.assertEqual(p["chips"], ["Carpeta BDMV"])
+
+    def test_una_conversion_dice_su_ruta_y_si_encadena_sola(self):
+        """Drop-in y merge no se parecen —uno sustituye el RPU entero y el
+        otro lo transfiere frame a frame— y eso decide si el trabajo son
+        quince minutos o cuarenta."""
+        import storage
+        from routers import cmv40
+        sid = self.crear_sesion(sid="cmv40_chips", phase="extracted")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = "inject"
+        s.auto_pipeline = True
+        s.source_workflow = "p7_fel"
+        s.target_type = "trusted_p7_fel_final"
+        s.target_trust_ok = True
+        storage.save_cmv40_session(s)
+        p = trabajos.progreso_de(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid, que="x",
+            datos={"fase": "inject"}))
+        self.assertEqual(p["chips"], ["Drop-in", "Auto"])
+
+    def test_lo_encolado_dice_QUE_fase_espera(self):
+        """No tiene adaptador —no está corriendo— así que sale de lo que se
+        guardó al encolarlo."""
+        self.assertEqual(
+            trabajos.chips_de_lo_encolado({"datos": {"fase": "extract"}}),
+            ["Fase C"])
+        self.assertEqual(trabajos.chips_de_lo_encolado({}), [])
