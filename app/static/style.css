@@ -9208,33 +9208,25 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   color: var(--text-1);
 }
 
+/* El scroll de la columna es UNO. Con uno por zona, el historial se
+   reservaba su parte del alto y lo que estaba en marcha quedaba detrás de un
+   scroll de media columna: para ver la barra del trabajo en curso había que
+   subir dentro de una caja. */
 .workbar-inner {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  overflow-y: auto;
 }
-/* Lo que está en marcha manda: se lleva el alto que necesite y solo cede si
-   no cabe con el historial.
+/* Las dos zonas se pintan a su ritmo pero fluyen como una sola: ninguna
+   scrollea por su cuenta ni se reserva un alto.
 
-   Sin `max-height`: lo tuvo, y con el historial vacío —que se oculta con
-   `:empty`— el 38 % restante se quedaba en blanco, media columna de gris que
-   además empujaba el contenido fuera de la vista. Con `flex: 0 1 auto` la
-   zona mide lo que su contenido y encoge solo cuando hace falta; si el
-   historial no está, se lo lleva todo. */
-#workbar-body {
-  flex: 0 1 auto;
-  overflow-y: auto;
-}
-/* Y el historial, el resto. Su scroll es SUYO: al vivir en otro contenedor no
-   se repinta con el poll, así que no salta al principio cada 2 s. */
-#workbar-historial {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  border-top: 1px solid var(--sep);
-}
+   `#workbar-body` llegó a tener `max-height: 62%`, y con el historial vacío
+   —que se oculta con `:empty`— el 38 % restante se quedaba en gris: media
+   columna de nada que además empujaba el contenido fuera de la vista. */
+#workbar-body,
+#workbar-historial { min-width: 0; }
+#workbar-historial { border-top: 1px solid var(--sep); }
 #workbar-historial:empty { display: none; }
 
 /* La cabecera de cada día. `sticky` para no perder de vista de qué día es lo

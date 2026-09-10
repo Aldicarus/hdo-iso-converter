@@ -384,28 +384,18 @@ function _workbarRender(st) {
 
   const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
   if (!enPantalla) {
-    body.innerHTML = `<div class="workbar-vacio">${_workbarFiltrando()
-      ? 'Nada en ejecución coincide con el filtro'
-      : 'No hay nada en ejecución'}</div>`;
+    _workbarConservandoElScroll(body, `<div class="workbar-vacio">${
+      _workbarFiltrando() ? 'Nada en ejecución coincide con el filtro'
+                          : 'No hay nada en ejecución'}</div>`);
     _workbarRenderHistorial();
     return;
   }
 
-  body.innerHTML =
+  _workbarConservandoElScroll(body,
     // Envuelta en su sección como las otras tres: eso le da el título «En
     // curso» y los 14 px de aire a los lados. Sin el envoltorio la tarjeta
     // caía pegada al borde de la ventana y al de la columna.
     _workbarListaHTML('En curso', activo ? [activo] : [], _workbarActivoHTML)
-    + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
-        ref: `cola:${j.id}`,
-        sub: _workbarDescripcion(j),
-        estado: iconoDeEstado('en_cola', 'icono-chip-sm'),
-        meta: `<span class="workbar-item-pos">${j.posicion}</span>`,
-        acciones: `
-          <button class="btn btn-ghost btn-xs"
-            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')"
-            data-tooltip="Sacarlo de la cola. El proyecto no se toca.">Quitar de la cola</button>`,
-      }), 'workbar-seccion-cola')
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
@@ -422,7 +412,17 @@ function _workbarRender(st) {
             onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
             data-tooltip="Detener este trabajo">Cancelar</button>` : ''}` : '',
       }))
-    ;
+    + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
+        ref: `cola:${j.id}`,
+        sub: _workbarDescripcion(j),
+        estado: iconoDeEstado('en_cola', 'icono-chip-sm'),
+        meta: `<span class="workbar-item-pos">${j.posicion}</span>`,
+        acciones: `
+          <button class="btn btn-ghost btn-xs"
+            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')"
+            data-tooltip="Sacarlo de la cola. El proyecto no se toca.">Quitar de la cola</button>`,
+      }), 'workbar-seccion-cola')
+  );
   _instalarReordenDeCola();
   _workbarRenderHistorial();
 }
@@ -433,9 +433,10 @@ function _workbarRender(st) {
 // Vive en su propio contenedor y se carga por su cuenta, no con el poll. Los
 // dos motivos son de comportamiento, no de estética:
 //
-//  · **Su scroll es suyo.** Repintándose cada 2 s con el resto, bajar por él
-//    era imposible: volvía al principio en la vuelta siguiente. Y las
-//    carátulas se volvían a decodificar en cada una.
+//  · **Se repinta a otro ritmo.** Con el resto, cada 2 s: bajar por él era
+//    imposible —volvía al principio en la vuelta siguiente— y las carátulas
+//    se volvían a decodificar en cada una. El scroll, en cambio, es el de la
+//    columna entera: las cuatro secciones van una detrás de otra.
 //  · **Se puede consultar entero.** Antes eran cinco entradas fijas y el
 //    endpoint solo servía ocho; `GET /api/historial` da hasta mil.
 //
@@ -511,11 +512,22 @@ function _workbarRenderHistorial() {
     html += `<button class="wb-vermas" onclick="verMasHistorial()"
       data-tooltip="Carga ${_WORKBAR_HISTORIAL_PASO} más">Ver más</button>`;
   }
-  // Se conserva el sitio por el que iba: al recargar por un trabajo que
-  // acaba de terminar, el usuario puede estar leyendo más abajo.
-  const scroll = caja.scrollTop;
+  _workbarConservandoElScroll(caja, html);
+}
+
+/** Cambia el contenido de una zona sin mover el scroll de la columna.
+ *
+ *  El scroll es del contenedor padre, así que reemplazar el HTML de una zona
+ *  lo arrastra: mientras la zona está vacía el navegador recorta el
+ *  `scrollTop` al nuevo máximo y ya no vuelve. Al usuario le saltaba al
+ *  principio cada vez que un trabajo cambiaba de fase — el cuerpo se repinta
+ *  cada 2 s.
+ */
+function _workbarConservandoElScroll(caja, html) {
+  const scroller = document.getElementById('workbar-scroll');
+  const y = scroller ? scroller.scrollTop : 0;
   caja.innerHTML = html;
-  caja.scrollTop = scroll;
+  if (scroller && scroller.scrollTop !== y) scroller.scrollTop = y;
 }
 
 function _workbarTarjetaReciente(r) {

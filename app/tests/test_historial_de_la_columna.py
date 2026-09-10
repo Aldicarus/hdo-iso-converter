@@ -65,10 +65,16 @@ def _linea_hist(id, **kw):
 class HistorialCase(unittest.TestCase):
 
     def _render(self, lineas, hay_mas=False, tope=25, ahora=None):
-        guion = f"""
+        return _node(self._guion(lineas, hay_mas, tope) + """
+_workbarRenderHistorial();
+console.log(JSON.stringify({html: _els['workbar-historial'].innerHTML}));
+""")["html"]
+
+    def _guion(self, lineas, hay_mas=False, tope=25):
+        return f"""
 globalThis.escHtml = t => String(t);
 const _els = {{}};
-for (const id of ['workbar-historial', 'workbar-search']) {{
+for (const id of ['workbar-historial', 'workbar-search', 'workbar-scroll']) {{
   _els[id] = {{ value: '', scrollTop: 0, innerHTML: '' }};
 }}
 globalThis.document = {{ getElementById: id => _els[id] || null }};
@@ -99,11 +105,9 @@ let workbarEstado = {{ activo: null, cola: [], interactivo: [],
 {_fn('_workbarDia')}
 {_fn('_workbarHace')}
 {_fn('_workbarTarjetaReciente')}
+{_fn('_workbarConservandoElScroll')}
 {_fn('_workbarRenderHistorial')}
-_workbarRenderHistorial();
-console.log(JSON.stringify({{html: _els['workbar-historial'].innerHTML}}));
 """
-        return _node(guion)["html"]
 
 
 class TestYaNoSeCortaEnCinco(HistorialCase):
@@ -187,10 +191,24 @@ class TestNoSePeleaConElPoll(unittest.TestCase):
         self.assertIn("'/api/trabajos?recientes=0'", cuerpo,
                       "el poll volvió a traerse el historial entero cada 2 s")
 
-    def test_se_conserva_el_scroll_al_recargar(self):
-        cuerpo = self._cuerpo("_workbarRenderHistorial")
-        self.assertIn("scrollTop", cuerpo,
-                      "al recargar, el historial vuelve al principio")
+
+    def test_el_historial_y_lo_que_corre_comparten_UN_scroll(self):
+        """Uno por zona era peor que ninguno: el historial se reservaba su
+        parte del alto y lo que estaba en marcha quedaba detrás de un scroll
+        de media columna. (La geometría la mide
+        `test_columna_como_pestana`; esto guarda las reglas.)"""
+        import re
+        css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
+        # Sin comentarios: si no, el bloque de arriba entra en el selector.
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        reglas = re.findall(r"([^{}]+)\{([^}]*)\}", css)
+        inner = [c for sel, c in reglas if sel.strip() == ".workbar-inner"]
+        self.assertEqual(len(inner), 1)
+        self.assertIn("overflow-y: auto", inner[0])
+        for sel, cuerpo in reglas:
+            if "#workbar-body" in sel or "#workbar-historial" in sel:
+                self.assertNotIn("overflow", cuerpo,
+                                 f"«{sel.strip()}» vuelve a scrollear solo")
 
     def test_y_vive_en_su_propio_contenedor(self):
         from frontend_sources import html
@@ -200,6 +218,26 @@ class TestNoSePeleaConElPoll(unittest.TestCase):
         cuerpo = h[h.index('<div id="workbar-body">'):]
         self.assertNotIn('id="workbar-historial"',
                          cuerpo[:cuerpo.index("</div>")])
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElScrollNoSaltaAlRepintar(HistorialCase):
+    """El scroll es del contenedor padre, así que reemplazar el HTML de una
+    zona lo arrastra: mientras está vacía, el navegador recorta el `scrollTop`
+    al nuevo máximo y ya no vuelve. El cuerpo se repinta cada 2 s."""
+
+    def _scroll_tras_repintar(self, y):
+        guion = self._guion([_linea_hist(f"p{i}") for i in range(12)]) + f"""
+_workbarRenderHistorial();
+_els['workbar-scroll'].scrollTop = {y};
+_workbarRenderHistorial();
+console.log(JSON.stringify({{y: _els['workbar-scroll'].scrollTop}}));
+"""
+        return _node(guion)["y"]
+
+    def test_se_conserva_el_sitio_por_el_que_iba(self):
+        self.assertEqual(self._scroll_tras_repintar(240), 240)
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")

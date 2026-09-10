@@ -87,6 +87,92 @@ def _node(guion: str) -> dict:
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
+def _medir_llena() -> dict:
+    """La columna con las cuatro secciones puestas y un historial largo.
+
+    Es el escenario del bug: con un scroll por zona, el historial se llevaba
+    su parte del alto y lo que estaba en marcha quedaba detrás de un scroll de
+    media columna — para ver la barra del trabajo en curso había que subir
+    dentro de una caja.
+    """
+    hist = [dict(_TRABAJOS["recientes"][0], id=f"h{i}",
+                 que=f"Conversión a MKV · Peli {i} (20{10 + i % 20})")
+            for i in range(24)]
+    estado = dict(_TRABAJOS, recientes=hist,
+                  cola=[dict(_TRABAJOS["cola"][0], id=f"rip:d{i}",
+                             que=f"Conversión a MKV · Cola {i}", posicion=i + 1)
+                        for i in range(3)])
+    sonda = ("<style>*{transition:none!important;animation:none!important}</style>"
+             "<script>window.__errores=[];"
+             "window.addEventListener('error',e=>window.__errores.push("
+             "(e.message||'')+' @ '+(e.filename||'').split('/').pop()"
+             f"+':'+e.lineno));window.__T={json.dumps(estado)};</script>")
+    cuerpo = """
+<pre id="__out"></pre>
+<script>
+(function () {
+  window.apiFetch = async (url) =>
+    url.startsWith('/api/trabajos') ? window.__T : null;
+  const r = el => { const b = el && el.getBoundingClientRect();
+    return b ? {t: +b.top.toFixed(1), b: +b.bottom.toFixed(1),
+                h: +b.height.toFixed(1)} : null; };
+  const q = s => document.querySelector(s);
+  const caja = el => el && ({...r(el), scrollH: el.scrollHeight,
+                             clientH: el.clientHeight,
+                             overflow: getComputedStyle(el).overflowY});
+  setTimeout(async () => {
+    workbarEstado = window.__T;
+    _workbarRender(workbarEstado);
+    await new Promise(res => setTimeout(res, 120));
+    const inner = q('.workbar-inner');
+    const out = {
+      errores: window.__errores,
+      columna:   r(q('#workbar')),
+      inner:     caja(inner),
+      cuerpo:    caja(q('#workbar-body')),
+      historial: caja(q('#workbar-historial')),
+      // Los títulos en el orden en que se leen bajando por la columna.
+      titulos: [...document.querySelectorAll(
+          '#workbar-body .workbar-seccion-titulo,'
+          + ' #workbar-historial .workbar-seccion-titulo')]
+        .map(el => ({texto: el.textContent.trim(), t: r(el).t})),
+      // ¿Se ve el trabajo en curso sin tocar nada?
+      primeraTarjeta: r(q('#workbar-body .wb-card')),
+    };
+    document.getElementById('__out').textContent = JSON.stringify(out);
+  }, 900);
+})();
+</script>
+"""
+    return _correr_en_chrome(sonda, cuerpo)
+
+
+def _correr_en_chrome(sonda: str, cuerpo: str) -> dict:
+    pagina = html().replace("</head>", sonda + "</head>")
+    pagina = pagina.replace("</body>", cuerpo + "</body>")
+    pagina = (pagina.replace('src="/static/', 'src="')
+                    .replace('href="/static/', 'href="'))
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
+                                      encoding="utf-8",
+                                      dir=str(APP_DIR / "static"))
+    tmp.write(pagina)
+    tmp.close()
+    try:
+        dom = subprocess.run(
+            [CHROME, "--headless", "--disable-gpu",
+             "--allow-file-access-from-files", "--dump-dom",
+             f"--window-size={VENTANA[0]},{VENTANA[1]}",
+             "--virtual-time-budget=7000", tmp.name],
+            capture_output=True, text=True, timeout=180).stdout
+    finally:
+        os.unlink(tmp.name)
+    m = re.search(r'<pre id="__out">(.*?)</pre>', dom, re.S)
+    if not m:
+        raise unittest.SkipTest("Chrome no devolvió el volcado")
+    import html as _h
+    return json.loads(_h.unescape(m.group(1)))
+
+
 def _medir() -> dict:
     # Sin transiciones ni animaciones: `getBoundingClientRect` durante la
     # transición de ancho devuelve el valor de PARTIDA (headless no produce
@@ -380,6 +466,7 @@ const _CMV40_FIN = {{done: 'Terminado'}};
 {_fn('_workbarTarjetaReciente')}
 let _workbarHayMasHistorial = false;
 const _WORKBAR_HISTORIAL_PASO = 25;
+{_fn('_workbarConservandoElScroll')}
 {_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
 _workbarRender(workbarEstado);
@@ -471,3 +558,62 @@ class TestSinHistorialNoQuedaMediaColumnaEnBlanco(unittest.TestCase):
 
     def test_y_no_se_le_pone_un_tope_de_alto(self):
         self.assertEqual(self.m["cuerpoMax"], "none")
+
+
+@unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
+class TestUnSoloScrollYCuatroSeccionesSeguidas(unittest.TestCase):
+    """Las cuatro secciones van una detrás de otra y el scroll es de la
+    columna entera.
+
+    Con un scroll por zona, el historial se reservaba su parte del alto y lo
+    que estaba en marcha —que es lo que la columna existe para responder—
+    quedaba detrás de un scroll de media columna.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _medir_llena()
+
+    def test_se_pinta_sin_errores(self):
+        self.assertEqual(self.m["errores"], [])
+
+    def test_el_orden_es_el_del_trabajo(self):
+        """En curso · en paralelo · esperando turno · recientes. Lo que corre
+        primero, lo que espera después y lo que ya pasó al final."""
+        titulos = [t["texto"] for t in self.m["titulos"]]
+        self.assertEqual(titulos, ["En curso", "En paralelo",
+                                   "Esperando turno", "Trabajos recientes"])
+
+    def test_y_ese_orden_es_el_de_la_pantalla(self):
+        """El orden del marcado no basta: con una zona con scroll propio, la
+        de abajo empieza donde le toque al reparto del alto, no donde acaba
+        la anterior."""
+        tops = [t["t"] for t in self.m["titulos"]]
+        self.assertEqual(tops, sorted(tops), f"se pintan desordenados: {tops}")
+
+    def test_ninguna_zona_scrollea_por_su_cuenta(self):
+        for nombre in ("cuerpo", "historial"):
+            with self.subTest(zona=nombre):
+                z = self.m[nombre]
+                self.assertNotIn(z["overflow"], ("auto", "scroll"))
+                self.assertLessEqual(z["scrollH"], z["clientH"] + 1,
+                                     "esta zona tiene su propio scroll")
+
+    def test_el_scroll_es_de_la_columna(self):
+        inner = self.m["inner"]
+        self.assertEqual(inner["overflow"], "auto")
+        self.assertGreater(inner["scrollH"], inner["clientH"],
+                           "con 24 líneas de historial tiene que haber scroll")
+
+    def test_el_trabajo_en_curso_se_ve_sin_tocar_nada(self):
+        """El síntoma que se reportó: había que subir dentro de una caja para
+        ver la barra del que está corriendo."""
+        tarjeta, inner = self.m["primeraTarjeta"], self.m["inner"]
+        self.assertGreaterEqual(tarjeta["t"], inner["t"] - 1)
+        self.assertLess(tarjeta["b"], inner["b"],
+                        "la primera tarjeta ya nace fuera de la vista")
+
+    def test_el_historial_no_se_reserva_alto(self):
+        """Empieza donde acaba lo que está en marcha, no a media columna."""
+        self.assertAlmostEqual(self.m["historial"]["t"],
+                               self.m["cuerpo"]["b"], delta=1.5)

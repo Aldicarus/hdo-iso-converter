@@ -153,6 +153,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarTarjetaReciente')}
 let _workbarHayMasHistorial = false;
 const _WORKBAR_HISTORIAL_PASO = 25;
+{_fn('_workbarConservandoElScroll')}
 {_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
 let _workbarUltimaRevHistorial = null;
