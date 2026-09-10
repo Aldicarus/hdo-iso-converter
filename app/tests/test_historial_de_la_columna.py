@@ -6,9 +6,8 @@ ocho— cuando `GET /api/historial` da hasta mil. Y viajaba con el poll de cada
 imposible (volvía al principio en la vuelta siguiente) y las carátulas se
 volvían a decodificar en cada una.
 
-Ahora vive en su propio contenedor y se carga aparte, cuando cambia lo que
-está en marcha —que es justo cuando aparece una línea nueva— y cuando el
-usuario pide más.
+Ahora vive en su propio contenedor y se carga aparte: cuando el servidor dice
+que el historial ha cambiado, y cuando el usuario pide más.
 
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_historial_de_la_columna -v
@@ -188,13 +187,6 @@ class TestNoSePeleaConElPoll(unittest.TestCase):
         self.assertIn("'/api/trabajos?recientes=0'", cuerpo,
                       "el poll volvió a traerse el historial entero cada 2 s")
 
-    def test_se_recarga_cuando_algo_deja_de_estar_en_marcha(self):
-        cuerpo = self._cuerpo("refrescarWorkbar")
-        self.assertIn("_workbarCargarHistorial()", cuerpo)
-        # Y la firma incluye lo interactivo: un pre-flight que acaba pidiendo
-        # decisión deja su línea y no aparece ni en `activo` ni en `cola`.
-        self.assertIn("interactivo", cuerpo)
-
     def test_se_conserva_el_scroll_al_recargar(self):
         cuerpo = self._cuerpo("_workbarRenderHistorial")
         self.assertIn("scrollTop", cuerpo,
@@ -208,6 +200,103 @@ class TestNoSePeleaConElPoll(unittest.TestCase):
         cuerpo = h[h.index('<div id="workbar-body">'):]
         self.assertNotIn('id="workbar-historial"',
                          cuerpo[:cuerpo.index("</div>")])
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestSeRecargaCuandoElHistorialCambia(unittest.TestCase):
+    """Y no cuando cambia otra cosa.
+
+    La señal era «cambió lo que está en marcha», que solo acierta con las
+    líneas NUEVAS. Una ya escrita que se resuelve no mueve nada: al contestar
+    «mantener el MKV», la línea del pre-flight pasa de «requiere decisión» a
+    terminada, pero si lo que estaba corriendo seguía corriendo —un rip, que
+    dura 40 minutos— la tarjeta se quedaba pidiendo una decisión ya tomada y
+    ofreciendo el botón de tomarla. Ahora el servidor cuenta las veces que ha
+    cambiado el historial y esa es la señal.
+    """
+
+    def _ticks(self, ticks, fallos=0):
+        """Corre `refrescarWorkbar` una vez por tick y cuenta las recargas.
+
+        `fallos` — cuántas de las primeras peticiones del historial se caen,
+        para comprobar que se reintenta.
+        """
+        guion = f"""
+let workbarEstado = {{ activo: null, cola: [], interactivo: [], recientes: [] }};
+globalThis.document = {{ getElementById: () => null, querySelector: () => null }};
+const _workbarOyentes = [];
+let _workbarUltimaFirma = null;
+let _workbarUltimaRevHistorial = null;
+let _workbarTopeHistorial = 25;
+let _workbarHayMasHistorial = false;
+globalThis._workbarRender = () => {{}};
+globalThis._workbarRenderHistorial = () => {{}};
+{_fn('_workbarFirma')}
+{_fn('_workbarCargarHistorial')}
+{_fn('refrescarWorkbar')}
+const TICKS = {json.dumps(ticks)};
+let _recargas = 0, _fallan = {fallos}, _tick = null;
+globalThis.apiFetch = async (url) => {{
+  if (url.startsWith('/api/historial')) {{
+    _recargas++;
+    if (_fallan-- > 0) return null;      // como un fallo de red
+    return {{ trabajos: [] }};
+  }}
+  return _tick;
+}};
+(async () => {{
+  for (const t of TICKS) {{
+    _tick = t;
+    await refrescarWorkbar();
+    await new Promise(r => setTimeout(r, 0));   // la carga va sin await
+  }}
+  console.log(JSON.stringify({{ recargas: _recargas }}));
+}})();
+"""
+        return _node(guion)["recargas"]
+
+    @staticmethod
+    def _tick(rev, activo=None, cola=()):
+        return {"activo": activo, "cola": list(cola), "interactivo": [],
+                "historial_rev": rev}
+
+    def test_la_primera_vuelta_lo_carga(self):
+        self.assertEqual(self._ticks([self._tick(0)]), 1)
+
+    def test_y_si_no_cambia_no_se_vuelve_a_pedir(self):
+        """Es cada 2 s: recargarlo por costumbre le tira el scroll al usuario
+        que esté leyéndolo."""
+        self.assertEqual(self._ticks([self._tick(7)] * 4), 1)
+
+    def test_una_linea_nueva_lo_recarga(self):
+        self.assertEqual(
+            self._ticks([self._tick(7), self._tick(7), self._tick(8)]), 2)
+
+    def test_una_decision_contestada_TAMBIEN_aunque_siga_el_mismo_trabajo(self):
+        """El caso que fallaba: el rip de siempre corriendo, y el pre-flight
+        contestado. No se mueve nada salvo la línea."""
+        rip = {"id": "rip1", "tab": "rip", "tipo": "rip", "que": "Conversión"}
+        self.assertEqual(
+            self._ticks([self._tick(4, activo=rip),
+                         self._tick(5, activo=rip)]), 2)
+
+    def test_moverse_la_cola_por_si_solo_NO_lo_recarga(self):
+        """Un trabajo que arranca no escribe ninguna línea: su sitio es «En
+        curso». Recargar ahí era pedir el historial entero para nada."""
+        j = {"id": "j1", "tab": "mkv", "tipo": "analisis_extendido"}
+        self.assertEqual(
+            self._ticks([self._tick(3), self._tick(3, cola=[j])]), 1)
+
+    def test_si_la_carga_falla_se_reintenta_en_la_vuelta_siguiente(self):
+        """La revisión se apunta al recibirla, no al pedirla. Si no, un fallo
+        de red dejaba el historial viejo hasta el cambio siguiente."""
+        self.assertEqual(self._ticks([self._tick(9)] * 3, fallos=1), 2)
+
+    def test_un_fallo_del_poll_no_cuenta_como_cambio(self):
+        """`apiFetch` devuelve null y la columna conserva lo último bueno; sin
+        `historial_rev` no hay nada que comparar."""
+        self.assertEqual(self._ticks([self._tick(2), None, self._tick(2)]), 1)
+
 
 
 if __name__ == "__main__":

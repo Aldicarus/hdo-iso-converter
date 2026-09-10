@@ -1272,6 +1272,11 @@ async def app_trabajos(recientes: int = 8):
         "interactivo": interactivo,
         "recientes": await asyncio.to_thread(
             historial.leer, max(0, min(recientes, 50))),
+        # Cuántas veces ha cambiado el historial. La columna lo pide con
+        # `recientes=0` y recarga el historial aparte, así que necesita saber
+        # cuándo — y «cambió lo que está en marcha» no vale: una línea que se
+        # resuelve al contestar una decisión no mueve ni la cola ni lo activo.
+        "historial_rev": historial.revision(),
     }
 
 

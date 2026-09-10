@@ -155,7 +155,7 @@ let _workbarHayMasHistorial = false;
 const _WORKBAR_HISTORIAL_PASO = 25;
 {_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
-let _workbarUltimoTrabajo = null;
+let _workbarUltimaRevHistorial = null;
 let _workbarTopeHistorial = 25;
 globalThis._workbarCargarHistorial = async () => {{}};
 {_fn('refrescarWorkbar')}

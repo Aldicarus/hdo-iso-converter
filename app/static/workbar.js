@@ -446,10 +446,14 @@ const _WORKBAR_HISTORIAL_PASO = 25;
 let _workbarTopeHistorial = _WORKBAR_HISTORIAL_PASO;
 let _workbarHayMasHistorial = false;
 
-async function _workbarCargarHistorial() {
+async function _workbarCargarHistorial(rev) {
   const r = await apiFetch(`/api/historial?limite=${_workbarTopeHistorial}`,
                            { silent: true }).catch(() => null);
   if (!r || !Array.isArray(r.trabajos)) return;   // se conserva lo anterior
+  // La revisión se apunta al CARGAR, no al pedir: si la petición falla, la
+  // vuelta siguiente lo reintenta en vez de quedarse con el historial viejo
+  // hasta el próximo cambio.
+  if (rev !== undefined) _workbarUltimaRevHistorial = rev;
   // Si vino justo el tope pedido, es que puede haber más.
   _workbarHayMasHistorial = r.trabajos.length >= _workbarTopeHistorial;
   workbarEstado.recientes = r.trabajos;
@@ -588,13 +592,13 @@ function _workbarFirma(st) {
 }
 
 let _workbarUltimaFirma = null;
-// Lo que había en marcha la última vez, para saber cuándo recargar el
-// historial. `null` fuerza la primera carga.
-let _workbarUltimoTrabajo = null;
+// La revisión del historial con la que se pintó la lista de recientes.
+// `null` fuerza la primera carga.
+let _workbarUltimaRevHistorial = null;
 
 async function refrescarWorkbar() {
   // `recientes=0`: el historial no viaja con el poll. Se carga aparte y solo
-  // cuando cambia lo que está en marcha — ver `_workbarRenderHistorial`.
+  // cuando cambia, que es lo que dice `historial_rev` — ver más abajo.
   const st = await apiFetch('/api/trabajos?recientes=0', { silent: true })
     .catch(() => null);
   // Un fallo de red NO se interpreta como "no hay nada": se conserva lo
@@ -607,17 +611,17 @@ async function refrescarWorkbar() {
     // el mismo objeto en cada petición y la app le vaciaba el historial.
     workbarEstado = { ...st, recientes: workbarEstado.recientes || [] };
   }
-  // Una línea nueva del historial aparece justo cuando algo deja de estar en
-  // marcha, así que esa es la señal para recargarlo. Lo interactivo cuenta:
-  // un pre-flight que acaba pidiendo decisión deja la suya.
-  const firmaTrabajo = [
-    workbarEstado.activo ? workbarEstado.activo.id : '',
-    ...(workbarEstado.cola || []).map(j => j.id),
-    ...(workbarEstado.interactivo || []).map(t => t.id),
-  ].join('|');
-  if (firmaTrabajo !== _workbarUltimoTrabajo) {
-    _workbarUltimoTrabajo = firmaTrabajo;
-    _workbarCargarHistorial();
+  // El historial se recarga cuando el historial cambia, y eso lo dice el
+  // servidor con un contador.
+  //
+  // La señal anterior era «cambió lo que está en marcha», que solo acierta
+  // con las líneas NUEVAS. Una ya escrita que se resuelve no mueve nada: al
+  // contestar «mantener el MKV» el pre-flight pasa a terminado, pero si lo
+  // que corría seguía corriendo, la tarjeta se quedaba pidiendo una decisión
+  // ya tomada — y ofreciendo el botón de decidirla.
+  if (st && typeof st.historial_rev === 'number'
+      && st.historial_rev !== _workbarUltimaRevHistorial) {
+    _workbarCargarHistorial(st.historial_rev);
   }
   _workbarRender(workbarEstado);
   const firma = _workbarFirma(workbarEstado);

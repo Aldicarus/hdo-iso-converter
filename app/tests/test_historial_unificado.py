@@ -177,6 +177,51 @@ class TestRotacion(HistorialCase):
         self.assertNotIn("s0", [t["id"] for t in historial.leer()])
 
 
+class TestLaRevisionDiceQueCambio(HistorialCase):
+    """El contador que la columna de trabajo mira para saber si recargar.
+
+    Su señal era «cambió lo que está en marcha», y eso solo acierta con las
+    líneas NUEVAS: cuando el usuario contestó «mantener el MKV», la línea del
+    pre-flight pasó de «requiere decisión» a terminada sin que se moviera la
+    cola —seguía corriendo un rip— y la tarjeta se quedó pidiendo una decisión
+    ya tomada, con su botón de decidirla. Así que la señal tiene que ser el
+    cambio en sí, no un síntoma suyo.
+    """
+
+    def test_una_linea_nueva_lo_mueve(self):
+        antes = historial.revision()
+        self.anotar()
+        self.assertNotEqual(historial.revision(), antes)
+
+    def test_resolver_una_espera_TAMBIEN(self):
+        """El caso del pre-flight contestado, que es el que fallaba."""
+        self.anotar(estado=historial.ESTADO_ESPERANDO)
+        antes = historial.revision()
+        self.assertTrue(historial.resolver_espera(
+            "s1", nuevo_estado=historial.ESTADO_HECHO))
+        self.assertNotEqual(historial.revision(), antes)
+
+    def test_y_quitarla_de_la_lista(self):
+        self.anotar()
+        antes = historial.revision()
+        self.assertTrue(historial.borrar("s1", historial.leer()[0]["inicio"]))
+        self.assertNotEqual(historial.revision(), antes)
+
+    def test_lo_que_no_cambia_nada_no_lo_mueve(self):
+        """Si no, la columna recargaría el historial en cada vuelta."""
+        self.anotar()
+        antes = historial.revision()
+        self.assertFalse(historial.resolver_espera("otro", nuevo_estado="done"))
+        self.assertEqual(historial.revision(), antes)
+
+    def test_un_fallo_al_escribir_tampoco(self):
+        """No se anunció un cambio que no llegó a ocurrir."""
+        paths.CONFIG_DIR = Path("/no/existe/y/no/se/puede/crear")
+        antes = historial.revision()
+        self.anotar()
+        self.assertEqual(historial.revision(), antes)
+
+
 class TestQuitarUnaEntrada(HistorialCase):
     """Un trabajo terminado se puede quitar de la lista.
 

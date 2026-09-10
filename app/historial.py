@@ -72,6 +72,31 @@ TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 TOPE_BYTES = 5 * 1024 * 1024
 
 
+# Cuántas veces ha cambiado el historial en este proceso. La columna de
+# trabajo lo lee en su poll para saber si tiene que recargarlo.
+#
+# Antes la señal era «cambió lo que está en marcha», y eso solo acierta con
+# las líneas NUEVAS: una línea ya escrita que se resuelve —el pre-flight que
+# pasa de «requiere decisión» a «mantener el MKV» cuando el usuario contesta—
+# no mueve la cola ni lo que corre, así que la tarjeta se quedaba pidiendo una
+# decisión ya tomada hasta que otro trabajo empezara o terminara. Con esto la
+# señal es el hecho mismo, no un síntoma suyo.
+#
+# Es por proceso y no se persiste: al reiniciar vuelve a 0, que para el
+# navegador es un cambio y recarga, que es justo lo que hay que hacer.
+_revision = 0
+
+
+def revision() -> int:
+    """Cuántas veces ha cambiado el historial. Solo sirve para comparar."""
+    return _revision
+
+
+def _tocado() -> None:
+    global _revision
+    _revision += 1
+
+
 def ruta() -> Path:
     # `paths` se importa aquí dentro y no arriba porque los tests lo parchean:
     # con `from paths import CONFIG_DIR` este módulo se quedaría con la ruta
@@ -116,6 +141,7 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
         _rotar_si_toca(f)
         with f.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(registro, ensure_ascii=False) + "\n")
+        _tocado()
     except Exception as e:                      # noqa: BLE001
         # Ver el docstring del módulo: una línea perdida no vale un job.
         logger.warning("[historial] no se pudo anotar %s: %s", id, e)
@@ -210,6 +236,7 @@ def _reescribir(transformar) -> bool:
             tmp.write_text("".join(l + "\n" for l in salida), encoding="utf-8")
             os.replace(tmp, candidato)
             cambiado = True
+            _tocado()
         except OSError as e:
             logger.warning("[historial] no se pudo reescribir: %s", e)
             tmp.unlink(missing_ok=True)

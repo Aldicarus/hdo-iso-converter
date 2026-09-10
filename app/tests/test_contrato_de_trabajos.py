@@ -426,6 +426,14 @@ class TestElEndpoint(ApiTestCase):
         r = self.client.get("/api/trabajos?recientes=99999")
         self.assertEqual(r.status_code, 200)
 
+    def test_dice_cuantas_veces_ha_cambiado_el_historial(self):
+        """La columna pide el poll con `recientes=0` y carga el historial
+        aparte; esto es lo que le dice cuándo tiene que hacerlo."""
+        import historial
+        r = self.client.get("/api/trabajos?recientes=0").json()
+        self.assertEqual(r["recientes"], [])
+        self.assertEqual(r["historial_rev"], historial.revision())
+
 
 if __name__ == "__main__":
     unittest.main()
