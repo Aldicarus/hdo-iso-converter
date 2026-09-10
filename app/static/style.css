@@ -200,7 +200,10 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: flex-end;
-  padding: 8px 16px 0;
+  /* Sin gutter a la derecha: ahí va la pestaña de la columna de trabajo, que
+     tiene que llegar al borde de la ventana y medir exactamente lo mismo que
+     la columna de debajo. */
+  padding: 8px 0 0 16px;
   background: var(--surface-1);
   /* Borde inferior del MISMO color que el navy del hub: en Tab 1/3 se funde con
      el top del subtab-bar (--active-hub) → una franja continua sin costura; en
@@ -9038,9 +9041,70 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--text-2);
 }
 
+/* ── La pestaña de la columna de trabajo ───────────────────────────
+   Comparte fila con las otras tres, así que la línea que cierra la tira y el
+   alto salen por construcción: `align-self: stretch` la iguala a la más alta
+   (el alto de una pestaña lo marca el emoji de su icono, y con un SVG se
+   quedaba 3,5 px más baja).
+
+   Lo que NO comparte es el relleno navy de la activa: eso significa «el panel
+   que estás viendo» y habría dos encendidos a la vez. El filete navy de
+   arriba la ata al hub sin reclamarlo, y el relleno es la superficie de la
+   propia columna, para que se lea como su cabecera. */
+.workbar-tab {
+  width: 288px;          /* el mismo que #workbar, y un test lo comprueba */
+  box-sizing: border-box;
+  margin-left: auto;     /* pegada al borde derecho */
+  margin-bottom: -1px;   /* solapa el filete, como .tab.active */
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  background: rgba(235, 235, 240, 0.98);
+  border: 1px solid var(--sep);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 7px 12px 9px;
+  box-shadow: inset 0 2px 0 var(--active-hub);
+  white-space: nowrap;
+}
+.workbar-tab-icono { flex-shrink: 0; color: var(--text-2); display: flex; }
+.workbar-tab-icono svg { width: 17px; height: 17px; display: block; }
+.workbar-tab-texto { overflow: hidden; text-overflow: ellipsis; }
+.workbar-toggle {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 2px 3px 4px;
+  border-radius: 5px;
+}
+.workbar-toggle:hover { background: rgba(0,0,0,0.06); color: var(--text-1); }
+/* Plegada. La pestaña vive en #tab-bar y la columna en #app-body, así que el
+   estado no puede colgar de un ancestro común más cercano que <body>. Lo
+   escribe `_aplicarEstadoWorkbar`, en la misma línea que la clase de #workbar:
+   un solo escritor, dos lectores. */
+body.workbar-plegada .workbar-tab {
+  width: 28px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 8px;
+  border-radius: 6px 6px 0 0;
+}
+body.workbar-plegada .workbar-tab-icono,
+body.workbar-plegada .workbar-tab-texto { display: none; }
+body.workbar-plegada .workbar-count { margin-left: 0; padding: 1px 5px; }
+
 /* ── Columna de trabajo ────────────────────────────────────────────
-   La tercera columna, a la derecha de #main-panel. Es la misma en las tres
-   pestañas porque la cola es única.
+   La columna de la derecha, la misma en las tres pestañas porque la cola es
+   única.
 
    El ancho es 288px y no 320 como el sidebar izquierdo a propósito: 320+320
    son 640px de cromo, y en un portátil de 1440 eso deja el centro sin sitio
@@ -9050,42 +9114,93 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   width: 288px;
   flex-shrink: 0;
   display: flex;
+  flex-direction: column;
   background: rgba(235, 235, 240, 0.98);
+  /* Continuo de arriba abajo, desde el borde superior de la pestaña: la
+     columna es una superficie aparte (el patrón del panel inspector) y eso
+     solo se lee si el borde no se interrumpe. */
   border-left: 1px solid var(--sep);
   transition: width 0.18s ease;
   overflow: hidden;
 }
 #workbar.collapsed { width: 28px; }
+#workbar.collapsed .workbar-shelf,
+#workbar.collapsed .workbar-pills,
 #workbar.collapsed .workbar-inner { display: none; }
 
-.workbar-toggle {
-  width: 28px;
+/* La franja de 63px: los mismos 14 + 36 + 12 + 1 que el área de «Nuevo
+   proyecto» del sidebar. Es lo que hace que el contenido de las tres columnas
+   empiece en la misma línea; con la cabecera de 22px de antes, todo lo de la
+   columna arrancaba desplazado hacia arriba respecto a las otras dos. */
+.workbar-shelf {
   flex-shrink: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: var(--text-3);
-  font-size: 13px;
-  padding: 10px 0 0;
-  align-self: stretch;
-  border-right: 1px solid transparent;
+  box-sizing: border-box;
+  min-height: 63px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--sep);
+  display: flex;
+  align-items: center;
 }
-.workbar-toggle:hover { background: rgba(0,0,0,0.04); color: var(--text-1); }
-#workbar:not(.collapsed) .workbar-toggle { border-right-color: var(--sep); }
+.workbar-search-wrap { position: relative; flex: 1; min-width: 0; }
+.workbar-search-icono {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+.workbar-search-icono svg { width: 15px; height: 15px; display: block; }
+/* `input.` y no solo la clase: la regla global `input[type="text"]` empata en
+   especificidad y pinta el fondo gris. */
+input.workbar-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px 0 30px;
+  background: var(--surface-1);
+  border: 1px solid var(--sep-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 12px;
+}
+input.workbar-search-input::placeholder { color: var(--text-3); }
+
+.workbar-pills {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--sep);
+}
+.wb-pill {
+  flex: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 7px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-3);
+  transition: background var(--t-fast) var(--ease);
+}
+.wb-pill:hover:not(.active) { background: var(--surface-1); color: var(--text-2); }
+.wb-pill.active {
+  background: var(--surface-1);
+  border-color: var(--sep-strong);
+  color: var(--text-1);
+}
 
 .workbar-inner {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
   overflow-y: auto;
 }
-.workbar-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 14px 14px 8px;
-  flex-shrink: 0;
-}
-.workbar-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .workbar-count {
   font-size: 10px; font-variant-numeric: tabular-nums;
   background: rgba(0,0,0,0.07); color: var(--text-2);
@@ -9169,7 +9284,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   content: '';
   display: block;
   width: 7px; height: 7px;
-  margin: 7px auto 0;
+  margin: 3px auto 0;
   border-radius: 50%;
   background: #1ed760;
   box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.25);

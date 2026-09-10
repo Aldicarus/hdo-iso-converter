@@ -42,7 +42,50 @@ function _aplicarEstadoWorkbar() {
   if (!el) return;
   const abierta = workbarAbierta();
   el.classList.toggle('collapsed', !abierta);
-  if (btn) btn.textContent = abierta ? '›' : '‹';
+  // La pestaña de la columna vive en #tab-bar y la columna en #app-body, así
+  // que el estado no cuelga de ningún ancestro común más cercano que <body>.
+  // Un solo escritor —esta línea— y dos lectores en el CSS.
+  document.body.classList.toggle('workbar-plegada', !abierta);
+  if (btn) {
+    btn.textContent = abierta ? '›' : '‹';
+    btn.setAttribute('aria-expanded', abierta ? 'true' : 'false');
+  }
+}
+
+
+// ── El filtro de la columna ─────────────────────────────────────────────────
+// Buscador y pills viven en el HTML, FUERA de #workbar-body: el cuerpo se
+// repinta entero con cada poll (2 s), así que un input ahí dentro perdería el
+// foco y el cursor mientras se escribe. Por lo mismo el valor se lee del DOM
+// en vez de guardarse en una variable: el input ES el estado, y así no hay dos
+// copias que puedan discrepar.
+
+let _workbarFiltroTab = 'all';
+
+function onWorkbarPill(el) {
+  document.querySelectorAll('#workbar .wb-pill')
+    .forEach(b => b.classList.toggle('active', b === el));
+  _workbarFiltroTab = el.dataset.tab || 'all';
+  _workbarRender(workbarEstado);
+}
+
+function filtrarWorkbar() { _workbarRender(workbarEstado); }
+
+function _workbarBusqueda() {
+  const v = document.getElementById('workbar-search')?.value || '';
+  return normalizeSearch(v);
+}
+
+function _workbarFiltrando() {
+  return _workbarFiltroTab !== 'all' || !!_workbarBusqueda();
+}
+
+/** ¿Pasa este trabajo el pill de pestaña y el buscador? */
+function _workbarPasaFiltro(t) {
+  if (!t) return false;
+  if (_workbarFiltroTab !== 'all' && (t.tab || '') !== _workbarFiltroTab) return false;
+  const q = _workbarBusqueda();
+  return !q || normalizeSearch(t.que || '').includes(q);
 }
 
 /** "6 min" · "45 s" · "1 h 12 min" — la misma escala en toda la columna. */
@@ -219,7 +262,13 @@ function _workbarRender(st) {
   const body = document.getElementById('workbar-body');
   const cuenta = document.getElementById('workbar-count');
   if (!body) return;
+  // El contador cuenta TODO, nunca lo filtrado: es el indicador de «hay
+  // trabajo» y es lo que lleva la tira plegada. Si el filtro lo apagara,
+  // buscar una película haría desaparecer el aviso de que algo está corriendo.
   const total = (st.activo ? 1 : 0) + st.cola.length + st.interactivo.length;
+  const activo = _workbarPasaFiltro(st.activo) ? st.activo : null;
+  const cola = (st.cola || []).filter(_workbarPasaFiltro);
+  const paralelo = (st.interactivo || []).filter(_workbarPasaFiltro);
   if (cuenta) cuenta.textContent = String(total);
   // La tira plegada: el contador va en el propio botón, para que cerrar la
   // columna no te deje sin saber que hay algo en marcha.
@@ -237,7 +286,10 @@ function _workbarRender(st) {
   // Un trabajo terminado se selecciona y despliega sus dos acciones, igual
   // que las tarjetas de los sidebars de las tres pestañas. Antes solo se
   // listaba: ni se podía volver a su log ni quitarlo de la lista.
-  const recientes = _workbarListaHTML('Trabajos recientes', st.recientes.slice(0, 5), r => {
+  const recientes = _workbarListaHTML('Trabajos recientes',
+                                     (st.recientes || [])
+                                       .filter(_workbarPasaFiltro)
+                                       .slice(0, 5), r => {
     const ref = _workbarRefReciente(r);
     const sel = _workbarRecienteSel === ref;
     const espera = r.estado === 'esperando';
@@ -266,15 +318,18 @@ function _workbarRender(st) {
           </div>` : ''}`;
   });
 
-  if (!total) {
-    body.innerHTML = '<div class="workbar-vacio">No hay nada en ejecución</div>'
+  const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
+  if (!enPantalla) {
+    body.innerHTML = `<div class="workbar-vacio">${_workbarFiltrando()
+      ? 'Nada en ejecución coincide con el filtro'
+      : 'No hay nada en ejecución'}</div>`
                      + recientes;
     return;
   }
 
   body.innerHTML =
-    (st.activo ? _workbarActivoHTML(st.activo) : '')
-    + _workbarListaHTML('Esperando turno', st.cola, j => `
+    (activo ? _workbarActivoHTML(activo) : '')
+    + _workbarListaHTML('Esperando turno', cola, j => `
         <div class="workbar-item" data-clave="${escHtml(j.id)}">
           ${iconoDeTrabajo(j.tipo, 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(j.que || '')}</span>
@@ -286,7 +341,7 @@ function _workbarRender(st) {
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
-    + _workbarListaHTML('En paralelo', st.interactivo, t => `
+    + _workbarListaHTML('En paralelo', paralelo, t => `
         <div class="workbar-item" data-clave="${escHtml(t.id)}">
           ${iconoDeEstado('corriendo', 'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(t.que || '')}</span>

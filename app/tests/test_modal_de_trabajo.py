@@ -851,6 +851,11 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarListaHTML')}
 {_fn('_instalarReordenDeCola')}
 let _workbarRecienteSel = {json.dumps(seleccion)};
+{_fn('normalizeSearch')}
+let _workbarFiltroTab = 'all';
+{_fn('_workbarBusqueda')}
+{_fn('_workbarFiltrando')}
+{_fn('_workbarPasaFiltro')}
 {_fn('_workbarRender')}
 let workbarEstado = {{ activo: null, cola: [], interactivo: [],
                        recientes: {json.dumps(recientes)} }};

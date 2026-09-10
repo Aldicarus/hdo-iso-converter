@@ -170,7 +170,10 @@ class TestElHistorialSeVeSiempre(unittest.TestCase):
         src = pieza_de("_workbarRender")[1]
         i = src.index("function _workbarRender(")
         cuerpo = src[i:src.index("\n}\n", i)]
-        vacio = cuerpo.index("if (!total)")
+        # Se busca la rama por su MARCA en el HTML, no por el nombre de la
+        # variable: lo que se afirma es dónde se calculan los recientes, y un
+        # renombrado no debe romper un test que va de otra cosa.
+        vacio = cuerpo.index("workbar-vacio")
         self.assertLess(cuerpo.index("const recientes ="), vacio,
                         "los recientes se calculan DENTRO de la rama de "
                         "«no hay nada», así que no salen cuando hay trabajo")

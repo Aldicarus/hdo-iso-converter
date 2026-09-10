@@ -133,6 +133,11 @@ const _workbarOyentes = [];
 let _workbarUltimaFirma = null;
 {_fn('_workbarFirma')}
 {_fn('_instalarReordenDeCola')}
+{_fn('normalizeSearch')}
+let _workbarFiltroTab = 'all';
+{_fn('_workbarBusqueda')}
+{_fn('_workbarFiltrando')}
+{_fn('_workbarPasaFiltro')}
 {_fn('_workbarRender')}
 {_fn('refrescarWorkbar')}
 (async () => {{

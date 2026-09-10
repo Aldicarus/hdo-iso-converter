@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260910e">
+  <link rel="stylesheet" href="/static/style.css?v=20260911a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -70,6 +70,33 @@
       data-tooltip="Inspecciona metadata detallada (codecs, HDR, Dolby Vision, CM version, subs) y edita nombres, flags y capítulos de ficheros MKV existentes">
       <span class="tab-icon">✏️</span> Consultar / Editar MKV
     </button>
+
+    <!-- La cabecera de la columna de trabajo, FIJADA A LA DERECHA.
+
+         Va aquí dentro y no encima de la columna a propósito: compartiendo la
+         fila con las otras tres, su alto y la línea que cierra la tira salen
+         por construcción. Fuera había que replicar el padding y el filete a
+         mano, y encima no casaba: el alto de una pestaña lo marca el emoji de
+         su icono, y con un SVG se quedaba 3,5 px más baja.
+
+         NO va en navy: en esta aplicación el navy significa «el panel que
+         estás viendo» y habría dos encendidos a la vez. Lleva el filete navy
+         arriba, que la ata al hub sin reclamarlo; y va rellena con la
+         superficie de la propia columna, no con el gris de pestaña inactiva,
+         que invitaría a pulsarla para cambiar de panel. -->
+    <div class="workbar-tab" id="workbar-tab">
+      <span class="workbar-tab-icono" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h16"/><path d="M4 12h11"/><path d="M4 17h7"/>
+        </svg>
+      </span>
+      <span class="workbar-tab-texto">Trabajos</span>
+      <span class="workbar-count" id="workbar-count">0</span>
+      <button class="workbar-toggle" id="workbar-toggle" onclick="toggleWorkbar()"
+        data-tooltip="Mostrar u ocultar la columna de trabajo"
+        aria-expanded="true" aria-controls="workbar-body"></button>
+    </div>
   </nav>
 
   <!-- ═══ BODY ══════════════════════════════════════════════════════ -->
@@ -386,13 +413,51 @@
          Solo consulta: fase, %, transcurrido y ETA. El detalle (log, argv,
          tiempos por fase) vive en un modal que se abre a petición. -->
     <aside id="workbar" class="collapsed">
-      <button class="workbar-toggle" id="workbar-toggle" onclick="toggleWorkbar()"
-        data-tooltip="Mostrar u ocultar la columna de trabajo"></button>
-      <div class="workbar-inner">
-        <div class="workbar-header">
-          <span class="workbar-title">Trabajos</span>
-          <span class="workbar-count" id="workbar-count">0</span>
+
+      <!-- La franja de 63 px. En el sidebar la ocupa el botón primario; aquí
+           el buscador, que es el control primario de una columna que solo
+           consulta. Filtra la columna ENTERA (en curso, en cola, en paralelo
+           y terminados), no solo el historial.
+
+           Al estar la columna dentro de #app-body como el sidebar y el panel,
+           esta franja acaba a la misma altura que las suyas sin cuadrar nada:
+           es lo que hace que la línea horizontal que separa el hub del
+           contenido cruce la ventana sin escalones. Antes la cabecera medía
+           22 px y todo lo de la columna arrancaba desplazado hacia arriba.
+
+           El buscador vive en el HTML y NO dentro de #workbar-body a
+           propósito: el cuerpo se repinta entero con cada poll (2 s), así que
+           un input ahí dentro perdería el foco y el cursor mientras escribes. -->
+      <div class="workbar-shelf">
+        <div class="workbar-search-wrap">
+          <span class="workbar-search-icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="10.5" cy="10.5" r="6"/><path d="m20 20-4.8-4.8"/>
+            </svg>
+          </span>
+          <input type="text" id="workbar-search" class="workbar-search-input"
+            placeholder="Buscar trabajo…" oninput="filtrarWorkbar()"
+            data-tooltip="Filtra la columna entera: en curso, en cola y terminados">
         </div>
+      </div>
+
+      <!-- Los pills llevan el MISMO glifo que la pestaña a la que se refieren:
+           un SVG aquí no se leería como «la pestaña del disco». Es la excepción
+           documentada a la regla de iconografía de la columna, y hay un test
+           que comprueba que siguen coincidiendo con los de #tab-bar. -->
+      <div class="workbar-pills">
+        <button class="wb-pill active" data-tab="all" onclick="onWorkbarPill(this)"
+          data-tooltip="Trabajo de las tres pestañas">Todos</button>
+        <button class="wb-pill" data-tab="rip" onclick="onWorkbarPill(this)"
+          data-tooltip="Solo Blu-Ray ISO → MKV">💿</button>
+        <button class="wb-pill" data-tab="cmv40" onclick="onWorkbarPill(this)"
+          data-tooltip="Solo Upgrade Dolby Vision CMv4.0">✨</button>
+        <button class="wb-pill" data-tab="mkv" onclick="onWorkbarPill(this)"
+          data-tooltip="Solo Consultar / Editar MKV">✏️</button>
+      </div>
+
+      <div class="workbar-inner">
         <div id="workbar-body"></div>
       </div>
     </aside>
@@ -1386,13 +1451,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260910e"></script>
-<script src="/static/workbar.js?v=20260910e"></script>
-<script src="/static/settings.js?v=20260910e"></script>
-<script src="/static/cmv40_modals.js?v=20260910e"></script>
-<script src="/static/tab1.js?v=20260910e"></script>
-<script src="/static/tab2.js?v=20260910e"></script>
-<script src="/static/tab3.js?v=20260910e"></script>
-<script src="/static/browser.js?v=20260910e"></script>
+<script src="/static/core.js?v=20260911a"></script>
+<script src="/static/workbar.js?v=20260911a"></script>
+<script src="/static/settings.js?v=20260911a"></script>
+<script src="/static/cmv40_modals.js?v=20260911a"></script>
+<script src="/static/tab1.js?v=20260911a"></script>
+<script src="/static/tab2.js?v=20260911a"></script>
+<script src="/static/tab3.js?v=20260911a"></script>
+<script src="/static/browser.js?v=20260911a"></script>
 </body>
 </html>
