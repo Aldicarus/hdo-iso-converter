@@ -112,6 +112,7 @@ let _workbarSeleccion = {json.dumps(seleccion)};
 {_fn('_workbarListaHTML')}
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 {_fn('_instalarReordenDeCola')}
@@ -270,3 +271,33 @@ class TestLosDosRenglones(TarjetaCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLosPuntitosDeFase(TarjetaCase):
+    """La barra es del PROCESO completo —un turno de cola es el proyecto
+    entero—, así que sin los puntos no se veía por qué fase iba."""
+
+    def test_un_punto_por_fase(self):
+        h = self._todo()
+        # `<span` para no contar el contenedor `wb-pips`.
+        self.assertEqual(h.count('<span class="wb-pip'), 7)
+
+    def test_las_hechas_la_actual_y_las_que_faltan_se_distinguen(self):
+        h = self._todo()
+        i = h.index('class="wb-pips"')
+        tira = h[i:h.index("</div>", i)]
+        self.assertEqual(tira.count("wb-pip hecha"), 2)     # 1 y 2 de 7
+        self.assertEqual(tira.count("wb-pip ahora"), 1)     # la 3
+        self.assertEqual(tira.count('class="wb-pip"'), 4)   # 4..7
+
+    def test_solo_los_lleva_el_activo(self):
+        """Una tarjeta de la cola o del historial no está en ninguna fase."""
+        h = self._todo("rec:h1|2026-09-11T08:00:00+00:00")
+        self.assertEqual(h.count('class="wb-pips"'), 1)
+
+    def test_sin_fases_no_se_pinta_una_tira_vacia(self):
+        """Los dos trabajos de Tab 2 y la copia no tienen fases numeradas."""
+        activo = dict(_ACTIVO, fases_total=0, fase_n=0)
+        h = self._render({"activo": activo, "cola": [], "interactivo": [],
+                          "recientes": []})
+        self.assertNotIn("wb-pips", h)

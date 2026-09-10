@@ -145,6 +145,7 @@ let _workbarFiltroTab = 'all';
 let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarRender')}
 {_fn('refrescarWorkbar')}
@@ -376,6 +377,7 @@ globalThis.escHtml = t => String(t);
 let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
@@ -400,6 +402,7 @@ globalThis.escHtml = t => String(t);
 let _workbarSeleccion = null;
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(

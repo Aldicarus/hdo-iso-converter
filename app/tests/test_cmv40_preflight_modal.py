@@ -606,9 +606,10 @@ class TestElPreflightDejaRastro(ApiTestCase):
     `workload` desaparecía de la columna y había que ir a buscarlo a la
     pestaña del proyecto.
 
-    **La línea es la del PROYECTO, no una del pre-flight**: es el arranque de
-    su trabajo, no otro trabajo. Y solo se escribe si el pipeline se PARA
-    aquí; si continúa, lo que hay que ver es «En curso».
+    **El pre-flight es un trabajo APARTE del de conversión**, y eso es
+    deliberado: decide si va a haber trabajo, dura 9 s de mediana, es
+    interactivo (no pasa por la cola) y su «Detalle» abre su propio modal. La
+    que es una sola línea por proyecto es la CONVERSIÓN.
     """
 
     def setUp(self):
@@ -655,22 +656,16 @@ class TestElPreflightDejaRastro(ApiTestCase):
             await asyncio.sleep(0.02)
         import historial
         return [t for t in historial.leer(10)
-                if t["tipo"] == historial.TIPO_FASE_CMV40]
+                if t["tipo"] == historial.TIPO_PREFLIGHT]
 
-    def test_uno_que_pasa_con_auto_NO_deja_linea(self):
-        """El pipeline continúa, así que el sitio donde se ve es «En curso».
-        Antes dejaba un «Validación previa · terminada» que se leía como un
-        trabajo acabado cuando en realidad acababa de empezar."""
-        import asyncio
-        self.assertEqual(asyncio.run(self._correr(auto=True)), [])
-
-    def test_uno_que_pasa_SIN_auto_queda_esperando(self):
-        """Con el auto-pipeline desactivado las fases las lanza el usuario, así
-        que el proyecto queda esperándole. Es el mismo predicado que cubre el
-        ACK y la revisión de sync: no ha terminado, no corre y no ha fallado."""
+    def test_uno_que_pasa_queda_como_hecho(self):
+        """Su trabajo —decidir si el bin sirve— terminó bien. Que la
+        conversión siga es otro trabajo, con su propia línea."""
         import asyncio, historial
-        t = asyncio.run(self._correr(auto=False))
-        self.assertEqual(t[0]["estado"], historial.ESTADO_ESPERANDO)
+        t = asyncio.run(self._correr(auto=True))
+        self.assertTrue(t, "el pre-flight no dejó línea en el historial")
+        self.assertEqual(t[0]["estado"], historial.ESTADO_HECHO)
+        self.assertIn("Validación previa", t[0]["que"])
 
     def test_uno_que_pide_decision_queda_ESPERANDO(self):
         """Es el caso que se perdía: terminó su parte y ahora depende del
@@ -690,14 +685,16 @@ class TestElPreflightDejaRastro(ApiTestCase):
     def test_su_ref_log_apunta_al_proyecto(self):
         """El registro del pre-flight vive en el log de la sesión."""
         import asyncio
-        t = asyncio.run(self._correr(error_message="El bin no aporta CMv4.0"))
+        t = asyncio.run(self._correr())
         self.assertEqual(t[0]["ref_log"], "cmv40:cmv40_pf_hist")
 
-    def test_y_la_linea_es_del_proyecto_no_de_la_fase(self):
-        import asyncio
-        t = asyncio.run(self._correr(preflight_decision="keep_l8_default"))
-        self.assertIn("Upgrade CMv4.0", t[0]["que"])
-        self.assertNotIn("Validación previa", t[0]["que"])
+    def test_y_NO_se_mezcla_con_la_linea_de_la_conversion(self):
+        """Son dos trabajos: uno decide y el otro convierte. Con el mismo
+        tipo, «Detalle» abriría el log de la conversión en vez del modal."""
+        import asyncio, historial
+        asyncio.run(self._correr(preflight_decision="keep_l8_default"))
+        tipos = {t["tipo"] for t in historial.leer(10)}
+        self.assertEqual(tipos, {historial.TIPO_PREFLIGHT})
 
 
 class TestResponderCierraLaEspera(ApiTestCase):

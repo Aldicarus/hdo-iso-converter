@@ -236,6 +236,36 @@ def registrar_estado(*, id: str, **campos) -> None:
     anotar(id=id, **campos)
 
 
+def resolver_espera(id: str, *, nuevo_estado: str | None,
+                    nuevo_que: str | None = None) -> bool:
+    """Cierra la entrada `esperando` de ese trabajo, si la hay.
+
+    Un pre-flight que acaba pidiendo una decisión deja una línea en
+    `ESTADO_ESPERANDO`. En cuanto el usuario responde, esa línea **deja de
+    pedir**: o pasa a su desenlace real, o desaparece porque el trabajo
+    continúa y lo que venga después escribirá el suyo.
+
+    No hace falta el `inicio` para identificarla: solo puede haber una
+    decisión pendiente por proyecto a la vez.
+
+    `nuevo_estado=None` la quita.
+    """
+    def _t(r):
+        if r.get("id") != id or r.get("estado") != ESTADO_ESPERANDO:
+            return r
+        if nuevo_estado is None:
+            return None
+        r = dict(r, estado=nuevo_estado)
+        if nuevo_que:
+            r["que"] = nuevo_que
+        return r
+    try:
+        return _reescribir(_t)
+    except Exception as e:                      # noqa: BLE001
+        logger.warning("[historial] no se pudo resolver %s: %s", id, e)
+        return False
+
+
 def quitar_sin_cerrar(id: str) -> bool:
     """Retira la línea sin cerrar de ese trabajo, si la hay.
 

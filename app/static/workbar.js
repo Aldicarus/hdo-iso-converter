@@ -167,6 +167,24 @@ function _workbarDescripcion(t) {
   return (t.titulo && que.endsWith(cola)) ? que.slice(0, -cola.length) : que;
 }
 
+/** Un punto por fase: dónde va el conjunto, de un vistazo.
+ *
+ *  La barra es del PROCESO completo (un turno de cola es el proyecto entero),
+ *  así que sin esto no se veía por qué fase iba: los puntos lo dicen sin
+ *  ocupar una línea de texto. Sirven para cualquier trabajo con fases — el
+ *  rip tiene cuatro y una fase CMv4.0 siete.
+ */
+function _workbarPips(a) {
+  if (!a.fases_total || a.fases_total < 2) return '';
+  const p = [];
+  for (let i = 1; i <= a.fases_total; i++) {
+    p.push(`<span class="wb-pip${i < a.fase_n ? ' hecha'
+                                : i === a.fase_n ? ' ahora' : ''}"></span>`);
+  }
+  return `<div class="wb-pips" data-tooltip="Fase ${a.fase_n || '–'} de `
+       + `${a.fases_total}">${p.join('')}</div>`;
+}
+
 /** El armazón común. `o` decide qué secciones del cuerpo salen. */
 function _workbarTarjeta(t, o) {
   const sel = _workbarSeleccion === o.ref
@@ -222,7 +240,7 @@ function _workbarActivoHTML(a) {
     ref: 'act', clase: 'wb-activa', pordefecto: true,
     sub: fase, paso: a.paso,
     estado: iconoDeEstado('corriendo', 'icono-chip-sm'),
-    cuerpo: barra + `
+    cuerpo: _workbarPips(a) + barra + `
         <div class="workbar-tiempos">
           <span>${escHtml(izq)}</span>
           <span>${der}</span>

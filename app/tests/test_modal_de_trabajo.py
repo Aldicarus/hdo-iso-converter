@@ -862,6 +862,7 @@ let _workbarFiltroTab = 'all';
 {_fn('_workbarPasaFiltro')}
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
+{_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarRender')}
 let workbarEstado = {{ activo: null, cola: [], interactivo: [],

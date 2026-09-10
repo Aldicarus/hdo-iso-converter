@@ -6598,6 +6598,13 @@ function _cmv40CtxTimeline(s, project, a) {
 }
 
 registrarDetalleDeTrabajo('cmv40', async (a) => {
+  // Esperando respuesta, el detalle es el PROYECTO: lo que hace falta es
+  // contestar, y eso se hace en sus cards. Devolver null es el contrato del
+  // armazón para «ya lo he enseñado yo».
+  if ((a.historial || {}).estado === 'esperando') {
+    abrirProyectoCMv40Para(a.id);
+    return null;
+  }
   const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
     .catch(() => null);
   const project = openCMv40Projects.find(p => p.session && p.session.id === a.id);
@@ -6637,6 +6644,28 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
 // El pre-flight tiene su propio modal, así que devuelve null: es el contrato
 // del armazón para «ya lo he enseñado yo». Sin esto, la columna listaba la
 // validación en «En paralelo» y no había forma de volver a ella.
+/** El «Detalle» de un trabajo CMv4.0 que espera respuesta LLEVA AL PROYECTO.
+ *
+ *  Lo que hace falta ahí no es leer el log: es contestar —el ACK de una
+ *  degradación, la revisión del sync, elegir el target—, y esas acciones viven
+ *  en las cards del panel. Abrir el modal del log dejaba al usuario mirando
+ *  dos mil líneas y teniendo que ir a la pestaña a mano.
+ *
+ *  El pre-flight es la excepción y tiene su propio registro: su decisión se
+ *  toma en su modal, no en el panel.
+ */
+async function abrirProyectoCMv40Para(sid) {
+  const s = await apiFetch(`/api/cmv40/${sid}`, { silent: true })
+    .catch(() => null);
+  if (!s) {
+    showToast('Ese proyecto ya no está', 'info');
+    return;
+  }
+  switchTab(3);
+  openCMv40Project(s);
+}
+
+
 registrarDetalleDeTrabajo('preflight', async (a) => {
   abrirPreflightCMv40(a.sobre || a.id);
   return null;

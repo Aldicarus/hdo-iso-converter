@@ -9271,7 +9271,7 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   position: relative;
   background: var(--surface-1);
   border: 1px solid var(--sep);
-  border-left: 3px solid var(--wb-acento, var(--surface-3));
+  border-left: 3px solid var(--wb-acento);
   border-radius: var(--r-sm);
   padding: 9px 10px;
   margin-bottom: 5px;
@@ -9281,9 +9281,22 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 .wb-card:last-child { margin-bottom: 0; }
 .wb-card:hover:not(.selected) { box-shadow: var(--sh-sm); }
 .wb-card.selected { border-color: var(--sep-strong); box-shadow: var(--sh-sm); }
-.wb-tab-rip   { --wb-acento: var(--blue); }
-.wb-tab-mkv   { --wb-acento: var(--teal); }
-.wb-tab-cmv40 { --wb-acento: var(--orange); }
+/* El acento de la tarjeta, por pestaña de origen. El valor neutro se declara
+   aquí y no en `:root` porque es asunto de la columna; un trabajo cuya
+   pestaña no se reconozca —una cola persistida de una versión anterior— sale
+   en gris en vez de sin borde. */
+.wb-card {
+  --wb-acento: var(--surface-3);
+}
+.wb-tab-rip {
+  --wb-acento: var(--blue);
+}
+.wb-tab-mkv {
+  --wb-acento: var(--teal);
+}
+.wb-tab-cmv40 {
+  --wb-acento: var(--orange);
+}
 /* El trabajo en curso. NO lleva halo verde: el anillo envolvía también el
    acento de la izquierda y le quitaba el color de su pestaña, que es la señal
    que hace la columna escaneable. Que está corriendo ya lo dicen su tamaño,
@@ -9339,7 +9352,22 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 }
 .wb-card-acciones .btn { flex: 1; justify-content: center; }
 
-.wb-card .workbar-barra { margin-top: 8px; }
+.wb-card .workbar-barra { margin-top: 6px; }
+
+/* Un punto por fase. La barra es del PROCESO completo, así que estos son los
+   que dicen por dónde va el conjunto — sin gastar una línea de texto. */
+.wb-pips { display: flex; gap: 3px; margin-top: 8px; }
+.wb-pip {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0,0,0,0.10);
+}
+.wb-pip.hecha { background: var(--wb-acento); }
+.wb-pip.ahora {
+  background: var(--wb-acento);
+  box-shadow: 0 0 0 1px var(--surface-1), 0 0 0 2px var(--wb-acento);
+}
 
 .workbar-vacio {
   padding: 18px 14px; text-align: center;
