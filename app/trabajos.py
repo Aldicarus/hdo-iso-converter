@@ -177,6 +177,21 @@ def _vacio(trabajo) -> dict:
         "segundos": 0,
         "eta_s": None,
         "eta_fuente": None,
+        # **El progreso son DOS niveles, y no se mezclan.** Los campos de
+        # arriba (`pct`, `segundos`, `eta_s`) son SIEMPRE los del trabajo
+        # entero: es lo que se enseña en la columna, donde no hay sitio para
+        # dos cifras, y en la cabecera del modal.
+        #
+        # `fase_progreso` es lo mismo referido a la fase en curso, y solo lo
+        # llena quien tiene dos niveles de verdad — hoy CMv4.0, cuyo turno de
+        # cola es el proyecto entero (siete fases). El modal lo pinta encima
+        # del log, junto al nombre de la fase, porque durante veinte minutos
+        # de demux lo que se quiere saber es cuánto le queda a ESO.
+        #
+        # Un trabajo de un solo nivel lo deja a `None` y el modal cae a los de
+        # arriba, que para él son la misma cosa. Mismas claves que arriba:
+        # `{pct, pct_medido, segundos, eta_s, eta_fuente}`.
+        "fase_progreso": None,
         "cancelable": True,
     }
 

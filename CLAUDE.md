@@ -759,6 +759,25 @@ Tres reglas que hereda del resto del proyecto:
   «(aprox.)» cuando es lo segundo.
 - **Un adaptador que falla no tumba la columna.** Quedarse sin el porcentaje es
   un inconveniente; quedarse sin saber que hay algo corriendo, no.
+- **El progreso son DOS niveles y no se mezclan.** `pct`/`segundos`/`eta_s` son
+  SIEMPRE los del trabajo entero; `fase_progreso` —mismas claves— es el de la
+  fase en curso, y solo lo llena quien tiene dos niveles de verdad (CMv4.0,
+  cuyo turno de cola son las siete fases). El reparto en pantalla:
+
+  | dónde | qué |
+  |---|---|
+  | tarjeta de la columna | el del TRABAJO |
+  | modal · columna izquierda, bajo la cartela | el del TRABAJO |
+  | modal · bloque pegado al log | el de la FASE |
+
+  Se han confundido en las **dos** direcciones: primero la tarjeta enseñaba el
+  de la fase (90 % con el trabajo por el 20 %), y al arreglarlo el bloque del
+  log pasó a enseñar el total y se quedó clavado durante los veinte minutos de
+  un demux. Los dos sitios del total salen del **mismo** `job_pct` calibrado —
+  el de la izquierda caía al escalonado por fases («6/10 · 60 %») mientras la
+  tarjeta decía 24 %, que es la queja de la que salió todo esto. Lo fija
+  `test_dos_niveles_de_progreso.py`, que mide en Chrome con dos juegos de
+  números que no se pueden confundir.
 
 **El ETA del rip es medido, no un modelo.** Sobre los 42 rips completados del
 NAS, `extract` es el **100 %** del tiempo total (mediana) y `mount`/`unmount`

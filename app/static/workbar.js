@@ -1025,29 +1025,41 @@ function _trabajoModalPinta(a, vista) {
   const lateral = vista.lateral
     || timelineDeTrabajo(vista.pasos, a, vista.pasosTitulo);
 
+  // **El bloque de progreso de aquí abajo —barra, paso, %, restante— es el de
+  // la FASE, no el del trabajo.** El total va arriba a la izquierda, bajo la
+  // cartela, y en la tarjeta de la columna; aquí, pegado al log, lo que se
+  // quiere saber es cuánto le queda a lo que se está leyendo: durante veinte
+  // minutos de demux el porcentaje del proyecto entero apenas se mueve.
+  //
+  // `fase_progreso` solo lo llena quien tiene dos niveles de verdad —CMv4.0,
+  // cuyo turno de cola son las siete fases—. Los demás caen a los campos de
+  // arriba, que para ellos son la misma cosa.
+  const fase = a.fase_progreso || a;
   // La barra sigue la misma regla que en la columna: sin porcentaje medido no
   // se pinta una que avanza.
   const wrap = document.getElementById('trabajo-modal-barra-wrap');
   const fill = document.getElementById('trabajo-modal-barra');
   if (wrap && fill) {
-    wrap.classList.toggle('indeterminada', !a.terminal && !a.pct_medido);
-    fill.style.width = a.terminal ? '100%' : (a.pct_medido ? `${a.pct}%` : '');
+    // La barra pertenece a este bloque, así que también es la de la fase.
+    wrap.classList.toggle('indeterminada', !a.terminal && !fase.pct_medido);
+    fill.style.width = a.terminal ? '100%' : (fase.pct_medido ? `${fase.pct}%` : '');
     wrap.classList.toggle('terminada', !!a.terminal);
   }
   // El PASO dentro de la fase. Sin él la barra dice cuánto queda pero no de
   // qué: diez minutos de demux se ven igual que diez de merge.
   set('trabajo-modal-paso', a.paso || vista.paso || a.fase_label || 'Preparando…');
-  set('trabajo-modal-pct', a.terminal ? '' : (a.pct_medido ? `${a.pct}%` : '—'));
-  set('trabajo-modal-eta', a.terminal ? '' : (a.eta_s != null
-    ? `Restante ${_workbarTiempo(a.eta_s)}`
-      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+  set('trabajo-modal-pct', a.terminal ? '' : (fase.pct_medido ? `${fase.pct}%` : '—'));
+  set('trabajo-modal-eta', a.terminal ? '' : (fase.eta_s != null
+    ? `Restante ${_workbarTiempo(fase.eta_s)}`
+      + (fase.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : ''));
   const tiemposEl = document.getElementById('trabajo-modal-tiempos');
   if (tiemposEl) {
-    // Terminado el reloj se para: es un dato, no un contador.
-    tiemposEl.innerHTML = !a.segundos ? ''
-      : a.terminal ? `Duró ${escHtml(_workbarTiempo(a.segundos))}`
-      : _relojHTML(a.segundos, 'Lleva ');
+    // Terminado el reloj se para: es un dato, no un contador. Y al terminar
+    // lo que interesa es lo que costó el TRABAJO, no la última fase.
+    tiemposEl.innerHTML = a.terminal
+      ? (a.segundos ? `Duró ${escHtml(_workbarTiempo(a.segundos))}` : '')
+      : (fase.segundos ? _relojHTML(fase.segundos, 'Lleva ') : '');
   }
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');

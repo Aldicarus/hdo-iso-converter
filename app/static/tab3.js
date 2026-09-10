@@ -6634,6 +6634,15 @@ function _renderCMv40Chart(project) {
 function _cmv40CtxTimeline(s, project, a) {
   const ctx = project ? Object.create(project) : { session: s };
   ctx.terminal = !!(a && a.terminal);
+  // El total de la izquierda es EL MISMO que el de la tarjeta de la columna:
+  // los dos contestan «cuánto queda de la conversión» y salen del mismo
+  // `job_pct` calibrado. Sin esto el modal caía al escalonado por fases —«6/10
+  // · 60 %» mientras la tarjeta decía 24 %—, que es la queja de la que salió
+  // todo esto: varias cifras distintas para la misma pregunta.
+  //
+  // Va en el ctx y no en el proyecto (`Object.create` lo sombrea) para no
+  // pisarle el suyo, que llega por el WS.
+  if (a && a.pct != null && a.pct_medido) ctx._jobPct = a.pct;
   return ctx;
 }
 

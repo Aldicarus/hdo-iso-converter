@@ -4453,6 +4453,37 @@ def _cmv40_progreso_total(session: CMv40Session, fase: str,
     return round(pct), trabajos.eta_por_porcentaje(trabajo, pct), trabajo
 
 
+def _cmv40_progreso_de_la_fase(session: CMv40Session, fase: str,
+                               prog: dict) -> dict:
+    """Lo mismo que `_cmv40_progreso_total`, pero de la fase que corre ahora.
+
+    El `pct` es el que emite `_ReadProgress` desde evidencia real (`rchar` de
+    /proc, el tamaño del fichero de salida, la posición de lectura), así que
+    cuando esa evidencia no existe —el tramo final de un `extract-rpu`, que
+    escribe el RPU de golpe al cerrar— **no hay pct y no se inventa uno**.
+
+    El transcurrido es el de la fase en curso, no el del proyecto: son los dos
+    relojes que el usuario compara al mirar el modal.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    pct = prog.get("pct")
+    segundos = 0
+    for r in (session.phase_history or []):
+        if r.status == "running" and r.phase == fase and r.started_at:
+            segundos = round(max(0.0, (_dt.now(_tz.utc)
+                                       - r.started_at).total_seconds()))
+    eta = prog.get("eta_s")
+    return {
+        "pct": round(pct) if pct is not None else None,
+        "pct_medido": pct is not None,
+        "segundos": segundos,
+        "eta_s": round(eta) if eta else None,
+        # Medido: sale del ritmo real de ESTA fase, no de un reparto por
+        # pesos como el del total.
+        "eta_fuente": "medido" if eta else None,
+    }
+
+
 def _cmv40_adaptador(trabajo) -> dict | None:
     """El progreso de una fase CMv4.0, en la forma común de `trabajos.py`.
 
@@ -4486,6 +4517,12 @@ def _cmv40_adaptador(trabajo) -> dict | None:
     # siempre que no hay evidencia.
     pct, eta, segundos = _cmv40_progreso_total(session, fase, prog)
     return {
+        # El progreso de la FASE, aparte del total. Los dos hacen falta y
+        # dicen cosas distintas: el total contesta «¿cuánto queda de la
+        # conversión?» y este «¿cuánto le queda al demux?». Mezclarlos deja al
+        # usuario con un 90 % que no avanza —el de una fase que acaba— o con
+        # un 24 % clavado durante veinte minutos.
+        "fase_progreso": _cmv40_progreso_de_la_fase(session, fase, prog),
         "fase": fase,
         "fase_label": _CMV40_FASE_LABELS.get(fase, fase),
         # El `label` del progreso dice en qué PASO de la fase va (el demux, el

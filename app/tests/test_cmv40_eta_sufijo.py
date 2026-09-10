@@ -197,9 +197,13 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
         # sufijo de ese span.
         self.assertEqual(js.count(
             "` · Restante ${_workbarTiempo(a.eta_s)}`"), 1)
-        # Dos: el bloque de progreso del modal y la cabecera de la timeline
-        # común, que es la de CMv4.0 alimentada por los otros cuatro tipos.
-        self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 2)
+        # La cabecera de la timeline común, que es la de CMv4.0 alimentada por
+        # los otros cuatro tipos.
+        self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 1)
+        # Y el bloque de progreso del modal, que lee el de la FASE: ahí el
+        # restante es el de lo que se está leyendo en el log, no el del
+        # trabajo entero (ver `test_dos_niveles_de_progreso`).
+        self.assertEqual(js.count("`Restante ${_workbarTiempo(fase.eta_s)}`"), 1)
         self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)
         self.assertIn("`Restante ${m}:${String(s).padStart(2, '0')}`", js)
 

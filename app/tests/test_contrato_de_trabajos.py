@@ -41,7 +41,12 @@ import workload  # noqa: E402
 CAMPOS = {"id", "sobre", "tab", "tipo", "que", "titulo", "poster",
           "fase", "fase_label", "paso", "chips", "fase_n",
           "fases_total", "pct", "pct_medido", "segundos", "eta_s",
-          "eta_fuente", "cancelable"}
+          "eta_fuente",
+          # El progreso de la FASE en curso, cuando el trabajo tiene dos
+          # niveles de verdad. Los campos de arriba son SIEMPRE los del
+          # trabajo entero; ver `test_dos_niveles_de_progreso`.
+          "fase_progreso",
+          "cancelable"}
 
 
 def _t(tipo, clave="k", tab="rip", **kw):
@@ -333,6 +338,51 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         self.assertEqual(p["fase_label"], "Fase F — Inyectando el RPU en la EL")
         self.assertEqual(p["paso"], "Inyectando el RPU")
         self.assertEqual(p["detalle"], "cmv40")
+
+    def test_y_el_de_la_FASE_viaja_aparte(self):
+        """Los dos hacen falta: el modal enseña el del trabajo bajo la
+        cartela y el de la fase pegado al log, que es lo que se está leyendo.
+        Mandar solo uno obliga al que sobra a mentir — ha pasado en las dos
+        direcciones (ver `test_dos_niveles_de_progreso`)."""
+        import storage
+        sid = self.crear_sesion(sid="cmv40_dos", phase="extracted")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = "inject"
+        storage.save_cmv40_session(s)
+        storage.write_cmv40_progress(sid, {"pct": 55, "eta_s": 300,
+                                           "label": "Inyectando el RPU"})
+        p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
+                              datos={"fase": "inject"}))
+        self.assertEqual(p["pct"], 15, "arriba, el del trabajo")
+        f = p["fase_progreso"]
+        self.assertEqual(f["pct"], 55, "aparte, el de la fase")
+        self.assertTrue(f["pct_medido"])
+        self.assertEqual(f["eta_s"], 300)
+        # Del ritmo real de la fase, no de un reparto por pesos: el
+        # «(aprox.)» que la UI escribe al lado del restante es del total, y
+        # este no lo lleva.
+        self.assertEqual(f["eta_fuente"], "medido")
+
+    def test_y_sin_medida_de_la_fase_tampoco_se_finge(self):
+        import storage
+        sid = self.crear_sesion(sid="cmv40_dos2", phase="extracted")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = "validate"
+        s.last_progress = None
+        storage.save_cmv40_session(s)
+        f = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40"))["fase_progreso"]
+        self.assertIsNone(f["pct"])
+        self.assertFalse(f["pct_medido"])
+
+    def test_los_otros_tipos_NO_lo_llevan(self):
+        """Un trabajo de un solo nivel lo deja a None y la UI cae a los campos
+        de arriba, que para él son la misma cosa. Rellenarlo con una copia
+        sería inventar una distinción que no existe."""
+        from routers import tab2
+        tab2._mkv_quality_state.update(
+            {"active": True, "audit_id": "aud1", "step": "ffmpeg"})
+        p = self._progreso(_t(qm.TIPO_ANALISIS_EXTENDIDO, "aud1", tab="mkv"))
+        self.assertIsNone(p["fase_progreso"])
 
     def test_el_progreso_sale_del_SIDECAR_no_del_json(self):
         """`last_progress` vive en `{id}.progress` desde que se sacó del JSON
