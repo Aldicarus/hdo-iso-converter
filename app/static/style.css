@@ -9215,11 +9215,16 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   display: flex;
   flex-direction: column;
 }
-/* Lo que está en marcha manda: se lleva el alto que necesite y solo scrollea
-   si la cola se hace muy larga. */
+/* Lo que está en marcha manda: se lleva el alto que necesite y solo cede si
+   no cabe con el historial.
+
+   Sin `max-height`: lo tuvo, y con el historial vacío —que se oculta con
+   `:empty`— el 38 % restante se quedaba en blanco, media columna de gris que
+   además empujaba el contenido fuera de la vista. Con `flex: 0 1 auto` la
+   zona mide lo que su contenido y encoge solo cuando hace falta; si el
+   historial no está, se lo lleva todo. */
 #workbar-body {
-  flex: 0 0 auto;
-  max-height: 62%;
+  flex: 0 1 auto;
   overflow-y: auto;
 }
 /* Y el historial, el resto. Su scroll es SUYO: al vivir en otro contenedor no

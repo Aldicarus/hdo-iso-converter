@@ -123,6 +123,8 @@ def _medir() -> dict:
       columna:    r(q('#workbar')),
       tabColumna: r(tab),
       franja:     r(q('.workbar-shelf')),
+      cuerpo:     r(q('#workbar-body')),
+      cuerpoMax:  getComputedStyle(q('#workbar-body')).maxHeight,
       pills:      r(q('.workbar-pills')),
       tabBar:     r(q('#tab-bar')),
       barVacia,
@@ -446,3 +448,26 @@ class TestElBuscadorNoViveEnElCuerpo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
+class TestSinHistorialNoQuedaMediaColumnaEnBlanco(unittest.TestCase):
+    """La zona de «ahora» tuvo un `max-height: 62%`, y con el historial vacío
+    —que se oculta con `:empty`— el 38 % restante se quedaba en gris: media
+    columna de nada que además empujaba el contenido fuera de la vista."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _medir()
+
+    def test_la_zona_de_ahora_llega_hasta_abajo(self):
+        col = self.m["columna"]
+        cuerpo = self.m["cuerpo"]
+        self.assertIsNotNone(cuerpo, "no se midió #workbar-body")
+        # Sin historial, el cuerpo llega al fondo de la columna (o hasta donde
+        # llegue su contenido, que aquí es más corto).
+        self.assertLessEqual(cuerpo["b"], col["b"] + 1)
+        self.assertGreater(cuerpo["h"], 0)
+
+    def test_y_no_se_le_pone_un_tope_de_alto(self):
+        self.assertEqual(self.m["cuerpoMax"], "none")

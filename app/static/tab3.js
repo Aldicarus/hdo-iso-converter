@@ -5207,6 +5207,12 @@ function _cmv40MaybeAutoAdvance(project) {
   if (!project.autoContinue) return;
   const s = project.session;
   if (s.running_phase || s.error_message || s.archived) return;
+  // YA ESPERA TURNO. Desde que un turno de cola es el proyecto entero, entre
+  // «encolado» y «corriendo» hay un hueco en el que `running_phase` sigue a
+  // null: el backend ya tiene el trabajo apuntado y aquí se veía como «no hay
+  // nada en marcha, arranca la fase». Cada intento se lo comía el guard de
+  // duplicados con un 409, y el usuario un toast rojo cada cuatro segundos.
+  if (s.cola) return;
   // ABRIR UN PROYECTO NO ARRANCA TRABAJO.
   //
   // En `created` el auto-avance no *reanuda* nada: *empieza* el job (el

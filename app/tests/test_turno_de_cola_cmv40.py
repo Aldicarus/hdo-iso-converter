@@ -487,3 +487,38 @@ class TestUnaSolaCifraParaLaMismaPregunta(TurnoCase):
         self.assertEqual(js.count("_cmv40RestanteDelJob(s, steps"), 3)
         self.assertEqual(js.count("_cmv40ComputeRemainingSecs(s, steps"), 2,
                          "algún sitio sigue sumando por su cuenta")
+
+
+class TestEsperandoTurnoNadieVuelveADispararLaFase(unittest.TestCase):
+    """Entre «encolado» y «corriendo» hay un hueco en el que `running_phase`
+    sigue a null. El auto-avance del frontend lo leía como «no hay nada en
+    marcha, arranca la fase», el guard de duplicados se lo comía con un 409 y
+    el usuario recibía un toast rojo cada cuatro segundos.
+
+    Es la familia de los dos disparadores que este repo ya conoce: el frontend
+    decide sobre el snapshot de su último poll y el servidor es el único que
+    sabe el estado real. Lo que cambia con el turno de cola es que ese hueco
+    dura ahora lo que dure la cola — antes eran milisegundos.
+    """
+
+    def test_el_auto_avance_se_para_si_el_proyecto_espera_turno(self):
+        import re
+        from frontend_sources import js_completo
+        js = js_completo()
+        i = js.index("function _cmv40MaybeAutoAdvance(")
+        cuerpo = js[i:js.index("\n}\n", i)]
+        # Sin comentarios: si no, basta con que la explicación diga «cola».
+        cuerpo = re.sub(r"//.*|/\*(?:.|\n)*?\*/", "", cuerpo)
+        self.assertIn("if (s.cola) return;", cuerpo)
+        # Y antes de decidir nada: el `switch` viene después.
+        self.assertLess(cuerpo.index("if (s.cola) return;"),
+                        cuerpo.index("switch (s.phase)"))
+
+    def test_y_el_backend_lo_sigue_rechazando_igual(self):
+        """El guard no se toca: es el que de verdad protege, porque el
+        frontend siempre decide sobre un snapshot viejo."""
+        from routers import cmv40
+        i = cmv40.__file__
+        src = Path(i).read_text(encoding="utf-8")
+        j = src.index("def _cmv40_guard_no_duplicado(")
+        self.assertIn("queue_manager.buscar", src[j:j + 1400])
