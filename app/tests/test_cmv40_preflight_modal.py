@@ -57,6 +57,13 @@ def _fn(nombre: str) -> str:
     return JS[JS.rindex("\n", 0, i) + 1:JS.index("\n}\n", i) + 3]
 
 
+# Las piezas de las que cuelgan casi todas las demás: el veredicto pregunta
+# por la decisión, y la decisión formatea su fecha. Van juntas o no van.
+def _pf_helpers() -> str:
+    return "\n".join(_fn(n) for n in (
+        "_cmv40PfMotivosDelLog", "_cmv40PfDecision", "_cmv40PfCuando"))
+
+
 def _node(guion: str) -> dict:
     r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
                        timeout=30)
@@ -71,7 +78,7 @@ class TestLosTresDesenlaces(unittest.TestCase):
     def _veredicto(self, sesion, trabajo=None) -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
-{_fn('_cmv40PfMotivosDelLog')}
+{_pf_helpers()}
 {_fn('_cmv40PfVeredicto')}
 const v = _cmv40PfVeredicto({json.dumps(sesion)}, {json.dumps(trabajo)});
 console.log(JSON.stringify({{v}}));
@@ -128,6 +135,7 @@ class TestLasConclusiones(unittest.TestCase):
     def _checks(self, sesion) -> list:
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_pf_helpers()}
 {_fn('_cmv40PfChecks')}
 console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
 """
@@ -232,6 +240,7 @@ const _els = {{}};
 _els['cmv40-pf-pie'] = {{ innerHTML: '' }};
 globalThis.document = {{ getElementById: id => _els[id] || null }};
 let _cmv40PfSesion = 'p1';
+{_pf_helpers()}
 {_fn('_cmv40PfPintarPie')}
 _cmv40PfPintarPie({{}}, {json.dumps(veredicto)});
 console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
@@ -714,6 +723,165 @@ class TestResponderCierraLaEspera(ApiTestCase):
         r = self.client.post(f"/api/cmv40/{sid}/override-recommendation")
         self.assertEqual(r.status_code, 200)
         self.assertEqual([x for x in historial.leer(10) if x["id"] == sid], [])
+
+
+class TestLaDecisionSeRegistraYNoSeVuelveAPedir(ApiTestCase):
+    """Contestada la pregunta, el modal deja de hacerla — y dice qué se
+    contestó.
+
+    Las dos respuestas borran su propio rastro: `accept-keep` cierra el
+    proyecto pero **no toca `preflight_decision`**, y `override-recommendation`
+    lo resetea a 'ok'. Con lo primero, reabrir el detalle volvía a enseñar el
+    aviso con sus dos botones, pidiendo algo ya decidido; y en ningún caso
+    quedaba registro de la respuesta.
+    """
+
+    def _sesion(self):
+        import storage
+        sid = self.crear_sesion(sid="cmv40_reg", phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.recommended_action = "keep"
+        s.recommended_action_label = "Mantener el MKV actual"
+        s.target_preflight_ok = True
+        s.preflight_decision = "keep_l8_default"
+        s.auto_pipeline = False
+        storage.save_cmv40_session(s)
+        return sid
+
+    def test_mantener_deja_escrito_que_y_cuando(self):
+        import storage
+        sid = self._sesion()
+        self.client.post(f"/api/cmv40/{sid}/accept-keep")
+        s = storage.load_cmv40_session(sid)
+        self.assertEqual(s.preflight_user_choice, "keep")
+        self.assertTrue(s.preflight_user_choice_at)
+
+    def test_inyectar_igualmente_tambien_queda_escrito(self):
+        import storage
+        sid = self._sesion()
+        self.client.post(f"/api/cmv40/{sid}/override-recommendation")
+        s = storage.load_cmv40_session(sid)
+        self.assertEqual(s.preflight_user_choice, "inject")
+        self.assertTrue(s.preflight_user_choice_at)
+
+    def test_el_campo_viaja_al_frontend(self):
+        """Va en el `model_dump()` de la respuesta, que es de donde lo lee el
+        modal — no basta con persistirlo."""
+        sid = self._sesion()
+        d = self.client.post(f"/api/cmv40/{sid}/accept-keep").json()
+        self.assertEqual(d["preflight_user_choice"], "keep")
+
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElModalNoRepiteUnaPreguntaYaContestada(unittest.TestCase):
+
+    def _veredicto(self, sesion, trabajo=None) -> dict:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_pf_helpers()}
+{_fn('_cmv40PfVeredicto')}
+console.log(JSON.stringify({{v: _cmv40PfVeredicto({json.dumps(sesion)},
+                                                  {json.dumps(trabajo)})}}));
+"""
+        return _node(guion)["v"]
+
+    def _pie(self, sesion) -> str:
+        """El pie REAL, a partir de la sesión: es la cadena entera
+        (decisión → veredicto → botones) la que tiene que dejar de preguntar,
+        no una de sus piezas."""
+        guion = f"""
+globalThis.escHtml = t => String(t);
+const _els = {{}};
+_els['cmv40-pf-pie'] = {{ innerHTML: '' }};
+globalThis.document = {{ getElementById: id => _els[id] || null }};
+let _cmv40PfSesion = 'p1';
+{_pf_helpers()}
+{_fn('_cmv40PfVeredicto')}
+{_pf_helpers()}
+{_fn('_cmv40PfPintarPie')}
+const s = {json.dumps(sesion)};
+_cmv40PfPintarPie(s, _cmv40PfVeredicto(s, null));
+console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
+"""
+        return _node(guion)["html"]
+
+    def _checks(self, sesion) -> list:
+        guion = f"""
+globalThis.escHtml = t => String(t);
+{_pf_helpers()}
+{_fn('_cmv40PfChecks')}
+console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
+"""
+        return _node(guion)["f"]
+
+    # La sesión tal y como queda tras «Mantener el MKV»: cerrada, pero con
+    # `preflight_decision` intacto — que es lo que engañaba al modal.
+    _MANTENIDO = {
+        "phase": "done", "output_workflow": "keep_cmv29",
+        "preflight_decision": "keep_l8_default",
+        "preflight_message": "El RPU es sintético.",
+        "recommended_action": "keep",
+        "recommended_action_label": "Mantener el MKV actual",
+        "preflight_user_choice": "keep",
+        "preflight_user_choice_at": "2026-09-10T07:12:00+00:00",
+    }
+
+    def test_tras_mantener_el_pie_ya_no_ofrece_decidir(self):
+        h = self._pie(self._MANTENIDO)
+        self.assertNotIn("_cmv40PfMantener", h)
+        self.assertNotIn("_cmv40PfForzar", h)
+        self.assertIn("cerrarPreflightCMv40()", h)
+
+    def test_sin_decidir_el_pie_SI_ofrece_las_dos_salidas(self):
+        """El contraste que da sentido al anterior: la misma sesión sin la
+        respuesta tiene que seguir preguntando."""
+        s = dict(self._MANTENIDO)
+        for k in ("phase", "output_workflow", "preflight_user_choice",
+                  "preflight_user_choice_at"):
+            s.pop(k)
+        h = self._pie(s)
+        self.assertIn("_cmv40PfMantener", h)
+        self.assertIn("_cmv40PfForzar", h)
+
+    def test_el_veredicto_cuenta_lo_que_se_decidio(self):
+        v = self._veredicto(self._MANTENIDO)
+        self.assertEqual(v["clase"], "ok")
+        self.assertIn("mantiene", v["titulo"].lower())
+
+    def test_forzar_la_inyeccion_dice_donde_quedo_el_trabajo(self):
+        v = self._veredicto({"preflight_user_choice": "inject",
+                             "target_preflight_ok": True},
+                            "La Fase A ya está en marcha.")
+        self.assertEqual(v["clase"], "ok")
+        self.assertIn("igualmente", v["titulo"].lower())
+        self.assertIn("Fase A", v["cuerpo"])
+
+    def test_la_decision_es_una_conclusion_mas_del_checklist(self):
+        f = self._checks(self._MANTENIDO)
+        fila = [x for x in f if x["titulo"] == "Decisión"]
+        self.assertEqual(len(fila), 1)
+        self.assertEqual(fila[0]["estado"], "ok")
+        self.assertIn("Mantener el MKV actual", fila[0]["valor"])
+        # Con la fecha, porque una decisión sin cuándo no es un registro.
+        self.assertIn("10/09/2026", fila[0]["valor"])
+
+    def test_sin_decidir_no_hay_fila_de_decision(self):
+        f = self._checks({"recommended_action_label": "Mantener el MKV actual",
+                          "recommended_action": "keep"})
+        self.assertEqual([x for x in f if x["titulo"] == "Decisión"], [])
+
+    def test_un_proyecto_cerrado_ANTES_del_campo_tambien_se_respeta(self):
+        """Los que ya están cerrados en el `/config` del usuario no tienen el
+        campo nuevo. `output_workflow` solo lo escribe `accept-keep`, así que
+        identifica la decisión igual de bien y no hay que migrar nada."""
+        viejo = {k: v for k, v in self._MANTENIDO.items()
+                 if not k.startswith("preflight_user_choice")}
+        h = self._pie(viejo)
+        self.assertNotIn("_cmv40PfMantener", h)
+        f = self._checks(viejo)
+        fila = [x for x in f if x["titulo"] == "Decisión"][0]
+        # Sin fecha: no la hay, y no se inventa.
+        self.assertEqual(fila["valor"], "Mantener el MKV actual")
 
 
 class TestCerrarNoCancela(unittest.TestCase):

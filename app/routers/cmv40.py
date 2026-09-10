@@ -2509,6 +2509,18 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+def _cmv40_anotar_decision(session: CMv40Session, eleccion: str) -> None:
+    """Deja constancia de lo que el usuario contestó al pre-flight.
+
+    Las dos decisiones borran su propio rastro —`accept-keep` cierra el
+    proyecto sin tocar `preflight_decision`, y `override-recommendation` lo
+    resetea a 'ok'—, así que sin esto el modal volvía a ofrecer los dos
+    botones al reabrirlo y no quedaba registro de la respuesta.
+    """
+    session.preflight_user_choice = eleccion
+    session.preflight_user_choice_at = datetime.now(timezone.utc).isoformat()
+
+
 @router.post(
     "/api/cmv40/{session_id}/accept-keep",
     summary="Acepta la recomendación de mantener el MKV actual — cierra el proyecto sin procesar",
@@ -2540,6 +2552,7 @@ async def cmv40_accept_keep(session_id: str):
     session.phase = "done"
     session.output_workflow = "keep_cmv29"
     session.error_message = ""
+    _cmv40_anotar_decision(session, "keep")
     _cmv40_marcar_libre(session)
     save_cmv40_session(session)
     await _cmv40_log(
@@ -2591,6 +2604,7 @@ async def cmv40_override_recommendation(session_id: str):
     # solo lo marcamos como apto para avanzar.
     if session.target_dv_info and session.target_dv_info.cm_version == "v4.0":
         session.target_preflight_ok = True
+    _cmv40_anotar_decision(session, "inject")
     save_cmv40_session(session)
     await _cmv40_log(
         session,

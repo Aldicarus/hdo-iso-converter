@@ -1552,6 +1552,23 @@ class CMv40Session(BaseModel):
     """Mensaje legible para mostrar al usuario explicando la decisión del
     pre-flight. Solo poblado cuando preflight_decision != 'ok'."""
 
+    preflight_user_choice: str = ""
+    """Lo que el usuario CONTESTÓ cuando el pre-flight le pidió decidir:
+      - 'keep':   mantener el MKV actual (accept-keep)
+      - 'inject': inyectar igualmente (override-recommendation)
+      - '':       nadie ha decidido nada todavía
+
+    Existe porque las dos decisiones borran su propio rastro: `accept-keep`
+    cierra el proyecto pero deja `preflight_decision` intacto, y
+    `override-recommendation` lo resetea a 'ok'. Sin este campo el modal del
+    pre-flight volvía a ofrecer los dos botones al reabrirlo, y no había
+    forma de saber qué se había respondido.
+    """
+
+    preflight_user_choice_at: str = ""
+    """Cuándo se contestó (ISO-8601 UTC). Es lo que convierte el campo de
+    arriba en un registro y no solo en un interruptor."""
+
     # ── Bloque 2: recomendación del modelo de 4 caminos ──
     # Calculada tras pre-flight (si keep_l8_default) o tras Fase A (cuando
     # tenemos también source_l2_combos para comparar con target_l2_combos).

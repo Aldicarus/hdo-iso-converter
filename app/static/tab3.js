@@ -6698,9 +6698,56 @@ function _cmv40PfSet(id, txt) {
   if (el) el.textContent = txt;
 }
 
+/** Qué contestó el usuario al pre-flight: 'keep' | 'inject' | ''.
+ *
+ *  El fallback existe para los proyectos que se cerraron ANTES de que el
+ *  campo existiera: `output_workflow = 'keep_cmv29'` solo lo escribe
+ *  `accept-keep`, así que identifica la decisión igual de bien. Para el
+ *  «inyectar igualmente» no hay equivalente antiguo, pero ahí tampoco se
+ *  ofrecían los botones (el override deja `preflight_decision` en 'ok').
+ */
+function _cmv40PfDecision(s) {
+  if (!s) return '';
+  if (s.preflight_user_choice) return s.preflight_user_choice;
+  return s.output_workflow === 'keep_cmv29' ? 'keep' : '';
+}
+
+/** «el 10/09/2026 a las 09:12», o '' si no hay fecha que enseñar. */
+function _cmv40PfCuando(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d)) return '';
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit',
+                                         year: 'numeric' })
+       + ' a las '
+       + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+
 /** El veredicto: `{clase, titulo, cuerpo, motivos[]}` o null si sigue. */
 function _cmv40PfVeredicto(s, trabajo) {
   if (!s) return null;
+  // Una decisión ya tomada CIERRA la pregunta. Va por delante del resto
+  // porque `accept-keep` no toca `preflight_decision`: sin esto el modal
+  // seguía enseñando el aviso y sus dos botones al reabrirlo, pidiendo algo
+  // que el usuario ya había contestado.
+  const decision = _cmv40PfDecision(s);
+  if (decision === 'keep') {
+    return {
+      clase: 'ok',
+      titulo: 'Se mantiene el MKV actual',
+      cuerpo: 'El proyecto se cerró sin tocar el fichero. Un reproductor '
+            + 'compatible con CMv4.0 hace la conversión al vuelo, con el '
+            + 'mismo resultado visible que tendría inyectar el RPU.',
+      motivos: [],
+    };
+  }
+  if (decision === 'inject') {
+    return {
+      clase: 'ok',
+      titulo: 'Se inyecta el RPU igualmente',
+      cuerpo: trabajo || 'El trabajo continúa en segundo plano.',
+      motivos: [],
+    };
+  }
   if (s.error_message) {
     return {
       clase: 'error',
@@ -6824,6 +6871,20 @@ function _cmv40PfChecks(s) {
       titulo: 'Recomendación',
       valor: s.recommended_action_label,
       estado: s.recommended_action === 'keep' ? 'aviso' : 'ok',
+    });
+  }
+  // La respuesta del usuario es la última conclusión del pre-flight, y la
+  // única que no sale de un análisis. Queda aquí para que reabrir el detalle
+  // diga qué se decidió en vez de volver a preguntarlo.
+  const decision = _cmv40PfDecision(s);
+  if (decision) {
+    const cuando = _cmv40PfCuando(s?.preflight_user_choice_at);
+    filas.push({
+      titulo: 'Decisión',
+      valor: (decision === 'keep' ? 'Mantener el MKV actual'
+                                  : 'Inyectar el RPU igualmente')
+           + (cuando ? ` · ${cuando}` : ''),
+      estado: 'ok',
     });
   }
   // Mientras corre, la primera sin resolver es la que se está haciendo. Sin
