@@ -522,3 +522,51 @@ class TestEsperandoTurnoNadieVuelveADispararLaFase(unittest.TestCase):
         src = Path(i).read_text(encoding="utf-8")
         j = src.index("def _cmv40_guard_no_duplicado(")
         self.assertIn("queue_manager.buscar", src[j:j + 1400])
+
+
+@unittest.skipIf(__import__("shutil").which("node") is None, "sin node")
+class TestLaSesionLocalNoOlvidaQueEsperaTurno(unittest.TestCase):
+    """`cola` no es del modelo: lo añade solo `GET /api/cmv40/{id}`. La
+    respuesta de cualquier endpoint es un `model_dump()` y viene sin él, así
+    que al asignarla el proyecto olvidaba que estaba en la cola — y el
+    auto-avance volvía a disparar la fase.
+
+    Y la regla tiene que ser «si la clave NO ESTÁ», no «si viene vacía»: el
+    GET manda `cola: null` cuando el proyecto SALE de la cola, y conservarlo
+    ahí lo dejaría encolado para siempre.
+    """
+
+    def _asignar(self, previa, nueva):
+        import json as _j
+        import subprocess
+        from frontend_sources import js_completo
+        js = js_completo()
+        i = js.index("function _cmv40AssignSession(")
+        fn = js[i:js.index("\n}\n", i) + 3]
+        guion = f"""
+globalThis.CMV40_WS_SILENCE_FOR_REST_PROGRESS_MS = 9e9;
+globalThis._cmv40UpdateProgressUI = () => {{}};
+globalThis._cmv40RehydratePendingTarget = () => {{}};
+globalThis.openCMv40Projects = [];
+{fn}
+const p = {{ id: 'x', session: {_j.dumps(previa)} }};
+_cmv40AssignSession(p, {_j.dumps(nueva)});
+console.log(JSON.stringify({{cola: p.session.cola === undefined ? 'AUSENTE'
+                                   : p.session.cola}}));
+"""
+        r = subprocess.run(["node", "-e", guion], capture_output=True,
+                           text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr[:600])
+        return _j.loads(r.stdout.strip().splitlines()[-1])["cola"]
+
+    def test_una_respuesta_sin_la_clave_conserva_la_cola(self):
+        self.assertEqual(
+            self._asignar({"cola": {"posicion": 2}}, {"phase": "created"}),
+            {"posicion": 2})
+
+    def test_pero_un_null_explicito_la_borra(self):
+        """Es la señal de que el proyecto salió de la cola."""
+        self.assertIsNone(
+            self._asignar({"cola": {"posicion": 2}},
+                          {"phase": "created", "cola": None}))

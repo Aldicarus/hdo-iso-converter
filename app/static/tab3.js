@@ -2016,9 +2016,30 @@ function _cmv40AssignSession(project, data) {
     }
   }
   const preserved = {};
-  const PRESERVE_FIELDS = ['tmdb_info'];
-  for (const f of PRESERVE_FIELDS) {
+  // Dos reglas distintas, y la diferencia importa:
+  //
+  //  · **Si viene VACÍO** — para lo que el modelo siempre trae y algún
+  //    endpoint devuelve a null por el camino.
+  //  · **Si la clave NO ESTÁ** — para lo que no es del modelo y solo añade
+  //    `GET /api/cmv40/{id}`. `cola` es de estos: la respuesta de cualquier
+  //    endpoint es un `model_dump()` y viene sin él, así que sin preservarlo
+  //    el proyecto «olvida» que espera turno en cuanto se hace una acción, y
+  //    el auto-avance vuelve a disparar la fase — que el guard rechaza con
+  //    «este proyecto ya tiene una fase esperando turno», cada cuatro
+  //    segundos.
+  //
+  //    Con la primera regla no valdría: el GET manda `cola: null` cuando el
+  //    proyecto SALE de la cola, y conservarlo ahí lo dejaría encolado para
+  //    siempre.
+  const PRESERVE_SI_VACIO = ['tmdb_info'];
+  const PRESERVE_SI_FALTA = ['cola'];
+  for (const f of PRESERVE_SI_VACIO) {
     if (project.session && project.session[f] && !data[f]) {
+      preserved[f] = project.session[f];
+    }
+  }
+  for (const f of PRESERVE_SI_FALTA) {
+    if (project.session && !(f in data)) {
       preserved[f] = project.session[f];
     }
   }
