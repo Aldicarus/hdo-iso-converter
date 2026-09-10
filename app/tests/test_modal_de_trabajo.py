@@ -829,6 +829,9 @@ class TestUnTrabajoTerminadoSeVuelveAMirar(unittest.TestCase):
     ]
 
     def _pintar(self, seleccion=None) -> dict:
+        return self._pintar_con(self._RECIENTES, seleccion)
+
+    def _pintar_con(self, recientes, seleccion=None) -> dict:
         guion = f"""
 const _els = {{}};
 for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
@@ -850,7 +853,7 @@ globalThis.escHtml = t => String(t);
 let _workbarRecienteSel = {json.dumps(seleccion)};
 {_fn('_workbarRender')}
 let workbarEstado = {{ activo: null, cola: [], interactivo: [],
-                       recientes: {json.dumps(self._RECIENTES)} }};
+                       recientes: {json.dumps(recientes)} }};
 _workbarRender(workbarEstado);
 console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
 """
@@ -860,6 +863,33 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
         h = self._pintar()["html"]
         self.assertIn("seleccionarReciente(", h)
         self.assertNotIn("abrirDetalleDeReciente(", h)
+
+    def test_el_que_espera_decision_se_distingue_y_invita(self):
+        """Un pre-flight que acaba recomendando «mantener el MKV» no ha
+        fallado ni ha terminado: depende del usuario. Sin distinguirlo se leía
+        como un trabajo más de la lista y no había forma de responder."""
+        guion_recientes = [dict(self._RECIENTES[0], estado="esperando",
+                                tipo="preflight",
+                                que="Validación previa · El padrino.mkv")]
+        h = self._pintar_con(guion_recientes,
+                             "dune_1|2026-09-09T10:00:00+00:00")["html"]
+        self.assertIn("workbar-item reciente", h)
+        self.assertIn("espera", h)
+        self.assertIn("Requiere decisión", h)
+        self.assertIn(">Decidir</button>", h)
+        self.assertNotIn(">Detalle</button>", h)
+
+    def test_uno_normal_sigue_diciendo_Detalle(self):
+        h = self._pintar("dune_1|2026-09-09T10:00:00+00:00")["html"]
+        self.assertIn(">Detalle</button>", h)
+        self.assertNotIn("Requiere decisión", h)
+
+    def test_al_abrirlo_NO_se_trata_como_terminado(self):
+        """Su modal tiene que ofrecer las salidas, no un resumen de lo que
+        pasó: `terminal` apagaría los botones y pararía el poll."""
+        i = JS.index("function abrirDetalleDeReciente(")
+        cuerpo = JS[i:JS.index("\n}\n", i)]
+        self.assertIn("terminal: r.estado !== 'esperando'", cuerpo)
 
     def test_al_seleccionar_salen_los_DOS(self):
         h = self._pintar("dune_1|2026-09-09T10:00:00+00:00")["html"]

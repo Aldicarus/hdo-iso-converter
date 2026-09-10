@@ -48,6 +48,16 @@ TAB_CMV40 = "cmv40"
 # Tipos de trabajo. Lo que distingue a dos trabajos de la misma pestaña.
 TIPO_RIP = "rip"
 TIPO_FASE_CMV40 = "fase_cmv40"
+TIPO_PREFLIGHT = "preflight"
+
+# Los desenlaces. `esperando` es el cuarto y no existía: un trabajo que
+# terminó su parte y ahora depende de una decisión del usuario. Sin él, un
+# pre-flight que acaba recomendando «mantener el MKV» desaparecía de la
+# columna sin dejar rastro y había que ir a buscarlo a la pestaña.
+ESTADO_HECHO = "done"
+ESTADO_ERROR = "error"
+ESTADO_CANCELADO = "cancelled"
+ESTADO_ESPERANDO = "esperando"
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 

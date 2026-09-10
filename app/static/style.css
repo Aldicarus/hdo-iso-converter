@@ -9709,3 +9709,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .trabajo-modal-principal .trabajo-detalle-vacio { padding-left: 20px; padding-right: 20px; }
 .trabajo-modal-principal .trabajo-kv { padding-top: 16px; }
 .trabajo-modal-principal .trabajo-detalle-nota { padding-bottom: 18px; }
+
+/* Un trabajo que terminó su parte y espera una decisión: no es un fallo ni
+   está hecho, y la columna tiene que distinguirlo de un vistazo. */
+.workbar-item.reciente.espera { background: var(--orange-dim); }
+.workbar-espera {
+  color: var(--orange); font-weight: 600; font-size: 10px;
+  white-space: nowrap;
+}

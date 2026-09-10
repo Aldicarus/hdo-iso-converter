@@ -139,6 +139,7 @@ let _workbarRecienteSel = null;
 // Cómo acabó, dicho para el usuario.
 const _CMV40_FIN = {
   done: 'Terminado', cancelled: 'Cancelado', error: 'Terminado con error',
+  esperando: 'Requiere una decisión',
 };
 
 function _workbarRefReciente(r) {
@@ -179,7 +180,10 @@ function abrirDetalleDeReciente(ref) {
     // Lo que distingue mirar un trabajo TERMINADO de uno en curso: no hay
     // nada que seguir, así que ni se poltea ni se anima ni se habla de fases
     // que vengan. Lo que se enseña es la última foto.
-    terminal: true, historial: r, paso: _CMV40_FIN[r.estado] || 'Terminado',
+    // Uno que espera decisión NO se abre en modo «última foto»: su vista
+    // tiene que ofrecer las salidas, no un resumen de lo que pasó.
+    terminal: r.estado !== 'esperando',
+    historial: r, paso: _CMV40_FIN[r.estado] || 'Terminado',
   });
 }
 
@@ -236,20 +240,26 @@ function _workbarRender(st) {
   const recientes = _workbarListaHTML('Trabajos recientes', st.recientes.slice(0, 5), r => {
     const ref = _workbarRefReciente(r);
     const sel = _workbarRecienteSel === ref;
+    const espera = r.estado === 'esperando';
     return `
-        <div class="workbar-item reciente${sel ? ' selected' : ''}"
+        <div class="workbar-item reciente${sel ? ' selected' : ''}${espera ? ' espera' : ''}"
              onclick="seleccionarReciente('${escHtml(ref)}')">
-          ${iconoDeEstado(r.estado === 'done' ? 'hecho'
-                          : r.estado === 'cancelled' ? 'cancelado' : 'error',
+          ${iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
+                            esperando: 'esperando' }[r.estado] || 'error',
                           'icono-chip-sm')}
           <span class="workbar-item-que">${escHtml(r.que || '')}</span>
-          <span class="workbar-item-meta">${escHtml(_workbarTiempo(r.segundos))}</span>
+          <span class="workbar-item-meta">${espera
+            ? '<span class="workbar-espera">Requiere decisión</span>'
+            : escHtml(_workbarTiempo(r.segundos))}</span>
         </div>
         ${sel ? `
           <div class="workbar-acciones workbar-acciones-item">
-            <button class="btn btn-ghost btn-xs"
+            <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
               onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
-              data-tooltip="Ver el detalle y el registro de esta ejecución">Detalle</button>
+              data-tooltip="${espera
+                ? 'Abrir para decidir qué hacer con este proyecto'
+                : 'Ver el detalle y el registro de esta ejecución'}">${
+              espera ? 'Decidir' : 'Detalle'}</button>
             <button class="btn btn-ghost btn-xs"
               onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
               data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>
@@ -1010,6 +1020,11 @@ const _ICONOS_ESTADO = {
   error:   ['rojo',  _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v4.6"/>'
                         + '<path d="M12 16.1h.01"/>')],
   cancelado: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
+  // Ni hecho ni fallido: terminó su parte y espera una decisión. En ámbar
+  // porque hay algo que hacer, con la interrogación que lo dice sin texto.
+  esperando: ['naranja', _svg('<circle cx="12" cy="12" r="8.5"/>'
+                            + '<path d="M9.9 9.8a2.2 2.2 0 1 1 2.5 2.7v1.1"/>'
+                            + '<path d="M12.3 16.4h.01"/>')],
 };
 
 /** El chip con su icono. `clase` añade tamaño (`icono-chip-sm`). */

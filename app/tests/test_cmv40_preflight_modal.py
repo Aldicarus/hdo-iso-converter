@@ -591,6 +591,87 @@ console.log(JSON.stringify({{ html, tick: _tickPuesto }}));
         self.assertTrue(r["tick"])
 
 
+class TestElPreflightDejaRastro(ApiTestCase):
+    """No dejaba ninguno: ni al cancelarlo ni —peor— al acabar pidiendo una
+    decisión, que es cuando más falta hace verlo. Al soltar su hueco de
+    `workload` desaparecía de la columna y había que ir a buscarlo a la
+    pestaña del proyecto.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import workload
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+
+    async def _correr(self, **estado):
+        """Ejecuta el dispatcher con los pasos anulados y el estado final que
+        se quiera probar."""
+        import asyncio
+        import storage
+        from phases import cmv40_pipeline as pipe
+        from routers import cmv40
+
+        sid = self.crear_sesion(sid="cmv40_pf_hist", phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.pending_target_kind = "path"
+        s.pending_target_rpu_path = "/x.bin"
+        storage.save_cmv40_session(s)
+
+        async def _nada(*a, **kw):
+            return None
+        for nombre in ("preflight_source", "preflight_target_path"):
+            orig = getattr(pipe, nombre)
+            setattr(pipe, nombre, _nada)
+            self.addCleanup(setattr, pipe, nombre, orig)
+
+        async def _analiza(sesion, log_cb):
+            for k, v in estado.items():
+                setattr(sesion, k, v)
+            return not estado
+        orig_an = cmv40._cmv40_preflight_analyze_target
+        cmv40._cmv40_preflight_analyze_target = _analiza
+        self.addCleanup(setattr, cmv40, "_cmv40_preflight_analyze_target", orig_an)
+
+        await cmv40._cmv40_dispatch_preflight(s)
+        for _ in range(60):
+            import historial
+            if historial.leer(5):
+                break
+            await asyncio.sleep(0.02)
+        import historial
+        return [t for t in historial.leer(10)
+                if t["tipo"] == historial.TIPO_PREFLIGHT]
+
+    def test_uno_que_pasa_queda_como_hecho(self):
+        import asyncio, historial
+        t = asyncio.run(self._correr())
+        self.assertTrue(t, "el pre-flight no dejó línea en el historial")
+        self.assertEqual(t[0]["estado"], historial.ESTADO_HECHO)
+        self.assertIn("Validación previa", t[0]["que"])
+
+    def test_uno_que_pide_decision_queda_ESPERANDO(self):
+        """Es el caso que se perdía: terminó su parte y ahora depende del
+        usuario. Ni «done» —no ha acabado nada— ni «error» —no ha fallado—."""
+        import asyncio, historial
+        t = asyncio.run(self._correr(preflight_decision="keep_l8_default",
+                                     preflight_message="bin sintético"))
+        self.assertEqual(t[0]["estado"], historial.ESTADO_ESPERANDO)
+        self.assertIsNone(t[0]["error"], "esperar no es fallar")
+
+    def test_uno_que_falla_queda_como_error(self):
+        import asyncio, historial
+        t = asyncio.run(self._correr(error_message="El bin no aporta CMv4.0"))
+        self.assertEqual(t[0]["estado"], historial.ESTADO_ERROR)
+        self.assertIn("CMv4.0", t[0]["error"])
+
+    def test_su_ref_log_apunta_al_proyecto(self):
+        """El registro del pre-flight vive en el log de la sesión."""
+        import asyncio
+        t = asyncio.run(self._correr())
+        self.assertEqual(t[0]["ref_log"], "cmv40:cmv40_pf_hist")
+
+
 class TestCerrarNoCancela(unittest.TestCase):
     """Mediana 9 s: cerrar el modal no puede tirar la validación, y el
     veredicto sigue quedando en el panel como hasta ahora."""

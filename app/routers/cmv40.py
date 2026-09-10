@@ -1397,6 +1397,8 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
+        from datetime import datetime as _dt, timezone as _tz
+        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
@@ -1491,10 +1493,35 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 session.target_preflight_ok = False
             finally:
                 _cmv40_active_procs.pop(session.id, None)
-                _cmv40_cancel_flags.pop(session.id, None)
+                cancelado = _cmv40_cancel_flags.pop(session.id, False)
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
+                # El pre-flight no dejaba rastro en ninguna parte: ni al
+                # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
+                # cuando MÁS falta hace verlo. Al soltar el hueco de workload
+                # desaparecía de la columna y había que ir a la pestaña.
+                if cancelado:
+                    estado = historial.ESTADO_CANCELADO
+                elif session.error_message:
+                    estado = historial.ESTADO_ERROR
+                elif (session.preflight_decision
+                      and session.preflight_decision != "ok"):
+                    # Terminó su trabajo, pero ahora depende del usuario.
+                    estado = historial.ESTADO_ESPERANDO
+                else:
+                    estado = historial.ESTADO_HECHO
+                historial.anotar(
+                    id     = session.id,
+                    tab    = historial.TAB_CMV40,
+                    tipo   = historial.TIPO_PREFLIGHT,
+                    que    = (f"Validación previa · "
+                              f"{session.output_mkv_name or session.id}"),
+                    inicio = _inicio_pf,
+                    estado = estado,
+                    error  = session.error_message or None,
+                    ref_log = f"cmv40:{session.id}",
+                )
         # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
         # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
         # target_preflight_ok=True ahora.
@@ -3364,6 +3391,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
+        from datetime import datetime as _dt, timezone as _tz
+        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
@@ -3432,10 +3461,35 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 session.target_preflight_ok = False
             finally:
                 _cmv40_active_procs.pop(session.id, None)
-                _cmv40_cancel_flags.pop(session.id, None)
+                cancelado = _cmv40_cancel_flags.pop(session.id, False)
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
+                # El pre-flight no dejaba rastro en ninguna parte: ni al
+                # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
+                # cuando MÁS falta hace verlo. Al soltar el hueco de workload
+                # desaparecía de la columna y había que ir a la pestaña.
+                if cancelado:
+                    estado = historial.ESTADO_CANCELADO
+                elif session.error_message:
+                    estado = historial.ESTADO_ERROR
+                elif (session.preflight_decision
+                      and session.preflight_decision != "ok"):
+                    # Terminó su trabajo, pero ahora depende del usuario.
+                    estado = historial.ESTADO_ESPERANDO
+                else:
+                    estado = historial.ESTADO_HECHO
+                historial.anotar(
+                    id     = session.id,
+                    tab    = historial.TAB_CMV40,
+                    tipo   = historial.TIPO_PREFLIGHT,
+                    que    = (f"Validación previa · "
+                              f"{session.output_mkv_name or session.id}"),
+                    inicio = _inicio_pf,
+                    estado = estado,
+                    error  = session.error_message or None,
+                    ref_log = f"cmv40:{session.id}",
+                )
         # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
         # encadena Fase A automáticamente. Sin esto, si el cliente disparó
         # este endpoint manualmente (en lugar del orquestador interno), Fase
@@ -3479,6 +3533,8 @@ async def cmv40_preflight_source(session_id: str):
     _cmv40_cancel_flags.pop(session.id, None)
 
     async def _run():
+        from datetime import datetime as _dt, timezone as _tz
+        _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
@@ -3516,10 +3572,35 @@ async def cmv40_preflight_source(session_id: str):
                 session.source_preflight_ok = False
             finally:
                 _cmv40_active_procs.pop(session.id, None)
-                _cmv40_cancel_flags.pop(session.id, None)
+                cancelado = _cmv40_cancel_flags.pop(session.id, False)
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
                 await _save_cmv40_session_async(session)
+                # El pre-flight no dejaba rastro en ninguna parte: ni al
+                # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
+                # cuando MÁS falta hace verlo. Al soltar el hueco de workload
+                # desaparecía de la columna y había que ir a la pestaña.
+                if cancelado:
+                    estado = historial.ESTADO_CANCELADO
+                elif session.error_message:
+                    estado = historial.ESTADO_ERROR
+                elif (session.preflight_decision
+                      and session.preflight_decision != "ok"):
+                    # Terminó su trabajo, pero ahora depende del usuario.
+                    estado = historial.ESTADO_ESPERANDO
+                else:
+                    estado = historial.ESTADO_HECHO
+                historial.anotar(
+                    id     = session.id,
+                    tab    = historial.TAB_CMV40,
+                    tipo   = historial.TIPO_PREFLIGHT,
+                    que    = (f"Validación previa · "
+                              f"{session.output_mkv_name or session.id}"),
+                    inicio = _inicio_pf,
+                    estado = estado,
+                    error  = session.error_message or None,
+                    ref_log = f"cmv40:{session.id}",
+                )
 
     asyncio.create_task(_run())
     return {"ok": True, "started": True}
