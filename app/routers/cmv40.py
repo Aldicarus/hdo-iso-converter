@@ -111,6 +111,23 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     _cmv40_progreso_vivo.pop(session.id, None)
 
 
+def calentar_modelo_de_eta() -> None:
+    """Deja el modelo de duraciones en su caché al arrancar.
+
+    El adaptador de la columna lo necesita para el porcentaje del proceso y
+    corre en cada poll (cada 2 s), así que no puede construirlo él: son un
+    `glob` y una lectura por sesión. Se hace una vez aquí, en un thread, y a
+    partir de ahí lo refresca su TTL desde el endpoint.
+    """
+    import time as _t
+    try:
+        _ETA_MODEL_CACHE.update({"at": _t.monotonic(),
+                                 "data": _cmv40_build_eta_model()})
+    except Exception as e:                              # noqa: BLE001
+        # Sin modelo la columna se queda sin el total y cae al de la fase.
+        _logger.warning("[cmv40] no se pudo calentar el modelo de ETA: %s", e)
+
+
 def recuperar_sesiones_interrumpidas() -> None:
     """Limpia sesiones CMv4.0 con running_phase != null tras un reinicio.
 
@@ -4380,6 +4397,54 @@ _CMV40_ORDEN = ("analyze_source", "target_rpu_path", "extract", "correct_sync",
                 "inject", "remux", "validate")
 
 
+def _cmv40_progreso_total(session: CMv40Session, fase: str,
+                          prog: dict) -> tuple[int | None, int | None, int]:
+    """`(pct del proceso, restante en s, trabajo hecho en s)`.
+
+    Un turno de cola es el proyecto entero, así que el porcentaje y el tiempo
+    que se enseñan son del **proceso completo**: la fase se dice al lado, con
+    su letra y su puesto.
+
+    El transcurrido es **tiempo de proceso** (la suma de las fases), no reloj
+    de pared: un proyecto puede pasarse tres días esperando una respuesta y
+    eso no es lo que ha costado convertirlo.
+
+    El total sale del modelo de `/api/cmv40/eta-model` —ratios medidos sobre
+    los 10 últimos jobs de esta máquina, segmentados por ruta—, así que el
+    restante va marcado como `modelo`. La referencia es la Fase A: si aún no
+    ha terminado se usa su propia estimación (lo que lleva más lo que le
+    queda), y si tampoco hay eso, no se devuelve total. Un porcentaje sin
+    referencia sería una cifra inventada, y la regla del proyecto es que eso
+    es peor que un hueco.
+
+    **No lee disco**: el adaptador corre en cada poll de la columna (cada 2 s).
+    Usa el modelo ya cacheado y, si no lo hay, se queda sin total.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    hechas: dict[str, float] = {}
+    vivo = 0.0
+    for r in (session.phase_history or []):
+        if r.status == "done" and (r.elapsed_seconds or 0) > 0:
+            hechas[r.phase] = r.elapsed_seconds
+        elif r.status == "running" and r.phase == fase and r.started_at:
+            vivo = max(0.0, (_dt.now(_tz.utc) - r.started_at).total_seconds())
+    trabajo = round(sum(hechas.values()) + vivo)
+
+    modelo = _ETA_MODEL_CACHE.get("data") or {}
+    plan = resolve_plan(session)
+    ratios = modelo.get("dropin" if plan.drop_in else "merge") or {}
+    factor = 1.0 + sum(v for k, v in ratios.items() if not k.endswith("_n"))
+    base = hechas.get("analyze_source")
+    if not base and fase == "analyze_source" and prog.get("eta_s"):
+        base = vivo + prog["eta_s"]
+    if not base or factor <= 1.0:
+        return None, None, trabajo
+    total = base * factor
+    # Tope en 99: el 100 lo pone el final, no una estimación.
+    pct = min(99, max(0, round(100.0 * trabajo / total)))
+    return pct, max(0, round(total - trabajo)), trabajo
+
+
 def _cmv40_adaptador(trabajo) -> dict | None:
     """El progreso de una fase CMv4.0, en la forma común de `trabajos.py`.
 
@@ -4402,15 +4467,12 @@ def _cmv40_adaptador(trabajo) -> dict | None:
     # otro lado. Son ~50 bytes; el `read` no escala con nada.
     from storage import read_cmv40_progress
     prog = read_cmv40_progress(trabajo.clave) or session.last_progress or {}
-    pct = prog.get("pct")
-    eta = prog.get("eta_s")
-    segundos = 0
-    for r in reversed(session.phase_history or []):
-        if r.phase == fase and r.started_at:
-            from datetime import datetime as _dt, timezone as _tz
-            segundos = max(0, round(
-                (_dt.now(_tz.utc) - r.started_at).total_seconds()))
-            break
+    # El pct y el ETA que se enseñan son los del PROCESO, no los de la fase:
+    # un turno de cola es el proyecto entero. Si no hay con qué calcularlos se
+    # cae al de la fase, que al menos es una medida.
+    pct_total, eta_total, segundos = _cmv40_progreso_total(session, fase, prog)
+    pct = pct_total if pct_total is not None else prog.get("pct")
+    eta = eta_total if eta_total is not None else prog.get("eta_s")
     return {
         "fase": fase,
         "fase_label": _CMV40_FASE_LABELS.get(fase, fase),
@@ -4423,7 +4485,11 @@ def _cmv40_adaptador(trabajo) -> dict | None:
         "pct": pct, "pct_medido": pct is not None,
         "segundos": segundos,
         "eta_s": eta or None,
-        "eta_fuente": "medido" if eta else None,
+        # El restante del PROCESO es una extrapolación del modelo, y la
+        # columna lo escribe con «(aprox.)». Solo es una medida cuando no hay
+        # total y se ha caído al de la fase, que sale de `_ReadProgress`.
+        "eta_fuente": (None if not eta
+                       else "modelo" if eta_total is not None else "medido"),
         "detalle": "cmv40",
     }
 

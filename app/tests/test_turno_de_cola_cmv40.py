@@ -226,3 +226,82 @@ class TestLoQueLanzaElUsuarioSIPasaPorLaCola(TurnoCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElPorcentajeEsDelProceso(TurnoCase):
+    """Un turno es el proyecto entero, así que el porcentaje y el tiempo que
+    se enseñan son del proceso completo: la fase se dice al lado, con su letra
+    y su puesto.
+
+    Antes eran los de la fase, y la barra iba de 0 a 100 siete veces sin que
+    nada dijera cuánto quedaba de verdad.
+    """
+
+    def _progreso(self, **kw):
+        from models import CMv40PhaseRecord
+        from datetime import datetime, timedelta, timezone
+        sid = self._sesion(phase="injected")
+        s = self.storage.load_cmv40_session(sid)
+        ahora = datetime.now(timezone.utc)
+        s.phase_history = [
+            CMv40PhaseRecord(phase="analyze_source", status="done",
+                             started_at=ahora - timedelta(seconds=700),
+                             elapsed_seconds=600),
+            CMv40PhaseRecord(phase="extract", status="done",
+                             started_at=ahora - timedelta(seconds=400),
+                             elapsed_seconds=300),
+            CMv40PhaseRecord(phase="remux", status="running",
+                             started_at=ahora - timedelta(seconds=100)),
+        ]
+        s.running_phase = "remux"
+        for k, v in kw.items():
+            setattr(s, k, v)
+        self.storage.save_cmv40_session(s)
+        # Un modelo con las cuatro fases: total = Fase A × (1 + 0.5+1+1+0.3).
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
+            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
+                      "validate": 0.3},
+            "dropin": {}, "share_dropin": 0.0}})
+        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
+                        {"at": 0.0, "data": None})
+        return self.cmv40._cmv40_adaptador(
+            qm.TrabajoEnCola(tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+                             datos={"fase": "remux"}))
+
+    def test_el_transcurrido_es_la_suma_de_las_fases(self):
+        """Tiempo de PROCESO, no de reloj: el proyecto puede haber pasado tres
+        días esperando una respuesta entre dos fases."""
+        p = self._progreso()
+        self.assertAlmostEqual(p["segundos"], 600 + 300 + 100, delta=3)
+
+    def test_el_pct_sale_del_total_estimado(self):
+        # total = 600 × 3.8 = 2280 s; hechos 1000 → 44 %
+        self.assertEqual(self._progreso()["pct"], 44)
+
+    def test_y_el_restante_va_marcado_como_modelo(self):
+        p = self._progreso()
+        self.assertEqual(p["eta_fuente"], "modelo")
+        self.assertAlmostEqual(p["eta_s"], 2280 - 1000, delta=5)
+
+    def test_la_fase_se_sigue_diciendo_al_lado(self):
+        p = self._progreso()
+        self.assertEqual(p["fase"], "remux")
+        self.assertIn("Fase G", p["fase_label"])
+        self.assertEqual(p["fases_total"], 7)
+
+    def test_sin_modelo_no_se_inventa_un_total(self):
+        """Cae al de la fase, que al menos es una medida."""
+        p = self._progreso()
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 0.0, "data": None})
+        p2 = self.cmv40._cmv40_adaptador(
+            qm.TrabajoEnCola(tab="cmv40", tipo=qm.TIPO_FASE_CMV40,
+                             clave="cmv40_turno", datos={"fase": "remux"}))
+        self.assertIsNone(p2["pct"])
+        self.assertFalse(p2["pct_medido"])
+
+    def test_nunca_llega_al_100_por_estimacion(self):
+        """El 100 lo pone el final, no el modelo."""
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
+            "merge": {"extract": 0.01}, "dropin": {}, "share_dropin": 0.0}})
+        p = self._progreso()
+        self.assertLessEqual(p["pct"], 99)

@@ -402,6 +402,10 @@ from routers import cmv40 as _cmv40_routes  # noqa: E402
 
 app.include_router(_cmv40_routes.router)
 _cmv40_routes.recuperar_sesiones_interrumpidas()
+# El porcentaje del proceso de un job CMv4.0 sale del modelo de duraciones, y
+# lo lee el adaptador de la columna en cada poll: se deja cacheado aquí para
+# que no tenga que construirlo él.
+_cmv40_routes.calentar_modelo_de_eta()
 
 
 
