@@ -655,7 +655,7 @@ async def disc_probe_progress():
 
 
 @router.post("/api/analyze", summary="Analiza un ISO (Fase A + B)",
-             dependencies=[Depends(workload.marca("análisis del disco", workload.TAB_RIP))])
+             dependencies=[Depends(workload.marca("Análisis del disco", workload.TAB_RIP))])
 async def analyze_iso(body: AnalyzeRequest):
     """
     Lanza el análisis completo de un origen (ISO, carpeta BDMV o M2TS).
@@ -946,7 +946,7 @@ class DiscProbeRequest(_BaseModel):
 
 @router.post("/api/disc-probe",
           summary="Detecta tipo y devuelve candidatos. Soporta ISO, carpeta BDMV y m2ts sueltos",
-          dependencies=[Depends(workload.marca("detección de contenido del disco", workload.TAB_RIP))])
+          dependencies=[Depends(workload.marca("Detección de contenido del disco", workload.TAB_RIP))])
 async def disc_probe(body: DiscProbeRequest):
     """Detecta media_type y devuelve candidatos a episodio para los 3
     tipos de fuente. NO crea sesión.
@@ -1965,8 +1965,9 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         tipo=queue_manager_mod.TIPO_SERIE,
         clave=f"serie:{body.series_name or spath}:{body.season_number}",
         sobre=spath,
-        que=f"análisis de {len(body.episodes)} episodio(s) de "
-            f"{body.series_name or 'la serie'}",
+        que=(f"Análisis de {len(body.episodes)} episodio"
+             f"{'s' if len(body.episodes) != 1 else ''} · "
+             f"{body.series_name or 'la serie'}"),
         datos={"body": body.model_dump(), "stype": stype, "spath": spath,
                "source_abs": str(source_abs),
                # La cola reconstruye el trabajo, así que lo que el endpoint
@@ -2024,7 +2025,7 @@ async def recalculate_mkv_name(session_id: str):
 @router.post(
     "/api/sessions/{session_id}/reset-chapters",
     summary="Restaura los capítulos originales del disco",
-    dependencies=[Depends(workload.marca("relectura de capítulos del disco", workload.TAB_RIP))],
+    dependencies=[Depends(workload.marca("Relectura de capítulos", workload.TAB_RIP))],
 )
 async def reset_chapters(session_id: str):
     """
@@ -2312,7 +2313,7 @@ async def _run_pipeline(session_id: str) -> None:
         return
 
     workload.registrar(session_id, workload.TAB_RIP,
-                       f"conversión a MKV de {session.mkv_name or session.id}")
+                       f"Conversión a MKV · {session.mkv_name or session.id}")
 
     # Marcar como ejecutando
     session.status              = "running"
@@ -2959,7 +2960,7 @@ def _append_execution_record(
         id      = session.id,
         tab     = historial.TAB_RIP,
         tipo    = historial.TIPO_RIP,
-        que     = f"conversión a MKV de {session.mkv_name or session.id}",
+        que     = f"Conversión a MKV · {session.mkv_name or session.id}",
         inicio  = record.started_at,
         fin     = record.finished_at,
         estado  = "cancelled" if cancelado else record.status,

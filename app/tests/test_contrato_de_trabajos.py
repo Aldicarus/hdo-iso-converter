@@ -113,6 +113,69 @@ class TestElEtaPorPorcentaje(unittest.TestCase):
         self.assertIsNone(trabajos.eta_por_porcentaje(0, 50))
 
 
+class TestElNombreDeUnTrabajoSeEntiende(unittest.IsolatedAsyncioTestCase):
+    """Lo que se lee en la columna no puede llevar claves del código.
+
+    Decía «Fase analyze_source de X.mkv»: el identificador interno del
+    pipeline, en pantalla y encima repetido, porque el nombre humano de la
+    fase ya va al lado en `fase_label`.
+    """
+
+    # Las claves internas del pipeline. Ninguna puede acabar en un `que`.
+    _CLAVES = ("analyze_source", "target_rpu_path", "target_rpu_drive",
+               "target_rpu_mkv", "correct_sync", "preflight", "keep_l8_default",
+               "restore_dropin", "trusted_p7_fel_final")
+
+    def _revisar(self, que: str):
+        for clave in self._CLAVES:
+            self.assertNotIn(clave, que, f"«{que}» lleva la clave {clave}")
+        self.assertTrue(que[:1].isupper(),
+                        f"«{que}» debería empezar en mayúscula")
+
+    async def test_una_fase_cmv40_encolada(self):
+        import queue_manager as qm
+        from models import CMv40Session
+        from routers import cmv40
+        vistos = []
+
+        async def espia(trabajo, a_la_cabeza=False):
+            vistos.append(trabajo)
+
+        previa, cmv40.queue_manager.encolar = cmv40.queue_manager.encolar, espia
+        self.addCleanup(setattr, cmv40.queue_manager, "encolar", previa)
+        s = CMv40Session(id="p1", source_mkv_path="/x.mkv",
+                         source_mkv_name="x.mkv",
+                         output_mkv_name="El padrino (1972) [CMv4].mkv")
+        await cmv40._cmv40_encolar_fase(s, "analyze_source")
+        self.assertEqual(len(vistos), 1)
+        self._revisar(vistos[0].que)
+        self.assertIn("El padrino", vistos[0].que)
+
+    def test_el_rip_por_su_atajo(self):
+        import queue_manager as qm
+        t = qm.TrabajoEnCola(tab="rip", tipo=qm.TIPO_RIP, clave="peli_1",
+                             que="Conversión a MKV · Dune (2024).mkv")
+        self._revisar(t.que)
+
+    def test_ningun_que_del_codigo_lleva_una_clave_interna(self):
+        """El barrido: cualquier `que=` de los routers, mirado tal cual."""
+        import re
+        from pathlib import Path as _P
+        raiz = _P(__file__).resolve().parents[1]
+        malos = []
+        for rel in ("routers/tab1.py", "routers/tab2.py", "routers/cmv40.py",
+                    "queue_manager.py"):
+            for linea in (raiz / rel).read_text(encoding="utf-8").splitlines():
+                m = re.search(r'que\s*=\s*\(?f?"([^"]*)"', linea)
+                if not m:
+                    continue
+                texto = m.group(1)
+                for clave in self._CLAVES:
+                    if clave in texto:
+                        malos.append(f"{rel}: {texto}")
+        self.assertEqual(malos, [])
+
+
 class TestLosCincoTiposProducenLoMismo(ApiTestCase):
     """Ejecutando los adaptadores reales de los tres routers."""
 

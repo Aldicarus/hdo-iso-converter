@@ -762,7 +762,7 @@ class CleanupExecuteRequest(BaseModel):
 
 
 @app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados",
-          dependencies=[Depends(workload.marca("borrado de huérfanos", workload.TAB_MKV))])
+          dependencies=[Depends(workload.marca("Borrado de ficheros huérfanos", workload.TAB_MKV))])
 async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     """Borra los paths indicados. Solo se aceptan paths bajo prefixes
     conocidos, que salen de `_cleanup_targets()` — la misma tabla que alimenta

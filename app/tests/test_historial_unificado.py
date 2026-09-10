@@ -354,7 +354,11 @@ class TestTab3LoAlimenta(unittest.IsolatedAsyncioTestCase):
         t = (await self._fase(_ok))[0]
         self.assertEqual(t["tab"], historial.TAB_CMV40)
         self.assertEqual(t["tipo"], historial.TIPO_FASE_CMV40)
-        self.assertIn("Fase inject de Predator.mkv", t["que"])
+        # El nombre de la fase, no su clave interna: en «Trabajos recientes»
+        # no hay un `fase_label` al lado que lo traduzca.
+        self.assertIn("Fase F — Inyectando el RPU en la EL", t["que"])
+        self.assertIn("Predator.mkv", t["que"])
+        self.assertNotIn("inject", t["que"])
         self.assertEqual(t["estado"], "done")
         self.assertEqual(t["ref_log"], "cmv40:cmv40_hist")
 

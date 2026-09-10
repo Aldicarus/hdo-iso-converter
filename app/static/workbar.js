@@ -93,13 +93,13 @@ function _workbarActivoHTML(a) {
   const barra = a.pct_medido
     ? `<div class="workbar-barra"><div class="workbar-barra-fill" style="width:${a.pct}%"></div></div>`
     : `<div class="workbar-barra indeterminada"><div class="workbar-barra-fill"></div></div>`;
-  const izq = a.pct_medido ? `${a.pct}%` : 'sin medir';
+  const izq = a.pct_medido ? `${a.pct} %` : 'Progreso no medible';
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
     ? _relojHTML(a.segundos, '', ` · Restante ${_workbarTiempo(a.eta_s)}`
         + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
-    : _relojHTML(a.segundos, 'lleva ');
+    : _relojHTML(a.segundos, 'Lleva ');
   const fase = a.fases_total
     ? `${a.fase_label || a.fase} · ${a.fase_n || '–'}/${a.fases_total}`
     : (a.fase_label || a.fase || '');
@@ -123,7 +123,7 @@ function _workbarActivoHTML(a) {
         </div>
         <div class="workbar-acciones">
           <button class="btn btn-ghost btn-xs" onclick="abrirDetalleDeTrabajo()"
-            data-tooltip="Ver el log y el detalle de la ejecución">Detalle</button>
+            data-tooltip="Ver el detalle y el registro de la ejecución">Detalle</button>
           ${a.cancelable ? `<button class="btn btn-ghost btn-xs" onclick="cancelarTrabajoActivo()"
             data-tooltip="Detener este trabajo">Cancelar</button>` : ''}
         </div>
@@ -168,7 +168,7 @@ function abrirDetalleDeReciente(ref) {
   if (!r) { showToast('Ese trabajo ya no está en la lista', 'info'); return; }
   const detalle = _DETALLE_POR_TIPO[r.tipo] || r.tipo;
   if (!_workbarDetalles[detalle]) {
-    showToast('Este trabajo no guarda un detalle que enseñar', 'info');
+    showToast('Este trabajo no conserva ningún detalle', 'info');
     return;
   }
   _trabajoModalAbrir({
@@ -223,7 +223,7 @@ function _workbarRender(st) {
   if (btn) {
     btn.classList.toggle('con-trabajo', total > 0);
     btn.dataset.tooltip = total
-      ? `${total} trabajo${total === 1 ? '' : 's'} — abrir la columna`
+      ? `${total} trabajo${total === 1 ? '' : 's'} en curso — abrir la columna`
       : 'Mostrar u ocultar la columna de trabajo';
   }
 
@@ -233,7 +233,7 @@ function _workbarRender(st) {
   // Un trabajo terminado se selecciona y despliega sus dos acciones, igual
   // que las tarjetas de los sidebars de las tres pestañas. Antes solo se
   // listaba: ni se podía volver a su log ni quitarlo de la lista.
-  const recientes = _workbarListaHTML('Últimos trabajos', st.recientes.slice(0, 5), r => {
+  const recientes = _workbarListaHTML('Trabajos recientes', st.recientes.slice(0, 5), r => {
     const ref = _workbarRefReciente(r);
     const sel = _workbarRecienteSel === ref;
     return `
@@ -249,7 +249,7 @@ function _workbarRender(st) {
           <div class="workbar-acciones workbar-acciones-item">
             <button class="btn btn-ghost btn-xs"
               onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
-              data-tooltip="Ver el log y el detalle de esta ejecución">Detalle</button>
+              data-tooltip="Ver el detalle y el registro de esta ejecución">Detalle</button>
             <button class="btn btn-ghost btn-xs"
               onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
               data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>
@@ -257,7 +257,7 @@ function _workbarRender(st) {
   });
 
   if (!total) {
-    body.innerHTML = '<div class="workbar-vacio">No hay nada en marcha</div>'
+    body.innerHTML = '<div class="workbar-vacio">No hay nada en ejecución</div>'
                      + recientes;
     return;
   }
@@ -271,7 +271,7 @@ function _workbarRender(st) {
           <span class="workbar-item-pos">${j.posicion}</span>
           <button class="workbar-item-quitar"
             onclick="quitarDeLaCola(this.closest('[data-clave]').dataset.clave)"
-            data-tooltip="Sacarlo de la cola">✕</button>
+            data-tooltip="Quitarlo de la cola">✕</button>
         </div>`, 'workbar-seccion-cola')
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
@@ -286,7 +286,7 @@ function _workbarRender(st) {
           <div class="workbar-acciones workbar-acciones-item">
             ${t.detalle ? `<button class="btn btn-ghost btn-xs"
               onclick="abrirDetalleDeTrabajo('${escHtml(t.id)}')"
-              data-tooltip="Ver el detalle de esta validación">Detalle</button>` : ''}
+              data-tooltip="Ver el detalle de la validación">Detalle</button>` : ''}
             ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
               onclick="cancelarTrabajoInteractivo('${escHtml(t.id)}')"
               data-tooltip="Detener este trabajo">Cancelar</button>` : ''}
@@ -452,12 +452,12 @@ function abrirDetalleDeTrabajo(ref) {
     // Sin encontrarlo NO se abre otro: enseñar el trabajo de al lado es peor
     // que no enseñar ninguno.
     if (!a) {
-      showToast('Ese trabajo ya no está en curso', 'info');
+      showToast('Ese trabajo ya no está en ejecución', 'info');
       return;
     }
   }
   if (!a) {
-    showToast('No hay ningún trabajo en curso', 'info');
+    showToast('No hay ningún trabajo en ejecución', 'info');
     return;
   }
   // Una entrada de la cola no trae los campos de progreso: se completan con
@@ -469,7 +469,7 @@ function abrirDetalleDeTrabajo(ref) {
     paso: a.posicion ? `Esperando turno · ${a.posicion}º de la cola` : '',
   };
   if (!_workbarDetalles[trabajo.detalle]) {
-    showToast('Este trabajo todavía no tiene vista de detalle', 'info');
+    showToast('Este trabajo no tiene una vista de detalle', 'info');
     return;
   }
   _trabajoModalAbrir(trabajo);
@@ -498,7 +498,7 @@ const _DETALLE_POR_TIPO = {
 function cancelarTrabajoInteractivo(ref) {
   const t = (workbarEstado.interactivo || [])
     .find(x => (x.sobre || x.id) === ref);
-  if (!t) { showToast('Ese trabajo ya no está en curso', 'info'); return; }
+  if (!t) { showToast('Ese trabajo ya no está en ejecución', 'info'); return; }
   cancelarTrabajoActivo(t);
 }
 

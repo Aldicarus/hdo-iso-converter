@@ -207,7 +207,7 @@ class QueueManager:
     async def enqueue(self, session_id: str) -> dict:
         """Compat: encola un rip de Tab 1 por su `session_id`."""
         return await self.encolar(TrabajoEnCola(
-            tab="rip", tipo=TIPO_RIP, clave=session_id, que=f"conversión a MKV de {session_id}"))
+            tab="rip", tipo=TIPO_RIP, clave=session_id, que=f"Conversión a MKV · {session_id}"))
 
     @staticmethod
     def _es(trabajo: "TrabajoEnCola", ref: str) -> bool:

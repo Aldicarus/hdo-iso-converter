@@ -223,7 +223,7 @@ def marca(que: str, tab: str):
     Se pone en el decorador de la ruta:
 
         @router.post("/api/analyze",
-                     dependencies=[Depends(workload.marca("análisis del disco",
+                     dependencies=[Depends(workload.marca("Análisis del disco",
                                                           workload.TAB_RIP))])
 
     Registra al entrar y libera al salir, pase lo que pase — la teardown de una

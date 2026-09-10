@@ -179,7 +179,7 @@ let _workbarUltimaFirma = null;
             "segundos": 60, "eta_s": None, "eta_fuente": None,
             "cancelable": True}, "cola": [], "interactivo": [], "recientes": []})
         self.assertIn("indeterminada", r["html"])
-        self.assertIn("sin medir", r["html"])
+        self.assertIn("Progreso no medible", r["html"])
         self.assertNotIn("%<", r["html"])
 
     def test_un_eta_de_modelo_se_marca_como_aproximado(self):
@@ -212,7 +212,7 @@ let _workbarUltimaFirma = null;
     def test_con_la_casa_libre_lo_dice_y_no_enciende_el_aviso(self):
         r = self._correr({"activo": None, "cola": [], "interactivo": [],
                           "recientes": []})
-        self.assertIn("No hay nada en marcha", r["html"])
+        self.assertIn("No hay nada en ejecución", r["html"])
         self.assertEqual(r["cuenta"], "0")
         self.assertFalse(r["conTrabajo"])
 
@@ -388,7 +388,7 @@ console.log(JSON.stringify({{ html: _workbarActivoHTML(
 """
         h = _node(guion)["html"]
         self.assertIn('class="workbar-reloj', h)
-        self.assertIn("lleva 7 s", h)
+        self.assertIn("Lleva 7 s", h)
 
     def test_el_ancla_sale_del_dato_del_servidor(self):
         r = self._correr()

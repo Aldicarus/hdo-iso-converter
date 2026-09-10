@@ -395,7 +395,7 @@ async def list_mkv_files_in_isos():
 
 
 @router.post("/api/mkv/analyze", summary="Analiza un MKV existente",
-             dependencies=[Depends(workload.marca("apertura de un MKV", workload.TAB_MKV))])
+             dependencies=[Depends(workload.marca("Apertura de un MKV", workload.TAB_MKV))])
 async def analyze_mkv_endpoint(body: dict):
     """
     Ejecuta mkvmerge -J + MediaInfo + ffprobe (packet counts) + dovi_tool
@@ -1022,7 +1022,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         tipo=queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
         clave=my_audit_id,
         sobre=str(mkv_full),
-        que=f"análisis extendido de {mkv_path_obj.name}",
+        que=f"Análisis extendido · {mkv_path_obj.name}",
         datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
                "inicio": datetime.now(timezone.utc).isoformat()},
     ))
@@ -1043,7 +1043,7 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     workload.registrar(my_audit_id, workload.TAB_MKV,
-                       f"análisis extendido de {mkv_path_obj.name}")
+                       f"Análisis extendido · {mkv_path_obj.name}")
     _logger.warning("[QualityAudit] START audit_id=%s file=%s",
                     my_audit_id, mkv_path_obj.name)
 
@@ -1147,7 +1147,7 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
             id     = my_audit_id,
             tab    = historial.TAB_MKV,
             tipo   = historial.TIPO_ANALISIS_EXTENDIDO,
-            que    = f"análisis extendido de {mkv_path_obj.name}",
+            que    = f"Análisis extendido · {mkv_path_obj.name}",
             inicio = _historial_inicio,
             estado = _paso if _paso in ("done", "cancelled", "error") else "error",
             error  = _mkv_quality_state.get("error") if _mio else
@@ -1540,7 +1540,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 tipo=queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                 clave=_clave_copia,
                 sobre=str(src_path),
-                que=f"copia de {src_path.name} a /mnt/output",
+                que=f"Copia a Output · {src_path.name}",
                 datos={"body": body.model_dump(), "src": str(src_path),
                        "dst": str(dst_path),
                        "inicio": datetime.now(timezone.utc).isoformat()},

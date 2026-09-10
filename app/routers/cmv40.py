@@ -874,8 +874,8 @@ async def _run_cmv40_phase_locked(
                 id      = session.id,
                 tab     = historial.TAB_CMV40,
                 tipo    = historial.TIPO_FASE_CMV40,
-                que     = f"Fase {phase_name} de "
-                          f"{session.output_mkv_name or session.id}",
+                que     = (f"{_CMV40_FASE_LABELS.get(phase_name, phase_name)}"
+                           f" · {session.output_mkv_name or session.id}"),
                 inicio  = started,
                 fin     = record.finished_at,
                 estado  = record.status,
@@ -1187,7 +1187,11 @@ async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
             tab="cmv40",
             tipo=queue_manager_mod.TIPO_FASE_CMV40,
             clave=session.id,
-            que=f"Fase {fase} de {session.output_mkv_name or session.id}",
+            # El nombre del trabajo describe SOBRE QUÉ se trabaja; la fase
+            # concreta la lleva `fase_label`, que ya va con su letra y su
+            # nombre humano. Antes decía «Fase analyze_source de X.mkv»: la
+            # clave interna del pipeline, en pantalla y repetida al lado.
+            que=f"Upgrade CMv4.0 · {session.output_mkv_name or session.id}",
             datos={"fase": fase, **(datos or {})},
         ),
         a_la_cabeza=(fase != "analyze_source"),
@@ -1397,7 +1401,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"pre-flight de {session.output_mkv_name or session.id}",
+                f"Validación previa · {session.output_mkv_name or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -2341,7 +2345,7 @@ async def cmv40_get(session_id: str, include_log: bool = True):
 
 
 @router.delete("/api/cmv40/{session_id}", summary="Borra un proyecto CMv4.0",
-               dependencies=[Depends(workload.marca("borrado de un proyecto", workload.TAB_CMV40))])
+               dependencies=[Depends(workload.marca("Borrado de un proyecto", workload.TAB_CMV40))])
 async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
@@ -2408,7 +2412,7 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
 
 
 @router.post("/api/cmv40/{session_id}/cleanup", summary="Borra artefactos intermedios",
-             dependencies=[Depends(workload.marca("limpieza de artefactos", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca("Limpieza de artefactos", workload.TAB_CMV40))])
 async def cmv40_cleanup(session_id: str):
     """
     Borra todos los artefactos intermedios del workdir. Tras esta acción el
@@ -2731,7 +2735,7 @@ class CMv40CleanupBulkRequest(BaseModel):
 @router.post(
     "/api/cmv40/cleanup/bulk",
     summary="Limpia artefactos de varios proyectos CMv4.0 a la vez",
-    dependencies=[Depends(workload.marca("limpieza masiva de artefactos", workload.TAB_CMV40))],
+    dependencies=[Depends(workload.marca("Limpieza masiva de artefactos", workload.TAB_CMV40))],
 )
 async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
     """Borra los artefactos del workdir de cada session_id de la lista. Marca
@@ -2848,7 +2852,7 @@ async def cmv40_reset_preview(session_id: str, target_phase: str):
 
 @router.post("/api/cmv40/{session_id}/reset-to/{target_phase}",
              summary="Resetea a una fase anterior (para rehacer)",
-             dependencies=[Depends(workload.marca("borrado de artefactos para rehacer", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca("Borrado de artefactos", workload.TAB_CMV40))])
 async def cmv40_reset_to(session_id: str, target_phase: str):
     """
     Rebobina el estado de la sesión a una fase anterior y borra los
@@ -3131,7 +3135,7 @@ class CMv40TargetPathRequest(BaseModel):
 
 
 @router.post("/api/cmv40/{session_id}/target-rpu-path", summary="Fase B1: RPU target desde path",
-             dependencies=[Depends(workload.marca("elección del RPU target", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca("Selección del RPU", workload.TAB_CMV40))])
 async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     session = load_cmv40_session(session_id)
     if not session:
@@ -3178,7 +3182,7 @@ class CMv40TargetDriveRequest(BaseModel):
 
 @router.post("/api/cmv40/{session_id}/target-rpu-from-drive",
           summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive",
-          dependencies=[Depends(workload.marca("descarga del RPU target",
+          dependencies=[Depends(workload.marca("Descarga del RPU",
                                                workload.TAB_CMV40))])
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
@@ -3275,7 +3279,7 @@ class CMv40PreflightRequest(BaseModel):
 @router.post(
     "/api/cmv40/{session_id}/preflight-target",
     summary="Pre-flight asíncrono: valida bin target antes de Fase A (ahorra ~12 min si bin sin CMv4.0)",
-    dependencies=[Depends(workload.marca("pre-flight del bin target", workload.TAB_CMV40))],
+    dependencies=[Depends(workload.marca("Validación del RPU", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     """
@@ -3364,7 +3368,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"pre-flight de {session.output_mkv_name or session.id}",
+                f"Validación previa · {session.output_mkv_name or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -3447,7 +3451,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
 @router.post(
     "/api/cmv40/{session_id}/preflight-source",
     summary="Pre-flight asíncrono: valida que el MKV origen tenga DV (sin target)",
-    dependencies=[Depends(workload.marca("pre-flight del origen", workload.TAB_CMV40))],
+    dependencies=[Depends(workload.marca("Validación del MKV origen", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_source(session_id: str):
     """Sniff de 30s del MKV origen + dovi_tool extract-rpu. Aborta si no hay
@@ -3479,7 +3483,7 @@ async def cmv40_preflight_source(session_id: str):
             _cmv40_marcar_activa(session, "preflight")
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"pre-flight de {session.output_mkv_name or session.id}",
+                f"Validación previa · {session.output_mkv_name or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
