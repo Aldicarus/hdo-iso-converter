@@ -9064,12 +9064,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-1);
-  background: rgba(235, 235, 240, 0.98);
+  /* EL MISMO que #workbar, y hay un test que compara los dos: es lo que hace
+     que la pestaña se lea como la cabecera de esa columna y no como una cuarta
+     pestaña que flota al final de la tira.
+
+     Sin filete navy arriba. Lo llevó, y con `border-radius` el trazo se curva
+     siguiendo la esquina: en vez de una línea limpia se veía un reborde navy
+     envolviendo el redondeo. Con el fondo azul la pestaña ya queda atada al
+     hub sin necesidad de subrayarlo. */
+  background: var(--cola-surface);
   border: 1px solid var(--sep);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
   padding: 7px 12px 9px;
-  box-shadow: inset 0 2px 0 var(--active-hub);
   white-space: nowrap;
 }
 .workbar-tab-icono { flex-shrink: 0; color: var(--text-2); display: flex; }
@@ -9116,7 +9123,12 @@ body.workbar-plegada .workbar-count { margin-left: 0; padding: 1px 5px; }
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(235, 235, 240, 0.98);
+  /* `--cola-surface` es el azul suave que la paleta ya reservaba para la
+     superficie de la cola (venía de la sub-pestaña «Trabajos en Curso», que
+     se retiró al modal). Es el color que le toca a esta columna: casa con el
+     navy del hub, la distingue del gris del sidebar de proyectos y no inventa
+     nada nuevo. */
+  background: var(--cola-surface);
   /* Continuo de arriba abajo, desde el borde superior de la pestaña: la
      columna es una superficie aparte (el patrón del panel inspector) y eso
      solo se lee si el borde no se interrumpe. */
@@ -9281,12 +9293,16 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 /* La tira plegada tiene que avisar de que hay algo: es lo que sustituye a los
    puntos verdes de las pestañas. Sin esto, cerrar la columna te dejaba sin
    ninguna señal de trabajo en marcha. */
-/* FUERA DEL FLUJO. Con `display:block` y su margen, el punto crecía el botón
-   10 px y con él la pestaña, así que **la fila de pestañas entera daba un
-   salto de 3 px en cuanto arrancaba un trabajo**. Lo cazó una mutación: sin
+/* El punto de «hay trabajo», SOLO con la columna plegada: desplegada ya está
+   el contador al lado y la tarjeta del activo con su aro girando, y ahí el
+   punto quedaba incrustado en la curva de la esquina de la pestaña.
+
+   Y fuera del flujo. Con `display:block` y su margen crecía el botón 10 px y
+   con él la pestaña, así que **la fila de pestañas entera daba un salto de
+   3 px en cuanto arrancaba un trabajo**. Lo cazó una mutación: sin
    `align-self: stretch` la pestaña seguía casando de alto, que es imposible
    salvo que algo la estuviera estirando por su cuenta. */
-.workbar-toggle.con-trabajo::after {
+body.workbar-plegada .workbar-toggle.con-trabajo::after {
   content: '';
   position: absolute;
   top: -2px; right: -3px;
@@ -9807,9 +9823,9 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 
 /* Un trabajo terminado se puede seleccionar para desplegar sus acciones. */
 .workbar-item.reciente { cursor: pointer; }
-.workbar-item.reciente:hover { background: var(--surface-2); }
+.workbar-item.reciente:hover { background: var(--surface-1); }
 .workbar-item.reciente.selected {
-  background: var(--surface-2);
+  background: var(--surface-1);
   box-shadow: inset 2px 0 0 var(--blue);
 }
 

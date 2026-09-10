@@ -126,10 +126,12 @@ def _medir() -> dict:
       pills:      r(q('.workbar-pills')),
       tabBar:     r(q('#tab-bar')),
       barVacia,
+      puntoDesplegada: getComputedStyle(q('.workbar-toggle'), '::after').content,
       tabActiva:  r(q('#tab-bar .tab.active')),
       tabInactiva:r(q('#tab-bar .tab:not(.active)')),
       franjaSidebar: r(q('#sidebar-tab-1 .sidebar-new-project-area')),
       franjaCentro:  r(q('#subtab-bar')),
+      estiloColumna: { bg: getComputedStyle(q('#workbar')).backgroundColor },
       estiloTab: {
         bg:     getComputedStyle(tab).backgroundColor,
         // El navy de la pestaña activa es un GRADIENTE, así que mirar solo el
@@ -166,6 +168,7 @@ def _medir() -> dict:
     await new Promise(r => setTimeout(r, 30));
     out.plegada = r(q('#workbar'));
     out.tabPlegada = r(q('.workbar-tab'));
+    out.puntoPlegada = getComputedStyle(q('.workbar-toggle'), '::after').content;
     out.franjaPlegada = r(q('.workbar-shelf'));
 
     document.getElementById('__out').textContent = JSON.stringify(out);
@@ -260,16 +263,27 @@ class TestLaColumnaEsUnaPestanaMas(unittest.TestCase):
 
     def test_la_pestana_NO_va_en_navy(self):
         """Decisión tomada: el navy significa «el panel que estás viendo» y
-        habría dos a la vez. Se ata al hub con el filete de arriba."""
-        pintura = self.m["estiloTab"]["bg"] + " " + self.m["estiloTab"]["img"]
+        habría dos encendidos a la vez."""
+        pintura = " ".join([self.m["estiloTab"]["bg"], self.m["estiloTab"]["img"],
+                            self.m["estiloTab"]["sombra"]])
         self.assertEqual(self.m["estiloTab"]["img"], "none",
                          "la pestaña de la columna no lleva gradiente")
         self.assertNotIn("34, 67, 108", pintura)      # --active-hub
         self.assertNotIn("38, 74, 120", pintura)      # --active-hub-top
         self.assertIn("gradient", self.m["estiloTabActiva"]["bg"],
                       "la pestaña de contenido sí debe seguir en navy")
-        self.assertIn("34, 67, 108", self.m["estiloTab"]["sombra"],
-                      "falta el filete navy que la ata al hub")
+
+    def test_la_pestana_va_del_color_de_SU_columna(self):
+        """Es lo que la convierte en su cabecera en vez de en una cuarta
+        pestaña que flota al final de la tira. Sustituye al filete navy, que
+        con el redondeo se curvaba envolviendo la esquina."""
+        self.assertEqual(self.m["estiloTab"]["bg"],
+                         self.m["estiloColumna"]["bg"])
+
+    def test_ese_color_sale_de_la_paleta(self):
+        """`--cola-surface`, el azul que la app ya reservaba para la superficie
+        de la cola. Ni un gris inventado ni el del sidebar de proyectos."""
+        self.assertEqual(self.m["estiloColumna"]["bg"], "rgb(237, 244, 255)")
 
     def test_tiene_forma_de_pestana(self):
         self.assertEqual(self.m["estiloTab"]["radio"], "8px")
@@ -279,6 +293,13 @@ class TestLaColumnaEsUnaPestanaMas(unittest.TestCase):
         10 px y con él la pestaña, así que la fila entera daba un salto de
         3 px en cuanto empezaba un job. Va posicionado."""
         self.assertEqual(self.m["tabBar"]["h"], self.m["barVacia"])
+
+    def test_el_punto_de_aviso_solo_sale_plegada(self):
+        """Desplegada ya está el contador al lado y el aro girando en la
+        tarjeta del activo; ahí el punto quedaba incrustado en la curva de la
+        esquina de la pestaña."""
+        self.assertEqual(self.m["puntoDesplegada"], "none")
+        self.assertNotEqual(self.m["puntoPlegada"], "none")
 
     def test_plegada_se_encoge_la_columna_Y_su_pestana(self):
         """Las dos, o la pestaña quedaría en voladizo sobre 28 px de columna."""
