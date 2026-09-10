@@ -267,6 +267,35 @@ async def search_movies(title_es: str, year: int | None,
     return matches
 
 
+def poster_en_cache(title: str, year: int | None) -> str:
+    """La URL del póster SI la caché de disco ya conoce esta película.
+
+    **Nunca sale a la red.** La usa la columna de trabajo, que se refresca
+    cada 2 s: pedirle a TMDb una carátula por tarjeta sería una petición por
+    fila y por vuelta, y encima metería la latencia de la API en el camino de
+    encolar un trabajo. Si no está cacheada, la tarjeta se pinta con su icono
+    — que es peor que la carátula, pero mucho mejor que esperar.
+
+    En la práctica acierta casi siempre en el caso que importa: para abrir un
+    MKV en Tab 2 el frontend ya ha pedido su ficha por `/tmdb-lookup`, que
+    parsea el MISMO nombre con el MISMO parser y guarda el resultado aquí.
+
+    El `n=` de la clave es el `limit` de quien buscó (1 desde el lookup, 5 por
+    defecto, 10 desde el selector de candidatos), así que se recorre por
+    prefijo en vez de adivinarlo. La caché son unos cientos de entradas.
+    """
+    if not title:
+        return ""
+    prefijo = _cache_key(title, year) + "|n="
+    for clave, valor in _load_cache().items():
+        if not clave.startswith(prefijo):
+            continue
+        resultados = (valor or {}).get("results") or []
+        if resultados:
+            return resultados[0].get("poster_url") or ""
+    return ""
+
+
 async def search_movie(title_es: str, year: int | None) -> TmdbMatch | None:
     """Atajo: primer candidato de search_movies (mantiene API antigua)."""
     matches = await search_movies(title_es, year, limit=1)

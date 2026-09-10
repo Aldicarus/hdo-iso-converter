@@ -89,6 +89,36 @@ def _con_anio(titulo: str, anio) -> str:
     return f"{titulo} ({anio})" if anio else titulo
 
 
+def cartel_de(tmdb: dict | None = None, fichero: str = "",
+              serie: dict | None = None) -> tuple[str, str]:
+    """La película y su miniatura: **lo que la tarjeta necesita, de un tiro**.
+
+    Es la única forma de pedirlas, y por eso el respaldo vale para todos los
+    tipos por igual. La carátula sale de `tmdb_info` cuando la sesión la
+    tiene, y si no —los dos trabajos de Tab 2 no tienen sesión, y 11 de las 49
+    sesiones del NAS no tienen ficha— de **la caché de TMDb en disco**, que
+    para ese fichero ya suele estar llena porque abrirlo pidió su ficha.
+
+    **Nunca sale a la red.** La columna se refresca cada 2 s: pedir una
+    carátula por tarjeta sería una petición por fila y por vuelta, y encima
+    metería la latencia de TMDb en el camino de encolar. Sin caché se devuelve
+    vacía y la tarjeta cae a su icono.
+    """
+    titulo = nombre_de_trabajo(tmdb, fichero, serie)
+    poster = poster_de(tmdb)
+    if not poster and fichero:
+        try:
+            from services.cmv40_recommend import parse_mkv_filename
+            from services.tmdb import poster_en_cache
+            poster = poster_de(
+                {"poster_url": poster_en_cache(*parse_mkv_filename(fichero))})
+        except Exception:                               # noqa: BLE001
+            # Quedarse sin miniatura es cosmético; que reviente el encolado,
+            # no.
+            poster = ""
+    return titulo, poster
+
+
 def poster_de(tmdb: dict | None = None, ancho: str = "w92") -> str:
     """La miniatura del póster, o cadena vacía.
 

@@ -129,6 +129,64 @@ class TestElHistorialLosGuarda(unittest.TestCase):
             self.assertEqual(r["poster"], "http://x/w92/a.jpg")
 
 
+class TestLaCaratulaLlegaEnTodosLosTipos(unittest.TestCase):
+    """El análisis extendido salía sin carátula: es el único tipo que no tiene
+    sesión de la que sacar el `tmdb_info`, y al encolarlo se dejaba vacía.
+
+    El respaldo es **la caché de TMDb en disco**, que para ese fichero ya está
+    llena porque abrirlo pidió su ficha con el MISMO parser. Y como vale para
+    todos —11 de las 49 sesiones del NAS tampoco tienen ficha— vive en
+    `cartel_de`, que es la única puerta.
+    """
+
+    def setUp(self):
+        import services.tmdb as tmdb
+        self.tmdb = tmdb
+        self._previo = tmdb._cache
+        tmdb._cache = {
+            "drive|2011|n=1": {"fetched_at": 9e12, "results": [
+                {"tmdb_id": 1, "title": "Drive", "year": 2011,
+                 "poster_url": "https://image.tmdb.org/t/p/w185/d.jpg"}]},
+        }
+        self.addCleanup(setattr, tmdb, "_cache", self._previo)
+
+    def test_un_fichero_sin_sesion_saca_la_caratula_de_la_cache(self):
+        titulo, poster = trabajos.cartel_de(
+            fichero="Drive.2011.UHD.BluRay [DV FEL].mkv")
+        self.assertEqual(titulo, "Drive (2011)")
+        self.assertEqual(poster, "https://image.tmdb.org/t/p/w92/d.jpg")
+
+    def test_manda_el_tmdb_info_de_la_sesion_cuando_lo_hay(self):
+        _, poster = trabajos.cartel_de(
+            {"title": "Drive", "year": 2011,
+             "poster_url": "https://image.tmdb.org/t/p/w342/OTRA.jpg"},
+            "Drive.2011.mkv")
+        self.assertIn("OTRA.jpg", poster)
+
+    def test_sin_caché_no_se_inventa_nada(self):
+        self.tmdb._cache = {}
+        self.assertEqual(trabajos.cartel_de(fichero="Nosecual.2030.mkv")[1], "")
+
+    def test_NUNCA_sale_a_la_red(self):
+        """La columna se refresca cada 2 s: una petición por tarjeta y por
+        vuelta. `poster_en_cache` es síncrona a propósito — no puede esperar a
+        nadie."""
+        import inspect
+        self.assertFalse(inspect.iscoroutinefunction(
+            self.tmdb.poster_en_cache))
+        fuente = inspect.getsource(self.tmdb.poster_en_cache)
+        for prohibido in ("httpx", "await", "api_key"):
+            self.assertNotIn(prohibido, fuente)
+
+    def test_los_tags_del_nombre_de_salida_no_estropean_la_busqueda(self):
+        """Un proyecto CMv4.0 busca por su nombre de SALIDA, que lleva los
+        tags que la app le añade. `parse_mkv_filename` corta después del año,
+        así que da la misma clave que el de origen."""
+        _, poster = trabajos.cartel_de(
+            fichero="Drive (2011) [CMv4 CORE].mkv")
+        self.assertTrue(poster.endswith("/w92/d.jpg"), poster)
+
+
 class TestNadieCompleteElNombreASuManera(unittest.TestCase):
     """El barrido: ningún `que=` de los routers puede seguir enseñando el
     nombre de un fichero con extensión ni una ruta interna."""

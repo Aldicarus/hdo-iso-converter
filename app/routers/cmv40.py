@@ -2530,23 +2530,13 @@ def _cartel_cmv40(session: CMv40Session) -> tuple[str, str]:
     (`[DV FEL]`, `[CMv4 CORE]`), así que sirve de respaldo pero no de rótulo:
     manda `tmdb_info`.
     """
-    return (trabajos.nombre_de_trabajo(session.tmdb_info,
-                                       session.output_mkv_name
-                                       or session.source_mkv_name or ""),
-            trabajos.poster_de(session.tmdb_info))
-
-
-def _cartel_cmv40(session: CMv40Session) -> tuple[str, str]:
-    """La película y su miniatura de un proyecto CMv4.0.
-
-    El nombre del MKV de salida lleva los tags que la propia app le añade
-    (`[DV FEL]`, `[CMv4 CORE]`), así que sirve de respaldo pero no de rótulo:
-    manda `tmdb_info`.
-    """
-    return (trabajos.nombre_de_trabajo(session.tmdb_info,
-                                       session.output_mkv_name
-                                       or session.source_mkv_name or ""),
-            trabajos.poster_de(session.tmdb_info))
+    # Vale el nombre de SALIDA para las dos cosas aunque lleve los tags que la
+    # propia app le añade (`[CMv4 CORE]`): `parse_mkv_filename` corta después
+    # del año, así que el de salida y el de origen dan la misma clave de
+    # caché — y el título sale del de salida, que es el del proyecto.
+    return trabajos.cartel_de(
+        session.tmdb_info,
+        session.output_mkv_name or session.source_mkv_name or "")
 
 
 def _cmv40_anotar_decision(session: CMv40Session, eleccion: str) -> None:

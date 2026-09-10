@@ -1434,9 +1434,7 @@ def _cartel_de_sesion(session) -> tuple[str, str]:
         serie = {"nombre": session.series_name, "anio": session.series_year,
                  "temporada": session.season_number,
                  "episodio": session.episode_number}
-    return (trabajos.nombre_de_trabajo(session.tmdb_info,
-                                       session.mkv_name or "", serie),
-            trabajos.poster_de(session.tmdb_info))
+    return trabajos.cartel_de(session.tmdb_info, session.mkv_name or "", serie)
 
 
 def _rip_adaptador(trabajo) -> dict | None:
@@ -1833,6 +1831,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         tipo   = "crear_serie",
         que    = _que,
         titulo = _titulo_serie,
+        poster = trabajos.poster_de({"poster_url": body.series_poster_url}),
         inicio = _inicio,
         estado = "error" if failed_episodes and not created_sessions else "done",
         error  = f"{len(failed_episodes)} episodio(s) fallaron" if failed_episodes else None,
@@ -2014,6 +2013,9 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
              f"{'s' if len(body.episodes) != 1 else ''} · "
              f"{_titulo_encolado or 'la serie'}"),
         titulo=_titulo_encolado,
+        # El asistente ya trajo el póster de la serie para la cabecera de cada
+        # episodio, así que aquí sale gratis.
+        poster=trabajos.poster_de({"poster_url": body.series_poster_url}),
         datos={"body": body.model_dump(), "stype": stype, "spath": spath,
                "source_abs": str(source_abs),
                # La cola reconstruye el trabajo, así que lo que el endpoint
