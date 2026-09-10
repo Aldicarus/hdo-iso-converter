@@ -111,6 +111,25 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     _cmv40_progreso_vivo.pop(session.id, None)
 
 
+def _programar_calentado_del_modelo() -> None:
+    """Rehace el modelo en un thread, sin bloquear ni duplicar el intento."""
+    if _ETA_MODEL_CACHE.get("calentando"):
+        return
+    try:
+        bucle = asyncio.get_running_loop()
+    except RuntimeError:
+        return                      # fuera de un bucle (tests puros): nada
+    _ETA_MODEL_CACHE["calentando"] = True
+
+    async def _hazlo():
+        try:
+            await asyncio.to_thread(calentar_modelo_de_eta)
+        finally:
+            _ETA_MODEL_CACHE["calentando"] = False
+
+    bucle.create_task(_hazlo())
+
+
 def calentar_modelo_de_eta() -> None:
     """Deja el modelo de duraciones en su caché al arrancar.
 
@@ -4501,6 +4520,13 @@ def _cmv40_progreso_total(session: CMv40Session, fase: str,
     trabajo = round(sum(hechas.values()) + vivo)
 
     modelo = _ETA_MODEL_CACHE.get("data") or {}
+    if not modelo:
+        # Se calienta al arrancar, pero si por lo que sea no está —un fallo de
+        # lectura, un `/config` que aún no existía— se rehace en segundo plano
+        # en vez de dejar el job sin total para siempre. Aquí NO se puede
+        # construir: son un `glob` y una lectura por sesión, y esto corre en
+        # cada poll de la columna.
+        _programar_calentado_del_modelo()
     plan = resolve_plan(session)
     ratios = modelo.get("dropin" if plan.drop_in else "merge") or {}
     factor = 1.0 + sum(v for k, v in ratios.items() if not k.endswith("_n"))

@@ -305,3 +305,122 @@ class TestElPorcentajeEsDelProceso(TurnoCase):
             "merge": {"extract": 0.01}, "dropin": {}, "share_dropin": 0.0}})
         p = self._progreso()
         self.assertLessEqual(p["pct"], 99)
+
+
+class TestElTotalLlegaHastaLaColumna(TurnoCase):
+    """La cadena ENTERA por HTTP, que es lo que el usuario mira.
+
+    Que el adaptador calcule bien no basta: entre él y la tarjeta están
+    `queue_manager.get_status()`, `trabajos.progreso_de` y el endpoint, y el
+    contrato tiene un `pct` y un `segundos` que cualquiera de los tres podría
+    dejar en el de la fase.
+    """
+
+    def _job_en_marcha(self, **kw):
+        from models import CMv40PhaseRecord
+        from datetime import datetime, timedelta, timezone
+        sid = self._sesion(phase="injected")
+        s = self.storage.load_cmv40_session(sid)
+        ahora = datetime.now(timezone.utc)
+        s.phase_history = [
+            CMv40PhaseRecord(phase="analyze_source", status="done",
+                             started_at=ahora - timedelta(seconds=900),
+                             elapsed_seconds=600),
+            CMv40PhaseRecord(phase="extract", status="done",
+                             started_at=ahora - timedelta(seconds=300),
+                             elapsed_seconds=240),
+            CMv40PhaseRecord(phase="remux", status="running",
+                             started_at=ahora - timedelta(seconds=60)),
+        ]
+        s.running_phase = "remux"
+        self.storage.save_cmv40_session(s)
+        # El progreso de la FASE: 90 % y 30 s para acabarla. Lo que la columna
+        # tiene que enseñar NO es esto.
+        self.storage.write_cmv40_progress(sid, {"pct": 90, "eta_s": 30,
+                                               "label": "Muxeando"})
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
+            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
+                      "validate": 0.3}, "dropin": {}, "share_dropin": 0.0}})
+        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
+                        {"at": 0.0, "data": None})
+        cola = self.main.queue_manager
+        # `_running` guarda el objeto, no su JSON: `get_status` es quien
+        # serializa.
+        cola._running = qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+            que="Upgrade CMv4.0 · Predator (2026)",
+            titulo="Predator (2026)", datos={"fase": "remux"})
+        self.addCleanup(setattr, cola, "_running", None)
+        return self.client.get("/api/trabajos").json()["activo"]
+
+    def test_el_pct_del_endpoint_es_el_del_proceso(self):
+        a = self._job_en_marcha()
+        # total = 600 × 3.8 = 2280; hechos 600+240+60 = 900 → 39 %
+        self.assertEqual(a["pct"], 39)
+        self.assertNotEqual(a["pct"], 90, "sigue siendo el de la fase")
+
+    def test_el_transcurrido_tambien(self):
+        a = self._job_en_marcha()
+        self.assertAlmostEqual(a["segundos"], 900, delta=3)
+
+    def test_y_el_restante(self):
+        a = self._job_en_marcha()
+        self.assertAlmostEqual(a["eta_s"], 2280 - 900, delta=5)
+        self.assertNotEqual(a["eta_s"], 30, "sigue siendo el de la fase")
+        self.assertEqual(a["eta_fuente"], "modelo")
+
+    def test_la_fase_sigue_saliendo_para_los_puntitos(self):
+        a = self._job_en_marcha()
+        self.assertEqual((a["fase_n"], a["fases_total"]), (6, 7))
+        self.assertEqual(a["paso"], "Muxeando")
+
+
+class TestElModeloSeCalientaSolo(TurnoCase):
+    """Sin modelo no hay total, y el total es lo que el usuario mira.
+
+    Se calienta al arrancar, pero si eso falla —un `/config` que aún no
+    existía, un fallo de lectura— el job se quedaría sin total para siempre.
+    El adaptador lo rehace en segundo plano: aquí NO se puede construir, son
+    un `glob` y una lectura por sesión y esto corre en cada poll.
+    """
+
+    def test_con_la_cache_vacia_se_programa_su_reconstruccion(self):
+        import asyncio
+        cache = self.cmv40._ETA_MODEL_CACHE
+        cache.update({"at": 0.0, "data": None, "calentando": False})
+        self.addCleanup(cache.update, {"at": 0.0, "data": None,
+                                       "calentando": False})
+        sid = self._sesion(phase="injected")
+
+        async def _tirar():
+            self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
+                tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+                datos={"fase": "remux"}))
+            for _ in range(50):
+                if cache.get("data") is not None:
+                    return True
+                await asyncio.sleep(0.02)
+            return False
+
+        self.assertTrue(asyncio.run(_tirar()),
+                        "la caché del modelo no se rehízo sola")
+
+    def test_y_no_se_programa_dos_veces_a_la_vez(self):
+        """Un poll cada 2 s con la caché vacía lanzaría un escaneo por vuelta."""
+        import asyncio
+        cache = self.cmv40._ETA_MODEL_CACHE
+        cache.update({"at": 0.0, "data": None, "calentando": True})
+        self.addCleanup(cache.update, {"at": 0.0, "data": None,
+                                       "calentando": False})
+        veces = []
+        orig = self.cmv40.calentar_modelo_de_eta
+        self.cmv40.calentar_modelo_de_eta = lambda: veces.append(1)
+        self.addCleanup(setattr, self.cmv40, "calentar_modelo_de_eta", orig)
+
+        async def _tirar():
+            for _ in range(3):
+                self.cmv40._programar_calentado_del_modelo()
+            await asyncio.sleep(0.05)
+
+        asyncio.run(_tirar())
+        self.assertEqual(veces, [])
