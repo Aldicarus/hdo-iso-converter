@@ -1307,6 +1307,10 @@ def _mkv_apply_reset(total_bytes: int = 0, src_path: str = "", dst_path: str = "
         "pct": 0, "eta_s": 0, "elapsed_s": 0,
         "started_at": _t.monotonic(), "error": None,
         "src_path": src_path, "dst_path": dst_path, "file_name": file_name,
+        # La clave con la que la cola conoce este trabajo: sin ella, el hook
+        # de descarte no puede distinguir SI el que se fue es este o uno
+        # posterior que el usuario ya haya lanzado.
+        "clave": f"apply:{Path(src_path).name}" if src_path else "",
     })
     _mkv_apply_cancel["requested"] = False
     _persist_mkv_apply_state()
@@ -1703,9 +1707,43 @@ def _copia_adaptador(trabajo) -> dict | None:
     }
 
 
+def _descartado_analisis(trabajo) -> None:
+    """Un análisis extendido que se saca de la cola libera su hueco.
+
+    El endpoint marca el singleton como ocupado al ENCOLAR, para que el modal
+    diga «esperando turno», y lo suelta el `finally` del runner. Si el trabajo
+    se descarta antes de empezar, ese `finally` no llega nunca y la pestaña se
+    queda ocupada: todos los análisis siguientes respondían «ya hay un
+    análisis en curso» hasta reiniciar el contenedor.
+
+    Se comprueba el `audit_id` porque entre el descarte y esto el usuario ya
+    puede haber lanzado otro: liberar a ciegas mataría al nuevo. Es el mismo
+    cuidado que el cancel dirigido por `audit_id`.
+    """
+    if _mkv_quality_state.get("audit_id") != trabajo.clave:
+        return
+    _mkv_quality_state["active"] = False
+    _mkv_quality_state["step"] = "cancelled"
+    _mkv_quality_state["step_label"] = "Retirado de la cola"
+
+
+def _descartada_copia(trabajo) -> None:
+    """Lo mismo para la copia desde biblioteca."""
+    if _mkv_apply_state.get("clave") != trabajo.clave:
+        return
+    _mkv_apply_state["active"] = False
+    _mkv_apply_state["step"] = "cancelled"
+    _mkv_apply_state["step_label"] = "Retirada de la cola"
+    _persist_mkv_apply_state()
+
+
 queue_manager.registrar_runner(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
                                _runner_analisis_extendido)
 queue_manager.registrar_runner(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                                _runner_copia_biblioteca)
+queue_manager.registrar_descarte(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
+                                 _descartado_analisis)
+queue_manager.registrar_descarte(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
+                                 _descartada_copia)
 trabajos.registrar(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO, _analisis_adaptador)
 trabajos.registrar(queue_manager_mod.TIPO_COPIA_BIBLIOTECA, _copia_adaptador)

@@ -129,6 +129,7 @@ class QueueManager:
         self._running: Optional[TrabajoEnCola] = None
         self._lock = asyncio.Lock()
         self._runners: dict[str, Callable[[TrabajoEnCola], Coroutine]] = {}
+        self._al_descartar: dict[str, Callable[[TrabajoEnCola], None]] = {}
         self._update_callbacks: list[Callable] = []
         self._load_state()
 
@@ -143,6 +144,39 @@ class QueueManager:
         vuelve a registrar al importar el router.
         """
         self._runners[tipo] = fn
+
+    def registrar_descarte(self, tipo: str,
+                           fn: Callable[["TrabajoEnCola"], None]) -> None:
+        """Asocia un tipo con quien limpia su estado si se saca de la cola.
+
+        Un trabajo encolado deja estado apuntado en su pestaña —un análisis
+        extendido marca su singleton como ocupado en cuanto se encola, para
+        que la UI enseñe «esperando turno»— y ese estado lo suelta el `finally`
+        del runner. Si el trabajo se descarta antes de empezar, el runner no
+        corre nunca y **la pestaña se queda ocupada para siempre**: el caso
+        real fue quitar un análisis de la cola y que todos los siguientes
+        respondieran «ya hay un análisis en curso».
+
+        La cola no sabe qué estado es ese, igual que no sabe ejecutar: cada
+        router registra el suyo. Es el patrón de `registrar_runner` y por el
+        mismo motivo.
+        """
+        self._al_descartar[tipo] = fn
+
+    def _avisar_descarte(self, trabajos) -> None:
+        """Le dice a cada pestaña que su trabajo se fue de la cola.
+
+        Nunca lanza: quedarse sin limpiar un estado es malo, pero que reviente
+        el `cancel` y el trabajo se quede en la cola es peor.
+        """
+        for t in trabajos:
+            fn = self._al_descartar.get(t.tipo)
+            if fn is None:
+                continue
+            try:
+                fn(t)
+            except Exception as e:                       # noqa: BLE001
+                logger.warning("[cola] el descarte de %s falló: %s", t.tipo, e)
 
     def set_run_fn(self, fn: Callable[[str], Coroutine]) -> None:
         """Compat: registra el runner de los rips, que recibe el `session_id`.
@@ -235,12 +269,14 @@ class QueueManager:
         """Elimina de la cola lo que tenga esa clave, si aún no ha empezado."""
         cancelled = False
         async with self._lock:
-            restantes = [t for t in self._queue if not self._es(t, session_id)]
-            if len(restantes) != len(self._queue):
-                self._queue = restantes
+            fuera = [t for t in self._queue if self._es(t, session_id)]
+            if fuera:
+                self._queue = [t for t in self._queue
+                               if not self._es(t, session_id)]
                 cancelled = True
                 self._persist_state()
         if cancelled:
+            self._avisar_descarte(fuera)
             await self._notify()
         return cancelled
 
@@ -277,13 +313,14 @@ class QueueManager:
         """
         claves = set(claves)
         async with self._lock:
-            restantes = [t for t in self._queue
-                         if not any(self._es(t, c) for c in claves)]
-            n = len(self._queue) - len(restantes)
+            fuera = [t for t in self._queue
+                     if any(self._es(t, c) for c in claves)]
+            n = len(fuera)
             if n:
-                self._queue = restantes
+                self._queue = [t for t in self._queue if t not in fuera]
                 self._persist_state()
         if n:
+            self._avisar_descarte(fuera)
             await self._notify()
         return n
 

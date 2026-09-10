@@ -620,3 +620,74 @@ class TestYaNoQuedaNingun409DeAdmision(unittest.TestCase):
         self.assertTrue(hasattr(workload, "bloqueado_por"))
         self.assertTrue(hasattr(workload, "hay_contencion"))
         self.assertTrue(hasattr(workload, "marca"))
+
+
+class TestSacarloDeLaColaLiberaSuHueco(ApiTestCase):
+    """Un trabajo encolado deja estado apuntado en su pestaña, y lo suelta el
+    `finally` de su runner. Si se descarta antes de empezar, ese `finally` no
+    llega nunca.
+
+    Caso real: quitar un análisis extendido de la cola dejaba el singleton de
+    Tab 2 ocupado, y **todos los análisis siguientes** respondían «ya hay un
+    análisis en curso» hasta reiniciar el contenedor.
+
+    La cola no sabe qué estado hay que soltar, igual que no sabe ejecutar:
+    cada router registra su limpieza con `registrar_descarte`.
+    """
+
+    def _meter_en_la_cola(self, trabajo) -> None:
+        """El arnés espía `encolar` para que nada arranque de verdad, así que
+        la entrada hay que ponerla a mano: lo que se prueba aquí es lo que
+        pasa al SACARLA."""
+        self.main.queue_manager._queue.append(trabajo)
+
+    def _encolar_analisis(self) -> str:
+        mkv = self.output_dir / "Peli (2024).mkv"
+        mkv.write_bytes(b"x" * 64)
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(mkv)})
+        self.assertEqual(r.status_code, 200, r.text)
+        audit = r.json()["audit_id"]
+        self._meter_en_la_cola(qm.TrabajoEnCola(
+            tab="mkv", tipo=qm.TIPO_ANALISIS_EXTENDIDO, clave=audit))
+        return audit
+
+    def test_un_analisis_retirado_no_bloquea_al_siguiente(self):
+        from routers import tab2
+        audit = self._encolar_analisis()
+        self.assertTrue(tab2._mkv_quality_state["active"])
+
+        # Y ahora se saca de la cola, como hace la columna de trabajo.
+        r = self.client.delete(
+            f"/api/queue/{qm.TIPO_ANALISIS_EXTENDIDO}:{audit}")
+        self.assertTrue(r.json()["ok"], r.text)
+        self.assertFalse(tab2._mkv_quality_state["active"],
+                         "el hueco se quedó ocupado: el siguiente análisis "
+                         "recibirá «ya hay uno en curso»")
+
+        # El de verdad: que el siguiente entre.
+        self.assertEqual(self._encolar_analisis() != audit, True)
+
+    def test_pero_no_libera_el_de_OTRO_analisis_posterior(self):
+        """Entre el descarte y la limpieza el usuario puede haber lanzado
+        otro. Liberar a ciegas mataría al nuevo — el mismo cuidado que el
+        cancel dirigido por `audit_id`."""
+        from routers import tab2
+        viejo = self._encolar_analisis()
+        tab2._mkv_quality_state["audit_id"] = "otro-mas-nuevo"
+        tab2._mkv_quality_state["active"] = True
+        self.client.delete(f"/api/queue/{qm.TIPO_ANALISIS_EXTENDIDO}:{viejo}")
+        self.assertTrue(tab2._mkv_quality_state["active"])
+
+    def test_un_rip_retirado_vuelve_a_pending(self):
+        """Si no, la sesión se queda en `queued`: el botón dice «En
+        ejecución…» y no hay forma de relanzarla."""
+        import storage
+        (self.isos_dir / "Peli (2024).iso").write_bytes(b"x" * 4096)
+        sid = self.crear_sesion_tab1()
+        self.client.post(f"/api/sessions/{sid}/execute")
+        self.assertEqual(storage.load_session(sid).status, "queued")
+        self._meter_en_la_cola(qm.TrabajoEnCola(
+            tab="rip", tipo=qm.TIPO_RIP, clave=sid))
+        self.client.delete(f"/api/queue/{sid}")
+        self.assertEqual(storage.load_session(sid).status, "pending")

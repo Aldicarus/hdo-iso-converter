@@ -3061,12 +3061,10 @@ async def cancel_queue_job(session_id: str):
     # devolver la sesión a `pending` hace falta la clave.
     encolado = queue_manager.buscar(session_id)
     clave = encolado.clave if encolado else session_id
+    # Devolver la sesión a `pending` lo hace el hook de descarte, para que
+    # valga desde cualquier vía por la que un rip salga de la cola y no solo
+    # desde este endpoint.
     cancelled = await queue_manager.cancel(session_id)
-    if cancelled:
-        session = load_session(clave)
-        if session:
-            session.status = "pending"
-            save_session(session)
     return {"ok": cancelled, "session_id": clave}
 
 
@@ -3418,6 +3416,19 @@ def _serie_adaptador(trabajo) -> dict | None:
     }
 
 
+def _descartado_rip(trabajo) -> None:
+    """Un rip que sale de la cola vuelve a `pending`.
+
+    Si no, la sesión se queda en `queued` para siempre: el botón dice «En
+    ejecución…» y no hay forma de relanzarla.
+    """
+    session = load_session(trabajo.clave)
+    if session and session.status == "queued":
+        session.status = "pending"
+        save_session(session)
+
+
+queue_manager.registrar_descarte(queue_manager_mod.TIPO_RIP, _descartado_rip)
 trabajos.registrar(queue_manager_mod.TIPO_RIP, _rip_adaptador)
 trabajos.registrar(queue_manager_mod.TIPO_SERIE, _serie_adaptador)
 queue_manager.on_update(_broadcast_queue)

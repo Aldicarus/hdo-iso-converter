@@ -391,7 +391,10 @@ function _workbarRender(st) {
   }
 
   body.innerHTML =
-    (activo ? _workbarActivoHTML(activo) : '')
+    // Envuelta en su sección como las otras tres: eso le da el título «En
+    // curso» y los 14 px de aire a los lados. Sin el envoltorio la tarjeta
+    // caía pegada al borde de la ventana y al de la columna.
+    _workbarListaHTML('En curso', activo ? [activo] : [], _workbarActivoHTML)
     + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
         ref: `cola:${j.id}`,
         sub: _workbarDescripcion(j),

@@ -219,6 +219,24 @@ class TestElTrabajoEnCursoSaleDesplegado(TarjetaCase):
         h = self._todo("rec:h1|2026-09-11T08:00:00+00:00")
         self.assertNotIn("cancelarTrabajoActivo()", h)
 
+    def test_va_en_su_seccion_como_las_otras_tres(self):
+        """El envoltorio es lo que le da el título «En curso» y los 14 px de
+        aire a los lados. Sin él la tarjeta caía pegada al borde de la ventana
+        y al de la columna."""
+        h = self._todo()
+        i = h.index('data-ref="act"')
+        cabeza = h[:i]
+        self.assertIn("workbar-seccion-titulo", cabeza)
+        self.assertIn("En curso", cabeza)
+        # Y dentro de la sección, no antes de que empiece.
+        self.assertLess(cabeza.rindex('class="workbar-seccion"'), i)
+
+    def test_todas_las_secciones_tienen_el_mismo_envoltorio(self):
+        """Cuatro secciones, cuatro `.workbar-seccion`: si una se queda fuera,
+        sus tarjetas van con otro margen que el resto."""
+        h = self._todo()
+        self.assertEqual(h.count('class="workbar-seccion"'), 4)
+
     def test_es_el_unico_con_barra_y_tiempos(self):
         h = self._todo()
         self.assertEqual(h.count("workbar-barra-fill"), 1)
