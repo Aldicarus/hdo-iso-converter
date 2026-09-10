@@ -116,7 +116,13 @@ class TestElRunnerSeResuelvePorTipo(ColaCase):
             vistos.append(session_id)
 
         self.cola.set_run_fn(_viejo)
-        await self.cola.enqueue("peli_2024")
+        # El atajo `enqueue(session_id)` se retiró: componía su `que` con el
+        # session id crudo y eso acababa en la columna. Lo que sigue valiendo
+        # —y es lo que este test comprueba— es que un runner con la firma
+        # vieja `(session_id)` siga funcionando.
+        await self.cola.encolar(qm.TrabajoEnCola(
+            tab="rip", tipo=qm.TIPO_RIP, clave="peli_2024",
+            que="Conversión a MKV · Peli (2024)"))
         await asyncio.sleep(0.1)
         self.assertEqual(vistos, ["peli_2024"])
 

@@ -173,7 +173,6 @@ class ApiTestCase(unittest.TestCase):
                              dict(cola._runners))
         cola._queue.clear()
         cola._running = None
-        self._orig_enqueue = cola.enqueue
         self._orig_encolar = cola.encolar
         # Lo que se ha pedido encolar, en orden: `[(tipo, clave, datos)]`.
         self.trabajos_encolados: list[tuple] = []
@@ -181,16 +180,16 @@ class ApiTestCase(unittest.TestCase):
         async def _encolar_espia(trabajo, *, a_la_cabeza=False):
             self.trabajos_encolados.append(
                 (trabajo.tipo, trabajo.clave, dict(trabajo.datos), a_la_cabeza))
+            # `encolados` es la lista de SESIONES de Tab 1 que se pidió
+            # encolar, y la siguen mirando varios tests. Sale de aquí desde
+            # que el atajo `enqueue(session_id)` desapareció: componía su
+            # texto con el session id crudo, que acababa en pantalla.
+            if trabajo.tipo == _qm.TIPO_RIP:
+                self.encolados.append(trabajo.clave)
             return cola.get_status()
 
-        async def _enqueue_espia(session_id: str):
-            self.encolados.append(session_id)
-            return cola.get_status()
-
-        # Las DOS: Tab 1 sigue usando `enqueue(session_id)` y Tab 3 usa
-        # `encolar(TrabajoEnCola)`. Sin espiar la segunda, un test de un
-        # endpoint de fase dispararía `_process` de verdad y con él ffmpeg.
-        cola.enqueue = _enqueue_espia
+        # Sin este espía, un test de un endpoint de fase dispararía `_process`
+        # de verdad y con él ffmpeg.
         cola.encolar = _encolar_espia
         self._orig_persist = cola._persist_state
         cola._persist_state = lambda: None      # no escribir queue_state.json
@@ -200,7 +199,6 @@ class ApiTestCase(unittest.TestCase):
             cola._running = self._cola_estado[1]
             cola._runners.clear()
             cola._runners.update(self._cola_estado[2])
-            cola.enqueue = self._orig_enqueue
             cola.encolar = self._orig_encolar
             cola._persist_state = self._orig_persist
 

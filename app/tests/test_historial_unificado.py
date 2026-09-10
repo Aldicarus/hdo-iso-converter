@@ -406,7 +406,11 @@ class TestTab3LoAlimenta(unittest.IsolatedAsyncioTestCase):
         # El nombre de la fase, no su clave interna: en «Trabajos recientes»
         # no hay un `fase_label` al lado que lo traduzca.
         self.assertIn("Fase F — Inyectando el RPU en la EL", t["que"])
-        self.assertIn("Predator.mkv", t["que"])
+        # La PELÍCULA, no el fichero: ni extensión ni los tags que la propia
+        # app le añade al nombre de salida.
+        self.assertIn("Predator", t["que"])
+        self.assertNotIn(".mkv", t["que"])
+        self.assertEqual(t["titulo"], "Predator")
         self.assertNotIn("inject", t["que"])
         self.assertEqual(t["estado"], "done")
         self.assertEqual(t["ref_log"], "cmv40:cmv40_hist")
@@ -485,7 +489,8 @@ class TestTab2LoAlimenta(ApiTestCase):
         self.assertEqual(len(t), 1, "un análisis extendido no dejó rastro")
         self.assertEqual(t[0]["tab"], historial.TAB_MKV)
         self.assertEqual(t[0]["tipo"], historial.TIPO_ANALISIS_EXTENDIDO)
-        self.assertIn("Peli.mkv", t[0]["que"])
+        self.assertIn("Peli", t[0]["que"])
+        self.assertNotIn(".mkv", t[0]["que"])
         self.assertEqual(t[0]["estado"], "error")
 
     def test_la_copia_desde_biblioteca_deja_su_linea(self):
@@ -521,7 +526,12 @@ class TestTab2LoAlimenta(ApiTestCase):
         t = historial.leer()
         self.assertEqual(len(t), 1, "la copia no dejó rastro")
         self.assertEqual(t[0]["tipo"], historial.TIPO_COPIA_BIBLIOTECA)
-        self.assertIn("DesdeBiblioteca.mkv", t[0]["que"])
+        self.assertIn("DesdeBiblioteca", t[0]["que"])
+        # Ni en minúscula ni con la ruta interna del destino, que es como
+        # estaba: «copia de X.mkv a /mnt/output».
+        self.assertNotIn(".mkv", t[0]["que"])
+        self.assertNotIn("/mnt/", t[0]["que"])
+        self.assertTrue(t[0]["que"][:1].isupper(), t[0]["que"])
 
 
 class TestElEndpoint(ApiTestCase):
@@ -560,7 +570,8 @@ class TestElEndpoint(ApiTestCase):
         self.assertEqual({t["tab"] for t in trabajos}, {"rip", "mkv", "cmv40"})
         for t in trabajos:
             self.assertEqual(
-                set(t), {"id", "tab", "tipo", "que", "inicio", "fin",
+                set(t), {"id", "tab", "tipo", "que", "titulo", "poster",
+                         "inicio", "fin",
                          "segundos", "estado", "error", "ref_log"})
 
     def test_el_limite_se_acota_por_arriba(self):

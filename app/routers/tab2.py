@@ -437,6 +437,13 @@ async def analyze_mkv_endpoint(body: dict):
     # cae bajo un root permitido (paths.LIBRARY_ROOTS).
     mkv_path_obj = _resolve_mkv_path_safe(rel_path)
     mkv_full = str(mkv_path_obj)
+    # La marca de la ruta solo sabe decir «Apertura de un MKV»; en la columna
+    # eso no distingue una película de otra. Con el fichero ya resuelto, se le
+    # pone nombre al trabajo que ESTA petición registró.
+    _peli = trabajos.nombre_de_trabajo(fichero=mkv_path_obj.name)
+    workload.detallar_actual(
+        que=f"Apertura de un MKV · {_peli}" if _peli else "Apertura de un MKV",
+        titulo=_peli)
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
 
@@ -1017,12 +1024,18 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     _mkv_quality_state["step_label"] = "Esperando turno en la cola"
     _mkv_quality_log("[Audit] ⏳ En cola — arrancará cuando termine el trabajo "
                      "que hay por delante.", target_audit_id=my_audit_id)
+    # Tab 2 no tiene sesión ni `tmdb_info`: el nombre sale del fichero, con el
+    # mismo parser que la recomendación CMv4.0. Sin carátula, por tanto — la
+    # tarjeta cae a su icono, que es lo correcto: pedirla aquí significaría
+    # una consulta a TMDb por trabajo.
+    _titulo_audit = trabajos.nombre_de_trabajo(fichero=mkv_path_obj.name)
     await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="mkv",
         tipo=queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
         clave=my_audit_id,
         sobre=str(mkv_full),
-        que=f"Análisis extendido · {mkv_path_obj.name}",
+        que=f"Análisis extendido · {_titulo_audit or mkv_path_obj.name}",
+        titulo=_titulo_audit,
         datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
                "inicio": datetime.now(timezone.utc).isoformat()},
     ))
@@ -1143,11 +1156,14 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
         # habla de mí.
         _mio = _mkv_quality_state.get("audit_id") == my_audit_id
         _paso = _mkv_quality_state.get("step") if _mio else None
+        _titulo_hist = trabajos.nombre_de_trabajo(fichero=mkv_path_obj.name)
         historial.anotar(
             id     = my_audit_id,
             tab    = historial.TAB_MKV,
             tipo   = historial.TIPO_ANALISIS_EXTENDIDO,
-            que    = f"Análisis extendido · {mkv_path_obj.name}",
+            que    = (f"Análisis extendido · "
+                      f"{_titulo_hist or mkv_path_obj.name}"),
+            titulo = _titulo_hist,
             inicio = _historial_inicio,
             estado = _paso if _paso in ("done", "cancelled", "error") else "error",
             error  = _mkv_quality_state.get("error") if _mio else
@@ -1460,11 +1476,17 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         _logger.exception("La copia desde biblioteca falló (%s)", src_path.name)
     finally:
         workload.liberar(_clave_copia)
+        _titulo_copia_hist = trabajos.nombre_de_trabajo(fichero=src_path.name)
         historial.anotar(
             id     = _clave_copia,
             tab    = historial.TAB_MKV,
             tipo   = historial.TIPO_COPIA_BIBLIOTECA,
-            que    = f"copia de {src_path.name} a /mnt/output",
+            # Ni en minúscula ni enseñando la ruta interna del destino: es
+            # lo mismo que hace el resto de la columna y el usuario no tiene
+            # por qué saber dónde monta /mnt/output.
+            que    = (f"Copia a Output · "
+                      f"{_titulo_copia_hist or src_path.name}"),
+            titulo = _titulo_copia_hist,
             inicio = _historial_inicio,
             estado = _mkv_apply_state.get("step") or "error",
             error  = _mkv_apply_state.get("error"),
@@ -1535,12 +1557,14 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 file_name=src_path.name,
             )
             _mkv_apply_set_step("en_cola", "Esperando turno en la cola…")
+            _titulo_copia = trabajos.nombre_de_trabajo(fichero=src_path.name)
             await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
                 tab="mkv",
                 tipo=queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                 clave=_clave_copia,
                 sobre=str(src_path),
-                que=f"Copia a Output · {src_path.name}",
+                que=f"Copia a Output · {_titulo_copia or src_path.name}",
+                titulo=_titulo_copia,
                 datos={"body": body.model_dump(), "src": str(src_path),
                        "dst": str(dst_path),
                        "inicio": datetime.now(timezone.utc).isoformat()},

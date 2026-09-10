@@ -79,7 +79,8 @@ def ruta() -> Path:
 def anotar(*, id: str, tab: str, tipo: str, que: str,
            inicio: datetime, fin: datetime | None = None,
            estado: str = "done", error: str | None = None,
-           ref_log: str | None = None) -> None:
+           ref_log: str | None = None,
+           titulo: str = "", poster: str = "") -> None:
     """Añade una línea al historial. Nunca lanza.
 
     `ref_log` dice DÓNDE está el log de ese trabajo, no lo copia: el de una
@@ -89,6 +90,12 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
         fin = fin or datetime.now(timezone.utc)
         registro = {
             "id": id, "tab": tab, "tipo": tipo, "que": que,
+            # La película y su miniatura, escritas AQUÍ porque aquí la sesión
+            # está en la mano. La línea del historial no tiene de dónde
+            # sacarlas después: es append-only y no guarda referencia a la
+            # sesión, que además puede haberse borrado. Las líneas ya escritas
+            # no las llevan y se pintan con su icono — no se migra nada.
+            "titulo": titulo, "poster": poster,
             "inicio": inicio.isoformat(), "fin": fin.isoformat(),
             "segundos": round(max(0.0, (fin - inicio).total_seconds()), 1),
             "estado": estado, "error": error, "ref_log": ref_log,

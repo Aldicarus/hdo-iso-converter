@@ -693,6 +693,12 @@ async def analyze_iso(body: AnalyzeRequest):
     if not Path(source_abs).exists():
         raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
 
+    # Idem que en Tab 2: «Análisis del disco» a secas no dice cuál.
+    _peli = trabajos.nombre_de_trabajo(fichero=Path(source_abs).name)
+    workload.detallar_actual(
+        que=f"Análisis del disco · {_peli}" if _peli else "Análisis del disco",
+        titulo=_peli)
+
     audio_dcp = "audio dcp" in (spath or "").lower()
 
     # Captura el log emitido durante Fase A para guardarlo en la sesión.
@@ -1402,6 +1408,37 @@ def _rip_progress_pct(pct: float) -> None:
     _rip_progress["pct"] = max(0.0, min(100.0, pct))
 
 
+async def _encolar_rip(session) -> dict:
+    """Encola el rip de una sesión con su nombre y su carátula.
+
+    No se usa `queue_manager.enqueue(session_id)` —el atajo de compatibilidad—
+    porque compone su `que` con el session id crudo, que es un identificador
+    interno y acababa en pantalla.
+    """
+    titulo, poster = _cartel_de_sesion(session)
+    return await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
+        tab="rip", tipo=queue_manager_mod.TIPO_RIP, clave=session.id,
+        que=f"Conversión a MKV · {titulo or session.mkv_name or session.id}",
+        titulo=titulo, poster=poster))
+
+
+def _cartel_de_sesion(session) -> tuple[str, str]:
+    """La película y su miniatura para una sesión de Tab 1.
+
+    En una sesión de serie el `title` de TMDb es el del EPISODIO, así que se
+    le pasa aparte de qué serie y qué número es: «Pilot (2011)» a secas no
+    dice nada.
+    """
+    serie = None
+    if (getattr(session, "media_type", "") or "") == "series":
+        serie = {"nombre": session.series_name, "anio": session.series_year,
+                 "temporada": session.season_number,
+                 "episodio": session.episode_number}
+    return (trabajos.nombre_de_trabajo(session.tmdb_info,
+                                       session.mkv_name or "", serie),
+            trabajos.poster_de(session.tmdb_info))
+
+
 def _rip_adaptador(trabajo) -> dict | None:
     """El progreso del rip, en la forma común de `trabajos.py`.
 
@@ -1493,8 +1530,12 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     audio_dcp = "audio dcp" in (spath or "").lower()
 
     _clave = (f"serie:{body.series_name or spath}:{body.season_number}")
-    _que = (f"análisis de {len(body.episodes)} episodio(s) de "
-            f"{body.series_name or 'la serie'}")
+    _titulo_serie = trabajos.nombre_de_trabajo(
+        serie={"nombre": body.series_name, "anio": body.series_year}) \
+        if body.series_name else ""
+    _que = (f"Análisis de {len(body.episodes)} episodio"
+            f"{'s' if len(body.episodes) != 1 else ''} · "
+            f"{_titulo_serie or 'la serie'}")
     _inicio = datetime.now(timezone.utc)
     workload.registrar(_clave, workload.TAB_RIP, _que)
 
@@ -1791,6 +1832,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         tab    = historial.TAB_RIP,
         tipo   = "crear_serie",
         que    = _que,
+        titulo = _titulo_serie,
         inicio = _inicio,
         estado = "error" if failed_episodes and not created_sessions else "done",
         error  = f"{len(failed_episodes)} episodio(s) fallaron" if failed_episodes else None,
@@ -1960,6 +2002,9 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         # encolar a propósito: lo que el usuario espera incluye la cola.
         "_desde": __import__("time").monotonic(),
     }
+    _titulo_encolado = trabajos.nombre_de_trabajo(
+        serie={"nombre": body.series_name, "anio": body.series_year}) \
+        if body.series_name else ""
     await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="rip",
         tipo=queue_manager_mod.TIPO_SERIE,
@@ -1967,7 +2012,8 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         sobre=spath,
         que=(f"Análisis de {len(body.episodes)} episodio"
              f"{'s' if len(body.episodes) != 1 else ''} · "
-             f"{body.series_name or 'la serie'}"),
+             f"{_titulo_encolado or 'la serie'}"),
+        titulo=_titulo_encolado,
         datos={"body": body.model_dump(), "stype": stype, "spath": spath,
                "source_abs": str(source_abs),
                # La cola reconstruye el trabajo, así que lo que el endpoint
@@ -2194,7 +2240,7 @@ async def execute_session(session_id: str):
     session.error_message = None
     save_session(session)
 
-    queue_status = await queue_manager.enqueue(session_id)
+    queue_status = await _encolar_rip(session)
     return {"ok": True, "session_id": session_id, **queue_status}
 
 
@@ -2956,11 +3002,14 @@ def _append_execution_record(
     # vive DENTRO de la sesión y guarda el detalle por fase; esto es la vista
     # de "qué ha pasado hoy", que antes exigía abrir las 130 sesiones del
     # /config y ordenarlas a mano.
+    _titulo_rip, _poster_rip = _cartel_de_sesion(session)
     historial.anotar(
         id      = session.id,
         tab     = historial.TAB_RIP,
         tipo    = historial.TIPO_RIP,
-        que     = f"Conversión a MKV · {session.mkv_name or session.id}",
+        que     = f"Conversión a MKV · {_titulo_rip or session.mkv_name or session.id}",
+        titulo  = _titulo_rip,
+        poster  = _poster_rip,
         inicio  = record.started_at,
         fin     = record.finished_at,
         estado  = "cancelled" if cancelado else record.status,
@@ -3212,7 +3261,7 @@ if DEV_MODE:
             session.output_log = []
             session.error_message = None
             save_session(session)
-            await queue_manager.enqueue(sid)
+            await _encolar_rip(session)
             enqueued.append(sid)
 
         return {"ok": True, "enqueued": enqueued, **queue_manager.get_status()}

@@ -1242,7 +1242,10 @@ async def app_trabajos(recientes: int = 8):
     en_cola = [
         {"id": j.get("clave"), "tab": j.get("tab"), "tipo": j.get("tipo"),
          "sobre": j.get("sobre") or j.get("clave"),
-         "que": j.get("que"), "posicion": i + 1}
+         "que": j.get("que"), "posicion": i + 1,
+         # Resueltos al encolar; una cola persistida de antes no los trae y
+         # esas tarjetas se pintan con su icono.
+         "titulo": j.get("titulo") or "", "poster": j.get("poster") or ""}
         for i, j in enumerate(estado.get("jobs") or [])
     ]
 
@@ -1250,6 +1253,7 @@ async def app_trabajos(recientes: int = 8):
         {"id": t.clave, "sobre": t.clave,
          "tab": workload.TAB_IDS.get(t.tab, ""),
          "que": t.que, "segundos": int(t.segundos),
+         "titulo": t.titulo, "poster": t.poster,
          # Con vista propia y cancelable, la columna ofrece los mismos dos
          # botones que para el trabajo en curso. Sin ellos solo se listaba,
          # así que un pre-flight cuyo modal se hubiera cerrado no se podía

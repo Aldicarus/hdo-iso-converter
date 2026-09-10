@@ -67,6 +67,12 @@ class TrabajoEnCola:
     # pueda marcar el suyo como «en cola» sin adivinarlo del texto de `que`.
     # No es la clave: la de un análisis extendido es su `audit_id`.
     sobre: str = ""
+    # La película y su miniatura, resueltas al encolar —donde la sesión está
+    # en la mano— y no en cada poll de la columna, que va cada 2 s. `que` sigue
+    # siendo la línea entera («Fase C — … · Drive (2011)»); `titulo` es solo la
+    # película, que es lo que la tarjeta enseña en grande.
+    titulo: str = ""
+    poster: str = ""
 
     def __post_init__(self) -> None:
         # Para rip, serie y fase CMv4.0 la clave YA es el identificador del
@@ -89,7 +95,8 @@ class TrabajoEnCola:
 
     def a_json(self) -> dict:
         return {"tab": self.tab, "tipo": self.tipo, "clave": self.clave,
-                "que": self.que, "datos": self.datos, "sobre": self.sobre}
+                "que": self.que, "datos": self.datos, "sobre": self.sobre,
+                "titulo": self.titulo, "poster": self.poster}
 
     @staticmethod
     def de_json(x) -> "TrabajoEnCola":
@@ -106,6 +113,11 @@ class TrabajoEnCola:
             # la clave, que es lo correcto para los tres tipos que la usan como
             # identificador de su proyecto.
             sobre=x.get("sobre") or x.get("clave") or "",
+            # Ausentes en las entradas escritas antes de que existieran: una
+            # cola persistida de la versión anterior sigue cargando, y esos
+            # trabajos se pintan con su icono en vez de con la carátula.
+            titulo=x.get("titulo") or "",
+            poster=x.get("poster") or "",
         )
 
 
@@ -203,11 +215,6 @@ class QueueManager:
         await self._notify()
         asyncio.create_task(self._process())
         return self.get_status()
-
-    async def enqueue(self, session_id: str) -> dict:
-        """Compat: encola un rip de Tab 1 por su `session_id`."""
-        return await self.encolar(TrabajoEnCola(
-            tab="rip", tipo=TIPO_RIP, clave=session_id, que=f"Conversión a MKV · {session_id}"))
 
     @staticmethod
     def _es(trabajo: "TrabajoEnCola", ref: str) -> bool:

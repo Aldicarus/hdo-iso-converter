@@ -1058,6 +1058,12 @@ const _ICONOS_TRABAJO = {
   // Flecha entrando en una bandeja: copiar hacia Output.
   copia_biblioteca: ['turquesa', _svg('<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
                                     + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>')],
+  // Escudo con visto: la validación previa, que decide SI va a haber trabajo.
+  // Naranja como la fase CMv4.0 porque es de la misma pestaña: el color lo da
+  // la pestaña y el glifo el tipo.
+  preflight: ['naranja', _svg('<path d="M12 3.2 5.5 6v6c0 4 2.8 7 6.5 8.8'
+                            + ' 3.7-1.8 6.5-4.8 6.5-8.8V6z"/>'
+                            + '<path d="m9.2 12.1 2 2 3.6-4"/>')],
   // Destellos: el upgrade de metadata, sin tocar la imagen.
   fase_cmv40: ['naranja', _svg('<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
                              + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>')],

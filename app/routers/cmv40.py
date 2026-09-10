@@ -870,12 +870,15 @@ async def _run_cmv40_phase_locked(
             # tres salidas (done, cancelled, error) importan igual, y de hecho
             # las dos que no son el camino feliz son las que uno quiere mirar
             # después. Va en el `finally` por lo mismo que el `liberar`.
+            _titulo_hist, _poster_hist = _cartel_cmv40(session)
             historial.anotar(
                 id      = session.id,
                 tab     = historial.TAB_CMV40,
                 tipo    = historial.TIPO_FASE_CMV40,
                 que     = (f"{_CMV40_FASE_LABELS.get(phase_name, phase_name)}"
-                           f" · {session.output_mkv_name or session.id}"),
+                           f" · {_titulo_hist or session.id}"),
+                titulo  = _titulo_hist,
+                poster  = _poster_hist,
                 inicio  = started,
                 fin     = record.finished_at,
                 estado  = record.status,
@@ -1182,6 +1185,7 @@ async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
     `analyze_source`: ahí el proyecto todavía no ha gastado nada y no tiene por
     qué colarse.
     """
+    _titulo_fase, _poster_fase = _cartel_cmv40(session)
     await queue_manager.encolar(
         queue_manager_mod.TrabajoEnCola(
             tab="cmv40",
@@ -1191,7 +1195,9 @@ async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
             # concreta la lleva `fase_label`, que ya va con su letra y su
             # nombre humano. Antes decía «Fase analyze_source de X.mkv»: la
             # clave interna del pipeline, en pantalla y repetida al lado.
-            que=f"Upgrade CMv4.0 · {session.output_mkv_name or session.id}",
+            que=f"Upgrade CMv4.0 · {_titulo_fase or session.id}",
+            titulo=_titulo_fase,
+            poster=_poster_fase,
             datos={"fase": fase, **(datos or {})},
         ),
         a_la_cabeza=(fase != "analyze_source"),
@@ -1207,14 +1213,17 @@ def _cmv40_posicion_en_cola(session_id: str) -> dict | None:
     se está esperando.
     """
     estado = queue_manager.get_status()
-    trabajos = estado.get("jobs") or []
-    for i, j in enumerate(trabajos):
+    # `en_cola` y no `trabajos`: ese es el nombre del módulo del contrato de
+    # progreso, que este fichero importa. Un local con el mismo nombre lo
+    # sombrea — la misma familia que el bug de `paths`.
+    en_cola = estado.get("jobs") or []
+    for i, j in enumerate(en_cola):
         if j.get("clave") == session_id and j.get("tipo") == queue_manager_mod.TIPO_FASE_CMV40:
             corriendo = estado.get("running_job") or {}
             return {
                 "fase": (j.get("datos") or {}).get("fase") or "",
                 "posicion": i + 1,
-                "total": len(trabajos),
+                "total": len(en_cola),
                 "por_delante": corriendo.get("que") or "",
             }
     return None
@@ -1401,9 +1410,10 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
         _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {session.output_mkv_name or session.id}",
+                f"Validación previa · {_titulo_wl or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -1411,7 +1421,8 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 workload.CLASE_INTERACTIVO,
                 # Tiene modal propio y se puede parar: la columna ofrece los
                 # dos botones, como con cualquier trabajo en curso.
-                detalle="preflight", cancelable=True)
+                detalle="preflight", cancelable=True,
+                titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -1511,12 +1522,15 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                     estado = historial.ESTADO_ESPERANDO
                 else:
                     estado = historial.ESTADO_HECHO
+                _titulo_pf, _poster_pf = _cartel_cmv40(session)
                 historial.anotar(
                     id     = session.id,
                     tab    = historial.TAB_CMV40,
                     tipo   = historial.TIPO_PREFLIGHT,
                     que    = (f"Validación previa · "
-                              f"{session.output_mkv_name or session.id}"),
+                              f"{_titulo_pf or session.id}"),
+                    titulo = _titulo_pf,
+                    poster = _poster_pf,
                     inicio = _inicio_pf,
                     estado = estado,
                     error  = session.error_message or None,
@@ -2509,6 +2523,32 @@ async def cmv40_clear_error(session_id: str):
     return session.model_dump()
 
 
+def _cartel_cmv40(session: CMv40Session) -> tuple[str, str]:
+    """La película y su miniatura de un proyecto CMv4.0.
+
+    El nombre del MKV de salida lleva los tags que la propia app le añade
+    (`[DV FEL]`, `[CMv4 CORE]`), así que sirve de respaldo pero no de rótulo:
+    manda `tmdb_info`.
+    """
+    return (trabajos.nombre_de_trabajo(session.tmdb_info,
+                                       session.output_mkv_name
+                                       or session.source_mkv_name or ""),
+            trabajos.poster_de(session.tmdb_info))
+
+
+def _cartel_cmv40(session: CMv40Session) -> tuple[str, str]:
+    """La película y su miniatura de un proyecto CMv4.0.
+
+    El nombre del MKV de salida lleva los tags que la propia app le añade
+    (`[DV FEL]`, `[CMv4 CORE]`), así que sirve de respaldo pero no de rótulo:
+    manda `tmdb_info`.
+    """
+    return (trabajos.nombre_de_trabajo(session.tmdb_info,
+                                       session.output_mkv_name
+                                       or session.source_mkv_name or ""),
+            trabajos.poster_de(session.tmdb_info))
+
+
 def _cmv40_anotar_decision(session: CMv40Session, eleccion: str) -> None:
     """Deja constancia de lo que el usuario contestó al pre-flight.
 
@@ -2567,7 +2607,7 @@ async def cmv40_accept_keep(session_id: str):
     historial.resolver_espera(
         session_id, nuevo_estado=historial.ESTADO_HECHO,
         nuevo_que=f"Mantener el MKV actual · "
-                  f"{session.output_mkv_name or session.id}")
+                  f"{_cartel_cmv40(session)[0] or session.id}")
     return session.model_dump()
 
 
@@ -3418,9 +3458,10 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
         _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {session.output_mkv_name or session.id}",
+                f"Validación previa · {_titulo_wl or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -3428,7 +3469,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 workload.CLASE_INTERACTIVO,
                 # Tiene modal propio y se puede parar: la columna ofrece los
                 # dos botones, como con cualquier trabajo en curso.
-                detalle="preflight", cancelable=True)
+                detalle="preflight", cancelable=True,
+                titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
@@ -3502,12 +3544,15 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                     estado = historial.ESTADO_ESPERANDO
                 else:
                     estado = historial.ESTADO_HECHO
+                _titulo_pf, _poster_pf = _cartel_cmv40(session)
                 historial.anotar(
                     id     = session.id,
                     tab    = historial.TAB_CMV40,
                     tipo   = historial.TIPO_PREFLIGHT,
                     que    = (f"Validación previa · "
-                              f"{session.output_mkv_name or session.id}"),
+                              f"{_titulo_pf or session.id}"),
+                    titulo = _titulo_pf,
+                    poster = _poster_pf,
                     inicio = _inicio_pf,
                     estado = estado,
                     error  = session.error_message or None,
@@ -3560,9 +3605,10 @@ async def cmv40_preflight_source(session_id: str):
         _inicio_pf = _dt.now(_tz.utc)
         async with lock:
             _cmv40_marcar_activa(session, "preflight")
+            _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {session.output_mkv_name or session.id}",
+                f"Validación previa · {_titulo_wl or session.id}",
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -3570,7 +3616,8 @@ async def cmv40_preflight_source(session_id: str):
                 workload.CLASE_INTERACTIVO,
                 # Tiene modal propio y se puede parar: la columna ofrece los
                 # dos botones, como con cualquier trabajo en curso.
-                detalle="preflight", cancelable=True)
+                detalle="preflight", cancelable=True,
+                titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
             save_cmv40_session(session)
             await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
@@ -3613,12 +3660,15 @@ async def cmv40_preflight_source(session_id: str):
                     estado = historial.ESTADO_ESPERANDO
                 else:
                     estado = historial.ESTADO_HECHO
+                _titulo_pf, _poster_pf = _cartel_cmv40(session)
                 historial.anotar(
                     id     = session.id,
                     tab    = historial.TAB_CMV40,
                     tipo   = historial.TIPO_PREFLIGHT,
                     que    = (f"Validación previa · "
-                              f"{session.output_mkv_name or session.id}"),
+                              f"{_titulo_pf or session.id}"),
+                    titulo = _titulo_pf,
+                    poster = _poster_pf,
                     inicio = _inicio_pf,
                     estado = estado,
                     error  = session.error_message or None,

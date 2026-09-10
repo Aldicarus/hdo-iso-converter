@@ -40,6 +40,8 @@ minutos. Igual con `mkvpropedit`, que es O(1). Medido: que una consulta se
 solape con un trabajo largo le cuesta a este un **+15 %**.
 """
 import contextlib
+import contextvars
+import dataclasses
 import itertools
 import logging
 import time
@@ -107,6 +109,11 @@ class Trabajo:
     # Y si se puede parar. Un `rmtree` o un `disc-probe` no: duran segundos y
     # cortarlos a medias deja peor estado del que arreglan.
     cancelable: bool = False
+    # La película y su miniatura. Lo interactivo se registra desde `marca`,
+    # que NO recibe la Request —para que este módulo no importe FastAPI—, así
+    # que el endpoint las rellena con `detallar` en cuanto resuelve el fichero.
+    titulo: str = ""
+    poster: str = ""
 
     @property
     def bloquea(self) -> bool:
@@ -133,12 +140,38 @@ _activos: dict[str, Trabajo] = {}
 
 def registrar(clave: str, tab: str, que: str,
               clase: str = CLASE_DIFERIDO, *,
-              detalle: str = "", cancelable: bool = False) -> None:
+              detalle: str = "", cancelable: bool = False,
+              titulo: str = "", poster: str = "") -> None:
     """Marca un trabajo pesado como en curso. Idempotente por clave."""
     _activos[clave] = Trabajo(clave=clave, tab=tab, que=que,
                               desde=time.monotonic(), clase=clase,
-                              detalle=detalle, cancelable=cancelable)
+                              detalle=detalle, cancelable=cancelable,
+                              titulo=titulo, poster=poster)
     logger.info("[workload] arranca [%s] %s", clase, _activos[clave].describir())
+
+
+def detallar(clave: str, *, que: str = "", titulo: str = "",
+             poster: str = "") -> None:
+    """Le pone nombre y cara a un trabajo YA registrado.
+
+    Lo interactivo se registra desde `marca`, la dependencia de FastAPI, que
+    **no recibe la Request** a propósito: así este módulo no importa FastAPI y
+    se puede cargar en un test puro. El precio es que la marca solo sabe la
+    ruta —«Apertura de un MKV»— y no sobre qué. Cuando el endpoint resuelve el
+    fichero, lo dice aquí.
+
+    Silencioso si la clave ya no está: el trabajo pudo terminar entretanto y
+    perder el rótulo es un inconveniente, no un fallo.
+    """
+    t = _activos.get(clave)
+    if t is None:
+        return
+    # `Trabajo` es inmutable a propósito —es un registro de lo que pasó—, así
+    # que se sustituye en vez de mutarse. `desde` viaja intacto: el reloj no
+    # puede reiniciarse por ponerle un rótulo.
+    _activos[clave] = dataclasses.replace(
+        t, que=que or t.que, titulo=titulo or t.titulo,
+        poster=poster or t.poster)
 
 
 @contextlib.contextmanager
@@ -236,10 +269,40 @@ def marca(que: str, tab: str):
     es el que ve el usuario, que además se lee mejor que una ruta con llaves.
     """
     async def _dep():
-        with ocupado(f"{tab}#{next(_secuencia)}", tab, que, CLASE_INTERACTIVO):
-            yield
+        clave = f"{tab}#{next(_secuencia)}"
+        # Para que el endpoint pueda ponerle nombre al trabajo que esta misma
+        # petición acaba de registrar. Ver `detallar_actual`.
+        ficha = _en_curso_aqui.set(clave)
+        try:
+            with ocupado(clave, tab, que, CLASE_INTERACTIVO):
+                yield
+        finally:
+            _en_curso_aqui.reset(ficha)
     _dep.__wl_interactivo__ = True   # ← lo que busca el test de cobertura
     return _dep
+
+
+# La clave del trabajo interactivo de LA PETICIÓN EN CURSO. Es un ContextVar
+# y no un parámetro porque `marca` no recibe la Request —para que este módulo
+# no importe FastAPI— y la clave la genera ella. Las dependencias con `yield`
+# corren en el mismo contexto que el endpoint, así que llega sola.
+_en_curso_aqui: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "workload_clave_actual", default="")
+
+
+def detallar_actual(*, que: str = "", titulo: str = "",
+                    poster: str = "") -> None:
+    """`detallar` sobre el trabajo que registró esta petición.
+
+    Lo llama el endpoint en cuanto resuelve de qué fichero se trata: la marca
+    de la ruta solo sabe decir «Apertura de un MKV», y en la columna eso no
+    distingue una película de otra.
+
+    Silencioso si no hay ninguno: los endpoints ligeros no registran nada.
+    """
+    clave = _en_curso_aqui.get()
+    if clave:
+        detallar(clave, que=que, titulo=titulo, poster=poster)
 
 
 def limpiar() -> None:
