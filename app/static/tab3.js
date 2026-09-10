@@ -732,6 +732,33 @@ function _cmv40TextoRestante(secs, s) {
 
 /** ¿El job está en un estado terminal? Con done/error el porcentaje no debe
  *  salir del último job_pct recibido, que se quedó a medias. */
+/** ¿Este pipeline ya no avanza? Decide si el cronómetro corre o se para.
+ *
+ *  Tres casos, y hasta ahora se cubrían de uno en uno:
+ *
+ *  - `phase === 'done'` o hay `error_message`: lo de siempre.
+ *  - **cancelada**: no cambia `phase` ni escribe `error_message` —cancelar no
+ *    es un error, y así está a propósito— así que hay que mirar el último
+ *    registro del `phase_history`.
+ *  - **abierta desde el historial**: la fase terminó bien pero el proyecto no
+ *    está en `done`, así que las dos condiciones de arriba son falsas y el
+ *    reloj seguía contando desde el arranque del pipeline. Nueve horas, en el
+ *    caso que lo destapó. Ahí no hay nada corriendo y quien lo sabe es el
+ *    modal, que lo dice con `project.terminal`.
+ *
+ *  Vive aquí porque la condición estaba escrita DOS veces —el render completo
+ *  y el incremental— y cada arreglo tenía que acordarse de las dos.
+ */
+function _cmv40Terminado(s, project) {
+  const ultima = (s.phase_history || []).slice(-1)[0];
+  const cancelado = !s.running_phase && !!ultima && ultima.status === 'cancelled';
+  return {
+    cancelado,
+    terminal: s.phase === 'done' || !!s.error_message || cancelado
+              || !!(project && project.terminal),
+  };
+}
+
 function isTerminal0(s) {
   return s.phase === 'done' || !!s.error_message || !!s.archived;
 }
@@ -793,14 +820,7 @@ function _cmv40RenderTimeline(s, project) {
   const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
 
-  // Una fase CANCELADA no cambia `phase` ni escribe `error_message` —cancelar
-  // no es un error, y así está a propósito—, así que sin mirar el
-  // `phase_history` el cronómetro seguía sumando segundos indefinidamente
-  // sobre un trabajo que se paró hace rato.
-  const ultimaFase = (s.phase_history || []).slice(-1)[0];
-  const cancelado = !s.running_phase && ultimaFase
-                    && ultimaFase.status === 'cancelled';
-  const isTerminal = (s.phase === 'done' || !!s.error_message || cancelado);
+  const { terminal: isTerminal, cancelado } = _cmv40Terminado(s, project);
   let elapsedLabel  = '—';
   let remainingText = '';
   let timerAttrs    = '';
@@ -2789,14 +2809,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   // entre fuentes server-time vs client-cached).
   const startedMs = _cmv40ResolveStartedMs(s, project);
   const hist = s.phase_history || [];
-  // Una fase CANCELADA no cambia `phase` ni escribe `error_message` —cancelar
-  // no es un error, y así está a propósito—, así que sin mirar el
-  // `phase_history` el cronómetro seguía sumando segundos indefinidamente
-  // sobre un trabajo que se paró hace rato.
-  const ultimaFase = (s.phase_history || []).slice(-1)[0];
-  const cancelado = !s.running_phase && ultimaFase
-                    && ultimaFase.status === 'cancelled';
-  const isTerminal = (s.phase === 'done' || !!s.error_message || cancelado);
+  const { terminal: isTerminal, cancelado } = _cmv40Terminado(s, project);
   let elapsedLabel  = '—';
   let remainingText = '';
   let newBaseRemaining = null;   // null = no actualizar data-base-remaining
@@ -2826,7 +2839,12 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
   // Sincroniza data-started-at del DOM con el cache canónico — el tick lee
   // de ahí, y debe coincidir con el startedMs que usa este render. Sin
   // esto el contador alterna entre dos valores cuando la fuente cambia.
-  if (elapsedEl && startedMs && elapsedEl.dataset.startedAt !== String(startedMs)) {
+  if (isTerminal) {
+    // Terminado, fuera el ancla: el tick de 1 s la busca por ese atributo, y
+    // reponerla aquí resucitaba el cronómetro que el render acababa de parar.
+    delete elapsedEl?.dataset.startedAt;
+  } else if (elapsedEl && startedMs
+             && elapsedEl.dataset.startedAt !== String(startedMs)) {
     elapsedEl.dataset.startedAt = String(startedMs);
   }
   if (elapsedEl   && elapsedEl.textContent   !== elapsedLabel)   elapsedEl.textContent   = elapsedLabel;
@@ -6564,6 +6582,21 @@ function _renderCMv40Chart(project) {
 // ejecución—, pero se abría SOLA y tapaba el panel. Aquí el mismo contenido se
 // abre a petición desde la columna de trabajo.
 
+/** El contexto que la timeline recibe cuando se pinta DESDE EL MODAL.
+ *
+ *  Con el proyecto abierto hay que reusar el suyo —guarda cachés que el
+ *  render escribe, como `_resolvedStartedMs`— pero sin marcarlo a él como
+ *  terminado: su panel puede estar mirando el mismo pipeline en vivo. Un
+ *  objeto que DELEGA en el proyecto lee sus campos y sus cachés y se queda
+ *  con lo suyo propio; copiarlo con spread rompería la caché, y mutarlo
+ *  congelaría el panel.
+ */
+function _cmv40CtxTimeline(s, project, a) {
+  const ctx = project ? Object.create(project) : { session: s };
+  ctx.terminal = !!(a && a.terminal);
+  return ctx;
+}
+
 registrarDetalleDeTrabajo('cmv40', async (a) => {
   const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
     .catch(() => null);
@@ -6590,7 +6623,7 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     // curso se reinicie en cada tick. Su comentario ya lo decía; lo perdimos
     // al pasar por el modal común.
     lateral: s
-      ? (el) => _cmv40UpdateTimelineIncremental(el, s, project || { session: s })
+      ? (el) => _cmv40UpdateTimelineIncremental(el, s, _cmv40CtxTimeline(s, project, a))
       : '',
     // La tira de pasos de la cabecera sobra teniendo la timeline al lado, que
     // dice lo mismo y mejor.

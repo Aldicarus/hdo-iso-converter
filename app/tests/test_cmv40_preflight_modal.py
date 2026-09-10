@@ -503,7 +503,7 @@ class TestUnaFaseCanceladaPARA_el_cronometro(unittest.TestCase):
     es un error— así que la timeline no lo veía como terminal y su cronómetro
     seguía sumando segundos sobre un trabajo parado hace rato."""
 
-    def _timeline(self, sesion) -> dict:
+    def _timeline(self, sesion, terminal=False) -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
 let _tickPuesto = false;
@@ -521,7 +521,9 @@ globalThis._cmv40Trust = () => true;
 globalThis.isTerminal0 = (s) => s.phase === 'done';
 globalThis.CMV40_PHASES_ORDER = ['created', 'source_analyzed'];
 {_fn('_cmv40RenderTimeline')}
-const html = _cmv40RenderTimeline({json.dumps(sesion)}, {{}});
+{_fn('_cmv40Terminado')}
+const html = _cmv40RenderTimeline({json.dumps(sesion)},
+                                  {{ terminal: {json.dumps(terminal)} }});
 console.log(JSON.stringify({{ html, tick: _tickPuesto }}));
 """
         return _node(guion)
@@ -545,6 +547,39 @@ console.log(JSON.stringify({{ html, tick: _tickPuesto }}));
         r = self._timeline(self._CANCELADA)
         self.assertIn("01:02", r["html"])
         self.assertIn("cancelado", r["html"])
+
+    def test_abierta_desde_el_HISTORIAL_tampoco_cuenta(self):
+        """El caso que lo destapó: una fase que terminó BIEN pero cuyo
+        proyecto no está en `done`. `phase !== 'done'`, sin `error_message` y
+        sin cancelación, así que las tres condiciones eran falsas y el reloj
+        seguía sumando desde el arranque del pipeline — nueve horas."""
+        acabada = dict(self._CANCELADA, phase="source_analyzed",
+                       phase_history=[{"phase": "analyze_source",
+                                       "status": "done",
+                                       "started_at": "2026-09-09T14:19:00+00:00",
+                                       "finished_at": "2026-09-09T14:33:00+00:00"}])
+        vivo = self._timeline(acabada)
+        self.assertIn("data-started-at", vivo["html"],
+                      "sin decir que es del historial, sigue siendo un job vivo")
+        delHistorial = self._timeline(acabada, terminal=True)
+        self.assertNotIn("data-started-at", delHistorial["html"])
+        self.assertIn("14:00", delHistorial["html"], "los 14 min que duró")
+
+    def test_la_decision_esta_en_UN_solo_sitio(self):
+        """Estaba escrita dos veces —el render completo y el incremental— y
+        cada arreglo tenía que acordarse de las dos. Por eso el caso del
+        historial se coló."""
+        self.assertEqual(JS.count("const { terminal: isTerminal, cancelado } "
+                                  "= _cmv40Terminado(s, project);"), 2,
+                         "el render completo y el incremental, y nadie más")
+        self.assertEqual(JS.count("function _cmv40Terminado("), 1)
+
+    def test_el_incremental_no_repone_el_ancla(self):
+        """El tick de 1 s la busca por ese atributo: reponerla resucitaba el
+        cronómetro que el render acababa de parar."""
+        i = JS.index("function _cmv40UpdateTimelineIncremental(")
+        cuerpo = JS[i:JS.index("\n}\n", i)]
+        self.assertIn("delete elapsedEl?.dataset.startedAt", cuerpo)
 
     def test_una_fase_viva_SIGUE_contando(self):
         viva = dict(self._CANCELADA, running_phase="analyze_source",
