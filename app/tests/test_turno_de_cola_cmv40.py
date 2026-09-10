@@ -424,3 +424,70 @@ class TestElModeloSeCalientaSolo(TurnoCase):
 
         asyncio.run(_tirar())
         self.assertEqual(veces, [])
+
+
+class TestDuranteLaFaseA(TurnoCase):
+    """El caso que el usuario cazó: con la Fase A al 90 % el trabajo iba por
+    el 20 % del proceso, y la columna anunciaba 90.
+
+    La referencia del modelo es la Fase A, así que mientras corre no hay
+    duración con la que escalar. Se estima de lo que lleva y de su propio
+    avance — el PORCENTAJE, no el ETA: el ETA desaparece en cuanto el ritmo
+    deja de dar dos muestras, y desaparece justo al final de la Fase A.
+    """
+
+    def _en_fase_a(self, prog):
+        from models import CMv40PhaseRecord
+        from datetime import datetime, timedelta, timezone
+        sid = self._sesion(phase="created")
+        s = self.storage.load_cmv40_session(sid)
+        s.phase_history = [CMv40PhaseRecord(
+            phase="analyze_source", status="running",
+            started_at=datetime.now(timezone.utc) - timedelta(seconds=315))]
+        s.running_phase = "analyze_source"
+        self.storage.save_cmv40_session(s)
+        self.storage.write_cmv40_progress(sid, prog)
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
+            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
+                      "validate": 0.3}, "dropin": {}, "share_dropin": 0.0}})
+        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
+                        {"at": 0.0, "data": None})
+        return self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+            datos={"fase": "analyze_source"}))
+
+    def test_el_90_por_ciento_de_la_fase_A_NO_es_el_90_del_trabajo(self):
+        # Es el payload real que devolvía el NAS: 90,2 % y sin ETA.
+        a = self._en_fase_a({"pct": 90.2, "eta_s": None, "label": "x"})
+        # Fase A ≈ 315/0.902 = 349 s; total = 349 × 3.8 = 1327 → 24 %.
+        self.assertEqual(a["pct"], 24)
+        self.assertNotEqual(a["pct"], 90)
+
+    def test_sin_ETA_de_la_fase_sigue_habiendo_total(self):
+        """Era lo que fallaba: la base solo se estimaba desde el `eta_s`, y
+        `_ReadProgress` lo deja de emitir en la recta final de la Fase A."""
+        a = self._en_fase_a({"pct": 90.2, "eta_s": None, "label": "x"})
+        self.assertIsNotNone(a["eta_s"])
+        self.assertEqual(a["eta_fuente"], "modelo")
+
+    def test_y_si_no_hay_NADA_medible_no_se_finge_un_porcentaje(self):
+        """Mejor una barra indeterminada que el número de otra cosa."""
+        a = self._en_fase_a({"label": "Extrayendo el RPU"})
+        self.assertIsNone(a["pct"])
+        self.assertFalse(a["pct_medido"])
+        self.assertIsNone(a["eta_s"])
+        # Pero el transcurrido sigue siendo el del trabajo.
+        self.assertAlmostEqual(a["segundos"], 315, delta=3)
+
+    def test_sin_modelo_tampoco_se_enseña_el_de_la_fase(self):
+        """El respaldo que había: con la Fase A al 90 % la barra decía 90 con
+        el trabajo por el 20. El número era una medida de verdad, pero de otra
+        cosa — y eso es peor que un hueco."""
+        a = self._en_fase_a({"pct": 90.2, "eta_s": 42, "label": "x"})
+        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
+            "merge": {}, "dropin": {}, "share_dropin": 0.0}})
+        b = self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave="cmv40_turno",
+            datos={"fase": "analyze_source"}))
+        self.assertIsNone(b["pct"], "se coló el porcentaje de la fase")
+        self.assertIsNone(b["eta_s"], "se coló el restante de la fase")

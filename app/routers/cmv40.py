@@ -4531,8 +4531,19 @@ def _cmv40_progreso_total(session: CMv40Session, fase: str,
     ratios = modelo.get("dropin" if plan.drop_in else "merge") or {}
     factor = 1.0 + sum(v for k, v in ratios.items() if not k.endswith("_n"))
     base = hechas.get("analyze_source")
-    if not base and fase == "analyze_source" and prog.get("eta_s"):
-        base = vivo + prog["eta_s"]
+    if not base and fase == "analyze_source":
+        # Todavía corriendo la referencia: se estima cuánto va a durar a
+        # partir de lo que lleva y de su propio avance. Se prefiere el
+        # PORCENTAJE al ETA porque el ETA desaparece en cuanto el ritmo deja
+        # de dar dos muestras —y desaparece justo al final de la Fase A, que
+        # es cuando esto se estaba quedando sin base: con el 90 % medido y el
+        # `eta_s` a null, el trabajo se anunciaba al 90 % cuando iba por el 20
+        # del proceso.
+        pct_fase = prog.get("pct") or 0
+        if pct_fase > 2:
+            base = vivo * 100.0 / pct_fase
+        elif prog.get("eta_s"):
+            base = vivo + prog["eta_s"]
     if not base or factor <= 1.0:
         return None, None, trabajo
     total = base * factor
@@ -4564,11 +4575,15 @@ def _cmv40_adaptador(trabajo) -> dict | None:
     from storage import read_cmv40_progress
     prog = read_cmv40_progress(trabajo.clave) or session.last_progress or {}
     # El pct y el ETA que se enseñan son los del PROCESO, no los de la fase:
-    # un turno de cola es el proyecto entero. Si no hay con qué calcularlos se
-    # cae al de la fase, que al menos es una medida.
-    pct_total, eta_total, segundos = _cmv40_progreso_total(session, fase, prog)
-    pct = pct_total if pct_total is not None else prog.get("pct")
-    eta = eta_total if eta_total is not None else prog.get("eta_s")
+    # un turno de cola es el proyecto entero.
+    #
+    # **Y si no hay total, no se enseña ninguno.** Antes se caía al de la
+    # fase, y eso es peor que un hueco: la barra decía 90 % con el trabajo por
+    # el 20 % — el número era una medida de verdad, pero de otra cosa. Sin
+    # total quedan la fase escrita, los puntitos y el transcurrido, que sí son
+    # del trabajo; la barra sale indeterminada, que es lo que la app hace
+    # siempre que no hay evidencia.
+    pct, eta, segundos = _cmv40_progreso_total(session, fase, prog)
     return {
         "fase": fase,
         "fase_label": _CMV40_FASE_LABELS.get(fase, fase),
@@ -4581,11 +4596,9 @@ def _cmv40_adaptador(trabajo) -> dict | None:
         "pct": pct, "pct_medido": pct is not None,
         "segundos": segundos,
         "eta_s": eta or None,
-        # El restante del PROCESO es una extrapolación del modelo, y la
-        # columna lo escribe con «(aprox.)». Solo es una medida cuando no hay
-        # total y se ha caído al de la fase, que sale de `_ReadProgress`.
-        "eta_fuente": (None if not eta
-                       else "modelo" if eta_total is not None else "medido"),
+        # Siempre del modelo: el restante del PROCESO no puede ser otra cosa,
+        # y la columna lo escribe con «(aprox.)».
+        "eta_fuente": "modelo" if eta else None,
         "detalle": "cmv40",
     }
 

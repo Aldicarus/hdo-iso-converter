@@ -321,13 +321,18 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         storage.save_cmv40_session(s)
         p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
                               datos={"fase": "inject"}))
-        self.assertEqual(p["pct"], 55)
+        # El pct y el ETA son los del PROCESO, no los de la fase: un turno de
+        # cola es el proyecto entero. Sin modelo con el que escalar no hay
+        # total, y el 55 % de la fase NO se enseña en su lugar — sería el
+        # número de otra cosa. Lo del proceso está en
+        # `test_turno_de_cola_cmv40`.
+        self.assertIsNone(p["pct"])
+        self.assertIsNone(p["eta_s"])
         # La fase y el PASO dentro de ella son dos cosas, y las dos se ven.
         # Colapsarlas dejaba de decir en qué fase del pipeline va el proyecto,
         # que es la mitad de la información.
         self.assertEqual(p["fase_label"], "Fase F — Inyectando el RPU en la EL")
         self.assertEqual(p["paso"], "Inyectando el RPU")
-        self.assertEqual(p["eta_s"], 300)
         self.assertEqual(p["detalle"], "cmv40")
 
     def test_el_progreso_sale_del_SIDECAR_no_del_json(self):
@@ -346,9 +351,9 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
                                            "label": "Demuxing BL/EL"})
         p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
                               datos={"fase": "extract"}))
-        self.assertEqual(p["pct"], 63)
-        self.assertIs(p["pct_medido"], True)
-        self.assertEqual(p["eta_s"], 120)
+        # El `paso` es lo que se lee del sidecar sin pasar por el cálculo del
+        # total, así que es lo que prueba que el sidecar SE LEE. El pct de la
+        # fase ya no se enseña tal cual: ver el comentario de `test_fase_cmv40`.
         self.assertEqual(p["paso"], "Demuxing BL/EL")
 
     def test_una_fase_cmv40_sin_progreso_no_finge(self):
