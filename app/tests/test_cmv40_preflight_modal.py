@@ -524,6 +524,10 @@ globalThis._cmv40PlanAutoSteps = () => [];
 globalThis._cmv40StepStatus = () => 'done';
 globalThis._cmv40ResolveStartedMs = () => Date.parse('2026-09-09T14:19:00Z');
 globalThis._cmv40ComputeRemainingSecs = () => 600;
+// El restante del job manda sobre la suma local, pero aquí la columna no
+// sabe de este proyecto —no es el trabajo activo— así que se cae a ella.
+globalThis.trabajoSobre = () => null;
+{_fn('_cmv40RestanteDelJob')}
 globalThis._cmv40TextoRestante = () => '~10:00 restantes';
 globalThis._cmv40SufijoEta = () => '(auto)';
 globalThis._cmv40Trust = () => true;

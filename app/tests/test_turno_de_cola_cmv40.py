@@ -233,11 +233,13 @@ class TestElPorcentajeEsDelProceso(TurnoCase):
     se enseñan son del proceso completo: la fase se dice al lado, con su letra
     y su puesto.
 
-    Antes eran los de la fase, y la barra iba de 0 a 100 siete veces sin que
-    nada dijera cuánto quedaba de verdad.
+    Y salen de **`_cmv40_job_pct`**, que ya existía y está calibrado con el
+    reparto real de las 83 sesiones del histórico. Calcular aquí un segundo
+    total es lo que produjo tres cifras distintas para la misma pregunta: la
+    de la fase, la del panel del proyecto y la de la columna.
     """
 
-    def _progreso(self, **kw):
+    def _progreso(self, prog, **kw):
         from models import CMv40PhaseRecord
         from datetime import datetime, timedelta, timezone
         sid = self._sesion(phase="injected")
@@ -257,13 +259,7 @@ class TestElPorcentajeEsDelProceso(TurnoCase):
         for k, v in kw.items():
             setattr(s, k, v)
         self.storage.save_cmv40_session(s)
-        # Un modelo con las cuatro fases: total = Fase A × (1 + 0.5+1+1+0.3).
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
-            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
-                      "validate": 0.3},
-            "dropin": {}, "share_dropin": 0.0}})
-        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
-                        {"at": 0.0, "data": None})
+        self.storage.write_cmv40_progress(sid, prog)
         return self.cmv40._cmv40_adaptador(
             qm.TrabajoEnCola(tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
                              datos={"fase": "remux"}))
@@ -271,40 +267,39 @@ class TestElPorcentajeEsDelProceso(TurnoCase):
     def test_el_transcurrido_es_la_suma_de_las_fases(self):
         """Tiempo de PROCESO, no de reloj: el proyecto puede haber pasado tres
         días esperando una respuesta entre dos fases."""
-        p = self._progreso()
+        p = self._progreso({"pct": 50, "job_pct": 70.0})
         self.assertAlmostEqual(p["segundos"], 600 + 300 + 100, delta=3)
 
-    def test_el_pct_sale_del_total_estimado(self):
-        # total = 600 × 3.8 = 2280 s; hechos 1000 → 44 %
-        self.assertEqual(self._progreso()["pct"], 44)
+    def test_el_pct_es_el_del_job_no_el_de_la_fase(self):
+        p = self._progreso({"pct": 50, "job_pct": 70.0})
+        self.assertEqual(p["pct"], 70)
 
-    def test_y_el_restante_va_marcado_como_modelo(self):
-        p = self._progreso()
+    def test_el_restante_se_extrapola_de_ESE_porcentaje(self):
+        """Del mismo número que la barra, así que no pueden contradecirse."""
+        p = self._progreso({"pct": 50, "job_pct": 70.0})
+        # 1000 s son el 70 % → faltan 1000 × 30/70 = 429 s.
+        self.assertAlmostEqual(p["eta_s"], 429, delta=5)
         self.assertEqual(p["eta_fuente"], "modelo")
-        self.assertAlmostEqual(p["eta_s"], 2280 - 1000, delta=5)
+
+    def test_si_el_marcador_no_lo_trae_se_recalcula_igual(self):
+        """Sesiones anteriores al campo. Con la MISMA función, no con otra."""
+        p = self._progreso({"pct": 50})
+        self.assertIsNotNone(p["pct"])
+        esperado = self.cmv40._cmv40_job_pct(
+            self.storage.load_cmv40_session("cmv40_turno"), 50)
+        self.assertEqual(p["pct"], round(esperado))
 
     def test_la_fase_se_sigue_diciendo_al_lado(self):
-        p = self._progreso()
+        p = self._progreso({"pct": 50, "job_pct": 70.0})
         self.assertEqual(p["fase"], "remux")
         self.assertIn("Fase G", p["fase_label"])
         self.assertEqual(p["fases_total"], 7)
 
-    def test_sin_modelo_no_se_inventa_un_total(self):
-        """Cae al de la fase, que al menos es una medida."""
-        p = self._progreso()
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 0.0, "data": None})
-        p2 = self.cmv40._cmv40_adaptador(
-            qm.TrabajoEnCola(tab="cmv40", tipo=qm.TIPO_FASE_CMV40,
-                             clave="cmv40_turno", datos={"fase": "remux"}))
-        self.assertIsNone(p2["pct"])
-        self.assertFalse(p2["pct_medido"])
-
-    def test_nunca_llega_al_100_por_estimacion(self):
-        """El 100 lo pone el final, no el modelo."""
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
-            "merge": {"extract": 0.01}, "dropin": {}, "share_dropin": 0.0}})
-        p = self._progreso()
-        self.assertLessEqual(p["pct"], 99)
+    def test_sin_porcentaje_del_job_no_se_inventa_uno(self):
+        p = self._progreso({"pct": 50}, running_phase="")
+        self.assertIsNone(p["pct"])
+        self.assertFalse(p["pct_medido"])
+        self.assertIsNone(p["eta_s"])
 
 
 class TestElTotalLlegaHastaLaColumna(TurnoCase):
@@ -316,7 +311,7 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
     dejar en el de la fase.
     """
 
-    def _job_en_marcha(self, **kw):
+    def _job_en_marcha(self):
         from models import CMv40PhaseRecord
         from datetime import datetime, timedelta, timezone
         sid = self._sesion(phase="injected")
@@ -337,12 +332,8 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
         # El progreso de la FASE: 90 % y 30 s para acabarla. Lo que la columna
         # tiene que enseñar NO es esto.
         self.storage.write_cmv40_progress(sid, {"pct": 90, "eta_s": 30,
-                                               "label": "Muxeando"})
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
-            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
-                      "validate": 0.3}, "dropin": {}, "share_dropin": 0.0}})
-        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
-                        {"at": 0.0, "data": None})
+                                                "job_pct": 62.0,
+                                                "label": "Muxeando"})
         cola = self.main.queue_manager
         # `_running` guarda el objeto, no su JSON: `get_status` es quien
         # serializa.
@@ -355,8 +346,7 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
 
     def test_el_pct_del_endpoint_es_el_del_proceso(self):
         a = self._job_en_marcha()
-        # total = 600 × 3.8 = 2280; hechos 600+240+60 = 900 → 39 %
-        self.assertEqual(a["pct"], 39)
+        self.assertEqual(a["pct"], 62)
         self.assertNotEqual(a["pct"], 90, "sigue siendo el de la fase")
 
     def test_el_transcurrido_tambien(self):
@@ -365,7 +355,8 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
 
     def test_y_el_restante(self):
         a = self._job_en_marcha()
-        self.assertAlmostEqual(a["eta_s"], 2280 - 900, delta=5)
+        # 900 s son el 62 % → faltan 900 × 38/62 = 552 s.
+        self.assertAlmostEqual(a["eta_s"], 552, delta=6)
         self.assertNotEqual(a["eta_s"], 30, "sigue siendo el de la fase")
         self.assertEqual(a["eta_fuente"], "modelo")
 
@@ -375,65 +366,13 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
         self.assertEqual(a["paso"], "Muxeando")
 
 
-class TestElModeloSeCalientaSolo(TurnoCase):
-    """Sin modelo no hay total, y el total es lo que el usuario mira.
-
-    Se calienta al arrancar, pero si eso falla —un `/config` que aún no
-    existía, un fallo de lectura— el job se quedaría sin total para siempre.
-    El adaptador lo rehace en segundo plano: aquí NO se puede construir, son
-    un `glob` y una lectura por sesión y esto corre en cada poll.
-    """
-
-    def test_con_la_cache_vacia_se_programa_su_reconstruccion(self):
-        import asyncio
-        cache = self.cmv40._ETA_MODEL_CACHE
-        cache.update({"at": 0.0, "data": None, "calentando": False})
-        self.addCleanup(cache.update, {"at": 0.0, "data": None,
-                                       "calentando": False})
-        sid = self._sesion(phase="injected")
-
-        async def _tirar():
-            self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
-                tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
-                datos={"fase": "remux"}))
-            for _ in range(50):
-                if cache.get("data") is not None:
-                    return True
-                await asyncio.sleep(0.02)
-            return False
-
-        self.assertTrue(asyncio.run(_tirar()),
-                        "la caché del modelo no se rehízo sola")
-
-    def test_y_no_se_programa_dos_veces_a_la_vez(self):
-        """Un poll cada 2 s con la caché vacía lanzaría un escaneo por vuelta."""
-        import asyncio
-        cache = self.cmv40._ETA_MODEL_CACHE
-        cache.update({"at": 0.0, "data": None, "calentando": True})
-        self.addCleanup(cache.update, {"at": 0.0, "data": None,
-                                       "calentando": False})
-        veces = []
-        orig = self.cmv40.calentar_modelo_de_eta
-        self.cmv40.calentar_modelo_de_eta = lambda: veces.append(1)
-        self.addCleanup(setattr, self.cmv40, "calentar_modelo_de_eta", orig)
-
-        async def _tirar():
-            for _ in range(3):
-                self.cmv40._programar_calentado_del_modelo()
-            await asyncio.sleep(0.05)
-
-        asyncio.run(_tirar())
-        self.assertEqual(veces, [])
-
-
 class TestDuranteLaFaseA(TurnoCase):
     """El caso que el usuario cazó: con la Fase A al 90 % el trabajo iba por
-    el 20 % del proceso, y la columna anunciaba 90.
+    la cuarta parte del proceso, y la columna anunciaba 90.
 
-    La referencia del modelo es la Fase A, así que mientras corre no hay
-    duración con la que escalar. Se estima de lo que lleva y de su propio
-    avance — el PORCENTAJE, no el ETA: el ETA desaparece en cuanto el ritmo
-    deja de dar dos muestras, y desaparece justo al final de la Fase A.
+    El reparto lo da `_cmv40_job_pct`, que ya existía y está calibrado con el
+    histórico: la Fase A pesa 0,29 del job en la ruta merge, así que al 90 %
+    de la fase el trabajo va por el 26 %.
     """
 
     def _en_fase_a(self, prog):
@@ -447,11 +386,6 @@ class TestDuranteLaFaseA(TurnoCase):
         s.running_phase = "analyze_source"
         self.storage.save_cmv40_session(s)
         self.storage.write_cmv40_progress(sid, prog)
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
-            "merge": {"extract": 0.5, "inject": 1.0, "remux": 1.0,
-                      "validate": 0.3}, "dropin": {}, "share_dropin": 0.0}})
-        self.addCleanup(self.cmv40._ETA_MODEL_CACHE.update,
-                        {"at": 0.0, "data": None})
         return self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
             tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
             datos={"fase": "analyze_source"}))
@@ -459,35 +393,97 @@ class TestDuranteLaFaseA(TurnoCase):
     def test_el_90_por_ciento_de_la_fase_A_NO_es_el_90_del_trabajo(self):
         # Es el payload real que devolvía el NAS: 90,2 % y sin ETA.
         a = self._en_fase_a({"pct": 90.2, "eta_s": None, "label": "x"})
-        # Fase A ≈ 315/0.902 = 349 s; total = 349 × 3.8 = 1327 → 24 %.
-        self.assertEqual(a["pct"], 24)
+        self.assertEqual(a["pct"], 26)
         self.assertNotEqual(a["pct"], 90)
 
-    def test_sin_ETA_de_la_fase_sigue_habiendo_total(self):
-        """Era lo que fallaba: la base solo se estimaba desde el `eta_s`, y
-        `_ReadProgress` lo deja de emitir en la recta final de la Fase A."""
+    def test_sin_ETA_de_la_fase_sigue_habiendo_restante_del_job(self):
+        """Era lo que fallaba: el restante del job se estimaba desde el
+        `eta_s` de la fase, y `_ReadProgress` lo deja de emitir justo en su
+        recta final."""
         a = self._en_fase_a({"pct": 90.2, "eta_s": None, "label": "x"})
         self.assertIsNotNone(a["eta_s"])
         self.assertEqual(a["eta_fuente"], "modelo")
 
-    def test_y_si_no_hay_NADA_medible_no_se_finge_un_porcentaje(self):
-        """Mejor una barra indeterminada que el número de otra cosa."""
+    def test_al_principio_de_todo_no_hay_restante_que_dar(self):
+        """Con la fase a cero el job va por 0 y extrapolar de ahí sería
+        dividir por nada. La app prefiere el hueco."""
         a = self._en_fase_a({"label": "Extrayendo el RPU"})
-        self.assertIsNone(a["pct"])
-        self.assertFalse(a["pct_medido"])
         self.assertIsNone(a["eta_s"])
         # Pero el transcurrido sigue siendo el del trabajo.
         self.assertAlmostEqual(a["segundos"], 315, delta=3)
 
-    def test_sin_modelo_tampoco_se_enseña_el_de_la_fase(self):
+    def test_sin_fase_en_curso_tampoco_se_enseña_el_de_la_fase(self):
         """El respaldo que había: con la Fase A al 90 % la barra decía 90 con
         el trabajo por el 20. El número era una medida de verdad, pero de otra
         cosa — y eso es peor que un hueco."""
-        a = self._en_fase_a({"pct": 90.2, "eta_s": 42, "label": "x"})
-        self.cmv40._ETA_MODEL_CACHE.update({"at": 9e12, "data": {
-            "merge": {}, "dropin": {}, "share_dropin": 0.0}})
-        b = self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
-            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave="cmv40_turno",
+        import storage
+        sid = self._sesion(phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = ""
+        storage.save_cmv40_session(s)
+        storage.write_cmv40_progress(sid, {"pct": 90.2, "eta_s": 42})
+        a = self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
             datos={"fase": "analyze_source"}))
-        self.assertIsNone(b["pct"], "se coló el porcentaje de la fase")
-        self.assertIsNone(b["eta_s"], "se coló el restante de la fase")
+        self.assertIsNone(a["pct"], "se coló el porcentaje de la fase")
+        self.assertIsNone(a["eta_s"], "se coló el restante de la fase")
+
+
+class TestUnaSolaCifraParaLaMismaPregunta(TurnoCase):
+    """Había TRES restantes distintos a la vista a la vez: 25 min la fase,
+    26 el panel del proyecto y 24 la columna. Ninguno de los dos últimos podía
+    ser mayor que la fase más lo que viene detrás, así que estaban mal.
+
+    La causa era que cada uno tenía su cuenta. Ahora sale de
+    `_cmv40_job_pct` —el estimador calibrado con el histórico— y el restante
+    se extrapola de ESE porcentaje, así que la barra y el tiempo no pueden
+    contradecirse: son el mismo número.
+    """
+
+    def test_el_backend_no_calcula_su_propio_porcentaje(self):
+        """`_cmv40_progreso_total` tiene que APOYARSE en `_cmv40_job_pct`, no
+        ponderar por su cuenta. Dos ponderaciones divergen en cuanto una se
+        recalibra."""
+        import inspect
+        fuente = inspect.getsource(self.cmv40._cmv40_progreso_total)
+        self.assertIn("_cmv40_job_pct", fuente)
+        for otro in ("_ETA_MODEL_CACHE", "ratios", "factor"):
+            self.assertNotIn(otro, fuente,
+                             f"vuelve a haber una segunda cuenta ({otro})")
+
+    def test_el_restante_es_coherente_con_el_porcentaje(self):
+        """Si el trabajo va por el X %, lo que queda tiene que ser lo que
+        cuesta el (100-X) % al ritmo observado. Es la única forma de que la
+        barra y el reloj digan lo mismo."""
+        from models import CMv40PhaseRecord
+        from datetime import datetime, timedelta, timezone
+        sid = self._sesion(phase="injected")
+        s = self.storage.load_cmv40_session(sid)
+        s.phase_history = [CMv40PhaseRecord(
+            phase="analyze_source", status="done",
+            started_at=datetime.now(timezone.utc) - timedelta(seconds=400),
+            elapsed_seconds=400)]
+        s.running_phase = "remux"
+        self.storage.save_cmv40_session(s)
+        self.storage.write_cmv40_progress(sid, {"pct": 10, "job_pct": 40.0})
+        a = self.cmv40._cmv40_adaptador(qm.TrabajoEnCola(
+            tab="cmv40", tipo=qm.TIPO_FASE_CMV40, clave=sid,
+            datos={"fase": "remux"}))
+        total = a["segundos"] + a["eta_s"]
+        self.assertAlmostEqual(100.0 * a["segundos"] / total, a["pct"], delta=1)
+
+    def test_el_panel_del_proyecto_lee_el_MISMO_numero(self):
+        """La suma local de fases pendientes se queda de respaldo, pero con la
+        columna sabiendo del trabajo manda ella. Si cada vista calculara lo
+        suyo volveríamos a las tres cifras."""
+        from frontend_sources import js_completo
+        js = js_completo()
+        i = js.index("function _cmv40RestanteDelJob(")
+        cuerpo = js[i:js.index("\n}\n", i)]
+        self.assertIn("trabajoSobre", cuerpo)
+        self.assertIn("eta_s", cuerpo)
+        # Y los dos sitios que pintan el restante pasan por aquí (la tercera
+        # aparición es la definición).
+        self.assertEqual(js.count("_cmv40RestanteDelJob(s, steps"), 3)
+        self.assertEqual(js.count("_cmv40ComputeRemainingSecs(s, steps"), 2,
+                         "algún sitio sigue sumando por su cuenta")

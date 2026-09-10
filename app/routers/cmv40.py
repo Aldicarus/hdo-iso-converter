@@ -111,42 +111,6 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     _cmv40_progreso_vivo.pop(session.id, None)
 
 
-def _programar_calentado_del_modelo() -> None:
-    """Rehace el modelo en un thread, sin bloquear ni duplicar el intento."""
-    if _ETA_MODEL_CACHE.get("calentando"):
-        return
-    try:
-        bucle = asyncio.get_running_loop()
-    except RuntimeError:
-        return                      # fuera de un bucle (tests puros): nada
-    _ETA_MODEL_CACHE["calentando"] = True
-
-    async def _hazlo():
-        try:
-            await asyncio.to_thread(calentar_modelo_de_eta)
-        finally:
-            _ETA_MODEL_CACHE["calentando"] = False
-
-    bucle.create_task(_hazlo())
-
-
-def calentar_modelo_de_eta() -> None:
-    """Deja el modelo de duraciones en su caché al arrancar.
-
-    El adaptador de la columna lo necesita para el porcentaje del proceso y
-    corre en cada poll (cada 2 s), así que no puede construirlo él: son un
-    `glob` y una lectura por sesión. Se hace una vez aquí, en un thread, y a
-    partir de ahí lo refresca su TTL desde el endpoint.
-    """
-    import time as _t
-    try:
-        _ETA_MODEL_CACHE.update({"at": _t.monotonic(),
-                                 "data": _cmv40_build_eta_model()})
-    except Exception as e:                              # noqa: BLE001
-        # Sin modelo la columna se queda sin el total y cae al de la fase.
-        _logger.warning("[cmv40] no se pudo calentar el modelo de ETA: %s", e)
-
-
 def recuperar_sesiones_interrumpidas() -> None:
     """Limpia sesiones CMv4.0 con running_phase != null tras un reinicio.
 
@@ -4494,62 +4458,41 @@ def _cmv40_progreso_total(session: CMv40Session, fase: str,
     que se enseñan son del **proceso completo**: la fase se dice al lado, con
     su letra y su puesto.
 
+    El porcentaje es **`_cmv40_job_pct`**, que ya existía y está calibrado
+    —los pesos de cada fase salen del reparto real de las 83 sesiones del
+    histórico y se ajustan por ruta, porque en drop-in no hay demux y la
+    validación son cuatro segundos—. Es el mismo número que pinta la barra del
+    panel del proyecto: hacer aquí una segunda cuenta es lo que produjo tres
+    cifras distintas para la misma pregunta.
+
+    El restante sale de extrapolar ESE porcentaje con el tiempo que ya ha
+    costado. Así no puede contradecir a la barra —salen del mismo sitio— y se
+    corrige solo si la máquina va lenta.
+
     El transcurrido es **tiempo de proceso** (la suma de las fases), no reloj
     de pared: un proyecto puede pasarse tres días esperando una respuesta y
     eso no es lo que ha costado convertirlo.
 
-    El total sale del modelo de `/api/cmv40/eta-model` —ratios medidos sobre
-    los 10 últimos jobs de esta máquina, segmentados por ruta—, así que el
-    restante va marcado como `modelo`. La referencia es la Fase A: si aún no
-    ha terminado se usa su propia estimación (lo que lleva más lo que le
-    queda), y si tampoco hay eso, no se devuelve total. Un porcentaje sin
-    referencia sería una cifra inventada, y la regla del proyecto es que eso
-    es peor que un hueco.
-
-    **No lee disco**: el adaptador corre en cada poll de la columna (cada 2 s).
-    Usa el modelo ya cacheado y, si no lo hay, se queda sin total.
+    Sin porcentaje del job no se devuelve total. El de la FASE no vale como
+    sustituto: es una medida de verdad, pero de otra cosa.
     """
     from datetime import datetime as _dt, timezone as _tz
-    hechas: dict[str, float] = {}
-    vivo = 0.0
+    trabajo = 0.0
     for r in (session.phase_history or []):
         if r.status == "done" and (r.elapsed_seconds or 0) > 0:
-            hechas[r.phase] = r.elapsed_seconds
+            trabajo += r.elapsed_seconds
         elif r.status == "running" and r.phase == fase and r.started_at:
-            vivo = max(0.0, (_dt.now(_tz.utc) - r.started_at).total_seconds())
-    trabajo = round(sum(hechas.values()) + vivo)
+            trabajo += max(0.0, (_dt.now(_tz.utc) - r.started_at).total_seconds())
+    trabajo = round(trabajo)
 
-    modelo = _ETA_MODEL_CACHE.get("data") or {}
-    if not modelo:
-        # Se calienta al arrancar, pero si por lo que sea no está —un fallo de
-        # lectura, un `/config` que aún no existía— se rehace en segundo plano
-        # en vez de dejar el job sin total para siempre. Aquí NO se puede
-        # construir: son un `glob` y una lectura por sesión, y esto corre en
-        # cada poll de la columna.
-        _programar_calentado_del_modelo()
-    plan = resolve_plan(session)
-    ratios = modelo.get("dropin" if plan.drop_in else "merge") or {}
-    factor = 1.0 + sum(v for k, v in ratios.items() if not k.endswith("_n"))
-    base = hechas.get("analyze_source")
-    if not base and fase == "analyze_source":
-        # Todavía corriendo la referencia: se estima cuánto va a durar a
-        # partir de lo que lleva y de su propio avance. Se prefiere el
-        # PORCENTAJE al ETA porque el ETA desaparece en cuanto el ritmo deja
-        # de dar dos muestras —y desaparece justo al final de la Fase A, que
-        # es cuando esto se estaba quedando sin base: con el 90 % medido y el
-        # `eta_s` a null, el trabajo se anunciaba al 90 % cuando iba por el 20
-        # del proceso.
-        pct_fase = prog.get("pct") or 0
-        if pct_fase > 2:
-            base = vivo * 100.0 / pct_fase
-        elif prog.get("eta_s"):
-            base = vivo + prog["eta_s"]
-    if not base or factor <= 1.0:
+    # El pipeline lo mete en el marcador de progreso; se recalcula aquí cuando
+    # no está —sesiones anteriores a ese campo— con la MISMA función.
+    pct = prog.get("job_pct")
+    if pct is None and prog.get("pct") is not None:
+        pct = _cmv40_job_pct(session, float(prog["pct"]))
+    if pct is None:
         return None, None, trabajo
-    total = base * factor
-    # Tope en 99: el 100 lo pone el final, no una estimación.
-    pct = min(99, max(0, round(100.0 * trabajo / total)))
-    return pct, max(0, round(total - trabajo)), trabajo
+    return round(pct), trabajos.eta_por_porcentaje(trabajo, pct), trabajo
 
 
 def _cmv40_adaptador(trabajo) -> dict | None:

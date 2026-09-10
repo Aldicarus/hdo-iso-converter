@@ -321,13 +321,12 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         storage.save_cmv40_session(s)
         p = self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
                               datos={"fase": "inject"}))
-        # El pct y el ETA son los del PROCESO, no los de la fase: un turno de
-        # cola es el proyecto entero. Sin modelo con el que escalar no hay
-        # total, y el 55 % de la fase NO se enseña en su lugar — sería el
-        # número de otra cosa. Lo del proceso está en
-        # `test_turno_de_cola_cmv40`.
-        self.assertIsNone(p["pct"])
-        self.assertIsNone(p["eta_s"])
+        # El pct es el del PROCESO, no el de la fase: un turno de cola es el
+        # proyecto entero. La Fase F pesa 0,28 del job, así que al 55 % de la
+        # fase el trabajo va por el 15 %. El 55 no se enseña en ninguna parte:
+        # sería una medida de verdad, pero de otra cosa.
+        self.assertEqual(p["pct"], 15)
+        self.assertNotEqual(p["pct"], 55)
         # La fase y el PASO dentro de ella son dos cosas, y las dos se ven.
         # Colapsarlas dejaba de decir en qué fase del pipeline va el proyecto,
         # que es la mitad de la información.

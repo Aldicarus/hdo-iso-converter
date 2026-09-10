@@ -798,6 +798,25 @@ function _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project) {
   return Math.max(0, Math.round(remaining));
 }
 
+/** El restante del JOB, del mismo sitio que la columna de trabajo.
+ *
+ *  Había tres cifras distintas para la misma pregunta: la de la fase, la que
+ *  sumaba aquí las fases pendientes y la del backend. Manda **el backend**,
+ *  que extrapola el `job_pct` calibrado con lo que ya ha costado, y así la
+ *  barra y el restante no pueden contradecirse — salen del mismo número.
+ *
+ *  La suma local se queda de respaldo para cuando la columna no sabe de este
+ *  proyecto: no es el trabajo activo (está en cola, o parado esperando), o el
+ *  poll aún no ha traído nada.
+ */
+function _cmv40RestanteDelJob(s, steps, stepStatuses, hist, project) {
+  const t = (typeof trabajoSobre === 'function') ? trabajoSobre(s.id) : null;
+  if (t && t.estado === 'corriendo' && t.trabajo && t.trabajo.eta_s != null) {
+    return t.trabajo.eta_s;
+  }
+  return _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
+}
+
 /** Renderiza el timeline lateral del auto-pipeline (HTML). */
 function _cmv40RenderTimeline(s, project) {
   const steps = _cmv40PlanAutoSteps(s, project);
@@ -839,7 +858,7 @@ function _cmv40RenderTimeline(s, project) {
       // (etaSecs null = interactiva, p.ej. Fase D no-trusted). Descontamos
       // el tiempo que lleva ejecutándose la fase actual para que el contador
       // baje suavemente durante ella.
-      const remaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
+      const remaining = _cmv40RestanteDelJob(s, steps, stepStatuses, hist, project);
       remainingText = _cmv40TextoRestante(remaining, s);
       // data-base-remaining + data-base-at permiten que el tick de 1s
       // decremente suavemente sin recalcular la suma (evita fluctuaciones
@@ -2824,7 +2843,7 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
                     : cancelado ? 'cancelado' : '';
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
-      newBaseRemaining = _cmv40ComputeRemainingSecs(s, steps, stepStatuses, hist, project);
+      newBaseRemaining = _cmv40RestanteDelJob(s, steps, stepStatuses, hist, project);
       remainingText = _cmv40TextoRestante(newBaseRemaining, s);
     }
     elapsedLabel = _cmv40FmtClock(elapsedSecs);
