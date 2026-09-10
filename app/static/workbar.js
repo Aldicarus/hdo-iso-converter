@@ -807,7 +807,7 @@ function cancelarTrabajoActivo(trabajo) {
       if (typeof cmv40TrasCancelar === 'function') cmv40TrasCancelar(a.id);
     },
     mkv:   () => (a.detalle === 'analisis_extendido'
-                    ? _mkvQualityCancel() : cancelMkvApply()),
+                    ? _mkvQualityCancel(a.id) : cancelMkvApply()),
   };
   const accion = acciones[a.tab];
   if (!accion) {

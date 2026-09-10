@@ -1775,220 +1775,131 @@ function _mkvPintarEstadoDeAnalisis() {
   });
 }
 
+/** Los análisis extendidos que hemos pedido: `audit_id` → ruta del MKV.
+ *
+ *  Existe para saber a qué panel aplicar el resultado cuando el trabajo
+ *  termine, que puede ser cuarenta minutos después. **No** hay una «sesión»
+ *  por lanzamiento con su poller y su POST abierto: eso era una sola,
+ *  global, así que pedir un segundo análisis mientras el primero esperaba
+ *  turno pisaba la del primero y su resultado acababa en el panel
+ *  equivocado. Aquí caben todos los que haya en la cola.
+ */
+const _mkvAnalisisPedidos = new Map();
+// Los que la columna ha llegado a enseñar. Sin esta marca, un trabajo recién
+// encolado —que aún no aparece en el poll— se daría por desaparecido.
+const _mkvAnalisisVistos = new Set();
+
 async function _rgrfAuditQuality(evt) {
   const proyecto = mkvProject;
   if (!proyecto) return;
-  // Un trabajo ESPERANDO TURNO no está «activo», así que el guard de abajo no
-  // lo veía y el usuario podía volver a pedirlo: el rechazo llegaba del
-  // backend, que es la peor forma de enterarse. Aquí se le enseña el que ya
-  // hay, que es lo que quería ver.
-  const _yaHay = typeof trabajoSobre === 'function'
-    ? trabajoSobre(_mkvRutaAnalisis(proyecto)) : null;
-  if (_yaHay) {
-    showToast(_yaHay.estado === 'corriendo'
+  const ruta = _mkvRutaAnalisis(proyecto);
+  // Un trabajo ESPERANDO TURNO no está «activo», así que el guard del backend
+  // no lo veía y el usuario podía volver a pedirlo: el rechazo llegaba en un
+  // 409, que es la peor forma de enterarse. Aquí se le enseña el que ya hay,
+  // que es lo que quería ver.
+  const yaHay = typeof trabajoSobre === 'function' ? trabajoSobre(ruta) : null;
+  if (yaHay) {
+    showToast(yaHay.estado === 'corriendo'
       ? 'El análisis extendido de este MKV ya está en curso'
-      : `El análisis extendido de este MKV está en la cola (${_yaHay.posicion}º)`,
+      : `El análisis extendido de este MKV está en la cola (${yaHay.posicion}º)`,
       'info');
-    abrirDetalleDeTrabajo(_mkvRutaAnalisis(proyecto));
+    abrirDetalleDeTrabajo(ruta);
     return;
   }
-  // Guard anti-solapamiento (mismo patrón que luminancia, commit 4f5d9a8):
-  // el estado del audit es un singleton global en el backend; lanzar un 2º
-  // mientras hay uno activo pisaría ese estado y dejaría pollers cruzados.
-  let prevAuditId = null;
-  try {
-    const cur = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
-    if (cur && cur.active) {
-      showToast('Ya hay una auditoría de calidad en curso — espera a que termine o cancélala', 'info');
-      return;
-    }
-    // audit_id del audit ANTERIOR ya terminado: el backend retiene su
-    // result/done hasta que NUESTRO POST resetee. Sin esto, el poller leía ese
-    // estado viejo (active=false + result), creía que "ya terminó", abortaba
-    // nuestro POST y aplicaba el resultado del audit anterior (mostraba la peli
-    // equivocada en ~1s). Lo ignoramos hasta ver un audit_id nuevo.
-    prevAuditId = (cur && cur.audit_id) || null;
-  } catch (_) { /* si /progress falla seguimos: el guard 409 del backend es la red de seguridad */ }
-  // MKV objetivo capturado AHORA: si el usuario abre otro MKV mientras corre
-  // la auditoría, el resultado no debe aplicarse al proyecto equivocado.
-  const targetFilePath = proyecto.analysis.file_path || proyecto.filePath || proyecto.analysis.file_name;
-  // request_id estable por lanzamiento: si el navegador/proxy re-envía el POST
-  // largo (al perder foco / caer la conexión), reusa el MISMO body → el backend
-  // lo dedup y NO arranca un audit duplicado.
-  const requestId = (self.crypto && self.crypto.randomUUID)
-    ? self.crypto.randomUUID()
-    : (Date.now() + '-' + Math.random().toString(36).slice(2));
-  // Este flujo ya no monta su propio modal. El progreso es el mismo que la
-  // columna de trabajo enseña para cualquier otro trabajo y el detalle es el
-  // modal común: tener dos formas de ver lo mismo era la duplicación que este
-  // bloque quita.
-  let polling = true;
-  // Sesión con scope LOCAL. window._mkvQualitySession sigue existiendo para
-  // que el botón Cancelar lea el audit_id, pero el poller/finally/abort de
-  // ESTA invocación operan sobre `session` local — así un audit nuevo que
-  // tome el relevo no es pisado por el teardown del viejo (bug cancel+relanzar).
-  const session = { ctrl: null, polledResult: null, cancelledByUser: false, auditId: null };
-  window._mkvQualitySession = session;
+  // El POST responde al instante: el trabajo son ~10 min y puede tener por
+  // delante un rip de 40, así que se encola y el resultado se recoge cuando
+  // la columna diga que ha terminado (`_mkvRecogerAnalisis`). Antes este
+  // fetch se quedaba abierto hasta una hora esperándolo.
+  const r = await apiFetch('/api/mkv/quality-audit', {
+    method: 'POST',
+    body: JSON.stringify({ file_path: ruta }),
+  });
+  if (!r?.audit_id) return;      // el error ya lo ha contado `apiFetch`
+  _mkvAnalisisPedidos.set(r.audit_id, ruta);
+  // NO se abre el modal: el usuario pulsa «analizar», no «mírame analizar»,
+  // y taparle el panel con un log que aún no tiene líneas es interrumpirle
+  // para nada. El acuse es el toast y la entrada en la columna.
+  await refrescarWorkbar();
+  showToast('Análisis extendido en marcha — el progreso está en la '
+            + 'columna de trabajo', 'success');
+}
 
-  async function _pollLoop() {
-    while (polling) {
-      // Si otra auditoría tomó el relevo (usuario relanzó), este poller es
-      // obsoleto: autodetenerse para no volcar log cruzado ni abortar el POST
-      // del audit nuevo.
-      if (window._mkvQualitySession !== session) { polling = false; return; }
-      try {
-        const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
-        if (!polling || window._mkvQualitySession !== session) { polling = false; return; }
-        // Mientras el state siga mostrando el audit ANTERIOR (aún no reseteado
-        // por nuestro POST), ignorarlo — no es nuestro result.
-        if (st && !(prevAuditId && st.audit_id === prevAuditId)) {
-          if (st.audit_id) session.auditId = st.audit_id;
-          // Aquí ya no se pinta: de eso se encargan la columna de trabajo y el
-          // modal común, que leen este mismo estado. Este bucle solo existe
-          // para saber cuándo termina y quedarse con el resultado.
-          if (st.active === false && (st.result || st.error)) {
-            session.polledResult = st.result || null;
-            try { session.ctrl?.abort(); } catch (_) {}
-            polling = false;
-            return;
-          }
-        }
-      } catch (_) { /* silencioso */ }
-      await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  _pollLoop();
-
-  try {
-    let data = null;
-    let postError = null;
-    {
-      const ctrl = new AbortController();
-      session.ctrl = ctrl;
-      const POST_TIMEOUT_MS = 3600000;  // 1h
-      const timer = setTimeout(() => ctrl.abort(), POST_TIMEOUT_MS);
-      try {
-        const resp = await fetch('/api/mkv/quality-audit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: targetFilePath, request_id: requestId }),
-          signal: ctrl.signal,
-        });
-        if (resp.ok) {
-          data = await resp.json();
-        } else {
-          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-          postError = err.detail || resp.statusText;
-        }
-      } catch (e) {
-        postError = e.name === 'AbortError'
-          ? `Timeout tras ${POST_TIMEOUT_MS / 1000}s`
-          : (e.message || String(e));
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    // El resultado llega por el POLLER, no por el POST.
-    //
-    // Desde la cola única el POST responde al instante con `{queued:true}`: el
-    // trabajo son ~10 min y puede tener por delante un rip de 40. Aquí había
-    // un respaldo de 20 intentos —30 segundos— que con una espera en cola se
-    // queda cortísimo y daba «respuesta vacía del servidor» con el análisis
-    // perfectamente vivo.
-    //
-    // `_pollLoop` ya vigila hasta que el job termina y deja el resultado en
-    // `session.polledResult`; aquí solo hay que esperarle. El bucle acaba
-    // porque el poller pone `polling = false` en cuanto ve `active === false`,
-    // y el usuario siempre puede cancelar.
-    if (!data?.quality_classification) {
-      // El trabajo va a la cola y corre de fondo. NO se abre el modal: el
-      // usuario pulsa «analizar», no «mírame analizar», y taparle el panel
-      // con un log que aún no tiene líneas es interrumpirle para nada. El
-      // acuse es el toast y la entrada en la columna, y el detalle se abre
-      // desde ahí cuando le interese.
-      await refrescarWorkbar();
-      showToast('Análisis extendido en marcha — el progreso está en la '
-                + 'columna de trabajo', 'success');
-      while (polling && window._mkvQualitySession === session) {
-        await new Promise(r => setTimeout(r, 500));
-      }
-      if (session.polledResult?.quality_classification) {
-        data = session.polledResult;
-      } else {
-        const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true });
-        if (st && st.error) throw new Error(st.error);
-        if (st && st.result?.quality_classification) data = st.result;
-      }
-    }
-    if (!data?.quality_classification) {
-      throw new Error(postError || 'respuesta vacía del servidor');
-    }
-
-    // El backend acaba de persistir el bloque `quality` (y con él el perfil de
-    // luminancia) en la caché: la tarjeta de la columna izquierda pasa de 📋 a
-    // 🔬. Se refresca aquí y no en las tres salidas de abajo porque este es el
-    // punto en el que el análisis está hecho, pase lo que pase después con la
-    // pestaña — que puede haberse cerrado durante los diez minutos.
-    refrescarMkvRecientes();
-    // El proyecto pudo cerrarse (o el fichero moverse) durante los ~10 min que
-    // dura la extracción del RPU. El backend ya lo cacheó bajo la ruta
-    // correcta, así que al reabrirlo aparecerá poblado.
-    if (!openMkvProjects.includes(proyecto) || !proyecto.analysis) {
-      cerrarModalDeTrabajo();
-      showToast('El MKV se cerró durante el análisis — el resultado quedó en caché', 'info');
-      return;
-    }
-    const curFilePath = proyecto.analysis.file_path || proyecto.filePath || proyecto.analysis.file_name;
-    if (curFilePath !== targetFilePath) {
-      cerrarModalDeTrabajo();
-      showToast('Análisis completado para el fichero anterior (guardado en caché)', 'info');
-      return;
-    }
-    if (!proyecto.analysis.dovi) proyecto.analysis.dovi = {};
-    Object.assign(proyecto.analysis.dovi, data);
-    // El mismo análisis trae el perfil de luminancia (comparte la extracción
-    // del RPU, que es el ~97 % del coste). A los campos planos del render.
-    const conPerfil = _mkvAplicarPerfilLuminancia(proyecto.analysis.dovi);
-    cerrarModalDeTrabajo();
-    _renderMkvEditPanel(proyecto);
-    showToast(
-      `Análisis extendido completado — ${data.quality_verdict_text}`
-      + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
-      'success');
-  } catch (e) {
-    if (session.cancelledByUser) {
-      cerrarModalDeTrabajo();
-      showToast('🛑 Auditoría cancelada', 'info');
-      return;
-    }
-    // El error se cuenta con un toast largo y queda en el historial. Antes se
-    // fabricaba un botón «Cerrar» en el pie del modal propio para poder leerlo
-    // sin presión; el modal común ya tiene el suyo fijo.
-    showToast(`Error auditoría: ${e?.message || String(e)}`, 'error', 8000);
-  } finally {
-    polling = false;
-    session.ctrl = null;
-    session.polledResult = null;
-    session.cancelledByUser = false;
-    // Solo soltar la referencia global si seguimos siendo el audit activo —
-    // si un audit nuevo ya tomó el relevo NO la tocamos (era el clobber del bug).
-    if (window._mkvQualitySession === session) window._mkvQualitySession = null;
+/** Recoge los análisis que ya no están ni corriendo ni en la cola.
+ *
+ *  Lo llama `alCambiarTrabajos`, o sea solo cuando el trabajo cambia de
+ *  verdad. Que un `audit_id` desaparezca de las dos listas es la señal de que
+ *  terminó — o de que lo sacaron de la fila, que se distingue mirando de
+ *  quién es el estado.
+ */
+function _mkvRecogerAnalisis(st) {
+  if (!_mkvAnalisisPedidos.size) return;
+  const vivos = new Set([
+    ...(st.activo ? [st.activo.id] : []),
+    ...(st.cola || []).map(j => j.id),
+  ]);
+  for (const [auditId, ruta] of [..._mkvAnalisisPedidos]) {
+    if (vivos.has(auditId)) { _mkvAnalisisVistos.add(auditId); continue; }
+    if (!_mkvAnalisisVistos.has(auditId)) continue;
+    _mkvAnalisisPedidos.delete(auditId);
+    _mkvAnalisisVistos.delete(auditId);
+    _mkvAplicarAnalisisTerminado(auditId, ruta);
   }
 }
 
-async function _mkvQualityCancel() {
-  const session = window._mkvQualitySession;
-  if (session) session.cancelledByUser = true;
+async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
+  const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
+    .catch(() => null);
+  // El estado es un singleton: describe al análisis que tiene la máquina. Si
+  // no es el nuestro, este se retiró de la cola antes de empezar y no hay
+  // nada que recoger — ni resultado ni error que contar.
+  if (!st || st.audit_id !== auditId) return;
+  if (typeof _trabajoModalUltimo !== 'undefined'
+      && _trabajoModalUltimo && _trabajoModalUltimo.id === auditId) {
+    cerrarModalDeTrabajo();
+  }
+  if (st.error) {
+    const cancelado = st.step === 'cancelled' || /cancelad/i.test(st.error);
+    showToast(cancelado ? '🛑 Auditoría cancelada' : `Error auditoría: ${st.error}`,
+              cancelado ? 'info' : 'error', cancelado ? 3500 : 8000);
+    return;
+  }
+  const data = st.result;
+  if (!data?.quality_classification) return;
+  // El backend acaba de persistir el bloque `quality` (y con él el perfil de
+  // luminancia) en la caché: la tarjeta de la columna izquierda pasa de 📋 a
+  // 🔬. Se refresca pase lo que pase con la pestaña, que puede haberse
+  // cerrado durante los diez minutos.
+  refrescarMkvRecientes();
+  const proyecto = (openMkvProjects || []).find(p => _mkvRutaAnalisis(p) === ruta);
+  if (!proyecto || !proyecto.analysis) {
+    showToast('El MKV se cerró durante el análisis — el resultado quedó en caché',
+              'info');
+    return;
+  }
+  if (!proyecto.analysis.dovi) proyecto.analysis.dovi = {};
+  Object.assign(proyecto.analysis.dovi, data);
+  // El mismo análisis trae el perfil de luminancia (comparte la extracción
+  // del RPU, que es el ~97 % del coste). A los campos planos del render.
+  const conPerfil = _mkvAplicarPerfilLuminancia(proyecto.analysis.dovi);
+  // Solo se repinta el que se está viendo; el de otra sub-pestaña ya lleva el
+  // dato en `analysis` y se pinta al cambiar a ella.
+  if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);
+  showToast(
+    `Análisis extendido completado — ${data.quality_verdict_text}`
+    + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
+    'success');
+}
+
+async function _mkvQualityCancel(auditId) {
   try {
-    // Mandamos el audit_id que ESTE modal está siguiendo: el backend ignora
-    // el cancel si ya no coincide con el audit activo (cancel obsoleto tras
+    // Se manda el audit_id que se está cancelando: el backend ignora el
+    // cancel si ya no coincide con el análisis activo (cancel obsoleto tras
     // relanzar). Sin esto, un cancel tardío de A mataba la auditoría nueva B.
     await apiFetch('/api/mkv/quality-audit/cancel', {
       method: 'POST', silent: true,
-      body: JSON.stringify({ audit_id: session?.auditId || null }),
+      body: JSON.stringify({ audit_id: auditId || null }),
     });
   } catch (_) {}
-  try { session?.ctrl?.abort(); } catch (_) {}
 }
 
 
@@ -3460,8 +3371,12 @@ function abrirMkvReciente(ruta) {
 // ── Vistas de detalle para el modal de trabajo ───────────────────────────────
 
 registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
-  const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
+  let st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
     .catch(() => null);
+  // El estado es un singleton: describe al análisis que tiene la máquina. Con
+  // varios esperando turno, el de la cola que se abra aquí enseñaría el log y
+  // el fichero del que está corriendo — otra película.
+  if (st && a && a.id && st.audit_id !== a.id) st = null;
   // La ficha ya la pidió el panel al abrir el MKV (`hydrateTmdbCard`), así
   // que aquí sale de su caché: no se vuelve a salir a la red por una cartela.
   // Sin estado vivo no hay nombre de fichero: la clave de este trabajo es su
@@ -3545,7 +3460,8 @@ async function _mkvBorrarReciente(r) {
 // Cuando el trabajo cambia, esta pestaña repinta lo suyo: el rótulo del botón
 // de análisis extendido y las insignias de la lista. Solo se dispara cuando el
 // conjunto de trabajos cambia de verdad (ver `_workbarFirma`), no en cada tick.
-alCambiarTrabajos(() => {
+alCambiarTrabajos((st) => {
   _mkvPintarEstadoDeAnalisis();
+  _mkvRecogerAnalisis(st);
   if (document.getElementById('mkv-recientes-list')) _renderMkvRecientes();
 });

@@ -558,16 +558,26 @@ _mkv_quality_active_proc: dict = {"proc": None}
 _mkv_quality_cancel: dict = {"requested_for_id": None}
 
 
-def _mkv_quality_reset(file_name: str = "") -> str:
-    import time as _t
+def _mkv_quality_nuevo_id() -> str:
+    """Un identificador para un análisis que todavía no ha empezado.
+
+    Se reparte al ENCOLAR y el estado no se toca hasta que el trabajo tiene
+    turno: varios análisis pueden estar esperando y el singleton describe al
+    que está corriendo, no a los de la fila.
+    """
     import uuid as _uuid
+    return _uuid.uuid4().hex[:12]
+
+
+def _mkv_quality_reset(file_name: str = "", audit_id: str = "") -> str:
+    import time as _t
     _mkv_quality_active_proc["proc"] = None
     # NO tocamos _mkv_quality_cancel["requested_for_id"] aquí — un cancel viejo
     # del audit anterior referencia un audit_id que ya no coincide con el nuevo,
     # por lo que _mkv_quality_check_cancel lo ignorará automáticamente. Lo
     # limpiamos por higiene para no acumular un valor obsoleto indefinido.
     _mkv_quality_cancel["requested_for_id"] = None
-    audit_id = _uuid.uuid4().hex[:12]
+    audit_id = audit_id or _mkv_quality_nuevo_id()
     _mkv_quality_state.update({
         "active": True,
         "audit_id": audit_id,
@@ -701,12 +711,6 @@ async def mkv_quality_audit_cancel(request: Request):
          endpoint también usa _state_finalize_if con su audit_id snapshot —
          si el reset del audit nuevo ya pasó, no pisa nada.
     """
-    # Lo primero: si solo estaba esperando turno, sacarlo de la fila. Desde
-    # la cola única, "cancelar" tiene dos significados según dónde esté el
-    # trabajo, y para el usuario es el mismo botón.
-    _aid = _mkv_quality_state.get("audit_id")
-    if _aid:
-        await queue_manager.cancel(_aid)
     # Logging defensivo para diagnosticar "cancels fantasma" — quién hace
     # POST cancel, sobre qué audit_id, desde qué cliente.
     client_addr = f"{request.client.host}:{request.client.port}" if request.client else "?"
@@ -724,6 +728,14 @@ async def mkv_quality_audit_cancel(request: Request):
             requested_audit_id = _body.get("audit_id") or None
     except Exception:
         requested_audit_id = None
+    # Si solo estaba esperando turno, sacarlo de la fila y ya está: desde la
+    # cola única «cancelar» tiene dos significados según dónde esté el
+    # trabajo, y para el usuario es el mismo botón. Se cancela **el que pide
+    # el cliente**: con varios análisis en la cola, el singleton es el del que
+    # está corriendo y sacar ese sería cancelarle a otro.
+    if await queue_manager.cancel(
+            requested_audit_id or _mkv_quality_state.get("audit_id") or ""):
+        return {"ok": True, "reason": "dequeued"}
     if not _mkv_quality_state.get("active"):
         _logger.info(
             "[QualityCancel] NO-OP — no hay audit activo (caller=%s, ua=%s)",
@@ -898,6 +910,25 @@ async def mkv_light_profile_cached(file_path: str = ""):
     return await asyncio.to_thread(_leer)
 
 
+def _analisis_ya_pedido(mkv_full: str) -> str:
+    """Si ese MKV ya tiene un análisis extendido pedido, dónde está.
+
+    Devuelve la cadena que se le enseña al usuario, o "" si no hay ninguno.
+    La comparación es por la ruta ya resuelta, que es la misma que se guarda
+    en `sobre` al encolar — y la misma con la que la pestaña pregunta
+    `trabajoSobre()`.
+    """
+    estado = queue_manager.get_status()
+    tipo = queue_manager_mod.TIPO_ANALISIS_EXTENDIDO
+    corriendo = estado.get("running_job") or {}
+    if corriendo.get("tipo") == tipo and corriendo.get("sobre") == mkv_full:
+        return "en curso"
+    if any(j.get("tipo") == tipo and j.get("sobre") == mkv_full
+           for j in estado.get("jobs") or []):
+        return "esperando turno en la cola"
+    return ""
+
+
 @router.post("/api/mkv/quality-audit", summary="Auditoría profunda del RPU (on-demand)")
 async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     """Ejecuta el pipeline de auditoría L8/L2 sobre el RPU completo del MKV.
@@ -1008,22 +1039,19 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         msg = st.get("error") or "La auditoría anterior no produjo resultado"
         raise HTTPException(status_code=499 if "Cancelado" in msg else 500, detail=msg)
 
-    if _mkv_quality_state.get("active"):
+    # Lo único que se rechaza es repetir el MISMO MKV: varios análisis a la
+    # vez SÍ se admiten, que para eso está la cola. Antes bastaba con que
+    # hubiera uno **esperando turno** para que el siguiente recibiera «ya hay
+    # un análisis en curso» — y no había ninguno en curso.
+    if (donde := _analisis_ya_pedido(mkv_full)):
         raise HTTPException(
             status_code=409,
-            detail="Ya hay un análisis en curso. Cancélalo o espera a que termine.",
-        )
-    # Y tampoco si lo pesado está en otra pestaña: extraer el RPU son ~10 min
-    # de disco y CPU, y solaparlo con un rip no hace que acaben antes.
+            detail=f"Ese MKV ya tiene un análisis extendido {donde}.")
     # A la cola: son ~10 minutos y el usuario no está esperando la respuesta
-    # HTTP, está mirando el modal, que se alimenta del poller. Antes esto era
-    # un POST que el navegador mantenía abierto hasta una hora.
-    my_audit_id = _mkv_quality_reset(file_name=mkv_path_obj.name)
-    _mkv_quality_state["request_id"] = request_id
-    _mkv_quality_state["step"] = "en_cola"
-    _mkv_quality_state["step_label"] = "Esperando turno en la cola"
-    _mkv_quality_log("[Audit] ⏳ En cola — arrancará cuando termine el trabajo "
-                     "que hay por delante.", target_audit_id=my_audit_id)
+    # HTTP. **El singleton no se toca aquí**: describe al análisis que tiene
+    # la máquina, y este todavía no la tiene. Lo reclama el runner al recibir
+    # turno, así que un trabajo retirado de la cola no puede dejarlo ocupado.
+    my_audit_id = _mkv_quality_nuevo_id()
     # Tab 2 no tiene sesión ni `tmdb_info`: el nombre sale del fichero, con el
     # mismo parser que la recomendación CMv4.0, y la carátula de la caché de
     # TMDb en disco — que para este MKV ya está llena, porque abrirlo pidió su
@@ -1037,13 +1065,15 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         que=f"Análisis extendido · {_titulo_audit or mkv_path_obj.name}",
         titulo=_titulo_audit, poster=_poster_audit,
         datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
+               "request_id": request_id or "",
                "inicio": datetime.now(timezone.utc).isoformat()},
     ))
     return {"queued": True, "audit_id": my_audit_id}
 
 
 async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
-                                       mkv_path_obj, _historial_inicio):
+                                       mkv_path_obj, _historial_inicio,
+                                       request_id: str = ""):
     """El trabajo del análisis extendido, ya con turno concedido.
 
     Sale del endpoint porque el endpoint ya no espera: son ~10 minutos y
@@ -1052,6 +1082,11 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
     escuchando: el canal con la UI es `_mkv_quality_state`, que el modal
     pollea, y ahí ya se escriben el error y el paso final.
     """
+    # **Aquí se reclama el singleton**, no al encolar: hasta este momento el
+    # análisis solo era una entrada en la cola, y en la cola puede haber
+    # varios. El estado describe al que tiene la máquina.
+    _mkv_quality_reset(file_name=mkv_path_obj.name, audit_id=my_audit_id)
+    _mkv_quality_state["request_id"] = request_id
     # my_audit_id es el id propio de este audit — se usa para que except y
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
@@ -1606,7 +1641,8 @@ async def _runner_analisis_extendido(trabajo) -> None:
     except ValueError:
         inicio = datetime.now(timezone.utc)
     await _ejecutar_analisis_extendido(
-        trabajo.clave, d.get("mkv") or "", Path(d.get("mkv") or ""), inicio)
+        trabajo.clave, d.get("mkv") or "", Path(d.get("mkv") or ""), inicio,
+        request_id=d.get("request_id") or "")
 
 
 async def _runner_copia_biblioteca(trabajo) -> None:
@@ -1707,24 +1743,10 @@ def _copia_adaptador(trabajo) -> dict | None:
     }
 
 
-def _descartado_analisis(trabajo) -> None:
-    """Un análisis extendido que se saca de la cola libera su hueco.
-
-    El endpoint marca el singleton como ocupado al ENCOLAR, para que el modal
-    diga «esperando turno», y lo suelta el `finally` del runner. Si el trabajo
-    se descarta antes de empezar, ese `finally` no llega nunca y la pestaña se
-    queda ocupada: todos los análisis siguientes respondían «ya hay un
-    análisis en curso» hasta reiniciar el contenedor.
-
-    Se comprueba el `audit_id` porque entre el descarte y esto el usuario ya
-    puede haber lanzado otro: liberar a ciegas mataría al nuevo. Es el mismo
-    cuidado que el cancel dirigido por `audit_id`.
-    """
-    if _mkv_quality_state.get("audit_id") != trabajo.clave:
-        return
-    _mkv_quality_state["active"] = False
-    _mkv_quality_state["step"] = "cancelled"
-    _mkv_quality_state["step_label"] = "Retirado de la cola"
+# El análisis extendido NO necesita hook de descarte: encolar no reclama
+# nada. Lo tuvo mientras el singleton se ocupaba al encolar —quitar el
+# trabajo de la cola dejaba la pestaña bloqueada hasta reiniciar—, y eso lo
+# arregla hoy el sitio donde se reclama, no una limpieza a posteriori.
 
 
 def _descartada_copia(trabajo) -> None:
@@ -1741,8 +1763,6 @@ queue_manager.registrar_runner(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
                                _runner_analisis_extendido)
 queue_manager.registrar_runner(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                                _runner_copia_biblioteca)
-queue_manager.registrar_descarte(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
-                                 _descartado_analisis)
 queue_manager.registrar_descarte(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                                  _descartada_copia)
 trabajos.registrar(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO, _analisis_adaptador)

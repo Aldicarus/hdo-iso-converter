@@ -421,14 +421,27 @@ class TestTab2PasaPorLaCola(ApiTestCase):
         self.assertTrue(r.json()["queued"])
         self.assertTrue(r.json()["audit_id"])
 
-    def test_y_el_modal_ve_que_esta_esperando(self):
-        """Sin esto el modal se queda con el primer paso en ⏳ sin que nada
-        esté pasando todavía."""
+    def test_encolar_NO_reclama_el_singleton(self):
+        """El estado describe al análisis que tiene la máquina, y encolar no
+        se la da. Cuando se reclamaba al encolar, un segundo análisis recibía
+        «ya hay un análisis en curso» sin que hubiera ninguno en curso, y uno
+        retirado de la cola dejaba la pestaña bloqueada hasta reiniciar."""
+        from routers import tab2
         self.client.post("/api/mkv/quality-audit",
                          json={"file_path": str(self.mkv)})
-        st = self.client.get("/api/mkv/quality-audit/progress").json()
-        self.assertEqual(st["step"], "en_cola")
-        self.assertTrue(st["active"])
+        self.assertFalse(tab2._mkv_quality_state["active"])
+
+    def test_y_el_que_espera_no_enseña_el_progreso_del_que_corre(self):
+        """El adaptador de progreso es el del singleton: sin el filtro por
+        `audit_id`, la tarjeta del que espera pintaría la barra del otro."""
+        from routers import tab2
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(self.mkv)})
+        tab2._mkv_quality_state.update(
+            {"active": True, "audit_id": "otro", "step": "combos"})
+        self.assertIsNone(tab2._analisis_adaptador(qm.TrabajoEnCola(
+            tab="mkv", tipo=qm.TIPO_ANALISIS_EXTENDIDO,
+            clave=r.json()["audit_id"])))
 
     def test_el_trabajo_lleva_lo_que_el_runner_necesita(self):
         """La cola puede despachar mucho después: el `body` de Pydantic no se
@@ -444,14 +457,79 @@ class TestTab2PasaPorLaCola(ApiTestCase):
 
     def test_cancelar_saca_de_la_cola_el_analisis(self):
         cola = self.main.queue_manager
-        self.client.post("/api/mkv/quality-audit",
-                         json={"file_path": str(self.mkv)})
-        aid = self.client.get("/api/mkv/quality-audit/progress").json()["audit_id"]
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(self.mkv)})
+        aid = r.json()["audit_id"]
         cola._queue = [qm.TrabajoEnCola(tab="mkv",
                                         tipo=qm.TIPO_ANALISIS_EXTENDIDO,
                                         clave=aid, que="análisis")]
-        self.client.post("/api/mkv/quality-audit/cancel", json={})
+        self.client.post("/api/mkv/quality-audit/cancel",
+                         json={"audit_id": aid})
         self.assertEqual(cola._queue, [])
+
+    def test_y_cancela_EL_QUE_SE_PIDE_no_el_que_tiene_la_maquina(self):
+        """Con varios en la cola, el singleton es el del que está corriendo.
+        Sacar ese sería cancelarle el trabajo a otro."""
+        from routers import tab2
+        cola = self.main.queue_manager
+        otro = self.output_dir / "Otra.mkv"
+        otro.write_bytes(b"x" * 4096)
+        espera = self.client.post(
+            "/api/mkv/quality-audit", json={"file_path": str(otro)}
+        ).json()["audit_id"]
+        tab2._mkv_quality_state.update({"active": True, "audit_id": "el-que-corre"})
+        cola._queue = [qm.TrabajoEnCola(tab="mkv",
+                                        tipo=qm.TIPO_ANALISIS_EXTENDIDO,
+                                        clave=espera, que="análisis"),
+                       qm.TrabajoEnCola(tab="rip", tipo=qm.TIPO_RIP,
+                                        clave="un-rip", que="rip")]
+        self.client.post("/api/mkv/quality-audit/cancel",
+                         json={"audit_id": espera})
+        self.assertEqual([t.clave for t in cola._queue], ["un-rip"])
+        self.assertTrue(tab2._mkv_quality_state["active"],
+                        "el que estaba corriendo no se toca")
+
+    def test_caben_VARIOS_analisis_en_la_cola(self):
+        """Para eso está la cola. Antes bastaba con que hubiera uno esperando
+        turno para que el siguiente recibiera «ya hay una auditoría de calidad
+        en curso — espera a que termine o cancélala», y no había ninguna en
+        curso: había una en la fila."""
+        otro = self.output_dir / "Otra peli.mkv"
+        otro.write_bytes(b"x" * 4096)
+        primero = self.client.post("/api/mkv/quality-audit",
+                                   json={"file_path": str(self.mkv)})
+        segundo = self.client.post("/api/mkv/quality-audit",
+                                   json={"file_path": str(otro)})
+        self.assertEqual(segundo.status_code, 200, segundo.text)
+        self.assertNotEqual(primero.json()["audit_id"],
+                            segundo.json()["audit_id"])
+        self.assertEqual(len(self._encolados(qm.TIPO_ANALISIS_EXTENDIDO)), 2)
+
+    def test_pero_no_dos_veces_el_MISMO(self):
+        """Produciría lo mismo dos veces y son diez minutos cada una."""
+        self.client.post("/api/mkv/quality-audit",
+                         json={"file_path": str(self.mkv)})
+        # La entrada la pone el arnés a mano: `encolar` está espiado.
+        self.main.queue_manager._queue.append(qm.TrabajoEnCola(
+            tab="mkv", tipo=qm.TIPO_ANALISIS_EXTENDIDO, clave="k",
+            sobre=str(self.mkv.resolve())))
+        r = self.client.post("/api/mkv/quality-audit",
+                             json={"file_path": str(self.mkv)})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("esperando turno", r.json()["detail"])
+
+    def test_el_id_que_se_reparte_es_el_que_acaba_en_el_estado(self):
+        """El navegador se queda con el `audit_id` del POST y filtra por él
+        todo lo que lee después. Si el runner acuñara otro al arrancar, ese
+        filtro no encajaría nunca y el resultado no se aplicaría al panel."""
+        from routers import tab2
+        aid = self.client.post(
+            "/api/mkv/quality-audit", json={"file_path": str(self.mkv)}
+        ).json()["audit_id"]
+        _, clave, datos, _ = self._encolados(qm.TIPO_ANALISIS_EXTENDIDO)[0]
+        self.assertEqual(clave, aid)
+        tab2._mkv_quality_reset(file_name="Peli.mkv", audit_id=aid)
+        self.assertEqual(tab2._mkv_quality_state["audit_id"], aid)
 
     def test_la_copia_desde_biblioteca_se_encola(self):
         src = self.library_dir / "Desde.mkv"
@@ -623,16 +701,16 @@ class TestYaNoQuedaNingun409DeAdmision(unittest.TestCase):
 
 
 class TestSacarloDeLaColaLiberaSuHueco(ApiTestCase):
-    """Un trabajo encolado deja estado apuntado en su pestaña, y lo suelta el
-    `finally` de su runner. Si se descarta antes de empezar, ese `finally` no
-    llega nunca.
+    """Un trabajo encolado puede dejar estado apuntado en su pestaña, y lo
+    suelta el `finally` de su runner. Si se descarta antes de empezar, ese
+    `finally` no llega nunca.
 
     Caso real: quitar un análisis extendido de la cola dejaba el singleton de
     Tab 2 ocupado, y **todos los análisis siguientes** respondían «ya hay un
-    análisis en curso» hasta reiniciar el contenedor.
-
-    La cola no sabe qué estado hay que soltar, igual que no sabe ejecutar:
-    cada router registra su limpieza con `registrar_descarte`.
+    análisis en curso» hasta reiniciar el contenedor. Eso ya no puede pasar
+    por otra vía: el análisis no reclama nada hasta tener turno. La copia
+    desde biblioteca sí lo reclama al encolar, y para esa el hook sigue —
+    la cola no sabe qué estado hay que soltar, igual que no sabe ejecutar.
     """
 
     def _meter_en_la_cola(self, trabajo) -> None:
@@ -655,29 +733,13 @@ class TestSacarloDeLaColaLiberaSuHueco(ApiTestCase):
     def test_un_analisis_retirado_no_bloquea_al_siguiente(self):
         from routers import tab2
         audit = self._encolar_analisis()
-        self.assertTrue(tab2._mkv_quality_state["active"])
-
-        # Y ahora se saca de la cola, como hace la columna de trabajo.
         r = self.client.delete(
             f"/api/queue/{qm.TIPO_ANALISIS_EXTENDIDO}:{audit}")
         self.assertTrue(r.json()["ok"], r.text)
-        self.assertFalse(tab2._mkv_quality_state["active"],
-                         "el hueco se quedó ocupado: el siguiente análisis "
-                         "recibirá «ya hay uno en curso»")
-
-        # El de verdad: que el siguiente entre.
-        self.assertEqual(self._encolar_analisis() != audit, True)
-
-    def test_pero_no_libera_el_de_OTRO_analisis_posterior(self):
-        """Entre el descarte y la limpieza el usuario puede haber lanzado
-        otro. Liberar a ciegas mataría al nuevo — el mismo cuidado que el
-        cancel dirigido por `audit_id`."""
-        from routers import tab2
-        viejo = self._encolar_analisis()
-        tab2._mkv_quality_state["audit_id"] = "otro-mas-nuevo"
-        tab2._mkv_quality_state["active"] = True
-        self.client.delete(f"/api/queue/{qm.TIPO_ANALISIS_EXTENDIDO}:{viejo}")
-        self.assertTrue(tab2._mkv_quality_state["active"])
+        self.assertFalse(tab2._mkv_quality_state["active"])
+        # El de verdad: que el siguiente entre. Y entra también SIN retirar el
+        # anterior — eso lo cubre `test_caben_VARIOS_analisis_en_la_cola`.
+        self.assertNotEqual(self._encolar_analisis(), audit)
 
     def test_un_rip_retirado_vuelve_a_pending(self):
         """Si no, la sesión se queda en `queued`: el botón dice «En

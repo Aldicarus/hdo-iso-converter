@@ -260,17 +260,10 @@ function _runRecoveryTasks() {
     }
     setTimeout(() => connectExecutionWebSocket(queueState.running), 50);
   }
-  // Tab 2 — el análisis extendido: si el job ya terminó en el backend, el
-  // modal puede haberse quedado esperando un POST que murió con el sleep del
-  // Mac. Se aborta el fetch y se recoge el resultado del state.
-  if (window._mkvQualitySession?.ctrl) {
-    apiFetch('/api/mkv/quality-audit/progress', { silent: true }).then(st => {
-      if (st && st.active === false && (st.result || st.error)) {
-        window._mkvQualitySession.polledResult = st.result || null;
-        try { window._mkvQualitySession.ctrl?.abort(); } catch (_) {}
-      }
-    }).catch(() => {});
-  }
+  // Tab 2 — el análisis extendido ya no deja ningún fetch abierto esperando:
+  // se encola, y el resultado lo recoge `_mkvRecogerAnalisis` cuando la
+  // columna dice que el trabajo terminó. El refresco de la columna que hay
+  // más abajo es lo único que hace falta tras despertar el Mac.
   // Tab 2 — apply (copia desde Library): si hay job activo en backend,
   // el modal puede estar congelado en "esperando" — forzar tick.
 

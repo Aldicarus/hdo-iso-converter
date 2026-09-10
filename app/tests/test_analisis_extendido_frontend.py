@@ -36,9 +36,13 @@ HTML = (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
 
 
 def _extraer(nombre: str) -> str:
-    marca = f"function {nombre}("
-    i = JS.index(marca)
-    return JS[i:JS.index("\n}\n", i) + 3]
+    """El fuente de la función, DESDE EL PRINCIPIO DE SU LÍNEA.
+
+    Cortar en `function` se come el `async` de las declaraciones asíncronas, y
+    lo que sale es una función normal con `await` dentro: SyntaxError en node.
+    """
+    i = JS.index(f"function {nombre}(")
+    return JS[JS.rindex("\n", 0, i) + 1:JS.index("\n}\n", i) + 3]
 
 
 @unittest.skipUnless(NODE, "node no disponible")
@@ -87,6 +91,118 @@ class TestMapeoDelPerfil(unittest.TestCase):
     def test_null_no_revienta(self):
         r = self._correr({"light_profile": None})
         self.assertFalse(r["ok"])
+
+
+@unittest.skipUnless(NODE, "node no disponible")
+class TestVariosAnalisisALaVez(unittest.TestCase):
+    """El resultado va al panel del MKV que se analizó, no al de al lado.
+
+    El lanzador guardaba UNA sesión global (`window._mkvQualitySession`) con
+    su poller y su POST abierto, así que pedir un segundo análisis mientras el
+    primero esperaba turno pisaba la del primero: su poller se auto-detenía,
+    la espera terminaba de golpe y lo que leía del estado —que es un
+    singleton— era del otro análisis. Ahora se apunta qué se ha pedido y sobre
+    qué MKV, y cada resultado se recoge por su `audit_id`.
+    """
+
+    def _correr(self, pedidos, vistos, estado, cola, activo=None,
+                proyectos=("/mnt/output/A.mkv", "/mnt/output/B.mkv")):
+        guion = f"""
+const _toasts = [], _aplicados = [], _pintados = [];
+globalThis.showToast = (t) => _toasts.push(t);
+globalThis.refrescarMkvRecientes = () => {{}};
+globalThis.cerrarModalDeTrabajo = () => {{}};
+globalThis._renderMkvEditPanel = (p) => _pintados.push(p.filePath);
+globalThis.openMkvProjects = {json.dumps(list(proyectos))}
+  .map(r => ({{ filePath: r, analysis: {{ file_path: r }} }}));
+globalThis.mkvProject = openMkvProjects[0];
+globalThis.apiFetch = async () => ({json.dumps(estado)});
+const _mkvAnalisisPedidos = new Map({json.dumps(list(pedidos.items()))});
+const _mkvAnalisisVistos = new Set({json.dumps(list(vistos))});
+{_extraer('_mkvRutaAnalisis')}
+{_extraer('_mkvAplicarPerfilLuminancia')}
+{_extraer('_mkvRecogerAnalisis')}
+{_extraer('_mkvAplicarAnalisisTerminado')}
+(async () => {{
+  _mkvRecogerAnalisis({{ activo: {json.dumps(activo)}, cola: {json.dumps(cola)} }});
+  for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0));
+  console.log(JSON.stringify({{
+    toasts: _toasts, pintados: _pintados,
+    pendientes: [..._mkvAnalisisPedidos.keys()],
+    dovi: openMkvProjects.map(p => p.analysis.dovi || null),
+  }}));
+}})();
+"""
+        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+                           timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr[:900])
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    RESULTADO = {"quality_classification": "real",
+                 "quality_verdict_text": "Master CMv4.0 FULL"}
+
+    def test_el_que_termina_se_aplica_a_SU_panel(self):
+        r = self._correr(
+            pedidos={"a1": "/mnt/output/A.mkv", "b2": "/mnt/output/B.mkv"},
+            vistos=("a1", "b2"),
+            estado={"audit_id": "a1", "active": False, "result": self.RESULTADO},
+            cola=[{"id": "b2"}])
+        self.assertEqual(r["pendientes"], ["b2"], "el que sigue en la cola")
+        self.assertEqual(r["dovi"][0]["quality_classification"], "real")
+        self.assertIsNone(r["dovi"][1], "el otro MKV no se toca")
+
+    def test_y_el_que_sigue_esperando_NO_recoge_el_resultado_ajeno(self):
+        """Con el filtro por `audit_id` fuera, este es el bug: B se lleva el
+        resultado de A y su panel enseña la película equivocada."""
+        r = self._correr(
+            pedidos={"b2": "/mnt/output/B.mkv"}, vistos=("b2",),
+            estado={"audit_id": "a1", "active": False, "result": self.RESULTADO},
+            cola=[])
+        self.assertEqual(r["dovi"], [None, None])
+        self.assertEqual(r["toasts"], [], "ni un aviso: no es asunto suyo")
+
+    def test_uno_retirado_de_la_cola_no_da_error(self):
+        """Desaparece sin dejar estado: no hay resultado, pero tampoco un
+        fallo que contar. Antes salía «respuesta vacía del servidor»."""
+        r = self._correr(
+            pedidos={"b2": "/mnt/output/B.mkv"}, vistos=("b2",),
+            estado={"audit_id": "otro", "active": False, "error": "x"},
+            cola=[])
+        self.assertEqual(r["toasts"], [])
+        self.assertEqual(r["pendientes"], [])
+
+    def test_el_que_todavia_no_ha_salido_en_la_columna_no_se_da_por_muerto(self):
+        """Entre el POST y el poll siguiente el trabajo no está en ninguna
+        lista. Sin la marca de «visto» se recogería como terminado."""
+        r = self._correr(
+            pedidos={"nuevo": "/mnt/output/A.mkv"}, vistos=(),
+            estado={"audit_id": "nuevo", "active": True}, cola=[])
+        self.assertEqual(r["pendientes"], ["nuevo"])
+
+    def test_el_error_se_cuenta_una_vez_y_con_su_texto(self):
+        r = self._correr(
+            pedidos={"a1": "/mnt/output/A.mkv"}, vistos=("a1",),
+            estado={"audit_id": "a1", "active": False,
+                    "step": "error", "error": "extract-rpu falló"},
+            cola=[])
+        self.assertEqual(len(r["toasts"]), 1)
+        self.assertIn("extract-rpu falló", r["toasts"][0])
+
+    def test_y_una_cancelacion_no_se_cuenta_como_error(self):
+        r = self._correr(
+            pedidos={"a1": "/mnt/output/A.mkv"}, vistos=("a1",),
+            estado={"audit_id": "a1", "active": False, "step": "cancelled",
+                    "error": "Cancelado por el usuario"},
+            cola=[])
+        self.assertIn("cancelada", r["toasts"][0])
+
+    def test_si_el_MKV_se_cerro_el_resultado_queda_en_cache(self):
+        r = self._correr(
+            pedidos={"a1": "/mnt/output/Cerrada.mkv"}, vistos=("a1",),
+            estado={"audit_id": "a1", "active": False, "result": self.RESULTADO},
+            cola=[])
+        self.assertIn("caché", r["toasts"][0])
+        self.assertEqual(r["pintados"], [])
 
 
 class TestNoQuedanDosCaminos(unittest.TestCase):
