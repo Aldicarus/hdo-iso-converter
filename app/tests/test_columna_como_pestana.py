@@ -353,7 +353,7 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.Sortable = undefined;
 let workbarEstado = {json.dumps(_TRABAJOS)};
-let _workbarRecienteSel = null;
+let _workbarSeleccion = null;
 let _workbarFiltroTab = {json.dumps(tab)};
 {_fn('normalizeSearch')}
 {_fn('_workbarTiempo')}
@@ -368,6 +368,9 @@ let _workbarFiltroTab = {json.dumps(tab)};
 globalThis.iconoDeTrabajo = () => '';
 globalThis.iconoDeEstado = () => '';
 const _CMV40_FIN = {{done: 'Terminado'}};
+{_fn('_workbarMini')}
+{_fn('_workbarDescripcion')}
+{_fn('_workbarTarjeta')}
 {_fn('_workbarRender')}
 _workbarRender(workbarEstado);
 console.log(JSON.stringify({{html: _els['workbar-body'].innerHTML,

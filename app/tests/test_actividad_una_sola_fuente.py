@@ -53,9 +53,13 @@ def _bloque(marca: str) -> str:
 
 def _iconos() -> str:
     """Lo que hace falta para que el marcado de los iconos se pueda evaluar."""
-    return "\n".join([_bloque("const _ICONOS_TRABAJO = {"),
+    # `_svg` va PRIMERO: `_GLIFOS_TRABAJO` la llama al construirse.
+    i = JS.index("const _TONO_POR_TAB = ")
+    return "\n".join([_fn("_svg"),
+                      JS[i:JS.index("\n", i) + 1],
+                      _bloque("const _GLIFOS_TRABAJO = {"),
                       _bloque("const _ICONOS_ESTADO = {"),
-                      _fn("_svg"), _fn("_chipIcono"),
+                      _fn("_chipIcono"),
                       _fn("iconoDeTrabajo"), _fn("iconoDeEstado")])
 
 
@@ -138,6 +142,10 @@ let _workbarFiltroTab = 'all';
 {_fn('_workbarBusqueda')}
 {_fn('_workbarFiltrando')}
 {_fn('_workbarPasaFiltro')}
+let _workbarSeleccion = null;
+{_fn('_workbarMini')}
+{_fn('_workbarDescripcion')}
+{_fn('_workbarTarjeta')}
 {_fn('_workbarRender')}
 {_fn('refrescarWorkbar')}
 (async () => {{
@@ -169,7 +177,7 @@ let _workbarFiltroTab = 'all';
             "eta_s": 450, "eta_fuente": "medido", "cancelable": True,
             "detalle": "cmv40"}, "cola": [], "interactivo": [], "recientes": []})
         self.assertIn("Fase C de Predator", r["html"])
-        self.assertIn("Extrayendo BL/EL · 3/7", r["html"])
+        self.assertIn("Extrayendo BL/EL · 3 de 7", r["html"])
         self.assertIn("40%", r["html"])
         self.assertIn("Restante 7 min", r["html"])
 
@@ -365,6 +373,10 @@ globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
+let _workbarSeleccion = null;
+{_fn('_workbarMini')}
+{_fn('_workbarDescripcion')}
+{_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
   {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,
@@ -385,6 +397,10 @@ globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
+let _workbarSeleccion = null;
+{_fn('_workbarMini')}
+{_fn('_workbarDescripcion')}
+{_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
   {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,

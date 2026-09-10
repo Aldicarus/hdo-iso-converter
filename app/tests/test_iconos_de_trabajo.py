@@ -40,9 +40,14 @@ NODE = shutil.which("node")
 JS = js_completo()
 CSS = (STATIC / "style.css").read_text(encoding="utf-8")
 
-TIPOS = ["rip", "crear_serie", "analisis_extendido", "copia_biblioteca",
-         "fase_cmv40"]
-ESTADOS = ["corriendo", "en_cola", "hecho", "error", "cancelado"]
+# tipo → pestaña de la que viene. El color sale de la SEGUNDA columna: el
+# glifo dice qué se hace y el tono de dónde viene, que es lo que hace la
+# columna escaneable sin leer.
+TIPOS = {"rip": "rip", "crear_serie": "rip",
+         "analisis_extendido": "mkv", "copia_biblioteca": "mkv",
+         "fase_cmv40": "cmv40", "preflight": "cmv40"}
+ESTADOS = ["corriendo", "en_cola", "hecho", "error", "cancelado", "esperando"]
+TONO_DE_TAB = {"rip": "azul", "mkv": "turquesa", "cmv40": "naranja"}
 
 
 def _fn(nombre: str) -> str:
@@ -55,19 +60,27 @@ def _bloque(marca: str) -> str:
     return JS[i:JS.index("\n};\n", i) + 4]
 
 
+def _linea(marca: str) -> str:
+    i = JS.index(marca)
+    return JS[i:JS.index("\n", i) + 1]
+
+
 @unittest.skipIf(NODE is None, "node no está instalado")
 class TestHayIconoParaTodo(unittest.TestCase):
     """Un tipo sin icono deja un hueco donde el resto tiene una pista."""
 
-    def _render(self, fn, clave) -> str:
+    def _render(self, fn, clave, tab="") -> str:
+        args = (f"{json.dumps(clave)}, {json.dumps(tab)}"
+                if fn == "iconoDeTrabajo" else json.dumps(clave))
         guion = f"""
-{_bloque('const _ICONOS_TRABAJO = {')}
-{_bloque('const _ICONOS_ESTADO = {')}
 {_fn('_svg')}
+{_linea('const _TONO_POR_TAB = ')}
+{_bloque('const _GLIFOS_TRABAJO = {')}
+{_bloque('const _ICONOS_ESTADO = {')}
 {_fn('_chipIcono')}
 {_fn('iconoDeTrabajo')}
 {_fn('iconoDeEstado')}
-console.log(JSON.stringify({fn}({json.dumps(clave)})));
+console.log(JSON.stringify({fn}({args})));
 """
         r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
                            timeout=30)
@@ -75,21 +88,36 @@ console.log(JSON.stringify({fn}({json.dumps(clave)})));
             raise AssertionError(r.stderr[:600])
         return json.loads(r.stdout.strip().splitlines()[-1])
 
-    def test_los_cinco_tipos_tienen_el_suyo(self):
-        for t in TIPOS:
+    def test_los_seis_tipos_tienen_el_suyo(self):
+        for t, tab in TIPOS.items():
             with self.subTest(tipo=t):
-                h = self._render("iconoDeTrabajo", t)
+                h = self._render("iconoDeTrabajo", t, tab)
                 self.assertIn("<svg", h)
                 self.assertIn("icono-chip", h)
 
-    def test_los_cinco_estados_tambien(self):
+    def test_el_tono_lo_da_la_PESTANA_no_el_tipo(self):
+        """Decidido con el usuario: el glifo dice qué se hace y el color de
+        dónde viene. Antes no había regla —rip azul y serie morada siendo las
+        dos de Tab 1— y mirando la columna no se sabía el origen."""
+        for t, tab in TIPOS.items():
+            with self.subTest(tipo=t):
+                self.assertIn(f"icono-{TONO_DE_TAB[tab]}",
+                              self._render("iconoDeTrabajo", t, tab))
+
+    def test_los_seis_estados_tambien(self):
         for e in ESTADOS:
             with self.subTest(estado=e):
                 self.assertIn("<svg", self._render("iconoDeEstado", e))
 
     def test_un_tipo_desconocido_no_pinta_basura(self):
         """Mejor un hueco que un cuadro vacío o un `undefined` en el HTML."""
-        self.assertEqual(self._render("iconoDeTrabajo", "tipo_que_no_existe"), "")
+        self.assertEqual(
+            self._render("iconoDeTrabajo", "tipo_que_no_existe", "rip"), "")
+
+    def test_una_pestana_desconocida_no_deja_el_icono_sin_color(self):
+        """Una entrada de una cola persistida de antes puede no traer `tab`;
+        el icono tiene que salir igual, en gris."""
+        self.assertIn("icono-gris", self._render("iconoDeTrabajo", "rip", ""))
 
     def test_solo_el_de_en_curso_se_anima(self):
         """El movimiento tiene que significar algo. Si se animaran todos, no
@@ -101,7 +129,7 @@ console.log(JSON.stringify({fn}({json.dumps(clave)})));
     def test_el_tamano_va_en_el_chip_no_en_el_svg(self):
         """Así el mismo icono sirve en la columna y en la cabecera del modal
         sin tocar el marcado."""
-        h = self._render("iconoDeTrabajo", "rip")
+        h = self._render("iconoDeTrabajo", "rip", "rip")
         self.assertNotIn("width=", h.split("</span>")[0].split("<svg")[0])
         self.assertIn('viewBox="0 0 24 24"', h)
 

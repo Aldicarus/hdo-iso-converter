@@ -50,9 +50,13 @@ def _bloque(marca: str) -> str:
 
 def _iconos() -> str:
     """Lo que hace falta para que el marcado de los iconos se pueda evaluar."""
-    return "\n".join([_bloque("const _ICONOS_TRABAJO = {"),
+    # `_svg` va PRIMERO: `_GLIFOS_TRABAJO` la llama al construirse.
+    i = JS.index("const _TONO_POR_TAB = ")
+    return "\n".join([_fn("_svg"),
+                      JS[i:JS.index("\n", i) + 1],
+                      _bloque("const _GLIFOS_TRABAJO = {"),
                       _bloque("const _ICONOS_ESTADO = {"),
-                      _fn("_svg"), _fn("_chipIcono"),
+                      _fn("_chipIcono"),
                       _fn("iconoDeTrabajo"), _fn("iconoDeEstado")])
 
 
@@ -850,12 +854,15 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarActivoHTML')}
 {_fn('_workbarListaHTML')}
 {_fn('_instalarReordenDeCola')}
-let _workbarRecienteSel = {json.dumps(seleccion)};
+let _workbarSeleccion = {json.dumps(seleccion)};
 {_fn('normalizeSearch')}
 let _workbarFiltroTab = 'all';
 {_fn('_workbarBusqueda')}
 {_fn('_workbarFiltrando')}
 {_fn('_workbarPasaFiltro')}
+{_fn('_workbarMini')}
+{_fn('_workbarDescripcion')}
+{_fn('_workbarTarjeta')}
 {_fn('_workbarRender')}
 let workbarEstado = {{ activo: null, cola: [], interactivo: [],
                        recientes: {json.dumps(recientes)} }};
@@ -866,7 +873,7 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
 
     def test_sin_seleccionar_no_hay_botones(self):
         h = self._pintar()["html"]
-        self.assertIn("seleccionarReciente(", h)
+        self.assertIn("seleccionarTrabajo('rec:", h)
         self.assertNotIn("abrirDetalleDeReciente(", h)
 
     def test_el_que_espera_decision_se_distingue_y_invita(self):
@@ -877,15 +884,15 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
                                 tipo="preflight",
                                 que="Validación previa · El padrino.mkv")]
         h = self._pintar_con(guion_recientes,
-                             "dune_1|2026-09-09T10:00:00+00:00")["html"]
-        self.assertIn("workbar-item reciente", h)
-        self.assertIn("espera", h)
+                             "rec:dune_1|2026-09-09T10:00:00+00:00")["html"]
+        self.assertIn("wb-card", h)
+        self.assertIn("wb-espera", h)
         self.assertIn("Requiere decisión", h)
         self.assertIn(">Decidir</button>", h)
         self.assertNotIn(">Detalle</button>", h)
 
     def test_uno_normal_sigue_diciendo_Detalle(self):
-        h = self._pintar("dune_1|2026-09-09T10:00:00+00:00")["html"]
+        h = self._pintar("rec:dune_1|2026-09-09T10:00:00+00:00")["html"]
         self.assertIn(">Detalle</button>", h)
         self.assertNotIn("Requiere decisión", h)
 
@@ -897,15 +904,15 @@ console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
         self.assertIn("terminal: r.estado !== 'esperando'", cuerpo)
 
     def test_al_seleccionar_salen_los_DOS(self):
-        h = self._pintar("dune_1|2026-09-09T10:00:00+00:00")["html"]
-        self.assertIn("abrirDetalleDeReciente('dune_1|2026-09-09T10:00:00+00:00')", h)
-        self.assertIn("borrarReciente('dune_1|2026-09-09T10:00:00+00:00')", h)
+        h = self._pintar("rec:dune_1|2026-09-09T10:00:00+00:00")["html"]
+        self.assertIn("abrirDetalleDeReciente('rec:dune_1|2026-09-09T10:00:00+00:00')", h)
+        self.assertIn("borrarReciente('rec:dune_1|2026-09-09T10:00:00+00:00')", h)
 
     def test_solo_se_selecciona_UNA_con_el_mismo_id(self):
         """Una sesión re-ejecutada deja varias líneas con el mismo id: la
         referencia lleva el `inicio` para poder distinguirlas."""
-        h = self._pintar("dune_1|2026-09-09T09:00:00+00:00")["html"]
-        self.assertEqual(h.count("workbar-item reciente selected"), 1)
+        h = self._pintar("rec:dune_1|2026-09-09T09:00:00+00:00")["html"]
+        self.assertEqual(h.count("wb-card wb-tab-rip selected"), 1)
         self.assertEqual(h.count("abrirDetalleDeReciente("), 1)
         self.assertIn("09:00:00", h[h.index("selected"):])
 

@@ -128,7 +128,79 @@ function _workbarTiempo(segundos) {
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-/** La tarjeta del trabajo que corre ahora. */
+// ── La tarjeta ──────────────────────────────────────────────────────────────
+//
+// UNA para las cuatro secciones. Antes había tres modelos de interacción en la
+// misma columna —el activo con sus botones siempre puestos, «En paralelo»
+// igual, y solo los recientes seleccionables, y encima con las acciones en un
+// bloque HERMANO que empujaba la lista— así que nada se parecía a nada.
+//
+// El modelo es el de la `session-card` de los tres sidebars, que es el que
+// funciona: se selecciona con un clic y las acciones aparecen DENTRO, tras un
+// separador. La única excepción es el trabajo en curso, que sale desplegado
+// mientras no se seleccione otra cosa: es lo que se mira, y esconder su
+// «Cancelar» detrás de un clic sería peor que la uniformidad que gana.
+
+/** La miniatura: la carátula si la hay, y si no el icono del tipo.
+ *
+ *  Los dos se pintan siempre, uno encima del otro: si la imagen no carga —una
+ *  URL de TMDb caducada, el NAS sin salida a internet— el `onerror` la quita y
+ *  debajo sigue estando el icono. Un hueco gris no diría de qué es la fila.
+ */
+function _workbarMini(t) {
+  return `<div class="wb-mini">`
+    + iconoDeTrabajo(t.tipo, t.tab, 'icono-chip-sm')
+    + (t.poster ? `<img src="${escHtml(t.poster)}" alt=""
+        onerror="this.remove()">` : '')
+    + `</div>`;
+}
+
+/** Qué se le está haciendo, sin repetir el nombre de la película.
+ *
+ *  `que` es la línea entera («Conversión a MKV · Drive (2011)») y `titulo` la
+ *  película. La tarjeta las enseña en dos renglones, así que aquí se quita la
+ *  cola para no decir lo mismo dos veces.
+ */
+function _workbarDescripcion(t) {
+  const que = t.que || '';
+  const cola = ` · ${t.titulo || ''}`;
+  return (t.titulo && que.endsWith(cola)) ? que.slice(0, -cola.length) : que;
+}
+
+/** El armazón común. `o` decide qué secciones del cuerpo salen. */
+function _workbarTarjeta(t, o) {
+  const sel = _workbarSeleccion === o.ref
+              || (o.pordefecto && _workbarSeleccion === null);
+  // Sin `titulo` —una entrada de una cola persistida de antes, o un trabajo
+  // sin película que reconocer— el renglón de arriba ya lleva la línea
+  // entera, así que el de abajo diría exactamente lo mismo.
+  const titulo = t.titulo || t.que || '';
+  const sub = (o.sub === titulo) ? '' : (o.sub || '');
+  const acciones = (sel && o.acciones)
+    ? `<div class="wb-card-acciones">${o.acciones}</div>` : '';
+  return `
+    <div class="wb-card wb-tab-${escHtml(t.tab || '')}${sel ? ' selected' : ''}`
+      + `${o.clase ? ' ' + o.clase : ''}" data-ref="${escHtml(o.ref)}"
+         data-clave="${escHtml(t.id || '')}"
+         onclick="seleccionarTrabajo('${escHtml(o.ref)}')">
+      <div class="wb-card-fila">
+        ${_workbarMini(t)}
+        <div class="wb-card-txt">
+          <div class="wb-card-titulo">${escHtml(titulo)}</div>
+          ${sub ? `<div class="wb-card-sub">${escHtml(sub)}</div>` : ''}
+          ${o.paso ? `<div class="wb-card-paso">${escHtml(o.paso)}</div>` : ''}
+        </div>
+        <div class="wb-card-der">
+          ${o.estado || ''}
+          ${o.meta ? `<span class="wb-card-meta">${o.meta}</span>` : ''}
+        </div>
+      </div>
+      ${o.cuerpo || ''}
+      ${acciones}
+    </div>`;
+}
+
+/** La tarjeta del trabajo que corre ahora: la única con barra y ETA. */
 function _workbarActivoHTML(a) {
   // `pct_medido` distingue una barra real de un hueco. Sin evidencia se pinta
   // una barra indeterminada en vez de un número: es la regla del proyecto —
@@ -144,40 +216,36 @@ function _workbarActivoHTML(a) {
         + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
     : _relojHTML(a.segundos, 'Lleva ');
   const fase = a.fases_total
-    ? `${a.fase_label || a.fase} · ${a.fase_n || '–'}/${a.fases_total}`
-    : (a.fase_label || a.fase || '');
-  return `
-    <div class="workbar-seccion">
-      <div class="workbar-seccion-titulo">En curso</div>
-      <div class="workbar-activo">
-        <div class="workbar-activo-cab">
-          ${iconoDeTrabajo(a.tipo)}
-          <div style="flex:1; min-width:0">
-            <div class="workbar-activo-que">${escHtml(a.que || '')}</div>
-            <div class="workbar-activo-fase">${escHtml(fase)}</div>
-            ${a.paso ? `<div class="workbar-activo-paso">${escHtml(a.paso)}</div>` : ''}
-          </div>
-          ${iconoDeEstado('corriendo', 'icono-chip-sm')}
-        </div>
-        ${barra}
+    ? `${a.fase_label || a.fase} · ${a.fase_n || '–'} de ${a.fases_total}`
+    : (a.fase_label || a.fase || _workbarDescripcion(a));
+  return _workbarTarjeta(a, {
+    ref: 'act', clase: 'wb-activa', pordefecto: true,
+    sub: fase, paso: a.paso,
+    estado: iconoDeEstado('corriendo', 'icono-chip-sm'),
+    cuerpo: barra + `
         <div class="workbar-tiempos">
           <span>${escHtml(izq)}</span>
           <span>${der}</span>
-        </div>
-        <div class="workbar-acciones">
-          <button class="btn btn-ghost btn-xs" onclick="abrirDetalleDeTrabajo()"
-            data-tooltip="Ver el detalle y el registro de la ejecución">Detalle</button>
-          ${a.cancelable ? `<button class="btn btn-ghost btn-xs" onclick="cancelarTrabajoActivo()"
-            data-tooltip="Detener este trabajo">Cancelar</button>` : ''}
-        </div>
-      </div>
-    </div>`;
+        </div>`,
+    acciones: `
+      <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();abrirDetalleDeTrabajo()"
+        data-tooltip="Ver el detalle y el registro de la ejecución">Detalle</button>
+      ${a.cancelable ? `<button class="btn btn-ghost btn-xs"
+        onclick="event.stopPropagation();cancelarTrabajoActivo()"
+        data-tooltip="Detener este trabajo">Cancelar</button>` : ''}`,
+  });
 }
 
-// Qué entrada del historial está seleccionada. La referencia es `id|inicio`,
-// no el id: una sesión re-ejecutada deja varias líneas con el mismo y `inicio`
-// es lo único que las distingue — la misma clave que usa el borrado.
-let _workbarRecienteSel = null;
+// Qué tarjeta está seleccionada, de cualquiera de las cuatro secciones. La
+// referencia lleva el prefijo de la sección porque un trabajo puede estar a la
+// vez en el historial y en la cola —una sesión re-ejecutada— y son dos
+// tarjetas distintas. La de un reciente añade `inicio`: la misma clave con la
+// que se borra, porque una sesión re-ejecutada deja varias líneas con el mismo
+// id y es lo único que las distingue.
+//
+// `null` significa «ninguna», y entonces sale desplegada la del trabajo en
+// curso: es lo que se está mirando.
+let _workbarSeleccion = null;
 
 // Cómo acabó, dicho para el usuario.
 const _CMV40_FIN = {
@@ -186,7 +254,7 @@ const _CMV40_FIN = {
 };
 
 function _workbarRefReciente(r) {
-  return `${r.id || ''}|${r.inicio || ''}`;
+  return `rec:${r.id || ''}|${r.inicio || ''}`;
 }
 
 function _workbarRecientePor(ref) {
@@ -194,9 +262,9 @@ function _workbarRecientePor(ref) {
     .find(r => _workbarRefReciente(r) === ref) || null;
 }
 
-/** Despliega o repliega las acciones de un trabajo terminado. */
-function seleccionarReciente(ref) {
-  _workbarRecienteSel = (_workbarRecienteSel === ref) ? null : ref;
+/** Despliega o repliega las acciones de una tarjeta. */
+function seleccionarTrabajo(ref) {
+  _workbarSeleccion = (_workbarSeleccion === ref) ? null : ref;
   _workbarRender(workbarEstado);
 }
 
@@ -243,7 +311,7 @@ function borrarReciente(ref) {
               + `&inicio=${encodeURIComponent(r.inicio || '')}`;
       const ok = await apiFetch(`/api/historial?${q}`, { method: 'DELETE' });
       if (ok) showToast('Quitado del historial', 'info');
-      _workbarRecienteSel = null;
+      _workbarSeleccion = null;
       refrescarWorkbar();
     },
     'Sí, quitarla');
@@ -291,31 +359,26 @@ function _workbarRender(st) {
                                        .filter(_workbarPasaFiltro)
                                        .slice(0, 5), r => {
     const ref = _workbarRefReciente(r);
-    const sel = _workbarRecienteSel === ref;
     const espera = r.estado === 'esperando';
-    return `
-        <div class="workbar-item reciente${sel ? ' selected' : ''}${espera ? ' espera' : ''}"
-             onclick="seleccionarReciente('${escHtml(ref)}')">
-          ${iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
-                            esperando: 'esperando' }[r.estado] || 'error',
-                          'icono-chip-sm')}
-          <span class="workbar-item-que">${escHtml(r.que || '')}</span>
-          <span class="workbar-item-meta">${espera
-            ? '<span class="workbar-espera">Requiere decisión</span>'
-            : escHtml(_workbarTiempo(r.segundos))}</span>
-        </div>
-        ${sel ? `
-          <div class="workbar-acciones workbar-acciones-item">
-            <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
-              onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
-              data-tooltip="${espera
-                ? 'Abrir para decidir qué hacer con este proyecto'
-                : 'Ver el detalle y el registro de esta ejecución'}">${
-              espera ? 'Decidir' : 'Detalle'}</button>
-            <button class="btn btn-ghost btn-xs"
-              onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
-              data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>
-          </div>` : ''}`;
+    return _workbarTarjeta(r, {
+      ref, clase: espera ? 'wb-espera' : '',
+      sub: _workbarDescripcion(r),
+      estado: iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
+                              esperando: 'esperando' }[r.estado] || 'error',
+                            'icono-chip-sm'),
+      meta: espera ? '<span class="workbar-espera">Requiere decisión</span>'
+                   : escHtml(_workbarTiempo(r.segundos)),
+      acciones: `
+        <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
+          onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
+          data-tooltip="${espera
+            ? 'Abrir para decidir qué hacer con este proyecto'
+            : 'Ver el detalle y el registro de esta ejecución'}">${
+          espera ? 'Decidir' : 'Detalle'}</button>
+        <button class="btn btn-ghost btn-xs"
+          onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
+          data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>`,
+    });
   });
 
   const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
@@ -329,33 +392,32 @@ function _workbarRender(st) {
 
   body.innerHTML =
     (activo ? _workbarActivoHTML(activo) : '')
-    + _workbarListaHTML('Esperando turno', cola, j => `
-        <div class="workbar-item" data-clave="${escHtml(j.id)}">
-          ${iconoDeTrabajo(j.tipo, 'icono-chip-sm')}
-          <span class="workbar-item-que">${escHtml(j.que || '')}</span>
-          <span class="workbar-item-pos">${j.posicion}</span>
-          <button class="workbar-item-quitar"
-            onclick="quitarDeLaCola(this.closest('[data-clave]').dataset.clave)"
-            data-tooltip="Quitarlo de la cola">✕</button>
-        </div>`, 'workbar-seccion-cola')
+    + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
+        ref: `cola:${j.id}`,
+        sub: _workbarDescripcion(j),
+        estado: iconoDeEstado('en_cola', 'icono-chip-sm'),
+        meta: `<span class="workbar-item-pos">${j.posicion}</span>`,
+        acciones: `
+          <button class="btn btn-ghost btn-xs"
+            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')"
+            data-tooltip="Sacarlo de la cola. El proyecto no se toca.">Quitar de la cola</button>`,
+      }), 'workbar-seccion-cola')
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
-    + _workbarListaHTML('En paralelo', paralelo, t => `
-        <div class="workbar-item" data-clave="${escHtml(t.id)}">
-          ${iconoDeEstado('corriendo', 'icono-chip-sm')}
-          <span class="workbar-item-que">${escHtml(t.que || '')}</span>
-          <span class="workbar-item-meta">${_relojHTML(t.segundos)}</span>
-        </div>
-        ${(t.detalle || t.cancelable) ? `
-          <div class="workbar-acciones workbar-acciones-item">
-            ${t.detalle ? `<button class="btn btn-ghost btn-xs"
-              onclick="abrirDetalleDeTrabajo('${escHtml(t.id)}')"
-              data-tooltip="Ver el detalle de la validación">Detalle</button>` : ''}
-            ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
-              onclick="cancelarTrabajoInteractivo('${escHtml(t.id)}')"
-              data-tooltip="Detener este trabajo">Cancelar</button>` : ''}
-          </div>` : ''}`)
+    + _workbarListaHTML('En paralelo', paralelo, t => _workbarTarjeta(t, {
+        ref: `par:${t.id}`,
+        sub: _workbarDescripcion(t),
+        estado: iconoDeEstado('corriendo', 'icono-chip-sm'),
+        meta: _relojHTML(t.segundos),
+        acciones: (t.detalle || t.cancelable) ? `
+          ${t.detalle ? `<button class="btn btn-ghost btn-xs"
+            onclick="event.stopPropagation();abrirDetalleDeTrabajo('${escHtml(t.id)}')"
+            data-tooltip="Ver el detalle de este trabajo">Detalle</button>` : ''}
+          ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
+            onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
+            data-tooltip="Detener este trabajo">Cancelar</button>` : ''}` : '',
+      }))
     + recientes;
   _instalarReordenDeCola();
 }
@@ -782,7 +844,7 @@ function _trabajoModalPinta(a, vista) {
       : a.terminal
       ? iconoDeEstado({ done: 'hecho', cancelled: 'cancelado' }[
           (a.historial || {}).estado] || 'error', 'icono-chip-lg')
-      : iconoDeTrabajo(a.tipo, 'icono-chip-lg');
+      : iconoDeTrabajo(a.tipo, a.tab, 'icono-chip-lg');
   }
   // La cabecera dice QUÉ está pasando. El nombre del fichero no va aquí: lo
   // enseña la cartela de la columna, y repetirlo dejaba tres líneas con el
@@ -1044,29 +1106,39 @@ function _svg(cuerpo, extra = '') {
     aria-hidden="true"${extra}>${cuerpo}</svg>`;
 }
 
-/** Por TIPO de trabajo: dice qué se está haciendo. */
-const _ICONOS_TRABAJO = {
+/** El TONO lo da la PESTAÑA, no el tipo.
+ *
+ *  Antes cada tipo tenía el suyo y no seguía ninguna regla: el rip azul y la
+ *  serie morada siendo las dos de Tab 1, el análisis y la copia turquesas por
+ *  casualidad. Mirando la columna no se sabía de dónde venía cada cosa.
+ *
+ *  No hay tabla que mantener: todo trabajo lleva ya su `tab` en el contrato,
+ *  en la cola y en el historial, así que el color sale de ahí y no se puede
+ *  desincronizar de nada.
+ */
+const _TONO_POR_TAB = { rip: 'azul', mkv: 'turquesa', cmv40: 'naranja' };
+
+/** Por TIPO de trabajo: el glifo dice QUÉ se está haciendo. */
+const _GLIFOS_TRABAJO = {
   // Disco: dos círculos concéntricos, como el `album` de Material.
-  rip: ['azul', _svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>')],
+  rip: _svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>'),
   // Pantalla con antena: una serie de televisión.
-  crear_serie: ['morado', _svg('<rect x="3" y="7.5" width="18" height="12.5" rx="2"/>'
-                             + '<path d="m8 3.5 4 4 4-4"/>')],
+  crear_serie: _svg('<rect x="3" y="7.5" width="18" height="12.5" rx="2"/>'
+                  + '<path d="m8 3.5 4 4 4-4"/>'),
   // Lupa sobre una onda: analizar la señal, no "buscar un fichero".
-  analisis_extendido: ['turquesa', _svg('<circle cx="10.5" cy="10.5" r="6.5"/>'
-                                      + '<path d="m20 20-4.6-4.6"/>'
-                                      + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>')],
+  analisis_extendido: _svg('<circle cx="10.5" cy="10.5" r="6.5"/>'
+                         + '<path d="m20 20-4.6-4.6"/>'
+                         + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>'),
   // Flecha entrando en una bandeja: copiar hacia Output.
-  copia_biblioteca: ['turquesa', _svg('<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
-                                    + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>')],
+  copia_biblioteca: _svg('<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
+                       + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>'),
   // Escudo con visto: la validación previa, que decide SI va a haber trabajo.
-  // Naranja como la fase CMv4.0 porque es de la misma pestaña: el color lo da
-  // la pestaña y el glifo el tipo.
-  preflight: ['naranja', _svg('<path d="M12 3.2 5.5 6v6c0 4 2.8 7 6.5 8.8'
-                            + ' 3.7-1.8 6.5-4.8 6.5-8.8V6z"/>'
-                            + '<path d="m9.2 12.1 2 2 3.6-4"/>')],
+  preflight: _svg('<path d="M12 3.2 5.5 6v6c0 4 2.8 7 6.5 8.8'
+                + ' 3.7-1.8 6.5-4.8 6.5-8.8V6z"/>'
+                + '<path d="m9.2 12.1 2 2 3.6-4"/>'),
   // Destellos: el upgrade de metadata, sin tocar la imagen.
-  fase_cmv40: ['naranja', _svg('<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
-                             + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>')],
+  fase_cmv40: _svg('<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
+                 + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>'),
 };
 
 /** Por ESTADO: dice en qué punto está. */
@@ -1095,8 +1167,10 @@ function _chipIcono(par, clase = '') {
   return `<span class="icono-chip icono-${tono} ${clase}">${svg}</span>`;
 }
 
-function iconoDeTrabajo(tipo, clase = '') {
-  return _chipIcono(_ICONOS_TRABAJO[tipo], clase);
+function iconoDeTrabajo(tipo, tab = '', clase = '') {
+  const glifo = _GLIFOS_TRABAJO[tipo];
+  if (!glifo) return '';
+  return _chipIcono([_TONO_POR_TAB[tab] || 'gris', glifo], clase);
 }
 
 function iconoDeEstado(estado, clase = '') {
