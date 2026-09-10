@@ -240,6 +240,55 @@ class TestQuitarUnaEntrada(HistorialCase):
         self.assertEqual(list(historial.ruta().parent.glob("*.tmp")), [])
 
 
+class TestCerrarUnaEsperaDeDecision(HistorialCase):
+    """Un pre-flight que acaba pidiendo una decisión deja su línea en
+    `esperando`. En cuanto el usuario responde tiene que dejar de pedir: si
+    no, la columna sigue enseñando «Requiere decisión» sobre algo ya
+    resuelto."""
+
+    def _pendiente(self, id="p1"):
+        self.anotar(id=id, tipo=historial.TIPO_PREFLIGHT,
+                    que="Validación previa · El padrino.mkv",
+                    estado=historial.ESTADO_ESPERANDO)
+
+    def test_mantener_la_cierra_como_hecha(self):
+        self._pendiente()
+        self.assertTrue(historial.resolver_espera(
+            "p1", nuevo_estado=historial.ESTADO_HECHO,
+            nuevo_que="Mantener el MKV actual · El padrino.mkv"))
+        t = historial.leer()[0]
+        self.assertEqual(t["estado"], historial.ESTADO_HECHO)
+        self.assertIn("Mantener el MKV", t["que"])
+
+    def test_inyectar_la_quita(self):
+        """El trabajo continúa: las fases que vengan escribirán las suyas, y
+        dejarla pediría una decisión ya tomada."""
+        self._pendiente()
+        self.assertTrue(historial.resolver_espera("p1", nuevo_estado=None))
+        self.assertEqual(historial.leer(), [])
+
+    def test_no_toca_las_de_otros_proyectos(self):
+        self._pendiente("p1")
+        self._pendiente("p2")
+        historial.resolver_espera("p1", nuevo_estado=None)
+        self.assertEqual([t["id"] for t in historial.leer()], ["p2"])
+
+    def test_ni_las_que_ya_estaban_cerradas(self):
+        """Solo se resuelve lo que está esperando; una línea vieja del mismo
+        proyecto no se toca."""
+        self.anotar(id="p1", estado=historial.ESTADO_CANCELADO, que="antes")
+        self._pendiente("p1")
+        historial.resolver_espera("p1", nuevo_estado=historial.ESTADO_HECHO)
+        estados = sorted(t["estado"] for t in historial.leer())
+        self.assertEqual(estados, [historial.ESTADO_CANCELADO,
+                                   historial.ESTADO_HECHO])
+
+    def test_sin_nada_pendiente_no_hace_nada(self):
+        self.anotar(id="p1", estado=historial.ESTADO_HECHO)
+        self.assertFalse(historial.resolver_espera("p1", nuevo_estado=None))
+        self.assertEqual(len(historial.leer()), 1)
+
+
 class TestTab1LoAlimenta(HistorialCase):
     """Ejecutando `_append_execution_record`, no leyendo su fuente."""
 

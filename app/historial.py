@@ -146,29 +146,27 @@ def leer(limite: int = 200) -> list[dict]:
     return out
 
 
-def borrar(id: str, inicio: str) -> bool:
-    """Quita una línea del historial. Devuelve si había algo que quitar.
+def _reescribir(transformar) -> bool:
+    """Reescribe el historial aplicando `transformar` a cada registro.
 
-    **La clave es `(id, inicio)`, no el id.** Una sesión re-ejecutada deja
-    varias líneas con el mismo id, y borrar «la del rip de Dune» tendría que
-    decidir cuál — así que se identifica por cuándo empezó, que es lo único
-    que las distingue.
+    `transformar(registro)` devuelve el registro (cambiado o no) o `None`
+    para quitarlo. Devuelve si algo cambió.
 
-    El fichero es append-only, así que quitar una línea obliga a reescribirlo.
-    Se hace en el sitio en que es aceptable: a petición del usuario, sobre un
-    fichero con tope de 5 MB, y con `.tmp` + `os.replace` para que un fallo a
-    medias no se lleve el historial entero. Se recorren las DOS generaciones
-    porque `leer` también lo hace: si no, borrar una entrada justo después de
-    rotar no tendría efecto y la línea seguiría apareciendo.
+    El fichero es append-only, así que cualquier cambio obliga a reescribirlo.
+    Se hace donde es aceptable: a petición del usuario, sobre un fichero con
+    tope de 5 MB y con `.tmp` + `os.replace`, para que un fallo a medias no se
+    lleve el historial entero. Se recorren las DOS generaciones porque `leer`
+    también lo hace: si no, tocar una entrada justo después de rotar no tendría
+    efecto y la línea seguiría apareciendo.
     """
-    borrado = False
+    cambiado = False
     f = ruta()
     for candidato in (f, f.with_suffix(f.suffix + ".1")):
         try:
             texto = candidato.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        conservadas, quita = [], False
+        salida, toca = [], False
         for linea in texto.splitlines():
             cruda = linea.strip()
             if not cruda:
@@ -177,23 +175,67 @@ def borrar(id: str, inicio: str) -> bool:
                 registro = json.loads(cruda)
             except ValueError:
                 # Una línea ilegible se conserva: no es de nadie y tirarla
-                # aquí sería aprovechar un borrado para perder datos.
-                conservadas.append(linea)
+                # aquí sería aprovechar un cambio para perder datos.
+                salida.append(linea)
                 continue
-            if (isinstance(registro, dict) and registro.get("id") == id
-                    and registro.get("inicio") == inicio):
-                quita = True
+            nuevo = transformar(registro) if isinstance(registro, dict) else registro
+            if nuevo is None:
+                toca = True
                 continue
-            conservadas.append(linea)
-        if not quita:
+            if nuevo is not registro or nuevo != registro:
+                toca = True
+            salida.append(json.dumps(nuevo, ensure_ascii=False))
+        if not toca:
             continue
         tmp = candidato.with_suffix(candidato.suffix + ".tmp")
         try:
-            tmp.write_text("".join(l + "\n" for l in conservadas),
-                           encoding="utf-8")
+            tmp.write_text("".join(l + "\n" for l in salida), encoding="utf-8")
             os.replace(tmp, candidato)
-            borrado = True
+            cambiado = True
         except OSError as e:
-            logger.warning("[historial] no se pudo borrar %s: %s", id, e)
+            logger.warning("[historial] no se pudo reescribir: %s", e)
             tmp.unlink(missing_ok=True)
-    return borrado
+    return cambiado
+
+
+def resolver_espera(id: str, *, nuevo_estado: str | None,
+                    nuevo_que: str | None = None) -> bool:
+    """Cierra la entrada `esperando` de ese trabajo, si la hay.
+
+    Un pre-flight que acaba pidiendo una decisión deja una línea en
+    `ESTADO_ESPERANDO`. En cuanto el usuario responde, esa línea **deja de
+    pedir**: o pasa a su desenlace real, o desaparece porque el trabajo
+    continúa y lo que venga después escribirá el suyo.
+
+    No hace falta el `inicio` para identificarla: solo puede haber una
+    decisión pendiente por proyecto a la vez.
+
+    `nuevo_estado=None` la quita.
+    """
+    def _t(r):
+        if r.get("id") != id or r.get("estado") != ESTADO_ESPERANDO:
+            return r
+        if nuevo_estado is None:
+            return None
+        r = dict(r, estado=nuevo_estado)
+        if nuevo_que:
+            r["que"] = nuevo_que
+        return r
+    try:
+        return _reescribir(_t)
+    except Exception as e:                      # noqa: BLE001
+        logger.warning("[historial] no se pudo resolver %s: %s", id, e)
+        return False
+
+
+def borrar(id: str, inicio: str) -> bool:
+    """Quita una línea del historial. Devuelve si había algo que quitar.
+
+    **La clave es `(id, inicio)`, no el id.** Una sesión re-ejecutada deja
+    varias líneas con el mismo id, y borrar «la del rip de Dune» tendría que
+    decidir cuál — así que se identifica por cuándo empezó, que es lo único
+    que las distingue.
+    """
+    return _reescribir(
+        lambda r: None if (r.get("id") == id and r.get("inicio") == inicio)
+        else r)

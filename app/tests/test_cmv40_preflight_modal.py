@@ -672,6 +672,50 @@ class TestElPreflightDejaRastro(ApiTestCase):
         self.assertEqual(t[0]["ref_log"], "cmv40:cmv40_pf_hist")
 
 
+class TestResponderCierraLaEspera(ApiTestCase):
+    """Los dos endpoints por los que se responde tienen que cerrar la línea
+    del historial. Sin eso la columna sigue pidiendo una decisión ya tomada."""
+
+    def _pendiente(self, sid):
+        import historial
+        from datetime import datetime, timezone
+        historial.anotar(id=sid, tab=historial.TAB_CMV40,
+                         tipo=historial.TIPO_PREFLIGHT,
+                         que="Validación previa · El padrino.mkv",
+                         inicio=datetime.now(timezone.utc),
+                         estado=historial.ESTADO_ESPERANDO)
+
+    def _sesion_con_recomendacion(self):
+        import storage
+        sid = self.crear_sesion(sid="cmv40_dec", phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.recommended_action = "keep"
+        s.recommended_action_label = "Mantener el MKV actual"
+        s.target_preflight_ok = True
+        s.preflight_decision = "keep_l8_default"
+        s.auto_pipeline = False
+        storage.save_cmv40_session(s)
+        return sid
+
+    def test_mantener_el_MKV_la_deja_como_hecha(self):
+        import historial
+        sid = self._sesion_con_recomendacion()
+        self._pendiente(sid)
+        r = self.client.post(f"/api/cmv40/{sid}/accept-keep")
+        self.assertEqual(r.status_code, 200)
+        t = [x for x in historial.leer(10) if x["id"] == sid][0]
+        self.assertEqual(t["estado"], historial.ESTADO_HECHO)
+        self.assertIn("Mantener el MKV", t["que"])
+
+    def test_inyectar_igualmente_la_quita(self):
+        import historial
+        sid = self._sesion_con_recomendacion()
+        self._pendiente(sid)
+        r = self.client.post(f"/api/cmv40/{sid}/override-recommendation")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([x for x in historial.leer(10) if x["id"] == sid], [])
+
+
 class TestCerrarNoCancela(unittest.TestCase):
     """Mediana 9 s: cerrar el modal no puede tirar la validación, y el
     veredicto sigue quedando en el panel como hasta ahora."""

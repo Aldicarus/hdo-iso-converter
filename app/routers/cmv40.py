@@ -2549,6 +2549,12 @@ async def cmv40_accept_keep(session_id: str):
         "/ LG modernos) hará la conversión al vuelo en runtime con el mismo "
         "resultado visible que tendría inyectar el RPU."
     )
+    # La decisión cierra la espera: esa línea del historial deja de pedir y
+    # pasa a ser lo que ha sido — un trabajo terminado, con lo que se decidió.
+    historial.resolver_espera(
+        session_id, nuevo_estado=historial.ESTADO_HECHO,
+        nuevo_que=f"Mantener el MKV actual · "
+                  f"{session.output_mkv_name or session.id}")
     return session.model_dump()
 
 
@@ -2593,6 +2599,9 @@ async def cmv40_override_recommendation(session_id: str):
         "funcionalmente equivalente a la conversión al vuelo del reproductor, "
         "pero queda archivado como MKV CMv4.0 'completo' para compatibilidad."
     )
+    # La espera desaparece: el trabajo continúa y las fases que vengan
+    # escribirán las suyas. Dejarla pediría una decisión ya tomada.
+    historial.resolver_espera(session_id, nuevo_estado=None)
     # Despierta el orquestador si auto está activo
     if session.auto_pipeline:
         asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
