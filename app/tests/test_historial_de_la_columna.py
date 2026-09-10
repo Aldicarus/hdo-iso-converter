@@ -148,6 +148,31 @@ class TestSeAgrupaPorDia(HistorialCase):
         self.assertIn("sept", h.lower())
 
 
+class TestUnaCancelacionSeLeeComoTal(HistorialCase):
+    """En rojo y con el motivo, igual que un fallo.
+
+    En gris la tarjeta no contaba nada —y el gris es el de «en cola», así que
+    ni siquiera se leía como un final—. De los cinco tipos, solo el análisis
+    extendido daba el porqué, y a costa de marcarse como error.
+    """
+
+    def test_sale_en_rojo(self):
+        h = self._render([_linea_hist("p1", estado="cancelled",
+                                      error="Cancelado por el usuario")])
+        self.assertIn("icono-rojo", h)
+        self.assertNotIn("icono-gris", h)
+
+    def test_y_con_el_motivo_a_la_vista(self):
+        h = self._render([_linea_hist("p1", estado="cancelled",
+                                      error="Cancelado por el usuario")])
+        self.assertIn("Cancelado por el usuario", h)
+
+    def test_lo_que_termina_bien_sigue_en_verde_y_sin_aviso(self):
+        h = self._render([_linea_hist("p1")])
+        self.assertIn("icono-verde", h)
+        self.assertNotIn("wb-card-error", h)
+
+
 class TestSeVeCuandoPasoYPorQueFallo(HistorialCase):
 
     def test_ademas_de_lo_que_duro_dice_cuando_fue(self):

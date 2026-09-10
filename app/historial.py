@@ -62,6 +62,12 @@ ESTADO_ESPERANDO = "esperando"
 # Los estados que cierran un trabajo: una línea con uno de estos ya no se
 # reescribe. `esperando` NO está, justamente porque puede resolverse.
 _CERRADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO)
+
+# Por qué se paró, cuando nadie lo dice. Un trabajo cancelado sin motivo se
+# quedaba con su icono y nada más: el análisis extendido contaba «Cancelado
+# por el usuario» y los otros cuatro tipos, en silencio. Se rellena aquí y no
+# en cada sitio para que un tipo nuevo no pueda olvidarlo.
+MOTIVO_CANCELADO = "Cancelado por el usuario"
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 
@@ -118,6 +124,8 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
     """
     try:
         fin = fin or datetime.now(timezone.utc)
+        if estado == ESTADO_CANCELADO and not error:
+            error = MOTIVO_CANCELADO
         registro = {
             "id": id, "tab": tab, "tipo": tipo, "que": que,
             # La película y su miniatura, escritas AQUÍ porque aquí la sesión

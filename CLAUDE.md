@@ -1933,14 +1933,12 @@ Y en `app/phases/cmv40_pipeline.py`:
 
 ## File browser unificado multi-root
 
-Tab 2 ("Abrir MKV") y Tab 3 ("MKV origen del proyecto CMv4.0") usan el mismo browser modal, pero con roots distintos según el caso de uso:
+Tab 2 ("Abrir MKV", y el comparador de luminancia) y Tab 3 ("MKV origen del proyecto CMv4.0", y "Cambiar MKV") usan el mismo browser modal, y **los cuatro enseñan los tres sitios**: 📚 Biblioteca (`/mnt/library`) · 📦 Output (`/mnt/output`) · 📥 Downloaded (`/mnt/isos`).
 
-| Tab | Roots expuestos | Por qué |
-|---|---|---|
-| Tab 2 (Editar MKV) | 📚 Biblioteca (`/mnt/library`) + 📦 Output (`/mnt/output`) | Inspecciona MKVs ya consolidados o el output del propio converter |
-| Tab 3 (CMv4.0) | 📚 Biblioteca (`/mnt/library`) + 📥 Downloaded (`/mnt/isos`) | El MKV origen suele venir directo de la carpeta de descargas (mismo directorio que las ISOs); no tiene sentido procesar nuestro propio output como source CMv4.0 |
+Cada uno expuso su subconjunto, con su motivo escrito: «no tiene sentido procesar nuestro propio output como source CMv4.0» y «un MKV descargado no se edita». Los dos resultaron **falsos en la práctica** —se rehace un upgrade sobre un MKV que salió del converter, y se abre uno descargado para mirarle la radiografía DV+HDR— y lo único que producían era tener que mover ficheros de sitio para que el selector los viera. La lista vive en `ROOTS_MKV` (`browser.js`), una sola.
 
-- Endpoint único `GET /api/library/browse?root={library|output|downloaded}&path=...`. Los 3 roots viven en `LIBRARY_ROOTS` (backend) — qué subset expone cada tab lo decide el frontend en su llamada a `openFileBrowser({ roots: [...] })`.
+- Endpoint único `GET /api/library/browse?root={library|output|downloaded}&path=...`. Los 3 roots viven en `LIBRARY_ROOTS` (backend), que **ya eran estos tres**: quién enseñaba cuál nunca fue una cuestión de permisos.
+- `test_origenes_del_selector.py` **abre los cuatro** en Chrome y lee las pills que pintan. Mirar el `roots` que se le pasa a `openFileBrowser` no bastaría: con menos de dos el selector se oculta entero, así que una lista mal pasada no se nota — sale un browser sin pestañas de sitio.
 - Modal con breadcrumb navegable, búsqueda incremental, root pills cuando hay 2+, selección por click + botón "Seleccionar" o doble-click.
 - z-index 220 para overlay encima de otros modales (wizard CMv4.0 = 200).
 - Validación path-traversal (`_safe_library_path`, `_resolve_mkv_path_safe`) — el frontend manda ruta absoluta, backend valida que cae bajo un root permitido.

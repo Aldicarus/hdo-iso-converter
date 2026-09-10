@@ -40,6 +40,25 @@ const _FB_ROOT_LABELS = {
   downloaded: 'Downloaded',
 };
 
+/** Los tres sitios donde puede haber un MKV, y los cuatro selectores enseñan
+ *  los tres.
+ *
+ *  Cada uno exponía su subconjunto por un motivo razonado —«no tiene sentido
+ *  procesar nuestro propio output como origen de un CMv4.0», «un MKV recién
+ *  descargado no se edita»— y en la práctica los dos eran falsos: se rehace un
+ *  upgrade sobre un MKV que salió del converter, y se abre uno descargado para
+ *  mirarle la radiografía. Lo que producían era tener que mover ficheros de
+ *  sitio para que el selector los viera.
+ *
+ *  El backend valida contra `LIBRARY_ROOTS`, que ya son estos tres: quién
+ *  enseña cuál nunca fue una cuestión de permisos.
+ */
+const ROOTS_MKV = [
+  { key: 'library',    label: 'Biblioteca', icon: '📚' },
+  { key: 'output',     label: 'Output',     icon: '📦' },
+  { key: 'downloaded', label: 'Downloaded', icon: '📥' },
+];
+
 /** Abre el modal del file browser.
  *  opts: { title, subtitle, roots, onSelect }
  *    - roots: array de {key, label, icon}. Default = [Biblioteca].

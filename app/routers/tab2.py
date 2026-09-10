@@ -655,6 +655,22 @@ def _mkv_quality_state_finalize_if(target_audit_id: str, error_msg: str, step: s
     return True
 
 
+def _mkv_quality_finalizar_o_cancelar(audit_id: str, msg: str) -> None:
+    """Cierra el análisis distinguiendo un fallo de una cancelación.
+
+    Lo que llega aquí tras un cancel puede ser cualquier cosa: el
+    `RuntimeError` cooperativo, o el fallo del subproceso al que acabamos de
+    mandar un SIGTERM («ffmpeg terminó con rc=-15»). Quien lo sabe es el
+    registro de cancelaciones, no el texto del error, así que se pregunta ahí
+    — un análisis parado por el usuario no es un análisis roto.
+    """
+    if _mkv_quality_cancel.get("requested_for_id") == audit_id:
+        _mkv_quality_state_finalize_if(audit_id, historial.MOTIVO_CANCELADO,
+                                       step="cancelled")
+        return
+    _mkv_quality_state_finalize_if(audit_id, msg, step="error")
+
+
 def _mkv_quality_check_cancel():
     """Lanza RuntimeError si el usuario canceló ESTE audit. Llamar entre pasos.
 
@@ -771,7 +787,7 @@ async def mkv_quality_audit_cancel(request: Request):
     # Finaliza el state del audit target — protegido por audit_id guard,
     # si el usuario ya relanzó NO pisa el state del audit nuevo.
     finalized = _mkv_quality_state_finalize_if(
-        target_audit_id, "Cancelado por el usuario", step="error",
+        target_audit_id, historial.MOTIVO_CANCELADO, step="cancelled",
     )
     if not finalized:
         _logger.info(
@@ -1170,14 +1186,13 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
             _mkv_quality_state["global_pct"] = 100
         return result
     except RuntimeError as e:
-        msg = str(e)
         # guard: solo pisa state si seguimos siendo el audit actual.
         # finalize_if ya emite "✗ {msg}" al log, no añadimos extra.
-        _mkv_quality_state_finalize_if(my_audit_id, msg, step="error")
+        _mkv_quality_finalizar_o_cancelar(my_audit_id, str(e))
         return None
     except Exception as e:
         _logger.exception("quality-audit falló inesperadamente sobre %s", mkv_full)
-        _mkv_quality_state_finalize_if(my_audit_id, str(e), step="error")
+        _mkv_quality_finalizar_o_cancelar(my_audit_id, str(e))
         return None
     finally:
         # El hueco de trabajo pesado se libera SIEMPRE y por MI clave: aunque

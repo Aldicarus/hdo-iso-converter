@@ -531,6 +531,41 @@ class TestTab2PasaPorLaCola(ApiTestCase):
         tab2._mkv_quality_reset(file_name="Peli.mkv", audit_id=aid)
         self.assertEqual(tab2._mkv_quality_state["audit_id"], aid)
 
+    def test_cancelar_un_analisis_NO_es_un_error(self):
+        """Se marcaba como `error` con el texto «Cancelado por el usuario»:
+        el único de los cinco tipos que daba el motivo, y a costa de mentir
+        sobre cómo terminó. Ahora el estado lo dice y el motivo va aparte,
+        que es lo que la tarjeta pinta en rojo."""
+        from routers import tab2
+        import historial as hist
+        tab2._mkv_quality_reset(file_name="Peli.mkv", audit_id="aud1")
+        self.client.post("/api/mkv/quality-audit/cancel",
+                         json={"audit_id": "aud1"})
+        self.assertEqual(tab2._mkv_quality_state["step"], "cancelled")
+        self.assertEqual(tab2._mkv_quality_state["error"],
+                         hist.MOTIVO_CANCELADO)
+
+    def test_y_lo_que_reviente_DESPUES_del_cancel_tampoco(self):
+        """Al cancelar se le manda un SIGTERM al subproceso, así que lo que
+        el pipeline lanza a continuación puede ser «ffmpeg terminó con
+        rc=-15». Quien sabe que lo paraste es el registro de cancelaciones,
+        no el texto del error."""
+        from routers import tab2
+        import historial as hist
+        tab2._mkv_quality_reset(file_name="Peli.mkv", audit_id="aud1")
+        tab2._mkv_quality_cancel["requested_for_id"] = "aud1"
+        tab2._mkv_quality_finalizar_o_cancelar("aud1", "ffmpeg rc=-15")
+        self.assertEqual(tab2._mkv_quality_state["step"], "cancelled")
+        self.assertEqual(tab2._mkv_quality_state["error"],
+                         hist.MOTIVO_CANCELADO)
+
+    def test_pero_un_fallo_de_verdad_sigue_siendo_un_fallo(self):
+        from routers import tab2
+        tab2._mkv_quality_reset(file_name="Peli.mkv", audit_id="aud1")
+        tab2._mkv_quality_finalizar_o_cancelar("aud1", "extract-rpu falló")
+        self.assertEqual(tab2._mkv_quality_state["step"], "error")
+        self.assertEqual(tab2._mkv_quality_state["error"], "extract-rpu falló")
+
     def test_la_copia_desde_biblioteca_se_encola(self):
         src = self.library_dir / "Desde.mkv"
         src.write_bytes(b"x" * 4096)

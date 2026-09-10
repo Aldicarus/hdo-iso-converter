@@ -222,6 +222,43 @@ class TestLaRevisionDiceQueCambio(HistorialCase):
         self.assertEqual(historial.revision(), antes)
 
 
+class TestUnTrabajoCanceladoDiceQueLoParaste(HistorialCase):
+    """Cancelar es un final abrupto y se cuenta como tal, sea del tipo que sea.
+
+    De los cinco tipos, solo el análisis extendido daba el motivo —y a costa
+    de mentir: se marcaba como `error`—. Los otros cuatro se quedaban con su
+    icono y nada más, así que un rip que paraste y uno que se murió solo se
+    distinguían abriendo el detalle. El estado sigue siendo `cancelled`, que
+    no es lo mismo que fallar; lo que se unifica es que haya un porqué.
+    """
+
+    def test_sin_motivo_se_rellena_el_de_siempre(self):
+        self.anotar(estado=historial.ESTADO_CANCELADO)
+        self.assertEqual(historial.leer()[0]["error"],
+                         historial.MOTIVO_CANCELADO)
+
+    def test_pero_si_lo_trae_manda_el_suyo(self):
+        self.anotar(estado=historial.ESTADO_CANCELADO,
+                    error="Cancelado al quedarse sin espacio")
+        self.assertIn("espacio", historial.leer()[0]["error"])
+
+    def test_y_no_se_le_inventa_uno_a_lo_que_termina_bien(self):
+        self.anotar(estado=historial.ESTADO_HECHO)
+        self.assertIsNone(historial.leer()[0]["error"])
+
+    def test_se_rellena_para_CUALQUIER_tipo(self):
+        """El sitio es `anotar` y no cada llamada justamente para que un tipo
+        nuevo no pueda olvidarse."""
+        tipos = (historial.TIPO_RIP, historial.TIPO_FASE_CMV40,
+                 historial.TIPO_PREFLIGHT, historial.TIPO_ANALISIS_EXTENDIDO,
+                 historial.TIPO_COPIA_BIBLIOTECA)
+        for i, tipo in enumerate(tipos):
+            self.anotar(id=f"t{i}", tipo=tipo,
+                        estado=historial.ESTADO_CANCELADO)
+        self.assertEqual([t["error"] for t in historial.leer()],
+                         [historial.MOTIVO_CANCELADO] * len(tipos))
+
+
 class TestQuitarUnaEntrada(HistorialCase):
     """Un trabajo terminado se puede quitar de la lista.
 
@@ -398,9 +435,12 @@ class TestTab1LoAlimenta(HistorialCase):
         las que uno mira después."""
         s = self._sesion(status="pending")   # cancelar devuelve a pending
         t = self._correr(s)[0]
-        self.assertEqual(t["estado"], "cancelled")
+        self.assertEqual(t["estado"], "cancelled",
+                         "cancelar no es fallar: el estado lo distingue")
         self.assertIn("Peli (2024)", t["que"])
-        self.assertIsNone(t["error"], "cancelar no es un error")
+        # Y lleva el motivo, que es lo que la tarjeta enseña debajo. Sin él,
+        # cuatro de los cinco tipos se quedaban con su icono y nada más.
+        self.assertEqual(t["error"], historial.MOTIVO_CANCELADO)
 
     def test_pero_NO_entra_en_el_historial_del_proyecto(self):
         """Son dos cosas: el del proyecto lista sus ejecuciones, y una

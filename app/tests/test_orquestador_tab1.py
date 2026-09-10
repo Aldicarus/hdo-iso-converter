@@ -346,8 +346,12 @@ class TestUnaConversionCanceladaDejaRastro(OrquestadorCase):
         s = await self._cancelar_a_media_extraccion()
         lineas = [t for t in historial.leer(50) if t["id"] == s.id]
         self.assertTrue(lineas, "la cancelación no dejó línea en el historial")
-        self.assertEqual(lineas[0]["estado"], "cancelled")
-        self.assertIsNone(lineas[0]["error"], "cancelar no es un error")
+        self.assertEqual(lineas[0]["estado"], "cancelled",
+                         "cancelar no es fallar: el estado lo distingue")
+        # Con su motivo: la tarjeta lo pinta en rojo y lo dice, igual que un
+        # fallo. Sin él, un rip que paraste y uno que se murió solo se
+        # distinguían abriendo el detalle.
+        self.assertEqual(lineas[0]["error"], historial.MOTIVO_CANCELADO)
 
     async def test_pero_no_cuenta_como_ejecucion_del_proyecto(self):
         s = await self._cancelar_a_media_extraccion()

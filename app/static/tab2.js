@@ -103,11 +103,8 @@ async function openMkvPickerModal() {
 function _openMkvBrowserNow() {
   openFileBrowser({
     title: 'Abrir MKV para inspeccionar / editar',
-    subtitle: 'Selecciona el MKV en tu biblioteca o en el output del converter',
-    roots: [
-      { key: 'library', label: 'Biblioteca', icon: '📚' },
-      { key: 'output',  label: 'Output',     icon: '📦' },
-    ],
+    subtitle: 'Selecciona el MKV en la biblioteca, en el output del converter o en las descargas',
+    roots: ROOTS_MKV,
     onSelect: async (absPath, name) => _mkvAbrirRuta(absPath, name),
   });
 }
@@ -2945,10 +2942,7 @@ function abrirComparadorLuminancia() {
   openFileBrowser({
     title: 'Comparar el perfil de luminancia con…',
     subtitle: 'Normalmente, el mismo título antes o después del upgrade a CMv4.0',
-    roots: [
-      { key: 'library', label: 'Biblioteca', icon: '📚' },
-      { key: 'output',  label: 'Output',     icon: '📦' },
-    ],
+    roots: ROOTS_MKV,
     onSelect: (absPath) => _cargarComparacionLuminancia(absPath),
   });
 }

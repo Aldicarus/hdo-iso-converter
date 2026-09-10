@@ -537,9 +537,12 @@ function _workbarTarjetaReciente(r) {
   return _workbarTarjeta(r, {
     ref, clase: espera ? 'wb-espera' : '',
     sub: _workbarDescripcion(r),
-    // El motivo del fallo estaba guardado y no se enseñaba en ninguna parte:
-    // había que abrir el detalle para saber por qué había fallado algo.
-    aviso: r.estado === 'error' ? (r.error || '').split('\n')[0] : '',
+    // El motivo estaba guardado y no se enseñaba en ninguna parte: había que
+    // abrir el detalle para saber por qué había fallado algo. Y una
+    // cancelación cuenta el suyo igual que un fallo — es el mismo final
+    // abrupto, y de los cinco tipos solo el análisis extendido lo decía.
+    aviso: (r.estado === 'error' || r.estado === 'cancelled')
+             ? (r.error || '').split('\n')[0] : '',
     estado: iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
                             esperando: 'esperando' }[r.estado] || 'error',
                           'icono-chip-sm'),
@@ -1316,7 +1319,10 @@ const _ICONOS_ESTADO = {
   hecho:   ['verde', _svg('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')],
   error:   ['rojo',  _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v4.6"/>'
                         + '<path d="M12 16.1h.01"/>')],
-  cancelado: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
+  // En rojo, como el error: pararlo a medias es un final abrupto y así se
+  // lee de un vistazo. En gris se confundía con «en cola» y no contaba nada;
+  // el motivo va debajo, igual que el de un fallo.
+  cancelado: ['rojo', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
   // Ni hecho ni fallido: terminó su parte y espera una decisión. En ámbar
   // porque hay algo que hacer, con la interrogación que lo dice sin texto.
   esperando: ['naranja', _svg('<circle cx="12" cy="12" r="8.5"/>'
