@@ -9212,8 +9212,61 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   flex: 1;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Lo que está en marcha manda: se lleva el alto que necesite y solo scrollea
+   si la cola se hace muy larga. */
+#workbar-body {
+  flex: 0 0 auto;
+  max-height: 62%;
   overflow-y: auto;
 }
+/* Y el historial, el resto. Su scroll es SUYO: al vivir en otro contenedor no
+   se repinta con el poll, así que no salta al principio cada 2 s. */
+#workbar-historial {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--sep);
+}
+#workbar-historial:empty { display: none; }
+
+/* La cabecera de cada día. `sticky` para no perder de vista de qué día es lo
+   que se está mirando al bajar. */
+.wb-dia {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 14px 4px;
+  background: var(--cola-surface);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-3);
+}
+.wb-card-error {
+  font-size: 10px;
+  color: var(--red);
+  line-height: 1.3;
+  margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wb-vermas {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 4px 14px 12px;
+  padding: 6px 0;
+  border: 1px dashed var(--sep-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wb-vermas:hover { background: var(--surface-1); color: var(--text-1); }
 .workbar-count {
   font-size: 10px; font-variant-numeric: tabular-nums;
   background: rgba(0,0,0,0.07); color: var(--text-2);
@@ -9344,6 +9397,8 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   font-size: 10px; color: var(--text-3);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* El segundo renglón (cuándo fue) pesa menos que el primero (cuánto duró). */
+.wb-card-meta.tenue { font-size: 9.5px; opacity: .75; }
 /* Las acciones, dentro y tras un separador: el patrón de `.session-card`. */
 .wb-card-acciones {
   display: flex; gap: 6px;

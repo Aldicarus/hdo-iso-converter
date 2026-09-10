@@ -116,7 +116,7 @@ class TestLaColumnaDeTrabajo(unittest.TestCase):
         guion = f"""
 let workbarEstado = {{ activo: null, cola: [], interactivo: [], recientes: [] }};
 const _els = {{}};
-for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
+for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-historial']) {{
   _els[id] = {{ style: {{}}, dataset: {{}}, classList: {{
     _v: new Set(),
     toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
@@ -147,7 +147,16 @@ let _workbarSeleccion = null;
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
+{_fn('_workbarDia')}
+{_fn('_workbarHace')}
+{_fn('_workbarTarjetaReciente')}
+let _workbarHayMasHistorial = false;
+const _WORKBAR_HISTORIAL_PASO = 25;
+{_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
+let _workbarUltimoTrabajo = null;
+let _workbarTopeHistorial = 25;
+globalThis._workbarCargarHistorial = async () => {{}};
 {_fn('refrescarWorkbar')}
 (async () => {{
   globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return RESP; }};
@@ -155,7 +164,7 @@ let _workbarSeleccion = null;
   {extra}
   console.log(JSON.stringify({{
     peticiones: _peticiones,
-    html: _els['workbar-body'].innerHTML || '',
+    html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || ''),
     cuenta: _els['workbar-count'].textContent,
     conTrabajo: _els['workbar-toggle'].classList.has('con-trabajo'),
     estado: workbarEstado,
@@ -167,7 +176,10 @@ let _workbarSeleccion = null;
     def test_un_refresco_es_UNA_peticion(self):
         r = self._correr({"activo": None, "cola": [], "interactivo": [],
                           "recientes": []})
-        self.assertEqual(r["peticiones"], ["/api/trabajos"])
+        # Una sola, y **sin el historial**: ese va aparte y solo cuando algo
+        # deja de estar en marcha. Con él dentro, el poll traía la lista
+        # entera cada 2 s y su scroll saltaba al principio en cada vuelta.
+        self.assertEqual(r["peticiones"], ["/api/trabajos?recientes=0"])
 
     def test_pinta_la_fase_el_porcentaje_y_lo_que_queda(self):
         r = self._correr({"activo": {

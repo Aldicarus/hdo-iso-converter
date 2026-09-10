@@ -207,10 +207,12 @@ function _workbarTarjeta(t, o) {
           <div class="wb-card-titulo">${escHtml(titulo)}</div>
           ${sub ? `<div class="wb-card-sub">${escHtml(sub)}</div>` : ''}
           ${o.paso ? `<div class="wb-card-paso">${escHtml(o.paso)}</div>` : ''}
+          ${o.aviso ? `<div class="wb-card-error">${escHtml(o.aviso)}</div>` : ''}
         </div>
         <div class="wb-card-der">
           ${o.estado || ''}
           ${o.meta ? `<span class="wb-card-meta">${o.meta}</span>` : ''}
+          ${o.meta2 ? `<span class="wb-card-meta tenue">${o.meta2}</span>` : ''}
         </div>
       </div>
       ${o.cuerpo || ''}
@@ -330,7 +332,7 @@ function borrarReciente(ref) {
       const ok = await apiFetch(`/api/historial?${q}`, { method: 'DELETE' });
       if (ok) showToast('Quitado del historial', 'info');
       _workbarSeleccion = null;
-      refrescarWorkbar();
+      _workbarCargarHistorial();
     },
     'Sí, quitarla');
 }
@@ -366,45 +368,12 @@ function _workbarRender(st) {
       : 'Mostrar u ocultar la columna de trabajo';
   }
 
-  // Los últimos trabajos van SIEMPRE, no solo con la casa libre: saber qué
-  // acaba de pasar es la mitad de la pregunta que esta columna responde, y
-  // esconderlo justo cuando hay algo en marcha es esconderlo casi siempre.
-  // Un trabajo terminado se selecciona y despliega sus dos acciones, igual
-  // que las tarjetas de los sidebars de las tres pestañas. Antes solo se
-  // listaba: ni se podía volver a su log ni quitarlo de la lista.
-  const recientes = _workbarListaHTML('Trabajos recientes',
-                                     (st.recientes || [])
-                                       .filter(_workbarPasaFiltro)
-                                       .slice(0, 5), r => {
-    const ref = _workbarRefReciente(r);
-    const espera = r.estado === 'esperando';
-    return _workbarTarjeta(r, {
-      ref, clase: espera ? 'wb-espera' : '',
-      sub: _workbarDescripcion(r),
-      estado: iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
-                              esperando: 'esperando' }[r.estado] || 'error',
-                            'icono-chip-sm'),
-      meta: espera ? '<span class="workbar-espera">Requiere decisión</span>'
-                   : escHtml(_workbarTiempo(r.segundos)),
-      acciones: `
-        <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
-          onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
-          data-tooltip="${espera
-            ? 'Abrir para decidir qué hacer con este proyecto'
-            : 'Ver el detalle y el registro de esta ejecución'}">${
-          espera ? 'Decidir' : 'Detalle'}</button>
-        <button class="btn btn-ghost btn-xs"
-          onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
-          data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>`,
-    });
-  });
-
   const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
   if (!enPantalla) {
     body.innerHTML = `<div class="workbar-vacio">${_workbarFiltrando()
       ? 'Nada en ejecución coincide con el filtro'
-      : 'No hay nada en ejecución'}</div>`
-                     + recientes;
+      : 'No hay nada en ejecución'}</div>`;
+    _workbarRenderHistorial();
     return;
   }
 
@@ -439,8 +408,127 @@ function _workbarRender(st) {
             onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
             data-tooltip="Detener este trabajo">Cancelar</button>` : ''}` : '',
       }))
-    + recientes;
+    ;
   _instalarReordenDeCola();
+  _workbarRenderHistorial();
+}
+
+
+// ── El historial ────────────────────────────────────────────────────────────
+//
+// Vive en su propio contenedor y se carga por su cuenta, no con el poll. Los
+// dos motivos son de comportamiento, no de estética:
+//
+//  · **Su scroll es suyo.** Repintándose cada 2 s con el resto, bajar por él
+//    era imposible: volvía al principio en la vuelta siguiente. Y las
+//    carátulas se volvían a decodificar en cada una.
+//  · **Se puede consultar entero.** Antes eran cinco entradas fijas y el
+//    endpoint solo servía ocho; `GET /api/historial` da hasta mil.
+//
+// Se recarga cuando cambia lo que está en marcha —ahí es cuando aparece una
+// línea nueva— y cuando el usuario pide más.
+
+const _WORKBAR_HISTORIAL_PASO = 25;
+let _workbarTopeHistorial = _WORKBAR_HISTORIAL_PASO;
+let _workbarHayMasHistorial = false;
+
+async function _workbarCargarHistorial() {
+  const r = await apiFetch(`/api/historial?limite=${_workbarTopeHistorial}`,
+                           { silent: true }).catch(() => null);
+  if (!r || !Array.isArray(r.trabajos)) return;   // se conserva lo anterior
+  // Si vino justo el tope pedido, es que puede haber más.
+  _workbarHayMasHistorial = r.trabajos.length >= _workbarTopeHistorial;
+  workbarEstado.recientes = r.trabajos;
+  _workbarRenderHistorial();
+}
+
+function verMasHistorial() {
+  _workbarTopeHistorial += _WORKBAR_HISTORIAL_PASO;
+  _workbarCargarHistorial();
+}
+
+/** «Hoy» · «Ayer» · «8 sep» — de qué día es una línea. */
+function _workbarDia(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d)) return '';
+  const hoy = new Date();
+  const soloDia = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const dias = Math.round((soloDia(hoy) - soloDia(d)) / 86400000);
+  if (dias === 0) return 'Hoy';
+  if (dias === 1) return 'Ayer';
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+}
+
+/** «hace 12 min». Cuándo pasó, que la duración no lo dice. */
+function _workbarHace(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d)) return '';
+  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (s < 90) return 'hace un momento';
+  return `hace ${_workbarTiempo(s)}`;
+}
+
+function _workbarRenderHistorial() {
+  const caja = document.getElementById('workbar-historial');
+  if (!caja) return;
+  const items = (workbarEstado.recientes || []).filter(_workbarPasaFiltro);
+  if (!items.length) {
+    caja.innerHTML = _workbarFiltrando()
+      ? '<div class="workbar-vacio">Nada terminado coincide con el filtro</div>'
+      : '';
+    return;
+  }
+  let html = '<div class="workbar-seccion-titulo" style="padding:8px 14px 0">'
+           + 'Trabajos recientes</div>';
+  let dia = null;
+  for (const r of items) {
+    const d = _workbarDia(r.inicio);
+    if (d !== dia) {
+      dia = d;
+      html += `<div class="wb-dia">${escHtml(d)}</div>`;
+    }
+    html += `<div class="workbar-seccion">${_workbarTarjetaReciente(r)}</div>`;
+  }
+  if (_workbarHayMasHistorial) {
+    html += `<button class="wb-vermas" onclick="verMasHistorial()"
+      data-tooltip="Carga ${_WORKBAR_HISTORIAL_PASO} más">Ver más</button>`;
+  }
+  // Se conserva el sitio por el que iba: al recargar por un trabajo que
+  // acaba de terminar, el usuario puede estar leyendo más abajo.
+  const scroll = caja.scrollTop;
+  caja.innerHTML = html;
+  caja.scrollTop = scroll;
+}
+
+function _workbarTarjetaReciente(r) {
+  const ref = _workbarRefReciente(r);
+  const espera = r.estado === 'esperando';
+  const cuando = _workbarHace(r.fin || r.inicio);
+  return _workbarTarjeta(r, {
+    ref, clase: espera ? 'wb-espera' : '',
+    sub: _workbarDescripcion(r),
+    // El motivo del fallo estaba guardado y no se enseñaba en ninguna parte:
+    // había que abrir el detalle para saber por qué había fallado algo.
+    aviso: r.estado === 'error' ? (r.error || '').split('\n')[0] : '',
+    estado: iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
+                            esperando: 'esperando' }[r.estado] || 'error',
+                          'icono-chip-sm'),
+    // Cuánto duró y cuándo fue, en dos renglones: en uno solo el texto se
+    // come el ancho del título, que es lo primero que hay que poder leer.
+    meta: espera ? '<span class="workbar-espera">Requiere decisión</span>'
+                 : escHtml(_workbarTiempo(r.segundos)),
+    meta2: espera ? '' : escHtml(cuando),
+    acciones: `
+      <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
+        onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
+        data-tooltip="${espera
+          ? 'Abrir para decidir qué hacer con este proyecto'
+          : 'Ver el detalle y el registro de esta ejecución'}">${
+        espera ? 'Decidir' : 'Detalle'}</button>
+      <button class="btn btn-ghost btn-xs"
+        onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
+        data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>`,
+  });
 }
 
 
@@ -486,12 +574,37 @@ function _workbarFirma(st) {
 }
 
 let _workbarUltimaFirma = null;
+// Lo que había en marcha la última vez, para saber cuándo recargar el
+// historial. `null` fuerza la primera carga.
+let _workbarUltimoTrabajo = null;
 
 async function refrescarWorkbar() {
-  const st = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
+  // `recientes=0`: el historial no viaja con el poll. Se carga aparte y solo
+  // cuando cambia lo que está en marcha — ver `_workbarRenderHistorial`.
+  const st = await apiFetch('/api/trabajos?recientes=0', { silent: true })
+    .catch(() => null);
   // Un fallo de red NO se interpreta como "no hay nada": se conserva lo
   // último bueno. Vaciar la columna haría creer que el trabajo terminó.
-  if (st && Array.isArray(st.cola)) workbarEstado = st;
+  if (st && Array.isArray(st.cola)) {
+    // El historial NO viene en la respuesta: se conserva el ya cargado. Se
+    // compone un objeto NUEVO en vez de escribir dentro de `st`, que es lo
+    // que acaba de llegar del servidor — mutarlo es un acoplamiento que no
+    // hace falta y que en el arnés de las capturas se veía: el fake devolvía
+    // el mismo objeto en cada petición y la app le vaciaba el historial.
+    workbarEstado = { ...st, recientes: workbarEstado.recientes || [] };
+  }
+  // Una línea nueva del historial aparece justo cuando algo deja de estar en
+  // marcha, así que esa es la señal para recargarlo. Lo interactivo cuenta:
+  // un pre-flight que acaba pidiendo decisión deja la suya.
+  const firmaTrabajo = [
+    workbarEstado.activo ? workbarEstado.activo.id : '',
+    ...(workbarEstado.cola || []).map(j => j.id),
+    ...(workbarEstado.interactivo || []).map(t => t.id),
+  ].join('|');
+  if (firmaTrabajo !== _workbarUltimoTrabajo) {
+    _workbarUltimoTrabajo = firmaTrabajo;
+    _workbarCargarHistorial();
+  }
   _workbarRender(workbarEstado);
   const firma = _workbarFirma(workbarEstado);
   if (firma !== _workbarUltimaFirma) {

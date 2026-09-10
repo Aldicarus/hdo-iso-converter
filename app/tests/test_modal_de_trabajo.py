@@ -838,7 +838,7 @@ class TestUnTrabajoTerminadoSeVuelveAMirar(unittest.TestCase):
     def _pintar_con(self, recientes, seleccion=None) -> dict:
         guion = f"""
 const _els = {{}};
-for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle']) {{
+for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-historial']) {{
   _els[id] = {{ innerHTML: '', textContent: '', style: {{}}, dataset: {{}},
     classList: {{ _v: new Set(),
       toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
@@ -864,11 +864,17 @@ let _workbarFiltroTab = 'all';
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
+{_fn('_workbarDia')}
+{_fn('_workbarHace')}
+{_fn('_workbarTarjetaReciente')}
+let _workbarHayMasHistorial = false;
+const _WORKBAR_HISTORIAL_PASO = 25;
+{_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
 let workbarEstado = {{ activo: null, cola: [], interactivo: [],
                        recientes: {json.dumps(recientes)} }};
 _workbarRender(workbarEstado);
-console.log(JSON.stringify({{ html: _els['workbar-body'].innerHTML }}));
+console.log(JSON.stringify({{ html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || '') }}));
 """
         return _node(guion)
 

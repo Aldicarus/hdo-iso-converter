@@ -342,7 +342,7 @@ class TestElFiltroCubreLasCuatroSecciones(unittest.TestCase):
         guion = f"""
 globalThis.escHtml = t => String(t);
 const _els = {{}};
-for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-search']) {{
+for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-search', 'workbar-historial']) {{
   _els[id] = {{ value: '', style: {{}}, dataset: {{}}, textContent: '',
     innerHTML: '', classList: {{ _v: new Set(),
       toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
@@ -372,9 +372,15 @@ const _CMV40_FIN = {{done: 'Terminado'}};
 {_fn('_workbarDescripcion')}
 {_fn('_workbarPips')}
 {_fn('_workbarTarjeta')}
+{_fn('_workbarDia')}
+{_fn('_workbarHace')}
+{_fn('_workbarTarjetaReciente')}
+let _workbarHayMasHistorial = false;
+const _WORKBAR_HISTORIAL_PASO = 25;
+{_fn('_workbarRenderHistorial')}
 {_fn('_workbarRender')}
 _workbarRender(workbarEstado);
-console.log(JSON.stringify({{html: _els['workbar-body'].innerHTML,
+console.log(JSON.stringify({{html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || ''),
                             cuenta: _els['workbar-count'].textContent}}));
 """
         return _node(guion)

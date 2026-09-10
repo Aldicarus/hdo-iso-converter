@@ -194,20 +194,18 @@ class TestElHistorialSeVeSiempre(unittest.TestCase):
     responde. Se pintaba solo con la casa libre, o sea casi nunca cuando de
     verdad interesa."""
 
-    def test_los_recientes_no_dependen_de_que_no_haya_nada_en_marcha(self):
+    def test_se_pinta_en_las_DOS_ramas_del_render(self):
+        """La de «no hay nada en ejecución» y la de con trabajo. Vive en su
+        propio contenedor desde que dejó de viajar con el poll, así que lo que
+        hay que comprobar es que las dos salidas lo pintan."""
         src = pieza_de("_workbarRender")[1]
         i = src.index("function _workbarRender(")
         cuerpo = src[i:src.index("\n}\n", i)]
-        # Se busca la rama por su MARCA en el HTML, no por el nombre de la
-        # variable: lo que se afirma es dónde se calculan los recientes, y un
-        # renombrado no debe romper un test que va de otra cosa.
+        self.assertEqual(cuerpo.count("_workbarRenderHistorial()"), 2,
+                         "alguna rama del render deja el historial sin pintar")
+        # Y la de la casa libre lo hace ANTES de salirse.
         vacio = cuerpo.index("workbar-vacio")
-        self.assertLess(cuerpo.index("const recientes ="), vacio,
-                        "los recientes se calculan DENTRO de la rama de "
-                        "«no hay nada», así que no salen cuando hay trabajo")
-        # Y se concatenan en las DOS ramas: la de la casa libre y la de con
-        # trabajo. Una sola aparición significaría que a una le falta.
-        self.assertEqual(cuerpo.count("recientes;"), 2)
+        self.assertLess(vacio, cuerpo.index("_workbarRenderHistorial()", vacio))
 
 
 class TestNingunaVariableCssSeUsaSinDefinirse(unittest.TestCase):
