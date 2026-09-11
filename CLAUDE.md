@@ -1908,7 +1908,7 @@ Detalles que no son accidentales:
 
 | fichero | líneas | qué tiene |
 |---|---|---|
-| `core.js` | 1.084 | estado global, el `DOMContentLoaded`, tooltips, tabs y sub-tabs, toasts, confirm, helpers de modal |
+| `core.js` | 1.084 | estado global, el `DOMContentLoaded`, tooltips, tabs y sub-tabs, toasts, confirm, helpers de modal, **la tarjeta de proyecto de las tres columnas** |
 | `settings.js` | 656 | ⚙︎ Configuración, el pill de versión, el panel de Limpieza |
 | `cmv40_modals.js` | 1.991 | consulta rápida, manual CMv4.0, limpieza masiva (lo de Tab 3 que no toca una sesión) |
 | `tab1.js` | 5.342 | nuevo proyecto, modo serie, sidebar, render de sesión, cola, consola, WS |
@@ -1959,6 +1959,56 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - Chevrones circulares blanco/azul (`.subtab-scroll-btn`) dentro de `.subtab-projects-area`, visibles solo cuando hay overflow (JS añade `.has-overflow` en el area).
 - Wheel vertical → scroll horizontal sobre la franja (handler en `_installSubtabScrollBindings`).
 - Los helpers `_updateSubtabScrollState()`, `_scrollSubtabContainer()` y la config `_SUBTAB_SCROLLERS` sirven a ambos tabs por DRY.
+
+### Las tres columnas de proyecto: una sola tarjeta
+
+Tab 1, Tab 2 y Tab 3 pintan sus proyectos con **`tarjetaDeProyecto`**
+(`core.js`), con el lenguaje de `.wb-card`: carátula, título, una línea de
+subtítulo, etiquetas y la meta a la derecha. Antes era el mismo HTML copiado
+tres veces, y en las tres se iban **dos filas en fechas rotuladas** («Modif.»,
+«Ejecuc.», «Analiz.») mientras lo que distingue un proyecto de otro no salía
+en ninguna.
+
+- **Los tags del nombre salen del título y pasan a etiquetas** (`nombreYTags`).
+  Los tres nombres los llevan (`Peli (2026) [DV FEL] [Audio DCP].mkv`), van al
+  final y el título se recorta por la derecha: eran lo primero que se perdía y
+  son lo que distingue una versión de otra. Por lo mismo **el número de
+  episodio es una etiqueta**: pegado al título, «Juego de tronos (2011) ·
+  S02E10» se corta justo en el episodio, que es lo único que separa esa fila
+  de las otras nueve del mismo disco.
+- **El acento lateral lleva el ESTADO, no la pestaña** — al revés que
+  `.wb-card`, y a propósito: en la columna de trabajo conviven las tres
+  pestañas y el color dice de dónde viene cada fila; dentro de un sidebar
+  todas son de la misma, así que sería constante. **El acento y el chip de
+  estado se mueven siempre juntos** (lo fija un test): si uno dice una cosa y
+  el otro otra, la fila se lee mal de un vistazo.
+- **La carátula se pide al ancho que se ve** (`miniaturaDe` → `w92`). La ficha
+  guarda la de 342 px y en la columna ocupa 36; con 117 proyectos eso son 117
+  imágenes de un tamaño que no se ve. Va con `loading="lazy"` y con el icono
+  del tipo DEBAJO, para que un `onerror` no deje un hueco gris.
+- **Los datos ya estaban**: `tmdb_info` viaja en los dos summaries (35 de 44
+  sesiones y 116 de 117 proyectos traen póster). El único que no lo tenía es
+  Tab 2, y lo resuelve `trabajos.cartel_de` en el endpoint — el MISMO resolutor
+  que la columna de trabajo, desde la caché de TMDb en disco y **sin salir a la
+  red**: es una lista que se repinta, no una ficha.
+- **Una etiqueta que no aplica se apaga, no desaparece** (Tab 2: «RPU», «Luz»),
+  para que la posición de cada dato no se mueva entre filas.
+- **Los puntitos de fase son para lo que está a medias.** En un proyecto
+  terminado están todos llenos y no contestan nada; sobre una tarjeta
+  archivada, encima, salen gris sobre gris.
+
+Lo que cada pestaña pone dentro sale de lo que en ella se pregunta: Tab 1 el
+episodio y el estado, Tab 2 tamaño/duración y qué análisis tiene, Tab 3 la
+clase de upgrade (drop-in / merge / se mantiene), el tier del L8 y la fase.
+
+**Tres de las decisiones salieron de mirar una captura, no el código**: el
+título se comía el final porque el ancho de la columna derecha lo fijaba la
+fecha («hace 19 h» son 55 px) y por eso la fecha bajó al pie; los puntitos
+sobraban en lo terminado; y sin etiquetas la fecha era el único hijo del pie,
+así que el `space-between` la mandaba a la izquierda y descuadraba la columna.
+`test_columnas_de_proyecto.py` las mide en Chrome sobre el `index.html` real
+—Tab 1 y Tab 3 no tenían ni un test de su columna— y las de Tab 2 siguen en
+`test_tab2_columna_izquierda.py`.
 
 ### Indicadores de ejecución
 - **Spinner inline** (`.spinner-inline`): aparece en tab "Blu-Ray ISO → MKV", subtab del proyecto, sidebar del proyecto y sección "En curso" cuando hay job activo
