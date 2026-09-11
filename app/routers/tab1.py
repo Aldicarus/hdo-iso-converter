@@ -482,6 +482,7 @@ async def get_session(session_id: str):
     session = load_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    _tmdb_hidratar_si_falta(session)
     return _session_payload(session)
 
 
@@ -906,6 +907,98 @@ async def _hydrate_session_tmdb(session_id: str) -> None:
         save_session(fresh)
     except Exception as e:
         _logger.warning("TMDb hydrate (Tab 1) falló para %s: %s", session_id, e)
+
+
+@router.post("/api/sessions/{session_id}/tmdb-refresh",
+             summary="Busca (o fija) la ficha TMDb de un proyecto de Tab 1")
+async def session_tmdb_refresh(session_id: str, body: dict | None = None):
+    """Rellena `session.tmdb_info` a petición, y con la película elegida si se
+    dice cuál.
+
+    `_hydrate_session_tmdb` corre **solo al crear el proyecto** y es
+    best-effort, así que una sesión creada antes de que hubiera API key —o
+    cuando TMDb no contestó— se quedaba sin ficha **para siempre**: nada lo
+    reintentaba. Medido sobre el NAS, 9 de 44 sesiones no tenían ficha y **8
+    de las 9 dan match perfecto con solo volver a preguntar**.
+
+    Dos diferencias con la hidratación de la creación, las dos por lo que se
+    midió en esas 9:
+
+    * **Se prueban los DOS nombres.** La hidratación busca por el del origen
+      (`source_path`), que es el del ISO y trae la basura del release; el
+      `mkv_name` ya está limpio. Aquí se prueba el que primero dé match.
+    * **`tmdb_id` manda sobre la búsqueda.** El caso que no se arregla solo es
+      un nombre sin año y con guiones bajos (`THE_MANDALORIAN_AND_GROGU_UHD`),
+      y ahí no hay heurística que valga: lo elige el usuario en el selector.
+    """
+    from services.tmdb import fetch_details, is_configured
+
+    session = load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    if not is_configured():
+        return {"tmdb_configured": False, "updated": False}
+
+    tmdb_id = (body or {}).get("tmdb_id")
+    details = None
+    if tmdb_id:
+        details = await fetch_details(int(tmdb_id))
+    else:
+        details = await _buscar_ficha_de(session)
+    if not details:
+        return {"tmdb_configured": True, "updated": False, "details": None}
+
+    # Recarga en caliente: entre la petición a TMDb y el guardado, el usuario
+    # puede haber renombrado el MKV desde el panel.
+    fresh = load_session(session_id) or session
+    fresh.tmdb_info = details.model_dump()
+    save_session(fresh)
+    return {"tmdb_configured": True, "updated": True, "details": fresh.tmdb_info}
+
+
+async def _buscar_ficha_de(session):
+    """La ficha por el nombre, probando el del MKV y el del origen.
+
+    Devuelve `None` si ninguno da match, que es el caso que el selector
+    manual existe para resolver.
+    """
+    from services.cmv40_recommend import parse_mkv_filename
+    from services.tmdb import search_movies, fetch_details
+    from pathlib import Path as _P
+
+    candidatos = [session.mkv_name or "",
+                  _P(session.source_path or session.iso_path or "").name]
+    for nombre in candidatos:
+        if not nombre:
+            continue
+        titulo, anio = parse_mkv_filename(nombre)
+        if not titulo:
+            continue
+        matches = await search_movies(titulo, anio, limit=1)
+        if matches:
+            return await fetch_details(matches[0].tmdb_id)
+    return None
+
+
+# Las sesiones a las que ya se les ha buscado ficha en esta vida del proceso.
+# Sin esto, cada apertura del proyecto volvería a preguntar por una película
+# que TMDb no conoce. En memoria y no en la sesión: reintentar una vez por
+# arranque es justo lo que se quiere si se arregla el nombre o se pone la key,
+# y no obliga a tocar el modelo ni a reescribir el /config del usuario.
+_tmdb_intentadas: set[str] = set()
+
+
+def _tmdb_hidratar_si_falta(session) -> None:
+    """Al abrir un proyecto sin ficha, buscarla en segundo plano.
+
+    Los 8 de 9 que solo necesitaban que alguien preguntara se arreglan aquí,
+    sin que el usuario tenga que pulsar nada. La respuesta del endpoint no
+    espera: la ficha aparece en el siguiente poll.
+    """
+    if session.tmdb_info or session.id in _tmdb_intentadas:
+        return
+    _tmdb_intentadas.add(session.id)
+    asyncio.create_task(_hydrate_session_tmdb(session.id))
 
 
 # ══════════════════════════════════════════════════════════════════════

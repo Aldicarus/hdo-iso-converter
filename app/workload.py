@@ -429,6 +429,8 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/sessions/{session_id}/cancel":          CLASE_LIGERO,
     "POST /api/sessions/{session_id}/reapply-rules":   CLASE_LIGERO,
     "POST /api/sessions/{session_id}/recalculate-name": CLASE_LIGERO,
+    # Una búsqueda en TMDb y un save: red, no disco del NAS.
+    "POST /api/sessions/{session_id}/tmdb-refresh":      CLASE_LIGERO,
     "POST /api/check-duplicate":            CLASE_LIGERO,  # SHA del primer MB
     "GET /api/analyze/progress":            CLASE_LIGERO,
     "GET /api/disc-probe/progress":         CLASE_LIGERO,

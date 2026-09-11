@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260911u">
+  <link rel="stylesheet" href="/static/style.css?v=20260911v">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1149,6 +1149,44 @@
 </div>
 
 <!-- ═══ MODAL: Consulta rápida CMv4.0 (read-only, sin crear proyecto) ═ -->
+<!-- Elegir la ficha de una película a mano.
+     La ficha se buscaba SOLO al crear el proyecto y era best-effort, así que
+     una sesión creada antes de que hubiera API key se quedaba sin carátula
+     para siempre. Ocho de cada nueve se arreglan volviendo a preguntar (eso
+     lo hace ya el propio backend al abrir el proyecto); esto es para el
+     noveno —un nombre que TMDb no reconoce— y para corregir un match que
+     apuntó a otra película del mismo título. -->
+<div class="modal-overlay" id="ficha-modal" onclick="onModalOverlayClick(event,'ficha-modal')">
+  <div class="modal-box cmv40-lookup-modal-box">
+    <div class="cmv40-lookup-head">
+      <div class="modal-title">Elegir la película</div>
+      <div class="modal-sub" id="ficha-modal-sub"></div>
+      <div class="cmv40-lookup-form">
+        <div class="cmv40-lookup-row">
+          <label class="cmv40-lookup-label" for="ficha-titulo">Título</label>
+          <div class="cmv40-lookup-year-wrap">
+            <input id="ficha-titulo" type="text" class="cmv40-lookup-input cmv40-lookup-input-title"
+              autocomplete="off" onkeydown="if(event.key==='Enter'){buscarCandidatosDeFicha()}">
+          </div>
+        </div>
+        <div class="cmv40-lookup-row cmv40-lookup-row-year">
+          <label class="cmv40-lookup-label" for="ficha-anio">Año <span class="cmv40-lookup-optional">(opcional)</span></label>
+          <div class="cmv40-lookup-year-wrap">
+            <input id="ficha-anio" type="text" class="cmv40-lookup-input" inputmode="numeric"
+              maxlength="4" autocomplete="off"
+              onkeydown="if(event.key==='Enter'){buscarCandidatosDeFicha()}">
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="buscarCandidatosDeFicha()">Buscar</button>
+      </div>
+    </div>
+    <div id="ficha-resultados" class="cmv40-lookup-results"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('ficha-modal')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="cmv40-lookup-modal" onclick="onModalOverlayClick(event,'cmv40-lookup-modal')">
   <div class="modal-box cmv40-lookup-modal-box">
     <div class="cmv40-lookup-head">
@@ -1463,13 +1501,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260911u"></script>
-<script src="/static/workbar.js?v=20260911u"></script>
-<script src="/static/settings.js?v=20260911u"></script>
-<script src="/static/cmv40_modals.js?v=20260911u"></script>
-<script src="/static/tab1.js?v=20260911u"></script>
-<script src="/static/tab2.js?v=20260911u"></script>
-<script src="/static/tab3.js?v=20260911u"></script>
-<script src="/static/browser.js?v=20260911u"></script>
+<script src="/static/core.js?v=20260911v"></script>
+<script src="/static/workbar.js?v=20260911v"></script>
+<script src="/static/settings.js?v=20260911v"></script>
+<script src="/static/cmv40_modals.js?v=20260911v"></script>
+<script src="/static/tab1.js?v=20260911v"></script>
+<script src="/static/tab2.js?v=20260911v"></script>
+<script src="/static/tab3.js?v=20260911v"></script>
+<script src="/static/browser.js?v=20260911v"></script>
 </body>
 </html>

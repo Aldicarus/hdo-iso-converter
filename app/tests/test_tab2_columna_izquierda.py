@@ -98,6 +98,7 @@ FUNCIONES = (
 # Las constantes que esas funciones leen. No son `function`, así que el
 # extractor de arriba no las ve.
 CONSTANTES = (
+    "const _PROJ_CHIP_LARGO = ",
     "const _TONO_POR_TAB = ",
     "const _GLIFOS_TRABAJO = {",
     "const _ICONOS_ESTADO = {",

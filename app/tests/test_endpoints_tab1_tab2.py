@@ -351,5 +351,99 @@ class TestOrigenes(ApiTestCase):
                 self.assertEqual(r.status_code, 400, f"{intento} → {r.status_code}")
 
 
+class TestLaFichaDeLaPelicula(ApiTestCase):
+    """Buscar o fijar la ficha TMDb de un proyecto ya creado.
+
+    `_hydrate_session_tmdb` corre **solo al crear** y es best-effort, así que
+    una sesión creada antes de que hubiera API key se quedaba sin ficha para
+    siempre: nada lo reintentaba. Medido sobre el NAS, 9 de 44 sesiones sin
+    ficha y **8 de las 9 con match perfecto al volver a preguntar** — de ahí
+    que ahora exista este endpoint (Tab 3 lo tenía desde siempre; Tab 1, no) y
+    que abrir el proyecto lo intente solo.
+
+    Nada de esto sale a la red: se parchea `services.tmdb`.
+    """
+
+    class _Ficha:
+        def __init__(self, tmdb_id, title):
+            self.tmdb_id, self.title, self.year = tmdb_id, title, 2024
+        def model_dump(self):
+            return {"tmdb_id": self.tmdb_id, "title": self.title,
+                    "poster_url": f"https://image.tmdb.org/t/p/w342/{self.tmdb_id}.jpg"}
+
+    def _parchear(self, *, encontrado=True, configurado=True):
+        import services.tmdb as tmdb
+        fichas = {550: self._Ficha(550, "El club de la lucha"),
+                  99: self._Ficha(99, "Peli")}
+
+        async def _buscar(titulo, anio=None, limit=1):
+            return [fichas[99]] if encontrado else []
+
+        async def _detalles(tid):
+            return fichas.get(int(tid))
+
+        for nombre, valor in (("is_configured", lambda: configurado),
+                              ("search_movies", _buscar),
+                              ("fetch_details", _detalles)):
+            original = getattr(tmdb, nombre)
+            setattr(tmdb, nombre, valor)
+            self.addCleanup(setattr, tmdb, nombre, original)
+
+    def test_sin_api_key_lo_dice_y_no_toca_la_sesion(self):
+        self._parchear(configurado=False)
+        sid = self.crear_sesion_tab1()
+        d = self.client.post(f"/api/sessions/{sid}/tmdb-refresh").json()
+        self.assertEqual(d, {"tmdb_configured": False, "updated": False})
+        self.assertIsNone(self.leer_sesion_tab1(sid).tmdb_info)
+
+    def test_busca_por_el_nombre_y_la_guarda(self):
+        self._parchear()
+        sid = self.crear_sesion_tab1()
+        d = self.client.post(f"/api/sessions/{sid}/tmdb-refresh").json()
+        self.assertTrue(d["updated"])
+        self.assertEqual(self.leer_sesion_tab1(sid).tmdb_info["title"], "Peli")
+
+    def test_un_tmdb_id_manda_sobre_la_busqueda(self):
+        """La salida para el caso que no se arregla solo: un nombre que TMDb
+        no reconoce, o un match a otra película del mismo título."""
+        self._parchear()
+        sid = self.crear_sesion_tab1()
+        d = self.client.post(f"/api/sessions/{sid}/tmdb-refresh",
+                             json={"tmdb_id": 550}).json()
+        self.assertEqual(d["details"]["title"], "El club de la lucha")
+        self.assertEqual(self.leer_sesion_tab1(sid).tmdb_info["tmdb_id"], 550)
+
+    def test_sin_match_NO_borra_la_ficha_que_ya_hubiera(self):
+        """Pulsar el botón sobre un proyecto con ficha buena no puede dejarlo
+        sin ninguna. El de Tab 3 escribía `None` y hacía justo eso."""
+        self._parchear()
+        sid = self.crear_sesion_tab1()
+        self.client.post(f"/api/sessions/{sid}/tmdb-refresh", json={"tmdb_id": 550})
+        self._parchear(encontrado=False)
+        d = self.client.post(f"/api/sessions/{sid}/tmdb-refresh").json()
+        self.assertFalse(d["updated"])
+        self.assertEqual(self.leer_sesion_tab1(sid).tmdb_info["tmdb_id"], 550)
+
+    def test_una_sesion_que_no_existe_da_404(self):
+        self.assertEqual(
+            self.client.post("/api/sessions/no_existe/tmdb-refresh").status_code, 404)
+
+    def test_abrir_un_proyecto_sin_ficha_la_busca_una_vez(self):
+        """Los 8 de 9 que solo necesitaban que alguien preguntara se arreglan
+        sin pulsar nada. Y **una sola vez por proceso**: sin ese guard, cada
+        apertura volvería a preguntar por una película que TMDb no conoce."""
+        self._parchear()
+        from routers import tab1
+        tab1._tmdb_intentadas.clear()
+        self.addCleanup(tab1._tmdb_intentadas.clear)
+        sid = self.crear_sesion_tab1()
+        self.client.get(f"/api/sessions/{sid}")
+        self.assertIn(sid, tab1._tmdb_intentadas)
+        # La segunda apertura no vuelve a intentarlo.
+        antes = set(tab1._tmdb_intentadas)
+        self.client.get(f"/api/sessions/{sid}")
+        self.assertEqual(set(tab1._tmdb_intentadas), antes)
+
+
 if __name__ == "__main__":
     unittest.main()

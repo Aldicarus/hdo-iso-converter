@@ -2322,7 +2322,9 @@ function renderProjectPanel(project) {
   const tmdbCardId = `${project.id}-tmdb-card`;
   if (session.tmdb_info && session.media_type === 'series') {
     const tmdbEl = document.getElementById(tmdbCardId);
-    if (tmdbEl) tmdbEl.innerHTML = renderTmdbCardHTML(session.tmdb_info) || '';
+    if (tmdbEl) tmdbEl.innerHTML = renderTmdbCardHTML(session.tmdb_info,
+      { tipo: 'rip', id: session.id,
+        nombre: session.mkv_name || session.iso_path || '' }) || '';
   } else {
     // Parseamos el título del mkv_name (o del basename del ISO si aún no
     // hay mkv_name). Cache global evita re-fetches entre cambios.

@@ -84,6 +84,12 @@ SESIONES = [
     {"id": "s_err", "mkv_name": "Un fallo (2020).mkv", "status": "pending",
      "media_type": "movie", "execution_history": [{"status": "error"}],
      "updated_at": "2026-09-01T09:00:00Z"},
+    {"id": "s_tocho",
+     "mkv_name": "Spider-Man (2023) "
+                 "[UHDRemux 2160p HEVC DV-HDR10 ES TrueHD Atmos 7.1].mkv",
+     "status": "done", "media_type": "movie",
+     "execution_history": [{"status": "done"}],
+     "updated_at": "2026-05-24T08:00:00Z", "tmdb_info": {}},
 ]
 
 CMV40 = [
@@ -104,6 +110,14 @@ CMV40 = [
     {"id": "c_error", "source_mkv_name": "Roto (2019).mkv", "phase": "extracted",
      "running_phase": None, "archived": False, "error_message": "algo falló",
      "output_workflow": "", "updated_at": "2026-09-01T08:00:00Z"},
+    # Un tag de release de los que hay de verdad: 48 caracteres. Uno solo se
+    # comía la fila entera y empujaba la fecha fuera.
+    {"id": "c_tocho",
+     "source_mkv_name": "Spider-Man (2023) "
+                        "[UHDRemux 2160p HEVC DV-HDR10 ES TrueHD Atmos 7.1].mkv",
+     "phase": "injected", "running_phase": None, "archived": False,
+     "error_message": "", "output_workflow": "restore_merge",
+     "updated_at": "2026-05-24T08:00:00Z", "tmdb_info": {}},
 ]
 
 _SONDA = ("<script>window.__errores=[];"
@@ -120,6 +134,15 @@ _CUERPO = """
     titulo: (c.querySelector('.session-card-title') || {}).textContent || '',
     sub: (c.querySelector('.proj-sub') || {}).textContent || '',
     chips: [...c.querySelectorAll('.proj-chip')].map(e => e.textContent.trim()),
+    // Del chip más largo: su ancho pintado, si se recorta y qué dice el
+    // tooltip. Medirlo importa — `text-overflow` sin `max-width` no recorta
+    // nada y el CSS se lee igual de bien.
+    chipAncho: Math.max(0, ...[...c.querySelectorAll('.proj-chip')]
+      .map(e => Math.round(e.getBoundingClientRect().width))),
+    chipTips: [...c.querySelectorAll('.proj-chip')]
+      .map(e => e.getAttribute('data-tooltip') || ''),
+    desborda: [...c.querySelectorAll('.proj-chip')]
+      .some(e => e.scrollWidth > e.clientWidth + 1),
     // El tono del chip de ESTADO, que es el que cambia de fila a fila (el de
     // la miniatura lleva el color de la pestaña y es siempre el mismo).
     // `icono-chip icono-rojo icono-chip-sm`: el tono es el que NO es
@@ -136,12 +159,18 @@ _CUERPO = """
     fecha: (c.querySelector('.proj-fecha') || {}).textContent || '',
   }));
   setTimeout(() => {
-    const out = {errores: [], tab1: [], tab3: [], puro: {}};
+    const out = {errores: [], tab1: [], tab3: [], puro: {}, ficha: {}};
     try {
       _sessionsCache = window.__SES; renderSidebarSessions(window.__SES);
       _cmv40SidebarList = window.__CM; _renderCMv40Sidebar();
       out.tab1 = leer('#sessions-list .session-card');
       out.tab3 = leer('#cmv40-sidebar-list .session-card');
+      out.ficha = {
+        vacia: renderTmdbCardHTML(null, {tipo: 'rip', id: 's1', nombre: 'Peli (2024).mkv'}),
+        llena: renderTmdbCardHTML({title: 'Peli', year: 2024},
+                                  {tipo: 'cmv40', id: 'c1', nombre: 'Peli.mkv'}),
+        sinContexto: renderTmdbCardHTML(null),
+      };
       out.puro = {
         tags: nombreYTags('Peli (2026) [DV FEL] [Audio DCP].mkv'),
         sinTags: nombreYTags('Simple.mkv'),
@@ -199,7 +228,8 @@ class ColumnasCase(unittest.TestCase):
         return next(c for c in self.m["tab3"]
                     if c["titulo"].startswith(
                         {"c_medio": "Imaginary", "c_corriendo": "Predator",
-                         "c_archivado": "Supergirl", "c_error": "Roto"}[sid]))
+                         "c_archivado": "Supergirl", "c_error": "Roto",
+                         "c_tocho": "Spider-Man"}[sid]))
 
 
 class TestNingunaColumnaPetaAlPintarse(ColumnasCase):
@@ -316,6 +346,63 @@ class TestLaColumnaDeTab3(ColumnasCase):
     def test_un_error_sin_resolver_manda_sobre_la_fase(self):
         c = self.t3("c_error")
         self.assertEqual((c["tono"], c["acento"]), ("rojo", "estado-error"))
+
+
+class TestUnTagLarguisimoNoSeComeLaFila(ColumnasCase):
+    """Los nombres de release traen tags de 48 caracteres.
+
+    Uno solo ocupaba la fila entera y empujaba la fecha, así que el chip tiene
+    tope de ancho, se recorta con puntos suspensivos y **el texto completo se
+    puede leer en el tooltip**. Se mide el ancho pintado a propósito: un
+    `text-overflow` sin `max-width` no recorta nada y el CSS se lee igual.
+    """
+
+    def test_el_chip_no_pasa_del_tope(self):
+        c = self.t1("s_tocho")
+        self.assertGreater(c["chipAncho"], 0)
+        self.assertLessEqual(c["chipAncho"], 133, "un tag largo no puede crecer "
+                             "hasta empujar la fecha fuera de la tarjeta")
+
+    def test_y_se_recorta_de_verdad(self):
+        self.assertTrue(self.t1("s_tocho")["desborda"],
+                        "si no desborda, no se está recortando nada")
+
+    def test_el_texto_completo_se_lee_en_el_tooltip(self):
+        tips = self.t1("s_tocho")["chipTips"]
+        self.assertTrue(any("TrueHD Atmos 7.1" in t for t in tips),
+                        f"ningún chip lleva el texto completo: {tips}")
+
+    def test_en_tab3_el_tag_largo_tambien_llega_con_su_tooltip(self):
+        """Su filtro de tags se queda con lo que no empieza por «CMv4», así
+        que un tag de release tiene que seguir pasando."""
+        tips = self.t3("c_tocho")["chipTips"]
+        self.assertTrue(any("TrueHD Atmos 7.1" in t for t in tips), tips)
+
+    def test_un_tag_corto_NO_lleva_tooltip_redundante(self):
+        """Un tooltip que repite «Audio DCP» sobre la etiqueta «Audio DCP» es
+        ruido: solo se pone cuando el texto no cabe."""
+        tips = dict(zip(self.t1("s_peli")["chips"],
+                        self.t1("s_peli")["chipTips"]))
+        self.assertEqual(tips.get("Audio DCP", ""), "")
+
+
+class TestSinFichaSeOfreceBuscarla(ColumnasCase):
+    """El hueco de la ficha quedaba VACÍO, así que un proyecto sin carátula no
+    daba ninguna pista de qué hacer — y la ficha solo se buscaba al crearlo."""
+
+    def test_sin_ficha_sale_el_boton(self):
+        self.assertIn("Buscar película", self.m["ficha"]["vacia"])
+        self.assertIn("abrirSelectorDeFicha", self.m["ficha"]["vacia"])
+
+    def test_con_ficha_sale_el_de_cambiar(self):
+        """Para corregir un match que apuntó a otra película del mismo
+        título."""
+        self.assertIn("Cambiar", self.m["ficha"]["llena"])
+        self.assertIn("abrirSelectorDeFicha", self.m["ficha"]["llena"])
+
+    def test_sin_proyecto_no_se_ofrece_nada(self):
+        """El modal de creación aún no tiene proyecto donde guardarla."""
+        self.assertEqual(self.m["ficha"]["sinContexto"], "")
 
 
 if __name__ == "__main__":

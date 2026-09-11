@@ -1288,13 +1288,22 @@ function nombreYTags(nombre) {
   return { titulo: limpio.replace(/\s*\[[^\]]+\]/g, '').trim() || limpio, tags };
 }
 
+// A partir de aquí el chip se recorta (132 px ≈ 22 caracteres), así que el
+// texto completo tiene que poder leerse en el tooltip. Por debajo NO se pone
+// ninguno: un tooltip que repite «DV FEL» sobre la etiqueta «DV FEL» es ruido.
+const _PROJ_CHIP_LARGO = 22;
+
 function _projChipsHTML(chips) {
   const c = (chips || []).filter(Boolean);
   if (!c.length) return '';
-  return `<div class="proj-chips">${c.map(ch => `<span class="proj-chip`
-    + `${ch.tono ? ' tono-' + ch.tono : ''}${ch.apagado ? ' apagado' : ''}"`
-    + `${ch.tooltip ? ` data-tooltip="${escHtml(ch.tooltip)}"` : ''}>`
-    + `${escHtml(ch.txt)}</span>`).join('')}</div>`;
+  return `<div class="proj-chips">${c.map(ch => {
+    const txt = String(ch.txt || '');
+    const tip = ch.tooltip || (txt.length > _PROJ_CHIP_LARGO ? txt : '');
+    return `<span class="proj-chip`
+      + `${ch.tono ? ' tono-' + ch.tono : ''}${ch.apagado ? ' apagado' : ''}"`
+      + `${tip ? ` data-tooltip="${escHtml(tip)}"` : ''}>`
+      + `${escHtml(txt)}</span>`;
+  }).join('')}</div>`;
 }
 
 /** Un punto por fase: por dónde va el proyecto, sin gastar una línea.
@@ -1347,4 +1356,135 @@ function tarjetaDeProyecto(o) {
     </div>
     ${_projPipsHTML(o.pips)}
     ${o.acciones ? `<div class="session-card-actions">${o.acciones}</div>` : ''}`;
+}
+
+
+// ── Elegir la ficha de una película a mano ──────────────────────────────────
+//
+// `tmdb_info` se rellenaba SOLO al crear el proyecto y best-effort, así que
+// una sesión creada antes de que hubiera API key —o cuando TMDb no contestó—
+// se quedaba sin ficha **para siempre**: nada lo reintentaba. Medido sobre el
+// NAS, 9 de 44 sesiones de Tab 1 no tenían, y **8 de las 9 dan match perfecto
+// con solo volver a preguntar**; eso lo hace ya el backend al abrir el
+// proyecto, sin que nadie pulse nada.
+//
+// Esto es para el noveno —`THE_MANDALORIAN_AND_GROGU_UHD`, sin año y con
+// guiones bajos, donde no hay heurística que valga— y para corregir un match
+// que apuntó a otra película del mismo título.
+
+let _fichaDestino = null;   // { tipo: 'rip'|'cmv40', id, nombre }
+let _fichaCandidatos = [];
+
+/** Abre el selector, con el título del proyecto ya escrito. */
+function abrirSelectorDeFicha(tipo, id, nombre) {
+  _fichaDestino = { tipo, id, nombre: nombre || '' };
+  _fichaCandidatos = [];
+  // El nombre viene con sus tags y su extensión; el mismo troceo que usa la
+  // tarjeta sirve para dejar el campo listo para buscar.
+  const { titulo } = nombreYTags(nombre || '');
+  const m = titulo.match(/^(.*?)\s*\((\d{4})\)\s*$/);
+  const campoT = document.getElementById('ficha-titulo');
+  const campoA = document.getElementById('ficha-anio');
+  if (campoT) campoT.value = (m ? m[1] : titulo).trim();
+  if (campoA) campoA.value = m ? m[2] : '';
+  const sub = document.getElementById('ficha-modal-sub');
+  if (sub) sub.textContent = nombre || '';
+  const res = document.getElementById('ficha-resultados');
+  if (res) res.innerHTML = '';
+  openModal('ficha-modal');
+  if (campoT) campoT.focus();
+  // Con el título ya puesto, la primera búsqueda se hace sola: en el caso
+  // normal el usuario solo tiene que elegir.
+  buscarCandidatosDeFicha();
+}
+
+async function buscarCandidatosDeFicha() {
+  const res = document.getElementById('ficha-resultados');
+  const titulo = (document.getElementById('ficha-titulo')?.value || '').trim();
+  if (!res) return;
+  if (!titulo) {
+    res.innerHTML = '<div class="cmv40-lookup-empty">Escribe un título para buscar.</div>';
+    return;
+  }
+  const anioTxt = (document.getElementById('ficha-anio')?.value || '').trim();
+  res.innerHTML = `<div class="cmv40-lookup-loading">
+    <span class="cmv40-rec-spinner-inline"></span> Buscando en TMDb…</div>`;
+  const r = await apiFetch('/api/cmv40/tmdb-search', {
+    method: 'POST',
+    body: JSON.stringify({ title: titulo, year: anioTxt || null }),
+  });
+  if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar TMDb.</div>'; return; }
+  if (!r.tmdb_configured) {
+    res.innerHTML = '<div class="cmv40-lookup-empty">Falta la API key de TMDb '
+                  + '(⚙︎ Configuración).</div>';
+    return;
+  }
+  _fichaCandidatos = r.candidates || [];
+  if (!_fichaCandidatos.length) {
+    res.innerHTML = '<div class="cmv40-lookup-empty">Sin coincidencias. '
+                  + 'Prueba con el título original o quita el año.</div>';
+    return;
+  }
+  res.innerHTML = `<div class="cmv40-lookup-picks">${
+    _fichaCandidatos.map((c, i) => {
+      const poster = c.poster_url
+        ? `<img class="cmv40-lookup-pick-poster" src="${escHtml(c.poster_url)}" alt="" loading="lazy">`
+        : '<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter"></div>';
+      const nota = c.vote_average > 0
+        ? `<span class="cmv40-lookup-pick-rating">★ ${c.vote_average.toFixed(1)}</span>` : '';
+      const orig = (c.title_en && c.title_en !== c.title_es)
+        ? `<div class="cmv40-lookup-pick-orig">Original: ${escHtml(c.title_en)}</div>` : '';
+      return `
+        <button class="cmv40-lookup-pick" type="button" onclick="elegirFicha(${i})">
+          ${poster}
+          <div class="cmv40-lookup-pick-info">
+            <div class="cmv40-lookup-pick-title">
+              ${escHtml(c.title_es || c.title_en || '—')}
+              ${c.year ? `<span class="cmv40-lookup-pick-year">(${c.year})</span>` : ''}
+              ${nota}
+            </div>
+            ${orig}
+            ${c.overview ? `<div class="cmv40-lookup-pick-overview">${escHtml(c.overview)}</div>` : ''}
+          </div>
+        </button>`;
+    }).join('')}</div>`;
+}
+
+/** Fija la película elegida en el proyecto y refresca lo que la enseña. */
+async function elegirFicha(i) {
+  const c = _fichaCandidatos[i];
+  if (!c || !_fichaDestino) return;
+  const { tipo, id } = _fichaDestino;
+  const url = tipo === 'cmv40'
+    ? `/api/cmv40/${id}/tmdb-refresh`
+    : `/api/sessions/${id}/tmdb-refresh`;
+  const r = await apiFetch(url, {
+    method: 'POST', body: JSON.stringify({ tmdb_id: c.tmdb_id }),
+  });
+  if (!r || !r.updated) { showToast('No se pudo guardar la ficha', 'error'); return; }
+  closeModal('ficha-modal');
+  showToast(`Ficha de «${c.title_es || c.title_en}» guardada`, 'success');
+  // Repintar donde se ve: la cabecera del proyecto abierto y la columna.
+  if (tipo === 'cmv40') {
+    if (typeof refreshCMv40Sidebar === 'function') refreshCMv40Sidebar();
+    if (typeof _refreshCMv40Session === 'function') _refreshCMv40Session(id);
+  } else {
+    if (typeof loadSessions === 'function') loadSessions();
+    if (typeof refreshOpenProjectState === 'function') refreshOpenProjectState(id);
+  }
+}
+
+/** El botón que abre el selector, para la cabecera del proyecto. */
+function botonDeFicha(ctx, conFicha) {
+  if (!ctx || !ctx.id) return '';
+  const arg = `'${escHtml(ctx.tipo)}','${escHtml(ctx.id)}',` 
+            + `'${escHtml(String(ctx.nombre || '').replace(/'/g, ''))}'`;
+  return conFicha
+    ? `<button class="btn btn-ghost btn-xs tmdb-cambiar" onclick="abrirSelectorDeFicha(${arg})"
+         data-tooltip="Elegir otra película si esta no es la correcta">Cambiar</button>`
+    : `<div class="tmdb-sin-ficha">
+         <span>Sin ficha de TMDb — no hay carátula ni sinopsis.</span>
+         <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})"
+           data-tooltip="Buscar la película en TMDb y guardarla en el proyecto">Buscar película</button>
+       </div>`;
 }

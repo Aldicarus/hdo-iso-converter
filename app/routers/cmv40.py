@@ -2012,8 +2012,18 @@ async def cmv40_tmdb_lookup(body: dict):
 
 
 @router.post("/api/cmv40/{session_id}/tmdb-refresh",
-          summary="Fuerza re-fetch de detalles TMDb y los guarda en la sesión")
-async def cmv40_tmdb_refresh(session_id: str):
+          summary="Busca (o fija) la ficha TMDb del proyecto")
+async def cmv40_tmdb_refresh(session_id: str, body: dict | None = None):
+    """Con `tmdb_id` fija esa película; sin él, la busca por el nombre.
+
+    Fijarla a mano es la única salida cuando el nombre no da match —medido en
+    Tab 1, uno de cada nueve: sin año y con guiones bajos— y también cuando el
+    match es correcto pero de otra película del mismo título.
+
+    **Un fallo de búsqueda ya no borra la ficha que hubiera.** Antes escribía
+    `None` sin match, así que pulsar el botón sobre un proyecto con ficha
+    buena podía dejarlo sin ninguna.
+    """
     from services.cmv40_recommend import parse_mkv_filename
     from services.tmdb import search_movies, fetch_details, is_configured
 
@@ -2023,18 +2033,33 @@ async def cmv40_tmdb_refresh(session_id: str):
     if not is_configured():
         return {"tmdb_configured": False, "updated": False}
 
-    title, year = parse_mkv_filename(session.source_mkv_name)
-    matches = await search_movies(title, year, limit=1)
-    if not matches:
-        session.tmdb_info = None
-        save_cmv40_session(session)
-        return {"tmdb_configured": True, "updated": True, "details": None}
+    tmdb_id = (body or {}).get("tmdb_id")
+    if tmdb_id:
+        details = await fetch_details(int(tmdb_id))
+    else:
+        title, year = parse_mkv_filename(session.source_mkv_name)
+        matches = await search_movies(title, year, limit=1)
+        details = await fetch_details(matches[0].tmdb_id) if matches else None
+    if not details:
+        return {"tmdb_configured": True, "updated": False, "details": None}
 
-    details = await fetch_details(matches[0].tmdb_id)
-    session.tmdb_info = details.model_dump() if details else None
+    session.tmdb_info = details.model_dump()
     save_cmv40_session(session)
     return {"tmdb_configured": True, "updated": True,
             "details": session.tmdb_info}
+
+
+# Igual que en Tab 1: los proyectos a los que ya se les buscó ficha en esta
+# vida del proceso, para no volver a preguntar por una película que TMDb no
+# conoce en cada apertura.
+_tmdb_intentados: set[str] = set()
+
+
+def _cmv40_tmdb_hidratar_si_falta(session) -> None:
+    if session.tmdb_info or session.id in _tmdb_intentados:
+        return
+    _tmdb_intentados.add(session.id)
+    asyncio.create_task(_cmv40_hydrate_tmdb(session.id))
 
 
 @router.post("/api/cmv40/{session_id}/refresh-sheet",
@@ -2429,6 +2454,11 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
+
+    # Sin ficha, buscarla. Se hidrataba SOLO al crear el proyecto, así que uno
+    # creado antes de que hubiera API key se quedaba sin carátula para
+    # siempre: nada lo reintentaba.
+    _cmv40_tmdb_hidratar_si_falta(session)
 
     # Auto-rewind: si la sesión dice "remuxed/validated" pero el MKV esperado
     # (.mkv.tmp para remuxed, .mkv para validated) no existe físicamente en

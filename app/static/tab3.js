@@ -3125,8 +3125,19 @@ async function hydrateTmdbCard(containerId, filename) {
 }
 
 // Genérico — reutilizable para Tab 1, Tab 2 y Tab 3.
-function renderTmdbCardHTML(t) {
-  if (!t) return '';
+/** La ficha de la película. La comparten los tres tabs.
+ *
+ *  `ctx = {tipo, id, nombre}` la ata a un proyecto concreto y con eso se
+ *  puede ofrecer elegir la película: **sin ficha el hueco quedaba vacío**, o
+ *  sea que un proyecto sin carátula no daba ninguna pista de qué hacer. Sin
+ *  `ctx` —el modal de creación, que aún no tiene proyecto— se comporta como
+ *  antes.
+ */
+function renderTmdbCardHTML(t, ctx = null) {
+  if (!t) {
+    return (ctx && typeof botonDeFicha === 'function')
+      ? botonDeFicha(ctx, false) : '';
+  }
   const metaParts = [];
   if (t.year) metaParts.push(String(t.year));
   if (t.runtime_minutes)
@@ -3168,6 +3179,7 @@ function renderTmdbCardHTML(t) {
           <span class="cmv40-tmdb-title">${escHtml(t.title || t.original_title || '—')}</span>
           ${origHtml}
           ${ratingHtml}
+          ${(ctx && typeof botonDeFicha === 'function') ? botonDeFicha(ctx, true) : ''}
         </div>
         ${metaParts.length ? `<div class="cmv40-tmdb-meta">${escHtml(metaParts.join(' · '))}</div>` : ''}
         ${taglineHtml}
@@ -3186,7 +3198,8 @@ function _renderCMv40Info(s, pid) {
   const project = openCMv40Projects.find(p => p.id === pid);
   const autoOn = !!(project && project.autoContinue);
   const canAuto = s.phase !== 'done' && !s.archived;
-  const tmdbCardHtml = renderTmdbCardHTML(s.tmdb_info);
+  const tmdbCardHtml = renderTmdbCardHTML(s.tmdb_info,
+    { tipo: 'cmv40', id: s.id, nombre: s.source_mkv_name || '' });
   container.innerHTML = `
     ${tmdbCardHtml}
     <div class="section-card">
