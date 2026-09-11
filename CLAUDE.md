@@ -2010,6 +2010,45 @@ así que el `space-between` la mandaba a la izquierda y descuadraba la columna.
 —Tab 1 y Tab 3 no tenían ni un test de su columna— y las de Tab 2 siguen en
 `test_tab2_columna_izquierda.py`.
 
+### La ficha de la película: si falta, se puede poner
+
+`tmdb_info` se rellenaba **solo al crear** el proyecto y best-effort, así que
+una sesión creada antes de que hubiera API key —o cuando TMDb no contestó— se
+quedaba sin ficha para siempre: nada lo reintentaba. Medido sobre el NAS, **9
+de 44 sesiones de Tab 1 sin ficha, y 8 de las 9 con match perfecto al volver a
+preguntar**. No era un problema de match.
+
+- **Abrir un proyecto sin ficha la busca**, en segundo plano y **una sola vez
+  por arranque** (`_tmdb_intentadas`, un `set` en memoria). No se persiste
+  nada: reintentar una vez por arranque es justo lo que se quiere si se
+  arregla el nombre o se pone la key, y no obliga a tocar el modelo ni a
+  reescribir el `/config` del usuario.
+- **`POST /api/sessions/{id}/tmdb-refresh`** (Tab 1) y el de Tab 3 aceptan
+  **`tmdb_id`**, que es la única salida para lo que no se arregla solo: un
+  nombre sin año y con guiones bajos (`THE_MANDALORIAN_AND_GROGU_UHD`), o un
+  match correcto pero de otra película del mismo título. Lo elige el usuario
+  en el selector (`abrirSelectorDeFicha`, en `core.js`), que reutiliza
+  `tmdb-search` y las clases del modal de consulta rápida.
+- El de Tab 1 **prueba los dos nombres**: la hidratación de la creación busca
+  por el del origen —que trae la basura del release— y el `mkv_name` ya está
+  limpio.
+- **Un fallo de búsqueda NO borra la ficha que hubiera.** El de Tab 3 escribía
+  `None` sin match, así que pulsar el botón sobre un proyecto con ficha buena
+  podía dejarlo sin ninguna.
+- Ojo: el `tmdb-refresh` de Tab 3 existía desde siempre y **no lo llamaba
+  nadie** — era un endpoint huérfano, y por eso no había forma de arreglar una
+  carátula desde la interfaz.
+
+**Los tags de un nombre de release pueden ser larguísimos** («UHDRemux 2160p
+HEVC DV-HDR10 ES TrueHD Atmos 7.1» son 48 caracteres) y uno solo ocupaba la
+fila entera de la tarjeta y empujaba la fecha. El `.proj-chip` tiene tope de
+**132 px** (~22 caracteres: los normales siguen entrando dos por línea), se
+recorta con puntos suspensivos y el texto completo va al tooltip, que
+`_projChipsHTML` pone **solo cuando no cabe** — repetir «DV FEL» sobre la
+etiqueta «DV FEL» es ruido. El recorte se mide en Chrome y **sobre la columna
+visible**: un `text-overflow` sin `max-width` no recorta nada y el CSS se lee
+igual de bien, y un sidebar oculto mide 0 px.
+
 ### Indicadores de ejecución
 - **Spinner inline** (`.spinner-inline`): aparece en tab "Blu-Ray ISO → MKV", subtab del proyecto, sidebar del proyecto y sección "En curso" cuando hay job activo
 - **Barra de progreso real**: en la fase de extracción (mkvmerge), conectada a `Progress: XX%`
