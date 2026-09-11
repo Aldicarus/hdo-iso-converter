@@ -747,9 +747,10 @@ cada router aporta el suyo con `trabajos.registrar(tipo, fn)`, igual que con
 `queue_manager.registrar_runner` y por el mismo motivo — la dependencia sigue
 en un solo sentido y el módulo no conoce ninguna pestaña. El endpoint compone
 `activo` (el diferido que corre) + `cola` + `interactivo` (lo que va en
-paralelo, sin barra: explica por qué el NAS va cargado) + `recientes`.
+paralelo con tarjeta) + `consultas` (el resto de lo interactivo, solo contado)
++ `recientes`.
 
-Tres reglas que hereda del resto del proyecto:
+Las reglas que hereda del resto del proyecto:
 
 - **`pct_medido` distingue una barra real de un hueco.** Sin evidencia se pinta
   una barra indeterminada, no un número. Es lo mismo que ya hacía
@@ -759,6 +760,33 @@ Tres reglas que hereda del resto del proyecto:
   «(aprox.)» cuando es lo segundo.
 - **Un adaptador que falla no tumba la columna.** Quedarse sin el porcentaje es
   un inconveniente; quedarse sin saber que hay algo corriendo, no.
+- **Lleva tarjeta lo que puedes PERDER DE VISTA, no lo que dura mucho**
+  (`Trabajo.en_columna`). Un trabajo que sobrevive a la petición —los
+  pre-flight contestan `{started: true}` y siguen en una task— puede quedarse
+  sin nadie mirándolo, y por eso son justo los que traen `detalle` y
+  `cancelable`: la columna es el único sitio donde volver. Uno síncrono dura
+  exactamente lo que la petición, y mientras dura el usuario tiene su modal
+  delante con la barra; pintarlo le repite lo que ya está mirando, y los de
+  0-3 s (`target-rpu-path` son 2 s, `target-rpu-from-drive` 3 s) parpadean
+  contra un poll de 2 s. **El umbral por duración no sirve**: no distingue
+  abrir un MKV (50 s medidos, con modal) de un pre-flight (9 s de mediana, sin
+  él), que es exactamente la distinción.
+  - **El default sale bien por construcción**: `marca` lo pone a False —mide
+    LA PETICIÓN— y `registrar`, que se llama desde dentro de la task, a True.
+    Una ruta síncrona nueva acierta sin acordarse de nada. Corolario: **una
+    ruta fire-and-forget no lleva la marca**, aunque sea interactiva; los dos
+    pre-flight la llevaban *además* de registrar su task y se apuntaban dos
+    veces con claves distintas. Es lo que ya prohibía
+    `test_ninguna_diferida_lleva_la_marca`, y la clase no tiene nada que ver:
+    lo que decide es quién arranca el trabajo.
+  - **Dejar de pintarlo NUNCA es dejar de registrarlo.** Las consultas siguen
+    contando para `hay_contencion` —de ahí salen `_adaptive_timeout` y el
+    modelo de ETA— y saliendo en `/api/activity`. Lo que se pierde con la
+    tarjeta es la explicación de la carga, así que queda un renglón con el
+    recuento y los nombres en el tooltip: una consulta le cuesta a un trabajo
+    largo un **+15 %** medido. Solo se dice cuando hay algo a lo que pueda
+    estar ralentizando —sola no aporta— y **no entra en el contador de la tira
+    plegada**, que es el aviso de «hay trabajo que seguir».
 - **El progreso son DOS niveles y no se mezclan.** `pct`/`segundos`/`eta_s` son
   SIEMPRE los del trabajo entero; `fase_progreso` —mismas claves— es el de la
   fase en curso, y solo lo llena quien tiene dos niveles de verdad (CMv4.0,
