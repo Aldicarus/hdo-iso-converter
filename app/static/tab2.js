@@ -176,7 +176,13 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
         const ss = (elapsed % 60).toString().padStart(2, '0');
         const pct = prog?.pct;
         const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
+        if (labelEl) {
+          // Solo el texto: reescribir el `textContent` entero se llevaba por
+          // delante el `<span>` del icono del paso.
+          const ico = labelEl.querySelector('.paso-ico');
+          labelEl.textContent = ' Analizando subtítulos del origen…';
+          if (ico) labelEl.prepend(ico);
+        }
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
@@ -232,7 +238,7 @@ function _resetMkvAnalyzeSteps() {
   // Restaurar la cabecera al estado base: una apertura previa con match TMDb
   // pudo sustituir el poster por <img> y el título por el nombre de la peli.
   const posterEl = document.getElementById('mkv-analyze-modal-poster');
-  if (posterEl) posterEl.innerHTML = '<span id="mkv-analyze-modal-icon">✏️</span>';
+  if (posterEl) posterEl.innerHTML = '<span id="mkv-analyze-modal-icon"><span data-icono="lapiz"></span></span>';
   const titleEl = document.getElementById('mkv-analyze-modal-title');
   if (titleEl) titleEl.textContent = 'Analizando MKV';
 
@@ -243,9 +249,7 @@ function _resetMkvAnalyzeSteps() {
     const labelEl = s === 'pgs'
       ? document.getElementById('mkv-analyze-step-pgs-label')
       : container;
-    if (labelEl) {
-      labelEl.textContent = labelEl.textContent.replace(/^[✅⏳⬜]\s*/, i === 0 ? '⏳ ' : '⬜ ');
-    }
+    marcarPasoDeModal(labelEl, i === 0 ? 'curso' : 'pendiente');
   });
   const statsEl = document.getElementById('mkv-analyze-step-pgs-stats');
   if (statsEl) { statsEl.style.display = 'none'; statsEl.textContent = ''; }
@@ -260,7 +264,7 @@ function _advanceMkvAnalyzeStep(fromStep, nextStep) {
   const fromLabel = fromStep === 'pgs'
     ? document.getElementById('mkv-analyze-step-pgs-label')
     : document.getElementById(`mkv-analyze-step-${fromStep}`);
-  if (fromLabel) fromLabel.textContent = fromLabel.textContent.replace(/^[⏳⬜✅]\s*/, '✅ ');
+  marcarPasoDeModal(fromLabel, 'hecho');
   const fromContainer = document.getElementById(`mkv-analyze-step-${fromStep}`);
   if (fromContainer) fromContainer.style.opacity = '1';
 
@@ -270,7 +274,7 @@ function _advanceMkvAnalyzeStep(fromStep, nextStep) {
     const nextLabel = nextStep === 'pgs'
       ? document.getElementById('mkv-analyze-step-pgs-label')
       : nextContainer;
-    if (nextLabel) nextLabel.textContent = nextLabel.textContent.replace(/^[⏳⬜✅]\s*/, '⏳ ');
+    marcarPasoDeModal(nextLabel, 'curso');
   }
 }
 
@@ -333,7 +337,7 @@ function _mkvSubTabInnerHtml(project) {
     <span class="unsaved-dot" id="mkv-unsaved-dot-${project.id}"
       style="display:${project.dirty ? 'inline' : 'none'}"
       data-tooltip="Cambios sin guardar">●</span>
-    <span class="subtab-proj-icon">✏️</span>
+    <span class="subtab-proj-icon"><span data-icono="lapiz"></span></span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.fileName || '')}">${escHtml(corto)}</span>
     <button class="subtab-proj-close" onclick="closeMkvProject('${project.id}');event.stopPropagation()"
       data-tooltip="Cerrar este MKV">×</button>`;
@@ -522,7 +526,7 @@ function _rgrfRow(label, value, { tooltip = '', status = 'neutral' } = {}) {
 
 /** Icono ✓/✗ según presencia, con tooltip explicativo opcional. */
 function _rgrfPresence(present, label, { tooltip = '' } = {}) {
-  const icon  = present ? '✓' : '✗';
+  const icon  = icono(present ? 'check' : 'cruz');
   const color = present ? '#0e6b2a' : 'var(--text-3)';
   const bg    = present ? 'rgba(52,199,89,0.10)' : 'transparent';
   const tip   = tooltip ? ` data-tooltip="${escHtml(tooltip)}"` : '';
@@ -1109,7 +1113,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
     if (ratio < 0.5) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-low">
-          <span class="dv-mc-div-icon">⚠️</span>
+          <span class="dv-mc-div-icon"><span data-icono="aviso"></span></span>
           <span><strong>Master conservador con tone-mapping agresivo</strong> —
             L1 RPU peak ${l1Peak.toFixed(0)} nits vs HDR10 SEI MaxCLL ${seiCll} nits
             (ratio ${ratio.toFixed(2)}×). El colorista etiquetó la metadata DV
@@ -1120,7 +1124,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
     } else if (ratio > 2.0) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-high">
-          <span class="dv-mc-div-icon">ℹ️</span>
+          <span class="dv-mc-div-icon"><span data-icono="info"></span></span>
           <span><strong>L1 RPU más generoso que HDR10 SEI</strong> —
             L1 peak ${l1Peak.toFixed(0)} nits vs SEI MaxCLL ${seiCll} nits
             (ratio ${ratio.toFixed(2)}×). El SEI HDR10 está etiquetado conservadoramente
@@ -1555,7 +1559,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
        ${statsCardHtml}
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
-         <div class="dv-chart-empty-icon">📊</div>
+         <div class="dv-chart-empty-icon"><span data-icono="grafico"></span></div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
          <div class="dv-chart-empty-hint">Sale del <b>Análisis extendido</b>, junto a la auditoría de calidad: extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los dos. ~5-10 min en UHD.</div>
        </div>`;
@@ -1563,12 +1567,12 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   // auditoría de calidad, compartiendo la extracción del RPU.
   const btnComparar = hasLightProfile
     ? (comparacion
-       ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-tooltip="Volver a ver solo este MKV"><span>✕</span> Quitar comparación</button>`
-       : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span>⚖️</span> Comparar con…</button>`)
+       ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-tooltip="Volver a ver solo este MKV"><span><span data-icono="cruz"></span></span> Quitar comparación</button>`
+       : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span><span data-icono="grafico"></span></span> Comparar con…</button>`)
     : '';
   const actionBtn = (hasLightProfile
-    ? `<button class="btn btn-ghost btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span>↻</span> Re-analizar</button>`
-    : `<button class="btn btn-primary btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span>🔬</span> Análisis extendido</button>`) + btnComparar;
+    ? `<button class="btn btn-ghost btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span><span data-icono="refrescar"></span></span> Re-analizar</button>`
+    : `<button class="btn btn-primary btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span><span data-icono="lupaOnda"></span></span> Análisis extendido</button>`) + btnComparar;
   // Tooltip explicando que estos valores son metadata DV L1 (no medidas
   // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
   // medidas reales tras tone-mapping sean 500-600 nits — porque el
@@ -1597,7 +1601,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
       <div class="dv-detail-header">
         <h4 class="dv-detail-title">Información detallada HDR / Dolby Vision</h4>
         <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
-                data-tooltip="Copia toda la información como Markdown">📋 Copiar</button>
+                data-tooltip="Copia toda la información como Markdown"><span data-icono="portapapeles"></span> Copiar</button>
       </div>
       ${blockQuality}
       ${blockStream}
@@ -1626,7 +1630,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
     const cmLabel = isV40 ? 'CMv4.0' : (dv?.cm_version ? dv.cm_version.toUpperCase() : 'CMv2.9');
     return `
       <section class="dv-block dv-quality-card dv-quality-empty">
-        <div class="dv-quality-empty-icon">🔬</div>
+        <div class="dv-quality-empty-icon"><span data-icono="lupaOnda"></span></div>
         <div class="dv-quality-empty-body">
           <div class="dv-quality-empty-title">Análisis extendido ${cmLabel}</div>
           <div class="dv-quality-empty-text">
@@ -1638,7 +1642,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
           <button class="btn btn-primary btn-sm dv-quality-cta"
                   data-analisis-extendido="1"
                   onclick="_rgrfAuditQuality(event)">
-            <span>🔬</span> Análisis extendido (~5-10 min)
+            <span><span data-icono="lupaOnda"></span></span> Análisis extendido (~5-10 min)
           </button>
           <div class="dv-quality-empty-hint">
             Extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los
@@ -1649,11 +1653,13 @@ function _rgrfQualityAuditCard(dv, isV40) {
   }
 
   // Estado poblado
+  // El punto va con la paleta del tema; un emoji de color no la hereda y a
+  // 12 px se ve como un borrón.
   const colorMap = {
-    green:  { badge: '🟢', cls: 'dv-q-green' },
-    yellow: { badge: '🟡', cls: 'dv-q-yellow' },
-    red:    { badge: '🔴', cls: 'dv-q-red' },
-    gray:   { badge: '⚪', cls: 'dv-q-gray' },
+    green:  { badge: '<span class="punto-conf alta"></span>',  cls: 'dv-q-green' },
+    yellow: { badge: '<span class="punto-conf media"></span>', cls: 'dv-q-yellow' },
+    red:    { badge: '<span class="punto-conf mala"></span>',  cls: 'dv-q-red' },
+    gray:   { badge: '<span class="punto-conf"></span>',       cls: 'dv-q-gray' },
   };
   const color = colorMap[dv.quality_verdict_color] || colorMap.gray;
   const verdict = dv.quality_verdict_text || '—';
@@ -1679,7 +1685,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
         </div>
         <button class="btn btn-ghost btn-xs dv-quality-reaudit"
                 onclick="_rgrfAuditQuality(event)"
-                data-tooltip="Re-analizar (5-10 min). Útil si el clasificador mejoró o el MKV cambió.">↻ Re-analizar</button>
+                data-tooltip="Re-analizar (5-10 min). Útil si el clasificador mejoró o el MKV cambió."><span data-icono="refrescar"></span> Re-analizar</button>
       </div>
       <div class="dv-quality-stats">
         <div class="dv-quality-stat">
@@ -1856,7 +1862,7 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   }
   if (st.error) {
     const cancelado = st.step === 'cancelled' || /cancelad/i.test(st.error);
-    showToast(cancelado ? '🛑 Auditoría cancelada' : `Error auditoría: ${st.error}`,
+    showToast(cancelado ? 'Auditoría cancelada' : `Error auditoría: ${st.error}`,
               cancelado ? 'info' : 'error', cancelado ? 3500 : 8000);
     return;
   }
@@ -1965,7 +1971,7 @@ async function _rgrfCopyToClipboard(evt) {
   ].join('\n');
 
   const ok = await _copyTextToClipboardWithFallback(md);
-  showToast(ok ? '✓ Radiografía copiada como Markdown' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
+  showToast(ok ? 'Radiografía copiada como Markdown' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
 // `_rgrfAnalyzeLight` y los helpers `_dvLight*` vivían aquí: modal propio,
@@ -2042,12 +2048,12 @@ function _renderMkvEditPanel(project = mkvProject) {
     const isV40 = cm.includes('4.0') || cm.includes('v4');
     const isV29 = cm.includes('2.9') || cm.includes('v2');
     if (isV40) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)">✓ CMv4.0</span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)"><span data-icono="check"></span> CMv4.0</span>`;
       // Los badges heuristicos de procedencia (nativo/retail/generado/incierto)
       // se reemplazaron por la tabla detallada "Radiografia DV+HDR" que muestra
       // los datos factuales sin interpretacion.
     } else if (isV29) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11">⚡ CMv2.9</span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11"><span data-icono="rayo"></span> CMv2.9</span>`;
       cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500">→ Upgradeable a CMv4.0 (pestaña "Upgrade Dolby Vision CMv4.0")</span>`;
     } else if (dv.cm_version) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(142,142,147,0.20); color:var(--text-2); font-size:11px; font-weight:700">CM ${escHtml(dv.cm_version)}</span>`;
@@ -2068,10 +2074,10 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Info del fichero (solo lectura) -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title">📦 Fichero MKV</div></div>
+          <div><div class="section-title"><span data-icono="caja"></span> Fichero MKV</div></div>
           <button class="btn btn-ghost btn-xs" onclick="reanalyzeMkv()"
                   data-tooltip="Invalida el cache y re-ejecuta el análisis completo (1-3 min). Útil si el fichero cambió externamente o tras una mejora del clasificador."
-                  style="margin-left:auto; color:var(--text-2)">↻ Re-analizar</button>
+                  style="margin-left:auto; color:var(--text-2)"><span data-icono="refrescar"></span> Re-analizar</button>
         </div>
         <div class="section-body">
           <div style="font-weight:600; font-size:14px; margin-bottom:4px">${escHtml(a.file_name)}</div>
@@ -2088,11 +2094,11 @@ function _renderMkvEditPanel(project = mkvProject) {
       <div class="section-card">
         <div class="section-header">
           <div style="flex:1">
-            <div class="section-title">🎞️ Vídeo</div>
+            <div class="section-title"><span data-icono="cinta"></span> Vídeo</div>
           </div>
           <div class="video-header-badges">
             ${hdrBadge ? `<span class="video-badge video-badge-hdr">${hdrBadge}</span>` : ''}
-            ${dvDetected && dvProfileLine ? `<span class="video-badge video-badge-dv">✨ DV ${escHtml(dvProfileLine.replace('Profile ', 'P'))}</span>` : ''}
+            ${dvDetected && dvProfileLine ? `<span class="video-badge video-badge-dv"><span data-icono="destellos"></span> DV ${escHtml(dvProfileLine.replace('Profile ', 'P'))}</span>` : ''}
             ${cmBadgeHtml}
             ${cmHintHtml ? `<span class="video-hint">${cmHintHtml}</span>` : ''}
           </div>
@@ -2109,7 +2115,7 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Pistas de Audio -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title">🔊 Pistas de audio <span style="font-weight:400; color:var(--text-3); font-size:11px">(${audioTracks.length})</span></div>
+          <div><div class="section-title"><span data-icono="grafico"></span> Pistas de audio <span style="font-weight:400; color:var(--text-3); font-size:11px">(${audioTracks.length})</span></div>
           <div class="section-subtitle">Edita nombres y flag default</div></div>
         </div>
         <div class="section-body">
@@ -2120,7 +2126,7 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Pistas de Subtítulos -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title">💬 Pistas de subtítulos <span style="font-weight:400; color:var(--text-3); font-size:11px">(${subTracks.length})</span></div>
+          <div><div class="section-title"><span data-icono="etiqueta"></span> Pistas de subtítulos <span style="font-weight:400; color:var(--text-3); font-size:11px">(${subTracks.length})</span></div>
           <div class="section-subtitle">Edita nombres, flags default y forzado</div></div>
         </div>
         <div class="section-body">
@@ -2131,15 +2137,15 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Capítulos -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title">📖 Capítulos</div>
+          <div><div class="section-title"><span data-icono="libro"></span> Capítulos</div>
           <div class="section-subtitle">Clic en la barra para añadir · arrastra marcas para ajustar</div></div>
           <button class="btn btn-xs" id="mkv-chapters-generic-btn-${pid}" style="display:none; margin-left:auto"
             onclick="setMkvGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)">🏷️ Nombres genéricos</button>
+            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> Nombres genéricos</button>
         </div>
         <div class="section-body">
           <div id="mkv-chapters-banner-${pid}" class="banner info" style="display:none">
-            <span class="banner-icon" id="mkv-chapters-icon-${pid}">💿</span>
+            <span class="banner-icon" id="mkv-chapters-icon-${pid}"><span data-icono="disco"></span></span>
             <span id="mkv-chapters-text-${pid}"></span>
             <button class="btn btn-xs" id="mkv-chapters-autogen-btn-${pid}" style="display:none; margin-left:auto"
               onclick="generateMkvAutoChapters()"
@@ -2161,15 +2167,15 @@ function _renderMkvEditPanel(project = mkvProject) {
       <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-bottom:12px">
         <button class="btn btn-ghost btn-md" onclick="showRawMkvData()"
           data-tooltip="Ver datos crudos del análisis (mkvmerge -J + MediaInfo + log)"
-          style="color:var(--text-2); margin-right:auto">🔬 Datos MKV</button>
+          style="color:var(--text-2); margin-right:auto"><span data-icono="lupaOnda"></span> Datos MKV</button>
         <button class="btn btn-ghost btn-md" onclick="undoMkvEdits()"
           data-tooltip="Revertir todos los cambios al estado original"
           style="color:var(--text-2)">↩️ Deshacer cambios</button>
         <button class="btn btn-ghost btn-md" onclick="closeMkvEditor()"
           data-tooltip="Cerrar el editor"
-          style="color:var(--red)">✕ Cerrar</button>
+          style="color:var(--red)"><span data-icono="cruz"></span> Cerrar</button>
         <button class="btn btn-primary btn-md" onclick="applyMkvEdits()"
-          data-tooltip="Aplica todos los cambios al MKV">✅ Aplicar cambios</button>
+          data-tooltip="Aplica todos los cambios al MKV"><span data-icono="check"></span> Aplicar cambios</button>
       </div>
     </div>`;
 
@@ -2321,9 +2327,9 @@ function _renderMkvTracks(project = mkvProject) {
     li.className = 'track-item';
     li.dataset.trackId = t.id;
     li.innerHTML = `
-      <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">🔊</span>
+      <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="grafico"></span></span>
       <div class="track-main">
-        <span class="track-edit-icon">✏️</span>
+        <span class="track-edit-icon"><span data-icono="lapiz"></span></span>
         <input class="track-label-input" type="text"
           value="${escHtml(t.name || '')}"
           placeholder="${escHtml(langName + ' ' + codecPretty)}"
@@ -2407,9 +2413,9 @@ function _renderMkvTracks(project = mkvProject) {
     li.className = 'track-item';
     li.dataset.trackId = t.id;
     li.innerHTML = `
-      <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">💬</span>
+      <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="etiqueta"></span></span>
       <div class="track-main">
-        <span class="track-edit-icon">✏️</span>
+        <span class="track-edit-icon"><span data-icono="lapiz"></span></span>
         <input class="track-label-input" type="text"
           value="${escHtml(t.name || '')}"
           placeholder="${escHtml(langName + ' ' + forcedLabel + ' (' + codecPretty + ')')}"
@@ -2502,7 +2508,7 @@ function generateMkvAutoChapters() {
   a.chapters = chapters;
   _mkvMarkDirty();
   _renderMkvChapters();
-  showToast(`✓ ${chapters.length} capítulos generados — pulsa "Aplicar cambios" para escribirlos al MKV`, 'success');
+  showToast(`${chapters.length} capítulos generados — pulsa "Aplicar cambios" para escribirlos al MKV`, 'success');
 }
 
 function _renderMkvChapterMarks(project = mkvProject) {
@@ -2546,7 +2552,7 @@ function _renderMkvChapterList(project = mkvProject) {
       <input type="text" class="chapter-name" value="${escHtml(ch.name)}"
         onchange="onMkvChapterNameChange(${idx}, this.value)">
       <button class="btn btn-icon" onclick="deleteMkvChapter(${idx})"
-        data-tooltip="Eliminar capítulo">✕</button>`;
+        data-tooltip="Eliminar capítulo"><span data-icono="cruz"></span></button>`;
     container.appendChild(row);
   });
 }
@@ -2837,7 +2843,7 @@ async function _doApplyMkvEdits(copyToOutput) {
     project.filePath = newFilePath;
     project.fileName = newFilePath.split('/').pop();
     _mkvRefreshSubTab(project);
-    showToast(`✓ MKV copiado a Output con tus cambios: ${project.fileName}`, 'success');
+    showToast(`MKV copiado a Output con tus cambios: ${project.fileName}`, 'success');
   }
 
   // Re-analizar para refrescar estado — usamos el path ABSOLUTO del MKV
@@ -2863,7 +2869,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   refrescarMkvRecientes();
 
   cerrarModalDeTrabajo();
-  showToast('✓ Cambios aplicados correctamente', 'success');
+  showToast('Cambios aplicados correctamente', 'success');
 }
 
 /**
@@ -2978,7 +2984,7 @@ async function _cargarComparacionLuminancia(ruta) {
       fichero: ruta,
     };
     _renderMkvEditPanel(project);
-    showToast(`⚖️ Comparando con ${r.file_name}`, 'success');
+    showToast(`Comparando con ${r.file_name}`, 'success');
   } catch (e) {
     showToast(`No se pudo cargar la comparación: ${e.message}`, 'error', 6000);
   }
@@ -3024,7 +3030,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   if (dMia && dSuya) {
     const rel = Math.abs(dMia - dSuya) / Math.max(dMia, dSuya);
     if (rel > _CMP_TOLERANCIA_DURACION) {
-      aviso = `<div class="cmp-aviso">⚠️ Duran distinto (${_rgrfFmtTime(dMia)} vs
+      aviso = `<div class="cmp-aviso"><span data-icono="aviso"></span> Duran distinto (${_rgrfFmtTime(dMia)} vs
         ${_rgrfFmtTime(dSuya)}, ${(rel * 100).toFixed(1)}%). El eje X va normalizado al
         metraje, así que las dos curvas ocupan todo el ancho igualmente: pueden ser
         montajes distintos y estar comparando escenas que no se corresponden.</div>`;
@@ -3035,7 +3041,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   }
 
   return `<div class="dv-cmp-card">
-    <div class="dv-cmp-head">⚖️ Comparación con <b>${cmp.etiqueta}</b></div>
+    <div class="dv-cmp-head"><span data-icono="grafico"></span> Comparación con <b>${cmp.etiqueta}</b></div>
     ${celdas ? `<table class="dv-cmp-table">
       <thead><tr><th></th><th>Este MKV</th><th>${cmp.etiqueta}</th><th>Δ</th></tr></thead>
       <tbody>${celdas}</tbody></table>` : ''}
@@ -3106,7 +3112,7 @@ function _renderMkvRecientesErrorDeCarga() {
         Los análisis siguen guardados. Abrir un MKV funciona igual.
       </div>
       <button class="btn btn-ghost btn-xs" style="margin-top:10px"
-        onclick="refrescarMkvRecientes()">↻ Reintentar</button>
+        onclick="refrescarMkvRecientes()"><span data-icono="refrescar"></span> Reintentar</button>
     </div>`;
 }
 
@@ -3214,7 +3220,7 @@ function _renderMkvRecientes() {
 
   if (!_mkvRecientes.length) {
     lista.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">🗄️</div>
+      <div class="empty-state-icon"><span data-icono="caja"></span></div>
       <div>Sin MKVs analizados</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:4px">Pulsa "Abrir MKV" para empezar</div>
     </div>`;
@@ -3222,7 +3228,7 @@ function _renderMkvRecientes() {
   }
   if (!filtrada.length) {
     lista.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">🔎</div>
+      <div class="empty-state-icon"><span data-icono="lupa"></span></div>
       <div>Sin resultados</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:4px">Prueba con otro término o filtro</div>
     </div>`;
@@ -3393,9 +3399,9 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
     pasosTitulo: 'Fases del análisis extendido',
     pasos: [
-      { icono: '🎬', titulo: 'Fase A · Extracción del RPU',
+      { icono: 'claqueta', titulo: 'Fase A · Extracción del RPU',
         sub: 'ffmpeg y dovi_tool encadenados por un pipe, sin escribir el HEVC' },
-      { icono: '📊', titulo: 'Fase B · Combos y perfil de luminancia',
+      { icono: 'grafico', titulo: 'Fase B · Combos y perfil de luminancia',
         sub: 'Export por niveles, combos L8/L2 y análisis L1 frame a frame' },
     ],
     conLog: true,
@@ -3416,9 +3422,9 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦') : null,
     pasosTitulo: 'Fases de la copia',
     pasos: [
-      { icono: '📦', titulo: 'Fase A · Copia del MKV',
+      { icono: 'caja', titulo: 'Fase A · Copia del MKV',
         sub: 'De la biblioteca (solo lectura) a /mnt/output' },
-      { icono: '🏷️', titulo: 'Fase B · Escritura de metadatos',
+      { icono: 'etiqueta', titulo: 'Fase B · Escritura de metadatos',
         sub: 'mkvpropedit sobre la copia, sin remuxar' },
     ],
     conLog: false,

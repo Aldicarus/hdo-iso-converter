@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260911v">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
+  <link rel="stylesheet" href="/static/style.css?v=20260911w">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -32,23 +32,23 @@
         onclick="openSettingsModal()"
         data-tooltip="Hay una nueva versión publicada — abre Configuración para ver detalles"
         style="display:none">
-        <span class="header-update-pill-icon">🔔</span>
+        <span class="header-update-pill-icon" data-icono="campana"></span>
         <span class="header-update-pill-text" id="header-update-pill-text">Nueva versión</span>
       </button>
       <button class="btn-help" onclick="openCMv40HelpModal()"
         data-tooltip="Manual completo de Dolby Vision CMv4.0: conceptos, pipelines, DoviTools, herramientas"
         aria-label="Ayuda / Manual">
-        <span class="btn-help-icon">📖</span>
+        <span class="btn-help-icon" data-icono="libro"></span>
       </button>
       <button class="btn-lookup" onclick="openCMv40LookupModal()"
         data-tooltip="Consulta rápida — comprueba si una película tiene bin en DoviTools y qué pipeline se aplicaría (sin crear proyecto)"
         aria-label="Consulta rápida CMv4.0">
-        <span class="btn-lookup-icon">🔎</span>
+        <span class="btn-lookup-icon" data-icono="lupa"></span>
       </button>
       <button class="btn-settings" onclick="openSettingsModal()"
         data-tooltip="Configuración (API keys, integraciones)"
         aria-label="Configuración">
-        <span class="btn-settings-icon">⚙︎</span>
+        <span class="btn-settings-icon" data-icono="ajustes"></span>
       </button>
     </div>
   </header>
@@ -60,15 +60,15 @@
   <nav id="tab-bar">
     <button class="tab active" onclick="switchTab(1)" id="tab-btn-1"
       data-tooltip="Convierte un ISO UHD Blu-ray en un MKV con pistas filtradas y Dolby Vision FEL">
-      <span class="tab-icon">💿</span> Blu-Ray ISO → MKV
+      <span class="tab-icon" data-icono="disco"></span> Blu-Ray ISO → MKV
     </button>
     <button class="tab" onclick="switchTab(3)" id="tab-btn-3"
       data-tooltip="Inyecta RPU Dolby Vision CMv4.0 sobre un MKV con CMv2.9 del Blu-ray original">
-      <span class="tab-icon">✨</span> Upgrade Dolby Vision CMv4.0
+      <span class="tab-icon" data-icono="destellos"></span> Upgrade Dolby Vision CMv4.0
     </button>
     <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
       data-tooltip="Inspecciona metadata detallada (codecs, HDR, Dolby Vision, CM version, subs) y edita nombres, flags y capítulos de ficheros MKV existentes">
-      <span class="tab-icon">✏️</span> Consultar / Editar MKV
+      <span class="tab-icon" data-icono="lapiz"></span> Consultar / Editar MKV
     </button>
 
     <!-- La cabecera de la columna de trabajo, FIJADA A LA DERECHA.
@@ -112,17 +112,17 @@
         <div class="sidebar-new-project-area">
           <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openNewProjectModal()"
             data-tooltip="Seleccionar un ISO y analizar para crear un nuevo proyecto">
-            <span>💿</span> Nuevo Proyecto ISO → MKV
+            <span data-icono="disco"></span> Nuevo Proyecto ISO → MKV
           </button>
         </div>
 
         <!-- Cabecera + búsqueda + controles -->
         <div class="sidebar-sessions-header">
-          <span class="sidebar-section-title">🗂️ Proyectos ISO → MKV</span>
+          <span class="sidebar-section-title"><span data-icono="carpeta"></span> Proyectos ISO → MKV</span>
           <span class="sessions-count" id="sessions-count">0</span>
         </div>
         <div class="sidebar-search-wrap">
-          <span class="sidebar-search-icon">🔎</span>
+          <span class="sidebar-search-icon" data-icono="lupa"></span>
           <input type="text" id="sidebar-search" class="sidebar-search-input"
             placeholder="Buscar proyecto…"
             oninput="filterSidebarSessions()"
@@ -144,13 +144,13 @@
           </div>
           <div class="sidebar-status-filters">
             <button class="sb-filter-pill active" data-filter="all" onclick="onSidebarFilterClick(this)"
-              data-tooltip="Todos">All</button>
+              data-tooltip="Todos">Todos</button>
             <button class="sb-filter-pill" data-filter="pending" onclick="onSidebarFilterClick(this)"
-              data-tooltip="Sin ejecutar">💿</button>
+              data-tooltip="Sin ejecutar"><span data-icono="disco"></span></button>
             <button class="sb-filter-pill" data-filter="done" onclick="onSidebarFilterClick(this)"
-              data-tooltip="Completados">✅</button>
+              data-tooltip="Completados"><span data-icono="check"></span></button>
             <button class="sb-filter-pill" data-filter="error" onclick="onSidebarFilterClick(this)"
-              data-tooltip="Con error">❌</button>
+              data-tooltip="Con error"><span data-icono="cruz"></span></button>
           </div>
         </div>
 
@@ -172,17 +172,17 @@
         <div class="sidebar-new-project-area">
           <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openMkvPickerModal()"
             data-tooltip="Selecciona un MKV de tu biblioteca o del output para inspeccionarlo y editarlo">
-            <span>📂</span> Abrir MKV
+            <span data-icono="abrir"></span> Abrir MKV
           </button>
         </div>
 
         <!-- Cabecera + búsqueda + controles -->
         <div class="sidebar-sessions-header">
-          <span class="sidebar-section-title">🗄️ MKVs analizados</span>
+          <span class="sidebar-section-title"><span data-icono="caja"></span> MKVs analizados</span>
           <span class="sessions-count" id="mkv-recientes-count">0</span>
         </div>
         <div class="sidebar-search-wrap">
-          <span class="sidebar-search-icon">🔎</span>
+          <span class="sidebar-search-icon" data-icono="lupa"></span>
           <input type="text" id="mkv-recientes-search" class="sidebar-search-input"
             placeholder="Buscar MKV…"
             oninput="filtrarMkvRecientes()"
@@ -212,13 +212,13 @@
                inalcanzables desde los filtros. -->
           <div class="sidebar-status-filters">
             <button class="sb-filter-pill active" data-filter="all" onclick="onMkvRecientesFilterClick(this)"
-              data-tooltip="Todos">All</button>
+              data-tooltip="Todos">Todos</button>
             <button class="sb-filter-pill" data-filter="extendido" onclick="onMkvRecientesFilterClick(this)"
-              data-tooltip="Con análisis extendido del RPU">🔬</button>
+              data-tooltip="Con análisis extendido del RPU"><span data-icono="lupaOnda"></span></button>
             <button class="sb-filter-pill" data-filter="basico" onclick="onMkvRecientesFilterClick(this)"
-              data-tooltip="Sin análisis extendido">📋</button>
+              data-tooltip="Sin análisis extendido"><span data-icono="portapapeles"></span></button>
             <button class="sb-filter-pill" data-filter="missing" onclick="onMkvRecientesFilterClick(this)"
-              data-tooltip="El fichero ya no está en la ruta analizada">⚠️</button>
+              data-tooltip="El fichero ya no está en la ruta analizada"><span data-icono="aviso"></span></button>
           </div>
         </div>
 
@@ -234,17 +234,17 @@
         <div class="sidebar-new-project-area">
           <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openNewCMv40Modal()"
             data-tooltip="Crear un nuevo proyecto CMv4.0">
-            <span>✨</span> Nuevo Proyecto CMv4.0
+            <span data-icono="destellos"></span> Nuevo Proyecto CMv4.0
           </button>
         </div>
 
         <!-- Cabecera + búsqueda + controles -->
         <div class="sidebar-sessions-header">
-          <span class="sidebar-section-title">🎨 Proyectos CMv4.0</span>
+          <span class="sidebar-section-title"><span data-icono="paleta"></span> Proyectos CMv4.0</span>
           <span class="sessions-count" id="cmv40-count">0</span>
         </div>
         <div class="sidebar-search-wrap">
-          <span class="sidebar-search-icon">🔎</span>
+          <span class="sidebar-search-icon" data-icono="lupa"></span>
           <input type="text" id="cmv40-sidebar-search" class="sidebar-search-input"
             placeholder="Buscar proyecto…"
             oninput="_renderCMv40Sidebar()"
@@ -265,13 +265,13 @@
           </div>
           <div class="sidebar-status-filters">
             <button class="sb-filter-pill active" data-filter="all" onclick="_cmv40FilterClick(this)"
-              data-tooltip="Todos">All</button>
+              data-tooltip="Todos">Todos</button>
             <button class="sb-filter-pill" data-filter="in_progress" onclick="_cmv40FilterClick(this)"
-              data-tooltip="En progreso">⏳</button>
+              data-tooltip="En progreso"><span data-icono="reloj"></span></button>
             <button class="sb-filter-pill" data-filter="done" onclick="_cmv40FilterClick(this)"
-              data-tooltip="Completados">✅</button>
+              data-tooltip="Completados"><span data-icono="check"></span></button>
             <button class="sb-filter-pill" data-filter="error" onclick="_cmv40FilterClick(this)"
-              data-tooltip="Con error">❌</button>
+              data-tooltip="Con error"><span data-icono="cruz"></span></button>
           </div>
         </div>
 
@@ -313,11 +313,11 @@
             <!-- Estado vacío: sin proyectos abiertos -->
             <div id="panel-empty-projects" class="subtab-panel">
               <div class="empty-state-full">
-                <div class="empty-state-icon" style="font-size:48px">💿</div>
+                <div class="empty-state-icon" style="font-size:48px" data-icono="disco"></div>
                 <div class="empty-state-title">Crear MKV desde ISO</div>
                 <div class="empty-state-desc">Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas de audio, subtítulos forzados y soporte Dolby Vision FEL.</div>
                 <button class="btn btn-primary btn-md" onclick="openNewProjectModal()"
-                  style="margin-top:16px"><span>💿</span> Nuevo Proyecto ISO → MKV</button>
+                  style="margin-top:16px"><span data-icono="disco"></span> Nuevo Proyecto ISO → MKV</button>
               </div>
             </div>
 
@@ -355,11 +355,11 @@
 
         <!-- Empty state: sin MKV cargado -->
         <div id="mkv-empty-state" class="empty-state-full">
-          <div class="empty-state-icon" style="font-size:48px">✏️</div>
+          <div class="empty-state-icon" style="font-size:48px" data-icono="lapiz"></div>
           <div class="empty-state-title">Consultar / Editar MKV</div>
           <div class="empty-state-desc">Inspecciona la metadata detallada de cualquier MKV (codecs, bitrate, HDR, Dolby Vision, CM version, paquetes PGS…) y edita nombres de pistas, flags y capítulos sin re-encodar.</div>
           <button class="btn btn-primary btn-md" onclick="openMkvPickerModal()"
-            style="margin-top:16px"><span>📂</span> Abrir MKV</button>
+            style="margin-top:16px"><span data-icono="abrir"></span> Abrir MKV</button>
         </div>
 
         <!-- Panel de edición: se muestra tras análisis -->
@@ -384,7 +384,7 @@
           <div class="cmv40-help-area">
             <button class="btn btn-ghost btn-md cmv40-help-btn" onclick="openCMv40CleanupModal()"
               data-tooltip="Limpieza masiva de artefactos: revisa el espacio que ocupa cada proyecto y borra los seleccionados">
-              <span>🗑️</span> Limpiar artefactos
+              <span data-icono="papelera"></span> Limpiar artefactos
             </button>
           </div>
         </div>
@@ -392,11 +392,11 @@
         <!-- Contenido del sub-tab activo -->
         <div id="cmv40-subtab-content" style="overflow-y:auto; flex:1; min-height:0">
           <div id="cmv40-empty-state" class="empty-state-full">
-            <div class="empty-state-icon" style="font-size:48px">✨</div>
+            <div class="empty-state-icon" style="font-size:48px" data-icono="destellos"></div>
             <div class="empty-state-title">Upgrade Dolby Vision CMv4.0</div>
             <div class="empty-state-desc">Actualiza el RPU Dolby Vision de un MKV del Blu-ray (CMv2.9) a CMv4.0 — añade metadata de tone-mapping L8-L11 para mejor HDR en TVs compatibles.</div>
             <button class="btn btn-primary btn-md" onclick="openNewCMv40Modal()"
-              style="margin-top:16px"><span>✨</span> Nuevo Proyecto CMv4.0</button>
+              style="margin-top:16px"><span data-icono="destellos"></span> Nuevo Proyecto CMv4.0</button>
           </div>
         </div>
 
@@ -450,11 +450,11 @@
         <button class="wb-pill active" data-tab="all" onclick="onWorkbarPill(this)"
           data-tooltip="Trabajo de las tres pestañas">Todos</button>
         <button class="wb-pill" data-tab="rip" onclick="onWorkbarPill(this)"
-          data-tooltip="Solo Blu-Ray ISO → MKV">💿</button>
+          data-tooltip="Solo Blu-Ray ISO → MKV"><span data-icono="disco"></span></button>
         <button class="wb-pill" data-tab="cmv40" onclick="onWorkbarPill(this)"
-          data-tooltip="Solo Upgrade Dolby Vision CMv4.0">✨</button>
+          data-tooltip="Solo Upgrade Dolby Vision CMv4.0"><span data-icono="destellos"></span></button>
         <button class="wb-pill" data-tab="mkv" onclick="onWorkbarPill(this)"
-          data-tooltip="Solo Consultar / Editar MKV">✏️</button>
+          data-tooltip="Solo Consultar / Editar MKV"><span data-icono="lapiz"></span></button>
       </div>
 
       <!-- UN solo scroll para toda la columna, y las cuatro secciones una
@@ -481,7 +481,7 @@
 <!-- ═══ MODAL: Nuevo proyecto ════════════════════════════════════ -->
 <div class="modal-overlay" id="new-project-modal" onclick="onModalOverlayClick(event,'new-project-modal')">
   <div class="modal-box" style="max-width:960px; width:92vw">
-    <div class="modal-title">💿 Nuevo proyecto</div>
+    <div class="modal-title"><span data-icono="disco"></span> Nuevo proyecto</div>
     <div class="modal-sub" id="new-project-sub">Paso 1: elige el tipo de contenido para empezar.</div>
 
     <!-- Tipo de contenido: el usuario lo elige explícitamente (en vez de
@@ -492,14 +492,14 @@
          de empezar con Película marcada sin querer). -->
     <div class="content-type-toggle" id="content-type-toggle">
       <button type="button" class="ctt-btn" id="ctt-btn-movie" onclick="onContentTypeChange('movie')">
-        <span class="ctt-icon">🎬</span>
+        <span class="ctt-icon" data-icono="claqueta"></span>
         <span class="ctt-text">
           <span class="ctt-label">Película</span>
           <span class="ctt-hint">Un solo MKV de salida</span>
         </span>
       </button>
       <button type="button" class="ctt-btn" id="ctt-btn-series" onclick="onContentTypeChange('series')">
-        <span class="ctt-icon">📺</span>
+        <span class="ctt-icon" data-icono="tv"></span>
         <span class="ctt-text">
           <span class="ctt-label">Serie</span>
           <span class="ctt-hint">Un MKV por episodio</span>
@@ -513,7 +513,7 @@
          podía empezar a navegar el browser sin haber tocado el toggle
          de tipo y se le quedaba en Película por defecto. -->
     <div class="new-project-locked-banner" id="new-project-locked-banner">
-      <span class="lpb-icon">👆</span>
+      <span class="lpb-icon" data-icono="flechaArriba"></span>
       <span class="lpb-text">Selecciona arriba si el contenido es <strong>Película</strong> o <strong>Serie</strong>. Lo necesitamos para mostrarte las opciones correctas y evitar errores en el análisis.</span>
     </div>
 
@@ -529,19 +529,19 @@
       <button class="cmv40-tab-btn active" id="source-tab-btn-iso"
         onclick="onSourceTabSwitch('iso')"
         data-tooltip="Fichero .iso de UHD Blu-ray (mount loop automático)">
-        <span class="tab-icon">💿</span>
+        <span class="tab-icon" data-icono="disco"></span>
         <span class="tab-label">ISO</span>
       </button>
       <button class="cmv40-tab-btn" id="source-tab-btn-bdmv"
         onclick="onSourceTabSwitch('bdmv_folder')"
         data-tooltip="Carpeta con BDMV/PLAYLIST/ dentro — disco extraído sin ISO">
-        <span class="tab-icon">📁</span>
+        <span class="tab-icon" data-icono="carpeta"></span>
         <span class="tab-label">Carpeta BDMV</span>
       </button>
       <button class="cmv40-tab-btn" id="source-tab-btn-m2ts"
         onclick="onSourceTabSwitch('m2ts')"
         data-tooltip="Ficheros .m2ts sueltos (uno = película, varios = episodios de serie)">
-        <span class="tab-icon">🎞️</span>
+        <span class="tab-icon" data-icono="cinta"></span>
         <span class="tab-label">Ficheros M2TS</span>
       </button>
     </div>
@@ -554,7 +554,7 @@
     <div id="source-panel-iso" class="source-panel">
       <div class="src-fb" data-filter="iso">
         <div class="src-fb-toolbar">
-          <div class="src-fb-breadcrumb" id="src-fb-iso-breadcrumb">📂 /mnt/isos</div>
+          <div class="src-fb-breadcrumb" id="src-fb-iso-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('iso','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
           <select class="src-fb-sort" id="src-fb-iso-sort" onchange="srcFbSetSort('iso', this.value)" data-tooltip="Orden de listado">
             <option value="name_asc">Nombre A→Z</option>
@@ -564,7 +564,7 @@
           </select>
         </div>
         <div class="src-fb-list" id="src-fb-iso-list">
-          <div class="src-fb-loading">⏳ Cargando…</div>
+          <div class="src-fb-loading"><span data-icono="reloj"></span> Cargando…</div>
         </div>
         <div class="src-fb-status" id="src-fb-iso-status">Navega hasta el .iso que quieras procesar y haz clic para seleccionarlo</div>
       </div>
@@ -575,7 +575,7 @@
     <div id="source-panel-bdmv" class="source-panel" style="display:none">
       <div class="src-fb" data-filter="bdmv">
         <div class="src-fb-toolbar">
-          <div class="src-fb-breadcrumb" id="src-fb-bdmv-breadcrumb">📂 /mnt/isos</div>
+          <div class="src-fb-breadcrumb" id="src-fb-bdmv-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('bdmv','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
           <select class="src-fb-sort" id="src-fb-bdmv-sort" onchange="srcFbSetSort('bdmv', this.value)" data-tooltip="Orden de listado">
             <option value="name_asc">Nombre A→Z</option>
@@ -583,9 +583,9 @@
           </select>
         </div>
         <div class="src-fb-list" id="src-fb-bdmv-list">
-          <div class="src-fb-loading">⏳ Cargando…</div>
+          <div class="src-fb-loading"><span data-icono="reloj"></span> Cargando…</div>
         </div>
-        <div class="src-fb-status" id="src-fb-bdmv-status">Navega hasta la carpeta marcada con 📀 (contiene una estructura BDMV) y haz clic para seleccionarla</div>
+        <div class="src-fb-status" id="src-fb-bdmv-status">Navega hasta la carpeta marcada como disco (contiene una estructura BDMV) y haz clic para seleccionarla</div>
       </div>
     </div>
 
@@ -593,9 +593,9 @@
     <div id="source-panel-m2ts" class="source-panel" style="display:none">
       <div class="src-fb" data-filter="m2ts">
         <div class="src-fb-toolbar">
-          <div class="src-fb-breadcrumb" id="src-fb-m2ts-breadcrumb">📂 /mnt/isos</div>
+          <div class="src-fb-breadcrumb" id="src-fb-m2ts-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
           <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('m2ts','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
-          <button class="btn btn-ghost btn-xs" onclick="srcFbM2tsClear()" data-tooltip="Quitar todas las selecciones">✕ Limpiar selección</button>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbM2tsClear()" data-tooltip="Quitar todas las selecciones"><span data-icono="cruz"></span> Limpiar selección</button>
           <select class="src-fb-sort" id="src-fb-m2ts-sort" onchange="srcFbSetSort('m2ts', this.value)" data-tooltip="Orden de listado — útil para localizar los m2ts grandes (episodios) entre los pequeños (extras)">
             <option value="size_desc" selected>Tamaño ↓</option>
             <option value="size_asc">Tamaño ↑</option>
@@ -604,7 +604,7 @@
           </select>
         </div>
         <div class="src-fb-list" id="src-fb-m2ts-list">
-          <div class="src-fb-loading">⏳ Cargando…</div>
+          <div class="src-fb-loading"><span data-icono="reloj"></span> Cargando…</div>
         </div>
         <div class="src-fb-status" id="src-fb-m2ts-status">Marca un fichero .m2ts (modo película — solo un MKV de salida)</div>
       </div>
@@ -615,7 +615,7 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('new-project-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="new-project-analyze-btn" onclick="analyzeSelectedISO()" disabled>
-        🔍 Analizar
+        <span data-icono="lupa"></span> Analizar
       </button>
     </div>
   </div>
@@ -635,7 +635,7 @@
   <div class="modal-box series-modal-box">
     <!-- Header fijo: título + subtítulo. NO scrolea con el contenido. -->
     <div class="series-modal-header">
-      <div class="modal-title" id="series-modal-title">📺 Serie detectada</div>
+      <div class="modal-title" id="series-modal-title"><span data-icono="tv"></span> Serie detectada</div>
       <div class="modal-sub" id="series-modal-sub">
         Se han detectado varios episodios candidatos. Identifica la serie y asígnale a cada uno su número.
       </div>
@@ -657,10 +657,10 @@
         <div class="series-section-title">1 · Identifica la serie</div>
         <div class="series-mode-toggle">
           <button class="series-mode-btn active" id="series-mode-btn-tmdb" onclick="seriesSetMode('tmdb')">
-            🔍 Buscar en TMDb
+            <span data-icono="lupa"></span> Buscar en TMDb
           </button>
           <button class="series-mode-btn" id="series-mode-btn-manual" onclick="seriesSetMode('manual')">
-            ✏️ Configurar manualmente
+            <span data-icono="lapiz"></span> Configurar manualmente
           </button>
         </div>
 
@@ -673,7 +673,7 @@
             <input type="number" id="series-tmdb-year"
                    class="series-input series-input-year"
                    placeholder="Año">
-            <button class="btn btn-primary btn-md" onclick="seriesTmdbSearch()">🔍 Buscar</button>
+            <button class="btn btn-primary btn-md" onclick="seriesTmdbSearch()"><span data-icono="lupa"></span> Buscar</button>
           </div>
           <div id="series-tmdb-results" class="series-tmdb-results"></div>
         </div>
@@ -692,7 +692,7 @@
             <input type="number" id="series-manual-season" class="series-input series-input-year" placeholder="1" min="1" value="1">
           </div>
           <button class="btn btn-primary btn-md" id="series-manual-confirm-btn" onclick="seriesConfirmManual()" style="margin-top:12px">
-            ✓ Continuar con estos datos
+            <span data-icono="check"></span> Continuar con estos datos
           </button>
         </div>
       </div>
@@ -710,7 +710,7 @@
       <div id="series-episodes-section" class="series-section" style="display:none">
         <div class="series-section-title">3 · Asigna cada origen a un episodio</div>
         <div class="series-section-help" id="series-episodes-help">
-          La asignación inicial MPLS ↔ episodio es <strong>una estimación</strong> basada en la duración de cada playlist comparada con el runtime de TMDb (🟢 coincidencia alta · 🟡 coincidencia baja · ⚪ sin coincidencia). <strong>Valida manualmente</strong> que cada MPLS corresponda al episodio correcto antes de crear — el desplegable de la derecha te permite cambiar la asignación si fuera incorrecta. Marca solo los episodios que quieras procesar.
+          La asignación inicial MPLS ↔ episodio es <strong>una estimación</strong> basada en la duración de cada playlist comparada con el runtime de TMDb (<span class="punto-conf alta" data-tooltip="coincide con la duración de TMDb"></span> coincidencia alta · <span class="punto-conf media" data-tooltip="difiere de la duración de TMDb"></span> coincidencia baja · <span class="punto-conf baja" data-tooltip="sin duración con la que comparar"></span> sin coincidencia). <strong>Valida manualmente</strong> que cada MPLS corresponda al episodio correcto antes de crear — el desplegable de la derecha te permite cambiar la asignación si fuera incorrecta. Marca solo los episodios que quieras procesar.
         </div>
         <div id="series-episodes-table" class="series-ep-table"></div>
       </div>
@@ -721,7 +721,7 @@
     <div class="modal-footer series-modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('series-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="series-create-btn" onclick="seriesCreateSessions()" disabled>
-        ➕ Crear proyectos
+        <span data-icono="destellos"></span> Crear proyectos
       </button>
     </div>
   </div>
@@ -738,7 +738,7 @@
          se muestra el icono emoji. -->
     <div class="progress-modal-header">
       <div class="progress-modal-poster" id="progress-modal-poster">
-        <span id="progress-modal-icon">⏳</span>
+        <span id="progress-modal-icon" data-icono="reloj"></span>
       </div>
       <div class="progress-modal-titles">
         <div class="modal-title" id="progress-modal-title">Procesando…</div>
@@ -783,7 +783,7 @@
   <div class="modal-box analyze-modal-box">
     <div class="analyze-modal-header">
       <div class="analyze-modal-poster" id="analyze-modal-poster">
-        <span id="analyze-modal-icon">💿</span>
+        <span id="analyze-modal-icon" data-icono="disco"></span>
       </div>
       <div class="analyze-modal-titles">
         <div class="modal-title" id="analyze-modal-title">Analizando disco</div>
@@ -791,19 +791,19 @@
       </div>
     </div>
     <div id="analyze-modal-steps" class="analyze-modal-steps">
-      <div id="analyze-step-mount">⏳ Montando el ISO…</div>
-      <div id="analyze-step-identify" style="opacity:.4">⬜ Identificando pistas del disco…</div>
-      <div id="analyze-step-chapters" style="opacity:.4">⬜ Extrayendo capítulos…</div>
-      <div id="analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadatos extendidos…</div>
+      <div id="analyze-step-mount"><span class="paso-ico paso-curso" data-icono="reloj"></span> Montando el ISO…</div>
+      <div id="analyze-step-identify" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Identificando pistas del disco…</div>
+      <div id="analyze-step-chapters" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Extrayendo capítulos…</div>
+      <div id="analyze-step-mediainfo" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Analizando metadatos extendidos…</div>
       <div id="analyze-step-pgs" style="opacity:.4">
-        <div id="analyze-step-pgs-label">⬜ Analizando subtítulos del disco (1-3 min)…</div>
+        <div id="analyze-step-pgs-label"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Analizando subtítulos del disco (1-3 min)…</div>
         <div id="analyze-step-pgs-bar" style="display:none; margin:6px 0 2px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
           <div id="analyze-step-pgs-bar-fill" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px; box-shadow:0 0 6px rgba(59,143,255,0.4)"></div>
         </div>
         <div id="analyze-step-pgs-stats" style="display:none; font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums"></div>
       </div>
-      <div id="analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision…</div>
-      <div id="analyze-step-rules" style="opacity:.4">⬜ Aplicando reglas automáticas…</div>
+      <div id="analyze-step-dovi" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Analizando Dolby Vision…</div>
+      <div id="analyze-step-rules" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Aplicando reglas automáticas…</div>
     </div>
     <div class="analyze-modal-footer">
       <div class="analyze-spinner"></div>
@@ -823,12 +823,12 @@
     </div>
     <div class="file-browser-roots" id="file-browser-roots" style="display:none"></div>
     <div class="file-browser-toolbar">
-      <button class="file-browser-up" id="file-browser-up-btn" onclick="fileBrowserUp()" title="Subir un nivel">⬆</button>
+      <button class="file-browser-up" id="file-browser-up-btn" onclick="fileBrowserUp()" title="Subir un nivel"><span data-icono="subirNivel"></span></button>
       <div class="file-browser-breadcrumb" id="file-browser-breadcrumb"></div>
     </div>
     <div class="file-browser-search-row">
       <input type="text" id="file-browser-search" class="file-browser-search-input"
-             placeholder="🔍 Filtrar por nombre…" oninput="fileBrowserFilter(this.value)" />
+             placeholder="Filtrar por nombre…" oninput="fileBrowserFilter(this.value)" />
       <span class="file-browser-stats" id="file-browser-stats"></span>
     </div>
     <div class="file-browser-list" id="file-browser-list"></div>
@@ -853,7 +853,7 @@
   <div class="modal-box analyze-modal-box">
     <div class="analyze-modal-header">
       <div class="analyze-modal-poster" id="mkv-analyze-modal-poster">
-        <span id="mkv-analyze-modal-icon">✏️</span>
+        <span id="mkv-analyze-modal-icon" data-icono="lapiz"></span>
       </div>
       <div class="analyze-modal-titles">
         <div class="modal-title" id="mkv-analyze-modal-title">Analizando MKV</div>
@@ -861,16 +861,16 @@
       </div>
     </div>
     <div class="analyze-modal-steps">
-      <div id="mkv-analyze-step-identify">⏳ Identificando pistas (mkvmerge -J)…</div>
-      <div id="mkv-analyze-step-mediainfo" style="opacity:.4">⬜ Analizando metadata extendida (MediaInfo)…</div>
+      <div id="mkv-analyze-step-identify"><span class="paso-ico paso-curso" data-icono="reloj"></span> Identificando pistas (mkvmerge -J)…</div>
+      <div id="mkv-analyze-step-mediainfo" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Analizando metadata extendida (MediaInfo)…</div>
       <div id="mkv-analyze-step-pgs" style="opacity:.4">
-        <div id="mkv-analyze-step-pgs-label">⬜ Contando paquetes PGS por subtítulo (1-3 min en MKVs grandes)…</div>
+        <div id="mkv-analyze-step-pgs-label"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Contando paquetes PGS por subtítulo (1-3 min en MKVs grandes)…</div>
         <div id="mkv-analyze-step-pgs-bar" style="display:none; margin:6px 0 2px; height:8px; background:rgba(0,0,0,0.08); border-radius:4px; overflow:hidden">
           <div id="mkv-analyze-step-pgs-bar-fill" style="height:100%; width:0%; background:linear-gradient(90deg,#1e6fe6,#5ab3ff); transition:width 0.4s ease; border-radius:4px; box-shadow:0 0 6px rgba(59,143,255,0.4)"></div>
         </div>
         <div id="mkv-analyze-step-pgs-stats" style="display:none; font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums"></div>
       </div>
-      <div id="mkv-analyze-step-dovi" style="opacity:.4">⬜ Analizando Dolby Vision (dovi_tool)…</div>
+      <div id="mkv-analyze-step-dovi" style="opacity:.4"><span class="paso-ico paso-pendiente" data-icono="pendiente"></span> Analizando Dolby Vision (dovi_tool)…</div>
     </div>
     <div class="progress-modal-footnote" style="font-style:italic; margin-top:2px">
       El MKV no se modifica en este paso — solo se leen sus metadatos.
@@ -884,11 +884,11 @@
 <!-- ═══ MODAL: Datos de análisis del ISO ═════════════════════════ -->
 <div class="modal-overlay" id="raw-analysis-modal" onclick="onModalOverlayClick(event,'raw-analysis-modal')">
   <div class="modal-box modal-box-wide">
-    <div class="modal-title">🔬 Datos de análisis del ISO</div>
+    <div class="modal-title"><span data-icono="lupaOnda"></span> Datos de análisis del ISO</div>
     <div class="modal-sub">Información extraída por mkvmerge -J, MediaInfo, dovi_tool y reglas automáticas. Útil para diagnóstico.</div>
     <div style="text-align:right; margin-bottom:8px">
       <button class="btn btn-ghost btn-xs" onclick="_copyRawAnalysis()"
-        data-tooltip="Copiar al portapapeles">📋 Copiar</button>
+        data-tooltip="Copiar al portapapeles"><span data-icono="portapapeles"></span> Copiar</button>
     </div>
     <pre id="raw-analysis-content" class="raw-analysis-pre"></pre>
   </div>
@@ -925,7 +925,7 @@
            ancho del modal: de un vistazo se sabe de qué job se habla sin que
            la cabecera se coma el espacio del log. -->
       <div class="trabajo-cartel" id="trabajo-modal-cartel" style="display:none">
-        <div class="trabajo-cartel-poster" id="trabajo-modal-cartel-poster">🎬</div>
+        <div class="trabajo-cartel-poster" id="trabajo-modal-cartel-poster" data-icono="claqueta"></div>
         <div class="trabajo-cartel-info">
           <div class="trabajo-cartel-titulo" id="trabajo-modal-cartel-titulo"></div>
           <div class="trabajo-cartel-meta" id="trabajo-modal-cartel-meta"></div>
@@ -946,9 +946,9 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="trabajo-modal-copiar"
                 onclick="copyLogToClipboard('trabajo-modal-log', this)"
-                data-tooltip="Copiar todo el log al portapapeles">📋 Copiar log</button>
+                data-tooltip="Copiar todo el log al portapapeles"><span data-icono="portapapeles"></span> Copiar log</button>
         <button class="btn btn-danger btn-sm" id="trabajo-modal-cancelar"
-                onclick="cancelarTrabajoActivo(_trabajoModalUltimo)">🛑 Cancelar</button>
+                onclick="cancelarTrabajoActivo(_trabajoModalUltimo)"><span data-icono="cruz"></span> Cancelar</button>
       </div>
       <!-- El bloque de progreso: el PASO dentro de la fase, el restante y el
            porcentaje en grande. Es la isla oscura que se pegaba al log en el
@@ -975,15 +975,15 @@
 <!-- ═══ MODAL: Visor de log ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="log-viewer-modal" onclick="onModalOverlayClick(event,'log-viewer-modal')">
   <div class="modal-box modal-box-wide">
-    <div class="modal-title" id="log-viewer-title">📄 Log de ejecución</div>
+    <div class="modal-title" id="log-viewer-title"><span data-icono="portapapeles"></span> Log de ejecución</div>
     <div class="modal-sub" id="log-viewer-sub"></div>
     <div class="log-viewer-content" id="log-viewer-content"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('log-viewer-modal')">Cerrar</button>
       <button class="btn btn-secondary btn-sm"
         onclick="copyLogToClipboard('log-viewer-content', this)"
-        data-tooltip="Copiar el log al portapapeles">📋 Copiar</button>
-      <button class="btn btn-primary btn-sm" id="log-viewer-download-btn">⬇ Descargar .txt</button>
+        data-tooltip="Copiar el log al portapapeles"><span data-icono="portapapeles"></span> Copiar</button>
+      <button class="btn btn-primary btn-sm" id="log-viewer-download-btn"><span data-icono="flechaAbajo"></span> Descargar .txt</button>
     </div>
   </div>
 </div>
@@ -992,7 +992,7 @@
 <div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
   <div class="modal-box cmv40-new-modal-box">
     <div class="cmv40-new-head">
-      <div class="modal-title">🎨 Nuevo proyecto CMv4.0</div>
+      <div class="modal-title"><span data-icono="paleta"></span> Nuevo proyecto CMv4.0</div>
       <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
     </div>
 
@@ -1001,12 +1001,12 @@
     <div class="cmv40-source-picker">
       <button type="button" class="cmv40-source-btn" onclick="openCMv40SourceBrowser()"
         data-tooltip="Navega tu biblioteca y selecciona el MKV origen">
-        <span class="cmv40-source-btn-icon">🎬</span>
+        <span class="cmv40-source-btn-icon" data-icono="claqueta"></span>
         <span class="cmv40-source-btn-label placeholder" id="cmv40-source-btn-label">Selecciona MKV…</span>
         <span class="cmv40-source-btn-chevron">▾</span>
       </button>
       <button class="btn btn-secondary btn-md" onclick="loadCMv40SourceList()"
-        data-tooltip="Limpiar selección">✕</button>
+        data-tooltip="Limpiar selección"><span data-icono="cruz"></span></button>
     </div>
 
     <div id="cmv40-recommendation-banner" class="cmv40-rec-banner" style="display:none"></div>
@@ -1016,19 +1016,19 @@
       <button class="cmv40-tab-btn active" id="cmv40-new-tab-btn-repo"
         onclick="_cmv40NewSwitchTargetTab('repo')"
         data-tooltip="Descargar automáticamente un RPU del repositorio DoviTools (recomendado)">
-        <span class="tab-icon">📦</span>
+        <span class="tab-icon" data-icono="caja"></span>
         <span class="tab-label">Repo DoviTools</span>
       </button>
       <button class="cmv40-tab-btn" id="cmv40-new-tab-btn-mkv"
         onclick="_cmv40NewSwitchTargetTab('mkv')"
         data-tooltip="Extraer el RPU de otro MKV que ya tenga CMv4.0">
-        <span class="tab-icon">🎬</span>
+        <span class="tab-icon" data-icono="claqueta"></span>
         <span class="tab-label">Extraer de MKV</span>
       </button>
       <button class="cmv40-tab-btn cmv40-tab-btn-residual" id="cmv40-new-tab-btn-path"
         onclick="_cmv40NewSwitchTargetTab('path')"
         data-tooltip="Opción residual: usar un .bin ya descargado en /mnt/cmv40_rpus/">
-        <span class="tab-icon">📁</span>
+        <span class="tab-icon" data-icono="carpeta"></span>
         <span class="tab-label">Carpeta local</span>
       </button>
     </div>
@@ -1049,7 +1049,7 @@
         <select id="cmv40-new-rpu-select" class="iso-select" onchange="onCMv40TargetChange()">
           <option value="">— Cargando… —</option>
         </select>
-        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadRpus()" data-tooltip="Recargar">↺</button>
+        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadRpus()" data-tooltip="Recargar"><span data-icono="deshacer"></span></button>
       </div>
       <div style="font-size:11px; color:var(--text-3); margin-top:6px">Ficheros <code>.bin</code> en <code>/mnt/cmv40_rpus</code></div>
     </div>
@@ -1058,7 +1058,7 @@
         <select id="cmv40-new-target-mkv-select" class="iso-select" onchange="onCMv40TargetChange()">
           <option value="">— Cargando… —</option>
         </select>
-        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadTargetMkvs()" data-tooltip="Recargar">↺</button>
+        <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadTargetMkvs()" data-tooltip="Recargar"><span data-icono="deshacer"></span></button>
       </div>
       <div style="font-size:11px; color:var(--text-3); margin-top:6px">MKVs directos en el directorio de ISOs</div>
     </div>
@@ -1072,7 +1072,7 @@
     <div class="cmv40-new-footer">
       <label class="cmv40-new-auto-toggle" data-tooltip="Encadena las fases disponibles sin interacción manual.">
         <input type="checkbox" id="cmv40-new-auto" checked>
-        <span>🤖 Auto-pipeline</span>
+        <span><span data-icono="rayo"></span> Auto-pipeline</span>
       </label>
       <div class="cmv40-new-actions">
         <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-new-modal')">Cancelar</button>
@@ -1190,7 +1190,7 @@
 <div class="modal-overlay" id="cmv40-lookup-modal" onclick="onModalOverlayClick(event,'cmv40-lookup-modal')">
   <div class="modal-box cmv40-lookup-modal-box">
     <div class="cmv40-lookup-head">
-      <div class="modal-title">🔎 Consulta rápida CMv4.0</div>
+      <div class="modal-title"><span data-icono="lupa"></span> Consulta rápida CMv4.0</div>
       <div class="modal-sub">Comprueba si una película tiene bin en el repositorio DoviTools y qué pipeline se aplicaría — <strong>sin crear proyecto</strong>.</div>
 
       <div class="cmv40-lookup-form">
@@ -1204,7 +1204,7 @@
             <button type="button" class="cmv40-lookup-year-clear"
               onclick="_cmv40LookupClearTitle()"
               data-tooltip="Borrar y empezar nueva búsqueda"
-              aria-label="Borrar título">✕</button>
+              aria-label="Borrar título"><span data-icono="cruz"></span></button>
           </div>
         </div>
         <div class="cmv40-lookup-row cmv40-lookup-row-year">
@@ -1216,13 +1216,13 @@
             <button type="button" class="cmv40-lookup-year-clear"
               onclick="_cmv40LookupClearYear()"
               data-tooltip="Borrar año"
-              aria-label="Borrar año">✕</button>
+              aria-label="Borrar año"><span data-icono="cruz"></span></button>
           </div>
         </div>
         <button class="btn btn-primary btn-md cmv40-lookup-btn" id="cmv40-lookup-btn"
           onclick="cmv40LookupSearch()"
           data-tooltip="Consulta la hoja de DoviTools + repositorio Drive">
-          🔎 Consultar
+          <span data-icono="lupa"></span> Consultar
         </button>
       </div>
     </div>
@@ -1243,16 +1243,16 @@
 <div class="modal-overlay" id="cmv40-help-modal" onclick="onModalOverlayClick(event,'cmv40-help-modal')">
   <div class="modal-box cmv40-help-modal-box">
     <div class="cmv40-help-head">
-      <div class="modal-title">📖 Manual Dolby Vision CMv4.0</div>
+      <div class="modal-title"><span data-icono="libro"></span> Manual Dolby Vision CMv4.0</div>
       <div class="modal-sub">Guía técnica y operativa. Navega las secciones para entender profiles, pipelines, DoviTools y herramientas.</div>
       <button class="btn btn-ghost btn-xs cmv40-help-close" onclick="closeModal('cmv40-help-modal')"
-        data-tooltip="Cerrar">✕</button>
+        data-tooltip="Cerrar"><span data-icono="cruz"></span></button>
     </div>
     <div class="cmv40-help-body">
       <nav class="cmv40-help-nav" id="cmv40-help-nav">
         <button class="cmv40-help-nav-item active" data-section="general"
           onclick="_cmv40HelpSwitch('general')">
-          <span class="cmv40-help-nav-icon">🧠</span>
+          <span class="cmv40-help-nav-icon" data-icono="bombilla"></span>
           <span class="cmv40-help-nav-text">
             <b>General</b>
             <small>BL, EL, profiles, CMv2.9/v4.0, niveles L1-L11</small>
@@ -1260,7 +1260,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="why-upgrade"
           onclick="_cmv40HelpSwitch('why-upgrade')">
-          <span class="cmv40-help-nav-icon">💡</span>
+          <span class="cmv40-help-nav-icon" data-icono="bombilla"></span>
           <span class="cmv40-help-nav-text">
             <b>Por qué upgrade</b>
             <small>Beneficios, limitaciones, cuándo sí/no</small>
@@ -1268,7 +1268,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="sheet"
           onclick="_cmv40HelpSwitch('sheet')">
-          <span class="cmv40-help-nav-icon">📊</span>
+          <span class="cmv40-help-nav-icon" data-icono="grafico"></span>
           <span class="cmv40-help-nav-text">
             <b>Hoja DoviTools</b>
             <small>Listado REC_9999: estructura y columnas</small>
@@ -1276,7 +1276,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="repo"
           onclick="_cmv40HelpSwitch('repo')">
-          <span class="cmv40-help-nav-icon">📦</span>
+          <span class="cmv40-help-nav-icon" data-icono="caja"></span>
           <span class="cmv40-help-nav-text">
             <b>Repositorio DoviTools</b>
             <small>Acceso, tipos de bin, cómo activa cada pipeline</small>
@@ -1284,7 +1284,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="tools"
           onclick="_cmv40HelpSwitch('tools')">
-          <span class="cmv40-help-nav-icon">🔧</span>
+          <span class="cmv40-help-nav-icon" data-icono="ajustes"></span>
           <span class="cmv40-help-nav-text">
             <b>Herramientas</b>
             <small>ffmpeg, dovi_tool, mkvmerge, mediainfo</small>
@@ -1292,7 +1292,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="pipelines"
           onclick="_cmv40HelpSwitch('pipelines')">
-          <span class="cmv40-help-nav-icon">🔀</span>
+          <span class="cmv40-help-nav-icon" data-icono="grafico"></span>
           <span class="cmv40-help-nav-text">
             <b>Pipelines CMv4.0</b>
             <small>Fases A-H, casuísticas, validaciones</small>
@@ -1300,7 +1300,7 @@
         </button>
         <button class="cmv40-help-nav-item" data-section="keys"
           onclick="_cmv40HelpSwitch('keys')">
-          <span class="cmv40-help-nav-icon">🔐</span>
+          <span class="cmv40-help-nav-icon" data-icono="candado"></span>
           <span class="cmv40-help-nav-text">
             <b>Claves y APIs</b>
             <small>TMDb + Google API · paso a paso</small>
@@ -1316,20 +1316,20 @@
 <div class="modal-overlay" id="cmv40-cleanup-modal" onclick="onModalOverlayClick(event,'cmv40-cleanup-modal')">
   <div class="modal-box cmv40-cleanup-modal-box">
     <div class="cmv40-cleanup-head">
-      <div class="modal-title">🗑️ Limpieza masiva de artefactos CMv4.0</div>
+      <div class="modal-title"><span data-icono="papelera"></span> Limpieza masiva de artefactos CMv4.0</div>
       <div class="modal-sub">Revisa el espacio que ocupa cada proyecto y selecciona los que quieres limpiar. Borra solo los artefactos intermedios del workdir; los proyectos permanecen visibles en modo solo lectura (archived).</div>
       <button class="btn btn-ghost btn-xs cmv40-cleanup-close"
-        onclick="closeModal('cmv40-cleanup-modal')" data-tooltip="Cerrar">✕</button>
+        onclick="closeModal('cmv40-cleanup-modal')" data-tooltip="Cerrar"><span data-icono="cruz"></span></button>
     </div>
     <div class="cmv40-cleanup-body" id="cmv40-cleanup-body">
-      <div class="cmv40-cleanup-loading">⏳ Escaneando proyectos…</div>
+      <div class="cmv40-cleanup-loading"><span data-icono="reloj"></span> Escaneando proyectos…</div>
     </div>
     <div class="cmv40-cleanup-foot" id="cmv40-cleanup-foot" style="display:none">
       <span class="cmv40-cleanup-summary" id="cmv40-cleanup-summary"></span>
       <div style="flex:1"></div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('cmv40-cleanup-modal')">Cancelar</button>
       <button class="btn btn-danger btn-sm" id="cmv40-cleanup-execute-btn"
-        onclick="cmv40BulkCleanupExecute()">🗑 Borrar seleccionados</button>
+        onclick="cmv40BulkCleanupExecute()"><span data-icono="papelera"></span> Borrar seleccionados</button>
     </div>
   </div>
 </div>
@@ -1338,7 +1338,7 @@
 <div class="modal-overlay" id="settings-modal" onclick="onModalOverlayClick(event,'settings-modal')">
   <div class="modal-box settings-modal-box">
     <div class="settings-head">
-      <div class="modal-title">⚙︎ Configuración</div>
+      <div class="modal-title"><span data-icono="ajustes"></span> Configuración</div>
       <div class="modal-sub">API keys e integraciones. Se persisten ofuscadas en local; ganan sobre las variables de entorno.</div>
     </div>
 
@@ -1352,11 +1352,11 @@
       <div class="settings-version-row">
         <div class="settings-version-current" id="settings-version-current">—</div>
         <button class="btn btn-secondary btn-sm" id="settings-version-check-btn"
-          onclick="checkForUpdates(true)">🔄 Comprobar actualizaciones</button>
+          onclick="checkForUpdates(true)"><span data-icono="refrescar"></span> Comprobar actualizaciones</button>
       </div>
       <!-- Modo dev: simular versión actual para probar la UI del banner -->
       <div class="settings-version-simulate" id="settings-version-simulate" style="display:none">
-        <span class="settings-version-simulate-label">🧪 Simular versión actual:</span>
+        <span class="settings-version-simulate-label"><span data-icono="lupaOnda"></span> Simular versión actual:</span>
         <input type="text" id="settings-version-simulate-input"
           class="settings-input settings-version-simulate-input"
           placeholder="ej. v2.0.0 (vacío = sin simular)" autocomplete="off">
@@ -1368,7 +1368,7 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
-        🔔 Aviso al terminar un trabajo
+        <span data-icono="campana"></span> Aviso al terminar un trabajo
         <span id="settings-aviso-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
@@ -1384,14 +1384,14 @@
           <span>Con un pitido</span>
         </label>
         <button class="btn btn-secondary btn-sm" id="settings-aviso-permiso-btn"
-          onclick="onPedirPermisoNotificaciones()" style="display:none">🔔 Permitir notificaciones</button>
+          onclick="onPedirPermisoNotificaciones()" style="display:none"><span data-icono="campana"></span> Permitir notificaciones</button>
         <button class="btn btn-ghost btn-xs" onclick="probarAvisoFin()">Probar</button>
       </div>
     </div>
 
     <div class="settings-section">
       <div class="settings-section-title">
-        🎬 TMDb — Clave de la API
+        <span data-icono="claqueta"></span> TMDb — Clave de la API
         <span id="settings-tmdb-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
@@ -1409,7 +1409,7 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
-        📦 Google API key (Drive + Sheets)
+        <span data-icono="caja"></span> Google API key (Drive + Sheets)
         <span id="settings-google-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
@@ -1427,7 +1427,7 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
-        🎯 URL del repositorio DoviTools
+        <span data-icono="diana"></span> URL del repositorio DoviTools
         <span id="settings-drive-folder-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
@@ -1447,7 +1447,7 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
-        📋 URL del sheet de recomendaciones
+        <span data-icono="portapapeles"></span> URL del sheet de recomendaciones
         <span id="settings-sheet-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
@@ -1468,14 +1468,14 @@
     <!-- ─── Mantenimiento — limpieza de huérfanos ─────────────────── -->
     <div class="settings-section">
       <div class="settings-section-title">
-        🧹 Mantenimiento
+        <span data-icono="papelera"></span> Mantenimiento
       </div>
       <div class="settings-section-desc">
         Limpieza de archivos y directorios huérfanos: workdirs CMv4.0 sin sesión asociada, mount points de ISO sin desmontar, tmps de análisis de luminancia, .mkv.tmp incompletos del remux. Primero escanea, te muestra qué hay; tú decides qué borrar.
       </div>
       <div class="settings-field-row">
         <button class="btn btn-secondary btn-sm" id="settings-cleanup-scan-btn"
-          onclick="cleanupScanAndShow()">🔍 Escanear huérfanos</button>
+          onclick="cleanupScanAndShow()"><span data-icono="lupa"></span> Escanear huérfanos</button>
       </div>
       <div id="settings-cleanup-result" class="settings-cleanup-result"></div>
     </div>
@@ -1501,13 +1501,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260911v"></script>
-<script src="/static/workbar.js?v=20260911v"></script>
-<script src="/static/settings.js?v=20260911v"></script>
-<script src="/static/cmv40_modals.js?v=20260911v"></script>
-<script src="/static/tab1.js?v=20260911v"></script>
-<script src="/static/tab2.js?v=20260911v"></script>
-<script src="/static/tab3.js?v=20260911v"></script>
-<script src="/static/browser.js?v=20260911v"></script>
+<script src="/static/core.js?v=20260911w"></script>
+<script src="/static/workbar.js?v=20260911w"></script>
+<script src="/static/settings.js?v=20260911w"></script>
+<script src="/static/cmv40_modals.js?v=20260911w"></script>
+<script src="/static/tab1.js?v=20260911w"></script>
+<script src="/static/tab2.js?v=20260911w"></script>
+<script src="/static/tab3.js?v=20260911w"></script>
+<script src="/static/browser.js?v=20260911w"></script>
 </body>
 </html>

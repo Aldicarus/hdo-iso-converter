@@ -31,7 +31,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, pieza_de  # noqa: E402
+from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -49,15 +49,13 @@ def _bloque(marca: str) -> str:
 
 
 def _iconos() -> str:
-    """Lo que hace falta para que el marcado de los iconos se pueda evaluar."""
-    # `_svg` va PRIMERO: `_GLIFOS_TRABAJO` la llama al construirse.
-    i = JS.index("const _TONO_POR_TAB = ")
-    return "\n".join([_fn("_svg"),
-                      JS[i:JS.index("\n", i) + 1],
-                      _bloque("const _GLIFOS_TRABAJO = {"),
-                      _bloque("const _ICONOS_ESTADO = {"),
-                      _fn("_chipIcono"),
-                      _fn("iconoDeTrabajo"), _fn("iconoDeEstado")])
+    """Lo que hace falta para que el marcado de los iconos se pueda evaluar.
+
+    Lo entrega `frontend_sources`: enumerar aquí las piezas del sistema hacía
+    que cada vez que gana una —el catálogo `GLIFOS`, la función `icono`— este
+    arnés se rompiera con un `ReferenceError`.
+    """
+    return sistema_de_iconos()
 
 
 def _node(guion: str) -> dict:

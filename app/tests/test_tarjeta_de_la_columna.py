@@ -32,7 +32,9 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import sistema_de_iconos, js_completo  # noqa: E402
+
+SISTEMA_ICONOS = sistema_de_iconos()
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -98,13 +100,7 @@ _els['workbar-search'].value = {json.dumps(busqueda)};
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.Sortable = undefined;
-{_fn('_svg')}
-{_linea('const _TONO_POR_TAB = ')}
-{_bloque('const _GLIFOS_TRABAJO = {')}
-{_bloque('const _ICONOS_ESTADO = {')}
-{_fn('_chipIcono')}
-{_fn('iconoDeTrabajo')}
-{_fn('iconoDeEstado')}
+{SISTEMA_ICONOS}
 {_fn('normalizeSearch')}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}

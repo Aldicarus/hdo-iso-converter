@@ -32,7 +32,7 @@ const _fileBrowser = {
 };
 
 const _DEFAULT_FB_ROOTS = [
-  { key: 'library', label: 'Biblioteca', icon: '📚' },
+  { key: 'library', label: 'Biblioteca', icon: 'biblioteca' },
 ];
 const _FB_ROOT_LABELS = {
   library:    'Biblioteca',
@@ -54,9 +54,9 @@ const _FB_ROOT_LABELS = {
  *  enseña cuál nunca fue una cuestión de permisos.
  */
 const ROOTS_MKV = [
-  { key: 'library',    label: 'Biblioteca', icon: '📚' },
-  { key: 'output',     label: 'Output',     icon: '📦' },
-  { key: 'downloaded', label: 'Downloaded', icon: '📥' },
+  { key: 'library',    label: 'Biblioteca', icon: 'biblioteca' },
+  { key: 'output',     label: 'Output',     icon: 'caja' },
+  { key: 'downloaded', label: 'Downloaded', icon: 'bandeja' },
 ];
 
 /** Abre el modal del file browser.
@@ -86,7 +86,7 @@ async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   if (subEl) subEl.textContent = subtitle || 'Navega tu biblioteca y elige el fichero';
   if (searchEl) searchEl.value = '';
   // Limpiar restos de aperturas anteriores ANTES de mostrar para no flashear datos viejos
-  if (listEl) listEl.innerHTML = '<div class="file-browser-loading">⏳ Cargando…</div>';
+  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> Cargando…</div>';
   if (bcEl) bcEl.innerHTML = '';
   if (baseEl) baseEl.textContent = '';
   if (statsEl) statsEl.textContent = '';
@@ -113,7 +113,8 @@ function _renderFileBrowserRoots() {
   _fileBrowser.roots.forEach(r => {
     const btn = document.createElement('button');
     btn.className = `fb-root-btn ${r.key === _fileBrowser.rootKey ? 'active' : ''}`;
-    btn.innerHTML = `<span class="fb-root-icon">${r.icon || '📁'}</span><span class="fb-root-label">${escHtml(r.label)}</span>`;
+    btn.innerHTML = `<span class="fb-root-icon">${icono(r.icon || 'carpeta')}</span>`
+                  + `<span class="fb-root-label">${escHtml(r.label)}</span>`;
     btn.addEventListener('click', () => {
       if (r.key === _fileBrowser.rootKey) return;
       _fileBrowser.rootKey = r.key;
@@ -132,7 +133,7 @@ async function fileBrowserNavigate(relPath) {
   _fileBrowser.selectedName = null;
   _updateFileBrowserConfirmBtn();
   const listEl = document.getElementById('file-browser-list');
-  if (listEl) listEl.innerHTML = '<div class="file-browser-loading">⏳ Cargando…</div>';
+  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> Cargando…</div>';
   try {
     const url = `/api/library/browse?root=${encodeURIComponent(_fileBrowser.rootKey)}&path=${encodeURIComponent(relPath || '')}`;
     const data = await apiFetch(url);
@@ -147,7 +148,7 @@ async function fileBrowserNavigate(relPath) {
     _fileBrowser.entries = data.entries || [];
     _renderFileBrowser();
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="file-browser-empty">⚠ Error: ${escHtml(e.message || String(e))}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="file-browser-empty"><span data-icono="aviso"></span> Error: ${escHtml(e.message || String(e))}</div>`;
   }
 }
 
@@ -179,9 +180,9 @@ function _renderFileBrowser() {
   // Etiqueta del root activo en el inicio del breadcrumb. Buscar en
   // los roots configurados; fallback al mapping de defaults.
   const activeRoot = (_fileBrowser.roots || []).find(r => r.key === _fileBrowser.rootKey);
-  const rootIcon = activeRoot?.icon || '📁';
   const rootLabel = activeRoot?.label || _FB_ROOT_LABELS[_fileBrowser.rootKey] || _fileBrowser.rootKey;
-  rootLink.textContent = `${rootIcon} ${rootLabel}`;
+  // `innerHTML` y no `textContent`: el icono es un SVG, no un carácter.
+  rootLink.innerHTML = `${icono(activeRoot?.icon || 'carpeta')} ${escHtml(rootLabel)}`;
   rootLink.addEventListener('click', () => fileBrowserNavigate(''));
   bcEl.appendChild(rootLink);
   parts.forEach((part, i) => {
@@ -219,7 +220,7 @@ function _renderFileBrowser() {
     empty.className = 'file-browser-empty';
     empty.textContent = filter
       ? `Sin coincidencias para "${filter}"`
-      : '📭 Esta carpeta no contiene MKVs ni subcarpetas.';
+      : icono('caja') + ' Esta carpeta no contiene MKVs ni subcarpetas.';
     listEl.appendChild(empty);
     if (statsEl) statsEl.textContent = '';
     return;
@@ -245,7 +246,7 @@ function _renderFileBrowser() {
     }
     row.tabIndex = 0;
     row.innerHTML = `
-      <span class="fb-icon">${e.type === 'dir' ? '📁' : '🎬'}</span>
+      <span class="fb-icon">${icono(e.type === 'dir' ? 'carpeta' : 'claqueta')}</span>
       <span class="fb-name">${escHtml(e.name)}</span>
       ${e.type === 'file' ? `<span class="fb-size">${_fmtBytes(e.size_bytes)}</span>` : ''}
     `;

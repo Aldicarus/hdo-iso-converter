@@ -128,6 +128,10 @@ function genProjectId() {
 
 // ── Inicialización ────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Lo PRIMERO: el marcado estático declara sus iconos con `data-icono` y
+  // hasta que esto corre están vacíos.
+  pintarIconos();
+  _observarIconos();
   TooltipManager.init();
   loadSessions();
   checkAppStatus();
@@ -622,8 +626,10 @@ function clearProjectDirty(pid) {
  */
 function projectStatusIcon(status) {
   if (status === 'running') return '<span class="spinner-inline"></span>';
-  const map = { pending: '💿', queued: '⏸', done: '✅', error: '❌' };
-  return map[status] || '💿';
+  // Los mismos glifos que la tarjeta de proyecto: un estado se dibuja
+  // igual en toda la aplicación.
+  const map = { pending: 'disco', queued: 'pausa', done: 'check', error: 'cruz' };
+  return icono(map[status] || 'disco');
 }
 
 /** Actualiza el icono del sub-tab de un proyecto. */
@@ -645,8 +651,8 @@ function updateProjectTabIcon(project) {
       iconEl.innerHTML = '<span class="spinner-inline"></span>';
     }
   } else {
-    const statusIcons = { pending: '💿', queued: '⏸', done: '✅', error: '❌' };
-    iconEl.textContent = statusIcons[status] || '💿';
+    // `innerHTML` y no `textContent`: ahora es un SVG.
+    iconEl.innerHTML = projectStatusIcon(status);
   }
 }
 
@@ -676,7 +682,7 @@ function buildProjectPanelHTML(pid) {
     </div>
 
     <div id="${pid}-iso-missing-banner" class="banner error" style="display:none">
-      <span class="banner-icon">💿</span>
+      <span class="banner-icon"><span data-icono="disco"></span></span>
       <div><strong id="${pid}-iso-missing-title">Origen no disponible.</strong>
         <span id="${pid}-iso-missing-text"></span>
         Puedes editar los parámetros, pero no podrás ejecutar hasta que el origen vuelva a estar accesible.
@@ -684,7 +690,7 @@ function buildProjectPanelHTML(pid) {
     </div>
 
     <div id="${pid}-vo-warning-banner" class="banner warning" style="display:none">
-      <span class="banner-icon">⚠️</span>
+      <span class="banner-icon"><span data-icono="aviso"></span></span>
       <div><strong>VO no determinada automáticamente.</strong>
         <span id="${pid}-vo-warning-text"></span>
         Revisa las pistas incluidas y ajusta los flags manualmente.
@@ -694,21 +700,21 @@ function buildProjectPanelHTML(pid) {
     <div class="project-phase-strip-row">
       <div class="project-phase-strip"
         data-tooltip="Análisis mkvmerge completado → Reglas automáticas aplicadas → En revisión">
-        <span class="pps-step done">🔍 Análisis</span>
+        <span class="pps-step done"><span data-icono="lupa"></span> Análisis</span>
         <span class="pps-conn">→</span>
-        <span class="pps-step done">⚡ Reglas</span>
+        <span class="pps-step done"><span data-icono="rayo"></span> Reglas</span>
         <span class="pps-conn">→</span>
-        <span class="pps-step active">📋 Revisión</span>
+        <span class="pps-step active"><span data-icono="portapapeles"></span> Revisión</span>
         <span class="pps-conn">→</span>
-        <span class="pps-step muted">⬇️ mkvmerge</span>
+        <span class="pps-step muted">${icono('flechaAbajo')} mkvmerge</span>
       </div>
       <button class="btn btn-ghost btn-xs" onclick="showRawAnalysisData()"
-        data-tooltip="Ver los datos de análisis originales del ISO (mkvmerge -J + capítulos + reglas)">🔬 Datos ISO</button>
+        data-tooltip="Ver los datos de análisis originales del ISO (mkvmerge -J + capítulos + reglas)"><span data-icono="lupaOnda"></span> Datos ISO</button>
     </div>
 
     <div class="section-card globals-card">
       <div class="section-header">
-        <span class="section-icon">📦</span>
+        <span class="section-icon"><span data-icono="caja"></span></span>
         <div><div class="section-title">Nombre del MKV</div><div class="section-subtitle">Se recalcula automáticamente al cambiar los toggles</div></div>
       </div>
       <div class="globals-body">
@@ -716,20 +722,20 @@ function buildProjectPanelHTML(pid) {
           <input type="text" id="${pid}-mkv-name-input" class="globals-mkv-input" oninput="onMkvNameInput()"
             data-tooltip="Nombre del MKV de salida. Se genera automáticamente.\nEdítalo manualmente si necesitas otro nombre.">
           <div id="${pid}-mkv-name-manual-notice" class="manual-notice" style="display:none">
-            ✏️ Editado manualmente
+            ${icono('lapiz')} Editado manualmente
             <button class="btn btn-xs btn-ghost" onclick="revertMkvName()"
               data-tooltip="Restaurar el nombre generado automáticamente.">Revertir</button>
           </div>
           <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none"
             data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
-            🎵 Audio DCP — detectado en el nombre del ISO
+            ${icono('grafico')} Audio DCP — detectado en el nombre del ISO
           </div>
           <div id="${pid}-mkv-size-chip" class="globals-mkv-chip globals-mkv-chip--size" style="display:none"
             data-tooltip="Estimación del tamaño del MKV final.\nSale de restar al m2ts de origen las pistas de audio que se descartan y la sobrecarga del contenedor Blu-ray.\nEl pipeline copia los flujos sin recodificar, así que es contabilidad, no una predicción — pero el margen es de ±10%."></div>
         </div>
         <div class="globals-info-row">
           <div class="global-info-item" id="${pid}-dv-card">
-            <span class="global-card-icon" id="${pid}-dv-icon">🎬</span>
+            <span class="global-card-icon" id="${pid}-dv-icon"><span data-icono="claqueta"></span></span>
             <div class="global-info-body">
               <div class="global-info-head">
                 <span class="global-card-label" id="${pid}-dv-state">—</span>
@@ -741,7 +747,7 @@ function buildProjectPanelHTML(pid) {
             </div>
           </div>
           <div class="global-info-item" id="${pid}-vhdr-card">
-            <span class="global-card-icon">📺</span>
+            <span class="global-card-icon"><span data-icono="tv"></span></span>
             <div class="global-info-body">
               <div class="global-info-head">
                 <span class="global-card-label">Vídeo · HDR</span>
@@ -757,7 +763,7 @@ function buildProjectPanelHTML(pid) {
 
     <div class="section-card">
       <div class="section-header">
-        <span class="section-icon">🔊</span>
+        <span class="section-icon"><span data-icono="grafico"></span></span>
         <div><div class="section-title">Audio</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
         <span class="section-badge" id="${pid}-audio-count">0 pistas</span>
       </div>
@@ -765,10 +771,10 @@ function buildProjectPanelHTML(pid) {
         <span style="color:var(--text-3)">Modo:</span>
         <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="audio"
           onclick="setTrackMode('audio','filtered')"
-          data-tooltip="Solo Castellano + VO con selección por calidad">🎯 Castellano + VO</button>
+          data-tooltip="Solo Castellano + VO con selección por calidad"><span data-icono="diana"></span> Castellano + VO</button>
         <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="audio"
           onclick="setTrackMode('audio','keep_all')"
-          data-tooltip="Mantener todas las pistas con labels automáticos (sin reordenar ni descartar)">📋 Mantener todas</button>
+          data-tooltip="Mantener todas las pistas con labels automáticos (sin reordenar ni descartar)"><span data-icono="portapapeles"></span> Mantener todas</button>
       </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
@@ -784,7 +790,7 @@ function buildProjectPanelHTML(pid) {
 
     <div class="section-card">
       <div class="section-header">
-        <span class="section-icon">💬</span>
+        <span class="section-icon"><span data-icono="etiqueta"></span></span>
         <div><div class="section-title">Subtítulos</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
         <span class="section-badge" id="${pid}-sub-count">0 pistas</span>
       </div>
@@ -792,10 +798,10 @@ function buildProjectPanelHTML(pid) {
         <span style="color:var(--text-3)">Modo:</span>
         <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="subtitle"
           onclick="setTrackMode('subtitle','filtered')"
-          data-tooltip="Solo Castellano + VO + Inglés. Detecta forzados por tamaño relativo (completo/forzado ≥3×) y descarta pistas en otros idiomas.">🎯 Castellano + VO + Inglés</button>
+          data-tooltip="Solo Castellano + VO + Inglés. Detecta forzados por tamaño relativo (completo/forzado ≥3×) y descarta pistas en otros idiomas."><span data-icono="diana"></span> Castellano + VO + Inglés</button>
         <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="subtitle"
           onclick="setTrackMode('subtitle','keep_all')"
-          data-tooltip="Mantener todos los subtítulos con labels automáticos (sin reordenar ni descartar)">📋 Mantener todos</button>
+          data-tooltip="Mantener todos los subtítulos con labels automáticos (sin reordenar ni descartar)"><span data-icono="portapapeles"></span> Mantener todos</button>
       </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
@@ -811,19 +817,19 @@ function buildProjectPanelHTML(pid) {
 
     <div class="section-card">
       <div class="section-header">
-        <span class="section-icon">📖</span>
+        <span class="section-icon"><span data-icono="libro"></span></span>
         <div><div class="section-title">Capítulos</div><div class="section-subtitle">Clic en la barra para añadir · arrastra para ajustar · ✕ para eliminar</div></div>
       </div>
       <div class="section-body">
         <div id="${pid}-chapters-auto-banner" class="banner info" style="display:none">
-          <span class="banner-icon" id="${pid}-chapters-auto-icon">⚠️</span>
+          <span class="banner-icon" id="${pid}-chapters-auto-icon"><span data-icono="aviso"></span></span>
           <span id="${pid}-chapters-auto-text"></span>
           <button class="btn btn-xs" id="${pid}-chapters-generic-btn" style="display:none; margin-left:auto"
             onclick="setGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)">🏷️ Nombres genéricos</button>
+            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> Nombres genéricos</button>
           <button class="btn btn-xs" id="${pid}-chapters-reset-btn" style="display:none"
             onclick="resetChaptersFromDisc()"
-            data-tooltip="Extrae los capítulos originales del disco (MPLS) y reemplaza los actuales (automáticos o editados).">🔄 Restaurar del disco</button>
+            data-tooltip="Extrae los capítulos originales del disco (MPLS) y reemplaza los actuales (automáticos o editados)."><span data-icono="refrescar"></span> Restaurar del disco</button>
         </div>
         <div id="${pid}-chapter-timeline-wrap" class="chapter-timeline-wrap"
           onclick="onTimelineClick(event)"
@@ -839,7 +845,7 @@ function buildProjectPanelHTML(pid) {
 
     <div class="section-card" id="${pid}-exec-history-card">
       <div class="section-header">
-        <span class="section-icon">📊</span>
+        <span class="section-icon"><span data-icono="grafico"></span></span>
         <div><div class="section-title">Historial de ejecuciones</div><div class="section-subtitle">Resultados, tiempos por fase y logs de cada ejecución</div></div>
         <span class="section-badge" id="${pid}-exec-history-count">0</span>
       </div>
@@ -852,9 +858,9 @@ function buildProjectPanelHTML(pid) {
                 <th>#</th>
                 <th>Fecha</th>
                 <th>Estado</th>
-                <th data-tooltip="Montar ISO via loop mount">💿 Montar</th>
+                <th data-tooltip="Montar ISO via loop mount"><span data-icono="disco"></span> Montar</th>
                 <th data-tooltip="mkvmerge: MPLS → MKV">⬇️ mkvmerge</th>
-                <th data-tooltip="Desmontar ISO (umount)">🔓 Desmontar</th>
+                <th data-tooltip="Desmontar ISO (umount)"><span data-icono="candadoAbierto"></span> Desmontar</th>
                 <th data-tooltip="mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)">✍️ Propedit</th>
                 <th data-tooltip="Duración total de la ejecución">⏱ Total</th>
                 <th>Acciones</th>
@@ -868,7 +874,7 @@ function buildProjectPanelHTML(pid) {
 
     <div class="project-action-bar">
       <button class="btn btn-ghost btn-md" onclick="saveSession()"
-        data-tooltip="Guardar los cambios sin ejecutar">💾 Guardar</button>
+        data-tooltip="Guardar los cambios sin ejecutar"><span data-icono="caja"></span> Guardar</button>
       <button class="btn btn-success btn-lg" id="${pid}-execute-btn" onclick="executeSession()"
         data-tooltip="Confirmar y añadir a la cola de ejecución">
         ▶️ Confirmar y ejecutar
@@ -985,13 +991,15 @@ let _toastIdCounter = 0;
  * @returns {string} ID del toast para poder eliminarlo con removeToast().
  */
 function showToast(msg, type = 'info', duration = 3500) {
-  const icons = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️' };
+  // El icono lo pone el TIPO. Los mensajes traían además el suyo delante, así
+  // que salía dos veces: «✅ ✅ Pipeline completado».
+  const icons = { success: 'check', error: 'cruz', warning: 'aviso', info: 'info' };
   const container = document.getElementById('toast-container');
   const t = document.createElement('div');
   const id = `toast-${++_toastIdCounter}`;
   t.id = id;
   t.className = `toast ${type}`;
-  t.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ️'}</span>
+  t.innerHTML = `<span class="toast-icon">${icono(icons[type] || 'info', 'ico-md')}</span>
                  <span class="toast-msg">${msg}</span>`;
   container.appendChild(t);
   if (duration > 0) {
@@ -1487,4 +1495,295 @@ function botonDeFicha(ctx, conFicha) {
          <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})"
            data-tooltip="Buscar la película en TMDb y guardarla en el proyecto">Buscar película</button>
        </div>`;
+}
+
+
+// SVG en línea, no emoji. Los emoji los dibuja el sistema operativo: cambian de
+// forma y de color entre máquinas, no heredan la paleta y a un ⏳ o un ⬜ no hay
+// manera de quitarles el aire de chat. Un `<svg>` con `currentColor` sí hereda,
+// se anima con CSS y pesa lo mismo que un carácter.
+//
+// El trazo es de 1.6 con extremos redondeados sobre una rejilla de 24, que es
+// lo que hace que se lean como una familia — el mismo criterio de Material
+// Symbols en su variante `outlined`. El color va en un chip: fondo con la
+// variante `-dim` de la paleta y trazo con la sólida, que es de donde sale el
+// aspecto pastel sin inventar colores nuevos.
+
+/** Envuelve un `path` en el `<svg>` común. Todo comparte rejilla y trazo. */
+function _svg(cuerpo, extra = '') {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+    aria-hidden="true"${extra}>${cuerpo}</svg>`;
+}
+
+// ── El catálogo de iconos de la aplicación ──────────────────────────────────
+//
+// Un emoji lo dibuja el sistema operativo: cambia de forma y de color entre
+// máquinas, no hereda la paleta y a un ⏳ o un 📂 no hay manera de quitarles
+// el aire de conversación de chat. Un `<svg>` con `currentColor` hereda el
+// color del sitio donde se pone, se anima con CSS y pesa lo mismo.
+//
+// Todo comparte rejilla de 24, trazo 1.6 y extremos redondeados — el criterio
+// de Material Symbols en su variante `outlined`—, que es lo que hace que se
+// lean como una familia y no como una colección de dibujos.
+//
+// **Los glifos se declaran UNA vez.** Los de tipo de trabajo y de estado
+// (`_GLIFOS_TRABAJO`, `_ICONOS_ESTADO`, más abajo) salen de aquí: un objeto
+// que se pinta en dos sitios no puede tener dos dibujos.
+
+const GLIFOS = {
+  // ── Objetos del dominio ────────────────────────────────────────────────
+  // Disco: dos círculos concéntricos, como el `album` de Material.
+  disco: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>',
+  // Pantalla con antena: una serie.
+  tv: '<rect x="3" y="7.5" width="18" height="12.5" rx="2"/><path d="m8 3.5 4 4 4-4"/>',
+  // Rollo de película con sus perforaciones: un fichero de vídeo suelto.
+  cinta: '<rect x="3" y="5" width="18" height="14" rx="2"/>'
+       + '<path d="M7 5v14M17 5v14M3 12h18"/>',
+  // Claqueta: la película como obra, no como fichero.
+  claqueta: '<path d="M3.5 9.5h17V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19z"/>'
+          + '<path d="m3.8 9.5 1-4.2 15.5 1.5-.5 2.7"/><path d="m9 5.6 1.4 3.6M14.4 6.1l1.4 3.5"/>',
+  // Carpeta cerrada y carpeta que se abre.
+  carpeta: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l2 2.4H18a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2z"/>',
+  abrir: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l2 2.4H18a2 2 0 0 1 2 2v1.3"/>'
+       + '<path d="M3.5 10.5h17.2l-1.9 8A2 2 0 0 1 16.9 20H5.5a2 2 0 0 1-2-2z"/>',
+  // Libros en fila: la biblioteca.
+  biblioteca: '<rect x="4" y="6" width="4" height="13" rx="1"/>'
+            + '<rect x="9.8" y="6" width="4" height="13" rx="1"/>'
+            + '<path d="m16.2 7.4 3.4 1-2.8 11.2-3.4-1z"/>',
+  // Caja: el directorio de salida.
+  caja: '<path d="M3.8 8.2 12 4.5l8.2 3.7v7.6L12 19.5 3.8 15.8z"/>'
+      + '<path d="M3.8 8.2 12 12l8.2-3.8M12 12v7.5"/>',
+  // Flecha entrando en una bandeja: lo descargado, y la copia hacia Output.
+  bandeja: '<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
+         + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>',
+  // Escudo con visto: una validación.
+  escudo: '<path d="M12 3.2 5.5 6v6c0 4 2.8 7 6.5 8.8 3.7-1.8 6.5-4.8 6.5-8.8V6z"/>'
+        + '<path d="m9.2 12.1 2 2 3.6-4"/>',
+  // Algo que entra en un contenedor: inyectar el RPU en la capa.
+  inyectar: '<rect x="12.5" y="4.5" width="7" height="15" rx="1.5"/>'
+          + '<path d="M3.5 12h6.5m0 0L7 8.8M10 12l-3 3.2"/>',
+  // Destellos: el upgrade de metadata, sin tocar la imagen.
+  destellos: '<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
+           + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+
+  // ── Acciones ───────────────────────────────────────────────────────────
+  lapiz: '<path d="M4.5 19.5h3.2L19 8.2a1.7 1.7 0 0 0 0-2.4l-.8-.8a1.7 1.7 0 0 0-2.4 0L4.5 16.3z"/>'
+       + '<path d="m14.8 6.6 2.6 2.6"/>',
+  lupa: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m19.5 19.5-4.2-4.2"/>',
+  // Lupa sobre una onda: analizar la señal, no «buscar un fichero».
+  lupaOnda: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/>'
+          + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>',
+  papelera: '<path d="M4.5 7h15M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7"/>'
+          + '<path d="M6.5 7v11.3a1.7 1.7 0 0 0 1.7 1.7h7.6a1.7 1.7 0 0 0 1.7-1.7V7"/>'
+          + '<path d="M10.5 11v5.5M13.5 11v5.5"/>',
+  ajustes: '<path d="M4 8.5h9M17 8.5h3M4 15.5h3M11 15.5h9"/>'
+         + '<circle cx="15" cy="8.5" r="2.2"/><circle cx="7" cy="15.5" r="2.2"/>',
+  libro: '<path d="M4 5.2A1.7 1.7 0 0 1 5.7 3.5H11v17H5.7A1.7 1.7 0 0 1 4 18.8z"/>'
+       + '<path d="M20 5.2a1.7 1.7 0 0 0-1.7-1.7H13v17h5.3A1.7 1.7 0 0 0 20 18.8z"/>',
+  campana: '<path d="M7 10a5 5 0 0 1 10 0c0 4 1.3 5.5 1.8 6H5.2C5.7 15.5 7 14 7 10z"/>'
+         + '<path d="M10.2 19.2a2 2 0 0 0 3.6 0"/>',
+  etiqueta: '<path d="M11.3 3.8H19a1.2 1.2 0 0 1 1.2 1.2v7.7a1 1 0 0 1-.3.7l-7.6 7.6a1 1 0 0 1-1.4 0'
+          + 'l-6.4-6.4a1 1 0 0 1 0-1.4l6.9-6.9a1 1 0 0 1 .9-.5z"/>'
+          + '<circle cx="15.8" cy="8.2" r="1.3"/>',
+  grafico: '<path d="M4.5 19.5h15"/><path d="M7.5 16.5v-5M12 16.5v-9M16.5 16.5v-6.5"/>',
+  diana: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>'
+       + '<circle cx="12" cy="12" r="1"/>',
+  portapapeles: '<path d="M9 4.5H7.5a1.5 1.5 0 0 0-1.5 1.5v13A1.5 1.5 0 0 0 7.5 20.5h9a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H15"/>'
+              + '<rect x="9" y="3" width="6" height="3.2" rx="1"/>',
+  tijeras: '<circle cx="6.5" cy="17.5" r="2.3"/><circle cx="6.5" cy="6.5" r="2.3"/>'
+         + '<path d="M8.4 8.1 19 18.5M19 5.5 8.4 15.9"/>',
+  paleta: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.2 0 1.8-.9 1.8-1.8 0-1.5 1.2-2.2 2.4-2.2h2A2.8 2.8 0 0 0 21 13.7C21 8.1 17 3.5 12 3.5z"/>'
+        + '<circle cx="8.5" cy="9" r="1.1"/><circle cx="12.5" cy="7.5" r="1.1"/>'
+        + '<circle cx="7.5" cy="13.5" r="1.1"/>',
+  rayo: '<path d="M13.2 3.5 6 13.2h4.4L9.8 20.5 17 10.8h-4.4z"/>',
+  refrescar: '<path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M19.8 4.5v3.8h-3.8"/>',
+  deshacer: '<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4.2 4.5v3.8H8"/>',
+  candado: '<rect x="4.8" y="10.8" width="14.4" height="9.2" rx="2"/>'
+         + '<path d="M8.6 10.8V7.9a3.4 3.4 0 0 1 6.8 0v2.9"/>',
+  candadoAbierto: '<rect x="4.8" y="10.8" width="14.4" height="9.2" rx="2"/>'
+                + '<path d="M8.6 10.8V7.4a3.4 3.4 0 0 1 6.8 0"/>'
+                + '<path d="M15.4 7.4V4.6"/>',
+  bombilla: '<path d="M9.2 17.5a6 6 0 1 1 5.6 0z"/><path d="M9.8 20.5h4.4"/>',
+  ojo: '<path d="M2.8 12S6 6.5 12 6.5 21.2 12 21.2 12 18 17.5 12 17.5 2.8 12 2.8 12z"/>'
+     + '<circle cx="12" cy="12" r="2.8"/>',
+  archivador: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/>'
+            + '<path d="M5.5 8.5h13V18a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z"/>'
+            + '<path d="M10.5 12h3"/>',
+
+  // ── Señales ────────────────────────────────────────────────────────────
+  // Sin círculo: la marca a secas, para un texto. El estado «hecho» lleva
+  // el suyo dentro de un círculo — son dos cosas distintas.
+  check: '<path d="m5 12.8 4.2 4.2L19 6.5"/>',
+  cruz: '<path d="M6.2 6.2l11.6 11.6M17.8 6.2 6.2 17.8"/>',
+  aviso: '<path d="M12 4.2 21 19.5H3z"/><path d="M12 9.8v4.4"/><path d="M12 17h.01"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>',
+  pausa: '<path d="M9.5 6.5v11M14.5 6.5v11"/>',
+  play: '<path d="M8.5 5.8 18 12l-9.5 6.2z"/>',
+  // El paso que aún no ha empezado: un hueco, no un cuadrado relleno.
+  pendiente: '<circle cx="12" cy="12" r="7.5" stroke-dasharray="3 3.2"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.2"/><path d="M12 7.9h.01"/>',
+  flechaAbajo: '<path d="M12 4.8v14.4M12 19.2 6.5 13.7M12 19.2l5.5-5.5"/>',
+  flechaArriba: '<path d="M12 19.2V4.8M12 4.8 6.5 10.3M12 4.8l5.5 5.5"/>',
+  subirNivel: '<path d="M12 19.5V7.2M12 7.2 7 12.2M12 7.2l5 5"/><path d="M5.5 4.5h13"/>',
+};
+
+/** Un icono suelto, del tamaño del texto que lo rodea.
+ *
+ *  Hereda el color con `currentColor`, así que dentro de un botón primario
+ *  sale blanco y en un título, del color del título. Sin chip: los chips
+ *  (`_chipIcono`) son para cuando el icono ES el contenido, como en la
+ *  columna de trabajo.
+ */
+function icono(nombre, clase = '') {
+  const g = GLIFOS[nombre];
+  if (!g) return '';
+  return _svg(g, ` class="ico ${clase}"`);
+}
+
+
+/** El TONO lo da la PESTAÑA, no el tipo.
+ *
+ *  Antes cada tipo tenía el suyo y no seguía ninguna regla: el rip azul y la
+ *  serie morada siendo las dos de Tab 1, el análisis y la copia turquesas por
+ *  casualidad. Mirando la columna no se sabía de dónde venía cada cosa.
+ *
+ *  No hay tabla que mantener: todo trabajo lleva ya su `tab` en el contrato,
+ *  en la cola y en el historial, así que el color sale de ahí y no se puede
+ *  desincronizar de nada.
+ */
+const _TONO_POR_TAB = { rip: 'azul', mkv: 'turquesa', cmv40: 'naranja' };
+
+/** Por TIPO de trabajo: el glifo dice QUÉ se está haciendo. */
+const _GLIFOS_TRABAJO = {
+  // Salen del catálogo: el objeto es el mismo y no puede tener dos dibujos.
+  rip:                _svg(GLIFOS.disco),
+  crear_serie:        _svg(GLIFOS.tv),
+  analisis_extendido: _svg(GLIFOS.lupaOnda),
+  copia_biblioteca:   _svg(GLIFOS.bandeja),
+  preflight:          _svg(GLIFOS.escudo),
+  fase_cmv40:         _svg(GLIFOS.destellos),
+};
+
+/** Por ESTADO: dice en qué punto está. */
+const _ICONOS_ESTADO = {
+  // Arco abierto que gira. Sustituye al ⏳: un reloj de arena sugiere que hay
+  // que esperar sin hacer nada, y esto sugiere que algo se mueve.
+  corriendo: ['verde', _svg('<circle cx="12" cy="12" r="8.5" stroke-dasharray="40 14"/>',
+                            ' class="icono-girando"')],
+  // Reloj, no reloj de arena: es "le toca a las y cuarto", no "aguanta".
+  en_cola: ['gris', _svg(GLIFOS.reloj)],
+  hecho:   ['verde', _svg('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')],
+  error:   ['rojo',  _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v4.6"/>'
+                        + '<path d="M12 16.1h.01"/>')],
+  // En rojo, como el error: pararlo a medias es un final abrupto y así se
+  // lee de un vistazo. En gris se confundía con «en cola» y no contaba nada;
+  // el motivo va debajo, igual que el de un fallo.
+  cancelado: ['rojo', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
+  // Ni hecho ni fallido: terminó su parte y espera una decisión. En ámbar
+  // porque hay algo que hacer, con la interrogación que lo dice sin texto.
+  esperando: ['naranja', _svg('<circle cx="12" cy="12" r="8.5"/>'
+                            + '<path d="M9.9 9.8a2.2 2.2 0 1 1 2.5 2.7v1.1"/>'
+                            + '<path d="M12.3 16.4h.01"/>')],
+  // Los dos que pedían las columnas de proyecto. Van en el MISMO catálogo:
+  // un estado que se pinta en dos sitios no puede tener dos dibujos.
+  //
+  // Configurado y sin ejecutar. El triángulo no invita a pulsar —los chips no
+  // son botones y el de abrir está abajo—, dice que está todo listo y falta
+  // arrancar, que es justo el estado de un proyecto de Tab 1 recién creado.
+  listo: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/>'
+                     + '<path d="M10.4 9.3l4.4 2.7-4.4 2.7z"/>')],
+  // Caja cerrada: el proyecto existe y se puede consultar, pero ya no se
+  // trabaja sobre él. En gris porque no pide nada.
+  archivado: ['gris', _svg(GLIFOS.archivador)],
+};
+
+/** El chip con su icono. `clase` añade tamaño (`icono-chip-sm`). */
+function _chipIcono(par, clase = '') {
+  if (!par) return '';
+  const [tono, svg] = par;
+  return `<span class="icono-chip icono-${tono} ${clase}">${svg}</span>`;
+}
+
+function iconoDeTrabajo(tipo, tab = '', clase = '') {
+  const glifo = _GLIFOS_TRABAJO[tipo];
+  if (!glifo) return '';
+  return _chipIcono([_TONO_POR_TAB[tab] || 'gris', glifo], clase);
+}
+
+function iconoDeEstado(estado, clase = '') {
+  return _chipIcono(_ICONOS_ESTADO[estado], clase);
+}
+
+/** Rellena los iconos del marcado estático de `index.html`.
+ *
+ *  El HTML no puede llamar a `icono()`, y pegar 43 SVG a mano ahí dejaría los
+ *  dibujos en dos sitios. Se declara `data-icono="disco"` y esto los pinta al
+ *  arrancar: el marcado queda legible y el catálogo sigue siendo el único
+ *  lugar donde vive cada forma. El HTML que genera el JS usa `icono()`
+ *  directamente.
+ */
+function pintarIconos(raiz = document) {
+  const uno = el => {
+    if (el.dataset.icoPuesto) return;
+    const svg = icono(el.dataset.icono, el.dataset.iconoClase || '');
+    if (!svg) return;
+    el.innerHTML = svg;
+    // El atributo se conserva —dice qué icono es, y eso se lee al depurar— y
+    // la marca evita repintarlo en cada vuelta del observador.
+    el.dataset.icoPuesto = '1';
+  };
+  if (raiz.nodeType === 1 && raiz.dataset && raiz.dataset.icono) uno(raiz);
+  raiz.querySelectorAll('[data-icono]:not([data-ico-puesto])').forEach(uno);
+}
+
+/** Y lo mismo para el HTML que genera el JS.
+ *
+ *  La alternativa era interpolar `${icono('abrir')}` en cada plantilla, y hay
+ *  más de cien: en las que NO son template literals el `${...}` se vería
+ *  crudo en pantalla, y el fallo no da ningún error. Con `data-icono` la
+ *  plantilla es la misma cadena en los dos casos y esto lo pinta en cuanto
+ *  entra en el documento.
+ *
+ *  El trabajo por mutación está acotado —un `querySelectorAll` sobre el nodo
+ *  que acaba de añadirse— y no se puede realimentar: pintar un icono marca su
+ *  `data-ico-puesto`, así que la mutación que provoca no produce trabajo.
+ */
+function _observarIconos() {
+  if (!window.MutationObserver || !document.body) return;
+  new MutationObserver(muts => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1) pintarIconos(n);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
+
+/** El estado de un paso en un modal de progreso.
+ *
+ *  Era un PREFIJO DE TEXTO que se cambiaba con expresiones regulares
+ *  (un `textContent.replace` con la regex de los tres prefijos), lo que ataba
+ *  el estado del paso a su redacción: escribir el texto de otra forma —o
+ *  traducirlo— dejaba
+ *  el paso sin icono, y no había manera de darle color. Ahora el icono vive en
+ *  su propio `<span>` y esto le cambia el contenido y la clase.
+ *
+ *  `estado`: `pendiente` · `curso` · `hecho`.
+ */
+const _PASO_GLIFO = { pendiente: 'pendiente', curso: 'reloj', hecho: 'check' };
+
+function marcarPasoDeModal(el, estado) {
+  if (!el) return;
+  // El icono puede estar en el propio nodo o en su label (el paso de los PGS
+  // lleva además barra y estadísticas).
+  const ico = el.querySelector('.paso-ico')
+           || (el.parentElement && el.parentElement.querySelector('.paso-ico'));
+  if (ico) {
+    ico.className = `paso-ico paso-${estado}`;
+    ico.innerHTML = icono(_PASO_GLIFO[estado] || 'pendiente');
+  }
+  const caja = el.closest('.analyze-step') || el;
+  if (caja && caja.style) caja.style.opacity = estado === 'pendiente' ? '.4' : '1';
 }

@@ -65,3 +65,42 @@ def pieza_de(funcion: str) -> tuple[str, str]:
             f"`{funcion}` se declara en {len(encontradas)} piezas "
             f"({[n for n, _ in encontradas]}); se esperaba exactamente una")
     return encontradas[0]
+
+
+def sistema_de_iconos() -> str:
+    """El sistema de iconos completo, para los arneses de node.
+
+    Cada arnés listaba a mano las piezas que necesitaba
+    (`_fn('_svg')` + `_bloque('const _GLIFOS_TRABAJO = {')` + …), así que cada
+    vez que el sistema gana una pieza —el catálogo `GLIFOS`, la función
+    `icono`— se rompían todos a la vez con un `ReferenceError`. Pasó cuatro
+    veces en la misma sesión.
+
+    Aquí se pide el conjunto y ya está. Si el sistema crece, crece en un sitio.
+    """
+    js = js_completo()
+
+    def fn(nombre: str) -> str:
+        for marca in (f"\nfunction {nombre}(", f"\nasync function {nombre}("):
+            i = js.find(marca)
+            if i != -1:
+                return js[i + 1:js.index("\n}\n", i + 1) + 3]
+        raise AssertionError(f"no se encuentra `{nombre}`")
+
+    def const(marca: str) -> str:
+        i = js.index(marca)
+        fin = (js.index("\n", i) + 1 if marca.rstrip().endswith("=")
+               else js.index("\n};\n", i) + 4)
+        return js[i:fin]
+
+    return "\n".join([
+        fn("_svg"),
+        const("const GLIFOS = {"),
+        fn("icono"),
+        const("const _TONO_POR_TAB = "),
+        const("const _GLIFOS_TRABAJO = {"),
+        const("const _ICONOS_ESTADO = {"),
+        fn("_chipIcono"),
+        fn("iconoDeTrabajo"),
+        fn("iconoDeEstado"),
+    ])

@@ -257,13 +257,15 @@ function _sortSrcFbEntries(entries, sort) {
 async function srcFbNavigate(filter, relPath) {
   const listEl = document.getElementById(`src-fb-${filter}-list`);
   const bcEl = document.getElementById(`src-fb-${filter}-breadcrumb`);
-  if (listEl) listEl.innerHTML = '<div class="src-fb-loading">⏳ Cargando…</div>';
-  if (bcEl) bcEl.textContent = relPath ? `📂 /mnt/isos / ${relPath}` : '📂 /mnt/isos';
+  if (listEl) listEl.innerHTML = '<div class="src-fb-loading"><span data-icono="reloj"></span> Cargando…</div>';
+  // `innerHTML`: el icono es un SVG, antes iba como carácter en el texto.
+  if (bcEl) bcEl.innerHTML = icono('carpeta') + ' /mnt/isos'
+                           + (relPath ? ` / ${escHtml(relPath)}` : '');
 
   const url = `/api/library/browse?root=downloaded&path=${encodeURIComponent(relPath || '')}&filter=${filter}`;
   const data = await apiFetch(url);
   if (!data) {
-    if (listEl) listEl.innerHTML = '<div class="src-fb-empty">⚠ No se pudo leer la carpeta</div>';
+    if (listEl) listEl.innerHTML = '<div class="src-fb-empty"><span data-icono="aviso"></span> No se pudo leer la carpeta</div>';
     return;
   }
   if (data.error) {
@@ -300,7 +302,7 @@ function _renderSrcFb(filter) {
   if (st.parent !== null && st.parent !== undefined) {
     rows.push(`
       <div class="src-fb-row" data-action="navigate" data-path="${escHtml(st.parent)}">
-        <span class="src-fb-icon">⬆</span>
+        <span class="src-fb-icon"><span data-icono="subirNivel"></span></span>
         <span class="src-fb-name">.. (subir)</span>
       </div>
     `);
@@ -332,7 +334,7 @@ function _renderSrcFb(filter) {
         const selected = bdmvSelectedPath === path ? ' selected' : '';
         rows.push(`
           <div class="src-fb-row bdmv-folder${selected}" data-action="select-bdmv" data-path="${pathAttr}">
-            <span class="src-fb-icon">📀</span>
+            <span class="src-fb-icon"><span data-icono="disco"></span></span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-badge">BDMV</span>
           </div>
@@ -341,7 +343,7 @@ function _renderSrcFb(filter) {
         // Carpeta navegable normal
         rows.push(`
           <div class="src-fb-row" data-action="navigate" data-path="${pathAttr}">
-            <span class="src-fb-icon">📁</span>
+            <span class="src-fb-icon"><span data-icono="carpeta"></span></span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">→</span>
           </div>
@@ -353,7 +355,7 @@ function _renderSrcFb(filter) {
         const selected = pickerSelectedIso === path ? ' selected' : '';
         rows.push(`
           <div class="src-fb-row${selected}" data-action="select-iso" data-path="${pathAttr}">
-            <span class="src-fb-icon">💿</span>
+            <span class="src-fb-icon"><span data-icono="disco"></span></span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">${sizeGb}</span>
           </div>
@@ -369,7 +371,7 @@ function _renderSrcFb(filter) {
         rows.push(`
           <label class="src-fb-row${selected}" data-action="toggle-m2ts" data-path="${pathAttr}">
             <input type="${inputType}" name="src-fb-m2ts-sel" class="src-fb-check" ${checked}>
-            <span class="src-fb-icon">🎞️</span>
+            <span class="src-fb-icon"><span data-icono="cinta"></span></span>
             <span class="src-fb-name">${escHtml(e.name)}</span>
             <span class="src-fb-meta">${sizeGb}</span>
           </label>
@@ -419,7 +421,7 @@ function _attachSrcFbDelegation(filter) {
 function srcFbSelectIso(path) {
   pickerSelectedIso = path;
   const status = document.getElementById('src-fb-iso-status');
-  if (status) status.textContent = `✅ Seleccionado: ${path}`;
+  if (status) status.innerHTML = icono('check') + ` Seleccionado: ${escHtml(path)}`;
   _renderSrcFb('iso');  // re-render para marcar la fila activa
   _updateAnalyzeButtonState();
 }
@@ -428,7 +430,7 @@ function srcFbSelectIso(path) {
 function srcFbSelectBdmv(path) {
   bdmvSelectedPath = path;
   const status = document.getElementById('src-fb-bdmv-status');
-  if (status) status.textContent = `✅ Seleccionada carpeta BDMV: ${path}`;
+  if (status) status.innerHTML = icono('check') + ` Seleccionada carpeta BDMV: ${escHtml(path)}`;
   _renderSrcFb('bdmv');
   _updateAnalyzeButtonState();
 }
@@ -473,10 +475,10 @@ function _updateM2tsStatusText() {
     return;
   }
   if (_contentType === 'movie') {
-    status.textContent = `✅ 1 fichero seleccionado → modo película`;
+    status.innerHTML = icono('check') + ' 1 fichero seleccionado → modo película';
   } else {
     status.textContent =
-      `✅ ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
+      icono('check') + ` ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
   }
 }
 
@@ -505,7 +507,7 @@ function showProgressModal({ title, sub, icon, posterUrl } = {}) {
     if (posterUrl) {
       posterEl.innerHTML = `<img src="${escHtml(posterUrl)}" alt="poster">`;
     } else {
-      posterEl.innerHTML = `<span id="progress-modal-icon">${icon || '⏳'}</span>`;
+      posterEl.innerHTML = `<span id="progress-modal-icon">${icon || icono('reloj', 'ico-xl')}</span>`;
     }
   }
   document.getElementById('progress-modal-title').textContent = title || 'Procesando…';
@@ -542,7 +544,7 @@ function updateProgressModal({ current, pct, addStep, checklist, footnote, done 
     if (el) {
       el.style.display = 'block';
       const div = document.createElement('div');
-      div.textContent = `✓ ${addStep}`;
+      div.innerHTML = icono('check') + ` ${escHtml(addStep)}`;
       el.appendChild(div);
       el.scrollTop = el.scrollHeight;
     }
@@ -556,7 +558,7 @@ function updateProgressModal({ current, pct, addStep, checklist, footnote, done 
       el.style.display = 'block';
       el.classList.add('checklist');
       el.innerHTML = checklist.map(item => {
-        const icon = item.status === 'done' ? '✅'
+        const icon = item.status === 'done' ? icono('check')
           : item.status === 'active' ? '⏳'
           : '⬜';
         const cls = item.status === 'active' ? 'checklist-row active'
@@ -1037,7 +1039,7 @@ function openSeriesModal(probe) {
     // Aviso adicional cuando ya hay episodios procesados de este origen
     // — el usuario sabe por qué algunas filas vienen desmarcadas.
     const existingNote = existingCount > 0
-      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists">✓ Existe</span> — marca solo los que quieras añadir o rehacer.`
+      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> Existe</span> — marca solo los que quieras añadir o rehacer.`
       : '';
     sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.${existingNote}`;
   }
@@ -1162,14 +1164,14 @@ async function seriesTmdbSearch() {
     return;
   }
   const resultsBox = document.getElementById('series-tmdb-results');
-  resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px">⏳ Buscando en TMDb…</div>';
+  resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px"><span data-icono="reloj"></span> Buscando en TMDb…</div>';
 
   const qs = new URLSearchParams({ query });
   if (year && !isNaN(year)) qs.set('year', String(year));
   const data = await apiFetch(`/api/tv-search?${qs.toString()}`);
 
   if (!data || !data.tmdb_configured) {
-    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px">⚠️ TMDb no configurado. Configura la API key en ⚙️ Ajustes para buscar series.</div>';
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no configurado. Configura la API key en ⚙️ Ajustes para buscar series.</div>';
     return;
   }
   if (!data.results || data.results.length === 0) {
@@ -1401,7 +1403,7 @@ function _renderSeriesEpisodesTable() {
     // junto al nombre del fichero.
     const existingSession = _findExistingForCandidate(c, season, map.episode_number);
     const existsBadge = existingSession
-      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}">✓ Existe</span>`
+      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}"><span data-icono="check"></span> Existe</span>`
       : '';
     return `
       <div class="series-ep-row${map.include ? '' : ' unchecked'}${existingSession ? ' has-existing' : ''}">
@@ -1845,9 +1847,7 @@ function _resetAnalyzeSteps() {
   steps.forEach((s, i) => {
     const container = document.getElementById(`analyze-step-${s}`);
     if (container) container.style.opacity = i === 0 ? '1' : '.4';
-    const labelEl = _analyzeStepLabelNode(s);
-    if (!labelEl) return;
-    labelEl.textContent = labelEl.textContent.replace(/^[✅⏳⬜]\s*/, i === 0 ? '⏳ ' : '⬜ ');
+    marcarPasoDeModal(_analyzeStepLabelNode(s), i === 0 ? 'curso' : 'pendiente');
   });
   // Reset bar/stats del step pgs
   const barWrap = document.getElementById('analyze-step-pgs-bar');
@@ -1862,10 +1862,7 @@ function _resetAnalyzeSteps() {
 function _advanceAnalyzeStep(doneStep, nextStep) {
   const doneContainer = document.getElementById(`analyze-step-${doneStep}`);
   if (doneContainer) doneContainer.style.opacity = '1';
-  const doneLabel = _analyzeStepLabelNode(doneStep);
-  if (doneLabel) {
-    doneLabel.textContent = doneLabel.textContent.replace(/^[⏳⬜]\s*/, '✅ ');
-  }
+  marcarPasoDeModal(_analyzeStepLabelNode(doneStep), 'hecho');
   // Ocultar la barra del pgs al completarse
   if (doneStep === 'pgs') {
     const barWrap = document.getElementById('analyze-step-pgs-bar');
@@ -1875,10 +1872,7 @@ function _advanceAnalyzeStep(doneStep, nextStep) {
   }
   const nextContainer = document.getElementById(`analyze-step-${nextStep}`);
   if (nextContainer) nextContainer.style.opacity = '1';
-  const nextLabel = _analyzeStepLabelNode(nextStep);
-  if (nextLabel) {
-    nextLabel.textContent = nextLabel.textContent.replace(/^[⬜]\s*/, '⏳ ');
-  }
+  marcarPasoDeModal(_analyzeStepLabelNode(nextStep), 'curso');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2109,7 +2103,7 @@ function renderSidebarSessions(sessions, query = '') {
   if (!_sessionsCache.length) {
     selectedSidebarSessionId = null;
     container.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">🗂️</div>
+      <div class="empty-state-icon"><span data-icono="carpeta"></span></div>
       <div>Sin proyectos todavía</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:4px">Pulsa "Nuevo proyecto" para empezar</div>
     </div>`;
@@ -2118,7 +2112,7 @@ function renderSidebarSessions(sessions, query = '') {
 
   if (!sessions.length) {
     container.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">🔎</div>
+      <div class="empty-state-icon"><span data-icono="lupa"></span></div>
       <div>Sin resultados</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:4px">Prueba con otro término o filtro</div>
     </div>`;
@@ -2667,7 +2661,7 @@ function renderIncludedTracks(tracks) {
       li.innerHTML = `
         <span class="track-drag" data-tooltip="Arrastra para reordenar">⠿</span>
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
-        <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">🔊</span>
+        <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="grafico"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
             value="${escHtml(track.label || '')}"
@@ -2681,10 +2675,10 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
-            data-tooltip="Descartar esta pista">✕</button>
+            data-tooltip="Descartar esta pista"><span data-icono="cruz"></span></button>
         </div>
-        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
-        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
+        <div class="track-reason"><span><span data-icono="info"></span></span><span>${escHtml(track.selection_reason || '')}</span></div>
+        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
       audioList.appendChild(li);
     });
   }
@@ -2720,7 +2714,7 @@ function renderIncludedTracks(tracks) {
       li.innerHTML = `
         <span class="track-drag" data-tooltip="Arrastra para reordenar">⠿</span>
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
-        <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">💬</span>
+        <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="etiqueta"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
             value="${escHtml(track.label || '')}"
@@ -2736,10 +2730,10 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
-            data-tooltip="Descartar esta pista">✕</button>
+            data-tooltip="Descartar esta pista"><span data-icono="cruz"></span></button>
         </div>
-        <div class="track-reason"><span>ℹ️</span><span>${escHtml(track.selection_reason || '')}</span></div>
-        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
+        <div class="track-reason"><span><span data-icono="info"></span></span><span>${escHtml(track.selection_reason || '')}</span></div>
+        ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
       subList.appendChild(li);
     });
   }
@@ -2950,10 +2944,10 @@ function renderDiscardedTracks(tracks) {
         <div class="discarded-body">
           <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
           <div class="discarded-reason">${escHtml(track.discard_reason || '')}</div>
-          ${ambigWarn ? `<div class="track-ambiguity inline"><span class="ta-icon">⚠️</span><span class="ta-text">${escHtml(ambigWarn)}</span></div>` : ''}
+          ${ambigWarn ? `<div class="track-ambiguity inline"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(ambigWarn)}</span></div>` : ''}
         </div>
         <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})"
-          data-tooltip="Recuperar esta pista y añadirla a las incluidas">↩ Recuperar</button>`;
+          data-tooltip="Recuperar esta pista y añadirla a las incluidas"><span data-icono="deshacer"></span> Recuperar</button>`;
       container.appendChild(div);
     });
   };
@@ -3608,7 +3602,7 @@ function renderChapterList(chapters) {
         onchange="onChapterNameChange(${idx}, this.value)"
         data-tooltip="Nombre del capítulo tal como aparecerá en el reproductor.">
       <button class="btn btn-icon" onclick="deleteChapter(${idx})"
-        data-tooltip="Eliminar este capítulo.">✕</button>`;
+        data-tooltip="Eliminar este capítulo."><span data-icono="cruz"></span></button>`;
     container.appendChild(row);
   });
 }
@@ -3751,7 +3745,7 @@ async function resetChaptersFromDisc() {
       ? 'Se extraerán los capítulos originales del disco (MPLS) y reemplazarán a los automáticos cada 10 minutos. Algunos discos UHD multi-segmento solo se pueden leer así.'
       : 'Se descartarán todas las ediciones manuales (nombres, posiciones, capítulos añadidos/eliminados) y se volverán a extraer los capítulos originales del ISO.',
     async () => {
-      const toastId = showToast('⏳ Montando ISO y extrayendo capítulos…', 'info', 0);
+      const toastId = showToast('Montando ISO y extrayendo capítulos…', 'info', 0);
       const data = await apiFetch(`/api/sessions/${sessionId}/reset-chapters`, { method: 'POST' });
       removeToast(toastId);
       if (!data) return;
@@ -3817,16 +3811,16 @@ function _classifyDvStatus(session) {
   }
 
   if (dv && dv.profile === 7 && dv.el_type === 'FEL') {
-    return { label: 'Dolby Vision FEL', icon: '🎬', cls: 'dv-fel', detail,
+    return { label: 'Dolby Vision FEL', icon: 'claqueta', cls: 'dv-fel', detail,
              note: '', unconfirmed: false };
   }
   if (dv && dv.profile === 7 && dv.el_type === 'MEL') {
-    return { label: 'Dolby Vision MEL', icon: '🎬', cls: 'dv-mel', detail,
+    return { label: 'Dolby Vision MEL', icon: 'claqueta', cls: 'dv-mel', detail,
              note: 'Capa de mejora mínima — sin residuals de color. El MKV no lleva tag [DV FEL].',
              unconfirmed: false };
   }
   if (dv) {
-    return { label: `Dolby Vision (Perfil ${dv.profile})`, icon: '🎬', cls: 'dv-other',
+    return { label: `Dolby Vision (Perfil ${dv.profile})`, icon: 'claqueta', cls: 'dv-other',
              detail, note: '', unconfirmed: false };
   }
   if (hasEl || session.has_fel) {
@@ -3834,7 +3828,7 @@ function _classifyDvStatus(session) {
     // ya lo cuenta la nota. El texto íntegro sigue en 🔬 Datos ISO.
     const how = (bd.fel_reason || '').split('. ')[0];
     return {
-      label: 'Dolby Vision dual-layer', icon: '🎬', cls: 'dv-unconfirmed',
+      label: 'Dolby Vision dual-layer', icon: 'claqueta', cls: 'dv-unconfirmed',
       detail: how || 'Enhancement Layer presente en el disco',
       note: 'dovi_tool no pudo confirmar si la capa es FEL o MEL — se asume FEL (mira 🔬 Datos ISO).',
       unconfirmed: true,
@@ -3878,7 +3872,9 @@ function _renderDvStatusCard(session) {
   const st = _classifyDvStatus(session);
   const card = E('dv-card');
   if (card) card.className = `global-info-item ${st.cls}`;
-  setText('dv-icon', st.icon);
+  // El icono es un SVG: va como HTML, no como texto.
+  const dvIco = E('dv-icon');
+  if (dvIco) dvIco.innerHTML = icono(st.icon, 'ico-lg');
   setText('dv-state', st.label);
   setText('dv-detail', st.detail);
 
@@ -4097,11 +4093,11 @@ function renderExecResultBanner(session) {
     detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
       ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')"
-          data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales">🛑 Cancelar</button>`
+          data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales"><span data-icono="cruz"></span> Cancelar</button>`
       : '';
     actions.innerHTML = `
       <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()"
-        data-tooltip="Ver el progreso en tiempo real">📺 Ver progreso</button>${cancelBtn}`;
+        data-tooltip="Ver el progreso en tiempo real"><span data-icono="tv"></span> Ver progreso</button>${cancelBtn}`;
   } else {
     banner.style.display = 'none';
   }
@@ -4208,9 +4204,9 @@ function renderExecutionHistory(session) {
       <td class="exec-h-total">${totalSecs > 0 ? fmtSecs(totalSecs) : '—'}</td>
       <td class="exec-h-actions">
         <button class="btn btn-ghost btn-xs" onclick="showLogModal(${rec.run_number - 1})"
-          data-tooltip="Ver el log completo de esta ejecución">📄 Log</button>
+          data-tooltip="Ver el log completo de esta ejecución"><span data-icono="portapapeles"></span> Log</button>
         <button class="btn btn-ghost btn-xs" onclick="downloadExecLog(${rec.run_number - 1})"
-          data-tooltip="Descargar el log como fichero .txt">⬇</button>
+          data-tooltip="Descargar el log como fichero .txt"><span data-icono="flechaAbajo"></span></button>
       </td>`;
     tbodyEl.appendChild(tr);
   }
@@ -4845,11 +4841,11 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
     pasosTitulo: 'Fases del análisis',
     pasos: [
-      { icono: '💿', titulo: 'Fase A · Apertura del origen',
+      { icono: 'disco', titulo: 'Fase A · Apertura del origen',
         sub: 'Monta el origen y localiza las playlists de cada episodio' },
-      { icono: '🔍', titulo: 'Fase B · Análisis por episodio',
+      { icono: 'lupa', titulo: 'Fase B · Análisis por episodio',
         sub: 'Pistas, capítulos, subtítulos PGS y Dolby Vision' },
-      { icono: '📁', titulo: 'Fase C · Creación de proyectos',
+      { icono: 'carpeta', titulo: 'Fase C · Creación de proyectos',
         sub: 'Un proyecto por episodio, con las reglas ya aplicadas' },
     ],
     conLog: false,

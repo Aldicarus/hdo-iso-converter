@@ -912,7 +912,7 @@ function cartelDeTmdb(tmdb, nombreFallback, icono) {
   }
   if (t?.genres?.length) partes.push(t.genres.slice(0, 2).join(' · '));
   return { url: t?.poster_url || '', titulo, meta: partes.join(' · '),
-           icono: icono || '🎬' };
+           icono: icono || iconoDeTrabajo('rip', 'rip') };
 }
 
 /** La cartela: póster, título largo y ficha (año · duración · géneros).
@@ -930,7 +930,7 @@ function _trabajoCartelPinta(cartel) {
   if (poster) {
     poster.innerHTML = cartel.url
       ? `<img src="${escHtml(cartel.url)}" alt="" loading="lazy">`
-      : (cartel.icono || '🎬');
+      : (cartel.icono || iconoDeTrabajo('rip', 'rip'));
   }
   const t = document.getElementById('trabajo-modal-cartel-titulo');
   if (t) {
@@ -974,7 +974,7 @@ function timelineDeTrabajo(pasos, a, titulo) {
                              : estado === 'running' ? 'en curso…'
                              : term ? 'no llegó a ejecutarse' : '');
     const icono = {
-      done:    '<span class="cmv40-tl-status-icon done">✓</span>',
+      done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
     }[estado];
@@ -1322,110 +1322,11 @@ async function _trabajoModalAbrir(a) {
 }
 
 // ── Iconos ───────────────────────────────────────────────────────────────────
-// SVG en línea, no emoji. Los emoji los dibuja el sistema operativo: cambian de
-// forma y de color entre máquinas, no heredan la paleta y a un ⏳ o un ⬜ no hay
-// manera de quitarles el aire de chat. Un `<svg>` con `currentColor` sí hereda,
-// se anima con CSS y pesa lo mismo que un carácter.
+// ── Iconos ──────────────────────────────────────────────────────────────────
 //
-// El trazo es de 1.6 con extremos redondeados sobre una rejilla de 24, que es
-// lo que hace que se lean como una familia — el mismo criterio de Material
-// Symbols en su variante `outlined`. El color va en un chip: fondo con la
-// variante `-dim` de la paleta y trazo con la sólida, que es de donde sale el
-// aspecto pastel sin inventar colores nuevos.
+// El catálogo vive en `core.js`: es de toda la aplicación, no de esta columna.
+// Aquí se usan `iconoDeTrabajo` / `iconoDeEstado` y nada más.
 
-/** Envuelve un `path` en el `<svg>` común. Todo comparte rejilla y trazo. */
-function _svg(cuerpo, extra = '') {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-    aria-hidden="true"${extra}>${cuerpo}</svg>`;
-}
-
-/** El TONO lo da la PESTAÑA, no el tipo.
- *
- *  Antes cada tipo tenía el suyo y no seguía ninguna regla: el rip azul y la
- *  serie morada siendo las dos de Tab 1, el análisis y la copia turquesas por
- *  casualidad. Mirando la columna no se sabía de dónde venía cada cosa.
- *
- *  No hay tabla que mantener: todo trabajo lleva ya su `tab` en el contrato,
- *  en la cola y en el historial, así que el color sale de ahí y no se puede
- *  desincronizar de nada.
- */
-const _TONO_POR_TAB = { rip: 'azul', mkv: 'turquesa', cmv40: 'naranja' };
-
-/** Por TIPO de trabajo: el glifo dice QUÉ se está haciendo. */
-const _GLIFOS_TRABAJO = {
-  // Disco: dos círculos concéntricos, como el `album` de Material.
-  rip: _svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>'),
-  // Pantalla con antena: una serie de televisión.
-  crear_serie: _svg('<rect x="3" y="7.5" width="18" height="12.5" rx="2"/>'
-                  + '<path d="m8 3.5 4 4 4-4"/>'),
-  // Lupa sobre una onda: analizar la señal, no "buscar un fichero".
-  analisis_extendido: _svg('<circle cx="10.5" cy="10.5" r="6.5"/>'
-                         + '<path d="m20 20-4.6-4.6"/>'
-                         + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>'),
-  // Flecha entrando en una bandeja: copiar hacia Output.
-  copia_biblioteca: _svg('<path d="M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/>'
-                       + '<path d="M12 3.5v10m0 0 3.5-3.5M12 13.5 8.5 10"/>'),
-  // Escudo con visto: la validación previa, que decide SI va a haber trabajo.
-  preflight: _svg('<path d="M12 3.2 5.5 6v6c0 4 2.8 7 6.5 8.8'
-                + ' 3.7-1.8 6.5-4.8 6.5-8.8V6z"/>'
-                + '<path d="m9.2 12.1 2 2 3.6-4"/>'),
-  // Destellos: el upgrade de metadata, sin tocar la imagen.
-  fase_cmv40: _svg('<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
-                 + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>'),
-};
-
-/** Por ESTADO: dice en qué punto está. */
-const _ICONOS_ESTADO = {
-  // Arco abierto que gira. Sustituye al ⏳: un reloj de arena sugiere que hay
-  // que esperar sin hacer nada, y esto sugiere que algo se mueve.
-  corriendo: ['verde', _svg('<circle cx="12" cy="12" r="8.5" stroke-dasharray="40 14"/>',
-                            ' class="icono-girando"')],
-  // Reloj, no reloj de arena: es "le toca a las y cuarto", no "aguanta".
-  en_cola: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>')],
-  hecho:   ['verde', _svg('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')],
-  error:   ['rojo',  _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v4.6"/>'
-                        + '<path d="M12 16.1h.01"/>')],
-  // En rojo, como el error: pararlo a medias es un final abrupto y así se
-  // lee de un vistazo. En gris se confundía con «en cola» y no contaba nada;
-  // el motivo va debajo, igual que el de un fallo.
-  cancelado: ['rojo', _svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.2 8.2l7.6 7.6"/>')],
-  // Ni hecho ni fallido: terminó su parte y espera una decisión. En ámbar
-  // porque hay algo que hacer, con la interrogación que lo dice sin texto.
-  esperando: ['naranja', _svg('<circle cx="12" cy="12" r="8.5"/>'
-                            + '<path d="M9.9 9.8a2.2 2.2 0 1 1 2.5 2.7v1.1"/>'
-                            + '<path d="M12.3 16.4h.01"/>')],
-  // Los dos que pedían las columnas de proyecto. Van en el MISMO catálogo:
-  // un estado que se pinta en dos sitios no puede tener dos dibujos.
-  //
-  // Configurado y sin ejecutar. El triángulo no invita a pulsar —los chips no
-  // son botones y el de abrir está abajo—, dice que está todo listo y falta
-  // arrancar, que es justo el estado de un proyecto de Tab 1 recién creado.
-  listo: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/>'
-                     + '<path d="M10.4 9.3l4.4 2.7-4.4 2.7z"/>')],
-  // Caja cerrada: el proyecto existe y se puede consultar, pero ya no se
-  // trabaja sobre él. En gris porque no pide nada.
-  archivado: ['gris', _svg('<rect x="3.5" y="4.5" width="17" height="4" rx="1"/>'
-                         + '<path d="M5.5 8.5h13V18a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z"/>'
-                         + '<path d="M10.5 12h3"/>')],
-};
-
-/** El chip con su icono. `clase` añade tamaño (`icono-chip-sm`). */
-function _chipIcono(par, clase = '') {
-  if (!par) return '';
-  const [tono, svg] = par;
-  return `<span class="icono-chip icono-${tono} ${clase}">${svg}</span>`;
-}
-
-function iconoDeTrabajo(tipo, tab = '', clase = '') {
-  const glifo = _GLIFOS_TRABAJO[tipo];
-  if (!glifo) return '';
-  return _chipIcono([_TONO_POR_TAB[tab] || 'gris', glifo], clase);
-}
-
-function iconoDeEstado(estado, clase = '') {
-  return _chipIcono(_ICONOS_ESTADO[estado], clase);
-}
 
 
 /** Saca un trabajo de la cola antes de que empiece.

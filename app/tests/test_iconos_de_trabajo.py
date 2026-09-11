@@ -34,7 +34,9 @@ STATIC = APP_DIR / "static"
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, pieza_de  # noqa: E402
+from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de  # noqa: E402
+
+SISTEMA_ICONOS = sistema_de_iconos()
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -73,13 +75,7 @@ class TestHayIconoParaTodo(unittest.TestCase):
         args = (f"{json.dumps(clave)}, {json.dumps(tab)}"
                 if fn == "iconoDeTrabajo" else json.dumps(clave))
         guion = f"""
-{_fn('_svg')}
-{_linea('const _TONO_POR_TAB = ')}
-{_bloque('const _GLIFOS_TRABAJO = {')}
-{_bloque('const _ICONOS_ESTADO = {')}
-{_fn('_chipIcono')}
-{_fn('iconoDeTrabajo')}
-{_fn('iconoDeEstado')}
+{SISTEMA_ICONOS}
 console.log(JSON.stringify({fn}({args})));
 """
         r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
@@ -166,7 +162,10 @@ class TestNoQuedanEmojiEnLaColumnaNiEnElModal(unittest.TestCase):
         return re.sub(r"//.*|/\*(?:.|\n)*?\*/", "", src)
 
     def test_la_columna_no_pinta_emoji_de_estado(self):
-        src = self._sin_comentarios(pieza_de("iconoDeTrabajo")[1])
+        # La pieza de la COLUMNA, por una función que solo vive ahí. Antes se
+        # buscaba por `iconoDeTrabajo`, que se fue al catálogo común de
+        # `core.js` — y entonces esto medía otro fichero.
+        src = self._sin_comentarios(pieza_de("_workbarTarjeta")[1])
         for emoji in ("⏳", "⬜", "✓ ", "⚙︎"):
             self.assertNotIn(emoji, src, f"queda {emoji!r} en la columna")
 
@@ -231,6 +230,105 @@ class TestNingunaVariableCssSeUsaSinDefinirse(unittest.TestCase):
             sorted(usadas - definidas), [],
             "variables CSS usadas y nunca definidas: la declaración se "
             "invalida y el estilo cae al heredado sin un solo error")
+
+
+class TestElCatalogoEsUnoYEstaCompleto(unittest.TestCase):
+    """43 glifos SVG en `core.js`, y nadie puede pedir uno que no exista.
+
+    Un nombre mal escrito —`data-icono="engranaje"` cuando el glifo se llama
+    `ajustes`— deja el hueco VACÍO y no da ningún error: es el modo de fallo
+    de esta familia de cambios, y el único que un test puede cazar antes de
+    que lo vea el usuario.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        i = JS.index("const GLIFOS = {")
+        j = JS.index("\n};", i)
+        cls.nombres = set(re.findall(r"^\s{2}([a-zA-Z]\w*):",
+                                     JS[i:j], re.M))
+
+    def test_hay_catalogo_y_no_esta_vacio(self):
+        self.assertGreater(len(self.nombres), 30, self.nombres)
+
+    def test_ningun_data_icono_del_html_apunta_a_un_glifo_inexistente(self):
+        pedidos = set(re.findall(r'data-icono="([a-zA-Z]\w*)"', html()))
+        self.assertTrue(pedidos, "el marcado ya no declara ningún icono")
+        self.assertEqual(pedidos - self.nombres, set(),
+                         "iconos que el catálogo no tiene: el hueco se queda "
+                         "vacío y no salta ningún error")
+
+    def test_ni_los_del_html_que_genera_el_js(self):
+        pedidos = set(re.findall(r'data-icono=\\?"([a-zA-Z]\w*)\\?"', JS))
+        self.assertEqual(pedidos - self.nombres, set())
+
+    def test_ni_las_llamadas_con_nombre_literal(self):
+        pedidos = set(re.findall(r"\bicono\(\s*'([a-zA-Z]\w*)'", JS))
+        self.assertTrue(pedidos)
+        self.assertEqual(pedidos - self.nombres, set())
+
+    def test_ni_los_valores_de_los_mapas_de_icono(self):
+        """`icon: 'lupaOnda'` se pinta con `icono(x.icon)`: si el nombre no
+        está en el catálogo, la fila sale sin icono."""
+        pedidos = set(re.findall(r"icon:\s*'([a-zA-Z]\w*)'", JS))
+        self.assertTrue(pedidos)
+        self.assertEqual(pedidos - self.nombres, set())
+
+    def test_todos_los_glifos_son_svg_de_verdad(self):
+        i = JS.index("const GLIFOS = {")
+        cuerpo = JS[i:JS.index("\n};", i)]
+        # Cada valor tiene que empezar por una etiqueta SVG, no por texto.
+        for linea in cuerpo.splitlines():
+            m = re.match(r"\s{2}([a-zA-Z]\w*):\s*'(.)", linea)
+            if m:
+                self.assertEqual(m.group(2), "<",
+                                 f"{m.group(1)} no empieza por una etiqueta")
+
+    def test_un_nombre_desconocido_no_pinta_basura(self):
+        guion = (_fn('_svg') + _bloque('const GLIFOS = {') + _fn('icono')
+                 + "console.log(JSON.stringify([icono('noExiste'), icono('')]));")
+        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+                           timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr[:400])
+        self.assertEqual(json.loads(r.stdout.strip().splitlines()[-1]), ["", ""])
+
+    def test_el_icono_lleva_su_clase_para_que_el_css_lo_dimensione(self):
+        guion = (_fn('_svg') + _bloque('const GLIFOS = {') + _fn('icono')
+                 + "console.log(JSON.stringify(icono('disco', 'ico-lg')));")
+        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+                           timeout=30)
+        h = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertIn('class="ico ico-lg"', h)
+        self.assertIn('stroke="currentColor"', h,
+                      "sin `currentColor` el icono no hereda el color del sitio")
+
+
+class TestElEmojiSeFueDeLaInterfaz(unittest.TestCase):
+    """Lo que se ve en pantalla ya no lo dibuja el sistema operativo.
+
+    No se persigue el emoji en los comentarios ni en los markers del log de
+    CMv4.0 (`🎯 Resultado`, `📋 Plan`…), que son tokens de persistencia y del
+    parser del frontend: ahí cambiarlos rompe cosas.
+    """
+
+    _EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿⬀-⯿✓✔✗✘▶⏳⏸⚠]')
+
+    def test_el_marcado_estatico_no_pinta_emoji(self):
+        h = html()
+        # El favicon es un `data:` con un emoji dentro y dos frases lo usan
+        # como palabra («marcada con 📀»); lo que se comprueba es el marcado.
+        sin_favicon = re.sub(r'<link rel="icon"[^>]*>', '', h)
+        sin_com = re.sub(r"<!--.*?-->", "", sin_favicon, flags=re.S)
+        sueltos = [l.strip()[:70] for l in sin_com.splitlines()
+                   if self._EMOJI.search(l)]
+        self.assertEqual(sueltos, [], f"quedan {len(sueltos)} en index.html")
+
+    def test_ningun_toast_trae_su_propio_icono(self):
+        """El tipo del toast ya pone uno: el del mensaje salía duplicado."""
+        for pieza, src in [(p, s) for p, s in map(pieza_de, ('showToast',))]:
+            pass
+        sobra = re.findall(rf"showToast\(\s*[`'\"]\s*{self._EMOJI.pattern}", JS)
+        self.assertEqual(sobra, [])
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ async function openCMv40CleanupModal() {
   openModal('cmv40-cleanup-modal');
   const body = document.getElementById('cmv40-cleanup-body');
   const foot = document.getElementById('cmv40-cleanup-foot');
-  if (body) body.innerHTML = '<div class="cmv40-cleanup-loading">⏳ Escaneando proyectos…</div>';
+  if (body) body.innerHTML = '<div class="cmv40-cleanup-loading"><span data-icono="reloj"></span> Escaneando proyectos…</div>';
   if (foot) foot.style.display = 'none';
 
   const data = await apiFetch('/api/cmv40/cleanup/preview');
@@ -55,7 +55,7 @@ async function openCMv40CleanupModal() {
     if (body) {
       body.innerHTML = `
         <div class="cmv40-cleanup-empty">
-          ✓ Nada que limpiar — los ${data.total_count} proyectos ya están archivados o tienen una fase en curso.
+          ${icono('check')} Nada que limpiar — los ${data.total_count} proyectos ya están archivados o tienen una fase en curso.
         </div>`;
     }
     return;
@@ -65,11 +65,11 @@ async function openCMv40CleanupModal() {
   const rows = data.items.map((it) => {
     // Estado visual
     let stateBadge = '';
-    if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running">⏳ En curso</span>';
-    else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived">🗃️ Archivado</span>';
-    else if (it.state === 'done') stateBadge = '<span class="cleanup-state-pill done">✓ Done</span>';
-    else if (it.state === 'error') stateBadge = '<span class="cleanup-state-pill error">⚠ Error</span>';
-    else stateBadge = `<span class="cleanup-state-pill in-progress">⏸ ${escHtml(it.phase)}</span>`;
+    if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running"><span data-icono="reloj"></span> En curso</span>';
+    else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived"><span data-icono="archivador"></span> Archivado</span>';
+    else if (it.state === 'done') stateBadge = '<span class="cleanup-state-pill done"><span data-icono="check"></span> Done</span>';
+    else if (it.state === 'error') stateBadge = '<span class="cleanup-state-pill error"><span data-icono="aviso"></span> Error</span>';
+    else stateBadge = `<span class="cleanup-state-pill in-progress">${icono('pausa')} ${escHtml(it.phase)}</span>`;
 
     const cb = it.safe_to_delete
       ? `<input type="checkbox" class="cmv40-cleanup-cb" data-id="${escHtml(it.id)}" data-size="${it.size_bytes}" checked>`
@@ -95,7 +95,7 @@ async function openCMv40CleanupModal() {
 
   body.innerHTML = `
     <div class="cmv40-cleanup-warn">
-      <strong>⚠️ Atención:</strong> esta acción es <strong>irreversible</strong>. Tras borrar los artefactos, los proyectos quedan en modo <strong>solo lectura</strong> — no se podrán rehacer fases ni reanudar pipelines abiertos. El JSON de la sesión y el log se preservan; solo se borran los HEVC/RPU/MKV.tmp del workdir.
+      <strong><span data-icono="aviso"></span> Atención:</strong> esta acción es <strong>irreversible</strong>. Tras borrar los artefactos, los proyectos quedan en modo <strong>solo lectura</strong> — no se podrán rehacer fases ni reanudar pipelines abiertos. El JSON de la sesión y el log se preservan; solo se borran los HEVC/RPU/MKV.tmp del workdir.
     </div>
     <table class="cmv40-cleanup-table">
       <thead>
@@ -170,7 +170,7 @@ async function cmv40BulkCleanupExecute() {
       const skipCount = (data.skipped || []).length;
       const koCount = (data.failed || []).length;
       const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
-      let msg = `🗃️ ${okCount} proyecto${okCount === 1 ? '' : 's'} archivado${okCount === 1 ? '' : 's'} · liberados ${freed}`;
+      let msg = `${okCount} proyecto${okCount === 1 ? '' : 's'} archivado${okCount === 1 ? '' : 's'} · liberados ${freed}`;
       if (skipCount > 0) msg += ` · ${skipCount} omitido${skipCount === 1 ? '' : 's'} (en curso)`;
       if (koCount > 0)   msg += ` · ${koCount} fallido${koCount === 1 ? '' : 's'}`;
       showToast(msg, koCount === 0 ? 'success' : 'warning');
@@ -276,7 +276,7 @@ const _CMV40_HELP_SECTIONS = {
   // GENERAL — Conceptos clave
   // ═══════════════════════════════════════════════════════════════
   general: `
-    <h1>🧠 Conceptos clave de Dolby Vision</h1>
+    <h1><span data-icono="bombilla"></span> Conceptos clave de Dolby Vision</h1>
     <p class="cmv40-help-lead">Qué son BL, EL, los profiles DV, las versiones CM y los niveles. Todos los datos contrastados con fuentes primarias (dovi_tool, Dolby Professional, Netflix Partner docs, Wikipedia).</p>
 
     <div class="help-subtoc">
@@ -288,7 +288,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#g-levels">Niveles L0-L11</a>
     </div>
 
-    <h2 id="g-layers">🎞️ Las tres piezas de Dolby Vision: BL, EL y RPU</h2>
+    <h2 id="g-layers"><span data-icono="cinta"></span> Las tres piezas de Dolby Vision: BL, EL y RPU</h2>
     <p>Un stream Dolby Vision tiene siempre <strong>un vídeo HEVC base</strong> + <strong>metadata de tone-mapping</strong>. Algunos profiles añaden una capa extra.</p>
     <table>
       <tr><th>Pieza</th><th>Qué es</th><th>Tamaño típico</th></tr>
@@ -300,7 +300,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Corrección importante:</strong> la leyenda de que "FEL alcanza 4000 nits y MEL solo 1000" es un <em>malentendido comunitario</em> — ambos transportan el mismo rango PQ 0-10.000 nits en L1. La diferencia real de FEL es <strong>precisión de color y gradientes</strong> (bits efectivos, no techo de brillo).
     </div>
 
-    <h2 id="g-felmel">🔍 FEL vs MEL — la diferencia real</h2>
+    <h2 id="g-felmel"><span data-icono="lupa"></span> FEL vs MEL — la diferencia real</h2>
     <table>
       <tr><th>Variante</th><th>Contenido del EL</th><th>Aporta</th></tr>
       <tr><td><span class="help-pill help-pill-fel">FEL</span> · Full EL</td><td>Residuals reales de luma y croma, punto por punto frente al BL.</td><td>Reconstrucción 12-bit 4:2:0. Gradientes más finos, menos banding, mejor croma en escenas saturadas.</td></tr>
@@ -327,7 +327,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Nota importante sobre los boxes que "aceptan P7 pero descartan el EL":</strong> esto sigue siendo cierto para Zidoo/Dune y para <em>Amlogic sin CoreELEC-NG reciente</em>. Reproducen BL + RPU (equivalente a P8.1), lo cual se ve bien pero pierde la precisión de color del EL. La diferencia con los boxes FEL-aware es exactamente esa: procesan el EL o no. Si tienes una Ugoos AM6B+ con CoreELEC NG actualizado, estás en el grupo que sí procesa.
     </div>
 
-    <h2 id="g-profiles">🎯 Profiles Dolby Vision — matriz completa</h2>
+    <h2 id="g-profiles"><span data-icono="diana"></span> Profiles Dolby Vision — matriz completa</h2>
     <p>Un <strong>Profile</strong> en Dolby Vision es el <em>"formato de empaquetado"</em> del stream: describe cómo están organizadas las capas (single vs dual-layer), qué codec se usa (HEVC o AV1), qué color space tiene la Base Layer (HDR10, HLG, SDR, IPT propietario), y cómo viaja el RPU. No es una "calidad" — un profile no es mejor que otro en abstracto. Lo que cambia es el <em>caso de uso</em>: cada ecosistema (UHD Blu-ray, streaming, broadcast, móvil) adopta los profiles que encajan con sus restricciones de ancho de banda, compatibilidad y licencia.</p>
     <p>Conocer el profile de un fichero determina tres cosas prácticas: <strong>(1)</strong> si tu reproductor lo puede entender; <strong>(2)</strong> si se ve correctamente en un display no-DV (solo los profiles con BL válida HDR10/SDR/HLG son retro-compatibles); <strong>(3)</strong> qué pipeline de upgrade CMv4.0 tiene sentido (ej. P7 FEL se puede upgradear conservando el EL; P5 no tiene sentido upgradear porque la BL es propietaria).</p>
     <table>
@@ -359,7 +359,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Adopción en discos:</strong> la mayoría de UHD BDs <em>pre-2020</em> son CMv2.9. Estudios recientes varían — incluso en 2024-2025 se siguen publicando BDs CMv2.9. Ahí es donde el <strong>upgrade CMv4.0</strong> tiene sentido: el BD FEL se mantiene y solo se sustituye el RPU.
     </div>
 
-    <h2 id="g-levels">📊 Niveles L0-L11 — especificación verificada</h2>
+    <h2 id="g-levels"><span data-icono="grafico"></span> Niveles L0-L11 — especificación verificada</h2>
     <table>
       <tr><th>Nivel</th><th>Nombre</th><th>CM</th><th>Obligatorio</th><th>Función</th></tr>
       <tr><td><strong>L0</strong></td><td>Mastering & Target Display Characteristics</td><td>v2.9 + v4.0</td><td>Sí</td><td>Estático. Info del mastering display, aspect ratio, frame rate, algoritmo/trim version.</td></tr>
@@ -400,7 +400,7 @@ const _CMV40_HELP_SECTIONS = {
   // POR QUÉ UPGRADE
   // ═══════════════════════════════════════════════════════════════
   'why-upgrade': `
-    <h1>💡 Por qué hacer upgrade a CMv4.0</h1>
+    <h1><span data-icono="bombilla"></span> Por qué hacer upgrade a CMv4.0</h1>
     <p class="cmv40-help-lead">El objetivo: combinar el <strong>vídeo del UHD Blu-ray</strong> (la mejor calidad de imagen disponible) con el <strong>tone-mapping CMv4.0</strong> (típicamente extraído de versiones streaming con remaster reciente). Hay que entender qué se gana, qué no, y en qué TVs merece la pena antes de invertir horas.</p>
 
     <div class="help-subtoc">
@@ -413,7 +413,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#w-decide">Árbol de decisión</a>
     </div>
 
-    <h2 id="w-gain">🎯 Qué se gana exactamente (y qué no)</h2>
+    <h2 id="w-gain"><span data-icono="diana"></span> Qué se gana exactamente (y qué no)</h2>
     <p>El Blu-ray UHD es la mejor fuente de vídeo que puedes tener hoy en casa. Lo que no siempre es lo mejor es el <em>conjunto de instrucciones</em> que lo acompaña (el RPU) para decirle a tu TV cómo adaptar la imagen a sus capacidades. Muchos Blu-ray se masterizaron antes de 2018 con CMv2.9 — un estándar menor, con menos precisión y con bugs conocidos. CMv4.0 es la evolución: misma imagen base, mejores instrucciones de tone-mapping. El upgrade sustituye <em>solo</em> esas instrucciones.</p>
     <ul>
       <li><strong>Tone-mapping adaptativo más fino</strong> en TVs CMv4.0-aware: el nivel L8 amplía a L2 con 8 parámetros (slope, offset, power, chroma weight, saturation, mid-contrast, mid, clip) — mejor precisión en mid-tones y clipping controlado de highlights.</li>
@@ -449,13 +449,13 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Un detalle técnico bonito:</strong> CMv4.0 es <em>hacia atrás compatible</em>. Un MKV CMv4.0 se reproduce sin fallos en una TV CMv2.9 — el engine antiguo ignora los niveles que no entiende (L3, L8-L11) y usa L1+L2 como siempre. Por eso el upgrade nunca "rompe" nada aunque tu TV sea vieja. Simplemente no aprovecha lo nuevo.
     </div>
 
-    <h2 id="w-static-vs-runtime">⚡ Upgrade estático (esta app) vs conversión procedural en tiempo real (CoreELEC)</h2>
+    <h2 id="w-static-vs-runtime"><span data-icono="rayo"></span> Upgrade estático (esta app) vs conversión procedural en tiempo real (CoreELEC)</h2>
     <p>Existen dos caminos para pasar un Blu-ray CMv2.9 a CMv4.0, y son <strong>radicalmente distintos</strong> en qué hacen y qué consiguen. Conviene entenderlos bien antes de elegir.</p>
 
-    <h3>🎯 Upgrade estático con transferencia — lo que hace esta app</h3>
+    <h3><span data-icono="diana"></span> Upgrade estático con transferencia — lo que hace esta app</h3>
     <p>Esta app reemplaza permanentemente el RPU del MKV por uno CMv4.0 <strong>auténtico</strong>, transferido desde una fuente externa firmada por colorista (WEB-DL retail, bin del repo DoviTools). Los niveles L3/L8-L11 que acaban en el MKV son reales — con valores artísticos, trims por escena y primaries de colorimetría que un colorista de Dolby decidió. El fichero resultante se reproduce igual en <strong>cualquier</strong> cadena DV — tu TV, un Shield, un Apple TV, un proyector con LLDV, otro reproductor Amlogic, un PC. El upgrade viaja con el fichero.</p>
 
-    <h3>🔄 Conversión procedural en tiempo real — "CMv4.0 on-the-fly append" en CoreELEC</h3>
+    <h3><span data-icono="refrescar"></span> Conversión procedural en tiempo real — "CMv4.0 on-the-fly append" en CoreELEC</h3>
     <p>Builds de desarrollador de CoreELEC como <strong>avdvplus</strong>, <strong>panni/pannal</strong> o <strong>cpm</strong> —disponibles en reproductores Amlogic con SoC licenciado por Dolby (Ugoos AM6B+, AM6B Plus, Homatics R 4K Plus)— tienen un toggle <em>"DV CMv4.0 on-the-fly append"</em> que hace una operación muy concreta: al reproducir un RPU CMv2.9, lo <strong>promociona estructuralmente</strong> a CMv4.0 en memoria, sin tocar el fichero.</p>
 
     <div class="help-callout help-callout-warning">
@@ -499,12 +499,12 @@ const _CMV40_HELP_SECTIONS = {
       <br>· <em>Enfoque combinado</em>: muchos usuarios avanzados mantienen el MKV estático como "master" portable y usan el append procedural como conveniencia para películas sin bin retail disponible.
     </div>
 
-    <h2 id="w-tvs">📺 Matriz de TVs que realmente aprovechan CMv4.0</h2>
+    <h2 id="w-tvs"><span data-icono="tv"></span> Matriz de TVs que realmente aprovechan CMv4.0</h2>
     <p>Los TVs sin engine CMv4.0 <em>ignoran silenciosamente L8-L11</em> y usan L1+L2 como siempre. No hay fallo, simplemente no aprovechan los trims nuevos. <strong>Regla general consolidada:</strong> TVs <strong>2020+</strong> de marcas que soportan DV suelen tener engine CMv4.0. Detalles por marca:</p>
     <table>
       <tr><th>Marca</th><th>CMv4.0 confirmado en</th><th>Notas</th></tr>
       <tr><td><strong>LG OLED</strong></td><td>CX/BX (2020) y posteriores. C1/G1 (2021), C2/G2 (2022), C3/G3 (2023), C4/G4 (2024) — todos.</td><td>La referencia del ecosistema DV. webOS engine DV es maduro.</td></tr>
-      <tr><td><strong>Sony Bravia XR</strong></td><td>A95K (2022 QD-OLED) y posteriores. A95L, A80L/K, Bravia XR 2023+.</td><td>⚠️ Foros reportan bugs en "base config data" DV TV-led en modelos no-A95 — el beneficio práctico de CMv4.0 puede ser menor.</td></tr>
+      <tr><td><strong>Sony Bravia XR</strong></td><td>A95K (2022 QD-OLED) y posteriores. A95L, A80L/K, Bravia XR 2023+.</td><td><span data-icono="aviso"></span> Foros reportan bugs en "base config data" DV TV-led en modelos no-A95 — el beneficio práctico de CMv4.0 puede ser menor.</td></tr>
       <tr><td><strong>Panasonic OLED</strong></td><td>JZ1500/2000 (2021) y posteriores. LZ/MZ (2022-2023), Z95/Z90 (2024).</td><td>Panasonic fue el primero con procesamiento FEL real en consumo (GZ2000, 2019).</td></tr>
       <tr><td><strong>TCL Mini-LED</strong></td><td>Q-class, C series, X series 2023+ (C735, C845, X955).</td><td>Brillos altos — aprovechan bien el tone-mapping CMv4.0.</td></tr>
       <tr><td><strong>Hisense</strong></td><td>U8K/U9K (2023), U8N/U9N (2024), ULED X.</td><td>Similar a TCL — tope de gamas Mini-LED 2023+.</td></tr>
@@ -526,7 +526,7 @@ const _CMV40_HELP_SECTIONS = {
       <br>Si tu cadena de reproducción pasa por LLDV en un reproductor sin soporte CMv4, el upgrade no aporta. <strong>Verifica el firmware de tu reproductor antes de invertir horas.</strong>
     </div>
 
-    <h2 id="w-decide">✅ Árbol de decisión — ¿vale la pena en mi caso?</h2>
+    <h2 id="w-decide"><span data-icono="check"></span> Árbol de decisión — ¿vale la pena en mi caso?</h2>
     <ol>
       <li><strong>¿Tu TV es Samsung?</strong> → no aprovechas DV en ningún modelo (política corporativa). Detente aquí.</li>
       <li><strong>¿Tu TV es anterior a 2020?</strong> → probablemente engine CMv2.9. El upgrade no aporta mejora visible porque el TV ignora L8-L11. Quédate con el Blu-ray original.</li>
@@ -559,13 +559,13 @@ const _CMV40_HELP_SECTIONS = {
   // SHEET DOVITOOLS
   // ═══════════════════════════════════════════════════════════════
   sheet: `
-    <h1>📊 Hoja de DoviTools (R3S3t9999)</h1>
+    <h1><span data-icono="grafico"></span> Hoja de DoviTools (R3S3t9999)</h1>
     <p class="cmv40-help-lead">Investigación comunitaria que documenta qué películas aceptan upgrade CMv4.0 sobre el BD original. Es el primer chequeo antes de gastar horas en un proyecto.</p>
 
     <!-- Enlace directo a la hoja en uso (configurada o por defecto).
          Se hidrata al abrir la sección — ver _cmv40HelpHydrateSheetLink(). -->
     <div id="help-sheet-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-      <span style="font-size:18px">🔗</span>
+      <span style="font-size:18px"><span data-icono="etiqueta"></span></span>
       <div style="flex:1; min-width:0">
         <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Hoja en uso ahora mismo</div>
         <a id="help-sheet-link-anchor" href="#" target="_blank" rel="noreferrer"
@@ -586,7 +586,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#s-app">Cómo lo usa la app</a>
     </div>
 
-    <h2 id="s-who">👤 De dónde sale la información</h2>
+    <h2 id="s-who"><span data-icono="info"></span> De dónde sale la información</h2>
     <p><strong>R3S3t9999</strong> (alias en GitHub; también conocido como <em>REC_9999</em> o <em>Salty01</em> en foros) mantiene la referencia de facto del ecosistema Dolby Vision abierto:</p>
     <ul>
       <li>Un conjunto de <strong>scripts open-source</strong> (<em>DoVi_Scripts</em>) para generar y editar RPUs de Dolby Vision.</li>
@@ -597,7 +597,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Tamaño aproximado:</strong> varios cientos de títulos catalogados distribuidos en las 3 secciones (ver abajo). Crece en tiempo real.
     </div>
 
-    <h2 id="s-structure">📋 Estructura del sheet — tres bloques de columnas</h2>
+    <h2 id="s-structure"><span data-icono="portapapeles"></span> Estructura del sheet — tres bloques de columnas</h2>
     <p>La hoja tiene tres bloques de columnas, y un mismo título puede aparecer en <strong>varios a la vez</strong>: no es una contradicción, cada bloque documenta una <em>ruta distinta</em>.</p>
     <table>
       <tr><th>Bloque</th><th>Qué evalúa realmente</th><th>Qué hace la app</th></tr>
@@ -609,7 +609,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Por qué importa la distinción:</strong> si un título está en la izquierda y en la derecha, la app se queda con la lectura de la derecha y muestra <em>todas</em> las filas, cada una con su bloque de origen. Antes colapsaba las dos en un único veredicto y ganaba siempre la de la izquierda, así que salía un ❌ rojo aunque la hoja documentara la ruta de restore. Los motivos que sí bajan el semáforo son los que afectan al resultado: <code>static dv</code> (metadata plana en la fuente), <code>mdl mismatch</code> / <code>different grade</code> (el master de referencia tiene otro grading) y <code>no bd yet</code>.
     </div>
 
-    <h2 id="s-columns">🗂️ Cómo leer cada columna</h2>
+    <h2 id="s-columns"><span data-icono="carpeta"></span> Cómo leer cada columna</h2>
     <p>La app te muestra estos campos cuando el sheet tiene información de tu película:</p>
     <table>
       <tr><th>Campo</th><th>Qué significa</th><th>Ejemplo real</th></tr>
@@ -623,18 +623,18 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Cómo interpretar el desfase:</strong> si el sheet dice <code>+48</code>, significa que el bin viene con 48 frames extra al inicio (normalmente logos de estudio que el Blu-ray no tiene). En la Fase D la app <strong>contrasta ese dato con el desfase que mide ella misma</strong> por cross-correlation: si coinciden (±2 frames) aparece una confirmación verde — dos medidas independientes de acuerdo es la mejor señal de que el bin es el correcto; si divergen, un aviso ámbar te pide revisar el gráfico antes de inyectar, porque suele indicar un bin de otra edición o de otro corte. La corrección la sigues aplicando tú desde la Fase D.
     </div>
 
-    <h2 id="s-hyperlinks">🔗 Enlaces del sheet</h2>
+    <h2 id="s-hyperlinks"><span data-icono="etiqueta"></span> Enlaces del sheet</h2>
     <p>Muchas celdas llevan enlaces incrustados a recursos externos: el bin en Google Drive, imágenes comparativas, hilos de foro con pruebas, tutoriales específicos. La app los preserva y te los muestra con un botón "Abrir ↗" en:</p>
     <ul>
       <li>El <strong>banner de recomendación</strong> que aparece al seleccionar un Blu-ray en "Nuevo proyecto".</li>
       <li>La card <strong>"📋 Hoja de DoviTools"</strong> del panel del proyecto, que conserva el veredicto durante todo el pipeline.</li>
-      <li>La <strong>consulta rápida <code>🔎</code></strong> del header — para revisar un título sin crear proyecto.</li>
+      <li>La <strong>consulta rápida <code><span data-icono="lupa"></span></code></strong> del header — para revisar un título sin crear proyecto.</li>
     </ul>
 
-    <h2 id="s-app">⚙️ Cómo lo usa esta app</h2>
+    <h2 id="s-app"><span data-icono="ajustes"></span> Cómo lo usa esta app</h2>
     <ol>
       <li>Al seleccionar el Blu-ray origen en "Nuevo proyecto", la app extrae el título y año del nombre del fichero.</li>
-      <li>Si has configurado una API key de TMDb en <strong>⚙︎ Configuración</strong>, la app contrasta el título con TMDb — así desambigua cine no-ASCII (cine asiático, títulos en otros idiomas) y confirma el año.</li>
+      <li>Si has configurado una API key de TMDb en <strong><span data-icono="ajustes"></span> Configuración</strong>, la app contrasta el título con TMDb — así desambigua cine no-ASCII (cine asiático, títulos en otros idiomas) y confirma el año.</li>
       <li>Te muestra el veredicto <strong>traducido a lo que hace esta app</strong> (que preserva el FEL): verde <em>Factible</em>, ámbar <em>Viable con avisos</em> / <em>Probablemente OK</em>, azul <em>No convertible a P8.1</em> (informativo) o rojo <em>No recomendado</em>. Si el título aparece en varios bloques del sheet, se listan todos con su bloque de origen.</li>
       <li>Al crear el proyecto el veredicto <strong>se guarda con él</strong>, así que los avisos, el desfase documentado y los enlaces siguen a mano en la Fase D — que es donde hacen falta. El botón "↻ Actualizar" de la card lo vuelve a consultar.</li>
       <li>En la <strong>Fase D</strong> el desfase del sheet se compara con el que mide la app; coincidencia = confirmación, divergencia = aviso.</li>
@@ -663,7 +663,7 @@ const _CMV40_HELP_SECTIONS = {
   // REPO DRIVE
   // ═══════════════════════════════════════════════════════════════
   repo: `
-    <h1>📦 Repositorio DoviTools (Google Drive)</h1>
+    <h1><span data-icono="caja"></span> Repositorio DoviTools (Google Drive)</h1>
     <p class="cmv40-help-lead">Carpeta pública de Google Drive con los <code>.bin</code> RPU pre-validados por la comunidad. Cada tipo de bin activa una rama específica del pipeline.</p>
 
     <div class="help-subtoc">
@@ -678,7 +678,7 @@ const _CMV40_HELP_SECTIONS = {
     </div>
 
     <h2 id="r-access">🔑 Cómo conseguir acceso al repo</h2>
-    <p>Hay una diferencia importante que conviene entender desde el principio: la hoja pública de recomendaciones (la que consulta el tab <strong>📊 Hoja</strong> del manual) es <strong>abierta y anónima</strong>, no requiere nada. Los <strong>bins en sí</strong> (los <code>.bin</code> del Google Drive) están en una carpeta <strong>gated</strong> mantenida personalmente por REC_9999 — no es un enlace público.</p>
+    <p>Hay una diferencia importante que conviene entender desde el principio: la hoja pública de recomendaciones (la que consulta el tab <strong><span data-icono="grafico"></span> Hoja</strong> del manual) es <strong>abierta y anónima</strong>, no requiere nada. Los <strong>bins en sí</strong> (los <code>.bin</code> del Google Drive) están en una carpeta <strong>gated</strong> mantenida personalmente por REC_9999 — no es un enlace público.</p>
 
     <h3>El modelo de acceso de la comunidad DoviTools</h3>
     <p>El repositorio lo mantiene y paga REC_9999 de su propio bolsillo (coste de Drive, ancho de banda, tiempo de curación). Para sostenerlo, el acceso se concede a los usuarios que <strong>apoyan económicamente el proyecto</strong>. El proceso es muy directo:</p>
@@ -687,7 +687,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>Donas <strong>15 CAD</strong> (la cifra de referencia para obtener acceso — dólares canadienses, la moneda por defecto del mantenedor).</li>
       <li>En el campo de <strong>comentarios / mensaje</strong> del formulario de PayPal escribe tu <strong>correo de Google</strong> y una petición breve del tipo <em>"acceso al repositorio de RPUs"</em>. Todo en el mismo paso — no hace falta escribir después por forum ni Discord.</li>
       <li>REC_9999 recibe el correo y comparte manualmente la carpeta de Google Drive contigo usando el correo que has indicado. A partir de ahí tu cuenta de Google tiene visibilidad sobre la carpeta como "compartida conmigo".</li>
-      <li>Copia la URL de la carpeta desde tu Google Drive y configúrala en la app (ver el paso 3 de la sección <strong>🔐 Claves y APIs</strong>).</li>
+      <li>Copia la URL de la carpeta desde tu Google Drive y configúrala en la app (ver el paso 3 de la sección <strong><span data-icono="candado"></span> Claves y APIs</strong>).</li>
     </ol>
 
     <div class="help-callout help-callout-info">
@@ -698,13 +698,13 @@ const _CMV40_HELP_SECTIONS = {
     <ul style="font-size:13px">
       <li>Lectura completa de la carpeta de Google Drive con todos los bins validados</li>
       <li>Puedes filtrar, listar y descargar desde la propia interfaz web de Drive</li>
-      <li>Desde esta app: la pestaña <strong>📦 Repo DoviTools</strong> del modal "Nuevo proyecto" lista el inventario y descarga al workdir sin clics manuales</li>
+      <li>Desde esta app: la pestaña <strong><span data-icono="caja"></span> Repo DoviTools</strong> del modal "Nuevo proyecto" lista el inventario y descarga al workdir sin clics manuales</li>
       <li>Acceso a nuevas ediciones según el mantenedor añade bins (sin tener que volver a donar)</li>
     </ul>
 
     <h3>Sin donar — qué puedes hacer igualmente</h3>
     <ul style="font-size:13px">
-      <li>La <strong>hoja pública de recomendaciones</strong> (tab <strong>📊 Hoja</strong> del manual) funciona sin credenciales — es una hoja de Google Sheets pública, cualquiera la puede leer</li>
+      <li>La <strong>hoja pública de recomendaciones</strong> (tab <strong><span data-icono="grafico"></span> Hoja</strong> del manual) funciona sin credenciales — es una hoja de Google Sheets pública, cualquiera la puede leer</li>
       <li>Puedes ver <em>qué películas</em> tienen upgrade disponible y de qué tipo (retail/restored/generated) — te hace el diagnóstico previo igual</li>
       <li>Si solo tienes curiosidad o pocas películas, puedes construir tus propios RPUs con <a href="https://github.com/R3S3t9999/DoVi_Scripts" target="_blank" rel="noreferrer">DoVi_Scripts</a> directamente: el código es open-source, lo que se paga es la infraestructura de distribución y la curación comunitaria</li>
       <li>Algunos usuarios comparten puntualmente bins sueltos en los foros públicos — búsqueda caso a caso</li>
@@ -716,7 +716,7 @@ const _CMV40_HELP_SECTIONS = {
 
     <!-- Estado actual del folder Drive configurado en este servidor -->
     <div id="help-drive-link-slot" style="margin:18px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-      <span style="font-size:18px">📁</span>
+      <span style="font-size:18px"><span data-icono="carpeta"></span></span>
       <div style="flex:1; min-width:0">
         <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Carpeta Drive en este servidor</div>
         <div id="help-drive-link-status" style="font-size:13px; font-weight:600">Cargando…</div>
@@ -724,9 +724,9 @@ const _CMV40_HELP_SECTIONS = {
       </div>
     </div>
 
-    <p style="font-size:12px; color:var(--text-3); font-style:italic">Para la configuración técnica (cómo crear la Google API key que la app usa para leer el Drive, cómo pegarlo todo en ⚙︎ Configuración, errores frecuentes), ve a la sección <strong>🔐 Claves y APIs</strong> al final del manual.</p>
+    <p style="font-size:12px; color:var(--text-3); font-style:italic">Para la configuración técnica (cómo crear la Google API key que la app usa para leer el Drive, cómo pegarlo todo en ⚙︎ Configuración, errores frecuentes), ve a la sección <strong><span data-icono="candado"></span> Claves y APIs</strong> al final del manual.</p>
 
-    <h2 id="r-structure">📁 Estructura del repo</h2>
+    <h2 id="r-structure"><span data-icono="carpeta"></span> Estructura del repo</h2>
     <p>La carpeta se organiza jerárquicamente por película + versión + tipo de bin. La app escanea hasta <strong>5 niveles de profundidad</strong> buscando <code>.bin</code>. Ejemplos de estructura típica:</p>
     <ul>
       <li><code>Zootopia 2 (2024) UHD-BD/</code>
@@ -741,7 +741,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Inventario total:</strong> el repo crece constantemente (cientos de películas indexadas). La app lo consulta en tiempo real cuando seleccionas un Blu-ray, filtrando solo los bins que potencialmente encajan con tu película.
     </div>
 
-    <h2 id="r-philosophy">🏷️ Retail vs Restored vs Generated — la taxonomía de la comunidad</h2>
+    <h2 id="r-philosophy"><span data-icono="etiqueta"></span> Retail vs Restored vs Generated — la taxonomía de la comunidad</h2>
     <p>Antes de profundizar en los nombres de los ficheros conviene entender la <em>clasificación conceptual</em> que usa la comunidad DoviTools para hablar de RPUs. No todos los bins CMv4.0 son iguales: dependiendo de cómo se haya creado el RPU, la calidad del resultado final cambia sustancialmente. Estas son las tres categorías consolidadas en AVSForum, MakeMKV y el propio repo:</p>
     <table>
       <tr><th>Categoría</th><th>Qué es</th><th>Cuándo aparece</th><th>Calidad esperable</th></tr>
@@ -753,7 +753,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Consenso consolidado en la comunidad:</strong> <em>si existe retail (o restored retail) CMv4.0 de la edición exacta de tu Blu-ray, usar retail siempre</em>. Generated es la opción "mejor que nada" cuando no hay alternativa real. Por eso el modal de nuevo proyecto avisa en ámbar si eliges un generated habiendo retail disponible.
     </div>
 
-    <h2 id="r-taxonomy">🏷️ Cómo se nombran en el repo</h2>
+    <h2 id="r-taxonomy"><span data-icono="etiqueta"></span> Cómo se nombran en el repo</h2>
     <p>Esta sección pasa de lo conceptual a lo concreto: cómo identificar qué tipo es cada fichero <em>a partir de su nombre</em> sin necesidad de descargarlo. Los nombres siguen convenciones consolidadas por R3S3t9999 y adoptadas ampliamente en AVSForum y MakeMKV. La app detecta estos patrones automáticamente:</p>
     <table>
       <tr><th>Patrón en filename</th><th>Significado</th><th>Provenance</th></tr>
@@ -768,7 +768,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Preferencia consolidada de la comunidad:</strong> Retail CMv4.0 WEB &gt; Retail P5→P8 &gt; Retail MEL &gt; Generated CMv4.0. Si existe retail, usar retail siempre.
     </div>
 
-    <h2 id="r-pipelines">🔀 Qué pipeline activa cada tipo de bin</h2>
+    <h2 id="r-pipelines"><span data-icono="grafico"></span> Qué pipeline activa cada tipo de bin</h2>
     <p>Según el bin que elijas, la app toma automáticamente una ruta distinta del pipeline — algunas fases se optimizan o se saltan para ahorrar tiempo. En la sección <em>Pipelines</em> verás los diagramas visuales de cada ruta; aquí el resumen por tipo:</p>
     <table>
       <tr><th>Tipo de bin</th><th>Cuándo aplica</th><th>Qué hace la app</th><th>Revisión manual</th></tr>
@@ -780,7 +780,7 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td><strong>Incompatible</strong></td><td>El bin no es CMv4.0, o el corte del master es radicalmente distinto al Blu-ray.</td><td>Aborta el proyecto con un mensaje explicativo. Busca otro bin o pasa en esta peli.</td><td>—</td></tr>
     </table>
 
-    <h2 id="r-match">🔍 Cómo encuentra la app el bin correcto</h2>
+    <h2 id="r-match"><span data-icono="lupa"></span> Cómo encuentra la app el bin correcto</h2>
     <p>Cuando seleccionas el Blu-ray origen en el modal "Nuevo proyecto", la app:</p>
     <ol>
       <li>Lee el nombre del fichero y extrae el título y el año, ignorando las etiquetas técnicas típicas (<em>UHD.BluRay.x265</em>, <em>[DV FEL]</em>, <em>REMUX</em>, etc.).</li>
@@ -793,7 +793,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Aviso de procedencia:</strong> si eliges un bin <em>Generated</em> pero en el repo existe un equivalente <em>Retail</em> para la misma película, el modal muestra un aviso ámbar con el nombre del bin retail disponible — para que reconsideres antes de crear el proyecto.
     </div>
 
-    <h2 id="r-download">📥 Qué pasa cuando creas el proyecto</h2>
+    <h2 id="r-download"><span data-icono="bandeja"></span> Qué pasa cuando creas el proyecto</h2>
     <ol>
       <li>La app descarga el bin elegido (5-50 MB típicamente, es inmediato con buena conexión).</li>
       <li>Calcula su huella SHA-256 abreviada — útil si luego compartes resultados en foros.</li>
@@ -818,7 +818,7 @@ const _CMV40_HELP_SECTIONS = {
   // HERRAMIENTAS
   // ═══════════════════════════════════════════════════════════════
   tools: `
-    <h1>🔧 Qué herramientas usa la app por debajo</h1>
+    <h1><span data-icono="ajustes"></span> Qué herramientas usa la app por debajo</h1>
     <p class="cmv40-help-lead">No vas a ejecutar ningún comando manualmente — la app orquesta todo. Pero conocer las piezas te ayuda a entender qué hace en cada fase, por qué tarda lo que tarda, y qué está detrás de cada resultado. Todas son open-source y vienen empaquetadas en el contenedor Docker de la app.</p>
 
     <div class="help-subtoc">
@@ -830,14 +830,14 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#t-mediainfo">mediainfo</a>
     </div>
 
-    <h2 id="t-ffmpeg">🎬 ffmpeg — la navaja suiza del vídeo</h2>
+    <h2 id="t-ffmpeg"><span data-icono="claqueta"></span> ffmpeg — la navaja suiza del vídeo</h2>
     <p><strong>Qué es:</strong> el estándar de facto para procesamiento de vídeo/audio. Universal, open-source, en casi todo lo que reproduce vídeo en software.</p>
     <p><strong>Para qué la usa la app:</strong> solo para <em>extraer</em> el stream de vídeo del MKV sin re-encodarlo (copia pura byte a byte). Es la primera operación del pipeline.</p>
     <div class="help-callout help-callout-success">
       <strong>Descubrimiento interesante:</strong> aunque <code>dovi_tool</code> (la siguiente herramienta) sabe leer MKVs directamente en teoría, en la práctica falla con ciertos Blu-rays porque la metadata HEVC se almacena de forma peculiar dentro del MKV. Por eso la app siempre extrae el HEVC primero a un fichero intermedio — es más lento pero 100% fiable.
     </div>
 
-    <h2 id="t-dovi">🎯 dovi_tool — el cerebro del upgrade</h2>
+    <h2 id="t-dovi"><span data-icono="diana"></span> dovi_tool — el cerebro del upgrade</h2>
     <p><strong>Qué es:</strong> la herramienta de referencia del ecosistema Dolby Vision open-source. La mantiene <strong>quietvoid</strong> en GitHub (escrita en Rust). Todo el software de la comunidad la usa — es la referencia técnica de facto.</p>
     <p><strong>Para qué la usa la app:</strong> prácticamente todo lo que tiene que ver con el RPU (la metadata Dolby Vision) — leerlo, analizarlo, modificarlo e inyectarlo. Se usa en todas las fases del pipeline excepto las puramente de fichero.</p>
 
@@ -857,15 +857,15 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Versión en uso:</strong> el contenedor incluye <strong>dovi_tool 2.3.2</strong>. Mejoras clave que aporta respecto a versiones 2.1.x: <em>inject-rpu</em> coloca el RPU como último NALU del access unit (corrige playback en reproductores basados en FFmpeg); <em>mux</em> maneja EOS/EOB NALUs por defecto sin flags manuales; <em>extract-rpu</em> acepta Matroska (MKV) como entrada directa — esto permite que el análisis de DV en las pestañas <strong>Blu-Ray ISO → MKV</strong> y <strong>Consultar / Editar MKV</strong> se haga sin pre-extraer el HEVC con ffmpeg; <em>editor</em> soporta oficialmente <code>allow_cmv4_transfer</code> para transferir trims L3/L8-L11 de un RPU CMv4.0 a uno CMv2.9 (lo usamos en Fase F para la rama de merge sobre P7 FEL); <em>info --summary</em> incluye estructuradamente offsets L5, trims L8 y primaries L9.
     </div>
 
-    <h2 id="t-mkvmerge">📦 mkvmerge — el ensamblador final</h2>
+    <h2 id="t-mkvmerge"><span data-icono="caja"></span> mkvmerge — el ensamblador final</h2>
     <p><strong>Qué es:</strong> el ensamblador de ficheros Matroska (MKV) profesional. Parte de MKVToolNix, la suite estándar para trabajar con este formato.</p>
     <p><strong>Para qué la usa la app:</strong> en la fase final, toma el vídeo ya con el RPU CMv4.0 inyectado y lo ensambla con el audio, subtítulos y capítulos del Blu-ray original. El resultado es el MKV final que te queda en la carpeta de salida. Opera sin copiar datos innecesariamente — la barra de progreso que ves en el modal de ejecución viene directamente de ahí.</p>
 
-    <h2 id="t-mkvpropedit">🏷️ mkvpropedit — edición instantánea</h2>
+    <h2 id="t-mkvpropedit"><span data-icono="etiqueta"></span> mkvpropedit — edición instantánea</h2>
     <p><strong>Qué es:</strong> la herramienta compañera de mkvmerge para editar propiedades de un MKV sin tener que reescribirlo (operación instantánea).</p>
     <p>El pipeline CMv4.0 <strong>no la usa</strong> directamente — mkvmerge ya escribe con los nombres y flags correctos desde el principio (título del vídeo, pistas, etc.). La app <em>sí la usa</em> intensamente en la pestaña <strong>Editar Propiedades MKV</strong> para modificar nombres de pistas, flags por defecto/forzados y capítulos sin duplicar el fichero.</p>
 
-    <h2 id="t-mediainfo">🔍 MediaInfo — el detector experto</h2>
+    <h2 id="t-mediainfo"><span data-icono="lupa"></span> MediaInfo — el detector experto</h2>
     <p><strong>Qué es:</strong> lector de metadata multimedia más completo que existe. Extrae toda la información técnica de un fichero: codec, bitrate real, canales, HDR10, formato comercial del audio…</p>
     <p><strong>Para qué la usa la app:</strong> principalmente en la pestaña <strong>Blu-Ray ISO → MKV</strong>, para detectar con precisión si una pista de audio es Atmos, DTS:X o variante; determinar el bitrate real; leer la metadata HDR10 del vídeo. En el pipeline CMv4.0 apenas interviene — ahí manda dovi_tool para todo lo que concierne al Dolby Vision.</p>
     <div class="help-callout help-callout-warning">
@@ -886,7 +886,7 @@ const _CMV40_HELP_SECTIONS = {
   // PIPELINES
   // ═══════════════════════════════════════════════════════════════
   pipelines: `
-    <h1>🔀 Pipelines CMv4.0 — qué pasa tras pulsar "Crear"</h1>
+    <h1><span data-icono="grafico"></span> Pipelines CMv4.0 — qué pasa tras pulsar "Crear"</h1>
     <p class="cmv40-help-lead">Cuando arrancas un proyecto, la app ejecuta un proceso de 8 fases (A-H). Según cómo sea tu Blu-ray (P7 FEL, P7 MEL o P8) y qué tipo de bin CMv4.0 uses como target, el recorrido cambia: hay fases que se saltan, otras que se reducen y alguna donde tú tomas el control. Esta sección explica qué hace cada fase, qué ves en pantalla, y por qué para ciertos bins el pipeline termina en 20 minutos mientras que para otros te pide revisión visual.</p>
 
     <div class="help-subtoc">
@@ -902,7 +902,7 @@ const _CMV40_HELP_SECTIONS = {
 
     <h2 id="p-overview">🔁 Flujo general</h2>
     <p>Este es el recorrido cuando el target <em>no</em> está pre-validado por la comunidad (bin generated, MKV custom o divergencias con el BD). Es el caso que requiere más intervención tuya: la fase D exige que valides visualmente que las curvas están alineadas antes de inyectar.</p>
-    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">Las <em>fases</em> (letras A-H) son trabajo que ejecuta la app. Las <em>🛡️ validaciones</em> son puntos de decisión que viven entre fases: la app compara datos de la Fase A con los del bin target, y según el resultado, el pipeline puede saltar fases enteras. Por eso aparecen en los diagramas con otro color y sin letra.</p>
+    <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">Las <em>fases</em> (letras A-H) son trabajo que ejecuta la app. Las <em><span data-icono="escudo"></span> validaciones</em> son puntos de decisión que viven entre fases: la app compara datos de la Fase A con los del bin target, y según el resultado, el pipeline puede saltar fases enteras. Por eso aparecen en los diagramas con otro color y sin letra.</p>
     <div class="help-pipeline-diagram">
       <div class="help-pipeline-diagram-title">Pipeline por defecto — target no pre-validado</div>
       <div class="cmv40-pp-flow">
@@ -910,7 +910,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Preparar target</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Validaciones</span><span class="cmv40-ph-mod">gates no OK</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Validaciones</span><span class="cmv40-ph-mod">gates no OK</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Separar capas</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -922,13 +922,13 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">G</span><span class="cmv40-ph-label">Ensamblar MKV</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Validación final</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Validación final</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">H</span><span class="cmv40-ph-label">Finalizar</span></div>
       </div>
     </div>
 
-    <h2 id="p-recommendation">🎯 Mantener MKV vs Inyectar RPU — recomendación automática</h2>
+    <h2 id="p-recommendation"><span data-icono="diana"></span> Mantener MKV vs Inyectar RPU — recomendación automática</h2>
     <p>Antes de gastar 25 minutos procesando, la app analiza si el bin del repo realmente aporta calidad sobre el MKV original. Si tu reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) puede hacer la conversión al vuelo en runtime con el mismo resultado visible, la app te lo dice y puedes cerrar el proyecto sin procesar nada. Esta decisión la toma un modelo que mira los datos del bin (no su nombre ni su tag).</p>
 
     <h3>Calidad del bin — clasificación CORE / CORE+ / FULL</h3>
@@ -963,7 +963,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Setup multi-reproductor:</strong> el modelo está pensado para que el resultado sea correcto en cualquier cadena (chip CMv4.0-aware, LLDV CMv2.9-only, etc.). Por eso "Inyectar RPU (preserva L2)" no transfiere el L2 del bin aunque el bin lo tenga — preservar el L2 del MKV original garantiza que las cadenas CMv2.9-only siguen viendo lo correcto. Resultado: ambas cadenas ven lo mejor disponible para su versión.
     </div>
 
-    <h2 id="p-phases">📋 Qué hace cada fase (y qué ves tú)</h2>
+    <h2 id="p-phases"><span data-icono="portapapeles"></span> Qué hace cada fase (y qué ves tú)</h2>
 
     <h3>Pre-flight — validación rápida del bin antes de empezar</h3>
     <p>Cuando arrancas un proyecto con un bin pre-seleccionado y modo auto activado, hay un <strong>pre-check del bin que se ejecuta antes de Fase A</strong>. Su objetivo es simple: si el bin no aporta CMv4.0, abortar inmediatamente con mensaje claro <em>antes</em> de gastar los ~12 min que tarda Fase A en extraer el HEVC del Blu-ray.</p>
@@ -996,13 +996,13 @@ const _CMV40_HELP_SECTIONS = {
     <h3>Fase B — Preparar el RPU target</h3>
     <p>Eliges de dónde viene el bin CMv4.0 que vas a transferir a tu MKV. Tres opciones en el modal:</p>
     <ol>
-      <li><strong>📦 Repo DoviTools</strong> <em>(recomendado)</em>: descarga directa desde el repositorio compartido. Un clic, sin backups locales. La app lo descarga en segundo plano.</li>
-      <li><strong>🎬 Extraer de MKV</strong>: si ya tienes en casa un MKV con CMv4.0 (por ejemplo un WEB-DL reciente), la app extrae el RPU de ese fichero. Útil para casos que no están en el repo.</li>
-      <li><strong>📁 Carpeta local</strong> <em>(residual)</em>: para .bin que ya tenías descargados previamente.</li>
+      <li><strong><span data-icono="caja"></span> Repo DoviTools</strong> <em>(recomendado)</em>: descarga directa desde el repositorio compartido. Un clic, sin backups locales. La app lo descarga en segundo plano.</li>
+      <li><strong><span data-icono="claqueta"></span> Extraer de MKV</strong>: si ya tienes en casa un MKV con CMv4.0 (por ejemplo un WEB-DL reciente), la app extrae el RPU de ese fichero. Útil para casos que no están en el repo.</li>
+      <li><strong><span data-icono="carpeta"></span> Carpeta local</strong> <em>(residual)</em>: para .bin que ya tenías descargados previamente.</li>
     </ol>
     <p>En cuanto el bin está en el workdir, la app lee su metadata con <code>dovi_tool info --summary</code>: profile, CM version, niveles presentes (L1, L2, L5, L6, L8, L9…), scene/frame count. Con esta metadata lista, se cierra Fase B y se ejecuta el siguiente bloque: las validaciones.</p>
 
-    <h3>🛡️ Validaciones (trust gates) — el punto de decisión</h3>
+    <h3><span data-icono="escudo"></span> Validaciones (trust gates) — el punto de decisión</h3>
     <p>Entre Fase B y Fase C, la app <strong>compara la metadata del bin target con la que Fase A extrajo del Blu-ray</strong>. Esto no es una fase (no hace trabajo nuevo de procesado), es una decisión basada en la comparación. No aparece como letra en los diagramas pero sí como marcador 🛡️, porque es donde el pipeline elige entre ruta auto o ruta manual.</p>
     <p>Lo que se compara:</p>
     <ul>
@@ -1059,7 +1059,7 @@ const _CMV40_HELP_SECTIONS = {
     <h3>Fase G — Ensamblar el MKV final</h3>
     <p>El vídeo con el RPU CMv4.0 se junta con el audio, subtítulos y capítulos del Blu-ray original. El MKV resultante se escribe con una barra de progreso real (no estimada). Se escribe con sufijo temporal y se renombra atómicamente al nombre final al acabar — si la app se corta a mitad, nunca queda un MKV a medias con el nombre definitivo.</p>
 
-    <h3>🛡️ Validación final — antes de Fase H</h3>
+    <h3><span data-icono="escudo"></span> Validación final — antes de Fase H</h3>
     <p>Igual que en el punto B→C, aquí hay otro <em>gate</em> entre G y H: la app verifica que el MKV final tiene el número de frames esperado y que la estructura del fichero Matroska es correcta. Si algo falla, el MKV se rechaza y el proyecto se marca con error (se puede rehacer desde la fase que quieras).</p>
     <div class="help-callout help-callout-info">
       <strong>Dos rutas de validación según el modo:</strong>
@@ -1072,7 +1072,7 @@ const _CMV40_HELP_SECTIONS = {
     <h3>Fase H — Finalizar</h3>
     <p>Si la validación final pasa, la app mueve el MKV a <code>/mnt/output/</code>, limpia los ficheros temporales del workdir y marca el proyecto como completo. Es el único paso en el que el fichero aparece en su ubicación final — antes de eso vive con sufijo <code>.tmp</code> para evitar que quede un MKV a medias si algo se corta.</p>
 
-    <h2 id="p-gates">🛡️ Cómo decide la app entre automático y manual</h2>
+    <h2 id="p-gates"><span data-icono="escudo"></span> Cómo decide la app entre automático y manual</h2>
     <p>Tras preparar el bin en Fase B, la app lo compara automáticamente contra el RPU original del Blu-ray. A esta comparación la llamamos <strong>trust gates</strong> (puertas de confianza). Si el bin pasa todos los críticos, la app lo marca como "pre-validado por la comunidad" y <strong>salta las fases manuales</strong> (D y a veces C). Así un pipeline que de otro modo duraría ~1 hora se completa en ~20-25 minutos.</p>
 
     <h3>Gates críticos (tienen que pasar todos)</h3>
@@ -1095,7 +1095,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Modo "auditar antes de confiar":</strong> aunque el bin pase todos los gates, puedes pedir a la app que te enseñe Fase D igualmente para comprobar las curvas con tus propios ojos antes de inyectar. Es el toggle "forzar revisión interactiva" del modal de nuevo proyecto.
     </div>
 
-    <h2 id="p-casos">🌳 Casuísticas completas por tipo de source</h2>
+    <h2 id="p-casos"><span data-icono="carpeta"></span> Casuísticas completas por tipo de source</h2>
     <p>Cada casuística combina el <strong>tipo de Blu-ray de origen</strong> con el <strong>tipo de bin CMv4.0 disponible</strong>. La app soporta las tres fuentes habituales (P7 FEL, P7 MEL, P8.1) cruzadas con los cuatro tipos de target, y elige automáticamente la ruta que tiene sentido en cada caso. Los pasos en color son los que se ejecutan; los grises son los que se saltan.</p>
     <p style="font-size:12px; color:var(--text-3); margin:-4px 0 14px">Organización: <strong>(1)</strong> source P7 FEL — el caso más frecuente, 7 variantes; <strong>(2)</strong> source P7 MEL — BDs DV 2017-2018, 4 variantes que siempre producen P8.1 single-layer; <strong>(3)</strong> source P8.1 — MKVs ya single-layer (WEB-DL o MEL ya convertido), 4 variantes de refinamiento a P8.1 mejorado.</p>
 
@@ -1107,7 +1107,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">no hace falta</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1131,7 +1131,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1155,7 +1155,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1179,7 +1179,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1203,7 +1203,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1228,7 +1228,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1256,7 +1256,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin P8.1</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1281,7 +1281,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1305,7 +1305,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1329,7 +1329,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1353,7 +1353,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL + per-frame</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1380,7 +1380,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1404,7 +1404,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1428,7 +1428,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Extract-rpu del MKV</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Per-frame solo</span><span class="cmv40-ph-mod">sin demux</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1452,7 +1452,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin gen.</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter">🛡️</span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">NO trusted</span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Per-frame solo</span><span class="cmv40-ph-mod">sin demux</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1473,7 +1473,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Compatibilidad source × target — validación automática:</strong> la app rechaza al cerrar Fase B las combinaciones estructuralmente imposibles. En concreto: si tu source es <code>P8.1</code> o <code>P7 MEL</code> (cualquier caso donde el material resultante es single-layer) y eliges un bin target de tipo <em>drop-in P7 FEL</em> o <em>drop-in P7 MEL</em>, el pipeline <strong>aborta con un mensaje explicativo</strong> — no se llega a inyectar, no se pierden los minutos de Fase C ni se produce un MKV inválido. En esos casos elige en su lugar targets P8.x retail, P5→P8 transfer, o generated, que sí son compatibles con sources single-layer.
     </div>
 
-    <h2 id="p-sync">🎛️ El ajustador visual (Fase D) al detalle</h2>
+    <h2 id="p-sync"><span data-icono="ajustes"></span> El ajustador visual (Fase D) al detalle</h2>
     <p>La Fase D es la pieza más interactiva del pipeline y la que más tiempo puede consumir si te toca usarla. Solo aparece cuando el bin no está pre-validado por la comunidad (o cuando has pedido expresamente revisar aunque lo esté). Su objetivo es que confirmes con tus propios ojos que el bin está alineado frame a frame con el Blu-ray antes de inyectar — porque si hay desfase, el resultado final tendría escenas con los trims aplicados al frame equivocado.</p>
 
     <h3>Qué representa el chart</h3>
@@ -1507,7 +1507,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Dos condiciones para avanzar:</strong> Δ frames exactamente 0 <em>y</em> confianza ≥ 85%. Si solo tienes una de las dos, el botón "Confirmar" sigue desactivado y te dice cuál falla.
     </div>
 
-    <h2 id="p-problems">❓ Problemas típicos y qué hacer</h2>
+    <h2 id="p-problems"><span data-icono="info"></span> Problemas típicos y qué hacer</h2>
     <table>
       <tr><th>Qué ves</th><th>Por qué pasa</th><th>Cómo resolverlo</th></tr>
       <tr><td>"El MKV final no existe" al abrir un proyecto que ya habías completado</td><td>Has borrado o movido el MKV de la carpeta de salida desde fuera de la app</td><td>La app rebobina automáticamente el proyecto al estado "RPU inyectado" y te permite volver a ensamblar el MKV en un clic, sin tener que rehacer las fases caras.</td></tr>
@@ -1521,7 +1521,7 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td>Validación final aborta con "RPU del MKV final NO contiene bloques L8"</td><td>El merge produjo un RPU marcado como CMv4.0 pero sin los trims L8 que dan utilidad real al upgrade. Posible bug puntual de <code>dovi_tool editor</code> en ese título concreto.</td><td>El MKV temporal queda preservado con sufijo <code>.tmp</code> para que lo puedas inspeccionar manualmente. Relanza Fase F+G+H — si vuelve a pasar, el bin target puede estar corrupto: prueba otra fuente del repo.</td></tr>
     </table>
 
-    <h2>🔄 Modo automático vs manual</h2>
+    <h2><span data-icono="refrescar"></span> Modo automático vs manual</h2>
     <p>La app tiene un modo "pipeline automático" que encadena todas las fases sin pedirte nada más que crear el proyecto. Activado por defecto cuando el target está pre-validado. Esta tabla resume qué hace cada fase en uno u otro modo:</p>
     <table>
       <tr><th>Fase</th><th>En modo auto</th><th>En modo manual</th></tr>
@@ -1555,8 +1555,8 @@ const _CMV40_HELP_SECTIONS = {
   // CLAVES Y APIS — guía de configuración centralizada
   // ═══════════════════════════════════════════════════════════════
   keys: `
-    <h1>🔐 Claves y APIs — configuración paso a paso</h1>
-    <p class="cmv40-help-lead">La app usa dos servicios externos opcionales para enriquecer la experiencia. Ambos tienen <strong>cuota gratuita</strong> y se configuran una sola vez en <strong>⚙︎ Configuración</strong>. Ninguna es obligatoria, pero la app es mucho más útil con ellas.</p>
+    <h1><span data-icono="candado"></span> Claves y APIs — configuración paso a paso</h1>
+    <p class="cmv40-help-lead">La app usa dos servicios externos opcionales para enriquecer la experiencia. Ambos tienen <strong>cuota gratuita</strong> y se configuran una sola vez en <strong><span data-icono="ajustes"></span> Configuración</strong>. Ninguna es obligatoria, pero la app es mucho más útil con ellas.</p>
 
     <div class="help-subtoc">
       <b>En esta sección</b>
@@ -1568,7 +1568,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#k-privacy">Privacidad y seguridad</a>
     </div>
 
-    <h2 id="k-overview">📋 Qué necesita cada servicio</h2>
+    <h2 id="k-overview"><span data-icono="portapapeles"></span> Qué necesita cada servicio</h2>
     <table>
       <tr><th>Servicio</th><th>Para qué lo usa la app</th><th>Qué pasa si no lo configuras</th></tr>
       <tr>
@@ -1587,7 +1587,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>No necesitas tarjeta de crédito para ninguna.</strong> Ambas funcionan con cuentas personales gratuitas sin métodos de pago asociados. La app está diseñada para uso doméstico — las cuotas gratuitas del free tier de Google + el acceso TMDb gratuito cubren cualquier uso razonable sin pisar los límites.
     </div>
 
-    <h2 id="k-tmdb">🎬 TMDb — paso a paso</h2>
+    <h2 id="k-tmdb"><span data-icono="claqueta"></span> TMDb — paso a paso</h2>
     <p><strong>The Movie Database</strong> es una base de datos comunitaria de películas con API pública gratuita. No necesita pago ni aprobación comercial — cualquier cuenta personal puede solicitar una API key para uso privado.</p>
 
     <h3>Conseguir la API key</h3>
@@ -1663,14 +1663,14 @@ const _CMV40_HELP_SECTIONS = {
 
     <h2 id="k-configure">📝 Pegarlas en la app</h2>
     <ol style="font-size:13px">
-      <li>En la app, pulsa el icono <strong>⚙︎</strong> arriba a la derecha para abrir el modal de Configuración.</li>
+      <li>En la app, pulsa el icono <strong><span data-icono="ajustes"></span></strong> arriba a la derecha para abrir el modal de Configuración.</li>
       <li>En <strong>"TMDb API key"</strong> pega la cadena corta (v3 auth) del paso TMDb. Pulsa <strong>"Probar"</strong>. Si todo va bien verás ✓ verde y un título de prueba.</li>
       <li>En <strong>"Google API key"</strong> pega la cadena <code>AIzaSy...</code>. Pulsa <strong>"Probar"</strong>.</li>
-      <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong>📦 Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
+      <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
       <li>Pulsa <strong>Guardar</strong>. La configuración queda en el servidor; no hay que reintroducirla al reabrir el navegador.</li>
     </ol>
 
-    <h2 id="k-troubleshoot">❓ Problemas frecuentes</h2>
+    <h2 id="k-troubleshoot"><span data-icono="info"></span> Problemas frecuentes</h2>
     <table>
       <tr><th>Síntoma</th><th>Causa</th><th>Solución</th></tr>
       <tr>
@@ -1691,7 +1691,7 @@ const _CMV40_HELP_SECTIONS = {
       <tr>
         <td>"Probar" en carpeta Drive devuelve <strong>404</strong></td>
         <td>La URL de la carpeta es incorrecta o la carpeta ha cambiado de propietario</td>
-        <td>Busca la URL vigente en los hilos de AVSForum / MakeMKV / Discord DoviTools listados en la sección <strong>📦 Repositorio DoviTools</strong>.</td>
+        <td>Busca la URL vigente en los hilos de AVSForum / MakeMKV / Discord DoviTools listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong>.</td>
       </tr>
       <tr>
         <td>"Probar" en TMDb key devuelve <strong>401 Unauthorized</strong></td>
@@ -1701,11 +1701,11 @@ const _CMV40_HELP_SECTIONS = {
       <tr>
         <td>TMDb funciona pero no encuentra la película</td>
         <td>Título demasiado ofuscado por tags del filename</td>
-        <td>Usa el botón <strong>🔎 Consulta</strong> del tab CMv4.0 y busca manualmente por título + año. La ficha aparecerá con el título canónico.</td>
+        <td>Usa el botón <strong><span data-icono="lupa"></span> Consulta</strong> del tab CMv4.0 y busca manualmente por título + año. La ficha aparecerá con el título canónico.</td>
       </tr>
     </table>
 
-    <h2 id="k-privacy">🔒 Privacidad y seguridad</h2>
+    <h2 id="k-privacy"><span data-icono="candado"></span> Privacidad y seguridad</h2>
     <ul>
       <li><strong>Dónde se guardan</strong>: ambas keys se persisten en <code>/config/app_settings.json</code> dentro del volumen Docker del servidor, con permisos restrictivos de fichero. Nunca salen de tu NAS / servidor local.</li>
       <li><strong>Qué ve el navegador</strong>: nada. El servidor nunca envía los valores crudos al frontend — solo los últimos 4 caracteres como confirmación de que están configuradas.</li>
@@ -1790,7 +1790,7 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
   const items = candidates.map((c, i) => {
     const poster = c.poster_url
       ? `<img class="cmv40-lookup-pick-poster" src="${escHtml(c.poster_url)}" alt="" loading="lazy">`
-      : `<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter">🎬</div>`;
+      : `<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter"><span data-icono="claqueta"></span></div>`;
     const rating = c.vote_average > 0
       ? `<span class="cmv40-lookup-pick-rating">★ ${c.vote_average.toFixed(1)}</span>`
       : '';
@@ -1891,9 +1891,9 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   if (tmdbDetails) {
     html += renderTmdbCardHTML(tmdbDetails) || '';
   } else if (tmdb && !tmdb.tmdb_configured) {
-    html += `<div class="cmv40-lookup-warn">⚠️ TMDb API key no configurada — la búsqueda usará solo el texto introducido. Añade la key en <a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a> para mejorar el matching ES→EN.</div>`;
+    html += `<div class="cmv40-lookup-warn"><span data-icono="aviso"></span> TMDb API key no configurada — la búsqueda usará solo el texto introducido. Añade la key en <a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> Configuración</a> para mejorar el matching ES→EN.</div>`;
   } else if (tmdb) {
-    html += `<div class="cmv40-lookup-warn">ℹ️ TMDb no encontró la película con ese título/año. La consulta continúa con el texto crudo.</div>`;
+    html += `<div class="cmv40-lookup-warn"><span data-icono="info"></span> TMDb no encontró la película con ese título/año. La consulta continúa con el texto crudo.</div>`;
   }
 
   // ── 2. Sección "Hoja de DoviTools" con su banner de estado/notas ──
@@ -1901,14 +1901,14 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   // sus códigos de color (verde/rojo/gris), chips (Fuente·Sync·Verif.),
   // motivo textual + links clicables al sheet original.
   html += `<div class="cmv40-lookup-section">
-    <div class="cmv40-lookup-section-title">📋 Hoja de recomendaciones DoviTools</div>
+    <div class="cmv40-lookup-section-title"><span data-icono="portapapeles"></span> Hoja de recomendaciones DoviTools</div>
     <div class="cmv40-lookup-section-desc">Lo que dice la comunidad sobre la viabilidad de la conversión — con comentarios, métricas de sync y enlaces a comparativas HDR/plots cuando existen.</div>
     <div id="cmv40-lookup-rec-banner" class="cmv40-rec-banner" style="display:none"></div>
   </div>`;
 
   // ── 3. Candidatos del repositorio con pipeline previsto ──────
   html += '<div class="cmv40-lookup-section">';
-  html += '<div class="cmv40-lookup-section-title">📦 Repositorio DoviTools (bins <code>.bin</code>)</div>';
+  html += '<div class="cmv40-lookup-section-title"><span data-icono="caja"></span> Repositorio DoviTools (bins <code>.bin</code>)</div>';
   html += '<div class="cmv40-lookup-section-desc">Ficheros disponibles para descarga automática. El tag indica qué pipeline se aplicaría.</div>';
   if (!repo || !repo.drive_configured) {
     html += _cmv40RepoUnavailableBanner(repo);
@@ -1930,16 +1930,16 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
       const score = Math.round(c.score * 100);
       const isBest = c.file.name === bestFilename;
       const provTag = prov === 'retail'
-        ? '<span class="cmv40-lookup-tag tag-ok">🏛 Retail</span>'
+        ? '<span class="cmv40-lookup-tag tag-ok"><span data-icono="biblioteca"></span> Retail</span>'
         : prov === 'generated'
-        ? '<span class="cmv40-lookup-tag tag-warn">⚠️ Generated</span>'
+        ? '<span class="cmv40-lookup-tag tag-warn"><span data-icono="aviso"></span> Generated</span>'
         : '';
       return `
         <li class="cmv40-lookup-candidate ${isBest ? 'best' : ''}">
           <div class="cmv40-lookup-cand-head">
-            <span class="cmv40-lookup-tag ${tagMeta.cls}">${tagMeta.icon} ${tagMeta.label}</span>
+            <span class="cmv40-lookup-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
             ${provTag}
-            ${isBest ? '<span class="cmv40-lookup-best">🏆 mejor match</span>' : ''}
+            ${isBest ? '<span class="cmv40-lookup-best"><span data-icono="diana"></span> mejor match</span>' : ''}
             <span class="cmv40-lookup-score">${score}% similitud</span>
             <span class="cmv40-lookup-size">${sizeMb} MB</span>
           </div>
@@ -1969,12 +1969,12 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
 }
 
 function _cmv40LookupTagMeta(pt) {
-  if (pt === 'trusted_p7_fel_final') return { icon: '🎯', label: 'Bin P7 FEL', cls: 'tag-ok' };
-  if (pt === 'trusted_p7_mel_final') return { icon: '🎯', label: 'Bin P7 MEL', cls: 'tag-ok' };
+  if (pt === 'trusted_p7_fel_final') return { icon: 'diana', label: 'Bin P7 FEL', cls: 'tag-ok' };
+  if (pt === 'trusted_p7_mel_final') return { icon: 'diana', label: 'Bin P7 MEL', cls: 'tag-ok' };
   // trusted_p8_source cubre tanto P8 retail nativo como P5→P8 transfer.
   // Etiqueta neutra para no asumir uno u otro.
-  if (pt === 'trusted_p8_source')    return { icon: '📦', label: 'Bin P8 retail', cls: 'tag-info' };
-  return { icon: '❓', label: 'Tipo desconocido', cls: 'tag-warn' };
+  if (pt === 'trusted_p8_source')    return { icon: 'caja', label: 'Bin P8 retail', cls: 'tag-info' };
+  return { icon: 'info', label: 'Tipo desconocido', cls: 'tag-warn' };
 }
 
 function _cmv40LookupPipelineSummary(pt, provenance) {

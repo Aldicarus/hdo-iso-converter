@@ -46,7 +46,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, pieza_de  # noqa: E402
+from frontend_sources import html, js_completo, pieza_de, sistema_de_iconos  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -87,21 +87,18 @@ FUNCIONES = (
     # De otras piezas, pero reales: son las que dan el formato de la tarjeta.
     "escHtml", "normalizeSearch", "formatRelativeDate", "_fmtBytes",
     "_fmtDuration",
-    # La tarjeta común de las tres columnas y los iconos que pinta. Van las
-    # de verdad y no un doble: el formato de la tarjeta ES lo que este
-    # fichero comprueba, y con un `() => '<i></i>'` comprobaría el doble.
+    # La tarjeta común de las tres columnas. Va la de verdad y no un doble:
+    # el formato de la tarjeta ES lo que este fichero comprueba, y con un
+    # `() => '<i></i>'` comprobaría el doble. El sistema de iconos lo entrega
+    # `frontend_sources.sistema_de_iconos()`.
     "tarjetaDeProyecto", "nombreYTags", "miniaturaDe",
     "_projChipsHTML", "_projPipsHTML",
-    "_svg", "_chipIcono", "iconoDeTrabajo", "iconoDeEstado",
 )
 
 # Las constantes que esas funciones leen. No son `function`, así que el
 # extractor de arriba no las ve.
 CONSTANTES = (
     "const _PROJ_CHIP_LARGO = ",
-    "const _TONO_POR_TAB = ",
-    "const _GLIFOS_TRABAJO = {",
-    "const _ICONOS_ESTADO = {",
 )
 
 # DOM mínimo: sólo lo que este código toca. No es jsdom y no pretende serlo.
@@ -277,7 +274,7 @@ class ColumnaEnNode(unittest.TestCase):
         # es, y `node -e` no admite await en el nivel superior.
         envuelto = ("(async () => {\n" + guion
                     + "\n})().catch(e => { console.error(e); process.exit(1); });")
-        script = "\n".join([DOM, ESTADO,
+        script = "\n".join([DOM, ESTADO, sistema_de_iconos(),
                              *(_constante(c) for c in CONSTANTES),
                              *(_funcion(n) for n in FUNCIONES), envuelto])
         r = subprocess.run([NODE, "-e", script],

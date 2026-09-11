@@ -70,11 +70,11 @@ async function _renderVersionInfo() {
   const pill = document.getElementById('settings-version-pill');
   if (!cur || !pill) return;
   const versionLabel = data.version || 'desconocida';
-  let pillCls = 'dev', pillTxt = '⚠ desarrollo';
+  let pillCls = 'dev', pillTxt = 'desarrollo';
   if (data.is_tagged) {
-    pillCls = 'tagged'; pillTxt = '✓ release';
+    pillCls = 'tagged'; pillTxt = 'release';
   } else if (data.commit) {
-    pillCls = 'dev'; pillTxt = '⚙ desarrollo';
+    pillCls = 'dev'; pillTxt = 'desarrollo';
   } else {
     pillCls = 'unknown'; pillTxt = '? desconocida';
   }
@@ -104,10 +104,10 @@ function applySimulatedVersion() {
   const v = (inp?.value || '').trim();
   if (v) {
     localStorage.setItem('hdo_simulate_version', v);
-    showToast(`🧪 Simulando versión actual: ${v}`, 'info');
+    showToast(`Simulando versión actual: ${v}`, 'info');
   } else {
     localStorage.removeItem('hdo_simulate_version');
-    showToast('🧪 Simulación desactivada', 'info');
+    showToast('Simulación desactivada', 'info');
   }
   checkForUpdates(true);
 }
@@ -116,7 +116,7 @@ function clearSimulatedVersion() {
   localStorage.removeItem('hdo_simulate_version');
   const inp = document.getElementById('settings-version-simulate-input');
   if (inp) inp.value = '';
-  showToast('🧪 Simulación desactivada', 'info');
+  showToast('Simulación desactivada', 'info');
   checkForUpdates(true);
 }
 
@@ -126,7 +126,7 @@ async function checkForUpdates(force) {
   if (!banner) return;
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '🔄 Consultando…';
+    btn.innerHTML = icono('refrescar') + ' Consultando…';
   }
   const params = new URLSearchParams();
   if (force) params.set('force', 'true');
@@ -149,12 +149,12 @@ async function checkForUpdates(force) {
   }
   if (btn) {
     btn.disabled = false;
-    btn.textContent = '🔄 Comprobar actualizaciones';
+    btn.innerHTML = icono('refrescar') + ' Comprobar actualizaciones';
   }
   if (!data) {
     banner.style.display = 'block';
     banner.className = 'settings-update-banner err';
-    banner.innerHTML = `<div class="settings-update-msg">⚠ No se pudo consultar la API de GitHub. Reintenta en unos minutos.</div>`;
+    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> No se pudo consultar la API de GitHub. Reintenta en unos minutos.</div>`;
     return;
   }
   if (!data.update_available) {
@@ -163,23 +163,23 @@ async function checkForUpdates(force) {
       // No conseguimos resolver la version remota — no es 'al dia',
       // es 'no se pudo comprobar'. Banner gris/error informativo.
       banner.className = 'settings-update-banner err';
-      banner.innerHTML = `<div class="settings-update-msg">⚠ No se pudo determinar la última versión publicada. Comprueba que el repo tenga al menos un tag <code>vX.Y.Z</code> o un Release publicado.</div>`;
+      banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> No se pudo determinar la última versión publicada. Comprueba que el repo tenga al menos un tag <code>vX.Y.Z</code> o un Release publicado.</div>`;
       return;
     }
     banner.className = 'settings-update-banner ok';
-    const simBadge = data.simulated ? ` <span class="settings-update-sim-badge">🧪 simulado</span>` : '';
+    const simBadge = data.simulated ? ` <span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> simulado</span>` : '';
     const latestPart = ` · última publicada: <strong>${escHtml(data.latest)}</strong>${simBadge}`;
     const ignored = data.ignored_version
       ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')">Reactivar avisos</button></div>`
       : '';
-    banner.innerHTML = `<div class="settings-update-msg">✓ Estás al día (current: <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
+    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="check"></span> Estás al día (current: <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
     return;
   }
   // Hay update — banner ámbar con notas (todas las pendientes) + botones
   banner.style.display = 'block';
   banner.className = 'settings-update-banner warn';
   const cmds = `docker compose pull\ndocker compose up -d`;
-  const simBadge = data.simulated ? `<span class="settings-update-sim-badge">🧪 simulado</span>` : '';
+  const simBadge = data.simulated ? `<span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> simulado</span>` : '';
 
   // Lista de releases pendientes (todas entre current y latest, newest first).
   // Si solo viene release_notes (fallback antiguo), construye un pseudo-release
@@ -215,8 +215,8 @@ async function checkForUpdates(force) {
         </div>`;
     }).join('');
     const summaryTxt = pending.length === 1
-      ? `📋 Ver notas de versión (1 release pendiente)`
-      : `📋 Ver notas de versión (${pending.length} releases pendientes)`;
+      ? icono('portapapeles') + ' Ver notas de versión (1 release pendiente)'
+      : icono('portapapeles') + ` Ver notas de versión (${pending.length} releases pendientes)`;
     // Cerrado por defecto — el triángulo nativo es poco intuitivo;
     // usamos un botón visible con icono + texto explícito.
     notesHtml = `<details class="settings-update-notes"><summary class="settings-update-notes-toggle">${summaryTxt}</summary>${sectionsHtml}</details>`;
@@ -224,14 +224,14 @@ async function checkForUpdates(force) {
 
   banner.innerHTML = `
     <div class="settings-update-head">
-      🔔 Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
+      ${icono('campana')} Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
     </div>
     ${notesHtml}
     <div class="settings-update-cmd">
       <pre id="settings-update-cmd-pre">${escHtml(cmds)}</pre>
     </div>
     <div class="settings-update-actions">
-      <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()">📋 Copiar comandos</button>
+      <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> Copiar comandos</button>
       ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer">↗ Release en GitHub</a>` : ''}
       <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')">Ignorar esta versión</button>
     </div>`;
@@ -285,7 +285,7 @@ async function copyUpdateCommands() {
   if (!pre) return;
   const txt = pre.textContent || '';
   const ok = await _copyTextToClipboardWithFallback(txt);
-  showToast(ok ? '📋 Comandos copiados al portapapeles' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
+  showToast(ok ? 'Comandos copiados al portapapeles' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
 }
 
 async function ignoreUpdate(version) {
@@ -525,14 +525,14 @@ async function cleanupScanAndShow() {
 
   if (!data) return;
   if (!data.items || !data.items.length) {
-    resultEl.innerHTML = '<div class="settings-cleanup-empty">✓ No se encontraron huérfanos. Todo limpio.</div>';
+    resultEl.innerHTML = '<div class="settings-cleanup-empty"><span data-icono="check"></span> No se encontraron huérfanos. Todo limpio.</div>';
     return;
   }
 
   // Render tabla con checkboxes (default: marcado solo si safe=true)
   const rows = data.items.map((it, i) => {
     const checked = it.safe ? 'checked' : '';
-    const warnIcon = it.safe ? '' : '<span class="cleanup-warn" data-tooltip="Reciente o potencialmente activo — revisa antes de borrar">⚠️</span>';
+    const warnIcon = it.safe ? '' : '<span class="cleanup-warn" data-tooltip="Reciente o potencialmente activo — revisa antes de borrar"><span data-icono="aviso"></span></span>';
     return `
       <tr class="cleanup-row${it.safe ? '' : ' cleanup-row-warn'}">
         <td><input type="checkbox" class="cleanup-cb" data-path="${escHtml(it.path)}" ${checked}></td>
@@ -566,7 +566,7 @@ async function cleanupScanAndShow() {
     </table>
     <div class="cleanup-actions">
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('settings-cleanup-result').innerHTML=''">Cancelar</button>
-      <button class="btn btn-danger btn-sm" onclick="cleanupExecuteSelected()">🗑 Borrar seleccionados</button>
+      <button class="btn btn-danger btn-sm" onclick="cleanupExecuteSelected()"><span data-icono="papelera"></span> Borrar seleccionados</button>
     </div>
   `;
 
@@ -607,7 +607,7 @@ async function cleanupExecuteSelected() {
       const koCount = (data.failed || []).length;
       const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
       if (koCount === 0) {
-        showToast(`✓ Borrados ${okCount} elementos · liberados ${freed}`, 'success');
+        showToast(`Borrados ${okCount} elementos · liberados ${freed}`, 'success');
       } else {
         showToast(`Borrados ${okCount} · ${koCount} fallaron · liberados ${freed}`, 'warning');
       }
@@ -625,11 +625,11 @@ async function cleanupExecuteSelected() {
 function _cmv40RepoUnavailableBanner(repo) {
   const folderOk = !!(repo && repo.drive_folder_configured);
   const keyOk    = !!(repo && repo.google_key_configured);
-  const openCfg = `<a href="#" onclick="openSettingsModal();return false">⚙︎ Configuración</a>`;
+  const openCfg = `<a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> Configuración</a>`;
   const donate  = `<a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>`;
   if (!folderOk && !keyOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title">🔒 Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> Repositorio DoviTools bloqueado</div>
       <div class="cmv40-repo-locked-body">
         Faltan <strong>dos cosas</strong>:
         <ol>
@@ -642,7 +642,7 @@ function _cmv40RepoUnavailableBanner(repo) {
   }
   if (!folderOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title">🔒 Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> Repositorio DoviTools bloqueado</div>
       <div class="cmv40-repo-locked-body">
         La URL del folder Drive del repo de REC_9999 no está configurada. Es un repositorio <strong>privado</strong>: el acceso se obtiene donando 15 CAD en ${donate}, indicando tu correo y pidiendo acceso al repositorio de RPUs. Recibirás el link por email.
         <br><br>Una vez tengas el link, pégalo en ${openCfg} → sección <em>URL del repositorio DoviTools</em>.
@@ -651,14 +651,14 @@ function _cmv40RepoUnavailableBanner(repo) {
   }
   if (!keyOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title">⚠️ Google API key no configurada</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> Google API key no configurada</div>
       <div class="cmv40-repo-locked-body">
         La URL del repo está OK, pero falta la Google API key para consultar Drive. Configúrala en ${openCfg}.
       </div>
     </div>`;
   }
   return `<div class="cmv40-repo-locked">
-    <div class="cmv40-repo-locked-title">⚠️ Repo DoviTools no accesible</div>
+    <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> Repo DoviTools no accesible</div>
     <div class="cmv40-repo-locked-body">
       ${escHtml(repo?.error || 'Error desconocido')}
     </div>
@@ -723,7 +723,7 @@ function onToggleAvisoSonido(on) {
 async function onPedirPermisoNotificaciones() {
   const res = await pedirPermisoNotificaciones();
   renderAvisoFinSettings();
-  if (res === 'granted') showToast('🔔 Notificaciones activadas', 'success');
+  if (res === 'granted') showToast('Notificaciones activadas', 'success');
   else if (res === 'denied') showToast('Notificaciones bloqueadas en el navegador', 'info');
 }
 

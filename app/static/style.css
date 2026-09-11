@@ -1680,7 +1680,12 @@ select { appearance: none; cursor: pointer;
 .toast.success { border-color: var(--green-border); }
 .toast.error   { border-color: var(--red-border); }
 .toast.warning { border-color: var(--orange-border); }
-.toast-icon { font-size: 16px; flex-shrink: 0; }
+/* El icono del toast, del color de su tipo. Antes era un emoji: ni heredaba
+   la paleta ni se distinguía del que traía el mensaje. */
+.toast-icon { display: inline-flex; flex-shrink: 0; color: #fff; }
+.toast.success .toast-icon { color: var(--green); }
+.toast.error   .toast-icon { color: var(--red); }
+.toast.warning .toast-icon { color: var(--orange); }
 .toast-msg { font-size: 12px; color: #fff; }
 .toast.removing { animation: fade-out var(--t-med) var(--ease) forwards; }
 
@@ -1717,7 +1722,10 @@ select { appearance: none; cursor: pointer;
   font-size: 12px;
   text-align: center;
 }
-.empty-state-icon { font-size: 28px; }
+.empty-state-icon { font-size: 28px; color: var(--text-3); opacity: .55; }
+/* Un `font-size` no dimensiona un SVG. El hueco está pensado para un icono
+   grande, así que se fija aquí en vez de en cada uno de los ocho sitios. */
+.empty-state-icon svg { width: 44px; height: 44px; }
 
 /* ── Skeleton loader ────────────────────────────────────────────── */
 .skeleton {
@@ -5059,22 +5067,43 @@ select { appearance: none; cursor: pointer;
   justify-content: center;
   width: 34px;
   height: 34px;
-  background: rgba(52, 199, 89, 0.10);
-  border: 1px solid rgba(52, 199, 89, 0.40);
   border-radius: 8px;
-  color: #7adfa0;
   cursor: pointer;
   margin-right: 8px;
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
 }
-.btn-lookup:hover {
-  background: rgba(52, 199, 89, 0.22);
-  color: #9cf0b8;
-  border-color: rgba(52, 199, 89, 0.75);
-  transform: scale(1.08);
-}
+.btn-lookup:hover { transform: scale(1.08); }
 .btn-lookup:active { transform: scale(0.92); }
-.btn-lookup-icon { font-size: 16px; line-height: 1; }
+
+/* ── Los tres botones de utilidad del header, como una familia ───────────
+   Tenían un color cada uno —ámbar, verde y azul— sin significar nada
+   distinto entre sí: son tres utilidades sin jerarquía, y juntas se leían
+   como un semáforo. Ahora son iguales y neutros, y el color se reserva para
+   lo que quiere decir algo. El header es CLARO, así que el gris va sobre
+   blanco y no al revés. */
+.btn-help,
+.btn-lookup,
+.btn-settings {
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  color: var(--text-2);
+}
+.btn-help:hover,
+.btn-lookup:hover,
+.btn-settings:hover {
+  background: var(--surface-3);
+  border-color: var(--sep-strong);
+  color: var(--text-1);
+}
+.btn-help-icon,
+.btn-lookup-icon,
+.btn-settings svg,
+.header-update-pill-icon {
+  display: inline-flex;
+}
+.btn-help-icon svg,
+.btn-lookup-icon svg,
+.btn-settings svg { width: 17px; height: 17px; }
 
 /* Pill de aviso de nueva versión disponible — junto a los botones del
    header. Color ámbar (mismo lenguaje visual que el banner update warn
@@ -5119,22 +5148,14 @@ select { appearance: none; cursor: pointer;
   justify-content: center;
   width: 34px;
   height: 34px;
-  background: rgba(255, 159, 10, 0.10);
-  border: 1px solid rgba(255, 159, 10, 0.40);
   border-radius: 8px;
-  color: #f0b160;
   cursor: pointer;
   margin-right: 8px;
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
 }
-.btn-help:hover {
-  background: rgba(255, 159, 10, 0.22);
-  color: #ffcb83;
-  border-color: rgba(255, 159, 10, 0.75);
-  transform: scale(1.08);
-}
+.btn-help:hover { transform: scale(1.08); }
 .btn-help:active { transform: scale(0.92); }
-.btn-help-icon { font-size: 16px; line-height: 1; }
+
 
 /* ── Modal de Consulta rápida CMv4.0 ─────────────────────────────── */
 /* Modal "tool-like": header + form fijos arriba, body con scroll interno,
@@ -5643,19 +5664,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   justify-content: center;
   width: 34px;
   height: 34px;
-  background: rgba(0, 122, 255, 0.10);
-  border: 1px solid rgba(0, 122, 255, 0.40);
   border-radius: 8px;
-  color: #005fb8;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s;
 }
-.btn-settings:hover {
-  background: rgba(0, 122, 255, 0.22);
-  color: #7fc0ff;
-  border-color: rgba(0, 122, 255, 0.75);
-  transform: rotate(25deg);
-}
+.btn-settings:hover { transform: rotate(25deg); }
 .btn-settings:active {
   transform: rotate(25deg) scale(0.92);
 }
@@ -9591,6 +9604,45 @@ body.workbar-plegada .workbar-toggle.con-trabajo::after {
 
    El tamaño va en el chip, no en el SVG: así un icono se puede reusar en la
    columna (24px) y en la cabecera del modal (34px) sin tocar el marcado. */
+/* El icono de un paso en un modal de progreso. El color dice el estado, que
+   antes no se podía: era un prefijo de texto (⏳/⬜/✅) y un emoji no hereda
+   la paleta. */
+.paso-ico {
+  display: inline-flex; align-items: center;
+  width: 15px; height: 15px; vertical-align: -3px;
+  color: var(--text-3);
+}
+.paso-ico svg { width: 15px; height: 15px; }
+.paso-curso { color: var(--blue); }
+.paso-hecho { color: var(--green); }
+
+/* Los tres puntos de la leyenda de confianza del series-modal. Eran
+   🟢/🟡/⚪: un emoji de color no hereda la paleta y a 12 px se ve como un
+   borrón. */
+.punto-conf {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; vertical-align: 0;
+  background: var(--surface-3);
+}
+.punto-conf.alta  { background: var(--green); }
+.punto-conf.media { background: var(--orange); }
+.punto-conf.mala  { background: var(--red); }
+
+/* ── El icono suelto ──────────────────────────────────────────────────────
+   A la altura del texto y con su color (`currentColor`), así que dentro de un
+   botón primario sale blanco y en un título, del color del título. El chip
+   (`.icono-chip`, justo debajo) es para cuando el icono ES el contenido. */
+.ico {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  /* En un `inline-flex` —los botones— no hace nada; en texto corrido lo baja
+     a la línea base en vez de dejarlo flotando sobre ella. */
+  vertical-align: -2px;
+}
+.ico-md { width: 16px; height: 16px; }
+.ico-lg { width: 20px; height: 20px; }
+.ico-xl { width: 44px; height: 44px; }
+
 .icono-chip {
   display: inline-flex;
   align-items: center;

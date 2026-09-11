@@ -534,16 +534,21 @@ class TestLosPillsSonLosDeLasPestanas(unittest.TestCase):
     el icono de una pestaña, el pill tiene que seguirlo."""
 
     def test_cada_pill_lleva_el_glifo_de_su_pestana(self):
+        """Se compara el NOMBRE del glifo (`data-icono`), no el carácter.
+
+        Las pestañas llevaban un emoji dentro del span y ahora declaran su
+        icono del catálogo; el pill tiene que declarar el mismo."""
         h = html()
         tabs = dict(re.findall(
-            r'onclick="switchTab\((\d)\)".*?<span class="tab-icon">(.+?)</span>',
-            h, re.S))
+            r'onclick="switchTab\((\d)\)".*?<span class="tab-icon" '
+            r'data-icono="(\w+)"', h, re.S))
         # switchTab(1)=ISO→MKV (rip) · (2)=Editar (mkv) · (3)=CMv4.0
         esperado = {"rip": tabs["1"], "mkv": tabs["2"], "cmv40": tabs["3"]}
-        pills = dict(re.findall(r'data-tab="([a-z0-9]+)"[^>]*>\s*(.+?)</button>',
-                                h[h.index('<div class="workbar-pills">'):], re.S))
+        pills = dict(re.findall(
+            r'data-tab="([a-z0-9]+)"[^>]*>\s*<span data-icono="(\w+)"',
+            h[h.index('<div class="workbar-pills">'):], re.S))
         for tab, glifo in esperado.items():
-            self.assertEqual(pills[tab].strip(), glifo.strip(),
+            self.assertEqual(pills.get(tab), glifo,
                              f"el pill de {tab} no lleva el glifo de su pestaña")
 
 
