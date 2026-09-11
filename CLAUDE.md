@@ -1960,6 +1960,44 @@ Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - Wheel vertical → scroll horizontal sobre la franja (handler en `_installSubtabScrollBindings`).
 - Los helpers `_updateSubtabScrollState()`, `_scrollSubtabContainer()` y la config `_SUBTAB_SCROLLERS` sirven a ambos tabs por DRY.
 
+### Los iconos: un catálogo, y el marcado los DECLARA
+
+`GLIFOS` + `icono(nombre)` en `core.js`: **44 glifos SVG**, rejilla de 24,
+trazo 1.6 y extremos redondeados (el criterio de Material Symbols *outlined*,
+que es lo que hace que se lean como familia). Un emoji lo dibuja el sistema
+operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
+`⏳` pierde el aire de chat.
+
+- **Un objeto, un dibujo.** `_GLIFOS_TRABAJO` y `_ICONOS_ESTADO` (la columna de
+  trabajo) salen del MISMO catálogo. Si un estado se pinta en dos sitios, no
+  puede tener dos formas.
+- **El marcado declara, no incrusta**: `data-icono="disco"`, y lo pinta
+  `pintarIconos()` al arrancar más un **`MutationObserver`** para el HTML que
+  genera el JS. La alternativa —interpolar `${icono('abrir')}` en más de cien
+  plantillas— falla **en silencio** en las que no son template literals: el
+  `${...}` se ve crudo en pantalla y no salta ningún error. El observador no se
+  realimenta porque pintar marca `data-ico-puesto`.
+- **Los pasos de un modal de progreso no llevan el estado en el texto.**
+  `marcarPasoDeModal(el, 'curso'|'hecho'|'pendiente')` cambia el glifo de su
+  `<span>`; antes era un `textContent.replace()` sobre ⏳/⬜/✅, o sea que el
+  estado dependía de la redacción del paso y no podía tener color.
+- **El guard que importa**: `TestElCatalogoEsUnoYEstaCompleto` cruza todos los
+  `data-icono`, las llamadas `icono('x')` y los valores `icon:` contra el
+  catálogo. Un nombre mal escrito deja el hueco **vacío sin dar ningún error**,
+  y es el único modo de fallo de esta familia de cambios.
+- **Lo que queda en emoji es a propósito** (221 apariciones): los markers del
+  log de CMv4.0 son tokens de persistencia y del parser, el Markdown que se
+  copia al portapapeles es texto, y en la prosa de un tooltip un emoji no es
+  iconografía. `TestElEmojiSeFueDeLaInterfaz` exige cero en el **marcado
+  estático**, que es lo que se ve siempre.
+- Un glifo tiene que funcionar **a 14 px**: el engranaje de 6 dientes se leía
+  como un sol (es `ajustes`, deslizadores), tres lomos iguales como un código
+  de barras, y un candado abierto igual que uno cerrado. Eso solo se ve
+  mirando una lámina con los 44 juntos, no el código.
+- Para los arneses de node, las piezas del sistema se piden enteras con
+  **`frontend_sources.sistema_de_iconos()`**. Enumerarlas a mano hacía que cada
+  vez que el sistema ganaba una se rompieran todos a la vez.
+
 ### Las tres columnas de proyecto: una sola tarjeta
 
 Tab 1, Tab 2 y Tab 3 pintan sus proyectos con **`tarjetaDeProyecto`**
