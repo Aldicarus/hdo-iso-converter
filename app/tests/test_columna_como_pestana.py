@@ -135,9 +135,34 @@ def _medir_llena() -> dict:
       titulos: [...document.querySelectorAll(
           '#workbar-body .workbar-seccion-titulo,'
           + ' #workbar-historial .workbar-seccion-titulo')]
-        .map(el => ({texto: el.textContent.trim(), t: r(el).t})),
+        .map(el => { const c = getComputedStyle(el);
+          return {texto: el.textContent.trim(), t: r(el).t,
+                  // Una cabecera pegada con fondo transparente deja pasar las
+                  // tarjetas por debajo: se lee texto sobre texto.
+                  pos: c.position, fondo: c.backgroundColor,
+                  borde: c.borderBottomWidth, alto: r(el).h,
+                  inline: el.getAttribute('style') || ''}; }),
       // ¿Se ve el trabajo en curso sin tocar nada?
       primeraTarjeta: r(q('#workbar-body .wb-card')),
+    };
+    // El sticky, EN ACCIÓN: al fondo del todo, la cabecera de la sección que
+    // se está mirando tiene que seguir en el borde de arriba, y el día del
+    // historial justo debajo de ella. Medirlo sin scrollear no prueba nada —
+    // un ancestro con `overflow` lo rompe y el CSS sigue diciendo `sticky`.
+    inner.scrollTop = inner.scrollHeight;
+    await new Promise(res => setTimeout(res, 120));
+    const arriba = r(inner).t;
+    const visibles = [...document.querySelectorAll('.workbar-seccion-titulo')]
+      .filter(el => r(el).t < arriba + 2);
+    out.pegado = {
+      arriba,
+      // La última cabecera que ha pasado por el borde se queda ahí.
+      cabecera: visibles.length ? {texto: visibles[visibles.length - 1].textContent.trim(),
+                                   t: r(visibles[visibles.length - 1]).t} : null,
+      // Y el día, debajo de ella y no encima.
+      dia: (() => { const d = [...document.querySelectorAll('.wb-dia')]
+                      .filter(el => r(el).t < arriba + 40).pop();
+                    return d ? {texto: d.textContent.trim(), t: r(d).t} : null; })(),
     };
     document.getElementById('__out').textContent = JSON.stringify(out);
   }, 900);
@@ -579,11 +604,50 @@ class TestUnSoloScrollYCuatroSeccionesSeguidas(unittest.TestCase):
         self.assertEqual(self.m["errores"], [])
 
     def test_el_orden_es_el_del_trabajo(self):
-        """En curso · en paralelo · esperando turno · recientes. Lo que corre
-        primero, lo que espera después y lo que ya pasó al final."""
+        """En curso · en segundo plano · esperando turno · recientes. Lo que
+        corre primero, lo que espera después y lo que ya pasó al final.
+
+        «En segundo plano» dice la propiedad que decide quién entra ahí —el
+        trabajo que sobrevive a la petición y sigue sin ti—, y no «va a la
+        vez», que es lo que lo hacía indistinguible de «En curso».
+        """
         titulos = [t["texto"] for t in self.m["titulos"]]
-        self.assertEqual(titulos, ["En curso", "En paralelo",
-                                   "Esperando turno", "Trabajos recientes"])
+        self.assertEqual(titulos, ["En curso", "En segundo plano",
+                                   "Esperando turno", "Recientes"])
+
+    def test_cada_cabecera_se_pega_y_tapa_lo_que_pasa_por_debajo(self):
+        """Eran 10 px de gris claro sin fondo ni línea, y entre dos bloques de
+        tarjetas blancas no se veía dónde empezaba cada sección."""
+        for t in self.m["titulos"]:
+            self.assertEqual(t["pos"], "sticky", t["texto"])
+            self.assertNotIn("rgba(0, 0, 0, 0)", t["fondo"],
+                             f"{t['texto']}: una cabecera pegada sin fondo "
+                             "opaco deja leer las tarjetas por debajo")
+            self.assertNotEqual(t["borde"], "0px", t["texto"])
+
+    def test_la_del_historial_es_la_MISMA_cabecera(self):
+        """Iba con `style="padding:..."` inline, así que era una cuarta
+        variante de lo mismo y no se pegaba al bajar."""
+        hist = [t for t in self.m["titulos"] if t["texto"] == "Recientes"]
+        self.assertEqual(len(hist), 1)
+        self.assertEqual(hist[0]["inline"], "")
+        self.assertEqual(hist[0]["pos"], "sticky")
+
+    def test_al_fondo_del_todo_la_cabecera_sigue_ahi(self):
+        """El sticky, en acción. Un ancestro con `overflow` lo rompe y el CSS
+        sigue diciendo `sticky`, así que hay que scrollear para saberlo."""
+        p = self.m["pegado"]
+        self.assertIsNotNone(p["cabecera"], "ninguna cabecera llegó al borde")
+        self.assertAlmostEqual(p["cabecera"]["t"], p["arriba"], delta=1.5)
+
+    def test_y_el_dia_del_historial_se_pega_DEBAJO_de_ella(self):
+        """Dos niveles de cabecera pegada: si el día se pusiera a `top: 0`
+        taparía a su propia sección, que es lo que pasaba con los dos a cero."""
+        p = self.m["pegado"]
+        alto = next(t["alto"] for t in self.m["titulos"]
+                    if t["texto"] == "Recientes")
+        self.assertIsNotNone(p["dia"], "ningún día llegó al borde")
+        self.assertAlmostEqual(p["dia"]["t"], p["arriba"] + alto, delta=2)
 
     def test_y_ese_orden_es_el_de_la_pantalla(self):
         """El orden del marcado no basta: con una zona con scroll propio, la

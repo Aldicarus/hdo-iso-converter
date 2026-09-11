@@ -17,6 +17,7 @@
   --blue-dim:     rgba(0, 122, 255, 0.12);
   --blue-border:  rgba(0, 122, 255, 0.30);
   --cola-surface: #edf4ff;                 /* fondo unificado pestaña + sidebar Cola (opaco, idéntico en cualquier contexto) */
+  --wb-cabecera-h: 26px;                   /* alto del título de sección pegado: el día del historial se pega justo debajo */
   --green:        #34C759;
   --green-dim:    rgba(52, 199, 89, 0.12);
   --green-border: rgba(52, 199, 89, 0.30);
@@ -9230,10 +9231,12 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 #workbar-historial:empty { display: none; }
 
 /* La cabecera de cada día. `sticky` para no perder de vista de qué día es lo
-   que se está mirando al bajar. */
+   que se está mirando al bajar, y pegada JUSTO DEBAJO del título de su
+   sección —que también es sticky— en vez de taparlo. Es el segundo nivel, así
+   que se queda con el gris tenue: la jerarquía la marca el contraste. */
 .wb-dia {
   position: sticky;
-  top: 0;
+  top: var(--wb-cabecera-h);
   z-index: 1;
   padding: 6px 14px 4px;
   background: var(--cola-surface);
@@ -9271,10 +9274,31 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
 }
 
 .workbar-seccion { padding: 0 14px 12px; }
+/* La cabecera de sección era diez píxeles de gris claro sin fondo ni línea, y
+   entre dos bloques de tarjetas blancas con borde no se veía dónde empezaba
+   cada una. Es el MISMO problema que el historial ya tenía resuelto con
+   `.wb-dia`, así que se adopta ese patrón: sticky con fondo opaco —al bajar,
+   la cabecera de lo que estás mirando sigue ahí— más una línea de cierre y
+   contraste suficiente para leerla de un vistazo (`--text-2`, no `--text-3`).
+
+   El alto va fijo (`--wb-cabecera-h`) porque lo necesita el `top` del día del
+   historial: son dos niveles de cabecera pegada y el de abajo tiene que
+   saber cuánto ocupa el de arriba. */
 .workbar-seccion-titulo {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
-  color: var(--text-3); margin: 6px 0 6px;
+  position: sticky; top: 0; z-index: 2;
+  padding: 0 14px; height: var(--wb-cabecera-h); line-height: var(--wb-cabecera-h);
+  margin-bottom: 6px;
+  background: var(--cola-surface);
+  border-bottom: 1px solid var(--sep);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .6px;
+  color: var(--text-2);
 }
+/* El padding lateral lo lleva el título para que su fondo y su línea lleguen
+   de borde a borde; dentro de una sección hay que descontar el del contenedor.
+   El del historial no está en una `.workbar-seccion`, y por eso no se le
+   aplica. */
+.workbar-seccion > .workbar-seccion-titulo { margin-left: -14px; margin-right: -14px; }
 
 /* Las consultas: un renglón, no una tarjeta. Explican la carga del NAS sin
    competir con el trabajo que sí se puede seguir. El punteado es la única

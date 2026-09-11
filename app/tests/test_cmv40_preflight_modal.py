@@ -303,7 +303,7 @@ console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
 class TestSeVuelveDesdeLaColumna(unittest.TestCase):
     """Al cerrar el modal, la validación sigue — y hay que poder volver a ella.
 
-    Lo interactivo se listaba en «En paralelo» sin botones, así que un
+    Lo interactivo se listaba en «En segundo plano» sin botones, así que un
     pre-flight cuyo modal se hubiera cerrado quedaba fuera de alcance hasta que
     terminara: no había Detalle ni Cancelar como en el trabajo en curso.
     """
@@ -320,7 +320,7 @@ globalThis.iconoDeTrabajo = () => '<i></i>';
 {_fn('_workbarTiempo')}
 {_fn('_workbarListaHTML')}
 const st = {{ activo: null, cola: [], interactivo: {json.dumps(interactivo)} }};
-const html = _workbarListaHTML('En paralelo', st.interactivo, t => `
+const html = _workbarListaHTML('En segundo plano', st.interactivo, t => `
         <div class="workbar-item" data-clave="${{escHtml(t.id)}}">
           ${{escHtml(t.que || '')}}
         </div>

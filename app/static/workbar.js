@@ -427,7 +427,7 @@ function _workbarRender(st) {
     // a lo que pueda estar ralentizando. Sola no aporta —el usuario tiene su
     // modal delante— y encendería la columna por abrir un MKV. Por eso
     // tampoco entra en el contador de la tira plegada.
-    + _workbarListaHTML('En paralelo', paralelo, t => _workbarTarjeta(t, {
+    + _workbarListaHTML('En segundo plano', paralelo, t => _workbarTarjeta(t, {
         ref: `par:${t.id}`,
         sub: _workbarDescripcion(t),
         estado: iconoDeEstado('corriendo', 'icono-chip-sm'),
@@ -525,8 +525,11 @@ function _workbarRenderHistorial() {
       : '';
     return;
   }
-  let html = '<div class="workbar-seccion-titulo" style="padding:8px 14px 0">'
-           + 'Trabajos recientes</div>';
+  // Con la clase, sin estilo inline: es la misma cabecera que las otras tres
+  // y tiene que pegarse igual al bajar. El margen negativo NO se le aplica
+  // —no vive dentro de una `.workbar-seccion`— y por eso su padding lateral
+  // sale ya de la clase.
+  let html = '<div class="workbar-seccion-titulo">Recientes</div>';
   let dia = null;
   for (const r of items) {
     const d = _workbarDia(r.inicio);

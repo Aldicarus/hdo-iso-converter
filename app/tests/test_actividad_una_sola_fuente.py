@@ -235,7 +235,7 @@ globalThis._workbarCargarHistorial = async () => {{}};
                           "interactivo": [{"id": "k", "tab": "mkv",
                                            "que": "apertura de un MKV",
                                            "segundos": 12}]})
-        self.assertIn("En paralelo", r["html"])
+        self.assertIn("En segundo plano", r["html"])
         self.assertIn("apertura de un MKV", r["html"])
 
     def test_con_la_casa_libre_lo_dice_y_no_enciende_el_aviso(self):
