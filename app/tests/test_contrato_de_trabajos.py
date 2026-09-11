@@ -509,6 +509,43 @@ class TestElEndpoint(ApiTestCase):
         r = self.client.get("/api/trabajos").json()
         self.assertEqual(r["interactivo"], [])
 
+    def test_lo_sincrono_va_CONTADO_y_no_lleva_tarjeta(self):
+        """Lo que dura lo que la petición no se pinta: el usuario lo tiene
+        delante en su modal, y los de 0-3 s parpadearían contra el poll."""
+        workload.registrar("abrir-1", workload.TAB_MKV,
+                           "Apertura de un MKV · Supergirl (2026)",
+                           workload.CLASE_INTERACTIVO, en_columna=False)
+        r = self.client.get("/api/trabajos").json()
+        self.assertEqual(r["interactivo"], [])
+        self.assertEqual(r["consultas"]["n"], 1)
+        self.assertEqual(r["consultas"]["nombres"],
+                         ["Apertura de un MKV · Supergirl (2026)"])
+
+    def test_lo_que_sobrevive_a_la_peticion_SI_lleva_tarjeta(self):
+        """Los pre-flight: contestan al instante y siguen en una task, así que
+        si cierras su modal la columna es el único sitio donde volver."""
+        workload.registrar("pf-1", workload.TAB_CMV40,
+                           "Validación previa · Sinners (2025)",
+                           workload.CLASE_INTERACTIVO,
+                           detalle="preflight", cancelable=True,
+                           titulo="Sinners (2025)")
+        r = self.client.get("/api/trabajos").json()
+        self.assertEqual([t["titulo"] for t in r["interactivo"]],
+                         ["Sinners (2025)"])
+        self.assertEqual(r["consultas"]["n"], 0)
+
+    def test_una_consulta_sigue_contando_para_la_contencion(self):
+        """No se deja de registrar: sólo se deja de pintar.
+
+        De `hay_contencion` salen `_adaptive_timeout` y el modelo de ETA, así
+        que «quitarlo de la columna» nunca puede significar «no apuntarlo».
+        """
+        workload.registrar("abrir-2", workload.TAB_MKV, "Apertura de un MKV",
+                           workload.CLASE_INTERACTIVO, en_columna=False)
+        self.assertTrue(workload.hay_contencion())
+        act = self.client.get("/api/activity").json()
+        self.assertIn("Apertura de un MKV", [t["que"] for t in act["trabajos"]])
+
     def test_el_tope_de_recientes_se_acota(self):
         r = self.client.get("/api/trabajos?recientes=99999")
         self.assertEqual(r.status_code, 200)

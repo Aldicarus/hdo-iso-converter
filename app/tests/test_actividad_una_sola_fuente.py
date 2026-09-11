@@ -132,6 +132,7 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 {_fn('_workbarListaHTML')}
 const _workbarOyentes = [];
 let _workbarUltimaFirma = null;
@@ -395,6 +396,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
   {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,
      pct: 10, pct_medido: true, segundos: 7, eta_s: 240,
@@ -421,6 +423,7 @@ let _workbarSeleccion = null;
 {_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 console.log(JSON.stringify({{ html: _workbarActivoHTML(
   {{ tipo: 'rip', que: 'x', fase_label: 'F', fase_n: 1, fases_total: 4,
      pct: null, pct_medido: false, segundos: 7, eta_s: null,

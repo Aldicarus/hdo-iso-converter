@@ -3529,10 +3529,15 @@ class CMv40PreflightRequest(BaseModel):
     file_name: str = ""
 
 
+# Sin `Depends(workload.marca(...))` **a propósito**: esto contesta
+# `{started: true}` al instante y el trabajo sigue en una task, que se
+# registra ella misma (con su película, su detalle y su cancelar). La marca
+# mide LA PETICIÓN, así que aquí apuntaba un segundo trabajo de milisegundos
+# con otra clave — el mismo defecto que el test ya prohíbe para lo diferido.
+# Lo fija `test_clasificacion_del_trabajo`.
 @router.post(
     "/api/cmv40/{session_id}/preflight-target",
     summary="Pre-flight asíncrono: valida bin target antes de Fase A (ahorra ~12 min si bin sin CMv4.0)",
-    dependencies=[Depends(workload.marca("Validación del RPU", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     """
@@ -3710,10 +3715,15 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     return {"ok": True, "started": True}
 
 
+# Sin `Depends(workload.marca(...))` **a propósito**: esto contesta
+# `{started: true}` al instante y el trabajo sigue en una task, que se
+# registra ella misma (con su película, su detalle y su cancelar). La marca
+# mide LA PETICIÓN, así que aquí apuntaba un segundo trabajo de milisegundos
+# con otra clave — el mismo defecto que el test ya prohíbe para lo diferido.
+# Lo fija `test_clasificacion_del_trabajo`.
 @router.post(
     "/api/cmv40/{session_id}/preflight-source",
     summary="Pre-flight asíncrono: valida que el MKV origen tenga DV (sin target)",
-    dependencies=[Depends(workload.marca("Validación del MKV origen", workload.TAB_CMV40))],
 )
 async def cmv40_preflight_source(session_id: str):
     """Sniff de 30s del MKV origen + dovi_tool extract-rpu. Aborta si no hay

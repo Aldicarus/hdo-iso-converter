@@ -862,6 +862,7 @@ globalThis.escHtml = t => String(t);
 {_fn('_relojHTML')}
 {_fn('_workbarRefReciente')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 {_fn('_workbarListaHTML')}
 {_fn('_instalarReordenDeCola')}
 let _workbarSeleccion = {json.dumps(seleccion)};

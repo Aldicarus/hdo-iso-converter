@@ -109,6 +109,26 @@ class Trabajo:
     # Y si se puede parar. Un `rmtree` o un `disc-probe` no: duran segundos y
     # cortarlos a medias deja peor estado del que arreglan.
     cancelable: bool = False
+    # ¿Se pinta como TARJETA en la columna de trabajo?
+    #
+    # El criterio no es cuánto dura sino **si puedes perderlo de vista**. Un
+    # trabajo que sobrevive a la petición —los pre-flight, que contestan
+    # `{started: true}` y siguen en una task— puede quedarse sin nadie
+    # mirándolo: la columna es el único sitio donde reencontrarlo, y por eso
+    # son justo los que traen `detalle` y `cancelable`. Uno síncrono, no: dura
+    # exactamente lo que la petición, y mientras dura el usuario tiene su
+    # modal delante con la barra. Pintarlo es repetirle lo que ya está
+    # mirando, y los de 0-3 s encima parpadean contra un poll de 2 s.
+    #
+    # El umbral por duración, que es la solución que primero se ocurre, NO
+    # sirve: no distingue abrir un MKV (50 s medidos, con modal) de un
+    # pre-flight (9 s de mediana, sin él), que es precisamente la distinción.
+    #
+    # `marca` lo pone a False por construcción, así que una ruta síncrona
+    # nueva acierta sin acordarse de nada. Lo que NO cambia es el registro:
+    # siguen contando para `hay_contencion` —de ahí salen `_adaptive_timeout`
+    # y el modelo de ETA— y saliendo en `/api/activity`. Solo se va la tarjeta.
+    en_columna: bool = True
     # La película y su miniatura. Lo interactivo se registra desde `marca`,
     # que NO recibe la Request —para que este módulo no importe FastAPI—, así
     # que el endpoint las rellena con `detallar` en cuanto resuelve el fichero.
@@ -141,12 +161,19 @@ _activos: dict[str, Trabajo] = {}
 def registrar(clave: str, tab: str, que: str,
               clase: str = CLASE_DIFERIDO, *,
               detalle: str = "", cancelable: bool = False,
-              titulo: str = "", poster: str = "") -> None:
-    """Marca un trabajo pesado como en curso. Idempotente por clave."""
+              titulo: str = "", poster: str = "",
+              en_columna: bool = True) -> None:
+    """Marca un trabajo pesado como en curso. Idempotente por clave.
+
+    `en_columna` viene a True porque quien llama a esto a mano lo hace
+    **dentro de la task que hace el trabajo**, y eso es justo lo que sobrevive
+    a la petición. Lo síncrono entra por `marca`, que lo pone a False.
+    """
     _activos[clave] = Trabajo(clave=clave, tab=tab, que=que,
                               desde=time.monotonic(), clase=clase,
                               detalle=detalle, cancelable=cancelable,
-                              titulo=titulo, poster=poster)
+                              titulo=titulo, poster=poster,
+                              en_columna=en_columna)
     logger.info("[workload] arranca [%s] %s", clase, _activos[clave].describir())
 
 
@@ -175,7 +202,8 @@ def detallar(clave: str, *, que: str = "", titulo: str = "",
 
 
 @contextlib.contextmanager
-def ocupado(clave: str, tab: str, que: str, clase: str = CLASE_DIFERIDO):
+def ocupado(clave: str, tab: str, que: str, clase: str = CLASE_DIFERIDO, *,
+            en_columna: bool = True):
     """`registrar` + `liberar` con el `finally` puesto.
 
     La regla del proyecto es que el hueco se suelta SIEMPRE en un `finally` y
@@ -183,7 +211,7 @@ def ocupado(clave: str, tab: str, que: str, clase: str = CLASE_DIFERIDO):
     demás hasta reiniciar el contenedor. Escribirlo a mano en cada punto de
     entrada es exactamente el sitio donde se olvida.
     """
-    registrar(clave, tab, que, clase)
+    registrar(clave, tab, que, clase, en_columna=en_columna)
     try:
         yield
     finally:
@@ -274,7 +302,10 @@ def marca(que: str, tab: str):
         # petición acaba de registrar. Ver `detallar_actual`.
         ficha = _en_curso_aqui.set(clave)
         try:
-            with ocupado(clave, tab, que, CLASE_INTERACTIVO):
+            # Sin tarjeta en la columna: esto vive lo que vive la
+            # petición, y mientras tanto el usuario está mirando su modal.
+            with ocupado(clave, tab, que, CLASE_INTERACTIVO,
+                         en_columna=False):
                 yield
         finally:
             _en_curso_aqui.reset(ficha)

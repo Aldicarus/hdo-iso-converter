@@ -21,6 +21,7 @@ aquí se compara contra el esquema OpenAPI real en las dos direcciones.
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_clasificacion_del_trabajo -v
 """
+import contextlib
 import sys
 import unittest
 from pathlib import Path
@@ -79,6 +80,23 @@ class TestLaTablaCubreLaAppReal(ApiTestCase):
              workload.CLASE_DIFERIDO})
 
 
+# Las dos interactivas que NO llevan la marca, y por qué.
+#
+# `marca` mide LA PETICIÓN: registra al entrar y libera en la teardown. Estas
+# dos contestan `{started: true}` al instante y el trabajo sigue en una task,
+# así que la marca apuntaba un segundo trabajo de milisegundos con otra clave
+# mientras el de verdad se registraba aparte. Es el mismo defecto que
+# `test_ninguna_diferida_lleva_la_marca` ya prohíbe para lo diferido; la clase
+# no cambia nada, lo que decide es quién arranca el trabajo.
+#
+# Si añades una ruta interactiva fire-and-forget, este test te va a obligar a
+# pasar por aquí. Eso es lo que se quiere: que registre su task o que lo diga.
+SE_REGISTRAN_EN_SU_TASK = {
+    "POST /api/cmv40/{session_id}/preflight-target",
+    "POST /api/cmv40/{session_id}/preflight-source",
+}
+
+
 class TestLaTablaSeEjecuta(ApiTestCase):
     """La marca puesta en el decorador tiene que coincidir con la tabla."""
 
@@ -86,10 +104,20 @@ class TestLaTablaSeEjecuta(ApiTestCase):
         esperadas = {r for r, c in workload.CLASE_POR_RUTA.items()
                      if c == workload.CLASE_INTERACTIVO}
         self.assertEqual(
-            _marcadas(self.main.app), esperadas,
+            _marcadas(self.main.app), esperadas - SE_REGISTRAN_EN_SU_TASK,
             "la tabla y los decoradores discrepan: una ruta interactiva sin "
             "`Depends(workload.marca(...))` no aparece en /api/activity y el "
             "dashboard la contará como que no pasa nada")
+
+    def test_la_que_registra_su_task_no_lleva_ADEMAS_la_marca(self):
+        """Si no, el mismo trabajo se apunta dos veces con claves distintas.
+
+        La de la petición dura lo que tarde en contestar `{started: true}`, o
+        sea milisegundos, y encima cuenta como una consulta en curso en la
+        columna. La buena es la de la task, que trae la película y el cancelar.
+        """
+        self.assertEqual(_marcadas(self.main.app) & SE_REGISTRAN_EN_SU_TASK,
+                         set())
 
     def test_ninguna_diferida_lleva_la_marca(self):
         """Se registran ellas mismas, dentro de la tarea que hace el trabajo.
@@ -157,6 +185,40 @@ class TestLoInteractivoNoBloquea(unittest.TestCase):
         cambiaría de política sin que nadie lo pidiera."""
         workload.registrar("x", workload.TAB_RIP, "algo")
         self.assertTrue(workload.en_curso()[0].bloquea)
+
+
+class TestQuienLlevaTarjetaEnLaColumna(unittest.IsolatedAsyncioTestCase):
+    """El default sale bien por CONSTRUCCIÓN, no por acordarse.
+
+    `marca` mide LA PETICIÓN, así que lo que registra dura lo que dura la
+    respuesta y el usuario lo tiene delante en su modal. `registrar` a mano se
+    llama desde dentro de la task que hace el trabajo, que es justo lo que
+    sobrevive a la petición y se puede perder de vista.
+    """
+
+    def setUp(self):
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+
+    async def test_lo_que_registra_la_marca_NO_lleva_tarjeta(self):
+        dep = workload.marca("Apertura de un MKV", workload.TAB_MKV)
+        gen = dep()
+        await gen.asend(None)                      # entra en la petición
+        try:
+            t, = workload.en_curso()
+            self.assertFalse(
+                t.en_columna,
+                "una ruta síncrona no puede pintar tarjeta: dura lo que la "
+                "petición y el usuario está mirando su modal")
+            self.assertEqual(t.clase, workload.CLASE_INTERACTIVO)
+        finally:
+            with contextlib.suppress(StopAsyncIteration):
+                await gen.asend(None)              # teardown
+
+    def test_lo_que_registra_su_task_SI_la_lleva(self):
+        workload.registrar("pf", workload.TAB_CMV40, "Validación previa",
+                           workload.CLASE_INTERACTIVO, detalle="preflight")
+        self.assertTrue(workload.en_curso()[0].en_columna)
 
 
 class TestElContextoSueltaSiempre(unittest.TestCase):

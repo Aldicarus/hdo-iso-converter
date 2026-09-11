@@ -452,6 +452,7 @@ let _workbarFiltroTab = {json.dumps(tab)};
 {_fn('_workbarRefReciente')}
 {_fn('_workbarListaHTML')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 {_fn('_instalarReordenDeCola')}
 globalThis.iconoDeTrabajo = () => '';
 globalThis.iconoDeEstado = () => '';

@@ -9276,6 +9276,16 @@ input.workbar-search-input::placeholder { color: var(--text-3); }
   color: var(--text-3); margin: 6px 0 6px;
 }
 
+/* Las consultas: un renglón, no una tarjeta. Explican la carga del NAS sin
+   competir con el trabajo que sí se puede seguir. El punteado es la única
+   pista de que hay un tooltip con los nombres detrás. */
+.workbar-consultas {
+  font-size: 11px; color: var(--text-3); padding: 2px 2px 0;
+}
+.workbar-consultas span {
+  border-bottom: 1px dotted var(--sep-strong); cursor: help;
+}
+
 .workbar-barra {
   height: 6px; background: rgba(0,0,0,0.08);
   border-radius: 3px; overflow: hidden; margin-bottom: 5px;

@@ -80,7 +80,11 @@ _RECIENTES = [{"id": "h1", "tab": "rip", "tipo": "rip",
 @unittest.skipIf(NODE is None, "node no está instalado")
 class TarjetaCase(unittest.TestCase):
 
-    def _render(self, estado, seleccion=None) -> str:
+    def _render(self, estado, seleccion=None, busqueda='') -> str:
+        return self._ejecutar(estado, seleccion, busqueda)["html"]
+
+    def _ejecutar(self, estado, seleccion=None, busqueda='') -> dict:
+        """El html de la columna y lo que queda en la tira plegada."""
         guion = f"""
 globalThis.escHtml = t => String(t);
 const _els = {{}};
@@ -90,6 +94,7 @@ for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-se
       toggle(c, on) {{ on ? this._v.add(c) : this._v.delete(c); }},
       has(c) {{ return this._v.has(c); }} }} }};
 }}
+_els['workbar-search'].value = {json.dumps(busqueda)};
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.Sortable = undefined;
@@ -116,6 +121,7 @@ let _workbarSeleccion = {json.dumps(seleccion)};
 {_fn('_workbarChips')}
 {_fn('_workbarTarjeta')}
 {_fn('_workbarActivoHTML')}
+{_fn('_workbarConsultasHTML')}
 {_fn('_instalarReordenDeCola')}
 const _CMV40_FIN = {{}};
 {_fn('_workbarDia')}
@@ -128,17 +134,22 @@ const _WORKBAR_HISTORIAL_PASO = 25;
 {_fn('_workbarRender')}
 let workbarEstado = {json.dumps(estado)};
 _workbarRender(workbarEstado);
-console.log(JSON.stringify({{html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || '')}}));
+console.log(JSON.stringify({{
+  html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || ''),
+  cuenta: _els['workbar-count'].textContent,
+  avisa: _els['workbar-toggle'].classList.has('con-trabajo'),
+}}));
 """
         r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
                            timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló:\n{r.stderr[:900]}")
-        return json.loads(r.stdout.strip().splitlines()[-1])["html"]
+        return json.loads(r.stdout.strip().splitlines()[-1])
 
     def _todo(self, seleccion=None) -> str:
         return self._render({"activo": _ACTIVO, "cola": _COLA,
                              "interactivo": _PARALELO,
+                             "consultas": {"n": 0, "nombres": []},
                              "recientes": _RECIENTES}, seleccion)
 
 
@@ -344,3 +355,58 @@ class TestCadaTipoDiceLoSuyo(TarjetaCase):
         css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
         i = css.index(".wb-chip {")
         self.assertIn("var(--wb-acento)", css[i:i + 260])
+
+
+class TestLasConsultasVanContadas(TarjetaCase):
+    """Lo que dura lo que la petición no lleva tarjeta.
+
+    El usuario lo tiene delante en su modal con su barra, así que una tarjeta
+    le repite lo que ya está mirando — y las de 0-3 s (una descarga de RPU son
+    3 s de mediana) parpadean contra un poll de 2 s. Lo que sí hace falta es
+    saber CUÁNTAS hay: son la respuesta a «¿por qué va tan lento esto?».
+    """
+
+    _CONSULTAS = {"n": 2, "nombres": ["Apertura de un MKV · Supergirl (2026)",
+                                      "Limpieza de artefactos"]}
+
+    def test_sale_el_recuento_y_no_una_tarjeta_por_consulta(self):
+        h = self._render({"activo": _ACTIVO, "cola": [], "interactivo": [],
+                          "consultas": self._CONSULTAS, "recientes": []})
+        self.assertIn("+ 2 consultas en curso", h)
+        self.assertNotIn("Limpieza de artefactos</div>", h)
+
+    def test_los_nombres_van_en_el_tooltip(self):
+        h = self._render({"activo": _ACTIVO, "cola": [], "interactivo": [],
+                          "consultas": self._CONSULTAS, "recientes": []})
+        self.assertIn("Apertura de un MKV · Supergirl (2026) · "
+                      "Limpieza de artefactos", h)
+
+    def test_una_sola_se_dice_en_singular(self):
+        h = self._render({"activo": _ACTIVO, "cola": [], "interactivo": [],
+                          "consultas": {"n": 1, "nombres": ["Abrir"]},
+                          "recientes": []})
+        self.assertIn("+ 1 consulta en curso", h)
+
+    def test_SOLA_no_enciende_la_columna(self):
+        """Sin nada a lo que ralentizar no aporta: el usuario tiene su modal
+        delante, y si no, abrir un MKV pintaría la columna él solo."""
+        h = self._render({"activo": None, "cola": [], "interactivo": [],
+                          "consultas": self._CONSULTAS, "recientes": []})
+        self.assertNotIn("consultas en curso", h)
+        self.assertIn("No hay nada en ejecución", h)
+
+    def test_no_cuentan_para_el_aviso_de_la_tira_plegada(self):
+        """El contador es «hay trabajo que seguir». Si lo encendiera una
+        consulta, abrir un MKV avisaría de un trabajo que no existe."""
+        r = self._ejecutar({"activo": None, "cola": [], "interactivo": [],
+                            "consultas": self._CONSULTAS, "recientes": []})
+        self.assertEqual(r["cuenta"], "0")
+        self.assertFalse(r["avisa"])
+
+    def test_con_la_busqueda_puesta_no_estorba(self):
+        """No es un resultado de la búsqueda; el usuario mira otra cosa."""
+        estado = {"activo": _ACTIVO, "cola": [], "interactivo": [],
+                  "consultas": self._CONSULTAS, "recientes": []}
+        self.assertIn("+ 2 consultas en curso", self._render(estado))
+        self.assertNotIn("consultas en curso",
+                         self._render(estado, busqueda="predator"))

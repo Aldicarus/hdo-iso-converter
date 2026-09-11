@@ -23,7 +23,8 @@ const _WORKBAR_PREF = 'hdo_workbar_abierta';
 
 let _workbarTimer = null;
 /** Lo último que dijo el servidor. Lo lee el modal de detalle al abrirse. */
-let workbarEstado = { activo: null, cola: [], interactivo: [], recientes: [] };
+let workbarEstado = { activo: null, cola: [], interactivo: [],
+                      consultas: { n: 0, nombres: [] }, recientes: [] };
 
 function workbarAbierta() {
   return localStorage.getItem(_WORKBAR_PREF) !== '0';
@@ -351,13 +352,32 @@ function borrarReciente(ref) {
     'Sí, quitarla');
 }
 
-function _workbarListaHTML(titulo, items, render, clase = '') {
-  if (!items.length) return '';
+function _workbarListaHTML(titulo, items, render, clase = '', pie = '') {
+  if (!items.length && !pie) return '';
   return `
     <div class="workbar-seccion">
       <div class="workbar-seccion-titulo">${escHtml(titulo)}</div>
       <div class="${clase}">${items.map(render).join('')}</div>
+      ${pie}
     </div>`;
+}
+
+/** Las consultas: contadas, no listadas.
+ *
+ *  Lo que dura lo que la petición —abrir un MKV, analizar un disco, un
+ *  borrado— no lleva tarjeta: el usuario lo tiene delante en su modal con la
+ *  barra, así que pintarlo se lo repite, y los de 0-3 s parpadean contra un
+ *  poll de 2 s. Lo que sí hace falta decir es CUÁNTAS hay, porque son la
+ *  respuesta a «¿por qué va tan lento esto?» — una consulta le cuesta a un
+ *  trabajo largo un +15 % medido. Los nombres van en el tooltip.
+ */
+function _workbarConsultasHTML(c) {
+  const n = (c && c.n) || 0;
+  if (!n) return '';
+  const nombres = (c.nombres || []).join(' · ');
+  return `<div class="workbar-consultas">`
+       + `<span data-tooltip="${escHtml(nombres)}">`
+       + `+ ${n} consulta${n === 1 ? '' : 's'} en curso</span></div>`;
 }
 
 function _workbarRender(st) {
@@ -383,6 +403,10 @@ function _workbarRender(st) {
   }
 
   const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
+  // Con la búsqueda puesta tampoco: no es un resultado, y el usuario está
+  // mirando otra cosa.
+  const pieConsultas = (enPantalla && !_workbarFiltrando())
+    ? _workbarConsultasHTML(st.consultas) : '';
   if (!enPantalla) {
     _workbarConservandoElScroll(body, `<div class="workbar-vacio">${
       _workbarFiltrando() ? 'Nada en ejecución coincide con el filtro'
@@ -399,6 +423,10 @@ function _workbarRender(st) {
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
+    // Contexto de la carga, no un trabajo que seguir: se dice cuando hay algo
+    // a lo que pueda estar ralentizando. Sola no aporta —el usuario tiene su
+    // modal delante— y encendería la columna por abrir un MKV. Por eso
+    // tampoco entra en el contador de la tira plegada.
     + _workbarListaHTML('En paralelo', paralelo, t => _workbarTarjeta(t, {
         ref: `par:${t.id}`,
         sub: _workbarDescripcion(t),
@@ -411,7 +439,7 @@ function _workbarRender(st) {
           ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
             data-tooltip="Detener este trabajo">Cancelar</button>` : ''}` : '',
-      }))
+      }), '', pieConsultas)
     + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
         ref: `cola:${j.id}`,
         sub: _workbarDescripcion(j),

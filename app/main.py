@@ -1224,9 +1224,15 @@ async def app_trabajos(recientes: int = 8):
     · `activo` — el trabajo DIFERIDO que la cola está ejecutando ahora. Uno,
       porque la cola es única y ejecuta de uno en uno.
     · `cola` — los diferidos esperando turno, en orden.
-    · `interactivo` — lo que corre EN PARALELO porque el usuario está delante
-      (abrir un MKV, analizar un disco, un pre-flight). No tiene fases ni
-      barra: se lista para que se entienda por qué el NAS va cargado.
+    · `interactivo` — lo que corre EN PARALELO **y puedes perder de vista**:
+      hoy los pre-flight, que contestan al instante y siguen en una task. No
+      tiene fases ni barra, pero sí detalle y cancelar, porque si cierras su
+      modal la columna es el único sitio donde reencontrarlo.
+    · `consultas` — el resto de lo interactivo, sólo CONTADO: abrir un MKV,
+      analizar un disco, un borrado. Dura lo que la petición y el usuario
+      tiene su modal delante, así que una tarjeta le repetiría lo que ya está
+      mirando (y las de 0-3 s parpadearían). Se dicen porque explican por qué
+      el NAS va cargado.
     · `recientes` — del historial, para cerrar el círculo.
 
     Se responde desde memoria salvo `recientes`, que lee el historial en un
@@ -1253,6 +1259,7 @@ async def app_trabajos(recientes: int = 8):
         for i, j in enumerate(estado.get("jobs") or [])
     ]
 
+    paralelo = [t for t in workload.en_curso() if not t.bloquea]
     interactivo = [
         {"id": t.clave, "sobre": t.clave,
          "tab": workload.TAB_IDS.get(t.tab, ""),
@@ -1263,13 +1270,22 @@ async def app_trabajos(recientes: int = 8):
          # así que un pre-flight cuyo modal se hubiera cerrado no se podía
          # volver a abrir.
          "detalle": t.detalle, "cancelable": t.cancelable}
-        for t in workload.en_curso() if not t.bloquea
+        for t in paralelo if t.en_columna
     ]
+    # Las consultas van CONTADAS, no listadas: ver `Trabajo.en_columna`. Se
+    # siguen diciendo porque son la respuesta a «¿por qué va tan lento esto?»
+    # —abrir un MKV le cuesta a un rip un +15 % medido— y esa pregunta se
+    # responde con cuántas hay, no con una tarjeta por cada una.
+    consultas = [t for t in paralelo if not t.en_columna]
 
     return {
         "activo": activo,
         "cola": en_cola,
         "interactivo": interactivo,
+        "consultas": {"n": len(consultas),
+                      # El `que` ya trae la película cuando el endpoint la ha
+                      # resuelto («Apertura de un MKV · Supergirl (2026)»).
+                      "nombres": [t.que for t in consultas]},
         "recientes": await asyncio.to_thread(
             historial.leer, max(0, min(recientes, 50))),
         # Cuántas veces ha cambiado el historial. La columna lo pide con
