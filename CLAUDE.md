@@ -814,6 +814,36 @@ modelo por tamaño saldría malo: el ritmo va de **38 a 253 MB/s** —factor 6,6
 con un error del 173 % en el peor caso. El de la serie sí es un modelo (media
 por episodio terminado) y va marcado.
 
+#### Las cabeceras de sección
+
+Las cuatro —**En curso · En segundo plano · Esperando turno · Recientes**— son
+`sticky` con fondo opaco, línea de cierre y `--text-2`. Eran 10 px de
+`--text-3` sin fondo ni línea, y entre dos bloques de tarjetas blancas con
+borde no se veía dónde empezaba cada sección. El patrón ya existía al lado
+(`.wb-dia`, la cabecera de día del historial) y lo que había eran **tres
+variantes** de lo mismo, porque el título del historial iba además con estilo
+inline.
+
+- **El `sticky` no es adorno**: la pregunta es «dónde empieza cada sección», y
+  a media columna eso solo se responde si la cabecera sigue arriba. Por eso el
+  test **scrollea hasta el fondo** antes de medir — un ancestro con `overflow`
+  rompe el sticky y el CSS sigue diciendo `sticky`.
+- **Son DOS niveles de cabecera pegada.** El día del historial se pega a
+  `--wb-cabecera-h`, no a `0`: con los dos a cero, el día tapa el título de su
+  propia sección. Si cambia el alto de la cabecera, se cambia esa variable.
+- **El fondo tiene que ser opaco.** Una cabecera pegada translúcida deja pasar
+  las tarjetas por debajo y se lee texto sobre texto.
+
+Y los literales **dicen la propiedad que decide quién entra en la sección**,
+no cómo se ve. «En paralelo» decía «va a la vez», que es indistinguible de «En
+curso» —lo de arriba también va a la vez— y además dejó de describir su
+contenido cuando las consultas pasaron a ir contadas: hoy ahí solo está lo que
+**sobrevive a la petición**, que es lo que dice «En segundo plano».
+«Recientes» no es «Terminados» porque ahí también caen los que esperan una
+decisión. Cambiarlos toca 4 cadenas y **5 tests**, uno de los cuales fija la
+lista exacta y en orden: es lo que garantiza que no se pierda una sección por
+el camino.
+
 #### Los iconos: SVG, no emoji
 
 Los emoji los dibuja el sistema operativo: cambian de forma y de color entre
