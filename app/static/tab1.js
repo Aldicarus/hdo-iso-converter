@@ -2086,6 +2086,17 @@ function _doFilterSidebarSessions() {
  * @param {Object[]} sessions - Sesiones ya ordenadas y filtradas.
  * @param {string}   [query]  - Término de filtro activo (para el contador).
  */
+// Estado de un proyecto → chip del catálogo común (el mismo dibujo que en la
+// columna de trabajo), color del acento lateral y cómo se lee. `queued` va en
+// azul como `running` —el trabajo ya está en el sistema— y el reloj del chip
+// lo distingue del aro que gira.
+const ESTADO_CHIP  = { pending: 'listo', queued: 'en_cola', running: 'corriendo',
+                       done: 'hecho', error: 'error' };
+const ESTADO_CLASE = { queued: 'estado-curso', running: 'estado-curso',
+                       done: 'estado-hecho', error: 'estado-error' };
+const ESTADO_TEXTO = { pending: 'Sin ejecutar', queued: 'En cola',
+                       running: 'En curso', done: 'Completado', error: 'Error' };
+
 function renderSidebarSessions(sessions, query = '') {
   const container = document.getElementById('sessions-list');
   const countEl   = document.getElementById('sessions-count');
@@ -2114,58 +2125,80 @@ function renderSidebarSessions(sessions, query = '') {
     return;
   }
 
-  const statusIcons = { pending: '💿', queued: '⏸', running: '⏳', done: '✅', error: '❌' };
-  const statusLabels = { pending: 'Sin ejecutar', queued: 'En cola', running: 'En curso', done: 'Completado', error: 'Error' };
 
   container.innerHTML = '';
   sessions.forEach(s => {
     const isSelected = selectedSidebarSessionId === s.id;
     const execStatus = _sessionExecStatus(s);
-    const statusIcon = statusIcons[execStatus] || '💿';
 
     const name = _sessionDisplayName(s);
+    // Los tags del nombre (`[DV FEL]`, `[Audio DCP]`) salen del título y
+    // pasan a etiquetas: son lo que distingue dos versiones del mismo disco
+    // y, al ir al final, eran justo lo primero que se comía el `ellipsis`.
+    const { titulo, tags } = nombreYTags(name);
+    // Un episodio se identifica por su número, y ese número va en una
+    // ETIQUETA y no pegado al título: en «Juego de tronos (2011) · S02E05»
+    // el recorte por la derecha se come justo el episodio, o sea lo único
+    // que distingue una fila de las otras nueve del mismo disco. En la
+    // etiqueta no se corta nunca, y el título se queda con la serie.
+    const esSerie = s.media_type === 'series' && s.season_number != null
+                    && s.episode_number != null;
+    const episodio = esSerie
+      ? `S${String(s.season_number).padStart(2, '0')}`
+        + `E${String(s.episode_number).padStart(2, '0')}`
+      : '';
+    const cabeza = esSerie
+      ? `${s.series_name || titulo}${s.series_year ? ` (${s.series_year})` : ''}`
+      : titulo;
 
-    const modDate = formatRelativeDate(s.updated_at || s.created_at);
+    // La fecha que se enseña es la de la última ejecución cuando la hay: en
+    // un proyecto terminado, «cuándo se hizo» es lo que se busca. La de
+    // modificación sigue en el tooltip.
+    const cuandoIso = s.last_executed || s.updated_at || s.created_at || '';
     const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit',
     });
-
-    const execDate = s.last_executed ? formatRelativeDate(s.last_executed) : '—';
-    const execFull = s.last_executed
-      ? new Date(s.last_executed).toLocaleString('es-ES')
-      : 'Nunca ejecutado';
+    const cuandoTip = (s.last_executed
+        ? 'Ejecutado: ' + new Date(s.last_executed).toLocaleString('es-ES')
+        : 'Nunca ejecutado') + ' · Modificado: ' + modFull;
 
     const card = document.createElement('div');
-    card.className = `session-card${isSelected ? ' selected' : ''}`;
+    card.className = `session-card${isSelected ? ' selected' : ''}`
+                   + ` ${ESTADO_CLASE[execStatus] || ''}`;
     card.dataset.sid = s.id;
     const isOpen = !!openProjects.find(p => p.sessionId === s.id);
-    card.innerHTML = `
-      <div class="session-card-row">
-        <div class="session-card-status-badge" data-tooltip="${escHtml(statusLabels[execStatus] || '')}">${statusIcon}</div>
-        <div class="session-card-body">
-          <div class="session-card-title" data-tooltip="${escHtml(name)}">${escHtml(name)}</div>
-          <div class="session-card-meta">
-            <div class="session-card-meta-row">
-              <span class="meta-label">Modif.</span>
-              <span class="relative-date" data-iso="${s.updated_at || s.created_at || ''}"
-                data-tooltip="${escHtml('Modificado: ' + modFull)}">${escHtml(modDate)}</span>
-            </div>
-            <div class="session-card-meta-row">
-              <span class="meta-label">Ejecuc.</span>
-              <span class="relative-date" data-iso="${s.last_executed || ''}"
-                data-tooltip="${escHtml(execFull)}">${escHtml(execDate)}</span>
-            </div>
-          </div>
-        </div>
-        ${typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : ''}${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
-      </div>
-      <div class="session-card-actions">
+    card.innerHTML = tarjetaDeProyecto({
+      titulo: cabeza,
+      tituloTooltip: esSerie && s.episode_title ? `${name}\n${s.episode_title}` : name,
+      sub: esSerie && s.episode_title
+        ? s.episode_title : (ESTADO_TEXTO[execStatus] || ''),
+      chips: [
+        // Primero el episodio: es el dato que separa esta fila de las demás
+        // del mismo disco, y por eso no puede ir detrás de los tags.
+        ...(episodio ? [{ txt: episodio, tono: 'azul',
+                          tooltip: s.episode_title || 'Episodio' }] : []),
+        ...tags.map(t => ({
+          txt: t,
+          tono: /DV|FEL|MEL|CMv4/i.test(t) ? 'morado' : 'teal',
+        })),
+      ],
+      estado: ESTADO_CHIP[execStatus] || 'listo',
+      estadoTooltip: ESTADO_TEXTO[execStatus] || '',
+      poster: (s.tmdb_info || {}).poster_url || '',
+      icono: typeof iconoDeTrabajo === 'function'
+        ? iconoDeTrabajo(esSerie ? 'crear_serie' : 'rip', 'rip') : '',
+      meta: formatRelativeDate(cuandoIso),
+      metaIso: cuandoIso,
+      metaTooltip: cuandoTip,
+      insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
+      abierto: isOpen,
+      acciones: `
         <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Abrir este proyecto en una sub-pestaña de revisión">📂 Abrir</button>
+          data-tooltip="Abrir este proyecto en una sub-pestaña de revisión">Abrir</button>
         <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Eliminar permanentemente este proyecto">🗑️ Eliminar</button>
-      </div>`;
+          data-tooltip="Eliminar permanentemente este proyecto">Eliminar</button>`,
+    });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => toggleSidebarSelection(s.id);
     row.ondblclick = () => confirmOpenSession(s.id, name);
@@ -4455,23 +4488,28 @@ function updateSubtabQueuePill() {
   _updateSidebarRunningIcon();
 }
 
-/** Actualiza el icono del sidebar de proyectos para el que está en ejecución. */
+/** Marca en vivo el proyecto que está ejecutándose, sin repintar la lista.
+ *
+ *  Cambia el chip de estado y el acento lateral: son las dos señales que
+ *  distinguen una fila de otra, y tienen que moverse juntas o la tarjeta
+ *  dice una cosa con el icono y otra con el color.
+ */
 function _updateSidebarRunningIcon() {
   const runningId = queueState.running;
   document.querySelectorAll('#sessions-list .session-card').forEach(card => {
-    const badge = card.querySelector('.session-card-status-badge');
-    if (!badge) return;
+    const hueco = card.querySelector('.proj-estado');
+    if (!hueco) return;
     const sid = card.dataset.sid;
-    if (sid === runningId) {
-      if (!badge.querySelector('.spinner-inline')) {
-        badge.innerHTML = '<span class="spinner-inline"></span>';
-      }
-    } else if (badge.querySelector('.spinner-inline')) {
-      // Restaurar icono normal — buscar el estado real en caché
-      const session = _sessionsCache.find(s => s.id === sid);
-      const statusIcons = { pending: '💿', queued: '⏸', done: '✅', error: '❌' };
-      badge.textContent = statusIcons[session?.status] || '💿';
-    }
+    const corriendo = sid === runningId;
+    if (corriendo === (hueco.dataset.corriendo === '1')) return;   // sin cambios
+    const estado = corriendo
+      ? 'running'
+      : _sessionExecStatus(_sessionsCache.find(s => s.id === sid) || {});
+    hueco.dataset.corriendo = corriendo ? '1' : '';
+    hueco.innerHTML = iconoDeEstado(ESTADO_CHIP[estado] || 'listo', 'icono-chip-sm');
+    hueco.dataset.tooltip = ESTADO_TEXTO[estado] || '';
+    card.classList.remove('estado-curso', 'estado-hecho', 'estado-error');
+    if (ESTADO_CLASE[estado]) card.classList.add(ESTADO_CLASE[estado]);
   });
 }
 

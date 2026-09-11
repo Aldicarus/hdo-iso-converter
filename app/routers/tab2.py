@@ -289,6 +289,7 @@ def _mkv_recientes_desde_cache(limite: int) -> tuple[list[dict], int]:
     """
     from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
     from storage import list_mkv_audit_entries
+    import trabajos
 
     tarjetas: list[dict] = []
     for e in list_mkv_audit_entries():
@@ -302,9 +303,18 @@ def _mkv_recientes_desde_cache(limite: int) -> tuple[list[dict], int]:
         basico = bool(e.get("basic_present")) and versiones.get("basic") == CACHE_VERSION_BASIC
         extendido = (bool(e.get("quality_present"))
                      and versiones.get("quality") == CACHE_VERSION_QUALITY)
+        # La película y su carátula, con el MISMO resolutor que la columna de
+        # trabajo: el nombre del fichero pasa por el parser de tags y la
+        # carátula sale de la caché de TMDb en disco. **Nunca sale a la red**
+        # —la columna se refresca sola y esto es una lista, no una ficha—, así
+        # que un MKV cuya película no se haya consultado nunca se queda sin
+        # ella y la tarjeta cae a su icono.
+        titulo, poster = trabajos.cartel_de(fichero=Path(ruta).name)
         tarjetas.append({
             "ruta": ruta,
             "nombre": Path(ruta).name,
+            "titulo": titulo,
+            "poster": poster,
             "tamano_bytes": e.get("mkv_size_bytes"),
             "duracion_segundos": e.get("duration_seconds"),
             "analizado_en": e.get("cached_at"),
@@ -340,6 +350,7 @@ async def mkv_recientes(limite: int = TOPE_RECIENTES):
     # ⚠️ DEV MODE — sin discos reales la caché está vacía y la columna saldría
     # siempre en su estado vacío, que es justo lo que no se puede desarrollar.
     if DEV_MODE:
+        import trabajos as _trabajos
         ahora = datetime.now(timezone.utc)
         falsos = [
             {
@@ -352,6 +363,8 @@ async def mkv_recientes(limite: int = TOPE_RECIENTES):
                 "tiene_basico": True,
                 "tiene_extendido": i % 3 != 1,
                 "tiene_luminancia": i % 3 == 0,
+                "titulo": _trabajos.nombre_de_trabajo(fichero=nombre),
+                "poster": "",
             }
             for i, nombre in enumerate(DEV_FAKE_MKV_FILES)
         ]

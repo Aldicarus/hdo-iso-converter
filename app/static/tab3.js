@@ -5909,60 +5909,91 @@ function _renderCMv40Sidebar() {
 
   filtered.forEach(s => {
     const isRunning  = !!s.running_phase;
-    const phaseLabel = s.archived ? 'Archivado' : (CMV40_PHASE_LABELS[s.phase] || s.phase);
+    // La fase REAL, también en un proyecto archivado: que está cerrado ya lo
+    // dice su chip de estado, y repetirlo en el subtítulo costaba el único
+    // dato que la fila tenía —en qué punto se quedó— en las seis de cada
+    // siete tarjetas que están archivadas.
+    const phaseLabel = CMV40_PHASE_LABELS[s.phase] || s.phase;
     const runningLabel = isRunning
       ? (CMV40_RUNNING_LABELS[s.running_phase] || s.running_phase)
       : null;
-    const phaseIcon = s.archived
-      ? '🗃️'
-      : (s.error_message ? '⚠️' : (CMV40_PHASE_ICONS[s.phase] || '🎨'));
     const isOpen = openCMv40Projects.find(p => p.id === s.id);
     const isSelected = _cmv40SelectedSidebarId === s.id;
+    const { titulo, tags } = nombreYTags(s.source_mkv_name);
     const name = s.source_mkv_name.replace(/\.mkv$/i, '');
 
-    const modDate = formatRelativeDate(s.updated_at || s.created_at);
     const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit',
     });
 
+    // El estado, en el orden en que manda: lo que corre ahora, un error sin
+    // resolver, el proyecto cerrado, el terminado y el que está a medias.
+    const estado = isRunning ? 'corriendo'
+      : s.error_message ? 'error'
+      : s.archived ? 'archivado'
+      : (s.phase === 'done' || s.phase === 'validated') ? 'hecho'
+      : s.phase === 'created' ? 'listo' : 'en_cola';
+    const acento = isRunning ? 'estado-curso'
+      : s.error_message ? 'estado-error'
+      : s.archived ? ''
+      : (s.phase === 'done' || s.phase === 'validated') ? 'estado-hecho' : '';
+
+    // Qué clase de trabajo es. Es la pregunta que separa un proyecto de
+    // treinta segundos de uno de hora y media, y no se veía en ninguna parte
+    // de la lista: había que abrirlo para saberlo.
+    const RUTA = { restore_dropin: ['Drop-in', 'verde'],
+                   restore_merge:  ['Merge', 'azul'],
+                   keep_cmv29:     ['Se mantiene', 'naranja'] };
+    const ruta = RUTA[s.output_workflow];
+    const TIER = { full: 'CMv4 FULL', core_rich: 'CMv4 CORE+', core: 'CMv4 CORE' };
+    const chips = [];
+    if (ruta) chips.push({ txt: ruta[0], tono: ruta[1],
+                           tooltip: 'Cómo se resolvió el upgrade' });
+    if (TIER[s.target_l8_quality_tier]) {
+      chips.push({ txt: TIER[s.target_l8_quality_tier], tono: 'morado',
+                   tooltip: 'Riqueza del L8 del RPU target' });
+    }
+    tags.filter(t => !/^CMv4/i.test(t))
+        .forEach(t => chips.push({ txt: t, tono: 'teal' }));
+
     const card = document.createElement('div');
-    card.className = `session-card${isSelected ? ' selected' : ''}${isRunning ? ' is-running' : ''}`;
+    card.className = `session-card${isSelected ? ' selected' : ''}`
+                   + (acento ? ' ' + acento : '');
     card.dataset.sid = s.id;
-    // Tooltip distinto cuando running_phase: indica claramente la fase
-    // activa, no la última fase completada (que es lo que da phaseLabel).
-    const badgeTooltip = isRunning ? `${runningLabel}` : phaseLabel;
-    // Cuando está running, sustituimos el icono estático por un spinner
-    // animado para que sea visualmente obvio en la lista que algo está
-    // corriendo, sin necesidad de pasar el ratón.
-    const badgeContent = isRunning
-      ? `<span class="cmv40-card-spinner" aria-label="${escHtml(runningLabel)}"></span>`
-      : phaseIcon;
-    card.innerHTML = `
-      <div class="session-card-row">
-        <div class="session-card-status-badge${isRunning ? ' running' : ''}" data-tooltip="${escHtml(badgeTooltip)}">${badgeContent}</div>
-        <div class="session-card-body">
-          <div class="session-card-title" data-tooltip="${escHtml(name)}">${escHtml(name)}</div>
-          <div class="session-card-meta">
-            <div class="session-card-meta-row">
-              <span class="meta-label">Fase</span>
-              <span>${escHtml(phaseLabel)}</span>
-            </div>
-            <div class="session-card-meta-row">
-              <span class="meta-label">Modif.</span>
-              <span class="relative-date" data-iso="${s.updated_at || s.created_at || ''}"
-                data-tooltip="${escHtml('Modificado: ' + modFull)}">${escHtml(modDate)}</span>
-            </div>
-          </div>
-        </div>
-        ${typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : ''}${isOpen ? '<span class="session-item-badge">abierto</span>' : ''}
-      </div>
-      <div class="session-card-actions">
+    // Los puntitos solo en lo que está a medias: en un proyecto terminado
+    // están todos llenos y no contestan nada, y sobre una tarjeta sin acento
+    // —un archivado— salen gris sobre gris. Es un accesorio de más.
+    const terminado = s.archived || s.phase === 'done' || s.phase === 'validated';
+    const idx = terminado ? -1 : CMV40_PHASES_ORDER.indexOf(s.phase);
+    card.innerHTML = tarjetaDeProyecto({
+      titulo,
+      tituloTooltip: name,
+      // Cuando algo corre, lo que interesa es QUÉ corre, no la última fase
+      // que terminó.
+      sub: isRunning ? runningLabel : phaseLabel,
+      chips,
+      estado,
+      estadoTooltip: isRunning ? runningLabel : phaseLabel,
+      poster: (s.tmdb_info || {}).poster_url || '',
+      icono: typeof iconoDeTrabajo === 'function'
+        ? iconoDeTrabajo('fase_cmv40', 'cmv40') : '',
+      meta: formatRelativeDate(s.updated_at || s.created_at),
+      metaIso: s.updated_at || s.created_at || '',
+      metaTooltip: 'Modificado: ' + modFull,
+      // Diez puntos, uno por fase del pipeline. «Fase: BL/EL extraídos» no
+      // dice si eso es el principio o el final; esto sí, y sin una línea.
+      pips: idx >= 0 ? { hechas: idx + 1, total: CMV40_PHASES_ORDER.length,
+                         tooltip: `${idx + 1} de ${CMV40_PHASES_ORDER.length} · ${phaseLabel}` }
+                     : null,
+      insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
+      abierto: !!isOpen,
+      acciones: `
         <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')"
-          data-tooltip="Abrir este proyecto">📂 Abrir</button>
+          data-tooltip="Abrir este proyecto">Abrir</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();_cmv40DeleteFromSidebar('${s.id}')"
-          data-tooltip="Eliminar permanentemente">🗑️ Eliminar</button>
-      </div>`;
+          data-tooltip="Eliminar permanentemente">Eliminar</button>`,
+    });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => _cmv40ToggleSidebarSelection(s.id);
     row.ondblclick = () => _cmv40OpenSelected(s.id);

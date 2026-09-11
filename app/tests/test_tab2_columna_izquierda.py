@@ -67,6 +67,14 @@ def _bloque(desde: str, hasta: str) -> str:
     return JS[i:JS.index(hasta, i)]
 
 
+def _constante(marca: str) -> str:
+    """Una constante top-level, hasta su cierre. Una línea o un objeto."""
+    i = JS.index(marca)
+    fin = (JS.index("\n", i) + 1 if marca.rstrip().endswith("=")
+           else JS.index("\n};\n", i) + 4)
+    return JS[i:fin]
+
+
 # Las variables de módulo de la columna: un tramo continuo del fichero.
 ESTADO = _bloque("let _mkvRecientes = [];", "/** Pide la lista y repinta")
 
@@ -79,6 +87,20 @@ FUNCIONES = (
     # De otras piezas, pero reales: son las que dan el formato de la tarjeta.
     "escHtml", "normalizeSearch", "formatRelativeDate", "_fmtBytes",
     "_fmtDuration",
+    # La tarjeta común de las tres columnas y los iconos que pinta. Van las
+    # de verdad y no un doble: el formato de la tarjeta ES lo que este
+    # fichero comprueba, y con un `() => '<i></i>'` comprobaría el doble.
+    "tarjetaDeProyecto", "nombreYTags", "miniaturaDe",
+    "_projChipsHTML", "_projPipsHTML",
+    "_svg", "_chipIcono", "iconoDeTrabajo", "iconoDeEstado",
+)
+
+# Las constantes que esas funciones leen. No son `function`, así que el
+# extractor de arriba no las ve.
+CONSTANTES = (
+    "const _TONO_POR_TAB = ",
+    "const _GLIFOS_TRABAJO = {",
+    "const _ICONOS_ESTADO = {",
 )
 
 # DOM mínimo: sólo lo que este código toca. No es jsdom y no pretende serlo.
@@ -209,9 +231,20 @@ function tarjetas() {
 function titulos() {
   return tarjetas().map(c => (c.innerHTML.match(/session-card-title"[^>]*>([^<]*)</) || [])[1]);
 }
-function iconos() {
+function tonos() {
+  // El de ESTADO, no el del tipo: en la tarjeta hay dos iconos y el primero
+  // es el de la miniatura, que lleva el color de la pestaña y es siempre el
+  // mismo. El que cambia de fila a fila es el de la derecha.
   return tarjetas().map(c =>
-    (c.innerHTML.match(/session-card-status-badge"[^>]*>([^<]*)</) || [])[1]);
+    (c.innerHTML.match(/proj-estado[\s\S]*?icono-chip icono-(\w+)/) || [])[1]);
+}
+function acentos() {
+  return tarjetas().map(c =>
+    (String(c.className).split(/\s+/).find(x => x.startsWith('estado-')) || ''));
+}
+function chips() {
+  return tarjetas().map(c =>
+    [...c.innerHTML.matchAll(/proj-chip[^>]*>([^<]*)</g)].map(m => m[1]));
 }
 function contador() { return document.getElementById('mkv-recientes-count').textContent; }
 function buscar(txt) {
@@ -243,7 +276,9 @@ class ColumnaEnNode(unittest.TestCase):
         # es, y `node -e` no admite await en el nivel superior.
         envuelto = ("(async () => {\n" + guion
                     + "\n})().catch(e => { console.error(e); process.exit(1); });")
-        script = "\n".join([DOM, ESTADO, *(_funcion(n) for n in FUNCIONES), envuelto])
+        script = "\n".join([DOM, ESTADO,
+                             *(_constante(c) for c in CONSTANTES),
+                             *(_funcion(n) for n in FUNCIONES), envuelto])
         r = subprocess.run([NODE, "-e", script],
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -278,8 +313,7 @@ class TestLaListaSePinta(ColumnaEnNode):
         self.assertIn("2h 32min", r)
         self.assertIn('data-iso="2026-09-01T10:00:00+00:00"', r)
 
-    def test_el_icono_resume_qué_análisis_tiene(self):
-        r = self.evaluar(self.salida("iconos()", """
+    _CUATRO_ESTADOS = """
             cargar([
               entrada('Extendido.mkv', {tiene_extendido: true}),
               entrada('Basico.mkv'),
@@ -287,8 +321,48 @@ class TestLaListaSePinta(ColumnaEnNode):
               entrada('Movido.mkv', {existe: false}),
             ]);
             ordenarPor('name');
-            """))
-        self.assertEqual(r, ["📋", "♻️", "🔬", "⚠️"])
+            """
+
+    def test_el_chip_de_estado_resume_qué_análisis_tiene(self):
+        """Básico · caducado · extendido · movido, en ese orden alfabético."""
+        r = self.evaluar(self.salida("tonos()", self._CUATRO_ESTADOS))
+        self.assertEqual(r, ["gris", "gris", "verde", "naranja"])
+
+    def test_y_el_acento_lateral_dice_lo_mismo_que_el_chip(self):
+        """Las dos señales tienen que moverse juntas: si el chip dice una cosa
+        y el color del borde otra, la fila se lee mal de un vistazo."""
+        r = self.evaluar(self.salida("acentos()", self._CUATRO_ESTADOS))
+        self.assertEqual(r, ["", "estado-aviso", "estado-hecho", "estado-aviso"])
+
+    def test_los_análisis_hechos_van_en_etiquetas_y_los_que_no_apagados(self):
+        """La etiqueta está siempre: así la posición de cada dato no se mueve
+        de una fila a otra."""
+        r = self.evaluar(self.salida(
+            "tarjetas()[0].innerHTML",
+            "cargar([entrada('Dune.mkv', {tiene_extendido: true})]);"))
+        self.assertIn(">RPU<", r)
+        self.assertIn(">Luz<", r)
+        self.assertIn("apagado", r)          # Luz no la tiene
+
+    def test_los_tags_del_nombre_salen_del_título_y_pasan_a_etiquetas(self):
+        """Van al final del nombre, o sea que eran lo primero que se comía el
+        recorte por la derecha — y son lo que distingue una versión de otra."""
+        r = self.evaluar(self.salida(
+            "({t: titulos()[0], c: chips()[0]})",
+            "cargar([entrada('Dune (2021) [Audio DCP] [CMv4 FULL].mkv')]);"))
+        self.assertEqual(r["t"], "Dune (2021)")
+        self.assertIn("Audio DCP", r["c"])
+        self.assertIn("CMv4 FULL", r["c"])
+
+    def test_la_carátula_se_pide_al_ancho_de_la_miniatura(self):
+        """La ficha guarda el póster de 342 px y en la columna se ven 36: sin
+        reescribir el ancho son cientos de imágenes de un tamaño que no se ve."""
+        r = self.evaluar(self.salida(
+            "tarjetas()[0].innerHTML",
+            "cargar([entrada('Dune.mkv', "
+            "{poster: 'https://image.tmdb.org/t/p/w342/abc.jpg'})]);"))
+        self.assertIn("/t/p/w92/abc.jpg", r)
+        self.assertIn('loading="lazy"', r)
 
     def test_el_mkv_ya_abierto_lleva_su_distintivo(self):
         r = self.evaluar(self.salida("tarjetas().map(c => c.innerHTML.includes('abierto'))", """

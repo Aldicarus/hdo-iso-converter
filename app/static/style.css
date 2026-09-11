@@ -275,30 +275,6 @@ body {
   50%      { box-shadow: 0 0 0 5px rgba(30, 215, 96, 0.0);  }
 }
 
-/* Spinner del badge en la card del sidebar CMv4.0 cuando running_phase != null.
-   Sustituye al icono estático de fase para que el usuario vea de un vistazo
-   qué proyectos están corriendo activamente. La card también gana borde
-   sutil verde + halo pulsante via .session-card.is-running. */
-.cmv40-card-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(30, 215, 96, 0.25);
-  border-top-color: #1ed760;
-  border-radius: 50%;
-  animation: cmv40-card-spin 0.9s linear infinite;
-  vertical-align: middle;
-}
-@keyframes cmv40-card-spin {
-  to { transform: rotate(360deg); }
-}
-.session-card.is-running {
-  border-left: 3px solid #1ed760;
-}
-.session-card.is-running .session-card-status-badge.running {
-  background: rgba(30, 215, 96, 0.12);
-}
-
 /* ── header-brand legacy (ocultar) ─────────────────────────────── */
 .header-brand { display: none; }
 .header-phase-mini { display: none; }
@@ -530,65 +506,134 @@ body {
 #mkv-recientes-list::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
 
 /* ── Tarjeta de proyecto ─────────────────────────────────────── */
+/* ── La tarjeta de un proyecto ────────────────────────────────────────────
+   Una para las tres columnas, con el lenguaje de la columna de trabajo:
+   superficie propia, carátula, etiquetas y la meta a la derecha. Lo que
+   había eran tres copias del mismo HTML gastando **dos filas en fechas
+   rotuladas** mientras lo que distingue un proyecto de otro no se veía.
+
+   El acento de la izquierda lleva el ESTADO y no la pestaña, al revés que
+   `.wb-card`: en la columna de trabajo conviven las tres pestañas y el color
+   dice de dónde viene cada fila; dentro de un sidebar todas son de la misma,
+   así que ese color sería constante y no contaría nada. Aquí lo que cambia
+   de una fila a otra es en qué punto está. */
 .session-card {
-  padding: 10px 12px 9px;
-  border-radius: var(--r-md);
+  --proj-acento: var(--surface-3);
+  position: relative;
+  background: var(--surface-1);
+  border: 1px solid var(--sep);
+  border-left: 3px solid var(--proj-acento);
+  border-radius: var(--r-sm);
+  padding: 9px 10px;
+  margin-bottom: 5px;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-  margin-bottom: 3px;
+  transition: box-shadow var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
   display: flex;
   flex-direction: column;
-  border: 1px solid transparent;
 }
-.session-card:hover:not(.selected) { background: var(--surface-1); }
+.session-card:hover:not(.selected) { box-shadow: var(--sh-sm); }
 .session-card.selected {
-  background: var(--surface-2);
   border-color: var(--sep-strong);
+  box-shadow: var(--sh-sm);
   cursor: default;
 }
+/* Los cinco estados. Son los mismos en las tres pestañas aunque cada una los
+   calcule a su manera: un rip sin ejecutar, un MKV analizado y un proyecto
+   CMv4.0 archivado se leen igual de un vistazo. */
+.session-card.estado-curso { --proj-acento: var(--blue); }
+.session-card.estado-hecho { --proj-acento: var(--green); }
+.session-card.estado-error { --proj-acento: var(--red); }
+.session-card.estado-aviso { --proj-acento: var(--orange); }
+
+/* La carátula. El icono va debajo: si la imagen no carga, el `onerror` la
+   retira y el icono sigue ahí — un hueco gris no diría de qué es la fila. */
+.proj-mini {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px; height: 54px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.proj-mini img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.proj-sub {
+  font-size: 10.5px; color: var(--text-2); line-height: 1.35; margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Las etiquetas: lo que el título ya no lleva. El tono va por SIGNIFICADO
+   —hecho, aviso, información— y no por pestaña, que aquí es siempre la
+   misma. El gris va primero como respaldo porque `color-mix` es reciente y
+   una declaración que el navegador no entienda se descarta entera. */
+/* El pie: las etiquetas a la izquierda y la fecha a la derecha, en la misma
+   línea. La fecha vivía en la columna de la derecha y era ella la que fijaba
+   su ancho —«hace 19 h» son 55 px—, así que el título perdía por el recorte
+   justo el final, que en una serie es el episodio: «Juego de tronos (2011) ·…»
+   no dice cuál. */
+.proj-pie {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 6px; margin-top: 4px;
+}
+.proj-pie:empty { display: none; }
+.proj-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.proj-chip {
+  --chip: var(--text-2);
+  font-size: 9px; font-weight: 700; line-height: 1.5;
+  padding: 0 6px; border-radius: 8px;
+  color: var(--chip);
+  background: var(--surface-2);
+  background: color-mix(in srgb, var(--chip) 13%, transparent);
+  white-space: nowrap;
+}
+.proj-chip.tono-azul    { --chip: var(--blue); }
+.proj-chip.tono-verde   { --chip: var(--green); }
+.proj-chip.tono-naranja { --chip: var(--orange); }
+.proj-chip.tono-teal    { --chip: var(--teal); }
+.proj-chip.tono-morado  { --chip: var(--purple); }
+/* Un análisis que NO se ha hecho se dice en la misma etiqueta, apagada, en
+   vez de con una etiqueta distinta: así la fila se lee igual esté como esté
+   y la posición de cada dato no se mueve. */
+.proj-chip.apagado { opacity: .4; }
+
+.proj-der {
+  flex-shrink: 0; display: flex; flex-direction: column;
+  align-items: flex-end; gap: 4px;
+}
+.proj-estado { display: flex; }
+.proj-fecha {
+  /* `margin-left:auto` y no el `space-between` del pie: sin etiquetas la
+     fecha es el único hijo y `space-between` la dejaba a la IZQUIERDA, así
+     que la columna de fechas se descuadraba en cuanto una tarjeta no tenía
+     ninguna etiqueta. */
+  flex-shrink: 0; margin-left: auto;
+  font-size: 10px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* Un punto por fase: por dónde va, sin gastar una línea de texto. El mismo
+   recurso que la columna de trabajo usa para el trabajo en curso. */
+.proj-pips { display: flex; gap: 3px; margin-top: 7px; }
+.proj-pip {
+  flex: 1; height: 3px; border-radius: 2px;
+  background: rgba(0,0,0,0.10);
+}
+.proj-pip.hecha { background: var(--proj-acento); }
 /* Tab 2: el MKV ya no está en la ruta que se analizó (movido, renombrado o
    borrado fuera de la app). La tarjeta se queda —el análisis sigue siendo
    válido y se reaprovecha si el fichero vuelve— pero apagada, para que no
    parezca abrible. El acento ámbar es el mismo lenguaje que el resto de
    avisos no bloqueantes. */
-.session-card.no-encontrado {
-  opacity: .62;
-  background: var(--orange-dim);
-}
-.session-card.no-encontrado:hover:not(.selected) { background: var(--orange-dim); }
-/* Chips de "qué análisis tiene hecho" en la tarjeta de Tab 2. */
-.mkv-reciente-chips {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-.mkv-reciente-chip {
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.4;
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text-3);
-  white-space: nowrap;
-}
-.mkv-reciente-chip.on { background: var(--blue-dim); color: var(--blue); }
-.mkv-reciente-chip.warn { background: var(--orange-dim); color: var(--orange); }
+.session-card.no-encontrado { opacity: .62; }
+
 
 /* fila superior: badge estado + datos */
 .session-card-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-}
-.session-card-status-badge {
-  font-size: 16px;
-  flex-shrink: 0;
-  width: 24px;
-  text-align: center;
-  line-height: 1;
-  margin-top: 2px;
 }
 .session-card-body { flex: 1; min-width: 0; }
 .session-card-title {
@@ -600,25 +645,6 @@ body {
   text-overflow: ellipsis;
   margin-bottom: 3px;
   line-height: 1.3;
-}
-.session-card-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.session-card-meta-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--text-3);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-.session-card-meta-row .meta-label {
-  color: var(--text-3);
-  opacity: 0.7;
-  min-width: 52px;
 }
 
 /* fila de acciones — aparece al seleccionar */

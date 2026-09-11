@@ -3152,18 +3152,20 @@ function onMkvRecientesFilterClick(btn) {
  */
 function _mkvRecienteEstado(r) {
   if (!r.existe) {
-    return { icono: '⚠️', clase: 'missing',
+    return { estado: 'esperando', clase: 'missing', acento: 'estado-aviso',
              etiqueta: 'El MKV ya no está en la ruta que se analizó' };
   }
   if (r.tiene_extendido) {
-    return { icono: '🔬', clase: 'extendido',
+    return { estado: 'hecho', clase: 'extendido', acento: 'estado-hecho',
              etiqueta: 'Con análisis extendido del RPU' };
   }
   if (r.tiene_basico) {
-    return { icono: '📋', clase: 'basico',
+    return { estado: 'listo', clase: 'basico', acento: '',
              etiqueta: 'Analizado — abrirlo es instantáneo' };
   }
-  return { icono: '♻️', clase: 'basico',
+  // Caché de una versión anterior: el análisis está, pero no sirve. En ámbar
+  // porque abrirlo cuesta los minutos que costó la primera vez.
+  return { estado: 'en_cola', clase: 'basico', acento: 'estado-aviso',
            etiqueta: 'Analizado con una versión anterior — al abrirlo se reanaliza' };
 }
 
@@ -3243,19 +3245,24 @@ function _renderMkvRecientes() {
     const tamano = r.tamano_bytes ? _fmtBytes(r.tamano_bytes) : '—';
     const duracion = r.duracion_segundos ? ` · ${_fmtDuration(r.duracion_segundos)}` : '';
 
+    // Qué análisis tiene hecho. La etiqueta está siempre, apagada cuando no:
+    // así la fila se lee igual esté como esté y la posición no se mueve.
     const chips = [
-      `<span class="mkv-reciente-chip ${r.tiene_extendido ? 'on' : ''}"
-        data-tooltip="${r.tiene_extendido
+      { txt: 'RPU', tono: r.tiene_extendido ? 'verde' : '', apagado: !r.tiene_extendido,
+        tooltip: r.tiene_extendido
           ? 'Combos L8/L2 del RPU ya analizados'
-          : 'Sin análisis extendido — el botón 🔬 del panel lo lanza'}">🔬 RPU</span>`,
-      `<span class="mkv-reciente-chip ${r.tiene_luminancia ? 'on' : ''}"
-        data-tooltip="${r.tiene_luminancia
+          : 'Sin análisis extendido — el botón del panel lo lanza' },
+      { txt: 'Luz', tono: r.tiene_luminancia ? 'verde' : '', apagado: !r.tiene_luminancia,
+        tooltip: r.tiene_luminancia
           ? 'Tiene perfil de luminancia: sirve para el comparador A/B'
-          : 'Sin perfil de luminancia'}">💡 Luz</span>`,
+          : 'Sin perfil de luminancia' },
     ];
+    // Los tags del nombre dicen qué ES este MKV —si ya trae CMv4.0, de dónde
+    // salió— y en esta pestaña eso es media pregunta contestada.
+    nombreYTags(r.nombre).tags.forEach(t => chips.push({
+      txt: t, tono: /CMv4|DV|FEL|MEL/i.test(t) ? 'morado' : 'teal' }));
     if (!r.existe) {
-      chips.push(`<span class="mkv-reciente-chip warn"
-        data-tooltip="${escHtml(r.ruta)}">⚠️ No encontrado</span>`);
+      chips.push({ txt: 'No encontrado', tono: 'naranja', tooltip: r.ruta });
     }
 
     // Que un MKV tenga trabajo en marcha se ve AQUÍ, no solo en la columna:
@@ -3265,37 +3272,35 @@ function _renderMkvRecientes() {
 
     const card = document.createElement('div');
     card.className = `session-card${seleccionada ? ' selected' : ''}`
-                   + (r.existe ? '' : ' no-encontrado');
+                   + (r.existe ? '' : ' no-encontrado')
+                   + (estado.acento ? ' ' + estado.acento : '');
     card.dataset.ruta = r.ruta;
-    card.innerHTML = `
-      <div class="session-card-row">
-        <div class="session-card-status-badge" data-tooltip="${escHtml(estado.etiqueta)}">${estado.icono}</div>
-        <div class="session-card-body">
-          <div class="session-card-title" data-tooltip="${escHtml(r.ruta || nombre)}">${escHtml(nombre)}</div>
-          <div class="session-card-meta">
-            <div class="session-card-meta-row">
-              <span class="meta-label">Analiz.</span>
-              <span class="relative-date" data-iso="${r.analizado_en || ''}"
-                data-tooltip="${escHtml('Analizado: ' + fechaLarga)}">${escHtml(fecha)}</span>
-            </div>
-            <div class="session-card-meta-row">
-              <span class="meta-label">Fichero</span>
-              <span>${escHtml(tamano + duracion)}</span>
-            </div>
-          </div>
-          <div class="mkv-reciente-chips">${chips.join('')}</div>
-        </div>
-        ${insignia}${abierto ? '<span class="session-item-badge">abierto</span>' : ''}
-      </div>
-      <div class="session-card-actions">
+    card.innerHTML = tarjetaDeProyecto({
+      // El título de la ficha cuando se conoce; si no, el nombre sin tags.
+      // El fichero completo, con su ruta, sigue en el tooltip.
+      titulo: r.titulo || nombreYTags(r.nombre).titulo,
+      tituloTooltip: r.ruta || nombre,
+      sub: tamano + duracion,
+      chips,
+      estado: estado.estado,
+      estadoTooltip: estado.etiqueta,
+      poster: r.poster || '',
+      icono: typeof iconoDeTrabajo === 'function'
+        ? iconoDeTrabajo('analisis_extendido', 'mkv') : '',
+      meta: fecha,
+      metaIso: r.analizado_en || '',
+      metaTooltip: 'Analizado: ' + fechaLarga,
+      insignia,
+      abierto,
+      acciones: `
         ${r.existe
           ? `<button class="btn btn-primary btn-sm" data-abrir="1"
-               data-tooltip="Abrir este MKV en una sub-pestaña">📂 Abrir</button>`
+               data-tooltip="Abrir este MKV en una sub-pestaña">Abrir</button>`
           : `<button class="btn btn-ghost btn-sm" disabled
-               data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">⚠️ Fichero no encontrado</button>`}
+               data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">Fichero no encontrado</button>`}
         <button class="btn btn-danger btn-sm" data-borrar="1"
-          data-tooltip="Quita el análisis guardado de la lista. NO borra el MKV.">🗑️ Borrar</button>
-      </div>`;
+          data-tooltip="Quita el análisis guardado de la lista. NO borra el MKV.">Borrar</button>`,
+    });
     // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la
     // plantilla: `escHtml` no escapa la comilla simple (no hace falta para un
     // atributo entre comillas dobles), así que un título como «Ocean's Eleven»

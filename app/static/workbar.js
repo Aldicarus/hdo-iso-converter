@@ -1395,6 +1395,19 @@ const _ICONOS_ESTADO = {
   esperando: ['naranja', _svg('<circle cx="12" cy="12" r="8.5"/>'
                             + '<path d="M9.9 9.8a2.2 2.2 0 1 1 2.5 2.7v1.1"/>'
                             + '<path d="M12.3 16.4h.01"/>')],
+  // Los dos que pedían las columnas de proyecto. Van en el MISMO catálogo:
+  // un estado que se pinta en dos sitios no puede tener dos dibujos.
+  //
+  // Configurado y sin ejecutar. El triángulo no invita a pulsar —los chips no
+  // son botones y el de abrir está abajo—, dice que está todo listo y falta
+  // arrancar, que es justo el estado de un proyecto de Tab 1 recién creado.
+  listo: ['gris', _svg('<circle cx="12" cy="12" r="8.5"/>'
+                     + '<path d="M10.4 9.3l4.4 2.7-4.4 2.7z"/>')],
+  // Caja cerrada: el proyecto existe y se puede consultar, pero ya no se
+  // trabaja sobre él. En gris porque no pide nada.
+  archivado: ['gris', _svg('<rect x="3.5" y="4.5" width="17" height="4" rx="1"/>'
+                         + '<path d="M5.5 8.5h13V18a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z"/>'
+                         + '<path d="M10.5 12h3"/>')],
 };
 
 /** El chip con su icono. `clase` añade tamaño (`icono-chip-sm`). */

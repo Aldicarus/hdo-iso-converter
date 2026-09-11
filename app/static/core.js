@@ -1242,3 +1242,109 @@ async function _instalarVigilanciaDeFin() {
   });
   window.addEventListener('focus', _pararParpadeo);
 }
+
+
+// ── La tarjeta de un proyecto ───────────────────────────────────────────────
+//
+// UNA para las tres columnas, con el lenguaje que ya usa la columna de
+// trabajo: carátula, título, una línea de subtítulo, etiquetas y la meta a la
+// derecha. Antes cada pestaña escribía su propio HTML —el mismo, copiado tres
+// veces— y en las tres se dedicaba **dos filas enteras a fechas rotuladas**
+// («Modif.», «Ejecuc.», «Analiz.») mientras lo que distingue un proyecto de
+// otro no se veía en ninguna.
+//
+// Tres decisiones que no son cosméticas:
+//
+//  · **Los tags del nombre salen del título y pasan a etiquetas.** Los tres
+//    nombres los llevan (`Peli (2026) [DV FEL] [Audio DCP].mkv`) y el título
+//    se corta por la derecha con `ellipsis`, o sea que lo primero que se
+//    perdía era justo lo que distingue una versión de otra.
+//  · **El acento lateral lleva el ESTADO, no la pestaña.** En la columna de
+//    trabajo el color dice de qué pestaña viene un trabajo, y eso la hace
+//    escaneable; dentro de un sidebar todas las tarjetas son de la misma
+//    pestaña, así que ese color sería constante y no diría nada. Aquí lo que
+//    cambia de una fila a otra es en qué punto está.
+//  · **Los rótulos de la meta se van.** Una fecha relativa en la esquina no
+//    necesita que le pongan «Modif.» delante; la fecha completa y de qué es
+//    siguen en el tooltip.
+//
+// `o` = { titulo, tituloTooltip, sub, subTooltip, chips[], estado,
+//         estadoTooltip, estadoHtml, poster, icono, meta, metaIso,
+//         metaTooltip, pips{hechas,total,tooltip}, insignia, abierto,
+//         acciones }
+
+/** El póster al ancho que hace falta. TMDb sirve cada tamaño como una imagen
+ *  distinta y la ficha guarda la de 342 px: en una lista de 117 proyectos eso
+ *  son 117 imágenes de un tamaño que no se ve. `w92` cubre de sobra los 36 px
+ *  de la miniatura en pantalla de retina. */
+function miniaturaDe(url, ancho = 'w92') {
+  return (url || '').replace(/(\/t\/p\/)w\d+(\/)/, `$1${ancho}$2`);
+}
+
+/** Parte `Peli (2026) [DV FEL] [Audio DCP].mkv` en título y etiquetas. */
+function nombreYTags(nombre) {
+  const limpio = (nombre || '').replace(/\.mkv$/i, '');
+  const tags = [...limpio.matchAll(/\[([^\]]+)\]/g)].map(m => m[1].trim());
+  return { titulo: limpio.replace(/\s*\[[^\]]+\]/g, '').trim() || limpio, tags };
+}
+
+function _projChipsHTML(chips) {
+  const c = (chips || []).filter(Boolean);
+  if (!c.length) return '';
+  return `<div class="proj-chips">${c.map(ch => `<span class="proj-chip`
+    + `${ch.tono ? ' tono-' + ch.tono : ''}${ch.apagado ? ' apagado' : ''}"`
+    + `${ch.tooltip ? ` data-tooltip="${escHtml(ch.tooltip)}"` : ''}>`
+    + `${escHtml(ch.txt)}</span>`).join('')}</div>`;
+}
+
+/** Un punto por fase: por dónde va el proyecto, sin gastar una línea.
+ *
+ *  Es el mismo recurso que la columna de trabajo usa para el trabajo en
+ *  curso, y aquí responde la pregunta de Tab 3 —¿en qué punto está?— que
+ *  antes había que leer en un texto («Fase: Extraído») sin saber si eso es
+ *  el principio o el final.
+ */
+function _projPipsHTML(p) {
+  if (!p || !p.total || p.total < 2) return '';
+  const puntos = [];
+  for (let i = 1; i <= p.total; i++) {
+    puntos.push(`<span class="proj-pip${i <= p.hechas ? ' hecha' : ''}"></span>`);
+  }
+  return `<div class="proj-pips"${p.tooltip ? ` data-tooltip="${escHtml(p.tooltip)}"` : ''}>`
+       + `${puntos.join('')}</div>`;
+}
+
+function tarjetaDeProyecto(o) {
+  // El icono va DEBAJO de la carátula, no en su lugar: si la imagen no carga,
+  // el `onerror` la retira y el icono sigue ahí. Es lo que hace la columna de
+  // trabajo, y evita el hueco gris que no dice de qué es la fila.
+  const mini = `<div class="proj-mini">${o.icono || ''}${o.poster
+    ? `<img src="${escHtml(miniaturaDe(o.poster))}" alt="" loading="lazy"
+           onerror="this.remove()">` : ''}</div>`;
+  const estado = o.estadoHtml
+    || (o.estado && typeof iconoDeEstado === 'function'
+        ? iconoDeEstado(o.estado, 'icono-chip-sm') : '');
+  return `
+    <div class="session-card-row">
+      ${mini}
+      <div class="session-card-body">
+        <div class="session-card-title"${o.tituloTooltip
+            ? ` data-tooltip="${escHtml(o.tituloTooltip)}"` : ''}>${escHtml(o.titulo || '')}</div>
+        ${o.sub ? `<div class="proj-sub"${o.subTooltip
+            ? ` data-tooltip="${escHtml(o.subTooltip)}"` : ''}>${escHtml(o.sub)}</div>` : ''}
+        <div class="proj-pie">
+          ${_projChipsHTML(o.chips)}
+          ${o.meta ? `<span class="proj-fecha relative-date" data-iso="${escHtml(o.metaIso || '')}"
+              ${o.metaTooltip ? `data-tooltip="${escHtml(o.metaTooltip)}"` : ''}>${escHtml(o.meta)}</span>` : ''}
+        </div>
+      </div>
+      <div class="proj-der">
+        ${estado ? `<span class="proj-estado"${o.estadoTooltip
+            ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span>` : ''}
+        ${o.insignia || ''}
+        ${o.abierto ? '<span class="session-item-badge">abierto</span>' : ''}
+      </div>
+    </div>
+    ${_projPipsHTML(o.pips)}
+    ${o.acciones ? `<div class="session-card-actions">${o.acciones}</div>` : ''}`;
+}
