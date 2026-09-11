@@ -339,6 +339,43 @@ class TestLosCincoTiposProducenLoMismo(ApiTestCase):
         self.assertEqual(p["paso"], "Inyectando el RPU")
         self.assertEqual(p["detalle"], "cmv40")
 
+    def _fase_n(self, sid, fase):
+        import storage
+        self.crear_sesion(sid=sid, phase="extracted")
+        s = storage.load_cmv40_session(sid)
+        s.running_phase = fase
+        storage.save_cmv40_session(s)
+        return self._progreso(_t(qm.TIPO_FASE_CMV40, sid, tab="cmv40",
+                                 datos={"fase": fase}))
+
+    def test_los_puntitos_son_OCHO_y_la_letra_cuadra(self):
+        """El usuario cuenta ocho fases —A a H— y los puntitos eran siete: la
+        D no estaba, así que la E se anunciaba como «4 de 7» y las tres
+        siguientes también con la letra cambiada."""
+        for fase, n in (("analyze_source", 1), ("target_rpu_path", 2),
+                        ("extract", 3), ("correct_sync", 5),
+                        ("inject", 6), ("remux", 7), ("validate", 8)):
+            with self.subTest(fase=fase):
+                p = self._fase_n(f"cmv40_n_{fase}", fase)
+                self.assertEqual(p["fase_n"], n)
+                self.assertEqual(p["fases_total"], 8)
+
+    def test_la_D_ocupa_su_sitio_aunque_no_la_ejecute_nadie(self):
+        """Es la revisión visual del sync: una parada, no un trabajo. Si no
+        contara, la E ocuparía su hueco."""
+        from routers.cmv40 import _CMV40_ESTACIONES
+        self.assertEqual(_CMV40_ESTACIONES["sync_review"], 4)
+        self.assertEqual(_CMV40_ESTACIONES["correct_sync"], 5)
+
+    def test_las_tres_formas_de_dar_el_bin_son_LA_MISMA_fase(self):
+        """El bin puede venir de la carpeta, del repo del Drive o de otro MKV.
+        Con solo la primera en la lista, un proyecto que lo baja del repo —el
+        camino por defecto— caía fuera y la tarjeta decía «– de 8» con los
+        ocho puntos apagados."""
+        for fase in ("target_rpu_path", "target_rpu_drive", "target_rpu_mkv"):
+            with self.subTest(fase=fase):
+                self.assertEqual(self._fase_n(f"cmv40_b_{fase}", fase)["fase_n"], 2)
+
     def test_y_el_de_la_FASE_viaja_aparte(self):
         """Los dos hacen falta: el modal enseña el del trabajo bajo la
         cartela y el de la fase pegado al log, que es lo que se está leyendo.

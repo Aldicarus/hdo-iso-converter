@@ -103,6 +103,8 @@ globalThis.escHtml = t => String(t);
 {_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
+{_fn('anclajeDeLog')}
+{_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 _trabajoModalPinta({json.dumps(activo)}, {json.dumps(vista)});
 console.log(JSON.stringify({{
@@ -360,6 +362,8 @@ let _timerApagado = false;
 {_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
+{_fn('anclajeDeLog')}
+{_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
 let _trabajoModalTimer = null, _trabajoModalTipo = null;
@@ -452,6 +456,8 @@ globalThis.escHtml = t => String(t);
 {_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
+{_fn('anclajeDeLog')}
+{_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 const _fnLlamadas = [];
 const laterales = {json.dumps(laterales)}.map(
@@ -518,6 +524,8 @@ globalThis.clearInterval = () => {{}};
 {_fn('_relojHTML')}
 {_fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
+{_fn('anclajeDeLog')}
+{_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: {json.dumps(ACTIVO)}, cola: [] }};
 let _trabajoModalTimer = null, _trabajoModalTipo = null;
@@ -588,6 +596,8 @@ globalThis.clearInterval = () => {{ _apagado = true; }};
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado',
                       error: 'Terminado con error' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
+{_fn('anclajeDeLog')}
+{_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
 let _trabajoModalTimer = null, _trabajoModalTipo = null;

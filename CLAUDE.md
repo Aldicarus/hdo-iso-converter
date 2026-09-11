@@ -824,6 +824,15 @@ Un armazón para los cinco: cabecera, tira de fases, barra, transcurrido/ETA,
 cuerpo y cancelar. Cada pestaña registra qué poner dentro con
 `registrarDetalleDeTrabajo(clave, fn)`.
 
+- **Repintar un log no puede llevarte al principio.** El modal se repinta cada
+  1,5 s y reconstruye su cuerpo, así que el `.cmv40-log` se recrea con el
+  scroll a cero. Había medio arreglo —si estabas pegado al fondo, volvías al
+  fondo—, pero subir a leer significaba saltar arriba del todo en cada vuelta.
+  `anclajeDeLog` / `restaurarAnclajeDeLog` guardan las **dos** cosas: pegado
+  sigue pegado (es un directo) y leyendo se queda donde estaba. Es la misma
+  trampa que con el historial de la columna, y afecta a cualquier sitio que
+  sustituya el contenido en vez de añadir líneas: el del panel de Tab 3 y la
+  consola de Tab 1 usan `appendChild` y nunca la tuvieron.
 - **El detalle no es siempre un log.** El rip, la fase CMv4.0 y el análisis
   extendido producen uno; la copia y la creación de una serie no, y ahí son
   bytes y episodios. Un log vacío sería peor que decirlo.

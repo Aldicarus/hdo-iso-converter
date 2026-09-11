@@ -4403,9 +4403,35 @@ _CMV40_FASE_LABELS = {
     "validate":         "Fase H — Validando el MKV final",
 }
 
-# El orden que ve el usuario en la timeline, para poder decir "3 de 8".
-_CMV40_ORDEN = ("analyze_source", "target_rpu_path", "extract", "correct_sync",
-                "inject", "remux", "validate")
+# Las OCHO estaciones del pipeline, A-H, en el orden en que se pasa por ellas.
+# Es lo que cuentan los puntitos de la tarjeta, así que la posición tiene que
+# coincidir con la letra: en la Fase E se lee «5 de 8» y no «4 de 7».
+#
+# Dos cosas que parecen un descuido y no lo son:
+#
+#  · **La Fase B son tres entradas.** El bin puede venir de la carpeta local,
+#    del repo del Drive o de otro MKV, y son la MISMA estación. Con solo una,
+#    un proyecto que baja el bin del repo —que es el camino por defecto— caía
+#    fuera de la lista y la tarjeta decía «– de 7» con todos los puntos
+#    apagados.
+#  · **La Fase D está aunque no la ejecute nadie.** Es la revisión visual del
+#    sync: una parada, no un trabajo, así que no tiene runner ni aparece nunca
+#    como `running_phase`. Cuenta igual como estación porque el usuario cuenta
+#    ocho fases —A a H— y porque sin ella las cuatro siguientes se anunciaban
+#    con la letra cambiada.
+_CMV40_ESTACIONES = {
+    "analyze_source":   1,          # A
+    "target_rpu_path":  2,          # B, en sus tres variantes
+    "target_rpu_drive": 2,
+    "target_rpu_mkv":   2,
+    "extract":          3,          # C
+    "sync_review":      4,          # D — se mira, no se ejecuta
+    "correct_sync":     5,          # E
+    "inject":           6,          # F
+    "remux":            7,          # G
+    "validate":         8,          # H
+}
+_CMV40_ESTACIONES_TOTAL = 8
 
 
 def _cmv40_progreso_total(session: CMv40Session, fase: str,
@@ -4529,8 +4555,8 @@ def _cmv40_adaptador(trabajo) -> dict | None:
         # merge…). Va aparte, no en lugar de la fase: pisándola se perdía de
         # vista en qué fase del pipeline estaba el proyecto.
         "paso": prog.get("label") or "",
-        "fase_n": _CMV40_ORDEN.index(fase) + 1 if fase in _CMV40_ORDEN else 0,
-        "fases_total": len(_CMV40_ORDEN),
+        "fase_n": _CMV40_ESTACIONES.get(fase, 0),
+        "fases_total": _CMV40_ESTACIONES_TOTAL,
         "pct": pct, "pct_medido": pct is not None,
         "segundos": segundos,
         "eta_s": eta or None,

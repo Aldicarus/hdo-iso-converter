@@ -293,7 +293,9 @@ class TestElPorcentajeEsDelProceso(TurnoCase):
         p = self._progreso({"pct": 50, "job_pct": 70.0})
         self.assertEqual(p["fase"], "remux")
         self.assertIn("Fase G", p["fase_label"])
-        self.assertEqual(p["fases_total"], 7)
+        # Ocho estaciones, A-H: la posición coincide con la letra. Ver
+        # `test_contrato_de_trabajos::test_los_puntitos_son_OCHO...`.
+        self.assertEqual(p["fases_total"], 8)
 
     def test_sin_porcentaje_del_job_no_se_inventa_uno(self):
         p = self._progreso({"pct": 50}, running_phase="")
@@ -362,7 +364,8 @@ class TestElTotalLlegaHastaLaColumna(TurnoCase):
 
     def test_la_fase_sigue_saliendo_para_los_puntitos(self):
         a = self._job_en_marcha()
-        self.assertEqual((a["fase_n"], a["fases_total"]), (6, 7))
+        self.assertEqual((a["fase_n"], a["fases_total"]), (7, 8),
+                         "la G es la séptima de ocho")
         self.assertEqual(a["paso"], "Muxeando")
 
 

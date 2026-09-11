@@ -1067,12 +1067,9 @@ function _trabajoModalPinta(a, vista) {
     // El log es un directo: interesa el final. Pero solo se baja si el usuario
     // YA estaba abajo — si ha subido a leer algo, el refresco cada dos
     // segundos no puede arrastrarlo de vuelta.
-    const antes = cuerpo.querySelector('.cmv40-log');
-    const abajo = !antes
-      || antes.scrollTop + antes.clientHeight >= antes.scrollHeight - 24;
+    const ancla = anclajeDeLog(cuerpo.querySelector('.cmv40-log'));
     cuerpo.innerHTML = vista.cuerpo || '';
-    const log = cuerpo.querySelector('.cmv40-log');
-    if (log && abajo) log.scrollTop = log.scrollHeight;
+    restaurarAnclajeDeLog(cuerpo.querySelector('.cmv40-log'), ancla);
   }
   // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
   // modal se queda a una columna — no todos los trabajos tienen una timeline
@@ -1140,6 +1137,33 @@ function _trabajoModalConResumen(a, vista) {
     ]) + `<div class="trabajo-detalle-nota">${escHtml(_MOTIVO_SIN_LOG[
       vista.sinDetalle] || _MOTIVO_SIN_LOG.desconocido)}</div>`,
   };
+}
+
+/** Dónde estaba mirando el usuario un log, para poder devolverlo ahí.
+ *
+ *  Repintar un log lo manda al PRINCIPIO: mientras el contenido se sustituye
+ *  la caja se queda vacía, el navegador recorta el `scrollTop` al nuevo máximo
+ *  —cero— y ya no vuelve. Como el modal se repinta cada 1,5 s, leer una línea
+ *  de la mitad era imposible: en cuanto soltabas, saltaba arriba.
+ *
+ *  Se guardan las dos cosas porque son dos comportamientos distintos: si
+ *  estaba pegado al fondo hay que MANTENERLO pegado (el log es un directo y
+ *  llegan líneas nuevas), y si no, dejarlo donde estaba. Las líneas se añaden
+ *  al final, así que la posición desde arriba sigue apuntando a lo mismo.
+ */
+function anclajeDeLog(el) {
+  if (!el) return { y: 0, abajo: true };
+  return {
+    y: el.scrollTop,
+    abajo: el.scrollTop + el.clientHeight >= el.scrollHeight - 24,
+  };
+}
+
+/** Devuelve el log a donde estaba. `el` puede ser otro elemento: el modal
+ *  reemplaza el cuerpo entero y el log se recrea. */
+function restaurarAnclajeDeLog(el, ancla) {
+  if (!el || !ancla) return;
+  el.scrollTop = ancla.abajo ? el.scrollHeight : ancla.y;
 }
 
 /** Un log con la paleta semántica de la app (marcadores ━━━ / $ / ✓ / ✗). */

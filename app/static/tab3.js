@@ -7059,11 +7059,11 @@ function _cmv40PfPintar(s, veredicto) {
   if (det) det.style.display = lineas.length ? '' : 'none';
   if (det && veredicto && veredicto.clase !== 'ok') det.open = true;
   if (log) {
-    const abajo = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+    const ancla = anclajeDeLog(log);
     log.innerHTML = lineas.map(l =>
       `<div class="log-line ${typeof _classifyLogLine === 'function'
         ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`).join('');
-    if (abajo) log.scrollTop = log.scrollHeight;
+    restaurarAnclajeDeLog(log, ancla);
   }
   _cmv40PfPintarPie(s, veredicto);
 }
