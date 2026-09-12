@@ -733,6 +733,59 @@ Indicadores visuales:
   - **Regla**: `session.running_phase` solo se toca desde **`_cmv40_marcar_activa` / `_cmv40_marcar_libre`**. Una asignación cruda deja el registro con un fantasma y el punto no se apaga nunca; `test_cmv40_activas_en_memoria::TestNadieAsignaRunningPhaseAMano` lo guarda recorriendo el AST (no el texto: los docstrings del módulo mencionan `running_phase="preflight"` describiendo el flujo).
 - **Spinner animado en cards del sidebar CMv4.0** cuando `running_phase != null` — sustituye al icono estático de fase. Card con `border-left` verde + halo pulsante.
 
+### El sidebar de CMv4.0: el índice sobrevive al reinicio
+
+`GET /api/cmv40` sirve un summary cacheado **por fichero** con invalidación
+por `stat` (mtime_ns + size), así que durante un job solo se relee la sesión
+activa y las otras N-1 salen de memoria. Lo que faltaba es que ese cache vivía
+**solo en memoria**: cada reinicio del contenedor lo vaciaba y la primera
+petición volvía a leer las sesiones **enteras** — el síntoma reportado es
+«la lista tarda, pero solo la primera vez, y con el NAS estresado».
+
+Medido sobre el NAS con 117 proyectos:
+
+| | |
+|---|---|
+| leer los 117 ficheros (59,0 MB) | **1,55 s** — y con la ARC de ZFS **caliente** |
+| `json.loads` de todo | 0,61 s (CPU, no mejora con I/O) |
+| `stat()` de los 117 | **1 ms** ← la vía caliente |
+| summary resultante | **0,79 MB** |
+
+O sea: **59,0 MB leídos para producir 0,79**, con el **82 %** de esos bytes en
+los cinco campos que se vacían acto seguido. Ese 1,55 s es el suelo; es el
+tramo que se dispara cuando un rip escribe en el mismo vdev RAIDZ.
+
+`/config/cmv40_summary.idx` guarda lo mismo que el cache —`{fichero:
+(mtime_ns, size, summary)}`— en UN fichero. El arranque en frío pasa de 59,0
+MB a 0,79 (**74×**) y el `stat()` de 1 ms sigue decidiendo qué está al día.
+
+Cuatro decisiones que no son obvias:
+
+- **La extensión NO es `.json`, y no es cosmético.** `list_sessions` hace
+  `glob("*.json")` sobre `/config` y el listado de CMv4.0 sobre
+  `/config/cmv40`: con esa extensión el índice se colaría como si fuera una
+  sesión —lo pararía el guard del `id`, pero **después** de leer y parsear sus
+  0,79 MB en CADA listado—, o sea que el fichero puesto para ahorrar I/O lo
+  añadiría. Es la trampa del sidecar `.progress`.
+- **Se vuelca con throttle (60 s) y solo si algo cambió.** Durante un job la
+  sesión activa reescribe su JSON, y volcar 0,79 MB cada vez recrearía la
+  amplificación de escritura que costó quitar del log. No hace falta estar al
+  día: el índice **solo sirve para arrancar**, y lo que esté viejo lo caza el
+  `stat()` — se relee ESE fichero, no los 117. **No hay modo de fallo nuevo**:
+  un índice obsoleto produce exactamente el comportamiento de antes.
+- **Un índice ilegible no es un error**: se ignora y se leen las sesiones, que
+  es lo que se hacía. Se escribe con `_atomic_write_json`.
+- **El precalentado va en segundo plano y sin `await`.** Con el índice el
+  arranque en frío ya es barato, pero sigue siendo trabajo, y hacerlo en el
+  `startup` lo saca de la primera petición del usuario. Sin `await` porque el
+  arranque no puede quedarse esperando a `/config`, que es el mismo pool por el
+  que un rip mueve 70 GB: el healthcheck del contenedor no espera a nadie.
+
+`test_indice_cmv40.py` mide **cuántos ficheros se leen** (envolviendo
+`Path.read_text`), no si existe un fichero de índice: tras un reinicio
+simulado, cero sesiones y un índice. Verificado por mutación — quitar la carga,
+quitar el volcado o meter los campos pesados en el índice hacen fallar un test.
+
 ### Control de admisión: un solo trabajo pesado a la vez — `workload.py`
 
 Cada pestaña serializaba lo suyo y ninguna sabía de las otras: Tab 1 con su cola FIFO de uno, Tab 2 con un análisis y una copia, y Tab 3 bloqueando **por `session_id`**, así que N proyectos podían correr fases a la vez. Sumado: tres o más `mkvmerge`/`ffmpeg`/`dovi_tool` peleándose por 4 núcleos y un solo pool ZFS.

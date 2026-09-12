@@ -376,6 +376,23 @@ async def _reanudar_cola_al_arrancar() -> None:
     await _tab1_routes.reanudar_cola()
 
 
+@app.on_event("startup")
+async def _precalentar_listados() -> None:
+    """Deja el índice del sidebar de CMv4.0 listo antes de que nadie lo pida.
+
+    El cache del summary vive en memoria, así que un reinicio lo vacía y la
+    primera petición era la que pagaba el arranque en frío — «la lista tarda,
+    pero solo la primera vez». Con el índice en disco eso ya son 0,79 MB en vez
+    de 59, pero sigue siendo trabajo: aquí sale de la petición del usuario.
+
+    **En segundo plano y sin `await`**: el arranque no puede quedarse esperando
+    a `/config`, que es el mismo pool por el que un rip mueve 70 GB — el
+    healthcheck del contenedor no espera a nadie.
+    """
+    import storage
+    asyncio.create_task(asyncio.to_thread(storage.precalentar_cmv40_summary))
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TAB 2 — CONSULTAR / EDITAR MKV
 # ══════════════════════════════════════════════════════════════════════════════

@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -518,6 +519,96 @@ _CMV40_SUMMARY_EMPTY_LIST_FIELDS = (
 )
 
 
+# ── El índice sobrevive al reinicio ────────────────────────────────────────
+#
+# El cache de arriba vive SOLO en memoria, así que cada reinicio del
+# contenedor lo vacía y la primera llamada vuelve a leer las sesiones enteras.
+# Medido sobre el NAS con 117 proyectos: **59,0 MB leídos y 0,61 s de parseo
+# para producir un summary de 0,79 MB**, con el 82 % de esos bytes en los
+# cinco campos que se vacían acto seguido. Leerlos tarda **1,55 s con la ARC
+# de ZFS caliente**, y ese tramo es justo el que se dispara cuando un rip está
+# escribiendo en el mismo vdev RAIDZ — de ahí que la lista tardara «la primera
+# vez, con el NAS estresado».
+#
+# El índice guarda lo mismo que el cache —{fichero: (mtime_ns, size,
+# summary)}— en UN fichero de 0,79 MB. El arranque en frío pasa de leer 59,0
+# MB a leer 0,79 (**74× menos**) y el `stat()` de los 117, que cuesta 1 ms,
+# sigue decidiendo qué está al día: una sesión que cambió con el contenedor
+# parado se detecta igual y se relee ELLA SOLA. No hay modo de fallo nuevo.
+#
+# Tres decisiones que no son obvias:
+#
+#  · **La extensión NO es `.json`, y no es cosmético.** `list_sessions` hace
+#    `glob("*.json")` sobre `/config` y el listado de CMv4.0 sobre
+#    `/config/cmv40`: con esa extensión, el índice se colaría como si fuera
+#    una sesión (lo pararía el guard del `id`, pero después de leer y parsear
+#    sus 0,79 MB en cada listado). Es la misma trampa que el sidecar
+#    `.progress`.
+#  · **Se vuelca con throttle**, porque durante un job la sesión activa
+#    reescribe su JSON y volcar 0,79 MB cada vez recrearía la amplificación de
+#    escritura que costó quitar del log. No hace falta estar al día: el índice
+#    solo sirve para arrancar, y lo que esté viejo lo caza el `stat()`.
+#  · **Un índice ilegible no es un error**: se ignora y se leen las sesiones,
+#    que es exactamente lo que se hacía antes.
+_CMV40_INDICE = CONFIG_DIR / "cmv40_summary.idx"
+_CMV40_INDICE_CADA_S = 60.0
+_cmv40_indice_cargado = False
+_cmv40_indice_volcado_en = 0.0
+
+
+def _cmv40_indice_cargar() -> None:
+    """Puebla el cache en memoria desde el disco. Un intento, al arrancar."""
+    global _cmv40_indice_cargado
+    if _cmv40_indice_cargado:
+        return
+    _cmv40_indice_cargado = True          # un intento, salga bien o mal
+    try:
+        crudo = json.loads(_CMV40_INDICE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        if _CMV40_INDICE.exists():
+            logger.warning("[cmv40] índice ilegible, se leen las sesiones: %s", e)
+        return
+    if not isinstance(crudo, dict):
+        return
+    for nombre, entrada in crudo.items():
+        try:
+            mtime_ns, size, summary = entrada
+        except (TypeError, ValueError):
+            continue
+        # El mismo guard que al leer una sesión: sin `id` no es una.
+        if isinstance(summary, dict) and "id" in summary:
+            _cmv40_summary_by_file[nombre] = (int(mtime_ns), int(size), summary)
+
+
+def _cmv40_indice_volcar(cambio: bool) -> None:
+    """Guarda el índice si algo cambió y ha pasado el throttle."""
+    global _cmv40_indice_volcado_en
+    if not cambio:
+        return
+    ahora = time.monotonic()
+    if ahora - _cmv40_indice_volcado_en < _CMV40_INDICE_CADA_S:
+        return
+    _cmv40_indice_volcado_en = ahora
+    try:
+        _atomic_write_json(_CMV40_INDICE, json.dumps(
+            {n: [m, s, d] for n, (m, s, d) in _cmv40_summary_by_file.items()}))
+    except Exception as e:                      # nunca tumba el listado
+        logger.warning("[cmv40] no se pudo guardar el índice: %s", e)
+
+
+def precalentar_cmv40_summary() -> None:
+    """Deja el cache listo ANTES de que nadie pida la lista.
+
+    Con el índice el arranque en frío ya es barato, pero sigue siendo trabajo:
+    hacerlo aquí lo saca de la primera petición del usuario, que es la que se
+    veía lenta. Se llama desde el arranque de `main`, en un hilo.
+    """
+    try:
+        list_cmv40_sessions_summary()
+    except Exception as e:                      # el arranque no se cae por esto
+        logger.warning("[cmv40] no se pudo precalentar el índice: %s", e)
+
+
 def list_cmv40_sessions_summary() -> list[dict]:
     """Lista resumida (sin output_log ni phase_history) — para el sidebar.
 
@@ -538,6 +629,7 @@ def list_cmv40_sessions_summary() -> list[dict]:
     actual solo las serializa).
     """
     with _cmv40_summary_lock:
+        _cmv40_indice_cargar()
         if not CMV40_DIR.exists():
             _cmv40_summary_by_file.clear()
             return []
@@ -554,6 +646,7 @@ def list_cmv40_sessions_summary() -> list[dict]:
 
         seen: set[str] = set()
         summaries: list[dict] = []
+        cambio = False          # ¿hay que volcar el índice al terminar?
         for _mtime, name, path, mtime_ns, size in entries:
             seen.add(name)
             cached = _cmv40_summary_by_file.get(name)
@@ -580,10 +673,13 @@ def list_cmv40_sessions_summary() -> list[dict]:
                 _cmv40_summary_by_file.pop(name, None)
                 continue
             _cmv40_summary_by_file[name] = (mtime_ns, size, data)
+            cambio = True
             summaries.append(data)
         # Purgar entradas de ficheros borrados para no acumular memoria.
         for stale in [n for n in _cmv40_summary_by_file if n not in seen]:
             del _cmv40_summary_by_file[stale]
+            cambio = True       # un borrado también deja el índice viejo
+        _cmv40_indice_volcar(cambio)
         return summaries
 
 
