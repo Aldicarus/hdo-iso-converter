@@ -477,7 +477,7 @@ function _updateM2tsStatusText() {
   if (_contentType === 'movie') {
     status.innerHTML = icono('check') + ' 1 fichero seleccionado → modo película';
   } else {
-    status.textContent =
+    status.innerHTML =
       icono('check') + ` ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
   }
 }

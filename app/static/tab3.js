@@ -3775,7 +3775,7 @@ function _renderCMv40ActivePhase(project) {
     errorHtml = `
       <div class="section-card cmv40-card-error" style="margin-top:12px">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
-          <span style="font-size:20px"><span data-icono="aviso"></span></span>
+          <span data-icono="aviso" data-icono-clase="ico-lg" style="display:inline-flex"></span>
           <div style="flex:1">
             <div style="font-weight:600; color:var(--red); margin-bottom:2px">Error en la última acción</div>
             <div style="font-size:12px; color:var(--text-2)">${escHtml(s.error_message)}</div>
@@ -3793,7 +3793,7 @@ function _renderCMv40ActivePhase(project) {
     doneHtml = `
       <div class="section-card" style="margin-top:16px; background:var(--green-dim); border:1px solid var(--green)">
         <div class="section-body" style="text-align:center; padding:20px">
-          <div style="font-size:32px"><span data-icono="curva"></span></div>
+          <div data-icono="curva" data-icono-clase="ico-2x" style="display:flex; justify-content:center"></div>
           <div style="font-size:15px; font-weight:700; margin-top:4px">MKV CMv4.0 completado</div>
           <div style="font-size:11px; color:var(--text-3); margin-top:4px">${escHtml(s.output_mkv_path || s.output_mkv_name)}</div>
           <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
@@ -3812,7 +3812,7 @@ function _renderCMv40ActivePhase(project) {
     archivedHtml = `
       <div class="section-card" style="margin-top:16px; background:var(--surface-2); border:1px solid var(--sep-strong)">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
-          <span style="font-size:22px"><span data-icono="archivador"></span></span>
+          <span data-icono="archivador" data-icono-clase="ico-lg" style="display:inline-flex"></span>
           <div style="flex:1">
             <div style="font-weight:600">Proyecto archivado — solo lectura</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:2px">
@@ -3833,7 +3833,7 @@ function _renderCMv40ActivePhase(project) {
     actionsFooterHtml = `
       <div class="section-card cmv40-actions-footer" style="margin-top:16px">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
-          <span style="font-size:18px; opacity:0.7"><span data-icono="papelera"></span></span>
+          <span data-icono="papelera" data-icono-clase="ico-lg" style="display:inline-flex; opacity:0.7"></span>
           <div style="flex:1; min-width:0">
             <div style="font-size:12.5px; font-weight:600">Limpiar artefactos del workdir</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:2px">

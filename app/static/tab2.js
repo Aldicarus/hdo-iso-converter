@@ -429,6 +429,11 @@ function _doCloseMkvProject(pid) {
   }
   _mkvUpdateEmptyState();
   _updateSubtabScrollState();
+  // La columna marca con «abierto» los MKV que tienen pestaña, así que al
+  // cerrar una hay que repintarla o el distintivo se queda puesto. Tab 1 y
+  // Tab 3 ya lo hacían (`_doFilterSidebarSessions` y `_renderCMv40Sidebar`);
+  // esta era la única de las tres que no.
+  if (document.getElementById('mkv-recientes-list')) _renderMkvRecientes();
 }
 
 /** Cierra el MKV activo — el botón "✕ Cerrar" del pie del panel. */

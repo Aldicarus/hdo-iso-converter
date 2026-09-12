@@ -406,3 +406,81 @@ class TestLasConsultasVanContadas(TarjetaCase):
         self.assertIn("+ 2 consultas en curso", self._render(estado))
         self.assertNotIn("consultas en curso",
                          self._render(estado, busqueda="predator"))
+
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestUnClicNoSePierdeAlRepintar(unittest.TestCase):
+    """El cuerpo se reconstruye cada 2 s: si eso cae en mitad de un clic, el
+    botón desaparece entre el `mousedown` y el `mouseup` y **el navegador no
+    genera el `click`**. El usuario pulsa «Detalle» y no pasa nada.
+
+    La delegación de eventos no lo arregla —con el nodo destruido, el evento
+    se dispara en el ancestro común y `e.target` ya no es el botón—, así que lo
+    que se hace es no destruirlo mientras dura el gesto.
+    """
+
+    def _correr(self, guion: str):
+        script = f"""
+let _pd = null, _pu = null;
+globalThis.document = {{
+  addEventListener(tipo, fn) {{ if (tipo === 'pointerdown') _pd = fn;
+                                if (tipo === 'pointerup') _pu = fn; }},
+  getElementById: () => null,
+}};
+{_fn('_workbarConservandoElScroll')}
+const caja = {{ innerHTML: '' }};
+const abajo = (dentro) => {{
+  if (dentro) _workbarConservandoElScroll.gesto = true;
+}};
+const arriba = () => {{
+  const f = _workbarConservandoElScroll;
+  if (!f.gesto) return;
+  f.gesto = false;
+  const p = f.pendiente; f.pendiente = null;
+  if (p) p.forEach((html, caja) => f(caja, html));
+}};
+{guion}
+"""
+        r = subprocess.run([NODE, "-e", script], capture_output=True, text=True,
+                           timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr[:600])
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    def test_sin_cambios_no_se_toca_el_DOM(self):
+        """Lo más barato es no repintar: quita de en medio la mayoría de las
+        ventanas en las que un clic se puede perder."""
+        r = self._correr("""
+            caja.innerHTML = '<b>igual</b>';
+            let tocado = 0;
+            Object.defineProperty(caja, 'innerHTML', {
+              get: () => '<b>igual</b>', set: () => { tocado++; } });
+            _workbarConservandoElScroll(caja, '<b>igual</b>');
+            console.log(JSON.stringify({ tocado }));""")
+        self.assertEqual(r["tocado"], 0)
+
+    def test_en_mitad_de_un_clic_el_repintado_espera(self):
+        r = self._correr("""
+            caja.innerHTML = 'viejo';
+            abajo(true);
+            _workbarConservandoElScroll(caja, 'nuevo');
+            console.log(JSON.stringify({ durante: caja.innerHTML }));""")
+        self.assertEqual(r["durante"], "viejo",
+                         "el botón se destruiría bajo el dedo del usuario")
+
+    def test_y_se_pinta_al_soltar_sin_esperar_al_siguiente_poll(self):
+        r = self._correr("""
+            caja.innerHTML = 'viejo';
+            abajo(true);
+            _workbarConservandoElScroll(caja, 'nuevo');
+            arriba();
+            console.log(JSON.stringify({ despues: caja.innerHTML }));""")
+        self.assertEqual(r["despues"], "nuevo")
+
+    def test_un_clic_FUERA_de_la_columna_no_congela_nada(self):
+        r = self._correr("""
+            caja.innerHTML = 'viejo';
+            abajo(false);
+            _workbarConservandoElScroll(caja, 'nuevo');
+            console.log(JSON.stringify({ durante: caja.innerHTML }));""")
+        self.assertEqual(r["durante"], "nuevo")
+

@@ -381,34 +381,52 @@ body {
 }
 
 /* ── Barra de búsqueda en sidebar ───────────────────────────── */
+/* ── El buscador, uno solo para las cuatro columnas ───────────────────────
+   El de los sidebars y el de la columna de trabajo eran dos cosas distintas:
+   30 px de alto contra 36, radios y bordes propios, el icono a 12 px contra
+   15, y el del sidebar con un input BLANCO dentro de un envoltorio gris —una
+   caja dentro de otra— que venía de pelearse con la regla global
+   `input[type="text"]` a base de `!important`.
+
+   Manda el modelo de la columna de trabajo: un campo con su borde y el icono
+   dentro. El envoltorio del sidebar hace de campo (borde, fondo, alto) y el
+   `input` va transparente encima; con `input.` basta para ganarle a la regla
+   global sin `!important`. */
 .sidebar-search-wrap {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   margin: 0 10px 6px;
   padding: 0 10px;
-  height: 30px;
-  background: var(--surface-2);
-  border: 1px solid var(--surface-2);
-  border-radius: var(--r-md);
+  height: 36px;
+  box-sizing: border-box;
+  background: var(--surface-1);
+  border: 1px solid var(--sep-strong);
+  border-radius: var(--r-sm);
   flex-shrink: 0;
 }
-.sidebar-search-icon { font-size: 12px; flex-shrink: 0; opacity: .6; }
-.sidebar-search-input {
+.sidebar-search-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.sidebar-search-icon svg,
+/* Con el envoltorio delante: `input.clase` EMPATA en especificidad con la
+   regla global `input[type="text"]`, que además va más abajo en el fichero y
+   por tanto gana. Ése era el motivo del `!important` de antes. */
+.sidebar-search-wrap input.sidebar-search-input {
   flex: 1;
-  background: #fff !important;
+  min-width: 0;
+  background: transparent;
   border: none;
   outline: none;
   font-family: inherit;
   font-size: 12px;
-  color: #000;
-  padding: 2px 6px;
-  border-radius: 4px;
+  color: var(--text-1);
+  padding: 0;
 }
-.sidebar-search-input:focus {
-  background: #fff !important;
-}
-.sidebar-search-input::placeholder { color: var(--text-3); }
+.sidebar-search-wrap input.sidebar-search-input:focus { background: transparent; }
+.sidebar-search-input::placeholder,
 
 /* ── Controles de ordenación y filtros en sidebar ─────────────── */
 .sidebar-controls {
@@ -9239,7 +9257,6 @@ body.workbar-plegada .workbar-count { margin-left: 0; padding: 1px 5px; }
   color: var(--text-3);
   pointer-events: none;
 }
-.workbar-search-icono svg { width: 15px; height: 15px; display: block; }
 /* `input.` y no solo la clase: la regla global `input[type="text"]` empata en
    especificidad y pinta el fondo gris. */
 input.workbar-search-input {
@@ -9254,7 +9271,6 @@ input.workbar-search-input {
   font-family: inherit;
   font-size: 12px;
 }
-input.workbar-search-input::placeholder { color: var(--text-3); }
 
 .workbar-pills {
   flex-shrink: 0;
@@ -9673,6 +9689,7 @@ span[data-icono] {
 }
 .ico-md { width: 16px; height: 16px; }
 .ico-lg { width: 20px; height: 20px; }
+.ico-2x { width: 28px; height: 28px; }
 .ico-xl { width: 44px; height: 44px; }
 
 .icono-chip {

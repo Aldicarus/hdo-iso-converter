@@ -565,7 +565,7 @@ const _CMV40_HELP_SECTIONS = {
     <!-- Enlace directo a la hoja en uso (configurada o por defecto).
          Se hidrata al abrir la sección — ver _cmv40HelpHydrateSheetLink(). -->
     <div id="help-sheet-link-slot" style="margin:10px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-      <span style="font-size:18px"><span data-icono="etiqueta"></span></span>
+      <span data-icono="etiqueta" data-icono-clase="ico-md" style="display:inline-flex"></span>
       <div style="flex:1; min-width:0">
         <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Hoja en uso ahora mismo</div>
         <a id="help-sheet-link-anchor" href="#" target="_blank" rel="noreferrer"
@@ -716,7 +716,7 @@ const _CMV40_HELP_SECTIONS = {
 
     <!-- Estado actual del folder Drive configurado en este servidor -->
     <div id="help-drive-link-slot" style="margin:18px 0 18px; padding:12px 14px; border:1px solid var(--sep); border-radius:8px; background:var(--surface-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-      <span style="font-size:18px"><span data-icono="carpeta"></span></span>
+      <span data-icono="carpeta" data-icono-clase="ico-md" style="display:inline-flex"></span>
       <div style="flex:1; min-width:0">
         <div style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:2px">Carpeta Drive en este servidor</div>
         <div id="help-drive-link-status" style="font-size:13px; font-weight:600">Cargando…</div>

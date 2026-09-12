@@ -464,6 +464,24 @@ class TestNingunIconoAcabaEscapado(unittest.TestCase):
     que se repiten en veinte sitios— dan falsos positivos por todas partes.
     """
 
+    def test_ningun_textContent_recibe_un_icono(self):
+        """`textContent` no interpreta HTML: escribe el SVG tal cual.
+
+        Es la tercera forma de que el código del icono acabe leyéndose en
+        pantalla, y la que dejó «<svg viewBox=…> Esta carpeta no contiene
+        MKVs» en el file browser. Con `innerHTML` se pinta; lo que venga de
+        fuera, escapado aparte.
+        """
+        malas = []
+        for ruta in rutas():
+            src = ruta.read_text(encoding="utf-8")
+            for m in re.finditer(r"\.textContent\s*=\s*([^;]{0,400});", src, re.S):
+                if "icono(" in m.group(1):
+                    n = src[:m.start()].count("\n") + 1
+                    malas.append(f"{ruta.name}:{n}")
+        self.assertEqual(malas, [], "\n  ".join(
+            ["", "el SVG se escribiría como texto:"] + malas))
+
     def test_ninguna_variable_con_icono_pasa_por_escHtml(self):
         malas = []
         for ruta in rutas():

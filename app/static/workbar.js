@@ -554,7 +554,50 @@ function _workbarRenderHistorial() {
  *  principio cada vez que un trabajo cambiaba de fase — el cuerpo se repinta
  *  cada 2 s.
  */
+// ¿Hay un clic a medio hacer dentro de la columna?
+//
+// El cuerpo se reconstruye entero en cada vuelta del poll (2 s), así que los
+// botones se destruyen y se vuelven a crear. Si eso cae entre el `mousedown` y
+// el `mouseup`, **el navegador no genera el `click`**: el usuario pulsa
+// «Detalle» y no pasa nada, y lo único que puede hacer es volver a intentarlo.
+//
+// La delegación de eventos NO lo arregla —con el nodo destruido, el `click` se
+// dispara en el ancestro común y `e.target` ya no es el botón—, así que lo que
+// hay que hacer es no destruirlo: mientras dure el gesto, el repintado espera.
+// Son los ~100 ms de un clic; el poll siguiente pone la columna al día.
+// El estado cuelga de la propia función —`.gesto` y `.pendiente`— y no de dos
+// variables sueltas del módulo: los arneses de los tests cargan funciones por
+// nombre, así que de esta forma el estado viaja con ella y no hay que
+// acordarse de llevar dos declaraciones más a cada sitio.
+document.addEventListener('pointerdown', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#workbar')) {
+    _workbarConservandoElScroll.gesto = true;
+  }
+}, true);
+document.addEventListener('pointerup', () => {
+  const f = _workbarConservandoElScroll;
+  if (!f.gesto) return;
+  f.gesto = false;
+  // Lo que se quedó esperando se pinta al soltar, no en el siguiente poll.
+  //
+  // Uno por CAJA: este helper lo usan el cuerpo y el historial, así que con un
+  // solo pendiente la segunda llamada pisaba a la primera y el cuerpo se
+  // quedaba con los datos viejos hasta el poll siguiente.
+  const p = f.pendiente;
+  f.pendiente = null;
+  if (p) p.forEach((html, caja) => f(caja, html));
+}, true);
+
 function _workbarConservandoElScroll(caja, html) {
+  // Sin cambios, no se toca el DOM. Además de ahorrar trabajo cada dos
+  // segundos, quita de en medio la mayoría de las ventanas en las que un clic
+  // puede perderse.
+  if (caja.innerHTML === html) return;
+  if (_workbarConservandoElScroll.gesto) {
+    const f = _workbarConservandoElScroll;
+    (f.pendiente || (f.pendiente = new Map())).set(caja, html);
+    return;
+  }
   const scroller = document.getElementById('workbar-scroll');
   const y = scroller ? scroller.scrollTop : 0;
   caja.innerHTML = html;

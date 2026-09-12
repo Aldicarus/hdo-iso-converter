@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260912f">
+  <link rel="stylesheet" href="/static/style.css?v=20260912h">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -313,7 +313,7 @@
             <!-- Estado vacío: sin proyectos abiertos -->
             <div id="panel-empty-projects" class="subtab-panel">
               <div class="empty-state-full">
-                <div class="empty-state-icon" style="font-size:48px" data-icono="disco"></div>
+                <div class="empty-state-icon" data-icono="disco"></div>
                 <div class="empty-state-title">Crear MKV desde ISO</div>
                 <div class="empty-state-desc">Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas de audio, subtítulos forzados y soporte Dolby Vision FEL.</div>
                 <button class="btn btn-primary btn-md" onclick="openNewProjectModal()"
@@ -355,7 +355,7 @@
 
         <!-- Empty state: sin MKV cargado -->
         <div id="mkv-empty-state" class="empty-state-full">
-          <div class="empty-state-icon" style="font-size:48px" data-icono="lapiz"></div>
+          <div class="empty-state-icon" data-icono="lapiz"></div>
           <div class="empty-state-title">Consultar / Editar MKV</div>
           <div class="empty-state-desc">Inspecciona la metadata detallada de cualquier MKV (codecs, bitrate, HDR, Dolby Vision, CM version, paquetes PGS…) y edita nombres de pistas, flags y capítulos sin re-encodar.</div>
           <button class="btn btn-primary btn-md" onclick="openMkvPickerModal()"
@@ -392,7 +392,7 @@
         <!-- Contenido del sub-tab activo -->
         <div id="cmv40-subtab-content" style="overflow-y:auto; flex:1; min-height:0">
           <div id="cmv40-empty-state" class="empty-state-full">
-            <div class="empty-state-icon" style="font-size:48px" data-icono="curva"></div>
+            <div class="empty-state-icon" data-icono="curva"></div>
             <div class="empty-state-title">Upgrade Dolby Vision CMv4.0</div>
             <div class="empty-state-desc">Actualiza el RPU Dolby Vision de un MKV del Blu-ray (CMv2.9) a CMv4.0 — añade metadata de tone-mapping L8-L11 para mejor HDR en TVs compatibles.</div>
             <button class="btn btn-primary btn-md" onclick="openNewCMv40Modal()"
@@ -1501,13 +1501,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260912f"></script>
-<script src="/static/workbar.js?v=20260912f"></script>
-<script src="/static/settings.js?v=20260912f"></script>
-<script src="/static/cmv40_modals.js?v=20260912f"></script>
-<script src="/static/tab1.js?v=20260912f"></script>
-<script src="/static/tab2.js?v=20260912f"></script>
-<script src="/static/tab3.js?v=20260912f"></script>
-<script src="/static/browser.js?v=20260912f"></script>
+<script src="/static/core.js?v=20260912h"></script>
+<script src="/static/workbar.js?v=20260912h"></script>
+<script src="/static/settings.js?v=20260912h"></script>
+<script src="/static/cmv40_modals.js?v=20260912h"></script>
+<script src="/static/tab1.js?v=20260912h"></script>
+<script src="/static/tab2.js?v=20260912h"></script>
+<script src="/static/tab3.js?v=20260912h"></script>
+<script src="/static/browser.js?v=20260912h"></script>
 </body>
 </html>

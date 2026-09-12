@@ -218,8 +218,9 @@ function _renderFileBrowser() {
   if (!filtered.length) {
     const empty = document.createElement('div');
     empty.className = 'file-browser-empty';
-    empty.textContent = filter
-      ? `Sin coincidencias para "${filter}"`
+    // `innerHTML`: `textContent` no interpreta el SVG, lo escribe.
+    empty.innerHTML = filter
+      ? `Sin coincidencias para ${escHtml(JSON.stringify(filter))}`
       : icono('caja') + ' Esta carpeta no contiene MKVs ni subcarpetas.';
     listEl.appendChild(empty);
     if (statsEl) statsEl.textContent = '';

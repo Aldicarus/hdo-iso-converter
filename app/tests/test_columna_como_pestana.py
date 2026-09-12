@@ -687,3 +687,60 @@ class TestUnSoloScrollYCuatroSeccionesSeguidas(unittest.TestCase):
         """Empieza donde acaba lo que está en marcha, no a media columna."""
         self.assertAlmostEqual(self.m["historial"]["t"],
                                self.m["cuerpo"]["b"], delta=1.5)
+
+@unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
+class TestElClicNoSePierdeEnUnRepintado(unittest.TestCase):
+    """Con el gesto de verdad, no con los listeners simulados.
+
+    El cuerpo se reconstruye cada 2 s. Si eso cae entre el `mousedown` y el
+    `mouseup`, el botón desaparece bajo el dedo y **el navegador no genera el
+    `click`**: el usuario pulsa «Detalle» y no pasa nada. Aquí se dispara un
+    `pointerdown` real sobre la columna, se fuerza un render con otros datos y
+    se comprueba que el botón sigue siendo EL MISMO nodo.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        sonda = ("<script>window.__T=" + json.dumps(_TRABAJOS) + ";</script>")
+        cuerpo = """
+<pre id="__out"></pre>
+<script>
+(function () {
+  window.apiFetch = async (url) =>
+    url.startsWith('/api/trabajos') ? window.__T : null;
+  setTimeout(() => {
+    workbarEstado = window.__T;
+    _workbarRender(workbarEstado);
+    const antes = document.querySelector('#workbar-body .wb-card');
+    // El gesto: el usuario apoya el dedo en la columna…
+    antes.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+    // …y justo entonces entra el poll con datos distintos.
+    const otro = JSON.parse(JSON.stringify(window.__T));
+    otro.activo.pct = 77;
+    workbarEstado = otro;
+    _workbarRender(otro);
+    const durante = document.querySelector('#workbar-body .wb-card');
+    const textoDurante = document.getElementById('workbar-body').textContent;
+    // Suelta: ahí sí se repinta, sin esperar al siguiente poll.
+    document.dispatchEvent(new PointerEvent('pointerup', {bubbles: true}));
+    const despues = document.getElementById('workbar-body').textContent;
+    document.getElementById('__out').textContent = JSON.stringify({
+      mismoNodo: antes === durante,
+      congelado: textoDurante.includes('77 %') === false,
+      alSoltar: despues.includes('77 %'),
+    });
+  }, 700);
+})();
+</script>
+"""
+        cls.m = _correr_en_chrome(sonda, cuerpo)
+
+    def test_el_boton_sigue_siendo_el_mismo_nodo(self):
+        self.assertTrue(self.m["mismoNodo"],
+                        "el botón se destruyó bajo el dedo: el clic se pierde")
+
+    def test_y_el_repintado_se_aplica_al_soltar(self):
+        self.assertTrue(self.m["congelado"], "no llegó a congelarse")
+        self.assertTrue(self.m["alSoltar"],
+                        "lo que se quedó esperando tiene que pintarse al soltar")
+
