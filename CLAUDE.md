@@ -1981,7 +1981,23 @@ operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
   `marcarPasoDeModal(el, 'curso'|'hecho'|'pendiente')` cambia el glifo de su
   `<span>`; antes era un `textContent.replace()` sobre ⏳/⬜/✅, o sea que el
   estado dependía de la redacción del paso y no podía tener color.
-- **Dos guards, y los dos por fallos mudos.**
+- **El guard de «cero emoji» es una LISTA BLANCA, no un patrón.** Perseguir
+  patrones es lo que falló: la primera pasada convirtió `>💿 Texto` —como se
+  escribe en el HTML— y se dejó **120 líneas** en las otras posiciones
+  sintácticas, que es donde viven los iconos de estado: ternarias
+  (`state === 'done' ? '✅' : '🔒'`), valores de objeto (`{ ok: '✓' }`),
+  argumentos (`showConfirm('🗑️ Eliminar', …)`) y el principio de línea de una
+  plantilla multilínea. `TestNoQuedaNingunEmojiSinJustificar` falla con
+  cualquiera que no esté en la lista, y solo hay **dos excepciones**: el
+  parseo del log que llega del backend (`line.includes('✓')`, contrato con el
+  Python) y el Markdown que se copia al portapapeles.
+- **Interpolar un icono NO pinta el icono.** Con emoji, `${paso.icono}`
+  escribía el carácter; con nombres del catálogo escribe «claqueta» en
+  pantalla, sin ningún error. Lo resuelve el CONSUMIDOR —`_glifoDePaso`: si
+  viene HTML lo pinta, si viene un nombre lo busca— porque los pasos de la
+  tira de fases los arman cinco sitios distintos. Lo vigila
+  `TestNadieInterpolaUnNombreDeGlifoCrudo`.
+- **Dos guards más, y los dos por fallos mudos.**
   `TestElCatalogoEsUnoYEstaCompleto` cruza contra el catálogo **todo lo que
   pide un icono**: `data-icono`, `icono('x')`, los valores `icon:` y las
   referencias `GLIFOS.x`. Un nombre que no existe deja el hueco vacío sin dar
