@@ -772,7 +772,7 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   const probe = await apiFetch('/api/disc-probe', {
     method: 'POST',
     body: JSON.stringify(payloadProbe),
-  });
+  }, API_FETCH_TIMEOUT_LARGO);
 
   clearInterval(pollId);
   closeProgressModal();
@@ -898,7 +898,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   const session = await apiFetch('/api/analyze', {
     method: 'POST',
     body: JSON.stringify(payload),
-  }, 900000);
+  }, API_FETCH_TIMEOUT_LARGO);
 
   clearInterval(pollId);
   steps.forEach((s, i) => {
@@ -3757,7 +3757,8 @@ async function resetChaptersFromDisc() {
       : 'Se descartarán todas las ediciones manuales (nombres, posiciones, capítulos añadidos/eliminados) y se volverán a extraer los capítulos originales del ISO.',
     async () => {
       const toastId = showToast('Montando ISO y extrayendo capítulos…', 'info', 0);
-      const data = await apiFetch(`/api/sessions/${sessionId}/reset-chapters`, { method: 'POST' });
+      const data = await apiFetch(`/api/sessions/${sessionId}/reset-chapters`,
+                                  { method: 'POST' }, API_FETCH_TIMEOUT_LARGO);
       removeToast(toastId);
       if (!data) return;
 
@@ -4740,6 +4741,28 @@ function setText(id, text) {
 }
 /** Timeout por defecto para llamadas API (30s). */
 const API_FETCH_TIMEOUT = 30000;
+
+/** Timeout para las llamadas que hacen TRABAJO PESADO y se esperan (15 min).
+ *
+ *  Los 30 s de arriba son para navegación. Una llamada que monta un ISO,
+ *  escanea los MPLS de un disco o hace un `rmtree` de cientos de GB sobre ZFS
+ *  no cabe ahí, y lo que el usuario ve cuando se pasa es **un timeout mientras
+ *  el servidor sigue trabajando perfectamente** — el peor mensaje posible,
+ *  porque señala al sitio equivocado.
+ *
+ *  Caso real (2026-09-12): `disc-probe` sobre un BDMV de Juego de Tronos.
+ *  Medido después con la ARC de ZFS caliente son **21,5 s con 3 candidatos**,
+ *  y el escaneo mira hasta 20 — o sea que vivía justo en el filo, y en frío o
+ *  con un rip compitiendo por el vdev se pasa. En el log del servidor no había
+ *  ni un error: solo el `workload` cerrando a los 30 s exactos porque el
+ *  navegador colgó.
+ *
+ *  Cuál lleva esto y cuál no lo decide **quién espera la respuesta**, no lo que
+ *  dure: los endpoints fire-and-forget (las fases CMv4.0, el rip, el análisis
+ *  extendido) contestan al instante y su progreso va por otro canal. Lo fija
+ *  `test_timeouts_del_frontend.py` contra `CLASE_POR_RUTA`.
+ */
+const API_FETCH_TIMEOUT_LARGO = 900000;
 
 /**
  * Wrapper de fetch con Content-Type JSON, timeout y manejo centralizado de errores.

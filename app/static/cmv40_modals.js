@@ -164,7 +164,7 @@ async function cmv40BulkCleanupExecute() {
       const data = await apiFetch('/api/cmv40/cleanup/bulk', {
         method: 'POST',
         body: JSON.stringify({ session_ids: ids }),
-      });
+      }, API_FETCH_TIMEOUT_LARGO);
       if (!data) return;
       const okCount = (data.deleted || []).length;
       const skipCount = (data.skipped || []).length;

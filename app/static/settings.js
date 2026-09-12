@@ -601,7 +601,7 @@ async function cleanupExecuteSelected() {
       const data = await apiFetch('/api/cleanup/execute', {
         method: 'POST',
         body: JSON.stringify({ paths }),
-      });
+      }, API_FETCH_TIMEOUT_LARGO);
       if (!data) return;
       const okCount = (data.deleted || []).length;
       const koCount = (data.failed || []).length;

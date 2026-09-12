@@ -4990,7 +4990,8 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
   newBtn.addEventListener('click', async () => {
     closeModal('cmv40-confirm-modal');
-    const data = await apiFetch(`/api/cmv40/${pid}/reset-to/${targetPhase}`, { method: 'POST' });
+    const data = await apiFetch(`/api/cmv40/${pid}/reset-to/${targetPhase}`,
+                                { method: 'POST' }, API_FETCH_TIMEOUT_LARGO);
     if (data) {
       const project = openCMv40Projects.find(p => p.id === pid);
       if (project) {
@@ -5775,7 +5776,8 @@ async function cmv40Cleanup(pid) {
   btn.parentNode.replaceChild(newBtn, btn);
   newBtn.addEventListener('click', async () => {
     closeModal('cmv40-confirm-modal');
-    const data = await apiFetch(`/api/cmv40/${pid}/cleanup`, { method: 'POST' });
+    const data = await apiFetch(`/api/cmv40/${pid}/cleanup`,
+                                { method: 'POST' }, API_FETCH_TIMEOUT_LARGO);
     if (data) {
       showToast(`Liberado ${_fmtBytes(data.freed_bytes)} · proyecto archivado`, 'success');
       _refreshCMv40Session(pid);
@@ -6068,7 +6070,8 @@ async function _cmv40DeleteFromSidebar(sid) {
     '¿Eliminar proyecto?',
     `Se eliminará "${s.source_mkv_name}" y sus artefactos intermedios. Esta acción no se puede deshacer.`,
     async () => {
-      await apiFetch(`/api/cmv40/${sid}?clean_artifacts=true`, { method: 'DELETE' });
+      await apiFetch(`/api/cmv40/${sid}?clean_artifacts=true`,
+                     { method: 'DELETE' }, API_FETCH_TIMEOUT_LARGO);
       // Cerrar subtab si estaba abierto
       const open = openCMv40Projects.find(p => p.id === sid);
       if (open) closeCMv40Project(sid);

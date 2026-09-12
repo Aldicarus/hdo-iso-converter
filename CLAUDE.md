@@ -1211,6 +1211,39 @@ tests y el resto de la UI— y el frontend lo muestra como aviso ámbar, sin
 prefijo y **9 s en pantalla**: el texto ya es una frase con qué bloquea, en qué
 pestaña y desde cuándo, y 3,5 s es una duración pensada para «Guardado».
 
+### El timeout del frontend sale de la clase del trabajo
+
+`apiFetch` tiene **30 s** por defecto, que es lo correcto para navegación.
+Aplicados a algo que monta un ISO, escanea los MPLS de un disco o hace un
+`rmtree` de cientos de GB, lo que el usuario ve es **un timeout mientras el
+servidor sigue trabajando perfectamente** — y el mensaje señala al sitio
+equivocado: en el log del servidor no hay ni un error, solo el `workload`
+cerrando a los 30 s exactos porque el navegador colgó y FastAPI canceló el
+handler. Sin línea de acceso del POST, porque nunca completó.
+
+Caso real (2026-09-12), `disc-probe` sobre un BDMV de Juego de Tronos. Medido
+después con la ARC de ZFS caliente son **21,5 s con 3 candidatos**, y el
+escaneo mira hasta 20: vivía justo en el filo, y en frío o con un rip
+compitiendo por el vdev se pasa.
+
+**Lo que decide no es cuánto dura, es quién espera la respuesta.** Un endpoint
+fire-and-forget contesta al instante y su progreso viaja por otro canal (el WS,
+el estado del job, un endpoint de progreso); con 30 s le sobra. Uno síncrono
+tiene al navegador esperando el resultado, y ahí `API_FETCH_TIMEOUT_LARGO`
+(15 min).
+
+Se había arreglado ya dos veces **a mano y solo donde dolía** —`/api/analyze`
+con un `900000` suelto y `/api/mkv/analyze` con un `600000`… en UNA de sus dos
+llamadas; la otra, el re-análisis tras copiar desde biblioteca, seguía en 30 s—
+así que ahora lo fija `test_timeouts_del_frontend.py` cruzando el frontend
+contra **`workload.CLASE_POR_RUTA`**: la lista de lo que es pesado ya existe y
+no hace falta mantener otra. Los exentos van en una lista explícita **con el
+motivo**, y un segundo test falla si una excepción deja de corresponder a una
+ruta pesada o a una llamada real — así destapó que
+`POST /api/cmv40/{id}/preflight-source` es un endpoint **huérfano**: el
+pipeline usa la función directamente y el frontend no lo llama nunca (como le
+pasó al `tmdb-refresh` de Tab 3).
+
 ### Las tres clases de trabajo, y por qué no basta con "pesado"
 
 `workload` empezó con una sola pregunta —¿hay algo pesado?— y eso deja fuera lo

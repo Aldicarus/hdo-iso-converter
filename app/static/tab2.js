@@ -211,7 +211,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
   const data = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
     body: JSON.stringify({ file_path: absPath, force_refresh: forceRefresh }),
-  }, 600000);  // 10 min timeout — el PGS puede tardar 1-3 min
+  }, API_FETCH_TIMEOUT_LARGO);   // el conteo PGS puede tardar 1-3 min
 
   clearInterval(pollId);
   // Marcar todos los pasos restantes como completados
@@ -2857,7 +2857,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   const fresh = await apiFetch('/api/mkv/analyze', {
     method: 'POST',
     body: JSON.stringify({ file_path: newFilePath || project.fileName }),
-  });
+  }, API_FETCH_TIMEOUT_LARGO);
 
   if (fresh) {
     _mkvAplicarPerfilLuminancia(fresh && fresh.dovi);
