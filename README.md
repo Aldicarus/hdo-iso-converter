@@ -1,9 +1,9 @@
-# HDO Blu-ray Toolkit
+# UHD Blu-ray Toolkit
 
 > Suite web para procesar tu biblioteca UHD Blu-ray: **ripeo a MKV con detección de series**, **inspección + edición de metadata in-place** y **upgrade Dolby Vision CMv2.9 → CMv4.0** con clasificación de calidad. Todo en contenedor Docker, pensado para correr en un NAS QNAP/Synology pero compatible con cualquier host Linux x86_64 con Docker y soporte para loop mount.
 
 > [!NOTE]
-> El nombre técnico (repositorio GitHub, imagen Docker `ghcr.io/aldicarus/hdo-iso-converter:latest`) se mantiene para no romper despliegues existentes. El nombre público y el de la UI es **HDO Blu-ray Toolkit**.
+> El nombre técnico (repositorio GitHub, imagen Docker `ghcr.io/aldicarus/hdo-iso-converter:latest`) se mantiene para no romper despliegues existentes. El nombre público y el de la UI es **UHD Blu-ray Toolkit**.
 
 ## Tres herramientas en una
 

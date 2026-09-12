@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
-echo "[entrypoint] HDO ISO Converter arrancando..."
+echo "[entrypoint] UHD Blu-ray Toolkit arrancando..."
 
 # ── Configurar timezone del contenedor desde TZ env ─────────────────
 if [ -n "${TZ:-}" ] && [ -f "/usr/share/zoneinfo/${TZ}" ]; then

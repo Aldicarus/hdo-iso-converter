@@ -71,7 +71,7 @@ globalThis.localStorage = {
 };
 globalThis.__titulos = [];
 globalThis.document = {
-  title: 'HDO Blu-ray Toolkit',
+  title: 'UHD Blu-ray Toolkit',
   hidden: true,
   addEventListener() {},
 };
@@ -194,7 +194,7 @@ class TestLaTransicion(AvisoCase):
           await _avisoTick();
           process.stdout.write(JSON.stringify(document.title));
         """, respuestas=self.RESP_LIBRE, prefs={"hdo_avisar_fin_trabajo": "0"})
-        self.assertEqual(out, "HDO Blu-ray Toolkit")
+        self.assertEqual(out, "UHD Blu-ray Toolkit")
 
 
 class TestElTitulo(AvisoCase):
@@ -206,7 +206,7 @@ class TestElTitulo(AvisoCase):
           process.stdout.write(JSON.stringify({durante, despues: document.title}));
         """)
         self.assertEqual(out["durante"], "✅ terminado")
-        self.assertEqual(out["despues"], "HDO Blu-ray Toolkit",
+        self.assertEqual(out["despues"], "UHD Blu-ray Toolkit",
                          "volver a la pestaña debe dejar el título como estaba")
 
     async def test_dos_avisos_seguidos_no_pierden_el_original(self):
@@ -218,7 +218,7 @@ class TestElTitulo(AvisoCase):
           _pararParpadeo();
           process.stdout.write(JSON.stringify(document.title));
         """)
-        self.assertEqual(out, "HDO Blu-ray Toolkit")
+        self.assertEqual(out, "UHD Blu-ray Toolkit")
 
 
 class TestElContextoInseguro(AvisoCase):

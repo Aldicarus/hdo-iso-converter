@@ -11,7 +11,7 @@
  */
 
 /**
- * @fileoverview HDO Blu-ray Toolkit — Frontend SPA (Fase C de la pipeline)
+ * @fileoverview UHD Blu-ray Toolkit — Frontend SPA (Fase C de la pipeline)
  *
  * Arquitectura:
  *   - Vanilla JS sin framework ni bundler. Todo el estado vive en `currentSession`.
@@ -1203,7 +1203,7 @@ function avisarFinDeTrabajo(tab) {
   if (avisoSonidoActivado()) _pitido();
   if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
     try {
-      const n = new Notification('HDO Blu-ray Toolkit', {
+      const n = new Notification('UHD Blu-ray Toolkit', {
         body: `${nombre}: el trabajo ha terminado.`,
         tag: `hdo-fin-${tab}`,       // sustituye al anterior del mismo tab
       });

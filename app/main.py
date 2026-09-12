@@ -1,5 +1,5 @@
 """
-main.py — Backend FastAPI de HDO Blu-ray Toolkit
+main.py — Backend FastAPI de UHD Blu-ray Toolkit
 
 Punto de entrada de la aplicación: crea la `app`, sirve la SPA y monta los
 routers de las otras dos pestañas.
@@ -328,7 +328,7 @@ if DEV_MODE:
 # ── Aplicación FastAPI ────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="HDO Blu-ray Toolkit",
+    title="UHD Blu-ray Toolkit",
     version="1.3.0",
     description="Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.",
 )

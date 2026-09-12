@@ -1,18 +1,35 @@
-# HDO Blu-ray Toolkit — Reglas del proyecto
+# UHD Blu-ray Toolkit — Reglas del proyecto
 
 ## Nombre de la aplicación
-La aplicación se llama **HDO Blu-ray Toolkit**. Este nombre debe usarse en:
+La aplicación se llama **UHD Blu-ray Toolkit**. Este nombre debe usarse en:
 - Título del documento HTML
 - Texto de bienvenida en la UI
 - README y documentación
 - Mensajes de la consola del pipeline
 
-Nombres técnicos que **se mantienen por compatibilidad** (no romper docker pulls / URLs existentes):
+En la cabecera va en **dos piezas y una sola línea**: el chip `UHD` (`.brand-uhd`,
+el único degradado de la aplicación) pegado a `Blu-ray Toolkit` (`.brand-name`),
+y después el separador y la descripción. Chip y nombre **son una sola cosa** —el
+nombre— así que entre ellos no va separador; el que hay separa la marca de la
+descripción, que sí son dos.
+
+Nombres técnicos que **se mantienen por compatibilidad** (no romper docker pulls
+/ URLs / despliegues existentes):
 - Repositorio interno: `ISO2MKVFEL` (path local)
 - GitHub repo: `hdo-iso-converter`
 - Imagen Docker: `ghcr.io/aldicarus/hdo-iso-converter:latest`
+- Variable de entorno del puerto: `HDO_PORT` (está en el `.env` del NAS)
 
-El cambio "HDO ISO Converter → HDO Blu-ray Toolkit" se hizo cuando la app dejó de ser solo Tab 1 (ripeo de ISOs) y maduró como suite con 3 herramientas — el nombre antiguo daba a entender que solo hace una cosa, lo cual era engañoso.
+Dos renombrados, y los dos por lo mismo — que el nombre describiera lo que la app
+hace:
+
+- **"HDO ISO Converter → HDO Blu-ray Toolkit"**, cuando dejó de ser solo Tab 1
+  (ripeo de ISOs) y maduró como suite de tres herramientas: el nombre viejo daba
+  a entender que solo hace una cosa.
+- **"HDO Blu-ray Toolkit → UHD Blu-ray Toolkit"**, porque `HDO` no significaba
+  nada para nadie —era el grupo de release de los ISOs de origen, no la app— y
+  `UHD` sí dice de qué van los discos. De paso se fue el subtexto "UHD Blu-ray
+  suite" de la cabecera, que repetía lo que ya decían el chip y el nombre.
 
 ## Descripción
 Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesar contenido UHD Blu-ray. Organizada en tres herramientas accesibles desde tabs:
