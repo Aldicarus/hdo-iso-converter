@@ -1981,15 +1981,32 @@ operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
   `marcarPasoDeModal(el, 'curso'|'hecho'|'pendiente')` cambia el glifo de su
   `<span>`; antes era un `textContent.replace()` sobre ⏳/⬜/✅, o sea que el
   estado dependía de la redacción del paso y no podía tener color.
-- **El guard que importa**: `TestElCatalogoEsUnoYEstaCompleto` cruza todos los
-  `data-icono`, las llamadas `icono('x')` y los valores `icon:` contra el
-  catálogo. Un nombre mal escrito deja el hueco **vacío sin dar ningún error**,
-  y es el único modo de fallo de esta familia de cambios.
+- **Dos guards, y los dos por fallos mudos.**
+  `TestElCatalogoEsUnoYEstaCompleto` cruza contra el catálogo **todo lo que
+  pide un icono**: `data-icono`, `icono('x')`, los valores `icon:` y las
+  referencias `GLIFOS.x`. Un nombre que no existe deja el hueco vacío sin dar
+  ningún error — así se quedó en blanco el tipo de trabajo CMv4.0 al renombrar
+  `destellos`. Y `TestNadieVuelveAPintarUnEmojiDesdeElJs` prohíbe
+  `textContent = '💿'`: la migración cubrió el HTML pero no las asignaciones
+  desde el JS, y una de ellas —`updateSubtabQueuePill`, que **corre en cada
+  vuelta del poll de la cola**— devolvía el emoji al icono de la pestaña 1
+  nada más cargar la página.
+  - Ojo con `frontend_sources.piezas()`: devuelve **(nombre, token de
+    cache-bust)**, no el fuente. Un guard que lo use para buscar en el código
+    está mirando la cadena «20260912a» y pasa siempre. Para leer fuentes,
+    `rutas()`.
 - **Lo que queda en emoji es a propósito** (221 apariciones): los markers del
   log de CMv4.0 son tokens de persistencia y del parser, el Markdown que se
   copia al portapapeles es texto, y en la prosa de un tooltip un emoji no es
   iconografía. `TestElEmojiSeFueDeLaInterfaz` exige cero en el **marcado
   estático**, que es lo que se ve siempre.
+- **El icono de CMv4.0 es la curva de tone-mapping**, que es literalmente lo
+  que cambia un upgrade a CMv4.0. Eran dos destellos y decían «efecto mágico»,
+  que es justo lo que esa pestaña NO hace: no toca la imagen. Descartadas a
+  tamaño real la curva en un panel (se convierte en un cuadradito con una
+  raya), la curva con punto de anclaje (se emborrona) y el círculo mitad
+  relleno (legible, pero genérico —parece un conmutador de tema— y su relleno
+  rompe con los otros 43).
 - Un glifo tiene que funcionar **a 14 px**: el engranaje de 6 dientes se leía
   como un sol (es `ajustes`, deslizadores), tres lomos iguales como un código
   de barras, y un candado abierto igual que uno cerrado. Eso solo se ve
