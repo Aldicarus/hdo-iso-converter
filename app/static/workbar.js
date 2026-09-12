@@ -951,6 +951,19 @@ function _trabajoCartelPinta(cartel) {
  *
  *  Cada paso puede ser una cadena o `{titulo, sub, icono, nota}`.
  */
+/** El icono de un paso, venga como nombre del catálogo o ya como HTML.
+ *
+ *  Lo resuelve el CONSUMIDOR y no cada caller: hay cinco sitios que arman
+ *  pasos y con el emoji bastaba con interpolarlos: `${paso.icono}` pintaba el
+ *  carácter. Con nombres del catálogo eso escribe «claqueta» en pantalla —
+ *  texto crudo, sin ningún error—, así que se resuelve aquí una vez.
+ */
+function _glifoDePaso(v) {
+  if (!v) return '';
+  const html = String(v).trim().startsWith('<') ? v : icono(v);
+  return html ? `<span class="cmv40-tl-phase-icon">${html}</span>` : '';
+}
+
 function timelineDeTrabajo(pasos, a, titulo) {
   if (!pasos || !pasos.length) return '';
   const total = pasos.length;
@@ -982,7 +995,7 @@ function timelineDeTrabajo(pasos, a, titulo) {
       <div class="cmv40-tl-rail">${icono}</div>
       <div class="cmv40-tl-body">
         <div class="cmv40-tl-title">
-          ${paso.icono ? `<span class="cmv40-tl-phase-icon">${paso.icono}</span>` : ''}
+          ${_glifoDePaso(paso.icono)}
           <span>${escHtml(paso.titulo || '')}</span>
         </div>
         ${paso.sub ? `<div class="cmv40-tl-what">${escHtml(paso.sub)}</div>` : ''}

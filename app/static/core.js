@@ -764,7 +764,7 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="grafico"></span></span>
-        <div><div class="section-title">Audio</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
+        <div><div class="section-title">Audio</div><div class="section-subtitle">Arrastra para reordenar · pulsa la cruz para descartar</div></div>
         <span class="section-badge" id="${pid}-audio-count">0 pistas</span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
@@ -791,7 +791,7 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="etiqueta"></span></span>
-        <div><div class="section-title">Subtítulos</div><div class="section-subtitle">Arrastra para reordenar · pulsa ✕ para descartar</div></div>
+        <div><div class="section-title">Subtítulos</div><div class="section-subtitle">Arrastra para reordenar · pulsa la cruz para descartar</div></div>
         <span class="section-badge" id="${pid}-sub-count">0 pistas</span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
@@ -818,7 +818,7 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="libro"></span></span>
-        <div><div class="section-title">Capítulos</div><div class="section-subtitle">Clic en la barra para añadir · arrastra para ajustar · ✕ para eliminar</div></div>
+        <div><div class="section-title">Capítulos</div><div class="section-subtitle">Clic en la barra para añadir · arrastra para ajustar · la cruz elimina</div></div>
       </div>
       <div class="section-body">
         <div id="${pid}-chapters-auto-banner" class="banner info" style="display:none">
@@ -859,9 +859,9 @@ function buildProjectPanelHTML(pid) {
                 <th>Fecha</th>
                 <th>Estado</th>
                 <th data-tooltip="Montar ISO via loop mount"><span data-icono="disco"></span> Montar</th>
-                <th data-tooltip="mkvmerge: MPLS → MKV">⬇️ mkvmerge</th>
+                <th data-tooltip="mkvmerge: MPLS → MKV"><span data-icono="flechaAbajo"></span> mkvmerge</th>
                 <th data-tooltip="Desmontar ISO (umount)"><span data-icono="candadoAbierto"></span> Desmontar</th>
-                <th data-tooltip="mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)">✍️ Propedit</th>
+                <th data-tooltip="mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)"><span data-icono="lapiz"></span> Propedit</th>
                 <th data-tooltip="Duración total de la ejecución">⏱ Total</th>
                 <th>Acciones</th>
               </tr>
@@ -877,7 +877,7 @@ function buildProjectPanelHTML(pid) {
         data-tooltip="Guardar los cambios sin ejecutar"><span data-icono="caja"></span> Guardar</button>
       <button class="btn btn-success btn-lg" id="${pid}-execute-btn" onclick="executeSession()"
         data-tooltip="Confirmar y añadir a la cola de ejecución">
-        ▶️ Confirmar y ejecutar
+        <span data-icono="play"></span> Confirmar y ejecutar
       </button>
     </div>`;
 }
@@ -1424,7 +1424,7 @@ async function buscarCandidatosDeFicha() {
   if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar TMDb.</div>'; return; }
   if (!r.tmdb_configured) {
     res.innerHTML = '<div class="cmv40-lookup-empty">Falta la API key de TMDb '
-                  + '(⚙︎ Configuración).</div>';
+                  + '(Configuración).</div>';
     return;
   }
   _fichaCandidatos = r.candidates || [];
@@ -1439,7 +1439,7 @@ async function buscarCandidatosDeFicha() {
         ? `<img class="cmv40-lookup-pick-poster" src="${escHtml(c.poster_url)}" alt="" loading="lazy">`
         : '<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter"></div>';
       const nota = c.vote_average > 0
-        ? `<span class="cmv40-lookup-pick-rating">★ ${c.vote_average.toFixed(1)}</span>` : '';
+        ? `<span class="cmv40-lookup-pick-rating">${c.vote_average.toFixed(1)}</span>` : '';
       const orig = (c.title_en && c.title_en !== c.title_es)
         ? `<div class="cmv40-lookup-pick-orig">Original: ${escHtml(c.title_en)}</div>` : '';
       return `
@@ -1576,6 +1576,15 @@ const GLIFOS = {
   // 43. Los ejes con la curva conservan la forma a 15 px.
   curva: '<path d="M4.5 3.8v15.7h15.7"/>'
        + '<path d="M6.6 17c5.4 0 4.6-11.2 12.6-11.2"/>',
+  // Altavoz: una pista de audio. Sin las ondas, que a 14 px se emborronan.
+  altavoz: '<path d="M4.5 9.5h3.2L12.5 5.5v13L7.7 14.5H4.5z"/>'
+         + '<path d="M16.2 9.6a3.6 3.6 0 0 1 0 4.8"/>',
+  // El rectángulo con dos renglones: un subtítulo, como el `subtitles` de
+  // Material. Un bocadillo diría «un comentario».
+  subtitulos: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/>'
+            + '<path d="M6.8 11.5h4M13.2 11.5h4M6.8 15h7M16 15h1.2"/>',
+  // Un salto por encima: la fase que no hace falta ejecutar.
+  omitida: '<path d="M5 7.5c3.5 0 4.5 9 8 9s4.5-9 8-9"/><path d="M18 4.6 21 7.5l-3 2.9"/>',
   // Crear algo. Dos de las «estrellitas» no eran de CMv4.0 sino del botón de
   // crear los proyectos de una serie, y ahí lo que se quiere decir es esto.
   mas: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',

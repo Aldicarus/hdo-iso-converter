@@ -99,7 +99,7 @@ globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
@@ -358,7 +358,7 @@ let _timerApagado = false;
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
@@ -452,7 +452,7 @@ globalThis.escHtml = t => String(t);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
@@ -520,7 +520,7 @@ globalThis.clearInterval = () => {{}};
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
@@ -587,7 +587,7 @@ globalThis.clearInterval = () => {{ _apagado = true; }};
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoKvHTML')}
 {_fn('_trabajoModalConResumen')}
@@ -940,7 +940,7 @@ globalThis.escHtml = t => String(t);
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_iconos()}
-{_fn('timelineDeTrabajo')}
+{_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 console.log(JSON.stringify({{ html: timelineDeTrabajo(
   {json.dumps(pasos)}, {json.dumps(a)}, 'Fases') }}));
 """
@@ -1030,7 +1030,7 @@ class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
 {_fn("_workbarTiempo")}
 {_fn("_relojHTML")}
 {_iconos()}
-{_fn("timelineDeTrabajo")}
+{_fn("_glifoDePaso") + _fn("timelineDeTrabajo")}
 {_fn("_ripTimelineHTML")}
 const a = {{ fase_n: 2, segundos: 754 }};
 const sesion = {{ execution_history: [
@@ -1055,7 +1055,7 @@ console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
 {_fn("_workbarTiempo")}
 {_fn("_relojHTML")}
 {_iconos()}
-{_fn("timelineDeTrabajo")}
+{_fn("_glifoDePaso") + _fn("timelineDeTrabajo")}
 {_fn("_ripTimelineHTML")}
 const a = {{ fase_n: 2, segundos: 754, pct: 63, pct_medido: true }};
 const sesion = {{ execution_history: [

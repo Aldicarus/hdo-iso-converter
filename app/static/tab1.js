@@ -558,9 +558,8 @@ function updateProgressModal({ current, pct, addStep, checklist, footnote, done 
       el.style.display = 'block';
       el.classList.add('checklist');
       el.innerHTML = checklist.map(item => {
-        const icon = item.status === 'done' ? icono('check')
-          : item.status === 'active' ? '⏳'
-          : '⬜';
+        const icon = icono(item.status === 'done' ? 'check'
+          : item.status === 'active' ? 'reloj' : 'pendiente');
         const cls = item.status === 'active' ? 'checklist-row active'
           : item.status === 'done' ? 'checklist-row done'
           : 'checklist-row';
@@ -740,7 +739,8 @@ async function analyzeSelectedISO() {
 async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe, opts = {}) {
   // Modal de progreso — disc-probe puede tardar 10-30s (montaje del
   // ISO + búsqueda de episodios candidatos en discos grandes).
-  const probeIcon = sourceType === 'iso' ? '💿' : sourceType === 'bdmv_folder' ? '📁' : '🎞️';
+  const probeIcon = icono(sourceType === 'iso' ? 'disco'
+    : sourceType === 'bdmv_folder' ? 'carpeta' : 'cinta', 'ico-xl');
   const probeSub = sourceType === 'iso'
     ? 'Montando ISO y buscando episodios candidatos en el disco'
     : sourceType === 'bdmv_folder'
@@ -755,7 +755,7 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   // en cuanto el backend empieza a reportar el paso real (montaje, scan
   // por candidato, clasificación). Sin polling el modal se quedaba con
   // "Conectando con el servidor…" durante 10-30s sin barra avanzando.
-  updateProgressModal({ current: '⏳ Iniciando…', pct: 0 });
+  updateProgressModal({ current: 'Iniciando…', pct: 0 });
 
   // Polling del progreso real. Pollea cada 400ms hasta que el POST
   // termine. Si el backend reporta `running:false` lo respetamos (el
@@ -804,7 +804,7 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   // no ser el esperado si era una serie disfrazada.
   if (probe.movie_warning) {
     showConfirm(
-      '⚠️ Origen con varios episodios',
+      'Origen con varios episodios',
       probe.movie_warning,
       () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
       'Sí, procesar como película',
@@ -1173,7 +1173,7 @@ async function seriesTmdbSearch() {
   const data = await apiFetch(`/api/tv-search?${qs.toString()}`);
 
   if (!data || !data.tmdb_configured) {
-    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no configurado. Configura la API key en ⚙️ Ajustes para buscar series.</div>';
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no configurado. Configura la API key en Ajustes para buscar series.</div>';
     return;
   }
   if (!data.results || data.results.length === 0) {
@@ -1190,11 +1190,11 @@ async function seriesTmdbSearch() {
     const yr = r.year ? `<span class="yr">(${r.year})</span>` : '';
     const meta = [
       r.original_name && r.original_name !== r.name ? escHtml(r.original_name) : '',
-      r.vote_average ? `★ ${r.vote_average.toFixed(1)}` : '',
+      r.vote_average ? `${r.vote_average.toFixed(1)}` : '',
     ].filter(Boolean).join(' · ');
     const poster = r.poster_url
       ? `<img src="${escHtml(r.poster_url)}" alt="${escHtml(r.name)}" loading="lazy">`
-      : '📺';
+      : icono('tv', 'ico-lg');
     return `
       <div class="series-candidate${isSelected ? ' selected' : ''}"
            onclick="seriesSelectCandidate(${r.tmdb_id})">
@@ -1511,7 +1511,7 @@ function _seriesConfirmConflicts(count, listText) {
       `· "Reemplazar" borra las existentes y crea unas nuevas — perderás ediciones, historial de ejecución y el output MKV si aún no se ha movido.\n` +
       `· "Saltar existentes" mantiene las actuales y procesa solo los episodios nuevos marcados.`,
       () => resolve('replace'),
-      '🗑️ Reemplazar',
+      'Reemplazar',
     );
     // Botón secundario "Saltar existentes" — clonado del patrón de
     // "Abrir existente" del flujo Película (single duplicate).
@@ -2230,10 +2230,10 @@ function toggleSidebarSelection(sessionId) {
  */
 function confirmOpenSession(sessionId, name) {
   showConfirm(
-    '📂 Abrir proyecto',
+    'Abrir proyecto',
     `¿Abrir el proyecto "${name}"?\n\nSe cargará en una nueva sub-pestaña de revisión.`,
     () => loadSession(sessionId),
-    '📂 Abrir'
+    'Abrir'
   );
 }
 
@@ -2244,10 +2244,10 @@ function confirmOpenSession(sessionId, name) {
  */
 function confirmDeleteSession(sessionId, name) {
   showConfirm(
-    '🗑️ Eliminar proyecto',
+    'Eliminar proyecto',
     `¿Eliminar permanentemente el proyecto "${name}"?\n\nEsta acción no se puede deshacer. El MKV de salida (si existe) no se borrará.`,
     () => deleteSession(sessionId),
-    '🗑️ Eliminar'
+    'Eliminar'
   );
 }
 
@@ -2945,7 +2945,7 @@ function renderDiscardedTracks(tracks) {
         codecInfo = [langLit, 'PGS', pktTag].filter(Boolean).join(' · ');
       }
 
-      const icon = isAudio ? '🔊' : '💬';
+      const icon = icono(isAudio ? 'altavoz' : 'subtitulos');
       const ambigWarn = getTrackAmbiguityWarning(track);
       const div = document.createElement('div');
       div.className = 'discarded-item' + (ambigWarn ? ' has-ambiguity' : '');
@@ -3439,7 +3439,7 @@ function renderChapters(chapters, autoGenerated, autoReason) {
 
   if (autoReason) {
     if (text) text.textContent = autoReason;
-    if (icon) icon.textContent = autoGenerated ? '⚠️' : '💿';
+    if (icon) icon.innerHTML = icono(autoGenerated ? 'aviso' : 'disco');
     if (banner) {
       banner.className = autoGenerated ? 'banner warning' : 'banner info';
       banner.style.display = 'flex';
@@ -3841,7 +3841,7 @@ function _classifyDvStatus(session) {
     return {
       label: 'Dolby Vision dual-layer', icon: 'claqueta', cls: 'dv-unconfirmed',
       detail: how || 'Enhancement Layer presente en el disco',
-      note: 'dovi_tool no pudo confirmar si la capa es FEL o MEL — se asume FEL (mira 🔬 Datos ISO).',
+      note: 'dovi_tool no pudo confirmar si la capa es FEL o MEL — se asume FEL (mira «Datos ISO»).',
       unconfirmed: true,
     };
   }
@@ -4053,10 +4053,10 @@ async function executeSession() {
   }
 
   showConfirm(
-    '▶️ Ejecutar proyecto',
+    'Ejecutar proyecto',
     `Se añadirá a la cola de ejecución:\n\n"${currentSession.mkv_name || 'MKV'}"\n\nSi hay otros trabajos en espera, se ejecutará cuando les toque.`,
     _doExecute,
-    '▶️ Ejecutar'
+    'Ejecutar'
   );
 }
 
@@ -4099,7 +4099,7 @@ function renderExecResultBanner(session) {
   if (session.status === 'running' || session.status === 'queued') {
     banner.style.display = '';
     banner.className = 'banner info';
-    icon.textContent = session.status === 'running' ? '⏳' : '⏸';
+    icon.innerHTML = icono(session.status === 'running' ? 'reloj' : 'pausa');
     title.textContent = session.status === 'running' ? 'Ejecución en curso…' : 'En cola de ejecución';
     detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
@@ -4180,7 +4180,7 @@ function renderExecutionHistory(session) {
   const reversed = [...history].reverse();
   for (const rec of reversed) {
     const isDone  = rec.status === 'done';
-    const icon    = isDone ? '✅' : '❌';
+    const icon    = icono(isDone ? 'check' : 'cruz');
     const dateStr = rec.started_at ? formatRelativeDate(rec.started_at) : '—';
 
     // Elapsed por fase
@@ -4613,7 +4613,7 @@ function showLogModal(idx) {
 
   const isDone  = rec.status === 'done';
   const dateStr = rec.started_at ? new Date(rec.started_at).toLocaleString() : '—';
-  const status  = isDone ? '✅ Completada' : '❌ Error';
+  const status  = icono(isDone ? 'check' : 'cruz') + (isDone ? ' Completada' : ' Error');
 
   document.getElementById('log-viewer-title').innerHTML =
     icono('portapapeles') + ` Log — Ejecución #${rec.run_number}`;
@@ -4796,18 +4796,20 @@ document.head.appendChild(spinStyle);
  */
 function _ripTimelineHTML(a, sesion) {
   const FASES = [
-    ['mount',   '💿', 'Fase A · Apertura del origen',
+    ['mount',   'disco', 'Fase A · Apertura del origen',
      'Monta el ISO o valida la estructura BDMV'],
-    ['extract', '🎞️', 'Fase B · Extracción de pistas',
+    ['extract', 'cinta', 'Fase B · Extracción de pistas',
      'mkvmerge copia vídeo, audio y subtítulos sin recodificar'],
-    ['write',   '🏷️', 'Fase C · Escritura de metadatos',
+    ['write',   'etiqueta', 'Fase C · Escritura de metadatos',
      'Nombres de pista, flags default/forced y capítulos'],
-    ['unmount', '⏏️', 'Fase D · Cierre del origen',
+    ['unmount', 'omitida', 'Fase D · Cierre del origen',
      'Desmonta el ISO y elimina los ficheros intermedios'],
   ];
   const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
   const elapsed = ejec.phase_elapsed || {};
-  const pasos = FASES.map(([id, icono, titulo, sub], i) => {
+  // `glifo` y no `icono`: ese nombre sombrearía la función del catálogo
+  // dentro de este `map`.
+  const pasos = FASES.map(([id, glifo, titulo, sub], i) => {
     // «completado» SOLO si la fase quedó atrás. El historial registra también
     // el transcurrido de la que está corriendo, así que fiarse de que el dato
     // exista marcaba la fase activa como terminada — como en CMv4.0, el
@@ -4818,7 +4820,7 @@ function _ripTimelineHTML(a, sesion) {
     const secs = elapsed[id];
     const yaPaso = a.terminal ? secs != null : (a.fase_n && i + 1 < a.fase_n);
     return {
-      titulo, sub, icono,
+      titulo, sub, icono: glifo,
       estado: a.terminal ? (secs != null ? 'done' : 'pending') : undefined,
       nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
     };
@@ -4836,7 +4838,7 @@ registrarDetalleDeTrabajo('rip', async (a) => {
     sinDetalle: s ? '' : 'borrado',
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
-    cartel: cartelDeTmdb(s?.tmdb_info, s?.mkv_name, '💿'),
+    cartel: cartelDeTmdb(s?.tmdb_info, s?.mkv_name, icono('disco', 'ico-xl')),
     lateral: _ripTimelineHTML(a, s),
     pasos: [],
     conLog: true,
@@ -4856,7 +4858,7 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     sub: p?.current_label || '',
     // La serie no guarda su `tmdb_info` en el progreso —lo tiene cada sesión
     // de episodio, que aún no existe—, así que la cartela es el nombre.
-    cartel: cartelDeTmdb(null, p?.series_name || a.que, '📺'),
+    cartel: cartelDeTmdb(null, p?.series_name || a.que, icono('tv', 'ico-xl')),
     pasosTitulo: 'Fases del análisis',
     pasos: [
       { icono: 'disco', titulo: 'Fase A · Apertura del origen',

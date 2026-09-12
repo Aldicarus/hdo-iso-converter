@@ -2149,7 +2149,7 @@ function _renderMkvEditPanel(project = mkvProject) {
             <span id="mkv-chapters-text-${pid}"></span>
             <button class="btn btn-xs" id="mkv-chapters-autogen-btn-${pid}" style="display:none; margin-left:auto"
               onclick="generateMkvAutoChapters()"
-              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)">📑 Generar cada 10 min</button>
+              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)"><span data-icono="portapapeles"></span> Generar cada 10 min</button>
           </div>
           <div id="mkv-chapter-timeline-wrap-${pid}" class="chapter-timeline-wrap"
             onclick="onMkvTimelineClick(event)"
@@ -2966,7 +2966,7 @@ async function _cargarComparacionLuminancia(ruta) {
     if (!r || !r.cached) {
       showToast(
         `Sin perfil que comparar — ${r?.reason || 'no analizado'}. ` +
-        'Ábrelo en esta pestaña y lánzale el 🔬 Análisis extendido.',
+        'Ábrelo en esta pestaña y lánzale el análisis extendido.',
         'info', 8000);
       return;
     }
@@ -3106,7 +3106,7 @@ function _renderMkvRecientesErrorDeCarga() {
   if (contador) contador.textContent = '—';
   lista.innerHTML = `
     <div class="empty-state" style="padding:24px 12px">
-      <div class="empty-state-icon">🔌</div>
+      <div class="empty-state-icon" data-icono="caja"></div>
       <div>No se ha podido cargar la lista</div>
       <div class="empty-state-desc" style="margin-top:6px">
         Los análisis siguen guardados. Abrir un MKV funciona igual.

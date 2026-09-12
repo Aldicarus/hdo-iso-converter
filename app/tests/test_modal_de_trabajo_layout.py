@@ -352,7 +352,9 @@ class TestLoQueSePerdioAlUnificar(unittest.TestCase):
         d = self.m["cmv40"]
         # Con el prefijo 🤖 que el overlay ponía cuando la cadena avanza sola.
         self.assertEqual(d["tituloTexto"],
-                         "🤖 Auto · Fase C — Extrayendo BL/EL y datos per-frame")
+                         "Auto · Fase C — Extrayendo BL/EL y datos per-frame")
+        # Sin el robot: los emoji de la interfaz pasaron a SVG, y ese
+        # iba dentro de una cadena de texto.
         self.assertNotEqual(d["sub"], d["cartelTitulo"])
         self.assertNotIn(".mkv", d["tituloTexto"])
 

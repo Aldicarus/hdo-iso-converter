@@ -226,7 +226,7 @@ async function _cmv40HelpHydrateSheetLink() {
         : sh.source === 'env'      ? 'URL de variable de entorno'
         : 'URL por defecto de la comunidad DoviTools';
       metaEl.textContent = sh.is_default
-        ? 'URL por defecto de la comunidad DoviTools — la puedes cambiar en ⚙︎ Configuración'
+        ? 'URL por defecto de la comunidad DoviTools — la puedes cambiar en Configuración'
         : srcLabel;
     }
   } catch (_) {
@@ -249,10 +249,10 @@ async function _cmv40HelpHydrateDriveLink() {
     if (df.configured) {
       statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">(folder …${escHtml(df.folder_id_last6 || '??????')})</span>`;
       statusEl.style.color = '#0e6b2a';
-      const srcLabel = df.source === 'settings' ? 'configurada desde ⚙︎ Configuración'
+      const srcLabel = df.source === 'settings' ? 'configurada desde Configuración'
         : df.source === 'env' ? 'configurada por variable de entorno del contenedor'
         : 'configurada';
-      const apiKeyState = apiKey.configured ? 'API key ✓' : 'API key ✗ sin configurar — imprescindible';
+      const apiKeyState = apiKey.configured ? 'API key configurada' : 'API key sin configurar — imprescindible';
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
       statusEl.innerHTML = icono('aviso') + ' No configurada';
@@ -345,7 +345,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Nota técnica:</strong> Profile 7 <em>no es oficialmente válido</em> en containers .mkv ni .mp4 según Dolby — el contenedor nativo es UHD Blu-ray (.m2ts). mkvmerge lo acepta por <strong>convención de la comunidad</strong>, y todo el ecosistema open-source (dovi_tool, MadVR, Jellyfin) ha adoptado esa convención.
     </div>
 
-    <h2 id="g-cm">📐 CM Versions — v2.9 y v4.0</h2>
+    <h2 id="g-cm"><span data-icono="grafico"></span> CM Versions — v2.9 y v4.0</h2>
     <p>El <strong>Content Mapping</strong> es el algoritmo que traduce el master HDR al rango dinámico del TV final. Es la metadata que le dice al TV cómo comprimir 4000+ nits del master a los ~700-2000 nits que maneja.</p>
     <table>
       <tr><th>Versión</th><th>Introducida</th><th>Niveles incluidos</th><th>Cambios clave</th></tr>
@@ -428,7 +428,7 @@ const _CMV40_HELP_SECTIONS = {
       <br>· <em>"CMv4.0 arregla el grading"</em> → tampoco. Si el master original tenía un problema de color, CMv4.0 no lo corrige. Corrige la <em>adaptación</em> al display.
     </div>
 
-    <h2 id="w-levels">📐 Los niveles (L) que marcan la diferencia</h2>
+    <h2 id="w-levels"><span data-icono="grafico"></span> Los niveles (L) que marcan la diferencia</h2>
     <p>Un RPU contiene instrucciones organizadas en niveles numerados (L0, L1, L2…). Cada nivel describe un aspecto distinto del tone-mapping. CMv2.9 tiene L0, L1, L2, L4, L5, L6. CMv4.0 es <strong>superset</strong>: mantiene todos los de v2.9 y añade L3, L8, L9, L10 y (más tarde) L11. Estos son los que importan para el upgrade:</p>
     <table>
       <tr><th>Nivel</th><th>Qué hace</th><th>Por qué mejora con v4.0</th></tr>
@@ -515,7 +515,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Aviso honesto:</strong> ninguna marca publica "CMv4.0 engine on/off" en las notas de versión de firmware. La clasificación arriba proviene del consenso de foros (AVSForum, Firecore, makemkv) y debe interpretarse como "tendencia mayoritaria", no garantía absoluta por firmware específico.
     </div>
 
-    <h2 id="w-lldv">🚨 El caso LLDV (Low Latency Dolby Vision)</h2>
+    <h2 id="w-lldv"><span data-icono="aviso"></span> El caso LLDV (Low Latency Dolby Vision)</h2>
     <p><strong>LLDV / "player-led DV" / "block 5 DV"</strong> es el modo donde el reproductor origen (Apple TV, Shield, HDFury Vertex/Vrroom) hace el tone-mapping DV internamente y envía una señal HDR estándar ya mapeada al dispositivo receptor. El TV no ve el RPU real — solo recibe HDR con la imagen ya tone-mapeada.</p>
     <p><strong>Dónde se usa:</strong> principalmente <em>proyectores</em> (no existen proyectores con DV TV-led real) y displays HDR10-only que quieren aprovechar el grading DV.</p>
     <div class="help-callout help-callout-danger">
@@ -535,7 +535,7 @@ const _CMV40_HELP_SECTIONS = {
       <li><strong>¿Reproduces vía LLDV</strong> (proyector, Shield, HDFury)? → verifica firmware. Apple TV tvOS 17+ OK; CoreELEC stock y varios reproductores antiguos pueden perder el upgrade en el camino.</li>
       <li><strong>¿Tu Blu-ray es MEL (no FEL)?</strong> → considera el camino "descartar MEL → P8.1 CMv4.0 single-layer". Mismo resultado visual, archivo más ligero.</li>
       <li><strong>¿Reproduces exclusivamente desde una Ugoos con CoreELEC-avdvplus?</strong> → tienes append automático en el reproductor. Puedes saltarte el upgrade estático o hacerlo solo para películas que quieras archivar portables.</li>
-      <li><strong>¿Hay bin retail para tu peli en el repo DoviTools?</strong> (consulta rápida 🔎 desde la app) → si sí, adelante. Si solo hay generated, decide según tu tolerancia a aproximaciones algorítmicas.</li>
+      <li><strong>¿Hay bin retail para tu peli en el repo DoviTools?</strong> (consulta rápida desde la app) → si sí, adelante. Si solo hay generated, decide según tu tolerancia a aproximaciones algorítmicas.</li>
     </ol>
 
     <div class="help-sources">
@@ -606,7 +606,7 @@ const _CMV40_HELP_SECTIONS = {
       <tr><td><strong>Derecha extra — "Not Sure!"</strong></td><td>Bin disponible pero <em>sin verificación completa</em>, o reportes contradictorios.</td><td>Banner ámbar <strong>Probablemente OK</strong>: conviene revisar la sincronización a mano aunque los <em>trust gates</em> pasen.</td></tr>
     </table>
     <div class="help-callout help-callout-info">
-      <strong>Por qué importa la distinción:</strong> si un título está en la izquierda y en la derecha, la app se queda con la lectura de la derecha y muestra <em>todas</em> las filas, cada una con su bloque de origen. Antes colapsaba las dos en un único veredicto y ganaba siempre la de la izquierda, así que salía un ❌ rojo aunque la hoja documentara la ruta de restore. Los motivos que sí bajan el semáforo son los que afectan al resultado: <code>static dv</code> (metadata plana en la fuente), <code>mdl mismatch</code> / <code>different grade</code> (el master de referencia tiene otro grading) y <code>no bd yet</code>.
+      <strong>Por qué importa la distinción:</strong> si un título está en la izquierda y en la derecha, la app se queda con la lectura de la derecha y muestra <em>todas</em> las filas, cada una con su bloque de origen. Antes colapsaba las dos en un único veredicto y ganaba siempre la de la izquierda, así que salía un rechazo en rojo aunque la hoja documentara la ruta de restore. Los motivos que sí bajan el semáforo son los que afectan al resultado: <code>static dv</code> (metadata plana en la fuente), <code>mdl mismatch</code> / <code>different grade</code> (el master de referencia tiene otro grading) y <code>no bd yet</code>.
     </div>
 
     <h2 id="s-columns"><span data-icono="carpeta"></span> Cómo leer cada columna</h2>
@@ -627,7 +627,7 @@ const _CMV40_HELP_SECTIONS = {
     <p>Muchas celdas llevan enlaces incrustados a recursos externos: el bin en Google Drive, imágenes comparativas, hilos de foro con pruebas, tutoriales específicos. La app los preserva y te los muestra con un botón "Abrir ↗" en:</p>
     <ul>
       <li>El <strong>banner de recomendación</strong> que aparece al seleccionar un Blu-ray en "Nuevo proyecto".</li>
-      <li>La card <strong>"📋 Hoja de DoviTools"</strong> del panel del proyecto, que conserva el veredicto durante todo el pipeline.</li>
+      <li>La card <strong>«Hoja de DoviTools»</strong> del panel del proyecto, que conserva el veredicto durante todo el pipeline.</li>
       <li>La <strong>consulta rápida <code><span data-icono="lupa"></span></code></strong> del header — para revisar un título sin crear proyecto.</li>
     </ul>
 
@@ -677,7 +677,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#r-download">Descarga y caching</a>
     </div>
 
-    <h2 id="r-access">🔑 Cómo conseguir acceso al repo</h2>
+    <h2 id="r-access"><span data-icono="candado"></span> Cómo conseguir acceso al repo</h2>
     <p>Hay una diferencia importante que conviene entender desde el principio: la hoja pública de recomendaciones (la que consulta el tab <strong><span data-icono="grafico"></span> Hoja</strong> del manual) es <strong>abierta y anónima</strong>, no requiere nada. Los <strong>bins en sí</strong> (los <code>.bin</code> del Google Drive) están en una carpeta <strong>gated</strong> mantenida personalmente por REC_9999 — no es un enlace público.</p>
 
     <h3>El modelo de acceso de la comunidad DoviTools</h3>
@@ -724,7 +724,7 @@ const _CMV40_HELP_SECTIONS = {
       </div>
     </div>
 
-    <p style="font-size:12px; color:var(--text-3); font-style:italic">Para la configuración técnica (cómo crear la Google API key que la app usa para leer el Drive, cómo pegarlo todo en ⚙︎ Configuración, errores frecuentes), ve a la sección <strong><span data-icono="candado"></span> Claves y APIs</strong> al final del manual.</p>
+    <p style="font-size:12px; color:var(--text-3); font-style:italic">Para la configuración técnica (cómo crear la Google API key que la app usa para leer el Drive, cómo pegarlo todo en Configuración, errores frecuentes), ve a la sección <strong><span data-icono="candado"></span> Claves y APIs</strong> al final del manual.</p>
 
     <h2 id="r-structure"><span data-icono="carpeta"></span> Estructura del repo</h2>
     <p>La carpeta se organiza jerárquicamente por película + versión + tipo de bin. La app escanea hasta <strong>5 niveles de profundidad</strong> buscando <code>.bin</code>. Ejemplos de estructura típica:</p>
@@ -900,7 +900,7 @@ const _CMV40_HELP_SECTIONS = {
       <a href="#p-problems">Problemas típicos y qué hacer</a>
     </div>
 
-    <h2 id="p-overview">🔁 Flujo general</h2>
+    <h2 id="p-overview"><span data-icono="refrescar"></span> Flujo general</h2>
     <p>Este es el recorrido cuando el target <em>no</em> está pre-validado por la comunidad (bin generated, MKV custom o divergencias con el BD). Es el caso que requiere más intervención tuya: la fase D exige que valides visualmente que las curvas están alineadas antes de inyectar.</p>
     <p style="font-size:12px; color:var(--text-3); margin:-4px 0 10px">Las <em>fases</em> (letras A-H) son trabajo que ejecuta la app. Las <em><span data-icono="escudo"></span> validaciones</em> son puntos de decisión que viven entre fases: la app compara datos de la Fase A con los del bin target, y según el resultado, el pipeline puede saltar fases enteras. Por eso aparecen en los diagramas con otro color y sin letra.</p>
     <div class="help-pipeline-diagram">
@@ -1003,7 +1003,7 @@ const _CMV40_HELP_SECTIONS = {
     <p>En cuanto el bin está en el workdir, la app lee su metadata con <code>dovi_tool info --summary</code>: profile, CM version, niveles presentes (L1, L2, L5, L6, L8, L9…), scene/frame count. Con esta metadata lista, se cierra Fase B y se ejecuta el siguiente bloque: las validaciones.</p>
 
     <h3><span data-icono="escudo"></span> Validaciones (trust gates) — el punto de decisión</h3>
-    <p>Entre Fase B y Fase C, la app <strong>compara la metadata del bin target con la que Fase A extrajo del Blu-ray</strong>. Esto no es una fase (no hace trabajo nuevo de procesado), es una decisión basada en la comparación. No aparece como letra en los diagramas pero sí como marcador 🛡️, porque es donde el pipeline elige entre ruta auto o ruta manual.</p>
+    <p>Entre Fase B y Fase C, la app <strong>compara la metadata del bin target con la que Fase A extrajo del Blu-ray</strong>. Esto no es una fase (no hace trabajo nuevo de procesado), es una decisión basada en la comparación. No aparece como letra en los diagramas pero sí como marcador de validaciones, porque es donde el pipeline elige entre ruta auto o ruta manual.</p>
     <p>Lo que se compara:</p>
     <ul>
       <li><strong>Número de frames</strong> — tolerancia cero. Si difieren, el bin es para otra edición.</li>
@@ -1107,7 +1107,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">no hace falta</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1131,7 +1131,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1155,7 +1155,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1179,7 +1179,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux BL+EL</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1256,7 +1256,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin P8.1</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1281,7 +1281,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1305,7 +1305,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux solo BL</span><span class="cmv40-ph-mod">EL descartado</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1380,7 +1380,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar bin</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1404,7 +1404,7 @@ const _CMV40_HELP_SECTIONS = {
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-run"><span class="cmv40-ph-letter">B</span><span class="cmv40-ph-label">Descargar P8.x</span></div>
         <span class="cmv40-ph-arrow">→</span>
-        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted ✓</span></div>
+        <div class="cmv40-ph-pill cmv40-ph-gate"><span class="cmv40-ph-letter"><span data-icono="escudo"></span></span><span class="cmv40-ph-label">Gates</span><span class="cmv40-ph-mod">trusted<span data-icono="check"></span></span></div>
         <span class="cmv40-ph-arrow">→</span>
         <div class="cmv40-ph-pill cmv40-ph-skip"><span class="cmv40-ph-letter">C</span><span class="cmv40-ph-label">Demux</span><span class="cmv40-ph-mod">single-layer ya</span></div>
         <span class="cmv40-ph-arrow">→</span>
@@ -1579,7 +1579,7 @@ const _CMV40_HELP_SECTIONS = {
       <tr>
         <td><strong>Google API</strong><br><span style="font-size:11px; color:var(--text-3)">(Drive v3)</span></td>
         <td>Listar y descargar bins <code>.bin</code> del repositorio público DoviTools en Google Drive. También permite lectura del sheet vía API oficial.</td>
-        <td>La pestaña "📦 Repo DoviTools" del modal de nuevo proyecto queda vacía. Sigues pudiendo usar el repo descargando bins a mano a una carpeta local, pero pierdes la comodidad del flujo integrado.</td>
+        <td>La pestaña «Repo DoviTools» del modal de nuevo proyecto queda vacía. Sigues pudiendo usar el repo descargando bins a mano a una carpeta local, pero pierdes la comodidad del flujo integrado.</td>
       </tr>
     </table>
 
@@ -1615,7 +1615,7 @@ const _CMV40_HELP_SECTIONS = {
     <h3>Cuota TMDb</h3>
     <p>Sin límite explícito para uso personal. TMDb pide no hacer más de 50 peticiones por segundo (imposible alcanzarlo con uso normal). No hay cuota diaria.</p>
 
-    <h2 id="k-google">🔑 Google API (Drive) — paso a paso</h2>
+    <h2 id="k-google"><span data-icono="candado"></span> Google API (Drive) — paso a paso</h2>
     <p>Google Cloud te da una API key gratuita con cuotas generosas. Es el mismo mecanismo que usan aplicaciones profesionales — el setup parece intimidante la primera vez, pero se hace en ~10 minutos.</p>
 
     <h3>Crear un proyecto en Google Cloud</h3>
@@ -1639,7 +1639,7 @@ const _CMV40_HELP_SECTIONS = {
       <strong>Este paso es crítico.</strong> Sin habilitar la API, la key no funciona aunque la generes correctamente. Es el error más común al configurar.
     </div>
     <ol style="font-size:13px">
-      <li>Con tu proyecto seleccionado arriba, abre el menú lateral (☰ arriba a la izquierda) → <strong>APIs y servicios</strong> → <strong>Biblioteca</strong>. Enlace directo: <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noreferrer">console.cloud.google.com/apis/library</a>.</li>
+      <li>Con tu proyecto seleccionado arriba, abre el menú lateral (arriba a la izquierda) → <strong>APIs y servicios</strong> → <strong>Biblioteca</strong>. Enlace directo: <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noreferrer">console.cloud.google.com/apis/library</a>.</li>
       <li>En el buscador escribe <strong>"Google Drive API"</strong>. Pulsa en la tarjeta del resultado.</li>
       <li>Pulsa el botón azul <strong>"Habilitar"</strong> (Enable). Espera unos segundos. Cuando termine verás una pantalla con métricas de uso (inicialmente a cero).</li>
     </ol>
@@ -1661,10 +1661,10 @@ const _CMV40_HELP_SECTIONS = {
     </ul>
     <p>Uso típico de la app (abrir el modal de nuevo proyecto una docena de veces al día, descargar algunos bins) está <em>muy</em> por debajo. No verás límites.</p>
 
-    <h2 id="k-configure">📝 Pegarlas en la app</h2>
+    <h2 id="k-configure"><span data-icono="portapapeles"></span> Pegarlas en la app</h2>
     <ol style="font-size:13px">
       <li>En la app, pulsa el icono <strong><span data-icono="ajustes"></span></strong> arriba a la derecha para abrir el modal de Configuración.</li>
-      <li>En <strong>"TMDb API key"</strong> pega la cadena corta (v3 auth) del paso TMDb. Pulsa <strong>"Probar"</strong>. Si todo va bien verás ✓ verde y un título de prueba.</li>
+      <li>En <strong>"TMDb API key"</strong> pega la cadena corta (v3 auth) del paso TMDb. Pulsa <strong>"Probar"</strong>. Si todo va bien verás el visto verde y un título de prueba.</li>
       <li>En <strong>"Google API key"</strong> pega la cadena <code>AIzaSy...</code>. Pulsa <strong>"Probar"</strong>.</li>
       <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
       <li>Pulsa <strong>Guardar</strong>. La configuración queda en el servidor; no hay que reintroducirla al reabrir el navegador.</li>
@@ -1792,7 +1792,7 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
       ? `<img class="cmv40-lookup-pick-poster" src="${escHtml(c.poster_url)}" alt="" loading="lazy">`
       : `<div class="cmv40-lookup-pick-poster cmv40-lookup-pick-noposter"><span data-icono="claqueta"></span></div>`;
     const rating = c.vote_average > 0
-      ? `<span class="cmv40-lookup-pick-rating">★ ${c.vote_average.toFixed(1)}</span>`
+      ? `<span class="cmv40-lookup-pick-rating">${c.vote_average.toFixed(1)}</span>`
       : '';
     const origHtml = (c.title_en && c.title_en !== c.title_es)
       ? `<div class="cmv40-lookup-pick-orig">Original: ${escHtml(c.title_en)}</div>`
@@ -1820,7 +1820,7 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
 
   container.innerHTML = `
     <div class="cmv40-lookup-section">
-      <div class="cmv40-lookup-section-title">🎬 ${candidates.length} coincidencias en TMDb para "${escHtml(queryTitle)}"</div>
+      <div class="cmv40-lookup-section-title"><span data-icono="claqueta"></span> ${candidates.length} coincidencias en TMDb para "${escHtml(queryTitle)}"</div>
       <div class="cmv40-lookup-section-desc">Selecciona la película a la que te refieres — la consulta del sheet + repositorio se ejecutará sobre ella.</div>
       <div class="cmv40-lookup-picks">${items}</div>
     </div>`;

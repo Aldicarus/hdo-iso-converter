@@ -295,7 +295,7 @@ async function ignoreUpdate(version) {
   });
   showToast(version
     ? `⏭ Aviso de ${version} silenciado`
-    : '🔔 Avisos de actualización reactivados', 'info');
+    : 'Avisos de actualización reactivados', 'info');
   checkForUpdates(false);
 }
 

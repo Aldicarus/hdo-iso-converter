@@ -339,6 +339,93 @@ class TestElEmojiSeFueDeLaInterfaz(unittest.TestCase):
         self.assertEqual(sobra, [])
 
 
+class TestNoQuedaNingunEmojiSinJustificar(unittest.TestCase):
+    """Lista blanca: **cualquier** emoji en el frontend falla salvo los de aquí.
+
+    Perseguir patrones no sirvió. La primera pasada convirtió `>💿 Texto`, que
+    es como se escribe en el HTML, y se dejó todo lo que vive en una TERNARIA
+    (`state === 'done' ? '✅' : '🔒'`, los iconos de fase), en un VALOR de
+    objeto, en un ARGUMENTO (`showConfirm('🗑️ Eliminar', …)`) o al principio
+    de una línea dentro de una plantilla multilínea. Eran ciento veinte, y
+    salieron a la cara del usuario.
+
+    Con una lista blanca no hay patrón que se escape: si aparece un emoji
+    nuevo, o se convierte o hay que venir aquí a escribir por qué no.
+    """
+
+    _EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿⬀-⯿✓✔✗✘▶⏳⏸⚠]')
+
+    # Lo que SÍ puede llevar un emoji, y el motivo.
+    _PERMITIDO = (
+        # 1 · Contrato con el backend: el log de las fases llega con estos
+        #     símbolos y el frontend los busca para colorear y para filtrar.
+        #     Cambiarlos aquí sin cambiar el Python rompe el coloreado.
+        "line.includes(", "low.includes(", "msg.includes(", "l.includes(",
+        "ev.data", ".test(ev.data)",
+        # 2 · Texto que se copia al portapapeles: es un informe en Markdown,
+        #     no interfaz. Ahí un ✓ es el contenido.
+        "- L3: ",
+    )
+
+    def test_cero_emoji_fuera_de_la_lista(self):
+        malas = []
+        for ruta in rutas() + [STATIC / "index.html"]:
+            en_bloque = False
+            en_html = False
+            for n, linea in enumerate(
+                    ruta.read_text(encoding="utf-8").splitlines(), 1):
+                t = linea.strip()
+                if "/*" in t:
+                    en_bloque = True
+                # Los comentarios HTML también abarcan varias líneas, y el
+                # `index.html` tiene unos cuantos explicando las plantillas.
+                if "<!--" in t:
+                    en_html = True
+                if "-->" in t:
+                    if en_html and not t.startswith("<!--"):
+                        en_html = False
+                        continue
+                    en_html = False
+                cierra = "*/" in t
+                comentario = (t.startswith("//") or t.startswith("*")
+                              or t.startswith("<!--") or t.startswith("/**")
+                              or en_html or (en_bloque and not cierra))
+                if cierra:
+                    en_bloque = False
+                if comentario or not self._EMOJI.search(linea):
+                    continue
+                if any(p in linea for p in self._PERMITIDO):
+                    continue
+                malas.append(f"{ruta.name}:{n}: {t[:76]}")
+        self.assertEqual(malas, [], "\n  ".join(
+            ["", "emoji sin convertir ni justificar:"] + malas))
+
+
+class TestNadieInterpolaUnNombreDeGlifoCrudo(unittest.TestCase):
+    """`${paso.icono}` con el valor ya convertido escribe «claqueta».
+
+    Mientras los iconos eran emoji, interpolar el valor pintaba el carácter y
+    todo funcionaba. Al pasar a nombres del catálogo, la misma interpolación
+    escribe el NOMBRE en pantalla — texto crudo, sin ningún error. Le pasó a
+    la tira de fases de la conversión, que recibe sus pasos de cinco sitios
+    distintos; se arregló resolviéndolo en el consumidor (`_glifoDePaso`).
+    """
+
+    def test_toda_interpolacion_de_un_icono_pasa_por_el_catalogo(self):
+        malas = []
+        for ruta in rutas():
+            for n, linea in enumerate(
+                    ruta.read_text(encoding="utf-8").splitlines(), 1):
+                t = linea.strip()
+                if t.startswith("//") or t.startswith("*"):
+                    continue
+                for m in re.finditer(r"\$\{([^}]*\.icono?)\}", linea):
+                    if "icono(" not in m.group(1) and "cartel" not in m.group(1):
+                        malas.append(f"{ruta.name}:{n}: {m.group(0)}")
+        self.assertEqual(malas, [], "\n  ".join(
+            ["", "se pintaría el nombre del glifo como texto:"] + malas))
+
+
 class TestNadieVuelveAPintarUnEmojiDesdeElJs(unittest.TestCase):
     """`el.textContent = '💿'` es como el icono de la pestaña 1 volvió al emoji.
 

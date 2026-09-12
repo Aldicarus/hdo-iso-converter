@@ -1318,7 +1318,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     html += ` no aparece en la hoja de DoviTools (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
     html += `</div>`;
     if (!data.tmdb_configured) {
-      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> Clave de la API de TMDb no configurada — el matching ES→EN es más limitado. Añádela en ⚙︎ Configuración.</div>`;
+      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> Clave de la API de TMDb no configurada — el matching ES→EN es más limitado. Añádela en Configuración.</div>`;
     }
   }
 
@@ -1328,7 +1328,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     const reason = data.sheets_api_error ||
       'no se pudo leer el sheet vía HTML ni Sheets API';
     html += `<div class="cmv40-rec-warn">
-      ⚠️ Los enlaces incrustados en el sheet no están disponibles (fuente actual: <code>${escHtml(data.sheet_source)}</code>).<br>
+      <span data-icono="aviso"></span> Los enlaces incrustados en el sheet no están disponibles (fuente actual: <code>${escHtml(data.sheet_source)}</code>).<br>
       <span class="cmv40-rec-warn-detail">${escHtml(reason)}</span>
     </div>`;
   }
@@ -1652,7 +1652,7 @@ function _cmv40NewUpdatePipelinePreview() {
           (real / sintético / ambiguo), calcula el tier de calidad
           (CMv4 CORE/CORE+/FULL) y decide la recomendación
           Mantener vs Inyectar — igual que con un bin del repo.
-          Verás el veredicto en la card "🎯 Análisis y recomendación"
+          Verás el veredicto en la card «Análisis y recomendación»
           del proyecto.
         </div>
       </div>`;
@@ -2915,11 +2915,11 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     const beforeGates2 = curPhaseIdx2 < targetProvidedIdx2 || !gatesEvaluated2;
     let cls2, txt2;
     if (beforeGates2) {
-      cls2 = 'pending'; txt2 = '⏳ Auto · pendiente validaciones';
+      cls2 = 'pending'; txt2 = icono('reloj') + ' Auto · pendiente validaciones';
     } else if (_cmv40Trust(s)) {
-      cls2 = 'trusted'; txt2 = '🚀 Auto · trusted';
+      cls2 = 'trusted'; txt2 = icono('rayo') + ' Auto · trusted';
     } else {
-      cls2 = 'manual'; txt2 = '🔬 Manual · revisión visual';
+      cls2 = 'manual'; txt2 = icono('lupaOnda') + ' Manual · revisión visual';
     }
     if (trustBadgeEl.textContent !== txt2) {
       trustBadgeEl.textContent = txt2;
@@ -3145,7 +3145,7 @@ function renderTmdbCardHTML(t, ctx = null) {
   if (t.genres && t.genres.length) metaParts.push(t.genres.join(' · '));
 
   const ratingHtml = (t.vote_count > 0)
-    ? `<span class="cmv40-tmdb-rating" data-tooltip="${t.vote_count.toLocaleString()} votos en TMDb">★ ${t.vote_average.toFixed(1)}</span>`
+    ? `<span class="cmv40-tmdb-rating" data-tooltip="${t.vote_count.toLocaleString()} votos en TMDb">${t.vote_average.toFixed(1)}</span>`
     : '';
   const origHtml = (t.original_title && t.original_title !== t.title)
     ? `<span class="cmv40-tmdb-orig">· ${escHtml(t.original_title)}</span>`
@@ -3214,7 +3214,7 @@ function _renderCMv40Info(s, pid) {
             if (s.target_type) return 'Auto-ejecuta cada fase tras la anterior. Si los trust gates no aprueban, pausa en Fase D para revisión manual del chart.';
             return 'Auto-ejecuta cada fase tras la anterior. La pausa en Fase D depende del target — sin gates trusted requiere revisión manual del chart.';
           })()}">
-          ${autoOn ? '🤖 Auto ON' : '🤖 Auto OFF'}
+          ${icono('rayo')} ${autoOn ? 'Auto ON' : 'Auto OFF'}
         </button>` : ''}
       </div>
       <div class="section-body">
@@ -3334,7 +3334,7 @@ function _renderCMv40RecommendationCard(s, pid) {
     ? 'background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border)'
     : 'background:var(--surface-2); color:var(--text-2); border:1px solid var(--sep)';
 
-  const label = s.recommended_action_label || (isUnknown ? '⏳ Esperando análisis' : '—');
+  const label = s.recommended_action_label || (isUnknown ? icono('reloj') + ' Esperando análisis' : '—');
   const reason = s.recommended_action_reason || '';
 
   // Tag de calidad del bin (la que va al filename)
@@ -3391,11 +3391,11 @@ function _renderCMv40RecommendationCard(s, pid) {
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
           data-tooltip="Cierra el proyecto sin tocar el MKV original. Un reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
-          ✓ Mantener MKV actual
+          <span data-icono="check"></span> Mantener MKV actual
         </button>
         <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
           data-tooltip="Procesa el MKV inyectando el RPU CMv4.0 aunque el bin sea sintético. Resultado equivalente a la conversión al vuelo del reproductor pero quedará archivado como MKV CMv4.0 completo.">
-          🔬 Inyectar RPU igualmente
+          <span data-icono="inyectar"></span> Inyectar RPU igualmente
         </button>
       </div>`;
   }
@@ -3529,9 +3529,9 @@ async function _cmv40HydrateTmdbClient(pid) {
 
 function _cmv40WorkflowLabel(wf) {
   return {
-    p7_fel: '🎯 P7 FEL · merge CMv4.0 preservando dual-layer',
-    p7_mel: '📀 P7 MEL · descarta EL → P8.1 CMv4.0',
-    p8:     '🎬 P8.1 · inject directo → P8.1 CMv4.0',
+    p7_fel: 'P7 FEL · merge CMv4.0 preservando dual-layer',
+    p7_mel: 'P7 MEL · descarta EL → P8.1 CMv4.0',
+    p8:     'P8.1 · inject directo → P8.1 CMv4.0',
   }[wf] || wf;
 }
 
@@ -3644,7 +3644,7 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
           <button class="btn btn-warning btn-md"
             onclick="_cmv40AcknowledgeCriticalGates('${pid}')"
             data-tooltip="Reconoces que el resultado puede ser degradado y autorizas continuar — Fase D se saltará automáticamente">
-            ⚠ Continuar igualmente (resultado degradado)
+            <span data-icono="aviso"></span> Continuar igualmente (resultado degradado)
           </button>
         </div>
       </div>
@@ -3793,7 +3793,7 @@ function _renderCMv40ActivePhase(project) {
             <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')"><span data-icono="papelera"></span> Limpiar artefactos</button>
           </div>
           <div style="margin-top:8px; font-size:10px; color:var(--text-3)">
-            ⚠️ Al limpiar artefactos no podrás rehacer fases (el proyecto pasará a modo solo lectura)
+            <span data-icono="aviso"></span> Al limpiar artefactos no podrás rehacer fases (el proyecto pasará a modo solo lectura)
           </div>
         </div>
       </div>`;
@@ -3894,9 +3894,9 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   const isDropInF = fase.key === 'F' && skipped.includes('merge_cmv40_transfer') && state === 'done';
   const isSkipped = isSkippedC || isSkippedD;   // solo C y D son "totalmente omitidas"
 
-  const stateIcon = isSkipped ? '⏭️'
-                  : state === 'done' ? '✅'
-                  : state === 'active' ? '▶️' : '🔒';
+  const stateIcon = icono(isSkipped ? 'omitida'
+                  : state === 'done' ? 'check'
+                  : state === 'active' ? 'play' : 'candado', 'ico-lg');
   const stateLabel = isSkippedC ? 'Omitida — drop-in: no hace falta demux ni per-frame data'
                    : isSkippedD ? 'Omitida — target trusted: sync validado por gates'
                    : isDropInF  ? 'Ejecutada en modo drop-in (inject directo sin merge previo)'
@@ -3974,7 +3974,8 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
 /** Genera el HTML de una fila de gate con estado coloreado + explicación. */
 function _cmv40GateRowHtml(status, title, result, explanation) {
   // status: 'ok' | 'warn' | 'ko' | 'pending'
-  const icon = { ok: '✓', warn: '⚠', ko: '✗', pending: '○' }[status] || '·';
+  const icon = icono({ ok: 'check', warn: 'aviso', ko: 'cruz',
+                       pending: 'pendiente' }[status] || 'pendiente');
   const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
   const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
   return `
@@ -4053,7 +4054,7 @@ function _cmv40CmpMarca(a, b) {
     return { txt: 'solo BD', color: '#8a4a00' };
   }
   return String(a) === String(b)
-    ? { txt: '✓', color: '#0e6b2a' }
+    ? { txt: icono('check'), color: '#0e6b2a' }
     : { txt: '≠', color: '#8a4a00' };
 }
 
@@ -4219,7 +4220,8 @@ function _cmv40GateBloque2(s) {
 /** Fila de gate con el umbral y la severidad literal al lado del valor.
  *  `_cmv40GateRowHtml` se queda como está: lo usa también la card G/H. */
 function _cmv40GateFilaHtml(status, titulo, valor, umbral, sev, critical, explicacion) {
-  const icon  = { ok: '✓', warn: '⚠', ko: '✗', pending: '○' }[status] || '·';
+  const icon  = icono({ ok: 'check', warn: 'aviso', ko: 'cruz',
+                        pending: 'pendiente' }[status] || 'pendiente');
   const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
   const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
   const chip = (txt, c) => `<span style="font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; background:rgba(15,23,42,0.06); color:${c}">${escHtml(txt)}</span>`;
@@ -4371,7 +4373,7 @@ function _cmv40GateBloque4(s) {
   const proc = l5.procedencia || {};
   const avisoProc = proc.contradice ? `
     <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:#8a4a00; line-height:1.5">
-      ⚠ El nombre del bin declara <strong>L5 variable</strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
+      <span data-icono="aviso"></span> El nombre del bin declara <strong>L5 variable</strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
       pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.
     </div>` : '';
 
@@ -4416,8 +4418,8 @@ function _cmv40GateBloque5(pid, s) {
     ? `${s.target_l8_classification} · ${s.target_l8_quality_label || '—'} · ${_cmv40Num(s.target_l8_unique_count)} combos`
       + (typeof s.target_l8_neutral_frames_pct === 'number'
          ? ` · ${(s.target_l8_neutral_frames_pct * 100).toFixed(1)}% neutro` : '')
-      + (s.target_l8_has_mid_contrast ? ' · mid_contrast ✓' : '')
-      + (s.target_l8_has_clip_trim ? ' · clip_trim ✓' : '')
+      + (s.target_l8_has_mid_contrast ? ' · mid_contrast sí' : '')
+      + (s.target_l8_has_clip_trim ? ' · clip_trim sí' : '')
     : '';
 
   const proc = ((s.target_trust_gates || {}).l5_div || {}).procedencia || {};
@@ -4523,11 +4525,11 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
   const trustOk  = s.target_trust_ok === true;
 
   let overallIcon, overallLabel;
-  if (compatErr) { overallIcon = '⛔'; overallLabel = 'Abortada · combinación incompatible'; }
-  else if (!hasData) { overallIcon = '🔒'; overallLabel = 'Pendiente — se evalúa al cerrar Fase B'; }
-  else if (s.awaiting_critical_ack) { overallIcon = '⚠️'; overallLabel = 'Esperando tu confirmación'; }
-  else if (trustOk) { overallIcon = '✅'; overallLabel = 'Trusted · todos los críticos pasan'; }
-  else { overallIcon = '⚠️'; overallLabel = 'Sin trust automático · flujo completo manual'; }
+  if (compatErr) { overallIcon = icono('aviso', 'ico-lg'); overallLabel = 'Abortada · combinación incompatible'; }
+  else if (!hasData) { overallIcon = icono('candado', 'ico-lg'); overallLabel = 'Pendiente — se evalúa al cerrar Fase B'; }
+  else if (s.awaiting_critical_ack) { overallIcon = icono('aviso', 'ico-lg'); overallLabel = 'Esperando tu confirmación'; }
+  else if (trustOk) { overallIcon = icono('check', 'ico-lg'); overallLabel = 'Trusted · todos los críticos pasan'; }
+  else { overallIcon = icono('aviso', 'ico-lg'); overallLabel = 'Sin trust automático · flujo completo manual'; }
 
   // Resumen del header: cuántos gates y qué se omite, que es la consecuencia.
   let summary;
@@ -4596,15 +4598,15 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
 
   let overallIcon, overallLabel, summary;
   if (state === 'done') {
-    overallIcon = '✅';
+    overallIcon = icono('check', 'ico-lg');
     overallLabel = 'Validación final OK';
     summary = 'El MKV contiene CMv4.0, el profile es correcto y el frame count coincide';
   } else if (state === 'running') {
-    overallIcon = '⏳';
+    overallIcon = icono('reloj', 'ico-lg');
     overallLabel = 'Validación en curso…';
     summary = 'Verificando profile + CM v4.0 + frame count del HEVC pre-mux';
   } else {
-    overallIcon = '🔒';
+    overallIcon = icono('candado', 'ico-lg');
     overallLabel = 'Pendiente';
     summary = 'Se ejecuta tras completar Fase G (remux)';
   }
@@ -4776,7 +4778,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
         <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
         <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
-        <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> Los resultados de los trust gates se muestran en la tarjeta 🛡️ Validaciones de abajo.</div>
+        <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> Los resultados de los trust gates se muestran en la tarjeta «Validaciones» de abajo.</div>
       </div>`;
   }
   // Fase D completada — dos casuísticas:
@@ -4794,7 +4796,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
           <span class="banner-icon"><span data-icono="check"></span></span>
           <span>Fase D omitida — el bin target pasó los trust gates (frames, L5, L6, L8) y no se generó <code>per_frame_data.json</code>. Sin revisión visual necesaria en el auto-pipeline.</span>
         </div>
-        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px"><span data-icono="bombilla"></span> Los resultados de los gates están en la tarjeta 🛡️ Validaciones justo tras Fase B.</div>`;
+        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px"><span data-icono="bombilla"></span> Los resultados de los gates están en la tarjeta «Validaciones» justo tras Fase B.</div>`;
     }
     const syncConfigHtml = s.sync_config
       ? `<div style="margin-bottom:10px; font-size:12px">
@@ -5112,7 +5114,7 @@ function _cmv40FaseFBody(pid, s) {
     <div class="section-body">
       <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
       ${reviewBanner}
-      <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')">💉 Inyectar RPU</button>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')"><span data-icono="inyectar"></span> Inyectar RPU</button>
     </div>`;
 }
 
@@ -5539,7 +5541,7 @@ async function _cmv40LoadRepoForPanel(pid) {
     return;
   }
   if (!data.drive_configured) {
-    list.innerHTML = '<div class="cmv40-repo-empty">Repositorio DoviTools no configurado — abre ⚙︎ Configuración para añadir Google API key + URL del repo.</div>';
+    list.innerHTML = '<div class="cmv40-repo-empty">Repositorio DoviTools no configurado — abre Configuración para añadir Google API key + URL del repo.</div>';
     if (info) info.textContent = '';
     return;
   }
@@ -5852,7 +5854,7 @@ function _renderCMv40SidebarLoadError() {
   if (count) count.textContent = '—';
   list.innerHTML = `
     <div class="empty-state" style="padding:24px 12px">
-      <div class="empty-state-icon">🔌</div>
+      <div class="empty-state-icon" data-icono="caja"></div>
       <div>No se ha podido cargar la lista de proyectos</div>
       <div class="empty-state-desc" style="margin-top:6px">
         Tus proyectos siguen guardados. Reintentando cada 4 s…
@@ -6711,8 +6713,8 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     sub: s?.output_mkv_name || '',
     // El overlay marcaba con 🤖 que la cadena avanza sola. Es información:
     // dice si al terminar esta fase arrancará la siguiente.
-    autoTag: s?.auto_pipeline ? '🤖 Auto · ' : '',
-    cartel: cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name, '✨'),
+    autoTag: s?.auto_pipeline ? 'Auto · ' : '',
+    cartel: cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name, icono('curva', 'ico-xl')),
     // La timeline con las fases y sus tiempos: es LA vista de este pipeline y
     // la tenía el overlay de ejecución. Se reusa tal cual —misma función que
     // pinta la del panel— para que las dos digan exactamente lo mismo.
@@ -7058,7 +7060,7 @@ function _cmv40PfPintar(s, veredicto) {
   // El estado y el veredicto no van aquí: son lo que se está haciendo, y eso
   // se cuenta en el cuerpo.
   const cartel = (typeof cartelDeTmdb === 'function')
-    ? cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name || s?.output_mkv_name, '✨')
+    ? cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name || s?.output_mkv_name, icono('curva', 'ico-xl'))
     : null;
   _cmv40PfSet('cmv40-pf-titulo', cartel?.titulo || 'Proyecto CMv4.0');
   _cmv40PfSet('cmv40-pf-sub', cartel?.meta || s?.output_mkv_name || '');
@@ -7066,7 +7068,7 @@ function _cmv40PfPintar(s, veredicto) {
   if (poster) {
     poster.innerHTML = cartel?.url
       ? `<img src="${escHtml(cartel.url)}" alt="" loading="lazy">`
-      : `<span>${escHtml(cartel?.icono || '✨')}</span>`;
+      : `<span>${cartel?.icono || icono('curva', 'ico-xl')}</span>`;
   }
   // El estado encabeza el cuerpo, junto a lo que lo justifica.
   _cmv40PfSet('cmv40-pf-estado', veredicto ? veredicto.titulo : 'Validación previa');
