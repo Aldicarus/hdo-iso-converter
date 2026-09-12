@@ -461,9 +461,12 @@ function _cmv40PlanAutoSteps(s, project) {
   } else if (curIdxForGate < targetProvidedIdx) {
     gateBCLabel = 'pendiente';
   } else if (s.target_trust_ok) {
-    gateBCLabel = `trusted ${icono('check')}`;
+    // Sin icono: esto es el `customLabel` de un paso y la timeline lo pinta
+    // con `escHtml` —hace bien, porque otros labels traen datos—, así que un
+    // SVG aquí se lee como código. El estado ya lo dice el icono del paso.
+    gateBCLabel = 'trusted';
   } else if (failingGates.length) {
-    gateBCLabel = `${failingGates.length} gate${failingGates.length > 1 ? 's' : ''} ${icono('aviso')} revisión manual`;
+    gateBCLabel = `${failingGates.length} gate${failingGates.length > 1 ? 's' : ''} · revisión manual`;
   } else {
     gateBCLabel = 'flujo manual';
   }

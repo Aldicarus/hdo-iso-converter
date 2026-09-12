@@ -411,6 +411,7 @@ body {
   color: var(--text-3);
 }
 .sidebar-search-icon svg,
+.workbar-search-icono svg { width: 15px; height: 15px; display: block; }
 /* Con el envoltorio delante: `input.clase` EMPATA en especificidad con la
    regla global `input[type="text"]`, que además va más abajo en el fichero y
    por tanto gana. Ése era el motivo del `!important` de antes. */
@@ -6341,18 +6342,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
-/* Centrado vertical del icono 📖 — los emoji tienden a sentarse alto
-   dentro de su caja em (la mayoria de su tinta visual ocupa el 60-70%
-   inferior). Aunque flex.align-items:center alinea las cajas, visualmente
-   el libro queda mas arriba que la x-height del texto "Ayuda / Manual".
-   Fix: translateY(2px) compensa el desplazamiento optico. Tested en macOS,
-   Windows y Android (Chrome/Safari/Firefox). */
+/* Aquí había una compensación óptica PARA EMOJI: un `translateY(2px)` porque
+   «los emoji tienden a sentarse alto dentro de su caja em, con la mayor parte
+   de su tinta en el 60-70% inferior». Era cierta y estaba probada en tres
+   sistemas… y con un SVG hace justo el daño que evitaba: el icono sí está
+   centrado en su caja, así que los 2 px lo bajan de más. El `font-size:16px`
+   tampoco dimensiona nada ya.
+
+   Regla general: el CSS escrito para corregir un defecto del emoji hay que
+   retirarlo al pasar a SVG, no solo el emoji. */
 .cmv40-help-btn > span {
-  display: inline-block;
-  font-size: 16px;
-  line-height: 1;
-  vertical-align: middle;
-  transform: translateY(2px);
+  display: inline-flex;
+  align-items: center;
 }
 .cmv40-help-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.32) !important;
@@ -9690,6 +9691,29 @@ span[data-icono] {
 .ico-md { width: 16px; height: 16px; }
 .ico-lg { width: 20px; height: 20px; }
 .ico-2x { width: 28px; height: 28px; }
+
+/* ── Un contenedor de icono vuelve a dimensionar su icono ─────────────────
+   Hay 36 clases (`.tab-icon`, `.section-icon`, `.fb-icon`, `.cmv40-pp-icon`…)
+   que declaran `font-size: 16px` o `20px` porque dentro había un EMOJI, y un
+   emoji es texto: el cuerpo lo dimensionaba. A un `<svg>` no le dice nada, así
+   que todos esos huecos pasaron a enseñar el icono de 14 px por defecto —
+   pequeño y descolocado respecto al texto que acompaña.
+
+   Con `1em` el `font-size` del contenedor vuelve a mandar, que es lo que esas
+   36 reglas ya dicen y lo que sus autores querían. Las clases de tamaño
+   explícitas (`ico-md/lg/2x/xl`) mandan sobre esto: si alguien pide un tamaño,
+   se respeta. */
+[class*="-icon"] > svg.ico:not(.ico-md):not(.ico-lg):not(.ico-2x):not(.ico-xl),
+[class*="-icono"] > svg.ico:not(.ico-md):not(.ico-lg):not(.ico-2x):not(.ico-xl),
+[class*="-icon"] > span[data-icono] > svg.ico:not(.ico-md):not(.ico-lg):not(.ico-2x):not(.ico-xl),
+[class*="-icono"] > span[data-icono] > svg.ico:not(.ico-md):not(.ico-lg):not(.ico-2x):not(.ico-xl) {
+  width: 1em;
+  height: 1em;
+}
+/* Y el hueco intermedio se centra, que si no el icono cuelga de la línea base
+   del contenedor en vez de ir con su texto. */
+[class*="-icon"] > span[data-icono],
+[class*="-icono"] > span[data-icono] { display: inline-flex; align-items: center; }
 .ico-xl { width: 44px; height: 44px; }
 
 .icono-chip {

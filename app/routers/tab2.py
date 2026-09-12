@@ -1091,7 +1091,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         tipo=queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
         clave=my_audit_id,
         sobre=str(mkv_full),
-        que=f"Análisis extendido · {_titulo_audit or mkv_path_obj.name}",
+        que=f"Análisis RPU/Luz · {_titulo_audit or mkv_path_obj.name}",
         titulo=_titulo_audit, poster=_poster_audit,
         datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
                "request_id": request_id or "",
@@ -1120,7 +1120,7 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     workload.registrar(my_audit_id, workload.TAB_MKV,
-                       f"Análisis extendido · {mkv_path_obj.name}")
+                       f"Análisis RPU/Luz · {mkv_path_obj.name}")
     _logger.warning("[QualityAudit] START audit_id=%s file=%s",
                     my_audit_id, mkv_path_obj.name)
 
@@ -1224,7 +1224,7 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
             id     = my_audit_id,
             tab    = historial.TAB_MKV,
             tipo   = historial.TIPO_ANALISIS_EXTENDIDO,
-            que    = (f"Análisis extendido · "
+            que    = (f"Análisis RPU/Luz · "
                       f"{_titulo_hist or mkv_path_obj.name}"),
             titulo = _titulo_hist, poster = _poster_hist,
             inicio = _historial_inicio,

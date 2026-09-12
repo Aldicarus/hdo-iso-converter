@@ -3397,13 +3397,13 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     // El estado del análisis es un singleton: lo resetea el trabajo
     // siguiente, así que de una ejecución vieja no queda registro.
     sinDetalle: st ? '' : 'efimero',
-    titulo: 'Análisis extendido del RPU',
+    titulo: 'Análisis RPU/Luz del MKV',
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
                                   icono('lupaOnda', 'ico-xl')) : null,
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
-    pasosTitulo: 'Fases del análisis extendido',
+    pasosTitulo: 'Fases del análisis RPU/Luz',
     pasos: [
       { icono: 'claqueta', titulo: 'Fase A · Extracción del RPU',
         sub: 'ffmpeg y dovi_tool encadenados por un pipe, sin escribir el HEVC' },
