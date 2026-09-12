@@ -2924,8 +2924,16 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     } else {
       cls2 = 'manual'; txt2 = icono('lupaOnda') + ' Manual · revisión visual';
     }
-    if (trustBadgeEl.textContent !== txt2) {
-      trustBadgeEl.textContent = txt2;
+    // `innerHTML`, no `textContent`: txt2 LLEVA el SVG del icono dentro y
+    // textContent lo escribiría como código — el badge se pintaba bien de
+    // entrada y un segundo después, en la primera vuelta del refresco, se
+    // convertía en «<svg viewBox="0 0 24 24" fill="none" stroke=…».
+    // La comparación va por el ESTADO, no por el contenido: releer innerHTML
+    // devuelve el HTML normalizado por el navegador, que no coincide nunca
+    // con lo que se escribió, así que repintaría en cada vuelta.
+    if (trustBadgeEl.dataset.estado !== cls2) {
+      trustBadgeEl.dataset.estado = cls2;
+      trustBadgeEl.innerHTML = txt2;
     }
     // Asegurar que solo tiene la clase correcta de las tres
     trustBadgeEl.classList.toggle('pending', cls2 === 'pending');

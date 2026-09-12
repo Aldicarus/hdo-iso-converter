@@ -482,6 +482,41 @@ class TestNingunIconoAcabaEscapado(unittest.TestCase):
         self.assertEqual(malas, [], "\n  ".join(
             ["", "el SVG se escribiría como texto:"] + malas))
 
+    def test_ningun_textContent_recibe_una_variable_con_un_icono(self):
+        """El icono puede llegar a `textContent` DENTRO de una variable.
+
+        Y entonces el de arriba no lo ve. Es la diferencia entre las dos
+        mitades del badge de trust del panel CMv4.0: el primer pintado va por
+        `innerHTML` y sale bien, y el refresco en vivo —que recalcula el mismo
+        texto en `txt2` y lo asigna con `textContent`— lo convertía en
+        «<svg viewBox="0 0 24 24" fill="none" stroke=…» un segundo después.
+        Que se vea BIEN primero es lo que hace este caso difícil de reportar.
+
+        Se sigue la variable dentro de su función, igual que el test de
+        `escHtml`: mirar por fichero daría falsos positivos con nombres como
+        `label` o `txt`, que se repiten en veinte sitios.
+        """
+        malas = []
+        for ruta in rutas():
+            src = ruta.read_text(encoding="utf-8")
+            cortes = [m.start() for m in
+                      re.finditer(r"\nfunction |\nasync function ", src)] + [len(src)]
+            for i in range(len(cortes) - 1):
+                bloque = src[cortes[i]:cortes[i + 1]]
+                con_icono = set(re.findall(
+                    r"\b([A-Za-z_$][\w$]*)\s*=\s*[^=;\n]*\bicono\(", bloque))
+                for m in re.finditer(r"\.textContent\s*=\s*([^;]{0,300});",
+                                     bloque, re.S):
+                    rhs = m.group(1)
+                    for v in con_icono:
+                        # Suelta o dentro de una plantilla, da igual: lo que
+                        # llega a textContent es el código del SVG.
+                        if re.search(rf"\b{re.escape(v)}\b", rhs):
+                            n = src[:cortes[i] + m.start()].count("\n") + 1
+                            malas.append(f"{ruta.name}:{n}: textContent con {v}")
+        self.assertEqual(malas, [], "\n  ".join(
+            ["", "el SVG se escribiría como texto:"] + malas))
+
     def test_ninguna_variable_con_icono_pasa_por_escHtml(self):
         malas = []
         for ruta in rutas():

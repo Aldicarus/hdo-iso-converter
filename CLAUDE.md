@@ -2024,6 +2024,27 @@ operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
   viene HTML lo pinta, si viene un nombre lo busca— porque los pasos de la
   tira de fases los arman cinco sitios distintos. Lo vigila
   `TestNadieInterpolaUnNombreDeGlifoCrudo`.
+- **`<svg viewBox="0 0 24 24" fill="none" stroke=…` en pantalla: el SVG se
+  está escribiendo como TEXTO.** `icono()` devuelve HTML, así que sirve para
+  `innerHTML` y para una plantilla que acabe ahí — nunca para `textContent`
+  ni para nada que pase por `escHtml`. Hay cuatro vías y cada una tiene su
+  guard en `TestNingunIconoAcabaEscapado`: el icono suelto en un
+  `textContent`, el icono **dentro de una variable** que acaba en un
+  `textContent`, `escHtml(variable_con_icono)` y la interpolación del nombre
+  del glifo (arriba).
+  - La segunda es la difícil de reportar, porque **se ve bien primero**: el
+    badge de trust del panel CMv4.0 lo pinta `innerHTML` de entrada y el
+    refresco en vivo recalculaba el mismo texto en una variable para
+    asignarlo con `textContent`, así que se convertía en código un segundo
+    después. Mismo patrón en el subtítulo del visor de log de Tab 1.
+  - **Al comparar antes de repintar, comparar el ESTADO, no el contenido.**
+    `el.innerHTML !== html` parece el guard natural y no lo es: el navegador
+    devuelve el HTML normalizado, que no coincide nunca con lo que se
+    escribió, así que repinta en cada vuelta. Un `dataset` con la clave del
+    estado (`dataset.estado !== cls`) es exacto y no relee el DOM.
+  - El definitivo es `test_ningun_svg_se_lee.py`, que busca `viewBox` en el
+    texto de la pantalla ya renderizada. Los de fuente son los que dicen
+    **dónde**.
 - **Dos guards más, y los dos por fallos mudos.**
   `TestElCatalogoEsUnoYEstaCompleto` cruza contra el catálogo **todo lo que
   pide un icono**: `data-icono`, `icono('x')`, los valores `icon:` y las

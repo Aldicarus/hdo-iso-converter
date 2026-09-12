@@ -4617,7 +4617,9 @@ function showLogModal(idx) {
 
   document.getElementById('log-viewer-title').innerHTML =
     icono('portapapeles') + ` Log — Ejecución #${rec.run_number}`;
-  document.getElementById('log-viewer-sub').textContent   = `${status} · ${dateStr}`;
+  // innerHTML: `status` lleva dentro el SVG del icono, y textContent lo
+  // escribiría como código. La fecha va escapada aparte.
+  document.getElementById('log-viewer-sub').innerHTML = `${status} · ${escHtml(dateStr)}`;
 
   // Renderizar log con coloreado semántico (misma paleta rica que Tab 3)
   const content = document.getElementById('log-viewer-content');
