@@ -1981,6 +1981,16 @@ operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
   `marcarPasoDeModal(el, 'curso'|'hecho'|'pendiente')` cambia el glifo de su
   `<span>`; antes era un `textContent.replace()` sobre ⏳/⬜/✅, o sea que el
   estado dependía de la redacción del paso y no podía tener color.
+- **El guard mira CINCO rangos, no solo los emoji de color.** Las flechas
+  (`↩ ↺ ↻ ↗`), los técnicos (`⏱ ⏭`) y los geométricos (`● ▾ ▸`) se quedaron
+  fuera de la primera auditoría —se excluyeron porque los 268 `→` de los
+  comentarios daban ruido— y con ellas se colaron **41 iconos**, entre ellos
+  el «↩️ Deshacer cambios» de Tab 2. Única excepción: `→ ← ↔ ↑` **cuando son
+  lo único de la línea**, porque ahí son tipografía dentro de una frase («ISO
+  → MKV») y un SVG partiría el renglón.
+  - Y hay un sitio donde un icono NO cabe: dentro de un `<option>` no se puede
+    meter marcado. Ahí el texto lo dice con palabras («Tamaño (mayor
+    primero)»), que además se entiende sin descifrar una flecha.
 - **El guard de «cero emoji» es una LISTA BLANCA, no un patrón.** Perseguir
   patrones es lo que falló: la primera pasada convirtió `>💿 Texto` —como se
   escribe en el HTML— y se dejó **120 líneas** en las otras posiciones
@@ -2016,7 +2026,12 @@ operativo —cambia de forma entre máquinas y no hereda la paleta— y ningún
   copia al portapapeles es texto, y en la prosa de un tooltip un emoji no es
   iconografía. `TestElEmojiSeFueDeLaInterfaz` exige cero en el **marcado
   estático**, que es lo que se ve siempre.
-- **El icono de CMv4.0 es la curva de tone-mapping**, que es literalmente lo
+- **El icono de CMv4.0 es la curva de tone-mapping**, y va en TODO lo que
+  identifica un proyecto CMv4.0 —la pestaña, el sub-tab del proyecto abierto,
+  la sección del sidebar, el modal de creación, el estado vacío y el título
+  del panel—. Donde manda la ACCIÓN y no la pestaña (la lupa de «Consulta
+  rápida», el libro del manual, la papelera de «Limpieza masiva») se queda el
+  icono de la acción. Es literalmente lo
   que cambia un upgrade a CMv4.0. Eran dos destellos y decían «efecto mágico»,
   que es justo lo que esa pestaña NO hace: no toca la imagen. Descartadas a
   tamaño real la curva en un panel (se convierte en un cuadradito con una
