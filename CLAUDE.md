@@ -1471,6 +1471,38 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 - Cache persistente en `/config/tmdb_cache.json` (TTL 30 días)
 - Backdrop como ambient (opacity 0.10 + blur 24px), overlay sólido 0.82 para legibilidad — colores hex explícitos sin depender de variables CSS
 
+### Un nombre con `S03E01` se busca en el índice de SERIES
+
+`/api/cmv40/tmdb-lookup` —la ficha de la cabecera en **las tres pestañas**—
+llamaba siempre a `search_movies`. Con un episodio eso da basura con pinta de
+acierto: de `Juego de tronos (2011) - S03E01 - Valar Dohaeris [DV FEL].mkv`
+salía **«Juego de Tronos: Especial Reino Español (2015), Documental, 43 min»**.
+El título se parseaba perfectamente («Juego de tronos», 2011); lo que estaba
+mal era el índice, porque en el de películas lo más parecido a una serie
+famosa es un documental sobre ella.
+
+`parse_series_filename` (en `services/cmv40_recommend.py`, pura) lo detecta y
+`_ficha_de_episodio` resuelve por `search_tv_series` → `fetch_tv_details` →
+`fetch_tv_season`. Reconoce `S03E01`, `s3e7` y `3x01`, y devuelve `None` para
+una película — que es la señal de «busca donde siempre».
+
+- **`S03E01` es una señal CERTERA, no una heurística**: ninguna película la
+  lleva. Y el formato lo escribe la propia app (`build_series_mkv_name`), así
+  que el caso que no funcionaba era el más frecuente. Ojo con los títulos
+  numéricos: `Blade Runner 2049` y `1917` no son «temporada x episodio», y por
+  eso el patrón de `3x01` exige frontera a los dos lados.
+- **La ficha sale con la MISMA forma que la de una película**, así que
+  `renderTmdbCardHTML` la pinta sin saber de series; lo que cambia es de dónde
+  viene cada campo y tres extras (`es_serie`, `temporada`, `episodio`) con los
+  que la tarjeta escribe «T3 · E1 · Valar Dohaeris» **delante del año**: es lo
+  que distingue ese fichero de los otros nueve de su temporada.
+- **Sinopsis y duración son las del EPISODIO** —es el fichero que se acaba de
+  abrir, no la serie entera—, el **póster es el de la serie** (la tarjeta
+  espera un retrato y el `still` es apaisado) y ese `still` se usa de fondo
+  ambiente, que es donde encaja.
+- **Si falla la temporada, queda la ficha de la serie.** Perder el episodio es
+  un detalle; perder la carátula, no.
+
 ### Recomendación CMv4.0 (Tab 3)
 - Parser de filename: trunca tags después del año (`UHD.BluRay.x265`, `[DV FEL]`, etc.)
 - Matching fuzzy compuesto: max(SequenceMatcher, token-set Jaccard, containment) sobre acentos strippeados. El `containment` opera sobre **tokens** (no subcadena de caracteres) con gate de cobertura ≥60%: evita que un título corto matchee uno largo que lo contiene como subcadena (caso real: "The Ring" ⊂ "The Lord of the Rings: The Fellowship of the **Ring**" daba 0.875). Cubierto por `test_cmv40_recommend_match.py`. La misma `_similarity` la consume `rec999_drive_match.rank_candidates`.

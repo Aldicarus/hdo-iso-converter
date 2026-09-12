@@ -1985,7 +1985,8 @@ async def cmv40_tmdb_search(body: dict):
 async def cmv40_tmdb_lookup(body: dict):
     """Parsea filename → TMDb search → fetch details. Usado por el frontend
     para pintar la ficha de la película en la cabecera del proyecto."""
-    from services.cmv40_recommend import parse_mkv_filename
+    from services.cmv40_recommend import (parse_mkv_filename,
+                                          parse_series_filename)
     from services.tmdb import search_movies, fetch_details, is_configured
 
     if not is_configured():
@@ -1996,6 +1997,15 @@ async def cmv40_tmdb_lookup(body: dict):
     name = filename or source_mkv_name
     if not name:
         return {"tmdb_configured": True, "details": None}
+
+    # Un nombre con `S03E01` es un EPISODIO, y buscarlo en el índice de
+    # películas da basura con pinta de acierto: de «Juego de tronos (2011) -
+    # S03E01 - Valar Dohaeris» salía «Juego de Tronos: Especial Reino Español
+    # (2015), Documental, 43 min». El título se parseaba bien; el índice era
+    # el equivocado. Y el formato lo escribe la propia app.
+    serie = parse_series_filename(name)
+    if serie:
+        return {"tmdb_configured": True, **await _ficha_de_episodio(*serie)}
 
     title, year = parse_mkv_filename(name)
     matches = await search_movies(title, year, limit=1)
@@ -2009,6 +2019,73 @@ async def cmv40_tmdb_lookup(body: dict):
         "input_year": year,
         "details": details.model_dump() if details else None,
     }
+
+
+async def _ficha_de_episodio(serie: str, anio: int | None, temporada: int,
+                             episodio: int, titulo_ep: str) -> dict:
+    """La ficha de un episodio, con la MISMA forma que la de una película.
+
+    Así `renderTmdbCardHTML` la pinta sin saber de series; lo que cambia es de
+    dónde salen los campos y tres extras (`es_serie`, `temporada`, `episodio`)
+    que la tarjeta usa para escribir «T3 · E1 · Valar Dohaeris».
+
+    Qué se prefiere en cada campo, y por qué:
+      · la **sinopsis** es la del EPISODIO cuando TMDb la tiene — es el
+        fichero que el usuario acaba de abrir, no la serie entera;
+      · el **póster** es el de la serie, porque la tarjeta espera un retrato
+        y el `still` del episodio es apaisado;
+      · ese `still` sí se usa de fondo ambiente, que es donde encaja;
+      · la **duración** es la del episodio, no la media de la serie.
+    """
+    from services.tmdb import (search_tv_series, fetch_tv_details,
+                               fetch_tv_season)
+    base = {"input_title": serie, "input_year": anio, "details": None,
+            "temporada": temporada, "episodio": episodio}
+    candidatos = await search_tv_series(serie, anio)
+    if not candidatos:
+        # Sin año: TMDb filtra por el año de la PREMIERE, y el del fichero es
+        # el de la serie, así que casi siempre coinciden — pero cuando no,
+        # más vale la serie correcta sin filtrar que ninguna.
+        candidatos = await search_tv_series(serie) if anio else []
+    if not candidatos:
+        return base
+    tv = await fetch_tv_details(candidatos[0].tmdb_id)
+    if not tv:
+        return base
+
+    ep = None
+    try:
+        for e in await fetch_tv_season(tv.tmdb_id, temporada):
+            if e.episode_number == episodio:
+                ep = e
+                break
+    except Exception:                                   # noqa: BLE001
+        ep = None          # sin el episodio la ficha de la serie ya sirve
+
+    return {**base, "details": {
+        "tmdb_id": tv.tmdb_id,
+        "title": tv.name or serie,
+        "original_title": tv.original_name,
+        "original_language": "",
+        "release_date": tv.first_air_date,
+        "year": tv.year,
+        "overview": (ep.overview if ep and ep.overview else tv.overview),
+        "poster_url": tv.poster_url,
+        "backdrop_url": (ep.still_url if ep and ep.still_url else tv.backdrop_url),
+        "runtime_minutes": (ep.runtime_minutes if ep else 0),
+        "vote_average": tv.vote_average,
+        "vote_count": 0,
+        "genres": [],
+        "tagline": "",
+        "imdb_id": "",
+        "homepage": "",
+        "tmdb_url": tv.tmdb_url,
+        # Lo que la tarjeta necesita para decir que es un episodio.
+        "es_serie": True,
+        "temporada": temporada,
+        "episodio": episodio,
+        "episodio_titulo": (ep.name if ep and ep.name else titulo_ep),
+    }}
 
 
 @router.post("/api/cmv40/{session_id}/tmdb-refresh",

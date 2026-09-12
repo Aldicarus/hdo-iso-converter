@@ -263,6 +263,66 @@ def parse_mkv_filename(filename: str) -> tuple[str, int | None]:
     return title, year
 
 
+# `S03E01`, `s03e01`, `S3E1` y la variante `3x01`. Se pide al menos una cifra
+# en cada lado; el episodio admite tres por los animes con numeración larga.
+_EPISODIO_RE = re.compile(
+    r"(?:^|[\s._\-\[(])(?:[Ss](\d{1,2})[EeXx](\d{1,3})|(\d{1,2})[xX](\d{1,3}))(?=$|[\s._\-\])])"
+)
+
+
+def parse_series_filename(filename: str):
+    """El nombre de un EPISODIO → (serie, año, temporada, episodio, título).
+
+    Devuelve `None` si el nombre no declara episodio, que es la señal de «esto
+    es una película, busca donde siempre».
+
+    Existe porque `parse_mkv_filename` hace bien su trabajo y aun así el
+    resultado era malo: de
+    `Juego de tronos (2011) - S03E01 - Valar Dohaeris [DV FEL].mkv` sacaba
+    («Juego de tronos», 2011) —correcto— y la ficha se pedía al índice de
+    **películas**, donde lo más parecido era «Juego de Tronos: Especial Reino
+    Español (2015), Documental, 43 min». El título no fallaba: fallaba el
+    índice.
+
+    `S03E01` es una señal **certera**, no una heurística: ninguna película la
+    lleva. Y el formato lo emite la propia app (`build_series_mkv_name`), así
+    que el caso más frecuente es exactamente el que no funcionaba.
+
+    Reconoce también lo que viene de fuera::
+
+        'Juego de tronos (2011) - S03E01 - Valar Dohaeris [DV FEL].mkv'
+            → ('Juego de tronos', 2011, 3, 1, 'Valar Dohaeris')
+        'Game.of.Thrones.S03E01.2160p.UHD.BluRay.x265.mkv'
+            → ('Game of Thrones', None, 3, 1, '')
+        'Serie - 3x01 - Piloto.mkv' → ('Serie', None, 3, 1, 'Piloto')
+        'Blade Runner 2049 (2017).mkv'                → None
+    """
+    stem = Path(filename).stem
+    m = _EPISODIO_RE.search(stem)
+    if not m:
+        return None
+    temporada = int(m.group(1) if m.group(1) is not None else m.group(3))
+    episodio = int(m.group(2) if m.group(2) is not None else m.group(4))
+
+    # La serie es lo de ANTES del marcador; el año se saca de ahí igual que en
+    # una película, así que se reutiliza el mismo parser en vez de repetirlo.
+    serie, anio = parse_mkv_filename(stem[:m.start()] + ".mkv")
+
+    # Y el título del episodio, lo de después hasta el primer tag. Solo sale
+    # en el formato que escribe la app (' - Título - '); de un nombre de
+    # release sale vacío, que es correcto: ahí no hay título.
+    resto = stem[m.end():]
+    resto = re.split(r"[\[(]", resto)[0]
+    titulo_ep = re.sub(r"^[\s._\-]+", "", resto)
+    titulo_ep = re.sub(r"[\s._\-]+$", "", titulo_ep)
+    titulo_ep = re.sub(r"\s+", " ", titulo_ep.replace(".", " ")).strip()
+    # Un «1080p WEB-DL x265» no es el título de nada.
+    if re.search(r"\d{3,4}[pi]\b|x26[45]|bluray|web[- ]?dl|hevc|remux",
+                 titulo_ep, re.I):
+        titulo_ep = ""
+    return serie, anio, temporada, episodio, titulo_ep
+
+
 def _token_set_ratio(a: str, b: str) -> float:
     """Jaccard sobre tokens normalizados sin stop-words. Insensible al
     orden y a palabras comodín (The/A/El/La…)."""

@@ -3150,6 +3150,12 @@ function renderTmdbCardHTML(t, ctx = null) {
       ? botonDeFicha(ctx, false) : '';
   }
   const metaParts = [];
+  // Un episodio se identifica por su sitio en la serie, y va PRIMERO: es lo
+  // que distingue este fichero de los otros nueve de la misma temporada.
+  if (t.es_serie) {
+    const ep = `T${t.temporada} · E${t.episodio}`;
+    metaParts.push(t.episodio_titulo ? `${ep} · ${t.episodio_titulo}` : ep);
+  }
   if (t.year) metaParts.push(String(t.year));
   if (t.runtime_minutes)
     metaParts.push(`${Math.floor(t.runtime_minutes/60)}h ${t.runtime_minutes%60}min`);
