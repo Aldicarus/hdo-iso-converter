@@ -634,10 +634,10 @@ body {
   background: var(--surface-1);
   font-size: 11.5px; color: var(--text-2);
 }
-/* En la cabecera con ficha: para corregir un match que apuntó a otra
-   película del mismo título. Discreto — no compite con el título. */
-.tmdb-cambiar { margin-left: auto; opacity: .75; }
-.tmdb-cambiar:hover { opacity: 1; }
+/* «Cambiar película» vive con los otros enlaces de la ficha (TMDb · IMDb ·
+   Web oficial) y se lee como uno más. En la fila del título empujaba la nota
+   —que se coloca sola a la derecha— hacia el centro. */
+.tmdb-cambiar { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
 /* Un punto por fase: por dónde va, sin gastar una línea de texto. El mismo
    recurso que la columna de trabajo usa para el trabajo en curso. */

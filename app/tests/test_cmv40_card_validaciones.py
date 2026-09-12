@@ -349,3 +349,30 @@ class TestDiagnosticoEnTexto(CardTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestNingunIconoSaleComoTexto(CardTestCase):
+    """El SVG escapado es visible y no da ningún error.
+
+    `icono()` devuelve HTML; si el valor cae en un campo que el render pasa
+    por `escHtml` —razonable, porque ahí van datos del RPU— lo que se pinta es
+    `<svg viewBox="0 0 24 24" fill="none" stroke="cu…`. Pasó en la columna
+    «¿=?» de la tabla de comparación del bloque ②.
+
+    Se comprueba sobre el HTML RENDERIZADO y no leyendo el fuente: así da
+    igual por qué patrón llegue —una variable, un campo de objeto, un
+    argumento—, que el síntoma es siempre el mismo.
+    """
+
+    def test_ni_en_la_card_completa(self):
+        for nombre, sesion in (
+                ("mandalorian", sesion_mandalorian()),
+                ("ack pendiente", sesion_mandalorian(awaiting_critical_ack=True)),
+                ("sin datos", sesion_mandalorian(target_dv_info={}, source_dv_info={})),
+                ("colapsada", sesion_mandalorian()),
+        ):
+            with self.subTest(nombre):
+                html = self.render(sesion, expandida=(nombre != "colapsada"))
+                self.assertNotIn("&lt;svg", html,
+                                 "el código del SVG se ve en pantalla")
+                self.assertNotIn("viewBox=&quot;", html)
+

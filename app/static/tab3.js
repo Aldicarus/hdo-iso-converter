@@ -3161,6 +3161,10 @@ function renderTmdbCardHTML(t, ctx = null) {
   if (t.tmdb_url) links.push(`<a href="${escHtml(t.tmdb_url)}" target="_blank" rel="noreferrer noopener">TMDb</a>`);
   if (t.imdb_id)   links.push(`<a href="https://www.imdb.com/title/${escHtml(t.imdb_id)}/" target="_blank" rel="noreferrer noopener">IMDb</a>`);
   if (t.homepage)  links.push(`<a href="${escHtml(t.homepage)}" target="_blank" rel="noreferrer noopener">Web oficial</a>`);
+  // «Cambiar película» va aquí y no en la fila del título: ahí empujaba la
+  // nota —que se coloca sola a la derecha con `margin-left:auto`— al centro.
+  // Y con los otros enlaces es donde encaja: los tres llevan a la ficha.
+  if (ctx && typeof botonDeFicha === 'function') links.push(botonDeFicha(ctx, true));
   const linksHtml = links.length ? `<div class="cmv40-tmdb-links">${links.join(' · ')}</div>` : '';
 
   const posterHtml = t.poster_url
@@ -3179,7 +3183,6 @@ function renderTmdbCardHTML(t, ctx = null) {
           <span class="cmv40-tmdb-title">${escHtml(t.title || t.original_title || '—')}</span>
           ${origHtml}
           ${ratingHtml}
-          ${(ctx && typeof botonDeFicha === 'function') ? botonDeFicha(ctx, true) : ''}
         </div>
         ${metaParts.length ? `<div class="cmv40-tmdb-meta">${escHtml(metaParts.join(' · '))}</div>` : ''}
         ${taglineHtml}
@@ -4058,7 +4061,7 @@ function _cmv40CmpMarca(a, b) {
     return { txt: 'solo BD', color: '#8a4a00' };
   }
   return String(a) === String(b)
-    ? { txt: icono('check'), color: '#0e6b2a' }
+    ? { html: icono('check'), color: '#0e6b2a' }
     : { txt: '≠', color: '#8a4a00' };
 }
 
@@ -4071,7 +4074,8 @@ function _cmv40RpuFila(etiqueta, a, b, marcaOverride) {
       <div style="color:var(--text-2); font-weight:600">${escHtml(etiqueta)}</div>
       <div style="color:var(--text-1)">${escHtml(val(a))}</div>
       <div style="color:var(--text-1)">${escHtml(val(b))}</div>
-      <div style="color:${m.color}; font-weight:700; text-align:right">${escHtml(m.txt)}</div>
+      <div style="color:${m.color}; font-weight:700; text-align:right">${
+        m.html || escHtml(m.txt || '')}</div>
     </div>`;
 }
 

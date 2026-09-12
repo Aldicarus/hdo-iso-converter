@@ -1488,8 +1488,9 @@ function botonDeFicha(ctx, conFicha) {
   const arg = `'${escHtml(ctx.tipo)}','${escHtml(ctx.id)}',` 
             + `'${escHtml(String(ctx.nombre || '').replace(/'/g, ''))}'`;
   return conFicha
-    ? `<button class="btn btn-ghost btn-xs tmdb-cambiar" onclick="abrirSelectorDeFicha(${arg})"
-         data-tooltip="Elegir otra película si esta no es la correcta">Cambiar</button>`
+    ? `<a class="tmdb-cambiar" role="button" tabindex="0"
+         onclick="abrirSelectorDeFicha(${arg})"
+         data-tooltip="Elegir otra película si esta no es la correcta">Cambiar película</a>`
     : `<div class="tmdb-sin-ficha">
          <span>Sin ficha de TMDb — no hay carátula ni sinopsis.</span>
          <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})"
