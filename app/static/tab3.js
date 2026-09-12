@@ -3334,7 +3334,11 @@ function _renderCMv40RecommendationCard(s, pid) {
     ? 'background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border)'
     : 'background:var(--surface-2); color:var(--text-2); border:1px solid var(--sep)';
 
-  const label = s.recommended_action_label || (isUnknown ? icono('reloj') + ' Esperando análisis' : '—');
+  // El icono va SUELTO y no pegado al texto: `label` puede venir del
+  // servidor y se pinta con `escHtml`, que convertiría el SVG en el código
+  // fuente del SVG, visible en pantalla.
+  const esperando = isUnknown && !s.recommended_action_label;
+  const label = s.recommended_action_label || (isUnknown ? 'Esperando análisis' : '—');
   const reason = s.recommended_action_reason || '';
 
   // Tag de calidad del bin (la que va al filename)
@@ -3451,7 +3455,7 @@ function _renderCMv40RecommendationCard(s, pid) {
       </div>
       <div class="section-body">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <span style="padding:6px 12px; border-radius:var(--r-sm); font-weight:700; font-size:13px; ${badgeStyle}">${escHtml(label)}</span>
+          <span style="padding:6px 12px; border-radius:var(--r-sm); font-weight:700; font-size:13px; ${badgeStyle}">${esperando ? icono('reloj') + ' ' : ''}${escHtml(label)}</span>
           <span style="background:var(--surface-2); color:var(--text-2); border:1px solid var(--sep); padding:4px 10px; border-radius:10px; font-size:11px; font-weight:600; font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(qualityTag)}</span>
           ${l2Chip}
         </div>

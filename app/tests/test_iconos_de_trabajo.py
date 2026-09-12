@@ -447,6 +447,41 @@ class TestNadieInterpolaUnNombreDeGlifoCrudo(unittest.TestCase):
             ["", "se pintaría el nombre del glifo como texto:"] + malas))
 
 
+class TestNingunIconoAcabaEscapado(unittest.TestCase):
+    """`escHtml(icono('reloj') + ' …')` pinta el CÓDIGO del SVG en pantalla.
+
+    `icono()` devuelve HTML. Si el valor se concatena con texto que luego pasa
+    por `escHtml` —cosa razonable cuando ese texto viene del servidor— lo que
+    ve el usuario es `<svg viewBox="0 0 24 24" fill="none" stroke="cu…`.
+    Pasó en el badge de «Análisis y recomendación» del panel CMv4.0, donde el
+    label puede venir de la sesión.
+
+    La regla: **el icono va suelto, el texto escapado**:
+
+        `${esperando ? icono('reloj') + ' ' : ''}${escHtml(label)}`
+
+    Se mira por FUNCIÓN y no por fichero, que si no `label` y `icon` —nombres
+    que se repiten en veinte sitios— dan falsos positivos por todas partes.
+    """
+
+    def test_ninguna_variable_con_icono_pasa_por_escHtml(self):
+        malas = []
+        for ruta in rutas():
+            src = ruta.read_text(encoding="utf-8")
+            cortes = [m.start() for m in
+                      re.finditer(r"\nfunction |\nasync function ", src)] + [len(src)]
+            for i in range(len(cortes) - 1):
+                bloque = src[cortes[i]:cortes[i + 1]]
+                con_icono = set(re.findall(
+                    r"\b([A-Za-z_$][\w$]*)\s*=\s*[^=;\n]*\bicono\(", bloque))
+                for v in con_icono:
+                    for m in re.finditer(rf"escHtml\(\s*{re.escape(v)}\s*[,)]", bloque):
+                        n = src[:cortes[i] + m.start()].count("\n") + 1
+                        malas.append(f"{ruta.name}:{n}: escHtml({v})")
+        self.assertEqual(malas, [], "\n  ".join(
+            ["", "el SVG se vería como texto:"] + malas))
+
+
 class TestNadieVuelveAPintarUnEmojiDesdeElJs(unittest.TestCase):
     """`el.textContent = '💿'` es como el icono de la pestaña 1 volvió al emoji.
 

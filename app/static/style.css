@@ -744,7 +744,17 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
-.banner-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+/* El icono del banner se centra con el PRIMER renglón del texto, no con el
+   bloque: el banner es `align-items: flex-start` porque su texto puede ocupar
+   varias líneas. Con el emoji el hueco lo llenaba el propio carácter de 16 px;
+   un SVG de 14 dentro de una caja de 16 quedaba descolgado hacia arriba. */
+.banner-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1.5em;            /* el `line-height` del banner */
+}
+.banner-icon svg { width: 16px; height: 16px; }
 .banner.warning { background: var(--orange-dim); border: 1px solid var(--orange-border); color: var(--orange); }
 .banner.info    { background: var(--blue-dim);   border: 1px solid var(--blue-border);   color: var(--teal); }
 .banner.error   { background: var(--red-dim);    border: 1px solid var(--red-border);    color: var(--red); }
@@ -9646,9 +9656,20 @@ body.workbar-plegada .workbar-toggle.con-trabajo::after {
 .ico {
   width: 14px; height: 14px;
   flex-shrink: 0;
-  /* En un `inline-flex` —los botones— no hace nada; en texto corrido lo baja
-     a la línea base en vez de dejarlo flotando sobre ella. */
-  vertical-align: -2px;
+  /* En `em` y no en píxeles: la app usa cuerpos de 9 a 14 px y un desplazamiento
+     fijo deja el icono alto en los pequeños y bajo en los grandes. */
+  vertical-align: -0.16em;
+}
+/* El hueco que declara el icono en el marcado. Es un `<span>`, o sea `inline`
+   por defecto: dentro de un botón —que es `inline-flex`— se blockifica y el
+   SVG queda colgando de la línea base en vez de centrado con el texto. Con
+   `inline-flex` + `align-items:center` el icono se centra con su renglón, que
+   es lo que hacía falta en «Limpiar artefactos» y en los textos corridos.
+   Solo `span`: `.empty-state-icon` es un `div` centrado por su contenedor. */
+span[data-icono] {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -0.16em;
 }
 .ico-md { width: 16px; height: 16px; }
 .ico-lg { width: 20px; height: 20px; }
