@@ -191,7 +191,18 @@ class ApiTestCase(unittest.TestCase):
             # texto con el session id crudo, que acababa en pantalla.
             if trabajo.tipo == _qm.TIPO_RIP:
                 self.encolados.append(trabajo.clave)
-            return cola.get_status()
+            # El espía respeta el contrato: `encolado` es lo que distingue un
+            # encolado bueno de un descarte por duplicado, y quien llama
+            # ramifica con eso. Devolviendo el status pelado, el endpoint de
+            # series leía `None` y contestaba «duplicado» SIEMPRE.
+            #
+            # Y se modela la deduplicación de verdad —por `(tipo, clave)`— para
+            # que un test que encole dos veces vea lo que vería en el NAS. Un
+            # fake que siempre dice que sí no puede cubrir el caso de los dos
+            # discos de una temporada.
+            ya = any(t.tipo == trabajo.tipo and t.clave == trabajo.clave
+                     for t in self.encolados_enteros[:-1])
+            return {**cola.get_status(), "encolado": not ya}
 
         # Sin este espía, un test de un endpoint de fase dispararía `_process`
         # de verdad y con él ffmpeg.

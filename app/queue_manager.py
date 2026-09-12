@@ -239,7 +239,12 @@ class QueueManager:
         async with self._lock:
             ids = {t.id for t in self._queue}
             if (self._running and self._running.id == trabajo.id) or trabajo.id in ids:
-                return self.get_status()
+                # Descartado por duplicado. **Se dice**: el llamador tiene que
+                # poder distinguirlo de un encolado bueno, porque si contesta
+                # «hecho» igualmente, el trabajo se pierde sin que nadie se
+                # entere. Es lo que pasó con el segundo disco de una temporada
+                # (2026-09-12), cuando la clave de los dos era la misma.
+                return {**self.get_status(), "encolado": False}
             if a_la_cabeza:
                 self._queue.insert(0, trabajo)
             else:
@@ -248,7 +253,7 @@ class QueueManager:
 
         await self._notify()
         asyncio.create_task(self._process())
-        return self.get_status()
+        return {**self.get_status(), "encolado": True}
 
     @staticmethod
     def _es(trabajo: "TrabajoEnCola", ref: str) -> bool:

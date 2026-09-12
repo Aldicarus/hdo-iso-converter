@@ -1665,12 +1665,32 @@ async function seriesCreateSessions() {
   // más 15-30 s por episodio, y por delante puede haber un rip de 40 minutos.
   // El resultado llega por `/api/series-create-progress`, que es el mismo
   // sitio del que ya salía la barra.
+  // Ya hay un trabajo para ESTE mismo origen. No es un error y no se puede
+  // tratar como éxito: antes el servidor contestaba «encolado» igualmente y
+  // los episodios no se creaban nunca.
+  if (data?.duplicado) {
+    cerrarModalDeTrabajo();
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
+    }
+    showToast('Ya hay un análisis en marcha para este disco. Espera a que termine.',
+              'warning');
+    return;
+  }
+
   if (data?.queued) {
     await refrescarWorkbar();
+    const miJob = data.job;
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
       if (!prog) continue;
+      // El progreso es UNO para toda la app y puede haber otro disco de la
+      // misma serie por delante. Sin comprobar de quién es, este modal
+      // adoptaba el resultado del otro trabajo como propio y daba por creados
+      // episodios que no existían.
+      if (prog.job && miJob && prog.job !== miJob) continue;   // aún es su turno
       if (prog.error) { data = null; break; }
       if (prog.resultado) { data = prog.resultado; break; }
       if (!prog.running) { data = null; break; }

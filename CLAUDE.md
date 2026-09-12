@@ -996,6 +996,31 @@ Cinco cosas que no son obvias:
   CMv4.0 encola fases sucesivas con la misma clave —su session id—, así que con
   la clave sola la Fase F se descartaría por duplicada mientras la Fase C sigue
   en la cola.
+  - **Y la clave de un trabajo de serie es el ORIGEN, no la serie.** Era
+    `serie:{nombre}:{temporada}`, y una temporada viene repartida en varios
+    discos: los seis episodios de Juego de Tronos S04 son «DISC1» y «DISC2»,
+    dos trabajos con la MISMA clave. Lanzar el segundo con el primero en marcha
+    lo descartaba en silencio — caso real del 2026-09-12, con E01-E03 creados y
+    E04-E06 que no llegaron a existir nunca. La construían a mano **tres**
+    sitios (la cola, el `workload.registrar` y el `liberar` del runner); hoy
+    sale de `_clave_de_serie`, porque bastaba con que una divergiera para
+    soltar el hueco de otro trabajo.
+- **`encolar` DICE si encoló.** Devolvía lo mismo encolara o descartara, y el
+  endpoint de series contestaba `{"queued": true}` en los dos casos: un trabajo
+  perdido era indistinguible de uno hecho. Ahora el retorno lleva `encolado` y
+  quien llama ramifica — el de series responde `{"duplicado": true}` y la UI lo
+  dice en vez de fingir que va.
+  - **El espía de la cola en `api_harness` modela las dos ramas**, incluida la
+    deduplicación por `(tipo, clave)`. Devolvía el status pelado, así que el
+    endpoint leía `None`, lo tomaba por descarte y contestaba «duplicado»
+    siempre. Es la regla de los fakes fieles otra vez: un fake que siempre dice
+    que sí no puede cubrir el caso de los dos discos.
+- **El progreso de la creación de series lleva el sello de su trabajo**
+  (`job`). Es un dict global y con la cola pueden convivir dos —uno corriendo y
+  otro esperando—, así que el modal del segundo leía el `resultado` del primero
+  y lo daba por suyo: enseñaba tres proyectos creados que no eran los que había
+  pedido. El frontend descarta lo que no lleve su sello, y el endpoint **no
+  pisa** el progreso de un trabajo vivo.
 - **Reordenar NO borra.** `reorder` conserva lo que no se menciona: el panel de
   la cola de Tab 1 solo conoce sus rips, y si filtrara a lo mencionado,
   arrastrar una tarjeta se llevaría por delante las fases CMv4.0 de detrás.

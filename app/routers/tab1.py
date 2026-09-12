@@ -1442,6 +1442,29 @@ class CreateSeriesSessionsRequest(_BaseModel):
     mode: str = "add_only"  # 'add_only' | 'replace' | 'skip_existing'
 
 
+def _clave_de_serie(spath: str, temporada) -> str:
+    """La identidad de un trabajo de creación de episodios: **el ORIGEN**.
+
+    Era `serie:{nombre_de_la_serie}:{temporada}`, y una temporada viene
+    repartida en varios discos. Los seis episodios de Juego de Tronos S04 son
+    «GOT UHD S04 DISC1» y «DISC2»: dos trabajos distintos con la MISMA clave.
+    Como la cola deduplica por `(tipo, clave)`, lanzar el segundo con el
+    primero en marcha lo descartaba **en silencio** — caso real del
+    2026-09-12, con E01-E03 creados y E04-E06 que no llegaron a existir.
+
+    El origen es lo que identifica el trabajo: dos discos son dos trabajos, y
+    el mismo disco dos veces sigue siendo un doble envío que hay que
+    deduplicar. La temporada se queda porque hace la clave legible en el log,
+    no porque discrimine.
+
+    **Un solo sitio**: la construía a mano la cola, el `workload.registrar` y
+    el `liberar` del runner. Tres copias de una identidad es exactamente la
+    réplica que se desincroniza — y aquí bastaba con que una divergiera para
+    soltar el hueco de otro trabajo.
+    """
+    return f"serie:{spath}:{temporada}"
+
+
 # Progreso global de create_series_sessions (single-job singleton).
 # El frontend lo polleeará via /api/series-create-progress para mostrar
 # feedback durante el bucle de N episodios.
@@ -1576,6 +1599,12 @@ def _rip_adaptador(trabajo) -> dict | None:
 
 
 _series_create_progress: dict = {
+    # De QUIÉN es este progreso (la clave del trabajo). El dict es uno para
+    # toda la app y dos discos de una misma temporada son dos trabajos que
+    # pueden convivir —uno corriendo, otro esperando—, así que el modal tiene
+    # que poder saber si lo que lee es suyo. Va también en el estado inicial
+    # para que el campo exista siempre y nadie lea `undefined`.
+    "job": "",
     "running": False,
     "current_index": 0,
     "total": 0,
@@ -1631,7 +1660,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     failed_episodes: list[dict] = []
     audio_dcp = "audio dcp" in (spath or "").lower()
 
-    _clave = (f"serie:{body.series_name or spath}:{body.season_number}")
+    _clave = _clave_de_serie(spath, body.season_number)
     _titulo_serie = trabajos.nombre_de_trabajo(
         serie={"nombre": body.series_name, "anio": body.series_year}) \
         if body.series_name else ""
@@ -1651,6 +1680,10 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         else "Preparando ficheros M2TS…"
     )
     _series_create_progress = {
+        # De quién es este progreso. Sin el sello, dos trabajos de serie
+        # comparten el mismo dict y el modal del segundo adopta el
+        # `resultado` del primero como si fuera suyo.
+        "job": _clave,
         "running": True,
         "current_index": 0,
         "total": len(body.episodes),
@@ -2084,12 +2117,10 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
 
     created_sessions = []
     failed_episodes: list[dict] = []
-    # Reset del progreso global. Si otro job estaba en curso, lo
-    # sobrescribimos (el endpoint es single-job).
-    # A la cola: ~30 s de montaje más 15-30 s por episodio, todo disco. El
-    # POST responde al instante y el modal se alimenta del poller.
     global _series_create_progress
-    _series_create_progress = {
+    _clave = _clave_de_serie(spath, body.season_number)
+    _en_espera = {
+        "job": _clave,
         "running": True,
         "current_index": 0,
         "total": len(body.episodes),
@@ -2108,10 +2139,10 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     _titulo_encolado = trabajos.nombre_de_trabajo(
         serie={"nombre": body.series_name, "anio": body.series_year}) \
         if body.series_name else ""
-    await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
+    _estado = await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="rip",
         tipo=queue_manager_mod.TIPO_SERIE,
-        clave=f"serie:{body.series_name or spath}:{body.season_number}",
+        clave=_clave,
         sobre=spath,
         que=(f"Análisis de {len(body.episodes)} episodio"
              f"{'s' if len(body.episodes) != 1 else ''} · "
@@ -2133,7 +2164,18 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                # que no hay por qué repetir cuando llegue el turno.
                "fingerprint": fingerprint},
     ))
-    return {"queued": True, "total": len(body.episodes)}
+    # La cola lo descartó por duplicado: ya hay un trabajo para ESTE origen.
+    # Se dice, y **no se toca el progreso** — el que corre es el otro, y
+    # pisarlo es lo que hacía que su resultado se leyera como propio.
+    if not _estado.get("encolado"):
+        return {"queued": False, "duplicado": True, "job": _clave,
+                "total": len(body.episodes)}
+    # El progreso solo se pisa cuando no hay otro trabajo de serie vivo: si lo
+    # hay, este espera turno y el runner pondrá el suyo cuando le toque. El
+    # sello `job` es lo que permite al modal saber de quién es lo que lee.
+    if not _series_create_progress.get("running"):
+        _series_create_progress = _en_espera
+    return {"queued": True, "job": _clave, "total": len(body.episodes)}
 
 
 def _sanitize_id(s: str) -> str:
@@ -3453,8 +3495,8 @@ async def _runner_creacion_de_serie(trabajo) -> None:
         # hueco sin soltar deja la cola esperándose a sí misma.
         d = trabajo.datos or {}
         b = d.get("body") or {}
-        workload.liberar(f"serie:{b.get('series_name') or d.get('spath') or ''}:"
-                         f"{b.get('season_number')}")
+        workload.liberar(_clave_de_serie(d.get("spath") or "",
+                                         b.get("season_number")))
 
 
 if not DEV_MODE:
