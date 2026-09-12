@@ -258,6 +258,13 @@ function pillsActivos() {
   return document.querySelectorAll('#sidebar-tab-2 .sb-filter-pill')
     .filter(p => p.classList.contains('active')).map(p => p.dataset.filter);
 }
+// El botón de dirección ya no lleva el carácter ↑/↓ sino el glifo: se
+// reconoce por el `path`, que es lo que de verdad lo distingue.
+function _dir() {
+  const h = document.getElementById('mkv-recientes-sort-dir').innerHTML || '';
+  return h.includes('M12 19.2V4.8') ? 'flechaArriba'
+       : h.includes('M12 4.8v14.4') ? 'flechaAbajo' : '';
+}
 function ordenarPor(clave) {
   document.getElementById('mkv-recientes-sort').value = clave;
   onMkvRecientesSortChange();
@@ -480,10 +487,10 @@ class TestLaOrdenación(ColumnaEnNode):
         """La fecha y el tamaño se leen de mayor a menor; el nombre, al revés.
         Es lo mismo que hace el sidebar de Tab 1."""
         r = self.evaluar(self.salida(
-            "({orden: titulos(), flecha: document.getElementById('mkv-recientes-sort-dir').textContent})",
+            "({orden: titulos(), flecha: _dir()})",
             self.TRES + "ordenarPor('name');"))
         self.assertEqual(r["orden"], ["Antigua", "Bruta", "Nueva"])
-        self.assertEqual(r["flecha"], "↑")
+        self.assertEqual(r["flecha"], "flechaArriba")
 
     def test_por_tamaño_de_mayor_a_menor(self):
         r = self.evaluar(self.salida("titulos()", self.TRES + "ordenarPor('size');"))
@@ -491,13 +498,13 @@ class TestLaOrdenación(ColumnaEnNode):
 
     def test_el_botón_de_dirección_invierte_de_verdad(self):
         r = self.evaluar(self.salida(
-            "({antes, despues: titulos(), flecha: document.getElementById('mkv-recientes-sort-dir').textContent})",
+            "({antes, despues: titulos(), flecha: _dir()})",
             self.TRES + """
             const antes = titulos();
             toggleMkvRecientesSortDir();
             """))
         self.assertEqual(r["despues"], list(reversed(r["antes"])))
-        self.assertEqual(r["flecha"], "↑")
+        self.assertEqual(r["flecha"], "flechaArriba")
 
 
 class TestAbrirDesdeLaColumna(ColumnaEnNode):

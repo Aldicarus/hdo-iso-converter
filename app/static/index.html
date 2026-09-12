@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260912b">
+  <link rel="stylesheet" href="/static/style.css?v=20260912d">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -140,7 +140,7 @@
               <option value="status">Estado</option>
             </select>
             <button class="sidebar-sort-dir-btn" id="sidebar-sort-dir" onclick="toggleSidebarSortDir()"
-              data-tooltip="Alternar ascendente / descendente">↓</button>
+              data-tooltip="Alternar ascendente / descendente"><span data-icono="flechaAbajo"></span></button>
           </div>
           <div class="sidebar-status-filters">
             <button class="sb-filter-pill active" data-filter="all" onclick="onSidebarFilterClick(this)"
@@ -205,7 +205,7 @@
               <option value="size">Tamaño</option>
             </select>
             <button class="sidebar-sort-dir-btn" id="mkv-recientes-sort-dir" onclick="toggleMkvRecientesSortDir()"
-              data-tooltip="Alternar ascendente / descendente">↓</button>
+              data-tooltip="Alternar ascendente / descendente"><span data-icono="flechaAbajo"></span></button>
           </div>
           <!-- Los cuatro pills cubren TODAS las tarjetas: "sin extendido"
                incluye también las de caché caducada, que si no serían
@@ -240,7 +240,7 @@
 
         <!-- Cabecera + búsqueda + controles -->
         <div class="sidebar-sessions-header">
-          <span class="sidebar-section-title"><span data-icono="paleta"></span> Proyectos CMv4.0</span>
+          <span class="sidebar-section-title"><span data-icono="curva"></span> Proyectos CMv4.0</span>
           <span class="sessions-count" id="cmv40-count">0</span>
         </div>
         <div class="sidebar-search-wrap">
@@ -261,7 +261,7 @@
               <option value="phase">Fase</option>
             </select>
             <button class="sidebar-sort-dir-btn" id="cmv40-sort-dir" onclick="_cmv40ToggleSortDir()"
-              data-tooltip="Alternar ascendente / descendente">↓</button>
+              data-tooltip="Alternar ascendente / descendente"><span data-icono="flechaAbajo"></span></button>
           </div>
           <div class="sidebar-status-filters">
             <button class="sb-filter-pill active" data-filter="all" onclick="_cmv40FilterClick(this)"
@@ -555,12 +555,12 @@
       <div class="src-fb" data-filter="iso">
         <div class="src-fb-toolbar">
           <div class="src-fb-breadcrumb" id="src-fb-iso-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
-          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('iso','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('iso','')" data-tooltip="Volver a la raíz"><span data-icono="subirNivel"></span> Inicio</button>
           <select class="src-fb-sort" id="src-fb-iso-sort" onchange="srcFbSetSort('iso', this.value)" data-tooltip="Orden de listado">
             <option value="name_asc">Nombre A→Z</option>
             <option value="name_desc">Nombre Z→A</option>
-            <option value="size_desc">Tamaño ↓</option>
-            <option value="size_asc">Tamaño ↑</option>
+            <option value="size_desc">Tamaño (mayor primero)</option>
+            <option value="size_asc">Tamaño (menor primero)</option>
           </select>
         </div>
         <div class="src-fb-list" id="src-fb-iso-list">
@@ -576,7 +576,7 @@
       <div class="src-fb" data-filter="bdmv">
         <div class="src-fb-toolbar">
           <div class="src-fb-breadcrumb" id="src-fb-bdmv-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
-          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('bdmv','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('bdmv','')" data-tooltip="Volver a la raíz"><span data-icono="subirNivel"></span> Inicio</button>
           <select class="src-fb-sort" id="src-fb-bdmv-sort" onchange="srcFbSetSort('bdmv', this.value)" data-tooltip="Orden de listado">
             <option value="name_asc">Nombre A→Z</option>
             <option value="name_desc">Nombre Z→A</option>
@@ -594,11 +594,11 @@
       <div class="src-fb" data-filter="m2ts">
         <div class="src-fb-toolbar">
           <div class="src-fb-breadcrumb" id="src-fb-m2ts-breadcrumb"><span data-icono="carpeta"></span> /mnt/isos</div>
-          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('m2ts','')" data-tooltip="Volver a la raíz">↺ Inicio</button>
+          <button class="btn btn-ghost btn-xs" onclick="srcFbNavigate('m2ts','')" data-tooltip="Volver a la raíz"><span data-icono="subirNivel"></span> Inicio</button>
           <button class="btn btn-ghost btn-xs" onclick="srcFbM2tsClear()" data-tooltip="Quitar todas las selecciones"><span data-icono="cruz"></span> Limpiar selección</button>
           <select class="src-fb-sort" id="src-fb-m2ts-sort" onchange="srcFbSetSort('m2ts', this.value)" data-tooltip="Orden de listado — útil para localizar los m2ts grandes (episodios) entre los pequeños (extras)">
-            <option value="size_desc" selected>Tamaño ↓</option>
-            <option value="size_asc">Tamaño ↑</option>
+            <option value="size_desc" selected>Tamaño (mayor primero)</option>
+            <option value="size_asc">Tamaño (menor primero)</option>
             <option value="name_asc">Nombre A→Z</option>
             <option value="name_desc">Nombre Z→A</option>
           </select>
@@ -992,7 +992,7 @@
 <div class="modal-overlay" id="cmv40-new-modal" onclick="onModalOverlayClick(event,'cmv40-new-modal')">
   <div class="modal-box cmv40-new-modal-box">
     <div class="cmv40-new-head">
-      <div class="modal-title"><span data-icono="paleta"></span> Nuevo proyecto CMv4.0</div>
+      <div class="modal-title"><span data-icono="curva"></span> Nuevo proyecto CMv4.0</div>
       <div class="modal-sub">Selecciona el MKV origen y el RPU target. Con ambos el pipeline arrancará automáticamente hasta la verificación visual.</div>
     </div>
 
@@ -1003,7 +1003,7 @@
         data-tooltip="Navega tu biblioteca y selecciona el MKV origen">
         <span class="cmv40-source-btn-icon" data-icono="claqueta"></span>
         <span class="cmv40-source-btn-label placeholder" id="cmv40-source-btn-label">Selecciona MKV…</span>
-        <span class="cmv40-source-btn-chevron">▾</span>
+        <span class="cmv40-source-btn-chevron" data-icono="chevron" data-icono-clase="chevron-abierto"></span>
       </button>
       <button class="btn btn-secondary btn-md" onclick="loadCMv40SourceList()"
         data-tooltip="Limpiar selección"><span data-icono="cruz"></span></button>
@@ -1038,7 +1038,7 @@
           Selecciona primero un MKV origen.
         </div>
         <button class="btn btn-secondary btn-sm" id="cmv40-new-repo-refresh"
-          onclick="_cmv40NewLoadRepoCandidates(true)" data-tooltip="Recargar candidatos">↺ Recargar</button>
+          onclick="_cmv40NewLoadRepoCandidates(true)" data-tooltip="Recargar candidatos"> Recargar</button>
       </div>
       <div id="cmv40-new-repo-list" class="cmv40-repo-list">
         <div class="cmv40-repo-empty">— Selecciona primero el MKV origen —</div>
@@ -1460,7 +1460,7 @@
         <button class="btn btn-secondary btn-sm" id="settings-sheet-test"
           onclick="testSheetUrl()">Probar</button>
         <button class="btn btn-ghost btn-sm" id="settings-sheet-reset"
-          onclick="resetSheetUrlToDefault()" data-tooltip="Restaurar URL por defecto">↺ Default</button>
+          onclick="resetSheetUrlToDefault()" data-tooltip="Restaurar URL por defecto"> Default</button>
       </div>
       <div id="settings-sheet-feedback" class="settings-feedback"></div>
     </div>
@@ -1501,13 +1501,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260912b"></script>
-<script src="/static/workbar.js?v=20260912b"></script>
-<script src="/static/settings.js?v=20260912b"></script>
-<script src="/static/cmv40_modals.js?v=20260912b"></script>
-<script src="/static/tab1.js?v=20260912b"></script>
-<script src="/static/tab2.js?v=20260912b"></script>
-<script src="/static/tab3.js?v=20260912b"></script>
-<script src="/static/browser.js?v=20260912b"></script>
+<script src="/static/core.js?v=20260912d"></script>
+<script src="/static/workbar.js?v=20260912d"></script>
+<script src="/static/settings.js?v=20260912d"></script>
+<script src="/static/cmv40_modals.js?v=20260912d"></script>
+<script src="/static/tab1.js?v=20260912d"></script>
+<script src="/static/tab2.js?v=20260912d"></script>
+<script src="/static/tab3.js?v=20260912d"></script>
+<script src="/static/browser.js?v=20260912d"></script>
 </body>
 </html>

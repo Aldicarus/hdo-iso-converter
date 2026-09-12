@@ -201,7 +201,7 @@ async function checkForUpdates(force) {
         ? new Date(rel.published_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
         : '';
       const linkBtn = rel.url
-        ? `<a class="settings-update-rel-link" href="${escHtml(rel.url)}" target="_blank" rel="noreferrer">↗</a>`
+        ? `<a class="settings-update-rel-link" href="${escHtml(rel.url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span></a>`
         : '';
       const body = (rel.body || '').trim() || '_(release sin notas)_';
       return `
@@ -232,7 +232,7 @@ async function checkForUpdates(force) {
     </div>
     <div class="settings-update-actions">
       <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> Copiar comandos</button>
-      ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer">↗ Release en GitHub</a>` : ''}
+      ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> Release en GitHub</a>` : ''}
       <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')">Ignorar esta versión</button>
     </div>`;
 }
@@ -294,7 +294,7 @@ async function ignoreUpdate(version) {
     body: JSON.stringify({ version }),
   });
   showToast(version
-    ? `⏭ Aviso de ${version} silenciado`
+    ? icono('omitida') + ` Aviso de ${version} silenciado`
     : 'Avisos de actualización reactivados', 'info');
   checkForUpdates(false);
 }

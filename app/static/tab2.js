@@ -336,7 +336,7 @@ function _mkvSubTabInnerHtml(project) {
   return `
     <span class="unsaved-dot" id="mkv-unsaved-dot-${project.id}"
       style="display:${project.dirty ? 'inline' : 'none'}"
-      data-tooltip="Cambios sin guardar">●</span>
+      data-tooltip="Cambios sin guardar"></span>
     <span class="subtab-proj-icon"><span data-icono="lapiz"></span></span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.fileName || '')}">${escHtml(corto)}</span>
     <button class="subtab-proj-close" onclick="closeMkvProject('${project.id}');event.stopPropagation()"
@@ -2170,7 +2170,7 @@ function _renderMkvEditPanel(project = mkvProject) {
           style="color:var(--text-2); margin-right:auto"><span data-icono="lupaOnda"></span> Datos MKV</button>
         <button class="btn btn-ghost btn-md" onclick="undoMkvEdits()"
           data-tooltip="Revertir todos los cambios al estado original"
-          style="color:var(--text-2)">↩️ Deshacer cambios</button>
+          style="color:var(--text-2)"><span data-icono="deshacer"></span> Deshacer cambios</button>
         <button class="btn btn-ghost btn-md" onclick="closeMkvEditor()"
           data-tooltip="Cerrar el editor"
           style="color:var(--red)"><span data-icono="cruz"></span> Cerrar</button>
@@ -2389,7 +2389,7 @@ function _renderMkvTracks(project = mkvProject) {
     const frc = flagForcedLit ? ' active-forced' : '';
     const forcedLabel = derivedForced ? 'Forzados' : 'Completos';
     // Anotación cuando la clasificación viene inferida del volumen, no del flag
-    const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-tooltip="Clasificación inferida por volumen (el flag forced del MKV no está puesto)">↯ inferido</span>' : '';
+    const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-tooltip="Clasificación inferida por volumen (el flag forced del MKV no está puesto)"><span data-icono="info"></span> inferido</span>' : '';
 
     // Info visible: codec + resolución + paq. + bitrate + tipo
     const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
@@ -3139,7 +3139,7 @@ function toggleMkvRecientesSortDir() {
 
 function _actualizarBotonOrdenMkvRecientes() {
   const btn = document.getElementById('mkv-recientes-sort-dir');
-  if (btn) btn.textContent = _mkvRecientesSortAsc ? '↑' : '↓';
+  if (btn) btn.innerHTML = icono(_mkvRecientesSortAsc ? 'flechaArriba' : 'flechaAbajo');
 }
 
 function onMkvRecientesFilterClick(btn) {

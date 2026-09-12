@@ -1517,7 +1517,7 @@ function _seriesConfirmConflicts(count, listText) {
     // "Abrir existente" del flujo Película (single duplicate).
     const skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    skipBtn.textContent = '⏭ Saltar existentes';
+    skipBtn.innerHTML = icono('omitida') + ' Saltar existentes';
     skipBtn.onclick = () => {
       closeModal('confirm-modal');
       resolve('skip_existing');
@@ -2008,7 +2008,7 @@ function toggleSidebarSortDir() {
 
 function _updateSortDirBtn() {
   const btn = document.getElementById('sidebar-sort-dir');
-  if (btn) btn.textContent = _sidebarSortAsc ? '↑' : '↓';
+  if (btn) btn.innerHTML = icono(_sidebarSortAsc ? 'flechaArriba' : 'flechaAbajo');
 }
 
 /** Callback de los pills de filtro por estado. */
@@ -4259,7 +4259,7 @@ function renderExecuteArea() {
   const session = currentSession;
   if (session?.status === 'done') {
     btn.disabled = false;
-    btn.innerHTML = '↻ Re-ejecutar';
+    btn.innerHTML = icono('refrescar') + ' Re-ejecutar';
   } else if (session?.status === 'running' || session?.status === 'queued') {
     btn.disabled = true;
     btn.innerHTML = icono('reloj') + ' En ejecución…';

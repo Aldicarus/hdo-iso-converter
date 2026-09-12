@@ -9628,6 +9628,17 @@ body.workbar-plegada .workbar-toggle.con-trabajo::after {
 .punto-conf.media { background: var(--orange); }
 .punto-conf.mala  { background: var(--red); }
 
+/* El chevron gira en vez de cambiar de carácter: el mismo glifo sirve para
+   plegado y desplegado, y la transición se ve. */
+.ico.chevron-abierto { transform: rotate(90deg); }
+.cmv40-fase-chevron .ico { transition: transform var(--t-fast) var(--ease); }
+/* El punto de «cambios sin guardar» era el carácter ●, que cada sistema
+   dibuja de un tamaño. */
+.unsaved-dot, [data-tooltip="Cambios sin guardar"] {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--orange); vertical-align: 1px;
+}
+
 /* ── El icono suelto ──────────────────────────────────────────────────────
    A la altura del texto y con su color (`currentColor`), así que dentro de un
    botón primario sale blanco y en un título, del color del título. El chip

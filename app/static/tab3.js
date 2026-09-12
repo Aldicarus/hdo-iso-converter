@@ -29,7 +29,7 @@ let _cmv40Filter = 'all';
 
 // Icono por fase (para el badge del sidebar)
 const CMV40_PHASE_ICONS = {
-  'created':         'paleta',
+  'created':         'mas',
   'source_analyzed': 'lupa',
   'target_provided': 'diana',
   'extracted':       'tijeras',
@@ -875,7 +875,7 @@ function _cmv40RenderTimeline(s, project) {
     const iconMap = {
       done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
-      skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
+      skipped: '<span class="cmv40-tl-status-icon skipped"><span data-icono="omitida"></span></span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
       error:   '<span class="cmv40-tl-status-icon error"><span data-icono="cruz"></span></span>',
     };
@@ -940,7 +940,7 @@ function _cmv40RenderTimeline(s, project) {
         <div class="cmv40-tl-progress ${progressCls}">
           <div class="cmv40-tl-progress-meta">
             <span class="cmv40-tl-timer">
-              <span class="cmv40-tl-timer-icon">⏱</span>
+              <span class="cmv40-tl-timer-icon" data-icono="reloj"></span>
               <span class="cmv40-tl-timer-elapsed"${timerAttrs}>${elapsedLabel}</span>
             </span>
             <span class="cmv40-tl-progress-pct">${doneCount}/${totalCount} · ${progressPct}%</span>
@@ -1146,7 +1146,7 @@ async function _cmv40LoadRecommendation(filename) {
 // Metadata por columna: icono, label corta, tooltip explicativo
 const CMV40_CHIP_META = {
   dv_source:     { icon: 'claqueta', label: 'Fuente',   help: 'Plataforma de origen del RPU CMv4.0 (iTunes, Disney+, MA, MAX, Fandango, BD-FEL…)' },
-  sync:          { icon: '⏱', label: 'Sync',     help: 'Offset de frames entre WEB-DL y Blu-ray + comprobación de L5 (active area / letterbox)' },
+  sync:          { icon: 'reloj', label: 'Sync',     help: 'Offset de frames entre WEB-DL y Blu-ray + comprobación de L5 (active area / letterbox)' },
   comparisons:   { icon: 'lupaOnda', label: 'Verif.',   help: 'Primera sub-columna de Comparisons: tipo de verificación (HDR COMP, plot, nits, sample, shots…)' },
   comparisons_2: { icon: 'grafico', label: 'Verif. 2', help: 'Segunda sub-columna de Comparisons (suele ser plot, L1, nits…)' },
   notes:         { icon: 'portapapeles', label: 'Notas',    help: 'Notas / workflow. Factible suele ser "workflow 2-3"; si no, explica el motivo' },
@@ -1160,7 +1160,7 @@ function _cmv40TableRow(key, value, link, opts = {}) {
   const valueClass = opts.mono ? 'cmv40-rec-row-value mono' : 'cmv40-rec-row-value';
   const linkHtml = link
     ? `<a class="cmv40-rec-row-link" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
-         data-tooltip="Abrir: ${escHtml(link)}">Abrir ↗</a>`
+         data-tooltip="Abrir: ${escHtml(link)}">Abrir <span data-icono="enlaceExterno"></span></a>`
     : '';
   return `
     <div class="cmv40-rec-row">
@@ -1255,7 +1255,7 @@ function _cmv40RenderRecommendation(data, containerId) {
 
   const matchTitleHtml = data.match_title
     ? (data.title_link
-        ? `<a class="cmv40-rec-match-title linked" href="${escHtml(data.title_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.title_link)}">${escHtml(data.match_title)} <span class="chip-arrow">↗</span></a>`
+        ? `<a class="cmv40-rec-match-title linked" href="${escHtml(data.title_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.title_link)}">${escHtml(data.match_title)} <span class="chip-arrow" data-icono="enlaceExterno"></span></a>`
         : `<span class="cmv40-rec-match-title">${escHtml(data.match_title)}</span>`)
     : '';
 
@@ -1582,7 +1582,7 @@ function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative, targetTy
       <div class="cmv40-pp-header">
         <span class="cmv40-pp-icon">${icono(info.icon)}</span>
         <span class="cmv40-pp-title">${escHtml(info.title)}</span>
-        <span class="cmv40-pp-time" data-tooltip="Estimación basada en tiempos medidos en NAS ZFS — se recalibra con cada ejecución real">⏱ ${escHtml(tiempo)}</span>
+        <span class="cmv40-pp-time" data-tooltip="Estimación basada en tiempos medidos en NAS ZFS — se recalibra con cada ejecución real"><span data-icono="reloj"></span> ${escHtml(tiempo)}</span>
       </div>
       <div class="cmv40-pp-flow">${flow}</div>
       <div class="cmv40-pp-blurb">${escHtml(info.blurb)}</div>
@@ -2319,7 +2319,7 @@ function _createCMv40SubTab(project) {
   btn.dataset.pid = project.id;
   const name = project.session.source_mkv_name.replace(/\.mkv$/i, '');
   btn.innerHTML = `
-    <span class="subtab-proj-icon"><span data-icono="paleta"></span></span>
+    <span class="subtab-proj-icon"><span data-icono="curva"></span></span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.session.source_mkv_name)}">${escHtml(name.slice(0, 24))}${name.length > 24 ? '…' : ''}</span>
     <button class="subtab-proj-close" onclick="closeCMv40Project('${project.id}');event.stopPropagation()"
       data-tooltip="Cerrar proyecto">×</button>`;
@@ -2973,7 +2973,7 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
     const iconMap = {
       done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
-      skipped: '<span class="cmv40-tl-status-icon skipped">⏭</span>',
+      skipped: '<span class="cmv40-tl-status-icon skipped"><span data-icono="omitida"></span></span>',
       pending: '<span class="cmv40-tl-status-icon pending"></span>',
     };
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
@@ -3204,7 +3204,7 @@ function _renderCMv40Info(s, pid) {
     ${tmdbCardHtml}
     <div class="section-card">
       <div class="section-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
-        <div><div class="section-title"><span data-icono="claqueta"></span> Proyecto CMv4.0</div>
+        <div><div class="section-title"><span data-icono="curva"></span> Proyecto CMv4.0</div>
         <div class="section-subtitle"><span data-icono="caja"></span> Los cambios se guardan automáticamente tras cada acción. Cerrar la pestaña no pierde nada.</div></div>
         ${canAuto ? `
         <button class="btn btn-${autoOn ? 'primary' : 'ghost'} btn-sm" onclick="cmv40ToggleAuto('${pid}')"
@@ -3639,7 +3639,7 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
           <button class="btn btn-ghost btn-md"
             onclick="_cmv40ChangeTarget('${pid}')"
             data-tooltip="Vuelve a Fase B para escoger otro bin (del repo DoviTools, de carpeta local o extraído de otro MKV propio)">
-            ↩ Cambiar target
+            <span data-icono="deshacer"></span> Cambiar target
           </button>
           <button class="btn btn-warning btn-md"
             onclick="_cmv40AcknowledgeCriticalGates('${pid}')"
@@ -3957,7 +3957,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
           <div class="section-title">${escHtml(fase.title)}${titleSuffix}</div>
           <div class="section-subtitle">${subtitle}</div>
         </div>
-        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+        <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
       </div>
       ${body}
     </div>`;
@@ -4581,7 +4581,7 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
           <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> Validaciones — trust gates + compatibilidad</div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
-        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+        <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
       </div>
       ${body}
     </div>`;
@@ -4661,7 +4661,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
           <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> Validación final pre-finalizar</div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
-        <div class="cmv40-fase-chevron">${isExpanded ? '▾' : '▸'}</div>
+        <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
       </div>
       ${body}
     </div>`;
@@ -5916,7 +5916,7 @@ function _renderCMv40Sidebar() {
   if (filtered.length === 0) {
     list.innerHTML = `
       <div class="empty-state" style="padding:24px 12px">
-        <div class="empty-state-icon"><span data-icono="paleta"></span></div>
+        <div class="empty-state-icon" data-icono="curva"></div>
         <div>${searchTerm || _cmv40Filter !== 'all' ? 'Sin resultados' : 'Crea un proyecto para inyectar CMv4.0'}</div>
       </div>`;
     return;
@@ -6019,7 +6019,7 @@ function _renderCMv40Sidebar() {
 function _cmv40ToggleSortDir() {
   _cmv40SortDir = _cmv40SortDir === 'asc' ? 'desc' : 'asc';
   const btn = document.getElementById('cmv40-sort-dir');
-  if (btn) btn.textContent = _cmv40SortDir === 'asc' ? '↑' : '↓';
+  if (btn) btn.innerHTML = icono(_cmv40SortDir === 'asc' ? 'flechaArriba' : 'flechaAbajo');
   _renderCMv40Sidebar();
 }
 
@@ -6328,7 +6328,7 @@ function _renderCMv40SyncControls(project) {
     <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
       <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')"><span data-icono="lapiz"></span> Aplicar corrección</button>
       ${hasSyncConfig ? `<button class="btn btn-danger btn-md" onclick="cmv40DoResetSync('${pid}')"
-          data-tooltip="Descartar corrección y volver al target original">↩️ Resetear al original</button>` : ''}
+          data-tooltip="Descartar corrección y volver al target original"><span data-icono="deshacer"></span> Resetear al original</button>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoSkipSync('${pid}')"
         ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> Confirmar sync y continuar</button>
     </div>

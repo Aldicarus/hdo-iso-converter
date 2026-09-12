@@ -537,7 +537,7 @@ function renderProjectSubTabButton(project) {
   btn.className  = 'subtab-proj';
   btn.dataset.pid = project.id;
   btn.innerHTML  = `
-    <span class="unsaved-dot" id="unsaved-dot-${project.id}" style="display:none" data-tooltip="Cambios sin guardar">●</span>
+    <span class="unsaved-dot" id="unsaved-dot-${project.id}" style="display:none" data-tooltip="Cambios sin guardar"></span>
     <span class="subtab-proj-icon" id="subtab-icon-${project.id}">${icon}</span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.name)}">${escHtml(project.name.slice(0,24))}${project.name.length > 24 ? '…' : ''}</span>
     <button class="subtab-proj-close" onclick="closeProject('${project.id}',event)"
@@ -862,7 +862,7 @@ function buildProjectPanelHTML(pid) {
                 <th data-tooltip="mkvmerge: MPLS → MKV"><span data-icono="flechaAbajo"></span> mkvmerge</th>
                 <th data-tooltip="Desmontar ISO (umount)"><span data-icono="candadoAbierto"></span> Desmontar</th>
                 <th data-tooltip="mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)"><span data-icono="lapiz"></span> Propedit</th>
-                <th data-tooltip="Duración total de la ejecución">⏱ Total</th>
+                <th data-tooltip="Duración total de la ejecución"><span data-icono="reloj"></span> Total</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -1583,6 +1583,12 @@ const GLIFOS = {
   // Material. Un bocadillo diría «un comentario».
   subtitulos: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/>'
             + '<path d="M6.8 11.5h4M13.2 11.5h4M6.8 15h7M16 15h1.2"/>',
+  // El chevron de desplegar/plegar. Era ▸/▾, que el sistema dibuja con su
+  // propio grosor y no casa con el trazo de los demás.
+  chevron: '<path d="m9 5.5 7 6.5-7 6.5"/>',
+  // La flecha que sale de la caja: el enlace que abre fuera de la app.
+  enlaceExterno: '<path d="M13.5 4.5H19.5V10.5"/><path d="M19.5 4.5 11 13"/>'
+               + '<path d="M18 14.5v4a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6h4"/>',
   // Un salto por encima: la fase que no hace falta ejecutar.
   omitida: '<path d="M5 7.5c3.5 0 4.5 9 8 9s4.5-9 8-9"/><path d="M18 4.6 21 7.5l-3 2.9"/>',
   // Crear algo. Dos de las «estrellitas» no eran de CMv4.0 sino del botón de
@@ -1615,9 +1621,6 @@ const GLIFOS = {
               + '<rect x="9" y="3" width="6" height="3.2" rx="1"/>',
   tijeras: '<circle cx="6.5" cy="17.5" r="2.3"/><circle cx="6.5" cy="6.5" r="2.3"/>'
          + '<path d="M8.4 8.1 19 18.5M19 5.5 8.4 15.9"/>',
-  paleta: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.2 0 1.8-.9 1.8-1.8 0-1.5 1.2-2.2 2.4-2.2h2A2.8 2.8 0 0 0 21 13.7C21 8.1 17 3.5 12 3.5z"/>'
-        + '<circle cx="8.5" cy="9" r="1.1"/><circle cx="12.5" cy="7.5" r="1.1"/>'
-        + '<circle cx="7.5" cy="13.5" r="1.1"/>',
   rayo: '<path d="M13.2 3.5 6 13.2h4.4L9.8 20.5 17 10.8h-4.4z"/>',
   refrescar: '<path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5"/><path d="M19.8 4.5v3.8h-3.8"/>',
   deshacer: '<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4.2 4.5v3.8H8"/>',

@@ -1022,7 +1022,7 @@ function timelineDeTrabajo(pasos, a, titulo) {
         <div class="cmv40-tl-progress">
           <div class="cmv40-tl-progress-meta">
             <span class="cmv40-tl-timer">
-              <span class="cmv40-tl-timer-icon">⏱</span>
+              <span class="cmv40-tl-timer-icon" data-icono="reloj"></span>
               ${term
                 ? `<span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>`
                 : _relojHTML(a.segundos, '', '', 'cmv40-tl-timer-elapsed')}

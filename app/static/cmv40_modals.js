@@ -624,7 +624,7 @@ const _CMV40_HELP_SECTIONS = {
     </div>
 
     <h2 id="s-hyperlinks"><span data-icono="etiqueta"></span> Enlaces del sheet</h2>
-    <p>Muchas celdas llevan enlaces incrustados a recursos externos: el bin en Google Drive, imágenes comparativas, hilos de foro con pruebas, tutoriales específicos. La app los preserva y te los muestra con un botón "Abrir ↗" en:</p>
+    <p>Muchas celdas llevan enlaces incrustados a recursos externos: el bin en Google Drive, imágenes comparativas, hilos de foro con pruebas, tutoriales específicos. La app los preserva y te los muestra con un botón «Abrir» en:</p>
     <ul>
       <li>El <strong>banner de recomendación</strong> que aparece al seleccionar un Blu-ray en "Nuevo proyecto".</li>
       <li>La card <strong>«Hoja de DoviTools»</strong> del panel del proyecto, que conserva el veredicto durante todo el pipeline.</li>
@@ -636,7 +636,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>Al seleccionar el Blu-ray origen en "Nuevo proyecto", la app extrae el título y año del nombre del fichero.</li>
       <li>Si has configurado una API key de TMDb en <strong><span data-icono="ajustes"></span> Configuración</strong>, la app contrasta el título con TMDb — así desambigua cine no-ASCII (cine asiático, títulos en otros idiomas) y confirma el año.</li>
       <li>Te muestra el veredicto <strong>traducido a lo que hace esta app</strong> (que preserva el FEL): verde <em>Factible</em>, ámbar <em>Viable con avisos</em> / <em>Probablemente OK</em>, azul <em>No convertible a P8.1</em> (informativo) o rojo <em>No recomendado</em>. Si el título aparece en varios bloques del sheet, se listan todos con su bloque de origen.</li>
-      <li>Al crear el proyecto el veredicto <strong>se guarda con él</strong>, así que los avisos, el desfase documentado y los enlaces siguen a mano en la Fase D — que es donde hacen falta. El botón "↻ Actualizar" de la card lo vuelve a consultar.</li>
+      <li>Al crear el proyecto el veredicto <strong>se guarda con él</strong>, así que los avisos, el desfase documentado y los enlaces siguen a mano en la Fase D — que es donde hacen falta. El botón «Actualizar» de la card lo vuelve a consultar.</li>
       <li>En la <strong>Fase D</strong> el desfase del sheet se compara con el que mide la app; coincidencia = confirmación, divergencia = aviso.</li>
     </ol>
 
@@ -801,7 +801,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>Ejecuta las comparaciones automáticas (trust gates) contra tu Blu-ray — frames, L5, L6, L1.</li>
       <li>Según los resultados, toma la ruta automática o la ruta con revisión manual (ver <em>Pipelines</em>).</li>
     </ol>
-    <p><strong>Caché del inventario:</strong> la lista de todos los bins del repo se descarga la primera vez y se guarda localmente durante 24 horas. Para forzar relectura, pulsa el botón ↻ del modal.</p>
+    <p><strong>Caché del inventario:</strong> la lista de todos los bins del repo se descarga la primera vez y se guarda localmente durante 24 horas. Para forzar relectura, pulsa el botón de recargar del modal.</p>
 
     <h3>Alternativa local (legacy)</h3>
     <p>Si has descargado manualmente bins <code>.bin</code> desde un ordenador externo, puedes dejarlos en la carpeta local que definas en el arranque Docker (variable <code>CMV40_RPU_PATH</code>). La tab "Carpeta local" del modal los listará. Es una opción residual — la forma recomendada y más cómoda es usar el repositorio Drive, que siempre está actualizado.</p>

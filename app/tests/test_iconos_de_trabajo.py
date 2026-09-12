@@ -353,7 +353,18 @@ class TestNoQuedaNingunEmojiSinJustificar(unittest.TestCase):
     nuevo, o se convierte o hay que venir aquí a escribir por qué no.
     """
 
-    _EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿⬀-⯿✓✔✗✘▶⏳⏸⚠]')
+    # El rango AMPLIADO. La primera versión solo miraba los emoji «de color»
+    # y las flechas quedaron fuera —se excluyeron porque los 268 `→` de los
+    # comentarios daban ruido—, así que un `↩️ Deshacer cambios` pasaba el
+    # guard sin despeinarse. Lo mismo el ⏱ del cronómetro, el ⏭ de «saltar»,
+    # los ▾▸ de los chevrones y el ● de «cambios sin guardar».
+    _EMOJI = re.compile(
+        '[\U0001F300-\U0001FAFF'      # pictogramas
+        '☀-➿'                          # símbolos varios y dingbats
+        '←-⇿'                          # FLECHAS: ↩ ↺ ↻ ↗ ⇄ …
+        '⌀-⏿'                          # técnicos: ⏱ ⏭ ⏳ ⏸
+        '■-◿'                          # geométricos: ● ▸ ▾ ⬜
+        '⬀-⯿✓✔✗✘▶⏳⏸⚠]')
 
     # Lo que SÍ puede llevar un emoji, y el motivo.
     _PERMITIDO = (
@@ -366,6 +377,14 @@ class TestNoQuedaNingunEmojiSinJustificar(unittest.TestCase):
         #     no interfaz. Ahí un ✓ es el contenido.
         "- L3: ",
     )
+
+    # Y las flechas que son TIPOGRAFÍA, no iconos: «ISO → MKV», «P3 ↑ BT.2020»,
+    # «MPLS ↔ episodio». Van dentro de una frase y se leen como un signo de
+    # puntuación; sustituirlas por un SVG partiría el renglón.
+    _TIPOGRAFICOS = "→←↔↑"
+
+    def _solo_tipograficos(self, linea: str) -> bool:
+        return all(c in self._TIPOGRAFICOS for c in self._EMOJI.findall(linea))
 
     def test_cero_emoji_fuera_de_la_lista(self):
         malas = []
@@ -395,6 +414,8 @@ class TestNoQuedaNingunEmojiSinJustificar(unittest.TestCase):
                 if comentario or not self._EMOJI.search(linea):
                     continue
                 if any(p in linea for p in self._PERMITIDO):
+                    continue
+                if self._solo_tipograficos(linea):
                     continue
                 malas.append(f"{ruta.name}:{n}: {t[:76]}")
         self.assertEqual(malas, [], "\n  ".join(
