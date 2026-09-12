@@ -247,7 +247,7 @@ async function _cmv40HelpHydrateDriveLink() {
     const df = s?.drive_folder || {};
     const apiKey = s?.google || {};
     if (df.configured) {
-      statusEl.innerHTML = `✓ Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">(folder …${escHtml(df.folder_id_last6 || '??????')})</span>`;
+      statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">(folder …${escHtml(df.folder_id_last6 || '??????')})</span>`;
       statusEl.style.color = '#0e6b2a';
       const srcLabel = df.source === 'settings' ? 'configurada desde ⚙︎ Configuración'
         : df.source === 'env' ? 'configurada por variable de entorno del contenedor'
@@ -255,7 +255,7 @@ async function _cmv40HelpHydrateDriveLink() {
       const apiKeyState = apiKey.configured ? 'API key ✓' : 'API key ✗ sin configurar — imprescindible';
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
-      statusEl.innerHTML = `⚠️ No configurada`;
+      statusEl.innerHTML = icono('aviso') + ' No configurada';
       statusEl.style.color = '#8a4a00';
       if (metaEl) metaEl.textContent = 'Sigue los pasos de abajo para habilitar el acceso al repo DoviTools';
     }

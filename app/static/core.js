@@ -904,7 +904,7 @@ function closeProject(pid, e) {
     okBtn.parentNode.querySelectorAll('.confirm-extra-btn').forEach(b => b.remove());
     const saveCloseBtn = document.createElement('button');
     saveCloseBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    saveCloseBtn.textContent = '💾 Guardar y cerrar';
+    saveCloseBtn.innerHTML = icono('caja') + ' Guardar y cerrar';
     saveCloseBtn.onclick = async () => {
       closeModal('confirm-modal');
       const activeBackup = activeSubTabId;
@@ -1199,7 +1199,7 @@ function _arrancarParpadeo(texto) {
 function avisarFinDeTrabajo(tab) {
   if (!avisoFinActivado()) return;
   const nombre = _AVISO_NOMBRES[tab] || 'Trabajo';
-  _arrancarParpadeo(`✅ ${nombre} — terminado`);
+  _arrancarParpadeo(`${nombre} — terminado`);
   if (avisoSonidoActivado()) _pitido();
   if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
     try {
@@ -1563,9 +1563,22 @@ const GLIFOS = {
   // Algo que entra en un contenedor: inyectar el RPU en la capa.
   inyectar: '<rect x="12.5" y="4.5" width="7" height="15" rx="1.5"/>'
           + '<path d="M3.5 12h6.5m0 0L7 8.8M10 12l-3 3.2"/>',
-  // Destellos: el upgrade de metadata, sin tocar la imagen.
-  destellos: '<path d="m11 3.5 1.7 4.3 4.3 1.7-4.3 1.7L11 15.5 9.3 11.2 5 9.5l4.3-1.7z"/>'
-           + '<path d="m18 15 .8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+  // La curva de tone-mapping: es literalmente lo que hace un upgrade a
+  // CMv4.0 —metadata de tone-mapping dinámico—, y no «magia».
+  //
+  // Antes eran dos destellos. A los 15 px de la pestaña se convertían en unos
+  // puntitos difusos y decían «efecto mágico», que es justo lo que esta
+  // pestaña NO hace: no toca la imagen. Se probaron cuatro alternativas a
+  // tamaño real: la curva dentro de un panel se convierte en un cuadradito
+  // con una raya, el punto de anclaje sobre la curva se emborrona, y el
+  // clásico círculo mitad relleno («contraste») se lee perfecto pero es
+  // genérico —parece un conmutador de tema— y su relleno rompe con los otros
+  // 43. Los ejes con la curva conservan la forma a 15 px.
+  curva: '<path d="M4.5 3.8v15.7h15.7"/>'
+       + '<path d="M6.6 17c5.4 0 4.6-11.2 12.6-11.2"/>',
+  // Crear algo. Dos de las «estrellitas» no eran de CMv4.0 sino del botón de
+  // crear los proyectos de una serie, y ahí lo que se quiere decir es esto.
+  mas: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',
 
   // ── Acciones ───────────────────────────────────────────────────────────
   lapiz: '<path d="M4.5 19.5h3.2L19 8.2a1.7 1.7 0 0 0 0-2.4l-.8-.8a1.7 1.7 0 0 0-2.4 0L4.5 16.3z"/>'
@@ -1662,7 +1675,7 @@ const _GLIFOS_TRABAJO = {
   analisis_extendido: _svg(GLIFOS.lupaOnda),
   copia_biblioteca:   _svg(GLIFOS.bandeja),
   preflight:          _svg(GLIFOS.escudo),
-  fase_cmv40:         _svg(GLIFOS.destellos),
+  fase_cmv40:         _svg(GLIFOS.curva),
 };
 
 /** Por ESTADO: dice en qué punto está. */

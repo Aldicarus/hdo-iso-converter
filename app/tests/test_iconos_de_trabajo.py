@@ -34,7 +34,7 @@ STATIC = APP_DIR / "static"
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de  # noqa: E402
+from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de, rutas  # noqa: E402
 
 SISTEMA_ICONOS = sistema_de_iconos()
 
@@ -267,6 +267,14 @@ class TestElCatalogoEsUnoYEstaCompleto(unittest.TestCase):
         self.assertTrue(pedidos)
         self.assertEqual(pedidos - self.nombres, set())
 
+    def test_ni_las_referencias_directas_al_catalogo(self):
+        """`_svg(GLIFOS.destellos)` con el glifo renombrado devuelve
+        `undefined` y el icono sale VACÍO. Es como el tipo de trabajo de
+        CMv4.0 se quedó sin dibujo al cambiar los destellos por la curva."""
+        pedidos = set(re.findall(r"\bGLIFOS\.(\w+)", JS))
+        self.assertTrue(pedidos)
+        self.assertEqual(pedidos - self.nombres, set())
+
     def test_ni_los_valores_de_los_mapas_de_icono(self):
         """`icon: 'lupaOnda'` se pinta con `icono(x.icon)`: si el nombre no
         está en el catálogo, la fila sale sin icono."""
@@ -329,6 +337,37 @@ class TestElEmojiSeFueDeLaInterfaz(unittest.TestCase):
             pass
         sobra = re.findall(rf"showToast\(\s*[`'\"]\s*{self._EMOJI.pattern}", JS)
         self.assertEqual(sobra, [])
+
+
+class TestNadieVuelveAPintarUnEmojiDesdeElJs(unittest.TestCase):
+    """`el.textContent = '💿'` es como el icono de la pestaña 1 volvió al emoji.
+
+    La conversión cubrió el HTML —`>💿 Texto`— y los mapas, pero no las
+    asignaciones desde el JS, que no empiezan por `>`. Y una de ellas era
+    `updateSubtabQueuePill`, que **corre en cada vuelta del poll de la cola**:
+    restauraba el icono de la pestaña poniendo el emoji con `textContent`, así
+    que machacaba el SVG nada más cargar la página, sin que hubiera corrido
+    ningún trabajo.
+
+    Se mira solo lo que va a un ELEMENTO. El Markdown que se copia al
+    portapapeles y los markers del log llevan sus símbolos a propósito.
+    """
+
+    _EMOJI = '[\U0001F300-\U0001FAFF☀-➿⬀-⯿✓✔✗✘▶⏳⏸⚠]'
+
+    def test_ninguna_asignacion_a_textContent_o_innerHTML_lleva_emoji(self):
+        malas = []
+        for ruta in rutas():
+            nombre = ruta.name
+            for n, linea in enumerate(
+                    ruta.read_text(encoding="utf-8").splitlines(), 1):
+                t = linea.strip()
+                if t.startswith("//") or t.startswith("*"):
+                    continue
+                if re.search(rf"(textContent|innerHTML)\s*=\s*[`'\"][^`'\"]*"
+                             rf"{self._EMOJI}", linea):
+                    malas.append(f"{nombre}:{n}: {t[:72]}")
+        self.assertEqual(malas, [], "\n  ".join([""] + malas))
 
 
 if __name__ == "__main__":

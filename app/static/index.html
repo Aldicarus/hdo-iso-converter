@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HDO Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260911x">
+  <link rel="stylesheet" href="/static/style.css?v=20260912a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -64,7 +64,7 @@
     </button>
     <button class="tab" onclick="switchTab(3)" id="tab-btn-3"
       data-tooltip="Inyecta RPU Dolby Vision CMv4.0 sobre un MKV con CMv2.9 del Blu-ray original">
-      <span class="tab-icon" data-icono="destellos"></span> Upgrade Dolby Vision CMv4.0
+      <span class="tab-icon" data-icono="curva"></span> Upgrade Dolby Vision CMv4.0
     </button>
     <button class="tab" onclick="switchTab(2)" id="tab-btn-2"
       data-tooltip="Inspecciona metadata detallada (codecs, HDR, Dolby Vision, CM version, subs) y edita nombres, flags y capítulos de ficheros MKV existentes">
@@ -234,7 +234,7 @@
         <div class="sidebar-new-project-area">
           <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="openNewCMv40Modal()"
             data-tooltip="Crear un nuevo proyecto CMv4.0">
-            <span data-icono="destellos"></span> Nuevo Proyecto CMv4.0
+            <span data-icono="curva"></span> Nuevo Proyecto CMv4.0
           </button>
         </div>
 
@@ -392,11 +392,11 @@
         <!-- Contenido del sub-tab activo -->
         <div id="cmv40-subtab-content" style="overflow-y:auto; flex:1; min-height:0">
           <div id="cmv40-empty-state" class="empty-state-full">
-            <div class="empty-state-icon" style="font-size:48px" data-icono="destellos"></div>
+            <div class="empty-state-icon" style="font-size:48px" data-icono="curva"></div>
             <div class="empty-state-title">Upgrade Dolby Vision CMv4.0</div>
             <div class="empty-state-desc">Actualiza el RPU Dolby Vision de un MKV del Blu-ray (CMv2.9) a CMv4.0 — añade metadata de tone-mapping L8-L11 para mejor HDR en TVs compatibles.</div>
             <button class="btn btn-primary btn-md" onclick="openNewCMv40Modal()"
-              style="margin-top:16px"><span data-icono="destellos"></span> Nuevo Proyecto CMv4.0</button>
+              style="margin-top:16px"><span data-icono="curva"></span> Nuevo Proyecto CMv4.0</button>
           </div>
         </div>
 
@@ -452,7 +452,7 @@
         <button class="wb-pill" data-tab="rip" onclick="onWorkbarPill(this)"
           data-tooltip="Solo Blu-Ray ISO → MKV"><span data-icono="disco"></span></button>
         <button class="wb-pill" data-tab="cmv40" onclick="onWorkbarPill(this)"
-          data-tooltip="Solo Upgrade Dolby Vision CMv4.0"><span data-icono="destellos"></span></button>
+          data-tooltip="Solo Upgrade Dolby Vision CMv4.0"><span data-icono="curva"></span></button>
         <button class="wb-pill" data-tab="mkv" onclick="onWorkbarPill(this)"
           data-tooltip="Solo Consultar / Editar MKV"><span data-icono="lapiz"></span></button>
       </div>
@@ -721,7 +721,7 @@
     <div class="modal-footer series-modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('series-modal')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="series-create-btn" onclick="seriesCreateSessions()" disabled>
-        <span data-icono="destellos"></span> Crear proyectos
+        <span data-icono="mas"></span> Crear proyectos
       </button>
     </div>
   </div>
@@ -1501,13 +1501,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260911x"></script>
-<script src="/static/workbar.js?v=20260911x"></script>
-<script src="/static/settings.js?v=20260911x"></script>
-<script src="/static/cmv40_modals.js?v=20260911x"></script>
-<script src="/static/tab1.js?v=20260911x"></script>
-<script src="/static/tab2.js?v=20260911x"></script>
-<script src="/static/tab3.js?v=20260911x"></script>
-<script src="/static/browser.js?v=20260911x"></script>
+<script src="/static/core.js?v=20260912a"></script>
+<script src="/static/workbar.js?v=20260912a"></script>
+<script src="/static/settings.js?v=20260912a"></script>
+<script src="/static/cmv40_modals.js?v=20260912a"></script>
+<script src="/static/tab1.js?v=20260912a"></script>
+<script src="/static/tab2.js?v=20260912a"></script>
+<script src="/static/tab3.js?v=20260912a"></script>
+<script src="/static/browser.js?v=20260912a"></script>
 </body>
 </html>

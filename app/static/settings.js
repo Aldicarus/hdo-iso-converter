@@ -315,7 +315,7 @@ function _renderSettingsSection(key, data) {
     const srcLabel = st.source === 'env' ? 'desde .env' : 'guardada';
     const cls = st.source === 'env' ? 'env' : 'ok';
     badge.className = 'settings-status ' + cls;
-    badge.textContent = `✓ ${srcLabel}${st.last4 ? ' · …' + st.last4 : ''}`;
+    badge.innerHTML = icono('check') + ` ${escHtml(srcLabel)}${st.last4 ? ' · …' + escHtml(st.last4) : ''}`;
     if (inp) inp.placeholder = `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
     return st.source === 'settings';
   }
@@ -339,12 +339,12 @@ function _renderSettingsDriveFolder(data) {
     const cls = st.source === 'env' ? 'env' : 'ok';
     badge.className = 'settings-status ' + cls;
     const idTail = st.folder_id_last6 ? ` · ID …${st.folder_id_last6}` : '';
-    badge.textContent = `✓ ${srcLabel}${idTail}`;
+    badge.innerHTML = icono('check') + ` ${escHtml(srcLabel)}${escHtml(idTail)}`;
     if (inp) inp.placeholder = `Ya configurado. Escribe una URL para reemplazar.`;
     return st.source === 'settings';
   }
   badge.className = 'settings-status warn';
-  badge.textContent = '⛔ Sin URL — repo bloqueado';
+  badge.innerHTML = icono('aviso') + ' Sin URL — repo bloqueado';
   if (inp) inp.placeholder = 'https://drive.google.com/drive/folders/…';
   return false;
 }
@@ -427,7 +427,7 @@ function resetSheetUrlToDefault() {
     _settingsCache = data;
     _renderSettings(data);
     const fb = document.getElementById('settings-sheet-feedback');
-    if (fb) { fb.textContent = 'URL restaurada al default público ✓'; fb.className = 'settings-feedback ok'; }
+    if (fb) { fb.textContent = 'URL restaurada al default público'; fb.className = 'settings-feedback ok'; }
     showToast('URL del sheet restaurada', 'success');
   });
 }
@@ -468,10 +468,10 @@ async function saveSettings() {
   if (!data) return;
   _settingsCache = data;
   _renderSettings(data);
-  if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = 'Guardada ✓';   fbTmdb.className = 'settings-feedback ok'; } }
-  if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = 'Guardada ✓'; fbGoogle.className = 'settings-feedback ok'; } }
-  if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = 'Guardada ✓';  fbDrive.className = 'settings-feedback ok'; } }
-  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = 'Guardada ✓'; fbSheet.className = 'settings-feedback ok'; }
+  if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = 'Guardada';   fbTmdb.className = 'settings-feedback ok'; } }
+  if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = 'Guardada'; fbGoogle.className = 'settings-feedback ok'; } }
+  if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = 'Guardada';  fbDrive.className = 'settings-feedback ok'; } }
+  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = 'Guardada'; fbSheet.className = 'settings-feedback ok'; }
   showToast('Configuración guardada', 'success');
 }
 
@@ -516,12 +516,12 @@ async function cleanupScanAndShow() {
   if (!btn || !resultEl) return;
 
   btn.disabled = true;
-  btn.innerHTML = '⏳ Escaneando…';
+  btn.innerHTML = icono('reloj') + ' Escaneando…';
   resultEl.innerHTML = '';
 
   const data = await apiFetch('/api/cleanup/scan');
   btn.disabled = false;
-  btn.innerHTML = '🔍 Escanear huérfanos';
+  btn.innerHTML = icono('lupa') + ' Escanear huérfanos';
 
   if (!data) return;
   if (!data.items || !data.items.length) {

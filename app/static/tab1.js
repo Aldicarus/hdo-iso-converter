@@ -654,7 +654,7 @@ async function analyzeSelectedISO() {
 
   // Deshabilitar botón dentro del modal mientras comprobamos
   const btn = document.getElementById('new-project-analyze-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Comprobando…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = icono('reloj') + ' Comprobando…'; }
 
   // Check duplicate (compatible con los 3 tipos vía /api/check-duplicate)
   const checkPayload = sourceType === 'm2ts'
@@ -665,7 +665,7 @@ async function analyzeSelectedISO() {
     body: JSON.stringify(checkPayload),
   });
 
-  if (btn) { btn.disabled = false; btn.innerHTML = '🔍 Analizar'; }
+  if (btn) { btn.disabled = false; btn.innerHTML = icono('lupa') + ' Analizar'; }
 
   // El check-duplicate ahora devuelve `sessions[]` (todas las que
   // comparten fingerprint). Para BDMV/ISO de serie con N episodios
@@ -712,7 +712,7 @@ async function analyzeSelectedISO() {
     );
     const openBtn = document.createElement('button');
     openBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    openBtn.textContent = '📂 Abrir existente';
+    openBtn.innerHTML = icono('abrir') + ' Abrir existente';
     openBtn.onclick = () => {
       closeModal('confirm-modal');
       openProject(check.session);
@@ -867,7 +867,8 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
         const ss = (elapsed % 60).toString().padStart(2, '0');
         const pct = prog?.pct;
         const eta = prog?.eta_s;
-        if (labelEl) labelEl.textContent = '⏳ Analizando subtítulos del origen…';
+        if (labelEl) labelEl.innerHTML = `<span class="paso-ico paso-curso">`
+        + icono('reloj') + `</span> Analizando subtítulos del origen…`;
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
@@ -1019,9 +1020,10 @@ function openSeriesModal(probe) {
   const stype = probe.source_type || 'iso';
   const titleEl = document.getElementById('series-modal-title');
   if (titleEl) {
-    titleEl.textContent = stype === 'iso' ? '📺 Disco de serie detectado'
-      : stype === 'bdmv_folder' ? '📺 Carpeta BDMV de serie detectada'
-      : '📺 Episodios de serie detectados';
+    titleEl.innerHTML = icono('tv') + (
+      stype === 'iso' ? ' Disco de serie detectado'
+      : stype === 'bdmv_folder' ? ' Carpeta BDMV de serie detectada'
+      : ' Episodios de serie detectados');
   }
   const sub = document.getElementById('series-modal-sub');
   if (sub) {
@@ -1317,24 +1319,24 @@ async function seriesLoadSeason() {
  */
 function _computeMatchConfidence(mplsDurationMin, episodeNumber, isManual) {
   if (isManual) {
-    return { emoji: '✏️', title: 'Modo manual · sin match runtime' };
+    return { emoji: icono('lapiz'), title: 'Modo manual · sin match runtime' };
   }
   if (!episodeNumber) {
     return {
-      emoji: '⚪',
+      emoji: '<span class="punto-conf "></span>',
       title: 'Sin episodio asignado — elige uno del desplegable',
     };
   }
   const ep = (_seriesState.seasonEpisodes || []).find(e => e.episode_number === episodeNumber);
   if (!ep) {
     return {
-      emoji: '⚪',
+      emoji: '<span class="punto-conf "></span>',
       title: `Episodio E${String(episodeNumber).padStart(2,'0')} no está en la lista de TMDb`,
     };
   }
   if (!ep.runtime_minutes) {
     return {
-      emoji: '🟡',
+      emoji: '<span class="punto-conf media"></span>',
       title: `MPLS ${mplsDurationMin.toFixed(1)} min · TMDb sin runtime para E${String(episodeNumber).padStart(2,'0')}`,
     };
   }
@@ -1342,12 +1344,12 @@ function _computeMatchConfidence(mplsDurationMin, episodeNumber, isManual) {
   const epLabel = `E${String(episodeNumber).padStart(2,'0')} ${ep.runtime_minutes} min`;
   if (delta <= 1) {
     return {
-      emoji: '🟢',
+      emoji: '<span class="punto-conf alta"></span>',
       title: `Match alto · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
     };
   }
   return {
-    emoji: '🟡',
+    emoji: '<span class="punto-conf media"></span>',
     title: `Match bajo · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
   };
 }
@@ -1486,7 +1488,7 @@ function _seriesUpdateCreateButton() {
   if (!btn) return;
   const m = _seriesState?.mapping || {};
   const selected = Object.values(m).filter(x => x.include && x.episode_number).length;
-  btn.innerHTML = `➕ Crear ${selected} proyecto${selected === 1 ? '' : 's'}`;
+  btn.innerHTML = icono('mas') + ` Crear ${selected} proyecto${selected === 1 ? '' : 's'}`;
   // Solo habilitar si hay serie + temporada + al menos un episodio marcado
   btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
 }
@@ -1606,7 +1608,7 @@ async function seriesCreateSessions() {
   const btn = document.getElementById('series-create-btn');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `⏳ Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}…`;
+    btn.innerHTML = icono('reloj') + ` Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}…`;
   }
 
   // Cerramos el series-modal y abrimos el progress-modal para que el
@@ -1679,7 +1681,7 @@ async function seriesCreateSessions() {
     cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `➕ Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
+      btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
     }
     showToast('No se pudieron crear los proyectos. Revisa el log del servidor.', 'error');
     return;
@@ -1822,23 +1824,32 @@ function _configureAnalyzeModalForSource(sourceType) {
   const chaptersEl = document.getElementById('analyze-step-chapters');
   const identifyEl = document.getElementById('analyze-step-identify');
   if (sourceType === 'iso') {
-    if (iconEl) iconEl.textContent = '💿';
+    if (iconEl) iconEl.innerHTML = icono('disco', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando disco';
-    if (mountEl) mountEl.textContent = '⏳ Montando el ISO…';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del disco…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos…';
+    if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-curso">`
+      + icono('reloj') + `</span> Montando el ISO…`;
+    if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Identificando pistas del disco…`;
+    if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Extrayendo capítulos…`;
   } else if (sourceType === 'bdmv_folder') {
-    if (iconEl) iconEl.textContent = '📁';
+    if (iconEl) iconEl.innerHTML = icono('carpeta', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
-    if (mountEl) mountEl.textContent = '✅ Carpeta directa — no requiere montaje';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del playlist principal…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Extrayendo capítulos del playlist…';
+    if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
+      + icono('check') + `</span> Carpeta directa — no requiere montaje`;
+    if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Identificando pistas del playlist principal…`;
+    if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Extrayendo capítulos del playlist…`;
   } else if (sourceType === 'm2ts') {
-    if (iconEl) iconEl.textContent = '🎞️';
+    if (iconEl) iconEl.innerHTML = icono('cinta', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando fichero M2TS';
-    if (mountEl) mountEl.textContent = '✅ Fichero directo — no requiere montaje';
-    if (identifyEl) identifyEl.textContent = '⬜ Identificando pistas del fichero…';
-    if (chaptersEl) chaptersEl.textContent = '⬜ Generando capítulos automáticos cada 10 min…';
+    if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
+      + icono('check') + `</span> Fichero directo — no requiere montaje`;
+    if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Identificando pistas del fichero…`;
+    if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
+      + icono('pendiente') + `</span> Generando capítulos automáticos cada 10 min…`;
   }
 }
 
@@ -3837,7 +3848,7 @@ function _classifyDvStatus(session) {
   // Sin Dolby Vision: describir el HDR que sí trae el disco.
   const hdrFmt = mainVid?.hdr?.hdr_format || '';
   return {
-    label: 'Sin Dolby Vision', icon: '📼', cls: 'dv-none',
+    label: 'Sin Dolby Vision', icon: 'cinta', cls: 'dv-none',
     detail: hdrFmt ? `El disco es ${hdrFmt} sin capa Dolby Vision` : (bd.fel_reason || ''),
     note: '', unconfirmed: false,
   };
@@ -3863,7 +3874,7 @@ function _renderTamanoEstimado(session) {
   if (!bytes || bytes <= 0) { chip.style.display = 'none'; return; }
   const gb = bytes / 1e9;
   const texto = gb >= 10 ? gb.toFixed(0) : gb.toFixed(1);
-  chip.textContent = `💾 Ocupará ~${texto} GB`;
+  chip.innerHTML = icono('caja') + ` Ocupará ~${escHtml(texto)} GB`;
   chip.style.display = '';
 }
 
@@ -4251,10 +4262,10 @@ function renderExecuteArea() {
     btn.innerHTML = '↻ Re-ejecutar';
   } else if (session?.status === 'running' || session?.status === 'queued') {
     btn.disabled = true;
-    btn.innerHTML = '⏳ En ejecución…';
+    btn.innerHTML = icono('reloj') + ' En ejecución…';
   } else {
     btn.disabled = false;
-    btn.innerHTML = '▶️ Confirmar y ejecutar';
+    btn.innerHTML = icono('play') + ' Confirmar y ejecutar';
   }
 }
 
@@ -4475,10 +4486,16 @@ function updateSubtabQueuePill() {
   const tabBtn = document.getElementById('tab-btn-1');
   if (tabBtn) {
     const existingSpinner = tabBtn.querySelector('.spinner-inline');
+    const hueco = tabBtn.querySelector('.tab-icon');
     if (running && !existingSpinner) {
-      tabBtn.querySelector('.tab-icon').innerHTML = '<span class="spinner-inline"></span>';
-    } else if (!running) {
-      tabBtn.querySelector('.tab-icon').textContent = '💿';
+      hueco.innerHTML = '<span class="spinner-inline"></span>';
+    } else if (!running && existingSpinner) {
+      // El icono de la pestaña se RESTAURA desde el catálogo, y solo si de
+      // verdad había un spinner. Ponía el emoji `💿` con `textContent`, así
+      // que machacaba el SVG — y como esto corre en cada vuelta del poll de
+      // la cola, pasaba nada más cargar la página, sin que hubiera corrido
+      // ningún trabajo.
+      hueco.innerHTML = icono(hueco.dataset.icono || 'disco');
     }
   }
 
@@ -4598,7 +4615,8 @@ function showLogModal(idx) {
   const dateStr = rec.started_at ? new Date(rec.started_at).toLocaleString() : '—';
   const status  = isDone ? '✅ Completada' : '❌ Error';
 
-  document.getElementById('log-viewer-title').textContent = `📄 Log — Ejecución #${rec.run_number}`;
+  document.getElementById('log-viewer-title').innerHTML =
+    icono('portapapeles') + ` Log — Ejecución #${rec.run_number}`;
   document.getElementById('log-viewer-sub').textContent   = `${status} · ${dateStr}`;
 
   // Renderizar log con coloreado semántico (misma paleta rica que Tab 3)

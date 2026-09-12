@@ -2098,7 +2098,7 @@ function _renderMkvEditPanel(project = mkvProject) {
           </div>
           <div class="video-header-badges">
             ${hdrBadge ? `<span class="video-badge video-badge-hdr">${hdrBadge}</span>` : ''}
-            ${dvDetected && dvProfileLine ? `<span class="video-badge video-badge-dv"><span data-icono="destellos"></span> DV ${escHtml(dvProfileLine.replace('Profile ', 'P'))}</span>` : ''}
+            ${dvDetected && dvProfileLine ? `<span class="video-badge video-badge-dv"><span data-icono="curva"></span> DV ${escHtml(dvProfileLine.replace('Profile ', 'P'))}</span>` : ''}
             ${cmBadgeHtml}
             ${cmHintHtml ? `<span class="video-hint">${cmHintHtml}</span>` : ''}
           </div>
@@ -3394,7 +3394,8 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     sinDetalle: st ? '' : 'efimero',
     titulo: 'Análisis extendido del RPU',
     sub: st?.file_name || a.que,
-    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '🔬') : null,
+    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
+                                  icono('lupaOnda', 'ico-xl')) : null,
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
     pasosTitulo: 'Fases del análisis extendido',
@@ -3419,7 +3420,8 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     sinDetalle: st ? '' : 'efimero',
     titulo: 'Copia a Output',
     sub: st?.file_name || a.que,
-    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre, '📦') : null,
+    cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
+                                  icono('caja', 'ico-xl')) : null,
     pasosTitulo: 'Fases de la copia',
     pasos: [
       { icono: 'caja', titulo: 'Fase A · Copia del MKV',

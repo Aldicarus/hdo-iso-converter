@@ -1696,7 +1696,7 @@ function _cmv40NewUpdateAutoLabel(info) {
   const wrap = document.querySelector('.cmv40-new-auto-toggle');
   if (!span) return;
   if (!info) {
-    span.textContent = '🤖 Auto-pipeline';
+    span.innerHTML = icono('rayo') + ' Auto-pipeline';
     if (wrap) wrap.setAttribute('data-tooltip',
       'Encadena las fases disponibles sin interacción manual.');
     return;
@@ -1704,11 +1704,11 @@ function _cmv40NewUpdateAutoLabel(info) {
   const runPhases = info.phases.filter(p => p.state === 'run').map(p => p.k);
   const endsAt = info.autoEndsAt;
   if (endsAt) {
-    span.textContent = `🤖 Auto-pipeline hasta Fase ${endsAt} (pausa si no trusted)`;
+    span.innerHTML = icono('rayo') + ` Auto-pipeline hasta Fase ${escHtml(endsAt)} (pausa si no trusted)`;
     if (wrap) wrap.setAttribute('data-tooltip',
       `Corre hasta la Fase ${endsAt}. Si los gates no pasan en B, espera revisión manual.`);
   } else {
-    span.textContent = `🤖 Auto-pipeline completo (${runPhases.join('→')})`;
+    span.innerHTML = icono('rayo') + ` Auto-pipeline completo (${escHtml(runPhases.join('→'))})`;
     if (wrap) wrap.setAttribute('data-tooltip',
       `Ejecuta ${runPhases.length} fases automáticamente. Estimado: ${info.tiempo}.`);
   }
@@ -2469,7 +2469,7 @@ async function copyLogToClipboard(containerId, btn) {
     // Feedback visual breve en el botón si se pasó
     if (btn) {
       const orig = btn.textContent;
-      btn.textContent = '✓ Copiado';
+      btn.innerHTML = icono('check') + ' Copiado';
       btn.disabled = true;
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
     }
@@ -3786,7 +3786,7 @@ function _renderCMv40ActivePhase(project) {
     doneHtml = `
       <div class="section-card" style="margin-top:16px; background:var(--green-dim); border:1px solid var(--green)">
         <div class="section-body" style="text-align:center; padding:20px">
-          <div style="font-size:32px"><span data-icono="destellos"></span></div>
+          <div style="font-size:32px"><span data-icono="curva"></span></div>
           <div style="font-size:15px; font-weight:700; margin-top:4px">MKV CMv4.0 completado</div>
           <div style="font-size:11px; color:var(--text-3); margin-top:4px">${escHtml(s.output_mkv_path || s.output_mkv_name)}</div>
           <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
@@ -4510,7 +4510,7 @@ async function _cmv40CopiarDiagnostico(pid, btn) {
             ok ? 'success' : 'error');
   if (ok && btn) {
     const orig = btn.textContent;
-    btn.textContent = '✓ Copiado';
+    btn.innerHTML = icono('check') + ' Copiado';
     setTimeout(() => { btn.textContent = orig; }, 1200);
   }
 }
