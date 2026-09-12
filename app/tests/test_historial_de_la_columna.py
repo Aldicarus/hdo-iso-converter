@@ -360,3 +360,45 @@ globalThis.apiFetch = async (url) => {{
 
 if __name__ == "__main__":
     unittest.main()
+
+sys.path.insert(0, str(APP_DIR))          # para `historial`, que es del backend
+
+
+class TestElNombreViejoNoSeQuedaEnLaColumna(unittest.TestCase):
+    """Un trabajo que cambia de nombre no deja dos nombres en la columna.
+
+    `historial.jsonl` es append-only y **no se migra**: reescribir el
+    `/config` de un usuario para cambiar una palabra no compensa. Pero lo que
+    se ve sí tiene que estar al día, así que el nombre se actualiza al LEER.
+    Sin esto, «Análisis extendido · Avatar» seguía en «Recientes» junto a los
+    nuevos «Análisis RPU/Luz MKV · …» — dos nombres para el mismo trabajo.
+    """
+
+    def test_el_analisis_extendido_se_lee_con_su_nombre_de_hoy(self):
+        import historial
+        r = historial._con_el_nombre_de_hoy(
+            {"que": "Análisis extendido · Avatar (2022)"})
+        self.assertEqual(r["que"], "Análisis RPU/Luz MKV · Avatar (2022)")
+
+    def test_y_tambien_el_nombre_intermedio(self):
+        """Hubo un despliegue con «Análisis RPU/Luz» sin el «MKV»."""
+        import historial
+        r = historial._con_el_nombre_de_hoy({"que": "Análisis RPU/Luz · X"})
+        self.assertEqual(r["que"], "Análisis RPU/Luz MKV · X")
+
+    def test_lo_demas_no_se_toca(self):
+        import historial
+        for que in ("Conversión a MKV · Peli", "Upgrade CMv4.0 · Otra"):
+            self.assertEqual(historial._con_el_nombre_de_hoy({"que": que})["que"], que)
+
+    def test_un_registro_sin_que_no_revienta(self):
+        import historial
+        self.assertEqual(historial._con_el_nombre_de_hoy({"tipo": "rip"}),
+                         {"tipo": "rip"})
+
+    def test_no_se_muta_lo_que_se_acaba_de_leer(self):
+        import historial
+        original = {"que": "Análisis extendido · X"}
+        historial._con_el_nombre_de_hoy(original)
+        self.assertEqual(original["que"], "Análisis extendido · X")
+

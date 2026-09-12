@@ -1566,7 +1566,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon"><span data-icono="grafico"></span></div>
          <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Sale del <b>Análisis extendido</b>, junto a la auditoría de calidad: extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los dos. ~5-10 min en UHD.</div>
+         <div class="dv-chart-empty-hint">Sale del <b>Análisis RPU/Luz</b>, junto a la auditoría de calidad: extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los dos. ~5-10 min en UHD.</div>
        </div>`;
   // Un solo botón: el perfil sale del mismo análisis extendido que la
   // auditoría de calidad, compartiendo la extracción del RPU.
@@ -1637,7 +1637,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
       <section class="dv-block dv-quality-card dv-quality-empty">
         <div class="dv-quality-empty-icon"><span data-icono="lupaOnda"></span></div>
         <div class="dv-quality-empty-body">
-          <div class="dv-quality-empty-title">Análisis extendido ${cmLabel}</div>
+          <div class="dv-quality-empty-title">Análisis RPU/Luz ${cmLabel}</div>
           <div class="dv-quality-empty-text">
             Extrae el RPU completo del MKV y saca de él <b>dos cosas de una vez</b>:
             los combos L8/L2 clasificados (FULL / CORE+ / CORE / sintético), que
@@ -1647,7 +1647,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
           <button class="btn btn-primary btn-sm dv-quality-cta"
                   data-analisis-extendido="1"
                   onclick="_rgrfAuditQuality(event)">
-            <span><span data-icono="lupaOnda"></span></span> Análisis extendido (~5-10 min)
+            <span><span data-icono="lupaOnda"></span></span> Análisis RPU/Luz (~5-10 min)
           </button>
           <div class="dv-quality-empty-hint">
             Extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los
@@ -1808,8 +1808,8 @@ async function _rgrfAuditQuality(evt) {
   const yaHay = typeof trabajoSobre === 'function' ? trabajoSobre(ruta) : null;
   if (yaHay) {
     showToast(yaHay.estado === 'corriendo'
-      ? 'El análisis extendido de este MKV ya está en curso'
-      : `El análisis extendido de este MKV está en la cola (${yaHay.posicion}º)`,
+      ? 'El análisis RPU/Luz de este MKV ya está en curso'
+      : `El análisis RPU/Luz de este MKV está en la cola (${yaHay.posicion}º)`,
       'info');
     abrirDetalleDeTrabajo(ruta);
     return;
@@ -1828,7 +1828,7 @@ async function _rgrfAuditQuality(evt) {
   // y taparle el panel con un log que aún no tiene líneas es interrumpirle
   // para nada. El acuse es el toast y la entrada en la columna.
   await refrescarWorkbar();
-  showToast('Análisis extendido en marcha — el progreso está en la '
+  showToast('Análisis RPU/Luz en marcha — el progreso está en la '
             + 'columna de trabajo', 'success');
 }
 
@@ -1893,7 +1893,7 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   // dato en `analysis` y se pinta al cambiar a ella.
   if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);
   showToast(
-    `Análisis extendido completado — ${data.quality_verdict_text}`
+    `Análisis RPU/Luz completado — ${data.quality_verdict_text}`
     + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
     'success');
 }
@@ -2971,7 +2971,7 @@ async function _cargarComparacionLuminancia(ruta) {
     if (!r || !r.cached) {
       showToast(
         `Sin perfil que comparar — ${r?.reason || 'no analizado'}. ` +
-        'Ábrelo en esta pestaña y lánzale el análisis extendido.',
+        'Ábrelo en esta pestaña y lánzale el análisis RPU/Luz.',
         'info', 8000);
       return;
     }
@@ -3168,7 +3168,7 @@ function _mkvRecienteEstado(r) {
   }
   if (r.tiene_extendido) {
     return { estado: 'hecho', clase: 'extendido', acento: 'estado-hecho',
-             etiqueta: 'Con análisis extendido del RPU' };
+             etiqueta: 'Con análisis RPU/Luz hecho' };
   }
   if (r.tiene_basico) {
     return { estado: 'listo', clase: 'basico', acento: '',
@@ -3262,7 +3262,7 @@ function _renderMkvRecientes() {
       { txt: 'RPU', tono: r.tiene_extendido ? 'verde' : '', apagado: !r.tiene_extendido,
         tooltip: r.tiene_extendido
           ? 'Combos L8/L2 del RPU ya analizados'
-          : 'Sin análisis extendido — el botón del panel lo lanza' },
+          : 'Sin análisis RPU/Luz — el botón del panel lo lanza' },
       { txt: 'Luz', tono: r.tiene_luminancia ? 'verde' : '', apagado: !r.tiene_luminancia,
         tooltip: r.tiene_luminancia
           ? 'Tiene perfil de luminancia: sirve para el comparador A/B'

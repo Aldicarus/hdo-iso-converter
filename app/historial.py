@@ -194,8 +194,37 @@ def leer(limite: int = 200) -> list[dict]:
             except ValueError:
                 continue
             if isinstance(registro, dict):
-                out.append(registro)
+                out.append(_con_el_nombre_de_hoy(registro))
     return out
+
+
+# Trabajos que cambiaron de nombre, viejo → nuevo.
+#
+# «Análisis extendido» no decía de qué era —y se confundía con el «Análisis
+# del disco» de Tab 1—, así que hoy se llama «Análisis RPU/Luz MKV». Lo que ya
+# está escrito conserva el texto viejo: el historial es **append-only y no se
+# migra**, que es la regla desde que existe (reescribir el `/config` de un
+# usuario para cambiar una palabra no compensa, y un `kill -9` a mitad de la
+# reescritura sí hace daño).
+#
+# Así que el nombre se actualiza **al leer**. El fichero no se toca y en la
+# columna no conviven dos nombres para el mismo trabajo, que es lo que se ve.
+_RENOMBRADOS = (
+    ("Análisis extendido · ", "Análisis RPU/Luz MKV · "),
+    ("Análisis RPU/Luz · ",   "Análisis RPU/Luz MKV · "),
+)
+
+
+def _con_el_nombre_de_hoy(registro: dict) -> dict:
+    que = registro.get("que")
+    if not isinstance(que, str):
+        return registro
+    for viejo, nuevo in _RENOMBRADOS:
+        if que.startswith(viejo):
+            # Copia: los registros salen a la API y no se guardan de vuelta,
+            # pero mutar lo que se acaba de leer del disco invita a sorpresas.
+            return {**registro, "que": nuevo + que[len(viejo):]}
+    return registro
 
 
 def _reescribir(transformar) -> bool:
