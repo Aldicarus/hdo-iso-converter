@@ -719,9 +719,41 @@ La app está diseñada para que el frontend pueda cerrarse (cierre de pestaña, 
 
 **Tab 1 NO tiene este problema, y la medición lo corrigió.** El plan asumía que era peor porque salva cada 1 s (contra los 5 s de Tab 3), pero el throttle solo dispara cuando llega una línea y Tab 1 emite **~136 por job** (mkvmerge con `--gui-mode` da un `#GUI#progress` por punto porcentual, más las líneas del pipeline). Medido sobre el `/config` real: **40 sesiones, 3,4 MB en total, la mayor 0,15 MB** — unos 11 MB de escrituras por job. No compensa la cirugía, que ahí es más invasiva porque `execution_history[].output_log` guarda una copia del log por ejecución.
 5. **Recovery startup** — al arrancar el server:
-   - `_recover_interrupted_sessions` resetea Tab 1 sesiones running/queued a pending con error.
-   - `_recover_interrupted_cmv40_sessions` limpia `running_phase` fantasma y marca el último `phase_history` running como error.
-   - `_recover_interrupted_mkv_apply` borra el `.mkv` parcial en /mnt/output si una copia desde Library quedó interrumpida, y marca `_mkv_apply_state` como error.
+   - `tab1.recuperar_sesiones_interrumpidas` resetea Tab 1 sesiones running/queued a pending con error, **y borra el MKV que el mux dejó a medias** (ver abajo).
+   - `cmv40.recuperar_sesiones_interrumpidas` limpia `running_phase` fantasma y marca el último `phase_history` running como error.
+   - `tab2.recuperar_apply_interrumpido` borra el `.mkv` parcial en /mnt/output si una copia desde Library quedó interrumpida, y marca `_mkv_apply_state` como error.
+
+   **El MKV a medias de Tab 1 pesa casi lo que pesaría el bueno, y lleva el
+   nombre definitivo.** Caso real del 12-sep-2026: un deploy recreó el
+   contenedor en mitad de la cola de Juego de Tronos, entre S05E05 y S05E06. El
+   recovery devolvió las dos sesiones a `pending` y la cola siguió con E07-E10,
+   pero **nadie tocó el fichero**: S05E05 se quedó en `/mnt/output` con 24,7 GB
+   —contra los 24,5 del episodio de al lado— y `mkvmerge -J` no le encuentra ni
+   una pista. En un listado es indistinguible de un rip terminado.
+
+   `_limpiar_parcial` de las fases no lo cubre: corre cuando mkvmerge **falla**,
+   no cuando al proceso lo mata el reinicio. Y no se puede copiar el criterio de
+   Tab 2, que borra el destino sin preguntar porque lo había creado la copia
+   (su endpoint da 409 si el nombre ya existe): aquí re-ejecutar una sesión
+   escribe **sobre el mismo nombre**, así que el fichero puede ser el resultado
+   bueno de la pasada anterior. El `existia_antes` de las fases tampoco sirve —
+   el proceso que lo sabía murió.
+
+   Así que el criterio no es que exista, es **que se pueda usar**: se borra solo
+   si `mkvmerge -J` no le encuentra pista de vídeo. El código de salida NO lo
+   distingue —comprobado contra el fichero real y contra uno de basura, `-J`
+   sale con **0** en los dos y contesta JSON válido—; lo que cambia es el
+   contenido (`tracks: []`, o `recognized: false` si se cortó antes). **Sin
+   respuesta de mkvmerge no se borra nada**: `None` no es `False`. Y como
+   `mkv_name` es editable por el usuario y puede traer subdirectorios (modo
+   serie), la ruta se valida con `resolve()` + `relative_to()` antes del
+   `unlink`, como cualquier otra del proyecto.
+
+   El aviso distingue los dos desenlaces, que era la otra mitad del problema:
+   hasta ahora las dos sesiones decían lo mismo aunque a una le faltara el
+   fichero entero. Cubierto por `test_parcial_al_reiniciar.py`, verificado por
+   mutación en los cuatro puntos (no borrar, borrar sin comprobar, tomar «no sé»
+   por «no», y quitar el guard de ruta).
 
 Indicadores visuales:
 - **Aviso al terminar un trabajo largo** (`core.js`, controles en `settings.js`). Un rip son 20-40 min y una fase CMv4.0 puede pasar de la hora; esto evita tener que volver a mirar. Dos restricciones que definen el diseño:
