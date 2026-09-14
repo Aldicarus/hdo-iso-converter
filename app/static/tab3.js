@@ -7263,3 +7263,61 @@ async function _cmv40PfForzar(pid) {
   if (p) p._lastAutoFiredFor = null;
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  RECORDATORIO DE LA DONACIÓN A DOVITOOLS
+// ═══════════════════════════════════════════════════════════════════
+//
+// La app trae el enlace del repositorio, pero el repositorio es de otra
+// persona y su acceso va por donación. En vez de ignorar esa puerta, la app
+// la reconoce: lleva la cuenta de los bins descargados y cada N lo recuerda.
+//
+// Dos límites que definen el diseño:
+//   · **nunca sale si el usuario puso su enlace** — quien lo tiene, donó. Lo
+//     decide el backend (`repo_de_la_app`), no el frontend;
+//   · **no bloquea nada**. Es un recordatorio, no un peaje: se cierra con
+//     «Ahora no» y el trabajo sigue exactamente igual.
+//
+// Se comprueba al ENTRAR en la pestaña y no con un poller: el dato cambia
+// solo cuando se descarga un bin, y quien descarga bins pasa por aquí.
+
+/** Una vez por carga de página: entrar y salir del tab no lo repite. */
+let _avisoDonacionMostrado = false;
+
+/**
+ * Mira si toca recordar la donación, y lo enseña si toca.
+ * Silencioso ante cualquier fallo: perder el recordatorio es un
+ * inconveniente; un toast rojo al entrar en la pestaña, no.
+ */
+async function comprobarAvisoDonacion() {
+  if (_avisoDonacionMostrado) return;
+  let d;
+  try {
+    d = await apiFetch('/api/cmv40/repo-donacion', { silent: true });
+  } catch (e) { return; }
+  if (!d || !d.avisar) return;
+  _avisoDonacionMostrado = true;
+  const cuenta = document.getElementById('donacion-cuenta');
+  if (cuenta) {
+    cuenta.textContent =
+      `Llevas ${d.descargas} ${d.descargas === 1 ? 'RPU descargado' : 'RPUs descargados'} `
+      + `del repositorio DoviTools`;
+  }
+  openModal('dovitools-donacion-modal');
+}
+
+/**
+ * Cierra el recordatorio y reinicia la cuenta hacia el siguiente.
+ *
+ * El «visto» se manda en las TRES salidas —donar, poner mi enlace y ahora
+ * no—: la alternativa sería no marcarlo al posponer, y entonces el aviso
+ * volvería a salir en la siguiente descarga en vez de dentro de otros N.
+ * Un recordatorio que reaparece enseguida deja de leerse y pasa a molestar,
+ * que es justo lo contrario de lo que se busca.
+ */
+function cerrarAvisoDonacion() {
+  closeModal('dovitools-donacion-modal');
+  apiFetch('/api/cmv40/repo-donacion/visto', { method: 'POST', silent: true })
+    .catch(() => {});
+}

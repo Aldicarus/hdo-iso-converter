@@ -348,12 +348,23 @@ function _renderSettingsDriveFolder(data) {
   if (!badge) return false;
   const st = data.drive_folder || {};
   if (st.configured) {
-    const srcLabel = st.source === 'env' ? 'desde .env' : 'guardada';
-    const cls = st.source === 'env' ? 'env' : 'ok';
+    // `default` es el repo que trae la app. Igual que con TMDb: cuenta como
+    // configurado, pero sin visto verde — no lo ha puesto el usuario.
+    const srcLabel = st.source === 'env'     ? 'desde .env'
+                   : st.source === 'default' ? 'repo de la app'
+                   : 'personalizado';
+    const cls = st.source === 'env'     ? 'env'
+              : st.source === 'default' ? 'default'
+              : 'ok';
     badge.className = 'settings-status ' + cls;
     const idTail = st.folder_id_last6 ? ` · ID …${st.folder_id_last6}` : '';
-    badge.innerHTML = icono('check') + ` ${escHtml(srcLabel)}${escHtml(idTail)}`;
-    if (inp) inp.placeholder = `Ya configurado. Escribe una URL para reemplazar.`;
+    badge.innerHTML = (st.source === 'default' ? '' : icono('check') + ' ')
+                    + escHtml(srcLabel) + escHtml(idTail);
+    if (inp) {
+      inp.placeholder = st.source === 'default'
+        ? 'Opcional — pega tu enlace si has donado y prefieres usar el tuyo'
+        : 'Ya configurado. Escribe una URL para reemplazar.';
+    }
     return st.source === 'settings';
   }
   badge.className = 'settings-status warn';

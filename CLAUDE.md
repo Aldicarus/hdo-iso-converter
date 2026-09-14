@@ -1604,6 +1604,58 @@ una película — que es la señal de «busca donde siempre».
 - **Si falla la temporada, queda la ficha de la serie.** Perder el episodio es
   un detalle; perder la carátula, no.
 
+### El repo DoviTools viene con la app, y la donación se recuerda
+
+El enlace de la carpeta de Drive lo trae la app por la **misma vía que la
+clave de TMDb**: `ARG CMV40_DRIVE_FOLDER_APP` ← secreto del workflow, nunca en
+el repositorio. `get_cmv40_drive_folder_url()` resuelve **settings.json >
+`CMV40_DRIVE_FOLDER_URL` > el de la app**, con el legacy
+`CMV40_DRIVE_FOLDER_ID` donde estaba.
+
+**Verificado antes de incluirlo (2026-09-14): el enlace es genérico.** Una
+petición anónima a la carpeta —sin sesión de Google ni credencial— devuelve
+HTTP 200 con el nombre de la carpeta y los `.bin` listados, así que está
+compartida como «cualquiera con el enlace» y el ID es el de la carpeta, igual
+para todos. Lo que el manual describe («dona, manda tu correo y te dan
+acceso») es una puerta **social**, no técnica. No se incluye nada creado para
+un usuario concreto.
+
+Y como esa puerta es de otra persona, la app **la reconoce en vez de
+ignorarla**: cuenta los bins descargados y cada `DESCARGAS_POR_AVISO` (20)
+recuerda la donación, con el PayPal y el campo para pegar el enlace propio.
+
+Cinco decisiones que la definen:
+
+- **Se cuentan DESCARGAS, no peticiones a la API.** El listado se cachea 24 h,
+  así que «100 peticiones» pueden ser meses o una tarde; un bin descargado es
+  exactamente la unidad de valor que el usuario recibe del autor.
+- **El contador vive DENTRO de `download_file`** (`rec999_drive.py`), que es el
+  único sitio por el que baja un bin: las dos rutas que existen —el pre-flight
+  y la Fase B— pasan por ahí, y la Fase B además reutiliza lo que bajó el
+  pre-flight. Va después del stream: se cuentan descargas completadas.
+- **Lo que decide si avisar es DE DÓNDE sale el enlace, no a qué carpeta
+  apunta** (`usando_el_repo_de_la_app` ≡ `source == "default"`). Comparar IDs
+  parece lo natural y está mal: quien dona recibe **el mismo** enlace —la
+  carpeta es pública y única—, así que al donante que lo pega se le estaría
+  recordando para siempre una donación que ya hizo. Lo distintivo del donante
+  no es su carpeta, es que se molestó en pegarla. Lo cazó un test.
+- **El «visto» se marca en las tres salidas** —donar, poner mi enlace y ahora
+  no—. Si al posponer no se marcara, el aviso volvería en la siguiente
+  descarga en vez de dentro de otras 20, y un recordatorio que reaparece
+  enseguida deja de leerse.
+- **Se comprueba al entrar en la pestaña, sin poller**: el dato solo cambia al
+  descargar un bin, y quien los descarga pasa por Tab 3.
+
+**Dos cosas que incluir el enlace NO resuelve, y están escritas en el manual:**
+
+- **La pestaña Repo sigue necesitando la Google API key**, que sí es de cada
+  uno: la cuota es por proyecto de Cloud y Google desactiva las claves que
+  encuentra filtradas. El enlace era el paso fácil; la key es el de los diez
+  minutos. Así que el beneficio real es para quien ya tiene la key.
+- **El autor puede cerrar la carpeta a permiso por cuenta cuando quiera** —es
+  un clic— y ese día la función muere para todos. El riesgo se asumió a
+  sabiendas; el manual dice qué síntoma tendría y qué hacer.
+
 ### Recomendación CMv4.0 (Tab 3)
 - Parser de filename: trunca tags después del año (`UHD.BluRay.x265`, `[DV FEL]`, etc.)
 - Matching fuzzy compuesto: max(SequenceMatcher, token-set Jaccard, containment) sobre acentos strippeados. El `containment` opera sobre **tokens** (no subcadena de caracteres) con gate de cobertura ≥60%: evita que un título corto matchee uno largo que lo contiene como subcadena (caso real: "The Ring" ⊂ "The Lord of the Rings: The Fellowship of the **Ring**" daba 0.875). Cubierto por `test_cmv40_recommend_match.py`. La misma `_similarity` la consume `rec999_drive_match.rank_candidates`.

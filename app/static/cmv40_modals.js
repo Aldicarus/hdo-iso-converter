@@ -1578,8 +1578,13 @@ const _CMV40_HELP_SECTIONS = {
       </tr>
       <tr>
         <td><strong>Google API</strong><br><span style="font-size:11px; color:var(--text-3)">(Drive v3)</span></td>
-        <td>Listar y descargar bins <code>.bin</code> del repositorio público DoviTools en Google Drive. También permite lectura del sheet vía API oficial.</td>
-        <td>La pestaña «Repo DoviTools» del modal de nuevo proyecto queda vacía. Sigues pudiendo usar el repo descargando bins a mano a una carpeta local, pero pierdes la comodidad del flujo integrado.</td>
+        <td>Listar y descargar bins <code>.bin</code> del repositorio DoviTools en Google Drive. También permite lectura del sheet vía API oficial.</td>
+        <td>La pestaña «Repo DoviTools» del modal de nuevo proyecto queda vacía. Sigues pudiendo usar el repo descargando bins a mano a una carpeta local, pero pierdes la comodidad del flujo integrado. <strong>Es la única de las dos que hay que configurar</strong>, y no puede venir incluida: la cuota es por proyecto de Cloud y una clave compartida se agotaría.</td>
+      </tr>
+      <tr>
+        <td><strong>Enlace del repo</strong><br><span style="font-size:11px; color:var(--text-3)">(DoviTools en Drive)</span><br><span class="settings-tag-opcional">ya incluido</span></td>
+        <td>Dice QUÉ carpeta de Drive listar. Va junto a la Google API key: hacen falta las dos para que la pestaña del repo funcione.</td>
+        <td><strong>Nada — la app lo trae.</strong> Pero el repositorio lo mantiene una persona con donaciones: ver abajo.</td>
       </tr>
     </table>
 
@@ -1625,6 +1630,16 @@ const _CMV40_HELP_SECTIONS = {
 
     <h3>Cuota TMDb</h3>
     <p>Sin límite explícito para uso personal. TMDb pide no pasar de 50 peticiones por segundo —inalcanzable con uso normal— y no hay cuota diaria. Además la app cachea en disco cada respuesta durante 30 días, así que reabrir el mismo proyecto no vuelve a preguntar.</p>
+
+    <h2 id="k-repo"><span data-icono="corazon"></span> El repositorio DoviTools y su donación</h2>
+    <p>El enlace de la carpeta <strong>viene con la app</strong>, así que no tienes que buscarlo por los foros. Pero conviene saber de dónde sale lo que hay dentro.</p>
+    <p>El repositorio lo mantiene <strong>R3S3T_9999</strong> por su cuenta: paga el espacio y el tráfico en Drive y, sobre todo, pone el trabajo de generar y curar cada RPU uno a uno. Son cientos de ficheros revisados a mano. El proyecto se sostiene con donaciones de <strong>15&nbsp;CAD$</strong> (unos 10&nbsp;€) en <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · DoVi_Scripts</a>; al donar indica tu correo y pide acceso al repositorio de RPUs.</p>
+
+    <div class="help-callout help-callout-info">
+      <strong>Qué hace la app con esto.</strong> Mientras uses el enlace incluido, cada 20 bins descargados te recuerda la donación una vez — con el botón de PayPal y el campo para pegar tu propio enlace. En cuanto pegues el tuyo, deja de recordártelo: quien lo tiene, ya donó. El recordatorio no bloquea nada ni condiciona ninguna función.
+    </div>
+
+    <p><strong>Y una cosa que no depende de nosotros</strong>: la carpeta está compartida como «cualquiera con el enlace», pero eso lo decide su autor y puede cambiarlo cuando quiera. Si algún día la pestaña del repo deja de listar nada aunque tu Google API key funcione, será eso — y entonces la vía es donar y pedir acceso.</p>
 
     <h2 id="k-google"><span data-icono="candado"></span> Google API (Drive) — paso a paso</h2>
     <p>Google Cloud te da una API key gratuita con cuotas generosas. Es el mismo mecanismo que usan aplicaciones profesionales — el setup parece intimidante la primera vez, pero se hace en ~10 minutos.</p>
@@ -1677,7 +1692,7 @@ const _CMV40_HELP_SECTIONS = {
       <li>En la app, pulsa el icono <strong><span data-icono="ajustes"></span></strong> arriba a la derecha para abrir el modal de Configuración.</li>
       <li><strong>TMDb puedes saltártelo</strong> — ya viene configurada. Si quieres usar la tuya, pega la cadena corta (v3 auth) del paso anterior y pulsa <strong>"Probar"</strong>; con el campo vacío ese mismo botón comprueba la clave de la app.</li>
       <li>En <strong>"Google API key"</strong> pega la cadena <code>AIzaSy...</code>. Pulsa <strong>"Probar"</strong>.</li>
-      <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
+      <li><strong>"Carpeta Drive DoviTools" también puedes saltártelo</strong> — el enlace viene con la app. Pégalo solo si has donado y te han dado el tuyo; entonces pulsa <strong>"Probar"</strong>.</li>
       <li>Pulsa <strong>Guardar</strong>. La configuración queda en el servidor; no hay que reintroducirla al reabrir el navegador.</li>
     </ol>
 
@@ -1733,7 +1748,7 @@ const _CMV40_HELP_SECTIONS = {
     </ul>
 
     <div class="help-callout help-callout-info">
-      <strong>Resumen:</strong> TMDb no tienes que tocarlo — viene con la app, y sacar la tuya es casi instantáneo el día que quieras. Lo único que hay que configurar es Google, que requiere crear un proyecto en Cloud Console y habilitar la Drive API (~10 minutos la primera vez) y con lo que ganas el acceso directo a cientos de bins pre-validados del repo DoviTools.
+      <strong>Resumen:</strong> TMDb y el enlace del repo vienen con la app y no tienes que tocarlos. <strong>Lo único que hay que configurar es la Google API key</strong>: crear un proyecto en Cloud Console y habilitar la Drive API, ~10 minutos la primera vez, y con eso se desbloquea el acceso directo a cientos de bins pre-validados. Si los usas, considera la donación de 10&nbsp;€ al autor del repositorio.
     </div>
 
     <div class="help-sources">

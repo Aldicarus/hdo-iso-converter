@@ -464,6 +464,8 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/cmv40/recommend":             CLASE_LIGERO,
     "GET /api/cmv40/recommend-from-filename": CLASE_LIGERO,
     "GET /api/cmv40/repo-rpus":             CLASE_LIGERO,
+    "GET /api/cmv40/repo-donacion":         CLASE_LIGERO,
+    "POST /api/cmv40/repo-donacion/visto":  CLASE_LIGERO,
     "GET /api/cmv40/repo-survey":           CLASE_LIGERO,
     "GET /api/cmv40/cleanup/preview":       CLASE_LIGERO,
     "GET /api/cmv40/{session_id}/sync-data": CLASE_LIGERO,  # cacheado, en un thread

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UHD Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260914b">
+  <link rel="stylesheet" href="/static/style.css?v=20260914c">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1294,11 +1294,42 @@
           <span class="cmv40-help-nav-icon" data-icono="candado"></span>
           <span class="cmv40-help-nav-text">
             <b>Claves y APIs</b>
-            <small>TMDb + Google API · paso a paso</small>
+            <small>Google API · repo DoviTools · paso a paso</small>
           </span>
         </button>
       </nav>
       <div class="cmv40-help-content" id="cmv40-help-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: recordatorio de la donación a DoviTools ══════════════
+     Sale cada N bins descargados con el enlace que trae la app, y NUNCA si
+     el usuario ha puesto el suyo (quien lo tiene, donó). No bloquea nada:
+     es un recordatorio, no un peaje. -->
+<div class="modal-overlay" id="dovitools-donacion-modal"
+     onclick="onModalOverlayClick(event,'dovitools-donacion-modal')">
+  <div class="modal-box donacion-box">
+    <div class="donacion-head">
+      <span class="icono-chip icono-chip-lg donacion-chip" data-icono="corazon"></span>
+      <div>
+        <div class="modal-title">Los RPUs no salen de la nada</div>
+        <div class="donacion-sub" id="donacion-cuenta"></div>
+      </div>
+    </div>
+    <div class="donacion-cuerpo">
+      <p>El repositorio <strong>DoviTools</strong> lo mantiene <strong>R3S3T_9999</strong> por su cuenta: el espacio y el tráfico en Drive, y sobre todo el trabajo de generar y curar cada RPU uno a uno.</p>
+      <p>Se sostiene con donaciones de <strong>15&nbsp;CAD$</strong>, unos <strong>10&nbsp;€</strong>. Si donas, indica tu correo y pide acceso al repositorio: recibirás tu propio enlace y, al pegarlo en <span data-icono="ajustes"></span> Configuración, la app deja de recordártelo.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="cerrarAvisoDonacion()">Ahora no</button>
+      <button class="btn btn-secondary btn-sm"
+              onclick="cerrarAvisoDonacion(); openSettingsModal();">Ya tengo mi enlace</button>
+      <a class="btn btn-success btn-sm" id="donacion-paypal"
+         href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6"
+         target="_blank" rel="noreferrer" onclick="cerrarAvisoDonacion()">
+        Donar 10 € <span data-icono="enlaceExterno"></span>
+      </a>
     </div>
   </div>
 </div>
@@ -1418,17 +1449,16 @@
 
     <div class="settings-section">
       <div class="settings-section-title">
-        <span data-icono="diana"></span> URL del repositorio DoviTools
+        <span data-icono="diana"></span> URL del repositorio DoviTools <span class="settings-tag-opcional">opcional</span>
         <span id="settings-drive-folder-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        Google Drive folder con los bins <code>.bin</code> CMv4.0 de REC_9999. <strong>El acceso es privado</strong> — se obtiene haciendo una donación al autor (15 CAD$) en este link
-        <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>. Al donar, indica el correo y pide acceso al repositorio de RPUs. Recibirás el link de la carpeta de Google Drive; pégalo aquí.
-        <br>Hasta configurar esto, toda la sección "Repo DoviTools" queda deshabilitada.
+        Google Drive con los bins <code>.bin</code> CMv4.0 de REC_9999. <strong>La app trae el enlace</strong>, así que no tienes que pegarlo — pero <strong>sí necesitas la Google API key</strong> de arriba para que la pestaña «Repo DoviTools» funcione.
+        <br><strong>El repositorio lo mantiene una persona y se sostiene con donaciones</strong> (15 CAD$, unos 10&nbsp;€): <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>. Si donas, indica tu correo y pide acceso; te darán tu propio enlace y puedes pegarlo aquí — al hacerlo la app deja de recordártelo.
       </div>
       <div class="settings-field-row">
         <input type="password" id="settings-drive-folder-input"
-          class="settings-input" placeholder="https://drive.google.com/drive/folders/…"
+          class="settings-input" placeholder="Opcional — pega tu enlace si has donado y prefieres usar el tuyo"
           autocomplete="off">
         <button class="btn btn-secondary btn-sm" id="settings-drive-folder-test"
           onclick="testDriveFolderUrl()">Probar</button>
@@ -1492,13 +1522,13 @@
      `type="module"` las encierra en el ámbito del módulo. El ORDEN es el
      de las piezas del app.js original — concatenarlos así es
      equivalente al fichero único. -->
-<script src="/static/core.js?v=20260914b"></script>
-<script src="/static/workbar.js?v=20260914b"></script>
-<script src="/static/settings.js?v=20260914b"></script>
-<script src="/static/cmv40_modals.js?v=20260914b"></script>
-<script src="/static/tab1.js?v=20260914b"></script>
-<script src="/static/tab2.js?v=20260914b"></script>
-<script src="/static/tab3.js?v=20260914b"></script>
-<script src="/static/browser.js?v=20260914b"></script>
+<script src="/static/core.js?v=20260914c"></script>
+<script src="/static/workbar.js?v=20260914c"></script>
+<script src="/static/settings.js?v=20260914c"></script>
+<script src="/static/cmv40_modals.js?v=20260914c"></script>
+<script src="/static/tab1.js?v=20260914c"></script>
+<script src="/static/tab2.js?v=20260914c"></script>
+<script src="/static/tab3.js?v=20260914c"></script>
+<script src="/static/browser.js?v=20260914c"></script>
 </body>
 </html>

@@ -414,6 +414,11 @@ function switchTab(n) {
   if (n === 3 && typeof refreshCMv40Sidebar === 'function') {
     _cmv40AutoResumeAttempted = false;
     refreshCMv40Sidebar();
+    // El repositorio DoviTools es de otra persona y va por donación. Si se
+    // está usando el enlace que trae la app, cada N bins descargados se
+    // recuerda. Se pregunta al ENTRAR y no con un poller: el dato solo
+    // cambia al descargar un bin, y quien los descarga pasa por aquí.
+    if (typeof comprobarAvisoDonacion === 'function') comprobarAvisoDonacion();
   }
   // Tab 2: refrescar la columna de MKVs analizados. Se pide al entrar y no al
   // arrancar (igual que el sidebar de Tab 3): quien nunca abre esta pestaña no
@@ -1632,6 +1637,10 @@ const GLIFOS = {
                 + '<path d="M8.6 10.8V7.4a3.4 3.4 0 0 1 6.8 0"/>'
                 + '<path d="M15.4 7.4V4.6"/>',
   bombilla: '<path d="M9.2 17.5a6 6 0 1 1 5.6 0z"/><path d="M9.8 20.5h4.4"/>',
+  // Apoyar el trabajo de otro. Dos arcos y la punta, en la misma rejilla
+  // de 24: a 14 px un corazón con más detalle se convierte en una mancha.
+  corazon: '<path d="M12 20.2S3.8 15.1 3.8 9.5a4.4 4.4 0 0 1 8.2-2.3'
+         + 'A4.4 4.4 0 0 1 20.2 9.5c0 5.6-8.2 10.7-8.2 10.7z"/>',
   ojo: '<path d="M2.8 12S6 6.5 12 6.5 21.2 12 21.2 12 18 17.5 12 17.5 2.8 12 2.8 12z"/>'
      + '<circle cx="12" cy="12" r="2.8"/>',
   archivador: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/>'

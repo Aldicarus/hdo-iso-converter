@@ -94,6 +94,7 @@ Variables de `docker/.env`:
 | `CMV40_RPU_PATH` | **sí** | — | RPUs CMv4.0 externos legacy (Tab 3, ro). Si no la usas, apúntala a un dir vacío — nunca a `/tmp` |
 | `TMDB_API_KEY` | no | *(la imagen trae la clave de la app)* | **No hace falta configurarla.** Solo si quieres usar una propia sin pasar por la UI. Prioridad: UI (⚙︎ Configuración) > esta variable > la clave de la app |
 | `TMDB_APP_KEY` | no | — | Solo si **construyes desde fuente**. La imagen publicada ya lleva dentro la clave de la app; un build local sale sin ella. Es *build arg*, no variable de runtime: se hornea al construir |
+| `CMV40_DRIVE_FOLDER_APP` | no | — | Ídem con el enlace del repositorio DoviTools. La pestaña «Repo» necesita **además** `GOOGLE_API_KEY`, que no viene incluida |
 | `GOOGLE_API_KEY` | no | — | Fallback para el repo DoviTools en Drive. Se prefiere la UI |
 
 ## Volúmenes Docker
@@ -374,7 +375,7 @@ docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins --detail "Black 
 - **Frontend:** Vanilla JS ES6+, Sortable.js (CDN), sin framework ni build step
 - **Herramientas:** mkvmerge, mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, dovi_tool 2.3.2
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
-- **Integraciones externas:** TMDb (poster/sinopsis/episodios) — **incluida, funciona out of the box**; Google Drive v3 + Sheets v4 / openpyxl (repo DoviTools) — opcional, hay que configurarla
+- **Integraciones externas:** TMDb (poster/sinopsis/episodios) y el enlace del repo DoviTools — **incluidos, funcionan out of the box**; la Google API key (Drive v3 + Sheets v4 / openpyxl) es lo único que hay que configurar, y desbloquea el repo
 
 ## Estructura del proyecto
 

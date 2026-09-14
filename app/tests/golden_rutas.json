@@ -113,6 +113,10 @@
     ]
    ]
   },
+  "GET /api/cmv40/repo-donacion": {
+   "body": [],
+   "params": []
+  },
   "GET /api/cmv40/repo-rpus": {
    "body": [],
    "params": [
@@ -436,6 +440,10 @@
    "body": [
     "application/json"
    ],
+   "params": []
+  },
+  "POST /api/cmv40/repo-donacion/visto": {
+   "body": [],
    "params": []
   },
   "POST /api/cmv40/tmdb-lookup": {

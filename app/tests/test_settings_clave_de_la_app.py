@@ -159,6 +159,60 @@ class TestLosOtrosTresEstados(RenderCase):
         self.assertIn("Google", r["placeholder"])
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElBadgeDelRepoDoviTools(unittest.TestCase):
+    """El repo tiene su propio renderizador, así que su estado `default` no
+    sale gratis por arreglar el de las claves."""
+
+    def render(self, estado: dict) -> dict:
+        script = "\n".join([
+            ENTORNO.replace("settings-${entrada.key}", "settings-drive-folder"),
+            _extraer_funcion("escHtml"),
+            _extraer_funcion("_renderSettingsDriveFolder"),
+            r"""
+const entrada = JSON.parse(process.argv[1]);
+const userSet = _renderSettingsDriveFolder({drive_folder: entrada});
+const badge = document.getElementById('settings-drive-folder-status');
+const inp   = document.getElementById('settings-drive-folder-input');
+console.log(JSON.stringify({
+  userSet, clase: badge.className, html: badge.innerHTML,
+  texto: badge.textContent, placeholder: inp.placeholder,
+}));
+""",
+        ])
+        proc = subprocess.run([NODE, "-e", script, json.dumps(estado)],
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_el_de_la_app_se_anuncia_y_no_enciende_vaciar_todo(self):
+        r = self.render({"configured": True, "source": "default", "last4": "",
+                         "folder_id_last6": "5lmPgN", "is_default": True})
+        self.assertIn("repo de la app", r["texto"])
+        self.assertIn("default", r["clase"])
+        self.assertNotIn("<svg", r["html"], "lleva visto verde")
+        self.assertFalse(r["userSet"])
+
+    def test_el_id_si_se_ensena_porque_no_es_un_secreto(self):
+        """Ayuda a reconocer que es la carpeta de siempre."""
+        r = self.render({"configured": True, "source": "default", "last4": "",
+                         "folder_id_last6": "5lmPgN", "is_default": True})
+        self.assertIn("5lmPgN", r["texto"])
+
+    def test_el_propio_lleva_visto_y_enciende_vaciar_todo(self):
+        r = self.render({"configured": True, "source": "settings", "last4": "aBcD",
+                         "folder_id_last6": "abc123", "is_default": False})
+        self.assertIn("<svg", r["html"])
+        self.assertIn("ok", r["clase"].split())
+        self.assertTrue(r["userSet"])
+
+    def test_sin_ninguno_sigue_avisando_de_que_el_repo_esta_bloqueado(self):
+        r = self.render({"configured": False, "source": "none", "last4": "",
+                         "folder_id_last6": "", "is_default": False})
+        self.assertIn("warn", r["clase"].split())
+        self.assertFalse(r["userSet"])
+
+
 class TestElEstiloExiste(unittest.TestCase):
 
     def test_la_clase_default_esta_definida_en_el_css(self):

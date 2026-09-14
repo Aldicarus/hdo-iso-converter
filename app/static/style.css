@@ -6302,6 +6302,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    es un logro del usuario, así que no compite con el verde de «configurada».
    La clase la usaba ya el sheet y NO existía: caía al estilo base y se veía
    como texto suelto, que es la misma trampa que una var() inexistente. */
+/* ── Recordatorio de la donación a DoviTools ─────────────────────────
+   Es una petición, no una alarma: paleta neutra, sin rojo ni ámbar. El
+   corazón es lo único con color, y va con la pareja -dim/sólida del resto
+   de chips de icono. */
+.donacion-box   { width: 520px; max-width: 94vw; }
+.donacion-head  { display: flex; align-items: flex-start; gap: 12px; }
+.donacion-chip  { background: rgba(255, 45, 85, 0.12); color: #ff2d55; flex: 0 0 auto; }
+.donacion-sub   { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.donacion-cuerpo { margin-top: 14px; font-size: 12px; line-height: 1.55; color: var(--text-2); }
+.donacion-cuerpo p { margin: 0 0 9px; }
+.donacion-cuerpo p:last-child { margin-bottom: 0; }
+.donacion-cuerpo svg { vertical-align: -2px; width: 13px; height: 13px; }
+
 /* «opcional» junto al título de una sección de Configuración: dice de un
    vistazo que esa sección no es un requisito para usar la app. */
 .settings-tag-opcional {

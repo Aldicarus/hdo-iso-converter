@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from services.settings_store import (
     get_google_api_key,
+    registrar_descarga_de_bin,
     get_cmv40_drive_folder_id,
     parse_drive_folder_id,
 )
@@ -441,4 +442,9 @@ async def download_file(file_id: str, dest_path: Path,
                             await progress_cb(bytes_written, total)
                         except Exception:
                             pass
+    # Un bin más del repo que mantiene otra persona. Solo cuenta si se está
+    # usando el enlace que trae la app (el helper lo decide); con repo propio
+    # es un no-op. Va DESPUÉS del stream y no antes: lo que se cuenta son
+    # descargas completadas, no intentos.
+    registrar_descarga_de_bin()
     return bytes_written

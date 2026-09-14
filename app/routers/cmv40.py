@@ -2231,6 +2231,29 @@ async def cmv40_repo_survey(refresh: bool = False):
     }
 
 
+@router.get("/api/cmv40/repo-donacion",
+         summary="Bins descargados del repo de la app y si toca recordar la donación")
+async def cmv40_repo_donacion():
+    """El repo DoviTools lo mantiene una persona y el acceso va por donación.
+
+    Cuando se usa el enlace que trae la app se lleva la cuenta de los bins
+    descargados y cada N se recuerda. Con repo propio `avisar` es siempre
+    `false`: ese usuario ya donó. Es una lectura de `app_settings.json`, sin
+    red y sin disco caliente — se puede llamar al entrar en la pestaña.
+    """
+    from services.settings_store import estado_donacion_dovitools
+    return estado_donacion_dovitools()
+
+
+@router.post("/api/cmv40/repo-donacion/visto",
+          summary="El usuario ha visto el recordatorio de la donación")
+async def cmv40_repo_donacion_visto():
+    from services.settings_store import (estado_donacion_dovitools,
+                                         marcar_donacion_avisada)
+    marcar_donacion_avisada()
+    return estado_donacion_dovitools()
+
+
 @router.get("/api/cmv40/repo-rpus",
          summary="Lista de .bin candidatos en el repositorio REC_9999 para un título")
 async def cmv40_repo_rpus(title: str = "", year: int | None = None,

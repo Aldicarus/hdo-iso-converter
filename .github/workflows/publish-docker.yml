@@ -115,6 +115,7 @@ jobs:
             APP_VERSION=${{ steps.rel.outputs.tag }}
             APP_COMMIT=${{ github.sha }}
             TMDB_APP_KEY=${{ secrets.TMDB_APP_KEY }}
+            CMV40_DRIVE_FOLDER_APP=${{ secrets.CMV40_DRIVE_FOLDER_APP }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -122,14 +123,20 @@ jobs:
       # `secrets` no está garantizado en las condiciones de un step, y un
       # aviso que no se evalúa es peor que ninguno. En `env:` sí lo está.
       # Y NO se imprime la clave, solo si está vacía.
-      - name: Avisar si la imagen sale sin la clave de TMDb
+      - name: Avisar si la imagen sale sin lo que trae la app
         env:
           CLAVE_APP: ${{ secrets.TMDB_APP_KEY }}
+          REPO_APP: ${{ secrets.CMV40_DRIVE_FOLDER_APP }}
         run: |
           if [ -z "$CLAVE_APP" ]; then
             echo "::warning title=Imagen sin clave de TMDb::El secreto TMDB_APP_KEY no está configurado, así que esta imagen se publica SIN la clave con la que TMDb funciona out of the box. La app arranca igual, pero los usuarios verán TMDb como no configurado hasta que pongan la suya. Añádelo en Settings → Secrets and variables → Actions."
           else
             echo "Clave de TMDb horneada en la imagen (longitud ${#CLAVE_APP})."
+          fi
+          if [ -z "$REPO_APP" ]; then
+            echo "::warning title=Imagen sin el repo DoviTools::El secreto CMV40_DRIVE_FOLDER_APP no está configurado. La pestaña «Repo DoviTools» saldrá vacía hasta que cada usuario pegue su enlace. Añádelo en Settings → Secrets and variables → Actions."
+          else
+            echo "Repo DoviTools horneado en la imagen (longitud ${#REPO_APP})."
           fi
 
       - name: Update GHCR package description

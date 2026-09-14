@@ -95,10 +95,49 @@ def clave_tmdb_de_la_app() -> str:
     return os.environ.get(ENV_CLAVE_TMDB_DE_LA_APP, "").strip()
 
 
-# El Drive folder ID NO tiene default hardcoded — requiere donación al autor
-# del repo. Hasta que el usuario no lo configure, toda la sección Repo queda
-# deshabilitada con explicación del paywall.
-DEFAULT_DRIVE_FOLDER_URL = ""
+# ── El repositorio DoviTools que trae la app ───────────────────────────
+#
+# Misma vía que la clave de TMDb: **no está en el repositorio**, la hornea el
+# build desde un secreto (`ARG CMV40_DRIVE_FOLDER_APP`). Aquí solo vive el
+# nombre de la variable.
+#
+# Verificado antes de incluirlo (2026-09-14): el enlace es **genérico**, no
+# personal. Una petición anónima a la carpeta —sin sesión de Google ni
+# credencial— devuelve HTTP 200 con el nombre de la carpeta y los `.bin`
+# listados, o sea que está compartida como «cualquiera con el enlace» y el ID
+# es el de la carpeta, igual para todos. Lo que el manual describe («dona,
+# manda tu correo y te dan acceso») es una puerta SOCIAL, no técnica.
+#
+# Y esa puerta es de otro, así que la app la reconoce en vez de ignorarla: al
+# usar el enlace incluido lleva la cuenta de los bins descargados y cada
+# `DESCARGAS_POR_AVISO` recuerda la donación. **Solo cuando se usa el enlace
+# de la app**: quien ha puesto el suyo ya donó, y no se le molesta más.
+#
+# Dos cosas que NO resuelve incluirlo, y que están escritas donde toca:
+#   · la pestaña Repo **sigue necesitando la Google API key**, que sí es de
+#     cada uno (cuota por proyecto de Cloud, y Google desactiva las que
+#     encuentra filtradas). El enlace es el paso fácil; la key es el difícil;
+#   · el autor puede cerrar la carpeta a permiso por cuenta cuando quiera —es
+#     un clic— y ese día la función deja de funcionar para todos. El riesgo se
+#     asume a sabiendas.
+ENV_DRIVE_FOLDER_DE_LA_APP = "CMV40_DRIVE_FOLDER_APP"
+
+# Cada cuántos bins descargados con el enlace de la app se recuerda la
+# donación. Se cuentan DESCARGAS y no peticiones a la API: el listado se
+# cachea 24 h, así que «100 peticiones» pueden ser meses o una tarde, mientras
+# que un bin descargado es exactamente la unidad de valor que el usuario
+# recibe del autor.
+DESCARGAS_POR_AVISO = 20
+
+
+def carpeta_drive_de_la_app() -> str:
+    """El repo que viaja con la app, o `""` si este build no trae ninguno.
+
+    Vacío es un estado válido: la pestaña Repo queda como estaba antes de que
+    esto existiera, con la explicación del paywall y el campo para pegar el
+    enlace propio.
+    """
+    return os.environ.get(ENV_DRIVE_FOLDER_DE_LA_APP, "").strip()
 
 
 # ── Parseo de URLs de Google ────────────────────────────────────────────
@@ -217,12 +256,36 @@ def get_google_api_key() -> str:
 
 
 def get_cmv40_drive_folder_url() -> str:
-    """URL cruda del repo Drive configurado por el usuario. Vacío si no existe."""
+    """Prioridad: settings.json > `CMV40_DRIVE_FOLDER_URL` > el de la app."""
     with _lock:
         stored = _load().get("cmv40_drive_folder_url", "").strip()
     if stored:
         return stored
-    return os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
+    env = os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
+    if env:
+        return env
+    return carpeta_drive_de_la_app()
+
+
+def usando_el_repo_de_la_app() -> bool:
+    """¿El repo activo sale del enlace que trae la app, sin que nadie pusiera otro?
+
+    Es lo que decide si se recuerda la donación, y lo que mira es **de dónde
+    sale el enlace**, no a qué carpeta apunta. La distinción importa porque
+    quien dona recibe... el mismo enlace: la carpeta es pública y única, así
+    que comparar IDs daría «es el de la app» también para el donante que lo
+    pegó, y se le estaría recordando para siempre una donación que ya hizo.
+
+    Lo que distingue a un donante no es su carpeta — es que se molestó en
+    pegarla. O sea, exactamente `source == "default"` del estado público.
+    """
+    if not carpeta_drive_de_la_app():
+        return False
+    with _lock:
+        if _load().get("cmv40_drive_folder_url", "").strip():
+            return False
+    return not (os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
+                or os.environ.get("CMV40_DRIVE_FOLDER_ID", "").strip())
 
 
 def get_cmv40_drive_folder_id() -> str:
@@ -292,8 +355,18 @@ def get_public_settings() -> dict[str, Any]:
     drive_url_stored = stored.get("cmv40_drive_folder_url", "").strip()
     drive_url_env    = os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
     drive_legacy_env = os.environ.get("CMV40_DRIVE_FOLDER_ID", "").strip()
-    drive_effective  = drive_url_stored or drive_url_env or drive_legacy_env
+    drive_de_la_app  = carpeta_drive_de_la_app()
+    drive_effective  = (drive_url_stored or drive_url_env or drive_legacy_env
+                        or drive_de_la_app)
     drive_folder_id  = parse_drive_folder_id(drive_effective) if drive_effective else ""
+    if drive_url_stored:
+        drive_source = "settings"
+    elif drive_url_env or drive_legacy_env:
+        drive_source = "env"
+    elif drive_de_la_app:
+        drive_source = "default"
+    else:
+        drive_source = "none"
 
     sheet_url_stored = stored.get("cmv40_sheet_url", "").strip()
     sheet_url_env    = os.environ.get("CMV40_SHEET_URL", "").strip()
@@ -312,10 +385,16 @@ def get_public_settings() -> dict[str, Any]:
         ),
         "drive_folder": {
             "configured": bool(drive_folder_id),
-            "source": "settings" if drive_url_stored else ("env" if (drive_url_env or drive_legacy_env) else "none"),
-            "last4": drive_effective[-4:] if drive_effective else "",
+            "source": drive_source,
+            # Igual que con la clave de TMDb: lo que no ha puesto el usuario
+            # no lleva cola de caracteres, que solo invita a confundirlo con
+            # lo suyo. El `folder_id_last6` sí se manda — el ID de una carpeta
+            # pública no es un secreto y ayuda a ver que es la de siempre.
+            "last4": drive_effective[-4:] if (drive_effective and drive_source != "default") else "",
             "folder_id_last6": drive_folder_id[-6:] if drive_folder_id else "",
+            "is_default": drive_source == "default",
         },
+        "dovitools": estado_donacion_dovitools(),
         "sheet": {
             "configured": bool(sheet_id),
             "source": "settings" if sheet_url_stored else ("env" if sheet_url_env else "default"),
@@ -326,6 +405,62 @@ def get_public_settings() -> dict[str, Any]:
             "is_default": sheet_effective == DEFAULT_SHEET_URL,
         },
     }
+
+
+# ── El recordatorio de la donación a DoviTools ─────────────────────────
+
+def registrar_descarga_de_bin() -> None:
+    """Suma un bin descargado, y solo si se usó el repo que trae la app.
+
+    Lo llama `rec999_drive.download_file`, que es **el único sitio por el que
+    baja un bin**: las dos rutas que existen (el pre-flight y la Fase B) pasan
+    por ahí, y Fase B además reutiliza lo que ya bajó el pre-flight, así que
+    contar aquí es contar descargas reales y no intentos.
+
+    No puede tumbar una descarga: se traga cualquier error. Perder una cuenta
+    es un inconveniente; que falle un bin ya descargado por no poder escribir
+    en `/config`, no.
+    """
+    if not usando_el_repo_de_la_app():
+        return
+    try:
+        with _lock:
+            data = dict(_load())
+            data["dovitools_descargas"] = int(data.get("dovitools_descargas", 0)) + 1
+            _save(data)
+    except Exception as e:
+        _logger.warning("[settings] no se pudo contar la descarga del bin: %s", e)
+
+
+def estado_donacion_dovitools() -> dict[str, Any]:
+    """Cuántos bins van con el repo de la app y si toca recordar la donación."""
+    if not usando_el_repo_de_la_app():
+        # Con repo propio no se avisa nunca: ese usuario ya donó.
+        return {"repo_de_la_app": False, "descargas": 0, "avisar": False,
+                "cada": DESCARGAS_POR_AVISO}
+    with _lock:
+        data = _load()
+        descargas = int(data.get("dovitools_descargas", 0) or 0)
+        avisado_en = int(data.get("dovitools_avisado_en", 0) or 0)
+    return {
+        "repo_de_la_app": True,
+        "descargas": descargas,
+        "avisar": descargas - avisado_en >= DESCARGAS_POR_AVISO,
+        "cada": DESCARGAS_POR_AVISO,
+    }
+
+
+def marcar_donacion_avisada() -> None:
+    """El usuario ya ha visto el recordatorio: el contador vuelve a empezar.
+
+    Se guarda el CONTADOR del momento y no un booleano, para que la cuenta
+    siga siendo el total histórico de bins y el siguiente aviso salga otros
+    `DESCARGAS_POR_AVISO` después.
+    """
+    with _lock:
+        data = dict(_load())
+        data["dovitools_avisado_en"] = int(data.get("dovitools_descargas", 0) or 0)
+        _save(data)
 
 
 def _update_field(field: str, new_value: str | None) -> None:

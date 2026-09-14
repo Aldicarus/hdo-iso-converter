@@ -33,6 +33,8 @@ services:
         # TMDb funcione sin configurar nada: pon TMDB_APP_KEY en el .env.
         # Sin ella el build sale sin clave, que es un estado válido.
         TMDB_APP_KEY: ${TMDB_APP_KEY:-}
+        # Ídem con el repo DoviTools que trae la app.
+        CMV40_DRIVE_FOLDER_APP: ${CMV40_DRIVE_FOLDER_APP:-}
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter

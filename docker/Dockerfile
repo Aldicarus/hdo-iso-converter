@@ -138,6 +138,13 @@ LABEL org.opencontainers.image.revision="${APP_COMMIT}"
 ARG TMDB_APP_KEY=""
 ENV TMDB_APP_KEY=${TMDB_APP_KEY}
 
+# El repositorio DoviTools que trae la app. Mismo trato que la clave de TMDb:
+# fuera del repositorio, horneado desde un secreto. Vacío por defecto — un
+# build sin el arg deja la pestaña Repo como estaba, con la explicación de la
+# donación y el campo para pegar el enlace propio.
+ARG CMV40_DRIVE_FOLDER_APP=""
+ENV CMV40_DRIVE_FOLDER_APP=${CMV40_DRIVE_FOLDER_APP}
+
 # Fallback files: si APP_VERSION llega como 'dev' (build local sin args) el
 # backend lee /app/VERSION para mostrar la version derivada del git context.
 # Stage version-detector escribio estos ficheros leyendo .git del build ctx.
