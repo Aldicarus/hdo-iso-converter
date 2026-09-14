@@ -171,6 +171,15 @@ class TestElBotonProbar(ApiTestCase):
     """Con el campo vacío prueba la clave ACTIVA, que es la única pregunta
     que trae a alguien a ese botón desde que hay clave incluida."""
 
+    def setUp(self):
+        super().setUp()
+        # `settings_store` cachea el fichero en memoria, y el tmpdir de
+        # `ApiTestCase` es nuevo en cada test pero el módulo no: sin esto, la
+        # clave que guarda un test la siguen viendo los de después.
+        from services import settings_store as st
+        st._cache = None
+        self.addCleanup(setattr, st, "_cache", None)
+
     def _fake_test(self, respuesta=(True, "API key válida")):
         """Sustituye la llamada real a TMDb y captura QUÉ clave se probó."""
         import services.tmdb as tmdb_mod
@@ -191,7 +200,7 @@ class TestElBotonProbar(ApiTestCase):
                              json={"tmdb_api_key": "la_que_escribo"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(probadas, ["la_que_escribo"])
-        self.assertEqual(r.json()["probada"], "propia")
+        self.assertEqual(r.json()["probada"], "escrita")
 
     def test_con_el_campo_vacio_prueba_la_activa(self):
         with mock.patch.dict(os.environ, {"TMDB_APP_KEY": CLAVE_APP}):
@@ -210,6 +219,20 @@ class TestElBotonProbar(ApiTestCase):
         d = r.json()
         self.assertFalse(d["ok"])
         self.assertIn("configura la tuya", d["message"].lower())
+
+    def test_con_una_clave_guardada_no_dice_que_es_la_de_la_app(self):
+        """Lo que decide el mensaje es CUÁL es la activa, no si el campo está
+        vacío. Al revés, a quien tiene la suya guardada se le decía «la clave
+        de la app funciona» habiendo probado la suya."""
+        self.client.post("/api/settings", json={"tmdb_api_key": "la_mia_guardada"})
+        with mock.patch.dict(os.environ, {"TMDB_APP_KEY": CLAVE_APP}):
+            probadas = self._fake_test()
+            r = self.client.post("/api/settings/test-tmdb", json={})
+        self.assertEqual(probadas, ["la_mia_guardada"])
+        d = r.json()
+        self.assertEqual(d["probada"], "guardada")
+        self.assertNotIn("de la app", d["message"])
+        self.assertIn("tu clave", d["message"].lower())
 
     def test_sin_ninguna_clave_lo_dice_en_vez_de_llamar_a_tmdb(self):
         with mock.patch.dict(os.environ, {"TMDB_APP_KEY": ""}):

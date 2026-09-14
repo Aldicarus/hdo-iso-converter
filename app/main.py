@@ -461,20 +461,30 @@ async def test_tmdb_key(body: SettingsUpdate):
     configurar la suya— y antes el campo vacío solo contestaba «API key
     vacía», que no responde a nada.
     """
-    from services.settings_store import get_tmdb_api_key
+    from services.settings_store import clave_tmdb_de_la_app, get_tmdb_api_key
     from services.tmdb import test_api_key
-    propia = bool((body.tmdb_api_key or "").strip())
-    key = (body.tmdb_api_key or "").strip() or get_tmdb_api_key()
+    escrita = (body.tmdb_api_key or "").strip()
+    if escrita:
+        probada, key = "escrita", escrita
+    else:
+        key = get_tmdb_api_key()
+        # Cuál es la activa depende de qué haya configurado el usuario, NO de
+        # que el campo esté vacío. Decidirlo por el campo hacía que a quien
+        # tiene la suya guardada se le dijera «la clave de la app funciona»
+        # habiendo probado la suya — justo al revés de lo que va a mirar
+        # alguien que esté diagnosticando.
+        probada = "app" if (key and key == clave_tmdb_de_la_app()) else "guardada"
     if not key:
         return {"ok": False, "probada": "ninguna",
                 "message": "No hay ninguna clave que probar — pega una arriba"}
     ok, msg = await test_api_key(key)
-    if not propia:
-        # El mensaje tiene que decir QUÉ se ha probado: un «válida» a secas
-        # sobre un campo vacío se lee como que la clave escrita está bien.
+    if probada == "app":
         msg = ("La clave de la app funciona" if ok else
                f"La clave de la app ya no funciona ({msg}) — configura la tuya")
-    return {"ok": ok, "message": msg, "probada": "propia" if propia else "app"}
+    elif probada == "guardada":
+        msg = ("Tu clave configurada funciona" if ok else
+               f"Tu clave configurada ya no funciona ({msg})")
+    return {"ok": ok, "message": msg, "probada": probada}
 
 
 @app.post("/api/settings/test-google",
