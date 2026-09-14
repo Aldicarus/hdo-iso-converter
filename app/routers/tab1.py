@@ -58,6 +58,7 @@ from phases.phase_b import (
     estimate_output_size_bytes, generate_auto_chapters,
 )
 from phases.phase_d import (
+    MKVMERGE_BIN,
     MkvmergePlaylistError,
     find_main_mpls,
     m2ts_covers_title,
@@ -144,6 +145,89 @@ async def _flush_session_save(session) -> None:
         state["last_save_ts"] = _t.monotonic()
         state["lines_since"] = 0
 
+AVISO_INTERRUMPIDA = "Sesión interrumpida por reinicio del servidor"
+
+
+def _mkv_tiene_pista_de_video(path: Path) -> bool | None:
+    """¿Es `path` un MKV terminado, o la salida a medias de un mux que murió?
+
+    La pregunta se la hacemos a mkvmerge, que es quien lo escribió. Un MKV
+    cortado a mitad pesa casi lo que pesaría el bueno —el caso real son 24,7 GB
+    contra los 24,5 del episodio de al lado— pero **no tiene ni una pista**:
+    mkvmerge no cierra la cabecera hasta el final, así que `-J` contesta
+    `tracks: []`, o `recognized: false` si se cortó antes.
+
+    El código de salida NO sirve para distinguirlo: comprobado contra el
+    fichero real y contra uno de basura, `mkvmerge -J` sale con **0** en los
+    dos casos y responde JSON válido. Lo que cambia es el contenido.
+
+    `None` es «no se ha podido comprobar», que no es «no»: sin respuesta de
+    mkvmerge no se borra nada.
+    """
+    import subprocess as _sp
+    try:
+        proc = _sp.run([MKVMERGE_BIN, "-J", str(path)],
+                       capture_output=True, text=True, timeout=120)
+        data = json.loads(proc.stdout)
+    except Exception as e:
+        _logger.warning("[Startup] no se ha podido identificar %s: %s", path, e)
+        return None
+    return any(t.get("type") == "video" for t in (data.get("tracks") or []))
+
+
+def _borrar_salida_a_medias(session) -> str:
+    """Borra el MKV que el mux dejó a medias y devuelve el aviso para el usuario.
+
+    Es el simétrico del recovery de Tab 2 (`recuperar_apply_interrumpido`), con
+    una diferencia que decide el diseño: allí el destino lo había creado la
+    copia —el endpoint da 409 si el nombre ya existe— así que se borra sin
+    preguntar. Aquí el fichero puede ser el resultado BUENO de una ejecución
+    anterior, porque re-ejecutar una sesión escribe sobre el mismo nombre.
+
+    Es la salvaguarda de `_limpiar_parcial` en las fases ("si ya estaba, no es
+    nuestro parcial"), resuelta con lo único que hay al arrancar: el fichero
+    delante. El `existia_antes` de las fases aquí no existe —el proceso que lo
+    sabía murió—, así que el criterio pasa a ser si el MKV se puede usar.
+
+    Lo que esto cierra es un agujero real (12-sep-2026): un deploy en mitad de
+    la cola dejó `S05E05` como 24,7 GB ilegibles en /mnt/output **con el nombre
+    definitivo**, indistinguible de un rip terminado para quien mire el
+    listado. El recovery devolvía la sesión a `pending` y no tocaba el fichero.
+    """
+    if not session.mkv_name:
+        return AVISO_INTERRUMPIDA
+    destino = paths.OUTPUT_DIR_MKV / session.mkv_name
+    # `mkv_name` es editable por el usuario y puede traer subdirectorios (modo
+    # serie), así que se resuelve antes de comparar: regla del proyecto para
+    # cualquier ruta que acabe en un `unlink`.
+    try:
+        destino = destino.resolve()
+        destino.relative_to(paths.OUTPUT_DIR_MKV.resolve())
+    except (OSError, ValueError):
+        return AVISO_INTERRUMPIDA
+    if not destino.is_file():
+        return AVISO_INTERRUMPIDA
+
+    if _mkv_tiene_pista_de_video(destino) is not False:
+        # Completo, o sin poder comprobarlo. En ninguno de los dos casos se
+        # borra: pero sí se dice, porque el MKV está escrito y NO llegó a
+        # pasar la validación final.
+        return (f"{AVISO_INTERRUMPIDA}. El MKV de salida está escrito pero no "
+                f"llegó a validarse — re-ejecuta la sesión o compruébalo en "
+                f"«Consultar / Editar MKV».")
+
+    try:
+        liberado = destino.stat().st_size
+        destino.unlink()
+    except OSError as e:
+        _logger.warning("[Startup] no se pudo borrar el MKV a medias %s: %s", destino, e)
+        return AVISO_INTERRUMPIDA
+    _logger.info("[Startup] MKV a medias borrado (%.2f GB): %s",
+                 liberado / 1e9, destino)
+    return (f"{AVISO_INTERRUMPIDA}. El MKV había quedado a medias y se ha "
+            f"borrado ({liberado / 1e9:.2f} GB liberados): vuelve a ejecutarla.")
+
+
 def recuperar_sesiones_interrumpidas() -> None:
     """Deja el estado coherente tras un reinicio, distinguiendo dos casos.
 
@@ -152,7 +236,9 @@ def recuperar_sesiones_interrumpidas() -> None:
 
     · `running` → murió a mitad, con temporales a medias y sin saber por dónde
       iba. Vuelve a `pending` con el aviso, y que el usuario decida si lo
-      relanza. Reanudarlo solo sería adivinar.
+      relanza. Reanudarlo solo sería adivinar. Y su MKV a medias se borra —ver
+      `_borrar_salida_a_medias`—, porque queda en /mnt/output con el nombre
+      definitivo y nadie más lo va a limpiar.
     · `queued` → no había empezado nada. Su sitio en la cola sigue en
       `queue_state.json`, así que se queda `queued` y se reanuda al arrancar.
 
@@ -167,7 +253,7 @@ def recuperar_sesiones_interrumpidas() -> None:
     for s in list_sessions():
         if s.status == "running":
             s.status = "pending"
-            s.error_message = "Sesión interrumpida por reinicio del servidor"
+            s.error_message = _borrar_salida_a_medias(s)
             save_session(s)
             rotas += 1
         elif s.status == "queued":
