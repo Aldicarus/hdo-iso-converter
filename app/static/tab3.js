@@ -1321,7 +1321,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     html += ` no aparece en la hoja de DoviTools (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
     html += `</div>`;
     if (!data.tmdb_configured) {
-      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> Clave de la API de TMDb no configurada — el matching ES→EN es más limitado. Añádela en Configuración.</div>`;
+      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> TMDb no está disponible — sin clave activa el matching ES→EN es más limitado. Puedes poner la tuya en Configuración.</div>`;
     }
   }
 

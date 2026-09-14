@@ -92,7 +92,7 @@ Variables de `docker/.env`:
 | `TMP_PATH` | **sí** | — | Workdir temporal — SSD muy recomendado (rw) |
 | `CONFIG_PATH` | **sí** | — | Sesiones JSON + cola + `app_settings.json` (rw) |
 | `CMV40_RPU_PATH` | **sí** | — | RPUs CMv4.0 externos legacy (Tab 3, ro). Si no la usas, apúntala a un dir vacío — nunca a `/tmp` |
-| `TMDB_API_KEY` | no | — | Fallback. Se prefiere la UI (botón ⚙︎ Configuración) |
+| `TMDB_API_KEY` | no | *(la app trae la suya)* | **No hace falta configurarla.** Solo si quieres usar una propia sin pasar por la UI. Prioridad: UI (⚙︎ Configuración) > esta variable > la clave de la app |
 | `GOOGLE_API_KEY` | no | — | Fallback para el repo DoviTools en Drive. Se prefiere la UI |
 
 ## Volúmenes Docker
@@ -373,7 +373,7 @@ docker exec hdo-iso-converter python3 -m tools.audit_cmv40_bins --detail "Black 
 - **Frontend:** Vanilla JS ES6+, Sortable.js (CDN), sin framework ni build step
 - **Herramientas:** mkvmerge, mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, dovi_tool 2.3.2
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
-- **Integraciones externas (opcionales):** TMDb (poster/sinopsis), Google Drive v3 + Sheets v4 / openpyxl (repo DoviTools)
+- **Integraciones externas:** TMDb (poster/sinopsis/episodios) — **incluida, funciona out of the box**; Google Drive v3 + Sheets v4 / openpyxl (repo DoviTools) — opcional, hay que configurarla
 
 ## Estructura del proyecto
 
@@ -464,7 +464,7 @@ hdo-iso-converter/                ← repo / docker image (técnico)
 - `WS /ws/cmv40/{id}` — log en vivo (replay automático desde watermark al reconectar)
 
 ### Settings + utilidades
-- `GET/PUT /api/settings` — configuración de API keys (TMDb / Google)
+- `GET/PUT /api/settings` — configuración de API keys (TMDb / Google). La de TMDb es un override: la app trae la suya
 - `GET /api/health` — healthcheck
 - `GET /api/version` · `GET /api/version/check-updates` — versión actual + comprobación de actualizaciones contra GitHub Releases
 

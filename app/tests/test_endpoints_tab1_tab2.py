@@ -284,11 +284,14 @@ class TestSettings(ApiTestCase):
 
     def test_persiste_y_se_puede_borrar(self):
         self.client.post("/api/settings", json={"tmdb_api_key": "abcd1234"})
-        self.assertTrue(self.client.get("/api/settings").json()["tmdb"]["configured"])
-        # "" = borrar / restaurar al valor del entorno.
+        d = self.client.get("/api/settings").json()
+        self.assertTrue(d["tmdb"]["configured"])
+        self.assertEqual(d["tmdb"]["source"], "settings")
+        # "" = borrar. Se cae al escalón siguiente, que puede ser el entorno o
+        # la clave que trae la app — nunca la propia.
         self.client.post("/api/settings", json={"tmdb_api_key": ""})
         d = self.client.get("/api/settings").json()
-        self.assertIn(d["tmdb"]["source"], ("env", None, "", "none"))
+        self.assertIn(d["tmdb"]["source"], ("env", "default", "none"))
 
 
 class TestLimpieza(ApiTestCase):

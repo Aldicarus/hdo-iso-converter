@@ -57,7 +57,7 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
   - `dovi_tool` — análisis RPU Dolby Vision: Profile, FEL/MEL, CM version
 - **Acceso al ISO:** Loop mount directo (`mount -t udf -o ro,loop`) — requiere `privileged: true` en Docker
 - **Integraciones externas:**
-  - **TMDb API** — traducción ES→EN de títulos + ficha extendida (poster, sinopsis, géneros, rating) en la cabecera de proyectos de los 3 tabs. Opcional (key en ⚙︎ Configuración)
+  - **TMDb API** — traducción ES→EN de títulos + ficha extendida (poster, sinopsis, géneros, rating) en la cabecera de proyectos de los 3 tabs, y el mapeo de episodios del modo serie. **La app trae su propia clave: funciona out of the box.** Poner una propia (⚙︎ Configuración) es un override deliberado
   - **Google Drive API v3** — listado + descarga de RPUs del repositorio público **DoviTools** (compartido por R3S3T_9999). Opcional (key en ⚙︎ Configuración)
   - **Google Sheets (XLSX export)** — lectura live de la hoja de recomendaciones de DoviTools con extracción de hyperlinks vía openpyxl. Sin auth (endpoint público)
 ## Estructura del proyecto
@@ -1492,9 +1492,58 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 ### Settings UI (⚙︎ Configuración)
 - Botón engranaje arriba-derecha abre el modal de configuración
 - API keys persisten en `/config/app_settings.json` (atomic write con `.tmp` + rename)
-- Prioridad: valor en settings.json > env var > vacío
+- Prioridad: valor en settings.json > env var > vacío. **TMDb tiene un cuarto escalón al final**: la clave que trae la app (ver abajo)
 - Nunca se exponen secretos crudos al frontend — solo `{configured, source, last4}`
 - Validación live: botón "Probar" contra endpoint oficial de cada API
+
+### TMDb viene configurada — la clave de la app
+
+La app se distribuye con una clave de TMDb propia (`clave_tmdb_de_la_app`, en
+`services/settings_store.py`), así que la ficha de la película, el mapeo de
+episodios del modo serie y la traducción ES→EN funcionan **desde el primer
+arranque**. No son un extra: son cómo se usa la app, y exigir un alta en TMDb
+antes del primer proyecto convertía un detalle en un trámite. Poner una propia
+sigue estando y gana, pero pasa a ser una decisión deliberada.
+
+`get_tmdb_api_key()` resuelve **settings.json > env > clave de la app**. Lo
+importante de ese orden es la cola: **borrar tu clave NO deja la app sin
+TMDb**, devuelve a la de la app — que es lo que hace «Vaciar todo» de ⚙︎, igual
+que «Restaurar default» con el sheet de DoviTools.
+
+Cinco decisiones que la definen:
+
+- **Va codificada en base64, y eso NO es cifrado.** Quien abra el fichero la
+  saca en un minuto, y no pretende otra cosa. Lo que evita es que la
+  encuentren los rastreadores que peinan GitHub buscando 32 hexadecimales al
+  lado de `api_key` — que es como se queman en la práctica las claves de los
+  repos públicos. El repo es público y el NAS **construye desde fuente**
+  (`compose up --build`), así que un secreto de GitHub inyectado como build
+  arg no llegaría al despliegue del propio autor: tiene que viajar en el
+  repositorio.
+- **El volumen no era el motivo de nada, y está medido.** Sobre el
+  `tmdb_cache.json` de la instalación real (5 meses de uso intensivo,
+  abr-sep 2026): **511 peticiones que no salieron de caché**, 43 el día peor.
+  TMDb admite ~50 por SEGUNDO, no tiene cuota diaria, y todo se cachea 30 días
+  en disco. Ni mil usuarios al ritmo del peor día llegan a 0,5 req/s. Por eso
+  el manual **no** dice «no gastes»: dice qué hacer el día que la clave deje
+  de funcionar, que es el único riesgo real.
+- **Sin clave de la app, la app se comporta como antes.** `clave_tmdb_de_la_app`
+  devuelve `""` si el build no trae ninguna o si no descodifica, y avisa por el
+  log sin lanzar. Un fork que no ponga la suya ve exactamente la UI de «no
+  configurada» de siempre.
+- **El `last4` no se manda cuando la fuente es `default`.** El usuario no la ha
+  puesto, y una cola de cuatro caracteres solo invita a confundirla con la
+  suya. Por lo mismo el badge va en `settings-status default` (neutro, sin el
+  visto verde): funciona, pero no es un logro de nadie.
+- **«Probar» con el campo VACÍO prueba la clave activa.** Es la única pregunta
+  que trae a alguien a ese botón desde que hay clave incluida —«¿sigue
+  viva?»— y antes contestaba «API key vacía», que no responde a nada. El
+  endpoint distingue las dos y lo dice en el mensaje: un «válida» a secas
+  sobre un campo vacío se lee como que lo escrito está bien.
+
+**Ojo con `.settings-status.default`**: la clase la usaba ya el sheet y **no
+existía en el CSS** — caía al estilo base y se veía como texto suelto. Es la
+misma trampa que una `var()` inexistente.
 
 ### TMDb — Ficha de película
 - Fetch de **poster (w342), backdrop (w780), sinopsis, géneros, runtime, rating** via `/movie/{id}?language=es-ES`

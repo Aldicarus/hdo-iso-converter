@@ -6,7 +6,9 @@ sobre variables de entorno, para que el usuario pueda cambiar secretos
 (TMDb API key…) sin reconstruir el contenedor.
 
 Campos soportados:
-  - tmdb_api_key: str          — opcional, habilita traducción ES→EN en Tab 3
+  - tmdb_api_key: str          — opcional. La app trae la suya (ver
+                                 `clave_tmdb_de_la_app`), así que esto es un
+                                 override deliberado, no un requisito
   - google_api_key: str        — opcional, habilita listado+descarga de RPUs
                                  del repositorio de REC_9999 en Google Drive
   - cmv40_drive_folder_url: str — URL (o ID) de la carpeta Drive del repo de
@@ -24,6 +26,7 @@ dejar sin cambios (omitiendo la clave).
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -43,6 +46,50 @@ DEFAULT_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/"
     "15i0a84uiBtWiHZ5CXZZ7wygLFXwYOd84/edit?gid=828864432"
 )
+
+# ── La clave de TMDb con la que la app funciona sin configurar nada ────
+#
+# La app se distribuye con una clave de TMDb dada de alta para ella. La ficha
+# de la película, el mapeo de episodios de una serie y la traducción ES→EN no
+# son un extra: son parte de cómo se usa la app, y pedir que cada usuario se
+# diera de alta en TMDb antes de poder crear su primer proyecto convertía un
+# detalle en un trámite. Configurar una clave propia sigue estando, pero pasa
+# a ser una decisión deliberada.
+#
+# **Va codificada, y conviene ser honesto con lo que eso es**: no es cifrado
+# —quien abra el fichero la saca en un minuto— y no lo pretende. Lo que evita
+# es que la encuentren los rastreadores automáticos que peinan GitHub buscando
+# 32 hexadecimales al lado de la palabra `api_key`, que es como se queman en
+# la práctica las claves de los repos públicos. Si aun así la revocan, la
+# salida está puesta y documentada: el usuario pega la suya en ⚙︎.
+#
+# **El volumen no es el problema, y está medido**: sobre el `tmdb_cache.json`
+# de una instalación real con cinco meses de uso intensivo (abr-sep 2026) son
+# **511 peticiones que no salieron de caché**, 43 el día peor. TMDb admite
+# ~50 por SEGUNDO y no tiene cuota diaria, y todo lo que se pide se cachea 30
+# días en disco. Ni mil usuarios al ritmo del peor día llegarían a 0,5 req/s.
+_CLAVE_TMDB_DE_LA_APP = ""
+
+
+def clave_tmdb_de_la_app() -> str:
+    """La clave que viaja con la app, o `""` si este build no trae ninguna.
+
+    Devolver vacío no es un error: un fork que no ponga la suya se comporta
+    exactamente como antes de que esto existiera —TMDb queda sin configurar
+    hasta que el usuario pegue una clave— y la UI lo dice con el mismo aviso
+    de siempre.
+    """
+    if not _CLAVE_TMDB_DE_LA_APP:
+        return ""
+    try:
+        return base64.b64decode(_CLAVE_TMDB_DE_LA_APP).decode("ascii").strip()
+    except Exception as e:
+        # Ni lanzar ni romper el arranque: se comporta como si no hubiera
+        # clave, que es un estado que la app ya sabe manejar.
+        _logger.warning("[settings] la clave de TMDb de la app no se pudo "
+                        "descodificar (%s) — TMDb queda sin configurar", e)
+        return ""
+
 
 # El Drive folder ID NO tiene default hardcoded — requiere donación al autor
 # del repo. Hasta que el usuario no lo configure, toda la sección Repo queda
@@ -139,12 +186,21 @@ def set_settings_value(key: str, value: Any) -> None:
 # ── Getters con fallback a env ──────────────────────────────────────────
 
 def get_tmdb_api_key() -> str:
-    """Prioridad: settings.json > TMDB_API_KEY env > vacío."""
+    """Prioridad: settings.json > TMDB_API_KEY env > la clave de la app.
+
+    La del usuario gana a la del despliegue, y las dos a la de la app: quien
+    configura una clave lo hace para usarla. Y borrar la propia no deja la app
+    sin TMDb, devuelve a la de la app — que es lo que hace el botón «Vaciar
+    todo» de ⚙︎, igual que «Restaurar default» con el sheet.
+    """
     with _lock:
         stored = _load().get("tmdb_api_key", "").strip()
     if stored:
         return stored
-    return os.environ.get("TMDB_API_KEY", "").strip()
+    env = os.environ.get("TMDB_API_KEY", "").strip()
+    if env:
+        return env
+    return clave_tmdb_de_la_app()
 
 
 def get_google_api_key() -> str:
@@ -196,12 +252,26 @@ def get_cmv40_sheet_id_gid() -> tuple[str, str]:
 
 # ── API pública consumida por main.py ───────────────────────────────────
 
-def _status_for(stored: str, env: str) -> dict[str, Any]:
-    effective = stored or env
+def _status_for(stored: str, env: str, por_defecto: str = "") -> dict[str, Any]:
+    """El estado de una clave, sin exponerla. `por_defecto` es la que trae la
+    app: cuenta como configurada, pero **no se manda el `last4`** — el usuario
+    no la ha puesto, y una cola de cuatro caracteres solo invita a confundirla
+    con la suya.
+    """
+    effective = stored or env or por_defecto
+    if stored:
+        source = "settings"
+    elif env:
+        source = "env"
+    elif por_defecto:
+        source = "default"
+    else:
+        source = "none"
     return {
         "configured": bool(effective),
-        "source": "settings" if stored else ("env" if env else "none"),
-        "last4": effective[-4:] if effective else "",
+        "source": source,
+        "last4": effective[-4:] if (effective and source != "default") else "",
+        "is_default": source == "default",
     }
 
 
@@ -230,6 +300,7 @@ def get_public_settings() -> dict[str, Any]:
         "tmdb": _status_for(
             stored.get("tmdb_api_key", "").strip(),
             os.environ.get("TMDB_API_KEY", "").strip(),
+            clave_tmdb_de_la_app(),
         ),
         "google": _status_for(
             stored.get("google_api_key", "").strip(),

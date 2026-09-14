@@ -1173,7 +1173,7 @@ async function seriesTmdbSearch() {
   const data = await apiFetch(`/api/tv-search?${qs.toString()}`);
 
   if (!data || !data.tmdb_configured) {
-    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no configurado. Configura la API key en Ajustes para buscar series.</div>';
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no está disponible — no hay ninguna clave activa, así que no se pueden buscar series. Puedes poner la tuya en Configuración, o identificar la serie a mano abajo.</div>';
     return;
   }
   if (!data.results || data.results.length === 0) {

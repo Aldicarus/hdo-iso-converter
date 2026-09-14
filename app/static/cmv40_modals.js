@@ -1572,9 +1572,9 @@ const _CMV40_HELP_SECTIONS = {
     <table>
       <tr><th>Servicio</th><th>Para qué lo usa la app</th><th>Qué pasa si no lo configuras</th></tr>
       <tr>
-        <td><strong>TMDb</strong><br><span style="font-size:11px; color:var(--text-3)">(The Movie Database)</span></td>
-        <td>Traducción de títulos ES→EN, ficha extendida (póster, sinopsis, géneros, rating) en la cabecera de cada proyecto. Ayuda también a desambiguar cine no-ASCII (cine asiático).</td>
-        <td>Los proyectos se crean igual, pero sin ficha visual y con menor precisión en la búsqueda contra el repo/sheet para títulos con variantes de nombre.</td>
+        <td><strong>TMDb</strong><br><span style="font-size:11px; color:var(--text-3)">(The Movie Database)</span><br><span class="settings-tag-opcional">ya incluida</span></td>
+        <td>Traducción de títulos ES→EN, ficha extendida (póster, sinopsis, géneros, rating) en la cabecera de cada proyecto y mapeo de episodios al crear una serie. Ayuda también a desambiguar cine no-ASCII (cine asiático).</td>
+        <td><strong>Nada — la app trae su propia clave y esto funciona desde el primer arranque.</strong> Configurar la tuya es opcional; abajo está cuándo tiene sentido.</td>
       </tr>
       <tr>
         <td><strong>Google API</strong><br><span style="font-size:11px; color:var(--text-3)">(Drive v3)</span></td>
@@ -1584,13 +1584,24 @@ const _CMV40_HELP_SECTIONS = {
     </table>
 
     <div class="help-callout help-callout-info">
-      <strong>No necesitas tarjeta de crédito para ninguna.</strong> Ambas funcionan con cuentas personales gratuitas sin métodos de pago asociados. La app está diseñada para uso doméstico — las cuotas gratuitas del free tier de Google + el acceso TMDb gratuito cubren cualquier uso razonable sin pisar los límites.
+      <strong>De las dos, solo Google hay que configurarla.</strong> TMDb viene ya con la app; Google no puede venir incluida porque su cuota es por proyecto de Cloud y compartirla sí se agotaría. Ninguna de las dos necesita tarjeta de crédito: las dos funcionan con cuentas personales gratuitas, y las cuotas del free tier cubren de sobra el uso doméstico.
     </div>
 
-    <h2 id="k-tmdb"><span data-icono="claqueta"></span> TMDb — paso a paso</h2>
-    <p><strong>The Movie Database</strong> es una base de datos comunitaria de películas con API pública gratuita. No necesita pago ni aprobación comercial — cualquier cuenta personal puede solicitar una API key para uso privado.</p>
+    <h2 id="k-tmdb"><span data-icono="claqueta"></span> TMDb — ya viene puesta</h2>
+    <p><strong>The Movie Database</strong> es una base de datos comunitaria de películas con API pública gratuita. <strong>La app se distribuye con una clave propia, dada de alta para ella</strong>, así que la ficha de la película, el mapeo de episodios y la traducción ES→EN funcionan desde el primer arranque sin que tengas que darte de alta en ningún sitio. En <span data-icono="ajustes"></span> Configuración verás la sección de TMDb marcada como <em>clave de la app</em>.</p>
 
-    <h3>Conseguir la API key</h3>
+    <h3>¿Cuándo poner la tuya?</h3>
+    <p>En dos casos, y ninguno es «para no gastar»:</p>
+    <ul style="font-size:13px">
+      <li><strong>Si la clave de la app deja de funcionar.</strong> Es el motivo real. Una clave incluida en una aplicación pública puede acabar revocada, y el síntoma sería que las fichas dejan de aparecer y la búsqueda de series no devuelve nada. Para salir de dudas: abre <span data-icono="ajustes"></span> Configuración y pulsa <strong>Probar</strong> en TMDb <em>con el campo vacío</em> — con el campo vacío prueba la clave activa y te dice si sigue viva.</li>
+      <li><strong>Si prefieres que tus consultas vayan a tu cuenta.</strong> Preferencia legítima, aunque TMDb no publica nada de lo que consultas.</li>
+    </ul>
+
+    <div class="help-callout help-callout-info">
+      <strong>El consumo no es un motivo.</strong> Medido sobre una instalación real con cinco meses de uso intensivo: <strong>511 peticiones que no salieron de caché</strong> en total, y <strong>43</strong> el día más cargado. TMDb admite <strong>unas 50 por segundo</strong> y no tiene cuota diaria, y todo lo que la app pide se guarda en caché 30 días en disco. No hay forma realista de provocar un bloqueo usando la app, ni tú solo ni sumando a todos los usuarios.
+    </div>
+
+    <h3>Conseguir tu propia API key</h3>
     <ol style="font-size:13px">
       <li>Abre <a href="https://www.themoviedb.org/signup" target="_blank" rel="noreferrer">themoviedb.org/signup</a> y crea una cuenta (email + contraseña). Si ya tienes cuenta, entra en <a href="https://www.themoviedb.org/login" target="_blank" rel="noreferrer">themoviedb.org/login</a>.</li>
       <li>Ve a tu perfil → <strong>Settings</strong> (Ajustes) → <strong>API</strong> en el menú lateral izquierdo. Enlace directo: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org/settings/api</a>.</li>
@@ -1613,7 +1624,7 @@ const _CMV40_HELP_SECTIONS = {
     </ol>
 
     <h3>Cuota TMDb</h3>
-    <p>Sin límite explícito para uso personal. TMDb pide no hacer más de 50 peticiones por segundo (imposible alcanzarlo con uso normal). No hay cuota diaria.</p>
+    <p>Sin límite explícito para uso personal. TMDb pide no pasar de 50 peticiones por segundo —inalcanzable con uso normal— y no hay cuota diaria. Además la app cachea en disco cada respuesta durante 30 días, así que reabrir el mismo proyecto no vuelve a preguntar.</p>
 
     <h2 id="k-google"><span data-icono="candado"></span> Google API (Drive) — paso a paso</h2>
     <p>Google Cloud te da una API key gratuita con cuotas generosas. Es el mismo mecanismo que usan aplicaciones profesionales — el setup parece intimidante la primera vez, pero se hace en ~10 minutos.</p>
@@ -1664,7 +1675,7 @@ const _CMV40_HELP_SECTIONS = {
     <h2 id="k-configure"><span data-icono="portapapeles"></span> Pegarlas en la app</h2>
     <ol style="font-size:13px">
       <li>En la app, pulsa el icono <strong><span data-icono="ajustes"></span></strong> arriba a la derecha para abrir el modal de Configuración.</li>
-      <li>En <strong>"TMDb API key"</strong> pega la cadena corta (v3 auth) del paso TMDb. Pulsa <strong>"Probar"</strong>. Si todo va bien verás el visto verde y un título de prueba.</li>
+      <li><strong>TMDb puedes saltártelo</strong> — ya viene configurada. Si quieres usar la tuya, pega la cadena corta (v3 auth) del paso anterior y pulsa <strong>"Probar"</strong>; con el campo vacío ese mismo botón comprueba la clave de la app.</li>
       <li>En <strong>"Google API key"</strong> pega la cadena <code>AIzaSy...</code>. Pulsa <strong>"Probar"</strong>.</li>
       <li>En <strong>"Carpeta Drive DoviTools"</strong> pega la URL de la carpeta compartida por la comunidad (busca el enlace vigente en los hilos listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong> de este manual). Pulsa <strong>"Probar"</strong>.</li>
       <li>Pulsa <strong>Guardar</strong>. La configuración queda en el servidor; no hay que reintroducirla al reabrir el navegador.</li>
@@ -1694,6 +1705,11 @@ const _CMV40_HELP_SECTIONS = {
         <td>Busca la URL vigente en los hilos de AVSForum / MakeMKV / Discord DoviTools listados en la sección <strong><span data-icono="caja"></span> Repositorio DoviTools</strong>.</td>
       </tr>
       <tr>
+        <td>Las fichas de película desaparecen y la búsqueda de series no devuelve nada</td>
+        <td>La clave de TMDb que trae la app ha dejado de funcionar</td>
+        <td>Confírmalo pulsando <strong>"Probar"</strong> en TMDb <em>con el campo vacío</em>: prueba la clave activa. Si dice que ya no funciona, saca la tuya (es instantáneo, ver arriba) y pégala ahí.</td>
+      </tr>
+      <tr>
         <td>"Probar" en TMDb key devuelve <strong>401 Unauthorized</strong></td>
         <td>Has pegado el "Read Access Token v4" en lugar de la "API Key v3"</td>
         <td>Vuelve a themoviedb.org/settings/api y copia el campo <strong>"API Key (v3 auth)"</strong> — el corto, no el JWT largo.</td>
@@ -1711,11 +1727,13 @@ const _CMV40_HELP_SECTIONS = {
       <li><strong>Qué ve el navegador</strong>: nada. El servidor nunca envía los valores crudos al frontend — solo los últimos 4 caracteres como confirmación de que están configuradas.</li>
       <li><strong>Compartir el fichero</strong>: si haces backup del volumen <code>/config</code>, estás copiando tus keys. Trátalas como credenciales personales.</li>
       <li><strong>Rotación</strong>: si sospechas que una key se ha filtrado, genera una nueva en Google Cloud / TMDb, pégala en la app y borra la anterior desde la consola de origen.</li>
-      <li><strong>Variables de entorno</strong>: alternativa a configurar en la UI — puedes pasar <code>TMDB_API_KEY</code> y <code>GOOGLE_API_KEY</code> como env vars al contenedor. La UI tendrá prioridad si están ambas fuentes.</li>
+      <li><strong>Variables de entorno</strong>: alternativa a configurar en la UI — puedes pasar <code>TMDB_API_KEY</code> y <code>GOOGLE_API_KEY</code> como env vars al contenedor. El orden es: lo que pongas en la UI gana a la variable de entorno, y las dos ganan a la clave de TMDb que trae la app.</li>
+      <li><strong>La clave de TMDb de la app no es un secreto tuyo</strong>: va dentro de la aplicación, es la misma para todo el mundo y solo sirve para leer el catálogo público de TMDb. No está asociada a tu cuenta ni identifica tu instalación. Si pones la tuya, pasa a usarse la tuya y nada más.</li>
+      <li><strong>Volver a la clave de la app</strong>: borra el campo de TMDb y guarda, o pulsa <strong>Vaciar todo</strong>. Nunca te quedas sin TMDb por borrar tu clave.</li>
     </ul>
 
     <div class="help-callout help-callout-info">
-      <strong>Resumen:</strong> TMDb es casi instantáneo (cuenta + formulario de aprobación automática). Google es más laborioso porque requiere crear un proyecto en Cloud Console y habilitar la Drive API — ~10 minutos la primera vez. Con ambas configuradas la app alcanza su potencial completo: fichas con póster, sinopsis y géneros; acceso directo a cientos de bins pre-validados; búsqueda robusta en idiomas no latinos.
+      <strong>Resumen:</strong> TMDb no tienes que tocarlo — viene con la app, y sacar la tuya es casi instantáneo el día que quieras. Lo único que hay que configurar es Google, que requiere crear un proyecto en Cloud Console y habilitar la Drive API (~10 minutos la primera vez) y con lo que ganas el acceso directo a cientos de bins pre-validados del repo DoviTools.
     </div>
 
     <div class="help-sources">
@@ -1891,7 +1909,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   if (tmdbDetails) {
     html += renderTmdbCardHTML(tmdbDetails) || '';
   } else if (tmdb && !tmdb.tmdb_configured) {
-    html += `<div class="cmv40-lookup-warn"><span data-icono="aviso"></span> TMDb API key no configurada — la búsqueda usará solo el texto introducido. Añade la key en <a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> Configuración</a> para mejorar el matching ES→EN.</div>`;
+    html += `<div class="cmv40-lookup-warn"><span data-icono="aviso"></span> TMDb no está disponible — no hay ninguna clave activa, así que la búsqueda usará solo el texto introducido. Puedes poner la tuya en <a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> Configuración</a> para recuperar el matching ES→EN.</div>`;
   } else if (tmdb) {
     html += `<div class="cmv40-lookup-warn"><span data-icono="info"></span> TMDb no encontró la película con ese título/año. La consulta continúa con el texto crudo.</div>`;
   }

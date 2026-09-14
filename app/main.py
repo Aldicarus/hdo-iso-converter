@@ -454,10 +454,27 @@ async def update_settings(body: SettingsUpdate):
 
 @app.post("/api/settings/test-tmdb", summary="Valida una TMDb API key contra el endpoint oficial")
 async def test_tmdb_key(body: SettingsUpdate):
+    """Con el campo vacío prueba la clave ACTIVA, no falla por vacío.
+
+    Desde que la app trae su propia clave, «¿sigue viva?» es la pregunta
+    interesante de este botón —es el único síntoma que llevaría a alguien a
+    configurar la suya— y antes el campo vacío solo contestaba «API key
+    vacía», que no responde a nada.
+    """
+    from services.settings_store import get_tmdb_api_key
     from services.tmdb import test_api_key
-    key = body.tmdb_api_key or ""
+    propia = bool((body.tmdb_api_key or "").strip())
+    key = (body.tmdb_api_key or "").strip() or get_tmdb_api_key()
+    if not key:
+        return {"ok": False, "probada": "ninguna",
+                "message": "No hay ninguna clave que probar — pega una arriba"}
     ok, msg = await test_api_key(key)
-    return {"ok": ok, "message": msg}
+    if not propia:
+        # El mensaje tiene que decir QUÉ se ha probado: un «válida» a secas
+        # sobre un campo vacío se lee como que la clave escrita está bien.
+        msg = ("La clave de la app funciona" if ok else
+               f"La clave de la app ya no funciona ({msg}) — configura la tuya")
+    return {"ok": ok, "message": msg, "probada": "propia" if propia else "app"}
 
 
 @app.post("/api/settings/test-google",

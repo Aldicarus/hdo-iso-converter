@@ -1423,8 +1423,9 @@ async function buscarCandidatosDeFicha() {
   });
   if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar TMDb.</div>'; return; }
   if (!r.tmdb_configured) {
-    res.innerHTML = '<div class="cmv40-lookup-empty">Falta la API key de TMDb '
-                  + '(Configuración).</div>';
+    res.innerHTML = '<div class="cmv40-lookup-empty">TMDb no está disponible — '
+                  + 'no hay ninguna clave activa. Puedes poner la tuya en '
+                  + 'Configuración.</div>';
     return;
   }
   _fichaCandidatos = r.candidates || [];

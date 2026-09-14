@@ -6297,6 +6297,27 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: rgba(0, 122, 255, 0.15);
   color: var(--blue, #007aff);
 }
+/* Lo que viene puesto de fábrica y nadie ha tocado: la clave de TMDb de la
+   app y el sheet público de DoviTools. Neutro a propósito — funciona, pero no
+   es un logro del usuario, así que no compite con el verde de «configurada».
+   La clase la usaba ya el sheet y NO existía: caía al estilo base y se veía
+   como texto suelto, que es la misma trampa que una var() inexistente. */
+/* «opcional» junto al título de una sección de Configuración: dice de un
+   vistazo que esa sección no es un requisito para usar la app. */
+.settings-tag-opcional {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(120, 120, 128, 0.12);
+  color: var(--text-3);
+}
+.settings-status.default {
+  background: rgba(120, 120, 128, 0.12);
+  color: var(--text-2);
+}
 .settings-feedback {
   font-size: 11px;
   margin-top: 5px;

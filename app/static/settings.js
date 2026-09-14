@@ -312,11 +312,24 @@ function _renderSettingsSection(key, data) {
   if (!badge) return false;
   const st = data[key] || {};
   if (st.configured) {
-    const srcLabel = st.source === 'env' ? 'desde .env' : 'guardada';
-    const cls = st.source === 'env' ? 'env' : 'ok';
+    // `default` es la clave que trae la app: cuenta como configurada, pero no
+    // la ha puesto el usuario — de ahí que no lleve el visto (no hay nada que
+    // confirmar) ni la cola de 4 caracteres (el backend no la manda).
+    const srcLabel = st.source === 'env'     ? 'desde .env'
+                   : st.source === 'default' ? 'clave de la app'
+                   : 'personalizada';
+    const cls = st.source === 'env'     ? 'env'
+              : st.source === 'default' ? 'default'
+              : 'ok';
     badge.className = 'settings-status ' + cls;
-    badge.innerHTML = icono('check') + ` ${escHtml(srcLabel)}${st.last4 ? ' · …' + escHtml(st.last4) : ''}`;
-    if (inp) inp.placeholder = `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
+    const tail = st.last4 ? ' · …' + escHtml(st.last4) : '';
+    badge.innerHTML = (st.source === 'default' ? '' : icono('check') + ' ')
+                    + escHtml(srcLabel) + tail;
+    if (inp) {
+      inp.placeholder = st.source === 'default'
+        ? 'Opcional — pega la tuya solo si quieres usar tu propia clave'
+        : `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
+    }
     return st.source === 'settings';
   }
   badge.className = 'settings-status warn';
@@ -387,7 +400,11 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
   const btn = document.getElementById(`settings-${fieldKey}-test`);
   const value = (inp?.value || '').trim();
   if (!fb || !btn) return;
-  if (!value) {
+  // TMDb con el campo vacío prueba la clave ACTIVA —la de la app, si el
+  // usuario no ha puesto la suya—, que es la pregunta que trae aquí a nadie:
+  // «¿sigue viva?». Las otras tres necesitan un valor sí o sí: no hay
+  // ninguna por defecto que probar.
+  if (!value && key !== 'tmdb') {
     fb.textContent = key === 'drive-folder'
       ? 'Pega la URL del folder Drive para probar'
       : key === 'sheet'
@@ -400,7 +417,7 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
   fb.textContent = 'Probando…';
   fb.className = 'settings-feedback info';
   const body = {};
-  body[payloadKey] = value;
+  if (value) body[payloadKey] = value;
   const data = await apiFetch(endpoint, {
     method: 'POST', body: JSON.stringify(body),
   });
