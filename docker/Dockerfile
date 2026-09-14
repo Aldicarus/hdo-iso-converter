@@ -126,6 +126,18 @@ LABEL app.commit="${APP_COMMIT}"
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 LABEL org.opencontainers.image.revision="${APP_COMMIT}"
 
+# La clave de TMDb con la que la app funciona sin configurar nada. NO está en
+# el repositorio: la inyecta el workflow de GHCR desde un secreto, así que
+# quien mire el código en GitHub no encuentra nada que descodificar. Queda
+# visible en la imagen (`docker inspect`), y eso es inevitable — la app tiene
+# que poder usarla. Ver `services/settings_store.clave_tmdb_de_la_app`.
+#
+# Vacío por defecto a propósito: un build sin el arg produce una imagen sin
+# clave, y la app se comporta como antes de que esto existiera (TMDb sin
+# configurar hasta que el usuario ponga la suya en ⚙︎).
+ARG TMDB_APP_KEY=""
+ENV TMDB_APP_KEY=${TMDB_APP_KEY}
+
 # Fallback files: si APP_VERSION llega como 'dev' (build local sin args) el
 # backend lee /app/VERSION para mostrar la version derivada del git context.
 # Stage version-detector escribio estos ficheros leyendo .git del build ctx.

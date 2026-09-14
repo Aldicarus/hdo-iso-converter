@@ -92,7 +92,8 @@ Variables de `docker/.env`:
 | `TMP_PATH` | **sí** | — | Workdir temporal — SSD muy recomendado (rw) |
 | `CONFIG_PATH` | **sí** | — | Sesiones JSON + cola + `app_settings.json` (rw) |
 | `CMV40_RPU_PATH` | **sí** | — | RPUs CMv4.0 externos legacy (Tab 3, ro). Si no la usas, apúntala a un dir vacío — nunca a `/tmp` |
-| `TMDB_API_KEY` | no | *(la app trae la suya)* | **No hace falta configurarla.** Solo si quieres usar una propia sin pasar por la UI. Prioridad: UI (⚙︎ Configuración) > esta variable > la clave de la app |
+| `TMDB_API_KEY` | no | *(la imagen trae la clave de la app)* | **No hace falta configurarla.** Solo si quieres usar una propia sin pasar por la UI. Prioridad: UI (⚙︎ Configuración) > esta variable > la clave de la app |
+| `TMDB_APP_KEY` | no | — | Solo si **construyes desde fuente**. La imagen publicada ya lleva dentro la clave de la app; un build local sale sin ella. Es *build arg*, no variable de runtime: se hornea al construir |
 | `GOOGLE_API_KEY` | no | — | Fallback para el repo DoviTools en Drive. Se prefiere la UI |
 
 ## Volúmenes Docker

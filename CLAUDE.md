@@ -1505,21 +1505,41 @@ arranque**. No son un extra: son cómo se usa la app, y exigir un alta en TMDb
 antes del primer proyecto convertía un detalle en un trámite. Poner una propia
 sigue estando y gana, pero pasa a ser una decisión deliberada.
 
-`get_tmdb_api_key()` resuelve **settings.json > env > clave de la app**. Lo
+`get_tmdb_api_key()` resuelve **settings.json > `TMDB_API_KEY` > clave de la
+app** (`TMDB_APP_KEY`). Son dos variables distintas a propósito: la primera es
+la del usuario y la segunda la del build, y mezclarlas haría que ⚙︎ anunciara
+la clave de la app como «desde .env», o sea como algo que el usuario puso. Lo
 importante de ese orden es la cola: **borrar tu clave NO deja la app sin
 TMDb**, devuelve a la de la app — que es lo que hace «Vaciar todo» de ⚙︎, igual
 que «Restaurar default» con el sheet de DoviTools.
 
 Cinco decisiones que la definen:
 
-- **Va codificada en base64, y eso NO es cifrado.** Quien abra el fichero la
-  saca en un minuto, y no pretende otra cosa. Lo que evita es que la
-  encuentren los rastreadores que peinan GitHub buscando 32 hexadecimales al
-  lado de `api_key` — que es como se queman en la práctica las claves de los
-  repos públicos. El repo es público y el NAS **construye desde fuente**
-  (`compose up --build`), así que un secreto de GitHub inyectado como build
-  arg no llegaría al despliegue del propio autor: tiene que viajar en el
-  repositorio.
+- **La clave NO está en el repositorio**, que es público. Se hornea en la
+  imagen al construirla (`ARG TMDB_APP_KEY` en el Dockerfile ← secreto del
+  workflow de GHCR), y esa imagen es cómo se instala la app: el README
+  documenta `docker compose pull`, no compilar. Se evaluó meterla codificada
+  en el código y se descartó: base64 **no es cifrado** —la función que lo
+  deshace está tres líneas más abajo— así que solo paraba a los rastreadores
+  automáticos, y sacarla del repo para en seco también al humano que mire el
+  código. De paso, rotarla no deja rastro en el historial de git.
+  - **Lo que esto NO hace**: la imagen de GHCR es pública, así que quien la
+    baje y mire su entorno tiene la clave igual. Una credencial dentro de
+    software distribuido **no se puede esconder** —la app tiene que poder
+    usarla, luego puede obtenerla quien tenga la app— y lo único que lo
+    resolvería de verdad es un proxy propio, o sea montar un servicio y crear
+    un punto único de fallo. Lo que hace aceptable el canje es que la
+    consecuencia está acotada y la salida construida.
+  - **El precio lo paga quien construye desde fuente**, que es el NAS del
+    autor y cualquier fork: el build sale sin clave salvo que `TMDB_APP_KEY`
+    esté en el `.env` (el compose la pasa como build arg). Un build sin ella
+    es un estado válido y la app se comporta como antes.
+  - **Tres puntas que se pueden caer en silencio** —Dockerfile, compose,
+    workflow—: si una falla, la imagen se publica sin clave y no da ningún
+    error; los usuarios ven TMDb «no configurado». Las fija
+    `test_clave_tmdb_de_la_app::TestElCableadoDelBuild`, el workflow emite un
+    `::warning` si el secreto no está, y `TestLaClaveNoVuelveAlCodigo` falla
+    si aparece en el repo cualquier cadena con forma de clave (32 hex).
 - **El volumen no era el motivo de nada, y está medido.** Sobre el
   `tmdb_cache.json` de la instalación real (5 meses de uso intensivo,
   abr-sep 2026): **511 peticiones que no salieron de caché**, 43 el día peor.

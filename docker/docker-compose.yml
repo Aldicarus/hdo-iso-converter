@@ -27,6 +27,12 @@ services:
         # unknown) y la app aparece en "modo desarrollo".
         APP_VERSION: ${APP_VERSION:-}
         APP_COMMIT: ${APP_COMMIT:-}
+        # La clave de TMDb de la app. Quien usa la imagen publicada
+        # (`compose pull`) ya la trae dentro y no necesita esto. Solo hace
+        # falta si construyes desde fuente con `up -d --build` y quieres que
+        # TMDb funcione sin configurar nada: pon TMDB_APP_KEY en el .env.
+        # Sin ella el build sale sin clave, que es un estado válido.
+        TMDB_APP_KEY: ${TMDB_APP_KEY:-}
     image: ghcr.io/aldicarus/hdo-iso-converter:latest
     container_name: hdo-iso-converter
     hostname: hdo-iso-converter

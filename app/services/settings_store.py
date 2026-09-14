@@ -26,7 +26,6 @@ dejar sin cambios (omitiendo la clave).
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
@@ -51,44 +50,49 @@ DEFAULT_SHEET_URL = (
 #
 # La app se distribuye con una clave de TMDb dada de alta para ella. La ficha
 # de la película, el mapeo de episodios de una serie y la traducción ES→EN no
-# son un extra: son parte de cómo se usa la app, y pedir que cada usuario se
-# diera de alta en TMDb antes de poder crear su primer proyecto convertía un
-# detalle en un trámite. Configurar una clave propia sigue estando, pero pasa
-# a ser una decisión deliberada.
+# son un extra: son cómo se usa la app, y pedir que cada usuario se diera de
+# alta en TMDb antes de poder crear su primer proyecto convertía un detalle en
+# un trámite. Configurar una clave propia sigue estando, pero pasa a ser una
+# decisión deliberada.
 #
-# **Va codificada, y conviene ser honesto con lo que eso es**: no es cifrado
-# —quien abra el fichero la saca en un minuto— y no lo pretende. Lo que evita
-# es que la encuentren los rastreadores automáticos que peinan GitHub buscando
-# 32 hexadecimales al lado de la palabra `api_key`, que es como se queman en
-# la práctica las claves de los repos públicos. Si aun así la revocan, la
-# salida está puesta y documentada: el usuario pega la suya en ⚙︎.
+# **La clave NO está en el repositorio.** Se hornea en la imagen al construirla
+# (`ARG TMDB_APP_KEY` en el Dockerfile ← secreto del workflow de GHCR), que es
+# como se instala la app: `docker compose pull`. En el código no hay ninguna
+# constante que descodificar, y rotarla no deja rastro en el historial de git.
 #
-# **El volumen no es el problema, y está medido**: sobre el `tmdb_cache.json`
-# de una instalación real con cinco meses de uso intensivo (abr-sep 2026) son
-# **511 peticiones que no salieron de caché**, 43 el día peor. TMDb admite
-# ~50 por SEGUNDO y no tiene cuota diaria, y todo lo que se pide se cachea 30
-# días en disco. Ni mil usuarios al ritmo del peor día llegarían a 0,5 req/s.
-_CLAVE_TMDB_DE_LA_APP = ""
+# Lo que esto NO hace, y conviene tenerlo claro: la imagen de GHCR es pública,
+# así que quien la baje y mire su entorno tiene la clave igual. No la vuelve
+# difícil de obtener — la quita del sitio donde se mira, que es GitHub, y de
+# los rastreadores que peinan repos buscando 32 hexadecimales al lado de
+# `api_key`. Una credencial dentro de software distribuido no se puede
+# esconder: la app tiene que poder usarla, luego puede obtenerla cualquiera
+# que tenga la app. Lo que hace aceptable el canje es que la consecuencia está
+# acotada —es solo lectura de un catálogo público, no está ligada a ninguna
+# cuenta de usuario— y que la salida está construida: si la revocan, el
+# usuario pone la suya y el botón «Probar» con el campo vacío se lo diagnostica.
+#
+# **El volumen no era el motivo de nada, y está medido**: sobre el
+# `tmdb_cache.json` de una instalación real con cinco meses de uso intensivo
+# (abr-sep 2026) son **511 peticiones que no salieron de caché**, 43 el día
+# peor. TMDb admite ~50 por SEGUNDO y no tiene cuota diaria, y todo lo que se
+# pide se cachea 30 días en disco. Ni mil usuarios al ritmo del peor día
+# llegarían a 0,5 req/s.
+#
+# Es una variable PROPIA y no `TMDB_API_KEY` a propósito: esa última es la del
+# usuario, y mezclarlas haría que ⚙︎ Configuración anunciara la clave de la
+# app como «desde .env» — o sea, como algo que el usuario puso.
+ENV_CLAVE_TMDB_DE_LA_APP = "TMDB_APP_KEY"
 
 
 def clave_tmdb_de_la_app() -> str:
     """La clave que viaja con la app, o `""` si este build no trae ninguna.
 
-    Devolver vacío no es un error: un fork que no ponga la suya se comporta
-    exactamente como antes de que esto existiera —TMDb queda sin configurar
-    hasta que el usuario pegue una clave— y la UI lo dice con el mismo aviso
-    de siempre.
+    Devolver vacío no es un error: un fork que compile sin pasar el build arg
+    se comporta exactamente como antes de que esto existiera —TMDb queda sin
+    configurar hasta que el usuario pegue una clave— y la UI lo dice con el
+    mismo aviso de siempre.
     """
-    if not _CLAVE_TMDB_DE_LA_APP:
-        return ""
-    try:
-        return base64.b64decode(_CLAVE_TMDB_DE_LA_APP).decode("ascii").strip()
-    except Exception as e:
-        # Ni lanzar ni romper el arranque: se comporta como si no hubiera
-        # clave, que es un estado que la app ya sabe manejar.
-        _logger.warning("[settings] la clave de TMDb de la app no se pudo "
-                        "descodificar (%s) — TMDb queda sin configurar", e)
-        return ""
+    return os.environ.get(ENV_CLAVE_TMDB_DE_LA_APP, "").strip()
 
 
 # El Drive folder ID NO tiene default hardcoded — requiere donación al autor

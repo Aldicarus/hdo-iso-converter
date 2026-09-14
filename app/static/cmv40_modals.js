@@ -1728,7 +1728,7 @@ const _CMV40_HELP_SECTIONS = {
       <li><strong>Compartir el fichero</strong>: si haces backup del volumen <code>/config</code>, estás copiando tus keys. Trátalas como credenciales personales.</li>
       <li><strong>Rotación</strong>: si sospechas que una key se ha filtrado, genera una nueva en Google Cloud / TMDb, pégala en la app y borra la anterior desde la consola de origen.</li>
       <li><strong>Variables de entorno</strong>: alternativa a configurar en la UI — puedes pasar <code>TMDB_API_KEY</code> y <code>GOOGLE_API_KEY</code> como env vars al contenedor. El orden es: lo que pongas en la UI gana a la variable de entorno, y las dos ganan a la clave de TMDb que trae la app.</li>
-      <li><strong>La clave de TMDb de la app no es un secreto tuyo</strong>: va dentro de la aplicación, es la misma para todo el mundo y solo sirve para leer el catálogo público de TMDb. No está asociada a tu cuenta ni identifica tu instalación. Si pones la tuya, pasa a usarse la tuya y nada más.</li>
+      <li><strong>La clave de TMDb de la app no es un secreto tuyo</strong>: viaja dentro de la imagen publicada, es la misma para todo el mundo y solo sirve para leer el catálogo público de TMDb. No está asociada a tu cuenta ni identifica tu instalación, y nadie puede gastar dinero con ella. Si pones la tuya, pasa a usarse la tuya y nada más.</li>
       <li><strong>Volver a la clave de la app</strong>: borra el campo de TMDb y guarda, o pulsa <strong>Vaciar todo</strong>. Nunca te quedas sin TMDb por borrar tu clave.</li>
     </ul>
 

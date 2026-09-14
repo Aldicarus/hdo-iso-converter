@@ -105,11 +105,32 @@ jobs:
             manifest:org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
           # Bake version y commit en la imagen para que /api/version
           # reporte el tag real en vez de 'dev / unknown'.
+          # TMDB_APP_KEY es la clave con la que la app funciona out of the
+          # box. Vive SOLO aquí (secreto del repo), nunca en el código: quien
+          # mire el repositorio no encuentra nada, y rotarla es cambiar el
+          # secreto y volver a publicar, sin dejar rastro en el historial.
+          # Si el secreto faltara, la imagen sale sin clave y la app se
+          # comporta como antes — el paso siguiente lo avisa en el log.
           build-args: |
             APP_VERSION=${{ steps.rel.outputs.tag }}
             APP_COMMIT=${{ github.sha }}
+            TMDB_APP_KEY=${{ secrets.TMDB_APP_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # El chequeo va en el `run` y no en un `if:` a propósito: el contexto
+      # `secrets` no está garantizado en las condiciones de un step, y un
+      # aviso que no se evalúa es peor que ninguno. En `env:` sí lo está.
+      # Y NO se imprime la clave, solo si está vacía.
+      - name: Avisar si la imagen sale sin la clave de TMDb
+        env:
+          CLAVE_APP: ${{ secrets.TMDB_APP_KEY }}
+        run: |
+          if [ -z "$CLAVE_APP" ]; then
+            echo "::warning title=Imagen sin clave de TMDb::El secreto TMDB_APP_KEY no está configurado, así que esta imagen se publica SIN la clave con la que TMDb funciona out of the box. La app arranca igual, pero los usuarios verán TMDb como no configurado hasta que pongan la suya. Añádelo en Settings → Secrets and variables → Actions."
+          else
+            echo "Clave de TMDb horneada en la imagen (longitud ${#CLAVE_APP})."
+          fi
 
       - name: Update GHCR package description
         if: github.event_name == 'release'
