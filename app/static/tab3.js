@@ -4147,7 +4147,7 @@ function _cmv40GateBloque1(pid, s) {
     <div style="font-size:12px; line-height:1.7; color:var(--text-1)">
       <div><strong>${trust ? 'Trusted' : 'Sin trust automático'}</strong>
         ${tr('tab3.p1_workflow', {p1: escHtml(s.trust_override || 'auto')})} <code>${escHtml(wf)}</code></div>
-      <div style="color:var(--text-2)">${tr('tab3.se_omiten_p1', {p1: skipped.length ? escHtml(skipped.join(' · ')) : 'ninguna fase'})}</div>
+      <div style="color:var(--text-2)">${tr('tab3.se_omiten_p1', {p1: skipped.length ? escHtml(skipped.join(' · ')) : tr('tab3.ninguna_fase')})}</div>
       <div style="color:var(--text-2)">${escHtml(queHaraF)}</div>
     </div>
     ${ackHtml}`;
@@ -6142,8 +6142,9 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
   const sheetTxt = sheetSync.sheet_offset_text
     ? `<b>${escHtml(sheetSync.sheet_offset_text)}</b>`
     : `<b>${tr('tab3.sheetval_frames', {sheetval: sign(sheetVal)})}</b>`;
+  // El espacio va FUERA del `tr()`: dentro se lo come la normalización.
   const src = sheetSync.match_title
-    ? ` (fila «${escHtml(sheetSync.match_title)}»)` : '';
+    ? ' ' + tr('tab3.fila_p1', {p1: escHtml(sheetSync.match_title)}) : '';
   const det = sheetSync.detected_offset;
 
   if (sheetSync.corregido === true) {
@@ -6166,11 +6167,17 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
     </div>`;
   }
   if (sheetSync.corregido === false) {
+    // La ternaria fuera de la plantilla: una plantilla DENTRO de un `${…}`
+    // no se puede delimitar con un regex, así que el extractor no podía
+    // tocar este mensaje y se quedaba en castellano.
+    const detTxt = `<b>${tr('tab3.det_frames', {det: sign(det)})}</b>`;
+    const ahi = sheetVal
+      ? tr('tab3.sheettxt_ya_venia_corregido', {sheettxt: sheetTxt})
+      : tr('tab3.no_consta_ningun_desfase');
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <span><span data-i18n="tab3.se_detecta_un_desfase_de"></span> <b>${tr('tab3.det_frames', {det: sign(det)})}</b> que la hoja no
-        explica${src} (ahí ${sheetVal ? `${sheetTxt} ya venía corregido` : 'no consta ningún desfase'}).
-        Revisa el chart antes de inyectar.</span>
+      <span>${tr('tab3.se_detecta_un_desfase_que_la_hoja_no_explica',
+                 {det: detTxt, src: src, ahi: ahi})}</span>
     </div>`;
   }
   return `<div class="banner info" style="margin-top:8px">
@@ -6301,7 +6308,7 @@ function _renderCMv40SyncControls(project) {
   container.innerHTML = `
     ${zoomRowHtml}
 
-    <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">${tr('tab3.correccion_p1', {p1: hasSyncConfig ? 'adicional' : 'manual'})}</div>
+    <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">${tr(hasSyncConfig ? 'tab3.correccion_adicional' : 'tab3.correccion_manual')}</div>
     <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
       ${hasSyncConfig
         ? 'Estos valores se <b>sumarán</b> a la corrección ya aplicada. El Δ actual del gráfico indica cuánto falta por alinear.'

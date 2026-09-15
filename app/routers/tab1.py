@@ -1746,9 +1746,12 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     _titulo_serie = trabajos.nombre_de_trabajo(
         serie={"nombre": body.series_name, "anio": body.series_year}) \
         if body.series_name else ""
-    _que = (f"Análisis de {len(body.episodes)} episodio"
-            f"{'s' if len(body.episodes) != 1 else ''} · "
-            f"{_titulo_serie or 'la serie'}")
+    # La MISMA clave que el encolado de abajo: eran dos copias de la frase y
+    # solo una estaba extraída, así que esta salía en castellano siempre.
+    _que = tr('tab1.analisis_de_episodio',
+              episodes=len(body.episodes),
+              p2='s' if len(body.episodes) != 1 else '',
+              p3=_titulo_serie or tr('tab1.la_serie'))
     _inicio = datetime.now(timezone.utc)
     workload.registrar(_clave, workload.TAB_RIP, _que)
 
@@ -2226,7 +2229,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         tipo=queue_manager_mod.TIPO_SERIE,
         clave=_clave,
         sobre=spath,
-        que=(tr('tab1.analisis_de_episodio', episodes=len(body.episodes), p2='s' if len(body.episodes) != 1 else '', p3=_titulo_encolado or 'la serie')),
+        que=(tr('tab1.analisis_de_episodio', episodes=len(body.episodes), p2='s' if len(body.episodes) != 1 else '', p3=_titulo_encolado or tr('tab1.la_serie'))),
         titulo=_titulo_encolado,
         # El asistente ya trajo el póster de la serie para la cabecera de cada
         # episodio, así que aquí sale gratis.

@@ -46,7 +46,43 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 #   "frase exacta del golden": "por qué ya no existe tal cual"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
-EXCEPCIONES: dict[str, str] = {}
+EXCEPCIONES: dict[str, str] = {
+    # ── Los tres plurales por sufijo de una letra, partidos en dos claves.
+    #
+    # `{p2}` = 's'/'' y `{p3}` = 'n'/'' pluralizan en castellano por pura
+    # coincidencia ortográfica: el inglés no tiene ninguna palabra que se
+    # pluralice añadiendo una `n` («not foundn») y el catalán tampoco cuando
+    # el plural es irregular («dia» → «dies»). El castellano RENDERIZADO no
+    # cambia — sale «1 saltado (ya existía)» y «3 saltados (ya existían)»
+    # igual que antes—, lo que cambia es que son dos claves en vez de una con
+    # un hueco.
+    "⟦⟧ saltado ⟦⟧ (ya existía ⟦⟧ )":
+        "partida en `tab1.saltado_ya_existia_uno` / `_varios`",
+    "hace ⟦⟧ día ⟦⟧":
+        "partida en `tab1.hace_dia_uno` / `_varios`",
+    "⟦⟧ no existe ⟦⟧ — ejecuta Fase F primero (workflow ⟦⟧ )":
+        "partida en `cmv40_pipeline.no_existe_ejecuta_fase_f_primero_uno` / `_varios`",
+
+    # ── Un valor castellano que se colaba por el hueco de un parámetro.
+    #
+    # `Corrección {p1}` con `p1` ∈ {'adicional', 'manual'}: el adjetivo es un
+    # literal del JS, así que en inglés y en catalán saldría en castellano
+    # dentro de la frase. Son dos claves completas.
+    "Corrección ⟦⟧":
+        "partida en `tab3.correccion_adicional` / `tab3.correccion_manual`",
+
+    # ── El mensaje con una plantilla DENTRO de un `${…}`.
+    #
+    # El extractor no puede delimitar eso con un regex —se corta en el primer
+    # backtick anidado— así que este mensaje se quedó a medio extraer: un
+    # trozo con `data-i18n` y el resto en castellano, con la sintaxis de la
+    # ternaria incluida en lo que capturó el golden. Reescrito sacando la
+    # ternaria a un `const`, es UNA clave con tres parámetros.
+    "Se detecta un desfase de":
+        "absorbida en `tab3.se_detecta_un_desfase_que_la_hoja_no_explica`",
+    ": 'no consta ningún desfase'}). Revisa el chart antes de inyectar.":
+        "era la cola de la ternaria anidada; hoy es la misma clave de arriba",
+}
 
 
 def _catalogo_es() -> set[str]:

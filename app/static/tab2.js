@@ -1139,7 +1139,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
       </h5>
       <div class="dv-mc-grid">
         <div class="dv-mc-card">
-          <div class="dv-mc-card-title">Master display
+          <div class="dv-mc-card-title"><span data-i18n="tab2.master_display"></span>
             ${masterSource ? `<span class="dv-mc-card-src">· ${masterSource}</span>` : ''}
           </div>
           <div class="dv-mc-card-primary">${escHtml(masterPrimResolved)}</div>
@@ -1486,7 +1486,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         <div class="dv-cmv4-stats-row">
           <div class="dv-cmv4-stats-key">L2</div>
           <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString()}</strong> combos únicos
+            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString()}</strong> <span data-i18n="tab2.combos_unicos"></span>
             ${(dv.quality_l2_target_pqs?.length || 0) > 0
               ? `<span class="dv-cmv4-stats-sub">· ${dv.quality_l2_target_pqs.length} target_pqs</span>`
               : ''}

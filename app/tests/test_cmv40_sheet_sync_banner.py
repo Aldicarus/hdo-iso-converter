@@ -77,7 +77,13 @@ class TestElBannerDelSheet(unittest.TestCase):
         h = _render({**self.BASE, "detected_offset": 300, "corregido": False,
                      "parece_sin_corregir": False})
         self.assertIn("banner warning", h)
-        self.assertIn("no\n        explica", h.replace("\r", ""))
+        # El texto, no el sangrado del fuente: la frase era una plantilla
+        # partida en tres líneas y el `\n` de la indentación acabó en la
+        # aserción. Hoy es una sola clave del catálogo, así que ese salto ya
+        # no existe — y el usuario nunca lo vio.
+        self.assertIn("que la hoja no explica", h)
+        self.assertIn("Revisa el chart antes de inyectar", h)
+        self.assertIn("+300 frames", h)
 
     def test_sin_medida_propia_es_informativo(self):
         h = _render({**self.BASE, "detected_offset": None, "corregido": None,

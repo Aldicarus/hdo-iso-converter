@@ -56,8 +56,16 @@ idiomas. Funciona, pero depende de que alguien se dé cuenta.
 cualquier i18n profesional. Implica re-clavar esas claves y volver a traducir
 solo esas, no todo.
 
-**Cuántas son**: hay que medirlo (buscar claves cuyo valor empiece o acabe sin
-puntuación y cuyo hermano en el DOM sea otra clave).
+**Cuántas son (medido 2026-09-15)**: **41 bloques y 105 claves**, buscando las
+cuyo valor no puede ENCABEZAR una frase —empieza en minúscula o en signo de
+puntuación— y tienen otra clave a menos de 260 caracteres. Reparto: 20 en
+`index.html`, 11 en `tab3.js`, 6 en `tab2.js`, 3 en `cmv40_modals.js`, 1 en
+`settings.js`.
+
+De esos 41, **cuatro son falsos positivos**: los grupos de etiquetas en
+minúscula de las tarjetas de Tab 2 (`peak` · `avg` · `min`, las cabeceras de
+percentiles, los contadores de combos). Son rótulos sueltos que caen seguidos
+en el marcado, no una frase partida. Quedan **~30 frases** de verdad.
 
 ---
 

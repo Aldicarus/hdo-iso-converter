@@ -81,6 +81,7 @@ IGUAL_EN_INGLES = {
     "tab2.avg_avg_pq":       "nombre del campo del RPU entre paréntesis",
     "tab2.min_min_pq":       "nombre del campo del RPU entre paréntesis",
     "tab2.scene_cuts":       "nombre del campo del RPU",
+    "tab2.master_display":   "nombre del campo del RPU (L9), cabecera de la tarjeta;\n                             #    su pareja es `Container HEVC`",
     # Unidades y estándares: no se traducen en ninguna lengua.
     "tab2.nits":             "unidad de luminancia",
     "tab2.highlight_300n":   "clasificación con su umbral en nits",

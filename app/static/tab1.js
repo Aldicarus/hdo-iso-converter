@@ -312,9 +312,9 @@ function _renderSrcFb(filter) {
     if (rows.length === 0) {
       // Mensaje específico por filtro — "filtro iso/bdmv/m2ts" no es
       // legible en castellano. Cada tipo dice qué busca exactamente.
-      const filterDesc = filter === 'iso' ? 'ficheros .iso'
+      const filterDesc = filter === 'iso' ? tr('tab1.ficheros_iso')
         : filter === 'bdmv' ? tr('tab1.carpetas_con_estructura_bdmv')
-        : 'ficheros .m2ts';
+        : tr('tab1.ficheros_m2ts');
       listEl.innerHTML = `<div class="src-fb-empty">${tr('tab1.sin_filterdesc_en_esta_carpeta', {filterdesc: filterDesc})}</div>`;
       _attachSrcFbDelegation(filter);
       return;
@@ -1721,7 +1721,12 @@ async function seriesCreateSessions() {
   // count de creados aunque hubiera saltado o reemplazado N.
   const extras = [];
   if (replacedIds.length) extras.push(`${replacedIds.length} reemplazado${replacedIds.length === 1 ? '' : 's'}`);
-  if (skippedExisting.length) extras.push(tr('tab1.saltado_ya_existia', {p1: skippedExisting.length, p2: skippedExisting.length === 1 ? '' : 's', p3: skippedExisting.length === 1 ? '' : 'n'}));
+  // Dos claves, no un sufijo: `{p3}` = 'n'/'' pluraliza en castellano y en
+  // inglés no hay ninguna palabra que se pluralice con una `n`.
+  if (skippedExisting.length) extras.push(tr(
+    skippedExisting.length === 1 ? 'tab1.saltado_ya_existia_uno'
+                                 : 'tab1.saltado_ya_existia_varios',
+    {p1: skippedExisting.length}));
   const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
     const failWord = failed.length === 1 ? 'falló' : 'fallaron';
@@ -1986,7 +1991,10 @@ function formatRelativeDate(isoDate) {
   if (mins < 1)    return tr('tab1.ahora_mismo');
   if (mins < 60)   return `hace ${mins} min`;
   if (hours < 24)  return `hace ${hours} h`;
-  if (days < 7)    return tr('tab1.hace_dia', {days: days, p2: days !== 1 ? 's' : ''});
+  // El plural de «dia» en catalán es «dies», así que el sufijo `'s'`
+  // tampoco vale ahí.
+  if (days < 7)    return tr(days === 1 ? 'tab1.hace_dia_uno'
+                                        : 'tab1.hace_dia_varios', {days: days});
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 

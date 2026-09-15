@@ -668,7 +668,8 @@ async def _emit_heartbeat(log_callback, label: str, elapsed_s: float,
     mins, secs = int(elapsed_s) // 60, int(elapsed_s) % 60
     eta_txt = ""
     if eta_s is not None and eta_s > 0:
-        eta_txt = f" · quedan ~{int(eta_s) // 60}min {int(eta_s) % 60}s"
+        eta_txt = tr('cmv40_pipeline.quedan_mins_secs',
+                     mins=int(eta_s) // 60, secs=int(eta_s) % 60)
     await log_callback('  ' + tr('cmv40_pipeline.en_curso_min_s', label=label, mins=mins, secs=secs, eta_txt=eta_txt))
 
 
@@ -4356,8 +4357,16 @@ async def run_phase_g_remux(
         # antes de multiplexar.
         faltan = [n for n in remux.mux_inputs if not (wd / n).exists()]
         if faltan:
-            raise RuntimeError(
-                tr('cmv40_pipeline.no_existe_ejecuta_fase_f_primero', faltan=' o '.join(faltan), p2='n' if len(faltan) > 1 else '', workflow=workflow))
+            # Dos claves y no un sufijo: `{p2}` = 'n'/'' pluraliza en
+            # castellano y en inglés escribía «not foundn». Y el separador
+            # también se traduce — un « o » suelto dentro de una frase inglesa
+            # es lo mismo que el sufijo, pero por el hueco.
+            clave = ('cmv40_pipeline.no_existe_ejecuta_fase_f_primero_varios'
+                     if len(faltan) > 1
+                     else 'cmv40_pipeline.no_existe_ejecuta_fase_f_primero_uno')
+            raise RuntimeError(tr(
+                clave, faltan=f" {tr('comun.o')} ".join(faltan),
+                workflow=workflow))
 
         W_MUX, W_MKV = 38.0, 62.0
         est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)

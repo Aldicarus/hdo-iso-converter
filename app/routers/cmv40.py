@@ -2693,7 +2693,7 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     if session.running_phase:
         # Borrar el proyecto entero con una fase corriendo deja el subproceso
         # huérfano escribiendo en un workdir que ya no tiene dueño.
-        _cmv40_guard_not_running(session, "borrar el proyecto")
+        _cmv40_guard_not_running(session, tr('cmv40.borrar_el_proyecto'))
     if clean_artifacts and session.artifacts_dir:
         wd = Path(session.artifacts_dir)
         if wd.exists():
@@ -2762,7 +2762,7 @@ async def cmv40_cleanup(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
-    _cmv40_guard_not_running(session, "borrar los artefactos")
+    _cmv40_guard_not_running(session, tr('cmv40.borrar_los_artefactos'))
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None
     freed = 0
     if wd and wd.exists():
