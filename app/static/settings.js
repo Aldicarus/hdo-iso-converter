@@ -285,7 +285,7 @@ async function copyUpdateCommands() {
   if (!pre) return;
   const txt = pre.textContent || '';
   const ok = await _copyTextToClipboardWithFallback(txt);
-  showToast(ok ? 'Comandos copiados al portapapeles' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
+  showToast(ok ? tr('settings.comandos_copiados_al_portapapeles') : tr('tab1.no_se_pudo_copiar_al_portapapeles'), ok ? 'success' : 'error');
 }
 
 async function ignoreUpdate(version) {
@@ -295,7 +295,7 @@ async function ignoreUpdate(version) {
   });
   showToast(version
     ? icono('omitida') + ` Aviso de ${version} silenciado`
-    : 'Avisos de actualización reactivados', 'info');
+    : tr('settings.avisos_de_actualizacion_reactivados'), 'info');
   checkForUpdates(false);
 }
 
@@ -315,9 +315,9 @@ function _renderSettingsSection(key, data) {
     // `default` es la clave que trae la app: cuenta como configurada, pero no
     // la ha puesto el usuario — de ahí que no lleve el visto (no hay nada que
     // confirmar) ni la cola de 4 caracteres (el backend no la manda).
-    const srcLabel = st.source === 'env'     ? 'desde .env'
-                   : st.source === 'default' ? 'clave de la app'
-                   : 'personalizada';
+    const srcLabel = st.source === 'env'     ? tr('settings.desde_env')
+                   : st.source === 'default' ? tr('settings.clave_de_la_app')
+                   : tr('settings.personalizada');
     const cls = st.source === 'env'     ? 'env'
               : st.source === 'default' ? 'default'
               : 'ok';
@@ -327,17 +327,17 @@ function _renderSettingsSection(key, data) {
                     + escHtml(srcLabel) + tail;
     if (inp) {
       inp.placeholder = st.source === 'default'
-        ? 'Opcional — pega la tuya solo si quieres usar tu propia clave'
+        ? tr('ui.opcional_pega_la_tuya_solo_si')
         : `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
     }
     return st.source === 'settings';
   }
   badge.className = 'settings-status warn';
-  badge.textContent = 'No configurada';
+  badge.textContent = tr('cmv40_modals.no_configurada');
   if (inp) {
     inp.placeholder = key === 'tmdb'
-      ? 'Pega aquí tu Clave de la API…'
-      : 'Pega aquí tu Clave de la API de Google…';
+      ? tr('settings.pega_aqui_tu_clave_de_la_api')
+      : tr('ui.pega_aqui_tu_clave_de_la');
   }
   return false;
 }
@@ -350,9 +350,9 @@ function _renderSettingsDriveFolder(data) {
   if (st.configured) {
     // `default` es el repo que trae la app. Igual que con TMDb: cuenta como
     // configurado, pero sin visto verde — no lo ha puesto el usuario.
-    const srcLabel = st.source === 'env'     ? 'desde .env'
-                   : st.source === 'default' ? 'repo de la app'
-                   : 'personalizado';
+    const srcLabel = st.source === 'env'     ? tr('settings.desde_env')
+                   : st.source === 'default' ? tr('settings.repo_de_la_app')
+                   : tr('settings.personalizado');
     const cls = st.source === 'env'     ? 'env'
               : st.source === 'default' ? 'default'
               : 'ok';
@@ -362,13 +362,13 @@ function _renderSettingsDriveFolder(data) {
                     + escHtml(srcLabel) + escHtml(idTail);
     if (inp) {
       inp.placeholder = st.source === 'default'
-        ? 'Opcional — pega tu enlace si has donado y prefieres usar el tuyo'
-        : 'Ya configurado. Escribe una URL para reemplazar.';
+        ? tr('ui.opcional_pega_tu_enlace_si_has')
+        : tr('settings.ya_configurado_escribe_una_url');
     }
     return st.source === 'settings';
   }
   badge.className = 'settings-status warn';
-  badge.innerHTML = icono('aviso') + ' Sin URL — repo bloqueado';
+  badge.innerHTML = icono('aviso') + ' ' + tr('settings.sin_url_repo_bloqueado');
   if (inp) inp.placeholder = 'https://drive.google.com/drive/folders/…';
   return false;
 }
@@ -379,9 +379,9 @@ function _renderSettingsSheet(data) {
   const resetBtn = document.getElementById('settings-sheet-reset');
   if (!badge) return false;
   const st = data.sheet || {};
-  const srcLabel = st.source === 'env' ? 'desde .env'
-                 : st.source === 'settings' ? 'personalizado'
-                 : 'default público';
+  const srcLabel = st.source === 'env' ? tr('settings.desde_env')
+                 : st.source === 'settings' ? tr('settings.personalizado')
+                 : tr('settings.default_publico');
   const cls = st.source === 'settings' ? 'ok' : (st.source === 'env' ? 'env' : 'default');
   badge.className = 'settings-status ' + cls;
   const idTail = st.sheet_id_last6 ? ` · …${st.sheet_id_last6}·gid${st.gid || '0'}` : '';
@@ -436,10 +436,10 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
   // ninguna por defecto que probar.
   if (!value && key !== 'tmdb') {
     fb.textContent = key === 'drive-folder'
-      ? 'Pega la URL del folder Drive para probar'
+      ? tr('settings.pega_la_url_del_folder_drive')
       : key === 'sheet'
-      ? 'Pega la URL del sheet para probar'
-      : 'Introduce una Clave de la API para probar';
+      ? tr('settings.pega_la_url_del_sheet_para')
+      : tr('settings.introduce_una_clave_de_la');
     fb.className = 'settings-feedback info';
     return;
   }
@@ -474,8 +474,8 @@ function resetSheetUrlToDefault() {
     _settingsCache = data;
     _renderSettings(data);
     const fb = document.getElementById('settings-sheet-feedback');
-    if (fb) { fb.textContent = 'URL restaurada al default público'; fb.className = 'settings-feedback ok'; }
-    showToast('URL del sheet restaurada', 'success');
+    if (fb) { fb.textContent = tr('settings.url_restaurada_al_default_publico'); fb.className = 'settings-feedback ok'; }
+    showToast(tr('settings.url_del_sheet_restaurada'), 'success');
   });
 }
 
@@ -519,7 +519,7 @@ async function saveSettings() {
   if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = 'Guardada'; fbGoogle.className = 'settings-feedback ok'; } }
   if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = 'Guardada';  fbDrive.className = 'settings-feedback ok'; } }
   if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = 'Guardada'; fbSheet.className = 'settings-feedback ok'; }
-  showToast('Configuración guardada', 'success');
+  showToast(tr('settings.configuracion_guardada'), 'success');
 }
 
 async function clearAllKeys() {
@@ -535,7 +535,7 @@ async function clearAllKeys() {
   if (!data) return;
   _settingsCache = data;
   _renderSettings(data);
-  showToast('Claves y URLs borradas', 'info');
+  showToast(tr('settings.claves_y_urls_borradas'), 'info');
 }
 
 // ── Mantenimiento: scan + cleanup de huerfanos ──────────────────────
@@ -568,7 +568,7 @@ async function cleanupScanAndShow() {
 
   const data = await apiFetch('/api/cleanup/scan');
   btn.disabled = false;
-  btn.innerHTML = icono('lupa') + ' Escanear huérfanos';
+  btn.innerHTML = icono('lupa') + ' ' + tr('ui.escanear_huerfanos');
 
   if (!data) return;
   if (!data.items || !data.items.length) {
@@ -637,13 +637,13 @@ async function cleanupExecuteSelected() {
   const checked = Array.from(resultEl.querySelectorAll('.cleanup-cb:checked'));
   const paths = checked.map(cb => cb.dataset.path).filter(Boolean);
   if (!paths.length) {
-    showToast('No hay nada seleccionado', 'info');
+    showToast(tr('cmv40_modals.no_hay_nada_seleccionado'), 'info');
     return;
   }
   // Confirmacion via modal nativo del proyecto
   showConfirm(
     `¿Borrar ${paths.length} elemento(s)?`,
-    'Esta operación es irreversible. Asegúrate de no tener jobs activos sobre estos paths.',
+    tr('settings.esta_operacion_es_irreversible_asegurate'),
     async () => {
       const data = await apiFetch('/api/cleanup/execute', {
         method: 'POST',
@@ -654,9 +654,9 @@ async function cleanupExecuteSelected() {
       const koCount = (data.failed || []).length;
       const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
       if (koCount === 0) {
-        showToast(`Borrados ${okCount} elementos · liberados ${freed}`, 'success');
+        showToast(tr('settings.borrados_n_elementos_liberados', {n: okCount, freed: freed}), 'success');
       } else {
-        showToast(`Borrados ${okCount} · ${koCount} fallaron · liberados ${freed}`, 'warning');
+        showToast(tr('settings.borrados_n_fallaron_liberados', {n: okCount, ko: koCount, freed: freed}), 'warning');
       }
       // Re-escanear para refrescar el listado
       cleanupScanAndShow();

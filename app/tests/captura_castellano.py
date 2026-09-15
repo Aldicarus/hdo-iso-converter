@@ -50,6 +50,214 @@ def es_frase(s: str) -> bool:
     return bool(ACENTO.search(s)) or bool(FUNCION.search(s))
 
 
+
+def sin_comentarios(src: str) -> str:
+    """El fuente con los comentarios sustituidos por espacios.
+
+    Hay que quitarlos ANTES de emparejar los backticks de las plantillas, y no
+    después: un backtick dentro de un comentario —`` `default` es la clave que
+    trae la app ``— descuadra el emparejado, y a partir de ahí el regex toma
+    por plantilla lo que no lo es. Medido sobre el frontend: **278 backticks
+    viven en comentarios**, y en `settings.js` eso creaba tres regiones
+    fantasma de hasta 5.243 caracteres en las que el barrido de cadenas
+    sueltas estaba CIEGO — ahí sobrevivió toda la familia de badges y
+    placeholders castellanos de ⚙︎ Configuración.
+
+    Se sustituye por espacios en vez de recortar para que las posiciones no se
+    muevan: los llamadores las usan para dar el número de línea.
+
+    No vale un regex: un `//` dentro de `'https://…'` no es un comentario, así
+    que hay que saber si estamos dentro de una cadena. Es un autómata mínimo,
+    sin pretensión de parsear JavaScript.
+    """
+    fuera = []
+    i, n = 0, len(src)
+    comilla = None          # ' " ` cuando estamos dentro de una cadena
+    while i < n:
+        c = src[i]
+        if comilla:
+            fuera.append(c)
+            if c == "\\" and i + 1 < n:
+                fuera.append(src[i + 1]); i += 2; continue
+            if c == comilla:
+                comilla = None
+            i += 1
+            continue
+        if c in "\"'`":
+            comilla = c
+            fuera.append(c); i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            j = n if j == -1 else j
+            fuera.append(" " * (j - i)); i = j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            # Los saltos de línea se conservan: si no, los números de línea
+            # que el llamador calcula contando `\n` se irían al garete.
+            fuera.append("".join("\n" if ch == "\n" else " " for ch in src[i:j]))
+            i = j
+            continue
+        fuera.append(c); i += 1
+    return "".join(fuera)
+
+
+
+def regiones_de_plantilla(src: str) -> list[tuple[int, int, str]]:
+    """`(inicio, fin, contenido)` de cada plantilla `` `…` `` de nivel superior.
+
+    Un regex no sirve, y no por un detalle: **empareja los backticks planos**,
+    así que un backtick dentro de un comentario o dentro de un `${…}` anidado
+    desplaza todas las parejas siguientes y el resultado son regiones que no
+    existen. Medido en `settings.js`: tres regiones fantasma de hasta 5.243
+    caracteres, y dentro de ellas el barrido de cadenas sueltas estaba CIEGO —
+    ahí sobrevivió toda la familia de badges y placeholders castellanos de ⚙︎
+    Configuración, que se veían en una captura del modal en catalán.
+
+    Este autómata lleva la cuenta de `${` y de las comillas, así que una
+    plantilla anidada se queda DENTRO de la de fuera, que es lo que hace falta
+    para excluir la región entera.
+    """
+    fuera: list[tuple[int, int, str]] = []
+    i, n = 0, len(src)
+    # Un `/` abre una expresión regular solo donde cabe una expresión; si no,
+    # es una división. La heurística de siempre: se mira el último carácter
+    # significativo. Sin esto, `s.replace(/`([^`]+)`/g, …)` —que existe en
+    # `settings.js`— mete DOS backticks en juego y desplaza todas las parejas
+    # siguientes.
+    ANTES_DE_REGEX = set("(,=:[!&|?{};+-*%~^") | {"\n"}
+    while i < n:
+        c = src[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c in "'\"":
+            # una cadena normal: se salta entera, un backtick de dentro no abre
+            q, i = c, i + 1
+            while i < n and src[i] != q:
+                i += 2 if src[i] == "\\" else 1
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        if c == "/":
+            previo = src[:i].rstrip()
+            if not previo or previo[-1] in ANTES_DE_REGEX or previo.endswith("return"):
+                # expresión regular: se consume entera, con sus clases `[...]`
+                j, clase = i + 1, False
+                while j < n:
+                    d = src[j]
+                    if d == "\\":
+                        j += 2
+                        continue
+                    if d == "[":
+                        clase = True
+                    elif d == "]":
+                        clase = False
+                    elif d == "/" and not clase:
+                        break
+                    elif d == "\n":
+                        break      # una regex no cruza la línea: era división
+                    j += 1
+                i = j + 1
+                continue
+            i += 1
+            continue
+        if c != "`":
+            i += 1
+            continue
+        # aquí abre una plantilla: hasta su backtick de cierre, contando los
+        # `${…}` y las plantillas que vivan dentro
+        ini, i, prof = i, i + 1, 0
+        while i < n:
+            d = src[i]
+            if d == "\\":
+                i += 2
+                continue
+            if prof == 0 and d == "`":
+                break
+            if d == "$" and i + 1 < n and src[i + 1] == "{":
+                prof += 1
+                i += 2
+                continue
+            if prof and d == "}":
+                prof -= 1
+                i += 1
+                continue
+            if prof and d == "`":
+                # plantilla anidada: se consume entera
+                i += 1
+                while i < n and src[i] != "`":
+                    i += 2 if src[i] == "\\" else 1
+            i += 1
+        fuera.append((ini, min(i + 1, n), src[ini + 1:i]))
+        i += 1
+    return fuera
+
+
+
+
+def huecos_de(txt: str) -> list[tuple[int, int]]:
+    """Los tramos `${…}` de una plantilla, contando llaves."""
+    fuera, i, n = [], 0, len(txt)
+    while i < n:
+        if txt.startswith("${", i):
+            nivel, j = 0, i + 1
+            while j < n:
+                if txt[j] == "{":
+                    nivel += 1
+                elif txt[j] == "}":
+                    nivel -= 1
+                    if nivel == 0:
+                        break
+                j += 1
+            fuera.append((i, min(j + 1, n)))
+            i = j + 1
+            continue
+        i += 1
+    return fuera
+
+
+def sin_huecos(txt: str) -> str:
+    """El contenido de una plantilla con cada `${…}` cambiado por el centinela.
+
+    Se cuentan las LLAVES, no se usa un regex: `\\$\\{[^}]*\\}` se corta en la
+    primera llave, y dentro de un `${…}` hay ternarias con objetos y llamadas.
+    Con el corte a medias, lo que queda detrás —`')" data-tooltip="…`— entra en
+    el parser de HTML como si fuera texto y el golden acaba guardando frases
+    que no existen, mientras pierde las de verdad.
+
+    Es el MISMO error que emparejar backticks con un regex, y ya se había
+    resuelto en `extraer_literales._regiones_interpoladas`; aquí faltaba.
+    """
+    fuera, i, n = [], 0, len(txt)
+    while i < n:
+        if txt.startswith("${", i):
+            nivel, j = 0, i + 1
+            while j < n:
+                if txt[j] == "{":
+                    nivel += 1
+                elif txt[j] == "}":
+                    nivel -= 1
+                    if nivel == 0:
+                        break
+                j += 1
+            fuera.append(" ⟦⟧ ")
+            i = j + 1
+            continue
+        fuera.append(txt[i])
+        i += 1
+    return "".join(fuera)
+
+
 class _Texto(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -84,10 +292,50 @@ def frases_del_frontend() -> set[str]:
         # texto y sin ellas como si fuera una cadena de JavaScript— y la
         # segunda es un artefacto que no existe en ninguna parte.
         regiones = []
-        for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", src, re.S):
-            regiones.append((m.start(), m.end()))
-            limpio = re.sub(r"\$\{[^}]*\}", " ⟦⟧ ", m.group(1))
-            fuera.update(x for x in _del_html(limpio) if es_frase(x))
+
+        def cosechar(contenido: str) -> None:
+            """El HTML de una plantilla, y el de las que lleve dentro.
+
+            Enmascarar el `${…}` se lleva por delante las plantillas ANIDADAS,
+            y ahí vive texto de verdad:
+
+                ${a.cancelable ? `<button … data-tooltip="Detener este
+                trabajo">Cancelar</button>` : ''}
+
+            Trece frases del golden salían de sitios así —los tooltips de la
+            columna de trabajo, el de «Vuelve a esta fase», el de la posición
+            original de la pista—. Con el emparejado roto se encontraban por
+            accidente, como cadenas de JavaScript; ahora se buscan donde
+            están.
+            """
+            fuera.update(x for x in _del_html(sin_huecos(contenido))
+                         if es_frase(x))
+            for _, _, dentro in regiones_de_plantilla(contenido):
+                cosechar(dentro)
+            # Y las CADENAS que viven dentro de un `${…}`: los tres tooltips
+            # del auto-pipeline son `return 'Auto-ejecuta…'` dentro de una
+            # función que la plantilla invoca, así que enmascarar el hueco se
+            # los llevaba. Los valores de atributo que este barrido pilla de
+            # paso no son frases y los descarta `es_frase`.
+            # SOLO dentro de los `${…}`. Barrer la plantilla entera vuelve
+            # a meter el artefacto que el comentario de arriba describe: un
+            # `<em>"CMv4.0 arregla el grading"</em>` sale dos veces, con
+            # comillas como nodo de texto y sin ellas como si fuera una
+            # cadena de JavaScript, y la segunda no existe en ninguna parte.
+            for a, b in huecos_de(contenido):
+                for m in re.finditer(
+                        r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"",
+                        contenido[a:b]):
+                    t = " ".join((m.group(1) or m.group(2) or "").split())
+                    if "<" in t:
+                        fuera.update(x for x in _del_html(sin_huecos(t))
+                                     if es_frase(x))
+                    elif es_frase(t):
+                        fuera.add(t)
+
+        for ini, fin, contenido in regiones_de_plantilla(src):
+            regiones.append((ini, fin))
+            cosechar(contenido)
         # Los comentarios también se excluyen: un `/** … "cambios sin
         # guardar" … */` se colaba como si fuera una cadena de JavaScript, y
         # el golden acababa exigiendo que sobreviviera una frase que solo
@@ -98,7 +346,14 @@ def frases_del_frontend() -> set[str]:
             if any(a <= m.start() < b for a, b in regiones + comentarios):
                 continue
             s = " ".join((m.group(1) or m.group(2) or "").split())
-            if es_frase(s):
+            # HTML es HTML aunque vaya entre comillas normales. Cinco frases
+            # del golden viven en cadenas así —el vacío del panel de
+            # Limpieza, el aviso de «Reciente o potencialmente activo», los
+            # tres tooltips del auto-pipeline— y `es_frase` las descarta por
+            # llevar `<`. Se parsean igual que una plantilla.
+            if "<" in s:
+                fuera.update(x for x in _del_html(sin_huecos(s)) if es_frase(x))
+            elif es_frase(s):
                 fuera.add(s)
     return fuera
 

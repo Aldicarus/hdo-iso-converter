@@ -83,8 +83,13 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
         sueltas = []
         for r in rutas():
             src = Path(r).read_text(encoding="utf-8")
-            plantillas = [(m.start(), m.end())
-                          for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", src, re.S)]
+            # Los backticks se emparejan sobre el fuente SIN comentarios: uno
+            # dentro de un comentario descuadra el emparejado y a partir de
+            # ahí se toma por plantilla lo que no lo es. En `settings.js` eso
+            # dejaba tres regiones ciegas de hasta 5.243 caracteres, y ahí
+            # sobrevivió toda la familia de badges y placeholders castellanos
+            # de ⚙︎ Configuración.
+            plantillas = [(a, b) for a, b, _ in captura.regiones_de_plantilla(src)]
             lineas = src.splitlines(keepends=True)
             base = [0]
             for l in lineas:
@@ -93,7 +98,15 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
                 if any(a <= m.start() < b for a, b in plantillas):
                     continue
                 s = " ".join((m.group(1) or m.group(2) or "").split())
-                if not captura.es_frase(s) or s in self.cat:
+                if not captura.es_frase(s):
+                    continue
+                # Estar en el catálogo NO es pasar por `tr()`. El guard daba
+                # por buena la cadena si su texto coincidía con el valor de
+                # alguna clave, y eso dejó pasar los badges y placeholders de
+                # ⚙︎ Configuración: la frase estaba en el catálogo —extraída
+                # del marcado— y el JS seguía escribiendo el literal. Lo que
+                # se exime es la CLAVE que se le pasa a `tr(`, no el texto.
+                if src[max(0, m.start() - 6):m.start()].endswith("tr("):
                     continue
                 import bisect
                 i = bisect.bisect_right(base, m.start()) - 1
@@ -252,8 +265,7 @@ class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
             base = [0]
             for l in lineas:
                 base.append(base[-1] + len(l))
-            trozos = [(m.start(), m.group(1)) for m in
-                      re.finditer(r"`((?:[^`\\]|\\.)*)`", src, re.S)]
+            trozos = [(a, cont) for a, _, cont in captura.regiones_de_plantilla(src)]
             trozos += [(m.start(), m.group(1) or m.group(2) or "") for m in
                        re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src)]
             for pos, t in trozos:

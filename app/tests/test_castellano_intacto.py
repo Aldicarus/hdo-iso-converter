@@ -80,9 +80,33 @@ EXCEPCIONES: dict[str, str] = {
     # ternaria a un `const`, es UNA clave con tres parámetros.
     "Se detecta un desfase de":
         "absorbida en `tab3.se_detecta_un_desfase_que_la_hoja_no_explica`",
-    ": 'no consta ningún desfase'}). Revisa el chart antes de inyectar.":
+    "que la hoja no explica ⟦⟧ (ahí ⟦⟧ ). Revisa el chart antes de inyectar.":
         "era la cola de la ternaria anidada; hoy es la misma clave de arriba",
+
+    # ── El otro mensaje con plantilla dentro de plantilla.
+    #
+    # `<strong>{n}</strong> combos únicos ${… ? `· {n} target_pqs` : ''}` se
+    # quedó a medio extraer por lo mismo; hoy el rótulo es un `data-i18n` y
+    # el contador va delante, así que la frase ya no lleva el hueco detrás.
+    "combos únicos ⟦⟧":
+        "el rótulo pasa a `tab2.combos_unicos`; el hueco iba en la plantilla "
+        "anidada que se reescribió",
 }
+
+
+class TestLaListaDeExcepcionesNoSeQuedaVieja(unittest.TestCase):
+    """Una excepción que ya no corresponde a ninguna frase del golden parece
+    cobertura y no cubre nada — y encima documenta un cambio que quizá se
+    revirtió. Pasó al reconstruir el golden: la forma que la entrada citaba
+    era un ARTEFACTO de la captura vieja, y al arreglarla se quedó huérfana."""
+
+    def test_cada_entrada_corresponde_a_una_frase_del_golden(self):
+        golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+        todas = set(golden["frontend"]) | set(golden["backend"])
+        fantasma = sorted(k for k in EXCEPCIONES if k not in todas)
+        self.assertEqual(fantasma, [], (
+            "\nestas entradas de EXCEPCIONES ya no citan ninguna frase del "
+            "golden:\n  · " + "\n  · ".join(x[:70] for x in fantasma)))
 
 
 def _catalogo_es() -> set[str]:

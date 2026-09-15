@@ -31,7 +31,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 NODE = shutil.which("node")
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import js_completo, motor_i18n, pintar_en  # noqa: E402
 
 JS = js_completo()
 
@@ -82,7 +82,12 @@ console.log(JSON.stringify({
 class RenderCase(unittest.TestCase):
 
     def render(self, key: str, estado: dict) -> dict:
+        # El motor PRIMERO: `_renderSettingsSection` escribe los badges y los
+        # placeholders con `tr()` desde que se extrajeron —salían en
+        # castellano con la app en otro idioma— y sin él el arnés muere con
+        # «tr is not defined».
         script = "\n".join([
+            motor_i18n(),
             ENTORNO,
             _extraer_funcion("escHtml"),
             _extraer_funcion("_renderSettingsSection"),
@@ -93,7 +98,7 @@ class RenderCase(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        return json.loads(proc.stdout)
+        return pintar_en(json.loads(proc.stdout))
 
 
 class TestLaClaveDeLaApp(RenderCase):
@@ -166,6 +171,7 @@ class TestElBadgeDelRepoDoviTools(unittest.TestCase):
 
     def render(self, estado: dict) -> dict:
         script = "\n".join([
+            motor_i18n(),
             ENTORNO.replace("settings-${entrada.key}", "settings-drive-folder"),
             _extraer_funcion("escHtml"),
             _extraer_funcion("_renderSettingsDriveFolder"),
@@ -183,7 +189,7 @@ console.log(JSON.stringify({
         proc = subprocess.run([NODE, "-e", script, json.dumps(estado)],
                               capture_output=True, text=True, timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        return json.loads(proc.stdout)
+        return pintar_en(json.loads(proc.stdout))
 
     def test_el_de_la_app_se_anuncia_y_no_enciende_vaciar_todo(self):
         r = self.render({"configured": True, "source": "default", "last4": "",

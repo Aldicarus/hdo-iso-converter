@@ -2385,7 +2385,7 @@ function _renderMkvTracks(project = mkvProject) {
     const tooltip = [
       `Codec: ${codecRaw || 'PGS'}`,
       tr('comun.idioma_p1_p2', {p1: t.language || '—', p2: langName}),
-      `Tipo: ${forcedLabel}${forcedSource ? ` (${forcedSource})` : ''}`,
+      tr('comun.tipo_p1', {p1: forcedLabel + (forcedSource ? ` (${forcedSource})` : '')}),
       t.pixel_dimensions ? tr('tab2.resolucion_bitmap', {pixel_dimensions: t.pixel_dimensions}) : null,
       packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
