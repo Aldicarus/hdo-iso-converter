@@ -39,7 +39,8 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from api_harness import ApiTestCase  # noqa: E402
-from frontend_sources import html, js_completo  # noqa: E402
+from frontend_sources import (html, js_completo, motor_i18n,  # noqa: E402
+                              pintar_en, stub_catalogo_es)
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -65,11 +66,17 @@ def _pf_helpers() -> str:
 
 
 def _node(guion: str) -> dict:
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+    """El guion con el MOTOR de traducción delante, y el texto ya resuelto.
+
+    El frontend llama a `tr('clave')` para todo lo que se lee, así que un
+    arnés sin el motor muere con «tr is not defined» — y con el motor, las
+    aserciones siguen viendo castellano, que es lo que ya esperaban.
+    """
+    r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))
 
 
 @unittest.skipIf(NODE is None, "node no está instalado")
@@ -1009,7 +1016,7 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
 })();
 </script>
 """
-        pagina = html().replace("</head>", sonda + "</head>")
+        pagina = html().replace("</head>", stub_catalogo_es() + sonda + "</head>")
         pagina = pagina.replace("</body>", cuerpo + "</body>")
         pagina = (pagina.replace('src="/static/', 'src="')
                         .replace('href="/static/', 'href="'))

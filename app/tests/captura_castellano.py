@@ -88,8 +88,14 @@ def frases_del_frontend() -> set[str]:
             regiones.append((m.start(), m.end()))
             limpio = re.sub(r"\$\{[^}]*\}", " ⟦⟧ ", m.group(1))
             fuera.update(x for x in _del_html(limpio) if es_frase(x))
+        # Los comentarios también se excluyen: un `/** … "cambios sin
+        # guardar" … */` se colaba como si fuera una cadena de JavaScript, y
+        # el golden acababa exigiendo que sobreviviera una frase que solo
+        # existía dentro de un comentario.
+        comentarios = [(c.start(), c.end()) for c in
+                       re.finditer(r"/\*.*?\*/|//[^\n]*", src, re.S)]
         for m in re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src):
-            if any(a <= m.start() < b for a, b in regiones):
+            if any(a <= m.start() < b for a, b in regiones + comentarios):
                 continue
             s = " ".join((m.group(1) or m.group(2) or "").split())
             if es_frase(s):
@@ -125,6 +131,11 @@ def frases_del_backend() -> set[str]:
     fuera: set[str] = set()
     for f in sorted(APP_DIR.rglob("*.py")):
         if "tests" in f.parts or "__pycache__" in str(f):
+            continue
+        # El propio motor de traducción no es texto de usuario: su único
+        # literal es un `ValueError` que se captura ahí dentro para poder caer
+        # al castellano cuando un catálogo está roto.
+        if f.name == "i18n.py":
             continue
         try:
             arbol = ast.parse(f.read_text(encoding="utf-8"))

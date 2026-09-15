@@ -243,7 +243,7 @@ function _workbarActivoHTML(a) {
   const barra = a.pct_medido
     ? `<div class="workbar-barra"><div class="workbar-barra-fill" style="width:${a.pct}%"></div></div>`
     : `<div class="workbar-barra indeterminada"><div class="workbar-barra-fill"></div></div>`;
-  const izq = a.pct_medido ? `${a.pct} %` : 'Progreso no medible';
+  const izq = a.pct_medido ? `${a.pct} %` : tr('workbar.progreso_no_medible');
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
@@ -266,7 +266,7 @@ function _workbarActivoHTML(a) {
       <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();abrirDetalleDeTrabajo()" data-i18n-tip="workbar.ver_el_detalle_y_el_registro"><span data-i18n="workbar.detalle"></span></button>
       ${a.cancelable ? `<button class="btn btn-ghost btn-xs"
         onclick="event.stopPropagation();cancelarTrabajoActivo()"
-        data-tooltip="Detener este trabajo">Cancelar</button>` : ''}`,
+        data-tooltip=tr('workbar.detener_este_trabajo')>Cancelar</button>` : ''}`,
   });
 }
 
@@ -283,8 +283,8 @@ let _workbarSeleccion = null;
 
 // Cómo acabó, dicho para el usuario.
 const _CMV40_FIN = {
-  done: 'Terminado', cancelled: 'Cancelado', error: 'Terminado con error',
-  esperando: 'Requiere una decisión',
+  done: 'Terminado', cancelled: 'Cancelado', error: tr('workbar.terminado_con_error'),
+  esperando: tr('workbar.requiere_una_decision'),
 };
 
 function _workbarRefReciente(r) {
@@ -311,10 +311,10 @@ function seleccionarTrabajo(ref) {
  */
 function abrirDetalleDeReciente(ref) {
   const r = _workbarRecientePor(ref);
-  if (!r) { showToast('Ese trabajo ya no está en la lista', 'info'); return; }
+  if (!r) { showToast(tr('workbar.ese_trabajo_ya_no_esta_en'), 'info'); return; }
   const detalle = _DETALLE_POR_TIPO[r.tipo] || r.tipo;
   if (!_workbarDetalles[detalle]) {
-    showToast('Este trabajo no conserva ningún detalle', 'info');
+    showToast(tr('workbar.este_trabajo_no_conserva_ningun_detalle'), 'info');
     return;
   }
   _trabajoModalAbrir({
@@ -337,18 +337,18 @@ function borrarReciente(ref) {
   const r = _workbarRecientePor(ref);
   if (!r) return;
   showConfirm(
-    '¿Quitar del historial?',
-    `Se borra la línea de «${r.que}». El proyecto y el MKV no se tocan, y `
-    + 'el historial del propio proyecto se conserva.',
+    tr('workbar.quitar_del_historial'),
+    tr('workbar.se_borra_la_linea_de_el', {que: r.que})
+    + ' ' + tr('workbar.el_historial_del_propio_proyecto_se'),
     async () => {
       const q = `id=${encodeURIComponent(r.id || '')}`
               + `&inicio=${encodeURIComponent(r.inicio || '')}`;
       const ok = await apiFetch(`/api/historial?${q}`, { method: 'DELETE' });
-      if (ok) showToast('Quitado del historial', 'info');
+      if (ok) showToast(tr('workbar.quitado_del_historial'), 'info');
       _workbarSeleccion = null;
       _workbarCargarHistorial();
     },
-    'Sí, quitarla');
+    tr('workbar.si_quitarla'));
 }
 
 function _workbarListaHTML(titulo, items, render, clase = '', pie = '') {
@@ -397,8 +397,8 @@ function _workbarRender(st) {
   if (btn) {
     btn.classList.toggle('con-trabajo', total > 0);
     btn.dataset.tooltip = total
-      ? `${total} trabajo${total === 1 ? '' : 's'} en curso — abrir la columna`
-      : 'Mostrar u ocultar la columna de trabajo';
+      ? tr('workbar.trabajo_en_curso_abrir_la_columna', {total: total, p2: total === 1 ? '' : 's'})
+      : tr('ui.mostrar_u_ocultar_la_columna_de');
   }
 
   const enPantalla = (activo ? 1 : 0) + cola.length + paralelo.length;
@@ -418,7 +418,7 @@ function _workbarRender(st) {
     // Envuelta en su sección como las otras tres: eso le da el título «En
     // curso» y los 14 px de aire a los lados. Sin el envoltorio la tarjeta
     // caía pegada al borde de la ventana y al de la columna.
-    _workbarListaHTML('En curso', activo ? [activo] : [], _workbarActivoHTML)
+    _workbarListaHTML(tr('workbar.en_curso'), activo ? [activo] : [], _workbarActivoHTML)
     // Lo interactivo no tiene fases ni barra: corre en paralelo porque el
     // usuario está delante. Se lista para que se entienda por qué el NAS va
     // cargado, sin darle la prominencia del trabajo diferido.
@@ -426,7 +426,7 @@ function _workbarRender(st) {
     // a lo que pueda estar ralentizando. Sola no aporta —el usuario tiene su
     // modal delante— y encendería la columna por abrir un MKV. Por eso
     // tampoco entra en el contador de la tira plegada.
-    + _workbarListaHTML('En segundo plano', paralelo, t => _workbarTarjeta(t, {
+    + _workbarListaHTML(tr('workbar.en_segundo_plano'), paralelo, t => _workbarTarjeta(t, {
         ref: `par:${t.id}`,
         sub: _workbarDescripcion(t),
         estado: iconoDeEstado('corriendo', 'icono-chip-sm'),
@@ -434,10 +434,10 @@ function _workbarRender(st) {
         acciones: (t.detalle || t.cancelable) ? `
           ${t.detalle ? `<button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();abrirDetalleDeTrabajo('${escHtml(t.id)}')"
-            data-tooltip="Ver el detalle de este trabajo">Detalle</button>` : ''}
+            data-tooltip=tr('workbar.ver_el_detalle_de_este_trabajo')>Detalle</button>` : ''}
           ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
-            data-tooltip="Detener este trabajo">Cancelar</button>` : ''}` : '',
+            data-tooltip=tr('workbar.detener_este_trabajo')>Cancelar</button>` : ''}` : '',
       }), '', pieConsultas)
     + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
         ref: `cola:${j.id}`,
@@ -510,7 +510,7 @@ function _workbarHace(iso) {
   const d = iso ? new Date(iso) : null;
   if (!d || isNaN(d)) return '';
   const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
-  if (s < 90) return 'hace un momento';
+  if (s < 90) return tr('workbar.hace_un_momento');
   return `hace ${_workbarTiempo(s)}`;
 }
 
@@ -819,12 +819,12 @@ function abrirDetalleDeTrabajo(ref) {
     // Sin encontrarlo NO se abre otro: enseñar el trabajo de al lado es peor
     // que no enseñar ninguno.
     if (!a) {
-      showToast('Ese trabajo ya no está en ejecución', 'info');
+      showToast(tr('workbar.ese_trabajo_ya_no_esta_en_2'), 'info');
       return;
     }
   }
   if (!a) {
-    showToast('No hay ningún trabajo en ejecución', 'info');
+    showToast(tr('workbar.no_hay_ningun_trabajo_en_ejecucion'), 'info');
     return;
   }
   // Una entrada de la cola no trae los campos de progreso: se completan con
@@ -833,10 +833,10 @@ function abrirDetalleDeTrabajo(ref) {
     ...a, pct: null, pct_medido: false, segundos: 0, eta_s: null,
     fase_n: 0, fases_total: 0, cancelable: true,
     detalle: _DETALLE_POR_TIPO[a.tipo] || a.tipo,
-    paso: a.posicion ? `Esperando turno · ${a.posicion}º de la cola` : '',
+    paso: a.posicion ? tr('workbar.esperando_turno_o_de_la_cola', {posicion: a.posicion}) : '',
   };
   if (!_workbarDetalles[trabajo.detalle]) {
-    showToast('Este trabajo no tiene una vista de detalle', 'info');
+    showToast(tr('workbar.este_trabajo_no_tiene_una_vista'), 'info');
     return;
   }
   _trabajoModalAbrir(trabajo);
@@ -865,7 +865,7 @@ const _DETALLE_POR_TIPO = {
 function cancelarTrabajoInteractivo(ref) {
   const t = (workbarEstado.interactivo || [])
     .find(x => (x.sobre || x.id) === ref);
-  if (!t) { showToast('Ese trabajo ya no está en ejecución', 'info'); return; }
+  if (!t) { showToast(tr('workbar.ese_trabajo_ya_no_esta_en_2'), 'info'); return; }
   cancelarTrabajoActivo(t);
 }
 
@@ -877,7 +877,7 @@ function cancelarTrabajoActivo(trabajo) {
   // se veía como «no me deja cancelar».
   const a = trabajo || _trabajoModalUltimo || workbarEstado.activo;
   if (!a) {
-    showToast('No hay ningún trabajo que cancelar', 'info');
+    showToast(tr('workbar.no_hay_ningun_trabajo_que_cancelar'), 'info');
     return;
   }
   // El análisis extendido NO se cancela con un POST a pelo: su función manda
@@ -899,12 +899,12 @@ function cancelarTrabajoActivo(trabajo) {
   };
   const accion = acciones[a.tab];
   if (!accion) {
-    showToast(`No hay acción de cancelación para un trabajo de «${a.tab || '?'}»`, 'error');
+    showToast(tr('workbar.no_hay_accion_de_cancelacion_para', {p1: a.tab || '?'}), 'error');
     return;
   }
   showConfirm(
-    '¿Detener el trabajo?',
-    `Se detendrá «${a.que}». Lo que ya esté hecho se conserva.`,
+    tr('workbar.detener_el_trabajo'),
+    tr('workbar.se_detendra_lo_que_ya_este', {que: a.que}),
     async () => {
       await accion();
       // El overlay desaparecía al llegar la fase a terminal; cancelar es
@@ -913,7 +913,7 @@ function cancelarTrabajoActivo(trabajo) {
       cerrarModalDeTrabajo();
       refrescarWorkbar();
     },
-    'Sí, detenerlo',
+    tr('workbar.si_detenerlo'),
   );
 }
 
@@ -1026,8 +1026,8 @@ function timelineDeTrabajo(pasos, a, titulo) {
                  : (!term && a.fase_n === n) ? 'running'
                  : 'pending';
     const nota = paso.nota || (estado === 'done' ? 'completado'
-                             : estado === 'running' ? 'en curso…'
-                             : term ? 'no llegó a ejecutarse' : '');
+                             : estado === 'running' ? tr('workbar.en_curso_2')
+                             : term ? tr('workbar.no_llego_a_ejecutarse') : '');
     const icono = {
       done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
       running: '<span class="cmv40-tl-status-icon running"></span>',
@@ -1187,11 +1187,11 @@ function _trabajoModalPinta(a, vista) {
 // uno solo es contarle al usuario algo que no ha pasado: un proyecto borrado
 // no es «un estado que se sustituye».
 const _MOTIVO_SIN_LOG = {
-  borrado: 'El proyecto ya no existe: su registro se borró con él. La línea '
-         + 'del historial es lo que queda.',
-  efimero: 'El registro de esta ejecución no se conserva: su estado es de un '
-         + 'solo trabajo a la vez y lo sustituye el siguiente.',
-  desconocido: 'No hay registro guardado de esta ejecución.',
+  borrado: tr('workbar.el_proyecto_ya_no_existe_su') + ' '
+         + tr('workbar.del_historial_es_lo_que_queda'),
+  efimero: tr('workbar.el_registro_de_esta_ejecucion_no') + ' '
+         + tr('workbar.solo_trabajo_a_la_vez_y'),
+  desconocido: tr('workbar.no_hay_registro_guardado_de_esta'),
 };
 
 /** Completa la vista de un trabajo terminado con lo que el historial sabe.
@@ -1332,7 +1332,7 @@ async function _trabajoModalRefrescar() {
   const base = esElMismo ? act : {
     ..._trabajoModalUltimo,
     pct: null, pct_medido: false, eta_s: null, cancelable: enTransito,
-    paso: enTransito ? 'Cambiando de fase…' : 'Terminado',
+    paso: enTransito ? tr('workbar.cambiando_de_fase') : 'Terminado',
   };
   try {
     const vista = await fn(base);
@@ -1394,7 +1394,7 @@ async function _trabajoModalAbrir(a) {
 async function quitarDeLaCola(clave) {
   const r = await apiFetch(`/api/queue/${encodeURIComponent(clave)}`,
                            { method: 'DELETE' });
-  if (r !== null) showToast('Retirado de la cola', 'info');
+  if (r !== null) showToast(tr('workbar.retirado_de_la_cola'), 'info');
   refrescarWorkbar();
   if (typeof loadSessions === 'function') loadSessions();
 }

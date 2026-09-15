@@ -83,7 +83,7 @@ async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   const baseEl = document.getElementById('file-browser-base');
   const statsEl = document.getElementById('file-browser-stats');
   if (titleEl) titleEl.textContent = title || 'Seleccionar MKV';
-  if (subEl) subEl.textContent = subtitle || 'Navega tu biblioteca y elige el fichero';
+  if (subEl) subEl.textContent = subtitle || tr('browser.navega_tu_biblioteca_y_elige_el');
   if (searchEl) searchEl.value = '';
   // Limpiar restos de aperturas anteriores ANTES de mostrar para no flashear datos viejos
   if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> Cargando…</div>';
@@ -137,7 +137,7 @@ async function fileBrowserNavigate(relPath) {
   try {
     const url = `/api/library/browse?root=${encodeURIComponent(_fileBrowser.rootKey)}&path=${encodeURIComponent(relPath || '')}`;
     const data = await apiFetch(url);
-    if (!data) throw new Error('Sin respuesta');
+    if (!data) throw new Error(tr('browser.sin_respuesta'));
     if (data.error) {
       if (listEl) listEl.innerHTML = `<div class="file-browser-empty">${escHtml(data.error)}</div>`;
       return;
@@ -220,8 +220,8 @@ function _renderFileBrowser() {
     empty.className = 'file-browser-empty';
     // `innerHTML`: `textContent` no interpreta el SVG, lo escribe.
     empty.innerHTML = filter
-      ? `Sin coincidencias para ${escHtml(JSON.stringify(filter))}`
-      : icono('caja') + ' Esta carpeta no contiene MKVs ni subcarpetas.';
+      ? tr('browser.sin_coincidencias_para', {filter: escHtml(JSON.stringify(filter))})
+      : icono('caja') + ' ' + tr('browser.esta_carpeta_no_contiene_mkvs_ni');
     listEl.appendChild(empty);
     if (statsEl) statsEl.textContent = '';
     return;

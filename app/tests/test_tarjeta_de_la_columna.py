@@ -32,7 +32,8 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import sistema_de_iconos, js_completo  # noqa: E402
+from frontend_sources import (js_completo, motor_i18n, pintar_en,  # noqa: E402
+                              sistema_de_iconos)
 
 SISTEMA_ICONOS = sistema_de_iconos()
 
@@ -87,7 +88,7 @@ class TarjetaCase(unittest.TestCase):
 
     def _ejecutar(self, estado, seleccion=None, busqueda='') -> dict:
         """El html de la columna y lo que queda en la tira plegada."""
-        guion = f"""
+        guion = motor_i18n() + f"""
 globalThis.escHtml = t => String(t);
 const _els = {{}};
 for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-search', 'workbar-historial']) {{
@@ -140,7 +141,7 @@ console.log(JSON.stringify({{
                            timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló:\n{r.stderr[:900]}")
-        return json.loads(r.stdout.strip().splitlines()[-1])
+        return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))
 
     def _todo(self, seleccion=None) -> str:
         return self._render({"activo": _ACTIVO, "cola": _COLA,

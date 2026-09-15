@@ -71,7 +71,7 @@ function _mkvMarkDirty(project = mkvProject) {
   if (dot) dot.style.display = 'inline';
 }
 
-/** Apaga el punto de "cambios sin guardar" de un proyecto. */
+/** Apaga el punto de cambios sin guardar de un proyecto. */
 function _mkvClearDirty(project) {
   if (!project) return;
   project.dirty = false;
@@ -94,7 +94,7 @@ async function openMkvPickerModal() {
   // pestaña nueva. El tope se comprueba AQUÍ y no al terminar el análisis
   // porque ese análisis son 1-3 min y sería cruel avisar después.
   if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
-    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
+    showToast(tr('tab2.maximo_mkv_abiertos_cierra_alguno_antes', {max_mkv_projects: MAX_MKV_PROJECTS}), 'warning');
     return;
   }
   _openMkvBrowserNow();
@@ -102,8 +102,8 @@ async function openMkvPickerModal() {
 
 function _openMkvBrowserNow() {
   openFileBrowser({
-    title: 'Abrir MKV para inspeccionar / editar',
-    subtitle: 'Selecciona el MKV en la biblioteca, en el output del converter o en las descargas',
+    title: tr('tab2.abrir_mkv_para_inspeccionar_editar'),
+    subtitle: tr('tab2.selecciona_el_mkv_en_la_biblioteca'),
     roots: ROOTS_MKV,
     onSelect: async (absPath, name) => _mkvAbrirRuta(absPath, name),
   });
@@ -138,7 +138,7 @@ function _mkvAbrirRuta(absPath, name) {
   //    cierre el browser → quedando solo el modal de analisis visible.
   _doAnalyzeMkvFromPickerPath(absPath, name).catch(e => {
     console.error('analyze MKV error:', e);
-    showToast(`Error en analisis: ${e.message || e}`, 'error');
+    showToast(tr('tab2.error_en_analisis', {e: e.message || e}), 'error');
   });
 }
 
@@ -180,7 +180,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
           // Solo el texto: reescribir el `textContent` entero se llevaba por
           // delante el `<span>` del icono del paso.
           const ico = labelEl.querySelector('.paso-ico');
-          labelEl.textContent = ' Analizando subtítulos del origen…';
+          labelEl.textContent = ' ' + tr('tab2.analizando_subtitulos_del_origen');
           if (ico) labelEl.prepend(ico);
         }
         if (barWrap) barWrap.style.display = 'block';
@@ -222,7 +222,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
   closeModal('mkv-analyze-modal');
 
   if (!data) {
-    showToast('Error al analizar el MKV.', 'error');
+    showToast(tr('tab2.error_al_analizar_el_mkv'), 'error');
     return;
   }
 
@@ -303,7 +303,7 @@ function openMkvProject(analysis) {
   }
 
   if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
-    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
+    showToast(tr('tab2.maximo_mkv_abiertos_cierra_alguno_antes', {max_mkv_projects: MAX_MKV_PROJECTS}), 'warning');
     return null;
   }
 
@@ -406,10 +406,10 @@ function closeMkvProject(pid) {
   if (!project) return;
   if (project.dirty) {
     showConfirm(
-      'Cambios sin guardar',
-      `Hay cambios sin guardar en ${project.fileName}. ¿Cerrar de todas formas?`,
+      tr('tab2.cambios_sin_guardar_2'),
+      tr('tab2.hay_cambios_sin_guardar_en_cerrar', {filename: project.fileName}),
       () => _doCloseMkvProject(pid),
-      'Cerrar sin guardar',
+      tr('core.cerrar_sin_guardar'),
     );
     return;
   }
@@ -455,7 +455,7 @@ async function reanalyzeMkv() {
   const absPath = mkvProject.filePath || mkvProject.analysis?.file_path;
   const fileName = mkvProject.fileName || mkvProject.analysis?.file_name || '';
   if (!absPath) {
-    showToast('No se conoce la ruta del MKV', 'error');
+    showToast(tr('tab2.no_se_conoce_la_ruta_del'), 'error');
     return;
   }
   const doRun = () => {
@@ -476,15 +476,15 @@ async function reanalyzeMkv() {
     });
     _doAnalyzeMkvFromPickerPath(absPath, fileName, true).catch(e => {
       console.error('reanalyze MKV error:', e);
-      showToast(`Error en re-análisis: ${e.message || e}`, 'error');
+      showToast(tr('tab2.error_en_re_analisis', {e: e.message || e}), 'error');
     });
   };
   if (mkvProject.dirty) {
     showConfirm(
-      'Cambios sin guardar',
-      'Hay cambios sin guardar en este MKV. Re-analizar los descartará. ¿Continuar?',
+      tr('tab2.cambios_sin_guardar_2'),
+      tr('tab2.hay_cambios_sin_guardar_en_este'),
       doRun,
-      'Descartar y re-analizar',
+      tr('tab2.descartar_y_re_analizar'),
     );
     return;
   }
@@ -1057,7 +1057,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   // El master "real" donde se hizo el grade: prioridad L9 (si DV lo declara)
   // luego mastering_display_primaries del HDR10 SEI.
   const masterPrimResolved = l9 || masterPrim || '—';
-  const masterSource = l9 ? 'desde L9' : (masterPrim ? 'desde HDR10 SEI' : '');
+  const masterSource = l9 ? tr('tab2.desde_l9') : (masterPrim ? tr('tab2.desde_hdr10_sei') : '');
 
   // Master peak/min: si tenemos L6 numerico lo usamos; si no parseamos el
   // string del HDR10 (formato 'min: X cd/m2, max: Y cd/m2').
@@ -1262,7 +1262,7 @@ function _rgrfDistributionSvg(series) {
     </svg>`;
 }
 
-/** Render del bloque "Información detallada HDR / Dolby Vision".
+/** Render del bloque tr('tab2.informacion_detallada_hdr_dolby_vision').
  *  Diseño compacto, profesional — se inserta DENTRO del card de Vídeo.
  *  Agrupa todos los parámetros DV+HDR en bloques temáticos densos con
  *  visualizadores inline. */
@@ -1341,7 +1341,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         `${dv.quality_scene_cuts.toLocaleString()} (~${
           (a.duration_seconds / dv.quality_scene_cuts).toFixed(1)
         }s/escena)`,
-        { tooltip: 'Nº de frames con scene_refresh_flag en el RPU (cambios de plano detectados por el colorista). Aportado por la auditoría profunda.' }
+        { tooltip: tr('tab2.no_de_frames_con_scene_refresh') }
       )
     : '';
 
@@ -1425,7 +1425,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     const aHi = frameH - lTop - lBot;
     const sV = lTop === lBot;
     const sH = lLft === lRgt;
-    const subLabel = z0 ? 'L5 · validado en todo el film' : 'L5 · sample 30s (corre el perfil de luminancia para validar)';
+    const subLabel = z0 ? tr('tab2.l5_validado_en_todo_el_film') : tr('tab2.l5_sample_30s_corre_el_perfil');
     blockActiveArea = `
       <section class="dv-block">
         <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span> <span class="dv-block-sub">${subLabel}</span></h5>
@@ -1791,8 +1791,8 @@ async function _rgrfAuditQuality(evt) {
   const yaHay = typeof trabajoSobre === 'function' ? trabajoSobre(ruta) : null;
   if (yaHay) {
     showToast(yaHay.estado === 'corriendo'
-      ? 'El análisis RPU/Luz de este MKV ya está en curso'
-      : `El análisis RPU/Luz de este MKV está en la cola (${yaHay.posicion}º)`,
+      ? tr('tab2.el_analisis_rpu_luz_de_este')
+      : tr('tab2.el_analisis_rpu_luz_de_este_2', {posicion: yaHay.posicion}),
       'info');
     abrirDetalleDeTrabajo(ruta);
     return;
@@ -1811,8 +1811,8 @@ async function _rgrfAuditQuality(evt) {
   // y taparle el panel con un log que aún no tiene líneas es interrumpirle
   // para nada. El acuse es el toast y la entrada en la columna.
   await refrescarWorkbar();
-  showToast('Análisis RPU/Luz en marcha — el progreso está en la '
-            + 'columna de trabajo', 'success');
+  showToast(tr('tab2.analisis_rpu_luz_en_marcha_el') + ' '
+            + tr('tab2.columna_de_trabajo'), 'success');
 }
 
 /** Recoge los análisis que ya no están ni corriendo ni en la cola.
@@ -1850,7 +1850,7 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   }
   if (st.error) {
     const cancelado = st.step === 'cancelled' || /cancelad/i.test(st.error);
-    showToast(cancelado ? 'Auditoría cancelada' : `Error auditoría: ${st.error}`,
+    showToast(cancelado ? tr('tab2.auditoria_cancelada') : tr('tab2.error_auditoria', {error: st.error}),
               cancelado ? 'info' : 'error', cancelado ? 3500 : 8000);
     return;
   }
@@ -1863,7 +1863,7 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   refrescarMkvRecientes();
   const proyecto = (openMkvProjects || []).find(p => _mkvRutaAnalisis(p) === ruta);
   if (!proyecto || !proyecto.analysis) {
-    showToast('El MKV se cerró durante el análisis — el resultado quedó en caché',
+    showToast(tr('tab2.el_mkv_se_cerro_durante_el'),
               'info');
     return;
   }
@@ -1876,8 +1876,8 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   // dato en `analysis` y se pinta al cambiar a ella.
   if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);
   showToast(
-    `Análisis RPU/Luz completado — ${data.quality_verdict_text}`
-    + (conPerfil ? ` · perfil de luminancia: ${(data.light_profile?.total_frames || 0).toLocaleString()} frames` : ''),
+    tr('tab2.analisis_rpu_luz_completado', {quality_verdict_text: data.quality_verdict_text})
+    + (conPerfil ? tr('tab2.perfil_de_luminancia_frames', {p1: (data.light_profile?.total_frames || 0).toLocaleString()}) : ''),
     'success');
 }
 
@@ -1919,7 +1919,7 @@ async function _rgrfCopyToClipboard(evt) {
   const realFps = mainV?.fps;
 
   const md = [
-    `# Radiografía DV+HDR — ${a.file_name}`,
+    tr('tab2.radiografia_dv_hdr', {file_name: a.file_name}),
     ``,
     `**Tamaño:** ${_fmtBytes(a.file_size_bytes)} · **Duración:** ${_fmtDuration(a.duration_seconds)}`,
     ``,
@@ -1938,7 +1938,7 @@ async function _rgrfCopyToClipboard(evt) {
     `- MaxCLL / MaxFALL: ${fmt(hdr.max_cll, ' nits')} / ${fmt(hdr.max_fall, ' nits')}`,
     `- Mastering: ${fmt(hdr.mastering_display_luminance)}`,
     ``,
-    `## 3. L1 dinámico`,
+    tr('tab2.3_l1_dinamico'),
     `- MaxCLL avg: ${fmt(dv.l1_max_cll?.toFixed(2), ' nits')}`,
     `- MaxFALL avg: ${fmt(dv.l1_max_fall?.toFixed(2), ' nits')}`,
     ``,
@@ -1959,7 +1959,7 @@ async function _rgrfCopyToClipboard(evt) {
   ].join('\n');
 
   const ok = await _copyTextToClipboardWithFallback(md);
-  showToast(ok ? 'Radiografía copiada como Markdown' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
+  showToast(ok ? tr('tab2.radiografia_copiada_como_markdown') : tr('tab1.no_se_pudo_copiar_al_portapapeles'), ok ? 'success' : 'error');
 }
 
 // `_rgrfAnalyzeLight` y los helpers `_dvLight*` vivían aquí: modal propio,
@@ -2048,7 +2048,7 @@ function _renderMkvEditPanel(project = mkvProject) {
     }
   } else if (dvDetected) {
     // Se detecta DV por número de HEVC pero dovi_tool no corrió / falló
-    dvProfileLine = a.has_fel ? 'P7 FEL (detectado por estructura)' : (hasElByCount ? 'P7 MEL (detectado por estructura)' : 'Dolby Vision detectado');
+    dvProfileLine = a.has_fel ? tr('tab2.p7_fel_detectado_por_estructura') : (hasElByCount ? tr('tab2.p7_mel_detectado_por_estructura') : 'Dolby Vision detectado');
   }
 
   const panel = document.getElementById(`mkv-panel-${pid}`);
@@ -2296,14 +2296,14 @@ function _renderMkvTracks(project = mkvProject) {
     ].filter(Boolean).join(' · ');
     const def = t.flag_default ? ' active-default' : '';
     const tooltip = [
-      `Codec técnico: ${t.codec}`,
+      tr('tab2.codec_tecnico', {codec: t.codec}),
       t.format_commercial ? `Codec comercial: ${t.format_commercial}` : null,
       `Idioma: ${t.language || '—'} → ${langName}`,
       chCount ? `Canales: ${chCount} (${channelsPretty})` : null,
       t.channel_layout ? `Layout: ${t.channel_layout}` : null,
       t.sample_rate ? `Sample rate: ${t.sample_rate/1000} kHz` : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
-      t.compression_mode ? `Compresión: ${t.compression_mode}` : null,
+      t.compression_mode ? tr('tab1.compresion', {compression_mode: t.compression_mode}) : null,
       `Track ID: ${t.id}`,
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');
@@ -2357,7 +2357,7 @@ function _renderMkvTracks(project = mkvProject) {
     //   4. resto → completos.
     const packets = t.packet_count || 0;
     let derivedForced = t.flag_forced;
-    let forcedSource = t.flag_forced ? 'flag del MKV' : '';
+    let forcedSource = t.flag_forced ? tr('tab2.flag_del_mkv') : '';
     if (!t.flag_forced) {
       if (packets > 0 && packets < 500) {
         derivedForced = true;
@@ -2387,7 +2387,7 @@ function _renderMkvTracks(project = mkvProject) {
       `Codec: ${codecRaw || 'PGS'}`,
       `Idioma: ${t.language || '—'} → ${langName}`,
       `Tipo: ${forcedLabel}${forcedSource ? ` (${forcedSource})` : ''}`,
-      t.pixel_dimensions ? `Resolución bitmap: ${t.pixel_dimensions}` : null,
+      t.pixel_dimensions ? tr('tab2.resolucion_bitmap', {pixel_dimensions: t.pixel_dimensions}) : null,
       packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
       `Track ID: ${t.id}`,
@@ -2435,11 +2435,11 @@ function _renderMkvChapters(project = mkvProject) {
 
   if (a.chapters.length > 0) {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner info'; }
-    if (text) text.textContent = `${a.chapters.length} capítulos`;
+    if (text) text.textContent = tr('tab2.capitulos', {p1: a.chapters.length});
     if (autogenBtn) autogenBtn.style.display = 'none';
   } else {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner warning'; }
-    if (text) text.textContent = 'Sin capítulos en este MKV';
+    if (text) text.textContent = tr('tab2.sin_capitulos_en_este_mkv');
     // Botón "Generar cada 10 min" visible sólo si la duración permite al menos
     // un capítulo (necesita > 10 min de duración total).
     if (autogenBtn) {
@@ -2471,7 +2471,7 @@ function generateMkvAutoChapters() {
   const a = mkvProject.analysis;
   const dur = a.duration_seconds || 0;
   if (dur <= 600) {
-    showToast('La duración del MKV es menor de 10 min — no hay donde poner capítulos', 'warning');
+    showToast(tr('tab2.la_duracion_del_mkv_es_menor'), 'warning');
     return;
   }
   const interval = 600;
@@ -2482,7 +2482,7 @@ function generateMkvAutoChapters() {
     chapters.push({
       number: num,
       timestamp: secsToTs(t),
-      name: `Capítulo ${String(num).padStart(2, '0')}`,
+      name: tr('tab1.capitulo', {p1: String(num).padStart(2, '0')}),
       name_custom: false,
     });
     t += interval;
@@ -2491,7 +2491,7 @@ function generateMkvAutoChapters() {
   a.chapters = chapters;
   _mkvMarkDirty();
   _renderMkvChapters();
-  showToast(`${chapters.length} capítulos generados — pulsa "Aplicar cambios" para escribirlos al MKV`, 'success');
+  showToast(tr('tab2.capitulos_generados_pulsa_aplicar_cambios_para', {p1: chapters.length}), 'success');
 }
 
 function _renderMkvChapterMarks(project = mkvProject) {
@@ -2689,19 +2689,19 @@ function _renumberMkvChapters() {
   chs.sort((a, b) => tsToSecs(a.timestamp) - tsToSecs(b.timestamp));
   chs.forEach((ch, i) => {
     ch.number = i + 1;
-    if (!ch.name_custom) ch.name = `Capítulo ${String(ch.number).padStart(2, '0')}`;
+    if (!ch.name_custom) ch.name = tr('tab1.capitulo', {p1: String(ch.number).padStart(2, '0')});
   });
 }
 
 function setMkvGenericChapterNames() {
   if (!mkvProject?.analysis?.chapters) return;
   mkvProject.analysis.chapters.forEach((ch, i) => {
-    ch.name = `Capítulo ${String(i + 1).padStart(2, '0')}`;
+    ch.name = tr('tab1.capitulo', {p1: String(i + 1).padStart(2, '0')});
     ch.name_custom = false;
   });
   _mkvMarkDirty();
   _renderMkvChapters();
-  showToast('Nombres de capítulo reemplazados por genéricos.', 'info');
+  showToast(tr('tab1.nombres_de_capitulo_reemplazados_por_genericos'), 'info');
 }
 
 // ── Aplicar cambios ──────────────────────────────────────────────
@@ -2726,13 +2726,13 @@ async function applyMkvEdits() {
   if (_mkvFileIsInLibrary(filePath)) {
     const sizeGb = (a.file_size_bytes || 0) / 1e9;
     showConfirm(
-      'MKV en Biblioteca (read-only)',
-      `Este MKV está en la biblioteca read-only y no se puede modificar in-place. ` +
-      `La app copiará el fichero (${sizeGb.toFixed(1)} GB) a /mnt/output y aplicará ` +
-      `los cambios sobre la copia. La biblioteca queda intacta. ` +
-      `Esto puede tardar varios minutos para MKVs grandes.`,
+      tr('tab2.mkv_en_biblioteca_read_only'),
+      tr('tab2.este_mkv_esta_en_la_biblioteca') + ' ' +
+      tr('tab2.la_app_copiara_el_fichero_gb', {p1: sizeGb.toFixed(1)}) + ' ' +
+      tr('tab2.los_cambios_sobre_la_copia_la') + ' ' +
+      tr('tab2.esto_puede_tardar_varios_minutos_para'),
       () => _doApplyMkvEdits(true),
-      'Copiar y aplicar',
+      tr('tab2.copiar_y_aplicar'),
     );
     return;
   }
@@ -2780,7 +2780,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   if (copyToOutput) {
     // Tampoco aquí: a la cola y de fondo. El acuse es la columna.
     await refrescarWorkbar();
-    showToast('Copia en marcha — el progreso está en la columna de trabajo',
+    showToast(tr('tab2.copia_en_marcha_el_progreso_esta'),
               'success');
   }
 
@@ -2803,8 +2803,8 @@ async function _doApplyMkvEdits(copyToOutput) {
   // Cancelación por el usuario: prima sobre cualquier otro estado.
   if (_mkvApplyUserCancelled) {
     cerrarModalDeTrabajo();
-    showToast('Copia cancelada — la biblioteca queda intacta y el destino '
-              + 'parcial se borró', 'warning', 8000);
+    showToast(tr('tab2.copia_cancelada_la_biblioteca_queda_intacta') + ' '
+              + tr('tab2.parcial_se_borro'), 'warning', 8000);
     return;
   }
 
@@ -2812,7 +2812,7 @@ async function _doApplyMkvEdits(copyToOutput) {
     // El detalle del fallo vive en el estado del job (lo enseña el modal
     // común) y en el historial; aquí basta con decirlo y no cerrar el modal,
     // para que se pueda leer.
-    showToast(`Error al aplicar cambios${result?.error ? ': ' + result.error : ''}`,
+    showToast(tr('tab2.error_al_aplicar_cambios', {p1: result?.error ? ': ' + result.error : ''}),
               'error', 8000);
     console.warn('[apply] salida de mkvpropedit:', result?.output);
     return;
@@ -2826,7 +2826,7 @@ async function _doApplyMkvEdits(copyToOutput) {
     project.filePath = newFilePath;
     project.fileName = newFilePath.split('/').pop();
     _mkvRefreshSubTab(project);
-    showToast(`MKV copiado a Output con tus cambios: ${project.fileName}`, 'success');
+    showToast(tr('tab2.mkv_copiado_a_output_con_tus', {filename: project.fileName}), 'success');
   }
 
   // Re-analizar para refrescar estado — usamos el path ABSOLUTO del MKV
@@ -2929,8 +2929,8 @@ const _CMP_TOLERANCIA_DURACION = 0.02;
 
 function abrirComparadorLuminancia() {
   openFileBrowser({
-    title: 'Comparar el perfil de luminancia con…',
-    subtitle: 'Normalmente, el mismo título antes o después del upgrade a CMv4.0',
+    title: tr('tab2.comparar_el_perfil_de_luminancia_con'),
+    subtitle: tr('tab2.normalmente_el_mismo_titulo_antes_o'),
     roots: ROOTS_MKV,
     onSelect: (absPath) => _cargarComparacionLuminancia(absPath),
   });
@@ -2940,7 +2940,7 @@ async function _cargarComparacionLuminancia(ruta) {
   const project = mkvProject;
   if (!ruta || !project) return;
   if (ruta === project.filePath) {
-    showToast('Ese es el MKV que ya tienes abierto', 'info');
+    showToast(tr('tab2.ese_es_el_mkv_que_ya'), 'info');
     return;
   }
   try {
@@ -2948,15 +2948,15 @@ async function _cargarComparacionLuminancia(ruta) {
       `/api/mkv/light-profile-cached?file_path=${encodeURIComponent(ruta)}`);
     if (!r || !r.cached) {
       showToast(
-        `Sin perfil que comparar — ${r?.reason || 'no analizado'}. ` +
-        'Ábrelo en esta pestaña y lánzale el análisis RPU/Luz.',
+        tr('tab2.sin_perfil_que_comparar', {p1: r?.reason || tr('tab2.no_analizado')}) +
+        tr('tab2.abrelo_en_esta_pestana_y_lanzale'),
         'info', 8000);
       return;
     }
     const perfil = r.light_profile || {};
     const serie = perfil.per_scene_max_cll;
     if (!Array.isArray(serie) || serie.length < 2) {
-      showToast('El análisis de ese MKV no trae curva de luminancia', 'info');
+      showToast(tr('tab2.el_analisis_de_ese_mkv_no'), 'info');
       return;
     }
     project.comparacion = {
@@ -2967,9 +2967,9 @@ async function _cargarComparacionLuminancia(ruta) {
       fichero: ruta,
     };
     _renderMkvEditPanel(project);
-    showToast(`Comparando con ${r.file_name}`, 'success');
+    showToast(tr('tab2.comparando_con', {file_name: r.file_name}), 'success');
   } catch (e) {
-    showToast(`No se pudo cargar la comparación: ${e.message}`, 'error', 6000);
+    showToast(tr('tab2.no_se_pudo_cargar_la_comparacion', {message: e.message}), 'error', 6000);
   }
 }
 
@@ -2987,7 +2987,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   const otras = cmp.stats || {};
   const filas = [
     ['Peak', 'peak'], ['p99', 'p99'], ['p95', 'p95'],
-    ['Mediana', 'p50'], ['Media de los picos', 'avg_of_max'],
+    ['Mediana', 'p50'], [tr('tab2.media_de_los_picos'), 'avg_of_max'],
   ];
   const celdas = filas.map(([etiq, clave]) => {
     const mia = propias[clave];
@@ -3136,20 +3136,20 @@ function onMkvRecientesFilterClick(btn) {
 function _mkvRecienteEstado(r) {
   if (!r.existe) {
     return { estado: 'esperando', clase: 'missing', acento: 'estado-aviso',
-             etiqueta: 'El MKV ya no está en la ruta que se analizó' };
+             etiqueta: tr('tab2.el_mkv_ya_no_esta_en') };
   }
   if (r.tiene_extendido) {
     return { estado: 'hecho', clase: 'extendido', acento: 'estado-hecho',
-             etiqueta: 'Con análisis RPU/Luz hecho' };
+             etiqueta: tr('ui.con_analisis_rpu_luz_hecho') };
   }
   if (r.tiene_basico) {
     return { estado: 'listo', clase: 'basico', acento: '',
-             etiqueta: 'Analizado — abrirlo es instantáneo' };
+             etiqueta: tr('tab2.analizado_abrirlo_es_instantaneo') };
   }
   // Caché de una versión anterior: el análisis está, pero no sirve. En ámbar
   // porque abrirlo cuesta los minutos que costó la primera vez.
   return { estado: 'en_cola', clase: 'basico', acento: 'estado-aviso',
-           etiqueta: 'Analizado con una versión anterior — al abrirlo se reanaliza' };
+           etiqueta: tr('tab2.analizado_con_una_version_anterior_al') };
 }
 
 function _renderMkvRecientes() {
@@ -3233,19 +3233,19 @@ function _renderMkvRecientes() {
     const chips = [
       { txt: 'RPU', tono: r.tiene_extendido ? 'verde' : '', apagado: !r.tiene_extendido,
         tooltip: r.tiene_extendido
-          ? 'Combos L8/L2 del RPU ya analizados'
-          : 'Sin análisis RPU/Luz — el botón del panel lo lanza' },
+          ? tr('tab2.combos_l8_l2_del_rpu_ya')
+          : tr('tab2.sin_analisis_rpu_luz_el_boton') },
       { txt: 'Luz', tono: r.tiene_luminancia ? 'verde' : '', apagado: !r.tiene_luminancia,
         tooltip: r.tiene_luminancia
-          ? 'Tiene perfil de luminancia: sirve para el comparador A/B'
-          : 'Sin perfil de luminancia' },
+          ? tr('tab2.tiene_perfil_de_luminancia_sirve_para')
+          : tr('tab2.sin_perfil_de_luminancia') },
     ];
     // Los tags del nombre dicen qué ES este MKV —si ya trae CMv4.0, de dónde
     // salió— y en esta pestaña eso es media pregunta contestada.
     nombreYTags(r.nombre).tags.forEach(t => chips.push({
       txt: t, tono: /CMv4|DV|FEL|MEL/i.test(t) ? 'morado' : 'teal' }));
     if (!r.existe) {
-      chips.push({ txt: 'No encontrado', tono: 'naranja', tooltip: r.ruta });
+      chips.push({ txt: tr('tab2.no_encontrado'), tono: 'naranja', tooltip: r.ruta });
     }
 
     // Que un MKV tenga trabajo en marcha se ve AQUÍ, no solo en la columna:
@@ -3278,7 +3278,7 @@ function _renderMkvRecientes() {
       acciones: `
         ${r.existe
           ? `<button class="btn btn-primary btn-sm" data-abrir="1"
-               data-tooltip="Abrir este MKV en una sub-pestaña">Abrir</button>`
+               data-tooltip=tr('tab2.abrir_este_mkv_en_una_sub')>Abrir</button>`
           : `<button class="btn btn-ghost btn-sm" disabled
                data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">Fichero no encontrado</button>`}
         <button class="btn btn-danger btn-sm" data-borrar="1" data-i18n="tab2.borrar" data-i18n-tip="tab2.quita_el_analisis_guardado_de_la"></button>`,
@@ -3305,7 +3305,7 @@ function _renderMkvRecientes() {
     const pie = document.createElement('div');
     pie.className = 'empty-state-desc';
     pie.style.cssText = 'padding:8px 6px 0;text-align:center;font-size:10px';
-    pie.textContent = `Los ${_mkvRecientes.length} más recientes de ${_mkvRecientesTotal}`;
+    pie.textContent = tr('tab2.los_mas_recientes_de', {p1: _mkvRecientes.length, _mkvrecientestotal: _mkvRecientesTotal});
     lista.appendChild(pie);
   }
 }
@@ -3337,13 +3337,13 @@ function abrirMkvReciente(ruta) {
     return;
   }
   if (entrada && !entrada.existe) {
-    showToast(`«${nombre}» ya no está en ${ruta} — el análisis se conserva`, 'warning');
+    showToast(tr('tab2.ya_no_esta_en_el_analisis', {nombre: nombre, ruta: ruta}), 'warning');
     return;
   }
   // El tope se comprueba ANTES de arrancar: el análisis puede tardar 1-3 min
   // y avisar al terminar sería cruel (mismo motivo que en openMkvPickerModal).
   if (openMkvProjects.length >= MAX_MKV_PROJECTS) {
-    showToast(`Máximo ${MAX_MKV_PROJECTS} MKV abiertos — cierra alguno antes`, 'warning');
+    showToast(tr('tab2.maximo_mkv_abiertos_cierra_alguno_antes', {max_mkv_projects: MAX_MKV_PROJECTS}), 'warning');
     return;
   }
   _mkvAbrirRuta(ruta, nombre);
@@ -3368,18 +3368,18 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
     // El estado del análisis es un singleton: lo resetea el trabajo
     // siguiente, así que de una ejecución vieja no queda registro.
     sinDetalle: st ? '' : 'efimero',
-    titulo: 'Análisis RPU/Luz del MKV',
+    titulo: tr('tab2.analisis_rpu_luz_del_mkv'),
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
                                   icono('lupaOnda', 'ico-xl')) : null,
     // Dos pasos, no tres: ffmpeg y dovi_tool van conectados por un pipe, así
     // que extraer el HEVC y extraer el RPU son el mismo trabajo.
-    pasosTitulo: 'Fases del análisis RPU/Luz',
+    pasosTitulo: tr('tab2.fases_del_analisis_rpu_luz'),
     pasos: [
-      { icono: 'claqueta', titulo: 'Fase A · Extracción del RPU',
-        sub: 'ffmpeg y dovi_tool encadenados por un pipe, sin escribir el HEVC' },
-      { icono: 'grafico', titulo: 'Fase B · Combos y perfil de luminancia',
-        sub: 'Export por niveles, combos L8/L2 y análisis L1 frame a frame' },
+      { icono: 'claqueta', titulo: tr('tab2.fase_a_extraccion_del_rpu'),
+        sub: tr('tab2.ffmpeg_y_dovi_tool_encadenados_por') },
+      { icono: 'grafico', titulo: tr('tab2.fase_b_combos_y_perfil_de'),
+        sub: tr('tab2.export_por_niveles_combos_l8_l2') },
     ],
     conLog: true,
     cuerpo: _trabajoLogHTML(st?.log_lines),
@@ -3398,18 +3398,18 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
                                   icono('caja', 'ico-xl')) : null,
-    pasosTitulo: 'Fases de la copia',
+    pasosTitulo: tr('tab2.fases_de_la_copia'),
     pasos: [
-      { icono: 'caja', titulo: 'Fase A · Copia del MKV',
-        sub: 'De la biblioteca (solo lectura) a /mnt/output' },
-      { icono: 'etiqueta', titulo: 'Fase B · Escritura de metadatos',
-        sub: 'mkvpropedit sobre la copia, sin remuxar' },
+      { icono: 'caja', titulo: tr('tab2.fase_a_copia_del_mkv'),
+        sub: tr('tab2.de_la_biblioteca_solo_lectura_a') },
+      { icono: 'etiqueta', titulo: tr('tab2.fase_b_escritura_de_metadatos'),
+        sub: tr('tab2.mkvpropedit_sobre_la_copia_sin_remuxar') },
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
       ['Copiado', `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
-      ['Fichero de origen', st?.src_path || '—'],
-      ['Fichero de destino', st?.dst_path || '—'],
+      [tr('tab2.fichero_de_origen'), st?.src_path || '—'],
+      [tr('tab2.fichero_de_destino'), st?.dst_path || '—'],
       ['Error', st?.error || '—'],
     ]),
   };
@@ -3425,17 +3425,17 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
  */
 async function _mkvBorrarReciente(r) {
   showConfirm(
-    'Quitar de la lista',
-    `Se borrará el análisis guardado de «${r.nombre || r.ruta}». El fichero MKV `
-    + 'NO se toca: al volver a abrirlo se analiza de nuevo.',
+    tr('tab2.quitar_de_la_lista'),
+    tr('tab2.se_borrara_el_analisis_guardado_de', {ruta: r.nombre || r.ruta})
+    + ' ' + tr('tab2.no_se_toca_al_volver_a'),
     async () => {
       const resp = await apiFetch(
         `/api/mkv/cache-info?file_path=${encodeURIComponent(r.ruta)}`,
         { method: 'DELETE' });
-      if (resp) showToast('Análisis borrado de la lista', 'info');
+      if (resp) showToast(tr('tab2.analisis_borrado_de_la_lista'), 'info');
       refrescarMkvRecientes();
     },
-    'Borrar el análisis',
+    tr('tab2.borrar_el_analisis'),
   );
 }
 

@@ -154,12 +154,12 @@ async function cmv40BulkCleanupExecute() {
   const cbs = Array.from(document.querySelectorAll('.cmv40-cleanup-cb:checked'));
   const ids = cbs.map(cb => cb.dataset.id).filter(Boolean);
   if (!ids.length) {
-    showToast('No hay nada seleccionado', 'info');
+    showToast(tr('cmv40_modals.no_hay_nada_seleccionado'), 'info');
     return;
   }
   showConfirm(
-    `Borrar artefactos de ${ids.length} proyecto${ids.length === 1 ? '' : 's'}?`,
-    'Esta acción es irreversible. Los proyectos pasarán a modo SOLO LECTURA — no se podrán rehacer fases ni reanudar pipelines abiertos. El JSON de la sesión y el log se conservan; solo se borra el workdir intermedio (HEVC, RPU.bin, .mkv.tmp).',
+    tr('cmv40_modals.borrar_artefactos_de_proyecto', {p1: ids.length, p2: ids.length === 1 ? '' : 's'}),
+    tr('cmv40_modals.esta_accion_es_irreversible_los_proyectos'),
     async () => {
       const data = await apiFetch('/api/cmv40/cleanup/bulk', {
         method: 'POST',
@@ -171,7 +171,7 @@ async function cmv40BulkCleanupExecute() {
       const koCount = (data.failed || []).length;
       const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
       let msg = `${okCount} proyecto${okCount === 1 ? '' : 's'} archivado${okCount === 1 ? '' : 's'} · liberados ${freed}`;
-      if (skipCount > 0) msg += ` · ${skipCount} omitido${skipCount === 1 ? '' : 's'} (en curso)`;
+      if (skipCount > 0) msg += tr('cmv40_modals.omitido_en_curso', {skipcount: skipCount, p2: skipCount === 1 ? '' : 's'});
       if (koCount > 0)   msg += ` · ${koCount} fallido${koCount === 1 ? '' : 's'}`;
       showToast(msg, koCount === 0 ? 'success' : 'warning');
       // Refrescar el sidebar y los proyectos abiertos para reflejar el nuevo
@@ -229,7 +229,7 @@ async function _cmv40HelpSwitch(section) {
   if (section === 'repo')  _cmv40HelpHydrateDriveLink();
 }
 
-/** Hidrata el enlace "Hoja en uso" al abrir la sección Sheet del manual.
+/** Hidrata el enlace tr('cmv40_modals.hoja_en_uso') al abrir la sección Sheet del manual.
  *  Lee /api/settings y rellena el <a> con la URL efectiva (configurada o
  *  default). Añade un meta línea con la procedencia (settings/env/default). */
 async function _cmv40HelpHydrateSheetLink() {
@@ -241,27 +241,27 @@ async function _cmv40HelpHydrateSheetLink() {
     const sh = s?.sheet || {};
     const url = sh.url || sh.default_url || '';
     if (!url) {
-      anchor.textContent = 'URL no disponible';
+      anchor.textContent = tr('cmv40_modals.url_no_disponible');
       anchor.removeAttribute('href');
       return;
     }
     anchor.href = url;
     anchor.textContent = url;
     if (metaEl) {
-      const srcLabel = sh.source === 'settings' ? 'URL personalizada (Configuración)'
-        : sh.source === 'env'      ? 'URL de variable de entorno'
-        : 'URL por defecto de la comunidad DoviTools';
+      const srcLabel = sh.source === 'settings' ? tr('cmv40_modals.url_personalizada_configuracion')
+        : sh.source === 'env'      ? tr('cmv40_modals.url_de_variable_de_entorno')
+        : tr('cmv40_modals.url_por_defecto_de_la_comunidad');
       metaEl.textContent = sh.is_default
-        ? 'URL por defecto de la comunidad DoviTools — la puedes cambiar en Configuración'
+        ? tr('cmv40_modals.url_por_defecto_de_la_comunidad_2')
         : srcLabel;
     }
   } catch (_) {
-    anchor.textContent = 'No se ha podido cargar la URL';
+    anchor.textContent = tr('cmv40_modals.no_se_ha_podido_cargar_la');
     anchor.removeAttribute('href');
   }
 }
 
-/** Hidrata el bloque "Carpeta Drive en este servidor" al abrir la sección Repo.
+/** Hidrata el bloque tr('cmv40_modals.carpeta_drive_en_este_servidor') al abrir la sección Repo.
  *  Lee /api/settings y muestra si el folder está configurado, su origen
  *  (settings / env / ninguno) y el sufijo del folder_id como confirmación. */
 async function _cmv40HelpHydrateDriveLink() {
@@ -275,18 +275,18 @@ async function _cmv40HelpHydrateDriveLink() {
     if (df.configured) {
       statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">${tr('cmv40_modals.folder_p1', {p1: escHtml(df.folder_id_last6 || '??????')})}</span>`;
       statusEl.style.color = '#0e6b2a';
-      const srcLabel = df.source === 'settings' ? 'configurada desde Configuración'
-        : df.source === 'env' ? 'configurada por variable de entorno del contenedor'
+      const srcLabel = df.source === 'settings' ? tr('cmv40_modals.configurada_desde_configuracion')
+        : df.source === 'env' ? tr('cmv40_modals.configurada_por_variable_de_entorno_del')
         : 'configurada';
-      const apiKeyState = apiKey.configured ? 'API key configurada' : 'API key sin configurar — imprescindible';
+      const apiKeyState = apiKey.configured ? 'API key configurada' : tr('cmv40_modals.api_key_sin_configurar_imprescindible');
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
-      statusEl.innerHTML = icono('aviso') + ' No configurada';
+      statusEl.innerHTML = icono('aviso') + ' ' + tr('cmv40_modals.no_configurada');
       statusEl.style.color = '#8a4a00';
-      if (metaEl) metaEl.textContent = 'Sigue los pasos de abajo para habilitar el acceso al repo DoviTools';
+      if (metaEl) metaEl.textContent = tr('cmv40_modals.sigue_los_pasos_de_abajo_para');
     }
   } catch (_) {
-    statusEl.textContent = 'No se ha podido consultar el estado';
+    statusEl.textContent = tr('cmv40_modals.no_se_ha_podido_consultar_el');
     if (metaEl) metaEl.textContent = '—';
   }
 }

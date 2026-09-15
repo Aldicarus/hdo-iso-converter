@@ -137,6 +137,30 @@ found») y el plural escribe **«not foundn»**.
 **Qué hacer**: partirla en dos claves (`…_uno` / `…_varios`), que es justo lo
 que REGISTRO.md manda para los plurales y esta se saltó.
 
+**Y hay un SEGUNDO caso, encontrado al traducir los mensajes con parámetros**:
+`tab1.saltado_ya_existia` — `{p1} saltado{p2} (ya existía{p3})`, con `{p2}` =
+`''`/`'s'` y `{p3}` = `''`/`'n'`. El catalán vuelve a salir bien (`ja es
+va{p3} crear`, el auxiliar del passat perifràstic), y el inglés vuelve a no
+tener dónde poner una `n`: la única pareja de palabras inglesas que se
+distinguen por esa letra final es **`a` / `an`**, así que la traducción la usa
+(`already processed into a{p3} MKV`) y el resultado es correcto como palabras
+pero **cruzado como número** — el singular escribe «a MKV» (debería ser «an»,
+por la pronunciación) y el plural escribe «an MKV» con tres proyectos.
+
+Es menos grave que «not foundn» —las dos formas son inglés legible— pero tiene
+el mismo arreglo y el mismo motivo: **un sufijo de una letra no es una regla de
+plural, es una coincidencia del castellano.** Las dos claves se parten juntas.
+
+**Y un TERCERO, este en catalán**: `tab1.hace_dia` (`tab1.js:1989`) hace «hace
+{days} día{p2}», y el plural de `dia` en catalán es **dies**, no `dia+s`. La
+traducción lo sortea cambiando de sustantivo (`fa {days} jorn{p2}`), que es
+gramatical en los dos números pero de registro literario — el mismo recurso que
+ya se usó con `punt{p2} de discrepància`. Con las claves partidas se puede
+escribir «dia» y «dies», que es lo que diría cualquiera.
+
+Los tres van juntos: son **los únicos tres sitios del repo** que pluralizan con
+un sufijo de una letra.
+
 ## 6. Dos cadenas castellanas más, sin extraer
 
 - `' o '.join(faltan)` en `phases/cmv40_pipeline.py:4360` — el separador de una

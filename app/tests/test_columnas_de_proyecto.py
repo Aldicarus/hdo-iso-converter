@@ -192,7 +192,7 @@ def _medir() -> dict:
     # El stub del catálogo va ANTES de `i18n.js`, que se pide en <head>: por
     # `file://` el fetch del catálogo falla y toda la interfaz mostraría
     # claves en vez de texto — un fallo del arnés con pinta de fallo de la app.
-    pagina = html().replace("</head>", stub_catalogo_es() + _SONDA + "</head>")
+    pagina = html().replace("</head>", _SONDA + stub_catalogo_es() + "</head>")
     datos = (f"<script>window.__SES={json.dumps(SESIONES)};"
              f"window.__CM={json.dumps(CMV40)};</script>")
     pagina = pagina.replace("</body>", datos + _CUERPO + "</body>")

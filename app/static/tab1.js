@@ -31,8 +31,8 @@ async function checkAppStatus() {
 async function devSimulate() {
   const data = await apiFetch('/api/dev/simulate', { method: 'POST' });
   if (!data) return;
-  if (!data.ok) { showToast(data.detail || 'Sin sesiones disponibles', 'warning'); return; }
-  showToast(`${data.enqueued?.length ?? 0} sesiones encoladas para simulación`, 'success');
+  if (!data.ok) { showToast(data.detail || tr('tab1.sin_sesiones_disponibles'), 'warning'); return; }
+  showToast(tr('tab1.sesiones_encoladas_para_simulacion', {p1: data.enqueued?.length ?? 0}), 'success');
   await loadSessions();
 }
 
@@ -88,8 +88,8 @@ function onContentTypeChange(type) {
   const subEl = document.getElementById('new-project-sub');
   if (subEl) {
     subEl.textContent = type === 'movie'
-      ? 'Paso 2: elige el origen (un fichero) y púlsa Analizar.'
-      : 'Paso 2: elige el origen (varios episodios) y púlsa Analizar.';
+      ? tr('tab1.paso_2_elige_el_origen_un')
+      : tr('tab1.paso_2_elige_el_origen_varios');
   }
   // En movie no permitimos múltiples m2ts — recortamos al primero
   if (type === 'movie' && m2tsSelectedPaths.length > 1) {
@@ -99,8 +99,8 @@ function onContentTypeChange(type) {
   const m2tsStatusEl = document.getElementById('src-fb-m2ts-status');
   if (m2tsStatusEl) {
     m2tsStatusEl.textContent = type === 'movie'
-      ? 'Marca un fichero .m2ts (modo película — solo un MKV de salida)'
-      : 'Marca varios ficheros .m2ts — uno por episodio (modo serie)';
+      ? tr('ui.marca_un_fichero_m2ts_modo_pelicula')
+      : tr('tab1.marca_varios_ficheros_m2ts_uno_por');
   }
   // Re-render del browser m2ts para alternar radio/checkbox visualmente
   if (_srcFb && _srcFb.m2ts && _srcFb.m2ts.entries) {
@@ -120,7 +120,7 @@ let _sourcesCache = { iso: [], bdmv_folder: [], m2ts: [] };
 /** Abre el modal de nuevo proyecto y carga las fuentes disponibles. */
 async function openNewProjectModal() {
   if (openProjects.length >= MAX_PROJECTS) {
-    showToast(`Máximo ${MAX_PROJECTS} proyectos abiertos. Cierra uno antes de crear otro.`, 'warning');
+    showToast(tr('tab1.maximo_proyectos_abiertos_cierra_uno_antes', {max_projects: MAX_PROJECTS}), 'warning');
     return;
   }
   pickerSelectedIso = null;
@@ -137,7 +137,7 @@ async function openNewProjectModal() {
   document.getElementById('new-project-source-area')?.classList.add('locked');
   document.getElementById('new-project-locked-banner')?.classList.remove('hidden');
   const subEl = document.getElementById('new-project-sub');
-  if (subEl) subEl.textContent = 'Paso 1: elige el tipo de contenido para empezar.';
+  if (subEl) subEl.textContent = tr('ui.paso_1_elige_el_tipo_de');
   // Reset del botón Analizar. El tab ISO se activa por defecto vía
   // onSourceTabSwitch — NO se referencia ningún select legacy (los
   // antiguos iso-picker-select / bdmv-picker-select / m2ts-picker-list
@@ -313,7 +313,7 @@ function _renderSrcFb(filter) {
       // Mensaje específico por filtro — "filtro iso/bdmv/m2ts" no es
       // legible en castellano. Cada tipo dice qué busca exactamente.
       const filterDesc = filter === 'iso' ? 'ficheros .iso'
-        : filter === 'bdmv' ? 'carpetas con estructura BDMV'
+        : filter === 'bdmv' ? tr('tab1.carpetas_con_estructura_bdmv')
         : 'ficheros .m2ts';
       listEl.innerHTML = `<div class="src-fb-empty">${tr('tab1.sin_filterdesc_en_esta_carpeta', {filterdesc: filterDesc})}</div>`;
       _attachSrcFbDelegation(filter);
@@ -470,12 +470,12 @@ function _updateM2tsStatusText() {
   if (!status) return;
   if (m2tsSelectedPaths.length === 0) {
     status.textContent = _contentType === 'movie'
-      ? 'Marca un fichero .m2ts (modo película — solo un MKV de salida)'
-      : 'Marca varios ficheros .m2ts — uno por episodio (modo serie)';
+      ? tr('ui.marca_un_fichero_m2ts_modo_pelicula')
+      : tr('tab1.marca_varios_ficheros_m2ts_uno_por');
     return;
   }
   if (_contentType === 'movie') {
-    status.innerHTML = icono('check') + ' 1 fichero seleccionado → modo película';
+    status.innerHTML = icono('check') + ' ' + tr('tab1.1_fichero_seleccionado_modo_pelicula');
   } else {
     status.innerHTML =
       icono('check') + ` ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
@@ -603,7 +603,7 @@ function closeProgressModal() {
  */
 async function analyzeSelectedISO() {
   if (openProjects.length >= MAX_PROJECTS) {
-    showToast(`Máximo ${MAX_PROJECTS} proyectos abiertos.`, 'warning');
+    showToast(tr('tab1.maximo_proyectos_abiertos', {max_projects: MAX_PROJECTS}), 'warning');
     return;
   }
 
@@ -628,7 +628,7 @@ async function analyzeSelectedISO() {
     // ha cambiado de modo después de marcar varios.
     if (_contentType === 'movie' && m2tsSelectedPaths.length > 1) {
       showToast(
-        'Modo película solo admite un fichero M2TS. Cambia a modo serie o desmarca los demás.',
+        tr('tab1.modo_pelicula_solo_admite_un_fichero'),
         'warning',
       );
       return;
@@ -700,8 +700,8 @@ async function analyzeSelectedISO() {
     closeModal('new-project-modal');
     const existingName = check.session.mkv_name || sourceName;
     showConfirm(
-      'Ya existe un proyecto para este origen',
-      `Hay un proyecto previo asociado a este contenido: "${existingName}". Puedes abrirlo tal cual está o reanalizar el origen (se perderán las ediciones actuales).`,
+      tr('tab1.ya_existe_un_proyecto_para_este'),
+      tr('tab1.hay_un_proyecto_previo_asociado_a', {existingname: existingName}),
       // Reanalizar pasa por el flujo COMPLETO de probe + routing — sin
       // esto, un disco de serie reabierto en modo película saltaba
       // directo a _doAnalyzeSource sin pasar por la detección de
@@ -742,9 +742,9 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   const probeIcon = icono(sourceType === 'iso' ? 'disco'
     : sourceType === 'bdmv_folder' ? 'carpeta' : 'cinta', 'ico-xl');
   const probeSub = sourceType === 'iso'
-    ? 'Montando ISO y buscando episodios candidatos en el disco'
+    ? tr('tab1.montando_iso_y_buscando_episodios_candidatos')
     : sourceType === 'bdmv_folder'
-    ? 'Buscando episodios candidatos en la carpeta BDMV'
+    ? tr('tab1.buscando_episodios_candidatos_en_la_carpeta')
     : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS`;
   showProgressModal({
     title: `Detectando contenido — ${sourceName}`,
@@ -778,7 +778,7 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   closeProgressModal();
 
   if (!probe) {
-    showToast('No se pudo inspeccionar el origen. Revisa el log del servidor.', 'error');
+    showToast(tr('tab1.no_se_pudo_inspeccionar_el_origen'), 'error');
     return;
   }
 
@@ -804,10 +804,10 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   // no ser el esperado si era una serie disfrazada.
   if (probe.movie_warning) {
     showConfirm(
-      'Origen con varios episodios',
+      tr('tab1.origen_con_varios_episodios'),
       probe.movie_warning,
       () => _doAnalyzeSource(sourceType, sourcePath, sourceName, payloadProbe),
-      'Sí, procesar como película',
+      tr('tab1.si_procesar_como_pelicula'),
     );
     return;
   }
@@ -908,7 +908,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   closeModal('analyze-modal');
 
   if (!session) {
-    showToast(`No se pudo analizar ${escHtml(sourceName)}. Verifica que el origen sigue disponible y es válido.`, 'error');
+    showToast(tr('tab1.no_se_pudo_analizar_verifica_que', {sourcename: escHtml(sourceName)}), 'error');
     return;
   }
 
@@ -1021,9 +1021,9 @@ function openSeriesModal(probe) {
   const titleEl = document.getElementById('series-modal-title');
   if (titleEl) {
     titleEl.innerHTML = icono('tv') + (
-      stype === 'iso' ? ' Disco de serie detectado'
-      : stype === 'bdmv_folder' ? ' Carpeta BDMV de serie detectada'
-      : ' Episodios de serie detectados');
+      stype === 'iso' ? ' ' + tr('tab1.disco_de_serie_detectado')
+      : stype === 'bdmv_folder' ? ' ' + tr('tab1.carpeta_bdmv_de_serie_detectada')
+      : ' ' + tr('tab1.episodios_de_serie_detectados'));
   }
   const sub = document.getElementById('series-modal-sub');
   if (sub) {
@@ -1032,9 +1032,9 @@ function openSeriesModal(probe) {
     // primario (por mpls); fallback al secundario por si solo hay
     // datos season/episode (sesión muy antigua sin mpls_path).
     const existingCount = existingByMpls.size > 0 ? existingByMpls.size : existingByEp.size;
-    const sourceLabel = stype === 'iso' ? 'el disco'
-      : stype === 'bdmv_folder' ? 'la carpeta BDMV'
-      : 'los ficheros M2TS';
+    const sourceLabel = stype === 'iso' ? tr('tab1.el_disco')
+      : stype === 'bdmv_folder' ? tr('tab1.la_carpeta_bdmv')
+      : tr('tab1.los_ficheros_m2ts');
     const verdict = probe.media_type === 'series'
       ? `Detectados <strong>${tr('tab1.n_episodios_candidatos', {n: n})}</strong> en ${sourceLabel} con duración similar.`
       : `Detectados <strong>${tr('tab1.n_candidatos', {n: n})}</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
@@ -1043,7 +1043,7 @@ function openSeriesModal(probe) {
     const existingNote = existingCount > 0
       ? ` <strong>${tr('tab1.existingcount_episodio_p2_ya_procesado_p3', {existingcount: existingCount, p2: existingCount === 1 ? '' : 's', p3: existingCount === 1 ? '' : 's'})}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span> — marca solo los que quieras añadir o rehacer.`
       : '';
-    sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.${existingNote}`;
+    sub.innerHTML = tr('tab1.identifica_la_serie_tmdb_o_manual', {verdict: verdict, existingnote: existingNote});
   }
 
   // Prellenar inputs con título/año sugerido
@@ -1105,12 +1105,12 @@ function seriesConfirmManual() {
   const yearStr = (document.getElementById('series-manual-year').value || '').trim();
   const seasonStr = (document.getElementById('series-manual-season').value || '').trim();
   if (!name) {
-    showToast('Introduce el nombre de la serie', 'warning');
+    showToast(tr('tab1.introduce_el_nombre_de_la_serie'), 'warning');
     return;
   }
   const season = parseInt(seasonStr, 10);
   if (isNaN(season) || season < 1) {
-    showToast('La temporada debe ser un número >= 1', 'warning');
+    showToast(tr('tab1.la_temporada_debe_ser_un_numero'), 'warning');
     return;
   }
   _seriesState.selectedSeries = {
@@ -1162,7 +1162,7 @@ async function seriesTmdbSearch() {
   const yearStr = (document.getElementById('series-tmdb-year').value || '').trim();
   const year = yearStr ? parseInt(yearStr, 10) : null;
   if (!query) {
-    showToast('Introduce el nombre de la serie', 'warning');
+    showToast(tr('tab1.introduce_el_nombre_de_la_serie'), 'warning');
     return;
   }
   const resultsBox = document.getElementById('series-tmdb-results');
@@ -1229,7 +1229,7 @@ async function seriesSelectCandidate(tmdbId) {
   // Cargar detalles de la serie para poblar combo de temporadas
   const data = await apiFetch(`/api/tv-details/${tmdbId}`);
   if (!data || !data.details) {
-    showToast('No se pudieron cargar los detalles de la serie', 'error');
+    showToast(tr('tab1.no_se_pudieron_cargar_los_detalles'), 'error');
     return;
   }
   const seasons = data.details.seasons || [];
@@ -1319,25 +1319,25 @@ async function seriesLoadSeason() {
  */
 function _computeMatchConfidence(mplsDurationMin, episodeNumber, isManual) {
   if (isManual) {
-    return { emoji: icono('lapiz'), title: 'Modo manual · sin match runtime' };
+    return { emoji: icono('lapiz'), title: tr('tab1.modo_manual_sin_match_runtime') };
   }
   if (!episodeNumber) {
     return {
       emoji: '<span class="punto-conf "></span>',
-      title: 'Sin episodio asignado — elige uno del desplegable',
+      title: tr('tab1.sin_episodio_asignado_elige_uno_del'),
     };
   }
   const ep = (_seriesState.seasonEpisodes || []).find(e => e.episode_number === episodeNumber);
   if (!ep) {
     return {
       emoji: '<span class="punto-conf "></span>',
-      title: `Episodio E${String(episodeNumber).padStart(2,'0')} no está en la lista de TMDb`,
+      title: tr('tab1.episodio_e_no_esta_en_la', {p1: String(episodeNumber).padStart(2,'0')}),
     };
   }
   if (!ep.runtime_minutes) {
     return {
       emoji: '<span class="punto-conf media"></span>',
-      title: `MPLS ${mplsDurationMin.toFixed(1)} min · TMDb sin runtime para E${String(episodeNumber).padStart(2,'0')}`,
+      title: tr('tab1.mpls_min_tmdb_sin_runtime_para', {p1: mplsDurationMin.toFixed(1), p2: String(episodeNumber).padStart(2,'0')}),
     };
   }
   const delta = Math.abs(mplsDurationMin - ep.runtime_minutes);
@@ -1506,10 +1506,10 @@ function _seriesUpdateCreateButton() {
 function _seriesConfirmConflicts(count, listText) {
   return new Promise(resolve => {
     showConfirm(
-      `${count} episodio${count === 1 ? '' : 's'} ya existen para este origen`,
-      `Las siguientes sesiones ya están creadas:\n\n${listText}\n\n` +
-      `· "Reemplazar" borra las existentes y crea unas nuevas — perderás ediciones, historial de ejecución y el output MKV si aún no se ha movido.\n` +
-      `· "Saltar existentes" mantiene las actuales y procesa solo los episodios nuevos marcados.`,
+      tr('tab1.episodio_ya_existen_para_este_origen', {count: count, p2: count === 1 ? '' : 's'}),
+      tr('tab1.las_siguientes_sesiones_ya_estan_creadas', {listtext: listText}) +
+      tr('tab1.reemplazar_borra_las_existentes_y_crea') +
+      tr('tab1.saltar_existentes_mantiene_las_actuales_y'),
       () => resolve('replace'),
       'Reemplazar',
     );
@@ -1553,7 +1553,7 @@ async function seriesCreateSessions() {
     .sort((a, b) => a.episode_number - b.episode_number);
 
   if (!episodes.length) {
-    showToast('Selecciona al menos un episodio', 'warning');
+    showToast(tr('tab1.selecciona_al_menos_un_episodio'), 'warning');
     return;
   }
 
@@ -1674,7 +1674,7 @@ async function seriesCreateSessions() {
       btn.disabled = false;
       btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
     }
-    showToast('Ya hay un análisis en marcha para este disco. Espera a que termine.',
+    showToast(tr('tab1.ya_hay_un_analisis_en_marcha'),
               'warning');
     return;
   }
@@ -1703,7 +1703,7 @@ async function seriesCreateSessions() {
       btn.disabled = false;
       btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
     }
-    showToast('No se pudieron crear los proyectos. Revisa el log del servidor.', 'error');
+    showToast(tr('tab1.no_se_pudieron_crear_los_proyectos'), 'error');
     return;
   }
 
@@ -1721,13 +1721,13 @@ async function seriesCreateSessions() {
   // count de creados aunque hubiera saltado o reemplazado N.
   const extras = [];
   if (replacedIds.length) extras.push(`${replacedIds.length} reemplazado${replacedIds.length === 1 ? '' : 's'}`);
-  if (skippedExisting.length) extras.push(`${skippedExisting.length} saltado${skippedExisting.length === 1 ? '' : 's'} (ya existía${skippedExisting.length === 1 ? '' : 'n'})`);
+  if (skippedExisting.length) extras.push(tr('tab1.saltado_ya_existia', {p1: skippedExisting.length, p2: skippedExisting.length === 1 ? '' : 's', p3: skippedExisting.length === 1 ? '' : 'n'}));
   const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
     const failWord = failed.length === 1 ? 'falló' : 'fallaron';
     showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}${extrasStr}. Revisa el log del servidor.`, 'warning');
   } else if (created.length === 0 && skippedExisting.length > 0) {
-    showToast(`Sin novedades: los ${skippedExisting.length} episodios ya existían`, 'info');
+    showToast(tr('tab1.sin_novedades_los_episodios_ya_existian', {p1: skippedExisting.length}), 'info');
   } else {
     showToast(`${created.length} ${okWord}${extrasStr}`, 'success');
   }
@@ -1753,7 +1753,7 @@ async function seriesCreateSessions() {
     }
     if (skipped > 0) {
       showToast(
-        `${skipped} episodio${skipped === 1 ? '' : 's'} creado${skipped === 1 ? '' : 's'} pero no abierto${skipped === 1 ? '' : 's'} (límite ${MAX_PROJECTS} pestañas). Ábrelos desde el sidebar.`,
+        tr('tab1.episodio_creado_pero_no_abierto_limite', {skipped: skipped, p2: skipped === 1 ? '' : 's', p3: skipped === 1 ? '' : 's', p4: skipped === 1 ? '' : 's', max_projects: MAX_PROJECTS}),
         'info',
       );
     }
@@ -1983,10 +1983,10 @@ function formatRelativeDate(isoDate) {
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
-  if (mins < 1)    return 'ahora mismo';
+  if (mins < 1)    return tr('tab1.ahora_mismo');
   if (mins < 60)   return `hace ${mins} min`;
   if (hours < 24)  return `hace ${hours} h`;
-  if (days < 7)    return `hace ${days} día${days !== 1 ? 's' : ''}`;
+  if (days < 7)    return tr('tab1.hace_dia', {days: days, p2: days !== 1 ? 's' : ''});
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
@@ -2119,8 +2119,8 @@ const ESTADO_CHIP  = { pending: 'listo', queued: 'en_cola', running: 'corriendo'
                        done: 'hecho', error: 'error' };
 const ESTADO_CLASE = { queued: 'estado-curso', running: 'estado-curso',
                        done: 'estado-hecho', error: 'estado-error' };
-const ESTADO_TEXTO = { pending: 'Sin ejecutar', queued: 'En cola',
-                       running: 'En curso', done: 'Completado', error: 'Error' };
+const ESTADO_TEXTO = { pending: tr('ui.sin_ejecutar'), queued: tr('tab1.en_cola'),
+                       running: tr('workbar.en_curso'), done: 'Completado', error: 'Error' };
 
 function renderSidebarSessions(sessions, query = '') {
   const container = document.getElementById('sessions-list');
@@ -2251,7 +2251,7 @@ function toggleSidebarSelection(sessionId) {
 function confirmOpenSession(sessionId, name) {
   showConfirm(
     'Abrir proyecto',
-    `¿Abrir el proyecto "${name}"?\n\nSe cargará en una nueva sub-pestaña de revisión.`,
+    tr('tab1.abrir_el_proyecto_n_nse_cargara', {name: name}),
     () => loadSession(sessionId),
     'Abrir'
   );
@@ -2265,7 +2265,7 @@ function confirmOpenSession(sessionId, name) {
 function confirmDeleteSession(sessionId, name) {
   showConfirm(
     'Eliminar proyecto',
-    `¿Eliminar permanentemente el proyecto "${name}"?\n\nEsta acción no se puede deshacer. El MKV de salida (si existe) no se borrará.`,
+    tr('tab1.eliminar_permanentemente_el_proyecto_n_nesta', {name: name}),
     () => deleteSession(sessionId),
     'Eliminar'
   );
@@ -2427,9 +2427,9 @@ async function _checkIsoAvailability(project) {
     // ... ya no se encuentra en /mnt/isos" (asumía ISO), ahora respeta
     // el tipo real del origen (carpeta BDMV / fichero M2TS / ISO).
     const label = data.source_label || 'ISO';
-    const verb = data.source_type === 'bdmv_folder' ? 'La carpeta' : 'El fichero';
-    setText('iso-missing-title', `${label} no disponible.`);
-    setText('iso-missing-text', ` ${verb} "${name}" ya no se encuentra en /mnt/isos.`);
+    const verb = data.source_type === 'bdmv_folder' ? tr('tab1.la_carpeta') : tr('tab1.el_fichero');
+    setText('iso-missing-title', tr('tab1.no_disponible', {label: label}));
+    setText('iso-missing-text', tr('tab1.ya_no_se_encuentra_en_mnt', {verb: verb, name: name}));
     show('iso-missing-banner');
   } else {
     hide('iso-missing-banner');
@@ -2480,7 +2480,7 @@ async function setTrackMode(trackKind, mode) {
     currentSession = updated;
     renderProjectPanel(project);
     const label = trackKind === 'audio' ? 'Audio' : 'Subtítulos';
-    const modeLabel = mode === 'keep_all' ? 'Mantener todas' : 'Filtrado';
+    const modeLabel = mode === 'keep_all' ? tr('core.mantener_todas') : 'Filtrado';
     showToast(`${label}: modo «${modeLabel}» aplicado`, 'success');
   }
 }
@@ -2621,8 +2621,8 @@ function getTrackAmbiguityWarning(track) {
   if (!list.includes(lang)) return '';
   const langLit = langLiteral(lang) || lang;
   return (
-    `Pertenece a un grupo de pistas ${langLit} marcado como ambiguo en el análisis. ` +
-    `Revisa manualmente que la elegida sea la versión que querías.`
+    tr('tab1.pertenece_a_un_grupo_de_pistas', {langlit: langLit}) + ' ' +
+    tr('tab1.revisa_manualmente_que_la_elegida_sea')
   );
 }
 
@@ -2663,10 +2663,10 @@ function renderIncludedTracks(tracks) {
         raw.description ? `Canales / frecuencia: ${raw.description}` : null,
         raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
         raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
-        raw.compression_mode ? `Compresión: ${raw.compression_mode}` : null,
-        `Posición en MKV: #${flatIdx + 1}`,
+        raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
+        tr('tab1.posicion_en_mkv', {p1: flatIdx + 1}),
         '',
-        `Razón: ${track.selection_reason || '—'}`,
+        tr('tab1.razon', {p1: track.selection_reason || '—'}),
       ].filter(Boolean).join('\n');
       // Línea informativa idéntica a la de descartadas: idioma · codec ·
       // descripción · bitrate. Antes omitíamos idioma+codec asumiendo que el
@@ -2691,7 +2691,7 @@ function renderIncludedTracks(tracks) {
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
         <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="grafico"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
@@ -2728,12 +2728,12 @@ function renderIncludedTracks(tracks) {
         `Codec: PGS (Presentation Graphics)`,
         `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
         `Tipo: ${subTypeLabel}`,
-        raw.resolution ? `Resolución: ${raw.resolution}` : null,
+        raw.resolution ? tr('tab1.resolucion', {resolution: raw.resolution}) : null,
         packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
-        raw.bitrate_kbps ? `Bitrate sintético: ${raw.bitrate_kbps} kbps` : null,
-        `Posición en MKV: #${flatIdx + 1}`,
+        raw.bitrate_kbps ? tr('tab1.bitrate_sintetico_kbps', {bitrate_kbps: raw.bitrate_kbps}) : null,
+        tr('tab1.posicion_en_mkv', {p1: flatIdx + 1}),
         '',
-        `Razón: ${track.selection_reason || '—'}`,
+        tr('tab1.razon', {p1: track.selection_reason || '—'}),
       ].filter(Boolean).join('\n');
       const pktTag = packets > 0 ? ` · ${packets.toLocaleString()} paq.` : '';
       const rawLine = `PGS · ${langLiteral(raw.language)} · ${subTypeLabel}${pktTag}`;
@@ -2744,7 +2744,7 @@ function renderIncludedTracks(tracks) {
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
         <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="etiqueta"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
@@ -2861,7 +2861,7 @@ function discardTrack(idx) {
   currentSession.discarded_tracks.push({
     track_type: track.track_type,
     raw: track.raw,
-    discard_reason: 'Descartada manualmente por el usuario',
+    discard_reason: tr('tab1.descartada_manualmente_por_el_usuario'),
   });
   currentSession.included_tracks.forEach((t, i) => { t.position = i; });
   renderIncludedTracks(currentSession.included_tracks);
@@ -2931,20 +2931,20 @@ function renderDiscardedTracks(tracks) {
           raw.description ? `Canales / frecuencia: ${raw.description}` : null,
           raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
           raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
-          raw.compression_mode ? `Compresión: ${raw.compression_mode}` : null,
+          raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
           '',
-          `Razón del descarte: ${track.discard_reason || '—'}`,
+          tr('tab1.razon_del_descarte', {p1: track.discard_reason || '—'}),
         ].filter(s => s !== null).join('\n');
       } else {
         const packets = raw.packet_count || 0;
         tooltip = [
           `Codec: PGS (Presentation Graphics)`,
           `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
-          raw.resolution ? `Resolución: ${raw.resolution}` : null,
+          raw.resolution ? tr('tab1.resolucion', {resolution: raw.resolution}) : null,
           packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
-          raw.bitrate_kbps ? `Bitrate sintético: ${raw.bitrate_kbps} kbps` : null,
+          raw.bitrate_kbps ? tr('tab1.bitrate_sintetico_kbps', {bitrate_kbps: raw.bitrate_kbps}) : null,
           '',
-          `Razón del descarte: ${track.discard_reason || '—'}`,
+          tr('tab1.razon_del_descarte', {p1: track.discard_reason || '—'}),
         ].filter(s => s !== null).join('\n');
       }
 
@@ -2970,7 +2970,7 @@ function renderDiscardedTracks(tracks) {
       const div = document.createElement('div');
       div.className = 'discarded-item' + (ambigWarn ? ' has-ambiguity' : '');
       div.innerHTML = `
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">${icon}</span>
         <div class="discarded-body">
           <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
@@ -3003,9 +3003,9 @@ function showRawAnalysisData() {
   const lines = [];
 
   lines.push(`═══════════════════════════════════════════════`);
-  lines.push(`  DATOS DE ANÁLISIS DEL ISO`);
+  lines.push(tr('tab1.datos_de_analisis_del_iso'));
   lines.push(`═══════════════════════════════════════════════`);
-  lines.push(`Sesión: ${s.id}`);
+  lines.push(tr('tab1.sesion', {id: s.id}));
   lines.push(`ISO: ${s.iso_path}`);
   lines.push(`MKV: ${s.mkv_name}`);
   lines.push(`FEL: ${s.has_fel} | Audio DCP: ${s.audio_dcp}`);
@@ -3018,12 +3018,12 @@ function showRawAnalysisData() {
     const container = raw.container?.properties || {};
 
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  MKVMERGE -J RAW (sin heurísticas)`);
+    lines.push(tr('tab1.mkvmerge_j_raw_sin_heuristicas'));
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`MPLS: ${raw.file_name || '—'}`);
-    lines.push(`Duración raw: ${container.playlist_duration || 0} (${(container.playlist_duration / 1e9)?.toFixed(1) || '?'}s)`);
-    lines.push(`Tamaño playlist: ${container.playlist_size || 0} bytes`);
-    lines.push(`Capítulos raw: ${container.playlist_chapters || 0}`);
+    lines.push(tr('tab1.duracion_raw_s', {p1: container.playlist_duration || 0, p2: (container.playlist_duration / 1e9)?.toFixed(1) || '?'}));
+    lines.push(tr('tab1.tamano_playlist_bytes', {p1: container.playlist_size || 0}));
+    lines.push(tr('tab1.capitulos_raw', {p1: container.playlist_chapters || 0}));
     lines.push('');
 
     rawTracks.forEach((t, i) => {
@@ -3045,7 +3045,7 @@ function showRawAnalysisData() {
   // ── SECCIÓN 2: Post-heurística ──
   if (bd) {
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  POST-HEURÍSTICA (resultado del análisis)`);
+    lines.push(tr('tab1.post_heuristica_resultado_del_analisis'));
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`Duración: ${bd.duration_seconds?.toFixed(1)}s | VO: ${bd.vo_language} | MPLS: ${bd.main_mpls}`);
     lines.push(`FEL: ${bd.has_fel} | Razón: ${bd.fel_reason}`);
@@ -3067,7 +3067,7 @@ function showRawAnalysisData() {
     });
     lines.push('');
 
-    lines.push(`── Subtítulos adaptado (${bd.subtitle_tracks?.length || 0} pistas) ──`);
+    lines.push(tr('tab1.subtitulos_adaptado_pistas', {p1: bd.subtitle_tracks?.length || 0}));
     (bd.subtitle_tracks || []).forEach((t, i) => {
       const pkts = t.packet_count || 0;
       let tipo, extra;
@@ -3075,8 +3075,8 @@ function showRawAnalysisData() {
         tipo = pkts < 500 ? 'FORZADO' : 'COMPLETO';
         extra = `packets=${pkts}`;
       } else {
-        tipo = t.bitrate_kbps < 3 ? 'FORZADO (patrón)' : 'COMPLETO (patrón)';
-        extra = `bitrate_sintético=${t.bitrate_kbps}`;
+        tipo = t.bitrate_kbps < 3 ? tr('tab1.forzado_patron') : tr('tab1.completo_patron');
+        extra = tr('tab1.bitrate_sintetico', {bitrate_kbps: t.bitrate_kbps});
       }
       lines.push(`  #${i+1} lang="${t.language}" | ${extra} → ${tipo}`);
     });
@@ -3089,7 +3089,7 @@ function showRawAnalysisData() {
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`  MEDIAINFO (${mi.source_path || bd.main_m2ts || '—'})`);
     lines.push(`═══════════════════════════════════════════════`);
-    if (mi.source_size_bytes) lines.push(`Tamaño m2ts: ${_fmtBytes(mi.source_size_bytes)}`);
+    if (mi.source_size_bytes) lines.push(tr('tab1.tamano_m2ts', {source_size_bytes: _fmtBytes(mi.source_size_bytes)}));
     (mi.tracks || []).forEach((t, i) => {
       const parts = [`type=${t.track_type}`];
       if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString()} kbps`);
@@ -3143,7 +3143,7 @@ function showRawAnalysisData() {
 
   // ── SECCIÓN 3: Resultado de reglas (Fase B) ──
   lines.push(`═══════════════════════════════════════════════`);
-  lines.push(`  RESULTADO DE REGLAS (Fase B)`);
+  lines.push(tr('tab1.resultado_de_reglas_fase_b'));
   lines.push(`═══════════════════════════════════════════════`);
 
   lines.push(`── Pistas incluidas (${s.included_tracks?.length || 0}) ──`);
@@ -3151,11 +3151,11 @@ function showRawAnalysisData() {
     const raw = t.raw || {};
     if (t.track_type === 'audio') {
       lines.push(`  ${i+1}. [AUDIO] label="${t.label}" | default=${t.flag_default} | raw: lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"`);
-      lines.push(`         razón: ${t.selection_reason || '—'}`);
+      lines.push(tr('tab1.razon_2', {p1: t.selection_reason || '—'}));
     } else {
       const pktInfo = raw.packet_count ? ` packets=${raw.packet_count}` : ` bitrate=${raw.bitrate_kbps}`;
       lines.push(`  ${i+1}. [SUB] label="${t.label}" | tipo=${t.subtitle_type} | default=${t.flag_default} | forced=${t.flag_forced} | raw: lang="${raw.language}"${pktInfo}`);
-      lines.push(`         razón: ${t.selection_reason || '—'}`);
+      lines.push(tr('tab1.razon_2', {p1: t.selection_reason || '—'}));
     }
   });
   lines.push('');
@@ -3171,7 +3171,7 @@ function showRawAnalysisData() {
       const pktInfo = raw.packet_count ? `packets=${raw.packet_count}` : `bitrate=${raw.bitrate_kbps}`;
       lines.push(`  ${i+1}. [SUB] lang="${raw.language}" ${pktInfo}`);
     }
-    lines.push(`         razón: ${t.discard_reason}`);
+    lines.push(tr('tab1.razon_3', {discard_reason: t.discard_reason}));
   });
   lines.push('');
 
@@ -3184,7 +3184,7 @@ function showRawAnalysisData() {
   if (s.analysis_log && s.analysis_log.length) {
     lines.push('');
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  LOG DE ANÁLISIS (Fase A — capturado al crear)`);
+    lines.push(tr('tab1.log_de_analisis_fase_a_capturado'));
     lines.push(`═══════════════════════════════════════════════`);
     s.analysis_log.forEach(l => lines.push(l));
   }
@@ -3199,7 +3199,7 @@ async function _copyRawAnalysis() {
   const pre = document.getElementById('raw-analysis-content');
   if (!pre) return;
   const ok = await _copyTextToClipboardWithFallback(pre.textContent);
-  showToast(ok ? 'Datos copiados al portapapeles.' : 'No se pudo copiar al portapapeles', ok ? 'success' : 'error');
+  showToast(ok ? tr('tab1.datos_copiados_al_portapapeles') : tr('tab1.no_se_pudo_copiar_al_portapapeles'), ok ? 'success' : 'error');
 }
 
 /**
@@ -3213,13 +3213,13 @@ function showRawMkvData() {
   const lines = [];
 
   lines.push(`═══════════════════════════════════════════════`);
-  lines.push(`  DATOS DE ANÁLISIS DEL MKV`);
+  lines.push(tr('tab1.datos_de_analisis_del_mkv'));
   lines.push(`═══════════════════════════════════════════════`);
   lines.push(`Fichero: ${a.file_name || '—'}`);
   lines.push(`Ruta: ${a.file_path || '—'}`);
-  lines.push(`Tamaño: ${_fmtBytes(a.file_size_bytes || 0)}`);
-  lines.push(`Duración: ${_fmtDuration(a.duration_seconds || 0)}`);
-  if (a.title) lines.push(`Título contenedor: ${a.title}`);
+  lines.push(tr('tab1.tamano', {p1: _fmtBytes(a.file_size_bytes || 0)}));
+  lines.push(tr('tab1.duracion_2', {p1: _fmtDuration(a.duration_seconds || 0)}));
+  if (a.title) lines.push(tr('tab1.titulo_contenedor', {title: a.title}));
   lines.push(`FEL: ${!!a.has_fel}`);
   lines.push('');
 
@@ -3283,7 +3283,7 @@ function showRawMkvData() {
   // ── CAPÍTULOS ──
   if (a.chapters?.length) {
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  CAPÍTULOS (${a.chapters.length})`);
+    lines.push(tr('tab1.capitulos', {p1: a.chapters.length}));
     lines.push(`═══════════════════════════════════════════════`);
     a.chapters.forEach(ch => {
       lines.push(`  ${ch.number}. ${ch.timestamp} — "${ch.name}"${ch.name_custom ? ' (editado)' : ''}`);
@@ -3294,7 +3294,7 @@ function showRawMkvData() {
   // ── LOG DE ANÁLISIS (paralelo al de Tab 1) ──
   if (a.analysis_log && a.analysis_log.length) {
     lines.push(`═══════════════════════════════════════════════`);
-    lines.push(`  LOG DE ANÁLISIS (capturado al abrir MKV)`);
+    lines.push(tr('tab1.log_de_analisis_capturado_al_abrir'));
     lines.push(`═══════════════════════════════════════════════`);
     a.analysis_log.forEach(l => lines.push(l));
   }
@@ -3399,8 +3399,8 @@ function recoverTrack(idx) {
     label: fullLabel,
     flag_default: false,
     flag_forced: setForcedFlag,
-    selection_reason: 'Recuperada manualmente por el usuario'
-      + (!isAudio ? ` (tipo inferido por Fase B: ${inferredSubType}${isForcedSub && !setForcedFlag ? ' — sin flag forced de Matroska porque no es Castellano' : ''})` : ''),
+    selection_reason: tr('tab1.recuperada_manualmente_por_el_usuario')
+      + (!isAudio ? tr('tab1.tipo_inferido_por_fase_b', {inferredsubtype: inferredSubType, p2: isForcedSub && !setForcedFlag ? ' ' + tr('tab1.sin_flag_forced_de_matroska_porque') : ''}) : ''),
     language_literal: langLit,
     codec_literal: codecLit,
     subtitle_type: isForcedSub ? 'forced' : 'complete',
@@ -3550,7 +3550,7 @@ function renderChapterMarks(chapters) {
     const mark  = document.createElement('div');
     mark.className = 'chapter-mark';
     mark.style.left = `${pct}%`;
-    mark.dataset.tooltip = `${ch.name}\n${ch.timestamp}\nArrastra para mover · clic para seleccionar`;
+    mark.dataset.tooltip = tr('tab1.n_narrastra_para_mover_clic_para', {name: ch.name, timestamp: ch.timestamp});
     mark.onclick    = (e) => { e.stopPropagation(); highlightChapter(idx); };
     mark.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); startChapterDrag(e, mark, idx); };
     marks.appendChild(mark);
@@ -3717,7 +3717,7 @@ function onChapterNameChange(idx, value) {
   // Actualizar tooltip del mark inmediatamente
   const markEls = document.querySelectorAll('.chapter-mark');
   if (markEls[idx]) {
-    markEls[idx].dataset.tooltip = `${ch.name}\n${ch.timestamp}\nArrastra para mover · clic para seleccionar`;
+    markEls[idx].dataset.tooltip = tr('tab1.n_narrastra_para_mover_clic_para', {name: ch.name, timestamp: ch.timestamp});
   }
   // Re-evaluar botones del banner (nombres genéricos, restaurar)
   const resetBtn = E('chapters-reset-btn');
@@ -3737,7 +3737,7 @@ function renumberChapters(chapters) {
   chapters.forEach((ch, i) => {
     ch.number = i + 1;
     if (!ch.name_custom) {
-      ch.name = `Capítulo ${String(ch.number).padStart(2, '0')}`;
+      ch.name = tr('tab1.capitulo', {p1: String(ch.number).padStart(2, '0')});
     }
   });
 }
@@ -3754,14 +3754,14 @@ function setGenericChapterNames() {
   if (!currentSession?.chapters) return;
 
   currentSession.chapters.forEach((ch, i) => {
-    ch.name = `Capítulo ${String(i + 1).padStart(2, '0')}`;
+    ch.name = tr('tab1.capitulo', {p1: String(i + 1).padStart(2, '0')});
     ch.name_custom = false;
   });
 
   _markChaptersModified();
   renderChapters(currentSession.chapters, currentSession.chapters_auto_generated, currentSession.chapters_auto_reason);
   markProjectDirty();
-  showToast('Nombres de capítulo reemplazados por genéricos.', 'info');
+  showToast(tr('tab1.nombres_de_capitulo_reemplazados_por_genericos'), 'info');
 }
 
 
@@ -3771,12 +3771,12 @@ async function resetChaptersFromDisc() {
   const auto = currentSession.chapters_auto_generated;
 
   showConfirm(
-    auto ? '¿Extraer capítulos reales del disco?' : '¿Restaurar capítulos del disco?',
+    auto ? tr('tab1.extraer_capitulos_reales_del_disco') : tr('tab1.restaurar_capitulos_del_disco'),
     auto
-      ? 'Se extraerán los capítulos originales del disco (MPLS) y reemplazarán a los automáticos cada 10 minutos. Algunos discos UHD multi-segmento solo se pueden leer así.'
-      : 'Se descartarán todas las ediciones manuales (nombres, posiciones, capítulos añadidos/eliminados) y se volverán a extraer los capítulos originales del ISO.',
+      ? tr('tab1.se_extraeran_los_capitulos_originales_del')
+      : tr('tab1.se_descartaran_todas_las_ediciones_manuales'),
     async () => {
-      const toastId = showToast('Montando ISO y extrayendo capítulos…', 'info', 0);
+      const toastId = showToast(tr('tab1.montando_iso_y_extrayendo_capitulos'), 'info', 0);
       const data = await apiFetch(`/api/sessions/${sessionId}/reset-chapters`,
                                   { method: 'POST' }, API_FETCH_TIMEOUT_LARGO);
       removeToast(toastId);
@@ -3789,7 +3789,7 @@ async function resetChaptersFromDisc() {
 
       _chaptersModified.set(activeSubTabId, false);
       renderChapters(data.chapters, data.chapters_auto_generated, data.chapters_auto_reason);
-      showToast(`${data.chapters.length} capítulos restaurados del disco.`, 'success');
+      showToast(tr('tab1.capitulos_restaurados_del_disco', {p1: data.chapters.length}), 'success');
     },
   );
 }
@@ -3848,7 +3848,7 @@ function _classifyDvStatus(session) {
   }
   if (dv && dv.profile === 7 && dv.el_type === 'MEL') {
     return { label: 'Dolby Vision MEL', icon: 'claqueta', cls: 'dv-mel', detail,
-             note: 'Capa de mejora mínima — sin residuals de color. El MKV no lleva tag [DV FEL].',
+             note: tr('tab1.capa_de_mejora_minima_sin_residuals'),
              unconfirmed: false };
   }
   if (dv) {
@@ -3861,16 +3861,16 @@ function _classifyDvStatus(session) {
     const how = (bd.fel_reason || '').split('. ')[0];
     return {
       label: 'Dolby Vision dual-layer', icon: 'claqueta', cls: 'dv-unconfirmed',
-      detail: how || 'Enhancement Layer presente en el disco',
-      note: 'dovi_tool no pudo confirmar si la capa es FEL o MEL — se asume FEL (mira «Datos ISO»).',
+      detail: how || tr('tab1.enhancement_layer_presente_en_el_disco'),
+      note: tr('tab1.dovi_tool_no_pudo_confirmar_si'),
       unconfirmed: true,
     };
   }
   // Sin Dolby Vision: describir el HDR que sí trae el disco.
   const hdrFmt = mainVid?.hdr?.hdr_format || '';
   return {
-    label: 'Sin Dolby Vision', icon: 'cinta', cls: 'dv-none',
-    detail: hdrFmt ? `El disco es ${hdrFmt} sin capa Dolby Vision` : (bd.fel_reason || ''),
+    label: tr('tab1.sin_dolby_vision'), icon: 'cinta', cls: 'dv-none',
+    detail: hdrFmt ? tr('tab1.el_disco_es_sin_capa_dolby', {hdrfmt: hdrFmt}) : (bd.fel_reason || ''),
     note: '', unconfirmed: false,
   };
 }
@@ -3895,7 +3895,7 @@ function _renderTamanoEstimado(session) {
   if (!bytes || bytes <= 0) { chip.style.display = 'none'; return; }
   const gb = bytes / 1e9;
   const texto = gb >= 10 ? gb.toFixed(0) : gb.toFixed(1);
-  chip.innerHTML = icono('caja') + ` Ocupará ~${escHtml(texto)} GB`;
+  chip.innerHTML = icono('caja') + tr('tab1.ocupara_gb', {texto: escHtml(texto)});
   chip.style.display = '';
 }
 
@@ -3920,7 +3920,7 @@ function _renderDvStatusCard(session) {
   const tag = E('dv-tag');
   if (tag) {
     if (session.has_fel) {
-      tag.textContent = st.unconfirmed ? '[DV FEL] · sin confirmar' : '[DV FEL]';
+      tag.textContent = st.unconfirmed ? tr('tab1.dv_fel_sin_confirmar') : '[DV FEL]';
       tag.style.display = '';
     } else {
       tag.style.display = 'none';
@@ -3956,7 +3956,7 @@ function _renderVideoHdrCard(session) {
   if (hdr?.transfer_characteristics) colorParts.push(hdr.transfer_characteristics);
   const master = _formatMasteringLuminance(hdr?.mastering_display_luminance);
   if (master) colorParts.push(master);
-  setText('vhdr-color', colorParts.join(' · ') || (hdr ? '' : 'Sin datos de MediaInfo'));
+  setText('vhdr-color', colorParts.join(' · ') || (hdr ? '' : tr('tab1.sin_datos_de_mediainfo')));
 }
 
 /**
@@ -4029,7 +4029,7 @@ async function saveSession() {
     }),
   });
   if (data) {
-    showToast('Sesión guardada.', 'success');
+    showToast(tr('tab1.sesion_guardada'), 'success');
     const project = getActiveProject();
     if (project) clearProjectDirty(project.id);
     // El chip del tamaño describe la selección GUARDADA, y el PUT devuelve
@@ -4060,14 +4060,14 @@ async function executeSession() {
   if (!check.available) {
     const name = (check.iso_path || '').replace(/\\/g, '/').split('/').pop();
     const label = check.source_label || 'ISO';
-    const verb = check.source_type === 'bdmv_folder' ? 'La carpeta' : 'El fichero';
-    showToast(`${label} no disponible: "${name}" no está en /mnt/isos. No se puede ejecutar.`, 'error');
+    const verb = check.source_type === 'bdmv_folder' ? tr('tab1.la_carpeta') : tr('tab1.el_fichero');
+    showToast(tr('tab1.no_disponible_no_esta_en_mnt', {label: label, name: name}), 'error');
     // Actualizar banner por si no estaba visible
     project.isoAvailable = false;
     const prevSubTab = activeSubTabId;
     activeSubTabId = project.id;
-    setText('iso-missing-title', `${label} no disponible.`);
-    setText('iso-missing-text', ` ${verb} "${name}" ya no se encuentra en /mnt/isos.`);
+    setText('iso-missing-title', tr('tab1.no_disponible', {label: label}));
+    setText('iso-missing-text', tr('tab1.ya_no_se_encuentra_en_mnt', {verb: verb, name: name}));
     show('iso-missing-banner');
     activeSubTabId = prevSubTab;
     return;
@@ -4075,7 +4075,7 @@ async function executeSession() {
 
   showConfirm(
     'Ejecutar proyecto',
-    `Se añadirá a la cola de ejecución:\n\n"${currentSession.mkv_name || 'MKV'}"\n\nSi hay otros trabajos en espera, se ejecutará cuando les toque.`,
+    tr('tab1.se_anadira_a_la_cola_de', {p1: currentSession.mkv_name || 'MKV'}),
     _doExecute,
     'Ejecutar'
   );
@@ -4091,8 +4091,8 @@ async function _doExecute() {
 
   const queuePos = data.queue?.length || 0;
   showToast(queuePos > 0
-    ? `Añadido a la cola en posición ${queuePos}. Sigue el progreso en "Trabajos en Curso".`
-    : 'Iniciando extracción… Sigue el progreso en "Trabajos en Curso".', 'success');
+    ? tr('tab1.anadido_a_la_cola_en_posicion', {queuepos: queuePos})
+    : tr('tab1.iniciando_extraccion_sigue_el_progreso_en'), 'success');
 
   // Actualizar proyecto abierto: ahora está queued/running
   refreshOpenProjectState(sid);
@@ -4121,7 +4121,7 @@ function renderExecResultBanner(session) {
     banner.style.display = '';
     banner.className = 'banner info';
     icon.innerHTML = icono(session.status === 'running' ? 'reloj' : 'pausa');
-    title.textContent = session.status === 'running' ? 'Ejecución en curso…' : 'En cola de ejecución';
+    title.textContent = session.status === 'running' ? tr('tab1.ejecucion_en_curso') : tr('tab1.en_cola_de_ejecucion');
     detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
       ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')"
@@ -4282,10 +4282,10 @@ function renderExecuteArea() {
     btn.innerHTML = icono('refrescar') + ' Re-ejecutar';
   } else if (session?.status === 'running' || session?.status === 'queued') {
     btn.disabled = true;
-    btn.innerHTML = icono('reloj') + ' En ejecución…';
+    btn.innerHTML = icono('reloj') + ' ' + tr('tab1.en_ejecucion');
   } else {
     btn.disabled = false;
-    btn.innerHTML = icono('play') + ' Confirmar y ejecutar';
+    btn.innerHTML = icono('play') + ' ' + tr('core.confirmar_y_ejecutar');
   }
 }
 
@@ -4411,7 +4411,7 @@ function handleExecutionWsMessage(msg) {
     _lastTerminalToastSessionId = finishedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     updateSubtabQueuePill();
-    showToast('Ejecución completada.', 'success');
+    showToast(tr('tab1.ejecucion_completada'), 'success');
     loadSessions();
     // Actualizar proyecto abierto en tiempo real
     if (finishedId) refreshOpenProjectState(finishedId);
@@ -4426,7 +4426,7 @@ function handleExecutionWsMessage(msg) {
     _lastTerminalToastSessionId = cancelledId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     updateSubtabQueuePill();
-    showToast('Ejecución cancelada. Temporales limpiados.', 'info');
+    showToast(tr('tab1.ejecucion_cancelada_temporales_limpiados'), 'info');
     loadSessions();
     if (cancelledId) refreshOpenProjectState(cancelledId);
     return;
@@ -4440,7 +4440,7 @@ function handleExecutionWsMessage(msg) {
     _lastTerminalToastSessionId = failedId;
     if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
     updateSubtabQueuePill();
-    showToast('Error en la ejecución. Revisa el historial del proyecto.', 'error');
+    showToast(tr('tab1.error_en_la_ejecucion_revisa_el'), 'error');
     loadSessions();
     // Actualizar proyecto abierto en tiempo real
     if (failedId) refreshOpenProjectState(failedId);
@@ -4497,7 +4497,7 @@ function handleExecutionWsMessage(msg) {
 
 
 
-/** No-op: el sub-tab "Trabajos en Curso" ya no muestra contador ni icono dinámico. */
+/** No-op: el sub-tab tr('tab1.trabajos_en_curso') ya no muestra contador ni icono dinámico. */
 /** Actualiza indicadores de ejecución: tab principal + sidebar proyectos. */
 function updateSubtabQueuePill() {
   const running = !!queueState.running;
@@ -4573,7 +4573,7 @@ let _lastConfiguredSourceType = null;
 async function cancelQueueItem(sessionId) {
   const data = await apiFetch(`/api/queue/${sessionId}`, { method: 'DELETE' });
   if (data !== null) {
-    showToast('Trabajo eliminado de la cola.', 'info');
+    showToast(tr('tab1.trabajo_eliminado_de_la_cola'), 'info');
     // Refrescar proyecto abierto y sidebar
     refreshOpenProjectState(sessionId);
     loadSessions();
@@ -4588,7 +4588,7 @@ async function cancelQueueItem(sessionId) {
 async function cancelRunningSession(sessionId) {
   const data = await apiFetch(`/api/sessions/${sessionId}/cancel`, { method: 'POST' });
   if (data && data.ok) {
-    showToast('Cancelando ejecución… Se cerrará el origen y se limpiarán los temporales.', 'info');
+    showToast(tr('tab1.cancelando_ejecucion_se_cerrara_el_origen'), 'info');
   }
 }
 
@@ -4608,7 +4608,7 @@ async function cancelRunningSession(sessionId) {
 function downloadSessionLog(sessionId) {
   const session = _sessionsCache.find(s => s.id === sessionId);
   if (!session) return;
-  const text = session.output_log?.length ? session.output_log.join('\n') : '(sin log)';
+  const text = session.output_log?.length ? session.output_log.join('\n') : tr('tab1.sin_log');
   const name = (session.mkv_name || sessionId).replace(/\.mkv$/i, '');
   _downloadText(text, `${name}.log.txt`);
 }
@@ -4636,7 +4636,7 @@ function showLogModal(idx) {
   const status  = icono(isDone ? 'check' : 'cruz') + (isDone ? ' Completada' : ' Error');
 
   document.getElementById('log-viewer-title').innerHTML =
-    icono('portapapeles') + ` Log — Ejecución #${rec.run_number}`;
+    icono('portapapeles') + tr('tab1.log_ejecucion', {run_number: rec.run_number});
   // innerHTML: `status` lleva dentro el SVG del icono, y textContent lo
   // escribiría como código. La fecha va escapada aparte.
   document.getElementById('log-viewer-sub').innerHTML = `${status} · ${escHtml(dateStr)}`;
@@ -4670,7 +4670,7 @@ function showLogModal(idx) {
 function downloadExecLog(idx) {
   const rec = _getExecRecord(idx);
   if (!rec) return;
-  const text = rec.output_log?.length ? rec.output_log.join('\n') : '(sin log)';
+  const text = rec.output_log?.length ? rec.output_log.join('\n') : tr('tab1.sin_log');
   const name = (currentSession?.mkv_name || 'session').replace(/\.mkv$/i, '');
   _downloadText(text, `${name}_run${rec.run_number}.log.txt`);
 }
@@ -4813,8 +4813,8 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     return await resp.json();
   } catch (e) {
     const msg = e.name === 'AbortError'
-      ? `Timeout: el servidor no respondió en ${timeoutMs / 1000}s`
-      : `Error de red: ${e.message}`;
+      ? tr('tab1.timeout_el_servidor_no_respondio_en', {p1: timeoutMs / 1000})
+      : tr('tab1.error_de_red', {message: e.message});
     if (!silent) showToast(msg, 'error');
     console.warn(`[Error red] ${url}: ${msg}`);
     return null;
@@ -4840,14 +4840,14 @@ document.head.appendChild(spinStyle);
  */
 function _ripTimelineHTML(a, sesion) {
   const FASES = [
-    ['mount',   'disco', 'Fase A · Apertura del origen',
-     'Monta el ISO o valida la estructura BDMV'],
-    ['extract', 'cinta', 'Fase B · Extracción de pistas',
-     'mkvmerge copia vídeo, audio y subtítulos sin recodificar'],
-    ['write',   'etiqueta', 'Fase C · Escritura de metadatos',
-     'Nombres de pista, flags default/forced y capítulos'],
-    ['unmount', 'omitida', 'Fase D · Cierre del origen',
-     'Desmonta el ISO y elimina los ficheros intermedios'],
+    ['mount',   'disco', tr('tab1.fase_a_apertura_del_origen'),
+     tr('tab1.monta_el_iso_o_valida_la')],
+    ['extract', 'cinta', tr('tab1.fase_b_extraccion_de_pistas'),
+     tr('tab1.mkvmerge_copia_video_audio_y_subtitulos')],
+    ['write',   'etiqueta', tr('tab1.fase_c_escritura_de_metadatos'),
+     tr('tab1.nombres_de_pista_flags_default_forced')],
+    ['unmount', 'omitida', tr('tab1.fase_d_cierre_del_origen'),
+     tr('tab1.desmonta_el_iso_y_elimina_los')],
   ];
   const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
   const elapsed = ejec.phase_elapsed || {};
@@ -4869,7 +4869,7 @@ function _ripTimelineHTML(a, sesion) {
       nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
     };
   });
-  return timelineDeTrabajo(pasos, a, 'Fases de la conversión');
+  return timelineDeTrabajo(pasos, a, tr('tab1.fases_de_la_conversion'));
 }
 
 
@@ -4903,21 +4903,21 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     // La serie no guarda su `tmdb_info` en el progreso —lo tiene cada sesión
     // de episodio, que aún no existe—, así que la cartela es el nombre.
     cartel: cartelDeTmdb(null, p?.series_name || a.que, icono('tv', 'ico-xl')),
-    pasosTitulo: 'Fases del análisis',
+    pasosTitulo: tr('tab1.fases_del_analisis'),
     pasos: [
-      { icono: 'disco', titulo: 'Fase A · Apertura del origen',
-        sub: 'Monta el origen y localiza las playlists de cada episodio' },
-      { icono: 'lupa', titulo: 'Fase B · Análisis por episodio',
-        sub: 'Pistas, capítulos, subtítulos PGS y Dolby Vision' },
-      { icono: 'carpeta', titulo: 'Fase C · Creación de proyectos',
-        sub: 'Un proyecto por episodio, con las reglas ya aplicadas' },
+      { icono: 'disco', titulo: tr('tab1.fase_a_apertura_del_origen'),
+        sub: tr('tab1.monta_el_origen_y_localiza_las') },
+      { icono: 'lupa', titulo: tr('tab1.fase_b_analisis_por_episodio'),
+        sub: tr('tab1.pistas_capitulos_subtitulos_pgs_y_dolby') },
+      { icono: 'carpeta', titulo: tr('tab1.fase_c_creacion_de_proyectos'),
+        sub: tr('tab1.un_proyecto_por_episodio_con_las') },
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
-      ['Episodio en curso', p?.current_episode_title || '—'],
+      [tr('tab1.episodio_en_curso'), p?.current_episode_title || '—'],
       ['Paso', a.paso || '—'],
       ['Episodios analizados', `${hechos} de ${p?.total || 0}`],
-      ['Con error', fallidos || '—'],
+      [tr('ui.con_error'), fallidos || '—'],
       ['Muestreo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
     ]),
   };

@@ -46,7 +46,8 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, pieza_de, pintar_en, sistema_de_iconos  # noqa: E402
+from frontend_sources import (motor_i18n,  # noqa: E402
+                              html, js_completo, pieza_de, pintar_en, sistema_de_iconos)
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -281,7 +282,7 @@ class ColumnaEnNode(unittest.TestCase):
         # es, y `node -e` no admite await en el nivel superior.
         envuelto = ("(async () => {\n" + guion
                     + "\n})().catch(e => { console.error(e); process.exit(1); });")
-        script = "\n".join([DOM, ESTADO, sistema_de_iconos(),
+        script = "\n".join([motor_i18n(), DOM, ESTADO, sistema_de_iconos(),
                              *(_constante(c) for c in CONSTANTES),
                              *(_funcion(n) for n in FUNCIONES), envuelto])
         r = subprocess.run([NODE, "-e", script],

@@ -140,7 +140,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // asíncrono todo lo que sigue, y el navegador puede pintar antes de que
   // los iconos y los tooltips existan.
   _observarTextos();
-  catalogoListo.then(pintarTextos);
+  // `.then(() => pintarTextos())` y NO `.then(pintarTextos)`: la promesa
+  // resuelve con el código de idioma, así que pasándola directa se llamaba
+  // `pintarTextos('es')` y el barrido no encontraba ni un nodo — la interfaz
+  // estática salía VACÍA, con solo los 4 nodos que pinta el observador
+  // después. Sin error de consola. Lo cazó el test que cuenta cuántos se
+  // pintan; los otros miraban HTML devuelto por funciones, no el marcado.
+  catalogoListo.then(() => pintarTextos());
   TooltipManager.init();
   loadSessions();
   checkAppStatus();
@@ -491,7 +497,7 @@ function openProject(session) {
   }
 
   if (openProjects.length >= MAX_PROJECTS) {
-    showToast(`Máximo ${MAX_PROJECTS} proyectos abiertos. Cierra uno antes de abrir otro.`, 'warning');
+    showToast(tr('core.maximo_proyectos_abiertos_cierra_uno_antes', {max_projects: MAX_PROJECTS}), 'warning');
     return null;
   }
 
@@ -901,16 +907,16 @@ function closeProject(pid, e) {
   if (project.dirty) {
     showConfirm(
       'Cerrar proyecto',
-      `"${project.name}" tiene cambios sin ejecutar.`,
+      tr('core.tiene_cambios_sin_ejecutar', {name: project.name}),
       () => _doCloseProject(pid),
-      'Cerrar sin guardar',
+      tr('core.cerrar_sin_guardar'),
     );
     // Botón guardar y cerrar — limpiar cualquier botón extra previo antes de insertar
     const okBtn = document.getElementById('confirm-ok-btn');
     okBtn.parentNode.querySelectorAll('.confirm-extra-btn').forEach(b => b.remove());
     const saveCloseBtn = document.createElement('button');
     saveCloseBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    saveCloseBtn.innerHTML = icono('caja') + ' Guardar y cerrar';
+    saveCloseBtn.innerHTML = icono('caja') + ' ' + tr('core.guardar_y_cerrar');
     saveCloseBtn.onclick = async () => {
       closeModal('confirm-modal');
       const activeBackup = activeSubTabId;
@@ -940,8 +946,8 @@ function _avisarSiCerramosUnRipEnMarcha(project) {
   if (estado !== 'running' && estado !== 'queued') return;
   showToast(
     estado === 'running'
-      ? `"${project.name}" sigue ejecutándose — míralo en la Cola`
-      : `"${project.name}" sigue en la cola — míralo en la Cola`,
+      ? tr('core.sigue_ejecutandose_miralo_en_la_cola', {name: project.name})
+      : tr('core.sigue_en_la_cola_miralo_en', {name: project.name}),
     'info');
 }
 
@@ -1210,7 +1216,7 @@ function avisarFinDeTrabajo(tab) {
   if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
     try {
       const n = new Notification('UHD Blu-ray Toolkit', {
-        body: `${nombre}: el trabajo ha terminado.`,
+        body: tr('core.el_trabajo_ha_terminado', {nombre: nombre}),
         tag: `hdo-fin-${tab}`,       // sustituye al anterior del mismo tab
       });
       n.onclick = () => { window.focus(); try { n.close(); } catch (_) {} };
@@ -1430,7 +1436,7 @@ async function buscarCandidatosDeFicha() {
   if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar TMDb.</div>'; return; }
   if (!r.tmdb_configured) {
     res.innerHTML = '<div class="cmv40-lookup-empty">TMDb no está disponible — '
-                  + 'no hay ninguna clave activa. Puedes poner la tuya en '
+                  + tr('core.no_hay_ninguna_clave_activa_puedes') + ' '
                   + 'Configuración.</div>';
     return;
   }
@@ -1476,9 +1482,9 @@ async function elegirFicha(i) {
   const r = await apiFetch(url, {
     method: 'POST', body: JSON.stringify({ tmdb_id: c.tmdb_id }),
   });
-  if (!r || !r.updated) { showToast('No se pudo guardar la ficha', 'error'); return; }
+  if (!r || !r.updated) { showToast(tr('core.no_se_pudo_guardar_la_ficha'), 'error'); return; }
   closeModal('ficha-modal');
-  showToast(`Ficha de «${c.title_es || c.title_en}» guardada`, 'success');
+  showToast(tr('core.ficha_de_guardada', {title_en: c.title_es || c.title_en}), 'success');
   // Repintar donde se ve: la cabecera del proyecto abierto y la columna.
   if (tipo === 'cmv40') {
     if (typeof refreshCMv40Sidebar === 'function') refreshCMv40Sidebar();

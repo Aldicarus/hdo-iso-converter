@@ -60,7 +60,7 @@ async function _refreshHeaderUpdatePill() {
     return;
   }
   pill.style.display = 'inline-flex';
-  if (txtEl) txtEl.textContent = `Nueva versión: ${data.latest}`;
+  if (txtEl) txtEl.textContent = tr('settings.nueva_version', {latest: data.latest});
 }
 
 async function _renderVersionInfo() {
@@ -104,10 +104,10 @@ function applySimulatedVersion() {
   const v = (inp?.value || '').trim();
   if (v) {
     localStorage.setItem('hdo_simulate_version', v);
-    showToast(`Simulando versión actual: ${v}`, 'info');
+    showToast(tr('settings.simulando_version_actual', {v: v}), 'info');
   } else {
     localStorage.removeItem('hdo_simulate_version');
-    showToast('Simulación desactivada', 'info');
+    showToast(tr('settings.simulacion_desactivada'), 'info');
   }
   checkForUpdates(true);
 }
@@ -116,7 +116,7 @@ function clearSimulatedVersion() {
   localStorage.removeItem('hdo_simulate_version');
   const inp = document.getElementById('settings-version-simulate-input');
   if (inp) inp.value = '';
-  showToast('Simulación desactivada', 'info');
+  showToast(tr('settings.simulacion_desactivada'), 'info');
   checkForUpdates(true);
 }
 
@@ -142,7 +142,7 @@ async function checkForUpdates(force) {
   if (pill) {
     if (data && data.update_available && data.latest) {
       pill.style.display = 'inline-flex';
-      if (pillTxt) pillTxt.textContent = `Nueva versión: ${data.latest}`;
+      if (pillTxt) pillTxt.textContent = tr('settings.nueva_version', {latest: data.latest});
     } else {
       pill.style.display = 'none';
     }
@@ -203,7 +203,7 @@ async function checkForUpdates(force) {
       const linkBtn = rel.url
         ? `<a class="settings-update-rel-link" href="${escHtml(rel.url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span></a>`
         : '';
-      const body = (rel.body || '').trim() || '_(release sin notas)_';
+      const body = (rel.body || '').trim() || tr('settings.release_sin_notas');
       return `
         <div class="settings-update-rel">
           <div class="settings-update-rel-head">
@@ -215,8 +215,8 @@ async function checkForUpdates(force) {
         </div>`;
     }).join('');
     const summaryTxt = pending.length === 1
-      ? icono('portapapeles') + ' Ver notas de versión (1 release pendiente)'
-      : icono('portapapeles') + ` Ver notas de versión (${pending.length} releases pendientes)`;
+      ? icono('portapapeles') + ' ' + tr('settings.ver_notas_de_version_1_release')
+      : icono('portapapeles') + tr('settings.ver_notas_de_version_releases_pendientes', {p1: pending.length});
     // Cerrado por defecto — el triángulo nativo es poco intuitivo;
     // usamos un botón visible con icono + texto explícito.
     notesHtml = `<details class="settings-update-notes"><summary class="settings-update-notes-toggle">${summaryTxt}</summary>${sectionsHtml}</details>`;
@@ -601,7 +601,7 @@ async function cleanupScanAndShow() {
     <table class="cleanup-table">
       <thead>
         <tr>
-          <th><input type="checkbox" id="cleanup-select-all" title="Seleccionar todo"></th>
+          <th><input type="checkbox" id="cleanup-select-all" title=tr('cmv40_modals.seleccionar_todo')></th>
           <th>Tipo</th>
           <th>Ruta</th>
           <th>Tamaño</th>
@@ -736,15 +736,15 @@ function renderAvisoFinSettings() {
   if (!avisoFinActivado()) {
     texto = 'Desactivado'; clase = 'settings-status';
   } else if (!avisoNotificacionDisponible()) {
-    texto = 'Título de la pestaña (sin HTTPS no hay notificaciones)';
+    texto = tr('settings.titulo_de_la_pestana_sin_https');
     clase = 'settings-status ok';
   } else if (Notification.permission === 'granted') {
-    texto = 'Título + notificación del escritorio'; clase = 'settings-status ok';
+    texto = tr('settings.titulo_notificacion_del_escritorio'); clase = 'settings-status ok';
   } else if (Notification.permission === 'denied') {
-    texto = 'Título de la pestaña (notificaciones bloqueadas en el navegador)';
+    texto = tr('settings.titulo_de_la_pestana_notificaciones_bloqueadas');
     clase = 'settings-status ok';
   } else {
-    texto = 'Título de la pestaña'; clase = 'settings-status ok';
+    texto = tr('settings.titulo_de_la_pestana'); clase = 'settings-status ok';
   }
   if (status) { status.textContent = texto; status.className = clase; }
 
@@ -771,12 +771,12 @@ async function onPedirPermisoNotificaciones() {
   const res = await pedirPermisoNotificaciones();
   renderAvisoFinSettings();
   if (res === 'granted') showToast('Notificaciones activadas', 'success');
-  else if (res === 'denied') showToast('Notificaciones bloqueadas en el navegador', 'info');
+  else if (res === 'denied') showToast(tr('settings.notificaciones_bloqueadas_en_el_navegador'), 'info');
 }
 
 /** Botón "Probar": dispara el aviso completo sin esperar a un job real. */
 function probarAvisoFin() {
-  if (!avisoFinActivado()) { showToast('Actívalo primero para probarlo', 'info'); return; }
+  if (!avisoFinActivado()) { showToast(tr('settings.activalo_primero_para_probarlo'), 'info'); return; }
   avisarFinDeTrabajo(1);
-  showToast('Mira el título de la pestaña — para al volver el foco', 'info', 5000);
+  showToast(tr('settings.mira_el_titulo_de_la_pestana'), 'info', 5000);
 }

@@ -21,6 +21,7 @@ Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_modal_de_trabajo -v
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -31,7 +32,8 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de  # noqa: E402
+from frontend_sources import (motor_i18n, pintar_en,  # noqa: E402
+                              sistema_de_iconos, html, js_completo, pieza_de)
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -59,10 +61,18 @@ def _iconos() -> str:
 
 
 def _node(guion: str) -> dict:
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
+    """El guion con el MOTOR de traducción delante, y el texto ya resuelto.
+
+    El frontend llama a `tr('clave')` para todo lo que se lee, así que un
+    arnés sin el motor muere con «tr is not defined» — y con el motor, las
+    aserciones siguen viendo castellano, que es lo que ya esperaban. Va aquí y
+    no en cada test por lo mismo que `sistema_de_iconos()`.
+    """
+    r = subprocess.run([NODE, "-e", motor_i18n() + guion],
+                       capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))
 
 
 ACTIVO = {
@@ -366,6 +376,7 @@ let _timerApagado = false;
 let workbarEstado = {{ activo: null, cola: [] }};
 let _trabajoModalTimer = null, _trabajoModalTipo = null;
 let _trabajoModalRef = null, _trabajoModalUltimo = null;
+let _trabajoModalVista = null;
 let _trabajoModalSinActivo = 0;
 const _workbarDetalles = {{}};
 // La vista del tipo lee su propia sesión, no el contrato: siempre tiene algo
@@ -995,9 +1006,16 @@ console.log(JSON.stringify({{ html: timelineDeTrabajo(
         i = JS.index("function borrarReciente(")
         cuerpo = JS[i:JS.index("\n}\n", i)]
         self.assertIn("showConfirm", cuerpo)
-        self.assertIn("no se tocan", cuerpo)
         self.assertIn("method: 'DELETE'", cuerpo)
         self.assertIn("inicio=", cuerpo, "la clave es id + inicio")
+        # El aviso ya no está en el fuente: es una clave del catálogo, y es
+        # ahí donde hay que comprobar que sigue diciendo qué NO se borra.
+        claves = re.findall(r"tr\('([\w.]+)'", cuerpo)
+        cat = json.loads((APP_DIR / "static" / "i18n" / "es.json")
+                         .read_text(encoding="utf-8"))
+        aviso = " ".join(cat.get(k, "") for k in claves)
+        self.assertIn("no se tocan", aviso,
+                      f"el texto de {claves} ya no dice qué se conserva")
 
 
 class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):

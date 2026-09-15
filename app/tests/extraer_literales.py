@@ -673,3 +673,132 @@ def mensajes_con_parametros_uno(ruta: Path, area: str, catalogo: dict,
             return salida, catalogo, 1
     return fuente, catalogo, 0
 
+
+
+# ── Bloque 7: las cadenas sueltas del JS ──────────────────────────────
+#
+# Lo que no es marcado ni mensaje con parámetros: el texto que va a
+# `showToast`, a `showConfirm`, a un `textContent` o a una etiqueta calculada.
+# Los bloques 2 y 3 solo miraron plantillas con HTML dentro, así que estas 524
+# se quedaron incrustadas — y traducido todo lo demás, son las que delatan que
+# la app no está entera.
+#
+# Lo que NO se toca:
+#   · lo que va a `console.*`, que es para quien depura, no para el usuario
+#     (mismo criterio que los docstrings del backend);
+#   · los comentarios;
+#   · identificadores y cadenas que son solo glosario.
+
+_LINEA_DE_CONSOLA = re.compile(r"console\.\w+\s*\(")
+
+
+def cadenas_sueltas(ruta: Path, area: str, catalogo: dict[str, str],
+                    es_frase) -> tuple[str, dict[str, str], int]:
+    """Sustituye por `tr('clave')` las cadenas de texto sueltas de un JS."""
+    fuente = ruta.read_text(encoding="utf-8")
+    usadas = {v: k for k, v in catalogo.items()}
+    # Las plantillas ya las trataron los bloques 2, 3 y 4.
+    plantillas = [(m.start(), m.end())
+                  for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S)]
+    lineas_ini = [0]
+    for l in fuente.splitlines(keepends=True):
+        lineas_ini.append(lineas_ini[-1] + len(l))
+
+    def linea_de(pos: int) -> str:
+        import bisect
+        i = bisect.bisect_right(lineas_ini, pos) - 1
+        return fuente[lineas_ini[i]:lineas_ini[i + 1] if i + 1 < len(lineas_ini)
+                      else len(fuente)]
+
+    cambios, n = [], 0
+    for m in re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", fuente):
+        if any(a <= m.start() < b for a, b in plantillas):
+            continue
+        crudo = m.group(1) if m.group(1) is not None else m.group(2)
+        texto = " ".join(crudo.split())
+        if not es_frase(texto) or _solo_glosario(texto) or _es_identificador(texto):
+            continue
+        linea = linea_de(m.start())
+        if _LINEA_DE_CONSOLA.search(linea) or linea.lstrip().startswith(("//", "*")):
+            continue
+        # Un escape dentro de la cadena (`\'`, `\n`) se deja: reconstruirlo en
+        # el catálogo pediría decidir qué es literal y qué es formato.
+        if "\\" in crudo:
+            continue
+        if texto in usadas:
+            clave = usadas[texto]
+        else:
+            base = f"{area}.{slug(texto)}"
+            clave, i = base, 2
+            while clave in catalogo:
+                clave, i = f"{base}_{i}", i + 1
+            catalogo[clave] = texto
+            usadas[texto] = clave
+        cambios.append((m.start(), m.end(), f"tr('{clave}')"))
+        n += 1
+
+    salida = fuente
+    for a, b, txt in sorted(cambios, key=lambda c: -c[0]):
+        salida = salida[:a] + txt + salida[b:]
+    return salida, catalogo, n
+
+
+def mensajes_sin_marcado(ruta: Path, area: str, catalogo: dict[str, str],
+                         es_frase) -> tuple[str, dict[str, str], int]:
+    """Las plantillas que son SOLO un mensaje, sin marcado dentro.
+
+    El bloque 4 exigía `<` en la plantilla —trataba las que son HTML— y dejó
+    fuera 153 que son mensajes puros: `` `Máximo ${MAX} proyectos abiertos.` ``.
+    Aquí la plantilla ENTERA pasa a ser un valor del catálogo y la expresión se
+    sustituye por una sola llamada, que es lo que hay que hacer con un mensaje:
+    partirlo obligaría al inglés y al catalán a seguir el orden del castellano.
+    """
+    fuente = ruta.read_text(encoding="utf-8")
+    usadas = {v: k for k, v in catalogo.items()}
+    cambios, n = [], 0
+    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+        tpl = m.group(1)
+        if "<" in tpl or "`" in tpl:
+            continue
+        regiones = _regiones_interpoladas(tpl)
+        # Una plantilla con otra plantilla dentro de una expresión no se toca:
+        # el contador de llaves no la delimita (ver el caso de la Fase D).
+        if any("`" in tpl[a + 2:b - 1] for a, b in regiones):
+            continue
+        usados: set[str] = set()
+        plantilla, args, cursor = "", [], 0
+        for i, (a, b) in enumerate(regiones, 1):
+            plantilla += tpl[cursor:a]
+            expr = tpl[a + 2:b - 1]
+            if "\n" in expr:
+                plantilla = None
+                break
+            nombre = _nombre_de_parametro(expr, usados, i)
+            plantilla += "{" + nombre + "}"
+            args.append(f"{nombre}: {expr}")
+            cursor = b
+        if plantilla is None:
+            continue
+        plantilla += tpl[cursor:]
+        limpio = " ".join(plantilla.split())
+        if not es_frase(re.sub(r"\{\w+\}", " ⟦⟧ ", limpio)):
+            continue
+        if _solo_glosario(limpio) or _es_identificador(limpio):
+            continue
+        if limpio in usadas:
+            clave = usadas[limpio]
+        else:
+            base = f"{area}.{slug(re.sub(r'[{]\w+[}]', ' ', limpio))}"
+            clave, j = base, 2
+            while clave in catalogo:
+                clave, j = f"{base}_{j}", j + 1
+            catalogo[clave] = limpio
+            usadas[limpio] = clave
+        args_txt = (", {" + ", ".join(args) + "}") if args else ""
+        # Se sustituye la plantilla ENTERA, backticks incluidos.
+        cambios.append((m.start(), m.end(), f"tr('{clave}'{args_txt})"))
+        n += 1
+    salida = fuente
+    for a, b, txt in sorted(cambios, key=lambda c: -c[0]):
+        salida = salida[:a] + txt + salida[b:]
+    return salida, catalogo, n

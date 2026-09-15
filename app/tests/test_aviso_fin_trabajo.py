@@ -28,7 +28,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 NODE = shutil.which("node")
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import (js_completo, motor_i18n, pintar_en)  # noqa: E402
 
 JS = js_completo()
 
@@ -99,7 +99,8 @@ class AvisoCase(unittest.IsolatedAsyncioTestCase):
     def correr(self, cuerpo: str, respuestas: dict | None = None,
                queue_state=None, prefs: dict | None = None):
         script = (
-            ENTORNO
+            motor_i18n()
+            + ENTORNO
             + "".join(_extraer_linea(c) for c in CONSTANTES)
             + "".join(_extraer_funcion(f) for f in FUNCIONES)
             + f"\nglobalThis.__respuestas = {json.dumps(respuestas or {})};"
@@ -111,7 +112,7 @@ class AvisoCase(unittest.IsolatedAsyncioTestCase):
         r = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")
-        return json.loads(r.stdout or "null")
+        return pintar_en(json.loads(r.stdout or "null"))
 
 
 def _actividad(*tab_ids) -> dict:

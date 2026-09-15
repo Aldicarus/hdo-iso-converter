@@ -69,18 +69,25 @@ def _catalogo_es() -> set[str]:
     if not any(r.exists() for r in rutas):
         return fuera
     def hojas(nodo):
+        """Los valores TAL CUAL, sin normalizar el espacio.
+
+        Normalizar aquí dentro se llevaba por delante los saltos de línea
+        antes de que nadie pudiera convertirlos a la forma del golden, que es
+        justo la última equivalencia de abajo.
+        """
         if isinstance(nodo, str):
-            yield " ".join(nodo.split())
+            yield nodo
         elif isinstance(nodo, dict):
             for v in nodo.values():
                 yield from hojas(v)
         elif isinstance(nodo, list):
             for v in nodo:
                 yield from hojas(v)
-    valores: set[str] = set()
+    crudos: set[str] = set()
     for r in rutas:
         if r.exists():
-            valores |= set(hojas(json.loads(r.read_text(encoding="utf-8"))))
+            crudos |= set(hojas(json.loads(r.read_text(encoding="utf-8"))))
+    valores = {" ".join(v.split()) for v in crudos}
     fuera |= valores
     # Y la misma frase con los huecos normalizados al centinela del golden.
     #
@@ -91,6 +98,21 @@ def _catalogo_es() -> set[str]:
     # byte a byte, y eso es lo que se comprueba. Listar cincuenta excepciones
     # habría escondido justo lo que el guard existe para ver.
     fuera |= {" ".join(re.sub(r"\{\w+\}", " ⟦⟧ ", v).split()) for v in valores}
+    # Y la misma frase con el salto de línea escrito como en el fuente.
+    #
+    # En la plantilla, `\n` son DOS caracteres que el motor de JS resuelve al
+    # ejecutar, y el golden capturó el fuente: los guarda tal cual. En el
+    # catálogo tienen que ser un salto de verdad —si se guardan como texto, el
+    # modal imprime `\n` en pantalla, que es un bug que hubo y está
+    # arreglado—. Es el MISMO salto escrito de dos formas, así que se
+    # normaliza en vez de listar seis excepciones que esconderían un cambio
+    # real en esas frases.
+    # Las dos normalizaciones se combinan, porque hay frases que llevan las
+    # dos cosas (`{name}\n{timestamp}\nArrastra para mover…`).
+    for v in crudos:
+        escapado = v.replace("\n", "\\n")
+        fuera.add(" ".join(escapado.split()))
+        fuera.add(" ".join(re.sub(r"\{\w+\}", " ⟦⟧ ", escapado).split()))
     return fuera
 
 
