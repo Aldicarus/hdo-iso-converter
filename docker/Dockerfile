@@ -6,7 +6,13 @@
 FROM alpine/git AS version-detector
 WORKDIR /repo
 COPY .git ./.git
-RUN sh -c 'git describe --tags --always 2>/dev/null > /VERSION || true; \
+# `--match 'v*'`: solo los tags de RELEASE cuentan. Sin el filtro,
+# cualquier tag auxiliar —`pre-i18n`, el punto de retorno de una rama— se
+# convierte en el ancla de `git describe` y la app reporta
+# `pre-i18n-8-g811d7fe`. Con eso `_semver_gt` no puede comparar y
+# `check-updates` anunció una actualización a v2.8.1 estando POR DELANTE
+# de v2.8.1: el pill de la cabecera invitaba a bajar de versión.
+RUN sh -c 'git describe --tags --match "v*" --always 2>/dev/null > /VERSION || true; \
     [ -s /VERSION ] || echo dev > /VERSION; \
     git rev-parse HEAD 2>/dev/null > /COMMIT || true; \
     [ -s /COMMIT ] || echo unknown > /COMMIT'

@@ -907,7 +907,11 @@ def _resolve_app_version() -> dict:
             import subprocess
             git_root = Path(__file__).resolve().parent.parent
             result = subprocess.run(
-                ["git", "describe", "--tags", "--always", "--dirty"],
+                # `--match v*` por lo mismo que en el Dockerfile: un tag
+                # auxiliar no es una versión, y si se cuela `_semver_gt` no
+                # puede compararlo.
+                ["git", "describe", "--tags", "--match", "v*",
+                 "--always", "--dirty"],
                 cwd=git_root, capture_output=True, text=True, timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():

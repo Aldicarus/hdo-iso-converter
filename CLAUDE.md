@@ -1862,7 +1862,10 @@ Pill de aviso de nueva versión aparece en el header global (al lado de Help/Loo
 
 ### Idiomas
 - El código (variables, funciones, clases) en **inglés**
-- Strings de UI, mensajes de lógica y comentarios en **español**
+- Los comentarios y los docstrings, en **español**
+- **El texto que el usuario lee NO se escribe en el código: va al catálogo.**
+  Ver «La app habla tres idiomas» más abajo — un literal castellano nuevo en
+  el JS o en el servidor hace fallar la suite, y hace bien
 - Los literales de pistas siguen exactamente la spec: "Castellano TrueHD Atmos 7.1", "Inglés DTS-HD MA 5.1", etc.
 
 ### Análisis del disco (Fase A — pipeline extendido)
@@ -2214,6 +2217,181 @@ Detalles que no son accidentales:
 `test_frontend_cache_bust.py` va en la **suite**, no en el YAML: caza el error típico del token `?v=` de `index.html` —tocar una de las dos referencias y olvidar la otra, que deja el CSS y el JS en versiones distintas— y así también salta en local, que es donde se comete.
 
 ---
+
+## La app habla tres idiomas: castellano, inglés y catalán
+
+El idioma es un **ajuste global** en `app_settings.json` — no hay usuarios, ni
+cookies, ni `Accept-Language`— y se elige en ⚙︎ Configuración. Cambiarlo
+recarga la página, que es lo honesto: el catálogo se pide al arrancar y media
+interfaz ya está pintada.
+
+| dónde | qué |
+|---|---|
+| `app/static/i18n/{es,en,ca}.json` | la interfaz — **1.275 claves** |
+| `app/i18n/{es,en,ca}.json` | el servidor: log, errores HTTP, etiquetas de paso — **482** |
+| `app/static/i18n/manual/{es,en,ca}.json` | el manual CMv4.0, 7 secciones de HTML |
+| `app/i18n/REGISTRO.md` | tono, registro y glosario. **Es normativo**: lo comprueba un test |
+
+### Cómo se escribe texto nuevo
+
+- **El marcado DECLARA**: `data-i18n="clave"` en el elemento, y lo pinta
+  `pintarTextos()` al arrancar más un `MutationObserver` para el HTML que
+  genera el JS. Es exactamente el patrón de `data-icono`, y por el mismo
+  motivo: interpolar `${tr('k')}` en más de cien plantillas falla **en
+  silencio** en las que no son template literals.
+  - Variantes para atributos: `data-i18n-ph` (placeholder), `-tip`
+    (data-tooltip), `-aria` (aria-label) y `-html`, que escribe el
+    `innerHTML`.
+- **`tr('clave', {param})` para lo que lleva datos dentro.** Los parámetros
+  van **con nombre, nunca por posición**: el orden de las palabras cambia
+  entre lenguas y un `{0}` obliga a mantenerlo.
+  - Se llama `tr` y no `t` porque `t` colisionaba con 49 locales (`for t in
+    tracks:`, `const t = document.createElement`).
+- **En el servidor, `from i18n import t` y `t('clave', param=…)`.** El import
+  va DESPUÉS de `from __future__ import annotations` — `ast.parse` no
+  comprueba esa regla, solo `compile()`.
+
+### Las cuatro decisiones que lo hacen sostenible
+
+- **El log se traduce AL ESCRIBIR, no al mostrar.** Lo persistido no se migra:
+  un job de hace tres meses se queda en el idioma que tenía. Traducir al
+  mostrar habría obligado a versionar el formato del log.
+- **Los markers se quedan FUERA de la prosa.** `━━━`, `✓ Fase`, `📋 Plan`,
+  `§§PROGRESS§§`, `[Fase X]` son contratos del parser y de la persistencia:
+  el prefijo se concatena en el código y al catálogo va solo el texto. Así
+  `'[Fase A] ' + t('k')` sigue rindiendo byte a byte lo mismo en castellano,
+  que es lo que permitió validar la migración con los ~690 asserts que ya
+  existían.
+- **Una frase es UNA clave, aunque el HTML la parta.** Un `<strong>` en medio
+  produce tres nodos de texto y el extractor saca tres claves — y eso traduce
+  por fragmentos: el orden de las palabras en inglés cambia justo alrededor
+  del énfasis. Se usa `data-i18n-html` con el marcado DENTRO del valor. Los
+  cinco casos que se quedan partidos a propósito están en
+  `FRAGMENTOS_ACEPTADOS` con su motivo.
+- **Un valor traducible NO puede llevar otra clave de i18n dentro**:
+  `pintarTextos` escribe el `innerHTML`, el observador ve el nodo nuevo y se
+  realimenta. Los iconos sí pueden ir, porque `data-icono` es declarativo.
+
+### El espacio del borde y el salto de línea son significativos
+
+Dos clases de error que el golden **no puede ver**, porque su comparación
+normaliza los espacios:
+
+- **El espacio de borde se saca FUERA del `tr()`.** `'… Un reproductor '` +
+  `'compatible con…'` rindió «reproductorcompatible». Fueron 51 casos.
+- **`\n` en el catálogo es un salto de verdad**, no dos caracteres. En la
+  plantilla era un escape que el motor resolvía; guardado como texto, el
+  modal imprime `\n` en pantalla.
+
+### La red de seguridad: el castellano no cambia, y se verifica
+
+`golden_castellano.json` son **2.297 frases del frontend y 364 del servidor**,
+capturadas sobre el tag `pre-i18n`. Cada una tiene que seguir existiendo —byte
+a byte— en el código o en el catálogo `es`.
+
+Lo que hace que el guard sea útil en vez de una lista de excepciones son
+**cuatro equivalencias** que el test aplica a los dos lados: `{max}` ≡ `⟦⟧`,
+el prefijo del marker fuera, `\n` ≡ el escape del fuente, y un valor con
+marcado ≡ sus nodos de texto. `EXCEPCIONES` tiene **seis** entradas y todas
+son cambios de forma deliberados, con el motivo escrito.
+
+### Los guards, y por qué cada uno existe
+
+Todos en `test_i18n_completo.py` salvo el último, y **todos verificados por
+mutación**:
+
+| guard | el fallo que caza |
+|---|---|
+| `TestNoQuedaCastellanoSuelto` | un literal nuevo en el JS, el marcado o el servidor |
+| `TestNoQuedaNingunFragmentoCortoSuelto` | los rótulos que `es_frase` descarta: `hace {n} min`, `{n} escenas` |
+| `TestLosFragmentosSeCosenBien` | dos `tr()` pegados sin espacio |
+| `TestElSaltoDeLineaEsUnSaltoDeLinea` | el `\n` guardado como texto |
+| `TestNingunaFraseSePartePorMarcado` | una frase repartida en varias claves |
+| `TestLaAppCargaEnLosTresIdiomas` | abre `index.html` en Chrome ×3: cero errores de JS, ninguna clave ausente, >200 nodos pintados |
+| `test_regiones_de_plantilla.py` | el autómata del que dependen los demás |
+
+**Estar en el catálogo NO es pasar por `tr()`.** El guard daba por buena una
+cadena si su texto coincidía con el valor de alguna clave, y así sobrevivieron
+26 literales en `settings.js`. Lo que se exime es la CLAVE que se le pasa a
+`tr(`, no el texto.
+
+### Un regex no puede delimitar una construcción anidada
+
+Es el error que se repitió **cuatro veces** en este subsistema, y conviene
+leerlo antes de tocar cualquiera de las herramientas:
+
+- emparejar los backticks de las plantillas con `` r"`([^`]*)`" `` se descuadra
+  con un backtick dentro de un **comentario** (hay 278 en el frontend) o
+  dentro de una **expresión regular** (`s.replace(/\`([^\`]+)\`/g, …)` en
+  `settings.js`). El resultado son regiones fantasma de hasta 5.243 caracteres
+  donde el guard **pasa en verde vigilando el vacío**;
+- enmascarar los `${…}` con `\$\{[^}]*\}` corta en la primera llave y deja
+  `')" data-tooltip="…` como si fuera texto;
+- y reescribir dentro de un `${…}` rompió tab2/tab3 hasta que se contaron las
+  llaves.
+
+Hoy `captura_castellano.regiones_de_plantilla` es un autómata que conoce
+cadenas, comentarios, expresiones regulares y plantillas anidadas. **El umbral
+por tamaño de región no sirve como ancla** — `buildProjectPanelHTML` es una
+plantilla legítima de 200 líneas y 13.271 caracteres; lo que se comprueba es
+DÓNDE abre cada una.
+
+### Las fechas y los números también tienen idioma
+
+`localeActual()` (en `i18n.js`) es el único sitio que dice qué locale usar:
+`es-ES`, **`en-GB`** —el día antes del mes, como en las otras dos, no
+`en-US`— y `ca-ES`. Había 16 `toLocaleDateString('es-ES')` cableados, así que
+las fechas y los miles seguían en formato español en las tres lenguas; no es
+texto, así que ningún guard de traducción lo miraba.
+
+### Lo que NO se traduce, y por qué
+
+- **Los cuatro volcados de diagnóstico**: 🔬 Datos ISO, su gemelo de Tab 2, el
+  Markdown que la radiografía copia al portapapeles y la card 🛡️
+  Validaciones. Son etiquetas que se leen contra el log y contra la hoja de
+  DoviTools —las dos en inglés— y que el usuario pega en un informe. Exentos
+  **por función** en `VOLCADOS_DE_DIAGNOSTICO`, no por número de línea.
+- **`Season NN`** en el nombre de un MKV de serie: es la convención de Plex,
+  no texto de interfaz.
+- Los markers del log y los nombres de campo del RPU (`Master`, `peak`,
+  `nits`, `scene cuts`).
+
+### Los arneses de node y de Chrome necesitan el motor
+
+`frontend_sources.motor_i18n()` da `tr()` con el catálogo castellano dentro y
+`localeActual()`; `stub_catalogo_es()` hace que el `fetch` del catálogo
+funcione sobre `file://`. **Van en `frontend_sources` y no en cada arnés** por
+lo mismo que `sistema_de_iconos()`: cuando el sistema gana una pieza, se
+rompen todos a la vez (pasó con quince).
+
+Tres trampas de los arneses, las tres con su cicatriz:
+
+- **`motor_i18n()` emite `'use strict';` y tiene que ir PRIMERO.** Al
+  prependerlo, un arnés que dependía del modo sloppy —`_trabajoModalVista` sin
+  declarar— empezó a lanzar, el modal se quedaba en blanco y **ningún test
+  fallaba**.
+- **El stub del catálogo va DESPUÉS de la sonda** si la sonda sustituye
+  `window.fetch`: el stub envuelve el `fetch` que encuentra y delega en él lo
+  que no es el catálogo.
+- **Un test que afirme sobre texto renderizado pasa por `pintar_en()`**, que
+  resuelve los `data-i18n` de lo que el JS devolvió sin insertar en el DOM.
+
+### Un plural no se resuelve con un sufijo de una letra
+
+`{p2}` = `'s'`/`''` funciona en las tres lenguas cuando el plural es regular
+(fichero/files/fitxers). Con un sufijo de **otra** letra no: el inglés no
+tiene ninguna palabra que pluralice con `n` —escribía «not foundn»— y el
+catalán tampoco cuando el plural es irregular (`dia` → **dies**). Esos casos
+se parten en dos claves `_uno`/`_varios`. Eran los tres únicos del repo.
+
+### Lo que falta, y es otra cosa
+
+El idioma **todavía no cambia las reglas de selección de pistas**. Está
+decidido y medido —el idioma fija el perfil por defecto, los tres siguen
+elegibles, catalán = VO+catalán+castellano, sin doblaje el subtítulo por
+defecto pasa al completo— pero no implementado: `phase_b` sigue con
+`filtered` clavado a Castellano. Eso no es traducción, cambia el contenido
+del MKV.
 
 ## El frontend son siete scripts, y clásicos a propósito
 
