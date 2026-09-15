@@ -203,3 +203,27 @@ def pintar_en(obj):
         return {k: pintar_en(v) for k, v in obj.items()}
     return obj
 
+
+def motor_i18n() -> str:
+    """El motor de traducción con el catálogo castellano dentro, para node.
+
+    Los arneses que renderizan una plantilla ahora encuentran llamadas a
+    `tr('clave', {param})` dentro: son los mensajes con parámetros, que no se
+    pueden resolver con `data-i18n` porque llevan datos. Sin esto el script de
+    node muere con «tr is not defined».
+
+    Va aquí y no en cada arnés por lo mismo que `sistema_de_iconos()`: si el
+    motor cambia, cambia en un sitio.
+    """
+    import json
+    js = js_completo()
+    i = js.index("function tr(clave, params) {")
+    fin = js.index("\n}\n", i) + 3
+    # `'use strict'` PRIMERO: al prepender esto, el script del arnés dejaba de
+    # ser estricto y una asignación a una propiedad sin setter fallaba en
+    # silencio en vez de lanzar. Todas las piezas de la app son estrictas, así
+    # que el arnés tiene que serlo también.
+    return ("'use strict';\n"
+            "const _catalogo = " + json.dumps(catalogo_es(), ensure_ascii=False)
+            + ";\nconst _ausentes = new Set();\n" + js[i:fin])
+

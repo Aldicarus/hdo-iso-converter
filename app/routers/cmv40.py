@@ -22,6 +22,7 @@ El contrato HTTP está fijado en `tests/test_cmv40_endpoints.py` con
 TestClient; el de las fases, en `test_cmv40_fase_f_matriz` y
 `test_cmv40_fases_cgh`.
 """
+from i18n import t as tr
 import asyncio
 import contextvars
 import json
@@ -636,7 +637,7 @@ def _cmv40_proc_register(session_id: str, proc: asyncio.subprocess.Process) -> N
 
 def _check_cmv40_cancel(session_id: str) -> None:
     if _cmv40_cancel_flags.get(session_id):
-        raise RuntimeError("Cancelado por el usuario")
+        raise RuntimeError(tr('cmv40.cancelado_por_el_usuario'))
 
 
 # Lock por sesión para evitar ejecuciones concurrentes de la misma fase
@@ -964,9 +965,7 @@ def _cmv40_guard_no_pending_error(session: CMv40Session) -> None:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"La sesión tiene un error sin resolver: "
-                f"{session.error_message[:160]} — descártalo antes de "
-                f"reintentar la fase."
+                tr('cmv40.la_sesion_tiene_un_error_sin', p1=session.error_message[:160])
             ),
         )
 
@@ -988,12 +987,11 @@ def _cmv40_guard_no_duplicado(session: CMv40Session) -> None:
     if session.running_phase:
         raise HTTPException(
             status_code=409,
-            detail=f"Ya hay una fase en curso en este proyecto "
-                   f"({session.running_phase}).")
+            detail=tr('cmv40.ya_hay_una_fase_en_curso', running_phase=session.running_phase))
     if queue_manager.buscar(f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}"):
         raise HTTPException(
             status_code=409,
-            detail="Este proyecto ya tiene una fase esperando turno.")
+            detail=tr('cmv40.este_proyecto_ya_tiene_una_fase'))
 
 
 async def _cmv40_dispatch_next_phase(session_id: str) -> None:
@@ -1223,7 +1221,7 @@ def _cmv40_anotar_preflight(session: CMv40Session, inicio, cancelado: bool
         id      = session.id,
         tab     = historial.TAB_CMV40,
         tipo    = historial.TIPO_PREFLIGHT,
-        que     = f"Validación previa · {titulo or session.id}",
+        que     = tr('cmv40.validacion_previa', id=titulo or session.id),
         titulo  = titulo,
         poster  = poster,
         inicio  = inicio,
@@ -1344,7 +1342,7 @@ async def _cmv40_encolar_fase(session: CMv40Session, fase: str,
             # concreta la lleva `fase_label`, que ya va con su letra y su
             # nombre humano. Antes decía «Fase analyze_source de X.mkv»: la
             # clave interna del pipeline, en pantalla y repetida al lado.
-            que=f"Upgrade CMv4.0 · {_titulo_fase or session.id}",
+            que=tr('cmv40.upgrade_cmv4_0', id=_titulo_fase or session.id),
             titulo=_titulo_fase,
             poster=_poster_fase,
             datos={"fase": fase, **(datos or {})},
@@ -2106,7 +2104,7 @@ async def cmv40_tmdb_refresh(session_id: str, body: dict | None = None):
 
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if not is_configured():
         return {"tmdb_configured": False, "updated": False}
 
@@ -2148,7 +2146,7 @@ async def cmv40_refresh_sheet(session_id: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
     await _cmv40_hydrate_sheet_recommendation(session_id)
     refreshed = load_cmv40_session(session_id)
@@ -2384,7 +2382,7 @@ async def cmv40_create(body: CMv40CreateRequest):
     mkv_path = body.source_mkv_path
     # ⚠️ DEV MODE: saltar verificación de existencia
     if not DEV_MODE and not Path(mkv_path).exists():
-        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {mkv_path}")
+        raise HTTPException(status_code=400, detail=tr('mkv_analyze.mkv_no_encontrado', mkv_path=mkv_path))
     mkv_name = Path(mkv_path).name
     sid = make_cmv40_session_id(mkv_path)
     artifacts_dir = CMV40_WORK_BASE / sid
@@ -2553,7 +2551,7 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto CMv4.0 no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_cmv4_0_no_encontrado'))
 
     # Sin ficha, buscarla. Se hidrataba SOLO al crear el proyecto, así que uno
     # creado antes de que hubiera API key se quedaba sin carátula para
@@ -2691,7 +2689,7 @@ async def cmv40_get(session_id: str, include_log: bool = True):
 async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if session.running_phase:
         # Borrar el proyecto entero con una fase corriendo deja el subproceso
         # huérfano escribiendo en un workdir que ya no tiene dueño.
@@ -2714,9 +2712,9 @@ class CMv40RenameRequest(BaseModel):
 def _cmv40_guard_mutable(session: CMv40Session):
     """Lanza 400 si la sesión no admite más mutaciones (archivada o completada)."""
     if session.archived:
-        raise HTTPException(status_code=400, detail="Proyecto archivado — solo lectura")
+        raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_archivado_solo_lectura'))
     if session.phase == "done":
-        raise HTTPException(status_code=400, detail="Proyecto completado — usa 'Rehacer' para iterar")
+        raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_completado_usa_rehacer_para_iterar'))
 
 
 def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
@@ -2732,8 +2730,7 @@ def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
     if session.running_phase:
         raise HTTPException(
             status_code=409,
-            detail=(f"Hay una fase en curso ({session.running_phase}). "
-                    f"Cancélala antes de {accion}."),
+            detail=(tr('cmv40.hay_una_fase_en_curso_cancelala', running_phase=session.running_phase, accion=accion)),
         )
 
 
@@ -2741,11 +2738,11 @@ def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
 async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_mutable(session)
     new_name = body.output_mkv_name.strip()
     if not new_name:
-        raise HTTPException(status_code=400, detail="Nombre vacío")
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
     if not new_name.lower().endswith(".mkv"):
         new_name += ".mkv"
     session.output_mkv_name = new_name
@@ -2764,7 +2761,7 @@ async def cmv40_cleanup(session_id: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_not_running(session, "borrar los artefactos")
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None
     freed = 0
@@ -2818,7 +2815,7 @@ async def cmv40_cleanup(session_id: str):
 async def cmv40_clear_error(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     session.error_message = ""
     save_cmv40_session(session)
     return session.model_dump()
@@ -2869,15 +2866,15 @@ async def cmv40_accept_keep(session_id: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if session.archived:
-        raise HTTPException(status_code=400, detail="Proyecto archivado")
+        raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_archivado'))
     if session.phase == "done":
-        raise HTTPException(status_code=400, detail="Proyecto ya está completado")
+        raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_ya_esta_completado'))
     if session.recommended_action != "keep":
         raise HTTPException(
             status_code=400,
-            detail=f"La recomendación actual no es Keep (es '{session.recommended_action}')",
+            detail=tr('cmv40.la_recomendacion_actual_no_es_keep', recommended_action=session.recommended_action),
         )
     # Cierre formal del proyecto vía Keep
     session.phase = "done"
@@ -2919,9 +2916,9 @@ async def cmv40_override_recommendation(session_id: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if session.archived:
-        raise HTTPException(status_code=400, detail="Proyecto archivado")
+        raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_archivado'))
     if not session.recommended_action or session.recommended_action != "keep":
         # No hay recomendación Keep que sobrescribir — no-op
         return session.model_dump()
@@ -2966,7 +2963,7 @@ async def cmv40_set_auto_pipeline(session_id: str, body: CMv40AutoPipelineReques
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     session.auto_pipeline = body.enabled
     save_cmv40_session(session)
     if body.enabled:
@@ -2993,11 +2990,11 @@ async def cmv40_acknowledge_critical_gates(session_id: str):
     en el panel del proyecto y en el log."""
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if not session.awaiting_critical_ack:
         raise HTTPException(
             status_code=400,
-            detail="No hay confirmación pendiente para este proyecto.",
+            detail=tr('cmv40.no_hay_confirmacion_pendiente_para_este'),
         )
     session.awaiting_critical_ack = False
     session.user_acknowledged_degradation = True
@@ -3215,9 +3212,9 @@ def _cmv40_artifacts_to_delete(target_phase: str) -> list[str]:
 async def cmv40_reset_preview(session_id: str, target_phase: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if target_phase not in CMV40_PHASES_ORDER:
-        raise HTTPException(status_code=400, detail=f"Fase inválida: {target_phase}")
+        raise HTTPException(status_code=400, detail=tr('cmv40.fase_invalida', target_phase=target_phase))
 
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None
     files = _cmv40_artifacts_to_delete(target_phase)
@@ -3243,25 +3240,23 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
     if session.running_phase:
         raise HTTPException(
             status_code=409,
-            detail=f"Hay una fase en curso ({session.running_phase}). "
-                   "Cancélala antes de resetear (audit #13).",
+            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_2', running_phase=session.running_phase),
         )
 
     if session.archived:
         raise HTTPException(
             status_code=400,
-            detail="Proyecto archivado — los artefactos intermedios fueron borrados. "
-                   "Crea un nuevo proyecto CMv4.0 para iterar de nuevo.",
+            detail=tr('cmv40.proyecto_archivado_los_artefactos_intermedios_fueron'),
         )
 
     valid_phases = [p for p in CMV40_PHASES_ORDER if p != "done"]
     if target_phase not in valid_phases:
-        raise HTTPException(status_code=400, detail=f"Fase inválida: {target_phase}")
+        raise HTTPException(status_code=400, detail=tr('cmv40.fase_invalida', target_phase=target_phase))
 
     target_idx = CMV40_PHASES_ORDER.index(target_phase)
 
@@ -3348,7 +3343,7 @@ async def cmv40_verify_artifacts(session_id: str):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
     # No validar si está running — los artefactos se están generando ahora
     if session.running_phase:
@@ -3470,7 +3465,7 @@ async def cmv40_cancel(session_id: str):
 async def cmv40_analyze_source(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -3522,7 +3517,7 @@ class CMv40TargetPathRequest(BaseModel):
 async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -3570,7 +3565,7 @@ class CMv40TargetDriveRequest(BaseModel):
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -3621,7 +3616,7 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
 async def cmv40_target_from_mkv(session_id: str, body: CMv40TargetMkvRequest):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -3691,7 +3686,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
 
     # Guard contra re-disparo: si el pre-flight ya emitió una decisión
@@ -3736,13 +3731,13 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
 
     # Validación temprana del body antes de arrancar el task
     if body.kind == "drive" and not body.file_id:
-        raise HTTPException(status_code=400, detail="file_id requerido para kind=drive")
+        raise HTTPException(status_code=400, detail=tr('cmv40.file_id_requerido_para_kind_drive'))
     if body.kind == "path" and not body.rpu_path:
-        raise HTTPException(status_code=400, detail="rpu_path requerido para kind=path")
+        raise HTTPException(status_code=400, detail=tr('cmv40.rpu_path_requerido_para_kind_path'))
     if body.kind == "mkv" and not body.source_mkv_path:
-        raise HTTPException(status_code=400, detail="source_mkv_path requerido para kind=mkv")
+        raise HTTPException(status_code=400, detail=tr('cmv40.source_mkv_path_requerido_para_kind'))
     if body.kind not in ("drive", "path", "mkv"):
-        raise HTTPException(status_code=400, detail=f"kind desconocido: {body.kind}")
+        raise HTTPException(status_code=400, detail=tr('cmv40.kind_desconocido', kind=body.kind))
 
     # Si ya hay otra fase corriendo para esta sesión, no disparamos
     lock = _get_cmv40_phase_lock(session.id)
@@ -3865,7 +3860,7 @@ async def cmv40_preflight_source(session_id: str):
     running_phase="preflight" hasta terminar."""
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
 
     if DEV_MODE:
@@ -3940,7 +3935,7 @@ async def cmv40_preflight_source(session_id: str):
 async def cmv40_extract(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -4101,7 +4096,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
         return data
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     wd = Path(session.artifacts_dir)
     pf = wd / "per_frame_data.json"
     # Si no existe (target trusted saltó la generación en Fase C), lo
@@ -4122,9 +4117,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
         if session.running_phase and resolve_plan(session).inputs.trust_effective:
             raise HTTPException(
                 status_code=409,
-                detail=("per_frame_data.json omitido por target trusted; "
-                        "hay otra fase ejecutandose. No se regenera durante auto-pipeline "
-                        "para no solapar dovi_tool export con la fase activa."),
+                detail=(tr('cmv40.per_frame_data_json_omitido_por')),
             )
         lock = _cmv40_perframe_locks.setdefault(session_id, asyncio.Lock())
         async with lock:
@@ -4134,7 +4127,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
                 rpu_target = wd / "RPU_target.bin"
                 if not (rpu_source.exists() and rpu_target.exists()):
                     raise HTTPException(status_code=404,
-                        detail="per_frame_data.json no existe y no están los RPUs — ejecuta Fase A/B/C primero")
+                        detail=tr('cmv40.per_frame_data_json_no_existe'))
                 async def _log_cb(msg: str):
                     await _cmv40_log(session, msg)
                 est_export = max(10.0, session.source_frame_count / FPS_EXPORT) if session.source_frame_count else 30.0
@@ -4156,7 +4149,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
                         save_cmv40_session(session)
                 except Exception as e:
                     raise HTTPException(status_code=500,
-                        detail=f"Fallo al regenerar per_frame_data on-demand: {e}")
+                        detail=tr('cmv40.fallo_al_regenerar_per_frame_data', e=e))
     # El parseo del volcado va a un thread y queda cacheado por stat: el
     # frontend vuelve a pedir esto en cada cambio de zoom.
     cache = await asyncio.to_thread(
@@ -4193,7 +4186,7 @@ class CMv40SyncRequest(BaseModel):
 async def cmv40_apply_sync(session_id: str, body: CMv40SyncRequest):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -4284,13 +4277,12 @@ async def cmv40_reset_sync(session_id: str):
     """Borra la corrección aplicada y re-analiza el RPU_target.bin original."""
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
     if session.running_phase:
         raise HTTPException(
             status_code=409,
-            detail=f"Hay una fase en curso ({session.running_phase}). "
-                   "Cancélala antes de descartar la corrección (audit #13).",
+            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_3', running_phase=session.running_phase),
         )
 
     # ⚠️ DEV MODE: restaurar target a valor original simulado (source + 40)
@@ -4306,7 +4298,7 @@ async def cmv40_reset_sync(session_id: str):
     wd = Path(session.artifacts_dir)
     rpu_target = wd / "RPU_target.bin"
     if not rpu_target.exists():
-        raise HTTPException(status_code=400, detail="RPU_target.bin no existe")
+        raise HTTPException(status_code=400, detail=tr('cmv40_pipeline.rpu_target_bin_no_existe'))
 
     # Borrar RPU_synced.bin + editor_config.json
     (wd / "RPU_synced.bin").unlink(missing_ok=True)
@@ -4389,7 +4381,7 @@ async def cmv40_mark_synced(session_id: str, force: bool = False):
     """
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     if not force and not resolve_plan(session).inputs.skip_sync_review:
         gate = await asyncio.to_thread(_cmv40_sync_gate_for, session)
         if gate is not None and not gate["ok"]:
@@ -4418,7 +4410,7 @@ async def cmv40_mark_synced(session_id: str, force: bool = False):
 async def cmv40_inject(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -4448,7 +4440,7 @@ async def cmv40_inject(session_id: str):
 async def cmv40_remux(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 
@@ -4483,7 +4475,7 @@ async def cmv40_remux(session_id: str):
 async def cmv40_validate(session_id: str):
     session = load_cmv40_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_no_pending_error(session)
     _cmv40_guard_no_duplicado(session)
 

@@ -148,7 +148,7 @@ async function fileBrowserNavigate(relPath) {
     _fileBrowser.entries = data.entries || [];
     _renderFileBrowser();
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="file-browser-empty"><span data-icono="aviso"></span> Error: ${escHtml(e.message || String(e))}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="file-browser-empty"><span data-icono="aviso"></span> ${tr('browser.error_e', {e: escHtml(e.message || String(e))})}</div>`;
   }
 }
 

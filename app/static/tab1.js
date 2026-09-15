@@ -315,7 +315,7 @@ function _renderSrcFb(filter) {
       const filterDesc = filter === 'iso' ? 'ficheros .iso'
         : filter === 'bdmv' ? 'carpetas con estructura BDMV'
         : 'ficheros .m2ts';
-      listEl.innerHTML = `<div class="src-fb-empty">— Sin ${filterDesc} en esta carpeta —</div>`;
+      listEl.innerHTML = `<div class="src-fb-empty">${tr('tab1.sin_filterdesc_en_esta_carpeta', {filterdesc: filterDesc})}</div>`;
       _attachSrcFbDelegation(filter);
       return;
     }
@@ -1036,12 +1036,12 @@ function openSeriesModal(probe) {
       : stype === 'bdmv_folder' ? 'la carpeta BDMV'
       : 'los ficheros M2TS';
     const verdict = probe.media_type === 'series'
-      ? `Detectados <strong>${n} episodios candidatos</strong> en ${sourceLabel} con duración similar.`
-      : `Detectados <strong>${n} candidatos</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
+      ? `Detectados <strong>${tr('tab1.n_episodios_candidatos', {n: n})}</strong> en ${sourceLabel} con duración similar.`
+      : `Detectados <strong>${tr('tab1.n_candidatos', {n: n})}</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
     // Aviso adicional cuando ya hay episodios procesados de este origen
     // — el usuario sabe por qué algunas filas vienen desmarcadas.
     const existingNote = existingCount > 0
-      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span> — marca solo los que quieras añadir o rehacer.`
+      ? ` <strong>${tr('tab1.existingcount_episodio_p2_ya_procesado_p3', {existingcount: existingCount, p2: existingCount === 1 ? '' : 's', p3: existingCount === 1 ? '' : 's'})}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span> — marca solo los que quieras añadir o rehacer.`
       : '';
     sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.${existingNote}`;
   }
@@ -1235,7 +1235,7 @@ async function seriesSelectCandidate(tmdbId) {
   const seasons = data.details.seasons || [];
   const select = document.getElementById('series-season-select');
   select.innerHTML = '<option value="">— Elige temporada —</option>' + seasons.map(s =>
-    `<option value="${s.season_number}">${escHtml(s.name)} (${s.episode_count} episodios)</option>`
+    `<option value="${s.season_number}">${tr('tab1.name_episode_count_episodios', {name: escHtml(s.name), episode_count: s.episode_count})}</option>`
   ).join('');
   document.getElementById('series-season-section').style.display = 'block';
   document.getElementById('series-episodes-section').style.display = 'none';

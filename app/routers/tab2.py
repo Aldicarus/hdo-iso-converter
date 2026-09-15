@@ -29,6 +29,7 @@ Tres piezas conviven en el fichero:
 El contrato HTTP está fijado en `tests/test_endpoints_tab1_tab2.py`, y que
 las URLs no cambien con este movimiento, en `test_rutas_no_cambian.py`.
 """
+from i18n import t as tr
 import asyncio
 import json
 import logging
@@ -85,14 +86,14 @@ def _safe_library_path(rel_path: str, root_key: str = "library") -> tuple[Path, 
     """
     base = paths.LIBRARY_ROOTS.get(root_key)
     if base is None:
-        raise HTTPException(status_code=400, detail=f"Root desconocido: {root_key}")
+        raise HTTPException(status_code=400, detail=tr('tab2.root_desconocido', root_key=root_key))
     rel = (rel_path or "").strip().lstrip("/")
     candidate = (base / rel).resolve()
     base_resolved = base.resolve()
     try:
         candidate.relative_to(base_resolved)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Ruta fuera del root permitido")
+        raise HTTPException(status_code=400, detail=tr('tab2.ruta_fuera_del_root_permitido'))
     return candidate, base_resolved
 
 
@@ -104,7 +105,7 @@ def _resolve_mkv_path_safe(input_path: str) -> Path:
     """
     p = (input_path or "").strip()
     if not p:
-        raise HTTPException(status_code=400, detail="file_path vacío")
+        raise HTTPException(status_code=400, detail=tr('tab2.file_path_vacio'))
     candidate = Path(p) if p.startswith("/") else (paths.OUTPUT_DIR_MKV / p)
     candidate = candidate.resolve()
     # Acepta si cae bajo CUALQUIER root configurado
@@ -116,7 +117,7 @@ def _resolve_mkv_path_safe(input_path: str) -> Path:
             continue
     raise HTTPException(
         status_code=400,
-        detail=f"Ruta fuera de los directorios permitidos: {p}"
+        detail=tr('tab2.ruta_fuera_de_los_directorios_permitidos', p=p)
     )
 
 
@@ -170,19 +171,19 @@ async def library_browse(
 
     base_dir = paths.LIBRARY_ROOTS.get(root)
     if base_dir is None:
-        raise HTTPException(status_code=400, detail=f"Root desconocido: {root}")
+        raise HTTPException(status_code=400, detail=tr('tab2.root_desconocido_2', root=root))
     if not base_dir.exists() or not base_dir.is_dir():
         return {"root": root, "path": path, "parent": None, "base": str(base_dir),
                 "entries": [], "error": f"Root '{root}' no configurado o inaccesible"}
 
     target, base_resolved = _safe_library_path(path, root_key=root)
     if not target.exists() or not target.is_dir():
-        raise HTTPException(status_code=404, detail=f"Directorio no encontrado: {path}")
+        raise HTTPException(status_code=404, detail=tr('tab2.directorio_no_encontrado', path=path))
 
     # Validar filter
     valid_filters = {"mkv", "iso", "m2ts", "bdmv"}
     if filter not in valid_filters:
-        raise HTTPException(status_code=400, detail=f"filter desconocido: {filter}")
+        raise HTTPException(status_code=400, detail=tr('tab2.filter_desconocido', filter=filter))
 
     # Mapa filter → extensión a listar (None = solo carpetas)
     file_ext = {
@@ -234,7 +235,7 @@ async def library_browse(
                     size = 0
                 entries.append({"name": name, "type": "file", "size_bytes": size})
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Sin permisos para listar este directorio")
+        raise HTTPException(status_code=403, detail=tr('tab2.sin_permisos_para_listar_este_directorio'))
 
     # Sort: dirs primero, luego files; todo case-insensitive alfabético
     entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
@@ -458,7 +459,7 @@ async def analyze_mkv_endpoint(body: dict):
         que=f"Apertura de un MKV · {_peli}" if _peli else "Apertura de un MKV",
         titulo=_peli)
     if not mkv_path_obj.exists():
-        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+        raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado', rel_path=rel_path))
 
     # Force refresh: borra el cache antes de delegar para que analyze_mkv
     # caiga al pipeline completo.
@@ -693,7 +694,7 @@ def _mkv_quality_check_cancel():
     """
     target_id = _mkv_quality_cancel.get("requested_for_id")
     if target_id is not None and target_id == _mkv_quality_state.get("audit_id"):
-        raise RuntimeError("Cancelado por el usuario")
+        raise RuntimeError(tr('cmv40.cancelado_por_el_usuario'))
 
 
 @router.get("/api/mkv/quality-audit/progress")
@@ -822,11 +823,11 @@ async def mkv_cache_info_endpoint(file_path: str = ""):
     bloques basic/quality, y un resumen del quality si está poblado.
     """
     if not file_path:
-        raise HTTPException(status_code=400, detail="file_path requerido")
+        raise HTTPException(status_code=400, detail=tr('tab2.file_path_requerido'))
     mkv_path_obj = _resolve_mkv_path_safe(file_path)
     mkv_full = str(mkv_path_obj)
     if not mkv_path_obj.exists():
-        raise HTTPException(status_code=404, detail=f"MKV no encontrado: {file_path}")
+        raise HTTPException(status_code=404, detail=tr('tab2.mkv_no_encontrado_2', file_path=file_path))
     from storage import compute_mkv_fingerprint, _mkv_audit_path
     from phases.mkv_analyze import (
         CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY, _quality_payload_is_valid,
@@ -873,7 +874,7 @@ async def mkv_cache_delete_endpoint(file_path: str = ""):
     """Borra el fichero de cache de un MKV. Útil para forzar reanálisis
     cuando se sospecha que el cache está corrupto o tiene un quality basura."""
     if not file_path:
-        raise HTTPException(status_code=400, detail="file_path requerido")
+        raise HTTPException(status_code=400, detail=tr('tab2.file_path_requerido'))
     mkv_path_obj = _resolve_mkv_path_safe(file_path)
     mkv_full = str(mkv_path_obj)
     # Sin el 404 de «MKV no encontrado» a propósito: un fichero movido o
@@ -900,10 +901,10 @@ async def mkv_light_profile_cached(file_path: str = ""):
     (fingerprint = SHA del primer 1 MB, ~20 ms) y no toca `workload`.
     """
     if not file_path:
-        raise HTTPException(status_code=400, detail="file_path requerido")
+        raise HTTPException(status_code=400, detail=tr('tab2.file_path_requerido'))
     mkv_path_obj = _resolve_mkv_path_safe(file_path)
     if not mkv_path_obj.exists():
-        raise HTTPException(status_code=404, detail=f"MKV no encontrado: {file_path}")
+        raise HTTPException(status_code=404, detail=tr('tab2.mkv_no_encontrado_2', file_path=file_path))
 
     from storage import compute_mkv_fingerprint, read_mkv_cache
     from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
@@ -1048,7 +1049,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     mkv_path_obj = _resolve_mkv_path_safe(rel_path)
     mkv_full = str(mkv_path_obj)
     if not mkv_path_obj.exists():
-        raise HTTPException(status_code=400, detail=f"MKV no encontrado: {rel_path}")
+        raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado', rel_path=rel_path))
 
     # Dedup anti re-envío: el POST de la auditoría se queda abierto ~12 min sin
     # respuesta; cuando la pestaña pierde el foco y cae la conexión, el navegador
@@ -1075,7 +1076,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
     if (donde := _analisis_ya_pedido(mkv_full)):
         raise HTTPException(
             status_code=409,
-            detail=f"Ese MKV ya tiene un análisis extendido {donde}.")
+            detail=tr('tab2.ese_mkv_ya_tiene_un_analisis', donde=donde))
     # A la cola: son ~10 minutos y el usuario no está esperando la respuesta
     # HTTP. **El singleton no se toca aquí**: describe al análisis que tiene
     # la máquina, y este todavía no la tiene. Lo reclama el runner al recibir
@@ -1091,7 +1092,7 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         tipo=queue_manager_mod.TIPO_ANALISIS_EXTENDIDO,
         clave=my_audit_id,
         sobre=str(mkv_full),
-        que=f"Análisis RPU/Luz MKV · {_titulo_audit or mkv_path_obj.name}",
+        que=tr('tab2.analisis_rpu_luz_mkv', p1=_titulo_audit or mkv_path_obj.name),
         titulo=_titulo_audit, poster=_poster_audit,
         datos={"mkv": str(mkv_full), "nombre": mkv_path_obj.name,
                "request_id": request_id or "",
@@ -1224,8 +1225,7 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
             id     = my_audit_id,
             tab    = historial.TAB_MKV,
             tipo   = historial.TIPO_ANALISIS_EXTENDIDO,
-            que    = (f"Análisis RPU/Luz MKV · "
-                      f"{_titulo_hist or mkv_path_obj.name}"),
+            que    = (tr('tab2.analisis_rpu_luz_mkv', p1=_titulo_hist or mkv_path_obj.name)),
             titulo = _titulo_hist, poster = _poster_hist,
             inicio = _historial_inicio,
             estado = _paso if _paso in ("done", "cancelled", "error") else "error",
@@ -1465,7 +1465,7 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
                 dst.unlink()
         except Exception:
             pass
-        raise RuntimeError(f"Error copiando MKV: {e}") from e
+        raise RuntimeError(tr('tab2.error_copiando_mkv', e=e)) from e
     _mkv_apply_state["bytes_copied"] = total
     _mkv_apply_state["pct"] = 100
 
@@ -1551,8 +1551,7 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
             # Ni en minúscula ni enseñando la ruta interna del destino: es
             # lo mismo que hace el resto de la columna y el usuario no tiene
             # por qué saber dónde monta /mnt/output.
-            que    = (f"Copia a Output · "
-                      f"{_titulo_copia_hist or src_path.name}"),
+            que    = (tr('tab2.copia_a_output', p1=_titulo_copia_hist or src_path.name)),
             titulo = _titulo_copia_hist, poster = _poster_copia_hist,
             inicio = _historial_inicio,
             estado = _mkv_apply_state.get("step") or "error",
@@ -1586,13 +1585,12 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
         return build_fake_mkv_apply(body)
     src_path = Path(body.file_path)
     if not src_path.exists():
-        raise HTTPException(status_code=400, detail="MKV no encontrado")
+        raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado_3'))
 
     if _mkv_apply_state.get("active"):
         raise HTTPException(
             status_code=409,
-            detail="Ya hay una copia o edición de MKV en curso. Espera a que "
-                   "termine o cancélala.",
+            detail=tr('tab2.ya_hay_una_copia_o_edicion'),
         )
 
     # Detección de library read-only — exige confirmación explícita del usuario
@@ -1600,8 +1598,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     if needs_copy and not body.copy_to_output:
         raise HTTPException(
             status_code=409,
-            detail="MKV en biblioteca read-only — confirma `copy_to_output=true` "
-                   "para copiarlo a /mnt/output antes de editar."
+            detail=tr('tab2.mkv_en_biblioteca_read_only_confirma')
         )
 
     try:
@@ -1610,8 +1607,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
             if dst_path.exists():
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Ya existe un MKV con ese nombre en /mnt/output: "
-                           f"{src_path.name}. Renómbralo o muévelo antes de continuar."
+                    detail=tr('tab2.ya_existe_un_mkv_con_ese', p1=src_path.name)
                 )
             # A la cola: son decenas de GB sobre el mismo vdev del que tira
             # todo lo demás. El POST responde al instante y el modal, que ya
@@ -1630,7 +1626,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 tipo=queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                 clave=_clave_copia,
                 sobre=str(src_path),
-                que=f"Copia a Output · {_titulo_copia or src_path.name}",
+                que=tr('tab2.copia_a_output', p1=_titulo_copia or src_path.name),
                 titulo=_titulo_copia, poster=_poster_copia,
                 datos={"body": body.model_dump(), "src": str(src_path),
                        "dst": str(dst_path),

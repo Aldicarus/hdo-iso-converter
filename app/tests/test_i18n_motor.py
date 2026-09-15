@@ -216,17 +216,17 @@ class TestElMotorDelNavegador(unittest.TestCase):
         r = self.corre("console.log(JSON.stringify({token: TOKEN_I18N}));")
         self.assertEqual(r["token"], "TOKEN")
 
-    def test_t_sustituye_parametros_por_nombre(self):
+    def test_tr_sustituye_parametros_por_nombre(self):
         r = self.corre("""
           _catalogo = {x: '{total} total, {n} left'};
-          console.log(JSON.stringify({v: t('x', {n: 3, total: 9})}));
+          console.log(JSON.stringify({v: tr('x', {n: 3, total: 9})}));
         """)
         self.assertEqual(r["v"], "9 total, 3 left")
 
     def test_una_clave_ausente_devuelve_la_clave_y_se_apunta(self):
         r = self.corre("""
           _catalogo = {};
-          const v = t('falta.esta');
+          const v = tr('falta.esta');
           console.log(JSON.stringify({v, ausentes: clavesAusentes()}));
         """)
         self.assertEqual(r["v"], "falta.esta")
@@ -288,7 +288,7 @@ class TestElMotorDelNavegador(unittest.TestCase):
             return {ok: true, json: async () => ({x: 'Hola'})};
           };
           cargarIdioma('ca').then(cod => {
-            console.log(JSON.stringify({cod, pedidos, v: t('x')}));
+            console.log(JSON.stringify({cod, pedidos, v: tr('x')}));
           });
         """)
         self.assertEqual(r["cod"], "es", "un catálogo que falla debe caer a es")

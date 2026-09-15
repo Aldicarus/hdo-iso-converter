@@ -24,6 +24,7 @@ Los capítulos se extraen en Fase A (mkvmerge + mkvextract) y están
 disponibles desde la creación del proyecto. Phase D ya no extrae
 capítulos — mkvmerge los incluye automáticamente en el MKV.
 """
+from i18n import t as tr
 import asyncio
 import os
 import subprocess
@@ -171,11 +172,9 @@ async def run_phase_d(
         # "Origen" en vez de "MPLS" porque puede ser un m2ts directo
         # (modo película desde fichero suelto o serie multi-m2ts).
         await log_callback(
-            "[Fase B] 📋 Extrayendo todas las pistas del origen a un MKV "
-            "intermedio en /mnt/tmp con mkvmerge (lectura directa, sin "
-            "re-codificar). La selección y los metadatos se aplican después."
+            '[Fase B] ' + tr('phase_d.extrayendo_todas_las_pistas_del_origen')
         )
-        await log_callback(f"[Fase B] ┌─ Origen: {Path(mpls_path).name}")
+        await log_callback('[Fase B] ┌─ ' + tr('phase_d.origen', p1=Path(mpls_path).name))
         await log_callback(f"[Fase B] └─ $ {' '.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
@@ -232,35 +231,32 @@ async def run_phase_d(
     if hung or playlist_assert or proc.returncode not in (0, 1):
         borrado = _limpiar_parcial(out_path, existia_antes)
         if borrado and log_callback:
-            await log_callback(f"[Fase B] 🧹 Intermedio parcial eliminado: {borrado}")
+            await log_callback('[Fase B] ' + tr('phase_d.intermedio_parcial_eliminado', borrado=borrado))
 
     if hung:
         raise RuntimeError(
-            f"mkvmerge sin actividad >{MKVMERGE_INACTIVITY_S // 60} min — "
-            "abortado (probable cuelgue, no bloquea la cola)"
+            tr('phase_d.mkvmerge_sin_actividad_min_abortado_probable', p1=MKVMERGE_INACTIVITY_S // 60)
         )
 
     if playlist_assert:
         raise MkvmergePlaylistError(
-            "mkvmerge abortó al ensamblar la lista de ficheros del playlist "
-            "(bug conocido con discos UHD multi-segmento / multi-ángulo)."
+            tr('phase_d.mkvmerge_aborto_al_ensamblar_la_lista')
         )
 
     # returncode 0 = OK · 1 = warnings no fatales · resto = fallo. Incluye
     # los códigos negativos por señal (SIGABRT = -6): el `>= 2` antiguo NO
     # los capturaba y el crash se enmascaraba aguas abajo.
     if proc.returncode not in (0, 1):
-        raise RuntimeError(f"mkvmerge terminó de forma anómala (código {proc.returncode})")
+        raise RuntimeError(tr('phase_d.mkvmerge_termino_de_forma_anomala_codigo', returncode=proc.returncode))
 
     if not Path(out_path).exists():
-        raise RuntimeError(f"mkvmerge no generó el MKV intermedio en {out_path}")
+        raise RuntimeError(tr('phase_d.mkvmerge_no_genero_el_mkv_intermedio', out_path=out_path))
 
     if log_callback:
         size_gb = Path(out_path).stat().st_size / 1e9
-        await log_callback(f"[Fase B] ✓ Intermedio: {Path(out_path).name} ({size_gb:.1f} GB)")
+        await log_callback('[Fase B] ' + tr('phase_d.intermedio_gb', p1=Path(out_path).name, p2=format(size_gb, '.1f')))
         await log_callback(
-            "[Fase B] 🎯 Resultado: intermedio con todas las pistas del origen, "
-            "sin recodificar. Listo para la Fase C."
+            '[Fase B] 🎯 Resultado' + tr('phase_d.intermedio_con_todas_las_pistas_del')
         )
 
     return out_path
@@ -300,8 +296,7 @@ def find_main_mpls(share_path: str) -> str:
             return str(max(mpls_files, key=lambda p: p.stat().st_size))
 
     raise RuntimeError(
-        f"No se encontraron ficheros MPLS bajo {share_path}. "
-        f"Verifica que el disco montado contiene BDMV/PLAYLIST/."
+        tr('phase_d.no_se_encontraron_ficheros_mpls_bajo', share_path=share_path)
     )
 
 

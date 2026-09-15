@@ -55,7 +55,7 @@ async function openCMv40CleanupModal() {
     if (body) {
       body.innerHTML = `
         <div class="cmv40-cleanup-empty">
-          ${icono('check')} Nada que limpiar — los ${data.total_count} proyectos ya están archivados o tienen una fase en curso.
+          ${tr('cmv40_modals.p1_nada_que_limpiar_los_total', {p1: icono('check'), total_count: data.total_count})}
         </div>`;
     }
     return;
@@ -219,9 +219,9 @@ async function _cmv40HelpSwitch(section) {
   if (!content) return;
   // Mientras llega: un aviso, no un panel en blanco. La primera vez son
   // ~150 KB del servidor local; las siguientes, cero.
-  if (!_manualCache) content.innerHTML = `<p>${escHtml(t('manual.cargando'))}</p>`;
+  if (!_manualCache) content.innerHTML = `<p>${escHtml(tr('manual.cargando'))}</p>`;
   const secciones = await _cmv40ManualSecciones();
-  content.innerHTML = secciones[section] || `<p>${escHtml(t('manual.sin_seccion'))}</p>`;
+  content.innerHTML = secciones[section] || `<p>${escHtml(tr('manual.sin_seccion'))}</p>`;
   content.scrollTop = 0;
 
   // Hidrataciones post-render (nodos que dependen de estado live)
@@ -273,7 +273,7 @@ async function _cmv40HelpHydrateDriveLink() {
     const df = s?.drive_folder || {};
     const apiKey = s?.google || {};
     if (df.configured) {
-      statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">(folder …${escHtml(df.folder_id_last6 || '??????')})</span>`;
+      statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">${tr('cmv40_modals.folder_p1', {p1: escHtml(df.folder_id_last6 || '??????')})}</span>`;
       statusEl.style.color = '#0e6b2a';
       const srcLabel = df.source === 'settings' ? 'configurada desde Configuración'
         : df.source === 'env' ? 'configurada por variable de entorno del contenedor'
@@ -362,7 +362,7 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
       ? `<span class="cmv40-lookup-pick-rating">${c.vote_average.toFixed(1)}</span>`
       : '';
     const origHtml = (c.title_en && c.title_en !== c.title_es)
-      ? `<div class="cmv40-lookup-pick-orig">Original: ${escHtml(c.title_en)}</div>`
+      ? `<div class="cmv40-lookup-pick-orig">${tr('cmv40_modals.original_title_en', {title_en: escHtml(c.title_en)})}</div>`
       : '';
     const overview = c.overview
       ? `<div class="cmv40-lookup-pick-overview">${escHtml(c.overview)}</div>`
@@ -387,7 +387,7 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
 
   container.innerHTML = `
     <div class="cmv40-lookup-section">
-      <div class="cmv40-lookup-section-title"><span data-icono="claqueta"></span> ${candidates.length} coincidencias en TMDb para "${escHtml(queryTitle)}"</div>
+      <div class="cmv40-lookup-section-title"><span data-icono="claqueta"></span> ${tr('cmv40_modals.p1_coincidencias_en_tmdb_para_querytitle', {p1: candidates.length, querytitle: escHtml(queryTitle)})}</div>
       <div class="cmv40-lookup-section-desc" data-i18n="cmv40_modals.selecciona_la_pelicula_a_la_que"></div>
       <div class="cmv40-lookup-picks">${items}</div>
     </div>`;
@@ -507,7 +507,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
             <span class="cmv40-lookup-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
             ${provTag}
             ${isBest ? '<span class="cmv40-lookup-best"><span data-icono="diana"></span> mejor match</span>' : ''}
-            <span class="cmv40-lookup-score">${score}% similitud</span>
+            <span class="cmv40-lookup-score">${tr('cmv40_modals.score_similitud', {score: score})}</span>
             <span class="cmv40-lookup-size">${sizeMb} MB</span>
           </div>
           <div class="cmv40-lookup-cand-path">${escHtml(c.file.path)}</div>

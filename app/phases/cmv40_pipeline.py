@@ -14,6 +14,7 @@ Fases (ver CMv40Phase en models.py):
 Cada fase escribe artefactos en /mnt/tmp/cmv40/{session_id}/ y actualiza
 el estado de la sesión. Las fases largas streaman progreso via callback.
 """
+from i18n import t as tr
 import asyncio
 import contextvars
 import json
@@ -116,9 +117,7 @@ async def check_disk_space_preflight(
         )
     if log_callback and tmp_free > 0 and out_free > 0:
         await log_callback(
-            f"[Preflight] Espacio OK — tmp:{tmp_free/1e9:.0f} GB libres "
-            f"(necesita ~{required_tmp/1e9:.0f}), output:{out_free/1e9:.0f} GB "
-            f"(necesita ~{required_output/1e9:.0f})"
+            '[Preflight] ' + tr('cmv40_pipeline.espacio_ok_tmp_gb_libres_necesita', p1=format(tmp_free/1e9, '.0f'), p2=format(required_tmp/1e9, '.0f'), p3=format(out_free/1e9, '.0f'), p4=format(required_output/1e9, '.0f'))
         )
 
 
@@ -141,18 +140,14 @@ async def check_output_name_free(
     if not final_path.exists():
         await _log(
         log_callback,
-            f"[Preflight] Nombre de salida libre — {session.output_mkv_name}")
+            '[Preflight] ' + tr('cmv40_pipeline.nombre_de_salida_libre', output_mkv_name=session.output_mkv_name))
         return
     try:
         tam = f" ({final_path.stat().st_size / 1e9:.1f} GB)"
     except OSError:
         tam = ""
     raise RuntimeError(
-        f"Ya existe un MKV con ese nombre en /mnt/output: "
-        f"{session.output_mkv_name}{tam}. Renombra la salida en la cabecera "
-        f"del proyecto o mueve/borra el anterior. Fase H se negaría a "
-        f"sobrescribirlo igualmente, así que abortamos ahora en vez de tras "
-        f"~40 min de extracción, inyección y remux."
+        tr('cmv40_pipeline.ya_existe_un_mkv_con_ese', output_mkv_name=session.output_mkv_name, tam=tam)
     )
 
 
@@ -378,7 +373,7 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        raise RuntimeError(f"Timeout tras {timeout}s: {cmd[0]}")
+        raise RuntimeError(tr('cmv40_pipeline.timeout_tras_s', timeout=timeout, p2=cmd[0]))
     return (
         proc.returncode,
         stdout.decode("utf-8", errors="replace"),
@@ -653,7 +648,7 @@ async def _emit_progress(log_callback, pct: float, label: str, eta_s: float | No
     payload = {"pct": round(pct, 1), "label": label}
     if eta_s is not None and eta_s >= 0:
         payload["eta_s"] = int(eta_s)
-    await log_callback(f"§§PROGRESS§§{json.dumps(payload)}")
+    await log_callback('§§PROGRESS§§' + str(json.dumps(payload)))
 
 
 # Cada cuánto una operación silenciosa escribe una línea REAL en el log.
@@ -674,7 +669,7 @@ async def _emit_heartbeat(log_callback, label: str, elapsed_s: float,
     eta_txt = ""
     if eta_s is not None and eta_s > 0:
         eta_txt = f" · quedan ~{int(eta_s) // 60}min {int(eta_s) % 60}s"
-    await log_callback(f"  ⏱ {label} en curso… ({mins}min {secs}s{eta_txt})")
+    await log_callback('  ' + tr('cmv40_pipeline.en_curso_min_s', label=label, mins=mins, secs=secs, eta_txt=eta_txt))
 
 
 async def _run_streaming(
@@ -768,9 +763,7 @@ async def _run_streaming(
             if suppressed_dts_warnings == 1:
                 await _log(
         log_callback,
-                    "[ffmpeg] ⚠ DTS no monotonicos detectados en el HEVC source — "
-                    "warning cosmetico del bitstream filter, la copia es correcta. "
-                    "Mensajes posteriores suprimidos; resumen al final del comando."
+                    '[ffmpeg] ' + tr('cmv40_pipeline.dts_no_monotonicos_detectados_en_el')
                 )
             return
 
@@ -928,8 +921,7 @@ async def _run_streaming(
     # Resumen de warnings suprimidos (si los hubo)
     if suppressed_dts_warnings > 1 and log_callback:
         await log_callback(
-            f"[ffmpeg] ℹ Total de warnings DTS no monotonicos suprimidos: "
-            f"{suppressed_dts_warnings - 1} (cosmeticos; el HEVC se copio bien)."
+            '[ffmpeg] ' + tr('cmv40_pipeline.i_total_de_warnings_dts_no', p1=suppressed_dts_warnings - 1)
         )
 
     return proc.returncode
@@ -1152,8 +1144,7 @@ async def _ffmpeg_extract_rpu_piped(
     if hevc_out is not None and not _tee_path_is_safe(hevc_out):
         await _log(
         log_callback,
-            "[Fase A] La ruta del workdir lleva caracteres que el muxer tee "
-            "de ffmpeg no admite — se usa el camino en dos pasos.")
+            '[Fase A] ' + tr('cmv40_pipeline.la_ruta_del_workdir_lleva_caracteres'))
         return False
 
     if hevc_out is not None:
@@ -1194,8 +1185,7 @@ async def _ffmpeg_extract_rpu_piped(
         _logger.info("No se pudo lanzar el pipeline ffmpeg|extract-rpu: %s", e)
         await _log(
         log_callback,
-            f"[Fase A] No se pudo lanzar el pipeline ({e}) — se usa el "
-            f"camino en dos pasos.")
+            '[Fase A] ' + tr('cmv40_pipeline.no_se_pudo_lanzar_el_pipeline', e=e))
         return False
     finally:
         # El padre DEBE cerrar sus copias: si el extremo de escritura sigue
@@ -1272,11 +1262,7 @@ async def _ffmpeg_extract_rpu_piped(
                     # anunciando "quedan ~3s" con 3 minutos de extract-rpu por
                     # delante.
                     await log_callback(
-                        f"  ⏱ {step_pct:.0f}% leído del vídeo · "
-                        f"{_fmt_ffmpeg_frame(line, total_frames)}"
-                        f"{tam + ' · ' if tam else ''}"
-                        f"{_fmt_ffmpeg_speed(line).lstrip(' ·').strip()} · "
-                        f"{_fmt_eta(tail_eta if tail_eta is not None else eta)}")
+                        '  ' + tr('cmv40_pipeline.leido_del_video', p1=format(step_pct, '.0f'), total_frames=_fmt_ffmpeg_frame(line, total_frames), p3=tam + ' · ' if tam else '', p4=_fmt_ffmpeg_speed(line).lstrip(' ·').strip(), p5=_fmt_eta(tail_eta if tail_eta is not None else eta)))
         ff_eof = True
 
     step_start = time.monotonic()
@@ -1362,9 +1348,7 @@ async def _ffmpeg_extract_rpu_piped(
                 ultimo_log = ahora
                 if leyendo:
                     await log_callback(
-                        f"  ⏱ ffmpeg terminó · extract-rpu leyendo lo que queda "
-                        f"en el pipe — {pct:.0f}% ({_gb(leido)} de {_gb(total)})"
-                        f" · {_fmt_eta(eta)}")
+                        '  ' + tr('cmv40_pipeline.ffmpeg_termino_extract_rpu_leyendo_lo', p1=format(pct, '.0f'), leido=_gb(leido), total=_gb(total), eta=_fmt_eta(eta)))
                 else:
                     # Sin señal de avance que dar: leyó los 73 GB y ahora está
                     # cerrando el RPU. Decir un porcentaje aquí sería inventarlo
@@ -1396,21 +1380,19 @@ async def _ffmpeg_extract_rpu_piped(
                 pass
         await _log(
         log_callback,
-            f"[Fase A] El pipeline ffmpeg|extract-rpu excedió {total_timeout}s — "
-            f"abortado; se reintenta en dos pasos.")
+            '[Fase A] ' + tr('cmv40_pipeline.el_pipeline_ffmpeg_extract_rpu_excedio', total_timeout=total_timeout))
         return False
 
     if ff_rc != 0 or dv_rc != 0:
         if log_callback:
             await log_callback(
-                f"[Fase A] El pipeline ffmpeg|extract-rpu falló "
-                f"(ffmpeg={ff_rc}, dovi_tool={dv_rc}) — se reintenta en dos pasos."
+                '[Fase A] ' + tr('cmv40_pipeline.el_pipeline_ffmpeg_extract_rpu_fallo', ff_rc=ff_rc, dv_rc=dv_rc)
             )
             for line in ff_tail[-6:]:
-                await log_callback(f"  {line}")
+                await log_callback('  ' + str(line))
             tail = dv_out.decode("utf-8", errors="replace").strip().splitlines()[-4:]
             for line in tail:
-                await log_callback(f"  {line}")
+                await log_callback('  ' + str(line))
         return False
     if not rpu_out.exists() or rpu_out.stat().st_size == 0:
         return False
@@ -1497,7 +1479,7 @@ async def _run_with_time_estimate(
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
-            raise RuntimeError(f"Timeout tras {timeout}s: {cmd[0]}")
+            raise RuntimeError(tr('cmv40_pipeline.timeout_tras_s', timeout=timeout, p2=cmd[0]))
         return (
             proc.returncode,
             stdout.decode("utf-8", errors="replace"),
@@ -1537,7 +1519,7 @@ async def preflight_source(
         RuntimeError si el MKV origen no tiene Dolby Vision RPU.
     """
     if session.source_preflight_ok:
-        await _log(log_callback, "[Pre-flight] Source ya validado previamente — skip sniff")
+        await _log(log_callback, '[Pre-flight] ' + tr('cmv40_pipeline.source_ya_validado_previamente_skip_sniff'))
         return
 
     wd = get_workdir(session)
@@ -1546,8 +1528,7 @@ async def preflight_source(
 
     await _log(
         log_callback,
-        "[Pre-flight] Sniff rápido del origen (30s) — verificando que el "
-        "HEVC contiene Dolby Vision RPU…"
+        '[Pre-flight] ' + tr('cmv40_pipeline.sniff_rapido_del_origen_30s_verificando')
     )
     try:
         rc = await _run_streaming([
@@ -1557,24 +1538,17 @@ async def preflight_source(
             "-f", "hevc", str(sniff_hevc),
         ], log_callback=None, proc_callback=proc_callback)
         if rc != 0 or not sniff_hevc.exists() or sniff_hevc.stat().st_size == 0:
-            raise RuntimeError("ffmpeg no pudo extraer el sniff HEVC del source MKV")
+            raise RuntimeError(tr('cmv40_pipeline.ffmpeg_no_pudo_extraer_el_sniff'))
         rc, _out, _err = await _run([
             DOVI_TOOL_BIN, "extract-rpu", str(sniff_hevc), "-o", str(sniff_rpu),
         ], timeout=60)
         if rc != 0 or not sniff_rpu.exists() or sniff_rpu.stat().st_size == 0:
             raise RuntimeError(
-                "El MKV origen no contiene Dolby Vision RPU (sniff de 30s sin "
-                "NALs DV detectados). Causas típicas: (1) el MKV está etiquetado "
-                "como DV pero el video real es solo HDR10/SDR; (2) la conversión "
-                "P7 → P8 que generaste perdió el RPU al remuxar (mkvmerge solo "
-                "no preserva el EL ni el RPU — usa dovi_tool demux + inject-rpu); "
-                "(3) re-encode sin preservar la metadata DV. Verifica con "
-                "`dovi_tool info -i <mkv>` antes de relanzar."
+                tr('cmv40_pipeline.el_mkv_origen_no_contiene_dolby_2')
             )
         await _log(
         log_callback,
-            f"[Pre-flight] ✓ Sniff OK — RPU detectado ({sniff_rpu.stat().st_size} bytes "
-            "en 30s del origen)."
+            '[Pre-flight] ' + tr('cmv40_pipeline.sniff_ok_rpu_detectado_bytes_en', st_size=sniff_rpu.stat().st_size)
         )
         session.source_preflight_ok = True
     finally:
@@ -1627,12 +1601,7 @@ async def run_phase_a_analyze_source(
     mkv_size = mkv_path_obj.stat().st_size if mkv_path_obj.exists() else 0
     if duration <= 0:
         raise RuntimeError(
-            f"El MKV origen no tiene duración detectable (ffprobe devuelve "
-            f"Duration: N/A). Posibles causas: fichero corrupto, transferencia "
-            f"interrumpida (descarga / copia parcial), o MKV sin segmento "
-            f"Matroska finalizado. Tamaño del fichero: {mkv_size / 1e9:.2f} GB. "
-            f"Verifica con `mediainfo` o `ffprobe` que el MKV está intacto "
-            f"antes de relanzar Fase A."
+            tr('cmv40_pipeline.el_mkv_origen_no_tiene_duracion', p1=format(mkv_size / 1e9, '.2f'))
         )
 
     # Paso 0: Sniff DV del source. Idempotente — preflight_source ya lo hace
@@ -1643,14 +1612,10 @@ async def run_phase_a_analyze_source(
     await preflight_source(session, log_callback=log_callback, proc_callback=proc_callback)
 
     # Paso 1: Extraer HEVC del MKV origen
-    await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV origen")
+    await _emit_progress(log_callback, 0, tr('cmv40_pipeline.extrayendo_hevc_del_mkv_origen'))
     await _log(
         log_callback,
-        "[Fase A] 📋 Plan: extraer el stream HEVC del MKV del Blu-ray, "
-        "sacar el RPU Dolby Vision (la metadata que le dice al TV cómo "
-        "hacer tone-mapping escena a escena) y detectar el profile. El "
-        "RPU extraído es la referencia que luego usaremos para comparar "
-        "contra el target y decidir si el upgrade es posible."
+        '[Fase A] 📋 Plan' + tr('cmv40_pipeline.extraer_el_stream_hevc_del_mkv')
     )
     # Threshold de validación del HEVC extraído: debería ser >=50% del
     # tamaño del MKV (en UHD el HEVC es >90% del total). Por debajo de
@@ -1676,15 +1641,11 @@ async def run_phase_a_analyze_source(
     if existing_too_small:
         if existing_size > 0 and log_callback:
             await log_callback(
-                f"[Fase A] source.hevc previo ({existing_size / 1e6:.0f} MB) "
-                f"es demasiado pequeño respecto al MKV ({mkv_size / 1e9:.2f} GB) — "
-                f"se regenera desde cero."
+                '[Fase A] ' + tr('cmv40_pipeline.source_hevc_previo_mb_es_demasiado', p1=format(existing_size / 1e6, '.0f'), p2=format(mkv_size / 1e9, '.2f'))
             )
         await _log(
         log_callback,
-            "[Fase A] ┌─ Paso 1/3: Extrayendo el HEVC y su RPU a la vez — "
-            "ffmpeg escribe source.hevc mientras dovi_tool saca el RPU del "
-            "mismo flujo, sin esperar a que el fichero esté completo."
+            '[Fase A] ┌─ ' + tr('cmv40_pipeline.paso_1_3_extrayendo_el_hevc')
         )
         t0 = time.monotonic()
         piped_ok = await _ffmpeg_extract_rpu_piped(
@@ -1692,7 +1653,7 @@ async def run_phase_a_analyze_source(
             duration=duration, log_callback=log_callback,
             proc_callback=proc_callback,
             offset=0.0, weight=W_FFMPEG + W_RPU,
-            label="Extrayendo HEVC + RPU (en paralelo)",
+            label=tr('cmv40_pipeline.extrayendo_hevc_rpu_en_paralelo'),
             estimated_s=_estimate_from_ffmpeg(session, 1.0, FPS_FFMPEG_EXTRACT),
             total_frames=frame_count,
         )
@@ -1705,18 +1666,13 @@ async def run_phase_a_analyze_source(
                 source_hevc.unlink(missing_ok=True)
                 rpu_source.unlink(missing_ok=True)
                 raise RuntimeError(
-                    f"ffmpeg terminó con rc=0 pero extrajo solo "
-                    f"{hevc_size / 1e9:.2f} GB de HEVC desde un MKV de "
-                    f"{mkv_size / 1e9:.2f} GB (ratio {hevc_size / mkv_size:.1%}, "
-                    f"esperado >={MIN_HEVC_RATIO:.0%}). El MKV probablemente está "
-                    f"corrupto o incompleto. Artefactos parciales borrados."
+                    tr('cmv40_pipeline.ffmpeg_termino_con_rc_0_pero', p1=format(hevc_size / 1e9, '.2f'), p2=format(mkv_size / 1e9, '.2f'), p3=format(hevc_size / mkv_size, '.1%'), p4=format(MIN_HEVC_RATIO, '.0%'))
                 )
             await _log(
         log_callback,
-                f"[Fase A] ✓ HEVC ({hevc_size / 1e9:.1f} GB) + RPU extraídos "
-                f"en una pasada ({ffmpeg_elapsed:.0f}s)"
+                '[Fase A] ' + tr('cmv40_pipeline.hevc_gb_rpu_extraidos_en_una', p1=format(hevc_size / 1e9, '.1f'), p2=format(ffmpeg_elapsed, '.0f'))
             )
-            await _emit_progress(log_callback, W_FFMPEG + W_RPU, "HEVC y RPU extraídos")
+            await _emit_progress(log_callback, W_FFMPEG + W_RPU, tr('cmv40_pipeline.hevc_y_rpu_extraidos'))
         else:
             # El pipeline no era viable: limpiamos lo que haya quedado a medias
             # y seguimos por el camino de siempre.
@@ -1728,7 +1684,7 @@ async def run_phase_a_analyze_source(
         # el muxer tee, dovi_tool sin soporte de stdin, o falló a medias).
         await _log(
         log_callback,
-            "[Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg…")
+            '[Fase A] ┌─ ' + tr('cmv40_pipeline.paso_1_4_extrayendo_stream_hevc'))
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
@@ -1742,7 +1698,7 @@ async def run_phase_a_analyze_source(
            })
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
-            raise RuntimeError(f"ffmpeg falló al extraer HEVC (código {rc})")
+            raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_al_extraer_hevc_codigo', rc=rc))
 
         # Validación post-ffmpeg: el HEVC debe tener un tamaño razonable
         # respecto al MKV. Sin esto, ffmpeg puede terminar con rc=0 tras
@@ -1758,20 +1714,12 @@ async def run_phase_a_analyze_source(
                 except OSError:
                     pass
                 raise RuntimeError(
-                    f"ffmpeg terminó con rc=0 pero extrajo solo "
-                    f"{hevc_size / 1e9:.2f} GB de HEVC desde un MKV de "
-                    f"{mkv_size / 1e9:.2f} GB (ratio {ratio:.1%}, esperado "
-                    f">={MIN_HEVC_RATIO:.0%}). El MKV probablemente está "
-                    f"corrupto o incompleto — busca 'File ended prematurely' "
-                    f"en el log de ffmpeg arriba. Verifica con `mediainfo` o "
-                    f"`ffprobe -i <mkv>` antes de relanzar Fase A. El "
-                    f"source.hevc parcial se ha borrado para que el reintento "
-                    f"sea limpio."
+                    tr('cmv40_pipeline.ffmpeg_termino_con_rc_0_pero_2', p1=format(hevc_size / 1e9, '.2f'), p2=format(mkv_size / 1e9, '.2f'), p3=format(ratio, '.1%'), p4=format(MIN_HEVC_RATIO, '.0%'))
                 )
     elif not piped_ok:
-        await _log(log_callback, "[Fase A] source.hevc ya existe, reutilizando")
+        await _log(log_callback, '[Fase A] ' + tr('cmv40_pipeline.source_hevc_ya_existe_reutilizando'))
     if not piped_ok:
-        await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
+        await _emit_progress(log_callback, W_FFMPEG, tr('cmv40_pipeline.hevc_extraido'))
 
     # Guardar wall-time de ffmpeg como ancla para estimaciones futuras.
     # Con el pipeline, este tiempo cubre ffmpeg + extract-rpu solapados: es
@@ -1783,7 +1731,7 @@ async def run_phase_a_analyze_source(
 
     if not piped_ok:
         # Paso 2: Extraer RPU (silencioso con pipe → progreso estimado por tiempo)
-        await _log(log_callback, "[Fase A] ├─ Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu…")
+        await _log(log_callback, '[Fase A] ├─ ' + tr('cmv40_pipeline.paso_2_4_extrayendo_rpu_del'))
         # Ancla: wall time de ffmpeg × ratio empírico (extract-rpu ≈ 0.92x ffmpeg)
         if ffmpeg_elapsed > 5:
             est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
@@ -1794,10 +1742,10 @@ async def run_phase_a_analyze_source(
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(source_hevc), "-o", str(rpu_source),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
-           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC",
+           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label=tr('cmv40_pipeline.extrayendo_rpu_del_hevc'),
            offset=W_FFMPEG, weight=W_RPU, progress_input=source_hevc)
         if rc != 0:
-            raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+            raise RuntimeError(tr('cmv40_pipeline.dovi_tool_extract_rpu_fallo', p1=err[:300]))
 
     # extract-rpu sale rc=0 incluso cuando no encuentra ni un solo NAL DV en
     # el HEVC — solo deja el fichero vacio o inexistente. info --summary
@@ -1806,26 +1754,19 @@ async def run_phase_a_analyze_source(
     # marcado como DV pero sin RPU embebido).
     if not rpu_source.exists() or rpu_source.stat().st_size == 0:
         raise RuntimeError(
-            "El MKV origen no contiene Dolby Vision RPU. dovi_tool extract-rpu "
-            "no encontro ningun NAL DV en el HEVC. Causas tipicas: (1) el MKV "
-            "esta etiquetado como DV pero el video real es solo HDR10/SDR; "
-            "(2) la conversion P7 -> P8 que generaste perdio el RPU al "
-            "remuxar; (3) el video se re-encodeo sin preservar la metadata DV. "
-            "Verifica el origen con `mediainfo` o `dovi_tool info -i <mkv>` "
-            "antes de relanzar Fase A."
+            tr('cmv40_pipeline.el_mkv_origen_no_contiene_dolby')
         )
-    await _emit_progress(log_callback, W_FFMPEG + W_RPU, "RPU extraído")
+    await _emit_progress(log_callback, W_FFMPEG + W_RPU, tr('cmv40_pipeline.rpu_extraido'))
 
     # Paso 3: Info del RPU
     await _log(
         log_callback,
-        f"[Fase A] ├─ Paso {'2/3' if piped_ok else '3/4'}: Analizando metadata "
-        f"del RPU con dovi_tool info --summary…")
+        '[Fase A] ├─ ' + tr('cmv40_pipeline.paso_analizando_metadata_del_rpu_con', p1='2/3' if piped_ok else '3/4'))
     rc, summary, err = await _run([
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_source),
     ], timeout=30)
     if rc != 0:
-        raise RuntimeError(f"dovi_tool info falló: {err[:300]}")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
     session.source_dv_info = dovi_info
@@ -1845,12 +1786,7 @@ async def run_phase_a_analyze_source(
             except OSError:
                 pass
             raise RuntimeError(
-                f"El RPU extraído tiene {dovi_info.frame_count} frames pero "
-                f"el MKV origen esperaba ~{frame_count} (ratio {ratio:.1%}). "
-                f"Discrepancia masiva — el HEVC se truncó durante el procesado "
-                f"(MKV con corrupciones internas). Artefactos parciales "
-                f"borrados — verifica el fichero con `ffprobe -count_frames "
-                f"-i <mkv>` antes de relanzar Fase A."
+                tr('cmv40_pipeline.el_rpu_extraido_tiene_frames_pero', frame_count=dovi_info.frame_count, frame_count2=frame_count, p3=format(ratio, '.1%'))
             )
 
     # Detectar workflow según perfil y subperfil (ver CMv40Session.source_workflow)
@@ -1871,8 +1807,7 @@ async def run_phase_a_analyze_source(
     from phases.rpu_analyze import analyze_rpu_combos, compare_l2, recommend_action
     await _log(
         log_callback,
-        f"[Fase A] └─ Paso {'3/3' if piped_ok else '4/4'}: Analizando combos L2 del source (dovi_tool export) "
-        "para comparar con el target y decidir Mantener/Inyectar…"
+        '[Fase A] └─ ' + tr('cmv40_pipeline.paso_analizando_combos_l2_del_source', p1='3/3' if piped_ok else '4/4')
     )
     source_analysis = await analyze_rpu_combos(rpu_source)
     if source_analysis.total_frames > 0:
@@ -1882,8 +1817,7 @@ async def run_phase_a_analyze_source(
         session.source_frames_analyzed = source_analysis.total_frames
         await _log(
         log_callback,
-            f"[Fase A] L2 source: {source_analysis.l2_unique_count} combos únicos · "
-            f"peaks {source_analysis.l2_target_pqs}"
+            '[Fase A] ' + tr('cmv40_pipeline.l2_source_combos_unicos_peaks', l2_unique_count=source_analysis.l2_unique_count, l2_target_pqs=source_analysis.l2_target_pqs)
         )
 
         # ── Bloque 2: comparación L2 source vs L2 bin + recomendación ──
@@ -1903,10 +1837,10 @@ async def run_phase_a_analyze_source(
         session.recommended_action_reason = action_reason
         if log_callback:
             await log_callback(
-                f"[Fase A] 🎯 Comparación L2: {l2_verdict.upper()} — {l2_reason}"
+                '[Fase A] ' + tr('cmv40_pipeline.comparacion_l2', p1=l2_verdict.upper(), l2_reason=l2_reason)
             )
             await log_callback(
-                f"[Fase A] 🎯 Recomendación del modelo: {action_label} — {action_reason}"
+                '[Fase A] ' + tr('cmv40_pipeline.recomendacion_del_modelo', action_label=action_label, action_reason=action_reason)
             )
     else:
         # El aviso vivía FUERA del `if`, así que se emitía SIEMPRE — también
@@ -1918,15 +1852,12 @@ async def run_phase_a_analyze_source(
         # la lista de combos L2 del source».
         await _log(
             log_callback,
-            "[Fase A] ⚠ No se pudo extraer la lista de combos L2 del source "
-            "(no impide continuar — la recomendación Mantener/Inyectar se calculará "
-            "con datos parciales del bin)."
+            '[Fase A] ' + tr('cmv40_pipeline.no_se_pudo_extraer_la_lista')
         )
 
     if log_callback:
         await log_callback(
-            f"[Fase A] ✓ RPU analizado — Profile {dovi_info.profile} ({dovi_info.el_type}), "
-            f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames"
+            '[Fase A] ' + tr('cmv40_pipeline.rpu_analizado_profile_cm_frames', profile=dovi_info.profile, el_type=dovi_info.el_type, cm_version=dovi_info.cm_version, frame_count=dovi_info.frame_count)
         )
         # Resumen del workflow detectado. Sin predicciones de fases futuras —
         # cuando llegue cada fase ya dirá qué va a hacer según el target real.
@@ -1936,12 +1867,12 @@ async def run_phase_a_analyze_source(
             "p8":     "stream single-layer P8.1 — inyección directa del RPU.",
         }.get(session.source_workflow, "")
         await log_callback(
-            f"[Fase A] 🎯 Resultado: workflow {workflow_label}. {workflow_summary}"
+            '[Fase A] 🎯 Resultado' + tr('cmv40_pipeline.workflow', workflow_label=workflow_label, workflow_summary=workflow_summary)
         )
     # _emit_progress(100) AL FINAL: la barra solo llega al 100% cuando todo el
     # log de cierre se ha emitido, evitando que el usuario vea "100%" antes
     # del 🎯 Resultado y crea que la fase terminó silenciosa.
-    await _emit_progress(log_callback, 100, "Análisis completado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.analisis_completado'))
 
 
 def _detect_workflow(dovi_info: DoviInfo) -> str:
@@ -1960,8 +1891,7 @@ def _detect_workflow(dovi_info: DoviInfo) -> str:
     if profile == 8:
         return "p8"
     raise RuntimeError(
-        f"Perfil DV no soportado: Profile {profile} ({el_type}). "
-        f"Soportados: P7 FEL, P7 MEL, P8.x"
+        tr('cmv40_pipeline.perfil_dv_no_soportado_profile_soportados', profile=profile, el_type=el_type)
     )
 
 
@@ -2068,22 +1998,20 @@ async def preflight_target_drive(
 
     if log_callback:
         await log_callback(
-            "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
-            "el HEVC del BD. Fase A tarda ~12 min en discos UHD; el pre-flight "
-            "tarda <5s y aborta si el bin no aporta CMv4.0."
+            '[Pre-flight] ' + tr('cmv40_pipeline.validacion_rapida_del_bin_target_antes')
         )
         await log_callback(
-            f"[Pre-flight] ┌─ Descargando bin del repo DoviTools: {file_name}"
+            '[Pre-flight] ┌─ ' + tr('cmv40_pipeline.descargando_bin_del_repo_dovitools', file_name=file_name)
         )
 
     try:
         written = await download_file(file_id, rpu_target, progress_cb=None)
     except Exception as e:
-        raise RuntimeError(f"Descarga del repo DoviTools falló: {e}")
+        raise RuntimeError(tr('cmv40_pipeline.descarga_del_repo_dovitools_fallo', e=e))
 
     await _log(
         log_callback,
-        f"[Pre-flight] Descargados {written/1024/1024:.1f} MB a {rpu_target.name}"
+        '[Pre-flight] ' + tr('cmv40_pipeline.descargados_mb_a', p1=format(written/1024/1024, '.1f'), p2=rpu_target.name)
     )
 
     session.target_rpu_source = "drive"
@@ -2102,16 +2030,15 @@ async def preflight_target_path(
 
     src = Path(rpu_path)
     if not src.exists():
-        raise RuntimeError(f"RPU no encontrado: {rpu_path}")
+        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))
     if not src.is_file() or src.suffix != ".bin":
-        raise RuntimeError(f"Fichero no es un .bin válido: {rpu_path}")
+        raise RuntimeError(tr('cmv40_pipeline.fichero_no_es_un_bin_valido', rpu_path=rpu_path))
 
     if log_callback:
         await log_callback(
-            "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
-            "el HEVC del BD."
+            '[Pre-flight] ' + tr('cmv40_pipeline.validacion_rapida_del_bin_target_antes_2')
         )
-        await log_callback(f"[Pre-flight] ┌─ Copiando bin local: {src.name}")
+        await log_callback('[Pre-flight] ┌─ ' + tr('cmv40_pipeline.copiando_bin_local', p1=src.name))
 
     shutil.copy2(src, rpu_target)
 
@@ -2134,7 +2061,7 @@ async def preflight_target_mkv(
     temp_hevc = wd / "_target_source.hevc"
 
     if not Path(source_mkv_path).exists():
-        raise RuntimeError(f"MKV no encontrado: {source_mkv_path}")
+        raise RuntimeError(tr('cmv40_pipeline.mkv_no_encontrado', source_mkv_path=source_mkv_path))
 
     duration = await _probe_duration(source_mkv_path)
     W_FFMPEG, W_RPU = 60.0, 35.0
@@ -2142,11 +2069,10 @@ async def preflight_target_mkv(
     try:
         if log_callback:
             await log_callback(
-                "[Pre-flight] 📋 Validación rápida del bin target ANTES de extraer "
-                "el HEVC del BD."
+                '[Pre-flight] ' + tr('cmv40_pipeline.validacion_rapida_del_bin_target_antes_2')
             )
             await log_callback(
-                f"[Pre-flight] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}"
+                '[Pre-flight] ┌─ ' + tr('cmv40_pipeline.extrayendo_hevc_del_mkv_target_2', p1=Path(source_mkv_path).name)
             )
 
         # Aquí el HEVC no interesa, solo su RPU: va directo por un pipe sin
@@ -2157,7 +2083,7 @@ async def preflight_target_mkv(
             duration=duration, log_callback=log_callback,
             proc_callback=proc_callback,
             offset=0.0, weight=W_FFMPEG + W_RPU,
-            label="Pre-flight: extrayendo RPU del MKV target",
+            label=tr('cmv40_pipeline.pre_flight_extrayendo_rpu_del_mkv'),
             estimated_s=_estimate_from_ffmpeg(session, 1.0, FPS_FFMPEG_EXTRACT),
         )
         if not piped:
@@ -2172,16 +2098,16 @@ async def preflight_target_mkv(
                    "label": "Pre-flight: extrayendo HEVC del MKV target",
                })
             if rc != 0:
-                raise RuntimeError(f"ffmpeg falló (código {rc})")
+                raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_codigo', rc=rc))
 
-            await _log(log_callback, "[Pre-flight] Extrayendo RPU del HEVC target…")
+            await _log(log_callback, '[Pre-flight] ' + tr('cmv40_pipeline.extrayendo_rpu_del_hevc_target'))
             rc, out, err = await _run([
                 DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
             ], timeout=_adaptive_timeout(
                 _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
                 floor_s=1200))
             if rc != 0:
-                raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
+                raise RuntimeError(tr('cmv40_pipeline.dovi_tool_extract_rpu_fallo', p1=err[:300]))
 
         session.target_rpu_source = "mkv"
         session.target_rpu_path = source_mkv_path
@@ -2204,7 +2130,7 @@ async def _preflight_validate_bin(
         session.target_rpu_sha256 = await asyncio.to_thread(compute_file_sha256, rpu_path)
         await _log(
         log_callback,
-            f"[Pre-flight] SHA-256 del bin: {session.target_rpu_sha256[:12]}…"
+            '[Pre-flight] ' + tr('cmv40_pipeline.sha_256_del_bin', p1=session.target_rpu_sha256[:12])
         )
     except Exception as e:
         _logger.warning("No se pudo calcular SHA-256 del bin target: %s", e)
@@ -2214,7 +2140,7 @@ async def _preflight_validate_bin(
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
     ], timeout=30)
     if rc != 0:
-        raise RuntimeError(f"dovi_tool info falló sobre RPU target: {err[:300]}")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
     session.target_dv_info = dovi_info
@@ -2223,10 +2149,7 @@ async def _preflight_validate_bin(
 
     await _log(
         log_callback,
-        f"[Pre-flight] Bin analizado — Profile {dovi_info.profile}"
-        f"{' (' + dovi_info.el_type + ')' if dovi_info.el_type else ''}, "
-        f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames, "
-        f"L8={'sí' if dovi_info.has_l8 else 'no'}"
+        '[Pre-flight] ' + tr('cmv40_pipeline.bin_analizado_profile_cm_frames_l8', profile=dovi_info.profile, p2=' (' + dovi_info.el_type + ')' if dovi_info.el_type else '', cm_version=dovi_info.cm_version, frame_count=dovi_info.frame_count, p5='sí' if dovi_info.has_l8 else 'no')
     )
 
     # Hard abort: bin sin CMv4.0 — punto muerto absoluto. Limpia el .bin
@@ -2245,7 +2168,7 @@ async def _preflight_validate_bin(
             f"ha ahorrado la extracción del HEVC del BD (~12 min)."
         )
         session.compat_warning = abort_msg
-        await _log(log_callback, f"[Pre-flight] ⛔ {abort_msg}")
+        await _log(log_callback, '[Pre-flight] ' + '⛔ ' + str(abort_msg))
         try:
             rpu_path.unlink(missing_ok=True)
         except OSError:
@@ -2261,13 +2184,11 @@ async def _preflight_validate_bin(
     if log_callback:
         if session.target_type.startswith("trusted_"):
             await log_callback(
-                f"[Pre-flight] ✓ Bin válido — clasificado como {session.target_type}."
+                '[Pre-flight] ' + tr('cmv40_pipeline.bin_valido_clasificado_como', target_type=session.target_type)
             )
         else:
             await log_callback(
-                f"[Pre-flight] ✓ Bin válido (CM v4.0) pero clasificado como "
-                f"{session.target_type} — los gates completos se evaluarán en "
-                f"Fase B tras conocer el source."
+                '[Pre-flight] ' + tr('cmv40_pipeline.bin_valido_cm_v4_0_pero', target_type=session.target_type)
             )
 
 
@@ -2301,37 +2222,33 @@ async def run_phase_b_target_from_path(
 
     src = Path(rpu_path)
     if not src.exists():
-        raise RuntimeError(f"RPU no encontrado: {rpu_path}")
+        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))
     if not src.is_file() or src.suffix != ".bin":
-        raise RuntimeError(f"Fichero no es un .bin válido: {rpu_path}")
+        raise RuntimeError(tr('cmv40_pipeline.fichero_no_es_un_bin_valido', rpu_path=rpu_path))
 
     if _bin_already_cached(session, "path", str(src), rpu_target):
         await _log(
         log_callback,
-            f"[Fase B] ✓ Bin ya copiado por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
-            f"— evaluando trust gates con datos del source."
+            '[Fase B] ' + tr('cmv40_pipeline.bin_ya_copiado_por_pre_flight', p1=format(rpu_target.stat().st_size/1024/1024, '.1f'))
         )
-        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _emit_progress(log_callback, 70, tr('cmv40_pipeline.re_analizando_con_datos_del_source'))
         await _analyze_target_rpu(session, rpu_target, log_callback)
-        await _emit_progress(log_callback, 100, "Completado")
+        await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
         return
 
-    await _emit_progress(log_callback, 0, f"Copiando RPU target: {src.name}")
+    await _emit_progress(log_callback, 0, tr('cmv40_pipeline.copiando_rpu_target', p1=src.name))
     if log_callback:
         await log_callback(
-            "[Fase B] 📋 Plan: copiar el RPU target desde carpeta local al "
-            "workdir y re-evaluar los trust gates ahora que tenemos los datos "
-            "del source (frame count, L5, L6). Si los gates pasan → auto-"
-            "pipeline; si divergen → pausa en Fase D para revisar el chart."
+            '[Fase B] 📋 Plan' + tr('cmv40_pipeline.copiar_el_rpu_target_desde_carpeta')
         )
-        await log_callback(f"[Fase B] ┌─ Copiando RPU target local: {src.name}")
+        await log_callback('[Fase B] ┌─ ' + tr('cmv40_pipeline.copiando_rpu_target_local', p1=src.name))
     shutil.copy2(src, rpu_target)
-    await _emit_progress(log_callback, 70, "Analizando RPU")
+    await _emit_progress(log_callback, 70, tr('cmv40_pipeline.analizando_rpu'))
 
     session.target_rpu_source = "path"
     session.target_rpu_path = str(src)
     await _analyze_target_rpu(session, rpu_target, log_callback)
-    await _emit_progress(log_callback, 100, "Completado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
 
 
 async def run_phase_b_target_from_drive(
@@ -2351,23 +2268,19 @@ async def run_phase_b_target_from_drive(
     if _bin_already_cached(session, "drive", expected_path, rpu_target):
         await _log(
         log_callback,
-            f"[Fase B] ✓ Bin ya descargado por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
-            f"— evaluando trust gates con datos del source."
+            '[Fase B] ' + tr('cmv40_pipeline.bin_ya_descargado_por_pre_flight', p1=format(rpu_target.stat().st_size/1024/1024, '.1f'))
         )
-        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _emit_progress(log_callback, 70, tr('cmv40_pipeline.re_analizando_con_datos_del_source'))
         await _analyze_target_rpu(session, rpu_target, log_callback)
-        await _emit_progress(log_callback, 100, "Completado")
+        await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
         return
 
-    await _emit_progress(log_callback, 0, f"Descargando del repositorio: {file_name}")
+    await _emit_progress(log_callback, 0, tr('cmv40_pipeline.descargando_del_repositorio', file_name=file_name))
     if log_callback:
         await log_callback(
-            "[Fase B] 📋 Plan: descargar el RPU target del repositorio público "
-            "DoviTools (Google Drive) y re-evaluar los trust gates ahora que "
-            "tenemos los datos del source. Si los gates pasan → auto-pipeline; "
-            "si algún crítico falla → pausa en Fase D para revisar el chart."
+            '[Fase B] 📋 Plan' + tr('cmv40_pipeline.descargar_el_rpu_target_del_repositorio')
         )
-        await log_callback(f"[Fase B] ┌─ Descargando RPU target del repo DoviTools: {file_name}")
+        await log_callback('[Fase B] ┌─ ' + tr('cmv40_pipeline.descargando_rpu_target_del_repo_dovitools', file_name=file_name))
 
     last_emit = 0.0
 
@@ -2388,18 +2301,18 @@ async def run_phase_b_target_from_drive(
     try:
         written = await download_file(file_id, rpu_target, progress_cb=_progress)
     except Exception as e:
-        raise RuntimeError(f"Descarga de Drive falló: {e}")
+        raise RuntimeError(tr('cmv40_pipeline.descarga_de_drive_fallo', e=e))
 
     await _log(
         log_callback,
-        f"[Fase B] Descargados {written/1024/1024:.1f} MB a {rpu_target.name}"
+        '[Fase B] ' + tr('cmv40_pipeline.descargados_mb_a', p1=format(written/1024/1024, '.1f'), p2=rpu_target.name)
     )
-    await _emit_progress(log_callback, 70, "Analizando RPU descargado")
+    await _emit_progress(log_callback, 70, tr('cmv40_pipeline.analizando_rpu_descargado'))
 
     session.target_rpu_source = "drive"
     session.target_rpu_path = f"drive://{file_id}/{file_name}"
     await _analyze_target_rpu(session, rpu_target, log_callback)
-    await _emit_progress(log_callback, 100, "Completado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
 
 
 async def run_phase_b_target_from_mkv(
@@ -2414,17 +2327,16 @@ async def run_phase_b_target_from_mkv(
     temp_hevc  = wd / "_target_source.hevc"
 
     if not Path(source_mkv_path).exists():
-        raise RuntimeError(f"MKV no encontrado: {source_mkv_path}")
+        raise RuntimeError(tr('cmv40_pipeline.mkv_no_encontrado', source_mkv_path=source_mkv_path))
 
     if _bin_already_cached(session, "mkv", source_mkv_path, rpu_target):
         await _log(
         log_callback,
-            f"[Fase B] ✓ RPU ya extraído por pre-flight ({rpu_target.stat().st_size/1024/1024:.1f} MB) "
-            f"— evaluando trust gates con datos del source."
+            '[Fase B] ' + tr('cmv40_pipeline.rpu_ya_extraido_por_pre_flight', p1=format(rpu_target.stat().st_size/1024/1024, '.1f'))
         )
-        await _emit_progress(log_callback, 70, "Re-analizando con datos del source")
+        await _emit_progress(log_callback, 70, tr('cmv40_pipeline.re_analizando_con_datos_del_source'))
         await _analyze_target_rpu(session, rpu_target, log_callback)
-        await _emit_progress(log_callback, 100, "Completado")
+        await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
         return
 
     # Pesos: ffmpeg 50% · extract-rpu 45% · info 5%
@@ -2433,16 +2345,12 @@ async def run_phase_b_target_from_mkv(
     frame_count = await _probe_frame_count(source_mkv_path)
 
     try:
-        await _emit_progress(log_callback, 0, "Extrayendo HEVC del MKV target")
+        await _emit_progress(log_callback, 0, tr('cmv40_pipeline.extrayendo_hevc_del_mkv_target'))
         if log_callback:
             await log_callback(
-                "[Fase B] 📋 Plan: extraer el RPU CMv4.0 de un MKV propio que ya "
-                "tiene el grading que quieres aplicar (p. ej. WEB-DL moderno) y "
-                "evaluar los trust gates contra el source. Esta ruta suele pasar "
-                "por Fase D manual porque no hay pre-validación comunitaria que "
-                "garantice la alineación frame-a-frame con el Blu-ray."
+                '[Fase B] 📋 Plan' + tr('cmv40_pipeline.extraer_el_rpu_cmv4_0_de')
             )
-            await log_callback(f"[Fase B] ┌─ Extrayendo HEVC del MKV target: {Path(source_mkv_path).name}")
+            await log_callback('[Fase B] ┌─ ' + tr('cmv40_pipeline.extrayendo_hevc_del_mkv_target_2', p1=Path(source_mkv_path).name))
         t0 = time.monotonic()
         rc = await _run_streaming([
             FFMPEG_BIN, "-y", "-i", source_mkv_path,
@@ -2456,10 +2364,10 @@ async def run_phase_b_target_from_mkv(
            })
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
-            raise RuntimeError(f"ffmpeg falló (código {rc})")
-        await _emit_progress(log_callback, W_FFMPEG, "HEVC extraído")
+            raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_codigo', rc=rc))
+        await _emit_progress(log_callback, W_FFMPEG, tr('cmv40_pipeline.hevc_extraido'))
 
-        await _log(log_callback, "[Fase B] Extrayendo RPU del HEVC target…")
+        await _log(log_callback, '[Fase B] ' + tr('cmv40_pipeline.extrayendo_rpu_del_hevc_target'))
         # Ancla: wall time del ffmpeg que acabamos de medir (mejor que del source)
         if ffmpeg_elapsed > 5:
             est_rpu = ffmpeg_elapsed * RATIO_EXTRACT_RPU
@@ -2470,17 +2378,17 @@ async def run_phase_b_target_from_mkv(
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
-           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label="Extrayendo RPU del HEVC target",
+           timeout=_adaptive_timeout(est_rpu, floor_s=1200), label=tr('cmv40_pipeline.extrayendo_rpu_del_hevc_target_2'),
            progress_input=temp_hevc,
            offset=W_FFMPEG, weight=W_RPU)
         if rc != 0:
-            raise RuntimeError(f"dovi_tool extract-rpu falló: {err[:300]}")
-        await _emit_progress(log_callback, W_FFMPEG + W_RPU, "RPU extraído")
+            raise RuntimeError(tr('cmv40_pipeline.dovi_tool_extract_rpu_fallo', p1=err[:300]))
+        await _emit_progress(log_callback, W_FFMPEG + W_RPU, tr('cmv40_pipeline.rpu_extraido'))
 
         session.target_rpu_source = "mkv"
         session.target_rpu_path = source_mkv_path
         await _analyze_target_rpu(session, rpu_target, log_callback)
-        await _emit_progress(log_callback, 100, "Análisis completado")
+        await _emit_progress(log_callback, 100, tr('cmv40_pipeline.analisis_completado'))
     finally:
         temp_hevc.unlink(missing_ok=True)
 
@@ -2499,7 +2407,7 @@ async def _analyze_target_rpu(
         session.target_rpu_sha256 = await asyncio.to_thread(compute_file_sha256, rpu_path)
         await _log(
         log_callback,
-            f"[Fase B] SHA-256 del bin target: {session.target_rpu_sha256[:12]}…"
+            '[Fase B] ' + tr('cmv40_pipeline.sha_256_del_bin_target', p1=session.target_rpu_sha256[:12])
         )
     except Exception as e:
         _logger.warning("No se pudo calcular SHA-256 del bin target: %s", e)
@@ -2509,7 +2417,7 @@ async def _analyze_target_rpu(
         DOVI_TOOL_BIN, "info", "--summary", str(rpu_path),
     ], timeout=30)
     if rc != 0:
-        raise RuntimeError(f"dovi_tool info falló sobre RPU target: {err[:300]}")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
     session.target_dv_info = dovi_info
@@ -2557,16 +2465,13 @@ async def _analyze_target_rpu(
 
     if log_callback:
         await log_callback(
-            f"[Fase B] ✓ RPU target analizado — Profile {dovi_info.profile}"
-            f"{' (' + dovi_info.el_type + ')' if dovi_info.el_type else ''}, "
-            f"CM {dovi_info.cm_version}, {dovi_info.frame_count} frames "
-            f"(Δ = {session.sync_delta:+d} frames vs source)"
+            '[Fase B] ' + tr('cmv40_pipeline.rpu_target_analizado_profile_cm_frames', profile=dovi_info.profile, p2=' (' + dovi_info.el_type + ')' if dovi_info.el_type else '', cm_version=dovi_info.cm_version, frame_count=dovi_info.frame_count, p5=format(session.sync_delta, '+d'))
         )
         # Log detallado de gates que fallan (útil para diagnóstico)
         failing = [k for k, v in gates.items() if isinstance(v, dict) and not v.get("ok", True)]
         if failing:
             await log_callback(
-                f"[Fase B] ⚠ Gates que NO pasan: {', '.join(failing)}"
+                '[Fase B] ' + tr('cmv40_pipeline.gates_que_no_pasan', failing=', '.join(failing))
             )
         # Resultado con implicación para las siguientes fases — depende del
         # source_workflow + target_type porque Fase F elige ruta segun la
@@ -2628,8 +2533,7 @@ async def _analyze_target_rpu(
             else:
                 implication = "se salta la revisión manual del chart de sincronización."
             await log_callback(
-                f"[Fase B] 🎯 Resultado: target clasificado como {session.target_type} "
-                f"— TRUSTED ✓ gates OK. {implication}"
+                '[Fase B] 🎯 Resultado' + tr('cmv40_pipeline.target_clasificado_como_trusted_gates_ok', target_type=session.target_type, implication=implication)
             )
         else:
             crit_fail = any(gates.get(k, {}).get("critical") and not gates.get(k, {}).get("ok")
@@ -2657,8 +2561,7 @@ async def _analyze_target_rpu(
                     "de sincronización es revisable pero no bloquea el avance."
                 )
             await log_callback(
-                f"[Fase B] 🎯 Resultado: target clasificado como {session.target_type} "
-                f"— NO trusted. {implication}"
+                '[Fase B] 🎯 Resultado' + tr('cmv40_pipeline.target_clasificado_como_no_trusted', target_type=session.target_type, implication=implication)
             )
 
     # Hard aborts + ACK required tras evaluar gates — evitan gastar Fase C/D
@@ -2683,9 +2586,9 @@ async def _analyze_target_rpu(
         session.pipeline_aborted = True
         if log_callback:
             for f in hard_failures:
-                await log_callback(f"[Fase B] ⛔ Gate '{f['gate']}': {f['why']}")
+                await log_callback('[Fase B] ' + tr('cmv40_pipeline.gate', p1=f['gate'], p2=f['why']))
             await log_callback(
-                f"[Fase B] ⛔ Pipeline abortado — cambia el target para continuar."
+                '[Fase B] ' + tr('cmv40_pipeline.pipeline_abortado_cambia_el_target_para')
             )
         raise RuntimeError(abort_msg)
 
@@ -2696,9 +2599,7 @@ async def _analyze_target_rpu(
         session.critical_gate_failures = ack_failures
         if log_callback:
             await log_callback(
-                f"[Fase B] ⚠ Gates con degradación previsible: "
-                f"{', '.join(f['gate'] for f in ack_failures)}. "
-                f"El pipeline se detiene a la espera de confirmación del usuario."
+                '[Fase B] ' + tr('cmv40_pipeline.gates_con_degradacion_previsible_el_pipeline', ack_failures=', '.join(f['gate'] for f in ack_failures))
             )
             for f in ack_failures:
                 await log_callback(f"[Fase B]   • {f['gate']}: {f['why']}")
@@ -2719,7 +2620,7 @@ async def _analyze_target_rpu(
         )
         session.compat_warning = "" if compat_ok else compat_msg
         if not compat_ok:
-            await _log(log_callback, f"[Fase B] ⛔ {compat_msg}")
+            await _log(log_callback, '[Fase B] ' + '⛔ ' + str(compat_msg))
             raise RuntimeError(compat_msg)
 
 
@@ -3304,8 +3205,7 @@ async def _refinar_gate_l5(gates: dict,
     total = max(source_frames, target_frames)
     await _log(
         log_callback,
-        f"[Fase B] L5 estático sospechoso ({g.get('px_max', 0)} px > 30) — "
-        f"comparando los dos RPUs frame a frame ({_fmt_miles(total)} frames)…"
+        '[Fase B] ' + tr('cmv40_pipeline.l5_estatico_sospechoso_px_30_comparando', p1=g.get('px_max', 0), total=_fmt_miles(total))
     )
 
     src = await _l5_por_frame(rpu_source, source_frames)
@@ -3315,8 +3215,7 @@ async def _refinar_gate_l5(gates: dict,
     if not src or not tgt or total <= 0:
         await _log(
             log_callback,
-            "[Fase B] ⚠ No se pudieron leer los bloques L5 de alguno de los dos "
-            "RPUs — el gate L5 se queda como ack_required basándose en el summary."
+            '[Fase B] ' + tr('cmv40_pipeline.no_se_pudieron_leer_los_bloques')
         )
         return
 
@@ -3340,27 +3239,20 @@ async def _refinar_gate_l5(gates: dict,
                  if perfil["sin_bloque"] else "")
         await _log(
             log_callback,
-            f"[Fase B] L5 {etiqueta}: {_fmt_miles(perfil['frames_con_bloque'])}"
-            f"/{_fmt_miles(frames)} con bloque · {reparto}{extra}"
+            '[Fase B] ' + tr('cmv40_pipeline.l5_con_bloque', etiqueta=etiqueta, p2=_fmt_miles(perfil['frames_con_bloque']), frames=_fmt_miles(frames), reparto=reparto, extra=extra)
         )
     if perfil_src["variable"] or perfil_tgt["variable"]:
         cuales = ("ambos másters" if perfil_src["variable"] and perfil_tgt["variable"]
                   else ("el BD" if perfil_src["variable"] else "el bin"))
         await _log(
             log_callback,
-            f"[Fase B] Encuadre VARIABLE en {cuales} — típico de un máster con "
-            f"escenas expandidas (IMAX / open matte)."
+            '[Fase B] ' + tr('cmv40_pipeline.encuadre_variable_en_tipico_de_un', cuales=cuales)
         )
 
     pz = cmp["por_zona"]
     await _log(
         log_callback,
-        f"[Fase B] Comparados {_fmt_miles(cmp['comparados'])}: "
-        f"{_fmt_miles(cmp['divergentes'])} divergen "
-        f"({_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100)}%) · "
-        f"intro {_fmt_miles(pz['intro'][0])}/{_fmt_miles(pz['intro'][1])} · "
-        f"cuerpo {_fmt_miles(pz['body'][0])}/{_fmt_miles(pz['body'][1])} · "
-        f"outro {_fmt_miles(pz['outro'][0])}/{_fmt_miles(pz['outro'][1])}"
+        '[Fase B] ' + tr('cmv40_pipeline.comparados_divergen_intro_cuerpo_outro', p1=_fmt_miles(cmp['comparados']), p2=_fmt_miles(cmp['divergentes']), p3=_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100), p4=_fmt_miles(pz['intro'][0]), p5=_fmt_miles(pz['intro'][1]), p6=_fmt_miles(pz['body'][0]), p7=_fmt_miles(pz['body'][1]), p8=_fmt_miles(pz['outro'][0]), p9=_fmt_miles(pz['outro'][1]))
     )
 
     # Cruce con lo que el propio bin declara en su nombre. NO cambia la
@@ -3377,10 +3269,7 @@ async def _refinar_gate_l5(gates: dict,
     if proc["contradice"]:
         await _log(
             log_callback,
-            f"[Fase B] ⚠ El bin se declara «{', '.join(proc['tokens'])}» en su "
-            f"nombre pero la medición no encuentra encuadre variable en ninguno "
-            f"de los dos RPUs. En el corpus del NAS esa declaración nunca ha "
-            f"fallado, así que revisa el desglose L5 antes de fiarte del veredicto."
+            '[Fase B] ' + tr('cmv40_pipeline.el_bin_se_declara_en_su', p1=', '.join(proc['tokens']))
         )
 
     severidad, ok, why = _veredicto_l5(cmp)
@@ -3391,10 +3280,7 @@ async def _refinar_gate_l5(gates: dict,
     icono = "✓" if ok else "⚠"
     await _log(
         log_callback,
-        f"[Fase B] {icono} L5 '{severidad}' — cuerpo "
-        f"{_fmt_dec(cmp['body_coverage'] * 100)}% "
-        f"· mayor tramo {_fmt_dec(cmp['segundos_cuerpo_max'], 1)} s "
-        f"(umbrales 90% y {TRAMO_L5_MAX_SEGUNDOS:.0f} s)."
+        '[Fase B] ' + tr('cmv40_pipeline.l5_cuerpo_mayor_tramo_s_umbrales', icono=icono, severidad=severidad, p3=_fmt_dec(cmp['body_coverage'] * 100), p4=_fmt_dec(cmp['segundos_cuerpo_max'], 1), p5=format(TRAMO_L5_MAX_SEGUNDOS, '.0f'))
     )
 
 
@@ -3463,8 +3349,7 @@ async def run_phase_c_extract(
         if Path(session.source_mkv_path).exists():
             await _log(
         log_callback,
-                "[Fase C] source.hevc no encontrado (fue borrado tras un "
-                "demux previo) — re-extrayéndolo del MKV origen…"
+                '[Fase C] ' + tr('cmv40_pipeline.source_hevc_no_encontrado_fue_borrado')
             )
             rc = await _run_streaming([
                 FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
@@ -3473,11 +3358,11 @@ async def run_phase_c_extract(
                 "-f", "hevc", str(source_hevc),
             ], log_callback=log_callback, proc_callback=proc_callback)
             if rc != 0 or not source_hevc.exists():
-                raise RuntimeError("Re-extracción de source.hevc falló")
+                raise RuntimeError(tr('cmv40_pipeline.re_extraccion_de_source_hevc_fallo'))
         else:
-            raise RuntimeError("source.hevc no existe y el MKV origen no está accesible")
+            raise RuntimeError(tr('cmv40_pipeline.source_hevc_no_existe_y_el'))
     if not rpu_target.exists():
-        raise RuntimeError("RPU_target.bin no existe — ejecuta Fase B primero")
+        raise RuntimeError(tr('cmv40_pipeline.rpu_target_bin_no_existe_ejecuta'))
 
     plan = resolve_plan(session)
     extract = plan.extract
@@ -3509,10 +3394,10 @@ async def run_phase_c_extract(
 
     if needs_demux:
         est_demux = _estimate_from_ffmpeg(session, RATIO_DEMUX, FPS_DEMUX)
-        await _emit_progress(log_callback, 0, "Separando BL + EL")
+        await _emit_progress(log_callback, 0, tr('cmv40_pipeline.separando_bl_el'))
         await _log(
         log_callback,
-            f"[Fase C] Separando {extract.demux_label} (dovi_tool demux)…")
+            '[Fase C] ' + tr('cmv40_pipeline.separando_dovi_tool_demux', demux_label=extract.demux_label))
         demux_done = wd / ".demux_done"
 
         def _cleanup_partial_demux() -> None:
@@ -3527,8 +3412,7 @@ async def run_phase_c_extract(
         if _demux_output_reusable(bl_hevc, el_hevc, demux_done):
             await _log(
         log_callback,
-                "[Fase C] BL.hevc y EL.hevc ya existen y el demux previo se "
-                "completó (marcador verificado), reutilizando"
+                '[Fase C] ' + tr('cmv40_pipeline.bl_hevc_y_el_hevc_ya')
             )
         else:
             # Un BL/EL sin marcador es un demux muerto a medias (truncado) —
@@ -3543,7 +3427,7 @@ async def run_phase_c_extract(
                     "--bl-out", str(bl_hevc),
                     "--el-out", str(el_hevc),
                 ], estimated_s=est_demux, log_callback=log_callback, proc_callback=proc_callback,
-                   timeout=demux_timeout, label="Separando BL + EL (dovi_tool demux)",
+                   timeout=demux_timeout, label=tr('cmv40_pipeline.separando_bl_el_dovi_tool_demux'),
                    offset=0.0, weight=W_DEMUX, progress_input=source_hevc)
             except BaseException:
                 # Timeout/kill/cancel → los BL/EL a medio escribir NO deben
@@ -3552,26 +3436,24 @@ async def run_phase_c_extract(
                 raise
             if rc != 0:
                 _cleanup_partial_demux()
-                raise RuntimeError(f"dovi_tool demux falló (código {rc}): {err[:300]}")
+                raise RuntimeError(tr('cmv40_pipeline.dovi_tool_demux_fallo_codigo', rc=rc, p2=err[:300]))
             # Marcar el demux como completo (sobrevive a reinicios) → reutilización
             # segura en reintentos de fases posteriores.
             try:
                 demux_done.write_text(str(session.source_frame_count or ""))
             except OSError:
                 pass
-        await _emit_progress(log_callback, W_DEMUX, "BL + EL generados")
+        await _emit_progress(log_callback, W_DEMUX, tr('cmv40_pipeline.bl_el_generados'))
     else:
         await _log(log_callback, extract.skip_reason)
 
     if skip_pfd:
         await _log(
         log_callback,
-            "[Fase C] ⏭ per_frame_data.json omitido (target trusted — "
-            "Fase D se saltará, no hace falta generar datos del chart). "
-            "Se regenerará on-demand si el usuario fuerza revisión manual."
+            '[Fase C] ' + tr('cmv40_pipeline.per_frame_data_json_omitido_target')
         )
     else:
-        await _log(log_callback, "[Fase C] Generando datos per-frame para el chart…")
+        await _log(log_callback, '[Fase C] ' + tr('cmv40_pipeline.generando_datos_per_frame_para_el'))
         est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
         await _generate_per_frame_data(
             session, rpu_source, rpu_target, per_frame, log_callback,
@@ -3592,27 +3474,25 @@ async def run_phase_c_extract(
             source_hevc.unlink()
             await _log(
         log_callback,
-                f"[Fase C] 🧹 Borrado source.hevc ({sz / 1024**3:.1f} GB) — "
-                f"ya no se necesita para workflow {workflow}"
+                '[Fase C] ' + tr('cmv40_pipeline.borrado_source_hevc_gb_ya_no', p1=format(sz / 1024**3, '.1f'), workflow=workflow)
             )
         except OSError as e:
-            await _log(log_callback, f"[Fase C] No pude borrar source.hevc: {e}")
+            await _log(log_callback, '[Fase C] ' + tr('cmv40_pipeline.no_pude_borrar_source_hevc', e=e))
     if extract.discards_el and el_hevc.exists():
         try:
             sz = el_hevc.stat().st_size
             el_hevc.unlink()
             await _log(
         log_callback,
-                f"[Fase C] 🧹 Borrado EL.hevc ({sz / 1024**3:.1f} GB) — "
-                f"MEL se descarta en workflow p7_mel"
+                '[Fase C] ' + tr('cmv40_pipeline.borrado_el_hevc_gb_mel_se', p1=format(sz / 1024**3, '.1f'))
             )
         except OSError as e:
-            await _log(log_callback, f"[Fase C] No pude borrar EL.hevc: {e}")
+            await _log(log_callback, '[Fase C] ' + tr('cmv40_pipeline.no_pude_borrar_el_hevc', e=e))
 
     # Resultado de la fase: qué ha quedado preparado para Fase F/G
     await _log(log_callback, extract.result_text)
     # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
-    await _emit_progress(log_callback, 100, "Completado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.completado'))
 
 
 async def _generate_per_frame_data(
@@ -3640,14 +3520,14 @@ async def _generate_per_frame_data(
     """
     # Split del peso: 45% source · 45% target · 10% merge/write
     half = progress_weight * 0.45
-    src_data = await _export_rpu_frames(rpu_source, log_callback, label="source",
+    src_data = await _export_rpu_frames(rpu_source, log_callback, label=tr('cmv40_pipeline.source'),
                                         progress_offset=progress_offset, progress_weight=half,
                                         est_s=est_export_s)
-    await _emit_progress(log_callback, progress_offset + half, "Exportando frames target")
-    tgt_data = await _export_rpu_frames(rpu_target, log_callback, label="target",
+    await _emit_progress(log_callback, progress_offset + half, tr('cmv40_pipeline.exportando_frames_target'))
+    tgt_data = await _export_rpu_frames(rpu_target, log_callback, label=tr('cmv40_pipeline.target'),
                                         progress_offset=progress_offset + half, progress_weight=half,
                                         est_s=est_export_s)
-    await _emit_progress(log_callback, progress_offset + half * 2, "Combinando datos per-frame")
+    await _emit_progress(log_callback, progress_offset + half * 2, tr('cmv40_pipeline.combinando_datos_per_frame'))
 
     max_len = max(len(src_data), len(tgt_data))
     merged = []
@@ -3667,7 +3547,7 @@ async def _generate_per_frame_data(
         "data": merged,
     }), encoding="utf-8")
 
-    await _log(log_callback, f"[Fase C] per_frame_data.json: {len(merged)} frames")
+    await _log(log_callback, '[Fase C] ' + tr('cmv40_pipeline.per_frame_data_json_frames', merged=len(merged)))
 
 
 async def _export_rpu_frames(
@@ -3695,11 +3575,10 @@ async def _export_rpu_frames(
             rows = levels["level1"]
             await _log(
         log_callback,
-                f"[Fase C] L1 de {label}: {len(rows)} frames "
-                f"(export selectivo — sin volcar el RPU entero)")
+                '[Fase C] ' + tr('cmv40_pipeline.l1_de_frames_export_selectivo_sin', label=label, rows=len(rows)))
             if progress_weight > 0:
                 await _emit_progress(log_callback, progress_offset + progress_weight,
-                                     f"Frames de {label} exportados")
+                                     tr('cmv40_pipeline.frames_de_exportados', label=label))
             return [
                 {
                     "frame": i,
@@ -3723,7 +3602,7 @@ async def _export_rpu_frames(
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
             ], estimated_s=est_s, log_callback=log_callback, timeout=export_to,
-               label=f"Exportando frames {label}", progress_input=rpu_path,
+               label=tr('cmv40_pipeline.exportando_frames', label=label), progress_input=rpu_path,
                offset=progress_offset, weight=progress_weight)
         else:
             rc, out, err = await _run([
@@ -3738,7 +3617,7 @@ async def _export_rpu_frames(
         _logger.info("dovi_tool export no disponible: %s — usando muestreo", e)
 
     # Intento 2: muestreo cada N frames (más lento pero compatible)
-    await _log(log_callback, f"[Fase C] Muestreando frames de {label} (puede tardar)…")
+    await _log(log_callback, '[Fase C] ' + tr('cmv40_pipeline.muestreando_frames_de_puede_tardar', label=label))
 
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_path)], timeout=30)
     frames = 0
@@ -3770,7 +3649,7 @@ async def _export_rpu_frames(
             step_pct = ((idx + 1) / total_iter) * 100.0
             phase_pct = progress_offset + step_pct * progress_weight / 100.0
             if phase_pct - last_pct_emit >= 1.0:
-                await _emit_progress(log_callback, phase_pct, f"Muestreando frames {label}")
+                await _emit_progress(log_callback, phase_pct, tr('cmv40_pipeline.muestreando_frames', label=label))
                 last_pct_emit = phase_pct
     return data
 
@@ -3864,7 +3743,7 @@ async def run_phase_e_correct_sync(
     config_json = wd / "editor_config.json"
 
     if not rpu_target.exists():
-        raise RuntimeError("RPU_target.bin no existe")
+        raise RuntimeError(tr('cmv40_pipeline.rpu_target_bin_no_existe'))
 
     # La corrección se aplica ENCADENADA sobre el resultado anterior, no
     # siempre sobre el target original. El usuario dibuja cada corrección
@@ -3882,11 +3761,10 @@ async def run_phase_e_correct_sync(
     salida_tmp = wd / "RPU_synced.tmp.bin"
 
     config_json.write_text(json.dumps(editor_config, indent=2), encoding="utf-8")
-    await _log(log_callback, f"[Fase E] Aplicando editor config: {json.dumps(editor_config)}")
+    await _log(log_callback, '[Fase E] ' + tr('cmv40_pipeline.aplicando_editor_config', editor_config=json.dumps(editor_config)))
     if entrada is rpu_synced:
         await _log(log_callback,
-                   "[Fase E] Se aplica sobre RPU_synced.bin (corrección encadenada "
-                   "a las anteriores), no sobre el target original.")
+                   '[Fase E] ' + tr('cmv40_pipeline.se_aplica_sobre_rpu_synced_bin'))
 
     rc, out, err = await _run([
         DOVI_TOOL_BIN, "editor",
@@ -3896,9 +3774,9 @@ async def run_phase_e_correct_sync(
     ], log_callback=log_callback, timeout=120)
     if rc != 0:
         salida_tmp.unlink(missing_ok=True)
-        raise RuntimeError(f"dovi_tool editor falló: {err[:300]}")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_editor_fallo', p1=err[:300]))
     if not salida_tmp.exists():
-        raise RuntimeError("dovi_tool editor terminó sin escribir el RPU corregido")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_editor_termino_sin_escribir'))
     # Solo ahora se sustituye: un fallo a medias deja intacta la corrección
     # anterior en vez de dejar el proyecto sin RPU corregido.
     os.replace(salida_tmp, rpu_synced)
@@ -3915,8 +3793,7 @@ async def run_phase_e_correct_sync(
     # borraba los anteriores en cuanto la fase terminaba.
     await _log(
         log_callback,
-        f"[Fase E] RPU corregido: {session.target_frame_count} frames "
-        f"(Δ = {session.sync_delta:+d})"
+        '[Fase E] ' + tr('cmv40_pipeline.rpu_corregido_frames', target_frame_count=session.target_frame_count, p2=format(session.sync_delta, '+d'))
     )
 
     # Regenerar per_frame_data.json usando el RPU corregido como target,
@@ -3924,7 +3801,7 @@ async def run_phase_e_correct_sync(
     rpu_source = wd / "RPU_source.bin"
     per_frame  = wd / "per_frame_data.json"
     if rpu_source.exists() and rpu_synced.exists():
-        await _log(log_callback, "[Fase E] Regenerando datos per-frame con el target corregido…")
+        await _log(log_callback, '[Fase E] ' + tr('cmv40_pipeline.regenerando_datos_per_frame_con_el'))
         est_export = max(10.0, _estimate_from_ffmpeg(session, RATIO_EXPORT, FPS_EXPORT))
         await _generate_per_frame_data(
             session, rpu_source, rpu_synced, per_frame, log_callback,
@@ -3945,8 +3822,7 @@ async def run_phase_e_correct_sync(
             else f"Δ = {session.sync_delta:+d} frames respecto al source"
         )
         await log_callback(
-            f"[Fase E] 🎯 Resultado: corrección aplicada ({ops_summary}). "
-            f"RPU corregido en RPU_synced.bin — {sync_status}."
+            '[Fase E] 🎯 Resultado' + tr('cmv40_pipeline.correccion_aplicada_rpu_corregido_en_rpu', ops_summary=ops_summary, sync_status=sync_status)
         )
 
 
@@ -3986,11 +3862,7 @@ async def _ensure_profile8_rpu(rpu_path: Path, wd: Path, log_callback=None) -> P
 
     await _log(
         log_callback,
-        f"[Fase F] El RPU declara Profile {info.profile}"
-        f"{' ' + info.el_type if info.el_type else ''} pero el stream de "
-        f"salida es single-layer → convirtiendo el RPU a Profile 8.1 "
-        f"(dovi_tool editor, mode 2) para que la señalización case con el "
-        f"contenido."
+        '[Fase F] ' + tr('cmv40_pipeline.el_rpu_declara_profile_pero_el', profile=info.profile, p2=' ' + info.el_type if info.el_type else '')
     )
 
     config_path = wd / "_profile8_mode.json"
@@ -4005,9 +3877,7 @@ async def _ensure_profile8_rpu(rpu_path: Path, wd: Path, log_callback=None) -> P
     if rc != 0 or not converted.exists() or converted.stat().st_size < 1000:
         await _log(
         log_callback,
-            f"[Fase F] ⚠ La conversión a Profile 8.1 falló ({err[:150]}) — "
-            f"se inyecta el RPU original. El vídeo será correcto, pero el "
-            f"fichero se anunciará como dual-layer sin tener capa de mejora."
+            '[Fase F] ' + tr('cmv40_pipeline.la_conversion_a_profile_8_1', p1=err[:150])
         )
         return rpu_path
 
@@ -4017,17 +3887,13 @@ async def _ensure_profile8_rpu(rpu_path: Path, wd: Path, log_callback=None) -> P
     if after.frame_count != info.frame_count:
         await _log(
         log_callback,
-            f"[Fase F] ⚠ La conversión cambió el frame count "
-            f"({info.frame_count} → {after.frame_count}) — se descarta y "
-            f"se inyecta el RPU original."
+            '[Fase F] ' + tr('cmv40_pipeline.la_conversion_cambio_el_frame_count', frame_count=info.frame_count, frame_count2=after.frame_count)
         )
         return rpu_path
 
     await _log(
         log_callback,
-        f"[Fase F] ✓ RPU convertido a Profile {after.profile} "
-        f"(CM {after.cm_version}, {after.frame_count} frames, "
-        f"{after.scene_count} escenas — sin pérdida de metadata)."
+        '[Fase F] ' + tr('cmv40_pipeline.rpu_convertido_a_profile_cm_frames', profile=after.profile, cm_version=after.cm_version, frame_count=after.frame_count, scene_count=after.scene_count)
     )
     return converted
 
@@ -4086,7 +3952,7 @@ async def run_phase_f_inject(
     # RPU target a usar: synced si el usuario aplicó sync, si no target original
     rpu_target_effective = rpu_synced if rpu_synced.exists() else rpu_target
     if not rpu_target_effective.exists():
-        raise RuntimeError("No hay RPU target disponible")
+        raise RuntimeError(tr('cmv40_pipeline.no_hay_rpu_target_disponible'))
 
     # El plan y la decisión salen del mismo objeto: no pueden divergir.
     await _log(log_callback, inject.plan_text)
@@ -4121,7 +3987,7 @@ async def run_phase_f_inject(
         nonlocal had_merge
         await _emit_progress(
             log_callback, 0,
-            "Mergeando CMv4.0 levels en RPU source (dovi_tool editor)…"
+            tr('cmv40_pipeline.mergeando_cmv4_0_levels_en_rpu')
         )
         await _merge_cmv40_into_p7(
             rpu_source_p7=rpu_source,
@@ -4130,7 +3996,7 @@ async def run_phase_f_inject(
             log_callback=log_callback,
         )
         had_merge = True
-        await _emit_progress(log_callback, MERGE_WEIGHT, "RPU merged listo")
+        await _emit_progress(log_callback, MERGE_WEIGHT, tr('cmv40_pipeline.rpu_merged_listo'))
 
     if inject.needs_merge:
         await _do_merge()
@@ -4158,13 +4024,12 @@ async def run_phase_f_inject(
     rpu_frames = _parse_dovi_summary(summary).frame_count
     if rpu_frames != session.source_frame_count:
         raise RuntimeError(
-            f"Frame count mismatch: RPU tiene {rpu_frames} frames, "
-            f"vídeo tiene {session.source_frame_count}. Corrige la sincronización (Fase D/E)."
+            tr('cmv40_pipeline.frame_count_mismatch_rpu_tiene_frames', rpu_frames=rpu_frames, source_frame_count=session.source_frame_count)
         )
 
     await _log(
         log_callback,
-        f"[Fase F] {inject_label} (RPU: {rpu_to_inject.name}, {rpu_frames} frames)…"
+        '[Fase F] ' + tr('cmv40_pipeline.rpu_frames', inject_label=inject_label, p2=rpu_to_inject.name, rpu_frames=rpu_frames)
     )
     est_inject = _estimate_from_ffmpeg(session, RATIO_INJECT, FPS_INJECT)
     # Inject empieza donde el merge dejó la barra (MERGE_WEIGHT) o desde 0%
@@ -4196,17 +4061,17 @@ async def run_phase_f_inject(
            "expected_read_bytes": 2 * _tamano(hevc_input),
        })
     if rc != 0:
-        raise RuntimeError(f"dovi_tool inject-rpu falló (código {rc})")
+        raise RuntimeError(tr('cmv40_pipeline.dovi_tool_inject_rpu_fallo_codigo', rc=rc))
 
     if log_callback:
-        await log_callback(f"[Fase F] ✓ HEVC con RPU inyectado generado: {hevc_output.name} (workflow {workflow})")
+        await log_callback('[Fase F] ' + tr('cmv40_pipeline.hevc_con_rpu_inyectado_generado_workflow', p1=hevc_output.name, workflow=workflow))
         # Descripción del artefacto generado (sin prometer qué hará Fase G —
         # cuando Fase G arranque emitirá su propio 📋 Plan según el artefacto
         # que encuentre en el workdir).
         artifact_desc = inject.result_text
-        await log_callback(f"[Fase F] 🎯 Resultado: RPU CMv4.0 integrado en el stream. {artifact_desc}")
+        await log_callback('[Fase F] 🎯 Resultado' + tr('cmv40_pipeline.rpu_cmv4_0_integrado_en_el', artifact_desc=artifact_desc))
     # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
-    await _emit_progress(log_callback, 100, "RPU inyectado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.rpu_inyectado'))
 
 
 async def _merge_cmv40_into_p7(
@@ -4267,15 +4132,10 @@ async def _merge_cmv40_into_p7(
     frames_bd = source_info.frame_count if source_info else 0
     frames_tgt = target_info.frame_count if target_info else 0
     if frames_bd == 0 or frames_tgt == 0:
-        raise RuntimeError("No se pudo leer frame count de uno de los RPUs con dovi_tool info")
+        raise RuntimeError(tr('cmv40_pipeline.no_se_pudo_leer_frame_count'))
     if frames_bd != frames_tgt:
         raise RuntimeError(
-            f"Frame count mismatch ANTES del merge CMv4.0:\n"
-            f"  RPU source:   {frames_bd} frames\n"
-            f"  RPU target:   {frames_tgt} frames\n"
-            f"Diferencia: {frames_tgt - frames_bd:+d}\n\n"
-            f"→ Vuelve a la Fase D («Verificar sincronización») y aplica la corrección "
-            f"(remove/duplicate) hasta que Δ = 0. Después reanuda la inyección."
+            tr('cmv40_pipeline.frame_count_mismatch_antes_del_merge', frames_bd=frames_bd, frames_tgt=frames_tgt, p3=format(frames_tgt - frames_bd, '+d'))
         )
     # Profile/el_type del source ANTES del merge — se usa en la verificacion
     # post-merge para confirmar que el transfer NO altero la estructura.
@@ -4286,8 +4146,7 @@ async def _merge_cmv40_into_p7(
     if log_callback:
         el_label = f" {expected_el_type}" if expected_el_type else ""
         await log_callback(
-            f"[Fase F] Frame counts OK: source={frames_bd}, target={frames_tgt} (match). "
-            f"Profile source: P{expected_profile}{el_label} (se preserva en el output)"
+            '[Fase F] ' + tr('cmv40_pipeline.frame_counts_ok_source_target_match', frames_bd=frames_bd, frames_tgt=frames_tgt, expected_profile=expected_profile, el_label=el_label)
         )
 
     # ── Merge CMv4.0 sobre RPU CMv2.9 (workflow MODE.F 2-3 de DoviScripts) ──
@@ -4338,9 +4197,7 @@ async def _merge_cmv40_into_p7(
             if target_lacks_l11 else ""
         )
         await log_callback(
-            f"[Fase F] Transferencia CMv4.0 levels {levels_label} frame-a-frame "
-            f"desde {rpu_target_v40.name} → RPU {src_label} del source "
-            f"({preserve_note}{l11_note})…"
+            '[Fase F] ' + tr('cmv40_pipeline.transferencia_cmv4_0_levels_frame_a', levels_label=levels_label, p2=rpu_target_v40.name, src_label=src_label, preserve_note=preserve_note, l11_note=l11_note)
         )
 
     try:
@@ -4357,11 +4214,10 @@ async def _merge_cmv40_into_p7(
         err_lc = err.lower()
         if "same length" in err_lc or "mismatch" in err_lc:
             raise RuntimeError(
-                f"Frame count mismatch durante el merge: {err[:200]}\n"
-                f"→ Ir a Fase D para re-sincronizar."
+                tr('cmv40_pipeline.frame_count_mismatch_durante_el_merge', p1=err[:200])
             )
         raise RuntimeError(
-            f"dovi_tool editor (cmv4 transfer) falló:\n{err[:500]}"
+            tr('cmv40_pipeline.dovi_tool_editor_cmv4_transfer_fallo', p1=err[:500])
         )
 
     # ── Verificación post-merge ──────────────────────────────────────
@@ -4374,7 +4230,7 @@ async def _merge_cmv40_into_p7(
         DOVI_TOOL_BIN, "info", "-s", "-i", str(output),
     ], timeout=30)
     if rc != 0:
-        raise RuntimeError("No se pudo leer el RPU merged con dovi_tool info")
+        raise RuntimeError(tr('cmv40_pipeline.no_se_pudo_leer_el_rpu'))
     result_info = _parse_dovi_summary(summary)
 
     errors: list[str] = []
@@ -4413,8 +4269,7 @@ async def _merge_cmv40_into_p7(
     if log_callback:
         el_label = f" ({result_info.el_type})" if result_info.el_type else ""
         await log_callback(
-            f"[Fase F] ✓ Merge verificado: Profile {result_info.profile}{el_label}, "
-            f"CM {result_info.cm_version}, {result_info.frame_count} frames, L8 presente"
+            '[Fase F] ' + tr('cmv40_pipeline.merge_verificado_profile_cm_frames_l8', profile=result_info.profile, el_label=el_label, cm_version=result_info.cm_version, frame_count=result_info.frame_count)
         )
 
 
@@ -4502,14 +4357,13 @@ async def run_phase_g_remux(
         faltan = [n for n in remux.mux_inputs if not (wd / n).exists()]
         if faltan:
             raise RuntimeError(
-                f"{' o '.join(faltan)} no existe{'n' if len(faltan) > 1 else ''} "
-                f"— ejecuta Fase F primero (workflow {workflow})")
+                tr('cmv40_pipeline.no_existe_ejecuta_fase_f_primero', faltan=' o '.join(faltan), p2='n' if len(faltan) > 1 else '', workflow=workflow))
 
         W_MUX, W_MKV = 38.0, 62.0
         est_mux = _estimate_from_ffmpeg(session, RATIO_MUX, FPS_MUX)
         mux_bl, mux_el = (wd / n for n in remux.mux_inputs)
 
-        await _emit_progress(log_callback, 0, "Combinando BL + EL_injected (P7 FEL)")
+        await _emit_progress(log_callback, 0, tr('cmv40_pipeline.combinando_bl_el_injected_p7_fel'))
         rc = await _run_streaming([
             DOVI_TOOL_BIN, "mux",
             "--bl", str(mux_bl),
@@ -4525,16 +4379,15 @@ async def run_phase_g_remux(
                "expected_out_bytes": _tamano(mux_bl) + _tamano(mux_el),
            })
         if rc != 0:
-            raise RuntimeError(f"dovi_tool mux falló (código {rc})")
-        await _emit_progress(log_callback, W_MUX, "Dual-layer HEVC generado")
+            raise RuntimeError(tr('cmv40_pipeline.dovi_tool_mux_fallo_codigo', rc=rc))
+        await _emit_progress(log_callback, W_MUX, tr('cmv40_pipeline.dual_layer_hevc_generado'))
         remux_offset = W_MUX
         remux_weight = W_MKV
     else:
         # Drop-in y single-layer: Fase F ya dejó el stream final listo.
         if not hevc_for_mkv.exists():
             raise RuntimeError(
-                f"{hevc_for_mkv.name} no existe para workflow {workflow} — "
-                f"ejecuta Fase F primero")
+                tr('cmv40_pipeline.no_existe_para_workflow_ejecuta_fase', p1=hevc_for_mkv.name, workflow=workflow))
         remux_offset = 0.0
         remux_weight = 100.0
 
@@ -4557,9 +4410,7 @@ async def run_phase_g_remux(
     if remux.prewarm_validation:
         await _log(
         log_callback,
-            "[Fase G] ├─ Extrayendo en paralelo el RPU para la validación "
-            "de Fase H (mismo HEVC que va a leer mkvmerge, así no hay que "
-            "recorrerlo dos veces seguidas)"
+            '[Fase G] ├─ ' + tr('cmv40_pipeline.extrayendo_en_paralelo_el_rpu_para')
         )
         prewarm_task = asyncio.create_task(_prewarm_validation_rpu(
             session, hevc_for_mkv, prewarm_rpu, log_callback))
@@ -4567,7 +4418,7 @@ async def run_phase_g_remux(
     # mkvmerge: MKV final con audio/subs/capítulos del origen (progreso real).
     # --track-name deja una huella visible del procesado (visible en cualquier
     # inspector MKV / mediainfo) sin depender de session.json externo.
-    await _log(log_callback, "[Fase G] Remuxando a MKV final (mkvmerge)…")
+    await _log(log_callback, '[Fase G] ' + tr('cmv40_pipeline.remuxando_a_mkv_final_mkvmerge'))
     title = session.output_mkv_name.removesuffix(".mkv")
     video_track_name = remux.video_track_name
     rc = await _run_streaming([
@@ -4585,7 +4436,7 @@ async def run_phase_g_remux(
     if rc not in (0, 1):
         if prewarm_task:
             prewarm_task.cancel()
-        raise RuntimeError(f"mkvmerge falló (código {rc})")
+        raise RuntimeError(tr('cmv40_pipeline.mkvmerge_fallo_codigo', rc=rc))
 
     # Recoger el extract-rpu adelantado. A estas alturas suele estar hecho
     # (240 s de media contra 460 s de remux); si no, se le espera aquí, que es
@@ -4595,9 +4446,7 @@ async def run_phase_g_remux(
             ok = await prewarm_task
             if ok and log_callback:
                 await log_callback(
-                    f"[Fase G] ✓ RPU de validación listo "
-                    f"({prewarm_rpu.stat().st_size / 1e6:.0f} MB) — Fase H no "
-                    f"tendrá que releer el HEVC"
+                    '[Fase G] ' + tr('cmv40_pipeline.rpu_de_validacion_listo_mb_fase', p1=format(prewarm_rpu.stat().st_size / 1e6, '.0f'))
                 )
         except Exception as e:
             _logger.info("prewarm del RPU de validación falló: %s", e)
@@ -4612,17 +4461,15 @@ async def run_phase_g_remux(
     if log_callback:
         size_gb = output_mkv.stat().st_size / 1e9
         await log_callback(
-            f"[Fase G] ✓ MKV ensamblado: {output_mkv.name} ({size_gb:.2f} GB, workflow {workflow})"
+            '[Fase G] ' + tr('cmv40_pipeline.mkv_ensamblado_gb_workflow', p1=output_mkv.name, p2=format(size_gb, '.2f'), workflow=workflow)
         )
         # Descripción del artefacto generado. Fase H, cuando arranque, emitirá
         # su propio 📋 Plan describiendo cómo lo validará.
         await log_callback(
-            "[Fase G] 🎯 Resultado: MKV completo escrito con sufijo .tmp en "
-            "/mnt/output (pendiente de validar antes del rename atómico al "
-            "nombre final)."
+            '[Fase G] 🎯 Resultado' + tr('cmv40_pipeline.mkv_completo_escrito_con_sufijo_tmp')
         )
     # 100% AL FINAL: barra llena solo cuando el log de cierre se ha emitido.
-    await _emit_progress(log_callback, 100, "Remux completado")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.remux_completado'))
     return str(output_mkv)
 
 
@@ -4660,29 +4507,24 @@ async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
         return  # No hay referencia, nada que comparar
     if actual <= 0:
         raise RuntimeError(
-            f"ffprobe no pudo determinar el frame count del MKV final — "
-            f"posible corrupción tras Fase G (esperado {expected})."
+            tr('cmv40_pipeline.ffprobe_no_pudo_determinar_el_frame', expected=expected)
         )
     diff = abs(actual - expected)
     if diff == 0:
         await _log(
         log_callback,
-            f"[Fase H] ✓ Frame count: {actual} (coincide con target_frame_count)"
+            '[Fase H] ' + tr('cmv40_pipeline.frame_count_coincide_con_target_frame', actual=actual)
         )
         return
     pct = (diff / expected) * 100.0
     if log_callback:
         if pct > _FRAME_COUNT_INFO_DELTA_PCT:
             await log_callback(
-                f"[Fase H] ℹ Frame count del MKV ({actual}) difiere del RPU "
-                f"({expected}, Δ={diff} = {pct:.2f}%). Diferencia legítima en "
-                f"streams P8 con frames sin RPU asociado, o en MKVs cuyo header "
-                f"NUMBER_OF_FRAMES no refleja el conteo real del HEVC. "
-                f"La integridad real se valida con mkvmerge -J + HEAD/TAIL CMv4.0."
+                '[Fase H] ' + tr('cmv40_pipeline.i_frame_count_del_mkv_difiere', actual=actual, expected=expected, diff=diff, p4=format(pct, '.2f'))
             )
         else:
             await log_callback(
-                f"[Fase H] ✓ Frame count: {actual} vs {expected} (Δ={diff}, dentro de margen)"
+                '[Fase H] ' + tr('cmv40_pipeline.frame_count_vs_dentro_de_margen', actual=actual, expected=expected, diff=diff)
             )
 
 
@@ -4717,8 +4559,7 @@ def resolve_validation_target(session: CMv40Session, wd: Path) -> tuple[Path, bo
     if output_mkv_final.exists():
         return output_mkv_final, True
     raise RuntimeError(
-        f"MKV final no existe: ni {output_mkv_tmp} ni {output_mkv_legacy} "
-        f"ni {output_mkv_final} — ejecuta Fase G primero"
+        tr('cmv40_pipeline.mkv_final_no_existe_ni_ni', output_mkv_tmp=output_mkv_tmp, output_mkv_legacy=output_mkv_legacy, output_mkv_final=output_mkv_final)
     )
 
 
@@ -4739,9 +4580,7 @@ async def run_phase_h_validate(
     output_mkv, already_renamed = resolve_validation_target(session, wd)
     if already_renamed and log_callback:
         await log_callback(
-            "[Fase H] El MKV final ya está en su ubicación definitiva "
-            "(una ejecución previa completó el rename) — se revalida sin "
-            "volver a moverlo."
+            '[Fase H] ' + tr('cmv40_pipeline.el_mkv_final_ya_esta_en')
         )
 
     plan = resolve_plan(session)
@@ -4752,7 +4591,7 @@ async def run_phase_h_validate(
         mkv_gb = output_mkv.stat().st_size / 1e9
         # El plan y la decisión salen del mismo objeto: no pueden divergir.
         await log_callback(validate.plan_text)
-        await log_callback(f"[Fase H] ┌─ Validando DV del MKV resultante ({mkv_gb:.1f} GB)…")
+        await log_callback('[Fase H] ┌─ ' + tr('cmv40_pipeline.validando_dv_del_mkv_resultante_gb', p1=format(mkv_gb, '.1f')))
 
     # ── result_info: estructura común que ambas ramas rellenan para el log
     # final + return. El path clásico la deriva de extract-rpu + info; el
@@ -4767,8 +4606,8 @@ async def run_phase_h_validate(
         #   2. Que mkvmerge -J no detecta corrupción
         # Profile 7 FEL CMv4.0 ya están garantizados; un extract-rpu completo
         # solo confirmaría lo mismo a un coste de 5-8 min de CPU sobre el HEVC.
-        await _log(log_callback, "[Fase H] Paso 1/2: leyendo frame count del MKV final (ffprobe)…")
-        await _emit_progress(log_callback, 30, "Frame count del MKV final")
+        await _log(log_callback, '[Fase H] ' + tr('cmv40_pipeline.paso_1_2_leyendo_frame_count'))
+        await _emit_progress(log_callback, 30, tr('cmv40_pipeline.frame_count_del_mkv_final'))
         actual_frames = await _probe_frame_count(str(output_mkv))
         await _check_frame_count(actual_frames, expected_frames, log_callback)
         result_info = DoviInfo(
@@ -4823,9 +4662,7 @@ async def run_phase_h_validate(
         pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
         if not pre_mux_hevc:
             raise RuntimeError(
-                "No se encontró el HEVC pre-mux para validación. Esperado "
-                "uno de: source_injected.hevc, DV_dual.hevc, EL_injected.hevc, "
-                "BL_injected.hevc en el workdir."
+                tr('cmv40_pipeline.no_se_encontro_el_hevc_pre')
             )
 
         full_rpu = wd / "_validate_full_rpu.bin"
@@ -4838,11 +4675,9 @@ async def run_phase_h_validate(
             if prewarmed:
                 await _log(
         log_callback,
-                    f"[Fase H] Paso 1/3: RPU ya extraído durante el remux "
-                    f"({full_rpu.stat().st_size / 1e6:.0f} MB) — se valida "
-                    f"directamente, sin releer el HEVC."
+                    '[Fase H] ' + tr('cmv40_pipeline.paso_1_3_rpu_ya_extraido', p1=format(full_rpu.stat().st_size / 1e6, '.0f'))
                 )
-                await _emit_progress(log_callback, 75, "RPU listo (extraído en Fase G)")
+                await _emit_progress(log_callback, 75, tr('cmv40_pipeline.rpu_listo_extraido_en_fase_g'))
             else:
                 if log_callback:
                     hevc_gb = pre_mux_hevc.stat().st_size / 1e9
@@ -4851,13 +4686,9 @@ async def run_phase_h_validate(
                     eta_min_lo = max(2, int(hevc_gb / 30 * 3))
                     eta_min_hi = max(5, int(hevc_gb / 30 * 5))
                     await log_callback(
-                        f"[Fase H] Paso 1/3: extrayendo RPU completo del HEVC "
-                        f"pre-mux ({pre_mux_hevc.name}, {hevc_gb:.1f} GB) — "
-                        f"validación rigurosa del frame count y CMv4.0. "
-                        f"Operación pesada (lectura del HEVC entero por dovi_tool, "
-                        f"~{eta_min_lo}-{eta_min_hi} min sobre NAS)…"
+                        '[Fase H] ' + tr('cmv40_pipeline.paso_1_3_extrayendo_rpu_completo', p1=pre_mux_hevc.name, p2=format(hevc_gb, '.1f'), eta_min_lo=eta_min_lo, eta_min_hi=eta_min_hi)
                     )
-                await _emit_progress(log_callback, 5, "Extrayendo RPU completo del pre-mux")
+                await _emit_progress(log_callback, 5, tr('cmv40_pipeline.extrayendo_rpu_completo_del_pre_mux'))
 
             # Heartbeat task: dovi_tool extract-rpu no streamea progreso al log
             # (sale en stderr solo al final), así que sin esto el modal queda
@@ -4874,8 +4705,7 @@ async def run_phase_h_validate(
                             elapsed = int(time.monotonic() - hb_start)
                             await _log(
         log_callback,
-                                f"[Fase H]  ⏱ extract-rpu en curso… "
-                                f"({elapsed // 60}min {elapsed % 60}s transcurridos)"
+                                '[Fase H]  ' + tr('cmv40_pipeline.extract_rpu_en_curso_min_s', p1=elapsed // 60, p2=elapsed % 60)
                             )
                     except asyncio.CancelledError:
                         return
@@ -4898,24 +4728,22 @@ async def run_phase_h_validate(
 
                 if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
                     raise RuntimeError(
-                        f"extract-rpu falló sobre {pre_mux_hevc.name}: {err[:200]}"
+                        tr('cmv40_pipeline.extract_rpu_fallo_sobre', p1=pre_mux_hevc.name, p2=err[:200])
                     )
 
-            await _log(log_callback, "[Fase H] Paso 2/3: analizando metadata del RPU…")
-            await _emit_progress(log_callback, 80, "Analizando RPU")
+            await _log(log_callback, '[Fase H] ' + tr('cmv40_pipeline.paso_2_3_analizando_metadata_del'))
+            await _emit_progress(log_callback, 80, tr('cmv40_pipeline.analizando_rpu'))
             rc, summary, err = await _run(
                 [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)],
                 log_callback=log_callback, timeout=60,
             )
             if rc != 0:
-                raise RuntimeError(f"dovi_tool info falló sobre RPU completo: {err[:200]}")
+                raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu_2', p1=err[:200]))
             rpu_info = _parse_dovi_summary(summary)
 
             await _log(
         log_callback,
-                f"[Fase H] RPU del MKV final: Profile {rpu_info.profile} "
-                f"({rpu_info.el_type}), CM {rpu_info.cm_version}, "
-                f"{rpu_info.frame_count} frames"
+                '[Fase H] ' + tr('cmv40_pipeline.rpu_del_mkv_final_profile_cm', profile=rpu_info.profile, el_type=rpu_info.el_type, cm_version=rpu_info.cm_version, frame_count=rpu_info.frame_count)
             )
 
             # ── Validación rigurosa: frame count del RPU vs expected ──
@@ -4925,10 +4753,7 @@ async def run_phase_h_validate(
                 rpu_diff = abs(rpu_info.frame_count - expected_frames)
                 if rpu_diff > 2:
                     raise RuntimeError(
-                        f"Frame count del RPU del MKV final ({rpu_info.frame_count}) "
-                        f"distinto del esperado ({expected_frames}, Δ={rpu_diff}). "
-                        f"Indica que el merge CMv4.0 NO produjo un RPU completo — "
-                        f"posible bug del editor de dovi_tool. NO entregar este MKV."
+                        tr('cmv40_pipeline.frame_count_del_rpu_del_mkv', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff)
                     )
                 if rpu_diff > 0 and log_callback:
                     # Δ de 1-2 frames es normal: mkvmerge puede emitir un
@@ -4937,24 +4762,20 @@ async def run_phase_h_validate(
                     # (informativo) para alinearlo con la semántica del drop-in
                     # path en _check_frame_count.
                     await log_callback(
-                        f"[Fase H] ℹ RPU frame count {rpu_info.frame_count} vs "
-                        f"{expected_frames} esperados (Δ={rpu_diff} frame{'s' if rpu_diff != 1 else ''}, "
-                        f"dentro de tolerancia ±2 — variación normal del muxer)"
+                        '[Fase H] ' + tr('cmv40_pipeline.i_rpu_frame_count_vs_esperados', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff, p4='s' if rpu_diff != 1 else '')
                     )
 
             # ── Validación CMv4.0 ─────────────────────────────────────
             if rpu_info.cm_version != "v4.0":
                 raise RuntimeError(
-                    f"RPU del MKV final tiene CM {rpu_info.cm_version} (esperado v4.0) — "
-                    "el merge no aplicó CMv4.0."
+                    tr('cmv40_pipeline.rpu_del_mkv_final_tiene_cm', cm_version=rpu_info.cm_version)
                 )
 
             # ── Validación el_type según workflow ─────────────────────
             expected_el = validate.expected_el_type
             if expected_el and rpu_info.el_type != expected_el:
                 raise RuntimeError(
-                    f"RPU del MKV final tiene el_type={rpu_info.el_type!r} "
-                    f"(esperado '{expected_el}' según source_workflow={session.source_workflow})."
+                    tr('cmv40_pipeline.rpu_del_mkv_final_tiene_el', el_type=repr(rpu_info.el_type), expected_el=expected_el, source_workflow=session.source_workflow)
                 )
 
             # ── Validación L8 presente (CMv4.0 trims target display) ───
@@ -4967,10 +4788,7 @@ async def run_phase_h_validate(
             # del rename atómico, preservar .mkv.tmp para inspección.
             if not rpu_info.has_l8:
                 raise RuntimeError(
-                    "RPU del MKV final NO contiene bloques L8 (trims CMv4.0). "
-                    "El RPU está marcado como v4.0 pero sin los trim targets "
-                    "para peak displays — un display HDR no aplicará tone-mapping "
-                    "CMv4.0. Posible bug de dovi_tool editor al transferir."
+                    tr('cmv40_pipeline.rpu_del_mkv_final_no_contiene')
                 )
 
             # NOTA: antes había aquí un ffprobe del MKV completo solo para
@@ -4994,9 +4812,7 @@ async def run_phase_h_validate(
         )
         await _log(
         log_callback,
-            f"[Fase H] ✓ Validación DV OK (RPU completo verificado): "
-            f"Profile {result_info.profile} ({result_info.el_type}), "
-            f"CM {result_info.cm_version}, {result_info.frame_count} frames"
+            '[Fase H] ' + tr('cmv40_pipeline.validacion_dv_ok_rpu_completo_verificado', profile=result_info.profile, el_type=result_info.el_type, cm_version=result_info.cm_version, frame_count=result_info.frame_count)
         )
 
     # Validar pistas con mkvmerge -J (común a ambos paths)
@@ -5008,16 +4824,15 @@ async def run_phase_h_validate(
         except Exception:
             size_hint = ""
         await log_callback(
-            f"[Fase H] {step_label}: validando estructura del MKV con mkvmerge -J"
-            f"{size_hint} (lee el contenedor entero, suele tardar unos segundos en NAS)…"
+            '[Fase H] ' + tr('cmv40_pipeline.validando_estructura_del_mkv_con_mkvmerge', step_label=step_label, size_hint=size_hint)
         )
-    await _emit_progress(log_callback, 50, "Validando pistas (mkvmerge -J)")
+    await _emit_progress(log_callback, 50, tr('cmv40_pipeline.validando_pistas_mkvmerge_j'))
     rc, out, err = await _run(
         [MKVMERGE_BIN, "-J", str(output_mkv)],
         log_callback=log_callback, timeout=60,
     )
     if rc not in (0, 1):
-        raise RuntimeError(f"mkvmerge -J falló sobre MKV final: {err[:200]}")
+        raise RuntimeError(tr('cmv40_pipeline.mkvmerge_j_fallo_sobre_mkv_final', p1=err[:200]))
 
     # Renombrar .tmp → .mkv (atómico si mkvmerge escribió ya en /mnt/output,
     # fallback a move con monitor de progreso si viene de workdir legacy).
@@ -5025,16 +4840,13 @@ async def run_phase_h_validate(
     if already_renamed:
         # Nada que mover: acabamos de validar el propio fichero final.
         session.output_mkv_path = str(final_path)
-        await _emit_progress(log_callback, 100, "Validación completada")
+        await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
         if log_callback:
             await log_callback(
-                f"[Fase H] ✓ Revalidado el MKV ya existente: {final_path}"
+                '[Fase H] ' + tr('cmv40_pipeline.revalidado_el_mkv_ya_existente', final_path=final_path)
             )
             await log_callback(
-                f"[Fase H] 🎯 Resultado: el upgrade ya estaba completo — "
-                f"Profile {result_info.profile}"
-                f"{' ' + result_info.el_type if result_info.el_type else ''}, "
-                f"CM {result_info.cm_version}, {result_info.frame_count} frames."
+                '[Fase H] 🎯 Resultado' + tr('cmv40_pipeline.el_upgrade_ya_estaba_completo_profile', profile=result_info.profile, p2=' ' + result_info.el_type if result_info.el_type else '', cm_version=result_info.cm_version, frame_count=result_info.frame_count)
             )
         return {
             "profile": result_info.profile,
@@ -5045,7 +4857,7 @@ async def run_phase_h_validate(
             "already_validated": True,
         }
     if final_path.exists():
-        raise RuntimeError(f"Ya existe un MKV con ese nombre: {session.output_mkv_name}")
+        raise RuntimeError(tr('cmv40_pipeline.ya_existe_un_mkv_con_ese_2', output_mkv_name=session.output_mkv_name))
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Intento 1: os.rename (instantáneo si mismo filesystem — caso normal
@@ -5054,8 +4866,8 @@ async def run_phase_h_validate(
     try:
         os.rename(str(output_mkv), str(final_path))
         same_fs_rename_ok = True
-        await _log(log_callback, "[Fase H] Rename atómico .tmp → .mkv (instantáneo, mismo filesystem)")
-        await _emit_progress(log_callback, 95, "Renombrado a nombre final")
+        await _log(log_callback, '[Fase H] ' + tr('cmv40_pipeline.rename_atomico_tmp_mkv_instantaneo_mismo'))
+        await _emit_progress(log_callback, 95, tr('cmv40_pipeline.renombrado_a_nombre_final'))
     except OSError:
         # Distintos filesystems (legacy workdir→output): fallback a copy+delete
         pass
@@ -5064,8 +4876,7 @@ async def run_phase_h_validate(
         total_bytes = output_mkv.stat().st_size
         await _log(
         log_callback,
-            f"[Fase H] Rename cross-fs: copiando {total_bytes / 1e9:.1f} GB a /mnt/output "
-            f"(fallback lento — considera poner TMP_PATH y OUTPUT_PATH en el mismo dataset)…"
+            '[Fase H] ' + tr('cmv40_pipeline.rename_cross_fs_copiando_gb_a', p1=format(total_bytes / 1e9, '.1f'))
         )
 
         stop_mon = asyncio.Event()
@@ -5082,7 +4893,7 @@ async def run_phase_h_validate(
                         eta = (elapsed / pct * (100 - pct)) if pct > 1 else None
                         await _emit_progress(
                             log_callback, phase_pct,
-                            f"Copiando a /mnt/output ({cur / 1e9:.1f}/{total_bytes / 1e9:.1f} GB)",
+                            tr('cmv40_pipeline.copiando_a_mnt_output_gb', p1=format(cur / 1e9, '.1f'), p2=format(total_bytes / 1e9, '.1f')),
                             int(eta) if eta else 0,
                         )
                 except Exception:
@@ -5103,7 +4914,7 @@ async def run_phase_h_validate(
                 pass
 
     session.output_mkv_path = str(final_path)
-    await _emit_progress(log_callback, 100, "Validación completada")
+    await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
 
     # Cleanup DIFERIDO del pre-mux HEVC: tras validación exitosa ya no los
     # necesitamos. Antes se borraban al final de Fase G, pero Fase H los
@@ -5127,19 +4938,15 @@ async def run_phase_h_validate(
         artifact.unlink(missing_ok=True)
     if freed > 0 and log_callback:
         await log_callback(
-            f"[Fase H] 🧹 Liberados {freed / 1024**3:.1f} GB de HEVC intermedio "
-            f"(el MKV final ya está validado en /mnt/output)"
+            '[Fase H] ' + tr('cmv40_pipeline.liberados_gb_de_hevc_intermedio_el', p1=format(freed / 1024**3, '.1f'))
         )
 
     if log_callback:
         await log_callback(
-            f"[Fase H] ✓ MKV validado y movido a ubicación final: {final_path}"
+            '[Fase H] ' + tr('cmv40_pipeline.mkv_validado_y_movido_a_ubicacion', final_path=final_path)
         )
         await log_callback(
-            f"[Fase H] 🎯 Resultado: upgrade CMv4.0 completado con éxito — "
-            f"Profile {result_info.profile}{' ' + result_info.el_type if result_info.el_type else ''}, "
-            f"CM {result_info.cm_version}, {result_info.frame_count} frames. "
-            f"El fichero está listo para reproducir en cualquier cadena DV compatible."
+            '[Fase H] 🎯 Resultado' + tr('cmv40_pipeline.upgrade_cmv4_0_completado_con_exito', profile=result_info.profile, p2=' ' + result_info.el_type if result_info.el_type else '', cm_version=result_info.cm_version, frame_count=result_info.frame_count)
         )
 
     return {

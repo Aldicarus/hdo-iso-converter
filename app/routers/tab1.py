@@ -29,6 +29,7 @@ fases, en `test_fases_de_tab1.py`; el orquestador con sus dos rutas y el
 reintento, en `test_orquestador_tab1.py`; y que las URLs no cambien al
 mover el código, en `test_rutas_no_cambian.py` contra un golden.
 """
+from i18n import t as tr
 import asyncio
 import json
 import logging
@@ -567,7 +568,7 @@ async def get_sessions():
 async def get_session(session_id: str):
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     _tmdb_hidratar_si_falta(session)
     return _session_payload(session)
 
@@ -575,7 +576,7 @@ async def get_session(session_id: str):
 @router.delete("/api/sessions/{session_id}", summary="Elimina una sesión")
 async def remove_session(session_id: str):
     if not delete_session(session_id):
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     return {"ok": True}
 
 
@@ -587,7 +588,7 @@ async def update_session(session_id: str, body: SessionUpdateRequest):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
 
     # has_fel / audio_dcp NO se aceptan: los fija el análisis del disco.
     if body.mkv_name          is not None: session.mkv_name          = body.mkv_name
@@ -617,17 +618,17 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     if not session.bdinfo_result:
-        raise HTTPException(status_code=400, detail="La sesión no tiene bdinfo_result — re-analiza el ISO primero")
+        raise HTTPException(status_code=400, detail=tr('tab1.la_sesion_no_tiene_bdinfo_result'))
 
     if body.audio_mode is not None:
         if body.audio_mode not in ("filtered", "keep_all"):
-            raise HTTPException(status_code=400, detail=f"audio_mode inválido: {body.audio_mode}")
+            raise HTTPException(status_code=400, detail=tr('tab1.audio_mode_invalido', audio_mode=body.audio_mode))
         session.audio_mode = body.audio_mode
     if body.subtitle_mode is not None:
         if body.subtitle_mode not in ("filtered", "keep_all"):
-            raise HTTPException(status_code=400, detail=f"subtitle_mode inválido: {body.subtitle_mode}")
+            raise HTTPException(status_code=400, detail=tr('tab1.subtitle_mode_invalido', subtitle_mode=body.subtitle_mode))
         session.subtitle_mode = body.subtitle_mode
 
     # Re-aplicar reglas con los modos actuales
@@ -679,7 +680,7 @@ async def check_duplicate(body: AnalyzeRequest):
         stype = "iso"
         spath = body.iso_path
     else:
-        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+        raise HTTPException(status_code=400, detail=tr('tab1.falta_source_type_source_path_o'))
 
     try:
         source_abs = safe_source_path(spath, str(paths.ISOS_DIR))
@@ -687,7 +688,7 @@ async def check_duplicate(body: AnalyzeRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     if not Path(source_abs).exists():
-        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+        raise HTTPException(status_code=400, detail=tr('tab1.origen_no_encontrado', source_abs=source_abs))
 
     # Resolver target del fingerprint según tipo
     if stype == "bdmv_folder":
@@ -764,7 +765,7 @@ async def analyze_iso(body: AnalyzeRequest):
         stype = "iso"
         spath = body.iso_path
     else:
-        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+        raise HTTPException(status_code=400, detail=tr('tab1.falta_source_type_source_path_o'))
 
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
@@ -778,7 +779,7 @@ async def analyze_iso(body: AnalyzeRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     if not Path(source_abs).exists():
-        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+        raise HTTPException(status_code=400, detail=tr('tab1.origen_no_encontrado', source_abs=source_abs))
 
     # Idem que en Tab 2: «Análisis del disco» a secas no dice cuál.
     _peli = trabajos.nombre_de_trabajo(fichero=Path(source_abs).name)
@@ -852,7 +853,7 @@ async def analyze_iso(body: AnalyzeRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         _logger.exception("Error en Fase A para %s", source_abs)
-        raise HTTPException(status_code=500, detail=f"Error en Fase A: {e}")
+        raise HTTPException(status_code=500, detail=tr('tab1.error_en_fase_a', e=e))
 
     # ── Fase B: Reglas automáticas ─────────────────────────────────
     analysis_progress.fijar(step="rules", done=False)
@@ -1021,7 +1022,7 @@ async def session_tmdb_refresh(session_id: str, body: dict | None = None):
 
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     if not is_configured():
         return {"tmdb_configured": False, "updated": False}
 
@@ -1165,7 +1166,7 @@ async def disc_probe(body: DiscProbeRequest):
         stype = "iso"
         spath = body.iso_path
     else:
-        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+        raise HTTPException(status_code=400, detail=tr('tab1.falta_source_type_source_path_o'))
 
     # Validación path-traversal estricta. Para m2ts multi-fichero
     # validamos cada path individualmente.
@@ -1231,9 +1232,7 @@ async def disc_probe(body: DiscProbeRequest):
                     raise HTTPException(
                         status_code=400,
                         detail=(
-                            f"Modo película seleccionado con {len(m2ts_paths)} ficheros M2TS. "
-                            f"Para procesar varios episodios, vuelve al modal y cambia a "
-                            f"modo serie."
+                            tr('tab1.modo_pelicula_seleccionado_con_ficheros_m2ts', m2ts_paths=len(m2ts_paths))
                         ),
                     )
                 _disc_probe_progress.update({
@@ -1257,8 +1256,7 @@ async def disc_probe(body: DiscProbeRequest):
                     raise HTTPException(
                         status_code=400,
                         detail=(
-                            "Ningún fichero M2TS pasó los filtros de candidato a "
-                            "episodio (sin audio o duración no determinable)."
+                            tr('tab1.ningun_fichero_m2ts_paso_los_filtros')
                         ),
                     )
                 media_type = "series"
@@ -1290,7 +1288,7 @@ async def disc_probe(body: DiscProbeRequest):
                 if not src.bdmv_root:
                     raise HTTPException(
                         status_code=400,
-                        detail="No se pudo acceder al BDMV del origen.",
+                        detail=tr('tab1.no_se_pudo_acceder_al_bdmv'),
                     )
                 if hint == "movie":
                     # El usuario eligió película → no listamos candidatos.
@@ -1326,9 +1324,7 @@ async def disc_probe(body: DiscProbeRequest):
                         raise HTTPException(
                             status_code=400,
                             detail=(
-                                "Ningún MPLS pasó los filtros de candidato a episodio "
-                                "(duración 15-90 min, ≥1 audio, m2ts ≥40% mediana). "
-                                "Cambia a modo película si es un disco de un solo título."
+                                tr('tab1.ningun_mpls_paso_los_filtros_de')
                             ),
                         )
                     media_type = "series"
@@ -1344,7 +1340,7 @@ async def disc_probe(body: DiscProbeRequest):
                     )
                     media_type = detect_disc_type(candidates)
         else:
-            raise HTTPException(status_code=400, detail=f"source_type desconocido: {stype}")
+            raise HTTPException(status_code=400, detail=tr('tab1.source_type_desconocido', stype=stype))
         _disc_probe_progress.update({
             "current_label": f"Detección completada ({media_type})",
             "pct": 100,
@@ -1360,7 +1356,7 @@ async def disc_probe(body: DiscProbeRequest):
     except Exception as e:
         _disc_probe_progress["running"] = False
         _logger.exception("Error en disc-probe para %s", spath_abs)
-        raise HTTPException(status_code=500, detail=f"Error analizando disco: {e}")
+        raise HTTPException(status_code=500, detail=tr('tab1.error_analizando_disco', e=e))
 
     # Lista de candidatos en formato ligero (sin el JSON crudo de mkvmerge)
     episode_candidates = []
@@ -1441,7 +1437,7 @@ async def tv_details(tmdb_id: int):
         return {"tmdb_configured": False, "details": None}
     details = await fetch_tv_details(tmdb_id)
     if not details:
-        raise HTTPException(status_code=404, detail=f"Serie TMDb {tmdb_id} no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.serie_tmdb_no_encontrada', tmdb_id=tmdb_id))
     return {"tmdb_configured": True, "details": details.model_dump()}
 
 
@@ -1627,7 +1623,7 @@ async def _encolar_rip(session) -> dict:
     titulo, poster = _cartel_de_sesion(session)
     return await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="rip", tipo=queue_manager_mod.TIPO_RIP, clave=session.id,
-        que=f"Conversión a MKV · {titulo or session.mkv_name or session.id}",
+        que=tr('tab1.conversion_a_mkv', id=titulo or session.mkv_name or session.id),
         titulo=titulo, poster=poster))
 
 
@@ -2027,7 +2023,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     except Exception as e:
         _series_create_progress["running"] = False
         _logger.exception("Error global en create-series-sessions")
-        raise HTTPException(status_code=500, detail=f"Error creando sesiones: {e}")
+        raise HTTPException(status_code=500, detail=tr('tab1.error_creando_sesiones', e=e))
 
     # Marca progreso como terminado
     _series_create_progress["running"] = False
@@ -2085,11 +2081,11 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     if DEV_MODE:
         raise HTTPException(
             status_code=400,
-            detail="DEV_MODE no soporta create-series-sessions (no hay sources reales)",
+            detail=tr('tab1.dev_mode_no_soporta_create_series'),
         )
 
     if not body.episodes:
-        raise HTTPException(status_code=400, detail="Lista de episodios vacía")
+        raise HTTPException(status_code=400, detail=tr('tab1.lista_de_episodios_vacia'))
 
     # Resolver source_type/source_path con compat para iso_path legacy
     if body.source_type:
@@ -2099,7 +2095,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         stype = "iso"
         spath = body.iso_path
     else:
-        raise HTTPException(status_code=400, detail="Falta source_type/source_path o iso_path")
+        raise HTTPException(status_code=400, detail=tr('tab1.falta_source_type_source_path_o'))
 
     # Validar path principal (no aplica para m2ts multi-fichero donde
     # cada ep.mpls_path es el path directo)
@@ -2114,7 +2110,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     if not Path(source_abs).exists():
-        raise HTTPException(status_code=400, detail=f"Origen no encontrado: {source_abs}")
+        raise HTTPException(status_code=400, detail=tr('tab1.origen_no_encontrado', source_abs=source_abs))
 
     audio_dcp = "audio dcp" in (spath or "").lower()
 
@@ -2145,7 +2141,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     ]
     mode = (body.mode or "add_only").lower()
     if mode not in ("add_only", "replace", "skip_existing"):
-        raise HTTPException(status_code=400, detail=f"mode inválido: {body.mode}")
+        raise HTTPException(status_code=400, detail=tr('tab1.mode_invalido', mode=body.mode))
     if conflicts and mode == "add_only":
         # El frontend muestra la lista y deja al usuario elegir si quiere
         # reemplazar o saltar los conflictos. Sin esta protección, el bug
@@ -2230,9 +2226,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         tipo=queue_manager_mod.TIPO_SERIE,
         clave=_clave,
         sobre=spath,
-        que=(f"Análisis de {len(body.episodes)} episodio"
-             f"{'s' if len(body.episodes) != 1 else ''} · "
-             f"{_titulo_encolado or 'la serie'}"),
+        que=(tr('tab1.analisis_de_episodio', episodes=len(body.episodes), p2='s' if len(body.episodes) != 1 else '', p3=_titulo_encolado or 'la serie')),
         titulo=_titulo_encolado,
         # El asistente ya trajo el póster de la serie para la cabecera de cada
         # episodio, así que aquí sale gratis.
@@ -2281,7 +2275,7 @@ def _sanitize_id(s: str) -> str:
 async def recalculate_mkv_name(session_id: str):
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     if session.mkv_name_manual:
         return {"mkv_name": session.mkv_name, "manual": True}
 
@@ -2317,7 +2311,7 @@ async def reset_chapters(session_id: str):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
 
     # Restaurar capítulos del MPLS requiere mount → solo aplica a iso o
     # bdmv_folder. Para m2ts no hay MPLS — no se puede restaurar.
@@ -2325,13 +2319,12 @@ async def reset_chapters(session_id: str):
     if not available:
         raise HTTPException(
             status_code=400,
-            detail=f"Origen no disponible: {source_path}",
+            detail=tr('tab1.origen_no_disponible', source_path=source_path),
         )
     if source_type == "m2ts":
         raise HTTPException(
             status_code=400,
-            detail="No hay capítulos que restaurar para fuentes M2TS sin MPLS. "
-                   "Los capítulos auto-generados se mantienen.",
+            detail=tr('tab1.no_hay_capitulos_que_restaurar_para'),
         )
 
     # Para iso/bdmv_folder usamos Source context manager (mount ISO si aplica)
@@ -2339,7 +2332,7 @@ async def reset_chapters(session_id: str):
         from phases.iso_mount import Source
         async with await Source.open(source_path) as src:
             if not src.bdmv_root:
-                raise HTTPException(status_code=400, detail="BDMV no accesible")
+                raise HTTPException(status_code=400, detail=tr('tab1.bdmv_no_accesible'))
             # Import local: `parse_mpls_chapters` y `run_mkvmerge_identify`
             # nunca estuvieron importados en este módulo, así que esta rama
             # levantaba NameError. El `except Exception` de abajo lo
@@ -2353,10 +2346,10 @@ async def reset_chapters(session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al extraer capítulos: {e}")
+        raise HTTPException(status_code=500, detail=tr('tab1.error_al_extraer_capitulos', e=e))
 
     if not chapters_raw:
-        raise HTTPException(status_code=404, detail="No se encontraron capítulos en el disco")
+        raise HTTPException(status_code=404, detail=tr('tab1.no_se_encontraron_capitulos_en_el'))
 
     from models import Chapter
     session.chapters = [Chapter(**c) for c in chapters_raw]
@@ -2414,7 +2407,7 @@ async def check_iso(session_id: str):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     available, source_type, source_path = _check_source_available(session)
     source_label = {
         "iso": "ISO",
@@ -2441,7 +2434,7 @@ async def execute_session(session_id: str):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
 
     # Aquí NO se rechaza nada. Antes había un 409 si otra pestaña tenía trabajo
     # pesado, porque encolar sin cola compartida habría solapado; con la cola
@@ -2452,8 +2445,7 @@ async def execute_session(session_id: str):
     if session.status in ("running", "queued"):
         raise HTTPException(
             status_code=400,
-            detail=f"La sesión ya está en ejecución o encolada (estado: {session.status}). "
-                   f"Espera a que termine o cancela el trabajo actual.",
+            detail=tr('tab1.la_sesion_ya_esta_en_ejecucion', status=session.status),
         )
 
     # Verificación del origen — soporta los 3 tipos (iso, bdmv_folder, m2ts)
@@ -2466,7 +2458,7 @@ async def execute_session(session_id: str):
         }.get(source_type, "origen")
         raise HTTPException(
             status_code=400,
-            detail=f"{type_label} no disponible: {source_path}. Comprueba que sigue en /mnt/isos.",
+            detail=tr('tab1.no_disponible_comprueba_que_sigue_en', type_label=type_label, source_path=source_path),
         )
 
     session.status        = "queued"
@@ -2524,9 +2516,7 @@ async def _resolve_main_m2ts_for_fallback(
     from phases.phase_a import find_main_m2ts
 
     await log(
-        "[Pipeline] ⚠️ mkvmerge no pudo procesar el playlist de este disco "
-        "(bug conocido de mkvmerge con UHD multi-segmento). Probando con el "
-        "M2TS principal directamente…"
+        '[Pipeline] ' + tr('tab1.mkvmerge_no_pudo_procesar_el_playlist')
     )
 
     # 1. Localizar el M2TS principal — preferimos el detectado en Fase A.
@@ -2549,7 +2539,7 @@ async def _resolve_main_m2ts_for_fallback(
         m2ts_path = find_main_m2ts(mount_point)
     if not m2ts_path:
         raise RuntimeError(
-            "No se encontró el M2TS principal para sortear el fallo del playlist."
+            tr('tab1.no_se_encontro_el_m2ts_principal')
         )
 
     # 2. Verificar que el M2TS cubre el título completo.
@@ -2557,15 +2547,12 @@ async def _resolve_main_m2ts_for_fallback(
     m2ts_dur = await _mkvmerge_container_duration_s(m2ts_path)
     if not m2ts_covers_title(pl_dur, m2ts_dur):
         raise RuntimeError(
-            f"El M2TS principal (~{m2ts_dur / 60:.0f} min) no cubre el título "
-            f"completo del playlist (~{pl_dur / 60:.0f} min): el disco usa "
-            "seamless branching real y no puede ripearse por esta vía. "
-            "Usa MakeMKV o dgdemux para este disco concreto."
+            tr('tab1.el_m2ts_principal_min_no_cubre', p1=format(m2ts_dur / 60, '.0f'), p2=format(pl_dur / 60, '.0f'))
         )
 
     cover = f" (~{m2ts_dur / 60:.0f} min)" if m2ts_dur > 0 else ""
     await log(
-        f"[Pipeline] 🔁 Reintentando la extracción con {Path(m2ts_path).name}{cover}"
+        '[Pipeline] ' + tr('tab1.reintentando_la_extraccion_con', p1=Path(m2ts_path).name, cover=cover)
     )
     return m2ts_path
 
@@ -2654,7 +2641,7 @@ async def _run_pipeline(session_id: str) -> None:
     def _check_cancel():
         """Lanza RuntimeError si la sesión fue cancelada."""
         if _cancel_flags.get(session_id):
-            raise RuntimeError("Cancelado por el usuario")
+            raise RuntimeError(tr('cmv40.cancelado_por_el_usuario'))
 
     def _register_proc(proc):
         """Registra el subprocess activo para poder matarlo desde el endpoint cancel."""
@@ -2665,7 +2652,7 @@ async def _run_pipeline(session_id: str) -> None:
 
         stype = session.source_type or "iso"
         source_basename = Path(session.iso_path).name
-        await log(f"[Pipeline] ━━━ Iniciando: {source_basename} ━━━")
+        await log('[Pipeline] ━━━ ' + tr('tab1.iniciando', source_basename=source_basename) + ' ━━━')
 
         # Plan general dinámico según el tipo de origen. Describe SOLO los
         # pasos que se van a ejecutar — los específicos (ruta directa /
@@ -2694,11 +2681,11 @@ async def _run_pipeline(session_id: str) -> None:
         # ── 1. Preparar origen (Source abstraction) ───────────────
         _mark_phase("mount")
         if stype == "iso":
-            await log("[Fase A] ┌─ Paso 1: Montando el ISO en /mnt/bd…")
+            await log('[Fase A] ┌─ ' + tr('tab1.paso_1_montando_el_iso_en'))
         elif stype == "bdmv_folder":
-            await log("[Fase A] ┌─ Paso 1: Origen directo — leyendo la carpeta BDMV")
+            await log('[Fase A] ┌─ ' + tr('tab1.paso_1_origen_directo_leyendo_la'))
         else:  # m2ts
-            await log("[Fase A] ┌─ Paso 1: Origen directo — leyendo el fichero M2TS")
+            await log('[Fase A] ┌─ ' + tr('tab1.paso_1_origen_directo_leyendo_el'))
 
         source_obj = await Source.open(session.iso_path)
         await source_obj.__aenter__()
@@ -2708,11 +2695,11 @@ async def _run_pipeline(session_id: str) -> None:
         _mark_phase("mount", done=True)
 
         if stype == "iso":
-            await log(f"[Fase A] └─ ✓ ISO montado en: {mount_point}")
+            await log('[Fase A] └─ ' + tr('tab1.iso_montado_en', mount_point=mount_point))
         elif stype == "bdmv_folder":
-            await log(f"[Fase A] └─ ✓ Carpeta lista: {mount_point}")
+            await log('[Fase A] └─ ' + tr('tab1.carpeta_lista', mount_point=mount_point))
         else:
-            await log(f"[Fase A] └─ ✓ Fichero listo: {session.iso_path}")
+            await log('[Fase A] └─ ' + tr('tab1.fichero_listo', iso_path=session.iso_path))
 
         _check_cancel()
 
@@ -2728,7 +2715,7 @@ async def _run_pipeline(session_id: str) -> None:
                 if session.mpls_path and Path(session.mpls_path).exists()
                 else session.iso_path
             )
-            await log(f"[Fase A] Fichero de origen: {Path(mkvmerge_source).name}")
+            await log('[Fase A] ' + tr('tab1.fichero_de_origen', p1=Path(mkvmerge_source).name))
         else:
             # Buscar el MPLS dentro del bdmv_root. Prioridades:
             #   1. session.mpls_path (modo serie — nombre del MPLS específico)
@@ -2752,7 +2739,7 @@ async def _run_pipeline(session_id: str) -> None:
                         break
             if not mkvmerge_source:
                 mkvmerge_source = find_main_mpls(mount_point)
-            await log(f"[Fase A] Playlist principal: {Path(mkvmerge_source).name}")
+            await log('[Fase A] ' + tr('tab1.playlist_principal', p1=Path(mkvmerge_source).name))
 
         # Alias mpls_path para no romper código posterior — semánticamente
         # ahora puede ser MPLS o m2ts según el tipo de origen.
@@ -2774,9 +2761,7 @@ async def _run_pipeline(session_id: str) -> None:
                 if do_reorder:
                     # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
                     await log(
-                        "[Pipeline] 🎯 Ruta directa: hay pistas reordenadas o excluidas, "
-                        "así que un solo mkvmerge hace selección + reorganización + "
-                        "metadatos + capítulos en una pasada (ahorra una copia)."
+                        '[Pipeline] ' + tr('tab1.ruta_directa_hay_pistas_reordenadas_o')
                     )
                     _mark_phase("extract")
                     final_mkv = await run_phase_e_direct(
@@ -2790,17 +2775,13 @@ async def _run_pipeline(session_id: str) -> None:
                     # mkvmerge; se marca para que la columna no deje la fase
                     # pendiente con el trabajo ya terminado.
                     _mark_phase("write")
-                    await log("[Fase C] ✓ Metadatos, flags y capítulos escritos "
-                              "en la misma pasada de mkvmerge")
+                    await log('[Fase C] ' + tr('tab1.metadatos_flags_y_capitulos_escritos_en'))
                     _mark_phase("write", done=True)
 
                 else:
                     # ── RUTA INTERMEDIO: source → intermedio → mkvpropedit ─
                     await log(
-                        "[Pipeline] 🎯 Ruta con intermedio: no hay reordenación de pistas, "
-                        "así que es más rápido copiar una vez al intermedio (mkvmerge) y "
-                        "aplicar después los metadatos sobre las cabeceras (mkvpropedit), "
-                        "sin volver a copiar el contenido."
+                        '[Pipeline] ' + tr('tab1.ruta_con_intermedio_no_hay_reordenacion')
                     )
 
                     # Phase D: extraer todo al intermedio. Para m2ts (o tras el
@@ -2819,7 +2800,7 @@ async def _run_pipeline(session_id: str) -> None:
                         ),
                     )
                     _mark_phase("extract", done=True)
-                    await log(f"[Fase B] Intermedio listo en: {intermediate_mkv}")
+                    await log('[Fase B] ' + tr('tab1.intermedio_listo_en', intermediate_mkv=intermediate_mkv))
 
                     # Phase E: mkvpropedit in-place + mv
                     _mark_phase("write")
@@ -2838,8 +2819,7 @@ async def _run_pipeline(session_id: str) -> None:
                 if m2ts_fallback_active:
                     # El source ya era un M2TS directo: no hay más alternativa.
                     raise RuntimeError(
-                        "mkvmerge no pudo procesar este título ni desde el "
-                        "playlist ni desde el M2TS principal."
+                        tr('tab1.mkvmerge_no_pudo_procesar_este_titulo')
                     )
                 # Descartar cualquier intermedio parcial del intento fallido.
                 if intermediate_mkv and Path(intermediate_mkv).exists():
@@ -2876,18 +2856,14 @@ async def _run_pipeline(session_id: str) -> None:
         session.last_executed  = datetime.now(timezone.utc)
 
         if validation_ok:
-            await log(f"[Pipeline] ✓ Listo: {final_mkv}")
+            await log('[Pipeline] ' + tr('tab1.listo', final_mkv=final_mkv))
             await log(
-                "[Pipeline] 🎯 Resultado: MKV disponible en /mnt/output. Pistas, "
-                "idiomas, flags y capítulos verificados contra lo configurado en "
-                "la sesión."
+                '[Pipeline] 🎯 Resultado' + tr('tab1.mkv_disponible_en_mnt_output_pistas')
             )
         else:
-            await log(f"[Pipeline] ⚠ Completado con avisos: {final_mkv}")
+            await log('[Pipeline] ' + tr('tab1.completado_con_avisos', final_mkv=final_mkv))
             await log(
-                "[Pipeline] 🎯 Resultado: MKV escrito en /mnt/output pero con "
-                "discrepancias en la verificación. Revisa los avisos marcados con "
-                "⚠️ o ❌ arriba para ver qué campos no cuadran."
+                '[Pipeline] 🎯 Resultado' + tr('tab1.mkv_escrito_en_mnt_output_pero')
             )
 
     except Exception as e:
@@ -2895,18 +2871,18 @@ async def _run_pipeline(session_id: str) -> None:
         if cancelled:
             session.status        = "pending"
             session.error_message = None
-            await log("[Pipeline] 🛑 Cancelado por el usuario")
+            await log('[Pipeline] 🛑 Cancelado ' + tr('tab1.por_el_usuario'))
         else:
             session.status        = "error"
             session.error_message = str(e)
-            await log(f"[Pipeline] ✗ Error: {e}")
+            await log('[Pipeline] ' + tr('tab1.error', e=e))
 
         # Limpiar ficheros temporales/parciales
         for path in [intermediate_mkv, session.output_mkv_path]:
             if path and Path(path).exists():
                 try:
                     Path(path).unlink()
-                    await log(f"[Pipeline] 🧹 Temporal eliminado: {Path(path).name}")
+                    await log('[Pipeline] ' + tr('tab1.temporal_eliminado', p1=Path(path).name))
                 except OSError:
                     pass
         session.output_mkv_path = None
@@ -2927,11 +2903,11 @@ async def _run_pipeline(session_id: str) -> None:
             _mark_phase("unmount", done=True)
             stype_cleanup = session.source_type or "iso"
             if stype_cleanup == "iso":
-                await log("[Fase D] ✓ ISO desmontado")
+                await log('[Fase D] ' + tr('tab1.iso_desmontado_2'))
             elif stype_cleanup == "bdmv_folder":
-                await log("[Fase D] ✓ Origen cerrado (carpeta BDMV)")
+                await log('[Fase D] ' + tr('tab1.origen_cerrado_carpeta_bdmv'))
             else:
-                await log("[Fase D] ✓ Origen cerrado (fichero M2TS)")
+                await log('[Fase D] ' + tr('tab1.origen_cerrado_fichero_m2ts'))
 
         # Limpiar tracking de cancelación
         _cancel_flags.pop(session_id, None)
@@ -2964,10 +2940,10 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     Returns:
         True si todo es correcto, False si hay discrepancias.
     """
-    await log("[Validación] 📋 Verificando el MKV final contra lo configurado en la sesión…")
+    await log('[Validación] ' + tr('tab1.verificando_el_mkv_final_contra_lo'))
 
     if not Path(mkv_path).exists():
-        await log("[Validación] ❌ El fichero MKV no existe")
+        await log('[Validación] ' + tr('tab1.el_fichero_mkv_no_existe'))
         return False
 
     # ── Leer pistas del MKV final con mkvmerge -J ────────────────
@@ -2978,13 +2954,13 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     )
     stdout, _ = await proc.communicate()
     if proc.returncode >= 2:
-        await log(f"[Validación] ❌ mkvmerge no pudo leer el MKV (código {proc.returncode})")
+        await log('[Validación] ' + tr('tab1.mkvmerge_no_pudo_leer_el_mkv', returncode=proc.returncode))
         return False
 
     try:
         data = json.loads(stdout.decode("utf-8", errors="replace"))
     except json.JSONDecodeError:
-        await log("[Validación] ❌ mkvmerge devolvió un JSON inválido")
+        await log('[Validación] ' + tr('tab1.mkvmerge_devolvio_un_json_invalido'))
         return False
 
     actual_tracks = data.get("tracks", [])
@@ -3005,17 +2981,17 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     # ── Log de información general ───────────────────────────────
     await log(f"[Validación] 📁 {Path(mkv_path).name} ({file_size / 1e9:.2f} GB)")
-    await log(f"[Validación] 🎞️ Pistas: {len(actual_video)} vídeo · {len(actual_audio)} audio · {len(actual_subs)} subtítulos")
+    await log('[Validación] ' + tr('tab1.pistas_video_audio_subtitulos', actual_video=len(actual_video), actual_audio=len(actual_audio), actual_subs=len(actual_subs)))
 
     # ── Validar vídeo ────────────────────────────────────────────
     if not actual_video:
-        await log("[Validación] ❌ El MKV no tiene pistas de vídeo")
+        await log('[Validación] ' + tr('tab1.el_mkv_no_tiene_pistas_de'))
         all_ok = False
     else:
         for v in actual_video:
             codec = v.get("codec", "?")
             dims = v.get("properties", {}).get("pixel_dimensions", "?")
-            await log(f"[Validación]   🎬 Vídeo: {codec} · {dims}")
+            await log('[Validación]   ' + tr('tab1.video', codec=codec, dims=dims))
 
     # Verificar Dolby Vision si se esperaba FEL
     # Con mkvmerge v81+, BL+EL se combinan en un solo track (no hay EL separada).
@@ -3023,10 +2999,10 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     if session.has_fel:
         if len(actual_video) == 1:
             # v81+: BL+EL combinados — comportamiento correcto
-            await log("[Validación]   ✅ Dolby Vision FEL: base + enhancement combinados en una sola pista")
+            await log('[Validación]   ' + tr('tab1.dolby_vision_fel_base_enhancement_combinados'))
         elif any("1920" in v.get("properties", {}).get("pixel_dimensions", "") for v in actual_video):
             # v65 legacy: EL como track separado — DV puede no funcionar
-            await log("[Validación]   ⚠️ Dolby Vision FEL: enhancement layer en pista separada (requiere mkvmerge v81+ para DV correcto)")
+            await log('[Validación]   ' + tr('tab1.dolby_vision_fel_enhancement_layer_en'))
         else:
             msg = "❌ Dolby Vision FEL esperado pero no se ha encontrado el enhancement layer"
             await log(f"[Validación] {msg}")
@@ -3089,7 +3065,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             detail = " (pista extra no esperada)"
 
         flag_str = " [DEFAULT]" if is_default else ""
-        await log(f"[Validación]   🔊 Audio #{i+1}: {codec} · {lang_iso}{flag_str} · \"{name}\"{detail} {status}")
+        await log('[Validación]   ' + tr('tab1.audio', p1=i+1, codec=codec, lang_iso=lang_iso, flag_str=flag_str, p5=name, detail=detail, status=status))
 
     # Pistas esperadas que no están en el MKV
     for i in range(len(actual_audio), len(expected_audio)):
@@ -3132,7 +3108,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         if is_default: flags.append("DEF")
         if is_forced: flags.append("FRC")
         flag_str = f" [{','.join(flags)}]" if flags else ""
-        await log(f"[Validación]   💬 Sub #{i+1}: {lang_iso}{flag_str} · \"{name}\"{detail} {status}")
+        await log('[Validación]   ' + tr('tab1.sub', p1=i+1, lang_iso=lang_iso, flag_str=flag_str, p4=name, detail=detail, status=status))
 
     for i in range(len(actual_subs), len(expected_subs)):
         exp = expected_subs[i]
@@ -3157,34 +3133,34 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         await log(f"[Validación] {msg}")
         warnings.append(msg)
     else:
-        await log(f"[Validación]   📖 Capítulos: {num_chapters}")
+        await log('[Validación]   ' + tr('tab1.capitulos', num_chapters=num_chapters))
 
     # ── Resumen ──────────────────────────────────────────────────
     if all_ok:
-        await log("[Validación] ✅ Verificación correcta — el MKV coincide con lo configurado en la sesión")
+        await log('[Validación] ' + tr('tab1.verificacion_correcta_el_mkv_coincide_con'))
     else:
-        await log(f"[Validación] ⚠️ Verificación con {len(warnings)} discrepancia{'s' if len(warnings) != 1 else ''} — revisa las líneas con ❌ o ⚠️ arriba")
-        await log("[Validación] ── Datos para diagnóstico ──")
-        await log(f"[Validación] Sesión ID: {session.id}")
-        await log(f"[Validación] Origen: {session.iso_path}")
-        await log(f"[Validación] MKV final: {mkv_path}")
-        await log(f"[Validación] Pistas configuradas en la sesión: {len(expected_audio)} audio + {len(expected_subs)} subtítulos")
+        await log('[Validación] ' + tr('tab1.verificacion_con_discrepancia_revisa_las_lineas', warnings=len(warnings), p2='s' if len(warnings) != 1 else ''))
+        await log('[Validación] ── ' + tr('tab1.datos_para_diagnostico'))
+        await log('[Validación] ' + tr('tab1.sesion_id', id=session.id))
+        await log('[Validación] ' + tr('tab1.origen', iso_path=session.iso_path))
+        await log('[Validación] ' + tr('tab1.mkv_final', mkv_path=mkv_path))
+        await log('[Validación] ' + tr('tab1.pistas_configuradas_en_la_sesion_audio', expected_audio=len(expected_audio), expected_subs=len(expected_subs)))
         for i, t in enumerate(expected_audio):
-            await log(f"[Validación]   Audio esperado #{i+1}: {t.raw.language} · {t.raw.codec} · etiqueta=\"{t.label}\"")
+            await log('[Validación]   ' + tr('tab1.audio_esperado_etiqueta', p1=i+1, language=t.raw.language, codec=t.raw.codec, label=t.label))
         for i, t in enumerate(expected_subs):
-            await log(f"[Validación]   Subtítulo esperado #{i+1}: {t.raw.language} · {t.subtitle_type} · etiqueta=\"{t.label}\"")
-        await log(f"[Validación] Pistas reales en el MKV: {len(actual_audio)} audio + {len(actual_subs)} subtítulos")
+            await log('[Validación]   ' + tr('tab1.subtitulo_esperado_etiqueta', p1=i+1, language=t.raw.language, subtitle_type=t.subtitle_type, label=t.label))
+        await log('[Validación] ' + tr('tab1.pistas_reales_en_el_mkv_audio', actual_audio=len(actual_audio), actual_subs=len(actual_subs)))
         for at in actual_audio:
             p = at.get("properties", {})
-            await log(f"[Validación]   Audio real: id={at['id']} · {at['codec']} · {p.get('language','')} · \"{p.get('track_name','')}\"")
+            await log('[Validación]   ' + tr('tab1.audio_real_id', p1=at['id'], p2=at['codec'], p3=p.get('language',''), p4=p.get('track_name','')))
         for st in actual_subs:
             p = st.get("properties", {})
             flags = []
             if p.get('default_track'): flags.append('default')
             if p.get('forced_track'): flags.append('forzado')
             flag_str = f" [{', '.join(flags)}]" if flags else ""
-            await log(f"[Validación]   Subtítulo real: id={st['id']} · {p.get('language','')}{flag_str} · \"{p.get('track_name','')}\"")
-        await log("[Validación] ── Fin del diagnóstico ──")
+            await log('[Validación]   ' + tr('tab1.subtitulo_real_id', p1=st['id'], p2=p.get('language',''), flag_str=flag_str, p4=p.get('track_name','')))
+        await log('[Validación] ── ' + tr('tab1.fin_del_diagnostico'))
 
     return all_ok
 
@@ -3242,7 +3218,7 @@ def _append_execution_record(
         id      = session.id,
         tab     = historial.TAB_RIP,
         tipo    = historial.TIPO_RIP,
-        que     = f"Conversión a MKV · {_titulo_rip or session.mkv_name or session.id}",
+        que     = tr('tab1.conversion_a_mkv', id=_titulo_rip or session.mkv_name or session.id),
         titulo  = _titulo_rip,
         poster  = _poster_rip,
         inicio  = record.started_at,
@@ -3318,9 +3294,9 @@ async def cancel_running_session(session_id: str):
     """
     session = load_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     if session.status != "running":
-        raise HTTPException(status_code=400, detail=f"Sesión no está en ejecución (status={session.status})")
+        raise HTTPException(status_code=400, detail=tr('tab1.sesion_no_esta_en_ejecucion_status', status=session.status))
 
     # Señalizar cancelación
     _cancel_flags[session_id] = True
@@ -3380,54 +3356,54 @@ if DEV_MODE:
         _pe: dict[str, datetime] = {}
 
         try:
-            await log(f"[Pipeline] Iniciando extracción de {session.iso_path}")
+            await log('[Pipeline] ' + tr('tab1.iniciando_extraccion_de', iso_path=session.iso_path))
 
             # ── Montar ISO ────────────────────────────────────────────
             _ps["mount"] = datetime.now(timezone.utc)
             await asyncio.sleep(0.2)
-            await log("[Montando ISO] mount -t udf -o ro,loop …")
+            await log('[Montando ISO] ' + tr('tab1.mount_t_udf_o_ro_loop'))
             await asyncio.sleep(0.4)
-            await log("[Montando ISO] ISO montado en: /mnt/bd/fake_mount_12345")
+            await log('[Montando ISO] ' + tr('tab1.iso_montado_en_mnt_bd_fake'))
             _pe["mount"] = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
-            await log("[Fase B] MPLS seleccionado: /mnt/bd/fake_mount_12345/BDMV/PLAYLIST/00800.mpls")
+            await log('[Fase B] ' + tr('tab1.mpls_seleccionado_mnt_bd_fake_mount'))
 
             if do_reorder:
                 # ── RUTA DIRECTA: MPLS → MKV final ───────────────────
-                await log("[Pipeline] Pistas reordenadas/excluidas → ruta directa (MPLS → MKV final)")
+                await log('[Pipeline] ' + tr('tab1.pistas_reordenadas_excluidas_ruta_directa_mpls'))
                 _ps["extract"] = datetime.now(timezone.utc)
-                await log("[Fase C] mkvmerge directo: MPLS → MKV final")
+                await log('[Fase C] ' + tr('tab1.mkvmerge_directo_mpls_mkv_final'))
                 await asyncio.sleep(0.5)
                 for pct in range(5, 101, 5):
                     await log(f"Progress: {pct}%")
                     await asyncio.sleep(0.25)
                 if will_error:
-                    raise RuntimeError("[DEV] Error simulado — mkvmerge falló")
+                    raise RuntimeError('[DEV] ' + tr('tab1.error_simulado_mkvmerge_fallo'))
                 _pe["extract"] = datetime.now(timezone.utc)
             else:
                 # ── RUTA INTERMEDIO: MPLS → intermedio → mkvpropedit ──
-                await log("[Pipeline] Sin reordenación → ruta intermedio (mkvpropedit in-place)")
+                await log('[Pipeline] ' + tr('tab1.sin_reordenacion_ruta_intermedio_mkvpropedit_in'))
                 _ps["extract"] = datetime.now(timezone.utc)
-                await log("[Fase B] mkvmerge: extrayendo todas las pistas…")
+                await log('[Fase B] ' + tr('tab1.mkvmerge_extrayendo_todas_las_pistas'))
                 await asyncio.sleep(0.5)
                 for pct in range(5, 101, 5):
                     await log(f"Progress: {pct}%")
                     await asyncio.sleep(0.25)
                 if will_error:
-                    raise RuntimeError("[DEV] Error simulado — mkvmerge falló")
+                    raise RuntimeError('[DEV] ' + tr('tab1.error_simulado_mkvmerge_fallo'))
                 _pe["extract"] = datetime.now(timezone.utc)
-                await log("[Fase B] MKV intermedio generado: /mnt/tmp/fake_intermediate.mkv")
+                await log('[Fase B] ' + tr('tab1.mkv_intermedio_generado_mnt_tmp_fake'))
 
                 _ps["write"] = datetime.now(timezone.utc)
-                await log("[Fase C] mkvpropedit in-place: configurando metadatos…")
+                await log('[Fase C] ' + tr('tab1.mkvpropedit_in_place_configurando_metadatos'))
                 await asyncio.sleep(0.4)
-                await log("[Fase C] mkvpropedit: pistas + capítulos configurados")
+                await log('[Fase C] ' + tr('tab1.mkvpropedit_pistas_capitulos_configurados'))
                 await asyncio.sleep(0.3)
-                await log("[Fase C] MKV movido a: /mnt/output/")
+                await log('[Fase C] ' + tr('tab1.mkv_movido_a_mnt_output'))
                 _pe["write"] = datetime.now(timezone.utc)
 
             mkv_out = f"/mnt/output/{session.mkv_name or 'fake_output.mkv'}"
-            await log(f"[Pipeline] Completado: {mkv_out}")
+            await log('[Pipeline] ' + tr('tab1.completado', mkv_out=mkv_out))
 
             session.status          = "done"
             session.last_executed   = datetime.now(timezone.utc)
@@ -3442,10 +3418,10 @@ if DEV_MODE:
         finally:
             # Simular desmontaje
             _ps["unmount"] = datetime.now(timezone.utc)
-            await log("[Desmontando ISO] umount loop device…")
+            await log('[Desmontando ISO] ' + tr('tab1.umount_loop_device'))
             await asyncio.sleep(0.2)
             _pe["unmount"] = datetime.now(timezone.utc)
-            await log("[Pipeline] ISO desmontado")
+            await log('[Pipeline] ' + tr('tab1.iso_desmontado'))
 
             _append_execution_record(session, _ps, _pe)
             save_session(session)

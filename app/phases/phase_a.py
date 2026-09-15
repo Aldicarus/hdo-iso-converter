@@ -44,6 +44,7 @@ enrich_dovi():
 run_full_analysis() — orquestador:
   Ejecuta todo secuencialmente, captura errores de herramientas opcionales.
 """
+from i18n import t as tr
 import array
 import asyncio
 import json
@@ -168,17 +169,17 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
 
     if playlist_dir is None:
         raise RuntimeError(
-            f"No se encontró BDMV/PLAYLIST/ bajo {share_path}."
+            tr('phase_a.no_se_encontro_bdmv_playlist_bajo', share_path=share_path)
         )
 
     mpls_files = sorted(playlist_dir.glob("*.mpls"), key=lambda p: p.name)
     if not mpls_files:
         raise RuntimeError(
-            f"No hay ficheros .mpls en {playlist_dir}."
+            tr('phase_a.no_hay_ficheros_mpls_en', playlist_dir=playlist_dir)
         )
 
     if log_callback:
-        await log_callback(f"[Fase A] {len(mpls_files)} ficheros MPLS encontrados")
+        await log_callback('[Fase A] ' + tr('phase_a.ficheros_mpls_encontrados', mpls_files=len(mpls_files)))
 
     # ── 2. Identificar cada MPLS con mkvmerge -J ─────────────────
     # Limitamos a los 10 más grandes por tamaño de fichero para no
@@ -201,14 +202,13 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
 
     if best_data is None or best_audio_count == 0:
         raise RuntimeError(
-            f"Ningún MPLS válido con pistas de audio en {playlist_dir}."
+            tr('phase_a.ningun_mpls_valido_con_pistas_de', playlist_dir=playlist_dir)
         )
 
     if log_callback:
         n_tracks = len(best_data.get("tracks", []))
         await log_callback(
-            f"[Fase A] MPLS principal: {best_mpls.name} "
-            f"({best_audio_count} pistas audio, {n_tracks} pistas total)"
+            '[Fase A] ' + tr('phase_a.mpls_principal_pistas_audio_pistas_total', p1=best_mpls.name, best_audio_count=best_audio_count, n_tracks=n_tracks)
         )
 
     return best_data, str(best_mpls)
@@ -600,29 +600,21 @@ async def identify_episode_candidates(
 
     if log_callback:
         await log_callback(
-            f"[Fase A] {len(candidates)} MPLS candidatos a episodio "
-            f"(duración 15-90 min · ≥1 audio · dedupe por m2ts · "
-            f"m2ts ≥ max(40% mediana, 25% máximo))"
+            '[Fase A] ' + tr('phase_a.mpls_candidatos_a_episodio_duracion_15', candidates=len(candidates))
         )
         for c in candidates:
             gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
             await log_callback(
-                f"[Fase A]   ✓ {c['mpls_name']} · "
-                f"{c['duration_minutes']:.1f} min · "
-                f"{gb:.2f} GB · {c['audio_track_count']} audio"
+                '[Fase A]   ' + tr('phase_a.min_gb_audio', p1=c['mpls_name'], p2=format(c['duration_minutes'], '.1f'), p3=format(gb, '.2f'), p4=c['audio_track_count'])
             )
         for c in discarded_by_dup:
             await log_callback(
-                f"[Fase A]   ⏭ descartado por dedupe: {c['mpls_name']} · "
-                f"{c['duration_minutes']:.1f} min "
-                f"(misma m2ts que otro MPLS con duración mayor — variante)"
+                '[Fase A]   ' + tr('phase_a.descartado_por_dedupe_min_misma_m2ts', p1=c['mpls_name'], p2=format(c['duration_minutes'], '.1f'))
             )
         for c in discarded_by_size:
             gb = c["m2ts_size_bytes"] / 1e9 if c["m2ts_size_bytes"] > 0 else 0
             await log_callback(
-                f"[Fase A]   ⏭ descartado por tamaño: {c['mpls_name']} · "
-                f"{c['duration_minutes']:.1f} min · "
-                f"{gb:.2f} GB (m2ts pequeño respecto al máximo — probable featurette)"
+                '[Fase A]   ' + tr('phase_a.descartado_por_tamano_min_gb_m2ts', p1=c['mpls_name'], p2=format(c['duration_minutes'], '.1f'), p3=format(gb, '.2f'))
             )
 
     return candidates
@@ -1879,27 +1871,18 @@ async def count_pgs_packets_ts_parse(
                 f"0x{pid:04X}={pgs_counts.get(pid, 0)}" for pid in order
             )
             await log_callback(
-                f"[Fase A] ├─   ✓ TS parse ({packet_size}B/pkt): "
-                f"{len(pgs_counts)} streams PGS en {sample_desc} ({elapsed:.1f}s) "
-                f"— {preview}"
+                '[Fase A] ├─   ' + tr('phase_a.ts_parse_b_pkt_streams_pgs', packet_size=packet_size, pgs_counts=len(pgs_counts), sample_desc=sample_desc, p4=format(elapsed, '.1f'), preview=preview)
             )
         elif has_pid_list:
             # Tenemos lista del MPLS pero ningun PID acumulo paquetes en el sample
             await log_callback(
-                f"[Fase A] ├─   ⚠️ TS parse: 0 paquetes para los {len(target_pids)} "
-                f"PIDs del MPLS en {sample_desc} ({elapsed:.1f}s). Posibles causas: "
-                "intro larga sin diálogo o subs muy esparcidos. Los counts se "
-                "mantienen a 0 — phase_b distinguirá forzados/completos por "
-                "ratio relativo."
+                '[Fase A] ├─   ' + tr('phase_a.ts_parse_0_paquetes_para_los', target_pids=len(target_pids), sample_desc=sample_desc, p3=format(elapsed, '.1f'))
             )
         else:
             top_pids = sorted(all_non_av.items(), key=lambda kv: -kv[1])[:10]
             top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
             await log_callback(
-                f"[Fase A] ├─   ⚠️ TS parse ({packet_size}B/pkt): 0 paquetes en "
-                f"PGS range (0x1200-0x12FF) tras {sample_desc} ({elapsed:.1f}s). "
-                f"Top PIDs no-AV detectados: {top_str}. Si los subtítulos están "
-                "ahí pero en otro rango, hay que ampliar AV_PID_RANGES o el rango PGS."
+                '[Fase A] ├─   ' + tr('phase_a.ts_parse_b_pkt_0_paquetes', packet_size=packet_size, sample_desc=sample_desc, p3=format(elapsed, '.1f'), top_str=top_str)
             )
 
     if not pgs_counts:
@@ -2055,7 +2038,7 @@ async def run_pgs_packet_counts(
             _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr_msg)
             if log_callback:
                 await log_callback(
-                    f"[Fase A] ├─   ✗ ffprobe packet count rc={proc.returncode}: {stderr_msg}"
+                    '[Fase A] ├─   ' + tr('phase_a.ffprobe_packet_count_rc', returncode=proc.returncode, stderr_msg=stderr_msg)
                 )
             return {}
         # Output de -show_packets: una linea por paquete con su stream_index.
@@ -2094,18 +2077,18 @@ async def run_pgs_packet_counts(
             )
             if log_callback:
                 await log_callback(
-                    f"[Fase A] ├─   diag: rc=0, stdout={stdout_preview}, stderr={stderr_preview}"
+                    '[Fase A] ├─   ' + tr('phase_a.diag_rc_0_stdout_stderr', stdout_preview=stdout_preview, stderr_preview=stderr_preview)
                 )
         return result
     except asyncio.TimeoutError:
         _logger.warning("ffprobe packet count: timeout tras 10 min")
         if log_callback:
-            await log_callback("[Fase A] ├─   ✗ ffprobe packet count timeout (>10 min)")
+            await log_callback('[Fase A] ├─   ' + tr('phase_a.ffprobe_packet_count_timeout_10_min'))
         return {}
     except Exception as e:
         _logger.warning("ffprobe packet count error: %s", e)
         if log_callback:
-            await log_callback(f"[Fase A] ├─   ✗ ffprobe packet count exception: {e}")
+            await log_callback('[Fase A] ├─   ' + tr('phase_a.ffprobe_packet_count_exception', e=e))
         return {}
 
 
@@ -2483,22 +2466,18 @@ async def run_full_analysis(
     # Plan general de la fase
     if log_callback:
         await log_callback(
-            "[Fase A] 📋 Plan: analizar el disco Blu-ray montado en 4 pasos — "
-            "identificar MPLS/pistas con mkvmerge -J, extraer capítulos del MPLS, "
-            "enriquecer con MediaInfo (bitrate, format_commercial, HDR10, canales) "
-            "y — si hay Dolby Vision con EL — ejecutar dovi_tool para detectar "
-            "profile y CM version. El resultado alimenta las reglas de Fase B."
+            '[Fase A] 📋 Plan' + tr('phase_a.analizar_el_disco_blu_ray_montado')
         )
 
     # 1. mkvmerge -J
     if log_callback:
-        await log_callback("[Fase A] ┌─ Paso 1/4: Identificando MPLS y pistas con mkvmerge -J…")
+        await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_mpls_y'))
     mkvmerge_data, mpls_path = await run_mkvmerge_identify(share_path, log_callback)
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
 
     # 2. Capítulos
     if log_callback:
-        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo capítulos del MPLS…")
+        await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_extrayendo_capitulos_del'))
     chapters_raw = parse_mpls_chapters(mpls_path)
 
     # 3. MediaInfo sobre m2ts principal
@@ -2507,20 +2486,20 @@ async def run_full_analysis(
         bdinfo.main_m2ts = Path(m2ts_path).name
         size_gb = Path(m2ts_path).stat().st_size / 1e9
         if log_callback:
-            await log_callback(f"[Fase A] ├─ Paso 3/4: Analizando M2TS principal {bdinfo.main_m2ts} ({size_gb:.1f} GB)")
+            await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_3_4_analizando_m2ts_principal', main_m2ts=bdinfo.main_m2ts, p2=format(size_gb, '.1f')))
 
         try:
             if log_callback:
-                await log_callback("[Fase A] ├─   Ejecutando MediaInfo sobre el m2ts…")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.ejecutando_mediainfo_sobre_el_m2ts'))
             mi = await run_mediainfo(m2ts_path)
             bdinfo.mediainfo_result = mi
             enrich_tracks_with_mediainfo(bdinfo, mi)
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas (bitrate, format_commercial, HDR, canales)")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.mediainfo_pistas_analizadas_bitrate_format_commercial', tracks=len(mi.tracks)))
         except Exception as e:
             _logger.warning("MediaInfo falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.mediainfo_fallo_no_bloquea', e=e))
 
         # 3b. Contar paquetes TS de cada subtítulo PGS.
         # Pipeline: parsea MPLS para obtener la lista autoritativa de PIDs
@@ -2542,24 +2521,21 @@ async def run_full_analysis(
                     )
                     more = f" +{len(mpls_pg_streams)-8} mas" if len(mpls_pg_streams) > 8 else ""
                     await log_callback(
-                        f"[Fase A] ├─   MPLS: {len(mpls_pg_streams)} streams PGS detectados "
-                        f"— {preview_pids}{more}"
+                        '[Fase A] ├─   ' + tr('phase_a.mpls_streams_pgs_detectados', mpls_pg_streams=len(mpls_pg_streams), preview_pids=preview_pids, more=more)
                     )
                 else:
                     await log_callback(
-                        f"[Fase A] ├─   ⚠️ MPLS sin streams PGS (motivo: {mpls_err or 'n_pg=0'}) "
-                        "— TS parser caerá al rango por defecto 0x1200-0x12FF."
+                        '[Fase A] ├─   ' + tr('phase_a.mpls_sin_streams_pgs_motivo_ts', p1=mpls_err or 'n_pg=0')
                     )
         except Exception as e:
             _logger.warning("MPLS parse falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ⚠️ MPLS parse falló (no bloquea): {e}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.mpls_parse_fallo_no_bloquea', e=e))
 
         try:
             if log_callback:
                 await log_callback(
-                    "[Fase A] ├─   Contando paquetes PGS parseando TS del m2ts "
-                    "(4 GB sample, 5-30s)…"
+                    '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_parseando_ts_del')
                 )
             pid_list = [s["pid"] for s in mpls_pg_streams] if mpls_pg_streams else None
             pgs_packets = await count_pgs_packets_ts_parse(
@@ -2571,7 +2547,7 @@ async def run_full_analysis(
         except Exception as e:
             _logger.warning("TS parse PGS falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ⚠️ TS parse falló (no bloquea): {e}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.ts_parse_fallo_no_bloquea', e=e))
 
         if pgs_packets:
             asignado, motivo = asignar_packet_counts(
@@ -2583,33 +2559,33 @@ async def run_full_analysis(
                         for s in bdinfo.subtitle_tracks[:12]
                     )
                     await log_callback(
-                        f"[Fase A] ├─   ✓ PGS packet counts asignados ({motivo}) — {preview}…")
+                        '[Fase A] ├─   ' + tr('phase_a.pgs_packet_counts_asignados', motivo=motivo, preview=preview))
                 else:
-                    await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
+                    await log_callback('[Fase A] ├─   ' + tr('phase_a.pgs_sin_asignar', motivo=motivo))
 
         # 4. dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
         if has_el:
             try:
                 if log_callback:
-                    await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision con dovi_tool (extract-rpu + info)…")
+                    await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_2'))
                 dovi = await run_dovi_analysis(m2ts_path)
                 if dovi:
                     enrich_dovi(bdinfo, dovi)
                     if log_callback:
                         await log_callback(
-                            f"[Fase A] └─   ✓ Dolby Vision detectado: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                            '[Fase A] └─   ' + tr('phase_a.dolby_vision_detectado_profile_cm', profile=dovi.profile, el_type=dovi.el_type, cm_version=dovi.cm_version)
                         )
             except Exception as e:
                 _logger.warning("dovi_tool falló (no bloquea): %s", e)
                 if log_callback:
-                    await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+                    await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
         else:
             if log_callback:
-                await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
+                await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
     else:
         if log_callback:
-            await log_callback("[Fase A] ⚠️ No se encontró m2ts — análisis extendido omitido (MediaInfo + dovi_tool no corren)")
+            await log_callback('[Fase A] ' + tr('phase_a.no_se_encontro_m2ts_analisis_extendido'))
 
     # Resultado: resumen de lo que queda listo para Fase B (reglas)
     if log_callback:
@@ -2623,8 +2599,7 @@ async def run_full_analysis(
                 d = main_vid.dovi
                 dv_part = f" · DV Profile {d.profile}{' ' + d.el_type if d.el_type else ''} CM {d.cm_version}"
         await log_callback(
-            f"[Fase A] 🎯 Resultado: {n_vid} vídeo + {n_audio} audio + {n_subs} subtítulos identificados{dv_part}. "
-            f"Fase B aplicará las reglas para seleccionar las pistas relevantes (ES/VO, mejor codec por idioma, subs forzados por packet_count, DCP, etc.)."
+            '[Fase A] 🎯 Resultado' + tr('phase_a.video_audio_subtitulos_identificados_fase_b', n_vid=n_vid, n_audio=n_audio, n_subs=n_subs, dv_part=dv_part)
         )
 
     return bdinfo, mpls_path, chapters_raw
@@ -2721,20 +2696,19 @@ async def run_full_analysis_for_mpls(
     """
     if log_callback:
         await log_callback(
-            f"[Fase A] 📋 Plan: analizar MPLS específico {Path(mpls_path).name} "
-            f"(modo serie — episodio seleccionado por el usuario)."
+            '[Fase A] 📋 Plan' + tr('phase_a.analizar_mpls_especifico_modo_serie_episodio', p1=Path(mpls_path).name)
         )
-        await log_callback(f"[Fase A] ┌─ Paso 1/4: Identificando pistas del MPLS con mkvmerge -J…")
+        await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_pistas_del'))
 
     mkvmerge_data = await _run_mkvmerge_j(mpls_path)
     if mkvmerge_data is None:
         raise RuntimeError(
-            f"mkvmerge -J falló sobre {mpls_path}. El MPLS puede estar corrupto o no ser válido."
+            tr('phase_a.mkvmerge_j_fallo_sobre_el_mpls', mpls_path=mpls_path)
         )
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
 
     if log_callback:
-        await log_callback("[Fase A] ├─ Paso 2/4: Extrayendo capítulos del MPLS…")
+        await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_extrayendo_capitulos_del'))
     chapters_raw = parse_mpls_chapters(mpls_path)
 
     # Resolver el m2ts específico de ESTE MPLS (no el más grande del disco)
@@ -2744,7 +2718,7 @@ async def run_full_analysis_for_mpls(
         size_gb = Path(m2ts_path).stat().st_size / 1e9
         if log_callback:
             await log_callback(
-                f"[Fase A] ├─ Paso 3/4: Analizando M2TS del episodio {bdinfo.main_m2ts} ({size_gb:.1f} GB)"
+                '[Fase A] ├─ ' + tr('phase_a.paso_3_4_analizando_m2ts_del', main_m2ts=bdinfo.main_m2ts, p2=format(size_gb, '.1f'))
             )
 
         try:
@@ -2753,12 +2727,12 @@ async def run_full_analysis_for_mpls(
             enrich_tracks_with_mediainfo(bdinfo, mi)
             if log_callback:
                 await log_callback(
-                    f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
+                    '[Fase A] ├─   ' + tr('phase_a.mediainfo_pistas_analizadas', tracks=len(mi.tracks))
                 )
         except Exception as e:
             _logger.warning("MediaInfo falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.mediainfo_fallo_no_bloquea', e=e))
 
         # PGS packet count (mismo pipeline que película)
         pgs_packets: dict[int, int] = {}
@@ -2771,7 +2745,7 @@ async def run_full_analysis_for_mpls(
         try:
             if log_callback:
                 await log_callback(
-                    "[Fase A] ├─   Contando paquetes PGS del m2ts del episodio…"
+                    '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_del_m2ts_del')
                 )
             pid_list = [s["pid"] for s in mpls_pg_streams] if mpls_pg_streams else None
             pgs_packets = await count_pgs_packets_ts_parse(
@@ -2787,31 +2761,31 @@ async def run_full_analysis_for_mpls(
             asignado, motivo = asignar_packet_counts(
                 bdinfo.subtitle_tracks, pgs_packets, mpls_pg_streams)
             if log_callback and not asignado:
-                await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.pgs_sin_asignar', motivo=motivo))
 
         # dovi_tool (solo si hay EL)
         has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
         if has_el:
             try:
                 if log_callback:
-                    await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision…")
+                    await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_3'))
                 dovi = await run_dovi_analysis(m2ts_path)
                 if dovi:
                     enrich_dovi(bdinfo, dovi)
                     if log_callback:
                         await log_callback(
-                            f"[Fase A] └─   ✓ Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                            '[Fase A] └─   ' + tr('phase_a.dolby_vision_profile_cm', profile=dovi.profile, el_type=dovi.el_type, cm_version=dovi.cm_version)
                         )
             except Exception as e:
                 _logger.warning("dovi_tool falló (no bloquea): %s", e)
                 if log_callback:
-                    await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+                    await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
         else:
             if log_callback:
-                await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
+                await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
     else:
         if log_callback:
-            await log_callback("[Fase A] ⚠️ No se encontró m2ts del MPLS — análisis extendido omitido")
+            await log_callback('[Fase A] ' + tr('phase_a.no_se_encontro_m2ts_del_mpls'))
 
     return bdinfo, chapters_raw
 
@@ -2849,15 +2823,14 @@ async def run_full_analysis_for_m2ts(
     """
     if log_callback:
         await log_callback(
-            f"[Fase A] 📋 Plan: analizar M2TS directo {Path(m2ts_path).name} "
-            f"(sin BDMV — capítulos auto-generados, PGS con rango por defecto)."
+            '[Fase A] 📋 Plan' + tr('phase_a.analizar_m2ts_directo_sin_bdmv_capitulos', p1=Path(m2ts_path).name)
         )
-        await log_callback("[Fase A] ┌─ Paso 1/4: Identificando pistas del M2TS con mkvmerge -J…")
+        await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_pistas_del_2'))
 
     mkvmerge_data = await _run_mkvmerge_j(m2ts_path)
     if mkvmerge_data is None:
         raise RuntimeError(
-            f"mkvmerge -J falló sobre {m2ts_path}. ¿Es un m2ts válido?"
+            tr('phase_a.mkvmerge_j_fallo_sobre_es_un', m2ts_path=m2ts_path)
         )
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
     bdinfo.main_m2ts = Path(m2ts_path).name
@@ -2865,12 +2838,12 @@ async def run_full_analysis_for_m2ts(
     # Capítulos: sin MPLS. El caller (main.py) los auto-genera por
     # duración usando generate_auto_chapters(). Devolvemos lista vacía.
     if log_callback:
-        await log_callback("[Fase A] ├─ Paso 2/4: Sin MPLS — capítulos se auto-generarán cada 10 min")
+        await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_sin_mpls_capitulos'))
     chapters_raw: list[dict] = []
 
     size_gb = Path(m2ts_path).stat().st_size / 1e9
     if log_callback:
-        await log_callback(f"[Fase A] ├─ Paso 3/4: Enriqueciendo con MediaInfo ({size_gb:.1f} GB)…")
+        await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_3_4_enriqueciendo_con_mediainfo', p1=format(size_gb, '.1f')))
 
     mi = None
     try:
@@ -2879,12 +2852,12 @@ async def run_full_analysis_for_m2ts(
         enrich_tracks_with_mediainfo(bdinfo, mi)
         if log_callback:
             await log_callback(
-                f"[Fase A] ├─   ✓ MediaInfo: {len(mi.tracks)} pistas analizadas"
+                '[Fase A] ├─   ' + tr('phase_a.mediainfo_pistas_analizadas', tracks=len(mi.tracks))
             )
     except Exception as e:
         _logger.warning("MediaInfo falló (no bloquea): %s", e)
         if log_callback:
-            await log_callback(f"[Fase A] ├─   ⚠️ MediaInfo falló (no bloquea): {e}")
+            await log_callback('[Fase A] ├─   ' + tr('phase_a.mediainfo_fallo_no_bloquea', e=e))
 
     # Resolución robusta de duración con cascada + sanity check de bitrate.
     # Caso real del usuario: m2ts de 50 GB reportado como 168s (2.8 min)
@@ -2901,22 +2874,18 @@ async def run_full_analysis_for_m2ts(
         bdinfo.duration_seconds = resolved
         if log_callback and prev > 0:
             await log_callback(
-                f"[Fase A] ├─   ℹ️ Duración corregida: {resolved:.0f}s "
-                f"({resolved/60:.1f} min) — el valor anterior ({prev:.0f}s) "
-                f"era inverosímil para un fichero de "
-                f"{Path(m2ts_path).stat().st_size / 1e9:.1f} GB"
+                '[Fase A] ├─   ' + tr('phase_a.i_duracion_corregida_s_min_el', p1=format(resolved, '.0f'), p2=format(resolved/60, '.1f'), p3=format(prev, '.0f'), p4=format(Path(m2ts_path).stat().st_size / 1e9, '.1f'))
             )
         elif log_callback:
             await log_callback(
-                f"[Fase A] ├─   ℹ️ Duración resuelta: {resolved:.0f}s "
-                f"({resolved/60:.1f} min)"
+                '[Fase A] ├─   ' + tr('phase_a.i_duracion_resuelta_s_min', p1=format(resolved, '.0f'), p2=format(resolved/60, '.1f'))
             )
 
     # PGS counting sin MPLS PIDs — fallback a rango por defecto.
     try:
         if log_callback:
             await log_callback(
-                "[Fase A] ├─   Contando paquetes PGS (rango 0x1200-0x12FF, sin MPLS)…"
+                '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_rango_0x1200_0x12ff')
             )
         pgs_packets = await count_pgs_packets_ts_parse(
             m2ts_path,
@@ -2932,32 +2901,32 @@ async def run_full_analysis_for_m2ts(
             # cuando las longitudes no cuadran.
             asignado, motivo = asignar_packet_counts(bdinfo.subtitle_tracks, pgs_packets)
             if log_callback and not asignado:
-                await log_callback(f"[Fase A] ├─   ⚠️ PGS sin asignar: {motivo}")
+                await log_callback('[Fase A] ├─   ' + tr('phase_a.pgs_sin_asignar', motivo=motivo))
     except Exception as e:
         _logger.warning("TS parse PGS falló (no bloquea): %s", e)
         if log_callback:
-            await log_callback(f"[Fase A] ├─   ⚠️ TS parse falló (no bloquea): {e}")
+            await log_callback('[Fase A] ├─   ' + tr('phase_a.ts_parse_fallo_no_bloquea', e=e))
 
     # dovi_tool (solo si hay EL detectado en el HEVC)
     has_el = any(t.is_el for t in bdinfo.video_tracks) or bdinfo.has_fel
     if has_el:
         try:
             if log_callback:
-                await log_callback("[Fase A] └─ Paso 4/4: Analizando Dolby Vision con dovi_tool…")
+                await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision'))
             dovi = await run_dovi_analysis(m2ts_path)
             if dovi:
                 enrich_dovi(bdinfo, dovi)
                 if log_callback:
                     await log_callback(
-                        f"[Fase A] └─   ✓ Dolby Vision: Profile {dovi.profile} ({dovi.el_type}), CM {dovi.cm_version}"
+                        '[Fase A] └─   ' + tr('phase_a.dolby_vision_profile_cm', profile=dovi.profile, el_type=dovi.el_type, cm_version=dovi.cm_version)
                     )
         except Exception as e:
             _logger.warning("dovi_tool falló (no bloquea): %s", e)
             if log_callback:
-                await log_callback(f"[Fase A] └─   ⚠️ dovi_tool falló (no bloquea): {e}")
+                await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
     else:
         if log_callback:
-            await log_callback("[Fase A] └─ Paso 4/4: sin Enhancement Layer — dovi_tool no aplica")
+            await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
 
     return bdinfo, chapters_raw
 
@@ -3039,6 +3008,6 @@ async def identify_episode_candidates_from_m2ts_list(
             )
     if log_callback:
         await log_callback(
-            f"[Fase A] {len(candidates)} ficheros M2TS analizados como candidatos a episodio"
+            '[Fase A] ' + tr('phase_a.ficheros_m2ts_analizados_como_candidatos_a', candidates=len(candidates))
         )
     return candidates

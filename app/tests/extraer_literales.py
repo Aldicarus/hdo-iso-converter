@@ -484,3 +484,192 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ── Bloque 4: los mensajes con parámetros ─────────────────────────────
+#
+# Lo que quedó fuera de los bloques 2 y 3: la prosa que lleva un `${...}`
+# DENTRO. No es una etiqueta, es un mensaje, y `data-i18n` no puede con él
+# porque escribe `textContent` y borraría el valor interpolado.
+#
+# La regla del proyecto es que no se traduce por trozos: partir
+# «Máximo ${MAX} proyectos abiertos» en «Máximo » y « proyectos abiertos»
+# obliga a que el orden de las palabras sea el del castellano en las tres
+# lenguas. Así que cada mensaje pasa a ser UNA cadena con parámetros CON
+# NOMBRE: `t('core.max_proyectos', {max: MAX})`.
+
+_NOMBRE_DE_EXPR = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+
+
+def _nombre_de_parametro(expr: str, usados: set[str], n: int) -> str:
+    """Un nombre legible para el hueco, sacado de la expresión.
+
+    `MAX_PROJECTS` → `max_projects`; `s.nombre` → `nombre`;
+    `escHtml(p.titulo)` → `titulo`. Si no se puede sacar nada —una ternaria,
+    una plantilla anidada— se cae a `p1`, `p2`…
+    
+    Importa porque quien traduce ve la frase con el hueco dentro: con
+    `{titulo}` sabe qué va ahí y puede moverlo; con `{p2}` no.
+    """
+    m = _NOMBRE_DE_EXPR.search(re.sub(r"[)\]\s]+$", "", expr))
+    base = ""
+    if m and len(expr) < 60 and not re.search(r"[?:]", expr):
+        base = re.sub(r"[^a-z0-9_]", "", m.group(1).lower())
+    if not base or base in ("escHtml", "eschtml", "length"):
+        base = f"p{n}"
+    k, i = base, 2
+    while k in usados:
+        k = f"{base}{i}"
+        i += 1
+    usados.add(k)
+    return k
+
+
+def mensajes_con_parametros(ruta: Path, area: str, catalogo: dict[str, str]
+                            ) -> tuple[str, dict[str, str], int]:
+    """Convierte la prosa interpolada de un fichero JS en llamadas a `t()`."""
+    fuente = ruta.read_text(encoding="utf-8")
+    usadas = {v: k for k, v in catalogo.items()}
+    trozos: list[tuple[int, int, str]] = []
+    n_total = 0
+
+    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+        tpl = m.group(1)
+        if "<" not in tpl or "${" not in tpl:
+            continue
+        prohibidas = _regiones_interpoladas(tpl)
+        enmasc = "".join("\x01" if any(a <= i < b for a, b in prohibidas) else c
+                         for i, c in enumerate(tpl))
+        rec = _Recolector(enmasc)
+        try:
+            rec.feed(enmasc)
+            rec.close()
+        except Exception:
+            continue
+        cambios: list[tuple[int, int, str]] = []
+        for t in rec.textos:
+            trozo = enmasc[t["ini"]:t["fin"]]
+            if "\x01" not in trozo:
+                continue
+            if len(re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]", trozo)) < 4:
+                continue
+            crudo = tpl[t["ini"]:t["fin"]]
+            # Los huecos de ESTE trozo, en orden.
+            huecos = [(a, b) for a, b in prohibidas
+                      if t["ini"] <= a and b <= t["fin"]]
+            if not huecos:
+                continue
+            # Una expresión con PLANTILLA ANIDADA dentro (`${x ? `<b>..</b>` :
+            # ''}`) se deja como está. El contador de llaves no la delimita
+            # bien —el backtick interior abre su propio mundo— y reescribirla
+            # a ciegas produce JS roto; lo cazó `node --check` en tab2 y tab3.
+            # Son pocas y no merece un parser de JavaScript entero.
+            if any("`" in tpl[a + 2:b - 1] for a, b in huecos):
+                continue
+            usados: set[str] = set()
+            plantilla, args, cursor = "", [], t["ini"]
+            for i, (a, b) in enumerate(huecos, 1):
+                plantilla += tpl[cursor:a]
+                expr = tpl[a + 2:b - 1]
+                nombre = _nombre_de_parametro(expr, usados, i)
+                plantilla += "{" + nombre + "}"
+                args.append(f"{nombre}: {expr}")
+                cursor = b
+            plantilla += tpl[cursor:t["fin"]]
+            limpio = " ".join(plantilla.split())
+            if limpio in usadas:
+                clave = usadas[limpio]
+            else:
+                base = f"{area}.{slug(re.sub(r'\\{\\w+\\}', ' ', limpio))}"
+                clave, j = base, 2
+                while clave in catalogo:
+                    clave = f"{base}_{j}"
+                    j += 1
+                catalogo[clave] = limpio
+                usadas[limpio] = clave
+            izq = crudo[:len(crudo) - len(crudo.lstrip())]
+            der = crudo[len(crudo.rstrip()):]
+            llamada = (f"{izq}${{t('{clave}', {{{', '.join(args)}}})}}{der}")
+            cambios.append((t["ini"], t["fin"], llamada))
+            n_total += 1
+        if cambios:
+            nuevo_tpl = tpl
+            for a, b, txt in sorted(cambios, key=lambda c: -c[0]):
+                nuevo_tpl = nuevo_tpl[:a] + txt + nuevo_tpl[b:]
+            trozos.append((m.start(1), m.end(1), nuevo_tpl))
+
+    salida = fuente
+    for a, b, txt in sorted(trozos, key=lambda x: -x[0]):
+        salida = salida[:a] + txt + salida[b:]
+    return salida, catalogo, n_total
+
+
+ULTIMA_CLAVE = ""
+
+
+def mensajes_con_parametros_uno(ruta: Path, area: str, catalogo: dict,
+                                fuente: str, vetados: set) -> tuple[str, dict, int]:
+    """Como `mensajes_con_parametros`, pero aplica SOLO EL PRIMERO que quede.
+
+    Existe para poder validar cada cambio con `node --check` y revertir el que
+    rompa el fichero. Hace falta porque un regex no delimita una plantilla que
+    contiene otra plantilla —se corta en el primer backtick anidado— y escribir
+    un parser de JavaScript para cincuenta y cinco sitios no se sostiene.
+    """
+    global ULTIMA_CLAVE
+    usadas = {v: k for k, v in catalogo.items()}
+    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+        tpl = m.group(1)
+        if "<" not in tpl or "${" not in tpl:
+            continue
+        prohibidas = _regiones_interpoladas(tpl)
+        enmasc = "".join("\x01" if any(a <= i < b for a, b in prohibidas) else c
+                         for i, c in enumerate(tpl))
+        rec = _Recolector(enmasc)
+        try:
+            rec.feed(enmasc)
+            rec.close()
+        except Exception:
+            continue
+        for t in sorted(rec.textos, key=lambda x: x["ini"]):
+            trozo = enmasc[t["ini"]:t["fin"]]
+            if "\x01" not in trozo:
+                continue
+            if len(re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]", trozo)) < 4:
+                continue
+            huecos = [(a, b) for a, b in prohibidas
+                      if t["ini"] <= a and b <= t["fin"]]
+            if not huecos:
+                continue
+            crudo = tpl[t["ini"]:t["fin"]]
+            usados: set[str] = set()
+            plantilla, args, cursor = "", [], t["ini"]
+            for i, (a, b) in enumerate(huecos, 1):
+                plantilla += tpl[cursor:a]
+                expr = tpl[a + 2:b - 1]
+                nombre = _nombre_de_parametro(expr, usados, i)
+                plantilla += "{" + nombre + "}"
+                args.append(f"{nombre}: {expr}")
+                cursor = b
+            plantilla += tpl[cursor:t["fin"]]
+            limpio = " ".join(plantilla.split())
+            if limpio in usadas:
+                clave = usadas[limpio]
+            else:
+                base = f"{area}.{slug(re.sub(r'[{]\\w+[}]', ' ', limpio))}"
+                clave, j = base, 2
+                while clave in catalogo:
+                    clave = f"{base}_{j}"
+                    j += 1
+            if clave in vetados:
+                continue
+            catalogo[clave] = limpio
+            ULTIMA_CLAVE = clave
+            izq = crudo[:len(crudo) - len(crudo.lstrip())]
+            der = crudo[len(crudo.rstrip()):]
+            llamada = f"{izq}${{t('{clave}', {{{', '.join(args)}}})}}{der}"
+            nuevo_tpl = tpl[:t["ini"]] + llamada + tpl[t["fin"]:]
+            salida = fuente[:m.start(1)] + nuevo_tpl + fuente[m.end(1):]
+            return salida, catalogo, 1
+    return fuente, catalogo, 0
+

@@ -73,6 +73,7 @@ el stem completo como título y ``0000`` como año.
 
 Ref: spec §5.1, §5.2, §5.3, §5.4
 """
+from i18n import t as tr
 import math
 import re
 from pathlib import Path
@@ -1303,7 +1304,7 @@ def _select_subtitle_tracks(
                 raw=forced_track,
                 language_literal=lang_lit,
                 subtitle_type="forced",
-                label=f"{lang_lit} Forzados (PGS)",
+                label=tr('phase_b.forzados_pgs', lang_lit=lang_lit),
                 flag_default=flag_default,
                 flag_forced=flag_forced_matroska,
                 selection_reason=reason_forced + flag_note,
@@ -1356,7 +1357,7 @@ def _select_subtitle_tracks(
                 raw=complete_track,
                 language_literal=lang_lit,
                 subtitle_type="complete",
-                label=f"{lang_lit} Completos (PGS)",
+                label=tr('phase_b.completos_pgs', lang_lit=lang_lit),
                 flag_default=False,
                 flag_forced=False,
                 selection_reason=reason_complete,

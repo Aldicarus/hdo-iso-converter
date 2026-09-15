@@ -38,6 +38,7 @@ DIRECTORIO DE MONTAJE
 
   MOUNT_BASE por defecto: /mnt/bd (creado en entrypoint.sh).
 """
+from i18n import t as tr
 import asyncio
 import logging
 import os
@@ -66,9 +67,9 @@ async def mount_iso(iso_path: str) -> str:
     """
     iso = Path(iso_path)
     if not iso.exists():
-        raise RuntimeError(f"ISO no encontrado: {iso_path}")
+        raise RuntimeError(tr('iso_mount.iso_no_encontrado', iso_path=iso_path))
     if iso.suffix.lower() != ".iso":
-        raise RuntimeError(f"Fichero no es un ISO: {iso_path}")
+        raise RuntimeError(tr('iso_mount.fichero_no_es_un_iso', iso_path=iso_path))
 
     # Crear mount point único
     mount_name = f"{iso.stem}_{os.getpid()}"
@@ -87,8 +88,7 @@ async def mount_iso(iso_path: str) -> str:
         shutil.rmtree(mount_point, ignore_errors=True)
         stderr = result.stderr.strip()
         raise RuntimeError(
-            f"Error montando ISO ({result.returncode}): {stderr}. "
-            f"¿El contenedor tiene privileged: true? ¿El kernel soporta UDF 2.50?"
+            tr('iso_mount.error_montando_iso_el_contenedor_tiene', returncode=result.returncode, stderr=stderr)
         )
 
     # Verificar que el BDMV es accesible
@@ -96,8 +96,7 @@ async def mount_iso(iso_path: str) -> str:
     if not bdmv.exists():
         await unmount_iso(str(mount_point))
         raise RuntimeError(
-            f"ISO montado pero no contiene BDMV/ en {mount_point}. "
-            f"¿Es un ISO de UHD Blu-ray válido?"
+            tr('iso_mount.iso_montado_pero_no_contiene_bdmv', mount_point=mount_point)
         )
 
     logger.info("[iso_mount] Montado OK: %s (%s)", iso.name, mount_point)

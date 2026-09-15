@@ -170,7 +170,7 @@ async function checkForUpdates(force) {
     const simBadge = data.simulated ? ` <span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> <span data-i18n="settings.simulado"></span></span>` : '';
     const latestPart = ` · última publicada: <strong>${escHtml(data.latest)}</strong>${simBadge}`;
     const ignored = data.ignored_version
-      ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')" data-i18n="settings.reactivar_avisos"></button></div>`
+      ? `<div class="settings-update-msg-sub">${tr('settings.ignorando_avisos_de_la_version_ignored', {ignored_version: escHtml(data.ignored_version)})} <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')" data-i18n="settings.reactivar_avisos"></button></div>`
       : '';
     banner.innerHTML = `<div class="settings-update-msg"><span data-icono="check"></span> <span data-i18n="settings.estas_al_dia_current"></span> <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
     return;
@@ -224,7 +224,7 @@ async function checkForUpdates(force) {
 
   banner.innerHTML = `
     <div class="settings-update-head">
-      ${icono('campana')} Nueva versión disponible: <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
+      ${tr('settings.p1_nueva_version_disponible', {p1: icono('campana')})} <strong>${escHtml(data.current)}</strong> → <strong>${escHtml(data.latest)}</strong> ${simBadge}
     </div>
     ${notesHtml}
     <div class="settings-update-cmd">
@@ -595,7 +595,7 @@ async function cleanupScanAndShow() {
     <div class="cleanup-summary">
       <strong>${data.total_count}</strong> elementos · liberables ${_cleanupFmtBytes(data.total_bytes)}
       ${data.safe_count < data.total_count
-        ? ` · <span class="cleanup-warn-text">${data.total_count - data.safe_count} requieren revisión</span>`
+        ? ` · <span class="cleanup-warn-text">${tr('settings.safe_count_requieren_revision', {safe_count: data.total_count - data.safe_count})}</span>`
         : ''}
     </div>
     <table class="cleanup-table">

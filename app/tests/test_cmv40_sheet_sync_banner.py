@@ -22,7 +22,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo, pintar_en  # noqa: E402
+from frontend_sources import js_completo, motor_i18n, pintar_en  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -34,7 +34,9 @@ def _fn(nombre: str) -> str:
 
 
 def _render(sheet_sync) -> str:
-    guion = f"""
+    # El motor de traducción delante: la plantilla del banner llama a
+    # `tr('clave', {param})` para los mensajes con datos dentro.
+    guion = motor_i18n() + f"""
 globalThis.escHtml = s => String(s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 {_fn('_cmv40SheetSyncBannerHTML')}

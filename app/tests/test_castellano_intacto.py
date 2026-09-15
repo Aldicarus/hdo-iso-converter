@@ -62,8 +62,11 @@ def _catalogo_es() -> set[str]:
         for html in json.loads(manual.read_text(encoding="utf-8")).values():
             fuera.update(x for x in captura._del_html(
                 re.sub(r"\$\{[^}]*\}", " ⟦⟧ ", html)) if captura.es_frase(x))
-    ruta = APP_DIR / "static" / "i18n" / "es.json"
-    if not ruta.exists():
+    # Los dos catálogos: el del frontend y el del BACKEND (`app/i18n/`), que
+    # es donde han ido las 483 frases del log y de los errores HTTP.
+    rutas = [APP_DIR / "static" / "i18n" / "es.json",
+             APP_DIR / "i18n" / "es.json"]
+    if not any(r.exists() for r in rutas):
         return fuera
     def hojas(nodo):
         if isinstance(nodo, str):
@@ -74,7 +77,20 @@ def _catalogo_es() -> set[str]:
         elif isinstance(nodo, list):
             for v in nodo:
                 yield from hojas(v)
-    fuera.update(hojas(json.loads(ruta.read_text(encoding="utf-8"))))
+    valores: set[str] = set()
+    for r in rutas:
+        if r.exists():
+            valores |= set(hojas(json.loads(r.read_text(encoding="utf-8"))))
+    fuera |= valores
+    # Y la misma frase con los huecos normalizados al centinela del golden.
+    #
+    # Las frases interpoladas se capturaron con `${…}` sustituido por `⟦⟧`, y
+    # al convertirlas en mensajes con parámetros pasaron a llevar `{max}`,
+    # `{total}`… Es el MISMO hueco escrito de otra forma, no un cambio del
+    # castellano: las palabras de alrededor tienen que seguir coincidiendo
+    # byte a byte, y eso es lo que se comprueba. Listar cincuenta excepciones
+    # habría escondido justo lo que el guard existe para ver.
+    fuera |= {" ".join(re.sub(r"\{\w+\}", " ⟦⟧ ", v).split()) for v in valores}
     return fuera
 
 
@@ -87,10 +103,32 @@ class TestElCastellanoSigueSiendoElMismo(unittest.TestCase):
                      | captura.frases_del_backend()
                      | _catalogo_es())
 
+    @staticmethod
+    def _sin_prefijo(frase: str) -> str:
+        """La frase sin su `[Fase C]`, su marker y su dibujo de árbol.
+
+        El bloque 5 dejó los prefijos LITERALES en el código —son claves del
+        parser del frontend y de la persistencia del log— y mandó al catálogo
+        solo la prosa. Así que el golden guarda «[Audit] L2: …» y el catálogo
+        «L2: …»: es la misma frase, partida donde tocaba.
+
+        Se usa el MISMO regex que el extractor, no una copia: si el criterio
+        de qué es un prefijo cambia, cambia en un sitio.
+        """
+        import extraer_backend as eb
+        m = eb._PREFIJO.match(frase)
+        prosa = m.group(5) if m else frase
+        # Y el marker de CIERRE: hay líneas de fase que van entre dos `━━━`.
+        # El de apertura ya lo quitaba el regex del prefijo; el de cierre se
+        # quedaba dentro y esas cuatro frases parecían perdidas.
+        prosa = re.sub(r"\s*━+\s*$", "", prosa)
+        return " ".join(prosa.split())
+
     def _comprobar(self, clave: str):
         esperadas = set(self.golden[clave])
         faltan = sorted(f for f in esperadas - self.vivas
-                        if f not in EXCEPCIONES)
+                        if f not in EXCEPCIONES
+                        and self._sin_prefijo(f) not in self.vivas)
         self.assertEqual(faltan, [], (
             f"\n{len(faltan)} frase(s) castellanas de `{clave}` han "
             f"desaparecido o cambiado.\nSi el cambio es deliberado, añádelas a "

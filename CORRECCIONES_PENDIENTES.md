@@ -58,3 +58,89 @@ solo esas, no todo.
 
 **Cuántas son**: hay que medirlo (buscar claves cuyo valor empiece o acabe sin
 puntuación y cuyo hermano en el DOM sea otra clave).
+
+---
+
+## 3. Tres mensajes que se quedan en castellano: plantilla dentro de plantilla
+
+**Dónde**: `tab2.js` (2) y `tab3.js` (1). Las claves que el propio `node
+--check` rechazó al aplicarlas:
+
+- `tab2.master_display_p1` — `Master display ${masterSource ? `<span…>` : ''}`
+- `tab2.combos_unicos_p1`
+- `tab3.que_la_hoja_no_explica_src`
+
+**Por qué**: la expresión interpolada contiene **otra plantilla** (un backtick
+dentro del `${…}`), y eso no se delimita con un regex — se corta en el primer
+backtick anidado. El extractor los intentó, node los rechazó y se revirtieron
+solos; quedan como castellano incrustado.
+
+**Cómo se detectó**: aplicando cada mensaje uno a uno y preguntándole a `node
+--check` si el fichero sigue siendo válido. Sin ese bucle, dos ficheros se
+habrían commiteado roto.
+
+**Qué hacer**: reescribir esas tres a mano sacando la ternaria fuera de la
+plantilla (`const src = masterSource ? … : '';` y después `${src}`), que deja
+el mensaje con un hueco simple y ya extraíble. Son tres sitios.
+
+---
+
+## 4. Seis parámetros llevan castellano cableado
+
+**Dónde**: valores que el JS calcula y mete en un mensaje traducido, así que
+saldrían **en castellano dentro de una frase inglesa o catalana**:
+
+| clave del mensaje | parámetro | lo que trae |
+|---|---|---|
+| `tab3.*` (banner de cola) | `posicion` | «puesto N de M» / «siguiente en la cola» |
+| `browser.*` | `filterdesc` | «ficheros .m2ts», «carpetas BDMV»… |
+| `tab2.*` | `l2note` | nota del L2 |
+| `tab3.correccion_p1` | `p1` | `'adicional'` \| `'manual'` |
+| `tab3.se_omiten_p1` | `p1` | `'ninguna fase'` |
+| `tab3.*` (sheet) | `src` | « (fila «…»)» |
+
+**Por qué pasa**: el extractor traduce la PLANTILLA, no lo que se le
+interpola. Un valor construido con un ternario de literales castellanos se
+cuela por el hueco.
+
+**Cómo se detectó**: el traductor de los mensajes con parámetros los encontró
+al mirar de dónde venía cada `{…}`, no traduciendo.
+
+**Qué hacer**: cada uno es un literal castellano en el JS que hay que
+convertir en su propia clave (`tab3.puesto_n_de_m`, `browser.filtro_m2ts`…) y
+pasar ya traducido. Son seis sitios y el arreglo es mecánico, pero hay que
+mirar el código de cada uno para saber cuántas variantes tiene.
+
+**Ampliación (backend)**: el mismo problema aparece en el servidor, y dos
+traductores distintos lo señalaron:
+
+| dónde | parámetro | lo que trae |
+|---|---|---|
+| `routers/cmv40.py:2696` y `:2765` | `{accion}` | `"borrar el proyecto"` / `"borrar los artefactos"` |
+| `phases/cmv40_pipeline.py:671` | `eta_txt` | `" · quedan ~Xmin Ys"` |
+
+El inglés se redactó para que aguante con el literal sin traducir («Cancel it
+before you {accion}.»), pero saldrá mezclado hasta que se extraigan.
+
+---
+
+## 5. Un plural resuelto con un sufijo de una letra, que en inglés no existe
+
+**Dónde**: `cmv40_pipeline.no_existe_ejecuta_fase_f_primero`, el único caso del
+repo que pluraliza inyectando `{p2}` = `'n'` / `''` («no se ha / no se han
+generado»).
+
+**Qué pasa**: el catalán sale bien (`no s'ha{p2} generat`), pero **el inglés no
+tiene inflexión de número de una letra**: el singular queda perfecto («not
+found») y el plural escribe **«not foundn»**.
+
+**Qué hacer**: partirla en dos claves (`…_uno` / `…_varios`), que es justo lo
+que REGISTRO.md manda para los plurales y esta se saltó.
+
+## 6. Dos cadenas castellanas más, sin extraer
+
+- `' o '.join(faltan)` en `phases/cmv40_pipeline.py:4360` — el separador de una
+  lista, que saldrá « o » dentro de una frase inglesa.
+- El fallback `'la serie'` de `{p3}` en `routers/tab1.py:2229`.
+
+Las encontró el traductor del lote 3 mirando de dónde venía cada hueco.

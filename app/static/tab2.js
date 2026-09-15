@@ -1119,21 +1119,14 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-low">
           <span class="dv-mc-div-icon"><span data-icono="aviso"></span></span>
-          <span><strong><span data-i18n="tab2.master_conservador_con_tone_mapping_agresivo"></span></strong> —
-            L1 RPU peak ${l1Peak.toFixed(0)} nits vs HDR10 SEI MaxCLL ${seiCll} nits
-            (ratio ${ratio.toFixed(2)}×). El colorista etiquetó la metadata DV
-            por debajo del peak HDR10 — la imagen real tras display mapping
-            puede mostrar valores mayores que los anunciados por el L1.
+          <span><strong><span data-i18n="tab2.master_conservador_con_tone_mapping_agresivo"></span></strong> ${tr('tab2.l1_rpu_peak_p1_nits_vs', {p1: l1Peak.toFixed(0), seicll: seiCll, p3: ratio.toFixed(2)})}
           </span>
         </div>`;
     } else if (ratio > 2.0) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-high">
           <span class="dv-mc-div-icon"><span data-icono="info"></span></span>
-          <span><strong><span data-i18n="tab2.l1_rpu_mas_generoso_que_hdr10"></span></strong> —
-            L1 peak ${l1Peak.toFixed(0)} nits vs SEI MaxCLL ${seiCll} nits
-            (ratio ${ratio.toFixed(2)}×). El SEI HDR10 está etiquetado conservadoramente
-            respecto al grado DV real.
+          <span><strong><span data-i18n="tab2.l1_rpu_mas_generoso_que_hdr10"></span></strong> ${tr('tab2.l1_peak_p1_nits_vs_sei', {p1: l1Peak.toFixed(0), seicll: seiCll, p3: ratio.toFixed(2)})}
           </span>
         </div>`;
     }
@@ -1162,8 +1155,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
           ${showExpansionChip ? `<div class="dv-mc-flow-hint">P3 ↑ BT.2020 (gamut expandido al container)</div>` : ''}
         </div>
         <div class="dv-mc-card">
-          <div class="dv-mc-card-title">DV target display
-            ${l10 ? '<span class="dv-mc-card-src">· L10</span>' : ''}
+          <div class="dv-mc-card-title">${tr('tab2.dv_target_display_p1', {p1: l10 ? '<span class="dv-mc-card-src">· L10</span>' : ''})}
           </div>
           <div class="dv-mc-card-primary">${l10 ? escHtml(l10) : '—'}</div>
           <div class="dv-mc-card-meta">
@@ -1413,7 +1405,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     blockActiveArea = `
       <section class="dv-block">
         <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span>
-          <span class="dv-block-sub">L5 · ${l5Zones.length} zonas detectadas (letterbox dinámico)</span>
+          <span class="dv-block-sub">${tr('tab2.l5_p1_zonas_detectadas_letterbox_dinamico', {p1: l5Zones.length})}</span>
         </h5>
         <table class="dv-l5-zones-table">
           <thead><tr><th>#</th><th data-i18n="tab2.offsets_px"></th><th data-i18n="tab2.area_activa"></th><th data-i18n="tab2.ratio"></th><th data-i18n="tab2.frames"></th><th>%</th></tr></thead>
@@ -1587,7 +1579,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   const blockLight = `
     <section class="dv-block">
       <div class="dv-block-head">
-        <h5 class="dv-block-title">Perfil de luminancia DV L1 por escena ${lightHint} <span class="dv-block-sub" data-i18n="tab2.metadata_max_pq_no_luminancia_real"></span></h5>
+        <h5 class="dv-block-title">${tr('tab2.perfil_de_luminancia_dv_l1_por', {lighthint: lightHint})} <span class="dv-block-sub" data-i18n="tab2.metadata_max_pq_no_luminancia_real"></span></h5>
         <div class="dv-block-action">
           ${lightMeta ? `<span class="dv-block-meta">${lightMeta}</span>` : ''}
           ${actionBtn}
@@ -1634,7 +1626,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
       <section class="dv-block dv-quality-card dv-quality-empty">
         <div class="dv-quality-empty-icon"><span data-icono="lupaOnda"></span></div>
         <div class="dv-quality-empty-body">
-          <div class="dv-quality-empty-title">Análisis RPU/Luz ${cmLabel}</div>
+          <div class="dv-quality-empty-title">${tr('tab2.analisis_rpu_luz_cmlabel', {cmlabel: cmLabel})}</div>
           <div class="dv-quality-empty-text">
             <span data-i18n="tab2.extrae_el_rpu_completo_del_mkv"></span> <b data-i18n="tab2.dos_cosas_de_una_vez"></b><span data-i18n="tab2.los_combos_l8_l2_clasificados_full"></span>
             <b data-i18n="tab2.perfil_de_luminancia_l1"></b> <span data-i18n="tab2.frame_a_frame"></span>
@@ -2079,7 +2071,7 @@ function _renderMkvEditPanel(project = mkvProject) {
           <div style="font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:4px 14px; line-height:1.55">
             <span>${_fmtBytes(a.file_size_bytes)}</span>
             <span>${_fmtDuration(a.duration_seconds)}</span>
-            <span>${audioTracks.length} audio · ${subTracks.length} subs · ${a.chapters?.length || 0} capítulos</span>
+            <span>${tr('tab2.p1_audio_p2_subs_p3_capitulos', {p1: audioTracks.length, p2: subTracks.length, p3: a.chapters?.length || 0})}</span>
           </div>
         </div>
       </div>
@@ -3021,10 +3013,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   if (dMia && dSuya) {
     const rel = Math.abs(dMia - dSuya) / Math.max(dMia, dSuya);
     if (rel > _CMP_TOLERANCIA_DURACION) {
-      aviso = `<div class="cmp-aviso"><span data-icono="aviso"></span> Duran distinto (${_rgrfFmtTime(dMia)} vs
-        ${_rgrfFmtTime(dSuya)}, ${(rel * 100).toFixed(1)}%). El eje X va normalizado al
-        metraje, así que las dos curvas ocupan todo el ancho igualmente: pueden ser
-        montajes distintos y estar comparando escenas que no se corresponden.</div>`;
+      aviso = `<div class="cmp-aviso"><span data-icono="aviso"></span> ${tr('tab2.duran_distinto_dmia_vs_dsuya_p3', {dmia: _rgrfFmtTime(dMia), dsuya: _rgrfFmtTime(dSuya), p3: (rel * 100).toFixed(1)})}</div>`;
     }
   } else {
     aviso = `<div class="cmp-aviso" data-i18n="tab2.i_no_se_conoce_la_duracion"></div>`;

@@ -51,6 +51,7 @@ Los ISOs se montan directamente dentro del contenedor Docker usando
 Con origen `bdmv_folder` o `m2ts` no hay montaje: la abstracción `Source`
 resuelve los tres casos y las fases de mount/unmount quedan en no-op.
 """
+from i18n import t as tr
 import asyncio
 import json
 import os
@@ -1372,7 +1373,7 @@ async def app_historial_borrar(id: str, inicio: str):
     """
     if not await asyncio.to_thread(historial.borrar, id, inicio):
         raise HTTPException(status_code=404,
-                            detail="Esa entrada no está en el historial")
+                            detail=tr('main.esa_entrada_no_esta_en_el'))
     return {"ok": True}
 
 

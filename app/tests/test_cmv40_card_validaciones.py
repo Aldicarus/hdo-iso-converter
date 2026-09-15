@@ -30,7 +30,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo, pintar_textos_es, sistema_de_iconos  # noqa: E402
+from frontend_sources import js_completo, motor_i18n, pintar_textos_es, sistema_de_iconos  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -160,7 +160,7 @@ def sesion_mandalorian(**over):
 class CardTestCase(unittest.TestCase):
 
     def render(self, session, expandida=True):
-        script = (sistema_de_iconos()
+        script = (motor_i18n() + sistema_de_iconos()
                   + _constante("CMV40_PHASES_ORDER")
                   + "".join(_extraer(f) for f in FUNCIONES)
                   + "\nprocess.stdout.write(_cmv40RenderGateCardBC("
@@ -173,7 +173,7 @@ class CardTestCase(unittest.TestCase):
         return pintar_textos_es(r.stdout)
 
     def diagnostico(self, session):
-        script = (sistema_de_iconos()
+        script = (motor_i18n() + sistema_de_iconos()
                   + _constante("CMV40_PHASES_ORDER")
                   + "".join(_extraer(f) for f in FUNCIONES)
                   + "\nprocess.stdout.write(_cmv40GateDiagnosticoTexto("

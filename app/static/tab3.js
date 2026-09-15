@@ -1268,7 +1268,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     const pct = Math.round(data.match_confidence * 100);
     const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
     metaHtml = `<div class="cmv40-rec-meta">
-      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.similitud_entre_el_titulo_del_fichero">${pct}% match</span>
+      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.similitud_entre_el_titulo_del_fichero">${tr('tab3.pct_match', {pct: pct})}</span>
       <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.fuente_del_matching_tmdb_traduce_es">vía ${escHtml(viaLabel)}</span>
     </div>`;
   }
@@ -1649,14 +1649,7 @@ function _cmv40NewUpdatePipelinePreview() {
       <div class="cmv40-pp-card" style="background:var(--blue-dim); border:1px solid var(--blue-border); border-radius:8px; padding:10px 12px">
         <div style="font-size:12px; color:var(--text-1); line-height:1.5">
           <strong style="color:var(--blue)" data-i18n="tab3.i_el_tipo_del_bin_se"></strong>
-          Sin el sheet de recomendación de DoviTools no podemos predecir
-          la calidad de ${sourceLabel} antes de procesarlo. El pre-flight (5-30s
-          para .bin local, 30-90s para extraer de MKV) clasifica el L8
-          (real / sintético / ambiguo), calcula el tier de calidad
-          (CMv4 CORE/CORE+/FULL) y decide la recomendación
-          Mantener vs Inyectar — igual que con un bin del repo.
-          Verás el veredicto en la card «Análisis y recomendación»
-          del proyecto.
+          ${tr('tab3.sin_el_sheet_de_recomendacion_de', {sourcelabel: sourceLabel})}
         </div>
       </div>`;
     // Label del auto-pipeline neutro: no sabemos si será trusted/generic
@@ -3250,7 +3243,7 @@ function _renderCMv40Info(s, pid) {
             </div>` : ''}
           </div>
           <div>
-            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV salida ${canEditName ? '<span style="color:var(--text-3)">· editable</span>' : ''}</div>
+            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">${tr('tab3.mkv_salida_p1', {p1: canEditName ? '<span style="color:var(--text-3)">· editable</span>' : ''})}</div>
             ${canEditName
               ? `<input type="text" id="cmv40-output-name-${pid}" class="cmv40-output-name-input"
                     value="${escHtml(s.output_mkv_name)}"
@@ -3439,8 +3432,7 @@ function _renderCMv40RecommendationCard(s, pid) {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
         <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.mkv_procesado_rpu_cmv4_0_inyectado"></span></span>
-        — el bin se inyectó directo sobre el MKV original, sin merge
-        frame-a-frame. Calidad: ${escHtml(qualityTag)}.
+        ${tr('tab3.el_bin_se_inyecto_directo_sobre', {qualitytag: escHtml(qualityTag)})}
       </div>`;
   } else if (s.output_workflow === 'restore_merge') {
     const mergeLevels = s.source_workflow === 'p7_fel'
@@ -3452,8 +3444,7 @@ function _renderCMv40RecommendationCard(s, pid) {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
         <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.mkv_procesado_rpu_cmv4_0_inyectado_2"></span></span>
-        — niveles CMv4.0 ${mergeLevels} transferidos del bin al MKV; ${l2Note}.
-        Calidad: ${escHtml(qualityTag)}.
+        ${tr('tab3.niveles_cmv4_0_mergelevels_transferidos_del', {mergelevels: mergeLevels, l2note: l2Note, qualitytag: escHtml(qualityTag)})}
       </div>`;
   } else if (projectDone) {
     // Proyecto done sin output_workflow conocido (sesiones legacy procesadas
@@ -3754,7 +3745,7 @@ function _renderCMv40ActivePhase(project) {
     const posicion = c.total > 1
       ? `puesto ${c.posicion} de ${c.total}` : 'siguiente en la cola';
     const delante = c.por_delante
-      ? `<div style="font-size:12px; color:var(--text-2)">Esperando a: ${escHtml(c.por_delante)}</div>`
+      ? `<div style="font-size:12px; color:var(--text-2)">${tr('tab3.esperando_a_por_delante', {por_delante: escHtml(c.por_delante)})}</div>`
       : '';
     colaHtml = `
       <div class="section-card" style="margin-top:12px; border:1px solid var(--orange-border)">
@@ -3762,7 +3753,7 @@ function _renderCMv40ActivePhase(project) {
           ${iconoDeEstado('en_cola')}
           <div style="flex:1">
             <div style="font-weight:600; margin-bottom:2px">
-              ${escHtml(CMV40_RUNNING_LABELS[c.fase] || c.fase)} en cola — ${posicion}
+              ${tr('tab3.fase_en_cola_posicion', {fase: escHtml(CMV40_RUNNING_LABELS[c.fase] || c.fase), posicion: posicion})}
             </div>
             ${delante}
           </div>
@@ -4155,8 +4146,8 @@ function _cmv40GateBloque1(pid, s) {
     ${_cmv40BloqueHead('①', 'Veredicto y consecuencia')}
     <div style="font-size:12px; line-height:1.7; color:var(--text-1)">
       <div><strong>${trust ? 'Trusted' : 'Sin trust automático'}</strong>
-        (${escHtml(s.trust_override || 'auto')}) → workflow <code>${escHtml(wf)}</code></div>
-      <div style="color:var(--text-2)">Se omiten: ${skipped.length ? escHtml(skipped.join(' · ')) : 'ninguna fase'}</div>
+        ${tr('tab3.p1_workflow', {p1: escHtml(s.trust_override || 'auto')})} <code>${escHtml(wf)}</code></div>
+      <div style="color:var(--text-2)">${tr('tab3.se_omiten_p1', {p1: skipped.length ? escHtml(skipped.join(' · ')) : 'ninguna fase'})}</div>
       <div style="color:var(--text-2)">${escHtml(queHaraF)}</div>
     </div>
     ${ackHtml}`;
@@ -4351,7 +4342,7 @@ function _cmv40GateBloque4(s) {
         ${lin('Por zona (muestras)', `intro ${zm.intro || 0}/${zc.intro || 0} · cuerpo ${zm.body || 0}/${zc.body || 0} · outro ${zm.outro || 0}/${zc.outro || 0}`)}
         ${lin('Cobertura del cuerpo', `${Math.round((l5.sampled_body_coverage || 0) * 100)}%`)}
         <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">
-          Proyecto analizado con el muestreo antiguo: solo se compararon ${l5.sampled_total || 0} frames. Vuelve a lanzar Fase B para obtener la comparación completa.
+          ${tr('tab3.proyecto_analizado_con_el_muestreo_antiguo', {p1: l5.sampled_total || 0})}
         </div>
       </div>`;
   }
@@ -4795,7 +4786,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
         ${hashLine}
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.cm_version"></span></span> ${d.cm_version}</div>
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.target_frame_count.toLocaleString()}</div>
-        <div><span style="color:var(--text-3)"><span data-i18n="tab3.vs_origen"></span></span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.vs_origen"></span></span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${tr('tab3.p1_sync_delta_frames', {p1: s.sync_delta > 0 ? '+' : '', sync_delta: s.sync_delta})}</b></div>
         <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> <span data-i18n="tab3.los_resultados_de_los_trust_gates"></span></div>
       </div>`;
   }
@@ -4968,7 +4959,7 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
     artifactsList = `
       <div style="margin-top:10px; padding:10px; background:var(--surface-2); border-radius:var(--r-sm); max-height:180px; overflow-y:auto">
         <div style="font-size:11px; color:var(--text-2); margin-bottom:6px">
-          <b>Se borrarán ${preview.files.length} artefacto(s)</b> — ${_fmtBytes(preview.total_bytes)} liberados:
+          <b>${tr('tab3.se_borraran_p1_artefacto_s', {p1: preview.files.length})}</b> ${tr('tab3.total_bytes_liberados', {total_bytes: _fmtBytes(preview.total_bytes)})}
         </div>
         <ul style="margin:0; padding-left:18px">${rows}</ul>
       </div>`;
@@ -5565,7 +5556,7 @@ async function _cmv40LoadRepoForPanel(pid) {
   const cands = data.candidates || [];
   if (!cands.length) {
     const t = data.title_en || data.title_es || filename;
-    list.innerHTML = `<div class="cmv40-repo-empty">Sin coincidencias para "${escHtml(t)}". Prueba otra pestaña.</div>`;
+    list.innerHTML = `<div class="cmv40-repo-empty">${tr('tab3.sin_coincidencias_para_t_prueba_otra', {t: escHtml(t)})}</div>`;
     if (info) info.textContent = '';
     return;
   }
@@ -6150,7 +6141,7 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
   const sign = v => (v > 0 ? '+' : '') + v;
   const sheetTxt = sheetSync.sheet_offset_text
     ? `<b>${escHtml(sheetSync.sheet_offset_text)}</b>`
-    : `<b>${sign(sheetVal)} frames</b>`;
+    : `<b>${tr('tab3.sheetval_frames', {sheetval: sign(sheetVal)})}</b>`;
   const src = sheetSync.match_title
     ? ` (fila «${escHtml(sheetSync.match_title)}»)` : '';
   const det = sheetSync.detected_offset;
@@ -6159,36 +6150,32 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
     if (!sheetVal) {
       return `<div class="banner success" style="margin-top:8px">
         <span class="banner-icon"><span data-icono="check"></span></span>
-        <span>La hoja${src} no documenta ningún desfase para este bin, y aquí
-          tampoco se detecta. Alineación limpia.</span>
+        <span>${tr('tab3.la_hoja_src_no_documenta_ningun', {src: src})}</span>
       </div>`;
     }
     return `<div class="banner success" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="check"></span></span>
-      <span>La hoja${src} documenta que la comunidad detectó y <b><span data-i18n="tab3.ya_corrigio"></span></b>
-        ${sheetTxt} en este bin, y aquí no queda desfase residual
-        (detectado ${sign(det)}). La corrección está puesta.</span>
+      <span>${tr('tab3.la_hoja_src_documenta_que_la', {src: src})} <b><span data-i18n="tab3.ya_corrigio"></span></b>
+        ${tr('tab3.sheettxt_en_este_bin_y_aqui', {sheettxt: sheetTxt, det: sign(det)})}</span>
     </div>`;
   }
   if (sheetSync.parece_sin_corregir) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <span>La hoja${src} dice que la comunidad corrigió ${sheetTxt}, pero aquí
-        se sigue detectando <b>${sign(det)} frames</b> <span data-i18n="tab3.la_misma_magnitud_parece_que_este"></span> <b data-i18n="tab3.no"></b> <span data-i18n="tab3.es_el_corregido_revisa_el_chart"></span></span>
+      <span>${tr('tab3.la_hoja_src_dice_que_la', {src: src, sheettxt: sheetTxt})} <b>${tr('tab3.det_frames', {det: sign(det)})}</b> <span data-i18n="tab3.la_misma_magnitud_parece_que_este"></span> <b data-i18n="tab3.no"></b> <span data-i18n="tab3.es_el_corregido_revisa_el_chart"></span></span>
     </div>`;
   }
   if (sheetSync.corregido === false) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <span><span data-i18n="tab3.se_detecta_un_desfase_de"></span> <b>${sign(det)} frames</b> que la hoja no
+      <span><span data-i18n="tab3.se_detecta_un_desfase_de"></span> <b>${tr('tab3.det_frames', {det: sign(det)})}</b> que la hoja no
         explica${src} (ahí ${sheetVal ? `${sheetTxt} ya venía corregido` : 'no consta ningún desfase'}).
         Revisa el chart antes de inyectar.</span>
     </div>`;
   }
   return `<div class="banner info" style="margin-top:8px">
     <span class="banner-icon"><span data-icono="info"></span></span>
-    <span>La hoja${src} documenta ${sheetTxt} como corrección ya aplicada al bin.
-      Aún no hay medida propia con la que contrastarlo.</span>
+    <span>${tr('tab3.la_hoja_src_documenta_sheettxt_como', {src: src, sheettxt: sheetTxt})}</span>
   </div>`;
 }
 
@@ -6314,7 +6301,7 @@ function _renderCMv40SyncControls(project) {
   container.innerHTML = `
     ${zoomRowHtml}
 
-    <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">Corrección ${hasSyncConfig ? 'adicional' : 'manual'}</div>
+    <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">${tr('tab3.correccion_p1', {p1: hasSyncConfig ? 'adicional' : 'manual'})}</div>
     <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
       ${hasSyncConfig
         ? 'Estos valores se <b>sumarán</b> a la corrección ya aplicada. El Δ actual del gráfico indica cuánto falta por alinear.'
@@ -6334,7 +6321,7 @@ function _renderCMv40SyncControls(project) {
       <span style="color:var(--text-3)">Δ después de aplicar:</span>
       <b id="cmv40-expected-delta-${pid}" style="margin-left:6px">—</b>
       <span style="color:var(--text-3); margin-left:12px; font-size:11px">
-        (remove ${delta > 0 ? delta : 0} · dup ${delta < 0 ? Math.abs(delta) : 0} dejaría Δ=0)
+        ${tr('tab3.remove_p1_dup_p2_dejaria_0', {p1: delta > 0 ? delta : 0, p2: delta < 0 ? Math.abs(delta) : 0})}
       </span>
     </div>
     <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
@@ -6345,7 +6332,7 @@ function _renderCMv40SyncControls(project) {
         ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sync_y_continuar"></span></button>
     </div>
     <div style="margin-top:8px; font-size:11px; color:var(--text-3)">
-      <span data-i18n="tab3.actual"></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta} frames</b>
+      <span data-i18n="tab3.actual"></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${tr('tab3.p1_delta_frames', {p1: delta > 0 ? '+' : '', delta: delta})}</b>
       <span data-i18n="tab3.confianza"></span> <b style="color:${confOk ? 'var(--green)' : 'var(--orange)'}">${confPct}%</b>
       ${canConfirm ? ' — <b style="color:var(--green)">listo para continuar</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
@@ -6363,7 +6350,7 @@ function _cmv40UpdateExpectedDelta(pid, currentDelta) {
   if (!el) return;
   const sign = expected > 0 ? '+' : '';
   const color = expected === 0 ? 'var(--green)' : 'var(--orange)';
-  el.innerHTML = `<span style="color:${color}">${sign}${expected} frames</span>`;
+  el.innerHTML = `<span style="color:${color}">${tr('tab3.sign_expected_frames', {sign: sign, expected: expected})}</span>`;
 }
 
 /** Cambia el rango visible del chart y pide esa ventana al servidor.
@@ -6665,8 +6652,8 @@ function _renderCMv40Chart(project) {
       const mm = Math.floor(absFrame / FPS / 60);
       const ss = Math.floor((absFrame / FPS) % 60).toString().padStart(2, '0');
       tooltip.innerHTML = `Frame ${absFrame.toLocaleString()} (${mm}:${ss})<br>
-        <span style="color:#ef4444">Origen: ${(d.src_maxcll || 0).toFixed(0)} PQ</span><br>
-        <span style="color:#3b82f6">Target: ${(d.tgt_maxcll || 0).toFixed(0)} PQ</span>`;
+        <span style="color:#ef4444">${tr('tab3.origen_p1_pq', {p1: (d.src_maxcll || 0).toFixed(0)})}</span><br>
+        <span style="color:#3b82f6">${tr('tab3.target_p1_pq', {p1: (d.tgt_maxcll || 0).toFixed(0)})}</span>`;
     }
   };
   canvas.onmouseleave = () => {

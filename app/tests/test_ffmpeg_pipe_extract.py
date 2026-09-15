@@ -201,16 +201,30 @@ class TestNumeracionDePasos(unittest.TestCase):
     """La Fase A tiene 3 pasos con pipeline y 4 sin él; el log no puede
     anunciar 'Paso 1/4' y a continuación 'pasos 1+2 juntos'."""
 
+    @staticmethod
+    def _textos() -> str:
+        """El texto del log, que desde i18n vive en el catálogo, no en el
+        fuente. Se mira ahí: es donde está la frase que el usuario lee, así
+        que la afirmación es más fuerte que el `assertIn` sobre el código —y
+        sigue detectando lo mismo, que la numeración no se contradiga."""
+        import json
+        cat = json.loads((APP_DIR / "i18n" / "es.json").read_text(encoding="utf-8"))
+        return "\n".join(cat.values())
+
     def test_los_pasos_se_renumeran_segun_la_ruta(self):
+        textos = self._textos()
+        self.assertIn("Paso 1/3: Extrayendo el HEVC y su RPU a la vez", textos)
+        # La numeración condicional se queda en el fuente: es código, no texto.
         src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        self.assertIn("Paso 1/3: Extrayendo el HEVC y su RPU a la vez", src)
-        self.assertIn("""{'2/3' if piped_ok else '3/4'}""", src)
-        self.assertIn("""{'3/3' if piped_ok else '4/4'}""", src)
+        # Ya no va dentro de una f-string: es el argumento del parámetro que
+        # el mensaje interpola, así que se busca sin las llaves.
+        self.assertIn("""'2/3' if piped_ok else '3/4'""", src)
+        self.assertIn("""'3/3' if piped_ok else '4/4'""", src)
 
     def test_el_camino_clasico_conserva_su_numeracion(self):
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        self.assertIn("Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg", src)
-        self.assertIn("Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu", src)
+        textos = self._textos()
+        self.assertIn("Paso 1/4: Extrayendo stream HEVC del MKV origen con ffmpeg", textos)
+        self.assertIn("Paso 2/4: Extrayendo RPU del HEVC con dovi_tool extract-rpu", textos)
 
 
 class TestRunStreamingHumo(unittest.IsolatedAsyncioTestCase):

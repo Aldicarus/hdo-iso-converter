@@ -43,7 +43,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo  # noqa: E402
+from frontend_sources import html, js_completo, motor_i18n  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -222,6 +222,9 @@ class Tab2EnNode(unittest.TestCase):
             *(_funcion(n) for n in self.SUELTAS),
             guion,
         ])
+        # El motor de traducción delante de todo: las plantillas llaman a
+        # `tr(…)` para los mensajes con parámetros.
+        script = motor_i18n() + "\n" + script
         r = subprocess.run([NODE, "-e", script],
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:

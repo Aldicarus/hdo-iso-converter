@@ -15,6 +15,8 @@ Google Drive en ficheros >100MB (infrecuente con RPUs de ~40MB).
 """
 from __future__ import annotations
 
+from i18n import t as tr
+
 import json
 import logging
 import os
@@ -400,7 +402,7 @@ async def download_file(file_id: str, dest_path: Path,
     """
     api_key = get_google_api_key()
     if not api_key:
-        raise RuntimeError("No hay Google API key configurada")
+        raise RuntimeError(tr('rec999_drive.no_hay_google_api_key_configurada'))
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     url = f"{DRIVE_API}/files/{file_id}"
@@ -420,16 +422,10 @@ async def download_file(file_id: str, dest_path: Path,
                 # no de la API key). Mensaje legible + workaround.
                 if resp.status_code == 403 and "quota" in body.lower():
                     raise RuntimeError(
-                        "Google Drive ha bloqueado temporalmente la descarga de "
-                        "este bin por exceso de descargas de la comunidad (no es "
-                        "tu cuota de API). Soluciones: ábrelo en el navegador y usa "
-                        "\"Hacer una copia\" a tu Drive para descargarlo desde tu "
-                        "copia, coloca el .bin en /mnt/cmv40_rpus y usa la pestaña "
-                        "\"Carpeta local\"; o reintenta en ~24h (la cuota del "
-                        "fichero se restablece sola)."
+                        tr('rec999_drive.google_drive_ha_bloqueado_temporalmente_la')
                     )
                 raise RuntimeError(
-                    f"Drive download falló ({resp.status_code}): {body[:200]!r}"
+                    tr('rec999_drive.drive_download_fallo', status_code=resp.status_code, p2=repr(body[:200]))
                 )
             total_s = resp.headers.get("content-length")
             total = int(total_s) if total_s and total_s.isdigit() else None

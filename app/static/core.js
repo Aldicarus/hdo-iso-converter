@@ -734,12 +734,12 @@ function buildProjectPanelHTML(pid) {
           <input type="text" id="${pid}-mkv-name-input" class="globals-mkv-input" oninput="onMkvNameInput()"
             data-tooltip="Nombre del MKV de salida. Se genera automáticamente.\nEdítalo manualmente si necesitas otro nombre.">
           <div id="${pid}-mkv-name-manual-notice" class="manual-notice" style="display:none">
-            ${icono('lapiz')} Editado manualmente
+            ${tr('core.p1_editado_manualmente', {p1: icono('lapiz')})}
             <button class="btn btn-xs btn-ghost" onclick="revertMkvName()" data-i18n="core.revertir" data-i18n-tip="core.restaurar_el_nombre_generado_automaticamente"></button>
           </div>
           <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none"
             data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
-            ${icono('grafico')} Audio DCP — detectado en el nombre del ISO
+            ${tr('core.p1_audio_dcp_detectado_en_el', {p1: icono('grafico')})}
           </div>
           <div id="${pid}-mkv-size-chip" class="globals-mkv-chip globals-mkv-chip--size" style="display:none"
             data-tooltip="Estimación del tamaño del MKV final.\nSale de restar al m2ts de origen las pistas de audio que se descartan y la sobrecarga del contenedor Blu-ray.\nEl pipeline copia los flujos sin recodificar, así que es contabilidad, no una predicción — pero el margen es de ±10%."></div>

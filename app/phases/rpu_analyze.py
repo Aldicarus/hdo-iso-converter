@@ -17,6 +17,8 @@ Llamado desde:
 """
 from __future__ import annotations
 
+from i18n import t as tr
+
 import asyncio
 import json
 import logging
@@ -124,7 +126,7 @@ async def _run_export(
             collected.append(text)
             if log_callback:
                 try:
-                    log_callback(f"  {text}")
+                    log_callback('  ' + str(text))
                 except Exception:
                     pass
 
@@ -143,7 +145,7 @@ async def _run_export(
         logger.warning("dovi_tool export excedió %ss, matando proceso", timeout)
         if log_callback:
             try:
-                log_callback(f"  ⚠ dovi_tool export excedió {timeout}s — matando proceso")
+                log_callback('  ' + tr('rpu_analyze.dovi_tool_export_excedio_s_matando', timeout=timeout))
             except Exception:
                 pass
         try: proc.terminate()
@@ -601,7 +603,7 @@ async def _try_levels_export(
         if log_callback:
             try:
                 total_mb = sum(p.stat().st_size for p in generated.values()) / (1024 * 1024)
-                log_callback(f"  ✓ Niveles exportados: {total_mb:.1f} MB · parseando combos…")
+                log_callback('  ' + tr('rpu_analyze.niveles_exportados_mb_parseando_combos', p1=format(total_mb, '.1f')))
             except Exception:
                 pass
         return await asyncio.to_thread(_parse_export_levels, generated)
@@ -681,7 +683,7 @@ async def analyze_rpu_combos(
         if log_callback:
             try:
                 size_mb = tmp_path.stat().st_size / (1024 * 1024)
-                log_callback(f"  ✓ JSON generado: {size_mb:.1f} MB · parseando combos…")
+                log_callback('  ' + tr('rpu_analyze.json_generado_mb_parseando_combos', p1=format(size_mb, '.1f')))
             except Exception:
                 pass
 

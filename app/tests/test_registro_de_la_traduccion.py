@@ -92,6 +92,20 @@ IGUAL_EN_INGLES = {
     "tab3.cmv4_0_restored_added":
         "token LITERAL del nombre de los bins de DoviTools: traducirlo deja de "
         "coincidir con el fichero real",
+    # ── Del catálogo del backend ──────────────────────────────────────
+    # Etiquetas que el log ya escribía en inglés, y un comando.
+    "cmv40_pipeline.source":
+        "etiqueta del log, ya en inglés; su pareja es `target` y se leen "
+        "juntas en «Sampling source frames»",
+    "cmv40_pipeline.target":
+        "etiqueta del log, ya en inglés; pareja de `source`",
+    "phase_a.dolby_vision_profile_cm":
+        "no queda ni una palabra de lengua común: todo es glosario o nombre "
+        "de campo de dovi_tool",
+    "phase_a.ffprobe_packet_count_timeout_10_min":
+        "la línea ya estaba entera en inglés en el original",
+    "tab1.mount_t_udf_o_ro_loop":
+        "es el comando que se ejecuta, no una frase",
 }
 
 

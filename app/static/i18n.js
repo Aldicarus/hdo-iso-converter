@@ -10,7 +10,7 @@
 //     el marcado DECLARA y el pintor resuelve, así que funciona igual en
 //     `index.html` y en el HTML que genera el JS. Sirve para las etiquetas
 //     estáticas, que son casi la mitad.
-//   · `t('clave', {param: valor})` llamado desde el JS, para todo lo que se
+//   · `tr('clave', {param: valor})` llamado desde el JS, para todo lo que se
 //     construye con datos dentro. `data-i18n` no puede con esto: un
 //     `<div>Máximo ${MAX} proyectos</div>` no es una etiqueta, es un mensaje.
 //
@@ -103,7 +103,7 @@ async function cargarIdioma(codigo, token = TOKEN_I18N) {
  * pantalla, se ve en `clavesAusentes()` y la caza un test. Devolver cadena
  * vacía dejaría huecos silenciosos, que es el fallo que no se reporta.
  */
-function t(clave, params) {
+function tr(clave, params) {
   let txt = _catalogo[clave];
   if (typeof txt !== 'string') {
     _ausentes.add(clave);
@@ -147,7 +147,7 @@ function pintarTextos(raiz = document) {
     let alguno = false;
     for (const [prop, poner] of _DESTINOS) {
       const clave = el.dataset[prop];
-      if (clave) { poner(el, t(clave)); alguno = true; }
+      if (clave) { poner(el, tr(clave)); alguno = true; }
     }
     if (alguno) el.dataset.i18nPuesto = '1';
   };

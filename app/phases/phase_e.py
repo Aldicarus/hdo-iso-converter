@@ -34,6 +34,7 @@ pistas incluidas son un subconjunto seleccionado del disco.
   - Subtítulos: solo por idioma (no tienen codec en RawSubtitleTrack)
   - Vídeo: todos los tracks de vídeo se incluyen siempre
 """
+from i18n import t as tr
 import asyncio
 import json
 import os
@@ -156,11 +157,9 @@ async def run_phase_e_direct(
         await _avisar_empate(log_callback, aviso)
     if log_callback:
         await log_callback(
-            "[Fase B] 📋 Generando el MKV final con un solo mkvmerge: selección "
-            "de pistas, reordenación, nombres, flags y capítulos en una sola pasada. "
-            "Ahorra una copia completa respecto a la ruta con intermedio."
+            '[Fase B] ' + tr('phase_e.generando_el_mkv_final_con_un')
         )
-        await log_callback(f"[Fase B] ┌─ Escribiendo: {output_path}")
+        await log_callback('[Fase B] ┌─ ' + tr('phase_e.escribiendo', output_path=output_path))
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -221,18 +220,16 @@ async def run_phase_e_direct(
     if hung or playlist_assert or proc.returncode not in (0, 1):
         borrado = _limpiar_parcial(output_path, existia_antes)
         if borrado and log_callback:
-            await log_callback(f"[Fase B] 🧹 MKV parcial eliminado: {borrado}")
+            await log_callback('[Fase B] ' + tr('phase_e.mkv_parcial_eliminado', borrado=borrado))
 
     if hung:
         raise RuntimeError(
-            f"mkvmerge sin actividad >{MKVMERGE_INACTIVITY_S // 60} min — "
-            "abortado (probable cuelgue, no bloquea la cola)"
+            tr('phase_d.mkvmerge_sin_actividad_min_abortado_probable', p1=MKVMERGE_INACTIVITY_S // 60)
         )
 
     if playlist_assert:
         raise MkvmergePlaylistError(
-            "mkvmerge abortó al ensamblar la lista de ficheros del playlist "
-            "(bug conocido con discos UHD multi-segmento / multi-ángulo)."
+            tr('phase_d.mkvmerge_aborto_al_ensamblar_la_lista')
         )
 
     # returncode 0 = OK · 1 = warnings no fatales · resto = fallo. Incluye los
@@ -240,17 +237,16 @@ async def run_phase_e_direct(
     # capturaba, el flujo seguía hasta el stat() del output inexistente y
     # reventaba con un críptico "[Errno 2] No such file or directory".
     if proc.returncode not in (0, 1):
-        raise RuntimeError(f"mkvmerge terminó de forma anómala (código {proc.returncode})")
+        raise RuntimeError(tr('phase_d.mkvmerge_termino_de_forma_anomala_codigo', returncode=proc.returncode))
 
     if not Path(output_path).exists():
-        raise RuntimeError(f"mkvmerge no generó el MKV final en {output_path}")
+        raise RuntimeError(tr('phase_e.mkvmerge_no_genero_el_mkv_final', output_path=output_path))
 
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
-        await log_callback(f"[Fase B] ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
+        await log_callback('[Fase B] ' + tr('phase_e.mkv_final_gb', p1=Path(output_path).name, p2=format(size_gb, '.1f')))
         await log_callback(
-            "[Fase B] 🎯 Resultado: MKV en /mnt/output con pistas, nombres, flags "
-            "y capítulos correctos. Ruta directa — una sola copia."
+            '[Fase B] 🎯 Resultado' + tr('phase_e.mkv_en_mnt_output_con_pistas')
         )
     return output_path
 
@@ -311,12 +307,9 @@ async def run_phase_e_propedit(
 
     if log_callback:
         await log_callback(
-            "[Fase C] 📋 Aplicando los metadatos al MKV intermedio con mkvpropedit: "
-            "edita solo las cabeceras del contenedor (nombres de pistas, flags "
-            "default/forced y capítulos) sin recopiar los datos. El MKV se mueve "
-            "después al directorio final con un rename atómico."
+            '[Fase C] ' + tr('phase_e.aplicando_los_metadatos_al_mkv_intermedio')
         )
-        await log_callback(f"[Fase C] ┌─ Editando metadatos en: {Path(intermediate_mkv).name}")
+        await log_callback('[Fase C] ┌─ ' + tr('phase_e.editando_metadatos_en', p1=Path(intermediate_mkv).name))
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -331,7 +324,7 @@ async def run_phase_e_propedit(
             Path(chapters_xml).unlink(missing_ok=True)
         err_text = stderr.decode("utf-8", errors="replace")[:300] if stderr else ""
         raise RuntimeError(
-            f"mkvpropedit falló con código {proc.returncode}: {err_text}"
+            tr('phase_e.mkvpropedit_fallo_con_codigo', returncode=proc.returncode, err_text=err_text)
         )
 
     if chapters_xml:
@@ -342,10 +335,9 @@ async def run_phase_e_propedit(
     shutil.move(intermediate_mkv, output_path)
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
-        await log_callback(f"[Fase C] └─ ✓ MKV final: {Path(output_path).name} ({size_gb:.1f} GB)")
+        await log_callback('[Fase C] └─ ' + tr('phase_e.mkv_final_gb', p1=Path(output_path).name, p2=format(size_gb, '.1f')))
         await log_callback(
-            "[Fase C] 🎯 Resultado: MKV en /mnt/output con metadatos aplicados sin "
-            "recopiar el contenido (solo cabeceras editadas)."
+            '[Fase C] 🎯 Resultado' + tr('phase_e.mkv_en_mnt_output_con_metadatos')
         )
     return output_path
 
@@ -384,7 +376,7 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
     if proc.returncode not in (0, 1):
         if log_callback:
             await log_callback(
-                f"[Pipeline] Aviso: mkvmerge --identify devolvió código {proc.returncode}"
+                '[Pipeline] ' + tr('phase_e.aviso_mkvmerge_identify_devolvio_codigo', returncode=proc.returncode)
             )
         return {}
 
@@ -695,7 +687,7 @@ def _match_tracks_to_source(
 async def _avisar_empate(log_callback, aviso: str) -> None:
     """Emite al log un empate que el disco no permite desambiguar."""
     if log_callback:
-        await log_callback(f"[Pipeline] ⚠️ {aviso}")
+        await log_callback('[Pipeline] ' + '⚠️ ' + str(aviso))
 
 
 def _codec_matches(included_codec: str, source_codec: str) -> bool:
