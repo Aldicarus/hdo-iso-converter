@@ -46,6 +46,56 @@ DEFAULT_SHEET_URL = (
     "15i0a84uiBtWiHZ5CXZZ7wygLFXwYOd84/edit?gid=828864432"
 )
 
+# ── El idioma de la app ────────────────────────────────────────────────
+#
+# Global y no por petición: la app no tiene usuarios, ni auth, ni cookies, ni
+# mira `Accept-Language`. Es un aparato de una instalación, así que el idioma
+# vive aquí como cualquier otro ajuste.
+#
+# El frontend guarda además una copia en `localStorage` para pintar la primera
+# pantalla sin esperar a una petición; el selector escribe las dos y
+# `reconciliarIdioma()` arregla el caso de un `app_settings.json` editado a
+# mano. Este de aquí es la fuente de verdad, y es quien decide en qué idioma
+# escribe el servidor sus propios mensajes.
+IDIOMAS = ("es", "en", "ca")
+IDIOMA_POR_DEFECTO = "es"
+
+
+def get_idioma() -> str:
+    """Prioridad: settings.json > `HDO_IDIOMA` > castellano."""
+    with _lock:
+        stored = _load().get("idioma", "").strip().lower()
+    if stored in IDIOMAS:
+        return stored
+    env = os.environ.get("HDO_IDIOMA", "").strip().lower()
+    if env in IDIOMAS:
+        return env
+    return IDIOMA_POR_DEFECTO
+
+
+def update_idioma(new_value: str | None) -> None:
+    """`None` = no tocar. Un valor que no es de la lista se ignora.
+
+    Se ignora en vez de lanzar porque esto lo llama el endpoint de ajustes con
+    lo que venga del cliente, y un idioma inventado no debe tumbar el guardado
+    de las otras cuatro claves que van en el mismo POST.
+    """
+    if new_value is None:
+        return
+    v = new_value.strip().lower()
+    if v not in IDIOMAS:
+        _logger.warning("[settings] idioma no soportado, se ignora: %r", new_value)
+        return
+    _update_field("idioma", v)
+    # Los catálogos del backend se cachean por idioma: sin esto, el servidor
+    # seguiría escribiendo en el anterior hasta reiniciar.
+    try:
+        from i18n import limpiar_cache
+        limpiar_cache()
+    except Exception:
+        pass
+
+
 # ── La clave de TMDb con la que la app funciona sin configurar nada ────
 #
 # La app se distribuye con una clave de TMDb dada de alta para ella. La ficha
@@ -395,6 +445,12 @@ def get_public_settings() -> dict[str, Any]:
             "is_default": drive_source == "default",
         },
         "dovitools": estado_donacion_dovitools(),
+        # El idioma NO es un secreto: va en crudo, como el sheet.
+        "idioma": {
+            "activo": get_idioma(),
+            "disponibles": list(IDIOMAS),
+            "por_defecto": IDIOMA_POR_DEFECTO,
+        },
         "sheet": {
             "configured": bool(sheet_id),
             "source": "settings" if sheet_url_stored else ("env" if sheet_url_env else "default"),

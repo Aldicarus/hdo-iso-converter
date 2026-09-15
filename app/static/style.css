@@ -6315,6 +6315,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .donacion-cuerpo p:last-child { margin-bottom: 0; }
 .donacion-cuerpo svg { vertical-align: -2px; width: 13px; height: 13px; }
 
+/* ── Selector de idioma ─────────────────────────────────────────────
+   Tres botones y no un <select>: cada idioma lleva su nombre en su propia
+   lengua, y dentro de un <option> no cabe marcado. El activo va deshabilitado
+   porque volver a elegirlo recargaría la página por nada. */
+.settings-idiomas { display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-idioma.activo {
+  background: var(--blue-dim, rgba(0, 122, 255, 0.14));
+  color: var(--blue, #007aff);
+  font-weight: 600;
+  opacity: 1;
+}
+
 /* «opcional» junto al título de una sección de Configuración: dice de un
    vistazo que esa sección no es un requisito para usar la app. */
 .settings-tag-opcional {

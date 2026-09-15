@@ -1,0 +1,6 @@
+{
+ "ajustes.idioma.desc": "Cambia el idioma de toda la interfaz, del manual y de los mensajes del servidor. Al cambiarlo la página se recarga.",
+ "ajustes.idioma.nota_log": "Lo ya escrito en disco no se traduce: el log y el historial de trabajos anteriores se quedan en el idioma que tenían.",
+ "ajustes.idioma.nota_pistas": "El idioma también decide con qué perfil de pistas nacen los proyectos nuevos y en qué idioma se escriben los nombres de pista dentro del MKV. El perfil se puede cambiar en cada proyecto.",
+ "ajustes.idioma.titulo": "Idioma de la aplicación"
+}

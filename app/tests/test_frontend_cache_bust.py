@@ -42,9 +42,28 @@ class TestCacheBust(unittest.TestCase):
         self.assertIn("style.css", ficheros, "style.css debe cargarse con ?v=")
         js = sorted(f for f in ficheros if f.endswith(".js"))
         self.assertEqual(js, ["browser.js", "cmv40_modals.js", "core.js",
-                              "settings.js", "tab1.js", "tab2.js", "tab3.js",
-                              "workbar.js"],
+                              "i18n.js", "settings.js", "tab1.js", "tab2.js",
+                              "tab3.js", "workbar.js"],
                          "faltan piezas del JS en index.html (o hay de más)")
+
+    def test_el_catalogo_del_idioma_hereda_el_token(self):
+        """`i18n/{es,en,ca}.json` se piden con `?v=`, y el token NO se pasa a
+        mano desde el HTML: `i18n.js` lo lee de su propio `src`.
+
+        Escribirlo a mano sería una décima referencia al token que mantener
+        sincronizada, y el desajuste PARCIAL es peor que no tener token —el
+        navegador serviría un catálogo viejo contra un JS nuevo, o sea claves
+        crudas en pantalla.
+        """
+        # Por `js_completo()` y no leyendo `i18n.js` por su ruta: la regla del
+        # proyecto es que ningún test enumere las piezas a mano, porque la
+        # lista se desincroniza del HTML en el primer cambio.
+        from frontend_sources import js_completo
+        fuente = js_completo()
+        self.assertIn("document.currentScript", fuente)
+        self.assertIn("searchParams.get('v')", fuente)
+        self.assertIn("?v=${token", fuente,
+                      "el fetch del catálogo no lleva el token")
 
     def test_no_queda_rastro_del_app_js_monolitico(self):
         self.assertFalse((STATIC / "app.js").exists(),

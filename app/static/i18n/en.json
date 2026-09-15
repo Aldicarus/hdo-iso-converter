@@ -1,0 +1,6 @@
+{
+ "ajustes.idioma.desc": "Changes the language of the whole interface, the manual and the server messages. The page reloads when you change it.",
+ "ajustes.idioma.nota_log": "What is already written to disk is not translated: the log and the history of earlier jobs stay in the language they had.",
+ "ajustes.idioma.nota_pistas": "The language also decides which track profile new projects start with, and the language the track names are written in inside the MKV. The profile can be changed per project.",
+ "ajustes.idioma.titulo": "Application language"
+}

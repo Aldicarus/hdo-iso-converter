@@ -430,6 +430,7 @@ class SettingsUpdate(BaseModel):
     google_api_key: str | None = None
     cmv40_drive_folder_url: str | None = None
     cmv40_sheet_url: str | None = None
+    idioma: str | None = None          # 'es' | 'en' | 'ca'
 
 
 @app.get("/api/settings", summary="Lee settings persistentes (sin exponer secretos crudos)")
@@ -444,7 +445,9 @@ async def update_settings(body: SettingsUpdate):
         get_public_settings,
         update_tmdb_api_key, update_google_api_key,
         update_cmv40_drive_folder_url, update_cmv40_sheet_url,
+        update_idioma,
     )
+    update_idioma(body.idioma)
     update_tmdb_api_key(body.tmdb_api_key)
     update_google_api_key(body.google_api_key)
     update_cmv40_drive_folder_url(body.cmv40_drive_folder_url)

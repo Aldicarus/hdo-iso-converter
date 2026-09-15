@@ -132,6 +132,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // hasta que esto corre están vacíos.
   pintarIconos();
   _observarIconos();
+  // Y sus textos con `data-i18n`. El observador se instala ya —recoge lo que
+  // pinte el JS a partir de ahora— y el primer barrido espera al catálogo,
+  // que se pidió al parsear `i18n.js` y a estas alturas casi siempre está.
+  //
+  // Sin `await` aquí a propósito: un `await` en la primera línea vuelve
+  // asíncrono todo lo que sigue, y el navegador puede pintar antes de que
+  // los iconos y los tooltips existan.
+  _observarTextos();
+  catalogoListo.then(pintarTextos);
   TooltipManager.init();
   loadSessions();
   checkAppStatus();

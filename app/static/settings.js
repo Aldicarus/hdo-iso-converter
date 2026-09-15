@@ -393,7 +393,26 @@ function _renderSettingsSheet(data) {
   return st.source === 'settings';
 }
 
+/**
+ * Pinta los tres botones de idioma.
+ *
+ * Cada uno lleva su nombre EN SU PROPIA LENGUA («English», «Català»), no
+ * traducido al idioma activo: quien abre los ajustes porque la app está en un
+ * idioma que no entiende tiene que poder reconocer el suyo.
+ */
+function _renderSettingsIdioma(data) {
+  const caja = document.getElementById('settings-idiomas');
+  if (!caja) return;
+  const activo = (data.idioma && data.idioma.activo) || idiomaActivo();
+  caja.innerHTML = IDIOMAS.map(i => `
+    <button class="btn btn-sm settings-idioma${i.codigo === activo ? ' activo' : ''}"
+            onclick="cambiarIdioma('${i.codigo}')"
+            ${i.codigo === activo ? 'disabled' : ''}>${escHtml(i.nombre)}</button>
+  `).join('');
+}
+
 function _renderSettings(data) {
+  _renderSettingsIdioma(data);
   const tmdbUserSet   = _renderSettingsSection('tmdb', data);
   const googleUserSet = _renderSettingsSection('google', data);
   const driveUserSet  = _renderSettingsDriveFolder(data);

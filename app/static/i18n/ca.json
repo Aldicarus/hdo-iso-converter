@@ -1,0 +1,6 @@
+{
+ "ajustes.idioma.desc": "Canvia l'idioma de tota la interfície, del manual i dels missatges del servidor. Al canviar-lo la pàgina es recarrega.",
+ "ajustes.idioma.nota_log": "El que ja està escrit al disc no es tradueix: el log i l'historial de treballs anteriors es queden en l'idioma que tenien.",
+ "ajustes.idioma.nota_pistas": "L'idioma també decideix amb quin perfil de pistes neixen els projectes nous i en quin idioma s'escriuen els noms de pista dins del MKV. El perfil es pot canviar a cada projecte.",
+ "ajustes.idioma.titulo": "Idioma de l'aplicació"
+}
