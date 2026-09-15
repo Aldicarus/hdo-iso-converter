@@ -27,7 +27,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from api_harness import ApiTestCase  # noqa: E402
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import js_completo, motor_i18n  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -119,7 +119,8 @@ class TestElOverlay(unittest.TestCase):
 
     def _svg(self, series, opts):
         script = (
-            "globalThis.Math.random = () => 0.5;\n"
+            motor_i18n()
+            + "globalThis.Math.random = () => 0.5;\n"
             + _extraer("_rgrfFmtTime") + _extraer("_rgrfSparklineSvg")
             + f"\nprocess.stdout.write(_rgrfSparklineSvg({json.dumps(series)}, 'x', 7200,"
               f" {json.dumps(opts)}) || '');"

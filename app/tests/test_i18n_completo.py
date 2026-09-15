@@ -170,6 +170,138 @@ def _llamadas_a_tr(src: str) -> list[tuple[str, int, int]]:
     return fuera
 
 
+# Las tres funciones que producen un VOLCADO de diagnóstico, no interfaz: el
+# modal «🔬 Datos ISO», su equivalente de Tab 2 y el texto de Validaciones que
+# se copia al portapapeles. Son etiquetas para depurar —`raw: lang=`,
+# `── Pistas descartadas ──`— y se leen igual en cualquier idioma, como los
+# markers del log. Traducirlas añadiría ~38 claves que nadie mira salvo cuando
+# algo va mal, y cambiaría el texto que un usuario pega en un informe.
+VOLCADOS_DE_DIAGNOSTICO = {
+    "showRawAnalysisData":         "el modal 🔬 Datos ISO de Tab 1",
+    "showRawMkvData":              "su equivalente en Tab 2",
+    "_rgrfCopyToClipboard":        "el Markdown de la radiografía DV+HDR",
+    "_cmv40GateDiagnosticoTexto":  "el texto de Validaciones que se copia",
+    # Los cinco bloques de la card 🛡️ Validaciones y su cabecera. Son el
+    # detalle técnico de los trust gates —`cuerpo 97,4%`, `· sync +16`,
+    # `source ok`, `VARIABLE · 0,0/0,0`— que se lee contra el log y contra la
+    # hoja de DoviTools, las dos en inglés. Traducirlos no ayudaría a nadie a
+    # entender un gate y cambiaría el texto que se pega en un informe.
+    "_cmv40GateBloque2": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque3": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque4": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque5": "detalle técnico de la card de Validaciones",
+    "_cmv40RenderGateCardBC": "cabecera de la card de Validaciones",
+}
+
+# Rótulos cortos que se quedan en castellano por otro motivo, con el suyo.
+CORTOS_ACEPTADOS = {
+    "cargarIdioma": "la URL del catálogo y el código HTTP de un fallo",
+    "_cmv40ManualSecciones": "la URL del manual y el código HTTP",
+}
+
+_HUECO = re.compile(r"\$\{[^}]*\}")
+# El contexto de la línea delata que la cadena es un id, una URL, CSS o una
+# clase, no texto: ahí una palabra castellana es el nombre de algo.
+_NO_ES_TEXTO = re.compile(
+    r"(getElementById|querySelector|apiFetch|classList|className|\.style|url\("
+    r"|setAttribute|on\w+=|data-\w+=|\.id ?=|href|console\.|localStorage"
+    r"|\bclass=|style=|fetch\(|\.log\.txt)")
+# Términos que no son castellano aunque lo parezcan.
+_TECNICO = re.compile(
+    r"(kbps|nits|hevc|mkvmerge|mediainfo|ffprobe|ffmpeg|maxcll|maxfall|bitrate"
+    r"|codec|profile|frames?|combos?|trims?|gates?|workflow|playlist|remux"
+    r"|demux|hdr|pipeline|log|json|html|mpls|m2ts|bdmv)", re.I)
+
+
+class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
+    """Un rótulo de dos palabras pegado a un hueco también es texto.
+
+    `captura.es_frase` exige seis caracteres, DOS palabras y un acento o una
+    palabra función, y eso deja fuera justo los rótulos cortos: `hace ⟦⟧ min`,
+    `⟦⟧ escenas`, `Crear ⟦⟧ proyecto⟦⟧`, `Temporada ⟦⟧`, `Movido a: ⟦⟧`. Eran
+    **38 claves** que salían en castellano con la app en inglés, y no las veía
+    ningún guard — el de castellano suelto porque el umbral las descarta, y el
+    del golden porque el golden se capturó con el mismo umbral.
+
+    El criterio de aquí es otro: una cadena con un hueco cuya prosa contiene
+    una palabra que YA está traducida en otra clave del catálogo. Si la
+    palabra es nuestra y está traducida en otro sitio, aquí también tiene que
+    estarlo.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        es = json.loads(
+            (APP_DIR / "static" / "i18n" / "es.json").read_text(encoding="utf-8"))
+        cls.vocabulario = set()
+        for v in es.values():
+            cls.vocabulario |= {
+                w.lower() for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+
+    @staticmethod
+    def _funcion_de(src: str, pos: int) -> str:
+        m = list(re.finditer(r"^(?:async )?function (\w+)\(", src[:pos], re.M))
+        return m[-1].group(1) if m else ""
+
+    def test_ninguna_cadena_corta_con_hueco_se_queda_en_castellano(self):
+        import bisect
+        sueltas = []
+        for r in rutas():
+            src = Path(r).read_text(encoding="utf-8")
+            lineas = src.splitlines(keepends=True)
+            base = [0]
+            for l in lineas:
+                base.append(base[-1] + len(l))
+            trozos = [(m.start(), m.group(1)) for m in
+                      re.finditer(r"`((?:[^`\\]|\\.)*)`", src, re.S)]
+            trozos += [(m.start(), m.group(1) or m.group(2) or "") for m in
+                       re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src)]
+            for pos, t in trozos:
+                if ("<" in t or "data-i18n" in t or len(t) > 180
+                        or "/" in t or "#" in t):
+                    continue
+                norm = " ".join(_HUECO.sub("⟦⟧", t).split())
+                if not norm or "⟦⟧" not in norm or captura.es_frase(norm):
+                    continue     # lo largo ya lo cubre el otro guard
+                # Un id de elemento no lleva espacios (`panel-project-⟦⟧`,
+                # `⟦⟧-tmdb-card`, `cola:⟦⟧`), y la prosa siempre lleva al
+                # menos uno. Es lo que separa un nombre de un texto sin
+                # mantener una lista de ids.
+                if " " not in norm or '="' in norm:
+                    continue     # sin espacios es un id; con `="`, marcado
+                # Si después de sustituir sigue habiendo un `${`, el regex de
+                # plantillas cortó a mitad de una PLANTILLA ANIDADA y lo que
+                # tenemos delante no es la cadena completa. No se puede
+                # juzgar; el otro guard mira esos mensajes por su clave.
+                if "${" in norm:
+                    continue
+                palabras = [w.lower() for w in
+                            re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", norm)
+                            if not _TECNICO.fullmatch(w)]
+                if not any(w in self.vocabulario for w in palabras):
+                    continue
+                i = bisect.bisect_right(base, pos) - 1
+                if _NO_ES_TEXTO.search(lineas[i] if i < len(lineas) else ""):
+                    continue
+                fn = self._funcion_de(src, pos)
+                if fn in VOLCADOS_DE_DIAGNOSTICO or fn in CORTOS_ACEPTADOS:
+                    continue
+                sueltas.append(f"{Path(r).name}:{i + 1} ({fn}): {norm[:56]}")
+        self.assertEqual(sueltas, [], (
+            f"\n{len(sueltas)} rótulo(s) cortos en castellano junto a un hueco. "
+            f"Pásalos por `tr()`,\no —si de verdad son un volcado de "
+            f"diagnóstico— di en qué función y por qué en\n"
+            f"VOLCADOS_DE_DIAGNOSTICO:\n  · " + "\n  · ".join(sueltas[:15])))
+
+    def test_las_exenciones_siguen_correspondiendo_a_codigo_real(self):
+        """Una exención que ya no apunta a nada parece cobertura."""
+        fuentes = "\n".join(Path(r).read_text(encoding="utf-8") for r in rutas())
+        muertas = [f for f in (*VOLCADOS_DE_DIAGNOSTICO, *CORTOS_ACEPTADOS)
+                   if f"function {f}(" not in fuentes]
+        self.assertEqual(muertas, [], (
+            f"\nestas funciones exentas ya no existen: {muertas}"))
+
+
 class TestLosFragmentosSeCosenBien(unittest.TestCase):
     """Dos `tr()` pegados tienen que llevar un ESPACIO entre las palabras.
 
@@ -223,6 +355,110 @@ class TestLosFragmentosSeCosenBien(unittest.TestCase):
             "\ndos claves concatenadas sin espacio: el texto sale con las "
             "palabras pegadas.\nSaca el espacio FUERA del `tr()`:\n  · "
             + "\n  · ".join(pegados[:10])))
+
+
+# Claves cuyo valor NO puede encabezar una frase y que, aun así, se quedan
+# sueltas a propósito. Cada una dice por qué; ampliar la lista es una
+# decisión, no un arreglo.
+FRAGMENTOS_ACEPTADOS = {
+    # La leyenda de confianza del modal de series intercala PUNTOS DE COLOR
+    # con su propio tooltip entre los trozos de prosa
+    # (`<span class="punto-conf alta" data-i18n-tip="…">`). Fusionarla metería
+    # clases de presentación Y otras claves de i18n dentro de una cadena
+    # traducible, que es peor que el fragmento: el traductor tendría que no
+    # tocar un `data-i18n-tip` incrustado.
+    "ui.una_estimacion": "leyenda con puntos de color intercalados",
+    "ui.basada_en_la_duracion_de_cada": "leyenda con puntos de color intercalados",
+    "ui.coincidencia_alta": "rótulo de un punto de la leyenda",
+    "ui.coincidencia_baja": "rótulo de un punto de la leyenda",
+    "ui.sin_coincidencia": "rótulo de un punto de la leyenda",
+    "ui.que_cada_mpls_corresponda_al_episodio": "leyenda con puntos intercalados",
+    # No es una frase partida: es un TÍTULO más una etiqueta. «TMDb — Clave de
+    # la API» y el chip «opcional» son dos cosas distintas, y el chip se
+    # reutiliza en dos secciones.
+    "ui.opcional_2": "chip junto a un título, no la cola de una frase",
+    # Rótulos de eje del gráfico de luminancia: van en minúscula porque son
+    # nombres de campo del RPU, no prosa.
+    "tab2.peak": "rótulo del gráfico; es el nombre del campo del RPU",
+    "tab2.avg": "rótulo del gráfico; es el nombre del campo del RPU",
+    "tab2.nits": "unidad, va detrás de una cifra interpolada",
+}
+
+
+class TestNingunaFraseSePartePorMarcado(unittest.TestCase):
+    """Una frase con un `<strong>` en medio es UNA clave, no tres.
+
+    El extractor ve tres nodos de texto y saca tres claves, y eso traduce por
+    fragmentos por la puerta de atrás: quien traduce uno sin ver los otros no
+    puede mover el orden de las palabras —que en inglés cambia justo alrededor
+    del énfasis— y quien edita el castellano de uno deja los demás
+    descolgados. `REGISTRO.md` lo prohíbe de frente.
+
+    El arreglo es `data-i18n-html` en el bloque, con el marcado en línea
+    DENTRO del valor traducible. Se hizo en 24 bloques. Los que quedan están
+    en `FRAGMENTOS_ACEPTADOS`, cada uno con su motivo.
+
+    La señal de que un trozo es la cola de otro: su valor no puede ENCABEZAR
+    una frase — empieza en minúscula o en signo de puntuación.
+    """
+
+    BLOQUE = re.compile(
+        r"<(p|div|span|li|label|small)\b[^>]*>((?:(?!</?\1\b).)*?)</\1>", re.S)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.es = json.loads(
+            (APP_DIR / "static" / "i18n" / "es.json").read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _es_cola(v: str) -> bool:
+        return bool(v) and (v[0] in ".,:;)»" or v[0].islower())
+
+    def test_ningun_bloque_parte_una_frase_en_varias_claves(self):
+        partidos = []
+        for nombre, src in [("index.html", html())] + [
+                (Path(r).name, Path(r).read_text(encoding="utf-8")) for r in rutas()]:
+            for m in self.BLOQUE.finditer(src):
+                claves = re.findall(r'data-i18n="([^"]+)"', m.group(2))
+                if len(claves) < 2:
+                    continue
+                colas = [k for k in claves
+                         if self._es_cola(self.es.get(k, ""))
+                         and k not in FRAGMENTOS_ACEPTADOS]
+                if colas:
+                    linea = src[:m.start()].count("\n") + 1
+                    partidos.append(f"{nombre}:{linea}: {colas}")
+        self.assertEqual(partidos, [], (
+            "\nestos bloques parten una frase en varias claves. Pásalos a UNA "
+            "clave con\n`data-i18n-html` y el marcado dentro del valor, o di "
+            "por qué no en\nFRAGMENTOS_ACEPTADOS:\n  · " + "\n  · ".join(partidos[:10])))
+
+    def test_la_lista_de_aceptados_no_se_queda_vieja(self):
+        """Una entrada que ya no existe parece cobertura y no cubre nada."""
+        muertas = [k for k in FRAGMENTOS_ACEPTADOS if k not in self.es]
+        self.assertEqual(muertas, [], (
+            f"\nestas claves de FRAGMENTOS_ACEPTADOS ya no están en el "
+            f"catálogo: {muertas}"))
+
+    def test_el_marcado_de_un_valor_traducible_no_lleva_otra_clave(self):
+        """Un `data-i18n` DENTRO de un valor traducible se realimenta.
+
+        `pintarTextos` escribe el `innerHTML`, el observador ve el nodo nuevo,
+        vuelve a pintar… y además obligaría al traductor a no tocar una clave
+        incrustada. Los iconos sí pueden ir (`data-icono` es declarativo y lo
+        pinta su propio observador, que marca lo ya pintado).
+        """
+        malos = []
+        for donde in ("static/i18n",):
+            for idioma in IDIOMAS:
+                cat = json.loads((APP_DIR / donde / f"{idioma}.json")
+                                 .read_text(encoding="utf-8"))
+                for k, v in cat.items():
+                    if "data-i18n" in v:
+                        malos.append(f"{idioma}.json → {k}")
+        self.assertEqual(malos, [], (
+            "\nestos valores llevan otra clave de i18n dentro:\n  · "
+            + "\n  · ".join(malos[:10])))
 
 
 class TestElSaltoDeLineaEsUnSaltoDeLinea(unittest.TestCase):

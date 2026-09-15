@@ -421,7 +421,7 @@ function _attachSrcFbDelegation(filter) {
 function srcFbSelectIso(path) {
   pickerSelectedIso = path;
   const status = document.getElementById('src-fb-iso-status');
-  if (status) status.innerHTML = icono('check') + ` Seleccionado: ${escHtml(path)}`;
+  if (status) status.innerHTML = icono('check') + ' ' + tr('tab1.seleccionado_p1', {p1: escHtml(path)});
   _renderSrcFb('iso');  // re-render para marcar la fila activa
   _updateAnalyzeButtonState();
 }
@@ -430,7 +430,7 @@ function srcFbSelectIso(path) {
 function srcFbSelectBdmv(path) {
   bdmvSelectedPath = path;
   const status = document.getElementById('src-fb-bdmv-status');
-  if (status) status.innerHTML = icono('check') + ` Seleccionada carpeta BDMV: ${escHtml(path)}`;
+  if (status) status.innerHTML = icono('check') + ' ' + tr('tab1.seleccionada_carpeta_bdmv_p1', {p1: escHtml(path)});
   _renderSrcFb('bdmv');
   _updateAnalyzeButtonState();
 }
@@ -478,7 +478,7 @@ function _updateM2tsStatusText() {
     status.innerHTML = icono('check') + ' ' + tr('tab1.1_fichero_seleccionado_modo_pelicula');
   } else {
     status.innerHTML =
-      icono('check') + ` ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} → ${m2tsSelectedPaths.length} episodio${m2tsSelectedPaths.length !== 1 ? 's' : ''} (modo serie)`;
+      icono('check') + ' ' + tr('tab1.n_ficheros_n_episodios_modo_serie', {n: m2tsSelectedPaths.length, p2: m2tsSelectedPaths.length !== 1 ? 's' : ''});
   }
 }
 
@@ -637,7 +637,7 @@ async function analyzeSelectedISO() {
     sourcePath = m2tsSelectedPaths[0];
     sourceName = m2tsSelectedPaths.length === 1
       ? m2tsSelectedPaths[0].split('/').pop()
-      : `${m2tsSelectedPaths.length} ficheros M2TS`;
+      : tr('tab1.n_ficheros_m2ts', {n: m2tsSelectedPaths.length});
     payloadProbe = {
       source_type: 'm2ts',
       source_path: m2tsSelectedPaths[0],
@@ -745,9 +745,9 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
     ? tr('tab1.montando_iso_y_buscando_episodios_candidatos')
     : sourceType === 'bdmv_folder'
     ? tr('tab1.buscando_episodios_candidatos_en_la_carpeta')
-    : `Analizando ${m2tsSelectedPaths.length} fichero${m2tsSelectedPaths.length !== 1 ? 's' : ''} M2TS`;
+    : tr('tab1.analizando_n_ficheros_m2ts', {n: m2tsSelectedPaths.length, p2: m2tsSelectedPaths.length !== 1 ? 's' : ''});
   showProgressModal({
-    title: `Detectando contenido — ${sourceName}`,
+    title: tr('tab1.detectando_contenido_p1', {p1: sourceName}),
     sub: probeSub,
     icon: probeIcon,
   });
@@ -1345,12 +1345,12 @@ function _computeMatchConfidence(mplsDurationMin, episodeNumber, isManual) {
   if (delta <= 1) {
     return {
       emoji: '<span class="punto-conf alta"></span>',
-      title: `Match alto · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
+      title: tr('tab1.match_alto_mpls_min', {mpls: mplsDurationMin.toFixed(1), ep: epLabel, delta: delta.toFixed(1)}),
     };
   }
   return {
     emoji: '<span class="punto-conf media"></span>',
-    title: `Match bajo · MPLS ${mplsDurationMin.toFixed(1)} min · ${epLabel} (Δ=${delta.toFixed(1)} min)`,
+    title: tr('tab1.match_bajo_mpls_min', {mpls: mplsDurationMin.toFixed(1), ep: epLabel, delta: delta.toFixed(1)}),
   };
 }
 
@@ -1488,7 +1488,7 @@ function _seriesUpdateCreateButton() {
   if (!btn) return;
   const m = _seriesState?.mapping || {};
   const selected = Object.values(m).filter(x => x.include && x.episode_number).length;
-  btn.innerHTML = icono('mas') + ` Crear ${selected} proyecto${selected === 1 ? '' : 's'}`;
+  btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: selected, p2: selected === 1 ? '' : 's'});
   // Solo habilitar si hay serie + temporada + al menos un episodio marcado
   btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
 }
@@ -1596,7 +1596,7 @@ async function seriesCreateSessions() {
       const sn = String(c.season_number).padStart(2, '0');
       const en = String(c.episode_number).padStart(2, '0');
       const tStr = c.existing?.updated_at
-        ? ` · actualizado ${new Date(c.existing.updated_at).toLocaleDateString('es-ES')}`
+        ? ` · actualizado ${new Date(c.existing.updated_at).toLocaleDateString(localeActual())}`
         : '';
       return `S${sn}E${en}${c.episode_title ? ' — ' + c.episode_title : ''}${tStr}`;
     }).join('\n');
@@ -1608,7 +1608,7 @@ async function seriesCreateSessions() {
   const btn = document.getElementById('series-create-btn');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = icono('reloj') + ` Creando ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}…`;
+    btn.innerHTML = icono('reloj') + ' ' + tr('tab1.creando_n_proyectos', {n: episodes.length, p2: episodes.length === 1 ? '' : 's'});
   }
 
   // Cerramos el series-modal y abrimos el progress-modal para que el
@@ -1619,7 +1619,7 @@ async function seriesCreateSessions() {
   closeModal('series-modal');
   const seriesTitle = s.selectedSeries.name || '—';
   const seriesYear = s.selectedSeries.year ? ` (${s.selectedSeries.year})` : '';
-  const seasonLabel = `Temporada ${s.selectedSeason.season_number}`;
+  const seasonLabel = tr('tab1.temporada_n', {n: s.selectedSeason.season_number});
   // Este flujo tampoco monta su propio modal: analizar N episodios es un
   // trabajo de la cola como cualquier otro, y su progreso lo enseña la columna
   // de trabajo. El acuse —se pulsó «Crear N proyectos» y son minutos— es el
@@ -1672,7 +1672,7 @@ async function seriesCreateSessions() {
     cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
+      btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: episodes.length, p2: episodes.length === 1 ? '' : 's'});
     }
     showToast(tr('tab1.ya_hay_un_analisis_en_marcha'),
               'warning');
@@ -1701,7 +1701,7 @@ async function seriesCreateSessions() {
     cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = icono('mas') + ` Crear ${episodes.length} proyecto${episodes.length === 1 ? '' : 's'}`;
+      btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: episodes.length, p2: episodes.length === 1 ? '' : 's'});
     }
     showToast(tr('tab1.no_se_pudieron_crear_los_proyectos'), 'error');
     return;
@@ -1989,13 +1989,13 @@ function formatRelativeDate(isoDate) {
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
   if (mins < 1)    return tr('tab1.ahora_mismo');
-  if (mins < 60)   return `hace ${mins} min`;
-  if (hours < 24)  return `hace ${hours} h`;
+  if (mins < 60)   return tr('tab1.hace_n_min', {n: mins});
+  if (hours < 24)  return tr('tab1.hace_n_h', {n: hours});
   // El plural de «dia» en catalán es «dies», así que el sufijo `'s'`
   // tampoco vale ahí.
   if (days < 7)    return tr(days === 1 ? 'tab1.hace_dia_uno'
                                         : 'tab1.hace_dia_varios', {days: days});
-  return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return d.toLocaleDateString(localeActual(), { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
 /**
@@ -2188,12 +2188,12 @@ function renderSidebarSessions(sessions, query = '') {
     // un proyecto terminado, «cuándo se hizo» es lo que se busca. La de
     // modificación sigue en el tooltip.
     const cuandoIso = s.last_executed || s.updated_at || s.created_at || '';
-    const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {
+    const modFull = new Date(s.updated_at || s.created_at).toLocaleString(localeActual(), {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit',
     });
     const cuandoTip = (s.last_executed
-        ? 'Ejecutado: ' + new Date(s.last_executed).toLocaleString('es-ES')
+        ? 'Ejecutado: ' + new Date(s.last_executed).toLocaleString(localeActual())
         : 'Nunca ejecutado') + ' · Modificado: ' + modFull;
 
     const card = document.createElement('div');
@@ -2489,7 +2489,7 @@ async function setTrackMode(trackKind, mode) {
     renderProjectPanel(project);
     const label = trackKind === 'audio' ? 'Audio' : 'Subtítulos';
     const modeLabel = mode === 'keep_all' ? tr('core.mantener_todas') : 'Filtrado';
-    showToast(`${label}: modo «${modeLabel}» aplicado`, 'success');
+    showToast(tr('tab1.label_modo_aplicado', {label: label, modelabel: modeLabel}), 'success');
   }
 }
 
@@ -2599,8 +2599,8 @@ function updateTrackCounts() {
   const discSub   = disc.filter(t => t.track_type !== 'audio').length;
   const audioEl = E('audio-count');
   const subEl   = E('sub-count');
-  if (audioEl) audioEl.textContent = `${incAudio} incluidas · ${discAudio} descartadas`;
-  if (subEl)   subEl.textContent   = `${incSub} incluidas · ${discSub} descartadas`;
+  if (audioEl) audioEl.textContent = tr('tab1.n_incluidas_n_descartadas', {inc: incAudio, disc: discAudio});
+  if (subEl)   subEl.textContent   = tr('tab1.n_incluidas_n_descartadas', {inc: incSub, disc: discSub});
 }
 
 /**
@@ -2667,7 +2667,7 @@ function renderIncludedTracks(tracks) {
       const tooltip = [
         `Codec: ${raw.codec || '—'}`,
         raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
-        `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
+        tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
         raw.description ? `Canales / frecuencia: ${raw.description}` : null,
         raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
         raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
@@ -2734,10 +2734,10 @@ function renderIncludedTracks(tracks) {
       const packets = raw.packet_count || 0;
       const tooltip = [
         `Codec: PGS (Presentation Graphics)`,
-        `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
-        `Tipo: ${subTypeLabel}`,
+        tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
+        tr('comun.tipo_p1', {p1: subTypeLabel}),
         raw.resolution ? tr('tab1.resolucion', {resolution: raw.resolution}) : null,
-        packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
+        packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
         raw.bitrate_kbps ? tr('tab1.bitrate_sintetico_kbps', {bitrate_kbps: raw.bitrate_kbps}) : null,
         tr('tab1.posicion_en_mkv', {p1: flatIdx + 1}),
         '',
@@ -2935,7 +2935,7 @@ function renderDiscardedTracks(tracks) {
         tooltip = [
           `Codec: ${raw.codec || '—'}`,
           raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
-          `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
+          tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
           raw.description ? `Canales / frecuencia: ${raw.description}` : null,
           raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
           raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
@@ -2947,9 +2947,9 @@ function renderDiscardedTracks(tracks) {
         const packets = raw.packet_count || 0;
         tooltip = [
           `Codec: PGS (Presentation Graphics)`,
-          `Idioma: ${raw.language || '—'} → ${langLiteral(raw.language) || '—'}`,
+          tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
           raw.resolution ? tr('tab1.resolucion', {resolution: raw.resolution}) : null,
-          packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
+          packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
           raw.bitrate_kbps ? tr('tab1.bitrate_sintetico_kbps', {bitrate_kbps: raw.bitrate_kbps}) : null,
           '',
           tr('tab1.razon_del_descarte', {p1: track.discard_reason || '—'}),
@@ -3836,7 +3836,7 @@ function _classifyDvStatus(session) {
   // El master display va en la tarjeta de Vídeo·HDR — aquí sería duplicado.
   let detail = '';
   if (dv) {
-    const parts = [`Perfil ${dv.profile}`];
+    const parts = [tr('comun.perfil_p1', {p1: dv.profile})];
     if (dv.el_type) parts.push(dv.el_type);
     if (dv.cm_version) parts.push(`CM ${dv.cm_version}`);
     const lvls = [];
@@ -3846,7 +3846,7 @@ function _classifyDvStatus(session) {
     if (dv.has_l6) lvls.push('L6');
     if (dv.has_l8) lvls.push('L8');
     if (lvls.length) parts.push(lvls.join(' '));
-    if (dv.scene_count) parts.push(`${dv.scene_count.toLocaleString('es-ES')} escenas`);
+    if (dv.scene_count) parts.push(tr('tab1.n_escenas', {n: dv.scene_count.toLocaleString(localeActual())}));
     detail = parts.join(' · ');
   }
 
@@ -3860,7 +3860,7 @@ function _classifyDvStatus(session) {
              unconfirmed: false };
   }
   if (dv) {
-    return { label: `Dolby Vision (Perfil ${dv.profile})`, icon: 'claqueta', cls: 'dv-other',
+    return { label: tr('tab1.dolby_vision_perfil_p1', {p1: dv.profile}), icon: 'claqueta', cls: 'dv-other',
              detail, note: '', unconfirmed: false };
   }
   if (hasEl || session.has_fel) {
@@ -3955,8 +3955,8 @@ function _renderVideoHdrCard(session) {
 
   const hdrParts = [];
   if (hdr?.hdr_format) hdrParts.push(hdr.hdr_format);
-  if (hdr?.max_cll)  hdrParts.push(`MaxCLL ${hdr.max_cll.toLocaleString('es-ES')} nits`);
-  if (hdr?.max_fall) hdrParts.push(`MaxFALL ${hdr.max_fall.toLocaleString('es-ES')} nits`);
+  if (hdr?.max_cll)  hdrParts.push(`MaxCLL ${hdr.max_cll.toLocaleString(localeActual())} nits`);
+  if (hdr?.max_fall) hdrParts.push(`MaxFALL ${hdr.max_fall.toLocaleString(localeActual())} nits`);
   setText('vhdr-hdr', hdrParts.join(' · '));
 
   const colorParts = [];
@@ -3977,7 +3977,7 @@ function _formatMasteringLuminance(raw) {
   const m = String(raw).match(/max\s*:\s*([\d.]+)/i);
   if (!m) return String(raw);
   const nits = Math.round(parseFloat(m[1]));
-  return Number.isFinite(nits) ? `Master ${nits.toLocaleString('es-ES')} nits` : String(raw);
+  return Number.isFinite(nits) ? tr('comun.master_p1_nits', {p1: nits.toLocaleString(localeActual())}) : String(raw);
 }
 
 
@@ -4814,7 +4814,7 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       const detalle = err.detail || resp.statusText;
-      if (!silent) showToast(`Error: ${detalle}`, 'error');
+      if (!silent) showToast(tr('comun.error_p1', {p1: detalle}), 'error');
       console.warn(`[Error API] ${url}: ${detalle}`);
       return null;
     }
@@ -4874,7 +4874,7 @@ function _ripTimelineHTML(a, sesion) {
     return {
       titulo, sub, icono: glifo,
       estado: a.terminal ? (secs != null ? 'done' : 'pending') : undefined,
-      nota: yaPaso && secs != null ? `completado · ${_workbarTiempo(secs)}` : '',
+      nota: yaPaso && secs != null ? tr('comun.completado_p1', {p1: _workbarTiempo(secs)}) : '',
     };
   });
   return timelineDeTrabajo(pasos, a, tr('tab1.fases_de_la_conversion'));

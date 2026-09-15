@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UHD Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260915f">
+  <link rel="stylesheet" href="/static/style.css?v=20260915g">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -454,7 +454,7 @@
          de tipo y se le quedaba en Película por defecto. -->
     <div class="new-project-locked-banner" id="new-project-locked-banner">
       <span class="lpb-icon" data-icono="flechaArriba"></span>
-      <span class="lpb-text"><span data-i18n="ui.selecciona_arriba_si_el_contenido_es"></span> <strong data-i18n="ui.pelicula"></strong> <span data-i18n="comun.o"></span> <strong data-i18n="ui.serie"></strong><span data-i18n="ui.lo_necesitamos_para_mostrarte_las_opciones"></span></span>
+      <span class="lpb-text" data-i18n-html="ui.selecciona_arriba_el_tipo_de_contenido"></span>
     </div>
 
     <!-- Wrapper bloqueable. Cuando _contentType es null, la clase
@@ -969,7 +969,7 @@
         </select>
         <button class="btn btn-secondary btn-md" onclick="_cmv40NewLoadRpus()" data-i18n-tip="ui.recargar"><span data-icono="deshacer"></span></button>
       </div>
-      <div style="font-size:11px; color:var(--text-3); margin-top:6px"><span data-i18n="ui.ficheros"></span> <code>.bin</code> <span data-i18n="ui.en"></span> <code>/mnt/cmv40_rpus</code></div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:6px"><span data-i18n-html="ui.ficheros_bin_en_mnt_cmv40_rpus"></span></div>
     </div>
     <div id="cmv40-new-target-mkv" class="cmv40-target-tab" style="display:none">
       <div class="iso-select-row">
@@ -1109,7 +1109,7 @@
   <div class="modal-box cmv40-lookup-modal-box">
     <div class="cmv40-lookup-head">
       <div class="modal-title"><span data-icono="lupa"></span> <span data-i18n="ui.consulta_rapida_cmv4_0"></span></div>
-      <div class="modal-sub"><span data-i18n="ui.comprueba_si_una_pelicula_tiene_bin"></span> <strong data-i18n="ui.sin_crear_proyecto"></strong>.</div>
+      <div class="modal-sub"><span data-i18n-html="ui.comprueba_si_una_pelicula_tiene_bin_sin_crear_proyecto"></span></div>
 
       <div class="cmv40-lookup-form">
         <div class="cmv40-lookup-row">
@@ -1238,8 +1238,8 @@
       </div>
     </div>
     <div class="donacion-cuerpo">
-      <p><span data-i18n="ui.el_repositorio"></span> <strong>DoviTools</strong> <span data-i18n="ui.lo_mantiene"></span> <strong>R3S3T_9999</strong> <span data-i18n="ui.por_su_cuenta_el_espacio_y"></span></p>
-      <p><span data-i18n="ui.se_sostiene_con_donaciones_de"></span> <strong>15&nbsp;CAD$</strong><span data-i18n="ui.unos"></span> <strong>10&nbsp;€</strong><span data-i18n="ui.si_donas_indica_tu_correo_y"></span> <span data-icono="ajustes"></span> <span data-i18n="ui.configuracion_la_app_deja_de_recordartelo"></span></p>
+      <p data-i18n-html="ui.el_repositorio_dovitools_lo_mantiene"></p>
+      <p data-i18n-html="ui.se_sostiene_con_donaciones_y_como_donar"></p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="cerrarAvisoDonacion()" data-i18n="ui.ahora_no"></button>
@@ -1331,7 +1331,7 @@
         <span id="settings-aviso-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        <span data-i18n="ui.un_rip_son_20_40_min"></span> <strong data-i18n="ui.titulo_de_la_pestana_parpadeando"></strong><span data-i18n="ui.que_funciona_siempre_las_notificaciones_del"></span>
+        <span data-i18n-html="ui.un_rip_son_20_40_min_y_el_aviso"></span>
       </div>
       <div class="settings-field-row settings-aviso-row">
         <label class="settings-check">
@@ -1354,8 +1354,7 @@
         <span id="settings-tmdb-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        <strong data-i18n="ui.no_hace_falta_que_configures_nada"></strong><span data-i18n="ui.la_app_trae_su_propia_clave"></span>
-        <br><span data-i18n="ui.pon_la_tuya_solo_si_quieres"></span> <strong data-i18n="ui.probar"></strong> <span data-i18n="ui.con_el_campo_vacio_para_comprobarlo"></span> <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org/settings/api</a> <span data-i18n="ui.campo"></span> <strong data-i18n="ui.api_key_v3_auth"></strong><span data-i18n="ui.la_corta"></span>
+        <span data-i18n-html="ui.tmdb_no_hace_falta_configurar_nada"></span>
       </div>
       <div class="settings-field-row">
         <input type="password" id="settings-tmdb-input"
@@ -1372,8 +1371,7 @@
         <span id="settings-google-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        <span data-i18n="ui.habilita"></span> <strong>(1)</strong> <span data-i18n="ui.listado_y_descarga_de_rpus_del"></span> <strong>(2)</strong> <span data-i18n="ui.lectura_de_la_hoja_de_recomendaciones"></span> <em data-i18n="ui.hyperlinks"></em> <span data-i18n="ui.originales_imagenes_hdr_comp_graficos_comparativas"></span>
-        <br><span data-i18n="ui.crear_en"></span> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">console.cloud.google.com/apis/credentials</a> <span data-i18n="ui.crear_credenciales_clave_de_api_habilitar"></span> <strong data-i18n="ui.dos_apis"></strong> <span data-i18n="ui.en_la_biblioteca"></span> <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer" data-i18n="ui.google_drive_api"></a> <span data-i18n="comun.y"></span> <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noreferrer" data-i18n="ui.google_sheets_api"></a>.
+        <span data-i18n-html="ui.google_api_key_para_que_habilita"></span>
       </div>
       <div class="settings-field-row">
         <input type="password" id="settings-google-input"
@@ -1390,8 +1388,7 @@
         <span id="settings-drive-folder-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        <span data-i18n="ui.google_drive_con_los_bins"></span> <code>.bin</code> <span data-i18n="ui.cmv4_0_de_rec_9999"></span> <strong data-i18n="ui.la_app_trae_el_enlace"></strong><span data-i18n="ui.asi_que_no_tienes_que_pegarlo"></span> <strong data-i18n="ui.si_necesitas_la_google_api_key"></strong> <span data-i18n="ui.de_arriba_para_que_la_pestana"></span>
-        <br><strong data-i18n="ui.el_repositorio_lo_mantiene_una_persona"></strong> <span data-i18n="ui.15_cad_unos_10"></span>&nbsp;€): <a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer" data-i18n="ui.paypal_rec_9999"></a><span data-i18n="ui.si_donas_indica_tu_correo_y_2"></span>
+        <span data-i18n-html="ui.url_del_repo_dovitools_descripcion"></span>
       </div>
       <div class="settings-field-row">
         <input type="password" id="settings-drive-folder-input"
@@ -1409,7 +1406,7 @@
         <span id="settings-sheet-status" class="settings-status"></span>
       </div>
       <div class="settings-section-desc">
-        <span data-i18n="ui.google_sheet_publico_de_dovitools_con"></span><em data-i18n="ui.cualquiera_con_el_enlace_debe_poder"></em>).
+        <span data-i18n-html="ui.url_del_sheet_descripcion"></span>
       </div>
       <div class="settings-field-row">
         <input type="text" id="settings-sheet-input"
@@ -1459,14 +1456,14 @@
      equivalente al fichero único. -->
 <!-- i18n va PRIMERO: el arranque de `core.js` espera su catálogo antes
      de pintar el primer texto. -->
-<script src="/static/i18n.js?v=20260915f"></script>
-<script src="/static/core.js?v=20260915f"></script>
-<script src="/static/workbar.js?v=20260915f"></script>
-<script src="/static/settings.js?v=20260915f"></script>
-<script src="/static/cmv40_modals.js?v=20260915f"></script>
-<script src="/static/tab1.js?v=20260915f"></script>
-<script src="/static/tab2.js?v=20260915f"></script>
-<script src="/static/tab3.js?v=20260915f"></script>
-<script src="/static/browser.js?v=20260915f"></script>
+<script src="/static/i18n.js?v=20260915g"></script>
+<script src="/static/core.js?v=20260915g"></script>
+<script src="/static/workbar.js?v=20260915g"></script>
+<script src="/static/settings.js?v=20260915g"></script>
+<script src="/static/cmv40_modals.js?v=20260915g"></script>
+<script src="/static/tab1.js?v=20260915g"></script>
+<script src="/static/tab2.js?v=20260915g"></script>
+<script src="/static/tab3.js?v=20260915g"></script>
+<script src="/static/browser.js?v=20260915g"></script>
 </body>
 </html>

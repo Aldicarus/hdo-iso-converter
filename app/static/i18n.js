@@ -26,6 +26,18 @@ const IDIOMAS = [
   { codigo: 'ca', nombre: 'Català' },
 ];
 
+// El locale de `Intl`, que NO es el código del idioma: una fecha en inglés
+// pide `en-GB` y no `en-US` —el día antes del mes, como en las otras dos— y
+// los miles se separan igual en las tres. Había 16 `toLocaleDateString('es-ES')`
+// cableados, así que las fechas y las cifras seguían en formato español con la
+// app en inglés: no es texto, así que ningún guard de traducción lo veía.
+const LOCALES = { es: 'es-ES', en: 'en-GB', ca: 'ca-ES' };
+
+/** El locale del idioma activo, para `toLocaleDateString` y compañía. */
+function localeActual() {
+  return LOCALES[idiomaGuardado()] || LOCALES.es;
+}
+
 const IDIOMA_POR_DEFECTO = 'es';
 const IDIOMA_PREF = 'hdo_idioma';
 

@@ -1211,7 +1211,7 @@ function _arrancarParpadeo(texto) {
 function avisarFinDeTrabajo(tab) {
   if (!avisoFinActivado()) return;
   const nombre = _AVISO_NOMBRES[tab] || 'Trabajo';
-  _arrancarParpadeo(`${nombre} — terminado`);
+  _arrancarParpadeo(tr('core.p1_terminado', {p1: nombre}));
   if (avisoSonidoActivado()) _pitido();
   if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
     try {

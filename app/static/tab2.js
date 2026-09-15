@@ -321,7 +321,7 @@ function openMkvProject(analysis) {
   _mkvCreatePanel(project);
   switchMkvSubTab(project.id);
   _renderMkvEditPanel(project);
-  showToast(`MKV abierto: ${analysis.file_name}`, 'success');
+  showToast(tr('tab2.mkv_abierto_p1', {p1: analysis.file_name}), 'success');
   return project;
 }
 
@@ -846,7 +846,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   const peakX = xOf(peakIdx);
   const peakY = yOf(peakV);
   const peakTime = tOf(peakIdx);
-  const peakLabelText = peakTime !== null ? `${peakV} nits @ ${_rgrfFmtTime(peakTime)}` : `pico ${labelMax}`;
+  const peakLabelText = peakTime !== null ? `${peakV} nits @ ${_rgrfFmtTime(peakTime)}` : tr('tab2.pico_p1', {p1: labelMax});
   // Decidir lado del label (izq si el pico está en la mitad derecha, para no salirse)
   const peakOnRight = peakIdx / series.length > 0.5;
   const peakLabelX = peakOnRight ? peakX - 8 : peakX + 8;
@@ -875,7 +875,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   }
   _addRef(refs.hdr10_max_cll, `MaxCLL ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
   _addRef(refs.hdr10_max_fall, `MaxFALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
-  _addRef(refs.l6_master_max_nits, `Master ${refs.l6_master_max_nits}n`, '#64748b'); // slate
+  _addRef(refs.l6_master_max_nits, tr('tab2.master_p1_n', {p1: refs.l6_master_max_nits}), '#64748b'); // slate
   _addRef(refs.l6_max_cll, `L6 CLL ${refs.l6_max_cll}n`, '#dc2626'); // red
 
   const refLines = refsToDraw.map(r => {
@@ -1556,7 +1556,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon"><span data-icono="grafico"></span></div>
          <div class="dv-chart-empty-text" data-i18n="tab2.analisis_per_escena_no_generado"></div>
-         <div class="dv-chart-empty-hint"><span data-i18n="tab2.sale_del"></span> <b data-i18n="tab2.analisis_rpu_luz"></b><span data-i18n="tab2.junto_a_la_auditoria_de_calidad"></span></div>
+         <div class="dv-chart-empty-hint"><span data-i18n-html="tab2.sale_del_analisis_rpu_luz"></span></div>
        </div>`;
   // Un solo botón: el perfil sale del mismo análisis extendido que la
   // auditoría de calidad, compartiendo la extracción del RPU.
@@ -1628,8 +1628,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
         <div class="dv-quality-empty-body">
           <div class="dv-quality-empty-title">${tr('tab2.analisis_rpu_luz_cmlabel', {cmlabel: cmLabel})}</div>
           <div class="dv-quality-empty-text">
-            <span data-i18n="tab2.extrae_el_rpu_completo_del_mkv"></span> <b data-i18n="tab2.dos_cosas_de_una_vez"></b><span data-i18n="tab2.los_combos_l8_l2_clasificados_full"></span>
-            <b data-i18n="tab2.perfil_de_luminancia_l1"></b> <span data-i18n="tab2.frame_a_frame"></span>
+            <span data-i18n-html="tab2.extrae_el_rpu_y_saca_dos_cosas"></span>
           </div>
           <button class="btn btn-primary btn-sm dv-quality-cta"
                   data-analisis-extendido="1"
@@ -1762,7 +1761,7 @@ function _mkvPintarEstadoDeAnalisis() {
     btn.disabled = false;   // sigue pulsable: abre el detalle
     btn.innerHTML = t.estado === 'corriendo'
       ? iconoDeEstado('corriendo', 'icono-chip-sm') + ' Analizando…'
-      : iconoDeEstado('en_cola', 'icono-chip-sm') + ` En cola (${t.posicion}º)`;
+      : iconoDeEstado('en_cola', 'icono-chip-sm') + ' ' + tr('tab2.en_cola_posicion', {posicion: t.posicion});
   });
 }
 
@@ -2024,7 +2023,7 @@ function _renderMkvEditPanel(project = mkvProject) {
     if (dv.has_l9)  lvls.push('L9');
     if (dv.has_l10) lvls.push('L10');
     if (dv.has_l11) lvls.push('L11');
-    dvLevelsLine = lvls.length ? `Niveles: ${lvls.join(' · ')}` : '';
+    dvLevelsLine = lvls.length ? tr('comun.niveles_p1', {p1: lvls.join(' · ')}) : '';
     // dv.scene_count y dv.frame_count vienen del sample de 30s
     // (extract-rpu --limit 720), no del film completo. Los omitimos para
     // no engañar al usuario; los frames totales reales se muestran en el
@@ -2298,7 +2297,7 @@ function _renderMkvTracks(project = mkvProject) {
     const tooltip = [
       tr('tab2.codec_tecnico', {codec: t.codec}),
       t.format_commercial ? `Codec comercial: ${t.format_commercial}` : null,
-      `Idioma: ${t.language || '—'} → ${langName}`,
+      tr('comun.idioma_p1_p2', {p1: t.language || '—', p2: langName}),
       chCount ? `Canales: ${chCount} (${channelsPretty})` : null,
       t.channel_layout ? `Layout: ${t.channel_layout}` : null,
       t.sample_rate ? `Sample rate: ${t.sample_rate/1000} kHz` : null,
@@ -2385,10 +2384,10 @@ function _renderMkvTracks(project = mkvProject) {
     ].filter(Boolean).join(' · ');
     const tooltip = [
       `Codec: ${codecRaw || 'PGS'}`,
-      `Idioma: ${t.language || '—'} → ${langName}`,
+      tr('comun.idioma_p1_p2', {p1: t.language || '—', p2: langName}),
       `Tipo: ${forcedLabel}${forcedSource ? ` (${forcedSource})` : ''}`,
       t.pixel_dimensions ? tr('tab2.resolucion_bitmap', {pixel_dimensions: t.pixel_dimensions}) : null,
-      packets > 0 ? `Paquetes PES: ${packets.toLocaleString()} (ffprobe)` : null,
+      packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
       `Track ID: ${t.id}`,
     ].filter(Boolean).join('\n');
@@ -3221,7 +3220,7 @@ function _renderMkvRecientes() {
 
     const fecha = formatRelativeDate(r.analizado_en);
     const fechaLarga = r.analizado_en
-      ? new Date(r.analizado_en).toLocaleString('es-ES', {
+      ? new Date(r.analizado_en).toLocaleString(localeActual(), {
           day: '2-digit', month: '2-digit', year: '2-digit',
           hour: '2-digit', minute: '2-digit' })
       : 'desconocido';

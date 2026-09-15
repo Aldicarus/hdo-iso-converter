@@ -217,6 +217,25 @@ def motor_i18n() -> str:
     """
     import json
     js = js_completo()
+
+    def _trozo(marca: str, cierre: str) -> str:
+        i = js.index(marca)
+        return js[i:js.index(cierre, i) + len(cierre)]
+
+    # `localeActual()` hace falta para todo lo que pinta una fecha o un número
+    # (`toLocaleDateString(localeActual())`): había 16 `'es-ES'` cableados y al
+    # centralizarlos los arneses se quedaron con un `ReferenceError`. Arrastra
+    # `idiomaGuardado` y sus tres constantes; sin `localStorage` cae al
+    # castellano por su propio try/catch, que es lo que quiere un test.
+    locale = "\n".join([
+        _trozo("const IDIOMAS = [", "];\n"),
+        _trozo("const IDIOMA_POR_DEFECTO", "\n"),
+        _trozo("const IDIOMA_PREF", "\n"),
+        _trozo("const LOCALES = {", "};\n"),
+        _trozo("function idiomaGuardado() {", "\n}\n"),
+        _trozo("function localeActual() {", "\n}\n"),
+    ])
+
     i = js.index("function tr(clave, params) {")
     fin = js.index("\n}\n", i) + 3
     # `'use strict'` PRIMERO: al prepender esto, el script del arnés dejaba de
@@ -225,5 +244,5 @@ def motor_i18n() -> str:
     # que el arnés tiene que serlo también.
     return ("'use strict';\n"
             "const _catalogo = " + json.dumps(catalogo_es(), ensure_ascii=False)
-            + ";\nconst _ausentes = new Set();\n" + js[i:fin])
+            + ";\nconst _ausentes = new Set();\n" + locale + "\n" + js[i:fin])
 

@@ -887,7 +887,7 @@ function _cmv40RenderTimeline(s, project) {
     // Label por defecto según status, o customLabel si el step lo especifica.
     // Para done, añadimos el tiempo real ej. "completado · 05:29" si lo hay.
     const doneLabel = elapsed != null
-      ? `completado · ${_cmv40FmtClock(elapsed)}`
+      ? tr('comun.completado_p1', {p1: _cmv40FmtClock(elapsed)})
       : 'completado';
     const defaultLabel = status === 'done'    ? doneLabel
                        : status === 'skipped' ? 'omitida'
@@ -1617,7 +1617,7 @@ function _cmv40ProvenanceNoteHTML(prov, retailAlternative) {
       <div class="cmv40-pp-prov cmv40-pp-prov-gen">
         <span class="cmv40-pp-prov-icon"><span data-icono="aviso"></span></span>
         <span class="cmv40-pp-prov-label" data-i18n="tab3.generated"></span>
-        <span class="cmv40-pp-prov-body">CMv4.0 <strong data-i18n="tab3.sintetico"></strong> <span data-i18n="tab3.desde_hdr10_algoritmico_la_calidad_depende"></span> <code data-i18n="tab3.cmv4_0_restored_added"></code> <span data-i18n="comun.o"></span> <code data-i18n="tab3.p5_to_p8"></code> <span data-i18n="tab3.para_este_titulo_es_preferible"></span></span>
+        <span class="cmv40-pp-prov-body"><span data-i18n-html="tab3.cmv4_0_sintetico_desde_hdr10"></span></span>
         ${altHtml}
       </div>`;
   }
@@ -1704,7 +1704,7 @@ function _cmv40NewUpdateAutoLabel(info) {
     if (wrap) wrap.setAttribute('data-tooltip',
       tr('tab3.corre_hasta_la_fase_si_los', {endsat: endsAt}));
   } else {
-    span.innerHTML = icono('rayo') + ` Auto-pipeline completo (${escHtml(runPhases.join('→'))})`;
+    span.innerHTML = icono('rayo') + ' ' + tr('tab3.auto_pipeline_completo_p1', {p1: escHtml(runPhases.join('→'))});
     if (wrap) wrap.setAttribute('data-tooltip',
       tr('tab3.ejecuta_fases_automaticamente_estimado', {p1: runPhases.length, tiempo: info.tiempo}));
   }
@@ -2461,7 +2461,7 @@ async function copyLogToClipboard(containerId, btn) {
     }
   } catch { ok = false; }
   if (ok) {
-    showToast(`Log copiado (${text.length.toLocaleString()} caracteres)`, 'success');
+    showToast(tr('tab3.log_copiado_p1_caracteres', {p1: text.length.toLocaleString(localeActual())}), 'success');
     // Feedback visual breve en el botón si se pasó
     if (btn) {
       const orig = btn.textContent;
@@ -2982,7 +2982,7 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
     };
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
     const doneLabel = elapsed != null
-      ? `completado · ${_cmv40FmtClock(elapsed)}`
+      ? tr('comun.completado_p1', {p1: _cmv40FmtClock(elapsed)})
       : 'completado';
     const defaultLabel = status === 'done'    ? doneLabel
                        : status === 'skipped' ? 'omitida'
@@ -3642,7 +3642,7 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
           <div class="cmv40-ack-title-block">
             <div class="cmv40-ack-title" data-i18n="tab3.divergencias_detectadas_confirma_como_continuar"></div>
             <div class="cmv40-ack-sub">
-              <span data-i18n="tab3.el_bin_pasa_los_gates_estructurales"></span> <strong data-i18n="tab3.fase_d_no_puede_corregir"></strong><span data-i18n="tab3.si_continuas_el_resultado_puede_tener"></span>
+              <span data-i18n-html="tab3.el_bin_pasa_los_gates_pero_hay_divergencias"></span>
             </div>
           </div>
         </div>
@@ -4571,7 +4571,7 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
       body = `
         <div class="section-body">
           <div style="font-size:12px; color:var(--text-2); line-height:1.5">
-            <strong data-i18n="tab3.que_se_valida_aqui"></strong> <span data-i18n="tab3.al_cerrar_fase_b_la_app"></span>
+            <span data-i18n-html="tab3.que_se_valida_aqui_fase_b"></span>
           </div>
           ${_cmv40GateBloque1(pid, s)}
           ${_cmv40GateBloque2(s)}
@@ -4656,7 +4656,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
     body = `
       <div class="section-body">
         <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:10px">
-          <strong data-i18n="tab3.que_se_valida_aqui"></strong> <span data-i18n="tab3.antes_de_mover_el_mkv_al"></span>
+          <span data-i18n-html="tab3.que_se_valida_aqui_fase_h"></span>
         </div>
         ${rows.join('')}
       </div>`;
@@ -4732,8 +4732,8 @@ function _cmv40FaseSummary(key, s) {
     // en merge clasico es EL_injected.hevc (solo EL). Preferimos el que exista.
     const dropIn = arts['source_injected.hevc'];
     const merge  = arts['EL_injected.hevc'];
-    if (dropIn) return `source_injected.hevc generado (${_fmtBytes(dropIn)}, drop-in)`;
-    if (merge)  return `EL_injected.hevc generado (${_fmtBytes(merge)})`;
+    if (dropIn) return tr('tab3.source_injected_generado_drop_in', {p1: _fmtBytes(dropIn)});
+    if (merge)  return tr('tab3.el_injected_generado', {p1: _fmtBytes(merge)});
     return tr('tab3.hevc_con_rpu_inyectado_generado');
   }
   if (key === 'G') {
@@ -4742,7 +4742,7 @@ function _cmv40FaseSummary(key, s) {
     const name = s.output_mkv_name || '';
     return name ? tr('tab3.mkv_remuxado_pre_validacion_2', {name: name}) : tr('tab3.mkv_remuxado_pre_validacion');
   }
-  if (key === 'H') return s.output_mkv_path ? `Movido a: ${s.output_mkv_path}` : 'Validado';
+  if (key === 'H') return s.output_mkv_path ? tr('tab3.movido_a_p1', {p1: s.output_mkv_path}) : 'Validado';
   return '';
 }
 
@@ -4803,7 +4803,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
       return `
         <div class="banner success" style="margin-bottom:10px">
           <span class="banner-icon"><span data-icono="check"></span></span>
-          <span><span data-i18n="tab3.fase_d_omitida_el_bin_target"></span> <code>per_frame_data.json</code><span data-i18n="tab3.sin_revision_visual_necesaria_en_el"></span></span>
+          <span><span data-i18n-html="tab3.fase_d_omitida_los_gates_pasaron"></span></span>
         </div>
         <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px"><span data-icono="bombilla"></span> <span data-i18n="tab3.los_resultados_de_los_gates_estan"></span></div>`;
     }
@@ -4879,7 +4879,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
           <span style="font-size:11px; color:var(--text-3); white-space:nowrap" data-i18n="tab3.escrito_en_mnt_output"></span>
         </div>
         <div style="font-size:11px; color:var(--text-3); margin-top:6px; line-height:1.4">
-          <span data-i18n="tab3.sufijo"></span> <code>.mkv.tmp</code> <span data-i18n="tab3.mientras_fase_h_no_valide_tras"></span>
+          <span data-i18n-html="tab3.sufijo_mkv_tmp_mientras_fase_h"></span>
         </div>
       </div>`;
   }
@@ -5749,7 +5749,7 @@ async function cmv40Cleanup(pid) {
       </ul>
       <div class="banner warning" style="margin-top:12px">
         <span class="banner-icon"><span data-icono="aviso"></span></span>
-        <span><b data-i18n="tab3.esta_accion_archiva_el_proyecto"></b><span data-i18n="tab3.no_podras_rehacer_fases_porque_los"></span></span>
+        <span><span data-i18n-html="tab3.esta_accion_archiva_el_proyecto_y_no_podras"></span></span>
       </div>
     </div>`;
 
@@ -5767,7 +5767,7 @@ async function cmv40Cleanup(pid) {
     const data = await apiFetch(`/api/cmv40/${pid}/cleanup`,
                                 { method: 'POST' }, API_FETCH_TIMEOUT_LARGO);
     if (data) {
-      showToast(`Liberado ${_fmtBytes(data.freed_bytes)} · proyecto archivado`, 'success');
+      showToast(tr('tab3.liberado_p1_proyecto_archivado', {p1: _fmtBytes(data.freed_bytes)}), 'success');
       _refreshCMv40Session(pid);
     }
   });
@@ -5944,7 +5944,7 @@ function _renderCMv40Sidebar() {
     const { titulo, tags } = nombreYTags(s.source_mkv_name);
     const name = s.source_mkv_name.replace(/\.mkv$/i, '');
 
-    const modFull = new Date(s.updated_at || s.created_at).toLocaleString('es-ES', {
+    const modFull = new Date(s.updated_at || s.created_at).toLocaleString(localeActual(), {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit',
     });
@@ -6163,7 +6163,7 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
   if (sheetSync.parece_sin_corregir) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <span>${tr('tab3.la_hoja_src_dice_que_la', {src: src, sheettxt: sheetTxt})} <b>${tr('tab3.det_frames', {det: sign(det)})}</b> <span data-i18n="tab3.la_misma_magnitud_parece_que_este"></span> <b data-i18n="tab3.no"></b> <span data-i18n="tab3.es_el_corregido_revisa_el_chart"></span></span>
+      <span>${tr('tab3.la_hoja_src_dice_que_la', {src: src, sheettxt: sheetTxt})} ${tr('tab3.det_la_misma_magnitud_no_es_el_corregido', {det: tr('tab3.det_frames', {det: sign(det)})})}</span>
     </div>`;
   }
   if (sheetSync.corregido === false) {
@@ -6846,10 +6846,10 @@ function _cmv40PfDecision(s) {
 function _cmv40PfCuando(iso) {
   const d = iso ? new Date(iso) : null;
   if (!d || isNaN(d)) return '';
-  return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit',
+  return d.toLocaleDateString(localeActual(), { day: '2-digit', month: '2-digit',
                                          year: 'numeric' })
        + ' a las '
-       + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+       + d.toLocaleTimeString(localeActual(), { hour: '2-digit', minute: '2-digit' });
 }
 
 /** El veredicto: `{clase, titulo, cuerpo, motivos[]}` o null si sigue. */
@@ -6942,9 +6942,9 @@ function _cmv40PfChecks(s) {
   const src = s?.source_dv_info || null;
   const tgt = s?.target_dv_info || null;
   const dv = (i) => !i ? '' : [
-    `Perfil ${i.profile}${i.el_type ? ' ' + i.el_type : ''}`,
+    tr('comun.perfil_p1', {p1: i.profile + (i.el_type ? ' ' + i.el_type : '')}),
     i.cm_version ? `CM ${i.cm_version}` : '',
-    i.frame_count ? `${i.frame_count.toLocaleString('es-ES')} frames` : '',
+    i.frame_count ? `${i.frame_count.toLocaleString(localeActual())} frames` : '',
   ].filter(Boolean).join(' · ');
 
   const filas = [];
@@ -6962,7 +6962,7 @@ function _cmv40PfChecks(s) {
   filas.push({
     titulo: 'RPU target disponible',
     valor: tgt ? (nombreBin || tr('tab3.obtenido_en_el_directorio_de_trabajo'))
-               : (nombreBin ? `Obteniendo ${nombreBin}…` : tr('tab3.obteniendo_el_rpu')),
+               : (nombreBin ? tr('tab3.obteniendo_p1', {p1: nombreBin}) : tr('tab3.obteniendo_el_rpu')),
     estado: tgt ? 'ok' : 'pend',
   });
 

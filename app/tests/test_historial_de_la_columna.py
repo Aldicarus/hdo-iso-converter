@@ -22,7 +22,8 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import sistema_de_iconos, js_completo  # noqa: E402
+from frontend_sources import (js_completo, motor_i18n, pintar_en,  # noqa: E402
+                              sistema_de_iconos)
 
 SISTEMA_ICONOS = sistema_de_iconos()
 
@@ -46,11 +47,18 @@ def _linea(marca: str) -> str:
 
 
 def _node(guion: str) -> dict:
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+    """El guion con el MOTOR de traducción delante, y el texto ya resuelto.
+
+    El frontend llama a `tr('clave')` para todo lo que se lee y a
+    `localeActual()` para toda fecha y todo número, así que un arnés sin el
+    motor muere con «tr is not defined» — y con el motor, las aserciones
+    siguen viendo castellano, que es lo que ya esperaban.
+    """
+    r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))
 
 
 def _linea_hist(id, **kw):

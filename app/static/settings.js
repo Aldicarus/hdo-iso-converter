@@ -163,7 +163,7 @@ async function checkForUpdates(force) {
       // No conseguimos resolver la version remota — no es 'al dia',
       // es 'no se pudo comprobar'. Banner gris/error informativo.
       banner.className = 'settings-update-banner err';
-      banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> <span data-i18n="settings.no_se_pudo_determinar_la_ultima"></span> <code>vX.Y.Z</code> <span data-i18n="settings.o_un_release_publicado"></span></div>`;
+      banner.innerHTML = `<div class="settings-update-msg"><span data-i18n-html="settings.no_se_pudo_determinar_la_version"></span></div>`;
       return;
     }
     banner.className = 'settings-update-banner ok';
@@ -198,7 +198,7 @@ async function checkForUpdates(force) {
   if (pending.length) {
     const sectionsHtml = pending.map(rel => {
       const dateStr = rel.published_at
-        ? new Date(rel.published_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+        ? new Date(rel.published_at).toLocaleDateString(localeActual(), { day: '2-digit', month: 'short', year: 'numeric' })
         : '';
       const linkBtn = rel.url
         ? `<a class="settings-update-rel-link" href="${escHtml(rel.url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span></a>`

@@ -82,6 +82,10 @@ IGUAL_EN_INGLES = {
     "tab2.min_min_pq":       "nombre del campo del RPU entre paréntesis",
     "tab2.scene_cuts":       "nombre del campo del RPU",
     "tab2.master_display":   "nombre del campo del RPU (L9), cabecera de la tarjeta;\n                             #    su pareja es `Container HEVC`",
+    "comun.master_p1_nits":  "`Master` es el campo L9 y `nits` la unidad: la "
+                             "frase entera es nomenclatura",
+    "tab2.master_p1_n":      "igual, con la `n` abreviada del gráfico",
+    "comun.error_p1":        "«Error» se escribe igual en las dos lenguas",
     # Unidades y estándares: no se traducen en ninguna lengua.
     "tab2.nits":             "unidad de luminancia",
     "tab2.highlight_300n":   "clasificación con su umbral en nits",
@@ -90,9 +94,6 @@ IGUAL_EN_INGLES = {
     "tab3.sha_256":          "nombre del algoritmo",
     # Nombres propios y tokens literales.
     "tab3.imdb":             "nombre propio",
-    "tab3.cmv4_0_restored_added":
-        "token LITERAL del nombre de los bins de DoviTools: traducirlo deja de "
-        "coincidir con el fichero real",
     # ── Del catálogo del backend ──────────────────────────────────────
     # Etiquetas que el log ya escribía en inglés, y un comando.
     "cmv40_pipeline.source":

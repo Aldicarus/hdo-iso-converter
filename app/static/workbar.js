@@ -502,7 +502,7 @@ function _workbarDia(iso) {
   const dias = Math.round((soloDia(hoy) - soloDia(d)) / 86400000);
   if (dias === 0) return 'Hoy';
   if (dias === 1) return 'Ayer';
-  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return d.toLocaleDateString(localeActual(), { day: 'numeric', month: 'short' });
 }
 
 /** «hace 12 min». Cuándo pasó, que la duración no lo dice. */
@@ -511,7 +511,7 @@ function _workbarHace(iso) {
   if (!d || isNaN(d)) return '';
   const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (s < 90) return tr('workbar.hace_un_momento');
-  return `hace ${_workbarTiempo(s)}`;
+  return tr('workbar.hace_p1', {p1: _workbarTiempo(s)});
 }
 
 function _workbarRenderHistorial() {
@@ -1207,7 +1207,7 @@ function _trabajoModalConResumen(a, vista) {
   const fecha = (iso) => {
     if (!iso) return '—';
     const d = new Date(iso);
-    return isNaN(d) ? '—' : d.toLocaleString('es-ES',
+    return isNaN(d) ? '—' : d.toLocaleString(localeActual(),
       { day: '2-digit', month: '2-digit', year: '2-digit',
         hour: '2-digit', minute: '2-digit' });
   };

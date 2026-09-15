@@ -76,7 +76,7 @@ async function openCMv40CleanupModal() {
       : `<input type="checkbox" class="cmv40-cleanup-cb" data-id="${escHtml(it.id)}" data-size="${it.size_bytes}" disabled title="${escHtml(it.reason)}">`;
 
     const sizeStr = it.size_bytes > 0 ? _cleanupFmtBytes(it.size_bytes) : '—';
-    const filesStr = it.files_count > 0 ? `${it.files_count} fichero${it.files_count === 1 ? '' : 's'}` : '';
+    const filesStr = it.files_count > 0 ? tr('comun.n_ficheros', {n: it.files_count, p2: it.files_count === 1 ? '' : 's'}) : '';
 
     return `
       <tr class="cmv40-cleanup-row${it.safe_to_delete ? '' : ' cmv40-cleanup-row-disabled'}">
@@ -95,7 +95,7 @@ async function openCMv40CleanupModal() {
 
   body.innerHTML = `
     <div class="cmv40-cleanup-warn">
-      <strong><span data-icono="aviso"></span> <span data-i18n="cmv40_modals.atencion"></span></strong> <span data-i18n="cmv40_modals.esta_accion_es"></span> <strong data-i18n="cmv40_modals.irreversible"></strong><span data-i18n="cmv40_modals.tras_borrar_los_artefactos_los_proyectos"></span> <strong data-i18n="cmv40_modals.solo_lectura"></strong> <span data-i18n="cmv40_modals.no_se_podran_rehacer_fases_ni"></span>
+      <span data-i18n-html="cmv40_modals.atencion_esta_accion_es_irreversible"></span>
     </div>
     <table class="cmv40-cleanup-table">
       <thead>
@@ -170,7 +170,7 @@ async function cmv40BulkCleanupExecute() {
       const skipCount = (data.skipped || []).length;
       const koCount = (data.failed || []).length;
       const freed = _cleanupFmtBytes(data.total_freed_bytes || 0);
-      let msg = `${okCount} proyecto${okCount === 1 ? '' : 's'} archivado${okCount === 1 ? '' : 's'} · liberados ${freed}`;
+      let msg = tr('cmv40_modals.n_proyectos_archivados_liberados', {n: okCount, p2: okCount === 1 ? '' : 's', freed: freed});
       if (skipCount > 0) msg += tr('cmv40_modals.omitido_en_curso', {skipcount: skipCount, p2: skipCount === 1 ? '' : 's'});
       if (koCount > 0)   msg += ` · ${koCount} fallido${koCount === 1 ? '' : 's'}`;
       showToast(msg, koCount === 0 ? 'success' : 'warning');
@@ -458,7 +458,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   if (tmdbDetails) {
     html += renderTmdbCardHTML(tmdbDetails) || '';
   } else if (tmdb && !tmdb.tmdb_configured) {
-    html += `<div class="cmv40-lookup-warn"><span data-icono="aviso"></span> <span data-i18n="cmv40_modals.tmdb_no_esta_disponible_no_hay"></span> <a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> <span data-i18n="ui.configuracion"></span></a> <span data-i18n="cmv40_modals.para_recuperar_el_matching_es_en"></span></div>`;
+    html += `<div class="cmv40-lookup-warn"><span data-i18n-html="cmv40_modals.tmdb_no_esta_disponible_pon_la_tuya"></span></div>`;
   } else if (tmdb) {
     html += `<div class="cmv40-lookup-warn"><span data-icono="info"></span> <span data-i18n="cmv40_modals.tmdb_no_encontro_la_pelicula_con"></span></div>`;
   }
@@ -483,7 +483,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
     html += `<div class="cmv40-lookup-warn">${escHtml(repo.error)}</div>`;
   } else if (!repo.candidates || repo.candidates.length === 0) {
     const t = repo.title_en || repo.title_es || '(título)';
-    html += `<div class="cmv40-lookup-empty"><span data-i18n="cmv40_modals.no_hay"></span> <code>.bin</code> <span data-i18n="cmv40_modals.para"></span> <strong>${escHtml(t)}</strong> <span data-i18n="cmv40_modals.en_el_repositorio_si_quieres_convertir"></span></div>`;
+    html += `<div class="cmv40-lookup-empty">${tr('cmv40_modals.no_hay_bin_para_titulo', {titulo: escHtml(t)})}</div>`;
   } else {
     // Lista plana ordenada por score. El backend ya aplicó bonus retail +0.03
     // — el orden viene correcto. Sin agrupación para no confundir (un

@@ -149,6 +149,20 @@ def _catalogo_es() -> set[str]:
         escapado = v.replace("\n", "\\n")
         fuera.add(" ".join(escapado.split()))
         fuera.add(" ".join(re.sub(r"\{\w+\}", " ⟦⟧ ", escapado).split()))
+    # Y un valor con MARCADO dentro aporta además sus nodos de texto.
+    #
+    # Las frases que el HTML partía con un `<strong>` en medio se capturaron
+    # como trozos —el golden tiene «El repositorio», «lo mantiene» y «por su
+    # cuenta…» por separado, porque eran tres nodos de texto— y hoy son UNA
+    # clave con el marcado dentro. Es la misma frase: se desparte igual que
+    # se despartía el manual, que ya pasaba por aquí.
+    for v in crudos:
+        if "<" not in v:
+            continue
+        for trozo in captura._del_html(v):
+            if trozo:
+                fuera.add(trozo)
+                fuera.add(" ".join(re.sub(r"\{\w+\}", " ⟦⟧ ", trozo).split()))
     return fuera
 
 
