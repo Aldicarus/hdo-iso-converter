@@ -303,7 +303,7 @@ function _renderSrcFb(filter) {
     rows.push(`
       <div class="src-fb-row" data-action="navigate" data-path="${escHtml(st.parent)}">
         <span class="src-fb-icon"><span data-icono="subirNivel"></span></span>
-        <span class="src-fb-name">.. (subir)</span>
+        <span class="src-fb-name" data-i18n="tab1.subir"></span>
       </div>
     `);
   }
@@ -1041,7 +1041,7 @@ function openSeriesModal(probe) {
     // Aviso adicional cuando ya hay episodios procesados de este origen
     // — el usuario sabe por qué algunas filas vienen desmarcadas.
     const existingNote = existingCount > 0
-      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> Existe</span> — marca solo los que quieras añadir o rehacer.`
+      ? ` <strong>${existingCount} episodio${existingCount === 1 ? '' : 's'} ya procesado${existingCount === 1 ? '' : 's'}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span> — marca solo los que quieras añadir o rehacer.`
       : '';
     sub.innerHTML = `${verdict} Identifica la serie (TMDb o manual) y asigna cada candidato a su número de episodio.${existingNote}`;
   }
@@ -1405,7 +1405,7 @@ function _renderSeriesEpisodesTable() {
     // junto al nombre del fichero.
     const existingSession = _findExistingForCandidate(c, season, map.episode_number);
     const existsBadge = existingSession
-      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}"><span data-icono="check"></span> Existe</span>`
+      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span>`
       : '';
     return `
       <div class="series-ep-row${map.include ? '' : ' unchecked'}${existingSession ? ' has-existing' : ''}">
@@ -1424,8 +1424,8 @@ function _renderSeriesEpisodesTable() {
   document.getElementById('series-episodes-table').innerHTML = `
     <div class="series-ep-header">
       <div></div>
-      <div>MPLS / fichero</div>
-      <div>Duración</div>
+      <div data-i18n="tab1.mpls_fichero"></div>
+      <div><span data-i18n="tab1.duracion"></span></div>
       <div title="${isManual ? 'Modo manual' : 'Confianza del match runtime MPLS ↔ TMDb'}">${isManual ? 'Modo' : 'Match'}</div>
       <div>${isManual ? 'Nº episodio + título' : 'Episodio TMDb'}</div>
     </div>
@@ -2135,8 +2135,8 @@ function renderSidebarSessions(sessions, query = '') {
     selectedSidebarSessionId = null;
     container.innerHTML = `<div class="empty-state">
       <div class="empty-state-icon"><span data-icono="carpeta"></span></div>
-      <div>Sin proyectos todavía</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Pulsa "Nuevo proyecto" para empezar</div>
+      <div data-i18n="tab1.sin_proyectos_todavia"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px" data-i18n="tab1.pulsa_nuevo_proyecto_para_empezar"></div>
     </div>`;
     return;
   }
@@ -2144,8 +2144,8 @@ function renderSidebarSessions(sessions, query = '') {
   if (!sessions.length) {
     container.innerHTML = `<div class="empty-state">
       <div class="empty-state-icon"><span data-icono="lupa"></span></div>
-      <div>Sin resultados</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Prueba con otro término o filtro</div>
+      <div data-i18n="tab1.sin_resultados"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px" data-i18n="tab1.prueba_con_otro_termino_o_filtro"></div>
     </div>`;
     return;
   }
@@ -2220,9 +2220,9 @@ function renderSidebarSessions(sessions, query = '') {
       abierto: isOpen,
       acciones: `
         <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Abrir este proyecto en una sub-pestaña de revisión">Abrir</button>
+          data-tooltip="Abrir este proyecto en una sub-pestaña de revisión" data-i18n="tab1.abrir"></button>
         <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Eliminar permanentemente este proyecto">Eliminar</button>`,
+          data-tooltip="Eliminar permanentemente este proyecto" data-i18n="tab1.eliminar"></button>`,
     });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => toggleSidebarSelection(s.id);
@@ -2651,7 +2651,7 @@ function renderIncludedTracks(tracks) {
 
   // ── Audio ──
   if (!byType.audio.length) {
-    audioList.innerHTML = `<li class="track-empty">Sin pistas de audio</li>`;
+    audioList.innerHTML = `<li class="track-empty" data-i18n="tab1.sin_pistas_de_audio"></li>`;
   } else {
     byType.audio.forEach(({ track, flatIdx }) => {
       const raw  = track.raw || {};
@@ -2690,7 +2690,7 @@ function renderIncludedTracks(tracks) {
       li.className = 'track-item';
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
-        <span class="track-drag" data-tooltip="Arrastra para reordenar">⠿</span>
+        <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="grafico"></span></span>
         <div class="track-main">
@@ -2702,7 +2702,7 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-flags">
           <button class="flag-pill${def}" onclick="toggleFlag(${flatIdx},'default')"
-            data-tooltip="flag default: pista de audio seleccionada por defecto en el reproductor">DEF</button>
+            data-tooltip="flag default: pista de audio seleccionada por defecto en el reproductor" data-i18n="tab1.def"></button>
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
@@ -2716,7 +2716,7 @@ function renderIncludedTracks(tracks) {
 
   // ── Subtítulos ──
   if (!byType.subtitle.length) {
-    subList.innerHTML = `<li class="track-empty">Sin pistas de subtítulos</li>`;
+    subList.innerHTML = `<li class="track-empty" data-i18n="tab1.sin_pistas_de_subtitulos"></li>`;
   } else {
     byType.subtitle.forEach(({ track, flatIdx }) => {
       const raw  = track.raw || {};
@@ -2743,7 +2743,7 @@ function renderIncludedTracks(tracks) {
       li.className = 'track-item';
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
-        <span class="track-drag" data-tooltip="Arrastra para reordenar">⠿</span>
+        <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
         ${origLabel ? `<span class="track-orig-pos" data-tooltip="Posición original de la pista en el ISO">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="etiqueta"></span></span>
         <div class="track-main">
@@ -2755,9 +2755,9 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-flags">
           <button class="flag-pill${def}" onclick="toggleFlag(${flatIdx},'default')"
-            data-tooltip="flag default: subtítulo seleccionado por defecto">DEF</button>
+            data-tooltip="flag default: subtítulo seleccionado por defecto" data-i18n="tab1.def"></button>
           <button class="flag-pill${frc}" onclick="toggleFlag(${flatIdx},'forced')"
-            data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero">FRC</button>
+            data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero" data-i18n="tab1.frc"></button>
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
@@ -2913,7 +2913,7 @@ function renderDiscardedTracks(tracks) {
 
   const renderGroup = (container, items, isAudio) => {
     if (!items.length) {
-      container.innerHTML = `<div class="discarded-empty">Ninguna descartada</div>`;
+      container.innerHTML = `<div class="discarded-empty" data-i18n="tab1.ninguna_descartada"></div>`;
       return;
     }
     items.forEach(({ track, idx }) => {
@@ -2978,7 +2978,7 @@ function renderDiscardedTracks(tracks) {
           ${ambigWarn ? `<div class="track-ambiguity inline"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(ambigWarn)}</span></div>` : ''}
         </div>
         <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})"
-          data-tooltip="Recuperar esta pista y añadirla a las incluidas"><span data-icono="deshacer"></span> Recuperar</button>`;
+          data-tooltip="Recuperar esta pista y añadirla a las incluidas"><span data-icono="deshacer"></span> <span data-i18n="tab1.recuperar"></span></button>`;
       container.appendChild(div);
     });
   };
@@ -4125,11 +4125,10 @@ function renderExecResultBanner(session) {
     detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
       ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')"
-          data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales"><span data-icono="cruz"></span> Cancelar</button>`
+          data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
       : '';
     actions.innerHTML = `
-      <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()"
-        data-tooltip="Ver el progreso en tiempo real"><span data-icono="tv"></span> Ver progreso</button>${cancelBtn}`;
+      <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()" data-i18n-tip="tab1.ver_el_progreso_en_tiempo_real"><span data-icono="tv"></span> <span data-i18n="tab1.ver_progreso"></span></button>${cancelBtn}`;
   } else {
     banner.style.display = 'none';
   }
@@ -4236,7 +4235,7 @@ function renderExecutionHistory(session) {
       <td class="exec-h-total">${totalSecs > 0 ? fmtSecs(totalSecs) : '—'}</td>
       <td class="exec-h-actions">
         <button class="btn btn-ghost btn-xs" onclick="showLogModal(${rec.run_number - 1})"
-          data-tooltip="Ver el log completo de esta ejecución"><span data-icono="portapapeles"></span> Log</button>
+          data-tooltip="Ver el log completo de esta ejecución"><span data-icono="portapapeles"></span> <span data-i18n="tab1.log"></span></button>
         <button class="btn btn-ghost btn-xs" onclick="downloadExecLog(${rec.run_number - 1})"
           data-tooltip="Descargar el log como fichero .txt"><span data-icono="flechaAbajo"></span></button>
       </td>`;

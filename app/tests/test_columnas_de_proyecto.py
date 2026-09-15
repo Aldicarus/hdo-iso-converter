@@ -49,7 +49,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo  # noqa: E402
+from frontend_sources import html, js_completo, pintar_en, stub_catalogo_es  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -189,7 +189,10 @@ _CUERPO = """
 
 
 def _medir() -> dict:
-    pagina = html().replace("</head>", _SONDA + "</head>")
+    # El stub del catálogo va ANTES de `i18n.js`, que se pide en <head>: por
+    # `file://` el fetch del catálogo falla y toda la interfaz mostraría
+    # claves en vez de texto — un fallo del arnés con pinta de fallo de la app.
+    pagina = html().replace("</head>", stub_catalogo_es() + _SONDA + "</head>")
     datos = (f"<script>window.__SES={json.dumps(SESIONES)};"
              f"window.__CM={json.dumps(CMV40)};</script>")
     pagina = pagina.replace("</body>", datos + _CUERPO + "</body>")
@@ -211,7 +214,11 @@ def _medir() -> dict:
     m = re.search(r'<pre id="__out">(.*?)</pre>', dom, re.S)
     if not m:
         raise unittest.SkipTest("Chrome no devolvió el volcado")
-    return json.loads(_html.unescape(m.group(1)))
+    # El volcado trae HTML que el JS DEVOLVIÓ sin insertar en el documento
+    # (`renderTmdbCardHTML` y compañía), así que `pintarTextos` no lo ha
+    # tocado: sus `data-i18n` se resuelven aquí, igual que haría el navegador
+    # al meterlo en el DOM.
+    return pintar_en(json.loads(_html.unescape(m.group(1))))
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")

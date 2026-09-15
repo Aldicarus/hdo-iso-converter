@@ -30,7 +30,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo, sistema_de_iconos  # noqa: E402
+from frontend_sources import js_completo, pintar_textos_es, sistema_de_iconos  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -170,7 +170,7 @@ class CardTestCase(unittest.TestCase):
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")
-        return r.stdout
+        return pintar_textos_es(r.stdout)
 
     def diagnostico(self, session):
         script = (sistema_de_iconos()
@@ -182,7 +182,7 @@ class CardTestCase(unittest.TestCase):
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")
-        return r.stdout
+        return pintar_textos_es(r.stdout)
 
 
 class TestLosCincoBloques(CardTestCase):

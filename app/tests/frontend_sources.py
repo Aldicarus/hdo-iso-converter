@@ -104,3 +104,102 @@ def sistema_de_iconos() -> str:
         fn("iconoDeTrabajo"),
         fn("iconoDeEstado"),
     ])
+
+
+# ── i18n para los arneses ──────────────────────────────────────────────
+#
+# Mismo problema que resolvió `sistema_de_iconos()`, y la misma solución: cada
+# arnés tendría que montarse su propio andamio para las traducciones, y cada
+# vez que el sistema cambie se rompen todos a la vez.
+#
+# Hay DOS formas de arnés y necesitan cosas distintas:
+#
+#   · los de node renderizan una plantilla a una CADENA y afirman sobre ella.
+#     Ahí no hay DOM, así que se resuelven los `data-i18n` en Python con
+#     `pintar_textos_es()` — que además comprueba de paso que la clave existe.
+#   · los de Chrome cargan `index.html` por `file://`, donde el `fetch` del
+#     catálogo falla y `t()` devolvería las claves. `stub_catalogo_es()` da un
+#     `<script>` que hay que inyectar ANTES de `i18n.js` para que el fetch
+#     conteste lo que contestaría el servidor.
+
+def catalogo_es() -> dict:
+    """El catálogo castellano, tal cual lo sirve la app."""
+    import json
+    ruta = STATIC / "i18n" / "es.json"
+    if not ruta.exists():
+        return {}
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def pintar_textos_es(html: str) -> str:
+    """Resuelve los `data-i18n*` de una cadena, como haría `pintarTextos()`.
+
+    Una clave que no exista se deja como `⟦clave⟧`, bien visible: así un test
+    que afirme sobre el texto falla con el motivo delante en vez de por una
+    comparación que no dice nada.
+    """
+    import re
+    cat = catalogo_es()
+
+    def txt(clave: str) -> str:
+        return cat.get(clave, f"⟦{clave}⟧")
+
+    # Elemento vacío con `data-i18n`: el texto va dentro.
+    html = re.sub(
+        r'(<(\w+)([^<>]*?))\s*data-i18n="([^"]+)"([^<>]*?>)\s*(</\2>)',
+        lambda m: f"{m.group(1)}{m.group(5)}{txt(m.group(4))}{m.group(6)}", html)
+    # Y el que no cierra en la misma cadena (fragmento de plantilla).
+    html = re.sub(r'\s*data-i18n="([^"]+)"([^<>]*?)>',
+                  lambda m: f"{m.group(2)}>{txt(m.group(1))}", html)
+    for attr, destino in (("ph", "placeholder"), ("tip", "data-tooltip"),
+                          ("aria", "aria-label"), ("html", None)):
+        if destino is None:
+            html = re.sub(r'\s*data-i18n-html="([^"]+)"([^<>]*?)>',
+                          lambda m: f"{m.group(2)}>{txt(m.group(1))}", html)
+        else:
+            html = re.sub(rf'data-i18n-{attr}="([^"]+)"',
+                          lambda m: f'{destino}="{txt(m.group(1))}"', html)
+    return html
+
+
+def stub_catalogo_es() -> str:
+    """`<script>` que hace que el fetch del catálogo funcione en `file://`.
+
+    Se inyecta antes de `i18n.js`. Sin esto, en un Chrome headless sobre
+    `file://` el fetch falla, el catálogo queda vacío y toda la interfaz
+    muestra claves en vez de texto — un fallo del arnés que parece un fallo de
+    la app.
+    """
+    import json
+    cat = json.dumps(catalogo_es(), ensure_ascii=False)
+    manual = STATIC / "i18n" / "manual" / "es.json"
+    man = manual.read_text(encoding="utf-8") if manual.exists() else "{}"
+    return ("<script>(function(){\n"
+            f"const _cat = {cat};\nconst _man = {man};\n"
+            "const _real = window.fetch;\n"
+            "window.fetch = function (u, o) {\n"
+            "  const s = String(u);\n"
+            "  if (s.includes('/i18n/manual/'))\n"
+            "    return Promise.resolve({ok: true, json: () => Promise.resolve(_man)});\n"
+            "  if (s.includes('/i18n/'))\n"
+            "    return Promise.resolve({ok: true, json: () => Promise.resolve(_cat)});\n"
+            "  return _real ? _real.apply(this, arguments)\n"
+            "               : Promise.reject(new Error('sin red en el arnés'));\n"
+            "};})();</script>\n")
+
+
+def pintar_en(obj):
+    """`pintar_textos_es` recursivo, para arneses que devuelven JSON.
+
+    Varios arneses no devuelven HTML suelto sino un objeto con campos (el
+    texto de una tarjeta, la lista de chips, el `textContent` de un nodo).
+    Pintar solo el primer nivel dejaría a medias justo los que miran dentro.
+    """
+    if isinstance(obj, str):
+        return pintar_textos_es(obj)
+    if isinstance(obj, list):
+        return [pintar_en(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: pintar_en(v) for k, v in obj.items()}
+    return obj
+

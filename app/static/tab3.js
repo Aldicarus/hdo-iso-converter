@@ -1134,7 +1134,7 @@ async function _cmv40LoadRecommendation(filename) {
   banner.className = 'cmv40-rec-banner loading';
   banner.innerHTML = `<div class="cmv40-rec-header">
     <span class="cmv40-rec-spinner-inline"></span>
-    <span>Consultando hoja de DoviTools…</span>
+    <span data-i18n="tab3.consultando_hoja_de_dovitools"></span>
   </div>`;
   const qs = '?filename=' + encodeURIComponent(filename);
   const data = await apiFetch('/api/cmv40/recommend-from-filename' + qs);
@@ -1163,7 +1163,7 @@ function _cmv40TableRow(key, value, link, opts = {}) {
   const valueClass = opts.mono ? 'cmv40-rec-row-value mono' : 'cmv40-rec-row-value';
   const linkHtml = link
     ? `<a class="cmv40-rec-row-link" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
-         data-tooltip="Abrir: ${escHtml(link)}">Abrir <span data-icono="enlaceExterno"></span></a>`
+         data-tooltip="Abrir: ${escHtml(link)}"><span data-i18n="tab1.abrir"></span> <span data-icono="enlaceExterno"></span></a>`
     : '';
   return `
     <div class="cmv40-rec-row">
@@ -1209,7 +1209,7 @@ function _cmv40RenderSheetRowBlock(row) {
             || CMV40_SHEET_SECTION_LABEL.feasible;
   const notApplicable = row.feasible === false && row.applies_to_our_workflow === false;
   const chip = notApplicable
-    ? `<span class="cmv40-rec-na-chip" data-tooltip="Esta app preserva el FEL del disco: nunca aplana a P8.1, así que este impedimento no afecta al resultado.">no aplica a este flujo</span>`
+    ? `<span class="cmv40-rec-na-chip" data-i18n="tab3.no_aplica_a_este_flujo" data-i18n-tip="tab3.esta_app_preserva_el_fel_del"></span>`
     : '';
   const labels = (row.blocker_labels || [])
     .filter(l => !notApplicable || (row.blocker_labels || []).length > 1)
@@ -1268,8 +1268,8 @@ function _cmv40RenderRecommendation(data, containerId) {
     const pct = Math.round(data.match_confidence * 100);
     const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
     metaHtml = `<div class="cmv40-rec-meta">
-      <span class="cmv40-rec-meta-tag" data-tooltip="Similitud entre el título del fichero y la fila de DoviTools">${pct}% match</span>
-      <span class="cmv40-rec-meta-tag" data-tooltip="Fuente del matching: TMDb traduce ES→EN">vía ${escHtml(viaLabel)}</span>
+      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.similitud_entre_el_titulo_del_fichero">${pct}% match</span>
+      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.fuente_del_matching_tmdb_traduce_es">vía ${escHtml(viaLabel)}</span>
     </div>`;
   }
 
@@ -1314,14 +1314,14 @@ function _cmv40RenderRecommendation(data, containerId) {
     }
   } else {
     html += `<div class="cmv40-rec-body">
-      El título <strong>${escHtml(data.input_title || '')}</strong>${data.input_year ? ' (' + data.input_year + ')' : ''}`;
+      <span data-i18n="tab3.el_titulo"></span> <strong>${escHtml(data.input_title || '')}</strong>${data.input_year ? ' (' + data.input_year + ')' : ''}`;
     if (data.title_en && data.title_en !== data.input_title) {
       html += ` (TMDb: <em>${escHtml(data.title_en)}</em>)`;
     }
     html += ` no aparece en la hoja de DoviTools (${data.sheet_rows_loaded || 0} títulos revisados). Puedes continuar bajo tu propio criterio.`;
     html += `</div>`;
     if (!data.tmdb_configured) {
-      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> TMDb no está disponible — sin clave activa el matching ES→EN es más limitado. Puedes poner la tuya en Configuración.</div>`;
+      html += `<div class="cmv40-rec-footer"><span data-icono="aviso"></span> <span data-i18n="tab3.tmdb_no_esta_disponible_sin_clave"></span></div>`;
     }
   }
 
@@ -1331,7 +1331,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     const reason = data.sheets_api_error ||
       'no se pudo leer el sheet vía HTML ni Sheets API';
     html += `<div class="cmv40-rec-warn">
-      <span data-icono="aviso"></span> Los enlaces incrustados en el sheet no están disponibles (fuente actual: <code>${escHtml(data.sheet_source)}</code>).<br>
+      <span data-icono="aviso"></span> <span data-i18n="tab3.los_enlaces_incrustados_en_el_sheet"></span> <code>${escHtml(data.sheet_source)}</code>).<br>
       <span class="cmv40-rec-warn-detail">${escHtml(reason)}</span>
     </div>`;
   }
@@ -1585,7 +1585,7 @@ function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative, targetTy
       <div class="cmv40-pp-header">
         <span class="cmv40-pp-icon">${icono(info.icon)}</span>
         <span class="cmv40-pp-title">${escHtml(info.title)}</span>
-        <span class="cmv40-pp-time" data-tooltip="Estimación basada en tiempos medidos en NAS ZFS — se recalibra con cada ejecución real"><span data-icono="reloj"></span> ${escHtml(tiempo)}</span>
+        <span class="cmv40-pp-time" data-i18n-tip="tab3.estimacion_basada_en_tiempos_medidos_en"><span data-icono="reloj"></span> ${escHtml(tiempo)}</span>
       </div>
       <div class="cmv40-pp-flow">${flow}</div>
       <div class="cmv40-pp-blurb">${escHtml(info.blurb)}</div>
@@ -1601,23 +1601,23 @@ function _cmv40ProvenanceNoteHTML(prov, retailAlternative) {
     return `
       <div class="cmv40-pp-prov cmv40-pp-prov-retail">
         <span class="cmv40-pp-prov-icon"><span data-icono="biblioteca"></span></span>
-        <span class="cmv40-pp-prov-label">Retail</span>
-        <span class="cmv40-pp-prov-body">RPU extraído de master streaming oficial — creative intent del colorista.</span>
+        <span class="cmv40-pp-prov-label" data-i18n="tab3.retail"></span>
+        <span class="cmv40-pp-prov-body" data-i18n="tab3.rpu_extraido_de_master_streaming_oficial"></span>
       </div>`;
   }
   if (prov === 'generated') {
     const altHtml = retailAlternative
       ? `<div class="cmv40-pp-prov-alt">
-           <strong>Alternativa retail disponible en este repo:</strong><br>
+           <strong><span data-i18n="tab3.alternativa_retail_disponible_en_este_repo"></span></strong><br>
            <code>${escHtml(retailAlternative)}</code><br>
-           <em>Cámbiala en el desplegable de arriba para usar CMv4.0 auténtico.</em>
+           <em data-i18n="tab3.cambiala_en_el_desplegable_de_arriba"></em>
          </div>`
       : '';
     return `
       <div class="cmv40-pp-prov cmv40-pp-prov-gen">
         <span class="cmv40-pp-prov-icon"><span data-icono="aviso"></span></span>
-        <span class="cmv40-pp-prov-label">Generated</span>
-        <span class="cmv40-pp-prov-body">CMv4.0 <strong>sintético</strong> desde HDR10 (algorítmico). La calidad depende del tuning (T1/T3…). Si existe un bin <code>(cmv4.0 restored/added)</code> o <code>(P5 to P8)</code> para este título, es preferible.</span>
+        <span class="cmv40-pp-prov-label" data-i18n="tab3.generated"></span>
+        <span class="cmv40-pp-prov-body">CMv4.0 <strong data-i18n="tab3.sintetico"></strong> <span data-i18n="tab3.desde_hdr10_algoritmico_la_calidad_depende"></span> <code data-i18n="tab3.cmv4_0_restored_added"></code> <span data-i18n="comun.o"></span> <code data-i18n="tab3.p5_to_p8"></code> <span data-i18n="tab3.para_este_titulo_es_preferible"></span></span>
         ${altHtml}
       </div>`;
   }
@@ -1648,7 +1648,7 @@ function _cmv40NewUpdatePipelinePreview() {
     container.innerHTML = `
       <div class="cmv40-pp-card" style="background:var(--blue-dim); border:1px solid var(--blue-border); border-radius:8px; padding:10px 12px">
         <div style="font-size:12px; color:var(--text-1); line-height:1.5">
-          <strong style="color:var(--blue)">ℹ El tipo del bin se detectará en el pre-flight.</strong>
+          <strong style="color:var(--blue)" data-i18n="tab3.i_el_tipo_del_bin_se"></strong>
           Sin el sheet de recomendación de DoviTools no podemos predecir
           la calidad de ${sourceLabel} antes de procesarlo. El pre-flight (5-30s
           para .bin local, 30-90s para extraer de MKV) clasifica el L8
@@ -2760,12 +2760,12 @@ function _createCMv40Panel(project) {
       <!-- Log de ejecución -->
       <div class="section-card" style="margin-top:16px">
         <div class="section-header">
-          <div><div class="section-title"><span data-icono="portapapeles"></span> Log</div></div>
+          <div><div class="section-title"><span data-icono="portapapeles"></span> <span data-i18n="tab1.log"></span></div></div>
           <div style="display:flex; gap:6px">
             <button class="btn btn-ghost btn-xs"
               onclick="copyLogToClipboard('cmv40-log-${pid}', this)"
-              data-tooltip="Copiar todo el log al portapapeles"><span data-icono="portapapeles"></span> Copiar</button>
-            <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')"><span data-icono="papelera"></span> Limpiar</button>
+              data-tooltip="Copiar todo el log al portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="ui.copiar"></span></button>
+            <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')"><span data-icono="papelera"></span> <span data-i18n="ui.limpiar"></span></button>
           </div>
         </div>
         <div class="section-body" style="padding:0">
@@ -3176,8 +3176,8 @@ function renderTmdbCardHTML(t, ctx = null) {
 
   const links = [];
   if (t.tmdb_url) links.push(`<a href="${escHtml(t.tmdb_url)}" target="_blank" rel="noreferrer noopener">TMDb</a>`);
-  if (t.imdb_id)   links.push(`<a href="https://www.imdb.com/title/${escHtml(t.imdb_id)}/" target="_blank" rel="noreferrer noopener">IMDb</a>`);
-  if (t.homepage)  links.push(`<a href="${escHtml(t.homepage)}" target="_blank" rel="noreferrer noopener">Web oficial</a>`);
+  if (t.imdb_id)   links.push(`<a href="https://www.imdb.com/title/${escHtml(t.imdb_id)}/" target="_blank" rel="noreferrer noopener" data-i18n="tab3.imdb"></a>`);
+  if (t.homepage)  links.push(`<a href="${escHtml(t.homepage)}" target="_blank" rel="noreferrer noopener" data-i18n="tab3.web_oficial"></a>`);
   // «Cambiar película» va aquí y no en la fila del título: ahí empujaba la
   // nota —que se coloca sola a la derecha con `margin-left:auto`— al centro.
   // Y con los otros enlaces es donde encaja: los tres llevan a la ficha.
@@ -3224,8 +3224,8 @@ function _renderCMv40Info(s, pid) {
     ${tmdbCardHtml}
     <div class="section-card">
       <div class="section-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
-        <div><div class="section-title"><span data-icono="curva"></span> Proyecto CMv4.0</div>
-        <div class="section-subtitle"><span data-icono="caja"></span> Los cambios se guardan automáticamente tras cada acción. Cerrar la pestaña no pierde nada.</div></div>
+        <div><div class="section-title"><span data-icono="curva"></span> <span data-i18n="tab3.proyecto_cmv4_0"></span></div>
+        <div class="section-subtitle"><span data-icono="caja"></span> <span data-i18n="tab3.los_cambios_se_guardan_automaticamente_tras"></span></div></div>
         ${canAuto ? `
         <button class="btn btn-${autoOn ? 'primary' : 'ghost'} btn-sm" onclick="cmv40ToggleAuto('${pid}')"
           data-tooltip="${(() => {
@@ -3240,7 +3240,7 @@ function _renderCMv40Info(s, pid) {
       <div class="section-body">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
           <div>
-            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">MKV origen</div>
+            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px" data-i18n="tab3.mkv_origen"></div>
             <div style="font-weight:600">${escHtml(s.source_mkv_name)}</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
               ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
@@ -3300,12 +3300,12 @@ function _renderCMv40SheetCard(s, pid) {
       <div class="section-header">
         <span class="section-icon"><span data-icono="portapapeles"></span></span>
         <div>
-          <div class="section-title">Hoja de DoviTools</div>
-          <div class="section-subtitle">Lo que la comunidad ha documentado sobre este título</div>
+          <div class="section-title" data-i18n="tab3.hoja_de_dovitools"></div>
+          <div class="section-subtitle" data-i18n="tab3.lo_que_la_comunidad_ha_documentado"></div>
         </div>
         <button class="btn btn-ghost btn-xs" onclick="_cmv40HydrateSheetClient('${pid}')"
           data-tooltip="Vuelve a consultar la hoja (la caché dura 1 h)"
-          style="margin-left:auto; color:var(--text-2)"><span data-icono="refrescar"></span> Actualizar</button>
+          style="margin-left:auto; color:var(--text-2)"><span data-icono="refrescar"></span> <span data-i18n="tab3.actualizar"></span></button>
       </div>
       <div style="padding:0 16px 14px">
         <div id="cmv40-sheet-banner-${pid}" class="cmv40-rec-banner"></div>
@@ -3372,9 +3372,9 @@ function _renderCMv40RecommendationCard(s, pid) {
   // Chip comparación L2 (color semántico, paleta de la app)
   const l2Comp = s.l2_comparison || '';
   const l2Chip = l2Comp === 'identical'
-    ? `<span style="background:var(--green-dim); color:var(--green); border:1px solid var(--green-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 idéntico al MKV original</span>`
+    ? `<span style="background:var(--green-dim); color:var(--green); border:1px solid var(--green-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600" data-i18n="tab3.l2_identico_al_mkv_original"></span>`
     : l2Comp === 'different'
-    ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600">L2 distinto del MKV original</span>`
+    ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600" data-i18n="tab3.l2_distinto_del_mkv_original"></span>`
     : '';
 
   // Datos técnicos en formato lista (grid 2-col label/value) — más legible
@@ -3415,11 +3415,11 @@ function _renderCMv40RecommendationCard(s, pid) {
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
           data-tooltip="Cierra el proyecto sin tocar el MKV original. Un reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
-          <span data-icono="check"></span> Mantener MKV actual
+          <span data-icono="check"></span> <span data-i18n="tab3.mantener_mkv_actual"></span>
         </button>
         <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
           data-tooltip="Procesa el MKV inyectando el RPU CMv4.0 aunque el bin sea sintético. Resultado equivalente a la conversión al vuelo del reproductor pero quedará archivado como MKV CMv4.0 completo.">
-          <span data-icono="inyectar"></span> Inyectar RPU igualmente
+          <span data-icono="inyectar"></span> <span data-i18n="tab3.inyectar_rpu_igualmente"></span>
         </button>
       </div>`;
   }
@@ -3432,14 +3432,13 @@ function _renderCMv40RecommendationCard(s, pid) {
   if (s.output_workflow === 'keep_cmv29') {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> Proyecto cerrado — MKV actual mantenido</span>
-        — el fichero original quedó intacto. Tu reproductor (p3i T4 / Sony /
-        LG modernos) hace la conversión CMv4.0 al vuelo en runtime.
+        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.proyecto_cerrado_mkv_actual_mantenido"></span></span>
+        <span data-i18n="tab3.el_fichero_original_quedo_intacto_tu"></span>
       </div>`;
   } else if (s.output_workflow === 'restore_dropin') {
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> MKV procesado — RPU CMv4.0 inyectado (rápido)</span>
+        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.mkv_procesado_rpu_cmv4_0_inyectado"></span></span>
         — el bin se inyectó directo sobre el MKV original, sin merge
         frame-a-frame. Calidad: ${escHtml(qualityTag)}.
       </div>`;
@@ -3452,7 +3451,7 @@ function _renderCMv40RecommendationCard(s, pid) {
       : 'L1/L2/L5/L6 del MKV original preservados';
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> MKV procesado — RPU CMv4.0 inyectado (merge selectivo)</span>
+        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.mkv_procesado_rpu_cmv4_0_inyectado_2"></span></span>
         — niveles CMv4.0 ${mergeLevels} transferidos del bin al MKV; ${l2Note}.
         Calidad: ${escHtml(qualityTag)}.
       </div>`;
@@ -3461,7 +3460,7 @@ function _renderCMv40RecommendationCard(s, pid) {
     // antes del Bloque 4). Banner genérico.
     doneBanner = `
       <div style="margin-top:12px; padding:10px 12px; background:var(--green-dim); border:1px solid var(--green-border); border-radius:var(--r-sm); color:var(--text-1); font-size:12px; line-height:1.4">
-        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> Proyecto completado</span>
+        <span style="color:var(--green); font-weight:600"><span data-icono="check"></span> <span data-i18n="tab3.proyecto_completado"></span></span>
       </div>`;
   }
 
@@ -3469,8 +3468,8 @@ function _renderCMv40RecommendationCard(s, pid) {
     <div class="section-card">
       <div class="section-header">
         <div>
-          <div class="section-title"><span data-icono="diana"></span> Análisis y recomendación</div>
-          <div class="section-subtitle">Decisión Mantener vs Inyectar (rápido / preserva L2) basada en el análisis del bin: clasificación L8, tier de calidad CMv4 y comparación L2 source vs target</div>
+          <div class="section-title"><span data-icono="diana"></span> <span data-i18n="tab3.analisis_y_recomendacion"></span></div>
+          <div class="section-subtitle" data-i18n="tab3.decision_mantener_vs_inyectar_rapido_preserva"></div>
         </div>
       </div>
       <div class="section-body">
@@ -3650,11 +3649,9 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
         <div class="cmv40-ack-head">
           <span class="cmv40-ack-icon"><span data-icono="aviso"></span></span>
           <div class="cmv40-ack-title-block">
-            <div class="cmv40-ack-title">Divergencias detectadas — confirma cómo continuar</div>
+            <div class="cmv40-ack-title" data-i18n="tab3.divergencias_detectadas_confirma_como_continuar"></div>
             <div class="cmv40-ack-sub">
-              El bin pasa los gates estructurales (CMv4.0, L8, frames) pero hay divergencias
-              que <strong>Fase D no puede corregir</strong>. Si continúas, el resultado puede
-              tener artefactos visibles. Decide cómo seguir:
+              <span data-i18n="tab3.el_bin_pasa_los_gates_estructurales"></span> <strong data-i18n="tab3.fase_d_no_puede_corregir"></strong><span data-i18n="tab3.si_continuas_el_resultado_puede_tener"></span>
             </div>
           </div>
         </div>
@@ -3663,12 +3660,12 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
           <button class="btn btn-ghost btn-md"
             onclick="_cmv40ChangeTarget('${pid}')"
             data-tooltip="Vuelve a Fase B para escoger otro bin (del repo DoviTools, de carpeta local o extraído de otro MKV propio)">
-            <span data-icono="deshacer"></span> Cambiar target
+            <span data-icono="deshacer"></span> <span data-i18n="tab3.cambiar_target"></span>
           </button>
           <button class="btn btn-warning btn-md"
             onclick="_cmv40AcknowledgeCriticalGates('${pid}')"
             data-tooltip="Reconoces que el resultado puede ser degradado y autorizas continuar — Fase D se saltará automáticamente">
-            <span data-icono="aviso"></span> Continuar igualmente (resultado degradado)
+            <span data-icono="aviso"></span> <span data-i18n="tab3.continuar_igualmente_resultado_degradado"></span>
           </button>
         </div>
       </div>
@@ -3770,8 +3767,7 @@ function _renderCMv40ActivePhase(project) {
             ${delante}
           </div>
           <button class="btn btn-ghost btn-sm" onclick="cmv40CancelRunning('${pid}')"
-            data-tooltip="Sácalo de la cola; el proyecto se queda como está">
-            Quitar de la cola</button>
+            data-tooltip="Sácalo de la cola; el proyecto se queda como está" data-i18n="workbar.quitar_de_la_cola"></button>
         </div>
       </div>`;
   }
@@ -3787,14 +3783,14 @@ function _renderCMv40ActivePhase(project) {
     );
     const retryBtn = activeFase
       ? `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryActivePhase('${pid}','${activeFase.key}')"
-            data-tooltip="Vuelve a ejecutar ${escHtml(activeFase.title)}"><span data-icono="refrescar"></span> Reintentar</button>`
+            data-tooltip="Vuelve a ejecutar ${escHtml(activeFase.title)}"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>`
       : '';
     errorHtml = `
       <div class="section-card cmv40-card-error" style="margin-top:12px">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
           <span data-icono="aviso" data-icono-clase="ico-lg" style="display:inline-flex"></span>
           <div style="flex:1">
-            <div style="font-weight:600; color:var(--red); margin-bottom:2px">Error en la última acción</div>
+            <div style="font-weight:600; color:var(--red); margin-bottom:2px" data-i18n="tab3.error_en_la_ultima_accion"></div>
             <div style="font-size:12px; color:var(--text-2)">${escHtml(s.error_message)}</div>
           </div>
           ${retryBtn}
@@ -3811,13 +3807,13 @@ function _renderCMv40ActivePhase(project) {
       <div class="section-card" style="margin-top:16px; background:var(--green-dim); border:1px solid var(--green)">
         <div class="section-body" style="text-align:center; padding:20px">
           <div data-icono="curva" data-icono-clase="ico-2x" style="display:flex; justify-content:center"></div>
-          <div style="font-size:15px; font-weight:700; margin-top:4px">MKV CMv4.0 completado</div>
+          <div style="font-size:15px; font-weight:700; margin-top:4px" data-i18n="tab3.mkv_cmv4_0_completado"></div>
           <div style="font-size:11px; color:var(--text-3); margin-top:4px">${escHtml(s.output_mkv_path || s.output_mkv_name)}</div>
           <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
-            <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')"><span data-icono="papelera"></span> Limpiar artefactos</button>
+            <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')"><span data-icono="papelera"></span> <span data-i18n="ui.limpiar_artefactos"></span></button>
           </div>
           <div style="margin-top:8px; font-size:10px; color:var(--text-3)">
-            <span data-icono="aviso"></span> Al limpiar artefactos no podrás rehacer fases (el proyecto pasará a modo solo lectura)
+            <span data-icono="aviso"></span> <span data-i18n="tab3.al_limpiar_artefactos_no_podras_rehacer"></span>
           </div>
         </div>
       </div>`;
@@ -3831,11 +3827,8 @@ function _renderCMv40ActivePhase(project) {
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
           <span data-icono="archivador" data-icono-clase="ico-lg" style="display:inline-flex"></span>
           <div style="flex:1">
-            <div style="font-weight:600">Proyecto archivado — solo lectura</div>
-            <div style="font-size:11px; color:var(--text-3); margin-top:2px">
-              Los artefactos intermedios se borraron. No se pueden rehacer fases.
-              Para iterar de nuevo, crea un proyecto CMv4.0 nuevo desde el mismo MKV origen.
-            </div>
+            <div style="font-weight:600" data-i18n="tab3.proyecto_archivado_solo_lectura"></div>
+            <div style="font-size:11px; color:var(--text-3); margin-top:2px" data-i18n="tab3.los_artefactos_intermedios_se_borraron_no"></div>
           </div>
         </div>
       </div>`;
@@ -3852,13 +3845,13 @@ function _renderCMv40ActivePhase(project) {
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
           <span data-icono="papelera" data-icono-clase="ico-lg" style="display:inline-flex; opacity:0.7"></span>
           <div style="flex:1; min-width:0">
-            <div style="font-size:12.5px; font-weight:600">Limpiar artefactos del workdir</div>
+            <div style="font-size:12.5px; font-weight:600" data-i18n="tab3.limpiar_artefactos_del_workdir"></div>
             <div style="font-size:11px; color:var(--text-3); margin-top:2px">
-              Libera el espacio del workdir intermedio (HEVC, RPU, .mkv.tmp). Disponible siempre que no haya una fase en curso — útil tras un fallo para liberar espacio sin esperar al final del pipeline. <strong>Pasa el proyecto a modo solo lectura.</strong>
+              <span data-i18n="tab3.libera_el_espacio_del_workdir_intermedio"></span> <strong data-i18n="tab3.pasa_el_proyecto_a_modo_solo"></strong>
             </div>
           </div>
           <button class="btn btn-ghost btn-sm" onclick="cmv40Cleanup('${pid}')"
-            style="flex-shrink:0">Limpiar artefactos</button>
+            style="flex-shrink:0" data-i18n="ui.limpiar_artefactos"></button>
         </div>
       </div>`;
   }
@@ -3949,7 +3942,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
           </div>`}
         </div>`;
     } else {
-      body = `<div class="section-body"><div style="font-size:12px; color:var(--text-3)"><span data-icono="candado"></span> Completa las fases anteriores para activar esta.</div></div>`;
+      body = `<div class="section-body"><div style="font-size:12px; color:var(--text-3)"><span data-icono="candado"></span> <span data-i18n="tab3.completa_las_fases_anteriores_para_activar"></span></div></div>`;
     }
   }
 
@@ -4148,12 +4141,12 @@ function _cmv40GateBloque1(pid, s) {
     }
     ackHtml = `
       <div style="margin-top:8px; padding:10px 12px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px">
-        <div style="font-size:12px; font-weight:700; color:#8a4a00"><span data-icono="aviso"></span> Esperando tu confirmación</div>
+        <div style="font-size:12px; font-weight:700; color:#8a4a00"><span data-icono="aviso"></span> <span data-i18n="tab3.esperando_tu_confirmacion"></span></div>
         <div style="font-size:11.5px; color:var(--text-2); line-height:1.5; margin-top:3px">
           ${detalles.length
             ? `Si continúas aceptas que ${escHtml(detalles.join(' · '))}.`
             : 'Hay divergencias que la Fase D no puede corregir.'}
-          Los botones <em>Cambiar target</em> / <em>Continuar igualmente</em> están en el aviso ámbar de arriba del panel.
+          Los botones <em data-i18n="tab3.cambiar_target"></em> / <em data-i18n="tab3.continuar_igualmente"></em> están en el aviso ámbar de arriba del panel.
         </div>
       </div>`;
   }
@@ -4224,7 +4217,7 @@ function _cmv40GateBloque2(s) {
     ${_cmv40BloqueHead('②', 'Los dos RPU, lado a lado')}
     <div style="border:1px solid rgba(15,23,42,0.08); border-radius:6px; overflow:hidden">
       <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
-        <div></div><div>BD (source)</div><div>Bin (target)</div><div style="text-align:right">¿=?</div>
+        <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right">¿=?</div>
       </div>
       ${_cmv40RpuFila('Profile', sdv ? `${sdv.profile}${sdv.el_type ? ' (' + sdv.el_type + ')' : ''}` : '—',
                                  tdv ? `${tdv.profile}${tdv.el_type ? ' (' + tdv.el_type + ')' : ''}` : '—')}
@@ -4398,7 +4391,7 @@ function _cmv40GateBloque4(s) {
   const proc = l5.procedencia || {};
   const avisoProc = proc.contradice ? `
     <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:#8a4a00; line-height:1.5">
-      <span data-icono="aviso"></span> El nombre del bin declara <strong>L5 variable</strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
+      <span data-icono="aviso"></span> <span data-i18n="tab3.el_nombre_del_bin_declara"></span> <strong><span data-i18n="tab3.l5_variable"></span></strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
       pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.
     </div>` : '';
 
@@ -4480,7 +4473,7 @@ function _cmv40GateBloque5(pid, s) {
       ${filas}
       <div style="margin-top:8px; text-align:right">
         <button class="btn btn-ghost btn-xs" onclick="_cmv40CopiarDiagnostico('${pid}', this)"
-          data-tooltip="Vuelca los cinco bloques en texto plano al portapapeles"><span data-icono="portapapeles"></span> Copiar diagnóstico</button>
+          data-tooltip="Vuelca los cinco bloques en texto plano al portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="tab3.copiar_diagnostico"></span></button>
       </div>
     </div>`;
 }
@@ -4581,13 +4574,13 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
     } else if (!hasData) {
       body = `
         <div class="section-body">
-          <div style="font-size:12px; color:var(--text-3); font-style:italic">Aún sin datos — completa Fase B primero.</div>
+          <div style="font-size:12px; color:var(--text-3); font-style:italic" data-i18n="tab3.aun_sin_datos_completa_fase_b"></div>
         </div>`;
     } else {
       body = `
         <div class="section-body">
           <div style="font-size:12px; color:var(--text-2); line-height:1.5">
-            <strong>Qué se valida aquí:</strong> al cerrar Fase B la app compara el RPU del bin con el del Blu-ray para decidir si puede saltarse las fases manuales o hace falta revisión visual, y para asegurar que la combinación no produce un MKV roto. Abajo está TODO lo que se ha medido, no solo el veredicto.
+            <strong data-i18n="tab3.que_se_valida_aqui"></strong> <span data-i18n="tab3.al_cerrar_fase_b_la_app"></span>
           </div>
           ${_cmv40GateBloque1(pid, s)}
           ${_cmv40GateBloque2(s)}
@@ -4603,7 +4596,7 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_BC')" style="cursor:pointer">
         <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
         <div style="flex:1">
-          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> Validaciones — trust gates + compatibilidad</div>
+          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> <span data-i18n="tab3.validaciones_trust_gates_compatibilidad"></span></div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
         <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
@@ -4672,7 +4665,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
     body = `
       <div class="section-body">
         <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:10px">
-          <strong>Qué se valida aquí:</strong> antes de mover el MKV al directorio de salida, la app verifica que el resultado es estructuralmente correcto y que el upgrade a CMv4.0 se ha materializado en el fichero. Si algo falla, el proyecto queda en error y puedes rehacer desde la fase que prefieras.
+          <strong data-i18n="tab3.que_se_valida_aqui"></strong> <span data-i18n="tab3.antes_de_mover_el_mkv_al"></span>
         </div>
         ${rows.join('')}
       </div>`;
@@ -4683,7 +4676,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_GH')" style="cursor:pointer">
         <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
         <div style="flex:1">
-          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> Validación final pre-finalizar</div>
+          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> <span data-i18n="tab3.validacion_final_pre_finalizar"></span></div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
         <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
@@ -4779,9 +4772,9 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const d = s.source_dv_info;
     return `
       <div style="font-size:12px; line-height:1.8">
-        <div><span style="color:var(--text-3)">Profile:</span> ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}</div>
-        <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
-        <div><span style="color:var(--text-3)">Frames:</span> ${s.source_frame_count.toLocaleString()}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.profile"></span></span> ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.cm_version"></span></span> ${d.cm_version}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.source_frame_count.toLocaleString()}</div>
         ${d.has_l1 ? '<div><span style="color:var(--text-3)">Metadata:</span> L1 L2 L5 L6</div>' : ''}
       </div>`;
   }
@@ -4792,18 +4785,18 @@ function _cmv40FaseDoneBody(key, pid, s) {
                    : 'Carpeta NAS';
     const shortHash = s.target_rpu_sha256 ? s.target_rpu_sha256.slice(0, 12) : '';
     const hashLine = shortHash
-      ? `<div><span style="color:var(--text-3)">SHA-256:</span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
+      ? `<div><span style="color:var(--text-3)"><span data-i18n="tab3.sha_256"></span></span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
       : '';
     // Mostrarlo aqui ademas duplicaba la informacion.
     return `
       <div style="font-size:12px; line-height:1.8">
-        <div><span style="color:var(--text-3)">Fuente:</span> ${srcType}</div>
-        <div><span style="color:var(--text-3)">Path:</span> <code>${escHtml(s.target_rpu_path || '—')}</code></div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.fuente"></span></span> ${srcType}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.path"></span></span> <code>${escHtml(s.target_rpu_path || '—')}</code></div>
         ${hashLine}
-        <div><span style="color:var(--text-3)">CM version:</span> ${d.cm_version}</div>
-        <div><span style="color:var(--text-3)">Frames:</span> ${s.target_frame_count.toLocaleString()}</div>
-        <div><span style="color:var(--text-3)">Δ vs origen:</span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
-        <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> Los resultados de los trust gates se muestran en la tarjeta «Validaciones» de abajo.</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.cm_version"></span></span> ${d.cm_version}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.target_frame_count.toLocaleString()}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.vs_origen"></span></span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</b></div>
+        <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> <span data-i18n="tab3.los_resultados_de_los_trust_gates"></span></div>
       </div>`;
   }
   // Fase D completada — dos casuísticas:
@@ -4819,21 +4812,19 @@ function _cmv40FaseDoneBody(key, pid, s) {
       return `
         <div class="banner success" style="margin-bottom:10px">
           <span class="banner-icon"><span data-icono="check"></span></span>
-          <span>Fase D omitida — el bin target pasó los trust gates (frames, L5, L6, L8) y no se generó <code>per_frame_data.json</code>. Sin revisión visual necesaria en el auto-pipeline.</span>
+          <span><span data-i18n="tab3.fase_d_omitida_el_bin_target"></span> <code>per_frame_data.json</code><span data-i18n="tab3.sin_revision_visual_necesaria_en_el"></span></span>
         </div>
-        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px"><span data-icono="bombilla"></span> Los resultados de los gates están en la tarjeta «Validaciones» justo tras Fase B.</div>`;
+        <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px"><span data-icono="bombilla"></span> <span data-i18n="tab3.los_resultados_de_los_gates_estan"></span></div>`;
     }
     const syncConfigHtml = s.sync_config
       ? `<div style="margin-bottom:10px; font-size:12px">
-          <span style="color:var(--text-3)">Corrección aplicada:</span>
+          <span style="color:var(--text-3)" data-i18n="tab3.correccion_aplicada"></span>
           <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
         </div>`
       : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Sincronización confirmada sin corrección.</div>';
     return `
       ${syncConfigHtml}
-      <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
-        Navegación por el gráfico en solo lectura — la corrección ya está aplicada.
-      </div>
+      <div style="font-size:11px; color:var(--text-3); margin-bottom:8px" data-i18n="tab3.navegacion_por_el_grafico_en_solo"></div>
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="280"></canvas>
@@ -4843,7 +4834,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
       <div id="cmv40-confidence-${pid}"></div>`;
   }
   if (key === 'H' && s.output_mkv_path) {
-    return `<div style="font-size:12px"><span style="color:var(--text-3)">MKV final:</span> <code>${escHtml(s.output_mkv_path)}</code></div>`;
+    return `<div style="font-size:12px"><span style="color:var(--text-3)"><span data-i18n="tab3.mkv_final"></span></span> <code>${escHtml(s.output_mkv_path)}</code></div>`;
   }
   // Fase C: mostrar artefactos generados (BL.hevc, EL.hevc, per_frame_data.json)
   if (key === 'C') {
@@ -4871,13 +4862,13 @@ function _cmv40FaseDoneBody(key, pid, s) {
     if (cleaned) {
       return `
         <div style="font-size:12px">
-          <div style="color:var(--text-3); margin-bottom:6px">Artefactos generados:</div>
+          <div style="color:var(--text-3); margin-bottom:6px" data-i18n="tab3.artefactos_generados"></div>
           <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--sep); opacity:0.7">
             <code style="font-size:11px">${escHtml(name)}</code>
-            <span style="font-size:11px; color:var(--text-3)">consumido tras validación</span>
+            <span style="font-size:11px; color:var(--text-3)" data-i18n="tab3.consumido_tras_validacion"></span>
           </div>
           <div style="font-size:11px; color:var(--text-3); margin-top:6px; line-height:1.4">
-            El HEVC intermedio se borra automáticamente en Fase H una vez validado el MKV final — el resultado vive ahora en <code>/mnt/output</code>.
+            <span data-i18n="tab3.el_hevc_intermedio_se_borra_automaticamente"></span> <code>/mnt/output</code>.
           </div>
         </div>`;
     }
@@ -4891,13 +4882,13 @@ function _cmv40FaseDoneBody(key, pid, s) {
     if (!name) return '<div style="font-size:11px; color:var(--text-3)">—</div>';
     return `
       <div style="font-size:12px">
-        <div style="color:var(--text-3); margin-bottom:6px">MKV remuxado (pre-validación Fase H):</div>
+        <div style="color:var(--text-3); margin-bottom:6px" data-i18n="tab3.mkv_remuxado_pre_validacion_fase_h"></div>
         <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--sep); gap:8px">
           <code style="font-size:11px; word-break:break-all">${escHtml(name)}</code>
-          <span style="font-size:11px; color:var(--text-3); white-space:nowrap">escrito en /mnt/output</span>
+          <span style="font-size:11px; color:var(--text-3); white-space:nowrap" data-i18n="tab3.escrito_en_mnt_output"></span>
         </div>
         <div style="font-size:11px; color:var(--text-3); margin-top:6px; line-height:1.4">
-          Sufijo <code>.mkv.tmp</code> mientras Fase H no valide. Tras validar se hace rename atómico al nombre final.
+          <span data-i18n="tab3.sufijo"></span> <code>.mkv.tmp</code> <span data-i18n="tab3.mientras_fase_h_no_valide_tras"></span>
         </div>
       </div>`;
   }
@@ -4916,13 +4907,13 @@ function _cmv40ArtifactsBody(s, fileNames) {
     }
     return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--sep); opacity:0.5">
       <code style="font-size:11px">${escHtml(name)}</code>
-      <span style="font-size:11px; color:var(--text-3)">no encontrado</span>
+      <span style="font-size:11px; color:var(--text-3)" data-i18n="tab3.no_encontrado"></span>
     </div>`;
   }).join('');
   const total = fileNames.reduce((acc, n) => acc + (arts[n] || 0), 0);
   return `
     <div style="font-size:12px">
-      <div style="color:var(--text-3); margin-bottom:6px">Artefactos generados:</div>
+      <div style="color:var(--text-3); margin-bottom:6px"><span data-i18n="tab3.artefactos_generados"></span></div>
       ${rows}
       ${total > 0 ? `<div style="margin-top:6px; font-size:11px; color:var(--text-3); text-align:right">Total: <b>${_fmtBytes(total)}</b></div>` : ''}
     </div>`;
@@ -5029,53 +5020,53 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
 function _cmv40FaseABody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Extrae el stream HEVC y el RPU del MKV origen. Tarda 2-5 minutos.</div>
-      <button class="btn btn-primary btn-md" onclick="cmv40DoAnalyzeSource('${pid}')"><span data-icono="lupa"></span> Analizar origen</button>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.extrae_el_stream_hevc_y_el"></div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoAnalyzeSource('${pid}')"><span data-icono="lupa"></span> <span data-i18n="tab3.analizar_origen"></span></button>
     </div>`;
 }
 
 function _cmv40FaseBBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Elige una fuente del RPU CMv4.0 a inyectar.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.elige_una_fuente_del_rpu_cmv4"></div>
       <div class="cmv40-tab-switcher">
         <button class="cmv40-tab-btn active" id="cmv40-tab-btn-repo-${pid}"
-          onclick="_cmv40SwitchTargetTab('${pid}','repo')"><span data-icono="caja"></span> Repo DoviTools</button>
+          onclick="_cmv40SwitchTargetTab('${pid}','repo')"><span data-icono="caja"></span> <span data-i18n="ui.repo_dovitools"></span></button>
         <button class="cmv40-tab-btn" id="cmv40-tab-btn-mkv-${pid}"
-          onclick="_cmv40SwitchTargetTab('${pid}','mkv')"><span data-icono="claqueta"></span> Extraer de otro MKV</button>
+          onclick="_cmv40SwitchTargetTab('${pid}','mkv')"><span data-icono="claqueta"></span> <span data-i18n="tab3.extraer_de_otro_mkv"></span></button>
         <button class="cmv40-tab-btn" id="cmv40-tab-btn-path-${pid}"
-          onclick="_cmv40SwitchTargetTab('${pid}','path')"><span data-icono="abrir"></span> Carpeta NAS</button>
+          onclick="_cmv40SwitchTargetTab('${pid}','path')"><span data-icono="abrir"></span> <span data-i18n="tab3.carpeta_nas"></span></button>
       </div>
 
       <div id="cmv40-target-repo-${pid}" class="cmv40-target-tab">
-        <div id="cmv40-repo-info-${pid}" style="font-size:12px;color:var(--text-3);margin-bottom:8px">— Cargando candidatos del repositorio… —</div>
+        <div id="cmv40-repo-info-${pid}" style="font-size:12px;color:var(--text-3);margin-bottom:8px" data-i18n="tab3.cargando_candidatos_del_repositorio"></div>
         <div id="cmv40-repo-list-${pid}" class="cmv40-repo-list" style="max-height:280px;overflow-y:auto"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <button class="btn btn-primary btn-md" onclick="cmv40DoTargetFromDrive('${pid}')"><span data-icono="flechaAbajo"></span> Descargar y usar</button>
-          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRepoForPanel('${pid}')"><span data-icono="deshacer"></span> Refrescar</button>
+          <button class="btn btn-primary btn-md" onclick="cmv40DoTargetFromDrive('${pid}')"><span data-icono="flechaAbajo"></span> <span data-i18n="tab3.descargar_y_usar"></span></button>
+          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRepoForPanel('${pid}')"><span data-icono="deshacer"></span> <span data-i18n="tab3.refrescar"></span></button>
         </div>
       </div>
 
       <div id="cmv40-target-path-${pid}" class="cmv40-target-tab" style="display:none">
-        <label class="modal-field-label">RPU disponible en /mnt/cmv40_rpus/</label>
+        <label class="modal-field-label" data-i18n="tab3.rpu_disponible_en_mnt_cmv40_rpus"></label>
         <div class="iso-select-row">
           <select id="cmv40-rpu-select-${pid}" class="iso-select">
-            <option value="">— Cargando… —</option>
+            <option value="" data-i18n="ui.cargando_2"></option>
           </select>
           <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRpus('${pid}')"><span data-icono="deshacer"></span></button>
         </div>
-        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromPath('${pid}')"><span data-icono="check"></span> Usar este RPU</button>
+        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromPath('${pid}')"><span data-icono="check"></span> <span data-i18n="tab3.usar_este_rpu"></span></button>
       </div>
 
       <div id="cmv40-target-mkv-${pid}" class="cmv40-target-tab" style="display:none">
-        <label class="modal-field-label">MKV que ya tiene CMv4.0</label>
+        <label class="modal-field-label" data-i18n="tab3.mkv_que_ya_tiene_cmv4_0"></label>
         <div class="iso-select-row">
           <select id="cmv40-target-mkv-select-${pid}" class="iso-select">
-            <option value="">— Cargando… —</option>
+            <option value="" data-i18n="ui.cargando_2"></option>
           </select>
           <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadTargetMkvs('${pid}')"><span data-icono="deshacer"></span></button>
         </div>
-        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromMkv('${pid}')"><span data-icono="tijeras"></span> Extraer RPU del MKV</button>
+        <button class="btn btn-primary btn-md" style="margin-top:12px" onclick="cmv40DoTargetFromMkv('${pid}')"><span data-icono="tijeras"></span> <span data-i18n="tab3.extraer_rpu_del_mkv"></span></button>
       </div>
     </div>`;
 }
@@ -5089,16 +5080,16 @@ function _cmv40FaseCBody(pid, s) {
     : 'Se evaluará en Fase D (chart de sincronización) — podrás aplicar corrección si hace falta.';
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Separa el HEVC en BL (Capa Base) + EL (Capa de Mejora) y extrae datos de luminancia por frame para el chart de sincronización. Tarda 5-15 min.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px"><span data-i18n="tab3.separa_el_hevc_en_bl_capa"></span></div>
       ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="aviso"></span></span><span>Diferencia de frames detectada (Δ = ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}). ${deltaNote}</span></div>` : ''}
-      <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')"><span data-icono="tijeras"></span> Extraer BL/EL + per-frame data</button>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')"><span data-icono="tijeras"></span> <span data-i18n="tab3.extraer_bl_el_per_frame_data"></span></button>
     </div>`;
 }
 
 function _cmv40FaseDBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Chart de MaxPQ (L1 del RPU Dolby Vision) por frame. Rojo = origen, Azul = target. Las curvas deben coincidir en forma; si hay offset detectable, se aplica corrección con dovi_tool editor.</div>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.chart_de_maxpq_l1_del_rpu"></div>
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="320"></canvas>
@@ -5140,7 +5131,7 @@ function _cmv40FaseFBody(pid, s) {
     <div class="section-body">
       <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
       ${reviewBanner}
-      <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')"><span data-icono="inyectar"></span> Inyectar RPU</button>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')"><span data-icono="inyectar"></span> <span data-i18n="tab3.inyectar_rpu"></span></button>
     </div>`;
 }
 
@@ -5160,15 +5151,15 @@ function _cmv40FaseGBody(pid, s) {
   return `
     <div class="section-body">
       <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
-      <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')"><span data-icono="caja"></span> Remux MKV final</button>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')"><span data-icono="caja"></span> <span data-i18n="tab3.remux_mkv_final"></span></button>
     </div>`;
 }
 
 function _cmv40FaseHBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Verifica que el MKV resultante tiene CMv4.0 y mueve a /mnt/output.</div>
-      <button class="btn btn-primary btn-md" onclick="cmv40DoValidate('${pid}')"><span data-icono="check"></span> Validar y finalizar</button>
+      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.verifica_que_el_mkv_resultante_tiene"></div>
+      <button class="btn btn-primary btn-md" onclick="cmv40DoValidate('${pid}')"><span data-icono="check"></span> <span data-i18n="tab3.validar_y_finalizar"></span></button>
     </div>`;
 }
 
@@ -5753,21 +5744,21 @@ async function cmv40DoValidate(pid) {
 async function cmv40Cleanup(pid) {
   const bodyHtml = `
     <div style="line-height:1.6">
-      <p style="margin:0 0 10px 0"><b>Qué se borrará:</b></p>
+      <p style="margin:0 0 10px 0"><b data-i18n="tab3.que_se_borrara"></b></p>
       <ul style="margin:0 0 12px 18px; padding:0; font-family:'SF Mono',monospace; font-size:11px">
         <li>source.hevc, BL.hevc, EL.hevc</li>
         <li>RPU_source.bin, RPU_target.bin, RPU_synced.bin</li>
         <li>EL_injected.hevc</li>
         <li>per_frame_data.json, editor_config.json</li>
       </ul>
-      <p style="margin:0 0 10px 0"><b>Qué se preserva:</b></p>
+      <p style="margin:0 0 10px 0"><b data-i18n="tab3.que_se_preserva"></b></p>
       <ul style="margin:0 0 12px 18px; padding:0; font-size:12px">
-        <li>El MKV final en <code>/mnt/output</code></li>
-        <li>Los metadatos del proyecto (log, sync_config, info DV)</li>
+        <li><span data-i18n="tab3.el_mkv_final_en"></span> <code>/mnt/output</code></li>
+        <li data-i18n="tab3.los_metadatos_del_proyecto_log_sync"></li>
       </ul>
       <div class="banner warning" style="margin-top:12px">
         <span class="banner-icon"><span data-icono="aviso"></span></span>
-        <span><b>Esta acción archiva el proyecto</b>. No podrás rehacer fases porque los artefactos de entrada ya no existen. Para iterar de nuevo tendrás que crear un proyecto nuevo desde el MKV origen.</span>
+        <span><b data-i18n="tab3.esta_accion_archiva_el_proyecto"></b><span data-i18n="tab3.no_podras_rehacer_fases_porque_los"></span></span>
       </div>
     </div>`;
 
@@ -5882,12 +5873,10 @@ function _renderCMv40SidebarLoadError() {
   list.innerHTML = `
     <div class="empty-state" style="padding:24px 12px">
       <div class="empty-state-icon" data-icono="caja"></div>
-      <div>No se ha podido cargar la lista de proyectos</div>
-      <div class="empty-state-desc" style="margin-top:6px">
-        Tus proyectos siguen guardados. Reintentando cada 4 s…
-      </div>
+      <div data-i18n="tab3.no_se_ha_podido_cargar_la"></div>
+      <div class="empty-state-desc" style="margin-top:6px" data-i18n="tab3.tus_proyectos_siguen_guardados_reintentando_cada"></div>
       <button class="btn btn-ghost btn-xs" style="margin-top:10px"
-        onclick="refreshCMv40Sidebar()"><span data-icono="refrescar"></span> Reintentar ahora</button>
+        onclick="refreshCMv40Sidebar()"><span data-icono="refrescar"></span> <span data-i18n="tab3.reintentar_ahora"></span></button>
     </div>`;
 }
 
@@ -6032,9 +6021,9 @@ function _renderCMv40Sidebar() {
       abierto: !!isOpen,
       acciones: `
         <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')"
-          data-tooltip="Abrir este proyecto">Abrir</button>
+          data-tooltip="Abrir este proyecto" data-i18n="tab1.abrir"></button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();_cmv40DeleteFromSidebar('${s.id}')"
-          data-tooltip="Eliminar permanentemente">Eliminar</button>`,
+          data-tooltip="Eliminar permanentemente" data-i18n="tab1.eliminar"></button>`,
     });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => _cmv40ToggleSidebarSelection(s.id);
@@ -6132,9 +6121,9 @@ function _renderCMv40SyncStats(project) {
 
   container.innerHTML = `
     <div class="cmv40-sync-row">
-      <div><span class="sync-label">Frames origen:</span> <b>${srcFrames.toLocaleString()}</b></div>
-      <div><span class="sync-label">Frames target:</span> <b>${tgtFrames.toLocaleString()}</b></div>
-      <div><span class="sync-label">Diferencia:</span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta}</b></div>
+      <div><span class="sync-label"><span data-i18n="tab3.frames_origen"></span></span> <b>${srcFrames.toLocaleString()}</b></div>
+      <div><span class="sync-label"><span data-i18n="tab3.frames_target"></span></span> <b>${tgtFrames.toLocaleString()}</b></div>
+      <div><span class="sync-label"><span data-i18n="tab3.diferencia"></span></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta}</b></div>
     </div>
     ${suggested.offset !== undefined && suggested.offset !== 0 ? `
       <div class="banner info" style="margin-top:10px">
@@ -6176,7 +6165,7 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
     }
     return `<div class="banner success" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="check"></span></span>
-      <span>La hoja${src} documenta que la comunidad detectó y <b>ya corrigió</b>
+      <span>La hoja${src} documenta que la comunidad detectó y <b><span data-i18n="tab3.ya_corrigio"></span></b>
         ${sheetTxt} en este bin, y aquí no queda desfase residual
         (detectado ${sign(det)}). La corrección está puesta.</span>
     </div>`;
@@ -6185,14 +6174,13 @@ function _cmv40SheetSyncBannerHTML(sheetSync) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
       <span>La hoja${src} dice que la comunidad corrigió ${sheetTxt}, pero aquí
-        se sigue detectando <b>${sign(det)} frames</b> — la misma magnitud. Parece
-        que este bin <b>no</b> es el corregido: revisa el chart antes de inyectar.</span>
+        se sigue detectando <b>${sign(det)} frames</b> <span data-i18n="tab3.la_misma_magnitud_parece_que_este"></span> <b data-i18n="tab3.no"></b> <span data-i18n="tab3.es_el_corregido_revisa_el_chart"></span></span>
     </div>`;
   }
   if (sheetSync.corregido === false) {
     return `<div class="banner warning" style="margin-top:8px">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <span>Se detecta un desfase de <b>${sign(det)} frames</b> que la hoja no
+      <span><span data-i18n="tab3.se_detecta_un_desfase_de"></span> <b>${sign(det)} frames</b> que la hoja no
         explica${src} (ahí ${sheetVal ? `${sheetTxt} ya venía corregido` : 'no consta ningún desfase'}).
         Revisa el chart antes de inyectar.</span>
     </div>`;
@@ -6231,18 +6219,16 @@ function _renderCMv40Confidence(project) {
   container.innerHTML = `
     <div class="cmv40-confidence-panel" style="border-color:${ratingColor}; margin-top:16px">
       <div class="cmv40-confidence-header">
-        <span class="cmv40-confidence-label">Confianza de sincronización</span>
+        <span class="cmv40-confidence-label" data-i18n="tab3.confianza_de_sincronizacion"></span>
         <span class="cmv40-confidence-value" style="color:${ratingColor}">${pct}%</span>
         <span class="cmv40-confidence-rating" style="color:${ratingColor}">${ratingLabel}</span>
       </div>
       <div class="cmv40-confidence-bar">
         <div class="cmv40-confidence-fill" style="width:${pct}%; background:${ratingColor}"></div>
-        <div class="cmv40-confidence-threshold" style="left:85%" data-tooltip="Umbral mínimo 85%">·</div>
+        <div class="cmv40-confidence-threshold" style="left:85%" data-i18n-tip="tab3.umbral_minimo_85">·</div>
       </div>
       <div class="cmv40-confidence-reason">${escHtml(conf.reason || '')}</div>
-      <div style="font-size:10px; color:var(--text-3); margin-top:4px">
-        Mide la correlación de forma entre MaxCLL origen y target. Insensible a diferencias de valor absoluto — las curvas pueden no coincidir exactamente pero sí seguir el mismo patrón temporal.
-      </div>
+      <div style="font-size:10px; color:var(--text-3); margin-top:4px" data-i18n="tab3.mide_la_correlacion_de_forma_entre"></div>
     </div>
   `;
 }
@@ -6301,15 +6287,13 @@ function _renderCMv40SyncControls(project) {
 
   const zoomRowHtml = `
     <div class="cmv40-zoom-row">
-      <span class="section-subtitle">Zoom</span>
+      <span class="section-subtitle"><span data-i18n="tab3.zoom"></span></span>
       ${presetBtns}
       <span class="cmv40-range-inputs">
-        <label>Desde frame:
-          <input type="number" id="cmv40-range-start-${pid}" value="${currentRange.start}" min="0" max="${totalFrames}"
+        <label data-i18n="tab3.desde_frame"><input type="number" id="cmv40-range-start-${pid}" value="${currentRange.start}" min="0" max="${totalFrames}"
             onchange="_cmv40ApplyRangeFromInputs('${pid}')">
         </label>
-        <label>Hasta frame:
-          <input type="number" id="cmv40-range-end-${pid}" value="${currentRange.end}" min="0" max="${totalFrames}"
+        <label data-i18n="tab3.hasta_frame"><input type="number" id="cmv40-range-end-${pid}" value="${currentRange.end}" min="0" max="${totalFrames}"
             onchange="_cmv40ApplyRangeFromInputs('${pid}')">
         </label>
       </span>
@@ -6358,11 +6342,11 @@ function _renderCMv40SyncControls(project) {
       ${hasSyncConfig ? `<button class="btn btn-danger btn-md" onclick="cmv40DoResetSync('${pid}')"
           data-tooltip="Descartar corrección y volver al target original"><span data-icono="deshacer"></span> Resetear al original</button>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoSkipSync('${pid}')"
-        ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> Confirmar sync y continuar</button>
+        ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sync_y_continuar"></span></button>
     </div>
     <div style="margin-top:8px; font-size:11px; color:var(--text-3)">
-      Δ actual: <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta} frames</b>
-      · Confianza: <b style="color:${confOk ? 'var(--green)' : 'var(--orange)'}">${confPct}%</b>
+      <span data-i18n="tab3.actual"></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta} frames</b>
+      <span data-i18n="tab3.confianza"></span> <b style="color:${confOk ? 'var(--green)' : 'var(--orange)'}">${confPct}%</b>
       ${canConfirm ? ' — <b style="color:var(--green)">listo para continuar</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
   `;
@@ -7136,7 +7120,7 @@ function _cmv40PfPintar(s, veredicto) {
     const ancla = anclajeDeLog(log);
     log.innerHTML = lineas.map(l =>
       `<div class="log-line ${typeof _classifyLogLine === 'function'
-        ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`).join('');
+        ? _classifyLogLine(l) : ''}">${escHtml(l)}</div><span data-i18n="tab3.x"></span>`).join('');
     restaurarAnclajeDeLog(log, ancla);
   }
   _cmv40PfPintarPie(s, veredicto);
@@ -7148,12 +7132,11 @@ function _cmv40PfPintarPie(s, veredicto) {
   const pid = _cmv40PfSesion;
   // Cerrar NO cancela: la validación sigue y el veredicto queda en el panel.
   const cerrar = `<button class="btn btn-ghost btn-sm"
-      onclick="cerrarPreflightCMv40()">Cerrar</button>`;
+      onclick="cerrarPreflightCMv40()" data-i18n="ui.cerrar"></button>`;
   if (!veredicto) {
     pie.innerHTML = `
-      <button class="btn btn-danger btn-sm" onclick="cancelarPreflightCMv40()"
-        data-tooltip="Detiene la validación; el proyecto se queda sin target validado">
-        Detener</button>${cerrar}`;
+      <button class="btn btn-danger btn-sm" onclick="cancelarPreflightCMv40()" data-i18n-tip="tab3.detiene_la_validacion_el_proyecto_se">
+        <span data-i18n="tab3.detener"></span></button>${cerrar}`;
     return;
   }
   if (veredicto.clase === 'ok') { pie.innerHTML = cerrar; return; }
@@ -7166,11 +7149,9 @@ function _cmv40PfPintarPie(s, veredicto) {
   // Los dos que sí funcionan reusan los endpoints del panel.
   const decidir = veredicto.clase === 'aviso' ? `
     <button class="btn btn-ghost btn-sm" onclick="_cmv40PfForzar('${pid}')"
-      data-tooltip="Inyectar el RPU pese a la recomendación">
-      Inyectar igualmente</button>
+      data-tooltip="Inyectar el RPU pese a la recomendación" data-i18n="tab3.inyectar_igualmente"></button>
     <button class="btn btn-primary btn-sm" onclick="_cmv40PfMantener('${pid}')"
-      data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está">
-      Mantener el MKV</button>` : '';
+      data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está" data-i18n="tab3.mantener_el_mkv"></button>` : '';
   pie.innerHTML = decidir + cerrar;
 }
 

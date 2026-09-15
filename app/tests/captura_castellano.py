@@ -77,13 +77,21 @@ def frases_del_frontend() -> set[str]:
                                       .read_text(encoding="utf-8")) if es_frase(x))
     for r in rutas():
         src = Path(r).read_text(encoding="utf-8")
+        # Las plantillas se tratan como HTML, y sus regiones se EXCLUYEN del
+        # barrido de cadenas sueltas. Sin excluirlas, el patrón de cadenas JS
+        # muerde dentro de la plantilla: un `<em>"CMv4.0 arregla el
+        # grading"</em>` del manual salía dos veces —con comillas como nodo de
+        # texto y sin ellas como si fuera una cadena de JavaScript— y la
+        # segunda es un artefacto que no existe en ninguna parte.
+        regiones = []
         for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", src, re.S):
-            # El hueco se sustituye por un centinela: una frase partida por
-            # interpolación se reconoce igual, y el valor no contamina.
+            regiones.append((m.start(), m.end()))
             limpio = re.sub(r"\$\{[^}]*\}", " ⟦⟧ ", m.group(1))
             fuera.update(x for x in _del_html(limpio) if es_frase(x))
-        for a, b in re.findall(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src):
-            s = " ".join((a or b).split())
+        for m in re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src):
+            if any(a <= m.start() < b for a, b in regiones):
+                continue
+            s = " ".join((m.group(1) or m.group(2) or "").split())
             if es_frase(s):
                 fuera.add(s)
     return fuera

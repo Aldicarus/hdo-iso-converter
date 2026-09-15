@@ -41,9 +41,25 @@ _EN_JS = re.compile(r'id="([A-Za-z][\w:.-]*)"')
 _CREADOS_EN_JS = re.compile(r"""\.id\s*=\s*['"]([A-Za-z][\w:.-]*)['"]""")
 
 
+def _manual() -> str:
+    """El manual ya no vive en el bundle: son tres JSON cargados a demanda.
+
+    Sus secciones traen `id` que el JS hidrata después de inyectarlas
+    (`help-sheet-link-anchor`, `help-drive-link-meta`…). Sin mirar aquí, este
+    test los da por inexistentes y acusa al código de buscar ids fantasma —
+    que es justo lo que pasó al sacar el manual del fichero.
+    """
+    import json
+    ruta = Path(__file__).resolve().parents[1] / "static" / "i18n" / "manual" / "es.json"
+    if not ruta.exists():
+        return ""
+    return "\n".join(json.loads(ruta.read_text(encoding="utf-8")).values())
+
+
 def _ids_disponibles() -> set[str]:
+    manual = _manual()
     return (set(_EN_HTML.findall(HTML)) | set(_EN_JS.findall(JS))
-            | set(_CREADOS_EN_JS.findall(JS)))
+            | set(_CREADOS_EN_JS.findall(JS)) | set(_EN_HTML.findall(manual)))
 
 
 class TestIdsQueElJsBusca(unittest.TestCase):

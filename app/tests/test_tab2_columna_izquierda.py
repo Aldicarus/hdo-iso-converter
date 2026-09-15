@@ -46,7 +46,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, pieza_de, sistema_de_iconos  # noqa: E402
+from frontend_sources import html, js_completo, pieza_de, pintar_en, sistema_de_iconos  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -288,7 +288,7 @@ class ColumnaEnNode(unittest.TestCase):
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[-1500:]}")
-        return json.loads(r.stdout)
+        return pintar_en(json.loads(r.stdout))
 
     def salida(self, expr: str, preludio: str = "") -> str:
         return preludio + f"\nprocess.stdout.write(JSON.stringify({expr}));"

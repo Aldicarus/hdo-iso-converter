@@ -1,0 +1,486 @@
+"""Saca las cadenas de interfaz del marcado y las deja en el catálogo.
+
+No es un test: es la herramienta del refactor. Se ejecuta una vez por bloque,
+su salida se revisa con `git diff`, y lo que la valida es
+`test_castellano_intacto.py` —ninguna frase castellana puede desaparecer— más
+la carga en Chrome.
+
+## Dos formas de reescribir, y por qué no una sola
+
+Un texto que es TODO el contenido de su elemento se resuelve poniéndole el
+atributo al elemento (`<button data-i18n="k"></button>`): no añade nodos y el
+diff es de una línea. Uno que comparte sitio con marcado —el caso típico es un
+icono delante— hay que envolverlo (`<span data-i18n="k"></span>`), porque el
+atributo del padre sobrescribiría al hermano.
+
+Envolver siempre sería más simple pero mete un elemento donde no hacía falta en
+167 de 278 casos, y en `<option>` o `<title>` un `<span>` dentro no es HTML
+válido: ahí el atributo del padre es la única vía.
+
+## Las claves
+
+`<area>.<slug del texto>`, derivada del propio texto y no de un contador: un
+catálogo con `ui.147` no lo puede mantener nadie, y menos quien traduce. Que la
+clave dependa del texto tiene además la propiedad correcta — si el castellano
+cambia, la clave cambia, y la traducción vieja deja de aplicarse en vez de
+quedarse mintiendo.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+import unicodedata
+from html.parser import HTMLParser
+from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "tests"))
+
+# Atributos cuyo valor lee un humano, con el sufijo de `data-i18n-*` que les
+# toca. El resto de atributos no se traduce.
+ATRIBUTOS = {
+    "placeholder": "ph",
+    "data-tooltip": "tip",
+    "aria-label": "aria",
+    "title": "tip",          # `title` nativo: mismo destino que el tooltip
+    "alt": "aria",
+}
+
+# Dentro de estos un `<span>` no es HTML válido: el atributo del padre es la
+# única opción.
+SIN_HIJOS = {"option", "title", "textarea"}
+
+# Lo que no es texto de interfaz aunque esté en un nodo de texto.
+_NO_ES_TEXTO = re.compile(r"^[\s\d.,:;•·—–\-→←↔/|()\[\]{}%+*=~×·…]*$")
+
+
+_EXT = (r"(hevc|json|bin|mkv|iso|m2ts|mpls|log|jsonl|idx|progress|tmp|py|js|"
+        r"css|html|txt|xlsx|csv)")
+_IDENT = re.compile(
+    rf"(https?://\S+|/[\w./…-]{{2,}}|[\w./-]*\.{_EXT}\b|\bv?[Xx]\.[Yy]\.[Zz]\b|"
+    rf"([\w-]+\.)+(com|org|net|io|dev)[\w./?=&…-]*)")
+
+
+def _es_identificador(v: str) -> bool:
+    """¿Es una ruta, una URL o un nombre de fichero, y nada más?
+
+    Un identificador no se traduce en ninguna lengua, así que meterlo en el
+    catálogo produce una entrada con el mismo valor en las tres.
+
+    **Exige que HAYA un identificador**, no solo que no quede prosa: sin esa
+    condición, «o», «y» y «no» pasaban por identificadores y se quedaban sin
+    traducir, dejando la frase mezclando idiomas.
+    """
+    t = v.strip()
+    if not _IDENT.search(t):
+        return False
+    resto = re.sub(r"[\s,;·:/()\[\]{}…—–+*=~%]+", " ", _IDENT.sub(" ", t))
+    return not re.search(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{3}", resto)
+
+
+def _solo_glosario(t: str) -> bool:
+    """¿Es únicamente un nombre que no se traduce en ninguna lengua?
+
+    `UHD`, `Blu-ray Toolkit`, `mkvmerge -J`, `DTS-HD MA`… Extraer estos daría
+    una clave con el mismo valor en las tres lenguas, o sea una entrada de
+    catálogo que no traduce nada y que además haría fallar el test que impide
+    «rellenar» una traducción copiando el castellano. Se quedan en el marcado.
+    """
+    from test_registro_de_la_traduccion import GLOSARIO
+    resto = t
+    for g in sorted(GLOSARIO, key=len, reverse=True):
+        resto = resto.replace(g, " ")
+    for extra in ("UHD", "Toolkit", "CMv4.0", "CMv2.9", "DV", "HDR",
+                  "FEL", "MEL", "L1", "L8", "P7", "P8", "TMDb", "DoviTools",
+                  "Atmos", "PQ", "BL", "EL", "SDR", "AC-3", "DD+", "DTS",
+                  "TrueHD", "PCM", "FLAC", "SDH", "AD", "ffprobe", "Plex",
+                  "Jellyfin", "Drive", "Sheets", "PayPal", "GitHub", "Docker"):
+        resto = resto.replace(extra, " ")
+    return not re.search(r"[A-Za-zÁÉÍÓÚÑáéíóúñüÜ]{2}", resto)
+
+
+def _es_traducible(txt: str) -> bool:
+    """¿Lo lee un humano y hay algo que traducir? «Cancelar» sí; «UHD» no."""
+    t = " ".join(txt.split())
+    if len(t) < 2 or _NO_ES_TEXTO.match(t):
+        return False
+    if len(re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñüÜ]", t)) < 2:
+        return False
+    return not _solo_glosario(t) and not _es_identificador(t)
+
+
+def slug(txt: str, largo: int = 6) -> str:
+    """Clave legible a partir del texto: sin acentos, minúsculas, con `_`."""
+    t = unicodedata.normalize("NFKD", txt)
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"<[^>]*>", " ", t)
+    t = re.sub(r"[^A-Za-z0-9]+", "_", t).strip("_").lower()
+    palabras = [p for p in t.split("_") if p][:largo]
+    return "_".join(palabras) or "x"
+
+
+class _Recolector(HTMLParser):
+    """Recorre el marcado guardando POSICIONES, no contenido.
+
+    Trabaja sobre el texto original y las sustituciones se aplican de atrás
+    hacia adelante: reconstruir el HTML desde el árbol reformatearía el fichero
+    entero y el diff sería inservible para revisarlo.
+    """
+
+    def __init__(self, fuente: str):
+        super().__init__(convert_charrefs=False)
+        self.fuente = fuente
+        self.lineas = [0]
+        for linea in fuente.splitlines(keepends=True):
+            self.lineas.append(self.lineas[-1] + len(linea))
+        # (inicio, fin, texto, tag_padre, fin_del_tag_de_apertura, es_unico)
+        self.textos: list[dict] = []
+        self.atributos: list[dict] = []
+        self.pila: list[dict] = []
+
+    def _off(self) -> int:
+        fila, col = self.getpos()
+        return self.lineas[fila - 1] + col
+
+    def handle_starttag(self, tag, attrs):
+        ini = self._off()
+        fin = self.fuente.index(">", ini) + 1
+        for k, v in attrs:
+            if k in ATRIBUTOS and v and _es_traducible(v):
+                # La posición del VALOR, para sustituir solo eso.
+                # Se guarda el atributo COMPLETO, con su espacio previo: se
+                # borra entero y no solo el valor. Un `data-tooltip=""` haría
+                # que el gestor de tooltips pinte una caja vacía, y un
+                # `aria-label=""` es peor que no tenerlo para un lector de
+                # pantalla.
+                m = re.search(r'\s*' + re.escape(k) + r'\s*=\s*"[^"]*"',
+                              self.fuente[ini:fin])
+                if m:
+                    self.atributos.append({
+                        "ini": ini + m.start(), "fin": ini + m.end(),
+                        "texto": v, "attr": k, "tag_ini": ini, "tag_fin": fin,
+                    })
+        if tag not in ("br", "img", "input", "hr", "meta", "link", "source"):
+            self.pila.append({"tag": tag, "tag_fin": fin, "textos": [],
+                              "marcado": False})
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if self.pila and self.pila[-1]["tag"] == tag:
+            self.pila.pop()
+        if self.pila:
+            self.pila[-1]["marcado"] = True
+
+    def handle_endtag(self, tag):
+        while self.pila:
+            el = self.pila.pop()
+            for t in el["textos"]:
+                t["tag_padre"] = el["tag"]
+                t["tag_fin"] = el["tag_fin"]
+                # Único = es todo el contenido del elemento: ni marcado
+                # hermano ni otro texto al lado.
+                t["unico"] = (not el["marcado"]) and len(el["textos"]) == 1
+                self.textos.append(t)
+            if el["tag"] == tag:
+                break
+        if self.pila:
+            self.pila[-1]["marcado"] = True
+
+    def handle_data(self, data):
+        if not self.pila:
+            return
+        if self.pila[-1]["tag"] in ("script", "style"):
+            return
+        if _es_traducible(data):
+            ini = self._off()
+            self.pila[-1]["textos"].append(
+                {"ini": ini, "fin": ini + len(data), "texto": data})
+        elif data.strip():
+            # Texto que no se traduce (un número, una flecha) pero que ocupa:
+            # el elemento deja de ser «solo esta frase».
+            self.pila[-1]["marcado"] = True
+
+    def handle_comment(self, data):
+        pass
+
+    def close(self):
+        """Vuelca lo que quede abierto.
+
+        Los textos solo se registran al CERRAR su elemento, y una plantilla de
+        JS es un fragmento: a menudo abre etiquetas que se cierran en otra
+        plantilla o en una concatenación. Sin este volcado, un fragmento como
+        `<div class="x">Sin resultados` no aporta ni una cadena — que es lo
+        que pasó con `browser.js`, 0 de 6.
+        """
+        super().close()
+        while self.pila:
+            el = self.pila.pop()
+            for t in el["textos"]:
+                t["tag_padre"] = el["tag"]
+                t["tag_fin"] = el["tag_fin"]
+                t["unico"] = (not el["marcado"]) and len(el["textos"]) == 1
+                self.textos.append(t)
+
+
+def extraer(ruta: Path, area: str) -> tuple[str, dict[str, str], dict]:
+    """Devuelve (marcado reescrito, claves nuevas, recuento)."""
+    fuente = ruta.read_text(encoding="utf-8")
+    r = _Recolector(fuente)
+    r.feed(fuente)
+    r.close()
+
+    catalogo: dict[str, str] = {}
+    usadas: dict[str, str] = {}      # slug → texto, para detectar colisiones
+    cambios: list[tuple[int, int, str]] = []
+    cuenta = {"atributo": 0, "padre": 0, "envuelto": 0}
+
+    def clave_para(txt: str) -> str:
+        limpio = " ".join(txt.split())
+        base = f"{area}.{slug(limpio)}"
+        k = base
+        n = 2
+        # Misma frase = misma clave (se traduce una vez). Frases distintas con
+        # el mismo slug se numeran.
+        while k in usadas and usadas[k] != limpio:
+            k = f"{base}_{n}"
+            n += 1
+        usadas[k] = limpio
+        catalogo[k] = limpio
+        return k
+
+    for a in r.atributos:
+        k = clave_para(a["texto"])
+        sufijo = ATRIBUTOS[a["attr"]]
+        # El valor se vacía y el atributo `data-i18n-*` se añade al tag.
+        cambios.append((a["ini"], a["fin"], ""))
+        cambios.append((a["tag_fin"] - 1, a["tag_fin"] - 1,
+                        f' data-i18n-{sufijo}="{k}"'))
+        cuenta["atributo"] += 1
+
+    for t in r.textos:
+        k = clave_para(t["texto"])
+        # `data-i18n` escribe `textContent`: si el elemento contiene una
+        # interpolación, ponerlo en el padre la BORRARÍA.
+        if ((t["unico"] or t["tag_padre"] in SIN_HIJOS)
+                and "${" not in fuente[t["tag_fin"]:t["fin"] + 40]):
+            # El atributo va al padre y el texto se borra: un nodo menos.
+            cambios.append((t["ini"], t["fin"], ""))
+            cambios.append((t["tag_fin"] - 1, t["tag_fin"] - 1,
+                            f' data-i18n="{k}"'))
+            cuenta["padre"] += 1
+        else:
+            # Comparte sitio con marcado: hay que envolverlo. Se conserva el
+            # espaciado de alrededor, que en un flex es lo que separa el icono
+            # del texto.
+            crudo = t["texto"]
+            izq = crudo[:len(crudo) - len(crudo.lstrip())]
+            der = crudo[len(crudo.rstrip()):]
+            cambios.append((t["ini"], t["fin"],
+                            f'{izq}<span data-i18n="{k}"></span>{der}'))
+            cuenta["envuelto"] += 1
+
+    # De atrás hacia adelante: así ningún reemplazo mueve los offsets de los
+    # que quedan por aplicar.
+    salida = fuente
+    for ini, fin, nuevo in sorted(cambios, key=lambda c: (-c[0], -c[1])):
+        salida = salida[:ini] + nuevo + salida[fin:]
+    return salida, catalogo, cuenta
+
+
+# ── El JS: plantillas con HTML dentro, y cadenas sueltas ──────────────
+#
+# Una plantilla (`` `...` ``) es marcado, así que se le aplica el MISMO
+# tratamiento que a `index.html`: `data-i18n` en el elemento, o un `<span>`
+# si el texto comparte sitio. El observador lo pinta cuando entra en el DOM,
+# igual que los iconos.
+#
+# Las cadenas sueltas que van a `showToast`, `showConfirm` o a un
+# `textContent` no son marcado: ahí hay que sustituir el literal por una
+# llamada a `t()`.
+
+def extraer_de_plantillas(ruta: Path, area: str,
+                          catalogo: dict[str, str] | None = None
+                          ) -> tuple[str, dict[str, str], dict]:
+    """Reescribe el HTML de las plantillas de un fichero JS."""
+    fuente = ruta.read_text(encoding="utf-8")
+    catalogo = {} if catalogo is None else catalogo
+    usadas = {v: k for k, v in catalogo.items()}
+    cuenta = {"atributo": 0, "padre": 0, "envuelto": 0, "plantillas": 0}
+    trozos: list[tuple[int, int, str]] = []
+
+    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+        plantilla = m.group(1)
+        # Sin marcado dentro no es HTML: es una cadena con comillas invertidas
+        # y la trata el otro camino.
+        if "<" not in plantilla:
+            continue
+        nuevo, nuevas, c = _reescribir_marcado(plantilla, area, catalogo, usadas)
+        if nuevo != plantilla:
+            trozos.append((m.start(1), m.end(1), nuevo))
+            cuenta["plantillas"] += 1
+            for k, v in c.items():
+                cuenta[k] = cuenta.get(k, 0) + v
+
+    salida = fuente
+    for ini, fin, nuevo in sorted(trozos, key=lambda x: -x[0]):
+        salida = salida[:ini] + nuevo + salida[fin:]
+    return salida, catalogo, cuenta
+
+
+def _regiones_interpoladas(txt: str) -> list[tuple[int, int]]:
+    r"""Los tramos `${...}` de una plantilla, con llaves anidadas.
+
+    Un regex `\$\{[^}]*\}` no sirve: dentro hay ternarias con objetos y
+    llamadas, y se corta en la primera llave. Se cuentan las llaves.
+    """
+    regiones = []
+    i = 0
+    while True:
+        i = txt.find("${", i)
+        if i < 0:
+            return regiones
+        nivel, j = 0, i + 1
+        while j < len(txt):
+            if txt[j] == "{":
+                nivel += 1
+            elif txt[j] == "}":
+                nivel -= 1
+                if nivel == 0:
+                    break
+            j += 1
+        regiones.append((i, min(j + 1, len(txt))))
+        i = j + 1
+
+
+def _reescribir_marcado(html: str, area: str, catalogo: dict[str, str],
+                        usadas: dict[str, str]) -> tuple[str, dict, dict]:
+    """El motor común: sobre un trozo de marcado, devuelve el reescrito.
+
+    **Las expresiones `${...}` se enmascaran antes de parsear.** Dentro hay
+    JavaScript —ternarias con cadenas, llamadas, fragmentos de HTML— y el
+    parser de HTML lo tomaba por texto: reescribirlo metía un `<span>` dentro
+    de una expresión y rompía el fichero. Pasó en `tab2.js` y `tab3.js`, y lo
+    cazó `node --check`.
+    """
+    prohibidas = _regiones_interpoladas(html)
+    # Relleno del mismo largo para que los offsets sigan valiendo, y con un
+    # carácter que el parser trate como texto cualquiera.
+    enmascarado = list(html)
+    for a, b in prohibidas:
+        for k in range(a, b):
+            enmascarado[k] = "\x01"
+    html_m = "".join(enmascarado)
+    r = _Recolector(html_m)
+    try:
+        r.feed(html)
+        r.close()
+    except Exception:
+        # Una plantilla con marcado a medias (se abre en una y se cierra en
+        # otra) no se toca: reescribirla a ciegas produciría HTML roto.
+        return html, {}, {}
+    cambios: list[tuple[int, int, str]] = []
+    cuenta = {"atributo": 0, "padre": 0, "envuelto": 0}
+
+    def fuera_de_expresion(ini: int, fin: int) -> bool:
+        return not any(a < fin and ini < b for a, b in prohibidas)
+
+    def clave_para(txt: str) -> str:
+        limpio = " ".join(txt.split())
+        if limpio in usadas:
+            return usadas[limpio]
+        base = f"{area}.{slug(limpio)}"
+        k, n = base, 2
+        while k in catalogo:
+            k = f"{base}_{n}"
+            n += 1
+        catalogo[k] = limpio
+        usadas[limpio] = k
+        return k
+
+    for a in r.atributos:
+        if not fuera_de_expresion(a["tag_ini"], a["tag_fin"]):
+            continue
+        k = clave_para(a["texto"])
+        cambios.append((a["ini"], a["fin"], ""))
+        cambios.append((a["tag_fin"] - 1, a["tag_fin"] - 1,
+                        f' data-i18n-{ATRIBUTOS[a["attr"]]}="{k}"'))
+        cuenta["atributo"] += 1
+    for t in r.textos:
+        # El texto se lee del ORIGINAL, no del enmascarado.
+        t["texto"] = html[t["ini"]:t["fin"]]
+        # Un texto con interpolación dentro NO se toca aquí: es un mensaje con
+        # parámetros y va por `t()` con nombres, no por `data-i18n`.
+        if "${" in t["texto"] or "\x01" in t["texto"]:
+            continue
+        if not (fuera_de_expresion(t["ini"], t["fin"])
+                and fuera_de_expresion(t["tag_fin"] - 1, t["tag_fin"])):
+            continue
+        k = clave_para(t["texto"])
+        # Igual que arriba, y aquí es donde hizo daño: el extractor puso
+        # `data-i18n` en el `<div class="log-line">${escHtml(l)}</div>` del
+        # visor, que al pintarse se habría quedado en blanco.
+        contenido = html[t["tag_fin"]:t["fin"] + 40]
+        if ((t["unico"] or t["tag_padre"] in SIN_HIJOS)
+                and "${" not in contenido and "\x01" not in contenido):
+            cambios.append((t["ini"], t["fin"], ""))
+            cambios.append((t["tag_fin"] - 1, t["tag_fin"] - 1,
+                            f' data-i18n="{k}"'))
+            cuenta["padre"] += 1
+        else:
+            crudo = t["texto"]
+            izq = crudo[:len(crudo) - len(crudo.lstrip())]
+            der = crudo[len(crudo.rstrip()):]
+            cambios.append((t["ini"], t["fin"],
+                            f'{izq}<span data-i18n="{k}"></span>{der}'))
+            cuenta["envuelto"] += 1
+
+    salida = html
+    for ini, fin, nuevo in sorted(cambios, key=lambda c: (-c[0], -c[1])):
+        salida = salida[:ini] + nuevo + salida[fin:]
+    return salida, catalogo, cuenta
+
+
+JS = ("browser.js", "workbar.js", "settings.js", "core.js",
+      "cmv40_modals.js", "tab1.js", "tab2.js", "tab3.js")
+
+
+def main() -> None:
+    aplicar = "--aplicar" in sys.argv
+    solo_js = "--js" in sys.argv
+    cat_path = APP_DIR / "static" / "i18n" / "es.json"
+    catalogo = json.loads(cat_path.read_text(encoding="utf-8"))
+    antes = len(catalogo)
+
+    if not solo_js:
+        destino = APP_DIR / "static" / "index.html"
+        salida, nuevas, cuenta = extraer(destino, "ui")
+        catalogo.update(nuevas)
+        if aplicar:
+            destino.write_text(salida, encoding="utf-8")
+        print(f"  index.html         +{len(nuevas):>3} claves  "
+              f"(padre {cuenta['padre']}, envuelto {cuenta['envuelto']}, "
+              f"attr {cuenta['atributo']})")
+
+    for nombre in JS:
+        ruta = APP_DIR / "static" / nombre
+        a = len(catalogo)
+        salida, catalogo, _ = extraer_de_plantillas(
+            ruta, nombre.replace(".js", ""), catalogo)
+        if aplicar and len(catalogo) != a:
+            ruta.write_text(salida, encoding="utf-8")
+        print(f"  {nombre:<18} +{len(catalogo) - a:>3} claves")
+
+    if aplicar:
+        cat_path.write_text(
+            json.dumps(catalogo, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
+            encoding="utf-8")
+        print("APLICADO")
+    else:
+        print("(simulación — pasa --aplicar para escribir)")
+    print(f"TOTAL claves nuevas: {len(catalogo) - antes}")
+
+
+if __name__ == "__main__":
+    main()

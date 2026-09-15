@@ -154,7 +154,7 @@ async function checkForUpdates(force) {
   if (!data) {
     banner.style.display = 'block';
     banner.className = 'settings-update-banner err';
-    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> No se pudo consultar la API de GitHub. Reintenta en unos minutos.</div>`;
+    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> <span data-i18n="settings.no_se_pudo_consultar_la_api"></span></div>`;
     return;
   }
   if (!data.update_available) {
@@ -163,23 +163,23 @@ async function checkForUpdates(force) {
       // No conseguimos resolver la version remota — no es 'al dia',
       // es 'no se pudo comprobar'. Banner gris/error informativo.
       banner.className = 'settings-update-banner err';
-      banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> No se pudo determinar la última versión publicada. Comprueba que el repo tenga al menos un tag <code>vX.Y.Z</code> o un Release publicado.</div>`;
+      banner.innerHTML = `<div class="settings-update-msg"><span data-icono="aviso"></span> <span data-i18n="settings.no_se_pudo_determinar_la_ultima"></span> <code>vX.Y.Z</code> <span data-i18n="settings.o_un_release_publicado"></span></div>`;
       return;
     }
     banner.className = 'settings-update-banner ok';
-    const simBadge = data.simulated ? ` <span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> simulado</span>` : '';
+    const simBadge = data.simulated ? ` <span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> <span data-i18n="settings.simulado"></span></span>` : '';
     const latestPart = ` · última publicada: <strong>${escHtml(data.latest)}</strong>${simBadge}`;
     const ignored = data.ignored_version
-      ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')">Reactivar avisos</button></div>`
+      ? `<div class="settings-update-msg-sub">Ignorando avisos de la versión ${escHtml(data.ignored_version)}. <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')" data-i18n="settings.reactivar_avisos"></button></div>`
       : '';
-    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="check"></span> Estás al día (current: <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
+    banner.innerHTML = `<div class="settings-update-msg"><span data-icono="check"></span> <span data-i18n="settings.estas_al_dia_current"></span> <strong>${escHtml(data.current)}</strong>)${latestPart}.</div>${ignored}`;
     return;
   }
   // Hay update — banner ámbar con notas (todas las pendientes) + botones
   banner.style.display = 'block';
   banner.className = 'settings-update-banner warn';
   const cmds = `docker compose pull\ndocker compose up -d`;
-  const simBadge = data.simulated ? `<span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> simulado</span>` : '';
+  const simBadge = data.simulated ? `<span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> <span data-i18n="settings.simulado"></span></span>` : '';
 
   // Lista de releases pendientes (todas entre current y latest, newest first).
   // Si solo viene release_notes (fallback antiguo), construye un pseudo-release
@@ -231,9 +231,9 @@ async function checkForUpdates(force) {
       <pre id="settings-update-cmd-pre">${escHtml(cmds)}</pre>
     </div>
     <div class="settings-update-actions">
-      <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> Copiar comandos</button>
+      <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> <span data-i18n="settings.copiar_comandos"></span></button>
       ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> Release en GitHub</a>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')">Ignorar esta versión</button>
+      <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')" data-i18n="settings.ignorar_esta_version"></button>
     </div>`;
 }
 
@@ -572,14 +572,14 @@ async function cleanupScanAndShow() {
 
   if (!data) return;
   if (!data.items || !data.items.length) {
-    resultEl.innerHTML = '<div class="settings-cleanup-empty"><span data-icono="check"></span> No se encontraron huérfanos. Todo limpio.</div>';
+    resultEl.innerHTML = '<div class="settings-cleanup-empty"><span data-icono="check"></span> <span data-i18n="settings.no_se_encontraron_huerfanos_todo_limpio"></span></div>';
     return;
   }
 
   // Render tabla con checkboxes (default: marcado solo si safe=true)
   const rows = data.items.map((it, i) => {
     const checked = it.safe ? 'checked' : '';
-    const warnIcon = it.safe ? '' : '<span class="cleanup-warn" data-tooltip="Reciente o potencialmente activo — revisa antes de borrar"><span data-icono="aviso"></span></span>';
+    const warnIcon = it.safe ? '' : '<span class="cleanup-warn" data-i18n-tip="settings.reciente_o_potencialmente_activo_revisa_antes"><span data-icono="aviso"></span></span>';
     return `
       <tr class="cleanup-row${it.safe ? '' : ' cleanup-row-warn'}">
         <td><input type="checkbox" class="cleanup-cb" data-path="${escHtml(it.path)}" ${checked}></td>

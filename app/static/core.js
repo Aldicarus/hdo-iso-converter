@@ -697,39 +697,37 @@ function buildProjectPanelHTML(pid) {
 
     <div id="${pid}-iso-missing-banner" class="banner error" style="display:none">
       <span class="banner-icon"><span data-icono="disco"></span></span>
-      <div><strong id="${pid}-iso-missing-title">Origen no disponible.</strong>
+      <div><strong id="${pid}-iso-missing-title"><span data-i18n="core.origen_no_disponible"></span></strong>
         <span id="${pid}-iso-missing-text"></span>
-        Puedes editar los parámetros, pero no podrás ejecutar hasta que el origen vuelva a estar accesible.
+        <span data-i18n="core.puedes_editar_los_parametros_pero_no"></span>
       </div>
     </div>
 
     <div id="${pid}-vo-warning-banner" class="banner warning" style="display:none">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
-      <div><strong>VO no determinada automáticamente.</strong>
+      <div><strong><span data-i18n="core.vo_no_determinada_automaticamente"></span></strong>
         <span id="${pid}-vo-warning-text"></span>
-        Revisa las pistas incluidas y ajusta los flags manualmente.
+        <span data-i18n="core.revisa_las_pistas_incluidas_y_ajusta"></span>
       </div>
     </div>
 
     <div class="project-phase-strip-row">
-      <div class="project-phase-strip"
-        data-tooltip="Análisis mkvmerge completado → Reglas automáticas aplicadas → En revisión">
-        <span class="pps-step done"><span data-icono="lupa"></span> Análisis</span>
+      <div class="project-phase-strip" data-i18n-tip="core.analisis_mkvmerge_completado_reglas_automaticas_aplicadas">
+        <span class="pps-step done"><span data-icono="lupa"></span> <span data-i18n="core.analisis"></span></span>
         <span class="pps-conn">→</span>
-        <span class="pps-step done"><span data-icono="rayo"></span> Reglas</span>
+        <span class="pps-step done"><span data-icono="rayo"></span> <span data-i18n="core.reglas"></span></span>
         <span class="pps-conn">→</span>
-        <span class="pps-step active"><span data-icono="portapapeles"></span> Revisión</span>
+        <span class="pps-step active"><span data-icono="portapapeles"></span> <span data-i18n="core.revision"></span></span>
         <span class="pps-conn">→</span>
         <span class="pps-step muted">${icono('flechaAbajo')} mkvmerge</span>
       </div>
-      <button class="btn btn-ghost btn-xs" onclick="showRawAnalysisData()"
-        data-tooltip="Ver los datos de análisis originales del ISO (mkvmerge -J + capítulos + reglas)"><span data-icono="lupaOnda"></span> Datos ISO</button>
+      <button class="btn btn-ghost btn-xs" onclick="showRawAnalysisData()" data-i18n-tip="core.ver_los_datos_de_analisis_originales"><span data-icono="lupaOnda"></span> <span data-i18n="core.datos_iso"></span></button>
     </div>
 
     <div class="section-card globals-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="caja"></span></span>
-        <div><div class="section-title">Nombre del MKV</div><div class="section-subtitle">Se recalcula automáticamente al cambiar los toggles</div></div>
+        <div><div class="section-title" data-i18n="core.nombre_del_mkv"></div><div class="section-subtitle" data-i18n="core.se_recalcula_automaticamente_al_cambiar_los"></div></div>
       </div>
       <div class="globals-body">
         <div class="globals-mkv-row">
@@ -737,8 +735,7 @@ function buildProjectPanelHTML(pid) {
             data-tooltip="Nombre del MKV de salida. Se genera automáticamente.\nEdítalo manualmente si necesitas otro nombre.">
           <div id="${pid}-mkv-name-manual-notice" class="manual-notice" style="display:none">
             ${icono('lapiz')} Editado manualmente
-            <button class="btn btn-xs btn-ghost" onclick="revertMkvName()"
-              data-tooltip="Restaurar el nombre generado automáticamente.">Revertir</button>
+            <button class="btn btn-xs btn-ghost" onclick="revertMkvName()" data-i18n="core.revertir" data-i18n-tip="core.restaurar_el_nombre_generado_automaticamente"></button>
           </div>
           <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none"
             data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
@@ -764,7 +761,7 @@ function buildProjectPanelHTML(pid) {
             <span class="global-card-icon"><span data-icono="tv"></span></span>
             <div class="global-info-body">
               <div class="global-info-head">
-                <span class="global-card-label">Vídeo · HDR</span>
+                <span class="global-card-label" data-i18n="core.video_hdr"></span>
               </div>
               <div class="global-info-line" id="${pid}-vhdr-codec"></div>
               <div class="global-info-line" id="${pid}-vhdr-hdr"></div>
@@ -778,25 +775,23 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="grafico"></span></span>
-        <div><div class="section-title">Audio</div><div class="section-subtitle">Arrastra para reordenar · pulsa la cruz para descartar</div></div>
-        <span class="section-badge" id="${pid}-audio-count">0 pistas</span>
+        <div><div class="section-title" data-i18n="core.audio"></div><div class="section-subtitle" data-i18n="core.arrastra_para_reordenar_pulsa_la_cruz"></div></div>
+        <span class="section-badge" id="${pid}-audio-count" data-i18n="core.0_pistas"></span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
-        <span style="color:var(--text-3)">Modo:</span>
+        <span style="color:var(--text-3)" data-i18n="core.modo"></span>
         <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="audio"
-          onclick="setTrackMode('audio','filtered')"
-          data-tooltip="Solo Castellano + VO con selección por calidad"><span data-icono="diana"></span> Castellano + VO</button>
+          onclick="setTrackMode('audio','filtered')" data-i18n-tip="core.solo_castellano_vo_con_seleccion_por"><span data-icono="diana"></span> <span data-i18n="core.castellano_vo"></span></button>
         <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="audio"
-          onclick="setTrackMode('audio','keep_all')"
-          data-tooltip="Mantener todas las pistas con labels automáticos (sin reordenar ni descartar)"><span data-icono="portapapeles"></span> Mantener todas</button>
+          onclick="setTrackMode('audio','keep_all')" data-i18n-tip="core.mantener_todas_las_pistas_con_labels"><span data-icono="portapapeles"></span> <span data-i18n="core.mantener_todas"></span></button>
       </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
-          <div class="tracks-group-label">Incluidas</div>
+          <div class="tracks-group-label"><span data-i18n="core.incluidas"></span></div>
           <ul id="${pid}-included-audio-tracks" class="track-list"></ul>
         </div>
         <div class="tracks-discarded-group" id="${pid}-discarded-audio-group">
-          <div class="tracks-group-label tracks-group-label--discarded">Descartadas</div>
+          <div class="tracks-group-label tracks-group-label--discarded"><span data-i18n="core.descartadas"></span></div>
           <div id="${pid}-discarded-audio-tracks"></div>
         </div>
       </div>
@@ -805,25 +800,23 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="etiqueta"></span></span>
-        <div><div class="section-title">Subtítulos</div><div class="section-subtitle">Arrastra para reordenar · pulsa la cruz para descartar</div></div>
-        <span class="section-badge" id="${pid}-sub-count">0 pistas</span>
+        <div><div class="section-title" data-i18n="core.subtitulos"></div><div class="section-subtitle" data-i18n="core.arrastra_para_reordenar_pulsa_la_cruz"></div></div>
+        <span class="section-badge" id="${pid}-sub-count" data-i18n="core.0_pistas"></span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
-        <span style="color:var(--text-3)">Modo:</span>
+        <span style="color:var(--text-3)" data-i18n="core.modo"></span>
         <button class="btn btn-xs mode-toggle active" data-mode="filtered" data-track="subtitle"
-          onclick="setTrackMode('subtitle','filtered')"
-          data-tooltip="Solo Castellano + VO + Inglés. Detecta forzados por tamaño relativo (completo/forzado ≥3×) y descarta pistas en otros idiomas."><span data-icono="diana"></span> Castellano + VO + Inglés</button>
+          onclick="setTrackMode('subtitle','filtered')" data-i18n-tip="core.solo_castellano_vo_ingles_detecta_forzados"><span data-icono="diana"></span> <span data-i18n="core.castellano_vo_ingles"></span></button>
         <button class="btn btn-xs mode-toggle" data-mode="keep_all" data-track="subtitle"
-          onclick="setTrackMode('subtitle','keep_all')"
-          data-tooltip="Mantener todos los subtítulos con labels automáticos (sin reordenar ni descartar)"><span data-icono="portapapeles"></span> Mantener todos</button>
+          onclick="setTrackMode('subtitle','keep_all')" data-i18n-tip="core.mantener_todos_los_subtitulos_con_labels"><span data-icono="portapapeles"></span> <span data-i18n="core.mantener_todos"></span></button>
       </div>
       <div class="section-body tracks-type-body">
         <div class="tracks-included-group">
-          <div class="tracks-group-label">Incluidas</div>
+          <div class="tracks-group-label"><span data-i18n="core.incluidas"></span></div>
           <ul id="${pid}-included-sub-tracks" class="track-list"></ul>
         </div>
         <div class="tracks-discarded-group" id="${pid}-discarded-sub-group">
-          <div class="tracks-group-label tracks-group-label--discarded">Descartadas</div>
+          <div class="tracks-group-label tracks-group-label--discarded"><span data-i18n="core.descartadas"></span></div>
           <div id="${pid}-discarded-sub-tracks"></div>
         </div>
       </div>
@@ -832,7 +825,7 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="libro"></span></span>
-        <div><div class="section-title">Capítulos</div><div class="section-subtitle">Clic en la barra para añadir · arrastra para ajustar · la cruz elimina</div></div>
+        <div><div class="section-title" data-i18n="core.capitulos"></div><div class="section-subtitle" data-i18n="core.clic_en_la_barra_para_anadir"></div></div>
       </div>
       <div class="section-body">
         <div id="${pid}-chapters-auto-banner" class="banner info" style="display:none">
@@ -840,10 +833,10 @@ function buildProjectPanelHTML(pid) {
           <span id="${pid}-chapters-auto-text"></span>
           <button class="btn btn-xs" id="${pid}-chapters-generic-btn" style="display:none; margin-left:auto"
             onclick="setGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> Nombres genéricos</button>
+            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
           <button class="btn btn-xs" id="${pid}-chapters-reset-btn" style="display:none"
             onclick="resetChaptersFromDisc()"
-            data-tooltip="Extrae los capítulos originales del disco (MPLS) y reemplaza los actuales (automáticos o editados)."><span data-icono="refrescar"></span> Restaurar del disco</button>
+            data-tooltip="Extrae los capítulos originales del disco (MPLS) y reemplaza los actuales (automáticos o editados)."><span data-icono="refrescar"></span> <span data-i18n="core.restaurar_del_disco"></span></button>
         </div>
         <div id="${pid}-chapter-timeline-wrap" class="chapter-timeline-wrap"
           onclick="onTimelineClick(event)"
@@ -860,24 +853,24 @@ function buildProjectPanelHTML(pid) {
     <div class="section-card" id="${pid}-exec-history-card">
       <div class="section-header">
         <span class="section-icon"><span data-icono="grafico"></span></span>
-        <div><div class="section-title">Historial de ejecuciones</div><div class="section-subtitle">Resultados, tiempos por fase y logs de cada ejecución</div></div>
+        <div><div class="section-title" data-i18n="core.historial_de_ejecuciones"></div><div class="section-subtitle" data-i18n="core.resultados_tiempos_por_fase_y_logs"></div></div>
         <span class="section-badge" id="${pid}-exec-history-count">0</span>
       </div>
       <div class="section-body">
-        <div id="${pid}-exec-history-empty" class="exec-history-empty">Sin ejecuciones todavía</div>
+        <div id="${pid}-exec-history-empty" class="exec-history-empty"><span data-i18n="core.sin_ejecuciones_todavia"></span></div>
         <div id="${pid}-exec-history-table-wrap" style="display:none">
           <table class="exec-history-table" id="${pid}-exec-history-table">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th data-tooltip="Montar ISO via loop mount"><span data-icono="disco"></span> Montar</th>
-                <th data-tooltip="mkvmerge: MPLS → MKV"><span data-icono="flechaAbajo"></span> mkvmerge</th>
-                <th data-tooltip="Desmontar ISO (umount)"><span data-icono="candadoAbierto"></span> Desmontar</th>
-                <th data-tooltip="mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)"><span data-icono="lapiz"></span> Propedit</th>
-                <th data-tooltip="Duración total de la ejecución"><span data-icono="reloj"></span> Total</th>
-                <th>Acciones</th>
+                <th data-i18n="core.fecha"></th>
+                <th data-i18n="ui.estado"></th>
+                <th data-i18n-tip="core.montar_iso_via_loop_mount"><span data-icono="disco"></span> <span data-i18n="core.montar"></span></th>
+                <th data-i18n-tip="core.mkvmerge_mpls_mkv"><span data-icono="flechaAbajo"></span> mkvmerge</th>
+                <th data-i18n-tip="core.desmontar_iso_umount"><span data-icono="candadoAbierto"></span> <span data-i18n="core.desmontar"></span></th>
+                <th data-i18n-tip="core.mkvpropedit_in_place_solo_ruta_sin"><span data-icono="lapiz"></span> <span data-i18n="core.propedit"></span></th>
+                <th data-i18n-tip="core.duracion_total_de_la_ejecucion"><span data-icono="reloj"></span> <span data-i18n="core.total"></span></th>
+                <th data-i18n="core.acciones"></th>
               </tr>
             </thead>
             <tbody id="${pid}-exec-history-tbody"></tbody>
@@ -887,11 +880,10 @@ function buildProjectPanelHTML(pid) {
     </div>
 
     <div class="project-action-bar">
-      <button class="btn btn-ghost btn-md" onclick="saveSession()"
-        data-tooltip="Guardar los cambios sin ejecutar"><span data-icono="caja"></span> Guardar</button>
+      <button class="btn btn-ghost btn-md" onclick="saveSession()" data-i18n-tip="core.guardar_los_cambios_sin_ejecutar"><span data-icono="caja"></span> <span data-i18n="ui.guardar"></span></button>
       <button class="btn btn-success btn-lg" id="${pid}-execute-btn" onclick="executeSession()"
         data-tooltip="Confirmar y añadir a la cola de ejecución">
-        <span data-icono="play"></span> Confirmar y ejecutar
+        <span data-icono="play"></span> <span data-i18n="core.confirmar_y_ejecutar"></span>
       </button>
     </div>`;
 }
@@ -1430,7 +1422,7 @@ async function buscarCandidatosDeFicha() {
   }
   const anioTxt = (document.getElementById('ficha-anio')?.value || '').trim();
   res.innerHTML = `<div class="cmv40-lookup-loading">
-    <span class="cmv40-rec-spinner-inline"></span> Buscando en TMDb…</div>`;
+    <span class="cmv40-rec-spinner-inline"></span> <span data-i18n="core.buscando_en_tmdb"></span></div>`;
   const r = await apiFetch('/api/cmv40/tmdb-search', {
     method: 'POST',
     body: JSON.stringify({ title: titulo, year: anioTxt || null }),
@@ -1505,11 +1497,11 @@ function botonDeFicha(ctx, conFicha) {
   return conFicha
     ? `<a class="tmdb-cambiar" role="button" tabindex="0"
          onclick="abrirSelectorDeFicha(${arg})"
-         data-tooltip="Elegir otra película si esta no es la correcta">Cambiar película</a>`
+         data-tooltip="Elegir otra película si esta no es la correcta" data-i18n="core.cambiar_pelicula"></a>`
     : `<div class="tmdb-sin-ficha">
-         <span>Sin ficha de TMDb — no hay carátula ni sinopsis.</span>
+         <span data-i18n="core.sin_ficha_de_tmdb_no_hay"></span>
          <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})"
-           data-tooltip="Buscar la película en TMDb y guardarla en el proyecto">Buscar película</button>
+           data-tooltip="Buscar la película en TMDb y guardarla en el proyecto" data-i18n="core.buscar_pelicula"></button>
        </div>`;
 }
 

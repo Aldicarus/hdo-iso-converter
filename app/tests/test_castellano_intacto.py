@@ -29,6 +29,7 @@ Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_castellano_intacto -v
 """
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -49,10 +50,21 @@ EXCEPCIONES: dict[str, str] = {}
 
 
 def _catalogo_es() -> set[str]:
-    """Los valores del catálogo castellano, si ya existe."""
+    """Las frases castellanas ya extraídas: catálogo de UI y manual.
+
+    El manual va aparte porque no es un catálogo de claves sino tres
+    documentos paralelos de HTML, así que sus frases se sacan parseándolo
+    igual que se sacaron del código.
+    """
+    fuera: set[str] = set()
+    manual = APP_DIR / "static" / "i18n" / "manual" / "es.json"
+    if manual.exists():
+        for html in json.loads(manual.read_text(encoding="utf-8")).values():
+            fuera.update(x for x in captura._del_html(
+                re.sub(r"\$\{[^}]*\}", " ⟦⟧ ", html)) if captura.es_frase(x))
     ruta = APP_DIR / "static" / "i18n" / "es.json"
     if not ruta.exists():
-        return set()
+        return fuera
     def hojas(nodo):
         if isinstance(nodo, str):
             yield " ".join(nodo.split())
@@ -62,7 +74,8 @@ def _catalogo_es() -> set[str]:
         elif isinstance(nodo, list):
             for v in nodo:
                 yield from hojas(v)
-    return set(hojas(json.loads(ruta.read_text(encoding="utf-8"))))
+    fuera.update(hojas(json.loads(ruta.read_text(encoding="utf-8"))))
+    return fuera
 
 
 class TestElCastellanoSigueSiendoElMismo(unittest.TestCase):

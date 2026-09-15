@@ -54,6 +54,46 @@ MARKERS = ("━━━", "✓ Fase", "✗ Fase", "📋 Plan", "🎯 Resultado",
 
 _PARAM = re.compile(r"\{(\w+)\}")
 
+# Claves cuyo inglés ES el castellano, y con motivo. Cada una está aquí porque
+# traducirla sería un defecto, no una mejora.
+#
+# **Por clave y no ampliando `GLOSARIO`**, y la razón es concreta: el glosario
+# exige el término en las TRES lenguas, y dos de estas (`Audio`, `Generated`) sí
+# se traducen al catalán (`Àudio`, `Generat`). Añadirlas al glosario prohibiría
+# esa traducción correcta. Y meter `Min`, `Path` o `Stream` como términos
+# globales relajaría la comprobación en las otras 600 cadenas, donde esas
+# palabras sí aparecen dentro de prosa traducible.
+IGUAL_EN_INGLES = {
+    # Ya están en inglés en el original: son cabeceras de tabla y leyendas de
+    # gráfico que el castellano nunca tradujo.
+    "core.audio":            "cabecera de pista; en catalán sí se traduce",
+    "tab2.stream":           "cabecera de la columna de MediaInfo",
+    "tab2.frames":           "cabecera de tabla",
+    "tab3.frames":           "etiqueta de dato",
+    "tab3.path":             "etiqueta de dato",
+    "tab3.generated":        "procedencia del bin; en catalán sí se traduce",
+    "tab3.bd_source":        "cabecera; su pareja es `Bin (target)` y se leen en paralelo",
+    "tab3.bin_target":       "cabecera; su pareja es `BD (source)`",
+    # Nombres de campo del RPU, tal como los emite dovi_tool.
+    "tab2.peak":             "nombre de la serie L1, como lo llama dovi_tool",
+    "tab2.avg":              "nombre de la serie L1 media, como lo llama dovi_tool",
+    "tab2.peak_max_pq":      "nombre del campo del RPU entre paréntesis",
+    "tab2.avg_avg_pq":       "nombre del campo del RPU entre paréntesis",
+    "tab2.min_min_pq":       "nombre del campo del RPU entre paréntesis",
+    "tab2.scene_cuts":       "nombre del campo del RPU",
+    # Unidades y estándares: no se traducen en ninguna lengua.
+    "tab2.nits":             "unidad de luminancia",
+    "tab2.highlight_300n":   "clasificación con su umbral en nits",
+    "tab2.dci_p3":           "nombre del espacio de color",
+    "tab2.rec_709":          "nombre del estándar",
+    "tab3.sha_256":          "nombre del algoritmo",
+    # Nombres propios y tokens literales.
+    "tab3.imdb":             "nombre propio",
+    "tab3.cmv4_0_restored_added":
+        "token LITERAL del nombre de los bins de DoviTools: traducirlo deja de "
+        "coincidir con el fichero real",
+}
+
 
 def _cargar(directorio: Path) -> dict[str, dict[str, str]]:
     return {i: json.loads((directorio / f"{i}.json").read_text(encoding="utf-8"))
@@ -180,6 +220,34 @@ class TestElEstiloSeSostiene(CatalogoCase):
                             fallos.append(f"[{donde}] `{clave}` ({idioma}): «{p}»")
         self.assertEqual(fallos, [], "\n  · ".join([""] + fallos[:10]))
 
+    def test_la_lista_blanca_no_se_podre(self):
+        """Una entrada que ya no aplica esconde el siguiente descuido.
+
+        Si alguien traduce de verdad una de estas —o le cambia el castellano—
+        la excepción deja de tener sentido y hay que quitarla. Igual que con
+        las excepciones del golden del castellano.
+        """
+        sobran = []
+        for donde, cat in self.catalogos():
+            for clave in IGUAL_EN_INGLES:
+                if clave not in cat["es"]:
+                    continue
+                if cat["en"].get(clave) != cat["es"][clave]:
+                    sobran.append(f"[{donde}] `{clave}` ya está traducida")
+        self.assertEqual(sobran, [], "\n  · ".join([""] + sobran))
+
+    def test_cada_entrada_de_la_lista_blanca_existe(self):
+        claves = set()
+        for _, cat in self.catalogos():
+            claves |= set(cat["es"])
+        fantasmas = sorted(k for k in IGUAL_EN_INGLES if k not in claves)
+        self.assertEqual(fantasmas, [],
+                         f"entradas de IGUAL_EN_INGLES sin clave real: {fantasmas}")
+
+    def test_cada_excepcion_lleva_su_motivo(self):
+        flojas = [k for k, v in IGUAL_EN_INGLES.items() if len(v.strip()) < 12]
+        self.assertEqual(flojas, [], f"sin explicar por qué no se traduce: {flojas}")
+
     def test_ninguna_traduccion_se_ha_quedado_en_castellano(self):
         """Copiar el castellano en `en.json` para «rellenar» pasaría los otros
         tests y dejaría la app a medio traducir sin que nada avise.
@@ -190,7 +258,7 @@ class TestElEstiloSeSostiene(CatalogoCase):
         iguales = []
         for donde, cat in self.catalogos():
             for clave, es in cat["es"].items():
-                if clave not in cat["en"]:
+                if clave not in cat["en"] or clave in IGUAL_EN_INGLES:
                     continue
                 if cat["en"][clave] != es:
                     continue
@@ -201,6 +269,70 @@ class TestElEstiloSeSostiene(CatalogoCase):
                     iguales.append(f"[{donde}] `{clave}`: {es[:60]}")
         self.assertEqual(iguales, [],
                          "sin traducir al inglés:\n  · " + "\n  · ".join(iguales[:10]))
+
+
+class TestElManualEstaCompleto(unittest.TestCase):
+    """Las secciones del catálogo tienen que ser las que el nav ofrece.
+
+    Esto nació de un fallo real: al sacar el manual del bundle, la extracción
+    buscaba las claves con `^  (\w+):` y se dejó **`why-upgrade`**, que lleva
+    guion y por tanto va entrecomillada en el objeto. El resultado habría sido
+    un botón del manual que abre una sección vacía — sin ningún error, ni en
+    consola ni en la suite.
+
+    Contar secciones no basta: hay que cruzarlas con los `onclick` del nav,
+    que es la lista de lo que un usuario puede pedir.
+    """
+
+    DIR = APP_DIR / "static" / "i18n" / "manual"
+
+    @classmethod
+    def setUpClass(cls):
+        import sys as _s
+        _s.path.insert(0, str(APP_DIR / "tests"))
+        from frontend_sources import html
+        cls.pedidas = set(re.findall(r"_cmv40HelpSwitch\('([^']+)'\)", html()))
+        cls.cat = {i: json.loads((cls.DIR / f"{i}.json").read_text(encoding="utf-8"))
+                   for i in IDIOMAS}
+
+    def test_el_nav_pide_secciones_y_las_hay(self):
+        self.assertGreaterEqual(len(self.pedidas), 7,
+                                "el nav del manual ha perdido secciones")
+        for idioma in IDIOMAS:
+            faltan = sorted(self.pedidas - set(self.cat[idioma]))
+            self.assertEqual(faltan, [], (
+                f"secciones que el nav ofrece y `{idioma}.json` no tiene: "
+                f"{faltan} — el botón abriría un panel vacío sin dar error"))
+
+    def test_no_hay_secciones_que_nadie_pueda_abrir(self):
+        for idioma in IDIOMAS:
+            sobran = sorted(set(self.cat[idioma]) - self.pedidas)
+            self.assertEqual(sobran, [],
+                             f"secciones en `{idioma}.json` sin botón: {sobran}")
+
+    def test_ninguna_seccion_esta_vacia(self):
+        for idioma in IDIOMAS:
+            vacias = [k for k, v in self.cat[idioma].items() if len(v) < 500]
+            self.assertEqual(vacias, [],
+                             f"secciones sospechosamente cortas en {idioma}: {vacias}")
+
+    def test_las_tres_lenguas_tienen_la_misma_estructura_html(self):
+        """Mismo árbol de etiquetas: la traducción cambia texto, no marcado.
+
+        Un `<td>` perdido descuadra una tabla del manual, y eso no lo ve nadie
+        hasta que alguien abre esa sección en ese idioma.
+        """
+        TAG = re.compile(r"<\s*(/?)([a-zA-Z][\w-]*)")
+        for seccion, es in self.cat["es"].items():
+            base = [m.group(1) + m.group(2).lower() for m in TAG.finditer(es)]
+            for otra in ("en", "ca"):
+                txt = self.cat[otra].get(seccion, "")
+                if txt == es:
+                    continue        # aún sin traducir: cae al castellano
+                otros = [m.group(1) + m.group(2).lower() for m in TAG.finditer(txt)]
+                self.assertEqual(otros, base, (
+                    f"`{seccion}` en `{otra}` no tiene el mismo árbol de "
+                    f"etiquetas que el castellano ({len(otros)} vs {len(base)})"))
 
 
 if __name__ == "__main__":

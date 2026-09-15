@@ -726,11 +726,11 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
         <rect x="${svgSize - 94}" y="${pad - 4}" width="84" height="62" rx="6"
               fill="rgba(255,255,255,0.92)" stroke="rgba(15,23,42,0.08)" stroke-width="1" />
         <circle cx="${svgSize - 85}" cy="${pad + 8}" r="4" fill="${cRec2020}"/>
-        <text x="${svgSize - 77}" y="${pad + 12}" fill="#003e8a" font-weight="700">Rec.2020</text>
+        <text x="${svgSize - 77}" y="${pad + 12}" fill="#003e8a" font-weight="700"><span data-i18n="tab2.rec_2020"></span></text>
         <circle cx="${svgSize - 85}" cy="${pad + 26}" r="4" fill="${cP3}"/>
-        <text x="${svgSize - 77}" y="${pad + 30}" fill="#92400e" font-weight="700">DCI-P3</text>
+        <text x="${svgSize - 77}" y="${pad + 30}" fill="#92400e" font-weight="700"><span data-i18n="tab2.dci_p3"></span></text>
         <circle cx="${svgSize - 85}" cy="${pad + 44}" r="4" fill="${cRec709}"/>
-        <text x="${svgSize - 77}" y="${pad + 48}" fill="#9f1239" font-weight="700">Rec.709</text>
+        <text x="${svgSize - 77}" y="${pad + 48}" fill="#9f1239" font-weight="700" data-i18n="tab2.rec_709"></text>
       </g>
     </svg>`;
 }
@@ -889,7 +889,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   // Chips para refs fuera de rango — se renderizan abajo del SVG
   const outOfRangeChips = refsOutOfRange.length > 0
     ? `<div class="dv-sparkline-out-chips">
-         <span class="dv-sparkline-out-label">Fuera del chart:</span>
+         <span class="dv-sparkline-out-label"><span data-i18n="tab2.fuera_del_chart"></span></span>
          ${refsOutOfRange.map(r =>
             `<span class="dv-sparkline-out-chip" style="--chip-c:${r.color}">${r.label}</span>`
          ).join('')}
@@ -898,10 +898,10 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
 
   // Leyenda compacta: peak / avg / min cuando aplica + refs (max 3)
   const legendParts = [
-    `<span class="dv-sl-leg-item" style="--c:#007AFF">Peak (max_pq)</span>`,
+    `<span class="dv-sl-leg-item" style="--c:#007AFF" data-i18n="tab2.peak_max_pq"></span>`,
   ];
-  if (avgPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#22c55e">Avg (avg_pq)</span>`);
-  if (minPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#94a3b8">Min (min_pq)</span>`);
+  if (avgPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#22c55e" data-i18n="tab2.avg_avg_pq"></span>`);
+  if (minPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#94a3b8" data-i18n="tab2.min_min_pq"></span>`);
   if (cmpPath) legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:#e11d48">${cmpLabel}</span>`);
   refsToDraw.slice(0, 4).forEach(r =>
     legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:${r.color}">${r.label}</span>`));
@@ -989,32 +989,32 @@ function _rgrfL1StatsCard(stats, hdr) {
     <div class="dv-l1-stats">
       <div class="dv-l1-stats-row">
         <div class="dv-l1-stats-block">
-          <div class="dv-l1-stats-block-title">Percentiles · DV L1 max_pq</div>
+          <div class="dv-l1-stats-block-title" data-i18n="tab2.percentiles_dv_l1_max_pq"></div>
           <div class="dv-l1-stats-grid">
-            <div><span class="lbl">peak</span><span class="val">${stats.peak}<span class="u">nits</span></span></div>
-            <div><span class="lbl">p99</span><span class="val">${stats.p99}<span class="u">nits</span></span></div>
-            <div><span class="lbl">p95</span><span class="val">${stats.p95}<span class="u">nits</span></span></div>
-            <div><span class="lbl">p50</span><span class="val">${stats.p50}<span class="u">nits</span></span></div>
-            <div><span class="lbl">avg</span><span class="val">${stats.avg_of_max}<span class="u">nits</span></span></div>
+            <div><span class="lbl"><span data-i18n="tab2.peak"></span></span><span class="val">${stats.peak}<span class="u" data-i18n="tab2.nits"></span></span></div>
+            <div><span class="lbl">p99</span><span class="val">${stats.p99}<span class="u" data-i18n="tab2.nits"></span></span></div>
+            <div><span class="lbl">p95</span><span class="val">${stats.p95}<span class="u" data-i18n="tab2.nits"></span></span></div>
+            <div><span class="lbl">p50</span><span class="val">${stats.p50}<span class="u" data-i18n="tab2.nits"></span></span></div>
+            <div><span class="lbl"><span data-i18n="tab2.avg"></span></span><span class="val">${stats.avg_of_max}<span class="u" data-i18n="tab2.nits"></span></span></div>
           </div>
         </div>
         <div class="dv-l1-stats-block">
-          <div class="dv-l1-stats-block-title">Distribución por brillo de escena</div>
+          <div class="dv-l1-stats-block-title" data-i18n="tab2.distribucion_por_brillo_de_escena"></div>
           <div class="dv-l1-bars">
             <div class="dv-l1-bar-row">
-              <span class="dv-l1-bar-label">SDR-like &lt;100n</span>
+              <span class="dv-l1-bar-label"><span data-i18n="tab2.sdr_like"></span> &lt;100n</span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p1}%; background:#94a3b8"></div></div>
               <span class="dv-l1-bar-pct">${p1}%</span>
               <span class="dv-l1-bar-count">(${stats.bucket_dim.toLocaleString()})</span>
             </div>
             <div class="dv-l1-bar-row">
-              <span class="dv-l1-bar-label">Midtone 100–300n</span>
+              <span class="dv-l1-bar-label" data-i18n="tab2.midtone_100_300n"></span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p2}%; background:#3395ff"></div></div>
               <span class="dv-l1-bar-pct">${p2}%</span>
               <span class="dv-l1-bar-count">(${stats.bucket_mid.toLocaleString()})</span>
             </div>
             <div class="dv-l1-bar-row">
-              <span class="dv-l1-bar-label">Highlight ≥300n</span>
+              <span class="dv-l1-bar-label" data-i18n="tab2.highlight_300n"></span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p3}%; background:#f59e0b"></div></div>
               <span class="dv-l1-bar-pct">${p3}%</span>
               <span class="dv-l1-bar-count">(${stats.bucket_high.toLocaleString()})</span>
@@ -1119,7 +1119,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-low">
           <span class="dv-mc-div-icon"><span data-icono="aviso"></span></span>
-          <span><strong>Master conservador con tone-mapping agresivo</strong> —
+          <span><strong><span data-i18n="tab2.master_conservador_con_tone_mapping_agresivo"></span></strong> —
             L1 RPU peak ${l1Peak.toFixed(0)} nits vs HDR10 SEI MaxCLL ${seiCll} nits
             (ratio ${ratio.toFixed(2)}×). El colorista etiquetó la metadata DV
             por debajo del peak HDR10 — la imagen real tras display mapping
@@ -1130,7 +1130,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
       divergenceBanner = `
         <div class="dv-mc-divergence dv-mc-div-high">
           <span class="dv-mc-div-icon"><span data-icono="info"></span></span>
-          <span><strong>L1 RPU más generoso que HDR10 SEI</strong> —
+          <span><strong><span data-i18n="tab2.l1_rpu_mas_generoso_que_hdr10"></span></strong> —
             L1 peak ${l1Peak.toFixed(0)} nits vs SEI MaxCLL ${seiCll} nits
             (ratio ${ratio.toFixed(2)}×). El SEI HDR10 está etiquetado conservadoramente
             respecto al grado DV real.
@@ -1141,8 +1141,8 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
 
   return `
     <section class="dv-block">
-      <h5 class="dv-block-title">Cadena de mastering
-        <span class="dv-block-sub">grade source → container → DV targets</span>
+      <h5 class="dv-block-title"><span data-i18n="tab2.cadena_de_mastering"></span>
+        <span class="dv-block-sub" data-i18n="tab2.grade_source_container_dv_targets"></span>
       </h5>
       <div class="dv-mc-grid">
         <div class="dv-mc-card">
@@ -1150,10 +1150,10 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
             ${masterSource ? `<span class="dv-mc-card-src">· ${masterSource}</span>` : ''}
           </div>
           <div class="dv-mc-card-primary">${escHtml(masterPrimResolved)}</div>
-          <div class="dv-mc-card-meta">peak <strong>${masterPeakStr}</strong> · min ${masterMinStr}</div>
+          <div class="dv-mc-card-meta"><span data-i18n="tab2.peak"></span> <strong>${masterPeakStr}</strong> · min ${masterMinStr}</div>
         </div>
         <div class="dv-mc-card">
-          <div class="dv-mc-card-title">Container HEVC</div>
+          <div class="dv-mc-card-title" data-i18n="tab2.container_hevc"></div>
           <div class="dv-mc-card-primary">${escHtml(cont.primaries || '—')}</div>
           <div class="dv-mc-card-meta">
             ${cont.transfer ? `<strong>${escHtml(cont.transfer)}</strong>` : '—'}
@@ -1266,9 +1266,7 @@ function _rgrfDistributionSvg(series) {
       <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}"
             stroke="rgba(15,23,42,0.25)" stroke-width="1" />
       <text x="${padL + usableW/2}" y="${svgH - 10}" fill="#64748b" font-size="11"
-            font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">
-        pico de luz por escena · nits (escala logarítmica)
-      </text>
+            font-family="SF Mono,monospace" text-anchor="middle" font-weight="500" data-i18n="tab2.pico_de_luz_por_escena_nits"></text>
     </svg>`;
 }
 
@@ -1357,7 +1355,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
 
   const blockStream = `
     <section class="dv-block">
-      <h5 class="dv-block-title">Stream</h5>
+      <h5 class="dv-block-title" data-i18n="tab2.stream"></h5>
       <div class="dv-grid-3">
         ${cell('Profile', profile)}
         ${cell('CM version', cmLabel)}
@@ -1414,11 +1412,11 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     }).join('');
     blockActiveArea = `
       <section class="dv-block">
-        <h5 class="dv-block-title">Active area
+        <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span>
           <span class="dv-block-sub">L5 · ${l5Zones.length} zonas detectadas (letterbox dinámico)</span>
         </h5>
         <table class="dv-l5-zones-table">
-          <thead><tr><th>#</th><th>Offsets (px)</th><th>Área activa</th><th>Ratio</th><th>Frames</th><th>%</th></tr></thead>
+          <thead><tr><th>#</th><th data-i18n="tab2.offsets_px"></th><th data-i18n="tab2.area_activa"></th><th data-i18n="tab2.ratio"></th><th data-i18n="tab2.frames"></th><th>%</th></tr></thead>
           <tbody>${zonesHtml}</tbody>
         </table>
       </section>`;
@@ -1438,7 +1436,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
     const subLabel = z0 ? 'L5 · validado en todo el film' : 'L5 · sample 30s (corre el perfil de luminancia para validar)';
     blockActiveArea = `
       <section class="dv-block">
-        <h5 class="dv-block-title">Active area <span class="dv-block-sub">${subLabel}</span></h5>
+        <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span> <span class="dv-block-sub">${subLabel}</span></h5>
         <div class="dv-split">
           <div class="dv-grid-2">
             ${cell('Offsets T / B', `${lTop} / ${lBot} px`)}
@@ -1480,7 +1478,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         <div class="dv-cmv4-stats-row">
           <div class="dv-cmv4-stats-key">L8</div>
           <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString()}</strong> combos únicos
+            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString()}</strong> <span data-i18n="tab2.combos_unicos"></span>
             <span class="dv-cmv4-stats-sub">
               ${dv.quality_scene_cuts > 0
                 ? `· ${(dv.quality_l8_unique_count / dv.quality_scene_cuts).toFixed(2)} combos/shot`
@@ -1506,8 +1504,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
 
     blockCmv4 = `
       <section class="dv-block">
-        <h5 class="dv-block-title">CMv4.0 levels extendidos
-          <span class="dv-block-sub">presencia · L9/L10/L11 detallados en cadena de mastering</span>
+        <h5 class="dv-block-title"><span data-i18n="tab2.cmv4_0_levels_extendidos"></span>
+          <span class="dv-block-sub" data-i18n="tab2.presencia_l9_l10_l11_detallados_en"></span>
         </h5>
         <div class="dv-pill-row">
           ${pill(dv.has_l3,  'L3',  'local scene trim')}
@@ -1565,31 +1563,31 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon"><span data-icono="grafico"></span></div>
-         <div class="dv-chart-empty-text">Análisis per-escena no generado</div>
-         <div class="dv-chart-empty-hint">Sale del <b>Análisis RPU/Luz</b>, junto a la auditoría de calidad: extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los dos. ~5-10 min en UHD.</div>
+         <div class="dv-chart-empty-text" data-i18n="tab2.analisis_per_escena_no_generado"></div>
+         <div class="dv-chart-empty-hint"><span data-i18n="tab2.sale_del"></span> <b data-i18n="tab2.analisis_rpu_luz"></b><span data-i18n="tab2.junto_a_la_auditoria_de_calidad"></span></div>
        </div>`;
   // Un solo botón: el perfil sale del mismo análisis extendido que la
   // auditoría de calidad, compartiendo la extracción del RPU.
   const btnComparar = hasLightProfile
     ? (comparacion
-       ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-tooltip="Volver a ver solo este MKV"><span><span data-icono="cruz"></span></span> Quitar comparación</button>`
-       : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-tooltip="Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0"><span><span data-icono="grafico"></span></span> Comparar con…</button>`)
+       ? `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="quitarComparacionLuminancia()" data-i18n-tip="tab2.volver_a_ver_solo_este_mkv"><span><span data-icono="cruz"></span></span> <span data-i18n="tab2.quitar_comparacion"></span></button>`
+       : `<button class="btn btn-ghost btn-sm dv-chart-action" onclick="abrirComparadorLuminancia()" data-i18n-tip="tab2.superponer_la_curva_de_otro_mkv"><span><span data-icono="grafico"></span></span> <span data-i18n="tab2.comparar_con"></span></button>`)
     : '';
   const actionBtn = (hasLightProfile
-    ? `<button class="btn btn-ghost btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Re-analizar si el MKV cambió o mejoró el clasificador"><span><span data-icono="refrescar"></span></span> Re-analizar</button>`
-    : `<button class="btn btn-primary btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-tooltip="Análisis extendido: combos L8/L2 + perfil de luminancia, en una sola pasada"><span><span data-icono="lupaOnda"></span></span> Análisis extendido</button>`) + btnComparar;
+    ? `<button class="btn btn-ghost btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.re_analizar_si_el_mkv_cambio"><span><span data-icono="refrescar"></span></span> <span data-i18n="tab2.re_analizar"></span></button>`
+    : `<button class="btn btn-primary btn-sm dv-chart-action" data-analisis-extendido="1" onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.analisis_extendido_combos_l8_l2_perfil"><span><span data-icono="lupaOnda"></span></span> <span data-i18n="tab2.analisis_extendido"></span></button>`) + btnComparar;
   // Tooltip explicando que estos valores son metadata DV L1 (no medidas
   // reales en pantalla). Para BR2049 nuestro peak es ~176 nits aunque
   // medidas reales tras tone-mapping sean 500-600 nits — porque el
   // colorista etiqueto conservadoramente. Confirmado: dovi_tool info
   // --summary reporta el mismo MaxCLL.
   const lightHint = hasLightProfile
-    ? `<span class="dv-block-hint" data-tooltip="Valores extraídos del bloque L1 del RPU Dolby Vision (peak/avg de PQ por escena, según etiquetó el colorista). No son medidas reales en pantalla — un disco conservadoramente mastered (BR2049, p.ej.) puede mostrar peaks de metadata bajos aunque la imagen real alcance valores mayores tras tone-mapping. Coincide exactamente con dovi_tool info --summary.">ℹ︎</span>`
+    ? `<span class="dv-block-hint" data-i18n-tip="tab2.valores_extraidos_del_bloque_l1_del">ℹ︎</span>`
     : '';
   const blockLight = `
     <section class="dv-block">
       <div class="dv-block-head">
-        <h5 class="dv-block-title">Perfil de luminancia DV L1 por escena ${lightHint} <span class="dv-block-sub">metadata max_pq · no luminancia real en pantalla</span></h5>
+        <h5 class="dv-block-title">Perfil de luminancia DV L1 por escena ${lightHint} <span class="dv-block-sub" data-i18n="tab2.metadata_max_pq_no_luminancia_real"></span></h5>
         <div class="dv-block-action">
           ${lightMeta ? `<span class="dv-block-meta">${lightMeta}</span>` : ''}
           ${actionBtn}
@@ -1604,9 +1602,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   return `
     <div class="dv-detail">
       <div class="dv-detail-header">
-        <h4 class="dv-detail-title">Información detallada HDR / Dolby Vision</h4>
-        <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)"
-                data-tooltip="Copia toda la información como Markdown"><span data-icono="portapapeles"></span> Copiar</button>
+        <h4 class="dv-detail-title" data-i18n="tab2.informacion_detallada_hdr_dolby_vision"></h4>
+        <button class="btn btn-ghost btn-sm" onclick="_rgrfCopyToClipboard(event)" data-i18n-tip="tab2.copia_toda_la_informacion_como_markdown"><span data-icono="portapapeles"></span> <span data-i18n="ui.copiar"></span></button>
       </div>
       ${blockQuality}
       ${blockStream}
@@ -1639,20 +1636,15 @@ function _rgrfQualityAuditCard(dv, isV40) {
         <div class="dv-quality-empty-body">
           <div class="dv-quality-empty-title">Análisis RPU/Luz ${cmLabel}</div>
           <div class="dv-quality-empty-text">
-            Extrae el RPU completo del MKV y saca de él <b>dos cosas de una vez</b>:
-            los combos L8/L2 clasificados (FULL / CORE+ / CORE / sintético), que
-            dicen si el master es de referencia o generado algorítmicamente, y el
-            <b>perfil de luminancia L1</b> frame a frame.
+            <span data-i18n="tab2.extrae_el_rpu_completo_del_mkv"></span> <b data-i18n="tab2.dos_cosas_de_una_vez"></b><span data-i18n="tab2.los_combos_l8_l2_clasificados_full"></span>
+            <b data-i18n="tab2.perfil_de_luminancia_l1"></b> <span data-i18n="tab2.frame_a_frame"></span>
           </div>
           <button class="btn btn-primary btn-sm dv-quality-cta"
                   data-analisis-extendido="1"
                   onclick="_rgrfAuditQuality(event)">
-            <span><span data-icono="lupaOnda"></span></span> Análisis RPU/Luz (~5-10 min)
+            <span><span data-icono="lupaOnda"></span></span> <span data-i18n="tab2.analisis_rpu_luz_5_10_min"></span>
           </button>
-          <div class="dv-quality-empty-hint">
-            Extraer el RPU es el ~97 % del trabajo y se hace una sola vez para los
-            dos · el MKV no se modifica · los intermedios se borran al terminar
-          </div>
+          <div class="dv-quality-empty-hint" data-i18n="tab2.extraer_el_rpu_es_el_97"></div>
         </div>
       </section>`;
   }
@@ -1689,25 +1681,24 @@ function _rgrfQualityAuditCard(dv, isV40) {
           ${tierLabel ? `<div class="dv-quality-tier">${escHtml(tierLabel)}</div>` : ''}
         </div>
         <button class="btn btn-ghost btn-xs dv-quality-reaudit"
-                onclick="_rgrfAuditQuality(event)"
-                data-tooltip="Re-analizar (5-10 min). Útil si el clasificador mejoró o el MKV cambió."><span data-icono="refrescar"></span> Re-analizar</button>
+                onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.re_analizar_5_10_min_util"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>
       </div>
       <div class="dv-quality-stats">
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${l8Count.toLocaleString()}</div>
-          <div class="dv-quality-stat-label">combos L8 únicos</div>
+          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l8_unicos"></div>
         </div>
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${l2Count.toLocaleString()}</div>
-          <div class="dv-quality-stat-label">combos L2 únicos</div>
+          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l2_unicos"></div>
         </div>
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${scenes.toLocaleString()}</div>
-          <div class="dv-quality-stat-label">scene cuts <span style="opacity:.6">(~${combosPerShot} L8/shot)</span></div>
+          <div class="dv-quality-stat-label"><span data-i18n="tab2.scene_cuts"></span> <span style="opacity:.6">(~${combosPerShot} L8/shot)</span></div>
         </div>
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${cmv40Pct}%</div>
-          <div class="dv-quality-stat-label">cobertura CMv4.0</div>
+          <div class="dv-quality-stat-label" data-i18n="tab2.cobertura_cmv4_0"></div>
         </div>
       </div>
       ${(dv.quality_provenance_hints?.length || 0) > 0 ? `
@@ -2053,13 +2044,13 @@ function _renderMkvEditPanel(project = mkvProject) {
     const isV40 = cm.includes('4.0') || cm.includes('v4');
     const isV29 = cm.includes('2.9') || cm.includes('v2');
     if (isV40) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV ya tiene CMv4.0 (incluye L8-L11 — tone-mapping de última generación)"><span data-icono="check"></span> CMv4.0</span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_ya_tiene_cmv4_0"><span data-icono="check"></span> CMv4.0</span>`;
       // Los badges heuristicos de procedencia (nativo/retail/generado/incierto)
       // se reemplazaron por la tabla detallada "Radiografia DV+HDR" que muestra
       // los datos factuales sin interpretacion.
     } else if (isV29) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-tooltip="Este MKV está en CMv2.9 — se puede upgradear a CMv4.0 desde Tab 3 para ganar L8-L11"><span data-icono="rayo"></span> CMv2.9</span>`;
-      cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500">→ Upgradeable a CMv4.0 (pestaña "Upgrade Dolby Vision CMv4.0")</span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_esta_en_cmv2_9"><span data-icono="rayo"></span> CMv2.9</span>`;
+      cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500" data-i18n="tab2.upgradeable_a_cmv4_0_pestana_upgrade"></span>`;
     } else if (dv.cm_version) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(142,142,147,0.20); color:var(--text-2); font-size:11px; font-weight:700">CM ${escHtml(dv.cm_version)}</span>`;
     }
@@ -2079,10 +2070,9 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Info del fichero (solo lectura) -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title"><span data-icono="caja"></span> Fichero MKV</div></div>
+          <div><div class="section-title"><span data-icono="caja"></span> <span data-i18n="tab2.fichero_mkv"></span></div></div>
           <button class="btn btn-ghost btn-xs" onclick="reanalyzeMkv()"
-                  data-tooltip="Invalida el cache y re-ejecuta el análisis completo (1-3 min). Útil si el fichero cambió externamente o tras una mejora del clasificador."
-                  style="margin-left:auto; color:var(--text-2)"><span data-icono="refrescar"></span> Re-analizar</button>
+                  style="margin-left:auto; color:var(--text-2)" data-i18n-tip="tab2.invalida_el_cache_y_re_ejecuta"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>
         </div>
         <div class="section-body">
           <div style="font-weight:600; font-size:14px; margin-bottom:4px">${escHtml(a.file_name)}</div>
@@ -2113,15 +2103,15 @@ function _renderMkvEditPanel(project = mkvProject) {
             <strong>${escHtml(videoCodecLine)}</strong>
             ${elVideo ? `<span class="video-el">+EL ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString() + ' kbps' : ''}</span>` : ''}
           </div>
-          ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo, project.comparacion) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">RPU no analizado en detalle (dovi_tool no disponible o falló)</div>` : '')}
+          ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo, project.comparacion) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px" data-i18n="tab2.rpu_no_analizado_en_detalle_dovi"></div>` : '')}
         </div>
       </div>` : ''}
 
       <!-- Pistas de Audio -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title"><span data-icono="grafico"></span> Pistas de audio <span style="font-weight:400; color:var(--text-3); font-size:11px">(${audioTracks.length})</span></div>
-          <div class="section-subtitle">Edita nombres y flag default</div></div>
+          <div><div class="section-title"><span data-icono="grafico"></span> <span data-i18n="tab2.pistas_de_audio"></span> <span style="font-weight:400; color:var(--text-3); font-size:11px">(${audioTracks.length})</span></div>
+          <div class="section-subtitle" data-i18n="tab2.edita_nombres_y_flag_default"></div></div>
         </div>
         <div class="section-body">
           <ul class="track-list" id="mkv-audio-list-${pid}"></ul>
@@ -2131,8 +2121,8 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Pistas de Subtítulos -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title"><span data-icono="etiqueta"></span> Pistas de subtítulos <span style="font-weight:400; color:var(--text-3); font-size:11px">(${subTracks.length})</span></div>
-          <div class="section-subtitle">Edita nombres, flags default y forzado</div></div>
+          <div><div class="section-title"><span data-icono="etiqueta"></span> <span data-i18n="tab2.pistas_de_subtitulos"></span> <span style="font-weight:400; color:var(--text-3); font-size:11px">(${subTracks.length})</span></div>
+          <div class="section-subtitle" data-i18n="tab2.edita_nombres_flags_default_y_forzado"></div></div>
         </div>
         <div class="section-body">
           <ul class="track-list" id="mkv-sub-list-${pid}"></ul>
@@ -2142,11 +2132,11 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Capítulos -->
       <div class="section-card">
         <div class="section-header">
-          <div><div class="section-title"><span data-icono="libro"></span> Capítulos</div>
-          <div class="section-subtitle">Clic en la barra para añadir · arrastra marcas para ajustar</div></div>
+          <div><div class="section-title"><span data-icono="libro"></span> <span data-i18n="core.capitulos"></span></div>
+          <div class="section-subtitle" data-i18n="tab2.clic_en_la_barra_para_anadir"></div></div>
           <button class="btn btn-xs" id="mkv-chapters-generic-btn-${pid}" style="display:none; margin-left:auto"
             onclick="setMkvGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> Nombres genéricos</button>
+            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
         </div>
         <div class="section-body">
           <div id="mkv-chapters-banner-${pid}" class="banner info" style="display:none">
@@ -2154,7 +2144,7 @@ function _renderMkvEditPanel(project = mkvProject) {
             <span id="mkv-chapters-text-${pid}"></span>
             <button class="btn btn-xs" id="mkv-chapters-autogen-btn-${pid}" style="display:none; margin-left:auto"
               onclick="generateMkvAutoChapters()"
-              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)"><span data-icono="portapapeles"></span> Generar cada 10 min</button>
+              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)"><span data-icono="portapapeles"></span> <span data-i18n="tab2.generar_cada_10_min"></span></button>
           </div>
           <div id="mkv-chapter-timeline-wrap-${pid}" class="chapter-timeline-wrap"
             onclick="onMkvTimelineClick(event)"
@@ -2171,16 +2161,12 @@ function _renderMkvEditPanel(project = mkvProject) {
       <!-- Barra de botones -->
       <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-bottom:12px">
         <button class="btn btn-ghost btn-md" onclick="showRawMkvData()"
-          data-tooltip="Ver datos crudos del análisis (mkvmerge -J + MediaInfo + log)"
-          style="color:var(--text-2); margin-right:auto"><span data-icono="lupaOnda"></span> Datos MKV</button>
+          style="color:var(--text-2); margin-right:auto" data-i18n-tip="tab2.ver_datos_crudos_del_analisis_mkvmerge"><span data-icono="lupaOnda"></span> <span data-i18n="tab2.datos_mkv"></span></button>
         <button class="btn btn-ghost btn-md" onclick="undoMkvEdits()"
-          data-tooltip="Revertir todos los cambios al estado original"
-          style="color:var(--text-2)"><span data-icono="deshacer"></span> Deshacer cambios</button>
+          style="color:var(--text-2)" data-i18n-tip="tab2.revertir_todos_los_cambios_al_estado"><span data-icono="deshacer"></span> <span data-i18n="tab2.deshacer_cambios"></span></button>
         <button class="btn btn-ghost btn-md" onclick="closeMkvEditor()"
-          data-tooltip="Cerrar el editor"
-          style="color:var(--red)"><span data-icono="cruz"></span> Cerrar</button>
-        <button class="btn btn-primary btn-md" onclick="applyMkvEdits()"
-          data-tooltip="Aplica todos los cambios al MKV"><span data-icono="check"></span> Aplicar cambios</button>
+          style="color:var(--red)" data-i18n-tip="tab2.cerrar_el_editor"><span data-icono="cruz"></span> <span data-i18n="ui.cerrar"></span></button>
+        <button class="btn btn-primary btn-md" onclick="applyMkvEdits()" data-i18n-tip="tab2.aplica_todos_los_cambios_al_mkv"><span data-icono="check"></span> <span data-i18n="tab2.aplicar_cambios"></span></button>
       </div>
     </div>`;
 
@@ -2262,9 +2248,9 @@ function _attachSparklineHover() {
 
       // Tooltip: peak / avg / min en filas con codigo de color matching las curvas.
       const lines = [];
-      lines.push(`<span style="color:#7cc4ff">peak</span> ${v.toLocaleString()} nits`);
-      if (av != null) lines.push(`<span style="color:#86efac">avg</span> ${av.toLocaleString()} nits`);
-      if (mn != null) lines.push(`<span style="color:#cbd5e1">min</span> ${mn.toLocaleString()} nits`);
+      lines.push(`<span style="color:#7cc4ff"><span data-i18n="tab2.peak"></span></span> ${v.toLocaleString()} nits`);
+      if (av != null) lines.push(`<span style="color:#86efac"><span data-i18n="tab2.avg"></span></span> ${av.toLocaleString()} nits`);
+      if (mn != null) lines.push(`<span style="color:#cbd5e1"><span data-i18n="tab2.min"></span></span> ${mn.toLocaleString()} nits`);
       if (dur > 0) lines.push(`<span style="color:#94a3b8">@</span> ${_rgrfFmtTime(t)}`);
       tooltip.innerHTML = lines.join('<br>');
       tooltip.style.display = '';
@@ -2344,7 +2330,7 @@ function _renderMkvTracks(project = mkvProject) {
       </div>
       <div class="track-flags">
         <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'audio')"
-          data-tooltip="flag default: pista seleccionada por defecto">DEF</button>
+          data-tooltip="flag default: pista seleccionada por defecto" data-i18n="tab1.def"></button>
       </div>`;
     audioList.appendChild(li);
   });
@@ -2430,9 +2416,9 @@ function _renderMkvTracks(project = mkvProject) {
       </div>
       <div class="track-flags">
         <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'subtitles')"
-          data-tooltip="flag default: subtítulo seleccionado por defecto">DEF</button>
+          data-tooltip="flag default: subtítulo seleccionado por defecto" data-i18n="tab1.def"></button>
         <button class="flag-pill${frc}" onclick="onMkvTrackFlag(${t.id}, 'forced', 'subtitles')"
-          data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero">FRC</button>
+          data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero" data-i18n="tab1.frc"></button>
       </div>`;
     subList.appendChild(li);
   });
@@ -3041,12 +3027,11 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
         montajes distintos y estar comparando escenas que no se corresponden.</div>`;
     }
   } else {
-    aviso = `<div class="cmp-aviso">ℹ︎ No se conoce la duración de uno de los dos,
-      así que no se puede confirmar que sean el mismo montaje.</div>`;
+    aviso = `<div class="cmp-aviso" data-i18n="tab2.i_no_se_conoce_la_duracion"></div>`;
   }
 
   return `<div class="dv-cmp-card">
-    <div class="dv-cmp-head"><span data-icono="grafico"></span> Comparación con <b>${cmp.etiqueta}</b></div>
+    <div class="dv-cmp-head"><span data-icono="grafico"></span> <span data-i18n="tab2.comparacion_con"></span> <b>${cmp.etiqueta}</b></div>
     ${celdas ? `<table class="dv-cmp-table">
       <thead><tr><th></th><th>Este MKV</th><th>${cmp.etiqueta}</th><th>Δ</th></tr></thead>
       <tbody>${celdas}</tbody></table>` : ''}
@@ -3112,12 +3097,10 @@ function _renderMkvRecientesErrorDeCarga() {
   lista.innerHTML = `
     <div class="empty-state" style="padding:24px 12px">
       <div class="empty-state-icon" data-icono="caja"></div>
-      <div>No se ha podido cargar la lista</div>
-      <div class="empty-state-desc" style="margin-top:6px">
-        Los análisis siguen guardados. Abrir un MKV funciona igual.
-      </div>
+      <div data-i18n="tab2.no_se_ha_podido_cargar_la"></div>
+      <div class="empty-state-desc" style="margin-top:6px" data-i18n="tab2.los_analisis_siguen_guardados_abrir_un"></div>
       <button class="btn btn-ghost btn-xs" style="margin-top:10px"
-        onclick="refrescarMkvRecientes()"><span data-icono="refrescar"></span> Reintentar</button>
+        onclick="refrescarMkvRecientes()"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>
     </div>`;
 }
 
@@ -3226,16 +3209,16 @@ function _renderMkvRecientes() {
   if (!_mkvRecientes.length) {
     lista.innerHTML = `<div class="empty-state">
       <div class="empty-state-icon"><span data-icono="caja"></span></div>
-      <div>Sin MKVs analizados</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Pulsa "Abrir MKV" para empezar</div>
+      <div data-i18n="tab2.sin_mkvs_analizados"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px" data-i18n="tab2.pulsa_abrir_mkv_para_empezar"></div>
     </div>`;
     return;
   }
   if (!filtrada.length) {
     lista.innerHTML = `<div class="empty-state">
       <div class="empty-state-icon"><span data-icono="lupa"></span></div>
-      <div>Sin resultados</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Prueba con otro término o filtro</div>
+      <div data-i18n="tab1.sin_resultados"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px" data-i18n="tab1.prueba_con_otro_termino_o_filtro"></div>
     </div>`;
     return;
   }
@@ -3309,8 +3292,7 @@ function _renderMkvRecientes() {
                data-tooltip="Abrir este MKV en una sub-pestaña">Abrir</button>`
           : `<button class="btn btn-ghost btn-sm" disabled
                data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">Fichero no encontrado</button>`}
-        <button class="btn btn-danger btn-sm" data-borrar="1"
-          data-tooltip="Quita el análisis guardado de la lista. NO borra el MKV.">Borrar</button>`,
+        <button class="btn btn-danger btn-sm" data-borrar="1" data-i18n="tab2.borrar" data-i18n-tip="tab2.quita_el_analisis_guardado_de_la"></button>`,
     });
     // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la
     // plantilla: `escHtml` no escapa la comilla simple (no hace falta para un

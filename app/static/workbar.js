@@ -263,8 +263,7 @@ function _workbarActivoHTML(a) {
           <span>${der}</span>
         </div>`,
     acciones: `
-      <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();abrirDetalleDeTrabajo()"
-        data-tooltip="Ver el detalle y el registro de la ejecución">Detalle</button>
+      <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();abrirDetalleDeTrabajo()" data-i18n-tip="workbar.ver_el_detalle_y_el_registro"><span data-i18n="workbar.detalle"></span></button>
       ${a.cancelable ? `<button class="btn btn-ghost btn-xs"
         onclick="event.stopPropagation();cancelarTrabajoActivo()"
         data-tooltip="Detener este trabajo">Cancelar</button>` : ''}`,
@@ -448,7 +447,7 @@ function _workbarRender(st) {
         acciones: `
           <button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')"
-            data-tooltip="Sacarlo de la cola. El proyecto no se toca.">Quitar de la cola</button>`,
+            data-tooltip="Sacarlo de la cola. El proyecto no se toca." data-i18n="workbar.quitar_de_la_cola"></button>`,
       }), 'workbar-seccion-cola')
   );
   _instalarReordenDeCola();
@@ -541,7 +540,7 @@ function _workbarRenderHistorial() {
   }
   if (_workbarHayMasHistorial) {
     html += `<button class="wb-vermas" onclick="verMasHistorial()"
-      data-tooltip="Carga ${_WORKBAR_HISTORIAL_PASO} más">Ver más</button>`;
+      data-tooltip="Carga ${_WORKBAR_HISTORIAL_PASO} más" data-i18n="workbar.ver_mas"></button>`;
   }
   _workbarConservandoElScroll(caja, html);
 }

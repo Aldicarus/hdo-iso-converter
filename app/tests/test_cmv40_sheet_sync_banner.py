@@ -22,7 +22,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import js_completo, pintar_en  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -43,7 +43,7 @@ console.log(JSON.stringify(_cmv40SheetSyncBannerHTML({json.dumps(sheet_sync)})))
     r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise AssertionError(r.stderr[:2000])
-    return json.loads(r.stdout.strip().splitlines()[-1])
+    return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))
 
 
 @unittest.skipUnless(NODE, "node no está instalado")
@@ -64,7 +64,12 @@ class TestElBannerDelSheet(unittest.TestCase):
         h = _render({**self.BASE, "detected_offset": 16, "corregido": False,
                      "parece_sin_corregir": True})
         self.assertIn("banner warning", h)
-        self.assertIn("no</b> es el corregido", h)
+        # La frase sigue entera, pero el `<b>no</b>` y lo que le sigue ya no
+        # son adyacentes: la extracción de literales envuelve el trozo
+        # traducible en su propio `<span>`. Se comprueba el texto, que es lo
+        # que lee el usuario, y no la adyacencia del marcado.
+        self.assertIn("<b>no</b>", h)
+        self.assertIn("es el corregido", h)
 
     def test_un_desfase_que_la_hoja_no_explica_avisa(self):
         h = _render({**self.BASE, "detected_offset": 300, "corregido": False,
