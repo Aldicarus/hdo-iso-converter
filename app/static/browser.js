@@ -32,7 +32,7 @@ const _fileBrowser = {
 };
 
 const _DEFAULT_FB_ROOTS = [
-  { key: 'library', label: 'Biblioteca', icon: 'biblioteca' },
+  { key: 'library', label: tr('ui.biblioteca'), icon: 'biblioteca' },
 ];
 const _FB_ROOT_LABELS = {
   library:    'Biblioteca',
@@ -54,7 +54,7 @@ const _FB_ROOT_LABELS = {
  *  enseña cuál nunca fue una cuestión de permisos.
  */
 const ROOTS_MKV = [
-  { key: 'library',    label: 'Biblioteca', icon: 'biblioteca' },
+  { key: 'library',    label: tr('ui.biblioteca'), icon: 'biblioteca' },
   { key: 'output',     label: 'Output',     icon: 'caja' },
   { key: 'downloaded', label: 'Downloaded', icon: 'bandeja' },
 ];

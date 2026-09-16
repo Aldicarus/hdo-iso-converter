@@ -69,23 +69,55 @@ class TestNoQuedaCastellanoEnLasPlantillas(unittest.TestCase):
         for m in re.finditer(
                 rf'\b({"|".join(ATRIBUTOS)})="([^"]+)"', cont):
             v = " ".join(m.group(2).split())
-            if (v and captura.es_frase(v) and v not in self.cat
-                    and v not in ACEPTADO):
+            if v and captura.es_frase(v) and v not in ACEPTADO:
                 fuera.append(f"{fichero}: [{m.group(1)}] {v[:60]}")
         for t in captura._del_html(captura.sin_huecos(cont)):
             n = " ".join(t.split())
-            if (n and captura.es_frase(n) and n not in self.cat
-                    and n not in ACEPTADO):
+            if n and captura.es_frase(n) and n not in ACEPTADO:
                 fuera.append(f"{fichero}: [texto] {n[:60]}")
         for _, _, dentro in captura.regiones_de_plantilla(cont):
             self._sueltas(dentro, fichero, fuera)
+        # Y el marcado que viaja dentro de una CADENA metida en un `${…}`.
+        #
+        # Dentro de una plantilla las comillas son texto, no delimitadores, así
+        # que `TestNoQuedaCastellanoSuelto` se salta a propósito todo lo que
+        # cae en una región de plantilla; y esta cadena lleva un `<`, así que
+        # el guard de cadenas en huecos también la descarta. Resultado: un
+        # `'<div class="banner info">…<span>Verifica en el chart de Fase D que
+        # las curvas coinciden antes de inyectar.</span></div>'` entero se
+        # quedó en castellano y no lo veía NINGUNO de los tres. Aquí es
+        # marcado, y se mira como tal.
+        for ini, fin in captura.huecos_de(cont):
+            expr = cont[ini:fin]
+            for m in re.finditer(
+                    r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", expr):
+                dentro = m.group(1) or m.group(2) or ""
+                if "<" in dentro:
+                    self._sueltas(dentro, fichero, fuera)
 
     def test_ni_texto_ni_atributos_castellanos_en_el_html_generado(self):
         fuera = []
         for r in rutas():
             src = Path(r).read_text(encoding="utf-8")
+            plantillas = [(a, b) for a, b, _ in captura.regiones_de_plantilla(src)]
             for _, _, cont in captura.regiones_de_plantilla(src):
                 self._sueltas(cont, Path(r).name, fuera)
+            # Una cadena entrecomillada con marcado dentro es marcado.
+            #
+            # `TestNoQuedaCastellanoSuelto` la mira COMO CADENA, y `es_frase`
+            # de un bloque HTML entero es False —la prosa es una parte
+            # pequeña de la cadena—, así que un
+            # `const banner = '<div class="banner info">…<span>Verifica en el
+            # chart de Fase D…</span></div>'` pasaba en verde. La regla es la
+            # misma que para una plantilla: lo que se juzga son sus nodos de
+            # texto y sus atributos, no la cadena.
+            for m in re.finditer(
+                    r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src):
+                if any(a <= m.start() < b for a, b in plantillas):
+                    continue     # dentro de una plantilla ya lo ve la recursión
+                dentro = m.group(1) or m.group(2) or ""
+                if "<" in dentro and ">" in dentro:
+                    self._sueltas(dentro, Path(r).name, fuera)
         fuera = sorted(set(fuera))
         self.assertEqual(fuera, [], (
             f"\n{len(fuera)} sitio(s) con castellano en el HTML que genera el "

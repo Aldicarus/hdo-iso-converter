@@ -265,7 +265,7 @@ async function srcFbNavigate(filter, relPath) {
   const url = `/api/library/browse?root=downloaded&path=${encodeURIComponent(relPath || '')}&filter=${filter}`;
   const data = await apiFetch(url);
   if (!data) {
-    if (listEl) listEl.innerHTML = '<div class="src-fb-empty"><span data-icono="aviso"></span> No se pudo leer la carpeta</div>';
+    if (listEl) listEl.innerHTML = '<div class="src-fb-empty"><span data-icono="aviso"></span> ' + tr('tab1.no_se_pudo_leer_la_carpeta') + '</div>';
     return;
   }
   if (data.error) {
@@ -868,7 +868,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
         const pct = prog?.pct;
         const eta = prog?.eta_s;
         if (labelEl) labelEl.innerHTML = `<span class="paso-ico paso-curso">`
-        + icono('reloj') + `</span> Analizando subtítulos del origen…`;
+        + icono('reloj') + `</span> ${tr('tab2.analizando_subtitulos_del_origen')}`;
         if (barWrap) barWrap.style.display = 'block';
         if (statsEl) statsEl.style.display = 'block';
         if (pct != null && barFill) {
@@ -1154,7 +1154,7 @@ function seriesConfirmManual() {
     // Modo manual: usamos innerHTML para que el <strong> de la advertencia
     // de validación se renderice como en el modo TMDb (mismo patrón
     // visual entre ambos paneles).
-    help.innerHTML = 'Modo manual: la asignación inicial es secuencial (E01, E02…). Edita el nº de episodio y, opcionalmente, su título en cada fila. <strong>Valida manualmente</strong> que cada MPLS corresponda al episodio correcto antes de crear.';
+    help.innerHTML = tr('tab1.modo_manual_la_asignacion_inicial_es');
   }
   _renderSeriesEpisodesTable();
   _seriesUpdateCreateButton();
@@ -1169,18 +1169,18 @@ async function seriesTmdbSearch() {
     return;
   }
   const resultsBox = document.getElementById('series-tmdb-results');
-  resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px"><span data-icono="reloj"></span> Buscando en TMDb…</div>';
+  resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px"><span data-icono="reloj"></span> ' + tr('core.buscando_en_tmdb') + '</div>';
 
   const qs = new URLSearchParams({ query });
   if (year && !isNaN(year)) qs.set('year', String(year));
   const data = await apiFetch(`/api/tv-search?${qs.toString()}`);
 
   if (!data || !data.tmdb_configured) {
-    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> TMDb no está disponible — no hay ninguna clave activa, así que no se pueden buscar series. Puedes poner la tuya en Configuración, o identificar la serie a mano abajo.</div>';
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--orange); padding:8px"><span data-icono="aviso"></span> ' + tr('tab1.tmdb_no_disponible_no_se_pueden_buscar_series') + '</div>';
     return;
   }
   if (!data.results || data.results.length === 0) {
-    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px">— Sin resultados. Prueba con otro título o año. —</div>';
+    resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-3); padding:8px">' + tr('tab1.sin_resultados_prueba_con_otro_titulo') + '</div>';
     return;
   }
 
@@ -1854,11 +1854,11 @@ function _configureAnalyzeModalForSource(sourceType) {
     if (iconEl) iconEl.innerHTML = icono('disco', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando disco';
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-curso">`
-      + icono('reloj') + `</span> Montando el ISO…`;
+      + icono('reloj') + `</span> ${tr('ui.montando_el_iso')}`;
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Identificando pistas del disco…`;
+      + icono('pendiente') + `</span> ${tr('ui.identificando_pistas_del_disco')}`;
     if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Extrayendo capítulos…`;
+      + icono('pendiente') + `</span> ${tr('ui.extrayendo_capitulos')}`;
   } else if (sourceType === 'bdmv_folder') {
     if (iconEl) iconEl.innerHTML = icono('carpeta', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
@@ -2705,7 +2705,7 @@ function renderIncludedTracks(tracks) {
           <input class="track-label-input" type="text"
             value="${escHtml(track.label || '')}"
             onchange="onTrackLabelChange(${flatIdx}, this.value)"
-            data-tooltip="Nombre de la pista en el MKV">
+            data-i18n-tip="tab2.nombre_de_la_pista_en_el">
           <span class="track-raw">${escHtml(rawLine)}</span>
         </div>
         <div class="track-flags">
@@ -2758,14 +2758,14 @@ function renderIncludedTracks(tracks) {
           <input class="track-label-input" type="text"
             value="${escHtml(track.label || '')}"
             onchange="onTrackLabelChange(${flatIdx}, this.value)"
-            data-tooltip="Nombre de la pista en el MKV">
+            data-i18n-tip="tab2.nombre_de_la_pista_en_el">
           <span class="track-raw">${escHtml(rawLine)}</span>
         </div>
         <div class="track-flags">
           <button class="flag-pill${def}" onclick="toggleFlag(${flatIdx},'default')"
-            data-tooltip="flag default: subtítulo seleccionado por defecto" data-i18n="tab1.def"></button>
+            data-i18n-tip="tab2.flag_default_subtitulo_seleccionado_por_defecto" data-i18n="tab1.def"></button>
           <button class="flag-pill${frc}" onclick="toggleFlag(${flatIdx},'forced')"
-            data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero" data-i18n="tab1.frc"></button>
+            data-i18n-tip="tab2.flag_forced_subtitulos_forzados_para_dialogos" data-i18n="tab1.frc"></button>
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
@@ -4126,7 +4126,7 @@ function renderExecResultBanner(session) {
     banner.className = 'banner info';
     icon.innerHTML = icono(session.status === 'running' ? 'reloj' : 'pausa');
     title.textContent = session.status === 'running' ? tr('tab1.ejecucion_en_curso') : tr('tab1.en_cola_de_ejecucion');
-    detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
+    detail.innerHTML = tr('tab1.monitoriza_el_progreso_en_el_panel');
     const cancelBtn = session.status === 'running'
       ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')" data-i18n-tip="tab1.cancela_el_proceso_en_curso_desmonta"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
       : '';

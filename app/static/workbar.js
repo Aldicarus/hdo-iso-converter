@@ -520,7 +520,7 @@ function _workbarRenderHistorial() {
   const items = (workbarEstado.recientes || []).filter(_workbarPasaFiltro);
   if (!items.length) {
     caja.innerHTML = _workbarFiltrando()
-      ? '<div class="workbar-vacio">Nada terminado coincide con el filtro</div>'
+      ? '<div class="workbar-vacio">' + tr('workbar.nada_terminado_coincide_con_el_filtro') + '</div>'
       : '';
     return;
   }
@@ -621,7 +621,7 @@ function _workbarTarjetaReciente(r) {
                           'icono-chip-sm'),
     // Cuánto duró y cuándo fue, en dos renglones: en uno solo el texto se
     // come el ancho del título, que es lo primero que hay que poder leer.
-    meta: espera ? '<span class="workbar-espera">Requiere decisión</span>'
+    meta: espera ? '<span class="workbar-espera">' + tr('workbar.requiere_decision') + '</span>'
                  : escHtml(_workbarTiempo(r.segundos)),
     meta2: espera ? '' : escHtml(cuando),
     acciones: `
@@ -1255,7 +1255,7 @@ function restaurarAnclajeDeLog(el, ancla) {
 /** Un log con la paleta semántica de la app (marcadores ━━━ / $ / ✓ / ✗). */
 function _trabajoLogHTML(lineas) {
   if (!lineas || !lineas.length) {
-    return '<div class="trabajo-detalle-vacio">Todavía no hay líneas de log</div>';
+    return '<div class="trabajo-detalle-vacio">' + tr('workbar.todavia_no_hay_lineas_de_log') + '</div>';
   }
   // Con la paleta semántica de siempre (`log-phase`, `log-success`, `log-error`
   // …). Se clasifica con la MISMA función que el panel de Tab 3: pintarlo en

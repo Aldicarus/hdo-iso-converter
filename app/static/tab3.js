@@ -429,7 +429,7 @@ function _cmv40PlanAutoSteps(s, project) {
   });
 
   steps.push({
-    key: 'A', icon: 'lupa', title: 'Fase A · Analizar MKV origen',
+    key: 'A', icon: 'lupa', title: tr('tab3.fase_a_analizar_mkv_origen'),
     what: tr('tab3.ffmpeg_copia_el_hevc_dovi_tool'),
     etaSecs: etaA,
   });
@@ -440,7 +440,7 @@ function _cmv40PlanAutoSteps(s, project) {
               : s.target_rpu_source === 'mkv' ? tr('tab3.reusa_el_rpu_del_workdir_extraido')
               : tr('tab3.reusa_el_bin_del_workdir_copiado');
   steps.push({
-    key: 'B', icon: 'diana', title: 'Fase B · Preparar RPU target',
+    key: 'B', icon: 'diana', title: tr('tab3.fase_b_preparar_rpu_target'),
     what: bWhat, etaSecs: etaB,
   });
 
@@ -474,7 +474,7 @@ function _cmv40PlanAutoSteps(s, project) {
     ? s.compat_warning.slice(0, 140) + (s.compat_warning.length > 140 ? '…' : '')
     : tr('tab3.comparacion_target_vs_source_rpu_frames');
   steps.push({
-    key: 'GATE_BC', icon: 'escudo', title: 'Validaciones — trust gates + compatibilidad',
+    key: 'GATE_BC', icon: 'escudo', title: tr('tab3.validaciones_trust_gates_compatibilidad'),
     what: gateBCWhat, etaSecs: 0,
     forcedStatus: gateBCStatus, customLabel: gateBCLabel,
     isGate: true,
@@ -498,7 +498,7 @@ function _cmv40PlanAutoSteps(s, project) {
                           : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
   }
   steps.push({
-    key: 'C', icon: 'tijeras', title: 'Fase C · Demux + per-frame',
+    key: 'C', icon: 'tijeras', title: tr('tab3.fase_c_demux_per_frame'),
     what: cWhat, etaSecs: cFullySkipped ? 0 : etaC,
     forcedStatus: cForcedStatus, customLabel: cLabel,
   });
@@ -571,7 +571,7 @@ function _cmv40PlanAutoSteps(s, project) {
       : tr('tab3.inyecta_el_rpu_target_directamente_en_2');
   }
   steps.push({
-    key: 'F', icon: 'inyectar', title: 'Fase F · Inyectar RPU',
+    key: 'F', icon: 'inyectar', title: tr('tab3.fase_f_inyectar_rpu'),
     what: fWhat, etaSecs: etaF,
   });
   // Fase G: tres rutas distintas según workflow/modo.
@@ -587,7 +587,7 @@ function _cmv40PlanAutoSteps(s, project) {
     gWhat = tr('tab3.sin_mux_dual_layer_single_layer');
   }
   steps.push({
-    key: 'G', icon: 'caja', title: 'Fase G · Remux MKV final',
+    key: 'G', icon: 'caja', title: tr('tab3.fase_g_remux_mkv_final'),
     what: gWhat, etaSecs: etaG,
   });
 
@@ -604,7 +604,7 @@ function _cmv40PlanAutoSteps(s, project) {
   //   desapercibido con muestreo).
   // En ambos: rename atómico .tmp → .mkv + cleanup pre-mux.
   steps.push({
-    key: 'H', icon: 'check', title: 'Fase H · Validar + finalizar',
+    key: 'H', icon: 'check', title: tr('tab3.fase_h_validar_finalizar'),
     what: dropIn
       ? tr('tab3.validacion_rapida_ffprobe_frame_count_mkvmerge')
       : tr('tab3.validacion_rigurosa_extract_rpu_completo_del'),
@@ -927,7 +927,7 @@ function _cmv40RenderTimeline(s, project) {
   } else if (_cmv40Trust(s)) {
     trustBadge = '<span class="cmv40-tl-trust-badge trusted"><span data-icono="rayo"></span> Auto · trusted</span>';
   } else {
-    trustBadge = '<span class="cmv40-tl-trust-badge manual"><span data-icono="lupaOnda"></span> Manual · revisión visual</span>';
+    trustBadge = '<span class="cmv40-tl-trust-badge manual"><span data-icono="lupaOnda"></span> ' + tr('tab3.manual_revision_visual') + '</span>';
   }
 
   const progressCls = isTerminal && !s.error_message ? 'cmv40-tl-progress-done'
@@ -1070,7 +1070,7 @@ let _cmv40SourceFilename = null;
  *  cierra y el wizard re-emerge tal cual estaba. Sin gaps de cobertura modal. */
 function openCMv40SourceBrowser() {
   openFileBrowser({
-    title: 'Cambiar MKV origen',
+    title: tr('tab3.cambiar_mkv_origen'),
     subtitle: tr('tab3.selecciona_otro_mkv_para_reemplazar_el'),
     roots: ROOTS_MKV,
     onSelect: async (absPath, name) => {
@@ -1148,11 +1148,11 @@ async function _cmv40LoadRecommendation(filename) {
 
 // Metadata por columna: icono, label corta, tooltip explicativo
 const CMV40_CHIP_META = {
-  dv_source:     { icon: 'claqueta', label: 'Fuente',   help: tr('tab3.plataforma_de_origen_del_rpu_cmv4') },
+  dv_source:     { icon: 'claqueta', label: tr('tab3.chip_fuente'),   help: tr('tab3.plataforma_de_origen_del_rpu_cmv4') },
   sync:          { icon: 'reloj', label: 'Sync',     help: tr('tab3.offset_de_frames_entre_web_dl') },
-  comparisons:   { icon: 'lupaOnda', label: 'Verif.',   help: tr('tab3.primera_sub_columna_de_comparisons_tipo') },
-  comparisons_2: { icon: 'grafico', label: 'Verif. 2', help: tr('tab3.segunda_sub_columna_de_comparisons_suele') },
-  notes:         { icon: 'portapapeles', label: 'Notas',    help: tr('tab3.notas_workflow_factible_suele_ser_workflow') },
+  comparisons:   { icon: 'lupaOnda', label: tr('tab3.chip_verif'),   help: tr('tab3.primera_sub_columna_de_comparisons_tipo') },
+  comparisons_2: { icon: 'grafico', label: tr('tab3.chip_verif_2'), help: tr('tab3.segunda_sub_columna_de_comparisons_suele') },
+  notes:         { icon: 'portapapeles', label: tr('tab3.chip_notas'),    help: tr('tab3.notas_workflow_factible_suele_ser_workflow') },
 };
 
 // Fila de tabla key-value — icono + label (columna fija) + valor (flex) + link opcional.
@@ -1236,7 +1236,7 @@ function _cmv40RenderSheetRowBlock(row) {
 //   not_feasible ❌ rojo   — motivos que comprometen el resultado
 //   unknown      ❓ gris   — el título no está en la hoja
 const CMV40_VERDICT_STYLE = {
-  recommended:  { cls: 'ok',       icon: 'check', label: 'Factible' },
+  recommended:  { cls: 'ok',       icon: 'check', label: tr('tab3.factible') },
   caveats:      { cls: 'caveats',  icon: 'aviso', label: tr('tab3.viable_con_avisos') },
   p8_only_note: { cls: 'p8only',   icon: 'info', label: tr('tab3.no_convertible_a_p8_1') },
   not_feasible: { cls: 'ko',       icon: 'cruz', label: tr('tab3.no_recomendado') },
@@ -1293,7 +1293,7 @@ function _cmv40RenderRecommendation(data, containerId) {
   if (status !== 'unknown') {
     // Etiqueta dinámica para "motivo" en filas no factibles — reusa meta de 'notes'
     if (!CMV40_CHIP_META.notes_motivo) {
-      CMV40_CHIP_META.notes_motivo = { ...CMV40_CHIP_META.notes, label: 'Motivo' };
+      CMV40_CHIP_META.notes_motivo = { ...CMV40_CHIP_META.notes, label: tr('tab3.motivo') };
     }
     const sheetRows = Array.isArray(data.rows) ? data.rows : [];
     if (sheetRows.length > 1) {
@@ -1371,7 +1371,7 @@ async function _cmv40NewLoadRpus() {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">— No hay RPUs en /mnt/cmv40_rpus —</option>';
+    select.innerHTML = '<option value="">' + tr('tab3.no_hay_rpus_en_mnt_cmv40_rpus') + '</option>';
   }
 }
 
@@ -1379,7 +1379,7 @@ async function _cmv40NewLoadTargetMkvs() {
   const select = document.getElementById('cmv40-new-target-mkv-select');
   select.innerHTML = '<option value="">— Cargando… —</option>';
   const data = await apiFetch('/api/mkv/files-in-isos');
-  select.innerHTML = '<option value="">— Seleccionar MKV con CMv4.0 —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.seleccionar_mkv_con_cmv40') + '</option>';
   if (data?.files?.length) {
     data.files.forEach(f => {
       const opt = document.createElement('option');
@@ -1388,7 +1388,7 @@ async function _cmv40NewLoadTargetMkvs() {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">— No hay MKVs en el directorio de ISOs —</option>';
+    select.innerHTML = '<option value="">' + tr('tab3.no_hay_mkvs_en_el_directorio_de_isos') + '</option>';
   }
 }
 
@@ -1479,14 +1479,14 @@ const _CMV40_PIPELINE_PREVIEW = {
     cls: 'ok',
     autoEndsAt: null,
     phases: [
-      { k: 'A', label: 'Analizar BD',    state: 'run' },
-      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'A', label: tr('tab3.paso_analizar_bd'),    state: 'run' },
+      { k: 'B', label: tr('tab3.paso_descargar_bin'),  state: 'run' },
       { k: 'C', label: 'Demux',          state: 'skip', mod: tr('tab3.si_bd_es_fel') },
-      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'D', label: tr('tab3.paso_verif_visual'),  state: 'skip', mod: tr('tab3.mod_gates_trusted') },
       { k: 'E', label: tr('tab3.correccion_sync'), state: 'skip', mod: tr('tab3.0_por_gates') },
-      { k: 'F', label: 'Inyectar',       state: 'run',  mod: tr('tab3.drop_in_o_merge') },
+      { k: 'F', label: tr('tab3.paso_inyectar'),       state: 'run',  mod: tr('tab3.drop_in_o_merge') },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
-      { k: 'H', label: 'Validar',        state: 'run' },
+      { k: 'H', label: tr('tab3.paso_validar'),        state: 'run' },
     ],
   },
   trusted_p7_mel_final: {
@@ -1500,19 +1500,19 @@ const _CMV40_PIPELINE_PREVIEW = {
     cls: 'ok',
     autoEndsAt: null,
     phases: [
-      { k: 'A', label: 'Analizar BD',    state: 'run' },
-      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'A', label: tr('tab3.paso_analizar_bd'),    state: 'run' },
+      { k: 'B', label: tr('tab3.paso_descargar_bin'),  state: 'run' },
       { k: 'C', label: 'Demux',          state: 'run', mod: tr('tab3.segun_bd') },
-      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'D', label: tr('tab3.paso_verif_visual'),  state: 'skip', mod: tr('tab3.mod_gates_trusted') },
       { k: 'E', label: tr('tab3.correccion_sync'), state: 'skip', mod: tr('tab3.0_por_gates') },
-      { k: 'F', label: 'Inyectar',       state: 'run',  mod: tr('tab3.directo_o_merge') },
+      { k: 'F', label: tr('tab3.paso_inyectar'),       state: 'run',  mod: tr('tab3.directo_o_merge') },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
-      { k: 'H', label: 'Validar',        state: 'run' },
+      { k: 'H', label: tr('tab3.paso_validar'),        state: 'run' },
     ],
   },
   trusted_p8_source: {
     icon: 'caja',
-    title: 'Bin P8 retail · CMv4.0 completo',
+    title: tr('tab3.bin_p8_retail_cmv40_completo'),
     blurb: tr('tab3.bin_p8_con_cmv4_0_completo') + ' ' +
            tr('tab3.de_metadata_cmv4_0_via_dovi') + ' ' +
            tr('tab3.comportamiento_segun_tu_bd') + ' ' +
@@ -1522,14 +1522,14 @@ const _CMV40_PIPELINE_PREVIEW = {
     cls: 'info',
     autoEndsAt: null,
     phases: [
-      { k: 'A', label: 'Analizar BD',    state: 'run' },
-      { k: 'B', label: 'Descargar bin',  state: 'run' },
+      { k: 'A', label: tr('tab3.paso_analizar_bd'),    state: 'run' },
+      { k: 'B', label: tr('tab3.paso_descargar_bin'),  state: 'run' },
       { k: 'C', label: 'Demux',          state: 'run', mod: tr('tab3.segun_bd') },
-      { k: 'D', label: 'Verif. visual',  state: 'skip', mod: 'gates trusted' },
+      { k: 'D', label: tr('tab3.paso_verif_visual'),  state: 'skip', mod: tr('tab3.mod_gates_trusted') },
       { k: 'E', label: tr('tab3.correccion_sync'), state: 'skip', mod: tr('tab3.0_por_gates') },
-      { k: 'F', label: 'Merge + inyectar', state: 'run' },
+      { k: 'F', label: tr('tab3.paso_merge_inyectar'), state: 'run' },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
-      { k: 'H', label: 'Validar',        state: 'run' },
+      { k: 'H', label: tr('tab3.paso_validar'),        state: 'run' },
     ],
   },
   unknown: {
@@ -1541,14 +1541,14 @@ const _CMV40_PIPELINE_PREVIEW = {
     cls: 'warn',
     autoEndsAt: 'D',
     phases: [
-      { k: 'A', label: 'Analizar BD',    state: 'run' },
-      { k: 'B', label: 'Clasificar bin', state: 'run' },
-      { k: 'C', label: 'Demux',          state: 'run', mod: 'probable' },
-      { k: 'D', label: 'Verif. visual',  state: 'run', mod: tr('tab3.si_no_trusted') },
+      { k: 'A', label: tr('tab3.paso_analizar_bd'),    state: 'run' },
+      { k: 'B', label: tr('tab3.paso_clasificar_bin'), state: 'run' },
+      { k: 'C', label: 'Demux',          state: 'run', mod: tr('tab3.mod_probable') },
+      { k: 'D', label: tr('tab3.paso_verif_visual'),  state: 'run', mod: tr('tab3.si_no_trusted') },
       { k: 'E', label: tr('tab3.correccion_sync'), state: 'run', mod: 'si Δ≠0' },
-      { k: 'F', label: 'Inyectar',       state: 'run' },
+      { k: 'F', label: tr('tab3.paso_inyectar'),       state: 'run' },
       { k: 'G', label: 'Remux MKV',      state: 'run' },
-      { k: 'H', label: 'Validar',        state: 'run' },
+      { k: 'H', label: tr('tab3.paso_validar'),        state: 'run' },
     ],
   },
 };
@@ -1741,8 +1741,8 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     if (info) info.textContent = tr('ui.selecciona_primero_un_mkv_origen');
     return;
   }
-  list.innerHTML = '<div class="cmv40-repo-empty"><span data-icono="reloj"></span> Buscando en Drive…</div>';
-  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
+  list.innerHTML = '<div class="cmv40-repo-empty"><span data-icono="reloj"></span> ' + tr('tab3.buscando_en_drive') + '</div>';
+  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> ' + tr('tab3.consultando_repositorio_de_dovitools');
   // El sheet de DoviTools matchea por NOMBRE de fichero (no path), asi que
   // pasamos el filename, no la ruta absoluta.
   const matchKey = _cmv40SourceFilename || _cmv40SourceSelected;
@@ -1799,7 +1799,7 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: 'diana', label: 'bin P7 FEL',  cls: 'tag-ok' }
                   : pt === 'trusted_p7_mel_final' ? { icon: 'diana', label: 'bin P7 MEL',  cls: 'tag-ok' }
                   : pt === 'trusted_p8_source'    ? { icon: 'caja', label: 'bin P8 retail', cls: 'tag-info' }
-                  : { icon: 'info', label: 'tipo desconocido', cls: 'tag-warn' };
+                  : { icon: 'info', label: tr('tab3.tipo_desconocido_min'), cls: 'tag-warn' };
     const provTag = prov === 'retail'
       ? '<span class="cmv40-repo-card-tag tag-ok"><span data-icono="biblioteca"></span> Retail</span>'
       : prov === 'generated'
@@ -3384,10 +3384,10 @@ function _renderCMv40RecommendationCard(s, pid) {
     techRows.push({ label: 'CMv4.0 extras', value: extras.join(' · ') });
   }
   if (s.target_l2_unique_count) {
-    techRows.push({ label: 'Combos L2 (bin)', value: String(s.target_l2_unique_count) });
+    techRows.push({ label: tr('tab3.combos_l2_bin'), value: String(s.target_l2_unique_count) });
   }
   if (s.source_l2_unique_count) {
-    techRows.push({ label: 'Combos L2 (MKV original)', value: String(s.source_l2_unique_count) });
+    techRows.push({ label: tr('tab3.combos_l2_mkv_original'), value: String(s.source_l2_unique_count) });
   }
   const techGrid = techRows.length ? `
     <div style="margin-top:14px; display:grid; grid-template-columns:auto 1fr; gap:6px 16px; align-items:baseline">
@@ -3563,13 +3563,13 @@ function _renderCMv40PhaseStrip(s, pid) {
   const container = document.getElementById(`cmv40-phase-strip-${pid}`);
   if (!container) return;
   const phases = [
-    { key: 'source_analyzed', icon: 'lupa', label: 'Analizar origen' },
+    { key: 'source_analyzed', icon: 'lupa', label: tr('tab3.analizar_origen') },
     { key: 'target_provided', icon: 'diana', label: 'RPU target' },
     { key: 'extracted',       icon: 'tijeras', label: tr('tab3.extraer_bl_el') },
-    { key: 'sync_verified',   icon: 'grafico', label: 'Verificar sync' },
-    { key: 'injected',        icon: 'inyectar', label: 'Inyectar' },
+    { key: 'sync_verified',   icon: 'grafico', label: tr('tab3.paso_verificar_sync') },
+    { key: 'injected',        icon: 'inyectar', label: tr('tab3.paso_inyectar') },
     { key: 'remuxed',         icon: 'caja', label: 'Remux' },
-    { key: 'validated',       icon: 'check', label: 'Validar' },
+    { key: 'validated',       icon: 'check', label: tr('tab3.paso_validar') },
   ];
   const currentIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
   const isError = s.phase === 'error';
@@ -3591,12 +3591,12 @@ function _renderCMv40PhaseStrip(s, pid) {
 // Definición de todas las fases: inicio + fin
 // Una fase está "done" si la phase actual es >= el estado que esa fase PRODUCE
 const CMV40_FASES_DEF = [
-  { key: 'A', title: 'Fase A — Analizar MKV origen',       produces: 'source_analyzed', startsFrom: 'created',         reset_to: 'created' },
-  { key: 'B', title: 'Fase B — Proporcionar RPU target',   produces: 'target_provided', startsFrom: 'source_analyzed', reset_to: 'source_analyzed' },
+  { key: 'A', title: tr('tab3.fase_a_analizar_mkv_origen_guion'),       produces: 'source_analyzed', startsFrom: 'created',         reset_to: 'created' },
+  { key: 'B', title: tr('tab3.fase_b_proporcionar_rpu_target_guion'),   produces: 'target_provided', startsFrom: 'source_analyzed', reset_to: 'source_analyzed' },
   { key: 'C', title: tr('tab3.fase_c_extraer_bl_el'),             produces: 'extracted',       startsFrom: 'target_provided', reset_to: 'target_provided' },
   { key: 'D', title: tr('tab3.fase_d_e_verificar_y_corregir'),  produces: 'sync_verified',   startsFrom: 'extracted',       reset_to: 'extracted' },
-  { key: 'F', title: 'Fase F — Inyectar RPU',              produces: 'injected',        startsFrom: 'sync_verified',   reset_to: 'sync_verified' },
-  { key: 'G', title: 'Fase G — Remux final',               produces: 'remuxed',         startsFrom: 'injected',        reset_to: 'injected' },
+  { key: 'F', title: tr('tab3.fase_f_inyectar_rpu_guion'),              produces: 'injected',        startsFrom: 'sync_verified',   reset_to: 'sync_verified' },
+  { key: 'G', title: tr('tab3.fase_g_remux_final_guion'),               produces: 'remuxed',         startsFrom: 'injected',        reset_to: 'injected' },
   { key: 'H', title: tr('tab3.fase_h_validacion_final'),          produces: 'validated',       startsFrom: 'remuxed',         reset_to: 'remuxed' },
 ];
 
@@ -4198,7 +4198,7 @@ function _cmv40GateBloque2(s) {
   const l5S = l5txt(sdv, perfS), l5T = l5txt(tdv, perfT);
 
   return `
-    ${_cmv40BloqueHead('②', 'Los dos RPU, lado a lado')}
+    ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
     <div style="border:1px solid rgba(15,23,42,0.08); border-radius:6px; overflow:hidden">
       <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
         <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right">¿=?</div>
@@ -4309,7 +4309,7 @@ function _cmv40GateBloque3(s) {
       g.l1_div.why || tr('tab3.promedio_de_brillo_escena_a_escena')));
   }
   if (!rows.length) return '';
-  return _cmv40BloqueHead('③', 'Gates', 'valor · umbral · severidad') + rows.join('');
+  return _cmv40BloqueHead('③', tr('tab3.gates'), tr('tab3.valor_umbral_severidad')) + rows.join('');
 }
 
 // ── ④ Desglose L5 ────────────────────────────────────────────────────
@@ -4329,7 +4329,7 @@ function _cmv40GateBloque4(s) {
     const zc = l5.sampled_zone_counts || {};
     const zm = l5.sampled_zone_mismatches || {};
     return `
-      ${_cmv40BloqueHead('④', 'Desglose L5', 'muestreo antiguo (24 frames)')}
+      ${_cmv40BloqueHead('④', tr('tab3.desglose_l5'), tr('tab3.muestreo_antiguo_24_frames'))}
       <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
         ${lin('Pares comparados', tr('tab3.n_coinciden_de_n', {n: l5.sampled_matches || 0, total: l5.sampled_total || 0}))}
         ${lin('Por zona (muestras)', `intro ${zm.intro || 0}/${zc.intro || 0} · cuerpo ${zm.body || 0}/${zc.body || 0} · outro ${zm.outro || 0}/${zc.outro || 0}`)}
@@ -4379,7 +4379,7 @@ function _cmv40GateBloque4(s) {
     </div>` : '';
 
   return `
-    ${_cmv40BloqueHead('④', 'Desglose L5', 'comparación frame a frame')}
+    ${_cmv40BloqueHead('④', tr('tab3.desglose_l5'), tr('tab3.comparacion_frame_a_frame'))}
     <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
       ${perfil('Perfil BD (source)', l5.perfil_source)}
       ${perfil('Perfil bin (target)', l5.perfil_target)}
@@ -4451,7 +4451,7 @@ function _cmv40GateBloque5(pid, s) {
   if (!filas) return '';
 
   return `
-    ${_cmv40BloqueHead('⑤', 'Evidencia de apoyo')}
+    ${_cmv40BloqueHead('⑤', tr('tab3.evidencia_de_apoyo'))}
     <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
       ${filas}
       <div style="margin-top:8px; text-align:right">
@@ -4695,7 +4695,7 @@ const _CMV40_TARGET_TYPE_LABELS = {
   'trusted_p8_source':     { icon: 'caja', label: 'Target P8 + CMv4.0 (trusted)', desc: tr('tab3.bin_pre_validado_rama_b_skip') },
   'trusted_p7_fel_final':  { icon: 'diana', label: 'Target P7 FEL CMv4.0 final',   desc: tr('tab3.drop_in_skip_merge_en_fase') },
   'trusted_p7_mel_final':  { icon: 'diana', label: 'Target P7 MEL CMv4.0 final',   desc: tr('tab3.drop_in_mel_skip_fase_d') },
-  'incompatible':          { icon: 'cruz', label: 'Target incompatible',          desc: tr('tab3.sin_cmv4_0_no_sirve_como') },
+  'incompatible':          { icon: 'cruz', label: tr('tab3.target_incompatible'),          desc: tr('tab3.sin_cmv4_0_no_sirve_como') },
 };
 
 function _cmv40FaseSummary(key, s) {
@@ -4803,7 +4803,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
           <span style="color:var(--text-3)" data-i18n="tab3.correccion_aplicada"></span>
           <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
         </div>`
-      : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">Sincronización confirmada sin corrección.</div>';
+      : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">' + tr('tab3.sincronizacion_confirmada_sin_correccion_2') + '</div>';
     return `
       ${syncConfigHtml}
       <div style="font-size:11px; color:var(--text-3); margin-bottom:8px" data-i18n="tab3.navegacion_por_el_grafico_en_solo"></div>
@@ -4955,7 +4955,7 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         <ul style="margin:0; padding-left:18px">${rows}</ul>
       </div>`;
   } else {
-    artifactsList = '<div style="font-size:11px; color:var(--text-3); margin-top:8px">No hay artefactos posteriores que borrar.</div>';
+    artifactsList = '<div style="font-size:11px; color:var(--text-3); margin-top:8px">' + tr('tab3.no_hay_artefactos_posteriores_que_borrar') + '</div>';
   }
 
   // Uso el modal cmv40-confirm-modal que acepta HTML en el body
@@ -5107,7 +5107,7 @@ function _cmv40FaseFBody(pid, s) {
       : tr('tab3.inyecta_el_rpu_target_directamente_en_4');
   }
   const reviewBanner = faseDExecutedVisually
-    ? '<div class="banner info" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="info"></span></span><span>Verifica en el chart de Fase D que las curvas coinciden antes de inyectar.</span></div>'
+    ? '<div class="banner info" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="info"></span></span><span>' + tr('tab3.verifica_en_el_chart_de_fase_d') + '</span></div>'
     : '';
   return `
     <div class="section-body">
@@ -5523,24 +5523,24 @@ async function _cmv40LoadRepoForPanel(pid) {
   const sourcePath = project.session?.source_mkv_path || '';
   const filename = sourcePath.split('/').pop() || '';
   if (!filename) {
-    list.innerHTML = '<div class="cmv40-repo-empty">Sin MKV origen — imposible matchear.</div>';
+    list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.sin_mkv_origen_imposible_matchear') + '</div>';
     if (info) info.textContent = '';
     return;
   }
-  list.innerHTML = '<div class="cmv40-repo-empty"><span data-icono="reloj"></span> Buscando en Drive…</div>';
-  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> Consultando repositorio de DoviTools…';
+  list.innerHTML = '<div class="cmv40-repo-empty"><span data-icono="reloj"></span> ' + tr('tab3.buscando_en_drive') + '</div>';
+  if (info) info.innerHTML = '<span class="cmv40-rec-spinner-inline"></span> ' + tr('tab3.consultando_repositorio_de_dovitools');
   const reqId = (_cmv40PanelRepoReqIds[pid] || 0) + 1;
   _cmv40PanelRepoReqIds[pid] = reqId;
   const qs = '?filename=' + encodeURIComponent(filename);
   const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
   if (_cmv40PanelRepoReqIds[pid] !== reqId) return;
   if (!data) {
-    list.innerHTML = '<div class="cmv40-repo-empty">Error consultando el repositorio.</div>';
+    list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.error_consultando_el_repositorio') + '</div>';
     if (info) info.textContent = '';
     return;
   }
   if (!data.drive_configured) {
-    list.innerHTML = '<div class="cmv40-repo-empty">Repositorio DoviTools no configurado — abre Configuración para añadir Google API key + URL del repo.</div>';
+    list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.repositorio_dovitools_no_configurado') + '</div>';
     if (info) info.textContent = '';
     return;
   }
@@ -5560,7 +5560,7 @@ async function _cmv40LoadRepoForPanel(pid) {
     const tagMeta = pt === 'trusted_p7_fel_final' ? { icon: 'diana', label: 'bin P7 FEL',  cls: 'tag-ok' }
                   : pt === 'trusted_p7_mel_final' ? { icon: 'diana', label: 'bin P7 MEL',  cls: 'tag-ok' }
                   : pt === 'trusted_p8_source'    ? { icon: 'caja', label: 'bin P8 retail', cls: 'tag-info' }
-                  : { icon: 'info', label: 'tipo desconocido', cls: 'tag-warn' };
+                  : { icon: 'info', label: tr('tab3.tipo_desconocido_min'), cls: 'tag-warn' };
     const provTag = prov === 'retail'
       ? '<span class="cmv40-repo-card-tag tag-ok"><span data-icono="biblioteca"></span> Retail</span>'
       : prov === 'generated'
@@ -5631,14 +5631,14 @@ async function _cmv40LoadRpus(pid) {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">— No hay RPUs en /mnt/cmv40_rpus —</option>';
+    select.innerHTML = '<option value="">' + tr('tab3.no_hay_rpus_en_mnt_cmv40_rpus') + '</option>';
   }
 }
 
 async function _cmv40LoadTargetMkvs(pid) {
   const select = document.getElementById(`cmv40-target-mkv-select-${pid}`);
   const data = await apiFetch('/api/mkv/files-in-isos');
-  select.innerHTML = '<option value="">— Seleccionar MKV con CMv4.0 —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.seleccionar_mkv_con_cmv40') + '</option>';
   if (data?.files && data.files.length) {
     data.files.forEach(f => {
       const opt = document.createElement('option');
@@ -5647,7 +5647,7 @@ async function _cmv40LoadTargetMkvs(pid) {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">— No hay MKVs en el directorio de ISOs —</option>';
+    select.innerHTML = '<option value="">' + tr('tab3.no_hay_mkvs_en_el_directorio_de_isos') + '</option>';
   }
 }
 
@@ -6259,7 +6259,7 @@ function _renderCMv40SyncControls(project) {
     { key: '1min',  start: 0, end: Math.min(Math.round(60 * FPS), totalFrames),       label: '1 min' },
     { key: '5min',  start: 0, end: Math.min(Math.round(5 * 60 * FPS), totalFrames),   label: '5 min' },
     { key: '30min', start: 0, end: Math.min(Math.round(30 * 60 * FPS), totalFrames),  label: '30 min' },
-    { key: 'all',   start: 0, end: totalFrames,                                        label: 'Todo' },
+    { key: 'all',   start: 0, end: totalFrames,                                        label: tr('tab3.zoom_todo') },
   ];
   const activeKey = presets.find(p => p.start === currentRange.start && p.end === currentRange.end)?.key;
 
@@ -6300,7 +6300,7 @@ function _renderCMv40SyncControls(project) {
     <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">${tr(hasSyncConfig ? 'tab3.correccion_adicional' : 'tab3.correccion_manual')}</div>
     <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
       ${hasSyncConfig
-        ? 'Estos valores se <b>sumarán</b> a la corrección ya aplicada. El Δ actual del gráfico indica cuánto falta por alinear.'
+        ? tr('tab3.estos_valores_se_sumaran_a_la')
         : tr('tab3.los_valores_se_aplican_desde_el')}
     </div>
     <div class="cmv40-sync-form">
@@ -6330,7 +6330,7 @@ function _renderCMv40SyncControls(project) {
     <div style="margin-top:8px; font-size:11px; color:var(--text-3)">
       <span data-i18n="tab3.actual"></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${tr('tab3.p1_delta_frames', {p1: delta > 0 ? '+' : '', delta: delta})}</b>
       <span data-i18n="tab3.confianza"></span> <b style="color:${confOk ? 'var(--green)' : 'var(--orange)'}">${confPct}%</b>
-      ${canConfirm ? ' — <b style="color:var(--green)">listo para continuar</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
+      ${canConfirm ? ' — <b style="color:var(--green)">' + tr('tab3.listo_para_continuar') + '</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
   `;
   // Inicializar preview del Δ esperado
@@ -6949,7 +6949,7 @@ function _cmv40PfChecks(s) {
   const nombreBin = s?.pending_target_file_name
                  || (s?.target_rpu_path || '').split('/').pop() || '';
   filas.push({
-    titulo: 'RPU target disponible',
+    titulo: tr('tab3.rpu_target_disponible'),
     valor: tgt ? (nombreBin || tr('tab3.obtenido_en_el_directorio_de_trabajo'))
                : (nombreBin ? tr('tab3.obteniendo_p1', {p1: nombreBin}) : tr('tab3.obteniendo_el_rpu')),
     estado: tgt ? 'ok' : 'pend',
@@ -6987,7 +6987,7 @@ function _cmv40PfChecks(s) {
 
   if (s?.recommended_action_label) {
     filas.push({
-      titulo: 'Recomendación',
+      titulo: tr('tab3.recomendacion'),
       valor: s.recommended_action_label,
       estado: s.recommended_action === 'keep' ? 'aviso' : 'ok',
     });
@@ -6999,7 +6999,7 @@ function _cmv40PfChecks(s) {
   if (decision) {
     const cuando = _cmv40PfCuando(s?.preflight_user_choice_at);
     filas.push({
-      titulo: 'Decisión',
+      titulo: tr('tab3.titulo_decision'),
       valor: (decision === 'keep' ? tr('tab3.mantener_el_mkv_actual')
                                   : tr('tab3.inyectar_el_rpu_igualmente'))
            + (cuando ? ` · ${cuando}` : ''),

@@ -48,7 +48,7 @@ async function openCMv40CleanupModal() {
   const data = await apiFetch('/api/cmv40/cleanup/preview');
   if (!data) return;
   if (!data.items || !data.items.length) {
-    if (body) body.innerHTML = '<div class="cmv40-cleanup-empty">No hay proyectos CMv4.0 todavía.</div>';
+    if (body) body.innerHTML = '<div class="cmv40-cleanup-empty">' + tr('cmv40_modals.no_hay_proyectos_cmv40_todavia') + '</div>';
     return;
   }
   if (data.deletable_count === 0) {
@@ -65,7 +65,7 @@ async function openCMv40CleanupModal() {
   const rows = data.items.map((it) => {
     // Estado visual
     let stateBadge = '';
-    if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running"><span data-icono="reloj"></span> En curso</span>';
+    if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running"><span data-icono="reloj"></span> ' + tr('workbar.en_curso') + '</span>';
     else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived"><span data-icono="archivador"></span> Archivado</span>';
     else if (it.state === 'done') stateBadge = '<span class="cleanup-state-pill done"><span data-icono="check"></span> Done</span>';
     else if (it.state === 'error') stateBadge = '<span class="cleanup-state-pill error"><span data-icono="aviso"></span> Error</span>';
@@ -143,7 +143,7 @@ function _cmv40CleanupUpdateSummary() {
   if (summaryEl) {
     summaryEl.innerHTML = count > 0
       ? `<strong>${count}</strong> proyecto${count === 1 ? '' : 's'} · liberables <strong>${_cleanupFmtBytes(totalBytes)}</strong>`
-      : '<span style="color:var(--text-3)">Selecciona al menos un proyecto</span>';
+      : '<span style="color:var(--text-3)">' + tr('cmv40_modals.selecciona_al_menos_un_proyecto') + '</span>';
   }
   if (btn) {
     btn.disabled = count === 0;
@@ -306,7 +306,7 @@ async function cmv40LookupSearch() {
 
   const title = (input.value || '').trim();
   if (!title) {
-    results.innerHTML = '<div class="cmv40-lookup-empty">Introduce un título para consultar.</div>';
+    results.innerHTML = '<div class="cmv40-lookup-empty">' + tr('cmv40_modals.introduce_un_titulo_para_consultar') + '</div>';
     input.focus();
     return;
   }
@@ -447,7 +447,7 @@ async function _cmv40LookupFullFetch(container, title, year) {
 
 function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   if (!rec && !repo && !tmdb) {
-    container.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar. Revisa la conexión o las API keys.</div>';
+    container.innerHTML = '<div class="cmv40-lookup-empty">' + tr('cmv40_modals.no_se_pudo_consultar_revisa_la_conexion') + '</div>';
     return;
   }
 
@@ -476,7 +476,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   // ── 3. Candidatos del repositorio con pipeline previsto ──────
   html += '<div class="cmv40-lookup-section">';
   html += '<div class="cmv40-lookup-section-title"><span data-icono="caja"></span> Repositorio DoviTools (bins <code>.bin</code>)</div>';
-  html += '<div class="cmv40-lookup-section-desc">Ficheros disponibles para descarga automática. El tag indica qué pipeline se aplicaría.</div>';
+  html += '<div class="cmv40-lookup-section-desc">' + tr('cmv40_modals.ficheros_disponibles_para_descarga_automatica') + '</div>';
   if (!repo || !repo.drive_configured) {
     html += _cmv40RepoUnavailableBanner(repo);
   } else if (repo.error) {
@@ -530,7 +530,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
     if (slot) {
       slot.style.display = 'block';
       slot.className = 'cmv40-rec-banner unknown';
-      slot.innerHTML = '<div class="cmv40-rec-body">No se pudo consultar la hoja de DoviTools.</div>';
+      slot.innerHTML = '<div class="cmv40-rec-body">' + tr('cmv40_modals.no_se_pudo_consultar_la_hoja_de_dovitools') + '</div>';
     }
   }
 }
@@ -541,13 +541,13 @@ function _cmv40LookupTagMeta(pt) {
   // trusted_p8_source cubre tanto P8 retail nativo como P5→P8 transfer.
   // Etiqueta neutra para no asumir uno u otro.
   if (pt === 'trusted_p8_source')    return { icon: 'caja', label: 'Bin P8 retail', cls: 'tag-info' };
-  return { icon: 'info', label: 'Tipo desconocido', cls: 'tag-warn' };
+  return { icon: 'info', label: tr('tab3.tipo_desconocido'), cls: 'tag-warn' };
 }
 
 function _cmv40LookupPipelineSummary(pt, provenance) {
   const info = (typeof _CMV40_PIPELINE_PREVIEW !== 'undefined') ? _CMV40_PIPELINE_PREVIEW[pt] : null;
   if (!info) {
-    return '<div class="cmv40-lookup-pp-desc">Pipeline se determinará tras descarga y análisis con dovi_tool.</div>';
+    return '<div class="cmv40-lookup-pp-desc">' + tr('cmv40_modals.pipeline_se_determinara_tras_descarga') + '</div>';
   }
   return _cmv40PipelinePreviewHTML(info, provenance, null, pt);
 }

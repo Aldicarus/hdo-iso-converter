@@ -722,3 +722,60 @@ class TestNingunaCadenaCastellanaSeCuelaPorUnHueco(unittest.TestCase):
             f"\n{len(fuera)} cadena(s) castellanas dentro de un `${{…}}` de "
             f"plantilla.\nPásalas por `tr()` —o une la ternaria en dos claves "
             f"completas—:\n  · " + "\n  · ".join(fuera[:20])))
+
+
+# Las propiedades cuyo valor se PINTA. `icon`/`cls`/`key` no entran: ahí una
+# palabra castellana es el nombre de un glifo o de una clase.
+_PROPS_QUE_SE_VEN = (r"(title|label|what|sub|desc|titulo|etiqueta|nota|motivo"
+                     r"|mod|hint|aviso|meta2?|tooltip)")
+
+
+class TestNingunLiteralCastellanoEnUnaPropiedadQueSeVe(unittest.TestCase):
+    """`title: 'Fase A · Analizar MKV origen'` sale en pantalla tal cual.
+
+    Es la clase que el usuario reportó viendo «FASE A» con la app en inglés,
+    y eran **~70 literales**: los títulos de las siete fases, los rótulos de
+    los pasos de la vista previa del pipeline (`Analizar BD`, `Descargar
+    bin`, `Verif. visual`, `Validar`), los chips de la hoja de DoviTools y
+    las cabeceras de las tarjetas.
+
+    No los veía ningún guard porque `es_frase` pide seis caracteres, DOS
+    palabras y un acento o una palabra función: `Validar` tiene una palabra,
+    `Descargar bin` no tiene acento ni función, y `Fase A · Analizar MKV
+    origen` tampoco. El umbral está bien para prosa; para un rótulo no sirve.
+
+    El criterio de aquí no es un umbral, es un DATO: una palabra de cuatro
+    letras que aparece en el catálogo castellano y **no** en el inglés es
+    castellano. Se mantiene solo —cada frase que se traduce lo afina— y no
+    hay lista de palabras que envejezca.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        def palabras(cat):
+            return {w.lower() for v in cat.values()
+                    for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+        base = APP_DIR / "static" / "i18n"
+        cls.solo_es = (palabras(json.loads((base / "es.json").read_text(encoding="utf-8")))
+                       - palabras(json.loads((base / "en.json").read_text(encoding="utf-8"))))
+
+    def test_ninguna_propiedad_de_presentacion_lleva_castellano(self):
+        fuera = []
+        for r in rutas():
+            src = Path(r).read_text(encoding="utf-8")
+            for m in re.finditer(
+                    rf"""\b{_PROPS_QUE_SE_VEN}:\s*(['"])((?:(?!\2)[^\\\n]|\\.)*)\2""", src):
+                v = " ".join(m.group(3).split())
+                # Un `<path d=…>` es el dibujo de un glifo, no texto.
+                if not v or "<" in v:
+                    continue
+                pal = [w.lower() for w in
+                       re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)]
+                if not any(w in self.solo_es for w in pal):
+                    continue
+                linea = src[:m.start()].count("\n") + 1
+                fuera.append(f"{Path(r).name}:{linea}: {m.group(1)}: {v[:56]}")
+        fuera = sorted(set(fuera))
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} literal(es) castellanos en una propiedad que se "
+            f"pinta.\nPásalos por `tr('clave')`:\n  · " + "\n  · ".join(fuera[:15])))

@@ -81,7 +81,7 @@ IGUAL_EN_INGLES = {
     "tab2.avg_avg_pq":       "nombre del campo del RPU entre paréntesis",
     "tab2.min_min_pq":       "nombre del campo del RPU entre paréntesis",
     "tab2.scene_cuts":       "nombre del campo del RPU",
-    "tab2.master_display":   "nombre del campo del RPU (L9), cabecera de la tarjeta;\n                             #    su pareja es `Container HEVC`",
+    "tab2.master_display":   "nombre del campo del RPU (L9), cabecera de la tarjeta; su pareja es `Container HEVC`",
     "comun.master_p1_nits":  "`Master` es el campo L9 y `nits` la unidad: la "
                              "frase entera es nomenclatura",
     "tab2.master_p1_n":      "igual, con la `n` abreviada del gráfico",
@@ -120,13 +120,14 @@ IGUAL_EN_INGLES = {
     "tab2.offsets_t_b":      "campo del L5 del RPU, con las iniciales del lado",
     "tab2.track_id_p1":      "`Track ID` es como lo llama mkvmerge en su salida",
     "tab3.timecode":         "unidad de tiempo del vídeo, igual en las tres",
-    "tab3.trusted":          "el estado del bin en la spec de trust de la app;\n                             #    su pareja es `Sin trust automático`, que sí se traduce",
+    "tab3.gates":            "el nombre de los trust gates en la spec de la app; el log y la hoja de DoviTools los llaman así",
+    "tab3.trusted":          "el estado del bin en la spec de trust de la app; su pareja es `Sin trust automático`, que sí se traduce",
     "tab3.auto_on":          "el rótulo del interruptor del auto-pipeline",
     "tab3.auto_off":         "el rótulo del interruptor del auto-pipeline",
-    "tab1.col_match":        "cabecera de la columna de confianza del match; el\n                             #    castellano ya usa la palabra inglesa",
+    "tab1.col_match":        "cabecera de la columna de confianza del match; el castellano ya usa la palabra inglesa",
     # ── Y tres que son la misma palabra en inglés.
     "tab3.total":            "«Total» se escribe igual en las dos lenguas",
-    "tab1.poster":           "«poster» se escribe igual en inglés; en catalán sí\n                             #    lleva acento",
+    "tab1.poster":           "«poster» se escribe igual en inglés; en catalán sí lleva acento",
     "settings.paypal_rec_9999": "un nombre propio y un alias: no hay nada que traducir",
 }
 

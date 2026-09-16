@@ -1092,10 +1092,10 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
     // Light profile corrido pero sin L2 trims — caso normal en RPUs CMv4.0
     // que solo tienen L8. No es un error, solo informativo.
     trimChips = hasL8Trims
-      ? '<span class="dv-mc-empty">sin L2 trims · este RPU usa L8 (ver fila inferior)</span>'
-      : '<span class="dv-mc-empty">sin L2 trims declarados en el RPU</span>';
+      ? '<span class="dv-mc-empty">' + tr('tab2.sin_l2_trims_este_rpu_usa_l8') + '</span>'
+      : '<span class="dv-mc-empty">' + tr('tab2.sin_l2_trims_declarados_en_el_rpu') + '</span>';
   } else {
-    trimChips = '<span class="dv-mc-empty">analiza el perfil de luminancia para extraer los trim targets</span>';
+    trimChips = '<span class="dv-mc-empty">' + tr('tab2.analiza_el_perfil_de_luminancia_para') + '</span>';
   }
 
   // HDR10 metadata footer
@@ -1159,7 +1159,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
           <div class="dv-mc-card-meta">
             ${l10
               ? tr('tab2.gamut_objetivo_del_grade_dv')
-              : '<span class="dv-mc-empty">L10 no presente — DV targeting genérico</span>'}
+              : '<span class="dv-mc-empty">' + tr('tab2.l10_no_presente_dv_targeting_generico') + '</span>'}
           </div>
         </div>
       </div>
@@ -2125,7 +2125,7 @@ function _renderMkvEditPanel(project = mkvProject) {
           <div class="section-subtitle" data-i18n="tab2.clic_en_la_barra_para_anadir"></div></div>
           <button class="btn btn-xs" id="mkv-chapters-generic-btn-${pid}" style="display:none; margin-left:auto"
             onclick="setMkvGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
+            data-i18n-tip="core.reemplaza_todos_los_nombres_por_capitulo"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
         </div>
         <div class="section-body">
           <div id="mkv-chapters-banner-${pid}" class="banner info" style="display:none">
@@ -2367,7 +2367,7 @@ function _renderMkvTracks(project = mkvProject) {
     const frc = flagForcedLit ? ' active-forced' : '';
     const forcedLabel = derivedForced ? 'Forzados' : 'Completos';
     // Anotación cuando la clasificación viene inferida del volumen, no del flag
-    const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-tooltip="Clasificación inferida por volumen (el flag forced del MKV no está puesto)"><span data-icono="info"></span> inferido</span>' : '';
+    const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-i18n-tip="tab2.clasificacion_inferida_por_volumen"><span data-icono="info"></span> inferido</span>' : '';
 
     // Info visible: codec + resolución + paq. + bitrate + tipo
     const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
@@ -3385,7 +3385,7 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
   const nombre = st?.file_name || '';
   return {
     sinDetalle: st ? '' : 'efimero',
-    titulo: 'Copia a Output',
+    titulo: tr('tab2.copia_a_output'),
     sub: st?.file_name || a.que,
     cartel: nombre ? cartelDeTmdb(_tmdbCardCache?.get(nombre), nombre,
                                   icono('caja', 'ico-xl')) : null,

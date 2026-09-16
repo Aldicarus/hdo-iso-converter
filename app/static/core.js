@@ -1415,7 +1415,7 @@ async function buscarCandidatosDeFicha() {
   const titulo = (document.getElementById('ficha-titulo')?.value || '').trim();
   if (!res) return;
   if (!titulo) {
-    res.innerHTML = '<div class="cmv40-lookup-empty">Escribe un título para buscar.</div>';
+    res.innerHTML = '<div class="cmv40-lookup-empty">' + tr('core.escribe_un_titulo_para_buscar') + '</div>';
     return;
   }
   const anioTxt = (document.getElementById('ficha-anio')?.value || '').trim();
@@ -1425,17 +1425,17 @@ async function buscarCandidatosDeFicha() {
     method: 'POST',
     body: JSON.stringify({ title: titulo, year: anioTxt || null }),
   });
-  if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">No se pudo consultar TMDb.</div>'; return; }
+  if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">' + tr('core.no_se_pudo_consultar_tmdb') + '</div>'; return; }
   if (!r.tmdb_configured) {
-    res.innerHTML = '<div class="cmv40-lookup-empty">TMDb no está disponible — '
+    res.innerHTML = '<div class="cmv40-lookup-empty">' + tr('core.tmdb_no_esta_disponible_guion')
                   + tr('core.no_hay_ninguna_clave_activa_puedes') + ' '
                   + 'Configuración.</div>';
     return;
   }
   _fichaCandidatos = r.candidates || [];
   if (!_fichaCandidatos.length) {
-    res.innerHTML = '<div class="cmv40-lookup-empty">Sin coincidencias. '
-                  + 'Prueba con el título original o quita el año.</div>';
+    res.innerHTML = '<div class="cmv40-lookup-empty">'
+                  + tr('core.sin_coincidencias_prueba_con_el_titulo') + '</div>';
     return;
   }
   res.innerHTML = `<div class="cmv40-lookup-picks">${

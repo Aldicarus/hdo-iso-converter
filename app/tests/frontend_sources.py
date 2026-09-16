@@ -188,6 +188,31 @@ def stub_catalogo_es() -> str:
             "};})();</script>\n")
 
 
+def semilla_catalogo(idioma: str = "es") -> str:
+    """`<script>` que siembra `window.__I18N`, igual que hace el servidor.
+
+    En producción el catálogo llega por `/api/i18n/catalogo.js`, un script
+    BLOQUEANTE que se carga antes de `i18n.js` — es lo que impide que un
+    `tr()` en una constante de módulo se evalúe con el catálogo vacío y
+    congele la clave. El arnés tiene que reproducir ESO y no el fetch, porque
+    si no está midiendo otro arranque que el real.
+
+    A diferencia de `stub_catalogo_es`, sirve cualquiera de las tres lenguas,
+    que es lo que permite mirar la misma pantalla en inglés y en catalán.
+    """
+    import json
+    cat = (STATIC / "i18n" / f"{idioma}.json").read_text(encoding="utf-8")
+    manual = STATIC / "i18n" / "manual" / f"{idioma}.json"
+    man = manual.read_text(encoding="utf-8") if manual.exists() else "{}"
+    return ("<script>window.__I18N = {idioma: %s, catalogo: %s};\n"
+            "(function(){const _man = %s; const _real = window.fetch;\n"
+            "window.fetch = function (u) {\n"
+            "  if (String(u).includes('/i18n/manual/'))\n"
+            "    return Promise.resolve({ok: true, json: () => Promise.resolve(_man)});\n"
+            "  return _real ? _real.apply(this, arguments) : new Promise(()=>{});\n"
+            "};})();</script>\n" % (json.dumps(idioma), cat, man))
+
+
 def pintar_en(obj):
     """`pintar_textos_es` recursivo, para arneses que devuelven JSON.
 
