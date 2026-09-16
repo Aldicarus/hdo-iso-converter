@@ -65,6 +65,21 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
 
         # `_run_pipeline` salió de `main.py` con el resto de Tab 1.
         self.main, self.storage = tab1, storage
+
+        # Los locks del save throttled viven en un dict de MÓDULO, y cada
+        # test de `IsolatedAsyncioTestCase` trae su propio event loop. El
+        # `_bg_save` es fire-and-forget: si el loop del test anterior se
+        # cierra con la tarea pendiente, el lock se queda **tomado** y
+        # apuntando a un loop muerto, y el `_flush_session_save` del
+        # siguiente muere con `Lock is bound to a different event loop`.
+        #
+        # En producción no puede pasar —el loop es uno y dura lo que el
+        # proceso—, así que esto se limpia aquí y no se defiende en el
+        # código: es la misma fuga que `api_harness` cierra con los dos
+        # singleton de Tab 2. Y en **3.10 el lock se ata al loop al
+        # construirse**, así que el fallo solo salía en CI.
+        tab1._session_save_locks.clear()
+        tab1._session_save_throttle.clear()
         self.tmp = Path(tempfile.mkdtemp(prefix="orq_test_"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.config = self.tmp / "config"
@@ -501,3 +516,45 @@ class TestParcialesQueSeQuedan(OrquestadorCase):
         self.assertEqual(s.status, "error")
         self.assertTrue(previo.exists(), "se ha borrado un MKV que ya estaba")
         self.assertEqual(previo.read_bytes(), b"rip anterior que no hay que perder")
+
+
+class TestNingunModuloNuevoDejaElLockColgando(unittest.TestCase):
+    """Quien conduzca `_run_pipeline` tiene que limpiar los locks del save.
+
+    `routers/tab1._session_save_locks` es un dict de MÓDULO y
+    `_maybe_save_session_throttled` lanza su `_bg_save` como fire-and-forget.
+    Cada test de `IsolatedAsyncioTestCase` trae su propio event loop, así que
+    si uno se cierra con la tarea pendiente el lock se queda **tomado** y
+    atado a un loop muerto; el `_flush_session_save` del test siguiente muere
+    con `RuntimeError: Lock is bound to a different event loop`.
+
+    **Solo se ve en CI**: en 3.10 el lock se ata al loop al construirse y en
+    3.12 —la del Mac— la atadura es perezosa. Es la misma asimetría que los
+    dos tests de `/proc` y que el `MAX_ARG_STRLEN` de `node -e`, y costó un CI
+    rojo con la suite entera en verde en local.
+
+    No se defiende en el código de producción a propósito: ahí el event loop
+    es uno y dura lo que el proceso, así que la situación no puede darse. Se
+    limpia en el `setUp`, igual que `api_harness` hace con los dos singleton
+    de Tab 2.
+    """
+
+    def test_quien_usa_el_pipeline_limpia_los_locks(self):
+        # La aguja se compone en ejecución: escrita como literal aparecería
+        # en el fuente de ESTE fichero y el guard se daría por satisfecho
+        # consigo mismo. Verificado por mutación — con el literal dentro, la
+        # mutación pasaba en verde.
+        marca = "_session_save_locks" + ".clear()"
+        malos = []
+        for ruta in sorted(Path(__file__).parent.glob("test_*.py")):
+            texto = ruta.read_text(encoding="utf-8")
+            codigo = "\n".join(l for l in texto.splitlines()
+                               if not l.lstrip().startswith("#"))
+            if "_run_pipeline(" not in codigo:
+                continue
+            if marca not in codigo:
+                malos.append(ruta.name)
+        self.assertEqual(malos, [], (
+            "\nestos módulos conducen `_run_pipeline` sin limpiar "
+            "`_session_save_locks`;\nel lock sobrevive al event loop del test "
+            "y el siguiente falla solo en CI:\n  · " + "\n  · ".join(malos)))

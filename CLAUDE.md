@@ -2237,6 +2237,24 @@ red para cualquier otro clon superficial. La imagen de GHCR no depende de
 esto: el workflow de publicación le pasa `APP_VERSION` del tag del release, y
 el stage `version-detector` del Dockerfile es el respaldo del build local.
 
+**Un `asyncio.Lock` de módulo no sobrevive al event loop de un test.**
+`routers/tab1._session_save_locks` es un dict por sesión y
+`_maybe_save_session_throttled` lanza su `_bg_save` como fire-and-forget; cada
+test de `IsolatedAsyncioTestCase` trae su propio loop, así que uno que se
+cierre con la tarea pendiente deja el lock **tomado** y atado a un loop
+muerto — y el `_flush_session_save` del test siguiente muere con
+`RuntimeError: Lock is bound to a different event loop`. **Solo se ve en CI**:
+en 3.10 el lock se ata al loop al construirse y en 3.12 —la del Mac— la
+atadura es perezosa. No se defiende en producción a propósito (ahí el loop es
+uno y dura lo que el proceso): se limpia en el `setUp`, igual que
+`api_harness` con los dos singleton de Tab 2, y lo guarda
+`test_orquestador_tab1::TestNingunModuloNuevoDejaElLockColgando`.
+
+Y ojo con ese guard, que nació **autorreferente**: buscaba en todos los
+módulos el literal `_session_save_locks.clear()`, que aparecía en su propio
+fuente, así que se daba por satisfecho consigo mismo y la mutación pasaba en
+verde. La aguja se compone en ejecución.
+
 `test_frontend_cache_bust.py` va en la **suite**, no en el YAML: caza el error típico del token `?v=` de `index.html` —tocar una de las dos referencias y olvidar la otra, que deja el CSS y el JS en versiones distintas— y así también salta en local, que es donde se comete.
 
 ---
