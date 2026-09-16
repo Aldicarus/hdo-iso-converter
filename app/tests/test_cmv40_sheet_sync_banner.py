@@ -22,7 +22,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo, motor_i18n, pintar_en  # noqa: E402
+from frontend_sources import argv_node, js_completo, motor_i18n, pintar_en  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -42,7 +42,7 @@ globalThis.escHtml = s => String(s)
 {_fn('_cmv40SheetSyncBannerHTML')}
 console.log(JSON.stringify(_cmv40SheetSyncBannerHTML({json.dumps(sheet_sync)})));
 """
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
+    r = subprocess.run(argv_node(guion), capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise AssertionError(r.stderr[:2000])
     return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))

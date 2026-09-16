@@ -28,7 +28,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 NODE = shutil.which("node")
-from frontend_sources import (js_completo, motor_i18n, pintar_en)  # noqa: E402
+from frontend_sources import (js_completo, argv_node, motor_i18n, pintar_en)  # noqa: E402
 
 JS = js_completo()
 
@@ -109,7 +109,7 @@ class AvisoCase(unittest.IsolatedAsyncioTestCase):
                       for k, v in (prefs or {}).items())
             + "\n(async () => {\n" + cuerpo + "\n})();"
         )
-        r = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        r = subprocess.run(argv_node(script), capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")
         return pintar_en(json.loads(r.stdout or "null"))

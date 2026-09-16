@@ -32,7 +32,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import (js_completo, motor_i18n, pintar_en,  # noqa: E402
+from frontend_sources import (js_completo, argv_node, motor_i18n, pintar_en,  # noqa: E402
                               sistema_de_iconos)
 
 SISTEMA_ICONOS = sistema_de_iconos()
@@ -137,7 +137,7 @@ console.log(JSON.stringify({{
   avisa: _els['workbar-toggle'].classList.has('con-trabajo'),
 }}));
 """
-        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló:\n{r.stderr[:900]}")
@@ -441,7 +441,7 @@ const arriba = () => {{
 }};
 {guion}
 """
-        r = subprocess.run([NODE, "-e", script], capture_output=True, text=True,
+        r = subprocess.run(argv_node(script), capture_output=True, text=True,
                            timeout=30)
         if r.returncode != 0:
             raise AssertionError(r.stderr[:600])

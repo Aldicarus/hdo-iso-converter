@@ -28,23 +28,11 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
-from frontend_sources import js_completo, motor_i18n  # noqa: E402
+from frontend_sources import (argv_node, js_completo,  # noqa: E402
+                              js_en_disco, motor_en_disco)
 
 NODE = shutil.which("node")
 
-
-def _js_en_disco() -> str:
-    """El JS concatenado en un temporal, que es lo que el driver de node lee.
-
-    Las siete piezas se leen del disco y se juntan aquí en vez de pasarle una
-    ruta suelta: extraer una función por nombre necesita ver TODO el JS, igual
-    que lo ve el navegador."""
-    import tempfile
-    f = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
-                                    encoding="utf-8")
-    f.write(js_completo())
-    f.close()
-    return f.name
 
 # Extrae del app.js real las funciones implicadas y las evalúa juntas, sin
 # DOM ni resto del fichero. Lee casos por stdin y devuelve resultados.
@@ -70,8 +58,9 @@ const bundle = [
   // El motor de traducción: el rótulo del tiempo restante vive en el
   // catálogo, así que las funciones que lo pintan llaman a `tr()`. Sin esto
   // el bundle muere con «tr is not defined» — y el fallo señalaría al código,
-  // que está bien.
-  process.env.MOTOR_I18N,
+  // que está bien. Llega por FICHERO, no por variable de entorno: son 130 KB
+  // y el tope de 128 KiB de Linux aplica también al entorno.
+  fs.readFileSync(process.env.MOTOR_I18N, 'utf8'),
   orderSrc,
   grab('_cmv40FmtClock'),
   grab('_cmv40BinClasificado'),
@@ -93,9 +82,9 @@ console.log(JSON.stringify(casos.map(c => ({
 class TestSufijoEtaComportamiento(unittest.TestCase):
     def _evaluar(self, casos):
         proc = subprocess.run(
-            [NODE, "-e", _DRIVER],
-            env={**os.environ, "JS_CONCAT": _js_en_disco(),
-                 "MOTOR_I18N": motor_i18n()},
+            argv_node(_DRIVER),
+            env={**os.environ, "JS_CONCAT": js_en_disco(),
+                 "MOTOR_I18N": motor_en_disco()},
             input=json.dumps(casos), capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)

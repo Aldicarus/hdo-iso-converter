@@ -22,7 +22,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 NODE = shutil.which("node")
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import argv_node, js_completo  # noqa: E402
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -207,7 +207,7 @@ class TestElMotorDelNavegador(unittest.TestCase):
 
     def corre(self, cuerpo: str) -> dict:
         script = "\n".join([_ENTORNO, self.motor, cuerpo])
-        p = subprocess.run([NODE, "-e", script], capture_output=True,
+        p = subprocess.run(argv_node(script), capture_output=True,
                            text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)

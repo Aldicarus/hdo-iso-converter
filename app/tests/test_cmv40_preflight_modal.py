@@ -39,7 +39,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from api_harness import ApiTestCase  # noqa: E402
-from frontend_sources import (html, js_completo, motor_i18n,  # noqa: E402
+from frontend_sources import (html, argv_node, js_completo, motor_i18n,  # noqa: E402
                               pintar_en, stub_catalogo_es)
 
 NODE = shutil.which("node")
@@ -72,7 +72,7 @@ def _node(guion: str) -> dict:
     arnés sin el motor muere con «tr is not defined» — y con el motor, las
     aserciones siguen viendo castellano, que es lo que ya esperaban.
     """
-    r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
+    r = subprocess.run(argv_node(motor_i18n() + guion), capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")
@@ -525,7 +525,12 @@ globalThis.escHtml = t => String(t);
 let _tickPuesto = false;
 globalThis.window = {{}};
 {_fn('_cmv40FmtClock')}
-{_fn('_cmv40EnsureTimerTick')}
+// La real NO se inserta: lo que este test mira es SI se pide el tick, y su
+// cuerpo instala un `setInterval` que toca `document`. Ojo, el stub de
+// `globalThis` no basta para taparla: un `function` declarado en un fichero
+// es local del módulo (wrapper de CommonJS), así que las otras funciones
+// insertadas la verían a ella y no al stub — con `node -e`, que evalúa en el
+// ámbito global, sí quedaba tapada. Ver `frontend_sources.argv_node`.
 globalThis._cmv40EnsureTimerTick = () => {{ _tickPuesto = true; }};
 globalThis._cmv40PlanAutoSteps = () => [];
 globalThis._cmv40StepStatus = () => 'done';

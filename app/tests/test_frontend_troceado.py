@@ -278,3 +278,78 @@ class TestNingunModuloDeTestSeEnsombreceASiMismo(unittest.TestCase):
             culpables, [],
             "declaraciones de nivel superior repetidas; la segunda ensombrece "
             f"a la primera y sus tests no se ejecutan: {culpables}")
+
+
+class TestNingunArnesPasaElGuionPorLaLineaDeComandos(unittest.TestCase):
+    """`node -e <guion>` se rompe en Linux y no en macOS.
+
+    Un solo argumento no puede pasar de `MAX_ARG_STRLEN`, que en Linux son
+    **128 KiB**. `frontend_sources.motor_i18n()` son ya **129 KB** —el motor
+    de traducción con el catálogo castellano dentro—, así que cualquier arnés
+    que lo prependa a su driver se pasa de largo y node muere con
+    `OSError: [Errno 7] Argument list too long`.
+
+    En macOS el límite es otro, de modo que **el Mac pasa y CI falla**: es la
+    asimetría que CLAUDE.md documenta para `/proc`, y con esto le tocó a
+    dieciséis módulos a la vez sin que nada avisara en local. El guion va en
+    un fichero temporal (`argv_node`), que además no tiene límite de tamaño.
+    """
+
+    def test_nadie_usa_node_e(self):
+        malos = []
+        for ruta in sorted(Path(__file__).parent.glob("test_*.py")):
+            if ruta.name == Path(__file__).name:
+                continue
+            texto = ruta.read_text(encoding="utf-8")
+            for i, linea in enumerate(texto.splitlines(), 1):
+                if re.search(r'NODE\s*,\s*"-e"|"node"\s*,\s*"-e"', linea):
+                    malos.append(f"{ruta.name}:{i}")
+        self.assertEqual(malos, [], (
+            "\nestos arneses pasan el guion como argumento; usa "
+            "`frontend_sources.argv_node(guion)`, que\nlo escribe en un "
+            "fichero temporal:\n  · " + "\n  · ".join(malos[:12])))
+
+    def test_ningun_driver_lee_argv_1(self):
+        """Con el guion en un fichero, `process.argv[1]` es ESE fichero.
+
+        Con `node -e GUION DATO` node no inserta ninguna ruta, así que el
+        primer dato caía en `process.argv[1]`; al pasar el guion por fichero
+        ese hueco lo ocupa la ruta del temporal y los datos empiezan en
+        `process.argv[2]`. Tres arneses lo leían por el índice viejo y lo que
+        recibían era la ruta del `.js`: `SyntaxError: Unexpected token '/'` al
+        hacer `JSON.parse`. Falla, pero señalando al sitio equivocado — y al
+        convertir los veintidós arneses de golpe no había forma de distinguir
+        eso de una regresión del código que se está probando.
+        """
+        malos = []
+        for ruta in sorted(Path(__file__).parent.glob("test_*.py")):
+            if ruta.name == Path(__file__).name:
+                continue
+            texto = ruta.read_text(encoding="utf-8")
+            for i, linea in enumerate(texto.splitlines(), 1):
+                if "process.argv[1]" in linea:
+                    malos.append(f"{ruta.name}:{i}")
+        self.assertEqual(malos, [], (
+            "\nlos datos de un arnés empiezan en `process.argv[2]`; "
+            "`argv[1]` es\nel fichero del guion:\n  · " + "\n  · ".join(malos[:12])))
+
+    def test_el_motor_no_viaja_por_el_entorno(self):
+        """`MAX_ARG_STRLEN` limita también cada cadena del ENTORNO.
+
+        `motor_i18n()` son **130.819 bytes** contra un tope de 131.072, así
+        que pasarlo como variable dejaba **242 bytes** de margen: tres o
+        cuatro claves nuevas del catálogo y CI vuelve a romperse con el mismo
+        `Argument list too long`, pero por el otro canal y por tanto con otra
+        pinta. Va por fichero (`frontend_sources.motor_en_disco()`).
+        """
+        malos = []
+        for ruta in sorted(Path(__file__).parent.glob("test_*.py")):
+            if ruta.name == Path(__file__).name:
+                continue
+            texto = ruta.read_text(encoding="utf-8")
+            for i, linea in enumerate(texto.splitlines(), 1):
+                if re.search(r'["\'][A-Z0-9_]+["\']\s*:\s*motor_i18n\(\)', linea):
+                    malos.append(f"{ruta.name}:{i}")
+        self.assertEqual(malos, [], (
+            "\nel motor pasa de 128 KiB; usa `motor_en_disco()`, que lo deja "
+            "en un fichero:\n  · " + "\n  · ".join(malos[:12])))

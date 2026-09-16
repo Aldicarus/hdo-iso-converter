@@ -479,7 +479,7 @@ class TestUnaSolaCifraParaLaMismaPregunta(TurnoCase):
         """La suma local de fases pendientes se queda de respaldo, pero con la
         columna sabiendo del trabajo manda ella. Si cada vista calculara lo
         suyo volveríamos a las tres cifras."""
-        from frontend_sources import js_completo
+        from frontend_sources import argv_node, js_completo
         js = js_completo()
         i = js.index("function _cmv40RestanteDelJob(")
         cuerpo = js[i:js.index("\n}\n", i)]
@@ -506,7 +506,7 @@ class TestEsperandoTurnoNadieVuelveADispararLaFase(unittest.TestCase):
 
     def test_el_auto_avance_se_para_si_el_proyecto_espera_turno(self):
         import re
-        from frontend_sources import js_completo
+        from frontend_sources import argv_node, js_completo
         js = js_completo()
         i = js.index("function _cmv40MaybeAutoAdvance(")
         cuerpo = js[i:js.index("\n}\n", i)]
@@ -542,7 +542,7 @@ class TestLaSesionLocalNoOlvidaQueEsperaTurno(unittest.TestCase):
     def _asignar(self, previa, nueva):
         import json as _j
         import subprocess
-        from frontend_sources import js_completo
+        from frontend_sources import argv_node, js_completo
         js = js_completo()
         i = js.index("function _cmv40AssignSession(")
         fn = js[i:js.index("\n}\n", i) + 3]
@@ -557,7 +557,7 @@ _cmv40AssignSession(p, {_j.dumps(nueva)});
 console.log(JSON.stringify({{cola: p.session.cola === undefined ? 'AUSENTE'
                                    : p.session.cola}}));
 """
-        r = subprocess.run(["node", "-e", guion], capture_output=True,
+        r = subprocess.run(argv_node(guion), capture_output=True,
                            text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(r.stderr[:600])

@@ -30,7 +30,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo, motor_i18n, pintar_textos_es, sistema_de_iconos  # noqa: E402
+from frontend_sources import argv_node, js_completo, motor_i18n, pintar_textos_es, sistema_de_iconos  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -164,9 +164,9 @@ class CardTestCase(unittest.TestCase):
                   + _constante("CMV40_PHASES_ORDER")
                   + "".join(_extraer(f) for f in FUNCIONES)
                   + "\nprocess.stdout.write(_cmv40RenderGateCardBC("
-                    "'p1', JSON.parse(process.argv[1]), "
+                    "'p1', JSON.parse(process.argv[2]), "
                   + ("true" if expandida else "false") + "));")
-        r = subprocess.run([NODE, "-e", script, json.dumps(session)],
+        r = subprocess.run(argv_node(script, json.dumps(session)),
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")
@@ -177,8 +177,8 @@ class CardTestCase(unittest.TestCase):
                   + _constante("CMV40_PHASES_ORDER")
                   + "".join(_extraer(f) for f in FUNCIONES)
                   + "\nprocess.stdout.write(_cmv40GateDiagnosticoTexto("
-                    "JSON.parse(process.argv[1])));")
-        r = subprocess.run([NODE, "-e", script, json.dumps(session)],
+                    "JSON.parse(process.argv[2])));")
+        r = subprocess.run(argv_node(script, json.dumps(session)),
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:600]}")

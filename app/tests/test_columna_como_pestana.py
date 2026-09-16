@@ -37,7 +37,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import (html, js_completo, motor_i18n,  # noqa: E402
+from frontend_sources import (html, argv_node, js_completo, motor_i18n,  # noqa: E402
                               pintar_en, stub_catalogo_es)
 
 NODE = shutil.which("node")
@@ -87,7 +87,7 @@ def _node(guion: str) -> dict:
     arnés sin el motor muere con «tr is not defined» — y con el motor, las
     aserciones siguen viendo castellano, que es lo que ya esperaban.
     """
-    r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
+    r = subprocess.run(argv_node(motor_i18n() + guion), capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")

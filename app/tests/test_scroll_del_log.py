@@ -32,7 +32,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo  # noqa: E402
+from frontend_sources import argv_node, html, js_completo  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -52,7 +52,7 @@ def _fn(nombre: str) -> str:
 
 
 def _node(guion: str) -> dict:
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+    r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")

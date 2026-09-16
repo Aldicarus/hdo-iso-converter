@@ -29,7 +29,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from api_harness import ApiTestCase  # noqa: E402
-from frontend_sources import (motor_i18n, pintar_en,  # noqa: E402
+from frontend_sources import (motor_i18n, argv_node, pintar_en,  # noqa: E402
                               sistema_de_iconos, html, js_completo)
 import workload  # noqa: E402
 
@@ -70,7 +70,7 @@ def _node(guion: str) -> dict:
     aserciones siguen viendo castellano, que es lo que ya esperaban. Va aquí y
     no en cada test por lo mismo que `sistema_de_iconos()`.
     """
-    r = subprocess.run([NODE, "-e", motor_i18n() + guion],
+    r = subprocess.run(argv_node(motor_i18n() + guion),
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")

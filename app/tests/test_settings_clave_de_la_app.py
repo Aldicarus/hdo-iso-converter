@@ -31,7 +31,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 NODE = shutil.which("node")
-from frontend_sources import js_completo, motor_i18n, pintar_en  # noqa: E402
+from frontend_sources import argv_node, js_completo, motor_i18n, pintar_en  # noqa: E402
 
 JS = js_completo()
 
@@ -64,7 +64,7 @@ globalThis.icono = n => `<svg data-i="${n}"></svg>`;
 """
 
 SALIDA = r"""
-const entrada = JSON.parse(process.argv[1]);
+const entrada = JSON.parse(process.argv[2]);
 const userSet = _renderSettingsSection(entrada.key, entrada.data);
 const badge = document.getElementById(`settings-${entrada.key}-status`);
 const inp   = document.getElementById(`settings-${entrada.key}-input`);
@@ -94,7 +94,7 @@ class RenderCase(unittest.TestCase):
             SALIDA,
         ])
         proc = subprocess.run(
-            [NODE, "-e", script, json.dumps({"key": key, "data": {key: estado}})],
+            argv_node(script, json.dumps({"key": key, "data": {key: estado}})),
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -176,7 +176,7 @@ class TestElBadgeDelRepoDoviTools(unittest.TestCase):
             _extraer_funcion("escHtml"),
             _extraer_funcion("_renderSettingsDriveFolder"),
             r"""
-const entrada = JSON.parse(process.argv[1]);
+const entrada = JSON.parse(process.argv[2]);
 const userSet = _renderSettingsDriveFolder({drive_folder: entrada});
 const badge = document.getElementById('settings-drive-folder-status');
 const inp   = document.getElementById('settings-drive-folder-input');
@@ -186,7 +186,7 @@ console.log(JSON.stringify({
 }));
 """,
         ])
-        proc = subprocess.run([NODE, "-e", script, json.dumps(estado)],
+        proc = subprocess.run(argv_node(script, json.dumps(estado)),
                               capture_output=True, text=True, timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return pintar_en(json.loads(proc.stdout))

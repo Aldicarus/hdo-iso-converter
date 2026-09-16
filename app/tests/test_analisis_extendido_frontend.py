@@ -29,7 +29,7 @@ sys.path.insert(0, str(APP_DIR))
 
 NODE = shutil.which("node")
 sys.path.insert(0, str(APP_DIR / "tests"))
-from frontend_sources import (js_completo, motor_i18n, pintar_en)  # noqa: E402
+from frontend_sources import (js_completo, argv_node, motor_i18n, pintar_en)  # noqa: E402
 
 JS = js_completo()
 HTML = (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
@@ -54,7 +54,7 @@ class TestMapeoDelPerfil(unittest.TestCase):
                  + f"\nconst dv = {json.dumps(dv)};\n"
                  + "const ok = _mkvAplicarPerfilLuminancia(dv);\n"
                  + "console.log(JSON.stringify({ok, dv}));\n")
-        r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True)
+        r = subprocess.run(argv_node(motor_i18n() + guion), capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         return pintar_en(json.loads(r.stdout))
 
@@ -133,7 +133,7 @@ const _mkvAnalisisVistos = new Set({json.dumps(list(vistos))});
   }}));
 }})();
 """
-        r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
+        r = subprocess.run(argv_node(motor_i18n() + guion), capture_output=True, text=True,
                            timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr[:900])
         return pintar_en(json.loads(r.stdout.strip().splitlines()[-1]))

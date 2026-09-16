@@ -43,7 +43,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html, js_completo, motor_i18n  # noqa: E402
+from frontend_sources import argv_node, html, js_completo, motor_i18n  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -225,7 +225,7 @@ class Tab2EnNode(unittest.TestCase):
         # El motor de traducción delante de todo: las plantillas llaman a
         # `tr(…)` para los mensajes con parámetros.
         script = motor_i18n() + "\n" + script
-        r = subprocess.run([NODE, "-e", script],
+        r = subprocess.run(argv_node(script),
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[-1200:]}")

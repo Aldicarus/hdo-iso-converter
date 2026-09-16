@@ -34,7 +34,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import argv_node, js_completo  # noqa: E402
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -78,7 +78,7 @@ console.log(JSON.stringify({{
   dedup: project._lastAutoFiredFor ? project._lastAutoFiredFor.state : null,
 }}));
 """
-    r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True, timeout=30)
+    r = subprocess.run(argv_node(guion), capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         raise AssertionError(r.stderr[:2000])
     return json.loads(r.stdout.strip().splitlines()[-1])

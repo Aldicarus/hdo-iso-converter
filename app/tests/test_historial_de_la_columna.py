@@ -22,7 +22,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import (js_completo, motor_i18n, pintar_en,  # noqa: E402
+from frontend_sources import (js_completo, argv_node, motor_i18n, pintar_en,  # noqa: E402
                               sistema_de_iconos)
 
 SISTEMA_ICONOS = sistema_de_iconos()
@@ -54,7 +54,7 @@ def _node(guion: str) -> dict:
     motor muere con «tr is not defined» — y con el motor, las aserciones
     siguen viendo castellano, que es lo que ya esperaban.
     """
-    r = subprocess.run([NODE, "-e", motor_i18n() + guion], capture_output=True, text=True,
+    r = subprocess.run(argv_node(motor_i18n() + guion), capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         raise AssertionError(f"node falló:\n{r.stderr[:900]}")

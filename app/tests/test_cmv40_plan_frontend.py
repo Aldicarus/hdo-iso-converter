@@ -28,7 +28,7 @@ sys.path.insert(0, str(APP_DIR))
 
 NODE = shutil.which("node")
 sys.path.insert(0, str(APP_DIR / "tests"))
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import argv_node, js_completo  # noqa: E402
 
 JS = js_completo()
 
@@ -48,8 +48,8 @@ class TestHelpersDelPlan(unittest.TestCase):
 
     def evaluar(self, fn: str, session: dict):
         script = "".join(_extraer(h) for h in self.HELPERS) + (
-            f"\nprocess.stdout.write(JSON.stringify({fn}(JSON.parse(process.argv[1]))));")
-        r = subprocess.run([NODE, "-e", script, json.dumps(session)],
+            f"\nprocess.stdout.write(JSON.stringify({fn}(JSON.parse(process.argv[2]))));")
+        r = subprocess.run(argv_node(script, json.dumps(session)),
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:400]}")
@@ -122,8 +122,8 @@ class TestLaReglaDeSaltarLaRevisionNoVuelveADivergir(unittest.TestCase):
         script = "".join(_extraer(h) for h in
                          ("_cmv40Plan", "_cmv40SkipSyncReview")) + (
             "\nprocess.stdout.write(JSON.stringify("
-            "_cmv40SkipSyncReview(JSON.parse(process.argv[1]))));")
-        r = subprocess.run([NODE, "-e", script, json.dumps(session)],
+            "_cmv40SkipSyncReview(JSON.parse(process.argv[2]))));")
+        r = subprocess.run(argv_node(script, json.dumps(session)),
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             raise AssertionError(f"node falló: {r.stderr[:400]}")

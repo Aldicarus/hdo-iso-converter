@@ -34,7 +34,7 @@ STATIC = APP_DIR / "static"
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import sistema_de_iconos, html, js_completo, pieza_de, rutas  # noqa: E402
+from frontend_sources import argv_node, html, js_completo, pieza_de, rutas, sistema_de_iconos  # noqa: E402
 
 SISTEMA_ICONOS = sistema_de_iconos()
 
@@ -78,7 +78,7 @@ class TestHayIconoParaTodo(unittest.TestCase):
 {SISTEMA_ICONOS}
 console.log(JSON.stringify({fn}({args})));
 """
-        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=30)
         if r.returncode != 0:
             raise AssertionError(r.stderr[:600])
@@ -295,7 +295,7 @@ class TestElCatalogoEsUnoYEstaCompleto(unittest.TestCase):
     def test_un_nombre_desconocido_no_pinta_basura(self):
         guion = (_fn('_svg') + _bloque('const GLIFOS = {') + _fn('icono')
                  + "console.log(JSON.stringify([icono('noExiste'), icono('')]));")
-        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr[:400])
         self.assertEqual(json.loads(r.stdout.strip().splitlines()[-1]), ["", ""])
@@ -303,7 +303,7 @@ class TestElCatalogoEsUnoYEstaCompleto(unittest.TestCase):
     def test_el_icono_lleva_su_clase_para_que_el_css_lo_dimensione(self):
         guion = (_fn('_svg') + _bloque('const GLIFOS = {') + _fn('icono')
                  + "console.log(JSON.stringify(icono('disco', 'ico-lg')));")
-        r = subprocess.run([NODE, "-e", guion], capture_output=True, text=True,
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=30)
         h = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertIn('class="ico ico-lg"', h)

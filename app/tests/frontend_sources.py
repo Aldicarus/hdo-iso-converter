@@ -13,6 +13,7 @@ lista hardcodeada en el test se desincronizaría del HTML en el primer cambio y
 el test seguiría en verde midiendo otra cosa.
 """
 import re
+import shutil
 from pathlib import Path
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
@@ -234,6 +235,107 @@ def pintar_en(obj):
     if isinstance(obj, dict):
         return {k: pintar_en(v) for k, v in obj.items()}
     return obj
+
+
+_TEMPORALES: list = []
+
+
+def _registrar_temporal(ruta: str) -> None:
+    """Apunta un temporal para borrarlo al terminar el proceso de test."""
+    import atexit
+    if not _TEMPORALES:
+        atexit.register(_limpiar_temporales)
+    _TEMPORALES.append(ruta)
+
+
+_JS_EN_DISCO: list = []
+
+
+def js_en_disco() -> str:
+    """Ruta a un temporal con `js_completo()` dentro, para los drivers de node.
+
+    Se escribe UNA vez por proceso: son ~700 KB y el JS no cambia durante la
+    suite. Escribirlo por llamada dejaba cientos de megas de temporales sin
+    borrar, porque el helper que lo hacía no limpiaba nada (medido: **328 MB**
+    en `$TMPDIR`). Va aquí y no en el arnés para que la limpieza sea la misma
+    que la de `argv_node`.
+    """
+    if not _JS_EN_DISCO:
+        import tempfile
+        f = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                        encoding="utf-8")
+        f.write(js_completo())
+        f.close()
+        _registrar_temporal(f.name)
+        _JS_EN_DISCO.append(f.name)
+    return _JS_EN_DISCO[0]
+
+
+_MOTOR_EN_DISCO: list = []
+
+
+def motor_en_disco() -> str:
+    """Ruta a un temporal con `motor_i18n()` dentro.
+
+    **No pasarlo por variable de entorno.** El tope de `MAX_ARG_STRLEN`
+    (128 KiB) que en Linux limita un argumento limita igual cada cadena del
+    entorno, y el motor —que lleva el catálogo castellano dentro— son ya
+    **130.819 bytes**: quedaban **242 bytes** de margen, o sea tres o cuatro
+    claves nuevas antes de volver a romper CI con el mismo `Argument list too
+    long` por el otro canal. Un fichero no tiene ese tope.
+    """
+    if not _MOTOR_EN_DISCO:
+        import tempfile
+        f = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                        encoding="utf-8")
+        f.write(motor_i18n())
+        f.close()
+        _registrar_temporal(f.name)
+        _MOTOR_EN_DISCO.append(f.name)
+    return _MOTOR_EN_DISCO[0]
+
+
+def argv_node(guion: str, *extra: str) -> list:
+    """`[node, fichero.js, *extra]` — el guion va en un FICHERO, no en `-e`.
+
+    En Linux un solo argumento no puede pasar de `MAX_ARG_STRLEN`, que son
+    **128 KiB**, y `motor_i18n()` ya son 129 KB: cualquier arnés que lo
+    prependa a su driver se pasa de largo y node muere con
+    `OSError: [Errno 7] Argument list too long`. En macOS el límite es otro,
+    así que **el Mac pasa y CI no** — es la asimetría que CLAUDE.md documenta,
+    y aquí le tocó a dieciséis módulos a la vez.
+
+    **Un fichero NO se evalúa en el ámbito global.** node envuelve un módulo
+    en el wrapper de CommonJS, así que un `function X(){}` del guion es local
+    del módulo y `globalThis.X = stub` escrito después **ya no lo tapa**: las
+    otras funciones insertadas siguen viendo la real. Con `-e` sí quedaba
+    tapada, porque ahí todo es global. Un arnés que inserte una función y la
+    stubee acto seguido tiene que dejar de insertarla.
+
+    **Los `extra` empiezan en `process.argv[2]`**, no en el 1: con `-e` node no
+    inserta ninguna ruta y el primer dato caía en el 1, pero aquí ese hueco lo
+    ocupa el fichero del guion. Lo guarda
+    `test_frontend_troceado::TestNingunArnesPasaElGuionPorLaLineaDeComandos`.
+
+    El fichero se borra al terminar el proceso de test, no en cada llamada:
+    node ya lo ha leído, pero borrarlo antes de que arranque sería una carrera.
+    """
+    import tempfile
+    f = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                    encoding="utf-8")
+    f.write(guion)
+    f.close()
+    _registrar_temporal(f.name)
+    return [shutil.which("node") or "node", f.name, *extra]
+
+
+def _limpiar_temporales() -> None:
+    import os
+    for ruta in _TEMPORALES:
+        try:
+            os.unlink(ruta)
+        except OSError:
+            pass
 
 
 def motor_i18n() -> str:
