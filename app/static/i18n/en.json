@@ -921,7 +921,7 @@
   "tab3.fase_c_extraer_bl_el": "Phase C — Extract BL/EL",
   "tab3.fase_c_extrayendo_bl_el_y": "Phase C — Extracting BL/EL and per-frame data",
   "tab3.fase_c_separando_capas": "Phase C — Splitting the layers",
-  "tab3.fase_d_e_verificar_y_corregir": "Phase D + E — check and fix the sync",
+  "tab3.fase_d_e_verificar_y_corregir": "Phase D + E — Check and fix the sync",
   "tab3.fase_d_omitida_los_gates_pasaron": "Phase D skipped — the target bin passed the trust gates (frames, L5, L6, L8) and no <code>per_frame_data.json</code> was generated. No visual review needed in the auto-pipeline.",
   "tab3.fase_d_para_revision_visual_de": "Phase D for a visual review of the sync before injecting.",
   "tab3.fase_d_revision_visual": "Phase D — Visual review",
