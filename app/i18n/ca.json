@@ -350,7 +350,7 @@
   "phase_e.aplicando_los_metadatos_al_mkv_intermedio": "📋 S'estan aplicant les metadades al MKV intermedi amb mkvpropedit: edita només les capçaleres del contenidor (noms de pistes, flags default/forced i capítols) sense tornar a copiar les dades. Després el MKV es mou al directori final amb un rename atòmic.",
   "phase_e.aviso_mkvmerge_identify_devolvio_codigo": "Avís: mkvmerge --identify ha retornat el codi {returncode}",
   "phase_e.editando_metadatos_en": "S'estan editant les metadades a: {p1}",
-  "phase_e.escribiendo": "Escrivint: {output_path}",
+  "phase_e.escribiendo": "S'està escrivint: {output_path}",
   "phase_e.generando_el_mkv_final_con_un": "📋 S'està generant el MKV final amb un sol mkvmerge: selecció de pistes, reordenació, noms, flags i capítols en una sola passada. Estalvia una còpia completa respecte a la ruta amb intermedi.",
   "phase_e.mkv_en_mnt_output_con_metadatos": ": MKV a /mnt/output amb les metadades aplicades sense tornar a copiar el contingut (només capçaleres editades).",
   "phase_e.mkv_en_mnt_output_con_pistas": ": MKV a /mnt/output amb les pistes, els noms, els flags i els capítols correctes. Ruta directa — una sola còpia.",

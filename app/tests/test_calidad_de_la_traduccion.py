@@ -143,8 +143,11 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # pueden separar — «obre» y «treure» acaban las dos en `re`.
     IMPERATIVO_CA = re.compile(r"^(?:Obre|Obri|Omple|Emple|Cobre)$")
 
+    # Las TRES conjugaciones: `-ant` (cantant), `-ent` (perdent) y **`-int`**
+    # (obtenint, escrivint). Sin la tercera se escapaban tres, y no por poco:
+    # el guard llevaba desde que se escribió sin mirar una conjugación entera.
     GERUNDIO = re.compile(
-        r"^[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent)\b")
+        r"^[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent|int)\b")
 
     def test_ningun_rotulo_de_progreso_empieza_por_gerundio(self):
         malas = []
