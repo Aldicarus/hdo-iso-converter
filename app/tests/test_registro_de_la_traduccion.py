@@ -67,6 +67,10 @@ _PARAM = re.compile(r"\{(\w+)\}")
 # Se exime la clave, no el patrón: un nombre nuevo tiene que costar escribir el
 # motivo. Lo cruza `TestElEstiloSeSostiene` contra las claves reales.
 NOMBRE_PROPIO = {
+    "ui.analizando_dolby_vision_dovi_tool":
+        "«Analyzing Dolby Vision» más el nombre de la herramienta: los tres "
+        "candidatos son «Analyzing», «Dolby» y «Vision», así que la "
+        "heurística la toma por Title Case",
     "phase_a.dolby_vision_detectado_profile_cm":
         "«Dolby Vision» y «Profile» son nombres: los tres únicos candidatos de "
         "la frase, así que la heurística la toma por Title Case",
@@ -119,6 +123,19 @@ IGUAL_EN_INGLES = {
     "tab3.p1_workflow":     "un hueco y la palabra «workflow»",
     "tab3.pct_match":       "un hueco y la palabra «match», que el castellano ya usa en inglés",
     "cmv40_pipeline.per_frame_data_json_frames": "un nombre de fichero, un hueco y «frames»",
+    # Rótulos que en castellano ya son término técnico o nombre inglés, y que
+    # se habían «traducido» añadiéndoles una palabra que el original no dice.
+    "tab3.retail":          "el tipo de bin en la nomenclatura de DoviTools",
+    "tab3.sheetval_frames": "un hueco y la palabra «frames»",
+    "tab3.sign_expected_frames": "dos huecos y la palabra «frames»",
+    "tab3.target_p1_pq":    "«Target» y «PQ» son glosario; su pareja es «Origen: {p1} PQ»",
+    "tab3.zoom":            "«Zoom» se escribe igual en las tres lenguas",
+    "ui.auto_pipeline":     "el nombre que la app le da a su propio modo, con guion en las tres",
+    "ui.default":           "el rótulo del botón que restaura el valor por defecto; su tooltip lo explica",
+    "mkv_analyze.tier":     "«Tier» es el nombre de la clasificación de calidad en la spec de la app",
+    "phase_a.min_gb_audio": "huecos más «min», «GB» y «audio», que son unidad y glosario",
+    "tab1.error":           "«Error» se escribe igual en las dos lenguas",
+    "tab1.umount_loop_device": "el nombre del comando, como su hermano «mount -t udf -o ro,loop …»",
     "tab2.sdr_like":        "nombre acuñado del bucket de escenas por debajo de 100 nits: «SDR-like», no «rango SDR»",
     # Unidades y estándares: no se traducen en ninguna lengua.
     "tab2.nits":             "unidad de luminancia",

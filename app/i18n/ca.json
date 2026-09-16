@@ -457,7 +457,7 @@
   "tab1.subtitulo_esperado_etiqueta": "Subtítol esperat #{p1}: {language} · {subtitle_type} · etiqueta=\"{label}\"",
   "tab1.subtitulo_real_id": "Subtítol real: id={p1} · {p2}{flag_str} · \"{p4}\"",
   "tab1.temporal_eliminado": "🧹 Temporal eliminat: {p1}",
-  "tab1.umount_loop_device": "desmuntant el loop device…",
+  "tab1.umount_loop_device": "umount loop device…",
   "tab1.verificacion_con_discrepancia_revisa_las_lineas": "⚠️ Verificació amb {warnings} punt{p2} de discrepància — revisa les línies amb ❌ o ⚠️ de dalt",
   "tab1.verificacion_correcta_el_mkv_coincide_con": "✅ Verificació correcta — el MKV coincideix amb el que s'ha configurat a la sessió",
   "tab1.verificando_el_mkv_final_contra_lo": "📋 Verificant el MKV final contra el que hi ha configurat a la sessió…",

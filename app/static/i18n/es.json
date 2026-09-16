@@ -1301,7 +1301,6 @@
   "tab3.vuelve_a_fase_b_para_escoger": "Vuelve a Fase B para escoger otro bin (del repo DoviTools, de carpeta local o extraído de otro MKV propio)",
   "tab3.web_oficial": "Web oficial",
   "tab3.workflow_p8_sin_demux": "Workflow P8 — sin demux",
-  "tab3.x": "",
   "tab3.ya_corrigio": "ya corrigió",
   "tab3.ya_existe_un_mkv_con_el": "Ya existe un MKV con el nombre \"{name}\" en /mnt/output. Renómbralo antes de activar auto.",
   "tab3.zona": "Zona",
