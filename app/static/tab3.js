@@ -4215,7 +4215,7 @@ function _cmv40GateBloque2(s) {
       ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}
       ${_cmv40RpuFila('L9 primaries', (sdv && sdv.l9_primaries) || '—', (tdv && tdv.l9_primaries) || '—')}
       ${_cmv40RpuFila('L11 contenido', (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
-    </div><span data-i18n="tab3.x"></span><span data-i18n="tab3.x"></span>`;
+    </div>`;
 }
 
 // ── ③ Gates: valor · umbral · severidad ──────────────────────────────
@@ -7103,7 +7103,7 @@ function _cmv40PfPintar(s, veredicto) {
     const ancla = anclajeDeLog(log);
     log.innerHTML = lineas.map(l =>
       `<div class="log-line ${typeof _classifyLogLine === 'function'
-        ? _classifyLogLine(l) : ''}">${escHtml(l)}</div><span data-i18n="tab3.x"></span>`).join('');
+        ? _classifyLogLine(l) : ''}">${escHtml(l)}</div>`).join('');
     restaurarAnclajeDeLog(log, ancla);
   }
   _cmv40PfPintarPie(s, veredicto);

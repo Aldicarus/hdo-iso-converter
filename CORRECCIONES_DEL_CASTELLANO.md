@@ -194,11 +194,11 @@ Comprobado por mutación en las cuatro: cambiar una palabra del castellano
 
 ---
 
-## La auditoría del 2026-09-16: dos bugs del castellano que la traducción tapó
+## La auditoría del 2026-09-16: los bugs que dejó la migración, y no son de traducción
 
 La auditoría completa —pedida porque «el resultado dista mucho de ser ni una
-primera release»— encontró dos cosas que **no** son de traducción: son
-castellano roto que llevaba así desde la migración y que nadie veía porque el
+primera release»— encontró cuatro cosas que **no** son de traducción: son
+marcado roto que llevaba así desde la migración y que nadie veía porque el
 HTML seguía siendo válido.
 
 ### El tooltip del gráfico de luminancia no existía
@@ -239,6 +239,28 @@ Cosechar los literales normalizando el espacio (`" ".join(v.split())`)
 convierte `'Lleva '` en `'Lleva'`, y la sustitución dejó «Lleva7 s». El
 espacio va **fuera** del `tr()`: en el catálogo un espacio en el borde es
 invisible y hay un guard que lo prohíbe justamente porque se pierde.
+
+### Y seis `<span>` con una clave que no existe
+
+La misma pasada que partió el `class` del sparkline pegó
+`<span data-i18n="tab3.x"></span>` detrás del `</div>` final de cinco
+plantillas —dos en `core.js` (la tarjeta de proyecto de las tres columnas),
+una en `tab2.js` (el propio sparkline) y tres en `tab3.js` (la tabla de los
+dos RPU lado a lado y el log del veredicto)—.
+
+**No se veían, y el motivo es lo interesante**: la cosecha había metido
+`tab3.x` en los tres catálogos **con el valor vacío**, así que `pintarTextos`
+escribía nada y el HTML seguía siendo válido. Un defecto tapado por otro. Al
+quitar esa clave —que no es una cadena de interfaz y no tiene nada que
+traducir— `pintarTextos` pasó a hacer lo que hace con una clave ausente,
+escribir la clave, y en pantalla se leía `tab3.xtab3.x` en los tres idiomas.
+
+El guard en vivo no lo vio, y el motivo importa: lee `clavesAusentes()` tras
+abrir `index.html` en Chrome, así que solo conoce las claves de lo que está
+pintado — e `index.html` a secas no renderiza ninguna plantilla del JS. Lo
+cazó `test_las_tres_lenguas_en_pantalla`, que sí abre los paneles con datos.
+El guard que las habría cazado sin depender de que alguien renderice ese panel
+es estático y ya está puesto: `TestNingunaClavePedidaFaltaDelCatalogo`.
 
 ---
 

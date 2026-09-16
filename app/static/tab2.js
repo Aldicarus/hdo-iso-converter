@@ -965,7 +965,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     <div class="dv-sparkline-tooltip" style="display:none"></div>
     ${legendHtml}
     ${outOfRangeChips}
-    </div><span data-i18n="tab3.x"></span>`;
+    </div>`;
 }
 
 /** Mini-card con percentiles + clasificacion de escenas por rango de brillo.

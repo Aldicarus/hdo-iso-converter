@@ -2214,6 +2214,18 @@ Detalles que no son accidentales:
 - **Node 20**, porque cuatro tests (`test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`, `test_cmv40_timeline_layout`, `test_cmv40_eta_sufijo`) evalúan las funciones reales de `app.js` en node y sin él se auto-saltan.
 - Wall time: **~56 s en CI** contra ~175 s en el Mac (los binarios falsos son scripts de Python y la suite paga un arranque de intérprete por cada llamada simulada).
 
+**El guion de un arnés de node va en un FICHERO, nunca en `node -e`.** En Linux
+un solo argumento no puede pasar de `MAX_ARG_STRLEN`, que son **128 KiB**, y
+`frontend_sources.motor_i18n()` —el motor de traducción con el catálogo
+castellano dentro— son ya **129 KB**: cualquier arnés que lo prepende a su
+driver se pasa de largo y node muere con `OSError: [Errno 7] Argument list too
+long`. En macOS el límite es otro, así que **el Mac pasa en verde y CI falla**,
+que es la misma asimetría que los dos tests de `/proc` y por la que existe el
+job. Le tocó a **dieciséis módulos a la vez** sin que nada avisara en local.
+`frontend_sources.argv_node(guion, *extra)` devuelve el argv con el guion ya
+escrito en un temporal (que se borra con `atexit`), y lo guarda
+`test_frontend_troceado::TestNingunArnesPasaElGuionPorLaLineaDeComandos`.
+
 `test_frontend_cache_bust.py` va en la **suite**, no en el YAML: caza el error típico del token `?v=` de `index.html` —tocar una de las dos referencias y olvidar la otra, que deja el CSS y el JS en versiones distintas— y así también salta en local, que es donde se comete.
 
 ---
@@ -2311,6 +2323,7 @@ mutación**:
 | `TestNingunaCadenaCastellanaSeCuelaPorUnHueco` | una cadena castellana dentro de un `${…}`, que acaba en el HTML igual |
 | `TestNingunLiteralCastellanoEnUnaPropiedadQueSeVe` | `title: 'Fase A · Analizar MKV origen'`, la clase del «FASE A» reportado |
 | `test_plantillas_del_js.py` | el HTML que genera el JS: texto, atributos, `t()` en vez de `tr()`, `data-tooltip=tr(…)` sin `${}`, un `<span>` metido dentro de un atributo |
+| `test_plantillas_del_js.py::TestNingunaClavePedidaFaltaDelCatalogo` | una clave que NO existe: `tr()` devuelve la clave, así que se pinta |
 | `test_las_tres_lenguas_en_pantalla.py` | **la pantalla**: 19 paneles con datos reales, en las tres lenguas |
 | `test_regiones_de_plantilla.py` | el autómata del que dependen los demás |
 
@@ -2353,7 +2366,7 @@ capítulos, renderiza 19 paneles y lee el texto y los atributos que salen.
   `` `Restante ${em}:${es}` `` y pasó a contar **cero** sin decir nada. Lo
   estable es la CLAVE.
 
-**Sustituir a máquina rompe cosas que no dan error.** Las tres que salieron:
+**Sustituir a máquina rompe cosas que no dan error.** Las cuatro que salieron:
 
 - un `data-tooltip=tr('clave')` **sin `${…}`** deja el nombre de la función en
   el atributo. `node --check` pasa y el HTML es válido; la forma correcta ahí
@@ -2366,6 +2379,19 @@ capítulos, renderiza 19 paneles y lee el texto y los atributos que salen.
   `'Lleva '` → `tr('workbar.lleva')` dejaba «Lleva7 s», en 21 sitios. El
   espacio va FUERA del `tr()`, porque en el catálogo un espacio en el borde es
   invisible y hay un guard que lo prohíbe justamente por eso.
+- y la MISMA pasada que partió el `class` del sparkline pegó **seis**
+  `<span data-i18n="tab3.x"></span>` detrás del `</div>` final de cinco
+  plantillas. **Un defecto tapado por otro**: la cosecha había metido `tab3.x`
+  en los tres catálogos con el valor VACÍO, así que `pintarTextos` escribía
+  nada y no se veía. Al quitar esa clave —que no es una cadena de interfaz—
+  pasó a hacer lo que hace con una ausente, escribir la clave: **una clave
+  cruda en pantalla en los tres idiomas**. No
+  la vio el guard en vivo, que lee `clavesAusentes()` tras abrir
+  `index.html` y solo conoce las claves de lo que está pintado —y
+  `index.html` a secas no renderiza ninguna plantilla del JS—; la cazó
+  `test_las_tres_lenguas_en_pantalla`, que sí abre los paneles. El guard
+  estático que las habría cazado sin depender de eso es
+  `TestNingunaClavePedidaFaltaDelCatalogo`.
 
 ### Un regex no puede delimitar una construcción anidada
 

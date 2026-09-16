@@ -1352,7 +1352,7 @@ function tarjetaDeProyecto(o) {
         <div class="session-card-title"${o.tituloTooltip
             ? ` data-tooltip="${escHtml(o.tituloTooltip)}"` : ''}>${escHtml(o.titulo || '')}</div>
         ${o.sub ? `<div class="proj-sub"${o.subTooltip
-            ? ` data-tooltip="${escHtml(o.subTooltip)}"` : ''}>${escHtml(o.sub)}</div><span data-i18n="tab3.x"></span>` : ''}
+            ? ` data-tooltip="${escHtml(o.subTooltip)}"` : ''}>${escHtml(o.sub)}</div>` : ''}
         <div class="proj-pie">
           ${_projChipsHTML(o.chips)}
           ${o.meta ? `<span class="proj-fecha relative-date" data-iso="${escHtml(o.metaIso || '')}"
@@ -1361,7 +1361,7 @@ function tarjetaDeProyecto(o) {
       </div>
       <div class="proj-der">
         ${estado ? `<span class="proj-estado"${o.estadoTooltip
-            ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span><span data-i18n="tab3.x"></span>` : ''}
+            ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span>` : ''}
         ${o.insignia || ''}
         ${o.abierto ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>

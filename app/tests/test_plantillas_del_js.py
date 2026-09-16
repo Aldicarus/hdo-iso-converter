@@ -258,3 +258,45 @@ class TestNingunDataI18nParteUnAtributo(unittest.TestCase):
             f"\n{len(malas)} atributo(s) con una etiqueta dentro del valor: "
             f"la sustitución\nse metió en medio del marcado:\n  · "
             + "\n  · ".join(malas[:12])))
+
+
+class TestNingunaClavePedidaFaltaDelCatalogo(unittest.TestCase):
+    """Una clave que no existe se PINTA: `tr()` y `pintarTextos()` devuelven
+    la propia clave, así que en pantalla se lee `tab3.x`.
+
+    Ya hay un guard en vivo —`TestLaAppCargaEnLosTresIdiomas` lee
+    `clavesAusentes()` tras abrir la app en Chrome— pero solo ve las claves de
+    lo que ESTÁ pintado, y `index.html` a secas no renderiza ninguna plantilla
+    del JS. Por eso sobrevivieron **seis** `<span data-i18n="tab3.x"></span>`
+    que una sustitución automática había pegado detrás del `</div>` final de
+    cinco plantillas —la misma pasada que partió el `class` del tooltip del
+    sparkline—: el HTML seguía siendo válido y la clave no estaba en ningún
+    sitio, así que no había nada que la contradijera. Las cazó
+    `test_las_tres_lenguas_en_pantalla`, que sí renderiza los paneles, y este
+    guard las habría cazado sin necesidad de que un test abriera ese panel.
+
+    Los comentarios se saltan: la cabecera de `i18n.js` documenta el mecanismo
+    con `data-i18n="clave"` y con `tr('tab3.fase_h')` de ejemplo.
+    """
+
+    _PEDIDOS = re.compile(
+        r"""data-i18n(?:-html|-ph|-tip|-aria)?=["']([^"']+)["']"""
+        r"""|\btr\(\s*'([^']+)'""")
+
+    def test_todas_las_claves_existen(self):
+        es = json.loads((APP_DIR / "static" / "i18n" / "es.json")
+                        .read_text(encoding="utf-8"))
+        fuentes = list(rutas()) + [str(APP_DIR / "static" / "index.html")]
+        malas = []
+        for r in fuentes:
+            src = Path(r).read_text(encoding="utf-8")
+            for i, linea in enumerate(src.splitlines(), 1):
+                if linea.lstrip().startswith(("//", "*", "/*", "<!--")):
+                    continue
+                for m in self._PEDIDOS.finditer(linea):
+                    clave = m.group(1) or m.group(2)
+                    if clave not in es:
+                        malas.append(f"{Path(r).name}:{i}: {clave}")
+        self.assertEqual(malas, [], (
+            f"\n{len(malas)} clave(s) que no están en el catálogo; se pintan "
+            f"en crudo:\n  · " + "\n  · ".join(malas[:12])))
