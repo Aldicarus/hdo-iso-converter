@@ -146,18 +146,26 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # Las TRES conjugaciones: `-ant` (cantant), `-ent` (perdent) y **`-int`**
     # (obtenint, escrivint). Sin la tercera se escapaban tres, y no por poco:
     # el guard llevaba desde que se escribió sin mirar una conjugación entera.
+    #
+    # Y el gerundio no tiene por qué abrir la cadena: va detrás de un prefijo
+    # cerrado por raya, punto medio o dos puntos —«Fase A — Analizando…»,
+    # «Paso 1/4: Identificando…», «mkvmerge: extrayendo…»—. Con el ancla
+    # solo en `^` se escapaban **44**, o sea más que los que el guard había
+    # cazado nunca: los doce rótulos de fase de Tab 3 y treinta y dos líneas
+    # del log del servidor.
+    ANTES = r"(?:^|[—·:]\s+)"
     GERUNDIO = re.compile(
-        r"^[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent|int)\b")
+        ANTES + r"[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent|int)\b")
 
     def test_ningun_rotulo_de_progreso_empieza_por_gerundio(self):
         malas = []
         for donde, cat in _catalogos():
             for k, es in cat["es"].items():
-                if not re.match(r"^[^A-Za-zÁÉÍÓÚ]*[A-ZÁÉÍÓÚ]?[a-záéíóúñü]*"
-                                r"(ando|endo)\b", es):
+                if not re.search(self.ANTES + r"[^A-Za-zÁÉÍÓÚ]*[A-ZÁÉÍÓÚ]?"
+                                 r"[a-záéíóúñü]*(ando|endo)\b", es):
                     continue
                 ca = cat["ca"].get(k, "")
-                if self.GERUNDIO.match(ca):
+                if self.GERUNDIO.search(ca):
                     malas.append(f"[{donde}] `{k}`: {ca[:56]}")
         self.assertEqual(sorted(malas), [], (
             f"\n{len(malas)} rótulo(s) de progreso en catalán con gerundio "
