@@ -91,6 +91,28 @@ EXCEPCIONES: dict[str, str] = {
     "combos únicos ⟦⟧":
         "el rótulo pasa a `tab2.combos_unicos`; el hueco iba en la plantilla "
         "anidada que se reescribió",
+
+    # ── Dos `${…}` contiguos que pasan a un solo parámetro.
+    #
+    # El fuente era `(Δ = ${signo}${delta})`, o sea el signo y el número
+    # interpolados por separado, y el golden capturó los dos huecos. Hoy el
+    # signo se compone antes y viaja dentro de `{delta}`: el castellano
+    # RENDERIZADO es el mismo —«(Δ = +12)»— y lo que cambia es el número de
+    # huecos, que la equivalencia de `⟦⟧` no puede normalizar porque son dos
+    # contra uno.
+    "Diferencia de frames detectada (Δ = ⟦⟧ ⟦⟧ ). ⟦⟧":
+        "el signo y el número pasan a un solo `{delta}` en "
+        "`tab3.diferencia_de_frames_detectada_delta`",
+
+    # ── El rótulo del gráfico L8, partido por una ternaria de sufijos.
+    #
+    # Era `L8 target displays · escala logarítmica de nits${tieneLuz
+    # ? ' · validado film completo' : ' · sample 30s'}`: el rótulo traducido y
+    # el sufijo en castellano, así que en inglés salía media frase en cada
+    # idioma. Hoy son DOS claves completas, una por rama, y por eso la forma
+    # con el hueco al final ya no existe.
+    "L8 target displays · escala logarítmica de nits ⟦⟧":
+        "partida en `tab2.l8_escala_validado_film_completo` / `_sample_30s`",
 }
 
 
@@ -220,11 +242,31 @@ class TestElCastellanoSigueSiendoElMismo(unittest.TestCase):
         prosa = re.sub(r"\s*━+\s*$", "", prosa)
         return " ".join(prosa.split())
 
+    def _absorbida(self, frase: str) -> bool:
+        """La frase sigue igual, dentro de una frase más larga.
+
+        Los fragmentos que el marcado partía se capturaron por separado —«.
+        Click para seleccionar.», «— marca solo los que quieras añadir o
+        rehacer.»— y al unirlos en una sola clave dejaron de existir como
+        cadena suelta. El castellano no cambió: la secuencia de caracteres
+        está ahí, byte a byte, dentro del valor del catálogo. Lo que cambió es
+        dónde acaba la frase, que es justo lo que unir fragmentos hace.
+
+        Medido sobre el golden actual: **208 de 2.660** frases son además
+        subcadena de otra viva, así que para esas el guard deja de poder ver
+        un borrado. Es el precio de la equivalencia, y a cambio lo que sigue
+        garantizando —«este castellano existe en la app»— sigue siendo cierto
+        para ellas. Listar las ocho como excepciones habría escondido lo
+        mismo sin dejar la cuenta a la vista.
+        """
+        return any(len(v) > len(frase) and frase in v for v in self.vivas)
+
     def _comprobar(self, clave: str):
         esperadas = set(self.golden[clave])
         faltan = sorted(f for f in esperadas - self.vivas
                         if f not in EXCEPCIONES
-                        and self._sin_prefijo(f) not in self.vivas)
+                        and self._sin_prefijo(f) not in self.vivas
+                        and not self._absorbida(f))
         self.assertEqual(faltan, [], (
             f"\n{len(faltan)} frase(s) castellanas de `{clave}` han "
             f"desaparecido o cambiado.\nSi el cambio es deliberado, añádelas a "

@@ -168,7 +168,7 @@ async function checkForUpdates(force) {
     }
     banner.className = 'settings-update-banner ok';
     const simBadge = data.simulated ? ` <span class="settings-update-sim-badge"><span data-icono="lupaOnda"></span> <span data-i18n="settings.simulado"></span></span>` : '';
-    const latestPart = ` · última publicada: <strong>${escHtml(data.latest)}</strong>${simBadge}`;
+    const latestPart = ' ' + tr('settings.ultima_publicada_p1', {p1: `<strong>${escHtml(data.latest)}</strong>`}) + `${simBadge}`;
     const ignored = data.ignored_version
       ? `<div class="settings-update-msg-sub">${tr('settings.ignorando_avisos_de_la_version_ignored', {ignored_version: escHtml(data.ignored_version)})} <button class="btn btn-ghost btn-xs" onclick="ignoreUpdate('')" data-i18n="settings.reactivar_avisos"></button></div>`
       : '';
@@ -232,7 +232,7 @@ async function checkForUpdates(force) {
     </div>
     <div class="settings-update-actions">
       <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> <span data-i18n="settings.copiar_comandos"></span></button>
-      ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> Release en GitHub</a>` : ''}
+      ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> <span data-i18n="settings.release_en_github"></span></a>` : ''}
       <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')" data-i18n="settings.ignorar_esta_version"></button>
     </div>`;
 }
@@ -294,7 +294,7 @@ async function ignoreUpdate(version) {
     body: JSON.stringify({ version }),
   });
   showToast(version
-    ? icono('omitida') + ` Aviso de ${version} silenciado`
+    ? icono('omitida') + ' ' + tr('settings.aviso_de_p1_silenciado', {p1: version})
     : tr('settings.avisos_de_actualizacion_reactivados'), 'info');
   checkForUpdates(false);
 }
@@ -328,7 +328,7 @@ function _renderSettingsSection(key, data) {
     if (inp) {
       inp.placeholder = st.source === 'default'
         ? tr('ui.opcional_pega_la_tuya_solo_si')
-        : `Ya configurada (…${st.last4 || ''}). Escribe para reemplazar.`;
+        : tr('settings.ya_configurada_escribe_para_reemplazar', {last4: st.last4 || ''});
     }
     return st.source === 'settings';
   }
@@ -593,15 +593,14 @@ async function cleanupScanAndShow() {
 
   resultEl.innerHTML = `
     <div class="cleanup-summary">
-      <strong>${data.total_count}</strong> elementos · liberables ${_cleanupFmtBytes(data.total_bytes)}
-      ${data.safe_count < data.total_count
+      <strong>${data.total_count}</strong> ${tr('settings.elementos_liberables_total_bytes_p2', {total_bytes: _cleanupFmtBytes(data.total_bytes), p2: data.safe_count < data.total_count
         ? ` · <span class="cleanup-warn-text">${tr('settings.safe_count_requieren_revision', {safe_count: data.total_count - data.safe_count})}</span>`
-        : ''}
+        : ''})}
     </div>
     <table class="cleanup-table">
       <thead>
         <tr>
-          <th><input type="checkbox" id="cleanup-select-all" title=tr('cmv40_modals.seleccionar_todo')></th>
+          <th><input type="checkbox" id="cleanup-select-all" title="${tr('cmv40_modals.seleccionar_todo')}"></th>
           <th>Tipo</th>
           <th>Ruta</th>
           <th>Tamaño</th>
@@ -642,7 +641,7 @@ async function cleanupExecuteSelected() {
   }
   // Confirmacion via modal nativo del proyecto
   showConfirm(
-    `¿Borrar ${paths.length} elemento(s)?`,
+    tr('settings.borrar_n_elementos', {n: paths.length}),
     tr('settings.esta_operacion_es_irreversible_asegurate'),
     async () => {
       const data = await apiFetch('/api/cleanup/execute', {
@@ -672,42 +671,42 @@ async function cleanupExecuteSelected() {
 function _cmv40RepoUnavailableBanner(repo) {
   const folderOk = !!(repo && repo.drive_folder_configured);
   const keyOk    = !!(repo && repo.google_key_configured);
-  const openCfg = `<a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> Configuración</a>`;
-  const donate  = `<a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer">PayPal · REC_9999</a>`;
+  const openCfg = `<a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> <span data-i18n="ui.configuracion"></span></a>`;
+  const donate  = `<a href="https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6" target="_blank" rel="noreferrer" data-i18n="settings.paypal_rec_9999"></a>`;
   if (!folderOk && !keyOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> <span data-i18n="settings.repositorio_dovitools_bloqueado"></span></div>
       <div class="cmv40-repo-locked-body">
-        Faltan <strong>dos cosas</strong>:
+        ${tr('settings.faltan_dos_cosas')}
         <ol>
-          <li><strong>URL del folder Drive del repo</strong> — es privado, requiere donación (15 CAD) en ${donate} indicando tu correo y pidiendo acceso al repositorio de RPUs. Recibirás el link por email.</li>
-          <li><strong>Google API key</strong> con Drive API y Sheets API habilitadas.</li>
+          <li>${tr('settings.li_url_del_folder_es_privado', {donate: donate})}</li>
+          <li>${tr('settings.li_google_api_key_con_apis')}</li>
         </ol>
-        Configura ambas en ${openCfg}.
+        ${tr('settings.configura_ambas_en_opencfg', {opencfg: openCfg})}
       </div>
     </div>`;
   }
   if (!folderOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> Repositorio DoviTools bloqueado</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="candado"></span> <span data-i18n="settings.repositorio_dovitools_bloqueado"></span></div>
       <div class="cmv40-repo-locked-body">
-        La URL del folder Drive del repo de REC_9999 no está configurada. Es un repositorio <strong>privado</strong>: el acceso se obtiene donando 15 CAD en ${donate}, indicando tu correo y pidiendo acceso al repositorio de RPUs. Recibirás el link por email.
-        <br><br>Una vez tengas el link, pégalo en ${openCfg} → sección <em>URL del repositorio DoviTools</em>.
+        ${tr('settings.la_url_apunta_a_un_repo_privado', {donate: donate})}
+        <br><br>${tr('settings.una_vez_tengas_el_link_pegalo', {opencfg: openCfg})} <em data-i18n="ui.url_del_repositorio_dovitools"></em>.
       </div>
     </div>`;
   }
   if (!keyOk) {
     return `<div class="cmv40-repo-locked">
-      <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> Google API key no configurada</div>
+      <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> <span data-i18n="settings.google_api_key_no_configurada"></span></div>
       <div class="cmv40-repo-locked-body">
-        La URL del repo está OK, pero falta la Google API key para consultar Drive. Configúrala en ${openCfg}.
+        ${tr('settings.la_url_del_repo_esta_ok', {opencfg: openCfg})}
       </div>
     </div>`;
   }
   return `<div class="cmv40-repo-locked">
-    <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> Repo DoviTools no accesible</div>
+    <div class="cmv40-repo-locked-title"><span data-icono="aviso"></span> <span data-i18n="settings.repo_dovitools_no_accesible"></span></div>
     <div class="cmv40-repo-locked-body">
-      ${escHtml(repo?.error || 'Error desconocido')}
+      ${escHtml(repo?.error || tr('comun.error_desconocido'))}
     </div>
   </div>`;
 }

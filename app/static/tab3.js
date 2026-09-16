@@ -1780,7 +1780,7 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     const t = data.title_en || data.title_es || '?';
     _cmv40NewResetRepoList(tr('tab3.sin_coincidencias_para', {t: escHtml(t)}));
     if (info) {
-      info.innerHTML = `No hay <code>.bin</code> para <strong>${escHtml(t)}</strong> en el repositorio. Prueba otra pestaña.`;
+      info.innerHTML = tr('tab3.no_hay_bin_para_prueba_otra_pestana', {titulo: escHtml(t)});
     }
     return;
   }
@@ -1831,7 +1831,7 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
   }
 
   if (info) {
-    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} · top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Haz click para seleccionar. Se descargará al crear el proyecto.`;
+    info.innerHTML = tr('tab3.n_candidatos_top_score_al_crear', {n: `<strong>${cands.length}</strong>`, p2: cands.length !== 1 ? 's' : '', score: `<strong>${Math.round(cands[0].score * 100)}%</strong>`});
   }
 }
 
@@ -2317,8 +2317,7 @@ function _createCMv40SubTab(project) {
   btn.innerHTML = `
     <span class="subtab-proj-icon"><span data-icono="curva"></span></span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.session.source_mkv_name)}">${escHtml(name.slice(0, 24))}${name.length > 24 ? '…' : ''}</span>
-    <button class="subtab-proj-close" onclick="closeCMv40Project('${project.id}');event.stopPropagation()"
-      data-tooltip="Cerrar proyecto">×</button>`;
+    <button class="subtab-proj-close" onclick="closeCMv40Project('${project.id}');event.stopPropagation()" data-i18n-tip="core.cerrar_proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchCMv40SubTab(project.id); };
   container.appendChild(btn);
   _updateSubtabScrollState();
@@ -2756,8 +2755,7 @@ function _createCMv40Panel(project) {
           <div><div class="section-title"><span data-icono="portapapeles"></span> <span data-i18n="tab1.log"></span></div></div>
           <div style="display:flex; gap:6px">
             <button class="btn btn-ghost btn-xs"
-              onclick="copyLogToClipboard('cmv40-log-${pid}', this)"
-              data-tooltip="Copiar todo el log al portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="ui.copiar"></span></button>
+              onclick="copyLogToClipboard('cmv40-log-${pid}', this)" data-i18n-tip="ui.copiar_todo_el_log_al_portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="ui.copiar"></span></button>
             <button class="btn btn-ghost btn-xs" onclick="_clearCMv40Log('${pid}')"><span data-icono="papelera"></span> <span data-i18n="ui.limpiar"></span></button>
           </div>
         </div>
@@ -3155,7 +3153,7 @@ function renderTmdbCardHTML(t, ctx = null) {
   if (t.genres && t.genres.length) metaParts.push(t.genres.join(' · '));
 
   const ratingHtml = (t.vote_count > 0)
-    ? `<span class="cmv40-tmdb-rating" data-tooltip="${t.vote_count.toLocaleString()} votos en TMDb">${t.vote_average.toFixed(1)}</span>`
+    ? `<span class="cmv40-tmdb-rating" data-tooltip="${tr('tab3.n_votos_en_tmdb', {n: t.vote_count.toLocaleString(localeActual())})}">${t.vote_average.toFixed(1)}</span>`
     : '';
   const origHtml = (t.original_title && t.original_title !== t.title)
     ? `<span class="cmv40-tmdb-orig">· ${escHtml(t.original_title)}</span>`
@@ -3227,7 +3225,7 @@ function _renderCMv40Info(s, pid) {
             if (s.target_type) return tr('tab3.auto_ejecuta_cada_fase_tras_la');
             return tr('tab3.auto_ejecuta_cada_fase_tras_la_2');
           })()}">
-          ${icono('rayo')} ${autoOn ? 'Auto ON' : 'Auto OFF'}
+          ${icono('rayo')} ${tr(autoOn ? 'tab3.auto_on' : 'tab3.auto_off')}
         </button>` : ''}
       </div>
       <div class="section-body">
@@ -3236,7 +3234,7 @@ function _renderCMv40Info(s, pid) {
             <div style="font-size:11px; color:var(--text-3); margin-bottom:2px" data-i18n="tab3.mkv_origen"></div>
             <div style="font-weight:600">${escHtml(s.source_mkv_name)}</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
-              ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : 'Sin analizar'}
+              ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : tr('tab3.sin_analizar')}
             </div>
             ${s.source_workflow ? `<div style="font-size:10px; margin-top:4px">
               <span class="cmv40-workflow-badge cmv40-workflow-${s.source_workflow}">${_cmv40WorkflowLabel(s.source_workflow)}</span>
@@ -3297,8 +3295,7 @@ function _renderCMv40SheetCard(s, pid) {
           <div class="section-subtitle" data-i18n="tab3.lo_que_la_comunidad_ha_documentado"></div>
         </div>
         <button class="btn btn-ghost btn-xs" onclick="_cmv40HydrateSheetClient('${pid}')"
-          data-tooltip="Vuelve a consultar la hoja (la caché dura 1 h)"
-          style="margin-left:auto; color:var(--text-2)"><span data-icono="refrescar"></span> <span data-i18n="tab3.actualizar"></span></button>
+          style="margin-left:auto; color:var(--text-2)" data-i18n-tip="tab3.vuelve_a_consultar_la_hoja_la"><span data-icono="refrescar"></span> <span data-i18n="tab3.actualizar"></span></button>
       </div>
       <div style="padding:0 16px 14px">
         <div id="cmv40-sheet-banner-${pid}" class="cmv40-rec-banner"></div>
@@ -3406,12 +3403,10 @@ function _renderCMv40RecommendationCard(s, pid) {
   if (isKeep && !projectDone) {
     actionButtons = `
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')"
-          data-tooltip="Cierra el proyecto sin tocar el MKV original. Un reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.">
+        <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')" data-i18n-tip="tab3.cierra_el_proyecto_sin_tocar_el">
           <span data-icono="check"></span> <span data-i18n="tab3.mantener_mkv_actual"></span>
         </button>
-        <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')"
-          data-tooltip="Procesa el MKV inyectando el RPU CMv4.0 aunque el bin sea sintético. Resultado equivalente a la conversión al vuelo del reproductor pero quedará archivado como MKV CMv4.0 completo.">
+        <button class="btn btn-ghost btn-sm" onclick="cmv40OverrideRecommendation('${pid}')" data-i18n-tip="tab3.procesa_el_mkv_inyectando_el_rpu">
           <span data-icono="inyectar"></span> <span data-i18n="tab3.inyectar_rpu_igualmente"></span>
         </button>
       </div>`;
@@ -3649,13 +3644,11 @@ function _cmv40RenderCriticalAckBanner(pid, s) {
         <ul class="cmv40-ack-list">${itemsHtml}</ul>
         <div class="cmv40-ack-actions">
           <button class="btn btn-ghost btn-md"
-            onclick="_cmv40ChangeTarget('${pid}')"
-            data-tooltip="Vuelve a Fase B para escoger otro bin (del repo DoviTools, de carpeta local o extraído de otro MKV propio)">
+            onclick="_cmv40ChangeTarget('${pid}')" data-i18n-tip="tab3.vuelve_a_fase_b_para_escoger">
             <span data-icono="deshacer"></span> <span data-i18n="tab3.cambiar_target"></span>
           </button>
           <button class="btn btn-warning btn-md"
-            onclick="_cmv40AcknowledgeCriticalGates('${pid}')"
-            data-tooltip="Reconoces que el resultado puede ser degradado y autorizas continuar — Fase D se saltará automáticamente">
+            onclick="_cmv40AcknowledgeCriticalGates('${pid}')" data-i18n-tip="tab3.reconoces_que_el_resultado_puede_ser">
             <span data-icono="aviso"></span> <span data-i18n="tab3.continuar_igualmente_resultado_degradado"></span>
           </button>
         </div>
@@ -3757,8 +3750,7 @@ function _renderCMv40ActivePhase(project) {
             </div>
             ${delante}
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="cmv40CancelRunning('${pid}')"
-            data-tooltip="Sácalo de la cola; el proyecto se queda como está" data-i18n="workbar.quitar_de_la_cola"></button>
+          <button class="btn btn-ghost btn-sm" onclick="cmv40CancelRunning('${pid}')" data-i18n="workbar.quitar_de_la_cola" data-i18n-tip="tab3.sacalo_de_la_cola_el_proyecto"></button>
         </div>
       </div>`;
   }
@@ -3785,8 +3777,7 @@ function _renderCMv40ActivePhase(project) {
             <div style="font-size:12px; color:var(--text-2)">${escHtml(s.error_message)}</div>
           </div>
           ${retryBtn}
-          <button class="btn btn-ghost btn-sm" onclick="_cmv40ClearError('${pid}')"
-            data-tooltip="Descartar este mensaje"><span data-icono="cruz"></span></button>
+          <button class="btn btn-ghost btn-sm" onclick="_cmv40ClearError('${pid}')" data-i18n-tip="tab3.descartar_este_mensaje"><span data-icono="cruz"></span></button>
         </div>
       </div>`;
   }
@@ -3929,7 +3920,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
           ${s.archived ? '' : `
           <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--sep)">
             <button class="btn btn-danger btn-sm" onclick="_cmv40Redo('${pid}','${fase.reset_to}','${fase.key}')"
-              data-tooltip=tr('tab3.vuelve_a_esta_fase_las_fases')><span data-icono="refrescar"></span> Rehacer esta fase</button>
+              data-i18n-tip="tab3.vuelve_a_esta_fase_las_fases"><span data-icono="refrescar"></span> <span data-i18n="tab3.rehacer_esta_fase_2"></span></button>
           </div>`}
         </div>`;
     } else {
@@ -4134,18 +4125,17 @@ function _cmv40GateBloque1(pid, s) {
       <div style="margin-top:8px; padding:10px 12px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px">
         <div style="font-size:12px; font-weight:700; color:#8a4a00"><span data-icono="aviso"></span> <span data-i18n="tab3.esperando_tu_confirmacion"></span></div>
         <div style="font-size:11.5px; color:var(--text-2); line-height:1.5; margin-top:3px">
-          ${detalles.length
-            ? `Si continúas aceptas que ${escHtml(detalles.join(' · '))}.`
-            : 'Hay divergencias que la Fase D no puede corregir.'}
-          Los botones <em data-i18n="tab3.cambiar_target"></em> / <em data-i18n="tab3.continuar_igualmente"></em> están en el aviso ámbar de arriba del panel.
+          ${tr('tab3.p1_los_botones', {p1: detalles.length
+            ? tr('tab3.si_continuas_aceptas_que_p1', {p1: escHtml(detalles.join(' · '))})
+            : tr('tab3.hay_divergencias_que_la_fase_d')})} ${tr('tab3.los_botones_p1_p2_estan_en_el_aviso', {p1: `<em>${tr('tab3.cambiar_target')}</em>`, p2: `<em>${tr('tab3.continuar_igualmente')}</em>`})}
         </div>
       </div>`;
   }
 
   return `
-    ${_cmv40BloqueHead('①', 'Veredicto y consecuencia')}
+    ${_cmv40BloqueHead('①', tr('tab3.veredicto_y_consecuencia'))}
     <div style="font-size:12px; line-height:1.7; color:var(--text-1)">
-      <div><strong>${trust ? 'Trusted' : 'Sin trust automático'}</strong>
+      <div><strong>${tr(trust ? 'tab3.trusted' : 'tab3.sin_trust_automatico')}</strong>
         ${tr('tab3.p1_workflow', {p1: escHtml(s.trust_override || 'auto')})} <code>${escHtml(wf)}</code></div>
       <div style="color:var(--text-2)">${tr('tab3.se_omiten_p1', {p1: skipped.length ? escHtml(skipped.join(' · ')) : tr('tab3.ninguna_fase')})}</div>
       <div style="color:var(--text-2)">${escHtml(queHaraF)}</div>
@@ -4222,7 +4212,7 @@ function _cmv40GateBloque2(s) {
       ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}
       ${_cmv40RpuFila('L9 primaries', (sdv && sdv.l9_primaries) || '—', (tdv && tdv.l9_primaries) || '—')}
       ${_cmv40RpuFila('L11 contenido', (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
-    </div>`;
+    </div><span data-i18n="tab3.x"></span><span data-i18n="tab3.x"></span>`;
 }
 
 // ── ③ Gates: valor · umbral · severidad ──────────────────────────────
@@ -4338,7 +4328,7 @@ function _cmv40GateBloque4(s) {
     return `
       ${_cmv40BloqueHead('④', 'Desglose L5', 'muestreo antiguo (24 frames)')}
       <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
-        ${lin('Pares comparados', `${l5.sampled_matches || 0} coinciden de ${l5.sampled_total || 0}`)}
+        ${lin('Pares comparados', tr('tab3.n_coinciden_de_n', {n: l5.sampled_matches || 0, total: l5.sampled_total || 0}))}
         ${lin('Por zona (muestras)', `intro ${zm.intro || 0}/${zc.intro || 0} · cuerpo ${zm.body || 0}/${zc.body || 0} · outro ${zm.outro || 0}/${zc.outro || 0}`)}
         ${lin('Cobertura del cuerpo', `${Math.round((l5.sampled_body_coverage || 0) * 100)}%`)}
         <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">
@@ -4382,8 +4372,7 @@ function _cmv40GateBloque4(s) {
   const proc = l5.procedencia || {};
   const avisoProc = proc.contradice ? `
     <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:#8a4a00; line-height:1.5">
-      <span data-icono="aviso"></span> <span data-i18n="tab3.el_nombre_del_bin_declara"></span> <strong><span data-i18n="tab3.l5_variable"></span></strong>${(proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''}
-      pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.
+      <span data-icono="aviso"></span> <span data-i18n="tab3.el_nombre_del_bin_declara"></span> <strong><span data-i18n="tab3.l5_variable"></span></strong>${tr('tab3.p1_pero_la_medicion_no_ha', {p1: (proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''})}
     </div>` : '';
 
   return `
@@ -4401,7 +4390,7 @@ function _cmv40GateBloque4(s) {
       ${tramos ? `
         <div style="margin-top:8px">
           <div style="display:grid; grid-template-columns:1fr 1fr 70px 70px; gap:8px; font-size:10.5px; font-weight:800; color:var(--text-2); padding:3px 8px; background:rgba(0,122,255,0.06); border-radius:4px 4px 0 0">
-            <div>Frames</div><div>Timecode</div><div style="text-align:right">Longitud</div><div style="text-align:right">Zona</div>
+            <div data-i18n="tab2.frames"></div><div data-i18n="tab3.timecode"></div><div style="text-align:right" data-i18n="tab3.longitud"></div><div style="text-align:right"><span data-i18n="tab3.zona"></span></div>
           </div>
           ${tramos}
         </div>` : ''}
@@ -4463,8 +4452,7 @@ function _cmv40GateBloque5(pid, s) {
     <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
       ${filas}
       <div style="margin-top:8px; text-align:right">
-        <button class="btn btn-ghost btn-xs" onclick="_cmv40CopiarDiagnostico('${pid}', this)"
-          data-tooltip="Vuelca los cinco bloques en texto plano al portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="tab3.copiar_diagnostico"></span></button>
+        <button class="btn btn-ghost btn-xs" onclick="_cmv40CopiarDiagnostico('${pid}', this)" data-i18n-tip="tab3.vuelca_los_cinco_bloques_en_texto"><span data-icono="portapapeles"></span> <span data-i18n="tab3.copiar_diagnostico"></span></button>
       </div>
     </div>`;
 }
@@ -4906,7 +4894,7 @@ function _cmv40ArtifactsBody(s, fileNames) {
     <div style="font-size:12px">
       <div style="color:var(--text-3); margin-bottom:6px"><span data-i18n="tab3.artefactos_generados"></span></div>
       ${rows}
-      ${total > 0 ? `<div style="margin-top:6px; font-size:11px; color:var(--text-3); text-align:right">Total: <b>${_fmtBytes(total)}</b></div>` : ''}
+      ${total > 0 ? `<div style="margin-top:6px; font-size:11px; color:var(--text-3); text-align:right"><span data-i18n="tab3.total"></span> <b>${_fmtBytes(total)}</b></div>` : ''}
     </div>`;
 }
 
@@ -5072,7 +5060,7 @@ function _cmv40FaseCBody(pid, s) {
   return `
     <div class="section-body">
       <div style="font-size:12px; color:var(--text-3); margin-bottom:10px"><span data-i18n="tab3.separa_el_hevc_en_bl_capa"></span></div>
-      ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="aviso"></span></span><span>Diferencia de frames detectada (Δ = ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}). ${deltaNote}</span></div>` : ''}
+      ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="aviso"></span></span><span>${tr('tab3.diferencia_de_frames_detectada_delta', {delta: `${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}`, nota: deltaNote})}</span></div>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')"><span data-icono="tijeras"></span> <span data-i18n="tab3.extraer_bl_el_per_frame_data"></span></button>
     </div>`;
 }
@@ -5593,7 +5581,7 @@ async function _cmv40LoadRepoForPanel(pid) {
   };
   list.innerHTML = cands.map(renderCard).join('');
   if (info) {
-    info.innerHTML = `<strong>${cands.length}</strong> candidato${cands.length !== 1 ? 's' : ''} · top score: <strong>${Math.round(cands[0].score * 100)}%</strong>. Click para seleccionar.`;
+    info.innerHTML = tr('tab3.n_candidatos_top_score', {n: `<strong>${cands.length}</strong>`, p2: cands.length !== 1 ? 's' : '', score: `<strong>${Math.round(cands[0].score * 100)}%</strong>`});
   }
   if (topId) _cmv40SelectRepoForPanel(pid, topId);
 }
@@ -5924,7 +5912,7 @@ function _renderCMv40Sidebar() {
     list.innerHTML = `
       <div class="empty-state" style="padding:24px 12px">
         <div class="empty-state-icon" data-icono="curva"></div>
-        <div>${searchTerm || _cmv40Filter !== 'all' ? 'Sin resultados' : 'Crea un proyecto para inyectar CMv4.0'}</div>
+        <div>${tr(searchTerm || _cmv40Filter !== 'all' ? 'tab3.sin_resultados' : 'tab3.crea_un_proyecto_para_inyectar_cmv40')}</div>
       </div>`;
     return;
   }
@@ -6011,10 +5999,8 @@ function _renderCMv40Sidebar() {
       insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
       abierto: !!isOpen,
       acciones: `
-        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')"
-          data-tooltip="Abrir este proyecto" data-i18n="tab1.abrir"></button>
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();_cmv40DeleteFromSidebar('${s.id}')"
-          data-tooltip="Eliminar permanentemente" data-i18n="tab1.eliminar"></button>`,
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();_cmv40OpenSelected('${s.id}')" data-i18n="tab1.abrir" data-i18n-tip="tab3.abrir_este_proyecto"></button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();_cmv40DeleteFromSidebar('${s.id}')" data-i18n="tab1.eliminar" data-i18n-tip="tab3.eliminar_permanentemente"></button>`,
     });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => _cmv40ToggleSidebarSelection(s.id);
@@ -6119,7 +6105,7 @@ function _renderCMv40SyncStats(project) {
     ${suggested.offset !== undefined && suggested.offset !== 0 ? `
       <div class="banner info" style="margin-top:10px">
         <span class="banner-icon"><span data-icono="lupa"></span></span>
-        <span>Offset detectado automáticamente: <b>${suggested.offset > 0 ? '+' : ''}${suggested.offset} frames</b></span>
+        <span><span data-i18n="tab3.offset_detectado_automaticamente"></span> <b>${suggested.offset > 0 ? '+' : ''}${suggested.offset} frames</b></span>
       </div>` : ''}
     ${_cmv40SheetSyncBannerHTML(d.sheet_sync)}
   `;
@@ -6299,8 +6285,8 @@ function _renderCMv40SyncControls(project) {
       ${zoomRowHtml}
       <div style="margin-top:10px; padding:8px 12px; background:var(--surface-2); border-radius:6px; font-size:11px; color:var(--text-3)">
         ${hasSyncConfig
-          ? `Corrección aplicada en su día — el gráfico se muestra en modo solo lectura.`
-          : 'Sincronización confirmada sin corrección (Δ era 0).'}
+          ? tr('tab3.correccion_aplicada_en_su_dia')
+          : tr('tab3.sincronizacion_confirmada_sin_correccion')}
       </div>`;
     return;
   }
@@ -6312,10 +6298,10 @@ function _renderCMv40SyncControls(project) {
     <div style="font-size:11px; color:var(--text-3); margin-bottom:8px">
       ${hasSyncConfig
         ? 'Estos valores se <b>sumarán</b> a la corrección ya aplicada. El Δ actual del gráfico indica cuánto falta por alinear.'
-        : 'Los valores se aplican desde el target original.'}
+        : tr('tab3.los_valores_se_aplican_desde_el')}
     </div>
     <div class="cmv40-sync-form">
-      <label>Eliminar N frames al inicio del target:
+      <label><span data-i18n="tab3.eliminar_n_frames_al_inicio_del"></span>
         <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px"
           oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
       </label>
@@ -6325,16 +6311,16 @@ function _renderCMv40SyncControls(project) {
       </label>
     </div>
     <div style="margin-top:10px; padding:10px 12px; background:var(--surface-2); border-radius:6px; font-size:12px">
-      <span style="color:var(--text-3)">Δ después de aplicar:</span>
+      <span style="color:var(--text-3)" data-i18n="tab3.delta_despues_de_aplicar"></span>
       <b id="cmv40-expected-delta-${pid}" style="margin-left:6px">—</b>
       <span style="color:var(--text-3); margin-left:12px; font-size:11px">
         ${tr('tab3.remove_p1_dup_p2_dejaria_0', {p1: delta > 0 ? delta : 0, p2: delta < 0 ? Math.abs(delta) : 0})}
       </span>
     </div>
     <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
-      <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')"><span data-icono="lapiz"></span> Aplicar corrección</button>
+      <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')"><span data-icono="lapiz"></span> <span data-i18n="tab3.aplicar_correccion"></span></button>
       ${hasSyncConfig ? `<button class="btn btn-danger btn-md" onclick="cmv40DoResetSync('${pid}')"
-          data-tooltip=tr('tab3.descartar_correccion_y_volver_al_target')><span data-icono="deshacer"></span> Resetear al original</button>` : ''}
+          data-i18n-tip="tab3.descartar_correccion_y_volver_al_target"><span data-icono="deshacer"></span> <span data-i18n="tab3.resetear_al_original"></span></button>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoSkipSync('${pid}')"
         ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sync_y_continuar"></span></button>
     </div>
@@ -6971,7 +6957,7 @@ function _cmv40PfChecks(s) {
   filas.push({
     titulo: tr('tab3.el_rpu_aporta_cmv4_0'),
     valor: falloCm ? s.error_message
-         : tgt ? `${dv(tgt)}${tgt.has_l8 ? ' · L8 presente' : ' · sin L8'}`
+         : tgt ? `${dv(tgt)}· ${tr(tgt.has_l8 ? 'tab3.l8_presente' : 'tab3.sin_l8')}`
          : tr('tab3.pendiente_de_leer_el_rpu'),
     estado: falloCm ? 'fallo' : esV40 ? 'ok' : tgt ? 'aviso' : 'pend',
   });
@@ -7142,10 +7128,8 @@ function _cmv40PfPintarPie(s, veredicto) {
   //
   // Los dos que sí funcionan reusan los endpoints del panel.
   const decidir = veredicto.clase === 'aviso' ? `
-    <button class="btn btn-ghost btn-sm" onclick="_cmv40PfForzar('${pid}')"
-      data-tooltip="Inyectar el RPU pese a la recomendación" data-i18n="tab3.inyectar_igualmente"></button>
-    <button class="btn btn-primary btn-sm" onclick="_cmv40PfMantener('${pid}')"
-      data-tooltip="Cerrar el proyecto sin procesar: el MKV se queda como está" data-i18n="tab3.mantener_el_mkv"></button>` : '';
+    <button class="btn btn-ghost btn-sm" onclick="_cmv40PfForzar('${pid}')" data-i18n="tab3.inyectar_igualmente" data-i18n-tip="tab3.inyectar_el_rpu_pese_a_la"></button>
+    <button class="btn btn-primary btn-sm" onclick="_cmv40PfMantener('${pid}')" data-i18n="tab3.mantener_el_mkv" data-i18n-tip="tab3.cerrar_el_proyecto_sin_procesar_el"></button>` : '';
   pie.innerHTML = decidir + cerrar;
 }
 
@@ -7276,7 +7260,7 @@ async function comprobarAvisoDonacion() {
   const cuenta = document.getElementById('donacion-cuenta');
   if (cuenta) {
     cuenta.textContent =
-      `Llevas ${d.descargas} ${d.descargas === 1 ? 'RPU descargado' : 'RPUs descargados'} `
+      tr(d.descargas === 1 ? 'tab3.llevas_n_rpu_descargado' : 'tab3.llevas_n_rpus_descargados', {n: d.descargas}) + ' '
       + tr('tab3.del_repositorio_dovitools');
   }
   openModal('dovitools-donacion-modal');

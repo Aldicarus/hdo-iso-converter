@@ -557,11 +557,10 @@ function renderProjectSubTabButton(project) {
   btn.className  = 'subtab-proj';
   btn.dataset.pid = project.id;
   btn.innerHTML  = `
-    <span class="unsaved-dot" id="unsaved-dot-${project.id}" style="display:none" data-tooltip="Cambios sin guardar"></span>
+    <span class="unsaved-dot" id="unsaved-dot-${project.id}" style="display:none" data-i18n-tip="tab2.cambios_sin_guardar_2"></span>
     <span class="subtab-proj-icon" id="subtab-icon-${project.id}">${icon}</span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.name)}">${escHtml(project.name.slice(0,24))}${project.name.length > 24 ? '…' : ''}</span>
-    <button class="subtab-proj-close" onclick="closeProject('${project.id}',event)"
-      data-tooltip="Cerrar proyecto">×</button>`;
+    <button class="subtab-proj-close" onclick="closeProject('${project.id}',event)" data-i18n-tip="core.cerrar_proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchSubTab(project.id); };
   container.appendChild(btn);
   _updateSubtabScrollState();
@@ -737,18 +736,15 @@ function buildProjectPanelHTML(pid) {
       </div>
       <div class="globals-body">
         <div class="globals-mkv-row">
-          <input type="text" id="${pid}-mkv-name-input" class="globals-mkv-input" oninput="onMkvNameInput()"
-            data-tooltip="Nombre del MKV de salida. Se genera automáticamente.\nEdítalo manualmente si necesitas otro nombre.">
+          <input type="text" id="${pid}-mkv-name-input" class="globals-mkv-input" oninput="onMkvNameInput()" data-i18n-tip="core.nombre_del_mkv_de_salida_se">
           <div id="${pid}-mkv-name-manual-notice" class="manual-notice" style="display:none">
             ${tr('core.p1_editado_manualmente', {p1: icono('lapiz')})}
             <button class="btn btn-xs btn-ghost" onclick="revertMkvName()" data-i18n="core.revertir" data-i18n-tip="core.restaurar_el_nombre_generado_automaticamente"></button>
           </div>
-          <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none"
-            data-tooltip="El nombre del ISO contiene el tag 'Audio DCP'.\nAñade el sufijo (DCP 9.1.6) a la pista TrueHD Atmos en Castellano.">
+          <div id="${pid}-mkv-dcp-chip" class="globals-mkv-chip" style="display:none" data-i18n-tip="core.el_nombre_del_iso_contiene_el">
             ${tr('core.p1_audio_dcp_detectado_en_el', {p1: icono('grafico')})}
           </div>
-          <div id="${pid}-mkv-size-chip" class="globals-mkv-chip globals-mkv-chip--size" style="display:none"
-            data-tooltip="Estimación del tamaño del MKV final.\nSale de restar al m2ts de origen las pistas de audio que se descartan y la sobrecarga del contenedor Blu-ray.\nEl pipeline copia los flujos sin recodificar, así que es contabilidad, no una predicción — pero el margen es de ±10%."></div>
+          <div id="${pid}-mkv-size-chip" class="globals-mkv-chip globals-mkv-chip--size" style="display:none" data-i18n-tip="core.estimacion_del_tamano_del_mkv_final"></div>
         </div>
         <div class="globals-info-row">
           <div class="global-info-item" id="${pid}-dv-card">
@@ -756,8 +752,7 @@ function buildProjectPanelHTML(pid) {
             <div class="global-info-body">
               <div class="global-info-head">
                 <span class="global-card-label" id="${pid}-dv-state">—</span>
-                <span class="global-info-chip" id="${pid}-dv-tag" style="display:none"
-                  data-tooltip="Tag que se añade automáticamente al nombre del MKV."></span>
+                <span class="global-info-chip" id="${pid}-dv-tag" style="display:none" data-i18n-tip="core.tag_que_se_anade_automaticamente_al"></span>
               </div>
               <div class="global-info-line" id="${pid}-dv-detail"></div>
               <div class="global-info-line global-info-line--note" id="${pid}-dv-note" style="display:none"></div>
@@ -838,11 +833,9 @@ function buildProjectPanelHTML(pid) {
           <span class="banner-icon" id="${pid}-chapters-auto-icon"><span data-icono="aviso"></span></span>
           <span id="${pid}-chapters-auto-text"></span>
           <button class="btn btn-xs" id="${pid}-chapters-generic-btn" style="display:none; margin-left:auto"
-            onclick="setGenericChapterNames()"
-            data-tooltip="Reemplaza todos los nombres por Capítulo 01, Capítulo 02… (mantiene timestamps)"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
+            onclick="setGenericChapterNames()" data-i18n-tip="core.reemplaza_todos_los_nombres_por_capitulo"><span data-icono="etiqueta"></span> <span data-i18n="core.nombres_genericos"></span></button>
           <button class="btn btn-xs" id="${pid}-chapters-reset-btn" style="display:none"
-            onclick="resetChaptersFromDisc()"
-            data-tooltip="Extrae los capítulos originales del disco (MPLS) y reemplaza los actuales (automáticos o editados)."><span data-icono="refrescar"></span> <span data-i18n="core.restaurar_del_disco"></span></button>
+            onclick="resetChaptersFromDisc()" data-i18n-tip="core.extrae_los_capitulos_originales_del_disco"><span data-icono="refrescar"></span> <span data-i18n="core.restaurar_del_disco"></span></button>
         </div>
         <div id="${pid}-chapter-timeline-wrap" class="chapter-timeline-wrap"
           onclick="onTimelineClick(event)"
@@ -887,8 +880,7 @@ function buildProjectPanelHTML(pid) {
 
     <div class="project-action-bar">
       <button class="btn btn-ghost btn-md" onclick="saveSession()" data-i18n-tip="core.guardar_los_cambios_sin_ejecutar"><span data-icono="caja"></span> <span data-i18n="ui.guardar"></span></button>
-      <button class="btn btn-success btn-lg" id="${pid}-execute-btn" onclick="executeSession()"
-        data-tooltip="Confirmar y añadir a la cola de ejecución">
+      <button class="btn btn-success btn-lg" id="${pid}-execute-btn" onclick="executeSession()" data-i18n-tip="core.confirmar_y_anadir_a_la_cola">
         <span data-icono="play"></span> <span data-i18n="core.confirmar_y_ejecutar"></span>
       </button>
     </div>`;
@@ -1360,7 +1352,7 @@ function tarjetaDeProyecto(o) {
         <div class="session-card-title"${o.tituloTooltip
             ? ` data-tooltip="${escHtml(o.tituloTooltip)}"` : ''}>${escHtml(o.titulo || '')}</div>
         ${o.sub ? `<div class="proj-sub"${o.subTooltip
-            ? ` data-tooltip="${escHtml(o.subTooltip)}"` : ''}>${escHtml(o.sub)}</div>` : ''}
+            ? ` data-tooltip="${escHtml(o.subTooltip)}"` : ''}>${escHtml(o.sub)}</div><span data-i18n="tab3.x"></span>` : ''}
         <div class="proj-pie">
           ${_projChipsHTML(o.chips)}
           ${o.meta ? `<span class="proj-fecha relative-date" data-iso="${escHtml(o.metaIso || '')}"
@@ -1369,7 +1361,7 @@ function tarjetaDeProyecto(o) {
       </div>
       <div class="proj-der">
         ${estado ? `<span class="proj-estado"${o.estadoTooltip
-            ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span>` : ''}
+            ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span><span data-i18n="tab3.x"></span>` : ''}
         ${o.insignia || ''}
         ${o.abierto ? '<span class="session-item-badge">abierto</span>' : ''}
       </div>
@@ -1502,12 +1494,10 @@ function botonDeFicha(ctx, conFicha) {
             + `'${escHtml(String(ctx.nombre || '').replace(/'/g, ''))}'`;
   return conFicha
     ? `<a class="tmdb-cambiar" role="button" tabindex="0"
-         onclick="abrirSelectorDeFicha(${arg})"
-         data-tooltip="Elegir otra película si esta no es la correcta" data-i18n="core.cambiar_pelicula"></a>`
+         onclick="abrirSelectorDeFicha(${arg})" data-i18n="core.cambiar_pelicula" data-i18n-tip="core.elegir_otra_pelicula_si_esta_no"></a>`
     : `<div class="tmdb-sin-ficha">
          <span data-i18n="core.sin_ficha_de_tmdb_no_hay"></span>
-         <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})"
-           data-tooltip="Buscar la película en TMDb y guardarla en el proyecto" data-i18n="core.buscar_pelicula"></button>
+         <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})" data-i18n="core.buscar_pelicula" data-i18n-tip="core.buscar_la_pelicula_en_tmdb_y"></button>
        </div>`;
 }
 

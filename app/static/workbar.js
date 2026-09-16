@@ -266,7 +266,7 @@ function _workbarActivoHTML(a) {
       <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();abrirDetalleDeTrabajo()" data-i18n-tip="workbar.ver_el_detalle_y_el_registro"><span data-i18n="workbar.detalle"></span></button>
       ${a.cancelable ? `<button class="btn btn-ghost btn-xs"
         onclick="event.stopPropagation();cancelarTrabajoActivo()"
-        data-tooltip=tr('workbar.detener_este_trabajo')>Cancelar</button>` : ''}`,
+        data-i18n-tip="workbar.detener_este_trabajo" data-i18n="ui.cancelar"></button>` : ''}`,
   });
 }
 
@@ -376,7 +376,7 @@ function _workbarConsultasHTML(c) {
   const nombres = (c.nombres || []).join(' · ');
   return `<div class="workbar-consultas">`
        + `<span data-tooltip="${escHtml(nombres)}">`
-       + `+ ${n} consulta${n === 1 ? '' : 's'} en curso</span></div>`;
+       + tr('workbar.mas_n_consultas_en_curso', {n: n, p2: n === 1 ? '' : 's'}) + '</span></div>';
 }
 
 function _workbarRender(st) {
@@ -408,8 +408,8 @@ function _workbarRender(st) {
     ? _workbarConsultasHTML(st.consultas) : '';
   if (!enPantalla) {
     _workbarConservandoElScroll(body, `<div class="workbar-vacio">${
-      _workbarFiltrando() ? 'Nada en ejecución coincide con el filtro'
-                          : 'No hay nada en ejecución'}</div>`);
+      _workbarFiltrando() ? tr('workbar.nada_en_ejecucion_coincide_con_el')
+                          : tr('workbar.no_hay_nada_en_ejecucion')}</div>`);
     _workbarRenderHistorial();
     return;
   }
@@ -434,20 +434,19 @@ function _workbarRender(st) {
         acciones: (t.detalle || t.cancelable) ? `
           ${t.detalle ? `<button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();abrirDetalleDeTrabajo('${escHtml(t.id)}')"
-            data-tooltip=tr('workbar.ver_el_detalle_de_este_trabajo')>Detalle</button>` : ''}
+            data-i18n-tip="workbar.ver_el_detalle_de_este_trabajo" data-i18n="workbar.detalle"></button>` : ''}
           ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
             onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
-            data-tooltip=tr('workbar.detener_este_trabajo')>Cancelar</button>` : ''}` : '',
+            data-i18n-tip="workbar.detener_este_trabajo" data-i18n="ui.cancelar"></button>` : ''}` : '',
       }), '', pieConsultas)
-    + _workbarListaHTML('Esperando turno', cola, j => _workbarTarjeta(j, {
+    + _workbarListaHTML(tr('workbar.esperando_turno'), cola, j => _workbarTarjeta(j, {
         ref: `cola:${j.id}`,
         sub: _workbarDescripcion(j),
         estado: iconoDeEstado('en_cola', 'icono-chip-sm'),
         meta: `<span class="workbar-item-pos">${j.posicion}</span>`,
         acciones: `
           <button class="btn btn-ghost btn-xs"
-            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')"
-            data-tooltip="Sacarlo de la cola. El proyecto no se toca." data-i18n="workbar.quitar_de_la_cola"></button>`,
+            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')" data-i18n="workbar.quitar_de_la_cola" data-i18n-tip="workbar.sacarlo_de_la_cola_el_proyecto"></button>`,
       }), 'workbar-seccion-cola')
   );
   _instalarReordenDeCola();
@@ -540,7 +539,7 @@ function _workbarRenderHistorial() {
   }
   if (_workbarHayMasHistorial) {
     html += `<button class="wb-vermas" onclick="verMasHistorial()"
-      data-tooltip="Carga ${_WORKBAR_HISTORIAL_PASO} más" data-i18n="workbar.ver_mas"></button>`;
+      data-i18n-tip="workbar.carga_n_mas" data-tooltip="${tr('workbar.carga_n_mas', {n: _WORKBAR_HISTORIAL_PASO})}" data-i18n="workbar.ver_mas"></button>`;
   }
   _workbarConservandoElScroll(caja, html);
 }
@@ -628,12 +627,12 @@ function _workbarTarjetaReciente(r) {
       <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
         onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
         data-tooltip="${espera
-          ? 'Abrir para decidir qué hacer con este proyecto'
-          : 'Ver el detalle y el registro de esta ejecución'}">${
-        espera ? 'Decidir' : 'Detalle'}</button>
+          ? tr('workbar.abrir_para_decidir_que_hacer')
+          : tr('workbar.ver_el_detalle_y_el_registro_de_esta')}">${
+        tr(espera ? 'workbar.decidir' : 'workbar.detalle')}</button>
       <button class="btn btn-ghost btn-xs"
         onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
-        data-tooltip="Quitarlo de la lista. NO borra el proyecto ni el MKV.">Quitar</button>`,
+        data-i18n-tip="workbar.quitarlo_de_la_lista_no_borra" data-i18n="workbar.quitar"></button>`,
   });
 }
 
@@ -753,12 +752,12 @@ function insigniaDeTrabajo(sobre) {
   if (!t) return '';
   if (t.estado === 'corriendo') {
     return `<span class="insignia-trabajo corriendo"
-      data-tooltip="${escHtml(t.trabajo.que || 'En ejecución')}">`
-      + iconoDeEstado('corriendo', 'icono-chip-sm') + 'En curso</span>';
+      data-tooltip="${escHtml(t.trabajo.que || tr('workbar.en_curso'))}">`
+      + iconoDeEstado('corriendo', 'icono-chip-sm') + tr('workbar.en_curso') + '</span>';
   }
   return `<span class="insignia-trabajo en-cola"
-    data-tooltip="${escHtml(t.trabajo.que || 'Esperando turno')}">`
-    + iconoDeEstado('en_cola', 'icono-chip-sm') + `Cola · ${t.posicion}ª</span>`;
+    data-tooltip="${escHtml(t.trabajo.que || tr('workbar.esperando_turno'))}">`
+    + iconoDeEstado('en_cola', 'icono-chip-sm') + tr('workbar.cola_posicion', {posicion: t.posicion}) + '</span>';
 }
 
 function _workbarTick() {

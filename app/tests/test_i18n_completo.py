@@ -210,6 +210,12 @@ VOLCADOS_DE_DIAGNOSTICO = {
 CORTOS_ACEPTADOS = {
     "cargarIdioma": "la URL del catálogo y el código HTTP de un fallo",
     "_cmv40ManualSecciones": "la URL del manual y el código HTTP",
+    # `TrueHD Atmos 7.1`, `DD+ Atmos 5.1`: el nombre del codec y los canales.
+    # CLAUDE.md los fija —«los literales de pistas siguen exactamente la
+    # spec»— y esta función REPLICA `phase_b._codec_literal` para las pistas
+    # que se recuperan a mano. Traducir aquí las dejaría distintas de las que
+    # escribe el backend, que es el bug que la función existe para no tener.
+    "_buildAudioCodecLiteral": "el literal de codec de una pista, fijado por la spec",
 }
 
 _HUECO = re.compile(r"\$\{[^}]*\}")
@@ -269,8 +275,15 @@ class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
             trozos += [(m.start(), m.group(1) or m.group(2) or "") for m in
                        re.finditer(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", src)]
             for pos, t in trozos:
+                # Una barra descarta la cadena porque suele ser una ruta
+                # (`/api/...`, `cmv40/${id}`) — pero `Canales / frecuencia:`
+                # también lleva una, y ahí es puntuación de un rótulo. Lo que
+                # las separa es el espacio a los dos lados: una ruta no lo
+                # tiene. Sin este matiz se escapaban los dos rótulos del
+                # tooltip de pista, que es texto de interfaz en tres sitios.
+                barra_de_ruta = re.search(r"[^ ]/|/[^ ]", t)
                 if ("<" in t or "data-i18n" in t or len(t) > 180
-                        or "/" in t or "#" in t):
+                        or barra_de_ruta or "#" in t):
                     continue
                 norm = " ".join(_HUECO.sub("⟦⟧", t).split())
                 if not norm or "⟦⟧" not in norm or captura.es_frase(norm):
@@ -632,3 +645,80 @@ setTimeout(function () {
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Un valor de CSS tiene la misma pinta que un rótulo para cualquier heurística
+# de palabras: `font-size:11px; color:var(--text-3)` lleva `color`, que está en
+# el catálogo. Lo que los separa es la sintaxis, no el vocabulario.
+_ES_CSS = re.compile(r"var\(--|[;{}]|^[a-z-]+:\s*\S+$|^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)+$")
+
+
+class TestNingunaCadenaCastellanaSeCuelaPorUnHueco(unittest.TestCase):
+    """Una cadena entrecomillada dentro de un `${…}` acaba en el HTML.
+
+    El guard de plantillas mira los nodos de texto y los atributos del
+    marcado; una ternaria DENTRO de un hueco no es ninguna de las dos cosas y
+    se le escapaba:
+
+        <div class="dv-viz-caption">${tr('tab2.l8_escala')}${
+            tieneLuz ? ' · validado film completo' : ' · sample 30s'}</div>
+
+    El rótulo está traducido y el sufijo no, así que con la app en inglés
+    salía media frase en cada idioma. Tampoco lo veían los otros dos: `es_frase`
+    pide un acento o una palabra función —`validado film completo` no tiene
+    ninguna de las dos— y el guard de fragmentos cortos exige un hueco, y aquí
+    la cadena ES el contenido del hueco.
+
+    El criterio es el de los cortos: una palabra de cuatro letras que YA está
+    traducida en otra clave. Si la palabra es nuestra y está traducida en otro
+    sitio, aquí también.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        es = json.loads(
+            (APP_DIR / "static" / "i18n" / "es.json").read_text(encoding="utf-8"))
+        cls.vocabulario = {w.lower() for v in es.values()
+                           for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+        cls.valores = {" ".join(v.split()) for v in es.values()}
+        cls.valores |= {" ".join(_HUECO.sub(" ⟦⟧ ", v).split()) for v in es.values()}
+
+    @staticmethod
+    def _cadenas_de_huecos(cont: str):
+        """Las cadenas entrecomilladas de cada `${…}`, a cualquier hondura."""
+        for ini, fin in captura.huecos_de(cont):
+            expr = cont[ini:fin]
+            for m in re.finditer(
+                    r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", expr):
+                yield (m.group(1) or m.group(2) or "")
+            for _, _, dentro in captura.regiones_de_plantilla(expr):
+                yield from TestNingunaCadenaCastellanaSeCuelaPorUnHueco \
+                    ._cadenas_de_huecos(dentro)
+
+    def test_ninguna_cadena_de_un_hueco_se_queda_en_castellano(self):
+        fuera = []
+        for r in rutas():
+            src = Path(r).read_text(encoding="utf-8")
+            for ini, _, cont in captura.regiones_de_plantilla(src):
+                fn = TestNoQuedaNingunFragmentoCortoSuelto._funcion_de(src, ini)
+                if fn in VOLCADOS_DE_DIAGNOSTICO or fn in CORTOS_ACEPTADOS:
+                    continue
+                for s in self._cadenas_de_huecos(cont):
+                    norm = " ".join(s.split())
+                    if (not norm or " " not in norm or len(norm) > 180
+                            or "<" in norm or "${" in norm
+                            or norm in self.valores or _ES_CSS.search(norm)
+                            or _NO_ES_TEXTO.search(norm)):
+                        continue
+                    palabras = [w.lower() for w in
+                                re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", norm)
+                                if not _TECNICO.fullmatch(w)]
+                    if not any(w in self.vocabulario for w in palabras):
+                        continue
+                    linea = src[:ini].count("\n") + 1
+                    fuera.append(f"{Path(r).name}:{linea} ({fn}): {norm[:62]}")
+        fuera = sorted(set(fuera))
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} cadena(s) castellanas dentro de un `${{…}}` de "
+            f"plantilla.\nPásalas por `tr()` —o une la ternaria en dos claves "
+            f"completas—:\n  · " + "\n  · ".join(fuera[:20])))

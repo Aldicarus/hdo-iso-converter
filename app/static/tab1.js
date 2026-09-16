@@ -505,7 +505,7 @@ function showProgressModal({ title, sub, icon, posterUrl } = {}) {
   const posterEl = document.getElementById('progress-modal-poster');
   if (posterEl) {
     if (posterUrl) {
-      posterEl.innerHTML = `<img src="${escHtml(posterUrl)}" alt="poster">`;
+      posterEl.innerHTML = `<img src="${escHtml(posterUrl)}" data-i18n-aria="tab1.poster">`;
     } else {
       posterEl.innerHTML = `<span id="progress-modal-icon">${icon || icono('reloj', 'ico-xl')}</span>`;
     }
@@ -920,7 +920,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   const yaEstabaAbierto = openProjects.some(p => p.sessionId === session.id);
   openProject(session);
   showToast(
-    `${yaEstabaAbierto ? 'Proyecto re-analizado' : 'Proyecto creado'}: `
+    `${tr(yaEstabaAbierto ? 'tab1.proyecto_reanalizado' : 'tab1.proyecto_creado')}: `
     + `${session.mkv_name || sourceName}`, 'success');
 
   await loadSessions();
@@ -1036,12 +1036,16 @@ function openSeriesModal(probe) {
       : stype === 'bdmv_folder' ? tr('tab1.la_carpeta_bdmv')
       : tr('tab1.los_ficheros_m2ts');
     const verdict = probe.media_type === 'series'
-      ? `Detectados <strong>${tr('tab1.n_episodios_candidatos', {n: n})}</strong> en ${sourceLabel} con duración similar.`
-      : `Detectados <strong>${tr('tab1.n_candidatos', {n: n})}</strong> en ${sourceLabel} con duración compatible (clasificación ambigua — confirma manualmente).`;
+      ? tr('tab1.detectados_n_en_origen_duracion_similar', {n: `<strong>${tr('tab1.n_episodios_candidatos', {n: n})}</strong>`, origen: sourceLabel})
+      : tr('tab1.detectados_n_en_origen_duracion_compatible', {n: `<strong>${tr('tab1.n_candidatos', {n: n})}</strong>`, origen: sourceLabel});
     // Aviso adicional cuando ya hay episodios procesados de este origen
     // — el usuario sabe por qué algunas filas vienen desmarcadas.
     const existingNote = existingCount > 0
-      ? ` <strong>${tr('tab1.existingcount_episodio_p2_ya_procesado_p3', {existingcount: existingCount, p2: existingCount === 1 ? '' : 's', p3: existingCount === 1 ? '' : 's'})}</strong> aparece${existingCount === 1 ? '' : 'n'} desmarcado${existingCount === 1 ? '' : 's'} con badge <span class="series-badge-exists"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span> — marca solo los que quieras añadir o rehacer.`
+      ? ' ' + tr('tab1.n_ya_procesados_aparecen_desmarcados', {
+          n: `<strong>${tr('tab1.existingcount_episodio_p2_ya_procesado_p3', {existingcount: existingCount, p2: existingCount === 1 ? '' : 's', p3: existingCount === 1 ? '' : 's'})}</strong>`,
+          p2: existingCount === 1 ? '' : 'n',
+          p3: existingCount === 1 ? '' : 's',
+          badge: `<span class="series-badge-exists"><span data-icono="check"></span> ${tr('tab1.existe')}</span>`})
       : '';
     sub.innerHTML = tr('tab1.identifica_la_serie_tmdb_o_manual', {verdict: verdict, existingnote: existingNote});
   }
@@ -1379,8 +1383,7 @@ function _renderSeriesEpisodesTable() {
              placeholder="Nº"
              onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">
       <input type="text" class="series-manual-ep-title" value="${escHtml(epTitle || '')}"
-             placeholder="Título del episodio (opcional)"
-             onchange="seriesChangeEpisodeTitle('${escHtml(mplsPath)}', this.value)">
+             onchange="seriesChangeEpisodeTitle('${escHtml(mplsPath)}', this.value)" data-i18n-ph="tab1.titulo_del_episodio_opcional">
     </div>
   `;
 
@@ -1405,7 +1408,7 @@ function _renderSeriesEpisodesTable() {
     // junto al nombre del fichero.
     const existingSession = _findExistingForCandidate(c, season, map.episode_number);
     const existsBadge = existingSession
-      ? `<span class="series-badge-exists" title="${escHtml('Ya existe: ' + (existingSession.mkv_name || existingSession.id))}"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span>`
+      ? `<span class="series-badge-exists" title="${escHtml(tr('tab1.ya_existe_p1', {p1: existingSession.mkv_name || existingSession.id}))}"><span data-icono="check"></span> <span data-i18n="tab1.existe"></span></span>`
       : '';
     return `
       <div class="series-ep-row${map.include ? '' : ' unchecked'}${existingSession ? ' has-existing' : ''}">
@@ -1426,8 +1429,8 @@ function _renderSeriesEpisodesTable() {
       <div></div>
       <div data-i18n="tab1.mpls_fichero"></div>
       <div><span data-i18n="tab1.duracion"></span></div>
-      <div title="${isManual ? 'Modo manual' : 'Confianza del match runtime MPLS ↔ TMDb'}">${isManual ? 'Modo' : 'Match'}</div>
-      <div>${isManual ? 'Nº episodio + título' : 'Episodio TMDb'}</div>
+      <div title="${tr(isManual ? 'tab1.modo_manual' : 'tab1.confianza_del_match_runtime_mpls_tmdb')}">${tr(isManual ? 'tab1.col_modo' : 'tab1.col_match')}</div>
+      <div>${tr(isManual ? 'tab1.n_episodio_mas_titulo' : 'tab1.episodio_tmdb')}</div>
     </div>
     ${rows}
   `;
@@ -1861,20 +1864,20 @@ function _configureAnalyzeModalForSource(sourceType) {
     if (iconEl) iconEl.innerHTML = icono('carpeta', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
-      + icono('check') + `</span> Carpeta directa — no requiere montaje`;
+      + icono('check') + `</span> ` + tr('tab1.carpeta_directa_no_requiere_montaje');
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Identificando pistas del playlist principal…`;
+      + icono('pendiente') + `</span> ` + tr('tab1.identificando_pistas_del_playlist_principal');
     if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Extrayendo capítulos del playlist…`;
+      + icono('pendiente') + `</span> ` + tr('tab1.extrayendo_capitulos_del_playlist');
   } else if (sourceType === 'm2ts') {
     if (iconEl) iconEl.innerHTML = icono('cinta', 'ico-xl');
     if (titleEl) titleEl.textContent = 'Analizando fichero M2TS';
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
-      + icono('check') + `</span> Fichero directo — no requiere montaje`;
+      + icono('check') + `</span> ` + tr('tab1.fichero_directo_no_requiere_montaje');
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Identificando pistas del fichero…`;
+      + icono('pendiente') + `</span> ` + tr('tab1.identificando_pistas_del_fichero');
     if (chaptersEl) chaptersEl.innerHTML = `<span class="paso-ico paso-pendiente">`
-      + icono('pendiente') + `</span> Generando capítulos automáticos cada 10 min…`;
+      + icono('pendiente') + `</span> ` + tr('tab1.generando_capitulos_automaticos_cada_10_min');
   }
 }
 
@@ -2227,10 +2230,8 @@ function renderSidebarSessions(sessions, query = '') {
       insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
       abierto: isOpen,
       acciones: `
-        <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Abrir este proyecto en una sub-pestaña de revisión" data-i18n="tab1.abrir"></button>
-        <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession('${s.id}','${escHtml(name)}')"
-          data-tooltip="Eliminar permanentemente este proyecto" data-i18n="tab1.eliminar"></button>`,
+        <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')" data-i18n="tab1.abrir" data-i18n-tip="tab1.abrir_este_proyecto_en_una_sub"></button>
+        <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession('${s.id}','${escHtml(name)}')" data-i18n="tab1.eliminar" data-i18n-tip="tab1.eliminar_permanentemente_este_proyecto"></button>`,
     });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => toggleSidebarSelection(s.id);
@@ -2666,9 +2667,9 @@ function renderIncludedTracks(tracks) {
       const def  = track.flag_default ? ' active-default' : '';
       const tooltip = [
         `Codec: ${raw.codec || '—'}`,
-        raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
+        raw.format_commercial ? tr('tab1.formato_p1', {p1: raw.format_commercial}) : null,
         tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
-        raw.description ? `Canales / frecuencia: ${raw.description}` : null,
+        raw.description ? tr('tab1.canales_frecuencia_p1', {p1: raw.description}) : null,
         raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
         raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
         raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
@@ -2699,7 +2700,7 @@ function renderIncludedTracks(tracks) {
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
         <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-i18n-tip="tab1.posicion_original_de_la_pista_en">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="grafico"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
@@ -2710,11 +2711,11 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-flags">
           <button class="flag-pill${def}" onclick="toggleFlag(${flatIdx},'default')"
-            data-tooltip="flag default: pista de audio seleccionada por defecto en el reproductor" data-i18n="tab1.def"></button>
+            data-i18n-tip="tab1.flag_default_pista_de_audio_seleccionada" data-i18n="tab1.def"></button>
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
-            data-tooltip="Descartar esta pista"><span data-icono="cruz"></span></button>
+            data-i18n-tip="tab1.descartar_esta_pista"><span data-icono="cruz"></span></button>
         </div>
         <div class="track-reason"><span><span data-icono="info"></span></span><span>${escHtml(track.selection_reason || '')}</span></div>
         ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
@@ -2752,7 +2753,7 @@ function renderIncludedTracks(tracks) {
       li.dataset.flatIdx = flatIdx;
       li.innerHTML = `
         <span class="track-drag" data-i18n-tip="tab1.arrastra_para_reordenar">⠿</span>
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-i18n-tip="tab1.posicion_original_de_la_pista_en">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}"><span data-icono="etiqueta"></span></span>
         <div class="track-main">
           <input class="track-label-input" type="text"
@@ -2769,7 +2770,7 @@ function renderIncludedTracks(tracks) {
         </div>
         <div class="track-actions">
           <button class="btn btn-icon" onclick="discardTrack(${flatIdx})"
-            data-tooltip="Descartar esta pista"><span data-icono="cruz"></span></button>
+            data-i18n-tip="tab1.descartar_esta_pista"><span data-icono="cruz"></span></button>
         </div>
         <div class="track-reason"><span><span data-icono="info"></span></span><span>${escHtml(track.selection_reason || '')}</span></div>
         ${(() => { const w = getTrackAmbiguityWarning(track); return w ? `<div class="track-ambiguity"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(w)}</span></div>` : ''; })()}`;
@@ -2934,9 +2935,9 @@ function renderDiscardedTracks(tracks) {
       if (isAudio) {
         tooltip = [
           `Codec: ${raw.codec || '—'}`,
-          raw.format_commercial ? `Formato: ${raw.format_commercial}` : null,
+          raw.format_commercial ? tr('tab1.formato_p1', {p1: raw.format_commercial}) : null,
           tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
-          raw.description ? `Canales / frecuencia: ${raw.description}` : null,
+          raw.description ? tr('tab1.canales_frecuencia_p1', {p1: raw.description}) : null,
           raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
           raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
           raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
@@ -2978,15 +2979,14 @@ function renderDiscardedTracks(tracks) {
       const div = document.createElement('div');
       div.className = 'discarded-item' + (ambigWarn ? ' has-ambiguity' : '');
       div.innerHTML = `
-        ${origLabel ? `<span class="track-orig-pos" data-tooltip=tr('tab1.posicion_original_de_la_pista_en')>${origLabel}</span>` : ''}
+        ${origLabel ? `<span class="track-orig-pos" data-i18n-tip="tab1.posicion_original_de_la_pista_en">${origLabel}</span>` : ''}
         <span class="track-type-icon" data-tooltip="${escHtml(tooltip)}">${icon}</span>
         <div class="discarded-body">
-          <div class="discarded-codec">${escHtml(codecInfo || 'Pista desconocida')}</div>
+          <div class="discarded-codec">${escHtml(codecInfo || tr('tab1.pista_desconocida'))}</div>
           <div class="discarded-reason">${escHtml(track.discard_reason || '')}</div>
           ${ambigWarn ? `<div class="track-ambiguity inline"><span class="ta-icon"><span data-icono="aviso"></span></span><span class="ta-text">${escHtml(ambigWarn)}</span></div>` : ''}
         </div>
-        <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})"
-          data-tooltip="Recuperar esta pista y añadirla a las incluidas"><span data-icono="deshacer"></span> <span data-i18n="tab1.recuperar"></span></button>`;
+        <button class="btn btn-ghost btn-xs" onclick="recoverTrack(${idx})" data-i18n-tip="tab1.recuperar_esta_pista_y_anadirla_a"><span data-icono="deshacer"></span> <span data-i18n="tab1.recuperar"></span></button>`;
       container.appendChild(div);
     });
   };
@@ -3635,13 +3635,10 @@ function renderChapterList(chapters) {
     row.innerHTML = `
       <span class="chapter-num">${String(ch.number).padStart(2,'0')}</span>
       <input type="text" value="${escHtml(ch.timestamp)}" style="font-family:'SF Mono','Menlo',monospace;font-size:11px"
-        onchange="onChapterTimestampChange(${idx}, this.value)"
-        data-tooltip="Timestamp de inicio del capítulo.\nFormato HH:MM:SS.mmm">
+        onchange="onChapterTimestampChange(${idx}, this.value)" data-i18n-tip="tab1.timestamp_de_inicio_del_capitulo_nformato">
       <input type="text" value="${escHtml(ch.name)}"
-        onchange="onChapterNameChange(${idx}, this.value)"
-        data-tooltip="Nombre del capítulo tal como aparecerá en el reproductor.">
-      <button class="btn btn-icon" onclick="deleteChapter(${idx})"
-        data-tooltip="Eliminar este capítulo."><span data-icono="cruz"></span></button>`;
+        onchange="onChapterNameChange(${idx}, this.value)" data-i18n-tip="tab1.nombre_del_capitulo_tal_como_aparecera">
+      <button class="btn btn-icon" onclick="deleteChapter(${idx})" data-i18n-tip="tab1.eliminar_este_capitulo"><span data-icono="cruz"></span></button>`;
     container.appendChild(row);
   });
 }
@@ -4132,8 +4129,7 @@ function renderExecResultBanner(session) {
     title.textContent = session.status === 'running' ? tr('tab1.ejecucion_en_curso') : tr('tab1.en_cola_de_ejecucion');
     detail.innerHTML = 'Monitoriza el progreso en el panel <strong>Trabajos en Curso</strong>.';
     const cancelBtn = session.status === 'running'
-      ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')"
-          data-tooltip="Cancela el proceso en curso, desmonta el ISO y limpia temporales"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
+      ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')" data-i18n-tip="tab1.cancela_el_proceso_en_curso_desmonta"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
       : '';
     actions.innerHTML = `
       <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()" data-i18n-tip="tab1.ver_el_progreso_en_tiempo_real"><span data-icono="tv"></span> <span data-i18n="tab1.ver_progreso"></span></button>${cancelBtn}`;
@@ -4242,10 +4238,8 @@ function renderExecutionHistory(session) {
       <td>${fmtPh('write')}</td>
       <td class="exec-h-total">${totalSecs > 0 ? fmtSecs(totalSecs) : '—'}</td>
       <td class="exec-h-actions">
-        <button class="btn btn-ghost btn-xs" onclick="showLogModal(${rec.run_number - 1})"
-          data-tooltip="Ver el log completo de esta ejecución"><span data-icono="portapapeles"></span> <span data-i18n="tab1.log"></span></button>
-        <button class="btn btn-ghost btn-xs" onclick="downloadExecLog(${rec.run_number - 1})"
-          data-tooltip="Descargar el log como fichero .txt"><span data-icono="flechaAbajo"></span></button>
+        <button class="btn btn-ghost btn-xs" onclick="showLogModal(${rec.run_number - 1})" data-i18n-tip="tab1.ver_el_log_completo_de_esta"><span data-icono="portapapeles"></span> <span data-i18n="tab1.log"></span></button>
+        <button class="btn btn-ghost btn-xs" onclick="downloadExecLog(${rec.run_number - 1})" data-i18n-tip="tab1.descargar_el_log_como_fichero_txt"><span data-icono="flechaAbajo"></span></button>
       </td>`;
     tbodyEl.appendChild(tr);
   }

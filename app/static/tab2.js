@@ -335,12 +335,10 @@ function _mkvSubTabInnerHtml(project) {
   const corto = nombre.slice(0, 24) + (nombre.length > 24 ? '…' : '');
   return `
     <span class="unsaved-dot" id="mkv-unsaved-dot-${project.id}"
-      style="display:${project.dirty ? 'inline' : 'none'}"
-      data-tooltip="Cambios sin guardar"></span>
+      style="display:${project.dirty ? 'inline' : 'none'}" data-i18n-tip="tab2.cambios_sin_guardar_2"></span>
     <span class="subtab-proj-icon"><span data-icono="lapiz"></span></span>
     <span class="subtab-proj-name" data-tooltip="${escHtml(project.fileName || '')}">${escHtml(corto)}</span>
-    <button class="subtab-proj-close" onclick="closeMkvProject('${project.id}');event.stopPropagation()"
-      data-tooltip="Cerrar este MKV">×</button>`;
+    <button class="subtab-proj-close" onclick="closeMkvProject('${project.id}');event.stopPropagation()" data-i18n-tip="tab2.cerrar_este_mkv">×</button>`;
 }
 
 function _mkvCreateSubTab(project) {
@@ -964,10 +962,10 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
       ${peakMarker}
       ${hoverCursor}
     </svg>
-    <div class="dv-sparkline-tooltip" style="display:none"></div>
+    <div class="dv-<span data-i18n="tab2.sparkline_tooltip_s"></span>tyle="display:none"></div>
     ${legendHtml}
     ${outOfRangeChips}
-    </div>`;
+    </div><span data-i18n="tab3.x"></span>`;
 }
 
 /** Mini-card con percentiles + clasificacion de escenas por rango de brillo.
@@ -1022,7 +1020,7 @@ function _rgrfL1StatsCard(stats, hdr) {
           </div>
         </div>
       </div>
-      ${hdr10 ? `<div class="dv-l1-stats-foot">HDR10 container: ${hdr10}<span class="dv-l1-stats-foot-note">— métrica estática del SEI, distinta de DV L1 (puede diferir ampliamente del peak L1)</span></div>` : ''}
+      ${hdr10 ? `<div class="dv-l1-stats-foot">HDR10 container: ${hdr10}<span class="dv-l1-stats-foot-note" data-i18n="tab2.metrica_estatica_del_sei_distinta_de"></span></div>` : ''}
     </div>`;
 }
 
@@ -1152,7 +1150,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
             ${cont.transfer ? `<strong>${escHtml(cont.transfer)}</strong>` : '—'}
             ${cont.bitDepth ? ` · ${cont.bitDepth}-bit` : ''}
           </div>
-          ${showExpansionChip ? `<div class="dv-mc-flow-hint">P3 ↑ BT.2020 (gamut expandido al container)</div>` : ''}
+          ${showExpansionChip ? `<div class="dv-mc-flow-hint" data-i18n="tab2.p3_bt_2020_gamut_expandido_al"></div>` : ''}
         </div>
         <div class="dv-mc-card">
           <div class="dv-mc-card-title">${tr('tab2.dv_target_display_p1', {p1: l10 ? '<span class="dv-mc-card-src">· L10</span>' : ''})}
@@ -1160,7 +1158,7 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
           <div class="dv-mc-card-primary">${l10 ? escHtml(l10) : '—'}</div>
           <div class="dv-mc-card-meta">
             ${l10
-              ? 'gamut objetivo del grade DV'
+              ? tr('tab2.gamut_objetivo_del_grade_dv')
               : '<span class="dv-mc-empty">L10 no presente — DV targeting genérico</span>'}
           </div>
         </div>
@@ -1171,13 +1169,13 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
       </div>
       ${hdr10Line ? `
         <div class="dv-mc-row-hdr10">
-          <div class="dv-mc-row-label">HDR10 metadata <span class="dv-mc-row-sub">SEI estática</span></div>
+          <div class="dv-mc-row-label"><span data-i18n="tab2.hdr10_metadata"></span> <span class="dv-mc-row-sub" data-i18n="tab2.sei_estatica"></span></div>
           <div class="dv-mc-row-content"><span class="dv-mc-hdr10-val">${hdr10Line}</span></div>
         </div>` : ''}
       ${divergenceBanner}
       ${(l11Type || l11App) ? `
         <div class="dv-mc-row-l11">
-          <div class="dv-mc-row-label">L11 content type</div>
+          <div class="dv-mc-row-label" data-i18n="tab2.l11_content_type"></div>
           <div class="dv-mc-row-content">${escHtml(l11Type)}${l11App ? ` <span class="dv-mc-row-sub">(${escHtml(l11App)})</span>` : ''}</div>
         </div>` : ''}
     </section>`;
@@ -1350,15 +1348,15 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
       <h5 class="dv-block-title" data-i18n="tab2.stream"></h5>
       <div class="dv-grid-3">
         ${cell('Profile', profile)}
-        ${cell('CM version', cmLabel)}
-        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: 'Total de frames del MKV (duración × FPS)' })}
+        ${cell(tr('tab2.cm_version'), cmLabel)}
+        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
         ${cell('Duración', durationStr)}
-        ${cell('FPS', fps, { tooltip: 'FPS del track de vídeo (de mkvmerge default_duration)' })}
+        ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
-        ${cell('RPU', rpuSize, { tooltip: 'Tamaño total estimado del RPU del MKV completo (bytes/frame medido en sample × frames totales). El bytes/frame es estable entre sample y total.' })}
+        ${cell('RPU', rpuSize, { tooltip: tr('tab2.tamano_total_estimado_del_rpu') })}
         ${sceneCutsCell}
-        ${elVideo ? cell('Enhancement Layer', `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
+        ${elVideo ? cell(tr('tab2.enhancement_layer'), `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
       </div>
     </section>`;
 
@@ -1431,10 +1429,10 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span> <span class="dv-block-sub">${subLabel}</span></h5>
         <div class="dv-split">
           <div class="dv-grid-2">
-            ${cell('Offsets T / B', `${lTop} / ${lBot} px`)}
-            ${cell('Offsets L / R', `${lLft} / ${lRgt} px`)}
+            ${cell(tr('tab2.offsets_t_b'), `${lTop} / ${lBot} px`)}
+            ${cell(tr('tab2.offsets_l_r'), `${lLft} / ${lRgt} px`)}
             ${cell('Área activa', `${aWi} × ${aHi}`)}
-            ${cell('Aspect ratio', aspectLabel)}
+            ${cell(tr('tab2.aspect_ratio'), aspectLabel)}
             ${cell('Simetría vertical', sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
             ${cell('Simetría horizontal', sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
           </div>
@@ -1511,7 +1509,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         ${cmv4StatsTable}
         ${l8Effective && l8Effective.length ? `
           <div class="dv-viz-inline">
-            <div class="dv-viz-caption">L8 target displays · escala logarítmica de nits${l8FromLightProfile && l8FromLightProfile.length ? ' · validado film completo' : ' · sample 30s'}</div>
+            <div class="dv-viz-caption">${tr(l8FromLightProfile && l8FromLightProfile.length ? 'tab2.l8_escala_validado_film_completo' : 'tab2.l8_escala_sample_30s')}</div>
             ${_rgrfL8Svg(l8Effective)}
           </div>` : ''}
       </section>`;
@@ -1694,13 +1692,13 @@ function _rgrfQualityAuditCard(dv, isV40) {
       </div>
       ${(dv.quality_provenance_hints?.length || 0) > 0 ? `
         <div class="dv-quality-hints">
-          <div class="dv-quality-hints-label">Procedencia probable</div>
+          <div class="dv-quality-hints-label" data-i18n="tab2.procedencia_probable"></div>
           <ul class="dv-quality-hints-list">
             ${dv.quality_provenance_hints.map(h => `<li>${escHtml(h)}</li>`).join('')}
           </ul>
         </div>` : ''}
       ${reason ? `<details class="dv-quality-details">
-        <summary>Detalle técnico</summary>
+        <summary data-i18n="tab2.detalle_tecnico"></summary>
         <div class="dv-quality-reason">${escHtml(reason)}</div>
       </details>` : ''}
     </section>`;
@@ -2080,7 +2078,7 @@ function _renderMkvEditPanel(project = mkvProject) {
       <div class="section-card">
         <div class="section-header">
           <div style="flex:1">
-            <div class="section-title"><span data-icono="cinta"></span> Vídeo</div>
+            <div class="section-title"><span data-icono="cinta"></span> <span data-i18n="tab2.video"></span></div>
           </div>
           <div class="video-header-badges">
             ${hdrBadge ? `<span class="video-badge video-badge-hdr">${hdrBadge}</span>` : ''}
@@ -2135,7 +2133,7 @@ function _renderMkvEditPanel(project = mkvProject) {
             <span id="mkv-chapters-text-${pid}"></span>
             <button class="btn btn-xs" id="mkv-chapters-autogen-btn-${pid}" style="display:none; margin-left:auto"
               onclick="generateMkvAutoChapters()"
-              data-tooltip="Genera Capítulo 01, 02, 03… cada 10 minutos desde el minuto 10 (igual que en Crear MKV cuando el disco no trae capítulos)"><span data-icono="portapapeles"></span> <span data-i18n="tab2.generar_cada_10_min"></span></button>
+              data-i18n-tip="tab2.genera_capitulo_01_02_03_cada"><span data-icono="portapapeles"></span> <span data-i18n="tab2.generar_cada_10_min"></span></button>
           </div>
           <div id="mkv-chapter-timeline-wrap-${pid}" class="chapter-timeline-wrap"
             onclick="onMkvTimelineClick(event)"
@@ -2296,14 +2294,14 @@ function _renderMkvTracks(project = mkvProject) {
     const def = t.flag_default ? ' active-default' : '';
     const tooltip = [
       tr('tab2.codec_tecnico', {codec: t.codec}),
-      t.format_commercial ? `Codec comercial: ${t.format_commercial}` : null,
+      t.format_commercial ? tr('tab2.codec_comercial_p1', {p1: t.format_commercial}) : null,
       tr('comun.idioma_p1_p2', {p1: t.language || '—', p2: langName}),
-      chCount ? `Canales: ${chCount} (${channelsPretty})` : null,
+      chCount ? tr('tab2.canales_p1_p2', {p1: chCount, p2: channelsPretty}) : null,
       t.channel_layout ? `Layout: ${t.channel_layout}` : null,
       t.sample_rate ? `Sample rate: ${t.sample_rate/1000} kHz` : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
       t.compression_mode ? tr('tab1.compresion', {compression_mode: t.compression_mode}) : null,
-      `Track ID: ${t.id}`,
+      tr('tab2.track_id_p1', {p1: t.id}),
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');
     li.className = 'track-item';
@@ -2315,13 +2313,11 @@ function _renderMkvTracks(project = mkvProject) {
         <input class="track-label-input" type="text"
           value="${escHtml(t.name || '')}"
           placeholder="${escHtml(langName + ' ' + codecPretty)}"
-          onchange="onMkvTrackEdit(${t.id}, 'name', this.value)"
-          data-tooltip="Nombre de la pista en el MKV">
+          onchange="onMkvTrackEdit(${t.id}, 'name', this.value)" data-i18n-tip="tab2.nombre_de_la_pista_en_el">
         <span class="track-raw">${escHtml(langName)} · ${desc}${compressionPill}</span>
       </div>
       <div class="track-flags">
-        <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'audio')"
-          data-tooltip="flag default: pista seleccionada por defecto" data-i18n="tab1.def"></button>
+        <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'audio')" data-i18n="tab1.def" data-i18n-tip="tab2.flag_default_pista_seleccionada_por_defecto"></button>
       </div>`;
     audioList.appendChild(li);
   });
@@ -2360,10 +2356,10 @@ function _renderMkvTracks(project = mkvProject) {
     if (!t.flag_forced) {
       if (packets > 0 && packets < 500) {
         derivedForced = true;
-        forcedSource = `${packets} paquetes (forzado típico <500)`;
+        forcedSource = tr('tab2.n_paquetes_forzado_tipico', {n: packets});
       } else if (packets === 0 && t.bitrate_kbps > 0 && t.bitrate_kbps < 3) {
         derivedForced = true;
-        forcedSource = `bitrate ${t.bitrate_kbps} kbps (forzado típico <3)`;
+        forcedSource = tr('tab2.bitrate_n_kbps_forzado_tipico', {n: t.bitrate_kbps});
       }
     }
     const flagForcedLit = t.flag_forced;
@@ -2389,7 +2385,7 @@ function _renderMkvTracks(project = mkvProject) {
       t.pixel_dimensions ? tr('tab2.resolucion_bitmap', {pixel_dimensions: t.pixel_dimensions}) : null,
       packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
       t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
-      `Track ID: ${t.id}`,
+      tr('tab2.track_id_p1', {p1: t.id}),
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');
     li.className = 'track-item';
@@ -2401,15 +2397,12 @@ function _renderMkvTracks(project = mkvProject) {
         <input class="track-label-input" type="text"
           value="${escHtml(t.name || '')}"
           placeholder="${escHtml(langName + ' ' + forcedLabel + ' (' + codecPretty + ')')}"
-          onchange="onMkvTrackEdit(${t.id}, 'name', this.value)"
-          data-tooltip="Nombre de la pista en el MKV">
+          onchange="onMkvTrackEdit(${t.id}, 'name', this.value)" data-i18n-tip="tab2.nombre_de_la_pista_en_el">
         <span class="track-raw">${escHtml(langName)} · ${desc}${inferredMark}</span>
       </div>
       <div class="track-flags">
-        <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'subtitles')"
-          data-tooltip="flag default: subtítulo seleccionado por defecto" data-i18n="tab1.def"></button>
-        <button class="flag-pill${frc}" onclick="onMkvTrackFlag(${t.id}, 'forced', 'subtitles')"
-          data-tooltip="flag forced: subtítulos forzados para diálogos en idioma extranjero" data-i18n="tab1.frc"></button>
+        <button class="flag-pill${def}" onclick="onMkvTrackFlag(${t.id}, 'default', 'subtitles')" data-i18n="tab1.def" data-i18n-tip="tab2.flag_default_subtitulo_seleccionado_por_defecto"></button>
+        <button class="flag-pill${frc}" onclick="onMkvTrackFlag(${t.id}, 'forced', 'subtitles')" data-i18n="tab1.frc" data-i18n-tip="tab2.flag_forced_subtitulos_forzados_para_dialogos"></button>
       </div>`;
     subList.appendChild(li);
   });
@@ -2533,8 +2526,7 @@ function _renderMkvChapterList(project = mkvProject) {
         onchange="onMkvChapterTsChange(${idx}, this.value)">
       <input type="text" class="chapter-name" value="${escHtml(ch.name)}"
         onchange="onMkvChapterNameChange(${idx}, this.value)">
-      <button class="btn btn-icon" onclick="deleteMkvChapter(${idx})"
-        data-tooltip="Eliminar capítulo"><span data-icono="cruz"></span></button>`;
+      <button class="btn btn-icon" onclick="deleteMkvChapter(${idx})" data-i18n-tip="tab2.eliminar_capitulo"><span data-icono="cruz"></span></button>`;
     container.appendChild(row);
   });
 }
@@ -3021,7 +3013,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   return `<div class="dv-cmp-card">
     <div class="dv-cmp-head"><span data-icono="grafico"></span> <span data-i18n="tab2.comparacion_con"></span> <b>${cmp.etiqueta}</b></div>
     ${celdas ? `<table class="dv-cmp-table">
-      <thead><tr><th></th><th>Este MKV</th><th>${cmp.etiqueta}</th><th>Δ</th></tr></thead>
+      <thead><tr><th></th><th><span data-i18n="tab2.este_mkv"></span></th><th>${cmp.etiqueta}</th><th>Δ</th></tr></thead>
       <tbody>${celdas}</tbody></table>` : ''}
     ${aviso}
   </div>`;
@@ -3277,9 +3269,9 @@ function _renderMkvRecientes() {
       acciones: `
         ${r.existe
           ? `<button class="btn btn-primary btn-sm" data-abrir="1"
-               data-tooltip=tr('tab2.abrir_este_mkv_en_una_sub')>Abrir</button>`
+               data-i18n-tip="tab2.abrir_este_mkv_en_una_sub" data-i18n="tab1.abrir"></button>`
           : `<button class="btn btn-ghost btn-sm" disabled
-               data-tooltip="No está en ${escHtml(r.ruta)}. El análisis se conserva y se reaprovecha si el fichero vuelve.">Fichero no encontrado</button>`}
+               data-tooltip="${tr('tab2.no_esta_en_p1_el_analisis', {p1: escHtml(r.ruta)})}" data-i18n="tab2.fichero_no_encontrado"></button>`}
         <button class="btn btn-danger btn-sm" data-borrar="1" data-i18n="tab2.borrar" data-i18n-tip="tab2.quita_el_analisis_guardado_de_la"></button>`,
     });
     // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la

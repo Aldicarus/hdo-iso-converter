@@ -339,22 +339,46 @@ def extraer_de_plantillas(ruta: Path, area: str,
     cuenta = {"atributo": 0, "padre": 0, "envuelto": 0, "plantillas": 0}
     trozos: list[tuple[int, int, str]] = []
 
+    # TODAS las plantillas, a cualquier profundidad. Las de dentro de un
+    # `${…}` quedaban fuera: el enmascarado las tapa para no escribir en medio
+    # de una expresión, y nadie volvía a entrar. Ahí vive la mayor parte del
+    # HTML condicional —`${a.cancelable ? `<button …>` : ''}`— y ahí
+    # sobrevivieron 94 de las 100 frases que este camino dejó sin extraer.
+    #
+    # No hay riesgo de que dos ediciones se pisen: el padre RECHAZA cualquier
+    # cambio dentro de un `${…}` (`fuera_de_expresion`), así que lo que se
+    # reescribe en una anidada nunca cae donde el padre escribe.
+    def todas(cont: str, base: int, prof: int = 0):
+        yield base, cont, prof
+        for a, b, dentro in regiones_de_plantilla(cont):
+            yield from todas(dentro, base + a + 1, prof + 1)
+
+    pendientes = []
     for m in _plantillas(fuente):
-        plantilla = m.group(1)
+        pendientes.extend(todas(m.group(1), m.start(1)))
+
+    for base, plantilla, prof in pendientes:
         # Sin marcado dentro no es HTML: es una cadena con comillas invertidas
         # y la trata el otro camino.
         if "<" not in plantilla:
             continue
         nuevo, nuevas, c = _reescribir_marcado(plantilla, area, catalogo, usadas)
         if nuevo != plantilla:
-            trozos.append((m.start(1), m.end(1), nuevo))
+            trozos.append((base, base + len(plantilla), nuevo))
             cuenta["plantillas"] += 1
             for k, v in c.items():
                 cuenta[k] = cuenta.get(k, 0) + v
 
     salida = fuente
+    aplicados: list[tuple[int, int]] = []
     for ini, fin, nuevo in sorted(trozos, key=lambda x: -x[0]):
+        # Una anidada ya reescrita queda DENTRO del rango de su padre; si el
+        # padre también cambió, aplicar los dos se pisa. Gana el más interior,
+        # que es el que se aplica primero al ir de atrás hacia delante.
+        if any(a <= ini and fin <= b for a, b in aplicados):
+            continue
         salida = salida[:ini] + nuevo + salida[fin:]
+        aplicados.append((ini, fin))
     return salida, catalogo, cuenta
 
 
@@ -429,7 +453,14 @@ def _reescribir_marcado(html: str, area: str, catalogo: dict[str, str],
         return k
 
     for a in r.atributos:
-        if not fuera_de_expresion(a["tag_ini"], a["tag_fin"]):
+        # El tramo del ATRIBUTO, no el del tag entero. Con el tag se
+        # rechazaba cualquier etiqueta que tuviera un `${…}` en CUALQUIER
+        # atributo —`onclick="f('${id}')"`, que es casi todas— y con ella se
+        # perdían sus tooltips: 48 atributos traducibles que ninguna pasada
+        # llegó a mirar. Lo que hay que proteger es el sitio donde se escribe.
+        if not fuera_de_expresion(a["ini"], a["fin"]):
+            continue
+        if not fuera_de_expresion(a["tag_fin"] - 1, a["tag_fin"]):
             continue
         k = clave_para(a["texto"])
         cambios.append((a["ini"], a["fin"], ""))
