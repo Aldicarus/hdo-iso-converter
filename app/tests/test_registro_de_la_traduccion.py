@@ -308,6 +308,52 @@ class TestElEstiloSeSostiene(CatalogoCase):
         flojas = [k for k, v in IGUAL_EN_INGLES.items() if len(v.strip()) < 12]
         self.assertEqual(flojas, [], f"sin explicar por qué no se traduce: {flojas}")
 
+    def test_una_cita_a_un_rotulo_usa_el_rotulo_traducido(self):
+        """«Pulsa "Abrir MKV"» tiene que citar el botón, no otra frase.
+
+        Es el defecto que hace que una app parezca rota: el mensaje manda a
+        pulsar algo que no se llama así. En castellano no puede pasar —el
+        autor copia el rótulo— y al traducir sí, porque el rótulo y su cita
+        viven en dos claves distintas y se traducen por separado. Eran cinco:
+        «Follow the progress in the *Running jobs* panel» cuando el panel dice
+        «Jobs in progress»; «Skip existing» cuando el botón dice «Skip the
+        existing ones»; y en catalán «Prem "Obrir MKV"» cuando el botón dice
+        «Obre MKV».
+
+        El criterio es exacto, no heurístico: se buscan las citas cuyo texto
+        castellano COINCIDE con el valor de otra clave —o sea, un rótulo real
+        de la app— y se exige que la traducción contenga la traducción de ese
+        rótulo.
+        """
+        CITA = re.compile(r'"([^"{}<>]{3,40})"|«([^»{}<>]{3,40})»'
+                          r'|<strong>([^<{}]{3,40})</strong>')
+        rotulos = {}
+        for _, cat in self.catalogos():
+            for k, v in cat["es"].items():
+                v = v.strip()
+                if 3 <= len(v) <= 40 and "{" not in v and "<" not in v:
+                    rotulos.setdefault(v, (cat, k))
+        malas = []
+        for _, cat in self.catalogos():
+            for k, es in cat["es"].items():
+                for m in CITA.finditer(es):
+                    cita = (m.group(1) or m.group(2) or m.group(3)).strip()
+                    if cita not in rotulos:
+                        continue
+                    cat_r, k_r = rotulos[cita]
+                    if k_r == k:
+                        continue
+                    for l in ("en", "ca"):
+                        rotulo = cat_r[l].get(k_r, "").strip()
+                        if rotulo and rotulo not in cat[l].get(k, ""):
+                            malas.append(
+                                f"[{l}] `{k}` cita «{cita}», cuyo rótulo "
+                                f"traducido es «{rotulo}»")
+        malas = sorted(set(malas))
+        self.assertEqual(malas, [], (
+            "\nestas citas no usan el rótulo traducido:\n  · "
+            + "\n  · ".join(malas[:10])))
+
     def test_ninguna_traduccion_se_ha_quedado_en_castellano(self):
         """Copiar el castellano en `en.json` para «rellenar» pasaría los otros
         tests y dejaría la app a medio traducir sin que nada avise.
