@@ -63,6 +63,15 @@ _PARAM = re.compile(r"\{(\w+)\}")
 # esa traducción correcta. Y meter `Min`, `Path` o `Stream` como términos
 # globales relajaría la comprobación en las otras 600 cadenas, donde esas
 # palabras sí aparecen dentro de prosa traducible.
+# Frases que llevan un NOMBRE dentro, así que su mayúscula no es Title Case.
+# Se exime la clave, no el patrón: un nombre nuevo tiene que costar escribir el
+# motivo. Lo cruza `TestElEstiloSeSostiene` contra las claves reales.
+NOMBRE_PROPIO = {
+    "ui.solo_consultar_editar_mkv":
+        "los tres filtros de la columna nombran las tres pestañas, y «Inspect /"
+        " Edit MKV» es el nombre de una de ellas",
+}
+
 IGUAL_EN_INGLES = {
     # Ya están en inglés en el original: son cabeceras de tabla y leyendas de
     # gráfico que el castellano nunca tradujo.
@@ -236,6 +245,8 @@ class TestElEstiloSeSostiene(CatalogoCase):
         sospechosas = []
         for donde, cat in self.catalogos():
             for clave, en in cat["en"].items():
+                if clave in NOMBRE_PROPIO:
+                    continue
                 palabras = [p for p in en.split() if p.isalpha() and len(p) > 3]
                 if len(palabras) < 3:
                     continue
@@ -274,6 +285,16 @@ class TestElEstiloSeSostiene(CatalogoCase):
                 if cat["en"].get(clave) != cat["es"][clave]:
                     sobran.append(f"[{donde}] `{clave}` ya está traducida")
         self.assertEqual(sobran, [], "\n  · ".join([""] + sobran))
+
+    def test_cada_nombre_propio_existe_y_lleva_motivo(self):
+        """Una exención que ya no apunta a ninguna clave parece cobertura."""
+        claves = set()
+        for _, cat in self.catalogos():
+            claves |= set(cat["es"])
+        fantasmas = sorted(k for k in NOMBRE_PROPIO if k not in claves)
+        self.assertEqual(fantasmas, [], f"NOMBRE_PROPIO sin clave real: {fantasmas}")
+        flojas = [k for k, v in NOMBRE_PROPIO.items() if len(v.strip()) < 12]
+        self.assertEqual(flojas, [], f"sin explicar por qué: {flojas}")
 
     def test_cada_entrada_de_la_lista_blanca_existe(self):
         claves = set()
