@@ -361,11 +361,18 @@ def motor_i18n() -> str:
     # centralizarlos los arneses se quedaron con un `ReferenceError`. Arrastra
     # `idiomaGuardado` y sus tres constantes; sin `localStorage` cae al
     # castellano por su propio try/catch, que es lo que quiere un test.
+    #
+    # Y arrastra `idiomaActivo` desde que `localeActual` lee el idioma SEMBRADO
+    # en vez de `localStorage`: sin esto el arnés muere con
+    # `idiomaActivo is not defined`, que es la cicatriz de siempre — cuando el
+    # sistema gana una pieza se rompen todos a la vez.
     locale = "\n".join([
         _trozo("const IDIOMAS = [", "];\n"),
         _trozo("const IDIOMA_POR_DEFECTO", "\n"),
         _trozo("const IDIOMA_PREF", "\n"),
         _trozo("const LOCALES = {", "};\n"),
+        "let _idioma = IDIOMA_POR_DEFECTO;",
+        _trozo("function idiomaActivo() {", "\n"),
         _trozo("function idiomaGuardado() {", "\n}\n"),
         _trozo("function localeActual() {", "\n}\n"),
     ])

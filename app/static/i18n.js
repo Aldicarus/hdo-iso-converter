@@ -33,9 +33,17 @@ const IDIOMAS = [
 // app en inglés: no es texto, así que ningún guard de traducción lo veía.
 const LOCALES = { es: 'es-ES', en: 'en-GB', ca: 'ca-ES' };
 
-/** El locale del idioma activo, para `toLocaleDateString` y compañía. */
+/**
+ * El locale del idioma activo, para `toLocaleDateString` y compañía.
+ *
+ * Sale de `idiomaActivo()` —o sea del idioma que el servidor sembró— y NO de
+ * `localStorage`. Con lo segundo, un navegador sin preferencia guardada
+ * pintaba la interfaz en inglés y las fechas en formato español: el idioma
+ * del render venía del servidor y el del locale de una copia vacía. No es
+ * texto, así que ningún guard de traducción lo veía.
+ */
 function localeActual() {
-  return LOCALES[idiomaGuardado()] || LOCALES.es;
+  return LOCALES[idiomaActivo()] || LOCALES.es;
 }
 
 const IDIOMA_POR_DEFECTO = 'es';
@@ -78,12 +86,11 @@ function clavesAusentes() { return [..._ausentes]; }
 /**
  * El idioma que el navegador debe usar en este arranque.
  *
- * Sale de `localStorage` y NO del servidor, a propósito: el ajuste del
- * servidor es la fuente de verdad —y es quien traduce sus propios mensajes—
- * pero preguntárselo antes del primer render añadiría una petición en el
- * camino crítico para pintar la página en el idioma correcto. El selector
- * escribe los dos a la vez, así que solo divergen si alguien edita
- * `app_settings.json` a mano; `reconciliarIdioma()` lo arregla al vuelo.
+ * Es el RESPALDO, no el camino normal: hoy el idioma lo siembra el servidor
+ * con el script bloqueante (`window.__I18N`), que es la fuente de verdad —y
+ * quien traduce sus propios mensajes—. Esto solo decide cuando no hay
+ * siembra, que es el caso de un arnés de test y el de un fallo al servir el
+ * catálogo.
  */
 function idiomaGuardado() {
   try {
@@ -207,7 +214,16 @@ function _observarTextos() {
  * Así la petición sale antes incluso de que el DOM esté listo, así que cuando
  * el arranque la espera ya está resuelta, y el arranque sigue siendo síncrono.
  */
-const catalogoListo = cargarIdioma(idiomaGuardado());
+const catalogoListo = _SEMBRADO
+  // Ya lo trajo el script bloqueante, que además viene con el idioma que
+  // decidió el SERVIDOR. Volver a pedirlo aquí no solo gastaba ~200 KB por
+  // carga: `cargarIdioma` reasigna `_idioma` y `_catalogo`, así que el
+  // catálogo sembrado se perdía y la app se pintaba en el idioma de
+  // `localStorage` — castellano en un navegador que nunca lo ha elegido.
+  // Reproducido: sembrado `en`, primer render en inglés, y tras resolverse
+  // esta promesa todo en castellano.
+  ? Promise.resolve()
+  : cargarIdioma(idiomaGuardado());
 
 /**
  * Cambia el idioma: lo guarda en el navegador y en el servidor, y recarga.
@@ -232,16 +248,3 @@ async function cambiarIdioma(codigo) {
   location.reload();
 }
 
-/**
- * Reconcilia con el servidor tras el arranque, sin bloquear el render.
- *
- * Solo hace algo si de verdad divergen, y entonces recarga una vez. El caso
- * que cubre es el `app_settings.json` editado a mano o copiado de otra
- * máquina: sin esto, el servidor hablaría un idioma y la interfaz otro.
- */
-async function reconciliarIdioma(idiomaDelServidor) {
-  if (!idiomaDelServidor || idiomaDelServidor === _idioma) return;
-  if (!IDIOMAS.some(i => i.codigo === idiomaDelServidor)) return;
-  try { localStorage.setItem(IDIOMA_PREF, idiomaDelServidor); } catch (e) { /**/ }
-  location.reload();
-}

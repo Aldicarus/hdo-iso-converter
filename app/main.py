@@ -435,7 +435,7 @@ class SettingsUpdate(BaseModel):
 
 
 @app.get("/api/i18n/catalogo.js", summary="El catálogo del idioma activo, como script BLOQUEANTE")
-async def i18n_catalogo_js():
+async def i18n_catalogo_js(request: Request):
     """El catálogo, servido como `<script>` clásico y antes que los demás.
 
     El `fetch` asíncrono de `i18n.js` llega DESPUÉS de que los ocho scripts se
@@ -460,7 +460,22 @@ async def i18n_catalogo_js():
     intermedio no lo cachee entre despliegues.
     """
     from fastapi.responses import Response
-    from services.settings_store import get_idioma
+    from services.settings_store import fijar_idioma_detectado, get_idioma
+    # La PRIMERA vez que un navegador pide el catálogo y nadie ha elegido
+    # idioma, se detecta de `Accept-Language` y se PERSISTE. Aquí y no en el
+    # navegador por tres motivos: el primer render ya sale correcto (sin
+    # parpadeo ni recarga), no hace falta una petición extra, y el log del
+    # servidor pasa a escribirse en el mismo idioma — que es lo que
+    # descuadraría si la detección viviera solo en el cliente, porque el log
+    # se traduce AL ESCRIBIR y no se migra.
+    #
+    # Envuelto porque esto es el script BLOQUEANTE: si la detección lanzara,
+    # la app no cargaría. Quedarse en el idioma de antes es un inconveniente;
+    # una pantalla en blanco, no.
+    try:
+        fijar_idioma_detectado(request.headers.get("accept-language"))
+    except Exception as e:                                  # noqa: BLE001
+        _logger.warning("[i18n] detección de idioma fallida: %s", e)
     idioma = get_idioma()
     ruta = _STATIC_DIR / "i18n" / f"{idioma}.json"
     if not ruta.exists():

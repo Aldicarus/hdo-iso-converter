@@ -48,9 +48,13 @@ DEFAULT_SHEET_URL = (
 
 # ── El idioma de la app ────────────────────────────────────────────────
 #
-# Global y no por petición: la app no tiene usuarios, ni auth, ni cookies, ni
-# mira `Accept-Language`. Es un aparato de una instalación, así que el idioma
-# vive aquí como cualquier otro ajuste.
+# Global y no por petición: la app no tiene usuarios, ni auth, ni cookies. Es
+# un aparato de una instalación, así que el idioma vive aquí como cualquier
+# otro ajuste.
+#
+# `Accept-Language` se mira UNA vez —la primera que un navegador pide el
+# catálogo sin que nadie haya elegido— y lo que hace es **fijar este ajuste**,
+# no decidir por petición. Ver `fijar_idioma_detectado`.
 #
 # El frontend guarda además una copia en `localStorage` para pintar la primera
 # pantalla sin esperar a una petición; el selector escribe las dos y
@@ -71,6 +75,104 @@ def get_idioma() -> str:
     if env in IDIOMAS:
         return env
     return IDIOMA_POR_DEFECTO
+
+
+def idioma_elegido() -> bool:
+    """¿Ha elegido alguien el idioma alguna vez?
+
+    La señal es la **presencia de la clave** en `app_settings.json`, y cubre
+    dos casos con un solo criterio y sin rastrear versiones:
+
+      · instalación nueva — el fichero no existe o no tiene la clave;
+      · **actualización desde cualquier versión anterior** — antes de que la
+        app hablara tres idiomas la clave no existía, así que una instalación
+        que venga de ahí también sale «sin elegir» y se detecta.
+
+    Funciona porque **nadie más escribe esa clave**: `saveSettings()` compone
+    su payload con las cuatro claves/URLs y el único POST que manda `idioma`
+    es el de `cambiarIdioma()`, o sea el botón. Si algún día otro sitio lo
+    arrastrara, esta señal se perdería en silencio — lo guarda un test.
+    """
+    with _lock:
+        return _load().get("idioma", "").strip().lower() in IDIOMAS
+
+
+def detectar_idioma(accept_language: str | None) -> str | None:
+    """`Accept-Language` → `es` | `en` | `ca`, o `None` si no se puede decir.
+
+    Función **pura**: no lee ni escribe nada. Devuelve `None` cuando la
+    cabecera falta, no se entiende o no pide ninguno de los tres, y eso NO es
+    lo mismo que devolver el castellano — un healthcheck o un `curl` sin
+    cabecera no deben dejar el idioma fijado para siempre.
+
+    Detalles que no son adorno:
+
+      · **se respeta la `q`**. `fr;q=0.9, en;q=0.8` pide francés antes que
+        inglés, así que se recorre por preferencia y gana el primero de los
+        tres que aparezca — no el primero de la lista;
+      · **se compara por prefijo**, que es lo que hace que `es-MX`, `es-419`
+        y `ca-valencia` caigan donde tienen que caer;
+      · **`*` no cuenta**. Significa «cualquiera», no «el mío», y tomarlo por
+        una petición de castellano fijaría el idioma de quien no pidió nada;
+      · cualquier cosa rara se ignora en vez de lanzar: esto lo consume el
+        script BLOQUEANTE del catálogo, y si revienta la app no carga.
+
+    **Y el resto es INGLÉS** (decisión del usuario, 2026-09-16): una cabecera
+    que pide italiano, francés o alemán es una petición de verdad, y lo que
+    esa persona NO lee es castellano — darle el default derrotaría el motivo
+    de detectar. Distinto de no tener cabecera, que no pide nada y se queda
+    con el default. Esa es justo la diferencia entre devolver `'en'` y
+    devolver `None`.
+    """
+    if not accept_language:
+        return None
+    candidatos: list[tuple[float, int, str]] = []
+    for orden, trozo in enumerate(accept_language.split(",")):
+        partes = trozo.strip().split(";")
+        etiqueta = partes[0].strip().lower()
+        if not etiqueta or etiqueta == "*":
+            continue
+        q = 1.0
+        for extra in partes[1:]:
+            extra = extra.strip()
+            if extra.startswith("q="):
+                try:
+                    q = float(extra[2:])
+                except ValueError:
+                    q = 0.0
+        if q <= 0:
+            continue
+        candidatos.append((q, -orden, etiqueta))
+    if not candidatos:
+        return None            # nadie ha pedido nada: se queda el default
+    for _, _, etiqueta in sorted(candidatos, reverse=True):
+        prefijo = etiqueta.split("-")[0]
+        if prefijo in IDIOMAS:
+            return prefijo
+    return "en"                # pidió algo, y no es ninguno de los tres
+
+
+def fijar_idioma_detectado(accept_language: str | None) -> str | None:
+    """Detecta y PERSISTE, solo si nadie lo ha elegido y no hay `HDO_IDIOMA`.
+
+    Persiste —en vez de decidirlo por petición— porque el idioma no es solo la
+    interfaz: el servidor escribe el **log al escribirlo**, no al mostrarlo, y
+    lo persistido no se migra. Con un idioma por visitante, el log de un mismo
+    proyecto acabaría mezclando idiomas según quién lanzara cada fase.
+
+    Devuelve el idioma fijado, o `None` si no tocó nada.
+    """
+    if idioma_elegido():
+        return None
+    # `HDO_IDIOMA` en el `.env` es tan deliberado como pulsar el botón.
+    if os.environ.get("HDO_IDIOMA", "").strip().lower() in IDIOMAS:
+        return None
+    detectado = detectar_idioma(accept_language)
+    if not detectado:
+        return None
+    update_idioma(detectado)
+    _logger.info("[settings] idioma detectado de Accept-Language: %s", detectado)
+    return detectado
 
 
 def update_idioma(new_value: str | None) -> None:

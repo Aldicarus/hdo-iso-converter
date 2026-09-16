@@ -201,12 +201,17 @@ class TestElMotorDelNavegador(unittest.TestCase):
     def setUpClass(cls):
         js = js_completo()
         ini = js.index("const IDIOMAS = [")
-        fin = js.index("async function reconciliarIdioma")
+        # La marca de fin era `reconciliarIdioma`, que se retiró al hacer de la
+        # siembra del servidor la fuente de verdad: con ella no hay nada que
+        # reconciliar. `cambiarIdioma` es ahora la última del motor.
+        fin = js.index("async function cambiarIdioma")
         fin = js.index("\n}\n", fin) + 3
         cls.motor = js[ini:fin]
 
-    def corre(self, cuerpo: str) -> dict:
-        script = "\n".join([_ENTORNO, self.motor, cuerpo])
+    def corre(self, cuerpo: str, semilla: str = "") -> dict:
+        """`semilla` va ANTES del motor porque `_SEMBRADO` se captura al
+        evaluarlo: puesta en el cuerpo llegaría tarde."""
+        script = "\n".join([_ENTORNO, semilla, self.motor, cuerpo])
         p = subprocess.run(argv_node(script), capture_output=True,
                            text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -313,16 +318,64 @@ class TestElMotorDelNavegador(unittest.TestCase):
         self.assertIn('"idioma":"en"', r["post"]["body"])
         self.assertTrue(r["recargado"])
 
-    def test_reconciliar_no_recarga_si_coinciden(self):
+    def test_la_siembra_del_servidor_gana_a_localstorage(self):
+        """El bug que destapó la detección de idioma, y era anterior a ella.
+
+        El script bloqueante siembra `window.__I18N` con el idioma que decidió
+        el SERVIDOR. `localStorage` solo se escribe cuando el usuario pulsa el
+        selector, así que en un navegador que nunca lo ha hecho está vacío —y
+        eso es justo lo normal desde que el idioma se detecta, o al abrir la
+        app desde un segundo dispositivo.
+
+        Dos cosas iban mal, las dos reproducidas antes de arreglarlas:
+
+          · `localeActual()` salía de `localStorage`, así que la interfaz se
+            pintaba en inglés y las fechas en `es-ES`;
+          · el `cargarIdioma(idiomaGuardado())` del arranque se ejecutaba
+            igualmente y **reasignaba** `_idioma` y `_catalogo`, así que tras
+            resolverse la promesa todo volvía al castellano.
+
+        Ninguna de las dos daba un error: la app se pintaba, en el idioma
+        equivocado.
+        """
         r = self.corre("""
-          _idioma = 'es';
-          reconciliarIdioma('es').then(() => {
-            reconciliarIdioma('klingon').then(() => {
-              console.log(JSON.stringify({recargado: !!globalThis.__recargado}));
-            });
+          catalogoListo.then(() => {
+            console.log(JSON.stringify({
+              idioma: idiomaActivo(), locale: localeActual(),
+              texto: tr('ui.cerrar'), pedido: globalThis.__pedido || null,
+            }));
           });
+        """, semilla="""
+          globalThis.__I18N = {idioma: 'en', catalogo: {'ui.cerrar': 'Close'}};
+          globalThis.fetch = async (u) => {
+            globalThis.__pedido = u;
+            return {ok: true, json: async () => ({'ui.cerrar': 'Cerrar'})};
+          };
         """)
-        self.assertFalse(r["recargado"])
+        self.assertEqual(r["idioma"], "en")
+        self.assertEqual(r["locale"], "en-GB", "las fechas seguían en español")
+        self.assertEqual(r["texto"], "Close")
+        self.assertIsNone(r["pedido"],
+                          "se volvió a pedir el catálogo que ya estaba sembrado")
+
+    def test_sin_siembra_el_respaldo_sigue_pidiendo_el_catalogo(self):
+        """La rama que se conserva: un arnés sin `__I18N`, o un fallo al
+        servir el script bloqueante, tiene que seguir cargando por `fetch`."""
+        r = self.corre("""
+          catalogoListo.then(() => {
+            console.log(JSON.stringify({
+              idioma: idiomaActivo(), pedido: globalThis.__pedido || null,
+            }));
+          });
+        """, semilla="""
+          globalThis.localStorage.setItem('hdo_idioma', 'ca');
+          globalThis.fetch = async (u) => {
+            globalThis.__pedido = u;
+            return {ok: true, json: async () => ({'ui.cerrar': 'Tanca'})};
+          };
+        """)
+        self.assertEqual(r["idioma"], "ca")
+        self.assertIn("/static/i18n/ca.json", r["pedido"])
 
 
 class TestElArranqueSigueSiendoSincrono(unittest.TestCase):
@@ -358,8 +411,19 @@ class TestElArranqueSigueSiendoSincrono(unittest.TestCase):
                         self.arranque.index("catalogoListo"))
 
     def test_la_carga_arranca_al_parsear_el_script(self):
-        self.assertIn("const catalogoListo = cargarIdioma(idiomaGuardado())",
-                      self.js)
+        """`catalogoListo` se resuelve al PARSEAR, no dentro de una función.
+
+        Antes esto comparaba la línea entera
+        —`cargarIdioma(idiomaGuardado())`— y dejó de valer al añadir la rama
+        que evita el `fetch` cuando el script bloqueante ya trajo el
+        catálogo. Lo estable es dónde vive la constante, no qué le pasa.
+        """
+        i = self.js.index("const catalogoListo =")
+        # Nada de sangría: una const de módulo empieza en la columna 0.
+        linea = self.js[self.js.rindex("\n", 0, i) + 1:i]
+        self.assertEqual(linea, "", "`catalogoListo` ya no es de módulo")
+        self.assertIn("cargarIdioma(idiomaGuardado())", self.js,
+                      "se perdió el respaldo para cuando no hay siembra")
 
 
 if __name__ == "__main__":

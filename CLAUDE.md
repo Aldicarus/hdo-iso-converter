@@ -2261,10 +2261,66 @@ verde. La aguja se compone en ejecución.
 
 ## La app habla tres idiomas: castellano, inglés y catalán
 
-El idioma es un **ajuste global** en `app_settings.json` — no hay usuarios, ni
-cookies, ni `Accept-Language`— y se elige en ⚙︎ Configuración. Cambiarlo
-recarga la página, que es lo honesto: el catálogo se pide al arrancar y media
-interfaz ya está pintada.
+El idioma es un **ajuste global** en `app_settings.json` — no hay usuarios ni
+cookies — y se elige en ⚙︎ Configuración. Cambiarlo recarga la página, que es
+lo honesto: el catálogo se pide al arrancar y media interfaz ya está pintada.
+
+**La primera vez se detecta de `Accept-Language`**, y lo que hace es **fijar
+el ajuste**, no decidir por petición. Orden: `app_settings.json` >
+`HDO_IDIOMA` > detección > castellano — `HDO_IDIOMA` por delante porque
+ponerlo en el `.env` es tan deliberado como pulsar el botón.
+
+- **La señal de «nadie lo ha elegido» es la AUSENCIA de la clave `idioma`**, y
+  eso cubre dos casos con un criterio y sin rastrear versiones: instalación
+  nueva, y **actualización desde cualquier versión anterior** —antes de que la
+  app hablara tres idiomas la clave no existía—. Se sostiene porque nadie más
+  la escribe: `saveSettings()` compone su payload con las cuatro claves/URLs y
+  el único POST que manda `idioma` es el del botón. Si algún día otro sitio lo
+  arrastrara, la detección dejaría de dispararse **para todo el parque que
+  actualiza, en silencio y sin un error**; lo guardan dos tests que leen el
+  frontend.
+- **Lo decide el SERVIDOR, en `/api/i18n/catalogo.js`.** Tres motivos: el
+  primer render ya sale correcto (sin parpadeo ni recarga), no hace falta una
+  petición extra, y el log del servidor pasa a escribirse en el mismo idioma —
+  que es lo que descuadraría si la detección viviera en el navegador, porque
+  el log se traduce AL ESCRIBIR y no se migra. Va envuelto en un `try`: es el
+  script **bloqueante**, y quedarse en el idioma de antes es un inconveniente
+  mientras una pantalla en blanco no lo es.
+- **`None` no es castellano.** Sin cabecera —un healthcheck, un `curl`— no se
+  fija nada, y el siguiente navegador todavía puede detectarse. Un `*` tampoco
+  cuenta: significa «cualquiera», no «el mío».
+- **El resto es inglés** (decisión del usuario): `es-*` y `ca-*` caen en su
+  idioma por prefijo, y una cabecera que pide italiano o alemán es una
+  petición de verdad — lo que esa persona no lee es castellano, así que darle
+  el default derrotaría el motivo de detectar.
+- **Se respeta la `q`, no el orden**: `fr;q=0.9, es;q=0.8` pide francés antes
+  que castellano, y de los tres que hay gana el castellano.
+
+`detectar_idioma()` es **pura** y `test_idioma_detectado.py` la fija con las
+cinco decisiones verificadas por mutación, más cuatro tests que llaman al
+endpoint por HTTP — porque las funciones puras no prueban el cableado.
+
+**La siembra del servidor es la fuente de verdad, y `localStorage` el
+respaldo.** Poner la detección destapó dos bugs que ya estaban vivos y que
+solo se ven cuando el idioma NO es el castellano y el navegador no tiene
+preferencia guardada — o sea, desde hoy, el caso normal:
+
+- **`localeActual()` salía de `localStorage`**, así que la interfaz se pintaba
+  en inglés y las fechas en `es-ES`. No es texto: ningún guard de traducción
+  lo miraba.
+- **el `cargarIdioma(idiomaGuardado())` del arranque se ejecutaba siempre** y
+  **reasignaba** `_idioma` y `_catalogo`, así que el catálogo sembrado se
+  perdía y tras resolverse la promesa todo volvía al castellano. Ahora ese
+  `fetch` no se hace si hay siembra, lo que además ahorra ~200 KB por carga.
+
+Ninguno de los dos daba un error: la app se pintaba, en el idioma equivocado.
+Se reprodujeron en node antes de tocarlos y los fija
+`test_i18n_motor::test_la_siembra_del_servidor_gana_a_localstorage`.
+
+Con eso, **`reconciliarIdioma()` se quedó sin trabajo** y se retiró: existía
+para arreglar la divergencia entre el servidor y `localStorage`, y **no la
+llamaba nadie** —solo un test—. Era un huérfano cuyo docstring describía el
+diseño anterior, que es la peor clase: el próximo lector se lo cree.
 
 | dónde | qué |
 |---|---|
