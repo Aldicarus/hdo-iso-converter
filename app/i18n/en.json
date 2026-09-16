@@ -24,7 +24,7 @@
   "cmv40.proyecto_no_encontrado": "Project not found",
   "cmv40.proyecto_ya_esta_completado": "The project is already completed",
   "cmv40.rpu_path_requerido_para_kind_path": "rpu_path is required for kind=path",
-  "cmv40.source_mkv_path_requerido_para_kind": "source_mkv_path required for kind=mkv",
+  "cmv40.source_mkv_path_requerido_para_kind": "source_mkv_path is required for kind=mkv",
   "cmv40.upgrade_cmv4_0": "CMv4.0 upgrade · {id}",
   "cmv40.validacion_previa": "Pre-flight check · {id}",
   "cmv40.ya_hay_una_fase_en_curso": "There's already a phase running on this project ({running_phase}).",

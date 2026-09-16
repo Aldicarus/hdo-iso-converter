@@ -14,8 +14,14 @@ Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_frontend_cache_bust -v
 """
 import re
+import sys
 import unittest
 from pathlib import Path
+
+# `frontend_sources` se importa DENTRO de un test, y sin esto solo
+# funciona por accidente: en `discover` otro módulo ya ha metido este
+# directorio en `sys.path`, pero ejecutando este módulo solo revienta.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
 INDEX = STATIC / "index.html"

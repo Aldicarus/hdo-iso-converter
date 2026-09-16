@@ -2337,6 +2337,8 @@ mutación**:
 | `test_plantillas_del_js.py::TestNingunaClavePedidaFaltaDelCatalogo` | una clave que NO existe: `tr()` devuelve la clave, así que se pinta |
 | `test_las_tres_lenguas_en_pantalla.py` | **la pantalla**: 19 paneles con datos reales, en las tres lenguas |
 | `test_regiones_de_plantilla.py` | el autómata del que dependen los demás |
+| `test_calidad_de_la_traduccion.py` | la CALIDAD, no la presencia: calcos curados, ortografía inglesa única, gerundio pelado en catalán, apóstrofo de `l'RPU` y la forma verbal |
+| `test_registro_de_la_traduccion.py` | el REGISTRO: parámetros, glosario, Title Case, y que una cita a un rótulo use el rótulo traducido |
 
 **Estar en el catálogo NO es pasar por `tr()`.** El guard daba por buena una
 cadena si su texto coincidía con el valor de alguna clave, y así sobrevivieron
@@ -2376,6 +2378,53 @@ capítulos, renderiza 19 paneles y lee el texto y los atributos que salen.
   esa frase se traduce.** `test_cmv40_eta_sufijo` contaba
   `` `Restante ${em}:${es}` `` y pasó a contar **cero** sin decir nada. Lo
   estable es la CLAVE.
+
+### Leer el catálogo por pantalla encuentra lo que ningún detector puede
+
+La revisión de las 1.616 cadenas —las tres lenguas juntas, por pantalla y en
+orden de lectura— sacó una familia que los doce guards de presencia y los cinco
+de calidad **no pueden ver por construcción**: cada cadena es correcta por
+separado y el defecto está en que dos vecinas no dicen lo mismo.
+
+- **La forma verbal del catalán estaba a medias**: de 189 rótulos cuyo
+  castellano empieza por infinitivo, 101 iban en infinitivo y 88 en imperativo.
+  Sin mayoría, y las dos convenciones son defendibles —Softcatalà prescribe el
+  imperativo—, así que **lo decidió el usuario**: sigue al castellano, y se
+  espeja también el artículo. Lo que lo hacía urgente eran los cruces:
+  `Buscar película` decía «Cerca la pel·lícula» y `Buscar la película en TMDb`
+  decía «Buscar…».
+- **Lexemas cruzados**: «cercar» contra «buscar» (6), «blocat» contra
+  «bloquejat» (2), «memòria cau» contra «cache», «contenidor» contra
+  «container», «Tons mitjos» contra «Midtone», «MKV origen» contra «MKV
+  d'origen» (11 contra 20). Y uno que cambia el significado: **«pega'l» donde
+  toca «enganxa'l»** —en catalán *pegar* es golpear.
+- **El inglés diciendo más que el original**: «MPLS playlist», «Total time»,
+  «project skipped», «Dolby Vision metadata». La línea no es contar palabras:
+  es si la palabra de más cambia **qué es la cosa**. «Original title» se queda.
+- **Un ejemplo que contradice su propio campo**: el placeholder de la consulta
+  rápida decía «e.g. Die Hard, Home Alone» debajo de una etiqueta que pone
+  «Title (Spanish)», porque la app busca por el título castellano para
+  resolver el inglés contra TMDb.
+
+**Cada hallazgo se convirtió en un barrido, y el barrido encontró más que la
+lectura.** El guard del gerundio pelado es el caso de libro: anclaba en `^`,
+así que solo veía el castellanismo cuando abría la cadena — y casi nunca abre.
+Con el ancla ampliada a un prefijo («Fase A — », «Paso 1/4: », «mkvmerge: »)
+salieron **44**; con la tercera conjugación (`-int`, que faltaba entera), tres
+más; con el punto como separador, dos; y con el guion del medio
+(«Re-analizando»), una. Sesenta y cuatro en total contra los catorce que la
+lectura había visto.
+
+**Dos detectores se midieron y se descartaron**, igual que el de n-gramas:
+«una palabra que el inglés conserva tal cual es término técnico» (68
+candidatos, ~6 reales — para un término inglés el inglés siempre lo conserva,
+así que no separa la jerga del anglicismo) y «una palabra con dos mayúsculas
+distintas dentro de la misma lengua» (27 en inglés, 22 en catalán, casi todas
+legítimas: un botón citado frente a la misma palabra en prosa).
+
+**El que sí entró es exacto y da cero**: dos claves con el MISMO castellano
+tienen que tener la misma traducción. Es la versión sin heurística del
+detector de consistencia.
 
 **Sustituir a máquina rompe cosas que no dan error.** Las cuatro que salieron:
 
