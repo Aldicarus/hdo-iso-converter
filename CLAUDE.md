@@ -2226,6 +2226,17 @@ job. Le tocó a **dieciséis módulos a la vez** sin que nada avisara en local.
 escrito en un temporal (que se borra con `atexit`), y lo guarda
 `test_frontend_troceado::TestNingunArnesPasaElGuionPorLaLineaDeComandos`.
 
+**El checkout de CI trae los tags a propósito** (`fetch-depth: 0`). El de
+`actions/checkout` por defecto no los trae, y `git describe --always` no avisa
+de que faltan: sale con **0** y devuelve el SHA abreviado. Así que
+`test_version_solo_tags_de_release` —el guard que existe porque el síntoma
+aparece en el NAS y no en la suite— llevaba tres runs en rojo diciendo que
+`'97a0888'` no empieza por un tag de versión: no fallaba el repo, faltaba la
+premisa. El test además se **salta** si el clon no trae ningún tag, que es la
+red para cualquier otro clon superficial. La imagen de GHCR no depende de
+esto: el workflow de publicación le pasa `APP_VERSION` del tag del release, y
+el stage `version-detector` del Dockerfile es el respaldo del build local.
+
 `test_frontend_cache_bust.py` va en la **suite**, no en el YAML: caza el error típico del token `?v=` de `index.html` —tocar una de las dos referencias y olvidar la otra, que deja el CSS y el JS en versiones distintas— y así también salta en local, que es donde se comete.
 
 ---

@@ -51,10 +51,21 @@ class TestElComportamientoConEsteRepo(unittest.TestCase):
     """Sobre el repo de verdad, que es donde el tag existe."""
 
     def _describe(self, *extra: str) -> str:
+        # Un clon SIN tags no puede responder la pregunta, y el `--always`
+        # hace que `git describe` no lo diga: sale con 0 y devuelve el SHA
+        # abreviado. El checkout por defecto de Actions es exactamente ese, así
+        # que el guard llevaba tres runs fallando en CI —«'97a0888' no empieza
+        # por un tag de versión»— por una premisa falsa y no por el repo. Los
+        # tags los trae ahora el workflow (`fetch-depth: 0`); esto es la red
+        # para cualquier otro clon superficial.
+        tags = subprocess.run(["git", "tag", "--list"], cwd=RAIZ,
+                              capture_output=True, text=True, timeout=10)
+        if tags.returncode != 0 or not tags.stdout.strip():
+            self.skipTest("el clon no trae tags: `git describe` no puede anclarse")
         r = subprocess.run(["git", "describe", "--tags", *extra, "--always"],
                            cwd=RAIZ, capture_output=True, text=True, timeout=10)
         if r.returncode != 0:
-            self.skipTest("git no disponible o repo sin tags")
+            self.skipTest("git no disponible")
         return r.stdout.strip()
 
     def test_con_el_filtro_la_version_es_parseable_como_semver(self):

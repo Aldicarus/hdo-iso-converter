@@ -29,6 +29,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Los tags, que el checkout por defecto NO trae. `git describe` los
+          # necesita y con `--always` no avisa de que faltan: sale con 0 y
+          # devuelve el SHA, así que `test_version_solo_tags_de_release` daba
+          # por buena una premisa falsa y llevaba tres runs en rojo.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
