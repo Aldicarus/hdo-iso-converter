@@ -2308,12 +2308,64 @@ mutación**:
 | `TestElSaltoDeLineaEsUnSaltoDeLinea` | el `\n` guardado como texto |
 | `TestNingunaFraseSePartePorMarcado` | una frase repartida en varias claves |
 | `TestLaAppCargaEnLosTresIdiomas` | abre `index.html` en Chrome ×3: cero errores de JS, ninguna clave ausente, >200 nodos pintados |
+| `TestNingunaCadenaCastellanaSeCuelaPorUnHueco` | una cadena castellana dentro de un `${…}`, que acaba en el HTML igual |
+| `TestNingunLiteralCastellanoEnUnaPropiedadQueSeVe` | `title: 'Fase A · Analizar MKV origen'`, la clase del «FASE A» reportado |
+| `test_plantillas_del_js.py` | el HTML que genera el JS: texto, atributos, `t()` en vez de `tr()`, `data-tooltip=tr(…)` sin `${}`, un `<span>` metido dentro de un atributo |
+| `test_las_tres_lenguas_en_pantalla.py` | **la pantalla**: 19 paneles con datos reales, en las tres lenguas |
 | `test_regiones_de_plantilla.py` | el autómata del que dependen los demás |
 
 **Estar en el catálogo NO es pasar por `tr()`.** El guard daba por buena una
 cadena si su texto coincidía con el valor de alguna clave, y así sobrevivieron
 26 literales en `settings.js`. Lo que se exime es la CLAVE que se le pasa a
-`tr(`, no el texto.
+`tr(`, no el texto. **Volvió a pasar** con el guard de plantillas, que
+aceptaba un `data-tooltip="Nombre de la pista en el MKV"` porque ese texto era
+el valor de una clave `tab2.*`: quitar esa aceptación destapó 15 sitios más.
+
+**El umbral de `es_frase` es correcto para prosa y ciego para rótulos.** Pide
+seis caracteres, DOS palabras y un acento o una palabra función, así que
+`Validar`, `Descargar bin` y `Fase A · Analizar MKV origen` pasaban. Eran
+**~220 literales**, o sea la mitad de lo que se ve. El criterio que los caza
+no es otro umbral sino un DATO: **una palabra de cuatro letras que está en el
+catálogo castellano y no en el inglés es castellano**. Se afina solo con cada
+frase que se traduce — durante la tanda apareció material nuevo tres veces
+seguidas, cada vez que el vocabulario crecía.
+
+**El guard que de verdad protege esto mira la PANTALLA, no el fuente.** La
+suite pasaba en verde mientras el usuario veía en dos minutos claves crudas,
+rótulos castellanos con la app en inglés y un modal a medio traducir: los
+guards se habían escrito alrededor de lo que el extractor sabía mirar, y las
+capturas de Chrome que había **nunca llegaron a un panel con datos**. Un modal
+vacío no enseña nada. `test_las_tres_lenguas_en_pantalla.py` construye un
+proyecto CMv4.0 a mitad de pipeline y el panel de Tab 1 con sus pistas y
+capítulos, renderiza 19 paneles y lee el texto y los atributos que salen.
+
+- **Las fixtures van en inglés** (`Blade Runner 2049`, `best quality`): así
+  cualquier castellano en la pantalla inglesa viene de la app y no del dato.
+  Con títulos castellanos el test se señala a sí mismo.
+- **Un arnés de Chrome tiene que arrancar como la app.** Tres sembraban el
+  catálogo por `fetch` o no lo sembraban, y ahí una constante de módulo con
+  `tr()` dentro —`ROOTS_MKV`, `_CMV40_PIPELINE_PREVIEW`— se evalúa con el
+  catálogo vacío y congela la clave: el arnés ve `ui.biblioteca` donde la app
+  ve «Biblioteca», o sea que falla señalando a código que funciona.
+  `stub_catalogo_es()` siembra `window.__I18N` además del stub del fetch.
+- **Un test que cuenta una frase en el fuente deja de contar nada en cuanto
+  esa frase se traduce.** `test_cmv40_eta_sufijo` contaba
+  `` `Restante ${em}:${es}` `` y pasó a contar **cero** sin decir nada. Lo
+  estable es la CLAVE.
+
+**Sustituir a máquina rompe cosas que no dan error.** Las tres que salieron:
+
+- un `data-tooltip=tr('clave')` **sin `${…}`** deja el nombre de la función en
+  el atributo. `node --check` pasa y el HTML es válido; la forma correcta ahí
+  no es interpolar sino `data-i18n-tip="clave"`;
+- una sustitución dentro del valor de un atributo partió un `class` y se comió
+  la `s` de `style` (`<div class="dv-<span data-i18n=…></span>tyle=…>`). El
+  HTML seguía siendo válido, así que el `querySelector` del tooltip del
+  gráfico de luminancia **no encontraba nada desde la migración**;
+- **normalizar el espacio al cosechar se come el espacio del literal**:
+  `'Lleva '` → `tr('workbar.lleva')` dejaba «Lleva7 s», en 21 sitios. El
+  espacio va FUERA del `tr()`, porque en el catálogo un espacio en el borde es
+  invisible y hay un guard que lo prohíbe justamente por eso.
 
 ### Un regex no puede delimitar una construcción anidada
 
@@ -2355,6 +2407,22 @@ texto, así que ningún guard de traducción lo miraba.
   no texto de interfaz.
 - Los markers del log y los nombres de campo del RPU (`Master`, `peak`,
   `nits`, `scene cuts`).
+- **`LANGUAGE_MAP`** (`spanish: 'Castellano'`, `english: 'Inglés'`…): son los
+  literales de pista de la spec y acaban en el nombre de las pistas del MKV,
+  no en la interfaz. Que sigan el idioma de la app es una decisión distinta y
+  va con el bloque de selección de pistas, que está pendiente.
+- **Y las CABECERAS de la card 🛡️ Validaciones sí se traducen**, aunque su
+  contenido no: son navegación (`① Veredicto y consecuencia`, `② Los dos RPU,
+  lado a lado`…) y tenerlas a medias —① traducida y ②-⑤ no— es peor que
+  cualquiera de las dos opciones.
+
+**Lo que se queda en castellano va exento POR FUNCIÓN y con su motivo
+escrito**, en tres sitios que hay que mantener a la vez:
+`VOLCADOS_DE_DIAGNOSTICO` y `CORTOS_ACEPTADOS` (en `test_i18n_completo`),
+`ACEPTADO` (en `test_plantillas_del_js`) y `EN_CASTELLANO_A_PROPOSITO` (en
+`test_las_tres_lenguas_en_pantalla`). Cada lista tiene su test de «no se queda
+vieja»: una entrada que ya no corresponde a código real parece cobertura y no
+cubre nada.
 
 ### Los arneses de node y de Chrome necesitan el motor
 

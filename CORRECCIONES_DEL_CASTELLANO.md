@@ -191,3 +191,66 @@ diciendo en qué clave vive ahora la frase.
 
 Comprobado por mutación en las cuatro: cambiar una palabra del castellano
 —también dentro del marcado— sigue haciendo fallar el test.
+
+---
+
+## La auditoría del 2026-09-16: dos bugs del castellano que la traducción tapó
+
+La auditoría completa —pedida porque «el resultado dista mucho de ser ni una
+primera release»— encontró dos cosas que **no** son de traducción: son
+castellano roto que llevaba así desde la migración y que nadie veía porque el
+HTML seguía siendo válido.
+
+### El tooltip del gráfico de luminancia no existía
+
+`tab2.js` tenía, literalmente:
+
+```js
+<div class="dv-<span data-i18n="tab2.sparkline_tooltip_s"></span>
+     tyle="display:none"></div>
+```
+
+El original —verificado contra `pre-i18n`— era
+`<div class="dv-sparkline-tooltip" style="display:none">`. Una sustitución a
+máquina cogió el trozo `sparkline-tooltip" s`, que para un regex parece texto,
+y lo reemplazó **dentro del valor del atributo**: partió el `class` y se comió
+la `s` de `style`.
+
+Lo que hace este caso instructivo es que **no falla nada**. `node --check`
+pasa, el navegador acepta el marcado y no hay ni un error en consola; lo único
+que ocurre es que `host.querySelector('.dv-sparkline-tooltip')` no encuentra
+nada y el tooltip del hover **nunca aparece**. Es el error de los regex otra
+vez: reescribir dentro de un hueco no rompe, contesta otra cosa.
+
+Guard: ningún valor de atributo puede contener una etiqueta (con la excepción
+de un `data:` URI, que es el favicon).
+
+### Diez atributos escribían el nombre de una función
+
+`data-tooltip=tr('workbar.detener_este_trabajo')`, sin `${…}` y sin comillas.
+Dentro de una plantilla, `tr()` solo se evalúa si va en un hueco; sin él es
+texto, y el navegador se queda con `tr('workbar.detener_este_trabajo')` como
+valor del atributo. En los diez sitios la forma correcta no era interpolar
+sino `data-i18n-tip="clave"`, que es declarativa y la resuelve el observador.
+
+### Y un espacio que se perdió en 21 sitios
+
+Cosechar los literales normalizando el espacio (`" ".join(v.split())`)
+convierte `'Lleva '` en `'Lleva'`, y la sustitución dejó «Lleva7 s». El
+espacio va **fuera** del `tr()`: en el catálogo un espacio en el borde es
+invisible y hay un guard que lo prohíbe justamente porque se pierde.
+
+---
+
+## Lo que se decidió NO traducir, y dónde está escrito
+
+La decisión del usuario fue «interfaz sí, diagnóstico no», y al aplicarla
+aparecieron dos matices que conviene dejar por escrito:
+
+- **Las cabeceras de la card 🛡️ Validaciones sí se traducen**, aunque los
+  cinco bloques de contenido no. Son navegación, y estaban a medias: ①
+  traducida y ②-⑤ no, que es peor que cualquiera de las dos opciones.
+- **`LANGUAGE_MAP` no se toca.** `spanish: 'Castellano'` no es texto de
+  interfaz: es el literal de pista de la spec y acaba en el nombre de las
+  pistas del MKV. Que siga el idioma de la app es una decisión distinta y va
+  con el bloque de selección de pistas, que sigue pendiente.
