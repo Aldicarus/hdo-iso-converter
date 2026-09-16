@@ -385,8 +385,14 @@ class TestElEstiloSeSostiene(CatalogoCase):
         de la app— y se exige que la traducción contenga la traducción de ese
         rótulo.
         """
+        # Las tres primeras alternativas son la cita ENTRECOMILLADA. La
+        # cuarta es la cita a pelo detrás del verbo —«púlsa Analizar»—, que
+        # es como se escapó «prem Analitza» cuando el botón ya decía
+        # «Analitzar»: sin comillas, el patrón de arriba no la ve.
         CITA = re.compile(r'"([^"{}<>]{3,40})"|«([^»{}<>]{3,40})»'
-                          r'|<strong>([^<{}]{3,40})</strong>')
+                          r'|<strong>([^<{}]{3,40})</strong>'
+                          r'|(?:p[uú]lsa|pulse|presiona|haz clic en)\s+'
+                          r'([A-ZÁÉÍÓÚ][\wáéíóúñü]*(?:\s+[\wáéíóúñü]+)?)')
         rotulos = {}
         for _, cat in self.catalogos():
             for k, v in cat["es"].items():
@@ -397,7 +403,8 @@ class TestElEstiloSeSostiene(CatalogoCase):
         for _, cat in self.catalogos():
             for k, es in cat["es"].items():
                 for m in CITA.finditer(es):
-                    cita = (m.group(1) or m.group(2) or m.group(3)).strip()
+                    cita = (m.group(1) or m.group(2) or m.group(3)
+                            or m.group(4)).strip().rstrip('.,')
                     if cita not in rotulos:
                         continue
                     cat_r, k_r = rotulos[cita]

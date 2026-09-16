@@ -276,6 +276,7 @@ el defecto fielmente porque para eso está.
 | `core.se_recalcula_automaticamente_al_cambiar_los` | «Se recalcula automáticamente al cambiar los **toggles**» | **los toggles ya no existen.** Los sustituyeron las dos tarjetas informativas del disco (Dolby Vision y Vídeo · HDR), y con ellos se fue `recalcMkvNameLocal`: el nombre lo construye solo el backend. El tooltip describe una interfaz que se retiró. |
 | `core.mkvpropedit_in_place_solo_ruta_sin` | «mkvpropedit in-place (solo ruta sin reordenación, **— en ruta directa**)» | frase **colgando**: falta lo que iba después de la raya. Se lee como si el paréntesis se hubiera cortado a medias, y las tres lenguas lo reproducen igual porque es lo fiel. |
 
+| `tab1.paso_2_elige_el_origen_un` · `…_varios` | «y **púlsa** Analizar» | **falta de ortografía**: `pulsa` es llana, no lleva tilde. Está en las dos variantes del mismo paso, así que se escribió una vez y se copió. |
 | `cmv40_modals.borrar_artefactos_de_proyecto` | «**Borrar** artefactos de {p1} proyecto{p2}**?**» | le falta el **«¿» de apertura**. Sus once hermanos de diálogo lo llevan, y sin él la frase parece un rótulo y no una pregunta — hasta el punto de que el guard de la forma verbal catalana la tomaba por un botón. |
 
 Las dos primeras son de la misma familia que el «(audit #13)» de un mensaje de usuario:

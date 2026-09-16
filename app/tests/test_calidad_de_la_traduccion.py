@@ -136,6 +136,13 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # a secas se escapaban **14**, seis de ellos en el log del servidor. Y no se
     # exige `…`: «Esperando turno» es un rótulo de estado sin puntos y el
     # castellanismo es el mismo.
+    # `-re` hace falta en `INF_CA` para los infinitivos de esa conjugación
+    # («treure», «prendre»), pero deja pasar tres imperativos que acaban
+    # igual: «Obre» por «Obrir» era el rótulo del botón «Abrir MKV» y el
+    # guard lo daba por bueno. La lista es explícita porque por patrón no se
+    # pueden separar — «obre» y «treure» acaban las dos en `re`.
+    IMPERATIVO_CA = re.compile(r"^(?:Obre|Obri|Omple|Emple|Cobre)$")
+
     GERUNDIO = re.compile(
         r"^[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent)\b")
 
@@ -185,6 +192,12 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
                             r"(?:me|se|lo|la|los|las|le|les|nos)?\b")
         INF_CA = re.compile(r"^[A-ZÀÈÉÍÒÓÚ][a-zàèéíòóúïüç·]*(?:ar|er|ir|re)"
                             + ENCLITIC + r"$")
+        # `-re` hace falta para los infinitivos de esa conjugación («treure»,
+        # «prendre»), pero deja pasar tres imperativos que acaban igual:
+        # «Obre» por «Obrir» era el rótulo del botón «Abrir MKV», y el guard
+        # lo daba por bueno. La lista es explícita porque separarlos por
+        # patrón no se puede — «obre» y «treure» terminan las dos en `re`.
+        assert self.IMPERATIVO_CA
         malas = []
         for donde, cat in _catalogos():
             for k, es in cat["es"].items():
@@ -198,7 +211,9 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
                 ca = cat["ca"].get(k, "")
                 if not ca:
                     continue
-                if not INF_CA.match(ca.split()[0].rstrip(":,.…—")):
+                primera = ca.split()[0].rstrip(":,.…—")
+                if (not INF_CA.match(primera)
+                        or self.IMPERATIVO_CA.match(primera)):
                     malas.append(f"[{donde}] `{k}`: {es[:34]} → {ca[:34]}")
         self.assertEqual(sorted(malas), [], (
             f"\n{len(malas)} rótulo(s) con el castellano en infinitivo y el "
