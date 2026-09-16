@@ -85,6 +85,9 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "cmv40_pipeline.gate": "el marcador ⛔, la palabra «Gate» del glosario y "
+                           "dos huecos; el castellano no dice «ha fallado» y "
+                           "la traducción tampoco debe decirlo",
     "tab3.profile": "«Profile» es el nombre del campo del RPU y está en el "
                     "GLOSARIO; lo único traducible sería los dos puntos",
     "core.mkvmerge_mpls_mkv": "el nombre de la herramienta y el de la playlist, "

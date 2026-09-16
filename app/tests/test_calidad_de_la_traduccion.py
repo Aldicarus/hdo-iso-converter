@@ -159,14 +159,14 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # dos más.
     ANTES = r"(?:^|[—·:.;!?]\s+)"
     GERUNDIO = re.compile(
-        ANTES + r"[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent|int)\b")
+        ANTES + r"[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·'-]*(ant|ent|int)\b")
 
     def test_ningun_rotulo_de_progreso_empieza_por_gerundio(self):
         malas = []
         for donde, cat in _catalogos():
             for k, es in cat["es"].items():
                 if not re.search(self.ANTES + r"[^A-Za-zÁÉÍÓÚ]*[A-ZÁÉÍÓÚ]?"
-                                 r"[a-záéíóúñü]*(ando|endo)\b", es):
+                                 r"[a-záéíóúñü-]*(ando|endo)\b", es):
                     continue
                 ca = cat["ca"].get(k, "")
                 if self.GERUNDIO.search(ca):

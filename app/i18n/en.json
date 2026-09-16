@@ -116,7 +116,7 @@
   "cmv40_pipeline.frame_count_vs_dentro_de_margen": "✓ Frame count: {actual} vs {expected} (Δ={diff}, within tolerance)",
   "cmv40_pipeline.frame_counts_ok_source_target_match": "Frame counts OK: source={frames_bd}, target={frames_tgt} (match). Source profile: P{expected_profile}{el_label} (preserved in the output)",
   "cmv40_pipeline.frames_de_exportados": "{label} frames exported",
-  "cmv40_pipeline.gate": "⛔ Gate '{p1}' failed: {p2}",
+  "cmv40_pipeline.gate": "⛔ Gate '{p1}': {p2}",
   "cmv40_pipeline.gates_con_degradacion_previsible_el_pipeline": "⚠ Gates with foreseeable degradation: {ack_failures}. The pipeline stops and waits for your confirmation.",
   "cmv40_pipeline.gates_que_no_pasan": "⚠ Gates that do NOT pass: {failing}",
   "cmv40_pipeline.generando_datos_per_frame_para_el": "Generating per-frame data for the chart…",
