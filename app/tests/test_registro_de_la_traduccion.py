@@ -80,6 +80,13 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "core.mkvmerge_mpls_mkv": "el nombre de la herramienta y el de la playlist, "
+                              "con una flecha: «MPLS playlist» añadía una palabra "
+                              "que el original no dice",
+    "core.propedit": "el rótulo abreviado del círculo de fase, tal cual en el "
+                     "original; la tira de fases va justa de ancho",
+    "core.total": "cabecera de columna de una sola palabra; «Total time» decía "
+                  "más que el castellano",
     "ui.general": "el nombre de una sección del manual; sus seis hermanas van "
                   "literales y expandirla a «Overview» rompía la simetría",
     "ui.google_api_key_drive_sheets": "el nombre del producto más los dos "

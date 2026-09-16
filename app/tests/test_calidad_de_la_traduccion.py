@@ -188,7 +188,12 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
         malas = []
         for donde, cat in _catalogos():
             for k, es in cat["es"].items():
-                if not INF_ES.match(es):
+                # Una PREGUNTA no es un rótulo de acción: los doce títulos de
+                # confirmación dicen «Vols …?», y el castellano los escribe
+                # con infinitivo («¿Borrar {n} elementos?»). El «¿» de
+                # apertura no sirve para distinguirlos porque a uno le falta;
+                # lo que sí, el cierre.
+                if not INF_ES.match(es) or es.rstrip().endswith("?"):
                     continue
                 ca = cat["ca"].get(k, "")
                 if not ca:

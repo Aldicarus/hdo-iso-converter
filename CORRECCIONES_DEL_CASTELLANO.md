@@ -264,6 +264,24 @@ es estático y ya está puesto: `TestNingunaClavePedidaFaltaDelCatalogo`.
 
 ---
 
+## Defectos DEL CASTELLANO que la lectura por pantalla destapó
+
+Van aquí y **no se arreglan en `es.json`**: el castellano es el original y lo
+vigila un golden. Se anotan para hacerlos aparte, en el código, cuando el
+usuario lo decida — lo que se corrige de paso es la traducción, que reproduce
+el defecto fielmente porque para eso está.
+
+| clave | qué dice el castellano | qué pasa |
+|---|---|---|
+| `core.se_recalcula_automaticamente_al_cambiar_los` | «Se recalcula automáticamente al cambiar los **toggles**» | **los toggles ya no existen.** Los sustituyeron las dos tarjetas informativas del disco (Dolby Vision y Vídeo · HDR), y con ellos se fue `recalcMkvNameLocal`: el nombre lo construye solo el backend. El tooltip describe una interfaz que se retiró. |
+| `core.mkvpropedit_in_place_solo_ruta_sin` | «mkvpropedit in-place (solo ruta sin reordenación, **— en ruta directa**)» | frase **colgando**: falta lo que iba después de la raya. Se lee como si el paréntesis se hubiera cortado a medias, y las tres lenguas lo reproducen igual porque es lo fiel. |
+
+| `cmv40_modals.borrar_artefactos_de_proyecto` | «**Borrar** artefactos de {p1} proyecto{p2}**?**» | le falta el **«¿» de apertura**. Sus once hermanos de diálogo lo llevan, y sin él la frase parece un rótulo y no una pregunta — hasta el punto de que el guard de la forma verbal catalana la tomaba por un botón. |
+
+Las dos primeras son de la misma familia que el «(audit #13)» de un mensaje de usuario:
+texto que describió bien algo que después cambió, y que nadie volvió a leer
+porque leer el catálogo entero por pantalla no se había hecho nunca.
+
 ## Lo que se decidió NO traducir, y dónde está escrito
 
 La decisión del usuario fue «interfaz sí, diagnóstico no», y al aplicarla

@@ -359,7 +359,7 @@
   "phase_e.mkvmerge_no_genero_el_mkv_final": "mkvmerge no ha generat el MKV final a {output_path}",
   "phase_e.mkvpropedit_fallo_con_codigo": "mkvpropedit ha fallat amb codi {returncode}: {err_text}",
   "rec999_drive.drive_download_fallo": "La descàrrega de Drive ha fallat ({status_code}): {p2}",
-  "rec999_drive.google_drive_ha_bloqueado_temporalmente_la": "Google Drive ha blocat temporalment la descàrrega d'aquest bin per excés de descàrregues de la comunitat (no és la teva quota d'API). Solucions: obre'l al navegador i fes servir \"Fes una còpia\" al teu Drive per baixar-lo des de la teva còpia, posa el .bin a /mnt/cmv40_rpus i fes servir la pestanya \"Carpeta local\"; o torna-ho a provar en ~24h (la quota del fitxer es restableix sola).",
+  "rec999_drive.google_drive_ha_bloqueado_temporalmente_la": "Google Drive ha bloquejat temporalment la descàrrega d'aquest bin per excés de descàrregues de la comunitat (no és la teva quota d'API). Solucions: obre'l al navegador i fes servir \"Fes una còpia\" al teu Drive per baixar-lo des de la teva còpia, posa el .bin a /mnt/cmv40_rpus i fes servir la pestanya \"Carpeta local\"; o torna-ho a provar en ~24h (la quota del fitxer es restableix sola).",
   "rec999_drive.no_hay_google_api_key_configurada": "No hi ha cap Google API key configurada",
   "rpu_analyze.dovi_tool_export_excedio_s_matando": "⚠ dovi_tool export ha excedit {timeout}s — matant el procés",
   "rpu_analyze.json_generado_mb_parseando_combos": "✓ JSON generat: {p1} MB · parsejant els combos…",
