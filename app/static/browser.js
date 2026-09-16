@@ -35,7 +35,7 @@ const _DEFAULT_FB_ROOTS = [
   { key: 'library', label: tr('ui.biblioteca'), icon: 'biblioteca' },
 ];
 const _FB_ROOT_LABELS = {
-  library:    'Biblioteca',
+  library:    tr('ui.biblioteca'),
   output:     'Output',
   downloaded: 'Downloaded',
 };
@@ -82,7 +82,7 @@ async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   const bcEl = document.getElementById('file-browser-breadcrumb');
   const baseEl = document.getElementById('file-browser-base');
   const statsEl = document.getElementById('file-browser-stats');
-  if (titleEl) titleEl.textContent = title || 'Seleccionar MKV';
+  if (titleEl) titleEl.textContent = title || tr('ui.seleccionar_mkv');
   if (subEl) subEl.textContent = subtitle || tr('browser.navega_tu_biblioteca_y_elige_el');
   if (searchEl) searchEl.value = '';
   // Limpiar restos de aperturas anteriores ANTES de mostrar para no flashear datos viejos

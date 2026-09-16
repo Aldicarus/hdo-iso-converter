@@ -47,8 +47,8 @@ const MAX_CMV40_PROJECTS = 5;
 
 // Label humano por nombre de fase (running_phase)
 const CMV40_RUNNING_LABELS = {
-  'analyze_source':  'Fase A — Analizando MKV origen',
-  'target_rpu_mkv':  'Fase B — Extrayendo RPU target',
+  'analyze_source':  tr('tab3.fase_a_analizando_mkv_origen'),
+  'target_rpu_mkv':  tr('tab3.fase_b_extrayendo_rpu_target'),
   'target_rpu_drive':tr('tab3.fase_b_descargando_rpu_del_repositorio'),
   'target_rpu_path': tr('tab3.fase_b_cargando_rpu_de_carpeta'),
   'extract':         tr('tab3.fase_c_extrayendo_bl_el_y'),
@@ -158,14 +158,14 @@ function _cmv40TargetNeedsMerge(s) {
 function _cmv40GuessNextPhase(s) {
   const trust = _cmv40Trust(s);
   switch (s.phase) {
-    case 'created':          return 'Fase A — Analizando MKV origen';
-    case 'source_analyzed':  return 'Fase B — Preparando RPU target';
-    case 'target_provided':  return 'Fase C — Separando capas';
-    case 'extracted':        return trust ? 'Fase F — Inyectando RPU (drop-in)' : tr('tab3.fase_d_revision_visual');
-    case 'sync_verified':    return 'Fase F — Inyectando RPU';
-    case 'sync_corrected':   return 'Fase F — Inyectando RPU';
+    case 'created':          return tr('tab3.fase_a_analizando_mkv_origen');
+    case 'source_analyzed':  return tr('tab3.fase_b_preparando_rpu_target');
+    case 'target_provided':  return tr('tab3.fase_c_separando_capas');
+    case 'extracted':        return trust ? tr('tab3.fase_f_inyectando_rpu_drop_in') : tr('tab3.fase_d_revision_visual');
+    case 'sync_verified':    return tr('tab3.fase_f_inyectando_rpu');
+    case 'sync_corrected':   return tr('tab3.fase_f_inyectando_rpu');
     case 'injected':         return 'Fase G — Ensamblando MKV';
-    case 'remuxed':          return 'Fase H — Validando resultado';
+    case 'remuxed':          return tr('tab3.fase_h_validando_resultado');
     case 'validated':        return 'Fase H — Finalizando';
     default:                 return '';
   }
@@ -457,9 +457,9 @@ function _cmv40PlanAutoSteps(s, project) {
     .map(([k]) => k);
   let gateBCLabel;
   if (s.compat_warning) {
-    gateBCLabel = 'incompatible · abortada';
+    gateBCLabel = tr('tab3.incompatible_abortada');
   } else if (curIdxForGate < targetProvidedIdx) {
-    gateBCLabel = 'pendiente';
+    gateBCLabel = tr('tab3.lbl_pendiente');
   } else if (s.target_trust_ok) {
     // Sin icono: esto es el `customLabel` de un paso y la timeline lo pinta
     // con `escHtml` —hace bien, porque otros labels traen datos—, así que un
@@ -468,7 +468,7 @@ function _cmv40PlanAutoSteps(s, project) {
   } else if (failingGates.length) {
     gateBCLabel = tr('tab3.gate_revision_manual', {p1: failingGates.length, p2: failingGates.length > 1 ? 's' : ''});
   } else {
-    gateBCLabel = 'flujo manual';
+    gateBCLabel = tr('tab3.flujo_manual');
   }
   const gateBCWhat = s.compat_warning
     ? s.compat_warning.slice(0, 140) + (s.compat_warning.length > 140 ? '…' : '')
@@ -492,10 +492,10 @@ function _cmv40PlanAutoSteps(s, project) {
       ? tr('tab3.omitida_drop_in_fel_sin_demux')
       : tr('tab3.omitida_target_trusted_no_se_necesitan');
     cForcedStatus = 'skipped';
-    cLabel = 'omitida · drop-in';
+    cLabel = tr('tab3.omitida_drop_in_2');
   } else {
-    cWhat = (wf === 'p8') ? tr('tab3.workflow_p8_sin_demux') + (trust ? ' (per-frame omitido)' : ', genera per-frame data')
-                          : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' (per-frame omitido)' : ' + per-frame data');
+    cWhat = (wf === 'p8') ? tr('tab3.workflow_p8_sin_demux') + (trust ? ' ' + tr('tab3.per_frame_omitido') : tr('tab3.genera_per_frame_data'))
+                          : 'dovi_tool demux → BL' + (wf === 'p7_fel' ? ' + EL' : '') + (trust ? ' ' + tr('tab3.per_frame_omitido') : ' + per-frame data');
   }
   steps.push({
     key: 'C', icon: 'tijeras', title: tr('tab3.fase_c_demux_per_frame'),
@@ -505,7 +505,7 @@ function _cmv40PlanAutoSteps(s, project) {
   steps.push({
     key: 'D', icon: 'grafico', title: tr('tab3.fase_d_verificar_sincronizacion'),
     what: trust
-      ? 'Omitida — gates validaron frame count + L5/L6/L8'
+      ? tr('tab3.omitida_gates_validaron_frame_count_l5_l6')
       : tr('tab3.chart_interactivo_de_sincronizacion_alinear_las'),
     etaSecs: trust ? 0 : null,   // null = desconocido (interactivo)
     forcedStatus: trust ? 'skipped' : null,
@@ -524,16 +524,16 @@ function _cmv40PlanAutoSteps(s, project) {
   let eStatus = null, eLabel = null;
   if (trust) {
     eStatus = 'skipped';
-    eLabel = 'omitida · gates Δ=0';
+    eLabel = tr('tab3.omitida_gates_0');
   } else if (hasSyncCfg) {
     // Corrección aplicada; _cmv40StepStatus decide done/running/pending según
     // la fase actual. El customLabel se usa cuando esté done.
-    eLabel = 'aplicada';
+    eLabel = tr('tab3.lbl_aplicada');
     eStatus = null;
   } else if (pastSyncVerified) {
     // Usuario confirmó sync sin corrección — Δ era 0 tras revisión.
     eStatus = 'skipped';
-    eLabel = 'omitida · Δ=0 confirmado';
+    eLabel = tr('tab3.omitida_0_confirmado');
   }
   // (caso restante: no-trusted + sin sync_config + pre-sync_verified →
   //  eStatus/eLabel null → _cmv40StepStatus decide 'pending'.)
@@ -701,7 +701,7 @@ function _cmv40EnsureTimerTick() {
         const sufijo = el.dataset.etaSufijo || '(auto)';
         remainEl.textContent = remaining > 0
           ? `~${_cmv40FmtClock(remaining)} restantes ${sufijo}`
-          : 'casi listo…';
+          : tr('tab3.casi_listo');
       }
     });
   }, 1000);
@@ -725,11 +725,11 @@ function _cmv40BinClasificado(s) {
 function _cmv40SufijoEta(s) {
   const rutaPorSaber = !_cmv40BinClasificado(s)
     && CMV40_PHASES_ORDER.indexOf(s.phase) < CMV40_PHASES_ORDER.indexOf('target_provided');
-  return rutaPorSaber ? '(estimado inicial)' : '(auto)';
+  return rutaPorSaber ? tr('tab3.estimado_inicial') : '(auto)';
 }
 
 function _cmv40TextoRestante(secs, s) {
-  if (secs <= 0) return 'casi listo…';
+  if (secs <= 0) return tr('tab3.casi_listo');
   return `~${_cmv40FmtClock(secs)} restantes ${_cmv40SufijoEta(s)}`;
 }
 
@@ -888,12 +888,12 @@ function _cmv40RenderTimeline(s, project) {
     // Para done, añadimos el tiempo real ej. "completado · 05:29" si lo hay.
     const doneLabel = elapsed != null
       ? tr('comun.completado_p1', {p1: _cmv40FmtClock(elapsed)})
-      : 'completado';
+      : tr('tab3.lbl_completado');
     const defaultLabel = status === 'done'    ? doneLabel
-                       : status === 'skipped' ? 'omitida'
+                       : status === 'skipped' ? tr('tab3.lbl_omitida')
                        : status === 'running' ? tr('workbar.en_curso_2')
-                       : status === 'error'   ? 'incompatible'
-                       : `Restante ${_cmv40FmtEta(st.etaSecs)}`;
+                       : status === 'error'   ? tr('tab3.lbl_incompatible')
+                       : tr('comun.restante_p1', {p1: _cmv40FmtEta(st.etaSecs)});
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     const gateCls = st.isGate ? ' cmv40-tl-is-gate' : '';
@@ -923,9 +923,9 @@ function _cmv40RenderTimeline(s, project) {
   const beforeGates = curPhaseIdx < targetProvidedIdx || !gatesEvaluated;
   let trustBadge;
   if (beforeGates) {
-    trustBadge = '<span class="cmv40-tl-trust-badge pending"><span data-icono="reloj"></span> Auto · pendiente validaciones</span>';
+    trustBadge = '<span class="cmv40-tl-trust-badge pending"><span data-icono="reloj"></span> ' + tr('tab3.auto_pendiente_validaciones') + '</span>';
   } else if (_cmv40Trust(s)) {
-    trustBadge = '<span class="cmv40-tl-trust-badge trusted"><span data-icono="rayo"></span> Auto · trusted</span>';
+    trustBadge = '<span class="cmv40-tl-trust-badge trusted"><span data-icono="rayo"></span> ' + tr('tab3.auto_trusted') + '</span>';
   } else {
     trustBadge = '<span class="cmv40-tl-trust-badge manual"><span data-icono="lupaOnda"></span> ' + tr('tab3.manual_revision_visual') + '</span>';
   }
@@ -969,16 +969,16 @@ const CMV40_PHASES_ORDER = [
 
 // Pretty names por fase
 const CMV40_PHASE_LABELS = {
-  'created':         'Proyecto creado',
-  'source_analyzed': 'Origen analizado',
-  'target_provided': 'RPU target listo',
+  'created':         tr('tab1.proyecto_creado'),
+  'source_analyzed': tr('tab3.origen_analizado'),
+  'target_provided': tr('tab3.rpu_target_listo'),
   'extracted':       tr('tab3.bl_el_extraidos'),
-  'sync_verified':   'Sync verificado',
-  'sync_corrected':  'Sync corregido',
-  'injected':        'RPU inyectado',
-  'remuxed':         'MKV remuxado',
-  'validated':       'Validado',
-  'done':            'Completado',
+  'sync_verified':   tr('tab3.sync_verificado'),
+  'sync_corrected':  tr('tab3.sync_corregido'),
+  'injected':        tr('tab3.rpu_inyectado'),
+  'remuxed':         tr('tab3.mkv_remuxado'),
+  'validated':       tr('tab3.validado'),
+  'done':            tr('tab3.completado'),
   'error':           'Error',
   'cancelled':       'Cancelado',
 };
@@ -1026,7 +1026,7 @@ async function _showCMv40NewProjectWizard() {
       labelEl.textContent = _cmv40SourceFilename;
       labelEl.classList.remove('placeholder');
     } else {
-      labelEl.textContent = 'Selecciona MKV…';
+      labelEl.textContent = tr('ui.selecciona_mkv');
       labelEl.classList.add('placeholder');
     }
   }
@@ -1093,7 +1093,7 @@ async function loadCMv40SourceList() {
   _cmv40SourceFilename = null;
   const labelEl = document.getElementById('cmv40-source-btn-label');
   if (labelEl) {
-    labelEl.textContent = 'Selecciona MKV…';
+    labelEl.textContent = tr('ui.selecciona_mkv');
     labelEl.classList.add('placeholder');
   }
   _cmv40NewUpdateCreateBtn();
@@ -1676,7 +1676,7 @@ function _cmv40NewUpdatePipelinePreview() {
   let retailAlternative = '';
   if (prov === 'generated' && Array.isArray(_cmv40NewRepoCands)) {
     const alt = _cmv40NewRepoCands.find(c => c.provenance === 'retail');
-    if (alt) retailAlternative = alt.file?.name || '(retail disponible)';
+    if (alt) retailAlternative = alt.file?.name || tr('tab3.retail_disponible');
   }
 
   container.style.display = 'block';
@@ -2464,7 +2464,7 @@ async function copyLogToClipboard(containerId, btn) {
     // Feedback visual breve en el botón si se pasó
     if (btn) {
       const orig = btn.textContent;
-      btn.innerHTML = icono('check') + ' Copiado';
+      btn.innerHTML = icono('check') + ' ' + tr('tab3.copiado');
       btn.disabled = true;
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
     }
@@ -2909,9 +2909,9 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
     const beforeGates2 = curPhaseIdx2 < targetProvidedIdx2 || !gatesEvaluated2;
     let cls2, txt2;
     if (beforeGates2) {
-      cls2 = 'pending'; txt2 = icono('reloj') + ' Auto · pendiente validaciones';
+      cls2 = 'pending'; txt2 = icono('reloj') + ' ' + tr('tab3.auto_pendiente_validaciones');
     } else if (_cmv40Trust(s)) {
-      cls2 = 'trusted'; txt2 = icono('rayo') + ' Auto · trusted';
+      cls2 = 'trusted'; txt2 = icono('rayo') + ' ' + tr('tab3.auto_trusted');
     } else {
       cls2 = 'manual'; txt2 = icono('lupaOnda') + ' ' + tr('tab3.manual_revision_visual');
     }
@@ -2981,11 +2981,11 @@ function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
     const doneLabel = elapsed != null
       ? tr('comun.completado_p1', {p1: _cmv40FmtClock(elapsed)})
-      : 'completado';
+      : tr('tab3.lbl_completado');
     const defaultLabel = status === 'done'    ? doneLabel
-                       : status === 'skipped' ? 'omitida'
+                       : status === 'skipped' ? tr('tab3.lbl_omitida')
                        : status === 'running' ? tr('workbar.en_curso_2')
-                       : `Restante ${_cmv40FmtEta(st.etaSecs)}`;
+                       : tr('comun.restante_p1', {p1: _cmv40FmtEta(st.etaSecs)});
     const label = st.customLabel || defaultLabel;
     const etaHtml = `<span class="cmv40-tl-eta ${status}">${escHtml(label)}</span>`;
     return `<li class="cmv40-tl-step cmv40-tl-${status}" data-step-key="${escHtml(st.key)}">
@@ -3042,7 +3042,7 @@ function _cmv40UpdateProgressUI(pid, prog) {
     if (prog.eta_s != null && prog.eta_s > 0) {
       const m = Math.floor(prog.eta_s / 60);
       const s = prog.eta_s % 60;
-      eta.textContent = `Restante ${m}:${String(s).padStart(2, '0')}`;
+      eta.textContent = tr('comun.restante_p1', {p1: `${m}:${String(s).padStart(2, '0')}`});
     } else {
       eta.textContent = '';
     }
@@ -3085,13 +3085,13 @@ async function cmv40CancelRunning(pid) {
         proj._autoChaining = false;
         if (proj.autoContinue) {
           proj.autoContinue = false;
-          showToast('Cancelado — auto-avance desactivado', 'info');
+          showToast(tr('tab3.cancelado_auto_avance_desactivado'), 'info');
         } else {
-          showToast('Cancelando…', 'info');
+          showToast(tr('tab3.cancelando'), 'info');
         }
       }
     },
-    'Cancelar fase',
+    tr('tab3.cancelar_fase'),
   );
 }
 
@@ -3355,7 +3355,7 @@ function _renderCMv40RecommendationCard(s, pid) {
   const qualityTag = s.target_l8_quality_label || (
     s.target_l8_classification === 'default' ? tr('tab3.cmv4_sintetico') :
     s.target_l8_classification === 'real' ? 'CMv4 (real)' :
-    s.target_l8_classification === 'indeterminate' ? 'CMv4 (ambiguo)' :
+    s.target_l8_classification === 'indeterminate' ? tr('tab3.cmv4_ambiguo') :
     'CMv4 ?'
   );
 
@@ -3492,9 +3492,9 @@ function cmv40AcceptKeep(pid) {
         _updateCMv40Panel(project);
       }
       refreshCMv40Sidebar();
-      showToast('Proyecto cerrado — MKV actual mantenido', 'success');
+      showToast(tr('tab3.proyecto_cerrado_mkv_actual_mantenido'), 'success');
     },
-    'Mantener MKV actual',
+    tr('tab3.mantener_mkv_actual'),
   );
 }
 
@@ -3520,7 +3520,7 @@ function cmv40OverrideRecommendation(pid) {
       refreshCMv40Sidebar();
       showToast(tr('tab3.inyeccion_forzada_el_pipeline_continuara'), 'info');
     },
-    'Inyectar RPU CMv4.0',
+    tr('tab3.inyectar_rpu_cmv4_0'),
   );
 }
 
@@ -3538,9 +3538,9 @@ async function _cmv40HydrateTmdbClient(pid) {
 
 function _cmv40WorkflowLabel(wf) {
   return {
-    p7_fel: 'P7 FEL · merge CMv4.0 preservando dual-layer',
+    p7_fel: tr('tab3.p7_fel_merge_cmv4_0_preservando_dual'),
     p7_mel: tr('tab3.p7_mel_descarta_el_p8_1'),
-    p8:     'P8.1 · inject directo → P8.1 CMv4.0',
+    p8:     tr('tab3.p8_1_inject_directo_p8_1_cmv4'),
   }[wf] || wf;
 }
 
@@ -3899,8 +3899,8 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   const stateLabel = isSkippedC ? tr('tab3.omitida_drop_in_no_hace_falta')
                    : isSkippedD ? tr('tab3.omitida_target_trusted_sync_validado_por')
                    : isDropInF  ? tr('tab3.ejecutada_en_modo_drop_in_inject')
-                   : state === 'done' ? 'Completado'
-                   : state === 'active' ? tr('workbar.en_curso') : 'Pendiente';
+                   : state === 'done' ? tr('tab3.completado')
+                   : state === 'active' ? tr('workbar.en_curso') : tr('tab3.pendiente');
 
   // Resumen cuando está done
   let summary = '';
@@ -3937,12 +3937,12 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   // Sufijo diferenciado por razón de omisión — antes era "(omitida)" genérico
   // para Fase C y D sin diferenciar el porqué (C por drop-in, D por trust).
   const skippedSuffix = isSkippedC
-    ? '(omitida · drop-in)'
+    ? tr('tab3.omitida_drop_in')
     : isSkippedD
     ? (s.user_acknowledged_degradation
         ? tr('tab3.omitida_usuario_reconocio_degradacion')
-        : '(omitida · trust gates OK)')
-    : '(omitida)';
+        : tr('tab3.omitida_trust_gates_ok'))
+    : tr('tab3.omitida');
   const titleSuffix = isSkipped
     ? ` <span style="color:var(--text-3); font-weight:400; font-size:11px">${skippedSuffix}</span>`
     : isDropInF
@@ -4512,7 +4512,7 @@ async function _cmv40CopiarDiagnostico(pid, btn) {
             ok ? 'success' : 'error');
   if (ok && btn) {
     const orig = btn.textContent;
-    btn.innerHTML = icono('check') + ' Copiado';
+    btn.innerHTML = icono('check') + ' ' + tr('tab3.copiado');
     setTimeout(() => { btn.textContent = orig; }, 1200);
   }
 }
@@ -4733,7 +4733,7 @@ function _cmv40FaseSummary(key, s) {
     const name = s.output_mkv_name || '';
     return name ? tr('tab3.mkv_remuxado_pre_validacion_2', {name: name}) : tr('tab3.mkv_remuxado_pre_validacion');
   }
-  if (key === 'H') return s.output_mkv_path ? tr('tab3.movido_a_p1', {p1: s.output_mkv_path}) : 'Validado';
+  if (key === 'H') return s.output_mkv_path ? tr('tab3.movido_a_p1', {p1: s.output_mkv_path}) : tr('tab3.validado');
   return '';
 }
 
@@ -4764,7 +4764,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const d = s.target_dv_info;
     const srcType = s.target_rpu_source === 'drive' ? 'Repo DoviTools'
                    : s.target_rpu_source === 'mkv' ? tr('tab3.extraido_de_otro_mkv')
-                   : 'Carpeta NAS';
+                   : tr('tab3.carpeta_nas');
     const shortHash = s.target_rpu_sha256 ? s.target_rpu_sha256.slice(0, 12) : '';
     const hashLine = shortHash
       ? `<div><span style="color:var(--text-3)"><span data-i18n="tab3.sha_256"></span></span> <code title="${escHtml(s.target_rpu_sha256)}" style="font-size:11px">${shortHash}…</code></div>`
@@ -5159,7 +5159,7 @@ function _cmv40PhaseToast(pid, msg) {
 
 async function cmv40DoAnalyzeSource(pid) {
   await apiFetch(`/api/cmv40/${pid}/analyze-source`, { method: 'POST' });
-  _cmv40PhaseToast(pid, 'Analizando origen…');
+  _cmv40PhaseToast(pid, tr('tab3.analizando_origen'));
   // Polling hasta que termine la fase
   _cmv40PollPhase(pid, 'source_analyzed', 'error');
 }
@@ -5703,10 +5703,10 @@ async function cmv40DoInject(pid) {
     tr('tab3.esto_creara_el_injected_hevc_has'),
     async () => {
       await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
-      _cmv40PhaseToast(pid, 'Inyectando RPU…');
+      _cmv40PhaseToast(pid, tr('tab3.inyectando_rpu'));
       _cmv40PollPhase(pid, 'injected');
     },
-    'Inyectar',
+    tr('tab3.paso_inyectar'),
   );
 }
 
@@ -5993,7 +5993,7 @@ function _renderCMv40Sidebar() {
         ? iconoDeTrabajo('fase_cmv40', 'cmv40') : '',
       meta: formatRelativeDate(s.updated_at || s.created_at),
       metaIso: s.updated_at || s.created_at || '',
-      metaTooltip: 'Modificado: ' + modFull,
+      metaTooltip: tr('tab3.modificado') + ' ' + modFull,
       // Diez puntos, uno por fase del pipeline. «Fase: BL/EL extraídos» no
       // dice si eso es el principio o el final; esto sí, y sin una línea.
       pips: idx >= 0 ? { hechas: idx + 1, total: CMV40_PHASES_ORDER.length,
@@ -6053,7 +6053,7 @@ async function _cmv40DeleteFromSidebar(sid) {
       if (_cmv40SelectedSidebarId === sid) _cmv40SelectedSidebarId = null;
       refreshCMv40Sidebar();
     },
-    'Eliminar',
+    tr('tab1.eliminar'),
   );
 }
 
@@ -6195,8 +6195,8 @@ function _renderCMv40Confidence(project) {
     'excellent': 'Excelente',
     'good':      'Buena',
     'moderate':  'Moderada',
-    'poor':      'Baja',
-    'insufficient_data': 'Datos insuficientes',
+    'poor':      tr('tab3.baja'),
+    'insufficient_data': tr('tab3.datos_insuficientes'),
     'no_variance':       tr('tab3.sin_variacion'),
   }[rating];
   container.innerHTML = `
@@ -7057,7 +7057,7 @@ function _cmv40PfPintar(s, veredicto) {
   const cartel = (typeof cartelDeTmdb === 'function')
     ? cartelDeTmdb(s?.tmdb_info, s?.source_mkv_name || s?.output_mkv_name, icono('curva', 'ico-xl'))
     : null;
-  _cmv40PfSet('cmv40-pf-titulo', cartel?.titulo || 'Proyecto CMv4.0');
+  _cmv40PfSet('cmv40-pf-titulo', cartel?.titulo || tr('tab3.proyecto_cmv4_0'));
   _cmv40PfSet('cmv40-pf-sub', cartel?.meta || s?.output_mkv_name || '');
   const poster = document.getElementById('cmv40-pf-poster');
   if (poster) {
@@ -7079,7 +7079,7 @@ function _cmv40PfPintar(s, veredicto) {
   if (wrap) wrap.style.display = veredicto ? 'none' : '';
   const barra = document.getElementById('cmv40-pf-barra');
   if (barra) barra.style.width = `${Math.round(prog.pct || 0)}%`;
-  _cmv40PfSet('cmv40-pf-paso', prog.label || 'Iniciando…');
+  _cmv40PfSet('cmv40-pf-paso', prog.label || tr('ui.iniciando'));
   _cmv40PfSet('cmv40-pf-pct', prog.pct == null ? '' : `${Math.round(prog.pct)} %`);
 
   const caja = document.getElementById('cmv40-pf-veredicto');

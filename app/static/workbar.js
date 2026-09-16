@@ -247,9 +247,9 @@ function _workbarActivoHTML(a) {
   // El ETA se marca cuando es una extrapolación y no una medida, para que el
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
-    ? _relojHTML(a.segundos, '', ` · Restante ${_workbarTiempo(a.eta_s)}`
+    ? _relojHTML(a.segundos, '', ' · ' + tr('comun.restante_p1', {p1: _workbarTiempo(a.eta_s)})
         + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
-    : _relojHTML(a.segundos, 'Lleva ');
+    : _relojHTML(a.segundos, tr('workbar.lleva') + ' ');
   const fase = a.fases_total
     ? `${a.fase_label || a.fase} · ${a.fase_n || '–'} de ${a.fases_total}`
     : (a.fase_label || a.fase || _workbarDescripcion(a));
@@ -283,7 +283,7 @@ let _workbarSeleccion = null;
 
 // Cómo acabó, dicho para el usuario.
 const _CMV40_FIN = {
-  done: 'Terminado', cancelled: 'Cancelado', error: tr('workbar.terminado_con_error'),
+  done: tr('workbar.terminado'), cancelled: 'Cancelado', error: tr('workbar.terminado_con_error'),
   esperando: tr('workbar.requiere_una_decision'),
 };
 
@@ -328,7 +328,7 @@ function abrirDetalleDeReciente(ref) {
     // Uno que espera decisión NO se abre en modo «última foto»: su vista
     // tiene que ofrecer las salidas, no un resumen de lo que pasó.
     terminal: r.estado !== 'esperando',
-    historial: r, paso: _CMV40_FIN[r.estado] || 'Terminado',
+    historial: r, paso: _CMV40_FIN[r.estado] || tr('workbar.terminado'),
   });
 }
 
@@ -1052,7 +1052,7 @@ function timelineDeTrabajo(pasos, a, titulo) {
   const pct = a.pct_medido ? a.pct
             : total ? Math.round((hechas / total) * 100) : 0;
   const restante = term ? '' : (a.eta_s != null
-    ? `Restante ${_workbarTiempo(a.eta_s)}`
+    ? tr('comun.restante_p1', {p1: _workbarTiempo(a.eta_s)})
       + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : '');
   return `
@@ -1103,7 +1103,7 @@ function _trabajoModalPinta(a, vista) {
   // enseña la cartela de la columna, y repetirlo dejaba tres líneas con el
   // mismo título (cartela + nombre de salida + nombre de origen).
   set('trabajo-modal-titulo',
-      (vista.autoTag || '') + (a.fase_label || vista.titulo || a.que || 'Trabajo'));
+      (vista.autoTag || '') + (a.fase_label || vista.titulo || a.que || tr('ui.trabajo')));
   set('trabajo-modal-sub', vista.sub || '');
   _trabajoCartelPinta(vista.cartel);
   // La tira horizontal se retiró: las fases van SIEMPRE en la columna. Los
@@ -1133,10 +1133,10 @@ function _trabajoModalPinta(a, vista) {
   }
   // El PASO dentro de la fase. Sin él la barra dice cuánto queda pero no de
   // qué: diez minutos de demux se ven igual que diez de merge.
-  set('trabajo-modal-paso', a.paso || vista.paso || a.fase_label || 'Preparando…');
+  set('trabajo-modal-paso', a.paso || vista.paso || a.fase_label || tr('ui.preparando'));
   set('trabajo-modal-pct', a.terminal ? '' : (fase.pct_medido ? `${fase.pct}%` : '—'));
   set('trabajo-modal-eta', a.terminal ? '' : (fase.eta_s != null
-    ? `Restante ${_workbarTiempo(fase.eta_s)}`
+    ? tr('comun.restante_p1', {p1: _workbarTiempo(fase.eta_s)})
       + (fase.eta_fuente === 'modelo' ? ' (aprox.)' : '')
     : ''));
   const tiemposEl = document.getElementById('trabajo-modal-tiempos');
@@ -1145,7 +1145,7 @@ function _trabajoModalPinta(a, vista) {
     // lo que interesa es lo que costó el TRABAJO, no la última fase.
     tiemposEl.innerHTML = a.terminal
       ? (a.segundos ? `Duró ${escHtml(_workbarTiempo(a.segundos))}` : '')
-      : (fase.segundos ? _relojHTML(fase.segundos, 'Lleva ') : '');
+      : (fase.segundos ? _relojHTML(fase.segundos, tr('workbar.lleva') + ' ') : '');
   }
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
@@ -1215,10 +1215,10 @@ function _trabajoModalConResumen(a, vista) {
     ...vista,
     conLog: false,
     cuerpo: _trabajoKvHTML([
-      ['Resultado', _CMV40_FIN[h.estado] || h.estado || '—'],
+      [tr('workbar.resultado'), _CMV40_FIN[h.estado] || h.estado || '—'],
       ['Empezó', fecha(h.inicio)],
       ['Terminó', fecha(h.fin)],
-      ['Duración', _workbarTiempo(h.segundos || a.segundos)],
+      [tr('tab1.duracion'), _workbarTiempo(h.segundos || a.segundos)],
       ['Error', h.error || '—'],
     ]) + `<div class="trabajo-detalle-nota">${escHtml(_MOTIVO_SIN_LOG[
       vista.sinDetalle] || _MOTIVO_SIN_LOG.desconocido)}</div>`,
@@ -1332,7 +1332,7 @@ async function _trabajoModalRefrescar() {
   const base = esElMismo ? act : {
     ..._trabajoModalUltimo,
     pct: null, pct_medido: false, eta_s: null, cancelable: enTransito,
-    paso: enTransito ? tr('workbar.cambiando_de_fase') : 'Terminado',
+    paso: enTransito ? tr('workbar.cambiando_de_fase') : tr('workbar.terminado'),
   };
   try {
     const vista = await fn(base);

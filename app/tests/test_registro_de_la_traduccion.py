@@ -121,6 +121,8 @@ IGUAL_EN_INGLES = {
     "tab2.track_id_p1":      "`Track ID` es como lo llama mkvmerge en su salida",
     "tab3.timecode":         "unidad de tiempo del vídeo, igual en las tres",
     "tab3.gates":            "el nombre de los trust gates en la spec de la app; el log y la hoja de DoviTools los llaman así",
+    "tab3.auto_trusted":     "«Auto» es el rótulo del interruptor y «trusted» el estado del bin en la spec; ninguno de los dos se traduce",
+    "tab3.lbl_incompatible": "«incompatible» se escribe igual en las dos lenguas",
     "tab3.trusted":          "el estado del bin en la spec de trust de la app; su pareja es `Sin trust automático`, que sí se traduce",
     "tab3.auto_on":          "el rótulo del interruptor del auto-pipeline",
     "tab3.auto_off":         "el rótulo del interruptor del auto-pipeline",

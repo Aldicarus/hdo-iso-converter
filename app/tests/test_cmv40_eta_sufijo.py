@@ -28,7 +28,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
-from frontend_sources import js_completo  # noqa: E402
+from frontend_sources import js_completo, motor_i18n  # noqa: E402
 
 NODE = shutil.which("node")
 
@@ -67,6 +67,11 @@ const iOrder = src.indexOf('const CMV40_PHASES_ORDER');
 const orderSrc = src.slice(iOrder, src.indexOf('];', iOrder) + 2);
 
 const bundle = [
+  // El motor de traducción: el rótulo del tiempo restante vive en el
+  // catálogo, así que las funciones que lo pintan llaman a `tr()`. Sin esto
+  // el bundle muere con «tr is not defined» — y el fallo señalaría al código,
+  // que está bien.
+  process.env.MOTOR_I18N,
   orderSrc,
   grab('_cmv40FmtClock'),
   grab('_cmv40BinClasificado'),
@@ -88,7 +93,9 @@ console.log(JSON.stringify(casos.map(c => ({
 class TestSufijoEtaComportamiento(unittest.TestCase):
     def _evaluar(self, casos):
         proc = subprocess.run(
-            [NODE, "-e", _DRIVER], env={**os.environ, "JS_CONCAT": _js_en_disco()},
+            [NODE, "-e", _DRIVER],
+            env={**os.environ, "JS_CONCAT": _js_en_disco(),
+                 "MOTOR_I18N": motor_i18n()},
             input=json.dumps(casos), capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -190,22 +197,32 @@ class TestRotuloDelTiempoRestante(unittest.TestCase):
                     self.assertNotIn(delim, linea, f"{rel}:{i} — {limpia[:90]}")
 
     def test_los_sitios_conocidos_dicen_restante(self):
+        """El rótulo vive en `comun.restante_p1`, así que lo que se fija es
+        que los sitios conocidos pidan ESA clave.
+
+        Antes se contaba la frase literal en el fuente; con el catálogo eso
+        pasaría a contar nada en cuanto alguien tradujera el sitio, que es
+        justo lo que pasó. La clave es lo estable."""
         js = js_completo()
-        self.assertEqual(js.count("` · Restante ${em}:${es}`"), 2)   # escaneo PGS ×2
-        # La columna de trabajo. El transcurrido ya no se interpola aquí: lo
-        # cuenta el navegador con su propio reloj y el restante viaja como
-        # sufijo de ese span.
-        self.assertEqual(js.count(
-            "` · Restante ${_workbarTiempo(a.eta_s)}`"), 1)
-        # La cabecera de la timeline común, que es la de CMv4.0 alimentada por
-        # los otros cuatro tipos.
-        self.assertEqual(js.count("`Restante ${_workbarTiempo(a.eta_s)}`"), 1)
-        # Y el bloque de progreso del modal, que lee el de la FASE: ahí el
-        # restante es el de lo que se está leyendo en el log, no el del
-        # trabajo entero (ver `test_dos_niveles_de_progreso`).
-        self.assertEqual(js.count("`Restante ${_workbarTiempo(fase.eta_s)}`"), 1)
-        self.assertEqual(js.count("`Restante ${_cmv40FmtEta(st.etaSecs)}`"), 2)
-        self.assertIn("`Restante ${m}:${String(s).padStart(2, '0')}`", js)
+        self.assertEqual(js.count("tr('comun.restante_p1'"), 8)
+        cat = json.loads((APP_DIR / "static" / "i18n" / "es.json")
+                         .read_text(encoding="utf-8"))
+        self.assertEqual(cat["comun.restante_p1"], "Restante {p1}")
+        # Los seis sitios, cada uno con el dato que le toca. Lo que importa
+        # es CUÁL de los dos niveles de progreso alimenta a cada uno: la
+        # tarjeta y la cabecera de la timeline llevan el del TRABAJO
+        # (`a.eta_s`) y el bloque del log el de la FASE (`fase.eta_s`) — ver
+        # `test_dos_niveles_de_progreso`.
+        for expr, veces in (
+                ("{p1: _workbarTiempo(a.eta_s)}", 2),
+                ("{p1: _workbarTiempo(fase.eta_s)}", 1),
+                ("{p1: _cmv40FmtEta(st.etaSecs)}", 2),
+                ("{p1: `${em}:${es}`}", 2),
+        ):
+            self.assertEqual(
+                js.count(f"tr('comun.restante_p1', {expr})"), veces, expr)
+        self.assertIn(
+            "tr('comun.restante_p1', {p1: `${m}:${String(s).padStart(2, '0')}`})", js)
 
 
 if __name__ == "__main__":

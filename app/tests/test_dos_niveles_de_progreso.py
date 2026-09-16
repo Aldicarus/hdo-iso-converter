@@ -39,7 +39,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import html  # noqa: E402
+from frontend_sources import html, stub_catalogo_es  # noqa: E402
 
 _CHROME_CANDIDATOS = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -130,7 +130,7 @@ def _medir() -> dict:
 })();
 </script>
 """
-    pagina = html().replace("</head>", sonda + "</head>")
+    pagina = html().replace("</head>", sonda + stub_catalogo_es() + "</head>")
     pagina = pagina.replace("</body>", cuerpo + "</body>")
     pagina = (pagina.replace('src="/static/', 'src="')
                     .replace('href="/static/', 'href="'))

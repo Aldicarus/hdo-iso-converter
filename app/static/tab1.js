@@ -653,7 +653,7 @@ async function analyzeSelectedISO() {
 
   // Deshabilitar botón dentro del modal mientras comprobamos
   const btn = document.getElementById('new-project-analyze-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = icono('reloj') + ' Comprobando…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = icono('reloj') + ' ' + tr('tab1.comprobando'); }
 
   // Check duplicate (compatible con los 3 tipos vía /api/check-duplicate)
   const checkPayload = sourceType === 'm2ts'
@@ -664,7 +664,7 @@ async function analyzeSelectedISO() {
     body: JSON.stringify(checkPayload),
   });
 
-  if (btn) { btn.disabled = false; btn.innerHTML = icono('lupa') + ' Analizar'; }
+  if (btn) { btn.disabled = false; btn.innerHTML = icono('lupa') + ' ' + tr('ui.analizar'); }
 
   // El check-duplicate ahora devuelve `sessions[]` (todas las que
   // comparten fingerprint). Para BDMV/ISO de serie con N episodios
@@ -707,11 +707,11 @@ async function analyzeSelectedISO() {
       // directo a _doAnalyzeSource sin pasar por la detección de
       // multi-episodios y fallaba en mitad del análisis.
       () => _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadProbe),
-      'Reanalizar',
+      tr('tab1.reanalizar'),
     );
     const openBtn = document.createElement('button');
     openBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    openBtn.innerHTML = icono('abrir') + ' Abrir existente';
+    openBtn.innerHTML = icono('abrir') + ' ' + tr('tab1.abrir_existente');
     openBtn.onclick = () => {
       closeModal('confirm-modal');
       openProject(check.session);
@@ -755,7 +755,7 @@ async function _probeAndRouteSource(sourceType, sourcePath, sourceName, payloadP
   // en cuanto el backend empieza a reportar el paso real (montaje, scan
   // por candidato, clasificación). Sin polling el modal se quedaba con
   // "Conectando con el servidor…" durante 10-30s sin barra avanzando.
-  updateProgressModal({ current: 'Iniciando…', pct: 0 });
+  updateProgressModal({ current: tr('ui.iniciando'), pct: 0 });
 
   // Polling del progreso real. Pollea cada 400ms hasta que el POST
   // termine. Si el backend reporta `running:false` lo respetamos (el
@@ -880,7 +880,7 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');
-            line += ` · Restante ${em}:${es}`;
+            line += ' · ' + tr('comun.restante_p1', {p1: `${em}:${es}`});
           }
           statsEl.textContent = line;
         }
@@ -1513,13 +1513,13 @@ function _seriesConfirmConflicts(count, listText) {
       tr('tab1.reemplazar_borra_las_existentes_y_crea') +
       tr('tab1.saltar_existentes_mantiene_las_actuales_y'),
       () => resolve('replace'),
-      'Reemplazar',
+      tr('tab1.reemplazar'),
     );
     // Botón secundario "Saltar existentes" — clonado del patrón de
     // "Abrir existente" del flujo Película (single duplicate).
     const skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-primary btn-sm confirm-extra-btn';
-    skipBtn.innerHTML = icono('omitida') + ' Saltar existentes';
+    skipBtn.innerHTML = icono('omitida') + ' ' + tr('tab1.saltar_existentes');
     skipBtn.onclick = () => {
       closeModal('confirm-modal');
       resolve('skip_existing');
@@ -1717,7 +1717,7 @@ async function seriesCreateSessions() {
 
   const skippedExisting = data.skipped_existing || [];
   const replacedIds = data.replaced_ids || [];
-  const okWord = created.length === 1 ? 'proyecto creado' : 'proyectos creados';
+  const okWord = created.length === 1 ? tr('tab1.proyecto_creado_2') : tr('tab1.proyectos_creados');
   // Mensaje de toast adaptado a las distintas combinaciones (creados,
   // fallidos, saltados, reemplazados). Sin esto el usuario veía solo el
   // count de creados aunque hubiera saltado o reemplazado N.
@@ -1731,7 +1731,7 @@ async function seriesCreateSessions() {
     {p1: skippedExisting.length}));
   const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
-    const failWord = failed.length === 1 ? 'falló' : 'fallaron';
+    const failWord = failed.length === 1 ? tr('tab1.fallo') : 'fallaron';
     showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}${extrasStr}. Revisa el log del servidor.`, 'warning');
   } else if (created.length === 0 && skippedExisting.length > 0) {
     showToast(tr('tab1.sin_novedades_los_episodios_ya_existian', {p1: skippedExisting.length}), 'info');
@@ -1820,9 +1820,9 @@ async function _hydrateModalWithTmdb({ name, modalId, posterId, titleId, subId, 
 
 /** Hidratación TMDb del analyze-modal de Tab 1 (delega en la genérica). */
 async function _hydrateAnalyzeModalTmdb(sourceName, sourceType) {
-  const action = sourceType === 'iso' ? 'Analizando disco'
-    : sourceType === 'bdmv_folder' ? 'Analizando carpeta BDMV'
-    : 'Analizando fichero M2TS';
+  const action = sourceType === 'iso' ? tr('ui.analizando_disco')
+    : sourceType === 'bdmv_folder' ? tr('tab1.analizando_carpeta_bdmv')
+    : tr('tab1.analizando_fichero_m2ts');
   return _hydrateModalWithTmdb({
     name: sourceName,
     modalId: 'analyze-modal',
@@ -1852,7 +1852,7 @@ function _configureAnalyzeModalForSource(sourceType) {
   const identifyEl = document.getElementById('analyze-step-identify');
   if (sourceType === 'iso') {
     if (iconEl) iconEl.innerHTML = icono('disco', 'ico-xl');
-    if (titleEl) titleEl.textContent = 'Analizando disco';
+    if (titleEl) titleEl.textContent = tr('ui.analizando_disco');
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-curso">`
       + icono('reloj') + `</span> ${tr('ui.montando_el_iso')}`;
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
@@ -1861,7 +1861,7 @@ function _configureAnalyzeModalForSource(sourceType) {
       + icono('pendiente') + `</span> ${tr('ui.extrayendo_capitulos')}`;
   } else if (sourceType === 'bdmv_folder') {
     if (iconEl) iconEl.innerHTML = icono('carpeta', 'ico-xl');
-    if (titleEl) titleEl.textContent = 'Analizando carpeta BDMV';
+    if (titleEl) titleEl.textContent = tr('tab1.analizando_carpeta_bdmv');
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
       + icono('check') + `</span> ` + tr('tab1.carpeta_directa_no_requiere_montaje');
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
@@ -1870,7 +1870,7 @@ function _configureAnalyzeModalForSource(sourceType) {
       + icono('pendiente') + `</span> ` + tr('tab1.extrayendo_capitulos_del_playlist');
   } else if (sourceType === 'm2ts') {
     if (iconEl) iconEl.innerHTML = icono('cinta', 'ico-xl');
-    if (titleEl) titleEl.textContent = 'Analizando fichero M2TS';
+    if (titleEl) titleEl.textContent = tr('tab1.analizando_fichero_m2ts');
     if (mountEl) mountEl.innerHTML = `<span class="paso-ico paso-hecho">`
       + icono('check') + `</span> ` + tr('tab1.fichero_directo_no_requiere_montaje');
     if (identifyEl) identifyEl.innerHTML = `<span class="paso-ico paso-pendiente">`
@@ -2130,7 +2130,7 @@ const ESTADO_CHIP  = { pending: 'listo', queued: 'en_cola', running: 'corriendo'
 const ESTADO_CLASE = { queued: 'estado-curso', running: 'estado-curso',
                        done: 'estado-hecho', error: 'estado-error' };
 const ESTADO_TEXTO = { pending: tr('ui.sin_ejecutar'), queued: tr('tab1.en_cola'),
-                       running: tr('workbar.en_curso'), done: 'Completado', error: 'Error' };
+                       running: tr('workbar.en_curso'), done: tr('tab1.completado'), error: 'Error' };
 
 function renderSidebarSessions(sessions, query = '') {
   const container = document.getElementById('sessions-list');
@@ -2195,8 +2195,8 @@ function renderSidebarSessions(sessions, query = '') {
       hour: '2-digit', minute: '2-digit',
     });
     const cuandoTip = (s.last_executed
-        ? 'Ejecutado: ' + new Date(s.last_executed).toLocaleString(localeActual())
-        : 'Nunca ejecutado') + ' · Modificado: ' + modFull;
+        ? tr('tab1.ejecutado') + ' ' + new Date(s.last_executed).toLocaleString(localeActual())
+        : tr('tab1.nunca_ejecutado')) + ' ' + tr('tab1.modificado') + ' ' + modFull;
 
     const card = document.createElement('div');
     card.className = `session-card${isSelected ? ' selected' : ''}`
@@ -2212,7 +2212,7 @@ function renderSidebarSessions(sessions, query = '') {
         // Primero el episodio: es el dato que separa esta fila de las demás
         // del mismo disco, y por eso no puede ir detrás de los tags.
         ...(episodio ? [{ txt: episodio, tono: 'azul',
-                          tooltip: s.episode_title || 'Episodio' }] : []),
+                          tooltip: s.episode_title || tr('tab1.episodio') }] : []),
         ...tags.map(t => ({
           txt: t,
           tono: /DV|FEL|MEL|CMv4/i.test(t) ? 'morado' : 'teal',
@@ -2258,10 +2258,10 @@ function toggleSidebarSelection(sessionId) {
  */
 function confirmOpenSession(sessionId, name) {
   showConfirm(
-    'Abrir proyecto',
+    tr('tab1.abrir_proyecto'),
     tr('tab1.abrir_el_proyecto_n_nse_cargara', {name: name}),
     () => loadSession(sessionId),
-    'Abrir'
+    tr('tab1.abrir')
   );
 }
 
@@ -2272,10 +2272,10 @@ function confirmOpenSession(sessionId, name) {
  */
 function confirmDeleteSession(sessionId, name) {
   showConfirm(
-    'Eliminar proyecto',
+    tr('tab1.eliminar_proyecto'),
     tr('tab1.eliminar_permanentemente_el_proyecto_n_nesta', {name: name}),
     () => deleteSession(sessionId),
-    'Eliminar'
+    tr('tab1.eliminar')
   );
 }
 
@@ -2290,7 +2290,7 @@ async function deleteSession(sessionId) {
   const proj = openProjects.find(p => p.sessionId === sessionId);
   if (proj) _doCloseProject(proj.id);
   if (selectedSidebarSessionId === sessionId) selectedSidebarSessionId = null;
-  showToast('Proyecto eliminado.', 'success');
+  showToast(tr('tab1.proyecto_eliminado'), 'success');
   await loadSessions();
 }
 
@@ -2487,7 +2487,7 @@ async function setTrackMode(trackKind, mode) {
     project.session = updated;
     currentSession = updated;
     renderProjectPanel(project);
-    const label = trackKind === 'audio' ? 'Audio' : 'Subtítulos';
+    const label = trackKind === 'audio' ? 'Audio' : tr('core.subtitulos');
     const modeLabel = mode === 'keep_all' ? tr('core.mantener_todas') : 'Filtrado';
     showToast(tr('tab1.label_modo_aplicado', {label: label, modelabel: modeLabel}), 'success');
   }
@@ -2730,7 +2730,7 @@ function renderIncludedTracks(tracks) {
       const raw  = track.raw || {};
       const def  = track.flag_default ? ' active-default' : '';
       const frc  = track.flag_forced  ? ' active-forced'  : '';
-      const subTypeLabel = track.subtitle_type === 'forced' ? 'Forzados' : 'Completos';
+      const subTypeLabel = track.subtitle_type === 'forced' ? tr('tab1.forzados') : 'Completos';
       const packets = raw.packet_count || 0;
       const tooltip = [
         `Codec: PGS (Presentation Graphics)`,
@@ -3393,10 +3393,10 @@ function recoverTrack(idx) {
   let codecLit, fullLabel;
   if (isAudio) {
     codecLit = _buildAudioCodecLiteral(raw, !!currentSession.audio_dcp);
-    fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
+    fullLabel = `${langLit} ${codecLit}`.trim() || tr('tab1.pista_recuperada');
   } else {
-    codecLit = isForcedSub ? 'Forzados (PGS)' : 'Completos (PGS)';
-    fullLabel = `${langLit} ${codecLit}`.trim() || 'Pista recuperada';
+    codecLit = isForcedSub ? tr('tab1.forzados_pgs') : 'Completos (PGS)';
+    fullLabel = `${langLit} ${codecLit}`.trim() || tr('tab1.pista_recuperada');
   }
 
   const recovered = {
@@ -4078,10 +4078,10 @@ async function executeSession() {
   }
 
   showConfirm(
-    'Ejecutar proyecto',
+    tr('tab1.ejecutar_proyecto'),
     tr('tab1.se_anadira_a_la_cola_de', {p1: currentSession.mkv_name || 'MKV'}),
     _doExecute,
-    'Ejecutar'
+    tr('tab1.ejecutar')
   );
 }
 
@@ -4280,7 +4280,7 @@ function renderExecuteArea() {
   const session = currentSession;
   if (session?.status === 'done') {
     btn.disabled = false;
-    btn.innerHTML = icono('refrescar') + ' Re-ejecutar';
+    btn.innerHTML = icono('refrescar') + ' ' + tr('tab1.re_ejecutar');
   } else if (session?.status === 'running' || session?.status === 'queued') {
     btn.disabled = true;
     btn.innerHTML = icono('reloj') + ' ' + tr('tab1.en_ejecucion');
@@ -4634,7 +4634,7 @@ function showLogModal(idx) {
 
   const isDone  = rec.status === 'done';
   const dateStr = rec.started_at ? new Date(rec.started_at).toLocaleString() : '—';
-  const status  = icono(isDone ? 'check' : 'cruz') + (isDone ? ' Completada' : ' Error');
+  const status  = icono(isDone ? 'check' : 'cruz') + (isDone ? ' ' + tr('tab1.completada') : ' Error');
 
   document.getElementById('log-viewer-title').innerHTML =
     icono('portapapeles') + tr('tab1.log_ejecucion', {run_number: rec.run_number});
@@ -4916,10 +4916,10 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     conLog: false,
     cuerpo: _trabajoKvHTML([
       [tr('tab1.episodio_en_curso'), p?.current_episode_title || '—'],
-      ['Paso', a.paso || '—'],
-      ['Episodios analizados', `${hechos} de ${p?.total || 0}`],
+      [tr('tab1.paso'), a.paso || '—'],
+      [tr('tab1.episodios_analizados'), `${hechos} de ${p?.total || 0}`],
       [tr('ui.con_error'), fallidos || '—'],
-      ['Muestreo PGS', p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
+      [tr('tab1.muestreo_pgs'), p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
     ]),
   };
 });

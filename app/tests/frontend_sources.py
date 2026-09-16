@@ -163,18 +163,25 @@ def pintar_textos_es(html: str) -> str:
 
 
 def stub_catalogo_es() -> str:
-    """`<script>` que hace que el fetch del catálogo funcione en `file://`.
+    """Siembra el catálogo castellano igual que lo hace el servidor.
 
-    Se inyecta antes de `i18n.js`. Sin esto, en un Chrome headless sobre
-    `file://` el fetch falla, el catálogo queda vacío y toda la interfaz
-    muestra claves en vez de texto — un fallo del arnés que parece un fallo de
-    la app.
+    Dos piezas, y las dos hacen falta:
+
+    · **`window.__I18N` antes de `i18n.js`**, que es el script BLOQUEANTE de
+      `/api/i18n/catalogo.js` en producción. Sin él, un `tr()` dentro de una
+      CONSTANTE de módulo se evalúa con el catálogo vacío y congela la clave:
+      el arnés ve `ui.biblioteca` donde la app ve «Biblioteca», o sea que
+      falla señalando a código que funciona.
+    · **el stub de `fetch`**, porque en `file://` la petición del catálogo y
+      la del manual fallan y toda la interfaz se quedaría en claves — un
+      fallo del arnés con pinta de fallo de la app.
     """
     import json
     cat = json.dumps(catalogo_es(), ensure_ascii=False)
     manual = STATIC / "i18n" / "manual" / "es.json"
     man = manual.read_text(encoding="utf-8") if manual.exists() else "{}"
-    return ("<script>(function(){\n"
+    return (f"<script>window.__I18N = {{idioma: 'es', catalogo: {cat}}};</script>\n"
+            "<script>(function(){\n"
             f"const _cat = {cat};\nconst _man = {man};\n"
             "const _real = window.fetch;\n"
             "window.fetch = function (u, o) {\n"

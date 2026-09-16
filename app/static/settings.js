@@ -76,7 +76,7 @@ async function _renderVersionInfo() {
   } else if (data.commit) {
     pillCls = 'dev'; pillTxt = 'desarrollo';
   } else {
-    pillCls = 'unknown'; pillTxt = '? desconocida';
+    pillCls = 'unknown'; pillTxt = tr('settings.desconocida');
   }
   const commitTxt = data.commit ? ` · ${data.commit}` : '';
   const dirtyTxt  = data.is_dirty ? ' · dirty' : '';
@@ -126,7 +126,7 @@ async function checkForUpdates(force) {
   if (!banner) return;
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = icono('refrescar') + ' Consultando…';
+    btn.innerHTML = icono('refrescar') + ' ' + tr('settings.consultando');
   }
   const params = new URLSearchParams();
   if (force) params.set('force', 'true');
@@ -149,7 +149,7 @@ async function checkForUpdates(force) {
   }
   if (btn) {
     btn.disabled = false;
-    btn.innerHTML = icono('refrescar') + ' Comprobar actualizaciones';
+    btn.innerHTML = icono('refrescar') + ' ' + tr('ui.comprobar_actualizaciones');
   }
   if (!data) {
     banner.style.display = 'block';
@@ -563,7 +563,7 @@ async function cleanupScanAndShow() {
   if (!btn || !resultEl) return;
 
   btn.disabled = true;
-  btn.innerHTML = icono('reloj') + ' Escaneando…';
+  btn.innerHTML = icono('reloj') + ' ' + tr('settings.escaneando');
   resultEl.innerHTML = '';
 
   const data = await apiFetch('/api/cleanup/scan');
@@ -660,7 +660,7 @@ async function cleanupExecuteSelected() {
       // Re-escanear para refrescar el listado
       cleanupScanAndShow();
     },
-    'Borrar',
+    tr('tab2.borrar'),
   );
 }
 
@@ -733,7 +733,7 @@ function renderAvisoFinSettings() {
 
   let texto, clase;
   if (!avisoFinActivado()) {
-    texto = 'Desactivado'; clase = 'settings-status';
+    texto = tr('settings.desactivado'); clase = 'settings-status';
   } else if (!avisoNotificacionDisponible()) {
     texto = tr('settings.titulo_de_la_pestana_sin_https');
     clase = 'settings-status ok';
@@ -769,11 +769,11 @@ function onToggleAvisoSonido(on) {
 async function onPedirPermisoNotificaciones() {
   const res = await pedirPermisoNotificaciones();
   renderAvisoFinSettings();
-  if (res === 'granted') showToast('Notificaciones activadas', 'success');
+  if (res === 'granted') showToast(tr('settings.notificaciones_activadas'), 'success');
   else if (res === 'denied') showToast(tr('settings.notificaciones_bloqueadas_en_el_navegador'), 'info');
 }
 
-/** Botón "Probar": dispara el aviso completo sin esperar a un job real. */
+/** Botón tr('ui.probar'): dispara el aviso completo sin esperar a un job real. */
 function probarAvisoFin() {
   if (!avisoFinActivado()) { showToast(tr('settings.activalo_primero_para_probarlo'), 'info'); return; }
   avisarFinDeTrabajo(1);

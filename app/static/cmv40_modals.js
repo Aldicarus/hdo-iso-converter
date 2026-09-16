@@ -183,7 +183,7 @@ async function cmv40BulkCleanupExecute() {
       // Re-escanear preview para refrescar la tabla del modal
       openCMv40CleanupModal();
     },
-    'Borrar',
+    tr('tab2.borrar'),
   );
 }
 
@@ -278,7 +278,7 @@ async function _cmv40HelpHydrateDriveLink() {
       const srcLabel = df.source === 'settings' ? tr('cmv40_modals.configurada_desde_configuracion')
         : df.source === 'env' ? tr('cmv40_modals.configurada_por_variable_de_entorno_del')
         : 'configurada';
-      const apiKeyState = apiKey.configured ? 'API key configurada' : tr('cmv40_modals.api_key_sin_configurar_imprescindible');
+      const apiKeyState = apiKey.configured ? tr('cmv40_modals.api_key_configurada') : tr('cmv40_modals.api_key_sin_configurar_imprescindible');
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
       statusEl.innerHTML = icono('aviso') + ' ' + tr('cmv40_modals.no_configurada');
@@ -482,7 +482,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
   } else if (repo.error) {
     html += `<div class="cmv40-lookup-warn">${escHtml(repo.error)}</div>`;
   } else if (!repo.candidates || repo.candidates.length === 0) {
-    const t = repo.title_en || repo.title_es || '(título)';
+    const t = repo.title_en || repo.title_es || tr('cmv40_modals.titulo');
     html += `<div class="cmv40-lookup-empty">${tr('cmv40_modals.no_hay_bin_para_titulo', {titulo: escHtml(t)})}</div>`;
   } else {
     // Lista plana ordenada por score. El backend ya aplicó bonus retail +0.03

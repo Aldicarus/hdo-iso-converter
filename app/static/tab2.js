@@ -194,7 +194,7 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');
-            line += ` · Restante ${em}:${es}`;
+            line += ' · ' + tr('comun.restante_p1', {p1: `${em}:${es}`});
           }
           statsEl.textContent = line;
         }
@@ -240,7 +240,7 @@ function _resetMkvAnalyzeSteps() {
   const posterEl = document.getElementById('mkv-analyze-modal-poster');
   if (posterEl) posterEl.innerHTML = '<span id="mkv-analyze-modal-icon"><span data-icono="lapiz"></span></span>';
   const titleEl = document.getElementById('mkv-analyze-modal-title');
-  if (titleEl) titleEl.textContent = 'Analizando MKV';
+  if (titleEl) titleEl.textContent = tr('ui.analizando_mkv');
 
   const steps = ['identify', 'mediainfo', 'pgs', 'dovi'];
   steps.forEach((s, i) => {
@@ -495,7 +495,7 @@ function undoMkvEdits() {
   project.analysis = structuredClone(project.originalAnalysis);
   _mkvClearDirty(project);
   _renderMkvEditPanel(project);
-  showToast('Cambios revertidos', 'info');
+  showToast(tr('tab2.cambios_revertidos'), 'info');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -759,7 +759,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   // igual — y ver esa diferencia es justamente para lo que sirve la pantalla.
   const cmpSeries = Array.isArray(opts.compareSeries) && opts.compareSeries.length > 1
     ? opts.compareSeries : null;
-  const cmpLabel = opts.compareLabel || 'Comparación';
+  const cmpLabel = opts.compareLabel || tr('tab2.comparacion');
   const refs = (opts.refs && typeof opts.refs === 'object') ? opts.refs : {};
   // El eje Y tiene que abarcar las DOS curvas o la de comparación se sale del
   // chart sin decirlo.
@@ -1025,7 +1025,7 @@ function _rgrfL1StatsCard(stats, hdr) {
 }
 
 /** Cadena de mastering — sustituye al bloque "Gamut CIE 1931" + parte
- *  del bloque "Luminancia". Muestra textualmente con chips toda la
+ *  del bloque tr('tab2.luminancia'). Muestra textualmente con chips toda la
  *  ficha del color/master del MKV, que es donde realmente varia entre
  *  discos UHD (el container BT.2020 es constante asi que el diagrama
  *  CIE no aportaba info). Distingue 3 etapas: master donde se grade,
@@ -1331,7 +1331,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   // BLOQUE 1 · Stream (profile + timing + structure)
   // ═══════════════════════════════════════════════════════════════
   // Scene cuts + density si la auditoría profunda lo ha calculado.
-  // Esto solo aparece cuando el usuario ha pulsado "Análisis extendido"
+  // Esto solo aparece cuando el usuario ha pulsado tr('tab2.analisis_extendido')
   // (los datos vienen del quality audit, no del análisis básico).
   const sceneCutsCell = (dv?.quality_scene_cuts || 0) > 0
     ? cell(
@@ -1350,7 +1350,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         ${cell('Profile', profile)}
         ${cell(tr('tab2.cm_version'), cmLabel)}
         ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
-        ${cell('Duración', durationStr)}
+        ${cell(tr('tab1.duracion'), durationStr)}
         ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
@@ -1362,7 +1362,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 2 · Cadena de mastering (sustituye al antiguo bloque
-  // "Luminancia" + bloque "Gamut CIE 1931"). Toda la info de primaries,
+  // tr('tab2.luminancia') + bloque "Gamut CIE 1931"). Toda la info de primaries,
   // mastering display, container HEVC, DV L9/L10 y trim targets en una
   // sola ficha escaneable. La luminancia DV L1 dinámica vive en el
   // bloque del sparkline donde hay graficos + stats card; la HDR10
@@ -1431,7 +1431,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
           <div class="dv-grid-2">
             ${cell(tr('tab2.offsets_t_b'), `${lTop} / ${lBot} px`)}
             ${cell(tr('tab2.offsets_l_r'), `${lLft} / ${lRgt} px`)}
-            ${cell('Área activa', `${aWi} × ${aHi}`)}
+            ${cell(tr('tab2.area_activa'), `${aWi} × ${aHi}`)}
             ${cell(tr('tab2.aspect_ratio'), aspectLabel)}
             ${cell('Simetría vertical', sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
             ${cell('Simetría horizontal', sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
@@ -1606,7 +1606,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
 
 /**
  * Card de auditoría de calidad del RPU. Dos estados:
- *  - Sin datos (quality_classification vacío): CTA "Análisis extendido"
+ *  - Sin datos (quality_classification vacío): CTA tr('tab2.analisis_extendido')
  *  - Con datos: badge color + verdict + 4 mini-stats + descripción técnica
  *
  * El usuario pulsa la CTA → pipeline backend de 5-10 min → la card se
@@ -1758,7 +1758,7 @@ function _mkvPintarEstadoDeAnalisis() {
     btn.classList.add('ocupado');
     btn.disabled = false;   // sigue pulsable: abre el detalle
     btn.innerHTML = t.estado === 'corriendo'
-      ? iconoDeEstado('corriendo', 'icono-chip-sm') + ' Analizando…'
+      ? iconoDeEstado('corriendo', 'icono-chip-sm') + ' ' + tr('tab2.analizando')
       : iconoDeEstado('en_cola', 'icono-chip-sm') + ' ' + tr('tab2.en_cola_posicion', {posicion: t.posicion});
   });
 }
@@ -2045,7 +2045,7 @@ function _renderMkvEditPanel(project = mkvProject) {
     }
   } else if (dvDetected) {
     // Se detecta DV por número de HEVC pero dovi_tool no corrió / falló
-    dvProfileLine = a.has_fel ? tr('tab2.p7_fel_detectado_por_estructura') : (hasElByCount ? tr('tab2.p7_mel_detectado_por_estructura') : 'Dolby Vision detectado');
+    dvProfileLine = a.has_fel ? tr('tab2.p7_fel_detectado_por_estructura') : (hasElByCount ? tr('tab2.p7_mel_detectado_por_estructura') : tr('tab2.dolby_vision_detectado'));
   }
 
   const panel = document.getElementById(`mkv-panel-${pid}`);
@@ -2365,7 +2365,7 @@ function _renderMkvTracks(project = mkvProject) {
     const flagForcedLit = t.flag_forced;
     const def = t.flag_default ? ' active-default' : '';
     const frc = flagForcedLit ? ' active-forced' : '';
-    const forcedLabel = derivedForced ? 'Forzados' : 'Completos';
+    const forcedLabel = derivedForced ? tr('tab2.forzados') : 'Completos';
     // Anotación cuando la clasificación viene inferida del volumen, no del flag
     const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-i18n-tip="tab2.clasificacion_inferida_por_volumen"><span data-icono="info"></span> inferido</span>' : '';
 
@@ -2432,7 +2432,7 @@ function _renderMkvChapters(project = mkvProject) {
   } else {
     if (banner) { banner.style.display = 'flex'; banner.className = 'banner warning'; }
     if (text) text.textContent = tr('tab2.sin_capitulos_en_este_mkv');
-    // Botón "Generar cada 10 min" visible sólo si la duración permite al menos
+    // Botón tr('tab2.generar_cada_10_min') visible sólo si la duración permite al menos
     // un capítulo (necesita > 10 min de duración total).
     if (autogenBtn) {
       const dur = a.duration_seconds || 0;
@@ -2455,7 +2455,7 @@ function _renderMkvChapters(project = mkvProject) {
  * Genera capítulos automáticos cada 10 min desde el minuto 10. Mismo
  * algoritmo que `generate_auto_chapters` del backend (phases/phase_b.py)
  * que se usa en Tab 1 cuando el disco no trae capítulos. Marca el proyecto
- * dirty para que aparezca el botón "Aplicar cambios" (el backend escribe
+ * dirty para que aparezca el botón tr('tab2.aplicar_cambios') (el backend escribe
  * los capítulos via mkvpropedit con --chapters).
  */
 function generateMkvAutoChapters() {
@@ -2619,7 +2619,7 @@ function onMkvChapterNameChange(idx, value) {
   mkvProject.analysis.chapters[idx].name = value;
   mkvProject.analysis.chapters[idx].name_custom = value.trim() !== '';
   _mkvMarkDirty();
-  // Actualizar visibilidad del botón "Nombres genéricos"
+  // Actualizar visibilidad del botón tr('core.nombres_genericos')
   const genericBtn = _mkvEl('mkv-chapters-generic-btn');
   if (genericBtn) {
     const hasCustom = mkvProject.analysis.chapters.some(ch => ch.name_custom);
@@ -2736,10 +2736,10 @@ async function applyMkvEdits() {
 // abortaba el modal aunque la copia siguiera en background.
 const MKV_APPLY_LONG_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
-// Estado del job actual de apply. Permite que el botón "Cancelar copia"
+// Estado del job actual de apply. Permite que el botón tr('tab2.cancelar_copia')
 // llame al endpoint del backend y que el flujo principal sepa que el
 // usuario inició la cancelación (para mostrar mensaje correcto en lugar
-// de "error genérico" cuando el POST devuelve 499).
+// de tr('tab2.error_generico') cuando el POST devuelve 499).
 let _mkvApplyUserCancelled = false;
 
 async function _doApplyMkvEdits(copyToOutput) {
@@ -2843,7 +2843,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   refrescarMkvRecientes();
 
   cerrarModalDeTrabajo();
-  showToast('Cambios aplicados correctamente', 'success');
+  showToast(tr('tab2.cambios_aplicados_correctamente'), 'success');
 }
 
 /**
@@ -2952,7 +2952,7 @@ async function _cargarComparacionLuminancia(ruta) {
     }
     project.comparacion = {
       serie,
-      etiqueta: r.file_name || 'Comparación',
+      etiqueta: r.file_name || tr('tab2.comparacion'),
       stats: perfil.stats || null,
       duracion: r.duration_seconds || 0,
       fichero: ruta,
@@ -3263,7 +3263,7 @@ function _renderMkvRecientes() {
         ? iconoDeTrabajo('analisis_extendido', 'mkv') : '',
       meta: fecha,
       metaIso: r.analizado_en || '',
-      metaTooltip: 'Analizado: ' + fechaLarga,
+      metaTooltip: tr('tab2.analizado') + ' ' + fechaLarga,
       insignia,
       abierto,
       acciones: `
@@ -3291,7 +3291,7 @@ function _renderMkvRecientes() {
   });
 
   // El endpoint recorta por arriba (ver TOPE_RECIENTES). Decirlo es más honesto
-  // que dejar que el usuario deduzca que un MKV viejo "ya no está analizado".
+  // que dejar que el usuario deduzca que un MKV viejo tr('tab2.ya_no_esta_analizado').
   if (_mkvRecientesTotal > _mkvRecientes.length && !filtrando) {
     const pie = document.createElement('div');
     pie.className = 'empty-state-desc';
@@ -3398,7 +3398,7 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
-      ['Copiado', `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
+      [tr('tab2.copiado'), `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
       [tr('tab2.fichero_de_origen'), st?.src_path || '—'],
       [tr('tab2.fichero_de_destino'), st?.dst_path || '—'],
       ['Error', st?.error || '—'],

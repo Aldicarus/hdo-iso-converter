@@ -512,7 +512,7 @@ function openProject(session) {
     const sn = String(session.season_number || 0).padStart(2, '0');
     const en = String(session.episode_number || 0).padStart(2, '0');
     const yearPart = session.series_year ? ` (${session.series_year})` : '';
-    const base = `${session.series_name || 'Serie'}${yearPart} - S${sn}E${en}`;
+    const base = `${session.series_name || tr('ui.serie')}${yearPart} - S${sn}E${en}`;
     name = session.episode_title ? `${base} - ${session.episode_title}` : base;
   } else if (session.mkv_name) {
     name = session.mkv_name.replace(/\.mkv$/i, '');
@@ -898,7 +898,7 @@ function closeProject(pid, e) {
 
   if (project.dirty) {
     showConfirm(
-      'Cerrar proyecto',
+      tr('core.cerrar_proyecto'),
       tr('core.tiene_cambios_sin_ejecutar', {name: project.name}),
       () => _doCloseProject(pid),
       tr('core.cerrar_sin_guardar'),
@@ -1035,7 +1035,7 @@ function removeToast(toastId) {
  * @param {Function} onConfirm    - Callback a ejecutar si el usuario confirma.
  * @param {string}   [confirmLabel='Confirmar'] - Texto del botón de confirmación.
  */
-function showConfirm(title, message, onConfirm, confirmLabel = 'Confirmar') {
+function showConfirm(title, message, onConfirm, confirmLabel = tr('ui.confirmar')) {
   document.getElementById('confirm-title').textContent   = title;
   document.getElementById('confirm-message').textContent = message;
   const okBtn = document.getElementById('confirm-ok-btn');
@@ -1087,7 +1087,7 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 const _AVISO_INTERVALO_MS = 20000;
 const _AVISO_PREF = 'hdo_avisar_fin_trabajo';
 const _AVISO_SONIDO_PREF = 'hdo_avisar_con_sonido';
-const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: 'Editar MKV', 3: 'Upgrade CMv4.0' };
+const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: tr('core.editar_mkv'), 3: 'Upgrade CMv4.0' };
 
 let _avisoTrabajosPrevios = null;   // {1,2,3} → bool, foto al ocultarse
 let _avisoTimer = null;
@@ -1202,7 +1202,7 @@ function _arrancarParpadeo(texto) {
  */
 function avisarFinDeTrabajo(tab) {
   if (!avisoFinActivado()) return;
-  const nombre = _AVISO_NOMBRES[tab] || 'Trabajo';
+  const nombre = _AVISO_NOMBRES[tab] || tr('ui.trabajo');
   _arrancarParpadeo(tr('core.p1_terminado', {p1: nombre}));
   if (avisoSonidoActivado()) _pitido();
   if (avisoNotificacionDisponible() && Notification.permission === 'granted') {
