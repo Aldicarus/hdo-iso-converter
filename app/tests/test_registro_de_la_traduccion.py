@@ -98,6 +98,20 @@ IGUAL_EN_INGLES = {
                              "frase entera es nomenclatura",
     "tab2.master_p1_n":      "igual, con la `n` abreviada del gráfico",
     "comun.error_p1":        "«Error» se escribe igual en las dos lenguas",
+    # Rótulos de la radiografía DV+HDR que en castellano YA están en inglés o
+    # en notación de la spec, así que no hay nada que traducir. Varios se
+    # habían «traducido» expandiéndolos, y eso rompía la simetría con sus
+    # hermanos de la misma tabla o del mismo gráfico.
+    "tab2.active_area":     "el castellano ya usa el término inglés del bloque L5",
+    "tab2.ratio":           "cabecera de columna estrecha; el bloque que la contiene ya dice de qué ratio habla, igual que en castellano",
+    "tab2.offsets_px":      "notación de la tabla de active area; sus hermanas son «Offsets L / R» y «Offsets T / B»",
+    "tab2.min":             "una de las tres series del sparkline, junto a «peak» y «avg»",
+    "tab2.midtone_100_300n": "bucket de brillo con su umbral; su pareja es «Highlight ≥300n»",
+    "tab2.percentiles_dv_l1_max_pq": "«Percentiles» más el nombre del campo del RPU",
+    "tab2.dv_target_display_p1": "nombre del bloque L10 tal como lo emite dovi_tool",
+    "tab2.rec_2020":        "nombre del estándar; el castellano alterna «Rec.2020» y «BT.2020» y aquí dice el primero",
+    "tab1.log":             "«Log» se escribe igual en las dos lenguas",
+    "tab2.sdr_like":        "nombre acuñado del bucket de escenas por debajo de 100 nits: «SDR-like», no «rango SDR»",
     # Unidades y estándares: no se traducen en ninguna lengua.
     "tab2.nits":             "unidad de luminancia",
     "tab2.highlight_300n":   "clasificación con su umbral en nits",
