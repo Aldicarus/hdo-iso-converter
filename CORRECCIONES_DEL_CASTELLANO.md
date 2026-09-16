@@ -279,6 +279,11 @@ el defecto fielmente porque para eso está.
 | `tab1.paso_2_elige_el_origen_un` · `…_varios` | «y **púlsa** Analizar» | **falta de ortografía**: `pulsa` es llana, no lleva tilde. Está en las dos variantes del mismo paso, así que se escribió una vez y se copió. |
 | `cmv40_modals.borrar_artefactos_de_proyecto` | «**Borrar** artefactos de {p1} proyecto{p2}**?**» | le falta el **«¿» de apertura**. Sus once hermanos de diálogo lo llevan, y sin él la frase parece un rótulo y no una pregunta — hasta el punto de que el guard de la forma verbal catalana la tomaba por un botón. |
 
+| `tab1.iniciando_extraccion_sigue_el_progreso_en` · `tab1.anadido_a_la_cola_en_posicion` · `tab1.monitoriza_el_progreso_en_el_panel` | «Sigue el progreso en **"Trabajos en Curso"**» | **el panel ya no existe.** Se movió al modal de detalle cuando llegó la columna de trabajo, y los comentarios de `workbar.js` lo dicen: «Al retirar el panel «Trabajos en Curso» de Tab 1 se fue con él…». Tres mensajes mandan al usuario a un sitio que no va a encontrar. El destino de hoy es la columna de trabajo. |
+| `tab1.trabajos_en_curso` | «Trabajos en Curso» | **clave huérfana**: la única referencia que queda está dentro de un comentario (`tab1.js:4501`). Y de paso lleva **mayúsculas de título**, que el REGISTRO prohíbe («Nuevo proyecto», no «Nuevo Proyecto»). |
+| `tab2.error_en_analisis` | «Error en **analisis**: {e}» | **falta la tilde** de «análisis». Es la única del catálogo: un barrido de las palabras que siempre la llevan da este caso y nada más — los otros dieciocho candidatos eran nombres de parámetro (`{titulo}`, `{posicion}`) o el término inglés «CM version». |
+| `tab1.subtitulos_adaptado_pistas` | «── Subtítulos **adaptado** ({p1} pistas) ──» | **falta de concordancia**: «adaptados». Las dos traducciones la arreglan sin decir nada, porque en su lengua la concordancia es obligatoria y no hay forma de reproducir el error. |
+
 Las dos primeras son de la misma familia que el «(audit #13)» de un mensaje de usuario:
 texto que describió bien algo que después cambió, y que nadie volvió a leer
 porque leer el catálogo entero por pantalla no se había hecho nunca.

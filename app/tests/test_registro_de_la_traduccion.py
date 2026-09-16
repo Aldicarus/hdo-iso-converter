@@ -67,6 +67,11 @@ _PARAM = re.compile(r"\{(\w+)\}")
 # Se exime la clave, no el patrón: un nombre nuevo tiene que costar escribir el
 # motivo. Lo cruza `TestElEstiloSeSostiene` contra las claves reales.
 NOMBRE_PROPIO = {
+    "tab1.pistas_capitulos_subtitulos_pgs_y_dolby":
+        "la lista acaba en «Dolby Vision», que es nombre comercial; antes no "
+        "saltaba porque la traducción añadía un «metadata» que el castellano "
+        "no dice",
+
     "ui.analizando_dolby_vision_dovi_tool":
         "«Analyzing Dolby Vision» más el nombre de la herramienta: los tres "
         "candidatos son «Analyzing», «Dolby» y «Vision», así que la "
