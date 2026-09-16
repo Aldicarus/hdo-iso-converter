@@ -34,6 +34,35 @@ import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
 
+# El autómata, y no un regex: emparejar backticks a mano se descuadra con uno
+# dentro de un comentario o de una expresión regular, y las cinco pasadas de
+# abajo quedaban CIEGAS en esas regiones — ahí sobrevivieron 100 frases.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from captura_castellano import regiones_de_plantilla  # noqa: E402
+
+
+class _Trozo:
+    """Lo que devolvía el `re.match` de una plantilla, con su interfaz."""
+
+    __slots__ = ("_a", "_b", "_c")
+
+    def __init__(self, a: int, b: int, c: str):
+        self._a, self._b, self._c = a, b, c
+
+    def start(self, n: int = 0) -> int:
+        return self._a if n == 0 else self._a + 1
+
+    def end(self, n: int = 0) -> int:
+        return self._b if n == 0 else self._b - 1
+
+    def group(self, n: int = 0) -> str:
+        return self._c if n == 1 else "`" + self._c + "`"
+
+
+def _plantillas(fuente: str):
+    return [_Trozo(a, b, c) for a, b, c in regiones_de_plantilla(fuente)]
+
+
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
@@ -310,7 +339,7 @@ def extraer_de_plantillas(ruta: Path, area: str,
     cuenta = {"atributo": 0, "padre": 0, "envuelto": 0, "plantillas": 0}
     trozos: list[tuple[int, int, str]] = []
 
-    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+    for m in _plantillas(fuente):
         plantilla = m.group(1)
         # Sin marcado dentro no es HTML: es una cadena con comillas invertidas
         # y la trata el otro camino.
@@ -533,7 +562,7 @@ def mensajes_con_parametros(ruta: Path, area: str, catalogo: dict[str, str]
     trozos: list[tuple[int, int, str]] = []
     n_total = 0
 
-    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+    for m in _plantillas(fuente):
         tpl = m.group(1)
         if "<" not in tpl or "${" not in tpl:
             continue
@@ -618,7 +647,7 @@ def mensajes_con_parametros_uno(ruta: Path, area: str, catalogo: dict,
     """
     global ULTIMA_CLAVE
     usadas = {v: k for k, v in catalogo.items()}
-    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+    for m in _plantillas(fuente):
         tpl = m.group(1)
         if "<" not in tpl or "${" not in tpl:
             continue
@@ -699,7 +728,7 @@ def cadenas_sueltas(ruta: Path, area: str, catalogo: dict[str, str],
     usadas = {v: k for k, v in catalogo.items()}
     # Las plantillas ya las trataron los bloques 2, 3 y 4.
     plantillas = [(m.start(), m.end())
-                  for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S)]
+                  for m in _plantillas(fuente)]
     lineas_ini = [0]
     for l in fuente.splitlines(keepends=True):
         lineas_ini.append(lineas_ini[-1] + len(l))
@@ -756,7 +785,7 @@ def mensajes_sin_marcado(ruta: Path, area: str, catalogo: dict[str, str],
     fuente = ruta.read_text(encoding="utf-8")
     usadas = {v: k for k, v in catalogo.items()}
     cambios, n = [], 0
-    for m in re.finditer(r"`((?:[^`\\]|\\.)*)`", fuente, re.S):
+    for m in _plantillas(fuente):
         tpl = m.group(1)
         if "<" in tpl or "`" in tpl:
             continue

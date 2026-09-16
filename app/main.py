@@ -434,6 +434,44 @@ class SettingsUpdate(BaseModel):
     idioma: str | None = None          # 'es' | 'en' | 'ca'
 
 
+@app.get("/api/i18n/catalogo.js", summary="El catálogo del idioma activo, como script BLOQUEANTE")
+async def i18n_catalogo_js():
+    """El catálogo, servido como `<script>` clásico y antes que los demás.
+
+    El `fetch` asíncrono de `i18n.js` llega DESPUÉS de que los ocho scripts se
+    parseen, y eso rompió media interfaz sin que ningún test lo viera: las
+    **constantes de módulo** que resuelven su texto con `tr()` se evalúan al
+    parsear, cuando el catálogo todavía está vacío, así que `tr()` devolvía la
+    CLAVE y la dejaba congelada para siempre. Eran 112 llamadas en 13
+    constantes —`CMV40_PHASE_LABELS`, `_CMV40_PIPELINE_PREVIEW`,
+    `ESTADO_TEXTO`…— y en pantalla se leía `tab3.fase_h`.
+
+    Un `<script src>` clásico es **síncrono y bloqueante**, así que con esto el
+    catálogo existe antes de que se parsee la primera línea de `core.js` y
+    `tr()` funciona desde el primer instante. Arreglar las 13 constantes una a
+    una las habría dejado bien HOY; esto impide que la clase vuelva.
+
+    El idioma lo decide el SERVIDOR, que es donde vive el ajuste
+    (`app_settings.json`). Así el primer render ya sale en el idioma correcto
+    sin depender de `localStorage`, que es una copia para ir rápido.
+
+    `no-store` a propósito: cambia en cuanto se toca el ajuste, y son ~200 KB
+    sobre una LAN. El `?v=` del token sigue en la URL para que un proxy
+    intermedio no lo cachee entre despliegues.
+    """
+    from fastapi.responses import Response
+    from services.settings_store import get_idioma
+    idioma = get_idioma()
+    ruta = _STATIC_DIR / "i18n" / f"{idioma}.json"
+    if not ruta.exists():
+        ruta = _STATIC_DIR / "i18n" / "es.json"
+        idioma = "es"
+    cuerpo = ("window.__I18N = {idioma: %s, catalogo: %s};"
+              % (json.dumps(idioma), ruta.read_text(encoding="utf-8")))
+    return Response(content=cuerpo, media_type="application/javascript",
+                    headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/settings", summary="Lee settings persistentes (sin exponer secretos crudos)")
 async def get_settings():
     from services.settings_store import get_public_settings

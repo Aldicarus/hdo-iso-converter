@@ -51,8 +51,20 @@ const TOKEN_I18N = (() => {
   } catch (e) { return ''; }
 })();
 
-let _catalogo = {};
-let _idioma = IDIOMA_POR_DEFECTO;
+// El catálogo lo deja el servidor en un `<script>` BLOQUEANTE que va antes
+// que estos ocho (`/api/i18n/catalogo.js`), así que aquí ya está — y `tr()`
+// funciona al PARSEAR, que es cuando se evalúan las constantes de módulo.
+//
+// Sin eso, `const CMV40_PHASE_LABELS = { h: tr('tab3.fase_h') }` se resolvía
+// con el catálogo vacío y dejaba la clave congelada: 112 llamadas en 13
+// constantes, y en pantalla se leía `tab3.fase_h`. El `fetch` de abajo se
+// queda como respaldo —y es la vía al CAMBIAR de idioma— pero ya no es el
+// camino normal.
+// `globalThis` y no `window`: los arneses de node evalúan estas piezas sin
+// un `window`, y un `ReferenceError` aquí tumba el motor entero.
+const _SEMBRADO = (typeof globalThis !== 'undefined' && globalThis.__I18N) || null;
+let _catalogo = (_SEMBRADO && _SEMBRADO.catalogo) || {};
+let _idioma = (_SEMBRADO && _SEMBRADO.idioma) || IDIOMA_POR_DEFECTO;
 // Claves pedidas que no existen. Se acumulan en vez de avisar una por una: en
 // una vuelta de render se piden cientos, y un toast por cada una tapa la app.
 const _ausentes = new Set();

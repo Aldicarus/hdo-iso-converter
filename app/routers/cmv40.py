@@ -3775,6 +3775,18 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             def _proc_cb(proc):
                 _cmv40_proc_register(session.id, proc)
 
+            # El MISMO `_paso` que `_cmv40_dispatch_preflight`. Las tres
+            # llamadas de abajo estaban aquí desde `7a3c52e` (2026-09-09) SIN
+            # la definición, así que este endpoint —el que llama el modal de
+            # «Nuevo proyecto CMv4.0»— moría con `name '_paso' is not
+            # defined` en TODO pre-flight. El `except` de abajo lo convertía
+            # en un `error_message`, o sea en un banner con un texto de
+            # Python, y por eso no había ni un traceback en el log.
+            from phases.cmv40_pipeline import _emit_progress
+
+            async def _paso(pct: float, label: str):
+                await _emit_progress(_log_cb, pct, label)
+
             try:
                 # Source preflight primero (idempotente — skip si ya hecho).
                 # Validar el origen ANTES del target evita descargar el bin si

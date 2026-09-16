@@ -224,6 +224,10 @@
     ]
    ]
   },
+  "GET /api/i18n/catalogo.js": {
+   "body": [],
+   "params": []
+  },
   "GET /api/isos": {
    "body": [],
    "params": []
