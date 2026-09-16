@@ -130,13 +130,21 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
 
     # El auxiliar concuerda con el objeto, así que no se puede autocorregir:
     # lo que el guard exige es que NO quede un gerundio pelado.
-    GERUNDIO = re.compile(r"^[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent)\b")
+    #
+    # El ancla admite lo que va DELANTE del gerundio —una raya de la cortinilla
+    # («— Cargando… —»), un marcador del log («📋 Extrayendo…»)— porque con `^`
+    # a secas se escapaban **14**, seis de ellos en el log del servidor. Y no se
+    # exige `…`: «Esperando turno» es un rótulo de estado sin puntos y el
+    # castellanismo es el mismo.
+    GERUNDIO = re.compile(
+        r"^[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent)\b")
 
     def test_ningun_rotulo_de_progreso_empieza_por_gerundio(self):
         malas = []
         for donde, cat in _catalogos():
             for k, es in cat["es"].items():
-                if "…" not in es or not re.match(r"^[A-ZÁÉÍÓÚ]?\w*(ando|endo)\b", es):
+                if not re.match(r"^[^A-Za-zÁÉÍÓÚ]*[A-ZÁÉÍÓÚ]?[a-záéíóúñü]*"
+                                r"(ando|endo)\b", es):
                     continue
                 ca = cat["ca"].get(k, "")
                 if self.GERUNDIO.match(ca):
@@ -169,7 +177,12 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
         """
         # El enclítico va aparte: «Seleccionar-ho tot» es infinitivo.
         ENCLITIC = r"(?:-(?:ho|lo|la|los|les|li|ne|hi|me|te|se|nos|vos)|'[nl]|-s)*"
-        INF_ES = re.compile(r"^[A-ZÁÉÍÓÚ][a-záéíóúñü]+(?:ar|er|ir)\b")
+        # El castellano también admite enclítico («Avisarme cuando termine»).
+        # La lista deja fuera `-te` y `-os` a propósito: con ellos, «Convierte»
+        # y «Ficheros» pasan por infinitivos y el guard señala seis rótulos que
+        # no tienen nada que ver.
+        INF_ES = re.compile(r"^[A-ZÁÉÍÓÚ][a-záéíóúñü]+(?:ar|er|ir)"
+                            r"(?:me|se|lo|la|los|las|le|les|nos)?\b")
         INF_CA = re.compile(r"^[A-ZÀÈÉÍÒÓÚ][a-zàèéíòóúïüç·]*(?:ar|er|ir|re)"
                             + ENCLITIC + r"$")
         malas = []

@@ -80,6 +80,11 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "ui.general": "el nombre de una sección del manual; sus seis hermanas van "
+                  "literales y expandirla a «Overview» rompía la simetría",
+    "ui.google_api_key_drive_sheets": "el nombre del producto más los dos "
+                                      "servicios y un «+»: no hay prosa",
+
     # Ya están en inglés en el original: son cabeceras de tabla y leyendas de
     # gráfico que el castellano nunca tradujo.
     "core.audio":            "cabecera de pista; en catalán sí se traduce",
