@@ -111,6 +111,14 @@ IGUAL_EN_INGLES = {
     "tab2.dv_target_display_p1": "nombre del bloque L10 tal como lo emite dovi_tool",
     "tab2.rec_2020":        "nombre del estándar; el castellano alterna «Rec.2020» y «BT.2020» y aquí dice el primero",
     "tab1.log":             "«Log» se escribe igual en las dos lenguas",
+    # Huecos más glosario: «frames», «workflow», «match», «CM version».
+    "tab3.cm_version":      "nombre del campo del RPU, que el castellano ya escribe en inglés",
+    "tab3.det_frames":      "un hueco y la palabra «frames»",
+    "tab3.p1_delta_frames": "dos huecos y la palabra «frames»",
+    "tab3.p1_sync_delta_frames": "dos huecos y la palabra «frames»",
+    "tab3.p1_workflow":     "un hueco y la palabra «workflow»",
+    "tab3.pct_match":       "un hueco y la palabra «match», que el castellano ya usa en inglés",
+    "cmv40_pipeline.per_frame_data_json_frames": "un nombre de fichero, un hueco y «frames»",
     "tab2.sdr_like":        "nombre acuñado del bucket de escenas por debajo de 100 nits: «SDR-like», no «rango SDR»",
     # Unidades y estándares: no se traducen en ninguna lengua.
     "tab2.nits":             "unidad de luminancia",
