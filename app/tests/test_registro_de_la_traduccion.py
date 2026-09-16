@@ -67,6 +67,9 @@ _PARAM = re.compile(r"\{(\w+)\}")
 # Se exime la clave, no el patrón: un nombre nuevo tiene que costar escribir el
 # motivo. Lo cruza `TestElEstiloSeSostiene` contra las claves reales.
 NOMBRE_PROPIO = {
+    "phase_a.dolby_vision_detectado_profile_cm":
+        "«Dolby Vision» y «Profile» son nombres: los tres únicos candidatos de "
+        "la frase, así que la heurística la toma por Title Case",
     "ui.solo_consultar_editar_mkv":
         "los tres filtros de la columna nombran las tres pestañas, y «Inspect /"
         " Edit MKV» es el nombre de una de ellas",
@@ -130,6 +133,10 @@ IGUAL_EN_INGLES = {
     "tab2.track_id_p1":      "`Track ID` es como lo llama mkvmerge en su salida",
     "tab3.timecode":         "unidad de tiempo del vídeo, igual en las tres",
     "tab3.gates":            "el nombre de los trust gates en la spec de la app; el log y la hoja de DoviTools los llaman así",
+    "cmv40_pipeline.rpu_frames":
+        "solo huecos más «RPU» y «frames», que son glosario: no hay nada que traducir",
+    "tab1.audio":
+        "solo huecos más «Audio», que se escribe igual en las dos lenguas",
     "tab3.auto_trusted":     "«Auto» es el rótulo del interruptor y «trusted» el estado del bin en la spec; ninguno de los dos se traduce",
     "tab3.lbl_incompatible": "«incompatible» se escribe igual en las dos lenguas",
     "tab3.trusted":          "el estado del bin en la spec de trust de la app; su pareja es `Sin trust automático`, que sí se traduce",
@@ -138,6 +145,8 @@ IGUAL_EN_INGLES = {
     "tab1.col_match":        "cabecera de la columna de confianza del match; el castellano ya usa la palabra inglesa",
     # ── Y tres que son la misma palabra en inglés.
     "tab3.total":            "«Total» se escribe igual en las dos lenguas",
+    "tab1.def":              "el badge del flag default de una pista: son tres letras en un chip, y «Default» no cabe",
+    "tab1.frc":              "el badge del flag forced: mismo caso que `tab1.def`",
     "tab1.poster":           "«poster» se escribe igual en inglés; en catalán sí lleva acento",
     "settings.paypal_rec_9999": "un nombre propio y un alias: no hay nada que traducir",
 }
