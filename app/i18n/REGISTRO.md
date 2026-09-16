@@ -54,6 +54,22 @@ igual en las tres lenguas. Lo que **sí** se traduce son las palabras de la
 lengua común: `pista`→`pista`, `carpeta`→`carpeta`, `fichero`→`fitxer`,
 `nombre`→`nom`, `tamaño`→`mida`, `idioma`→`idioma`, `aviso`→`avís`.
 
+**La forma verbal sigue al castellano: donde el original va en infinitivo, el
+catalán va en infinitivo.** Decidido el 2026-09-16. Softcatalà prescribe el
+imperativo para los botones —«Obre», «Desa»— y el castellano usa el
+infinitivo, así que las dos son defendibles; el catálogo tenía **las dos**, y
+de los 189 rótulos cuyo castellano empieza por infinitivo, 101 iban en
+infinitivo y 88 en imperativo. Lo que decidió no fue la estética sino los
+cruces que producía la mezcla: `Buscar película` era «Cerca la pel·lícula» y
+`Buscar la película en TMDb` era «Buscar…», o sea el mismo verbo con dos
+lexemas.
+
+**Se espeja también el artículo**: «Limpiar artefactos» → «Netejar
+artefactes», no «Netejar els artefactes». El imperativo pedía artículo para
+sonar natural como orden; el infinitivo no lo necesita, y sin esta parte la
+decisión no cierra nada. Lo aplica
+`test_calidad_de_la_traduccion::test_donde_el_castellano_va_en_infinitivo_el_catalan_tambien`.
+
 Casos decididos, para que no se resuelvan dos veces:
 
 | castellano | catalán | por qué |

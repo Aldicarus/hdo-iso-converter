@@ -146,6 +146,47 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
             f"pelado.\nUsa «S'està/S'estan + gerundi», concordando con el "
             f"objeto:\n  · " + "\n  · ".join(sorted(malas)[:10])))
 
+    def test_donde_el_castellano_va_en_infinitivo_el_catalan_tambien(self):
+        """Decisión del usuario (2026-09-16): el catalán **sigue al castellano**
+        en la forma verbal de los rótulos de acción.
+
+        Softcatalà prescribe el imperativo para los botones y el castellano usa
+        el infinitivo, así que las dos convenciones son defendibles — y por eso
+        el catálogo tenía las dos: de los 189 rótulos cuyo castellano empieza
+        por infinitivo, **101 iban en infinitivo y 88 en imperativo**, sin
+        mayoría a la que normalizar. Peor que la forma eran los cruces que
+        producía: `core.buscar_pelicula` decía «Cerca la pel·lícula» al lado de
+        `core.buscar_la_pelicula_en_tmdb_y` con «Buscar», o sea el mismo verbo
+        con dos lexemas.
+
+        El sub-criterio es **espejar también el artículo**: «Limpiar
+        artefactos» → «Netejar artefactes», no «Netejar els artefactes». Sin
+        eso la decisión no cierra nada, porque el imperativo pedía artículo
+        para sonar natural y el infinitivo no.
+
+        Ningún detector podía cazar esto: los 88 imperativos eran catalán
+        correcto. Solo se ve leyendo las dos lenguas juntas.
+        """
+        # El enclítico va aparte: «Seleccionar-ho tot» es infinitivo.
+        ENCLITIC = r"(?:-(?:ho|lo|la|los|les|li|ne|hi|me|te|se|nos|vos)|'[nl]|-s)*"
+        INF_ES = re.compile(r"^[A-ZÁÉÍÓÚ][a-záéíóúñü]+(?:ar|er|ir)\b")
+        INF_CA = re.compile(r"^[A-ZÀÈÉÍÒÓÚ][a-zàèéíòóúïüç·]*(?:ar|er|ir|re)"
+                            + ENCLITIC + r"$")
+        malas = []
+        for donde, cat in _catalogos():
+            for k, es in cat["es"].items():
+                if not INF_ES.match(es):
+                    continue
+                ca = cat["ca"].get(k, "")
+                if not ca:
+                    continue
+                if not INF_CA.match(ca.split()[0].rstrip(":,.…—")):
+                    malas.append(f"[{donde}] `{k}`: {es[:34]} → {ca[:34]}")
+        self.assertEqual(sorted(malas), [], (
+            f"\n{len(malas)} rótulo(s) con el castellano en infinitivo y el "
+            f"catalán en imperativo;\nel catalán sigue al castellano (ver "
+            f"REGISTRO.md):\n  · " + "\n  · ".join(sorted(malas)[:10])))
+
     def test_el_articulo_de_rpu_se_apostrofa(self):
         """En catalán «el RPU» es «l'RPU»: la sigla empieza por vocal. Eran 104."""
         malas = [f"[{donde}] `{k}`" for donde, cat in _catalogos()
