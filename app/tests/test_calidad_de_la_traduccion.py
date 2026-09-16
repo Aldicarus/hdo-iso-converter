@@ -100,7 +100,10 @@ class TestLaOrtografiaInglesaEsUnaSola(unittest.TestCase):
     FECHAS (día antes del mes, como en las otras dos lenguas) y es otro eje.
     """
 
-    PARES = [("analyse/analyze", r"\banalys(e|es|ed|ing)\b", r"\banalyz(e|es|ed|ing)\b"),
+    # `analysis`/`analyses` son el SUSTANTIVO y se escriben igual en las dos
+    # ortografías: el guard solo mira el verbo. Normalizar sin ese matiz dejó
+    # «The analyzes are still saved», que es una falta.
+    PARES = [("analyse/analyze", r"\banalys(e|ed|ing)\b", r"\banalyz(e|ed|ing)\b"),
              ("cancel(l)ed",     r"\bcancell(ed|ing)\b",      r"\bcancel(ed|ing)\b"),
              ("behaviour",       r"\bbehaviour\b",            r"\bbehavior\b"),
              ("artefact",        r"\bartefact(s?)\b",         r"\bartifact(s?)\b"),
