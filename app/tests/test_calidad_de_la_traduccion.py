@@ -153,7 +153,11 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # solo en `^` se escapaban **44**, o sea más que los que el guard había
     # cazado nunca: los doce rótulos de fase de Tab 3 y treinta y dos líneas
     # del log del servidor.
-    ANTES = r"(?:^|[—·:]\s+)"
+    # Delante del gerundio puede haber un prefijo («Fase A — », «Paso 1/4: »)
+    # o simplemente la frase anterior: «Tus proyectos siguen guardados.
+    # Reintentando cada 4 s…». Con solo `^` se escapaban 44; sin el punto,
+    # dos más.
+    ANTES = r"(?:^|[—·:.;!?]\s+)"
     GERUNDIO = re.compile(
         ANTES + r"[^A-Za-zÀÈÉÍÒÓÚ]*[A-ZÀÈÉÍÒÓÚ]?[a-zàèéíòóúïüç·']*(ant|ent|int)\b")
 
@@ -232,10 +236,17 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
             f"REGISTRO.md):\n  · " + "\n  · ".join(sorted(malas)[:10])))
 
     def test_el_articulo_de_rpu_se_apostrofa(self):
-        """En catalán «el RPU» es «l'RPU»: la sigla empieza por vocal. Eran 104."""
+        """En catalán «el RPU» es «l'RPU»: la sigla empieza por vocal. Eran 104.
+
+        Las contracciones cuentan igual y no estaban: ante vocal la
+        preposición NO se contrae con el artículo, así que es «de l'RPU» y no
+        «del RPU» — eran **17** más, once en la interfaz. Misma regla para
+        «pel» → «per l'».
+        """
         malas = [f"[{donde}] `{k}`" for donde, cat in _catalogos()
                  for k, v in cat["ca"].items()
-                 if re.search(r"\b[Ee]l RPU\b|\bde el RPU\b|\bal RPU\b", v)]
+                 if re.search(r"\b[Ee]l RPU\b|\bde el RPU\b|\bal RPU\b"
+                              r"|\bdel RPU\b|\bpel RPU\b", v)]
         self.assertEqual(malas, [], "\n  · ".join([""] + malas[:10]))
 
 

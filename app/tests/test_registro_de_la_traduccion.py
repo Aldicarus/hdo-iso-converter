@@ -85,6 +85,8 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "tab3.profile": "«Profile» es el nombre del campo del RPU y está en el "
+                    "GLOSARIO; lo único traducible sería los dos puntos",
     "core.mkvmerge_mpls_mkv": "el nombre de la herramienta y el de la playlist, "
                               "con una flecha: «MPLS playlist» añadía una palabra "
                               "que el original no dice",
