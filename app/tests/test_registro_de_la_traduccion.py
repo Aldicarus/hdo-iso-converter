@@ -108,6 +108,26 @@ IGUAL_EN_INGLES = {
         "la línea ya estaba entera en inglés en el original",
     "tab1.mount_t_udf_o_ro_loop":
         "es el comando que se ejecuta, no una frase",
+    # ── Los rótulos que ya nacieron en inglés, y siguen igual en catalán
+    #    porque son el registro técnico con el que se lee el log y la hoja de
+    #    DoviTools. Traducirlos al catalán daría un término que nadie usa.
+    "tab2.aspect_ratio":     "nomenclatura de vídeo; se dice igual en las tres",
+    "tab2.cm_version":       "nombre del campo del RPU, como lo emite dovi_tool",
+    "tab2.enhancement_layer": "nombre de la capa en la spec de Dolby Vision",
+    "tab2.hdr10_metadata":   "nombre del estándar más la palabra que lo acompaña",
+    "tab2.l11_content_type": "nombre del bloque del RPU y de su campo",
+    "tab2.offsets_l_r":      "campo del L5 del RPU, con las iniciales del lado",
+    "tab2.offsets_t_b":      "campo del L5 del RPU, con las iniciales del lado",
+    "tab2.track_id_p1":      "`Track ID` es como lo llama mkvmerge en su salida",
+    "tab3.timecode":         "unidad de tiempo del vídeo, igual en las tres",
+    "tab3.trusted":          "el estado del bin en la spec de trust de la app;\n                             #    su pareja es `Sin trust automático`, que sí se traduce",
+    "tab3.auto_on":          "el rótulo del interruptor del auto-pipeline",
+    "tab3.auto_off":         "el rótulo del interruptor del auto-pipeline",
+    "tab1.col_match":        "cabecera de la columna de confianza del match; el\n                             #    castellano ya usa la palabra inglesa",
+    # ── Y tres que son la misma palabra en inglés.
+    "tab3.total":            "«Total» se escribe igual en las dos lenguas",
+    "tab1.poster":           "«poster» se escribe igual en inglés; en catalán sí\n                             #    lleva acento",
+    "settings.paypal_rec_9999": "un nombre propio y un alias: no hay nada que traducir",
 }
 
 

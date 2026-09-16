@@ -62,6 +62,14 @@ EXCEPCIONES: dict[str, str] = {
         "partida en `tab1.hace_dia_uno` / `_varios`",
     "⟦⟧ no existe ⟦⟧ — ejecuta Fase F primero (workflow ⟦⟧ )":
         "partida en `cmv40_pipeline.no_existe_ejecuta_fase_f_primero_uno` / `_varios`",
+    "+ ⟦⟧ consulta ⟦⟧ en curso":
+        "partida en `workbar.mas_una_consulta_en_curso` / `_n_consultas`: el "
+        "plural de «consulta» en catalán es «consultes», no «consultas», y en "
+        "inglés «query» tampoco pluraliza con una `s` pegada",
+    "aparece ⟦⟧ desmarcado ⟦⟧ con badge":
+        "partida en `tab1.uno_ya_procesado_aparece_desmarcado` / "
+        "`_n_ya_procesados`: el sufijo del verbo era `n` (aparece/aparecen) y "
+        "en catalán es `en` (apareix/apareixen)",
 
     # ── Un valor castellano que se colaba por el hueco de un parámetro.
     #

@@ -376,7 +376,8 @@ function _workbarConsultasHTML(c) {
   const nombres = (c.nombres || []).join(' · ');
   return `<div class="workbar-consultas">`
        + `<span data-tooltip="${escHtml(nombres)}">`
-       + tr('workbar.mas_n_consultas_en_curso', {n: n, p2: n === 1 ? '' : 's'}) + '</span></div>';
+       + tr(n === 1 ? 'workbar.mas_una_consulta_en_curso'
+               : 'workbar.mas_n_consultas_en_curso', {n: n}) + '</span></div>';
 }
 
 function _workbarRender(st) {

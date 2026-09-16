@@ -962,7 +962,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
       ${peakMarker}
       ${hoverCursor}
     </svg>
-    <div class="dv-<span data-i18n="tab2.sparkline_tooltip_s"></span>tyle="display:none"></div>
+    <div class="dv-sparkline-tooltip" style="display:none"></div>
     ${legendHtml}
     ${outOfRangeChips}
     </div><span data-i18n="tab3.x"></span>`;

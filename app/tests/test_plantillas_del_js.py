@@ -189,3 +189,40 @@ class TestNingunAtributoLlevaUnTrSinInterpolar(unittest.TestCase):
             f"nombre de la función\nacaba en la pantalla. Usa "
             f"`data-i18n-tip|ph|aria=\"clave\"`, que es declarativo:\n  · "
             + "\n  · ".join(malas[:12])))
+
+
+class TestNingunDataI18nParteUnAtributo(unittest.TestCase):
+    """Un `<span data-i18n>` dentro de un atributo destroza el marcado.
+
+    Caso real, y estuvo roto desde la migración:
+
+        <div class="dv-<span data-i18n="tab2.sparkline_tooltip_s"></span>
+             tyle="display:none"></div>
+
+    El original era `<div class="dv-sparkline-tooltip" style="display:none">`.
+    La sustitución a máquina cogió el trozo `sparkline-tooltip" s` —que para
+    un regex parece texto— y lo reemplazó **dentro del valor del atributo**,
+    partiendo el `class` y comiéndose la `s` de `style`. El HTML resultante es
+    válido, así que el navegador no dice nada; lo que pasa es que
+    `host.querySelector('.dv-sparkline-tooltip')` ya no encuentra nada y el
+    tooltip del gráfico de luminancia **no aparece nunca**.
+
+    Es el mismo error que documenta el proyecto sobre los regex: no se puede
+    delimitar un constructo anidado con uno, y reescribir dentro de un hueco
+    no falla — contesta otra cosa.
+    """
+
+    def test_ningun_valor_de_atributo_contiene_una_etiqueta(self):
+        malas = []
+        fuentes = list(rutas()) + [APP_DIR / "static" / "index.html"]
+        for r in fuentes:
+            src = Path(r).read_text(encoding="utf-8")
+            # Un `data:` URI lleva el SVG del favicon dentro y NO es
+            # marcado que el navegador parsee como HTML.
+            for m in re.finditer(r'[a-zA-Z-]+="(?!data:)[^"]*<[a-zA-Z/]', src):
+                linea = src[:m.start()].count("\n") + 1
+                malas.append(f"{Path(r).name}:{linea}: {m.group(0)}")
+        self.assertEqual(malas, [], (
+            f"\n{len(malas)} atributo(s) con una etiqueta dentro del valor: "
+            f"la sustitución\nse metió en medio del marcado:\n  · "
+            + "\n  · ".join(malas[:12])))

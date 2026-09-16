@@ -4125,9 +4125,12 @@ function _cmv40GateBloque1(pid, s) {
       <div style="margin-top:8px; padding:10px 12px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px">
         <div style="font-size:12px; font-weight:700; color:#8a4a00"><span data-icono="aviso"></span> <span data-i18n="tab3.esperando_tu_confirmacion"></span></div>
         <div style="font-size:11.5px; color:var(--text-2); line-height:1.5; margin-top:3px">
-          ${tr('tab3.p1_los_botones', {p1: detalles.length
-            ? tr('tab3.si_continuas_aceptas_que_p1', {p1: escHtml(detalles.join(' · '))})
-            : tr('tab3.hay_divergencias_que_la_fase_d')})} ${tr('tab3.los_botones_p1_p2_estan_en_el_aviso', {p1: `<em>${tr('tab3.cambiar_target')}</em>`, p2: `<em>${tr('tab3.continuar_igualmente')}</em>`})}
+          ${tr('tab3.aviso_los_botones_estan_arriba', {
+            motivo: detalles.length
+              ? tr('tab3.si_continuas_aceptas_que_p1', {p1: escHtml(detalles.join(' · '))})
+              : tr('tab3.hay_divergencias_que_la_fase_d'),
+            p1: `<em>${tr('tab3.cambiar_target')}</em>`,
+            p2: `<em>${tr('tab3.continuar_igualmente')}</em>`})}
         </div>
       </div>`;
   }

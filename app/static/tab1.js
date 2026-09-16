@@ -1041,10 +1041,9 @@ function openSeriesModal(probe) {
     // Aviso adicional cuando ya hay episodios procesados de este origen
     // — el usuario sabe por qué algunas filas vienen desmarcadas.
     const existingNote = existingCount > 0
-      ? ' ' + tr('tab1.n_ya_procesados_aparecen_desmarcados', {
+      ? ' ' + tr(existingCount === 1 ? 'tab1.uno_ya_procesado_aparece_desmarcado'
+                                       : 'tab1.n_ya_procesados_aparecen_desmarcados', {
           n: `<strong>${tr('tab1.existingcount_episodio_p2_ya_procesado_p3', {existingcount: existingCount, p2: existingCount === 1 ? '' : 's', p3: existingCount === 1 ? '' : 's'})}</strong>`,
-          p2: existingCount === 1 ? '' : 'n',
-          p3: existingCount === 1 ? '' : 's',
           badge: `<span class="series-badge-exists"><span data-icono="check"></span> ${tr('tab1.existe')}</span>`})
       : '';
     sub.innerHTML = tr('tab1.identifica_la_serie_tmdb_o_manual', {verdict: verdict, existingnote: existingNote});
