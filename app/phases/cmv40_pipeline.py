@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from models import CMv40Phase, CMv40PhaseRecord, CMv40Session, DoviInfo
-from phases.cmv40_strategy import resolve_plan
+from phases.cmv40_strategy import WORKFLOWS, resolve_plan
 from phases.phase_a import _parse_dovi_summary
 
 _logger = logging.getLogger(__name__)
@@ -102,18 +102,22 @@ async def check_disk_space_preflight(
     problems: list[str] = []
     if tmp_free >= 0 and tmp_free < required_tmp:
         problems.append(
-            f"/mnt/tmp: necesita {required_tmp/1e9:.1f} GB, disponibles {tmp_free/1e9:.1f} GB"
+            tr('cmv40_pipeline.espacio_necesita_disponibles', ruta="/mnt/tmp",
+               necesita=format(required_tmp / 1e9, '.1f'),
+               libres=format(tmp_free / 1e9, '.1f'))
         )
     if out_free >= 0 and out_free < required_output:
         problems.append(
-            f"/mnt/output: necesita {required_output/1e9:.1f} GB, disponibles {out_free/1e9:.1f} GB"
+            tr('cmv40_pipeline.espacio_necesita_disponibles', ruta="/mnt/output",
+               necesita=format(required_output / 1e9, '.1f'),
+               libres=format(out_free / 1e9, '.1f'))
         )
 
     if problems:
         raise RuntimeError(
-            "Espacio insuficiente para ejecutar el pipeline:\n  - "
+            tr('cmv40_pipeline.espacio_insuficiente') + "\n  - "
             + "\n  - ".join(problems)
-            + "\nLibera espacio o mueve el MKV origen antes de continuar."
+            + "\n" + tr('cmv40_pipeline.espacio_libera_o_mueve')
         )
     if log_callback and tmp_free > 0 and out_free > 0:
         await log_callback(
@@ -253,7 +257,7 @@ def validate_artifacts(session: CMv40Session) -> dict:
         "all_missing": False,
     }
     if session.archived:
-        result["message"] = "Proyecto archivado — artefactos borrados intencionadamente."
+        result["message"] = tr('cmv40_pipeline.proyecto_archivado_artefactos_borrados')
         return result
     if session.phase == "done":
         # NO revertir done → remuxed automáticamente: mover/renombrar el MKV
@@ -265,10 +269,7 @@ def validate_artifacts(session: CMv40Session) -> dict:
         # Solo informamos: el proyecto sigue como done.
         if not session.output_mkv_path or not Path(session.output_mkv_path).exists():
             result["missing"] = [session.output_mkv_path or "output.mkv"]
-            result["message"] = (
-                "El MKV final ya no esta en su ubicacion original — probablemente "
-                "lo moviste a tu biblioteca. El proyecto sigue completo."
-            )
+            result["message"] = tr('cmv40_pipeline.mkv_final_movido_de_sitio')
         return result
     if session.phase == "created":
         return result
@@ -298,10 +299,10 @@ def validate_artifacts(session: CMv40Session) -> dict:
             result["valid_phase"] = phase_key
             result["changed"] = True
             result["missing"] = missing_now
-            result["message"] = (
-                f"Faltan artefactos de la fase {session.phase}: {', '.join(missing_now)}. "
-                f"Revertido a fase {phase_key} — se puede reanudar desde ahí."
-            )
+            result["message"] = tr(
+                'cmv40_pipeline.faltan_artefactos_revertido',
+                fase=session.phase, faltan=", ".join(missing_now),
+                destino=phase_key)
             return result
 
     # Nada válido hasta 'created'
@@ -309,10 +310,8 @@ def validate_artifacts(session: CMv40Session) -> dict:
     result["changed"] = True
     result["missing"] = missing_now
     result["all_missing"] = True
-    result["message"] = (
-        f"No se encuentra ningún artefacto intermedio. Faltan: {', '.join(missing_now)}. "
-        f"Hay que empezar desde Fase A."
-    )
+    result["message"] = tr('cmv40_pipeline.ningun_artefacto_intermedio',
+                            faltan=", ".join(missing_now))
     return result
 
 
@@ -1356,9 +1355,11 @@ async def _ffmpeg_extract_rpu_piped(
                     # (era el "100% · casi listo" repetido veinte veces).
                     espera = int(ahora - (fin_lectura or ahora))
                     await log_callback(
-                        f"  ⏱ ffmpeg terminó · extract-rpu cerrando el RPU tras "
-                        f"leer {_gb(leido)} · lleva {espera // 60}min {espera % 60}s"
-                        + (f" · RPU {rpu_hasta_ahora / 1e6:.0f} MB"
+                        "  " + tr('cmv40_pipeline.ffmpeg_termino_cerrando_rpu',
+                                  leido=_gb(leido), min=espera // 60,
+                                  seg=espera % 60)
+                        + (tr('cmv40_pipeline.rpu_hasta_ahora_mb',
+                              mb=format(rpu_hasta_ahora / 1e6, '.0f'))
                            if rpu_hasta_ahora > 0 else ""))
 
     # Timeout del conjunto. Escala con la estimación (que se ancla a la carga
@@ -1695,7 +1696,7 @@ async def run_phase_a_analyze_source(
         ], log_callback=log_callback, proc_callback=proc_callback,
            progress_ctx={
                "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
-               "label": "Extrayendo HEVC del MKV origen",
+               "label": tr('cmv40_pipeline.lbl_extrayendo_hevc_origen'),
            })
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
@@ -1792,11 +1793,9 @@ async def run_phase_a_analyze_source(
 
     # Detectar workflow según perfil y subperfil (ver CMv40Session.source_workflow)
     session.source_workflow = _detect_workflow(dovi_info)
-    workflow_label = {
-        "p7_fel": "P7 FEL — demux + merge CMv4.0 + preserva FEL",
-        "p7_mel": "P7 MEL — descarta EL, inyecta RPU target → P8.1 CMv4.0",
-        "p8":     "P8.1 — inject directo de RPU target → P8.1 CMv4.0",
-    }.get(session.source_workflow, session.source_workflow)
+    workflow_label = (
+        tr(f'cmv40_pipeline.workflow_label_{session.source_workflow}')
+        if session.source_workflow in WORKFLOWS else session.source_workflow)
 
     # Plot eliminado: generaba plot_source.png que la UI no consume.
     # Si se quiere reintroducir, añadir también el render en el panel.
@@ -1862,11 +1861,9 @@ async def run_phase_a_analyze_source(
         )
         # Resumen del workflow detectado. Sin predicciones de fases futuras —
         # cuando llegue cada fase ya dirá qué va a hacer según el target real.
-        workflow_summary = {
-            "p7_fel": "stream dual-layer P7 FEL — preservable en drop-in o merge.",
-            "p7_mel": "stream dual-layer P7 MEL — el EL no aporta tras añadir CMv4.0.",
-            "p8":     "stream single-layer P8.1 — inyección directa del RPU.",
-        }.get(session.source_workflow, "")
+        workflow_summary = (
+            tr(f'cmv40_pipeline.workflow_resumen_{session.source_workflow}')
+            if session.source_workflow in WORKFLOWS else "")
         await log_callback(
             '[Fase A] 🎯 Resultado' + tr('cmv40_pipeline.workflow', workflow_label=workflow_label, workflow_summary=workflow_summary)
         )
@@ -2096,7 +2093,7 @@ async def preflight_target_mkv(
             ], log_callback=log_callback, proc_callback=proc_callback,
                progress_ctx={
                    "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
-                   "label": "Pre-flight: extrayendo HEVC del MKV target",
+                   "label": tr('cmv40_pipeline.lbl_preflight_hevc_target'),
                })
             if rc != 0:
                 raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_codigo', rc=rc))
@@ -2293,10 +2290,13 @@ async def run_phase_b_target_from_drive(
         last_emit = now
         if total and total > 0:
             pct = 0.0 + (done / total) * 70.0  # reserva 30% para el analyze
-            label = f"Descargando… {done/1024/1024:.1f}/{total/1024/1024:.1f} MB"
+            label = tr('cmv40_pipeline.lbl_descargando_de',
+                       hechos=format(done / 1024 / 1024, '.1f'),
+                       total=format(total / 1024 / 1024, '.1f'))
         else:
             pct = min(60.0, done / 1024 / 1024)  # aprox sin total
-            label = f"Descargando… {done/1024/1024:.1f} MB"
+            label = tr('cmv40_pipeline.lbl_descargando',
+                       hechos=format(done / 1024 / 1024, '.1f'))
         await _emit_progress(log_callback, pct, label)
 
     try:
@@ -2361,7 +2361,7 @@ async def run_phase_b_target_from_mkv(
         ], log_callback=log_callback, proc_callback=proc_callback,
            progress_ctx={
                "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
-               "label": "Extrayendo HEVC del MKV target",
+               "label": tr('cmv40_pipeline.lbl_extrayendo_hevc_target'),
            })
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
@@ -2582,7 +2582,8 @@ async def _analyze_target_rpu(
     if has_hard:
         # Caso 1: Hard abort — concatenar todos los motivos
         msgs = [f["why"] for f in hard_failures if f.get("why")]
-        abort_msg = " · ".join(msgs) if msgs else "Target estructuralmente inservible."
+        abort_msg = (" · ".join(msgs) if msgs
+                     else tr('cmv40_pipeline.target_inservible'))
         session.compat_warning = abort_msg
         session.pipeline_aborted = True
         if log_callback:
@@ -2708,10 +2709,9 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
         "target": target_frames,
         "critical": True,
         "severity": "ok" if frames_ok else "sync_review",
-        "why": "" if frames_ok else (
-            f"Δ {target_frames - source_frames:+d} frames vs source — "
-            f"Fase D usa cross-correlation y permite corregir manualmente."
-        ),
+        "why": "" if frames_ok else tr(
+            'cmv40_pipeline.gate_frames_delta',
+            delta=format(target_frames - source_frames, '+d')),
     }
 
     # CM version — sin v4.0 no hay nada que transferir, hard abort
@@ -2719,13 +2719,11 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
     cm_ok = cm in ("v4.0", "4.0")
     gates["cm_version"] = {
         "ok": cm_ok,
-        "value": target_info.cm_version or "(desconocido)",
+        "value": (target_info.cm_version
+                  or tr('cmv40_pipeline.valor_desconocido')),
         "critical": True,
         "severity": "ok" if cm_ok else "hard_abort",
-        "why": "" if cm_ok else (
-            "El bin no es CMv4.0; el pipeline solo puede inyectar metadata "
-            "CMv4.0 sobre source CMv2.9. Cambia de target."
-        ),
+        "why": "" if cm_ok else tr('cmv40_pipeline.gate_cm_no_es_v40'),
     }
 
     # L8 presente — sin L8 el resultado sería CMv4.0-stamped pero
@@ -2735,11 +2733,7 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
         "ok": has_l8,
         "critical": True,
         "severity": "ok" if has_l8 else "hard_abort",
-        "why": "" if has_l8 else (
-            "El bin dice CMv4.0 pero no tiene trims L8 — el MKV resultante "
-            "sería CMv4.0-stamped sin contenido CMv4.0 real (idéntico al "
-            "original CMv2.9). El bin está mal etiquetado; cambia de target."
-        ),
+        "why": "" if has_l8 else tr('cmv40_pipeline.gate_sin_l8'),
     }
 
     # Gates comparativos (solo si tenemos source_info)
@@ -2786,18 +2780,10 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
             l6_sev, l6_why = "ok", ""
         elif l6_diff <= 200:
             l6_sev = "warn"
-            l6_why = (
-                f"MaxCLL estático diverge {l6_diff} nits (50-200 = master "
-                f"regradeado para streaming/HDR distinto, pero usable)."
-            )
+            l6_why = tr('cmv40_pipeline.gate_maxcll_usable', delta=l6_diff)
         else:
             l6_sev = "ack_required"
-            l6_why = (
-                f"MaxCLL estático diverge {l6_diff} nits (umbral 200). El "
-                f"target fue gradeado para un display de pico muy distinto; "
-                f"el resultado puede mostrar highlights aplastados o sobre-"
-                f"saturados respecto al original."
-            )
+            l6_why = tr('cmv40_pipeline.gate_maxcll_ack', delta=l6_diff)
         gates["l6_div"] = {
             "ok": l6_diff <= 50,
             "nits_diff": l6_diff,
@@ -2817,17 +2803,12 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
                 l1_sev, l1_why = "ok", ""
             elif pct <= 20.0:
                 l1_sev = "warn"
-                l1_why = (
-                    f"Brillo medio escena-a-escena diverge {pct:.1f}% (5-20% "
-                    f"normal en remasters / regrade)."
-                )
+                l1_why = tr('cmv40_pipeline.gate_l1_normal',
+                             delta=format(pct, '.1f'))
             else:
                 l1_sev = "ack_required"
-                l1_why = (
-                    f"Brillo medio diverge {pct:.1f}% (umbral 20%). El master "
-                    f"target representa un grading muy distinto; el resultado "
-                    f"puede sentirse plano o demasiado contrastado."
-                )
+                l1_why = tr('cmv40_pipeline.gate_l1_ack',
+                             delta=format(pct, '.1f'))
             gates["l1_div"] = {
                 "ok": pct <= 5.0,
                 "pct_diff": round(pct, 2),
@@ -4163,7 +4144,7 @@ async def _merge_cmv40_into_p7(
         # bbeny123/remuxer.sh línea 2090.
         levels = [1, 2, 3, 6, 8, 9, 10, 11, 254]
         levels_label = "FEL [1,2,3,6,8,9,10,11,254]"
-        preserve_note = "L5 preservado del BD"
+        preserve_note = tr('cmv40_pipeline.nota_l5_preservado')
     else:
         # Lista default conservadora para MEL / P8: solo levels CMv4.0-exclusivos
         # + L3 + marker. L1/L2/L5/L6 del BD se quedan (describen sus píxeles).
@@ -4171,7 +4152,7 @@ async def _merge_cmv40_into_p7(
         # docs oficial de dovi_tool.
         levels = [3, 8, 9, 11, 254]
         levels_label = "[3,8,9,11,254]"
-        preserve_note = "L1/L2/L5/L6 preservados del BD"
+        preserve_note = tr('cmv40_pipeline.nota_l1l2l5l6_preservados')
 
     # NOTA: el campo `add_cmv4_default_metadata` documentado en docs/editor.md
     # de dovi_tool main está pendiente de liberar — no aparece en ninguna
@@ -4192,11 +4173,8 @@ async def _merge_cmv40_into_p7(
     target_lacks_l11 = bool(target_info and not target_info.has_l11)
     if log_callback:
         src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
-        l11_note = (
-            " · ⚠ target sin L11 → el output quedará sin Content Type "
-            "(válido como CMv4.0; los displays HDR aplicarán preset default)"
-            if target_lacks_l11 else ""
-        )
+        l11_note = (" " + tr('cmv40_pipeline.nota_target_sin_l11')
+                    if target_lacks_l11 else "")
         await log_callback(
             '[Fase F] ' + tr('cmv40_pipeline.transferencia_cmv4_0_levels_frame_a', levels_label=levels_label, p2=rpu_target_v40.name, src_label=src_label, preserve_note=preserve_note, l11_note=l11_note)
         )
@@ -4262,9 +4240,9 @@ async def _merge_cmv40_into_p7(
     if errors:
         src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
         raise RuntimeError(
-            f"Verificación post-merge falló. El RPU resultante no es un {src_label} CMv4.0 válido:\n  - "
-            + "\n  - ".join(errors)
-            + "\n\nSe aborta la inyección para no generar un MKV incorrecto."
+            tr('cmv40_pipeline.postmerge_no_es_valido', perfil=src_label)
+            + "\n  - " + "\n  - ".join(errors)
+            + "\n\n" + tr('cmv40_pipeline.postmerge_se_aborta')
         )
 
     if log_callback:
@@ -4382,7 +4360,7 @@ async def run_phase_g_remux(
            progress_ctx={
                "time_estimate_s": est_mux,
                "offset": 0.0, "weight": W_MUX,
-               "label": "Combinando BL + EL (dovi_tool mux)",
+               "label": tr('cmv40_pipeline.lbl_combinando_bl_el'),
                "input_path": mux_bl,
                "output_path": hevc_for_mkv,
                "expected_out_bytes": _tamano(mux_bl) + _tamano(mux_el),
@@ -4440,7 +4418,7 @@ async def run_phase_g_remux(
        progress_ctx={
            "time_estimate_s": est_mkv,
            "offset": remux_offset, "weight": remux_weight,
-           "label": "Remuxando MKV final (mkvmerge)",
+           "label": tr('cmv40_pipeline.lbl_remuxando_mkv_final'),
        })
     if rc not in (0, 1):
         if prewarm_task:
@@ -4826,7 +4804,9 @@ async def run_phase_h_validate(
 
     # Validar pistas con mkvmerge -J (común a ambos paths)
     if log_callback:
-        step_label = "Paso 2/2" if drop_in_fel else "Paso 3/3"
+        step_label = tr('cmv40_pipeline.paso_n_de_m',
+                        n=2 if drop_in_fel else 3,
+                        m=2 if drop_in_fel else 3)
         try:
             mkv_gb_for_log = output_mkv.stat().st_size / 1e9
             size_hint = f" sobre {mkv_gb_for_log:.1f} GB"
@@ -5002,7 +4982,7 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
             "pearson": 0.0,
             "confidence_pct": 0,
             "rating": "insufficient_data",
-            "reason": f"Solo {n} puntos válidos — necesarios al menos 20",
+            "reason": tr('cmv40_pipeline.sync_pocos_puntos', n=n, minimo=20),
             "threshold_ok": False,
         }
 
@@ -5020,7 +5000,7 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
             "pearson": 0.0,
             "confidence_pct": 0,
             "rating": "no_variance",
-            "reason": "Una de las series no tiene variación (datos planos)",
+            "reason": tr('cmv40_pipeline.sync_sin_variacion'),
             "threshold_ok": False,
         }
 
@@ -5034,15 +5014,15 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
     confidence_pct = max(0, int(round(pearson * 100)))
 
     if pearson > 0.95:
-        rating, reason = "excellent", "Sincronización muy precisa — las curvas coinciden en forma casi perfectamente"
+        rating, reason = "excellent", tr('cmv40_pipeline.sync_excelente')
     elif pearson > 0.85:
-        rating, reason = "good", "Sincronización correcta — las curvas siguen el mismo patrón temporal"
+        rating, reason = "good", tr('cmv40_pipeline.sync_buena')
     elif pearson > 0.70:
-        rating, reason = "moderate", "Sincronización aceptable pero con divergencias — revisa varias zonas del gráfico"
+        rating, reason = "moderate", tr('cmv40_pipeline.sync_moderada')
     elif pearson > 0.50:
-        rating, reason = "poor", "Sincronización baja — revisa que el RPU target corresponda a la misma película"
+        rating, reason = "poor", tr('cmv40_pipeline.sync_baja')
     else:
-        rating, reason = "poor", "Sin sincronización — probablemente masters incompatibles"
+        rating, reason = "poor", tr('cmv40_pipeline.sync_nula')
 
     return {
         "pearson": round(pearson, 4),
@@ -5081,12 +5061,12 @@ def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None,
     delta_ok = sync_delta == 0
     conf_ok = bool(conf.get("threshold_ok"))
     if not delta_ok:
-        reason = (f"Hay diferencia de frames (Δ = {sync_delta:+d}); "
-                  "corrígela antes de confirmar")
+        reason = tr('cmv40_pipeline.sync_gate_delta',
+                    delta=format(sync_delta, '+d'))
     elif not conf_ok:
-        reason = (f"Confianza {conf.get('confidence_pct', 0)}% inferior al umbral "
-                  f"{int(SYNC_CONFIDENCE_THRESHOLD * 100)}% — revisa el gráfico o "
-                  "verifica que el RPU target corresponda a esta película")
+        reason = tr('cmv40_pipeline.sync_gate_confianza',
+                    pct=conf.get('confidence_pct', 0),
+                    umbral=int(SYNC_CONFIDENCE_THRESHOLD * 100))
     else:
         reason = ""
     return {
@@ -5200,7 +5180,8 @@ def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
     tgt_w = tgt_vals[start:start + WINDOW]
 
     if len(src_w) < 100 or len(tgt_w) < 100:
-        return {"offset": 0, "confidence": 0.0, "reason": "Pocos frames con contenido"}
+        return {"offset": 0, "confidence": 0.0,
+                "reason": tr('cmv40_pipeline.offset_pocos_frames')}
 
     # Sin variación no hay forma que correlacionar: TODOS los offsets dan el
     # mismo error y gana el primero que cumpla el solape, con confianza 100 %.
@@ -5208,8 +5189,7 @@ def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
     # aquí faltaba.
     if len(set(src_w)) < 2 or len(set(tgt_w)) < 2:
         return {"offset": 0, "confidence": 0.0,
-                "reason": "Una de las series no tiene variación (datos planos) — "
-                          "no se puede estimar el desfase"}
+                "reason": tr('cmv40_pipeline.sync_sin_variacion_offset')}
 
     # Cross-correlation simple: buscar offset con menor error RMS
     best_offset = 0
@@ -5236,15 +5216,18 @@ def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
 
     if best_error == float("inf"):
         return {"offset": 0, "confidence": 0.0,
-                "reason": "Ventanas demasiado cortas para comparar"}
+                "reason": tr('cmv40_pipeline.offset_ventanas_cortas')}
 
     # Confianza: qué tan bajo es el error vs la varianza de la señal
     src_mean = sum(src_w) / len(src_w) if src_w else 1
     confidence = max(0.0, min(1.0, 1.0 - (best_error / (src_mean + 1))))
 
     reason = (
-        f"Offset={best_offset} frames (confianza={confidence:.1%}, RMS error={best_error:.1f})"
+        tr('cmv40_pipeline.offset_detectado', offset=best_offset,
+           confianza=format(confidence, '.1%'),
+           rms=format(best_error, '.1f'))
         if confidence > 0.5
-        else f"Offset={best_offset} frames, pero confianza baja ({confidence:.1%}) — verifica manualmente"
+        else tr('cmv40_pipeline.offset_confianza_baja', offset=best_offset,
+                confianza=format(confidence, '.1%'))
     )
     return {"offset": best_offset, "confidence": confidence, "reason": reason}
