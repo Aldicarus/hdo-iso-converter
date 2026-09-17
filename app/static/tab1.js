@@ -257,7 +257,8 @@ function _sortSrcFbEntries(entries, sort) {
 async function srcFbNavigate(filter, relPath) {
   const listEl = document.getElementById(`src-fb-${filter}-list`);
   const bcEl = document.getElementById(`src-fb-${filter}-breadcrumb`);
-  if (listEl) listEl.innerHTML = '<div class="src-fb-loading"><span data-icono="reloj"></span> Cargando…</div>';
+  if (listEl) listEl.innerHTML = '<div class="src-fb-loading"><span data-icono="reloj"></span> '
+                                 + tr('tab1.cargando') + '</div>';
   // `innerHTML`: el icono es un SVG, antes iba como carácter en el texto.
   if (bcEl) bcEl.innerHTML = icono('carpeta') + ' /mnt/isos'
                            + (relPath ? ` / ${escHtml(relPath)}` : '');
@@ -510,9 +511,9 @@ function showProgressModal({ title, sub, icon, posterUrl } = {}) {
       posterEl.innerHTML = `<span id="progress-modal-icon">${icon || icono('reloj', 'ico-xl')}</span>`;
     }
   }
-  document.getElementById('progress-modal-title').textContent = title || 'Procesando…';
+  document.getElementById('progress-modal-title').textContent = title || tr('tab1.procesando');
   document.getElementById('progress-modal-sub').textContent = sub || '';
-  document.getElementById('progress-modal-current').textContent = 'Iniciando…';
+  document.getElementById('progress-modal-current').textContent = tr('tab1.iniciando');
   const barEl = document.getElementById('progress-modal-bar');
   if (barEl) { barEl.style.width = '0%'; barEl.classList.remove('done'); }
   document.getElementById('progress-modal-pct').textContent = '';
@@ -1237,7 +1238,8 @@ async function seriesSelectCandidate(tmdbId) {
   }
   const seasons = data.details.seasons || [];
   const select = document.getElementById('series-season-select');
-  select.innerHTML = '<option value="">— Elige temporada —</option>' + seasons.map(s =>
+  select.innerHTML = '<option value="">' + tr('tab1.opt_elige_temporada')
+                   + '</option>' + seasons.map(s =>
     `<option value="${s.season_number}">${tr('tab1.name_episode_count_episodios', {name: escHtml(s.name), episode_count: s.episode_count})}</option>`
   ).join('');
   document.getElementById('series-season-section').style.display = 'block';
@@ -2730,7 +2732,8 @@ function renderIncludedTracks(tracks) {
       const raw  = track.raw || {};
       const def  = track.flag_default ? ' active-default' : '';
       const frc  = track.flag_forced  ? ' active-forced'  : '';
-      const subTypeLabel = track.subtitle_type === 'forced' ? tr('tab1.forzados') : 'Completos';
+      const subTypeLabel = track.subtitle_type === 'forced'
+        ? tr('tab1.forzados') : tr('tab1.completos');
       const packets = raw.packet_count || 0;
       const tooltip = [
         `Codec: PGS (Presentation Graphics)`,
@@ -3395,7 +3398,7 @@ function recoverTrack(idx) {
     codecLit = _buildAudioCodecLiteral(raw, !!currentSession.audio_dcp);
     fullLabel = `${langLit} ${codecLit}`.trim() || tr('tab1.pista_recuperada');
   } else {
-    codecLit = isForcedSub ? tr('tab1.forzados_pgs') : 'Completos (PGS)';
+    codecLit = isForcedSub ? tr('tab1.forzados_pgs') : tr('tab1.completos_pgs');
     fullLabel = `${langLit} ${codecLit}`.trim() || tr('tab1.pista_recuperada');
   }
 
@@ -4456,26 +4459,17 @@ function handleExecutionWsMessage(msg) {
   // panel del centro— y solo mientras el navegador estuviera mirando: cerrar
   // la pestaña borraba la barra.
 
-  // Detectar cambios de fase por marcadores en el log. Los marcadores
-  // `[Origen]` (v2.7+) reemplazaron a `[Montando ISO]` / `[Desmontando
-  // ISO]` cuando el pipeline pasó a soportar 3 tipos de origen (iso /
-  // bdmv_folder / m2ts). Mantenemos los antiguos por compat con sesiones
-  // legacy cuyo log se renderiza al reabrir.
-  const isMountMarker = msg.includes('[Origen] ┌─') || msg.includes('[Montando ISO]');
-  const isUnmountMarker = (
-    msg.includes('[Origen] ✓ ISO desmontado')
-    || msg.includes('[Origen] ✓ Origen cerrado')
-    // Backward-compat con sesiones legacy persistidas en disco
-    || msg.includes('[Origen] ISO desmontado')
-    || msg.includes('[Origen] Carpeta BDMV liberada')
-    || msg.includes('[Origen] Fichero M2TS liberado')
-    || msg.includes('[Desmontando ISO]')
-  );
-  if (isMountMarker) {
-    updateSubtabQueuePill();
-  } else if (msg.includes('[Fase D]') || msg.includes('[Fase E]')) {
-    updateSubtabQueuePill();
-  } else if (isUnmountMarker) {
+  // Refrescar la píldora de la sub-pestaña cuando el log anuncia un cambio
+  // de fase. El marcador es `[Fase X]`, que se concatena en el CÓDIGO del
+  // servidor y por tanto no cambia de idioma.
+  //
+  // Aquí había además doce condiciones que buscaban `[Origen] ✓ ISO
+  // desmontado` y compañía, y eran código muerto por DOS motivos: el
+  // marcador `[Origen]` ya no lo emite nadie —el real es `[Fase A] ┌─` y el
+  // cierre va con `[Fase D]`— y encima comparaban contra PROSA castellana,
+  // que desde la traducción llega en el idioma de la app. No se notaba
+  // porque las tres ramas llamaban a la misma función y `[Fase D]` sí casa.
+  if (msg.includes('[Fase D]') || msg.includes('[Fase E]')) {
     updateSubtabQueuePill();
   }
 }

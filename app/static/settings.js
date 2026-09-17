@@ -444,7 +444,7 @@ async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
     return;
   }
   btn.disabled = true;
-  fb.textContent = 'Probando…';
+  fb.textContent = tr('settings.probando');
   fb.className = 'settings-feedback info';
   const body = {};
   if (value) body[payloadKey] = value;
@@ -515,10 +515,10 @@ async function saveSettings() {
   if (!data) return;
   _settingsCache = data;
   _renderSettings(data);
-  if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = 'Guardada';   fbTmdb.className = 'settings-feedback ok'; } }
-  if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = 'Guardada'; fbGoogle.className = 'settings-feedback ok'; } }
-  if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = 'Guardada';  fbDrive.className = 'settings-feedback ok'; } }
-  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = 'Guardada'; fbSheet.className = 'settings-feedback ok'; }
+  if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = tr('settings.guardada');   fbTmdb.className = 'settings-feedback ok'; } }
+  if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = tr('settings.guardada'); fbGoogle.className = 'settings-feedback ok'; } }
+  if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = tr('settings.guardada');  fbDrive.className = 'settings-feedback ok'; } }
+  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = tr('settings.guardada'); fbSheet.className = 'settings-feedback ok'; }
   showToast(tr('settings.configuracion_guardada'), 'success');
 }
 

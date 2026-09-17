@@ -42,7 +42,8 @@ async function openCMv40CleanupModal() {
   openModal('cmv40-cleanup-modal');
   const body = document.getElementById('cmv40-cleanup-body');
   const foot = document.getElementById('cmv40-cleanup-foot');
-  if (body) body.innerHTML = '<div class="cmv40-cleanup-loading"><span data-icono="reloj"></span> Escaneando proyectos…</div>';
+  if (body) body.innerHTML = '<div class="cmv40-cleanup-loading"><span data-icono="reloj"></span> '
+                           + tr('cmv40_modals.escaneando_proyectos') + '</div>';
   if (foot) foot.style.display = 'none';
 
   const data = await apiFetch('/api/cmv40/cleanup/preview');
@@ -66,7 +67,8 @@ async function openCMv40CleanupModal() {
     // Estado visual
     let stateBadge = '';
     if (it.state === 'running') stateBadge = '<span class="cleanup-state-pill running"><span data-icono="reloj"></span> ' + tr('workbar.en_curso') + '</span>';
-    else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived"><span data-icono="archivador"></span> Archivado</span>';
+    else if (it.state === 'archived') stateBadge = '<span class="cleanup-state-pill archived"><span data-icono="archivador"></span> '
+                                                 + tr('cmv40_modals.archivado') + '</span>';
     else if (it.state === 'done') stateBadge = '<span class="cleanup-state-pill done"><span data-icono="check"></span> Done</span>';
     else if (it.state === 'error') stateBadge = '<span class="cleanup-state-pill error"><span data-icono="aviso"></span> Error</span>';
     else stateBadge = `<span class="cleanup-state-pill in-progress">${icono('pausa')} ${escHtml(it.phase)}</span>`;
@@ -475,7 +477,8 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
 
   // ── 3. Candidatos del repositorio con pipeline previsto ──────
   html += '<div class="cmv40-lookup-section">';
-  html += '<div class="cmv40-lookup-section-title"><span data-icono="caja"></span> Repositorio DoviTools (bins <code>.bin</code>)</div>';
+  html += '<div class="cmv40-lookup-section-title"><span data-icono="caja"></span> '
+        + tr('cmv40_modals.repositorio_dovitools_bins') + '</div>';
   html += '<div class="cmv40-lookup-section-desc">' + tr('cmv40_modals.ficheros_disponibles_para_descarga_automatica') + '</div>';
   if (!repo || !repo.drive_configured) {
     html += _cmv40RepoUnavailableBanner(repo);

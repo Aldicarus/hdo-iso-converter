@@ -52,6 +52,21 @@ FUERA_DEL_CATALOGO = {
     "markers": "`§§PROGRESS§§`, `━━━`, `📋 Plan`… son claves de parser",
 }
 
+# Literales del JS exentos por su LITERAL y con el motivo, para lo que no se
+# puede eximir por función —porque vive en el ámbito del módulo—. Mismo
+# mecanismo que `FUERA_DEL_CATALOGO_BACKEND`.
+FUERA_DEL_CATALOGO_JS: dict[str, str] = {
+    "Inglés":
+        "el `LANGUAGE_MAP` de `core.js`, gemelo del de `phase_b`: son los "
+        "literales de pista de la spec y acaban en el NOMBRE de las pistas "
+        "del MKV, no en la interfaz. Que sigan el idioma de la app es una "
+        "decisión distinta y va con el bloque de selección de pistas.",
+    "🎯 Resultado:":
+        "un MARCADOR del log, no texto: el servidor lo concatena en el "
+        "código —fuera de la cadena traducible— así que llega igual en los "
+        "tres idiomas y `_classifyLogLine` puede compararlo.",
+}
+
 
 def _catalogos() -> set[str]:
     """Todos los valores castellanos, con los huecos normalizados."""
@@ -149,9 +164,22 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
                 import bisect
                 i = bisect.bisect_right(base, m.start()) - 1
                 linea = lineas[i] if i < len(lineas) else ""
-                if _CONSOLA.search(linea) or linea.lstrip().startswith(("//", "*")):
+                # Un comentario no se pinta. Faltaban las dos formas de
+                # abrir un bloque: cinco de las 59 eran el docstring de un
+                # handler («Handler del botón "Continuar igualmente" —…»).
+                if (_CONSOLA.search(linea)
+                        or linea.lstrip().startswith(("//", "*", "/*"))):
                     continue
-                sueltas.append(f"{Path(r).name}:{i + 1}: {s[:66]}")
+                # Y las dos exenciones POR FUNCIÓN que el resto de los guards
+                # ya usan: los volcados de diagnóstico se leen contra el log y
+                # contra la hoja de DoviTools, las dos en inglés.
+                fn = TestNoQuedaNingunFragmentoCortoSuelto._funcion_de(
+                    src, m.start())
+                if fn in VOLCADOS_DE_DIAGNOSTICO or fn in CORTOS_ACEPTADOS:
+                    continue
+                if s in FUERA_DEL_CATALOGO_JS:
+                    continue
+                sueltas.append(f"{Path(r).name}:{i + 1} ({fn}): {s[:60]}")
         self.assertEqual(sueltas, [], (
             f"\n{len(sueltas)} frase(s) castellanas sueltas en el JS. Pasa por "
             f"`tr('clave')` o, si de verdad no es texto de usuario, di por qué "

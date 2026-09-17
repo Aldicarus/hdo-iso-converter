@@ -54,8 +54,8 @@ const CMV40_RUNNING_LABELS = {
   'extract':         tr('tab3.fase_c_extrayendo_bl_el_y'),
   'sync_correct':    tr('tab3.fase_e_aplicando_correccion_de_sincronizacion'),
   'inject':          tr('tab3.fase_f_inyectando_rpu_en_el'),
-  'remux':           'Fase G — Remuxando MKV final',
-  'validate':        'Fase H — Validando MKV final',
+  'remux':           tr('tab3.fase_g_remuxando_mkv_final'),
+  'validate':        tr('tab3.fase_h_validando_mkv_final'),
 };
 
 // Ratios empíricos calibrados contra logs reales del NAS ZFS con Dolby Vision
@@ -980,7 +980,7 @@ const CMV40_PHASE_LABELS = {
   'validated':       tr('tab3.validado'),
   'done':            tr('tab3.completado'),
   'error':           'Error',
-  'cancelled':       'Cancelado',
+  'cancelled':       tr('tab3.cancelado'),
 };
 
 // ── Modal "Nuevo proyecto CMv4.0" ────────────────────────────────
@@ -1360,9 +1360,9 @@ function _cmv40NewSwitchTargetTab(tab) {
 
 async function _cmv40NewLoadRpus() {
   const select = document.getElementById('cmv40-new-rpu-select');
-  select.innerHTML = '<option value="">— Cargando… —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.opt_cargando') + '</option>';
   const data = await apiFetch('/api/cmv40/rpu-files');
-  select.innerHTML = '<option value="">— Seleccionar RPU —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.opt_seleccionar_rpu') + '</option>';
   if (data?.files?.length) {
     data.files.forEach(f => {
       const opt = document.createElement('option');
@@ -1377,7 +1377,7 @@ async function _cmv40NewLoadRpus() {
 
 async function _cmv40NewLoadTargetMkvs() {
   const select = document.getElementById('cmv40-new-target-mkv-select');
-  select.innerHTML = '<option value="">— Cargando… —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.opt_cargando') + '</option>';
   const data = await apiFetch('/api/mkv/files-in-isos');
   select.innerHTML = '<option value="">' + tr('tab3.seleccionar_mkv_con_cmv40') + '</option>';
   if (data?.files?.length) {
@@ -2532,7 +2532,11 @@ function _classifyLogLine(line) {
     return 'log-plan';
   }
   // Resultado / conclusion con implicacion para siguientes fases
-  if (line.includes('🎯 Resultado:') || line.includes('🎯 Result:')) {
+  // `🎯 Resultado` es un MARCADOR: el servidor lo concatena en el código,
+  // fuera de la cadena traducible, así que llega igual en los tres idiomas.
+  // El `'🎯 Result:'` que había al lado no lo emitía nadie — daba a entender
+  // que el marcador se traduce, que es justo lo contrario de la regla.
+  if (line.includes('🎯 Resultado:')) {
     return 'log-result';
   }
   // Success checkmark
@@ -4607,7 +4611,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
     summary = tr('tab3.verificando_profile_cm_v4_0_frame');
   } else {
     overallIcon = icono('candado', 'ico-lg');
-    overallLabel = 'Pendiente';
+    overallLabel = tr('tab3.pendiente');
     summary = tr('tab3.se_ejecuta_tras_completar_fase_g');
   }
 
@@ -4625,7 +4629,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
     // CM version
     rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
       tr('tab3.cm_version_del_mkv'),
-      state === 'done' ? 'CM v4.0 confirmado' : '—',
+      state === 'done' ? tr('tab3.cm_v4_0_confirmado') : '—',
       state === 'done'
         ? tr('tab3.dovi_tool_extract_rpu_info_sobre')
         : tr('tab3.se_verifica_que_el_rpu_del')));
@@ -4638,7 +4642,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
         : tr('tab3.se_compara_frame_count_del_resultado')));
     // Estructura MKV
     rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
-      'Estructura Matroska',
+      tr('tab3.estructura_matroska'),
       state === 'done' ? tr('tab3.mkv_valido_mkvmerge_j_ok') : '—',
       state === 'done'
         ? tr('tab3.mkvmerge_j_lee_el_fichero_sin')
@@ -5622,7 +5626,7 @@ async function cmv40DoTargetFromDrive(pid) {
 async function _cmv40LoadRpus(pid) {
   const select = document.getElementById(`cmv40-rpu-select-${pid}`);
   const data = await apiFetch('/api/cmv40/rpu-files');
-  select.innerHTML = '<option value="">— Seleccionar RPU —</option>';
+  select.innerHTML = '<option value="">' + tr('tab3.opt_seleccionar_rpu') + '</option>';
   if (data?.files?.length) {
     data.files.forEach(f => {
       const opt = document.createElement('option');
@@ -5712,13 +5716,13 @@ async function cmv40DoInject(pid) {
 
 async function cmv40DoRemux(pid) {
   await apiFetch(`/api/cmv40/${pid}/remux`, { method: 'POST' });
-  _cmv40PhaseToast(pid, 'Remuxando a MKV final…');
+  _cmv40PhaseToast(pid, tr('tab3.toast_remuxando_a_mkv_final'));
   _cmv40PollPhase(pid, 'remuxed');
 }
 
 async function cmv40DoValidate(pid) {
   await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
-  _cmv40PhaseToast(pid, 'Validando MKV final…');
+  _cmv40PhaseToast(pid, tr('tab3.toast_validando_mkv_final'));
   // Polling — Fase H dura varios minutos (move 42 GB), no se puede hacer síncrono
   _cmv40PollPhase(pid, 'done');
 }
@@ -6444,7 +6448,7 @@ async function cmv40DoApplySync(pid) {
 async function cmv40DoSkipSync(pid) {
   const data = await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
   if (data) {
-    showToast('Sync confirmado', 'success');
+    showToast(tr('tab3.toast_sync_confirmado'), 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       _cmv40AssignSession(project, data);

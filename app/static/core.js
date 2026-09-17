@@ -1427,9 +1427,8 @@ async function buscarCandidatosDeFicha() {
   });
   if (!r) { res.innerHTML = '<div class="cmv40-lookup-empty">' + tr('core.no_se_pudo_consultar_tmdb') + '</div>'; return; }
   if (!r.tmdb_configured) {
-    res.innerHTML = '<div class="cmv40-lookup-empty">' + tr('core.tmdb_no_esta_disponible_guion')
-                  + tr('core.no_hay_ninguna_clave_activa_puedes') + ' '
-                  + 'Configuración.</div>';
+    res.innerHTML = '<div class="cmv40-lookup-empty">'
+                  + tr('core.tmdb_no_disponible_sin_clave') + '</div>';
     return;
   }
   _fichaCandidatos = r.candidates || [];

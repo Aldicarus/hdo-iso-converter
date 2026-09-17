@@ -2365,7 +2365,7 @@ function _renderMkvTracks(project = mkvProject) {
     const flagForcedLit = t.flag_forced;
     const def = t.flag_default ? ' active-default' : '';
     const frc = flagForcedLit ? ' active-forced' : '';
-    const forcedLabel = derivedForced ? tr('tab2.forzados') : 'Completos';
+    const forcedLabel = derivedForced ? tr('tab2.forzados') : tr('tab2.completos');
     // Anotación cuando la clasificación viene inferida del volumen, no del flag
     const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-i18n-tip="tab2.clasificacion_inferida_por_volumen"><span data-icono="info"></span> inferido</span>' : '';
 
@@ -2978,7 +2978,7 @@ function _mkvTablaComparacionHtml(dv, a, cmp) {
   const otras = cmp.stats || {};
   const filas = [
     ['Peak', 'peak'], ['p99', 'p99'], ['p95', 'p95'],
-    ['Mediana', 'p50'], [tr('tab2.media_de_los_picos'), 'avg_of_max'],
+    [tr('tab2.mediana'), 'p50'], [tr('tab2.media_de_los_picos'), 'avg_of_max'],
   ];
   const celdas = filas.map(([etiq, clave]) => {
     const mia = propias[clave];

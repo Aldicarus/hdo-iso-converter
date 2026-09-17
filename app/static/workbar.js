@@ -283,7 +283,8 @@ let _workbarSeleccion = null;
 
 // Cómo acabó, dicho para el usuario.
 const _CMV40_FIN = {
-  done: tr('workbar.terminado'), cancelled: 'Cancelado', error: tr('workbar.terminado_con_error'),
+  done: tr('workbar.terminado'), cancelled: tr('workbar.cancelado'),
+  error: tr('workbar.terminado_con_error'),
   esperando: tr('workbar.requiere_una_decision'),
 };
 
@@ -528,7 +529,8 @@ function _workbarRenderHistorial() {
   // y tiene que pegarse igual al bajar. El margen negativo NO se le aplica
   // —no vive dentro de una `.workbar-seccion`— y por eso su padding lateral
   // sale ya de la clase.
-  let html = '<div class="workbar-seccion-titulo">Recientes</div>';
+  let html = '<div class="workbar-seccion-titulo">' + tr('workbar.recientes')
+           + '</div>';
   let dia = null;
   for (const r of items) {
     const d = _workbarDia(r.inicio);
@@ -1217,7 +1219,7 @@ function _trabajoModalConResumen(a, vista) {
     cuerpo: _trabajoKvHTML([
       [tr('workbar.resultado'), _CMV40_FIN[h.estado] || h.estado || '—'],
       ['Empezó', fecha(h.inicio)],
-      ['Terminó', fecha(h.fin)],
+      [tr('workbar.termino'), fecha(h.fin)],
       [tr('tab1.duracion'), _workbarTiempo(h.segundos || a.segundos)],
       ['Error', h.error || '—'],
     ]) + `<div class="trabajo-detalle-nota">${escHtml(_MOTIVO_SIN_LOG[

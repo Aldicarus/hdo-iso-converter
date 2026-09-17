@@ -86,7 +86,7 @@ async function openFileBrowser({ title, subtitle, roots, onSelect } = {}) {
   if (subEl) subEl.textContent = subtitle || tr('browser.navega_tu_biblioteca_y_elige_el');
   if (searchEl) searchEl.value = '';
   // Limpiar restos de aperturas anteriores ANTES de mostrar para no flashear datos viejos
-  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> Cargando…</div>';
+  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> ' + tr('browser.cargando') + '</div>';
   if (bcEl) bcEl.innerHTML = '';
   if (baseEl) baseEl.textContent = '';
   if (statsEl) statsEl.textContent = '';
@@ -133,7 +133,7 @@ async function fileBrowserNavigate(relPath) {
   _fileBrowser.selectedName = null;
   _updateFileBrowserConfirmBtn();
   const listEl = document.getElementById('file-browser-list');
-  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> Cargando…</div>';
+  if (listEl) listEl.innerHTML = '<div class="file-browser-loading"><span data-icono="reloj"></span> ' + tr('browser.cargando') + '</div>';
   try {
     const url = `/api/library/browse?root=${encodeURIComponent(_fileBrowser.rootKey)}&path=${encodeURIComponent(relPath || '')}`;
     const data = await apiFetch(url);
