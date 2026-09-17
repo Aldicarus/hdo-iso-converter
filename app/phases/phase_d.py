@@ -339,7 +339,9 @@ def extract_chapters_from_mkv(mkv_path: str) -> list[dict]:
                 chapters.append({
                     "number":    number,
                     "timestamp": _normalize_timestamp(current_ts),
-                    "name":      current_name or f"Capítulo {number:02d}",
+                    "name":      (current_name
+                                  or tr('phase_d.capitulo_n',
+                                        n=f"{number:02d}")),
                 })
                 number     += 1
                 current_ts  = None

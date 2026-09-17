@@ -1030,21 +1030,17 @@ def recommend_action(session) -> tuple[str, str, str]:
 
     # Cualquier otro caso real → merge selectivo
     if not profile_match:
-        reason = (
-            f"El perfil del bin (P{target.profile if target else '?'}"
-            f"{(' ' + target.el_type) if target and target.el_type else ''}) no "
-            f"coincide con el del MKV original ({source_wf.upper().replace('_', ' ') if source_wf else '?'}) "
-            f"→ inyectamos solo los niveles CMv4.0 [3,8,9,11,254] preservando el "
-            f"L2 del MKV original. Calidad del bin: {quality_label}."
-        )
+        reason = tr(
+            'rpu_analyze.perfil_no_coincide',
+            perfil_bin=target.profile if target else '?',
+            el_bin=(' ' + target.el_type) if target and target.el_type else '',
+            perfil_mkv=(source_wf.upper().replace('_', ' ')
+                        if source_wf else '?'),
+            calidad=quality_label)
     else:
         # profile match pero L2 different
-        reason = (
-            f"El perfil coincide pero el L2 difiere ({l2_reason}) → inyectamos "
-            f"solo los niveles CMv4.0 [3,8,9,11,254] preservando el L2 del MKV "
-            f"original (regla de seguridad: nunca degradar el L2 existente). "
-            f"Calidad del bin: {quality_label}."
-        )
+        reason = tr('rpu_analyze.l2_difiere', motivo=l2_reason,
+                    calidad=quality_label)
 
     return ("merge", "Inyectar RPU CMv4.0 (preserva L2)", reason)
 

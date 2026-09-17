@@ -232,7 +232,7 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
         async with httpx.AsyncClient(timeout=8.0) as client:
             # ── Drive API ────────────────────────────────────────
             if not folder_id:
-                drive_msg = "Drive ⏭ (folder no configurado — saltado)"
+                drive_msg = tr('rec999_drive.drive_folder_no_configurado')
                 drive_ok = True  # no falla si no hay folder
             else:
                 resp = await client.get(f"{DRIVE_API}/files", params={
@@ -250,11 +250,12 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
                     except Exception:
                         emsg = ""
                     if "has not been used" in emsg or "disabled" in emsg:
-                        drive_msg = "Drive ✗ (API no habilitada)"
+                        drive_msg = tr('rec999_drive.drive_api_no_habilitada')
                     elif resp.status_code == 403:
                         drive_msg = f"Drive ✗ (403: {emsg[:80]})"
                     elif resp.status_code == 400:
-                        drive_msg = "Drive ✗ (petición mal formada — key inválida?)"
+                        drive_msg = tr(
+                            'rec999_drive.drive_peticion_mal_formada')
                     else:
                         drive_msg = f"Drive ✗ ({resp.status_code})"
 
@@ -284,28 +285,28 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
                     except Exception:
                         demsg = ""
                     if "not supported for this document" in demsg.lower():
-                        sheets_msg = ("Sheets ✓ (API OK — el sheet DoviTools es "
-                                       "XLSX importado, se lee vía fallback openpyxl)")
+                        sheets_msg = tr('rec999_drive.sheets_ok_xlsx')
                     else:
-                        sheets_msg = f"Sheets ✓ (pero sheet DoviTools dio {dresp.status_code})"
+                        sheets_msg = tr('rec999_drive.sheets_ok_pero_dio',
+                                        codigo=dresp.status_code)
             else:
                 try:
                     emsg = sresp.json().get("error", {}).get("message", "")
                 except Exception:
                     emsg = ""
                 if "has not been used" in emsg or "disabled" in emsg:
-                    sheets_msg = ("Sheets ✗ (API no habilitada en tu proyecto — "
-                                   "actívala en console.cloud.google.com/apis/library/sheets.googleapis.com)")
+                    sheets_msg = tr(
+                        'rec999_drive.sheets_api_no_habilitada')
                 elif sresp.status_code == 403:
                     if "restriction" in emsg.lower() or "referer" in emsg.lower():
-                        sheets_msg = ("Sheets ✗ (key con restricciones — permite HTTP referers genéricos "
-                                       "o añade la API Sheets a la lista de APIs permitidas)")
+                        sheets_msg = tr(
+                            'rec999_drive.sheets_key_con_restricciones')
                     else:
                         sheets_msg = f"Sheets ✗ (403: {emsg[:80]})"
                 else:
                     sheets_msg = f"Sheets ✗ ({sresp.status_code}: {emsg[:80]})"
     except Exception as e:
-        return False, f"Error de red: {e}"
+        return False, tr('rec999_drive.error_de_red', motivo=e)
 
     composite = f"{drive_msg} · {sheets_msg}"
     if drive_ok and sheets_ok:

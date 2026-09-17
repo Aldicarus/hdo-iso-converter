@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
+from i18n import t as tr
 from services.settings_store import get_tmdb_api_key
 
 _logger = logging.getLogger(__name__)
@@ -185,7 +186,7 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
             return False, "API key inválida"
         return False, f"Error TMDb ({resp.status_code})"
     except Exception as e:
-        return False, f"Error de red: {e}"
+        return False, tr('tmdb.error_de_red', motivo=e)
 
 
 def _is_ascii(s: str) -> bool:

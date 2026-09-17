@@ -67,7 +67,15 @@ _CERRADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO)
 # quedaba con su icono y nada más: el análisis extendido contaba «Cancelado
 # por el usuario» y los otros cuatro tipos, en silencio. Se rellena aquí y no
 # en cada sitio para que un tipo nuevo no pueda olvidarlo.
-MOTIVO_CANCELADO = "Cancelado por el usuario"
+def motivo_cancelado() -> str:
+    """Por qué se paró, cuando nadie lo dice.
+
+    Función y no constante: un literal en el ámbito del módulo se evalúa al
+    importar y dejaría el motivo en el idioma que hubiera al arrancar el
+    contenedor, pasara lo que pasara después con el ajuste.
+    """
+    from i18n import t as tr
+    return tr('historial.motivo_cancelado')
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 
@@ -125,7 +133,7 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
     try:
         fin = fin or datetime.now(timezone.utc)
         if estado == ESTADO_CANCELADO and not error:
-            error = MOTIVO_CANCELADO
+            error = motivo_cancelado()
         registro = {
             "id": id, "tab": tab, "tipo": tipo, "que": que,
             # La película y su miniatura, escritas AQUÍ porque aquí la sesión

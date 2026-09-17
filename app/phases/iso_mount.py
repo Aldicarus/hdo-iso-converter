@@ -243,9 +243,7 @@ class Source:
                 if candidate.exists():
                     return "bdmv_folder"
             raise SourceError(
-                f"La carpeta {p.name} no contiene BDMV/PLAYLIST/. "
-                f"¿Es una carpeta BDMV extraída válida?"
-            )
+                tr('iso_mount.carpeta_sin_bdmv', nombre=p.name))
         raise SourceError(f"Path ni fichero ni directorio: {path}")
 
     @classmethod
@@ -263,7 +261,8 @@ class Source:
             # Lista explícita de m2ts (caso serie con varios episodios)
             for mp in m2ts_paths:
                 if not Path(mp).exists():
-                    raise SourceError(f"M2TS no encontrado: {mp}")
+                    raise SourceError(
+                        tr('iso_mount.m2ts_no_encontrado', ruta=mp))
                 if Path(mp).suffix.lower() != ".m2ts":
                     raise SourceError(f"No es .m2ts: {mp}")
             return cls(

@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from i18n import t as tr
 from models import CMv40Session, Session
 
 logger = logging.getLogger(__name__)
@@ -1109,7 +1110,8 @@ def list_mkv_audit_entries() -> list[dict]:
                 "size_bytes": size,
                 "age_seconds": age,
                 "corrupt": True,
-                "error": f"el JSON no es un objeto ({type(data).__name__})",
+                "error": tr('storage.json_no_es_objeto',
+                            tipo=type(data).__name__),
             })
             continue
         quality = data.get("quality") or None

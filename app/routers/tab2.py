@@ -410,7 +410,9 @@ async def list_mkv_files_in_isos():
 
 
 @router.post("/api/mkv/analyze", summary="Analiza un MKV existente",
-             dependencies=[Depends(workload.marca("Apertura de un MKV", workload.TAB_MKV))])
+             dependencies=[Depends(workload.marca(
+                 lambda: tr('tab2.wl_apertura_de_un_mkv'),
+                 workload.TAB_MKV))])
 async def analyze_mkv_endpoint(body: dict):
     """
     Ejecuta mkvmerge -J + MediaInfo + ffprobe (packet counts) + dovi_tool
@@ -681,7 +683,7 @@ def _mkv_quality_finalizar_o_cancelar(audit_id: str, msg: str) -> None:
     — un análisis parado por el usuario no es un análisis roto.
     """
     if _mkv_quality_cancel.get("requested_for_id") == audit_id:
-        _mkv_quality_state_finalize_if(audit_id, historial.MOTIVO_CANCELADO,
+        _mkv_quality_state_finalize_if(audit_id, historial.motivo_cancelado(),
                                        step="cancelled")
         return
     _mkv_quality_state_finalize_if(audit_id, msg, step="error")
@@ -803,7 +805,7 @@ async def mkv_quality_audit_cancel(request: Request):
     # Finaliza el state del audit target — protegido por audit_id guard,
     # si el usuario ya relanzó NO pisa el state del audit nuevo.
     finalized = _mkv_quality_state_finalize_if(
-        target_audit_id, historial.MOTIVO_CANCELADO, step="cancelled",
+        target_audit_id, historial.motivo_cancelado(), step="cancelled",
     )
     if not finalized:
         _logger.info(

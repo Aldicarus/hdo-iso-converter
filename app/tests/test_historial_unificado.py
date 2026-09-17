@@ -235,7 +235,7 @@ class TestUnTrabajoCanceladoDiceQueLoParaste(HistorialCase):
     def test_sin_motivo_se_rellena_el_de_siempre(self):
         self.anotar(estado=historial.ESTADO_CANCELADO)
         self.assertEqual(historial.leer()[0]["error"],
-                         historial.MOTIVO_CANCELADO)
+                         historial.motivo_cancelado())
 
     def test_pero_si_lo_trae_manda_el_suyo(self):
         self.anotar(estado=historial.ESTADO_CANCELADO,
@@ -256,7 +256,7 @@ class TestUnTrabajoCanceladoDiceQueLoParaste(HistorialCase):
             self.anotar(id=f"t{i}", tipo=tipo,
                         estado=historial.ESTADO_CANCELADO)
         self.assertEqual([t["error"] for t in historial.leer()],
-                         [historial.MOTIVO_CANCELADO] * len(tipos))
+                         [historial.motivo_cancelado()] * len(tipos))
 
 
 class TestQuitarUnaEntrada(HistorialCase):
@@ -440,7 +440,7 @@ class TestTab1LoAlimenta(HistorialCase):
         self.assertIn("Peli (2024)", t["que"])
         # Y lleva el motivo, que es lo que la tarjeta enseña debajo. Sin él,
         # cuatro de los cinco tipos se quedaban con su icono y nada más.
-        self.assertEqual(t["error"], historial.MOTIVO_CANCELADO)
+        self.assertEqual(t["error"], historial.motivo_cancelado())
 
     def test_pero_NO_entra_en_el_historial_del_proyecto(self):
         """Son dos cosas: el del proyecto lista sus ejecuciones, y una

@@ -1280,8 +1280,9 @@ def _cmv40_anotar_estado(session: CMv40Session) -> None:
         id      = session.id,
         tab     = historial.TAB_CMV40,
         tipo    = historial.TIPO_FASE_CMV40,
-        que     = (("Mantener el MKV actual · " if mantener
-                    else "Upgrade CMv4.0 · ") + (titulo or session.id)),
+        que     = tr('cmv40.historial_mantener_el_mkv' if mantener
+                     else 'cmv40.historial_upgrade',
+                     que=titulo or session.id),
         titulo  = titulo,
         poster  = poster,
         inicio  = min(arranques) if arranques else session.created_at,

@@ -543,7 +543,7 @@ class TestTab2PasaPorLaCola(ApiTestCase):
                          json={"audit_id": "aud1"})
         self.assertEqual(tab2._mkv_quality_state["step"], "cancelled")
         self.assertEqual(tab2._mkv_quality_state["error"],
-                         hist.MOTIVO_CANCELADO)
+                         hist.motivo_cancelado())
 
     def test_y_lo_que_reviente_DESPUES_del_cancel_tampoco(self):
         """Al cancelar se le manda un SIGTERM al subproceso, así que lo que
@@ -557,7 +557,7 @@ class TestTab2PasaPorLaCola(ApiTestCase):
         tab2._mkv_quality_finalizar_o_cancelar("aud1", "ffmpeg rc=-15")
         self.assertEqual(tab2._mkv_quality_state["step"], "cancelled")
         self.assertEqual(tab2._mkv_quality_state["error"],
-                         hist.MOTIVO_CANCELADO)
+                         hist.motivo_cancelado())
 
     def test_pero_un_fallo_de_verdad_sigue_siendo_un_fallo(self):
         from routers import tab2

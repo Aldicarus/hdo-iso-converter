@@ -631,11 +631,16 @@ def frases_del_backend() -> set[str]:
                     s = " ".join(bruto.split())
                     if es_frase(s) or es_rotulo(s):
                         fuera.add(s)
-        exentas = {
-            nodo.value for nodo in ast.walk(arbol)
-            if isinstance(nodo, ast.Assign) and isinstance(nodo.value, ast.Dict)
-            and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
-                    for t in nodo.targets)}
+        exentas = set()
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, (ast.Assign, ast.AnnAssign)):
+                continue
+            objetivos = (nodo.targets if isinstance(nodo, ast.Assign)
+                         else [nodo.target])
+            if (isinstance(nodo.value, ast.Dict)
+                    and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
+                            for t in objetivos)):
+                exentas.add(nodo.value)
         for n in ast.walk(arbol):
             if id(n) in de_dev:
                 continue

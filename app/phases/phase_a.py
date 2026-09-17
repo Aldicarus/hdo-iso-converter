@@ -1196,7 +1196,7 @@ def _parse_simple_chapters(output: str) -> list[dict]:
         is_generic = bool(re.match(r"^Chapter\s+\d+$", raw_name, re.IGNORECASE))
 
         if is_generic or not raw_name:
-            name = f"Capítulo {num:02d}"
+            name = tr('phase_a.capitulo_n', n=f"{num:02d}")
             name_custom = False
         else:
             name = raw_name
@@ -1336,7 +1336,7 @@ def _parse_mpls_marks_binary(mpls_path: str) -> list[dict]:
             {
                 "number": idx,
                 "timestamp": _ticks_to_timestamp(ticks),
-                "name": f"Capítulo {idx:02d}",
+                "name": tr('phase_a.capitulo_n', n=f"{idx:02d}"),
                 "name_custom": False,
             }
             for idx, ticks in enumerate(abs_ticks_list, start=1)
@@ -2439,10 +2439,8 @@ def enrich_dovi(bdinfo: BDInfoResult, dovi: DoviInfo) -> None:
         bl_tracks[0].dovi = dovi
 
     bdinfo.has_fel = (dovi.el_type == "FEL")
-    bdinfo.fel_reason = (
-        f"Dolby Vision Profile {dovi.profile} ({dovi.el_type}) "
-        f"detectado via dovi_tool — CM {dovi.cm_version}"
-    )
+    bdinfo.fel_reason = tr('phase_a.fel_reason_dovi', perfil=dovi.profile,
+                           el_type=dovi.el_type, cm=dovi.cm_version)
 
 
 # ══════════════════════════════════════════════════════════════════════

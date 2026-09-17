@@ -27,6 +27,8 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
+from i18n import t as tr
+
 from services.settings_store import (
     get_google_api_key,
     get_cmv40_sheet_id_gid,
@@ -525,7 +527,8 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
                     sheet_name = s["properties"].get("title")
                     break
             if not sheet_name:
-                _sheets_api_error = f"Pestaña con gid={sheet_gid} no encontrada"
+                _sheets_api_error = tr(
+                    'rec999_sheet.pestana_no_encontrada', gid=sheet_gid)
                 _logger.warning(_sheets_api_error)
                 return None
 
@@ -552,7 +555,7 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
                 return None
             data = grid_resp.json()
     except Exception as e:
-        _sheets_api_error = f"Error de red: {e}"
+        _sheets_api_error = tr('rec999_sheet.error_de_red', motivo=e)
         _logger.warning("Sheets API v4 falló: %s", e)
         return None
 

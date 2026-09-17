@@ -366,7 +366,7 @@ class TestUnaConversionCanceladaDejaRastro(OrquestadorCase):
         # Con su motivo: la tarjeta lo pinta en rojo y lo dice, igual que un
         # fallo. Sin él, un rip que paraste y uno que se murió solo se
         # distinguían abriendo el detalle.
-        self.assertEqual(lineas[0]["error"], historial.MOTIVO_CANCELADO)
+        self.assertEqual(lineas[0]["error"], historial.motivo_cancelado())
 
     async def test_pero_no_cuenta_como_ejecucion_del_proyecto(self):
         s = await self._cancelar_a_media_extraccion()

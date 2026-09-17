@@ -1880,7 +1880,8 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                     if not Path(ep_source_path).exists():
                         failed_episodes.append({
                             "episode_number": ep.episode_number,
-                            "error": f"M2TS {ep.mpls_path} no encontrado",
+                            "error": tr('iso_mount.m2ts_no_encontrado',
+                                        ruta=ep.mpls_path),
                         })
                         continue
 
@@ -2476,9 +2477,9 @@ async def execute_session(session_id: str):
     if not available:
         type_label = {
             "iso": "ISO",
-            "bdmv_folder": "carpeta BDMV",
-            "m2ts": "fichero M2TS",
-        }.get(source_type, "origen")
+            "bdmv_folder": tr('tab1.origen_carpeta_bdmv_min'),
+            "m2ts": tr('tab1.origen_fichero_m2ts'),
+        }.get(source_type, tr('tab1.origen_generico'))
         raise HTTPException(
             status_code=400,
             detail=tr('tab1.no_disponible_comprueba_que_sigue_en', type_label=type_label, source_path=source_path),

@@ -67,6 +67,15 @@ _PARAM = re.compile(r"\{(\w+)\}")
 # Se exime la clave, no el patrón: un nombre nuevo tiene que costar escribir el
 # motivo. Lo cruza `TestElEstiloSeSostiene` contra las claves reales.
 NOMBRE_PROPIO = {
+    "tab1.paso_dovi":
+        "«Analyzing the Dolby Vision RPU»: los candidatos a mayúscula son "
+        "«Analyzing», «Dolby», «Vision» y «RPU», y los tres últimos son "
+        "nombre comercial y sigla del glosario",
+    "tab2.paso_dovi":
+        "lo mismo con la herramienta detrás: «Analyzing Dolby Vision "
+        "(dovi_tool)». Es la gemela de `ui.analizando_dolby_vision_dovi_tool`, "
+        "que ya está aquí abajo",
+
     "tab1.pistas_capitulos_subtitulos_pgs_y_dolby":
         "la lista acaba en «Dolby Vision», que es nombre comercial; antes no "
         "saltaba porque la traducción añadía un «metadata» que el castellano "
@@ -85,6 +94,15 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "workload.tab_rip":
+        "el rótulo de la pestaña 1 es un icono, un nombre comercial "
+        "(«Blu-Ray»), dos siglas del glosario y una flecha: no hay ninguna "
+        "palabra que traducir",
+    "workload.minutos":
+        "«min» es la abreviatura de minuto en las tres lenguas. Va al "
+        "catálogo igualmente porque el hueco tiene que poder separarse de la "
+        "unidad si alguna lengua lo pide",
+
     "cmv40_pipeline.gate": "el marcador ⛔, la palabra «Gate» del glosario y "
                            "dos huecos; el castellano no dice «ha fallado» y "
                            "la traducción tampoco debe decirlo",

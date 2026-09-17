@@ -340,7 +340,8 @@ def _select_audio_tracks(
                 label=label,
                 flag_default=flag_default,
                 flag_forced=False,
-                selection_reason=f"Modo «mantener todas»: conservada y etiquetada automáticamente ({label})",
+                selection_reason=tr('phase_b.motivo_mantener_todas',
+                                    label=label),
             ))
         return included_all, []
 
@@ -367,7 +368,10 @@ def _select_audio_tracks(
                 discarded.append(DiscardedTrack(
                     track_type="audio",
                     raw=t,
-                    discard_reason=f"Descartada: idioma {lang_lit} no es Castellano ni VO ({_language_literal(vo_language.lower())})",
+                    discard_reason=tr(
+                        'phase_b.motivo_idioma_no_target_audio',
+                        idioma=lang_lit,
+                        vo=_language_literal(vo_language.lower())),
                 ))
 
     # Idiomas incluidos: seleccionar mejor pista de cada uno
@@ -391,9 +395,11 @@ def _select_audio_tracks(
 
         # Razón de selección
         if is_castellano:
-            reason = f"Seleccionada: mejor calidad para {best.language}. {_quality_ladder_text(best)}"
+            reason = tr('phase_b.motivo_mejor_calidad',
+                        idioma=best.language,
+                        escalera=_quality_ladder_text(best))
         else:
-            reason = "Seleccionada: VO (idioma de la primera pista del disco)"
+            reason = tr('phase_b.motivo_vo')
 
         # Detección de ambigüedad: SIEMPRE que haya 2+ pistas del mismo
         # idioma target, marcamos ambiguo. Texto adaptativo según
@@ -899,10 +905,10 @@ def _select_subtitle_tracks(
                 flag_default=flag_default,
                 flag_forced=flag_forced,
                 selection_reason=(
-                    f"Modo «mantener todas»: conservada y etiquetada automáticamente "
-                    f"({label}, {t.packet_count} paquetes)"
+                    tr('phase_b.motivo_mantener_todas_paquetes',
+                       label=label, paquetes=t.packet_count)
                     if t.packet_count > 0
-                    else f"Modo «mantener todas»: conservada y etiquetada automáticamente ({label})"
+                    else tr('phase_b.motivo_mantener_todas', label=label)
                 ),
             ))
         return included_all, []
@@ -917,7 +923,7 @@ def _select_subtitle_tracks(
             discarded.append(DiscardedTrack(
                 track_type="subtitle",
                 raw=t,
-                discard_reason="Descartada: código de idioma qad (estándar ISO 639 para Audio Description)",
+                discard_reason=tr('phase_b.motivo_qad'),
             ))
         else:
             valid_tracks.append(t)
@@ -1196,19 +1202,11 @@ def _select_subtitle_tracks(
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
-                    discard_reason=(
-                        f"Descartada por defecto: hay otra pista de subtítulos "
-                        f"{lang_lit} de tamaño parecido (ratio <3×, no es un forzado). "
-                        f"Puede ser una edición regional distinta (España/Latam) o la "
-                        f"versión con descripciones para sordos (SDH). Recupérala si era "
-                        f"la que querías."
-                    ),
-                    ambiguity_warning=(
-                        f"Otra pista de subtítulos {lang_lit} con tamaño parecido "
-                        f"al incluido. Puede ser una edición diferente (España/Latam, "
-                        f"con o sin descripciones para sordos (SDH), comentarios). Si era "
-                        f"la versión que querías, recupérala y compruébala."
-                    ),
+                    discard_reason=tr(
+                        'phase_b.motivo_sub_alternativa_descartada',
+                        idioma=lang_lit),
+                    ambiguity_warning=tr('phase_b.aviso_sub_alternativa',
+                                         idioma=lang_lit),
                     inferred_subtitle_type="complete",
                 ))
             # Descartar pistas sobrantes del mismo idioma. Las clasificó
@@ -1218,7 +1216,8 @@ def _select_subtitle_tracks(
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
-                    discard_reason=f"Descartada: pista adicional {lang_lit} (ya incluida la mejor de cada tipo)",
+                    discard_reason=tr('phase_b.motivo_sub_adicional',
+                                      idioma=lang_lit),
                     inferred_subtitle_type="forced",
                 ))
 
@@ -1296,9 +1295,9 @@ def _select_subtitle_tracks(
             flag_forced_matroska = is_castellano
             flag_note = ""
             if flag_default:
-                flag_note = ". flag default=yes + forced=yes: pista de forzados Castellano (la única con flag forced en el MKV)"
+                flag_note = tr('phase_b.nota_flag_forzados_castellano')
             elif lang_norm == vo_norm:
-                flag_note = ". flag forced=no: aunque sea forzado, solo el de Castellano lleva flag forced en Matroska (spec §5.2)"
+                flag_note = tr('phase_b.nota_flag_forced_no')
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=forced_track,
@@ -1344,14 +1343,14 @@ def _select_subtitle_tracks(
                     if t.packet_count > 0
                 )
                 detail = f" ({alt_counts})" if alt_counts else ""
-                ambiguity_text = (
-                    f"Hay {len(ambiguous_alts)} pista{'s' if len(ambiguous_alts) > 1 else ''} "
-                    f"de subtítulos {lang_lit} adicional"
-                    f"{'es' if len(ambiguous_alts) > 1 else ''} con tamaño parecido"
-                    f"{detail}. Pueden ser ediciones diferentes (España/Latam, "
-                    f"con o sin descripciones para sordos (SDH), comentarios). "
-                    f"Compruébalo y recupera otra si no era la versión que querías."
-                )
+                # Dos claves y no un sufijo de una letra: el plural cambia
+                # «pista adicional» → «pistas adicionales», que son DOS
+                # palabras, y en inglés y catalán tampoco cuadra con una `s`.
+                ambiguity_text = tr(
+                    'phase_b.aviso_ambiguedad_uno'
+                    if len(ambiguous_alts) == 1
+                    else 'phase_b.aviso_ambiguedad_varios',
+                    n=len(ambiguous_alts), idioma=lang_lit, detalle=detail)
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=complete_track,
@@ -1373,7 +1372,10 @@ def _select_subtitle_tracks(
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
-                    discard_reason=f"Descartada: idioma {_language_literal(lang_norm)} no es Castellano, VO ({_language_literal(vo_language.lower())}) ni Inglés",
+                    discard_reason=tr(
+                        'phase_b.motivo_idioma_no_target_sub',
+                        idioma=_language_literal(lang_norm),
+                        vo=_language_literal(vo_language.lower())),
                     inferred_subtitle_type=_infer_sub_type(lang_norm, t),
                 ))
 
@@ -1385,13 +1387,18 @@ def _select_subtitle_tracks(
         if lang_norm not in classified:
             continue
         forced_track, complete_track, _ambiguous_alts = classified[lang_norm]
-        for t, tipo in [(forced_track, "forzado"), (complete_track, "completo")]:
+        for t, tipo in [(forced_track, tr('phase_b.tipo_forzado')),
+                        (complete_track, tr('phase_b.tipo_completo'))]:
             if t and id(t) not in included_raws and id(t) not in discarded_raws:
                 discarded.append(DiscardedTrack(
                     track_type="subtitle",
                     raw=t,
-                    discard_reason=f"Descartada: pista {tipo} {_language_literal(lang_norm)} sin posición asignada en el orden de inclusión",
-                    inferred_subtitle_type="forced" if tipo == "forzado" else "complete",
+                    discard_reason=tr('phase_b.motivo_sin_posicion',
+                                      tipo=tipo,
+                                      idioma=_language_literal(lang_norm)),
+                    inferred_subtitle_type=(
+                        "forced" if tipo == tr('phase_b.tipo_forzado')
+                        else "complete"),
                 ))
 
     return included, discarded
@@ -1422,7 +1429,7 @@ def generate_auto_chapters(duration_seconds: float, interval_seconds: int = 600)
         chapters.append(Chapter(
             number=num,
             timestamp=_seconds_to_timestamp(t),
-            name=f"Capítulo {num:02d}",
+            name=tr('phase_b.capitulo_n', n=f"{num:02d}"),
         ))
         t += interval_seconds
         num += 1

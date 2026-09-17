@@ -83,6 +83,13 @@ FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
         "interfaz —la lee quien integra contra la API— y encima se evalúa al "
         "importar, así que traducirla congelaría el idioma que hubiera al "
         "arrancar el contenedor.",
+    "✏️ Consultar / Editar MKV":
+        "`workload.TAB_MKV` es un ID, no un rótulo: lo indexa `TAB_IDS`, la "
+        "UI compara contra él y `historial.jsonl` lo tiene escrito en las "
+        "líneas ya persistidas. El rótulo que SÍ se enseña lo da "
+        "`workload.rotulo_de_tab()`, del catálogo. Las otras dos etiquetas de "
+        "pestaña no salen aquí solo porque no llevan ninguna palabra "
+        "castellana dentro.",
 }
 
 

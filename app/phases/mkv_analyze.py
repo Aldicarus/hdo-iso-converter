@@ -511,25 +511,21 @@ def _build_quality_audit_from_rpu_analysis(
         l2_count = rpu_analysis.l2_unique_count
         l2_pqs = len(rpu_analysis.l2_target_pqs)
         if l2_count >= 30 and l2_pqs >= 3:
-            verdict = "Master CMv2.9 nativo — grading rico del Blu-ray UHD"
+            verdict = tr('mkv_analyze.veredicto_cmv29_nativo')
             color = "green"
-            reason = (f"L2 trabajado por colorista — {l2_count} combos únicos "
-                      f"sobre {l2_pqs} target_pqs. Grading nativo de masterizado "
-                      f"UHD BD, no conversión algorítmica.")
-            tier_label = "CMv2.9 NATIVO"
+            reason = tr('mkv_analyze.motivo_cmv29_nativo',
+                        combos=l2_count, pqs=l2_pqs)
+            tier_label = tr('mkv_analyze.tier_cmv29_nativo')
         elif l2_count >= 10:
-            verdict = "CMv2.9 estándar — trims básicos del master"
+            verdict = tr('mkv_analyze.veredicto_cmv29_estandar')
             color = "yellow"
-            reason = (f"L2 con {l2_count} combos únicos sobre {l2_pqs} target_pqs. "
-                      f"Funcional pero no excepcional; típico de release streaming "
-                      f"o conversión a CMv2.9.")
+            reason = tr('mkv_analyze.motivo_cmv29_estandar',
+                        combos=l2_count, pqs=l2_pqs)
             tier_label = "CMv2.9 CORE"
         else:
-            verdict = "CMv2.9 mínimo — grading limitado"
+            verdict = tr('mkv_analyze.veredicto_cmv29_minimo')
             color = "red"
-            reason = (f"L2 con solo {l2_count} combos únicos. El RPU aporta poco "
-                      f"trabajo de tone-mapping dinámico; un upgrade a CMv4.0 sería "
-                      f"un salto sustancial.")
+            reason = tr('mkv_analyze.motivo_cmv29_minimo', combos=l2_count)
             tier_label = "CMv2.9 MIN"
         classification_cmv29 = "real" if l2_count >= 10 else "default"
         return {
@@ -551,23 +547,23 @@ def _build_quality_audit_from_rpu_analysis(
     tier, tier_label, tier_desc = classify_l8_quality(rpu_analysis)
 
     if classification == "real" and tier == "full":
-        verdict = "Master CMv4.0 FULL — calidad máxima"
+        verdict = tr('mkv_analyze.veredicto_cmv40_full')
         color = "green"
     elif classification == "real" and tier == "core_rich":
-        verdict = "Master CMv4.0 CORE+ — grading dinámico shot-a-shot"
+        verdict = tr('mkv_analyze.veredicto_cmv40_core_rich')
         color = "green"
     elif classification == "real" and tier == "core":
-        verdict = "Master CMv4.0 CORE — streaming estándar"
+        verdict = tr('mkv_analyze.veredicto_cmv40_core')
         color = "yellow"
     elif classification == "real":
         # "real" sin tier — minimal real
-        verdict = "Master CMv4.0 minimal — look global trabajado"
+        verdict = tr('mkv_analyze.veredicto_cmv40_minimal')
         color = "yellow"
     elif classification == "default":
-        verdict = "CMv4.0 sintético — equivale a Auto on-the-fly"
+        verdict = tr('mkv_analyze.veredicto_cmv40_sintetico')
         color = "red"
     else:  # indeterminate
-        verdict = "CMv4.0 ambiguo — caso límite"
+        verdict = tr('mkv_analyze.veredicto_cmv40_ambiguo')
         color = "gray"
 
     return {
@@ -948,11 +944,12 @@ async def analyze_rpu_quality_for_mkv(
         _check()
         _emit("combos", 80.0, "Exportando niveles del RPU y agregando combos L8/L2")
         _log('━━━ ' + tr('mkv_analyze.fase_b_combos_l8_l2_y') + ' ━━━')
-        _niveles_txt = ("L1, L2, L8 + L5 y L6 para el perfil de luminancia"
+        _niveles_txt = (tr('mkv_analyze.niveles_con_luminancia')
                         if con_luminancia else "L1, L2, L8")
-        _log(f"[Audit] 📋 Plan: dovi_tool export --levels ({_niveles_txt}) sobre "
-             "el RPU → parsear y agregar combos únicos por frame"
-             + (" y construir el perfil de luminancia." if con_luminancia else "."))
+        _log("[Audit] 📋 Plan: "
+             + tr('mkv_analyze.plan_audit_export', niveles=_niveles_txt)
+             + (tr('mkv_analyze.plan_audit_y_perfil')
+                if con_luminancia else "."))
         _log('[Audit] ' + tr('mkv_analyze.el_export_por_niveles_son_segundos'))
         t_step = _t.monotonic()
         # UN solo export, dos consumidores. Timeout amplio (30 min) porque el
@@ -1351,7 +1348,7 @@ def _extract_chapters(mkv_path: str) -> list[Chapter]:
         raw_name = names.get(num, "")
         is_generic = bool(re.match(r"^Chapter\s+\d+$", raw_name, re.IGNORECASE))
         if is_generic or not raw_name:
-            name = f"Capítulo {num:02d}"
+            name = tr('mkv_analyze.capitulo_n', n=f"{num:02d}")
             name_custom = False
         else:
             name = raw_name
