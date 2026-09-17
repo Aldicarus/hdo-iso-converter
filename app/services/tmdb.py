@@ -41,6 +41,29 @@ _LOCALE_TMDB = {"es": "es-ES", "en": "en-US", "ca": "ca-ES"}
 _LOCALE_RESPALDO = "es-ES"
 
 
+def ficha_caducada_de_idioma(ficha) -> bool:
+    """¿La ficha de TMDb se escribió en OTRO idioma que el de ahora?
+
+    `tmdb_info` se rellena UNA vez —al crear el proyecto— y TMDb devuelve el
+    título y la sinopsis localizados, así que un proyecto creado con la app
+    en castellano seguía enseñando la ficha en castellano con la app en
+    inglés. Lo reportó el usuario el 2026-09-17, y es la misma familia que
+    el veredicto de la hoja: texto que se persiste redactado.
+
+    Aquí no se puede re-derivar como con el veredicto —el texto viene de
+    TMDb, no de nuestros números— así que hay que volver a preguntar. Sale
+    barato: la caché de TMDb lleva el locale en la clave y dura 30 días, y
+    **la carátula no lleva locale**, así que la tarjeta no se queda sin
+    imagen mientras llega la nueva.
+
+    Una ficha SIN sello es de antes de este cambio: se da por castellano,
+    que es el idioma en el que se escribió todo lo que hay en el parque.
+    """
+    from i18n import idioma_activo
+    if not ficha:
+        return False
+    return (ficha.get("idioma") or "es") != idioma_activo()
+
 def locale_tmdb() -> str:
     """El locale de TMDb que toca al idioma activo de la app."""
     from i18n import idioma_activo

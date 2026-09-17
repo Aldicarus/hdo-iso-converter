@@ -94,6 +94,10 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "tab3.l5_letterbox":
+        "«L5», «letterbox» y «active area» son los tres el nombre del "
+        "campo del RPU, tal cual en la spec de Dolby: no queda ninguna "
+        "palabra que traducir. Era un literal cableado en `tab3.js`",
     "workload.tab_rip":
         "el rótulo de la pestaña 1 es un icono, un nombre comercial "
         "(«Blu-Ray»), dos siglas del glosario y una flecha: no hay ninguna "

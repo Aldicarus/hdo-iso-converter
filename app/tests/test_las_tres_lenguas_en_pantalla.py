@@ -65,23 +65,50 @@ SESION_CMV40 = {
   "target_dv_info": {"profile": 8, "el_type": None, "cm_version": "v4.0",
                      "has_l8": True, "l5": "0/0/0/0", "l6_max": 1000, "l1_max": 1000},
   "target_l8_classification": "real", "target_l8_quality_tier": "full",
-  "target_l8_unique_combos": 2251, "target_l8_scene_cuts": 1101,
-  "target_l8_neutral_pct": 12.5, "target_preflight_ok": True,
+  "target_l8_unique_count": 1132, "target_l8_scene_cuts": 1101,
+  "target_l8_neutral_frames_pct": 0.001, "target_preflight_ok": True,
+  "target_l8_has_mid_contrast": True, "target_l8_has_clip_trim": True,
+  "target_l8_quality_label": "CMv4 FULL",
+  "target_l8_quality_description": "CMv4.0 FULL master",
+  "target_l2_unique_count": 4621, "source_l2_unique_count": 4621,
+  "target_l2_target_pqs": [2081, 3079], "source_l2_target_pqs": [2081, 3079],
+  "l2_comparison": "identical",
+  "target_frames_analyzed": 141336, "source_frames_analyzed": 141336,
+  "source_video_codec": "HEVC", "source_duration_seconds": 5904.0,
+  "source_file_size_bytes": 78000000000, "sync_offset_detected": 0,
+  "target_rpu_source": "drive",
+  "target_rpu_path": "The.Super.Mario.Galaxy.Movie.2026.UHD_P7 FEL.bin",
+  "recommended_action": "drop_in",
+  "recommended_action_label": "Inject the CMv4.0 RPU (fast)",
+  "recommended_action_reason": "Profiles match and L2 is identical.",
+  "preflight_decision": "", "preflight_message": "",
+  "compat_warning": "", "last_progress": {"pct": 42.0, "label": "demux"},
   "awaiting_critical_ack": True,
   "critical_gate_failures": [{"gate": "l5_div", "severity": "ack_required",
                               "detail": "L5 body divergence 41.2%"}],
   "user_acknowledged_degradation": False, "pipeline_aborted": False,
-  "trust_gates": [{"gate": "frames", "severity": "ok", "detail": "243552 = 243552"},
-                  {"gate": "cm_version", "severity": "ok", "detail": "v4.0"},
-                  {"gate": "has_l8", "severity": "ok", "detail": "present"},
-                  {"gate": "l5_div", "severity": "ack_required", "detail": "41.2%"},
-                  {"gate": "l6_div", "severity": "warn", "detail": "60 nits"}],
-  "target_l5_refinement": {"body_divergence_pct": 41.2, "body_coverage": 0.974,
-      "body_total": 190021, "body_divergent": 78288, "largest_run_frames": 8566,
-      "largest_run_seconds": 357.2, "zones": {"intro": [12, 9501],
-      "body": [78288, 190021], "outro": [3, 9501]}, "tgt_variable_l5": True,
-      "src_variable_l5": False, "histogram": [["0/0/0/0", 111733], ["0/140/0/140", 78288]],
-      "runs": [{"inicio": 10, "fin": 8576, "frames": 8566}]},
+  # La forma REAL que lee `_cmv40GateBloque3`: un dict por gate, no una
+  # lista. Con el nombre de antes (`trust_gates`) el bloque ③ no pintaba
+  # NADA y el guard pasaba en verde vigilando el vacío — es lo que dejó
+  # fuera «umbral exacto», «presente» y «crítico».
+  #
+  # `why` se deja AUSENTE a propósito: cuando el backend lo manda sustituye
+  # al `tr()`, y es texto persistido en la sesión (misma familia que el
+  # veredicto de la hoja). Aquí se quiere ejercitar el camino del catálogo.
+  "target_trust_gates": {
+      "frames": {"ok": True, "bd": 141336, "target": 141336,
+                 "severity": "ok", "critical": True},
+      "cm_version": {"ok": True, "value": "v4.0", "severity": "ok",
+                     "critical": True},
+      "has_l8": {"ok": True, "severity": "ok", "critical": True},
+      "l5_div": {"ok": True, "px_max": 0, "soft_px": 5, "severity": "ok",
+                 "critical": True, "sampled_method": "per_frame_completo",
+                 "body_coverage": 0.9974},
+      "l6_div": {"ok": True, "nits_diff": 0, "threshold": 50,
+                 "severity": "ok", "critical": False},
+      "l1_div": {"ok": True, "pct_diff": 0, "threshold_pct": 5,
+                 "severity": "ok", "critical": False},
+  },
   "sheet_recommendation": {"verdict": "caveats", "status_label": "With caveats",
       "dv_source": "retail", "sync_offset": 16, "notes": "cmv4.0 bloc restored",
       "section": "feasible", "rows": [], "blockers": ["p8_only"],
@@ -149,6 +176,41 @@ SESION_TAB1 = {
 }
 
 
+# El `DoviInfo` de un MKV YA auditado, que es la ficha de Tab 2 que el
+# usuario reportó primero. Los textos van en inglés a propósito: los escribe
+# el servidor y aquí se quiere ver qué añade el FRONTEND.
+DOVI_TAB2 = {
+  "profile": 7, "el_type": "FEL", "cm_version": "v2.9", "rpu_present": True,
+  "has_l1": True, "has_l2": True, "has_l5": True, "has_l6": True,
+  "has_l8": False, "has_l9": True, "has_l10": False, "has_l11": False,
+  "has_l4": False, "has_l254": False,
+  "l1_max_cll": 1000, "l1_max_fall": 400,
+  "l2_target_nits": [100, 600], "l5_active_area": "0/0/0/0",
+  "l6_max_cll": 1000, "l6_max_fall": 400, "l9_primaries": "Display P3",
+  "l11_content_type": None, "scene_count": 1101, "frame_count": 141336,
+  "quality_classification": "real", "quality_tier": "",
+  "quality_tier_label": "CMv2.9 CORE",
+  "quality_tier_description": "Standard release grade",
+  "quality_verdict_text": "Standard CMv2.9 — basic master trims",
+  "quality_verdict_color": "yellow",
+  "quality_reason": "L2 with 1026 unique combos over 2 target_pqs.",
+  "quality_provenance_hints": ["Pure CMv2.9 RPU — original Blu-ray"],
+  "quality_total_frames_rpu": 141336, "quality_frames_with_cmv40": 0,
+  "quality_scene_cuts": 1101, "quality_l2_unique_count": 1026,
+  "quality_l2_target_pqs": [2081, 3079], "quality_l8_unique_count": 0,
+  "quality_l8_neutral_pct": 0.0, "quality_l8_has_mid_contrast": False,
+  "quality_l8_has_clip_trim": False,
+  "l1_stats": {"total": 141336, "peak": 1000, "p99": 940, "p95": 700,
+               "p50": 120, "avg_of_max": 180, "bucket_dim": 90000,
+               "bucket_mid": 40000, "bucket_high": 11336},
+  "l1_references": {"l5_zones": [{"zone": "0/0/0/0", "frames": 141336}],
+                    "l2_targets": [100, 600], "l6": {"max_cll": 1000}},
+  # Lista PLANA de nits por escena: es lo que `_rgrfSparklineSvg`
+  # consume. Con pares `[i, v]` el SVG sale entero a `NaN`.
+  "per_scene_max_cll": [120, 300, 900, 450, 80, 1000, 210, 660, 95, 330],
+}
+
+
 _SONDA = ("<script>window.__errores=[];"
           "window.addEventListener('error',e=>window.__errores.push("
           "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
@@ -157,7 +219,7 @@ _SONDA = ("<script>window.__errores=[];"
 
 _CUERPO = """
 (function () {
-  const S = %s, T1 = %s;
+  const S = %s, T1 = %s, DV = %s;
   const salida = {errores: [], pantallas: {}, fallos: {}, constantes: {}};
   const host = document.createElement('div');
   host.id = '__host'; document.body.appendChild(host);
@@ -210,8 +272,18 @@ _CUERPO = """
     'tab3·timeline':        () => _cmv40RenderTimeline(S, {id: 'c1', session: S,
                                      expandedPhases: {}}),
     'tab2·mastering':       () => _rgrfMasteringChain(
-                                     S.source_dv_info, T1.bdinfo_result.video_tracks[0].hdr,
+                                     DV, T1.bdinfo_result.video_tracks[0].hdr,
                                      T1.bdinfo_result.video_tracks[0]),
+    // La ficha del MKV que el usuario reportó PRIMERO: el veredicto de la
+    // auditoría, el perfil de luminancia y sus percentiles.
+    'tab2·auditoria':       () => _rgrfQualityAuditCard(DV, false),
+    'tab2·stats_l1':        () => _rgrfL1StatsCard(DV.l1_stats,
+                                     T1.bdinfo_result.video_tracks[0].hdr),
+    'tab2·sparkline':       () => _rgrfSparklineSvg(DV.per_scene_max_cll, 1000, 5904,
+                                     {references: DV.l1_references}),
+    'tab2·l5':              () => _rgrfL5Svg(DV),
+    'tab2·gamut':           () => _rgrfGamutSvg(DV.l9_primaries, null),
+    'tab2·distribucion':    () => _rgrfDistributionSvg(DV.per_scene_max_cll),
   };
   for (const [nombre, fn] of Object.entries(CASOS)) {
     try {
@@ -237,7 +309,8 @@ _CUERPO = """
 
 def _pintar(idioma: str) -> dict:
     import html as H
-    cuerpo = _CUERPO % (json.dumps(SESION_CMV40), json.dumps(SESION_TAB1))
+    cuerpo = _CUERPO % (json.dumps(SESION_CMV40), json.dumps(SESION_TAB1),
+                        json.dumps(DOVI_TAB2))
     pagina = html().replace("</head>", _SONDA + semilla_catalogo(idioma) + "</head>")
     pagina = pagina.replace(
         "</body>", f'<pre id="__out"></pre><script>{cuerpo}</script></body>')
@@ -260,20 +333,76 @@ def _pintar(idioma: str) -> dict:
     return json.loads(H.unescape(m.group(1)))
 
 
-# El contenido de la card 🛡️ Validaciones se queda en castellano por decisión
-# del usuario: es el detalle técnico de los trust gates —`cuerpo 97,4%`,
-# `VARIABLE · 0,0/0,0`, los tramos del L5— que se lee contra el log del
-# pipeline y contra la hoja de DoviTools, las dos en inglés. Sus CABECERAS sí
-# están traducidas, que es lo que permite navegarla.
-EN_CASTELLANO_A_PROPOSITO = {
-    "tab3·gates_bc": "los cinco bloques del detalle de los trust gates",
-    "tab3·gates_gh": "el detalle de las validaciones de Fase G/H",
-}
+# La card 🛡️ Validaciones **ya no está exenta**, y la lista está VACÍA.
+#
+# Lo estuvo por la decisión «interfaz sí, diagnóstico no», y el resultado
+# medido fue lo contrario de lo que esa decisión pretendía: los títulos de
+# los gates y sus explicaciones sí se tradujeron (salen de `tr()`), así que
+# lo único que quedaba en castellano eran el `umbral`, el `presente` y el
+# chip `crítico` — la card a medias, que es justo lo que CLAUDE.md dice que
+# es peor que cualquiera de las dos opciones. Y la exención tapaba de paso
+# los bloques ②, ④ y ⑤ enteros.
+#
+# Una exención por PANTALLA es demasiado gruesa para este guard: cubre
+# cientos de cadenas de golpe. Si algún día hace falta eximir algo de aquí,
+# que sea por cadena y con su motivo.
+EN_CASTELLANO_A_PROPOSITO: dict[str, str] = {}
 
 
 def _palabras(cat: dict) -> set:
     return {w.lower() for v in cat.values()
             for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+
+
+class TestElFixtureCorrespondeAlModelo(unittest.TestCase):
+    """Un campo que el modelo no tiene CIEGA el guard, y en silencio.
+
+    El render está lleno de `if (s.target_trust_gates)`, así que una clave
+    mal escrita en el fixture no da ningún error: el bloque simplemente no
+    se pinta y el test pasa en verde vigilando el vacío. Medido el
+    2026-09-17, cuatro de las 41 claves del fixture de CMv4.0 no existían
+    en `CMv40Session` —`trust_gates` por `target_trust_gates`,
+    `target_l8_unique_combos` por `target_l8_unique_count`,
+    `target_l8_neutral_pct` por `target_l8_neutral_frames_pct` y
+    `target_l5_refinement`— y por eso los bloques ② y ③ de la card de
+    Validaciones no se renderizaban. El usuario los leía en castellano en
+    su pantalla mientras la suite decía OK.
+
+    Este test es la red: un renombrado del modelo rompe el fixture en voz
+    alta. No se comprueba al revés (que el fixture cubra los 80 campos):
+    muchos no se pintan en ninguna parte y exigirlo sería ruido.
+    """
+
+    # Campos que el ENDPOINT añade al `model_dump()` y que el frontend lee
+    # como si fueran de la sesión. No están en el modelo a propósito.
+    DEL_ENDPOINT = {
+        "plan": "lo resuelve `cmv40_strategy.resolve_plan` al servir",
+        "artifacts": "lo calcula `_cmv40_scan_artifacts`",
+        "estimated_size_bytes": "calculado y NO persistido (ver CLAUDE.md)",
+        "audio_tracks": "la sonda se las pasa a `renderIncludedTracks` a mano",
+        "subtitle_tracks": "ídem",
+    }
+
+    def test_ninguna_clave_del_fixture_falta_del_modelo(self):
+        sys.path.insert(0, str(APP_DIR))
+        from models import CMv40Session, Session
+        fuera = []
+        for nombre, fixture, modelo in (("CMv40Session", SESION_CMV40, CMv40Session),
+                                        ("Session", SESION_TAB1, Session)):
+            for k in sorted(fixture):
+                if k in modelo.model_fields or k in self.DEL_ENDPOINT:
+                    continue
+                fuera.append(f"{nombre}.{k}")
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} clave(s) del fixture que el modelo no tiene. El "
+            f"render las ignora con un `if`, así que el bloque no se pinta y "
+            f"este fichero deja de medir nada:\n  · " + "\n  · ".join(fuera)))
+
+    def test_cada_exencion_del_endpoint_corresponde_a_algo_real(self):
+        """Una entrada que ya no se usa parece cobertura y no cubre nada."""
+        usadas = set(SESION_CMV40) | set(SESION_TAB1)
+        fantasma = sorted(k for k in self.DEL_ENDPOINT if k not in usadas)
+        self.assertEqual(fantasma, [], f"\nsobran: {fantasma}")
 
 
 @unittest.skipUnless(CHROME, "sin Chrome")
@@ -342,6 +471,83 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
         self.assertEqual(malas, [], (
             "\ncastellano en pantalla con la app en inglés:\n  · "
             + "\n  · ".join(malas)))
+
+    # ── El criterio NO circular ──────────────────────────────────
+    #
+    # El criterio del vocabulario es CIRCULAR, y este no lo es.
+    #    # «una palabra que está en el catálogo castellano y no en el inglés» solo
+    # puede ver palabras que **alguna cadena ya traducida** contiene. Un
+    # literal cableado que nunca pasó por el catálogo es invisible: medido el
+    # 2026-09-17, `exacto`, `omitidas` y `contiguo` estaban en la pantalla
+    # inglesa del usuario y ningún guard los veía. Es la misma circularidad
+    # que tenía el guard de huecos.
+    #    # El criterio de aquí no depende del catálogo castellano: una palabra que
+    # aparece en el render INGLÉS **y** en el render CASTELLANO de la misma
+    # pantalla, que ningún texto inglés del catálogo contiene y que no viene
+    # del dato de la fixture, solo puede ser un literal cableado. Medido: 27
+    # candidatos, 19 fugas reales y 8 identificadores, que van arriba con su
+    # motivo.
+    #    #
+
+    @classmethod
+    def _palabras_del_dato(cls) -> set:
+        return _palabras({"a": json.dumps(SESION_CMV40, ensure_ascii=False),
+                          "b": json.dumps(SESION_TAB1, ensure_ascii=False)})
+
+    def test_ninguna_palabra_sobrevive_al_cambio_de_idioma(self):
+        base = APP_DIR / "static" / "i18n"
+        srv = APP_DIR / "i18n"
+        en_cat = _palabras(json.loads((base / "en.json").read_text(encoding="utf-8")))
+        en_cat |= _palabras(json.loads((srv / "en.json").read_text(encoding="utf-8")))
+        dato = self._palabras_del_dato()
+        es = dict(self._todo("es"))
+        malas = []
+        for nombre, txt in self._todo("en"):
+            iguales = (_palabras({"x": txt}) & _palabras({"x": es.get(nombre, "")})
+                       - en_cat - dato - set(NI_TRADUCIBLE_NI_FUGA))
+            if iguales:
+                malas.append(f"{nombre}: {sorted(iguales)[:8]}")
+        self.assertEqual(malas, [], (
+            "\npalabras que NO cambian al pasar de castellano a inglés y que "
+            "ningún texto inglés del catálogo contiene — o son un literal "
+            "cableado, o van en NI_TRADUCIBLE_NI_FUGA con su motivo:\n  · "
+            + "\n  · ".join(malas)))
+
+
+
+# Palabras que el criterio B (abajo) señala y NO son fugas, con el motivo.
+# Va por PALABRA y no por pantalla: una exención por pantalla tapa cientos de
+# cadenas de golpe, que es lo que hizo la de la card de Validaciones.
+NI_TRADUCIBLE_NI_FUGA = {
+    # Nombres del catálogo de glifos (`GLIFOS` en core.js) y claves de objeto
+    # que salen en el `JSON.stringify` de la vista previa del pipeline. Son
+    # identificadores, no texto: nadie los lee en pantalla.
+    "caja": "nombre de glifo", "diana": "nombre de glifo",
+    "icon": "clave de objeto", "warn": "clave de objeto",
+    "blurb": "clave de objeto", "autoendsat": "clave de objeto",
+    # El codec de los subtítulos Blu-ray se llama así en las tres lenguas.
+    "presentation": "«Presentation Graphics», el nombre del codec PGS",
+    "graphics": "ídem",
+    # `LANGUAGE_MAP`: los literales de pista de la spec, que acaban en el
+    # nombre de las pistas del MKV. Decisión escrita en CLAUDE.md; cambia con
+    # el bloque de selección de pistas, no con la traducción.
+    "francés": "LANGUAGE_MAP (literal de pista)",
+    "castellano": "LANGUAGE_MAP (literal de pista)",
+    "inglés": "LANGUAGE_MAP (literal de pista)",
+}
+
+
+class TestLaListaDeNoTraducibleNoSeQuedaVieja(unittest.TestCase):
+    """Una exención que ya no corresponde a nada parece cobertura."""
+
+    def test_cada_palabra_sigue_apareciendo_en_el_codigo_o_en_el_dato(self):
+        from frontend_sources import rutas
+        fuente = " ".join(Path(r).read_text(encoding="utf-8") for r in rutas())
+        fuente += json.dumps(SESION_CMV40, ensure_ascii=False)
+        fuente += json.dumps(SESION_TAB1, ensure_ascii=False)
+        bajo = fuente.lower()
+        fantasma = sorted(w for w in NI_TRADUCIBLE_NI_FUGA if w not in bajo)
+        self.assertEqual(fantasma, [], f"\nya no aparecen: {fantasma}")
 
 
 if __name__ == "__main__":

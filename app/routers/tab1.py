@@ -29,7 +29,7 @@ fases, en `test_fases_de_tab1.py`; el orquestador con sus dos rutas y el
 reintento, en `test_orquestador_tab1.py`; y que las URLs no cambien al
 mover el código, en `test_rutas_no_cambian.py` contra un golden.
 """
-from i18n import t as tr
+from i18n import t as tr, idioma_activo
 import asyncio
 import json
 import logging
@@ -987,7 +987,7 @@ async def _hydrate_session_tmdb(session_id: str) -> None:
         fresh = load_session(session_id)
         if not fresh:
             return
-        fresh.tmdb_info = details.model_dump()
+        fresh.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
         # Completa el año del nombre SOLO si el fichero no lo traía y el
         # usuario no lo editó a mano. El del fichero (si existe) tiene
         # prioridad: no se pisa lo que ya venía bien.
@@ -1043,7 +1043,7 @@ async def session_tmdb_refresh(session_id: str, body: dict | None = None):
     # Recarga en caliente: entre la petición a TMDb y el guardado, el usuario
     # puede haber renombrado el MKV desde el panel.
     fresh = load_session(session_id) or session
-    fresh.tmdb_info = details.model_dump()
+    fresh.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
     save_session(fresh)
     return {"tmdb_configured": True, "updated": True, "details": fresh.tmdb_info}
 
@@ -1086,10 +1086,19 @@ def _tmdb_hidratar_si_falta(session) -> None:
     Los 8 de 9 que solo necesitaban que alguien preguntara se arreglan aquí,
     sin que el usuario tenga que pulsar nada. La respuesta del endpoint no
     espera: la ficha aparece en el siguiente poll.
+
+    La ficha se rehace también cuando se escribió en OTRO idioma: TMDb
+    devuelve el título y la sinopsis localizados, así que un proyecto creado
+    en castellano seguía enseñándola en castellano con la app en inglés. La
+    marca lleva el idioma, no solo el id (ver `ficha_caducada_de_idioma`).
     """
-    if session.tmdb_info or session.id in _tmdb_intentadas:
+    from services.tmdb import ficha_caducada_de_idioma
+    marca = f"{session.id}·{idioma_activo()}"
+    if marca in _tmdb_intentadas:
         return
-    _tmdb_intentadas.add(session.id)
+    if session.tmdb_info and not ficha_caducada_de_idioma(session.tmdb_info):
+        return
+    _tmdb_intentadas.add(marca)
     asyncio.create_task(_hydrate_session_tmdb(session.id))
 
 

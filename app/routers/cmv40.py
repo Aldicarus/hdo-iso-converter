@@ -22,7 +22,7 @@ El contrato HTTP está fijado en `tests/test_cmv40_endpoints.py` con
 TestClient; el de las fases, en `test_cmv40_fase_f_matriz` y
 `test_cmv40_fases_cgh`.
 """
-from i18n import t as tr
+from i18n import t as tr, idioma_activo
 import asyncio
 import contextvars
 import json
@@ -2106,7 +2106,7 @@ async def cmv40_tmdb_refresh(session_id: str, body: dict | None = None):
     if not details:
         return {"tmdb_configured": True, "updated": False, "details": None}
 
-    session.tmdb_info = details.model_dump()
+    session.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
     save_cmv40_session(session)
     return {"tmdb_configured": True, "updated": True,
             "details": session.tmdb_info}
@@ -2119,9 +2119,19 @@ _tmdb_intentados: set[str] = set()
 
 
 def _cmv40_tmdb_hidratar_si_falta(session) -> None:
-    if session.tmdb_info or session.id in _tmdb_intentados:
+    """Sin ficha, o con la ficha en otro idioma, volver a preguntar.
+
+    La marca del intento lleva el IDIOMA además del id: con el id solo, un
+    segundo cambio de idioma no volvería a preguntar porque el proyecto ya
+    estaría en el conjunto.
+    """
+    from services.tmdb import ficha_caducada_de_idioma
+    marca = f"{session.id}·{idioma_activo()}"
+    if marca in _tmdb_intentados:
         return
-    _tmdb_intentados.add(session.id)
+    if session.tmdb_info and not ficha_caducada_de_idioma(session.tmdb_info):
+        return
+    _tmdb_intentados.add(marca)
     asyncio.create_task(_cmv40_hydrate_tmdb(session.id))
 
 
@@ -2456,7 +2466,7 @@ async def _cmv40_hydrate_tmdb(session_id: str) -> None:
         fresh = load_cmv40_session(session_id)
         if not fresh:
             return
-        fresh.tmdb_info = details.model_dump()
+        fresh.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
         save_cmv40_session(fresh)
     except Exception as e:
         # No crítico

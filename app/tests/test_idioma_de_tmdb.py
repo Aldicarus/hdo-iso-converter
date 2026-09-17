@@ -193,3 +193,53 @@ class IdiomaDeTmdb(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLaFichaNoSeQuedaEnElIdiomaDeCuandoSeCreo(unittest.TestCase):
+    """`tmdb_info` se rellena UNA vez, al crear el proyecto.
+
+    TMDb devuelve el título y la sinopsis localizados, así que un proyecto
+    creado con la app en castellano seguía enseñando la ficha en castellano
+    con la app en inglés. Lo reportó el usuario el 2026-09-17 («TMDB info
+    toda en castellano»), y es la misma familia que el veredicto de la hoja:
+    texto persistido ya redactado.
+
+    Aquí no se puede re-derivar —el texto lo escribe TMDb, no nuestros
+    números— así que hay que volver a preguntar, y lo que decide si hace
+    falta es el sello de idioma que la ficha lleva desde este cambio.
+    """
+
+    def _con(self, idioma: str):
+        from unittest import mock
+        import i18n
+        return mock.patch.object(i18n, "idioma_activo", lambda: idioma)
+
+    def test_la_ficha_del_idioma_de_ahora_no_caduca(self):
+        from services.tmdb import ficha_caducada_de_idioma
+        with self._con("en"):
+            self.assertFalse(ficha_caducada_de_idioma({"title": "X", "idioma": "en"}))
+
+    def test_la_ficha_de_otro_idioma_caduca(self):
+        from services.tmdb import ficha_caducada_de_idioma
+        with self._con("en"):
+            self.assertTrue(ficha_caducada_de_idioma({"title": "X", "idioma": "es"}))
+        with self._con("ca"):
+            self.assertTrue(ficha_caducada_de_idioma({"title": "X", "idioma": "en"}))
+
+    def test_una_ficha_sin_sello_se_da_por_castellano(self):
+        """Es la del parque entero antes de este cambio: todo se escribió en
+        castellano, así que con la app en inglés hay que volver a preguntar
+        y con la app en castellano NO."""
+        from services.tmdb import ficha_caducada_de_idioma
+        with self._con("en"):
+            self.assertTrue(ficha_caducada_de_idioma({"title": "X"}))
+        with self._con("es"):
+            self.assertFalse(ficha_caducada_de_idioma({"title": "X"}))
+
+    def test_sin_ficha_esto_no_decide_nada(self):
+        """Quien se ocupa de la ficha ausente es el `if` de al lado; esta
+        función solo responde por el idioma."""
+        from services.tmdb import ficha_caducada_de_idioma
+        with self._con("en"):
+            self.assertFalse(ficha_caducada_de_idioma(None))
+            self.assertFalse(ficha_caducada_de_idioma({}))

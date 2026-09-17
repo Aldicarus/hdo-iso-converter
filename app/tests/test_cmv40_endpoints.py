@@ -674,3 +674,48 @@ class TestElTextoDerivadoNoCongelaElIdioma(ApiTestCase):
         with self._idioma("en"):
             d = self.client.get(f"/api/cmv40/{sid}").json()
         self.assertEqual(d["recommended_action_label"], "ROTULO PERSISTIDO")
+
+
+class TestAbrirElProyectoRehaceLaFichaSiCambioElIdioma(ApiTestCase):
+    """El cableado: la función pura vive en `test_idioma_de_tmdb`; aquí se
+    comprueba que `GET /api/cmv40/{id}` la consulta y dispara la búsqueda.
+
+    Sin este test, quitar la comprobación del endpoint deja la suite verde.
+    """
+
+    def _abrir(self, sid: str, idioma: str) -> list:
+        """Abre el proyecto con ese idioma y devuelve a quién se re-hidrató.
+
+        Se espía `_cmv40_hydrate_tmdb`, no `create_task`: la corrutina del
+        espía termina al instante, así que la task no queda colgando y el
+        `TestClient` cierra limpio. Parchear el módulo `asyncio` del router
+        sí cuelga — lo usa el resto del endpoint.
+        """
+        from unittest import mock
+        import i18n
+        from routers import cmv40
+        pedidos: list[str] = []
+
+        async def _espia(session_id):
+            pedidos.append(session_id)
+
+        cmv40._tmdb_intentados.clear()
+        with mock.patch.object(i18n, "idioma_activo", lambda: idioma), \
+             mock.patch.object(cmv40, "_cmv40_hydrate_tmdb", _espia):
+            self.assertEqual(self.client.get(f"/api/cmv40/{sid}").status_code, 200)
+        return pedidos
+
+    def test_con_la_ficha_en_otro_idioma_se_vuelve_a_preguntar(self):
+        sid = self.crear_sesion(
+            tmdb_info={"title": "Blade Runner 2049", "idioma": "es"})
+        self.assertEqual(self._abrir(sid, "en"), [sid])
+
+    def test_con_la_ficha_en_el_idioma_de_ahora_no_se_pregunta(self):
+        sid = self.crear_sesion(
+            tmdb_info={"title": "Blade Runner 2049", "idioma": "en"})
+        self.assertEqual(self._abrir(sid, "en"), [])
+
+    def test_una_ficha_sin_sello_se_rehace_solo_fuera_del_castellano(self):
+        sid = self.crear_sesion(tmdb_info={"title": "Blade Runner 2049"})
+        self.assertEqual(self._abrir(sid, "ca"), [sid])
+        self.assertEqual(self._abrir(sid, "es"), [])

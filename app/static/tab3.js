@@ -4032,7 +4032,9 @@ function _cmv40Timecode(frame, fps) {
 /** Miles con punto. Manual y no `toLocaleString` para que el resultado no
  *  dependa del ICU del entorno (los tests evalúan esto en node). */
 function _cmv40Num(n) {
-  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  // El separador de miles lo decide el IDIOMA, no el código: cableado a `.`
+  // salía «141.336» con la app en inglés, donde toca «141,336».
+  return Math.round(Number(n) || 0).toLocaleString(localeActual());
 }
 
 /** Segundos → "1min 23s" / "45s". */
@@ -4051,7 +4053,7 @@ function _cmv40CmpMarca(a, b) {
   if (a === null || a === undefined || a === '' || a === '—') {
     return (b === null || b === undefined || b === '' || b === '—')
       ? { txt: '', color: 'var(--text-3)' }
-      : { txt: 'nuevo', color: '#0a5cab' };
+      : { txt: tr('tab3.rpu_l8_nuevo'), color: '#0a5cab' };
   }
   if (b === null || b === undefined || b === '' || b === '—') {
     return { txt: tr('tab3.solo_bd'), color: '#8a4a00' };
@@ -4184,7 +4186,7 @@ function _cmv40GateBloque2(s) {
       ? dv.l8_trim_nits.join(', ') + ' nits' : '';
     const idx = Array.isArray(dv.l8_target_indices) && dv.l8_target_indices.length
       ? ` · idx [${dv.l8_target_indices.join(', ')}]` : '';
-    return nits ? nits + idx : (dv.has_l8 ? 'presente' : '—');
+    return nits ? nits + idx : (dv.has_l8 ? tr('tab3.gate_valor_presente') : '—');
   };
   const l1txt = dv => (!dv || (!dv.l1_max_cll && !dv.l1_max_fall)) ? '—'
     : `${dv.l1_max_cll || 0} / ${dv.l1_max_fall || 0} nits`;
@@ -4205,20 +4207,20 @@ function _cmv40GateBloque2(s) {
     ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
     <div style="border:1px solid rgba(15,23,42,0.08); border-radius:6px; overflow:hidden">
       <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
-        <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right">¿=?</div>
+        <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right" data-i18n="tab3.rpu_iguales"></div>
       </div>
       ${_cmv40RpuFila('Profile', sdv ? `${sdv.profile}${sdv.el_type ? ' (' + sdv.el_type + ')' : ''}` : '—',
                                  tdv ? `${tdv.profile}${tdv.el_type ? ' (' + tdv.el_type + ')' : ''}` : '—')}
       ${_cmv40RpuFila('CM version', cmS, cmT, marcaCm)}
       ${_cmv40RpuFila('Frames', sdv ? _cmv40Num(sdv.frame_count) : '—', tdv ? _cmv40Num(tdv.frame_count) : '—')}
-      ${_cmv40RpuFila('Escenas', sdv ? _cmv40Num(sdv.scene_count) : '—', tdv ? _cmv40Num(tdv.scene_count) : '—')}
-      ${_cmv40RpuFila('Niveles', nivS, nivT, marcaNiv)}
+      ${_cmv40RpuFila(tr('tab3.rpu_escenas'), sdv ? _cmv40Num(sdv.scene_count) : '—', tdv ? _cmv40Num(tdv.scene_count) : '—')}
+      ${_cmv40RpuFila(tr('tab3.rpu_niveles'), nivS, nivT, marcaNiv)}
       ${_cmv40RpuFila('L1 CLL/FALL', l1txt(sdv), l1txt(tdv))}
       ${_cmv40RpuFila('L5 active area', l5S, l5T)}
       ${_cmv40RpuFila('L6 MaxCLL', l6txt(sdv), l6txt(tdv))}
       ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}
       ${_cmv40RpuFila('L9 primaries', (sdv && sdv.l9_primaries) || '—', (tdv && tdv.l9_primaries) || '—')}
-      ${_cmv40RpuFila('L11 contenido', (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
+      ${_cmv40RpuFila(tr('tab3.rpu_l11_contenido'), (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
     </div>`;
 }
 
@@ -4238,9 +4240,9 @@ function _cmv40GateFilaHtml(status, titulo, valor, umbral, sev, critical, explic
         <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap">
           <span style="font-size:12px; font-weight:700; color:var(--text-1)">${escHtml(titulo)}</span>
           <span style="font-size:11px; color:${color}; font-weight:600">${escHtml(valor)}</span>
-          ${umbral ? `<span style="font-size:10.5px; color:var(--text-3)">umbral ${escHtml(umbral)}</span>` : ''}
+          ${umbral ? `<span style="font-size:10.5px; color:var(--text-3)">${escHtml(tr('tab3.gate_umbral', {umbral: umbral}))}</span>` : ''}
           ${sev ? chip(sev, color) : ''}
-          ${critical ? chip('crítico', 'var(--text-2)') : ''}
+          ${critical ? chip(tr('tab3.gate_critico'), 'var(--text-2)') : ''}
         </div>
         <div style="font-size:11px; color:var(--text-2); line-height:1.5; margin-top:2px">${escHtml(explicacion)}</div>
       </div>
@@ -4262,7 +4264,7 @@ function _cmv40GateBloque3(s) {
     rows.push(_cmv40GateFilaHtml(estado(g.frames), tr('tab3.numero_de_frames'),
       ok ? `${_cmv40Num(g.frames.bd)} = ${_cmv40Num(g.frames.target)}`
          : `${_cmv40Num(g.frames.bd)} ≠ ${_cmv40Num(g.frames.target)}`,
-      'exacto', g.frames.severity, g.frames.critical,
+      tr('tab3.gate_umbral_exacto'), g.frames.severity, g.frames.critical,
       ok ? tr('tab3.source_y_target_tienen_exactamente_el')
          : tr('tab3.diferencia_de_frames_0_suele_indicar')));
   }
@@ -4275,7 +4277,8 @@ function _cmv40GateBloque3(s) {
   }
   if (g.has_l8) {
     rows.push(_cmv40GateFilaHtml(estado(g.has_l8), tr('tab3.presencia_de_l8'),
-      g.has_l8.ok ? 'presente' : 'ausente', 'presente', g.has_l8.severity, g.has_l8.critical,
+      g.has_l8.ok ? tr('tab3.gate_valor_presente') : tr('tab3.gate_valor_ausente'),
+      tr('tab3.gate_valor_presente'), g.has_l8.severity, g.has_l8.critical,
       g.has_l8.ok
         ? tr('tab3.el_bin_contiene_trims_l8_autenticos')
         : tr('tab3.bin_cmv4_0_vacio_sin_l8')));
@@ -4285,16 +4288,17 @@ function _cmv40GateBloque3(s) {
     const completo = l5.sampled_method === 'per_frame_completo';
     let valor, umbral;
     if (completo && typeof l5.body_coverage === 'number') {
-      valor = `cuerpo ${(l5.body_coverage * 100).toFixed(2)}%`;
+      valor = tr('tab3.l5_cuerpo_pct', {pct: (l5.body_coverage * 100).toFixed(2)});
       umbral = '≥ 90%';
     } else if (l5.sampled_method === 'per_frame_zoned_24') {
-      valor = `${l5.sampled_matches || 0}/${l5.sampled_total || 0} muestras`;
-      umbral = 'cuerpo ≥ 90%';
+      valor = tr('tab3.l5_muestras', {ok: l5.sampled_matches || 0,
+                                      total: l5.sampled_total || 0});
+      umbral = tr('tab3.l5_umbral_cuerpo');
     } else {
-      valor = `div ${l5.px_max || 0} px`;
+      valor = tr('tab3.l5_div_px', {px: l5.px_max || 0});
       umbral = `≤ ${l5.soft_px != null ? l5.soft_px : 5} px`;
     }
-    rows.push(_cmv40GateFilaHtml(estado(l5), 'L5 — letterbox (active area)',
+    rows.push(_cmv40GateFilaHtml(estado(l5), tr('tab3.l5_letterbox'),
       valor, umbral, l5.severity, l5.critical,
       l5.why || tr('tab3.compara_el_active_area_del_bin')));
   }
@@ -4335,9 +4339,11 @@ function _cmv40GateBloque4(s) {
     return `
       ${_cmv40BloqueHead('④', tr('tab3.desglose_l5'), tr('tab3.muestreo_antiguo_24_frames'))}
       <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
-        ${lin('Pares comparados', tr('tab3.n_coinciden_de_n', {n: l5.sampled_matches || 0, total: l5.sampled_total || 0}))}
-        ${lin('Por zona (muestras)', `intro ${zm.intro || 0}/${zc.intro || 0} · cuerpo ${zm.body || 0}/${zc.body || 0} · outro ${zm.outro || 0}/${zc.outro || 0}`)}
-        ${lin('Cobertura del cuerpo', `${Math.round((l5.sampled_body_coverage || 0) * 100)}%`)}
+        ${lin(tr('tab3.l5_pares_comparados'), tr('tab3.n_coinciden_de_n', {n: l5.sampled_matches || 0, total: l5.sampled_total || 0}))}
+        ${lin(tr('tab3.l5_por_zona_muestras'), tr('tab3.l5_zonas', {intro: `${zm.intro || 0}/${zc.intro || 0}`,
+                              cuerpo: `${zm.body || 0}/${zc.body || 0}`,
+                              outro: `${zm.outro || 0}/${zc.outro || 0}`}))}
+        ${lin(tr('tab3.l5_cobertura_cuerpo'), `${Math.round((l5.sampled_body_coverage || 0) * 100)}%`)}
         <div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px">
           ${tr('tab3.proyecto_analizado_con_el_muestreo_antiguo', {p1: l5.sampled_total || 0})}
         </div>
@@ -4355,7 +4361,8 @@ function _cmv40GateBloque4(s) {
       .map(x => `${_cmv40L5Tupla(x[0])} ×${_cmv40Num(x[1])}`).join(' · ');
     const sin = Number(p.sin_bloque) > 0
       ? tr('tab3.sin_bloque_neutro', {sin_bloque: _cmv40Num(p.sin_bloque)}) : '';
-    return lin(etiqueta, `${_cmv40Num(p.frames_con_bloque)} con bloque${sin} — ${vals || '—'}${p.variable ? '  [VARIABLE]' : '  [constante]'}`);
+    return lin(etiqueta, tr('tab3.l5_con_bloque', {n: _cmv40Num(p.frames_con_bloque)})
+      + `${sin} — ${vals || '—'}${p.variable ? '  [VARIABLE]' : '  [constante]'}`);
   };
 
   const mt = l5.mayor_tramo || {};
@@ -4385,13 +4392,15 @@ function _cmv40GateBloque4(s) {
   return `
     ${_cmv40BloqueHead('④', tr('tab3.desglose_l5'), tr('tab3.comparacion_frame_a_frame'))}
     <div style="padding:8px 10px; background:rgba(0,0,0,0.02); border-radius:6px">
-      ${perfil('Perfil BD (source)', l5.perfil_source)}
-      ${perfil('Perfil bin (target)', l5.perfil_target)}
-      ${lin('Comparados', `${_cmv40Num(l5.comparados)} frames · divergen ${_cmv40Num(l5.divergentes)}` +
+      ${perfil(tr('tab3.l5_perfil_bd'), l5.perfil_source)}
+      ${perfil(tr('tab3.l5_perfil_bin'), l5.perfil_target)}
+      ${lin(tr('tab3.l5_comparados'), tr('tab3.l5_frames_divergen', {frames: _cmv40Num(l5.comparados),
+                                                     div: _cmv40Num(l5.divergentes)}) +
             (l5.comparados ? ` (${((l5.divergentes || 0) / l5.comparados * 100).toFixed(2)}%)` : ''))}
-      ${lin('Por zona (divergen/total)', `intro ${zonaTxt('intro')} · cuerpo ${zonaTxt('body')} · outro ${zonaTxt('outro')}`)}
-      ${lin('Cobertura del cuerpo', `${((l5.body_coverage || 0) * 100).toFixed(2)}%   (umbral 90%)`)}
-      ${lin('Mayor tramo contiguo', mt.frames
+      ${lin(tr('tab3.l5_por_zona_div'), tr('tab3.l5_zonas', {intro: zonaTxt('intro'), cuerpo: zonaTxt('body'),
+                              outro: zonaTxt('outro')}))}
+      ${lin(tr('tab3.l5_cobertura_cuerpo'), tr('tab3.l5_cobertura_umbral', {pct: ((l5.body_coverage || 0) * 100).toFixed(2)}))}
+      ${lin(tr('tab3.l5_mayor_tramo'), mt.frames
             ? `${_cmv40Num(mt.frames)} frames · ${_cmv40Dur(mt.segundos)} · ${mt.zona || '—'} · desde ${_cmv40Num(mt.desde)}   (umbral ${umbralT}s)`
             : '—')}
       ${tramos ? `
@@ -4422,7 +4431,7 @@ function _cmv40GateBloque5(pid, s) {
   const l8 = s.target_l8_classification
     ? `${s.target_l8_classification} · ${s.target_l8_quality_label || '—'} · ${_cmv40Num(s.target_l8_unique_count)} combos`
       + (typeof s.target_l8_neutral_frames_pct === 'number'
-         ? ` · ${(s.target_l8_neutral_frames_pct * 100).toFixed(1)}% neutro` : '')
+         ? tr('tab3.l8_pct_neutro', {pct: (s.target_l8_neutral_frames_pct * 100).toFixed(1)}) : '')
       + (s.target_l8_has_mid_contrast ? ' ' + tr('tab3.mid_contrast_si') : '')
       + (s.target_l8_has_clip_trim ? ' ' + tr('tab3.clip_trim_si') : '')
     : '';
@@ -4432,13 +4441,13 @@ function _cmv40GateBloque5(pid, s) {
   const binCorto = binName ? binName.split('/').pop() : '';
   const procTxt = binCorto
     ? binCorto + (proc.declara_l5_variable
-        ? ` — declara L5 variable (${(proc.tokens || []).join(', ')})` : '')
+        ? tr('tab3.declara_l5_variable', {tokens: (proc.tokens || []).join(', ')}) : '')
     : '';
 
   const sr = s.sheet_recommendation || null;
   const fila0 = sr && Array.isArray(sr.rows) && sr.rows.length ? sr.rows[0] : {};
   const sheet = sr
-    ? `${sr.status || '—'}` + (fila0.dv_source ? ` · fuente ${fila0.dv_source}` : '')
+    ? `${sr.status || '—'}` + (fila0.dv_source ? tr('tab3.hoja_fuente', {fuente: fila0.dv_source}) : '')
       + (fila0.sync_offset != null ? ` · sync ${fila0.sync_offset}` : '')
       + (fila0.notes ? ` · «${fila0.notes}»` : '')
     : '';
@@ -4449,9 +4458,9 @@ function _cmv40GateBloque5(pid, s) {
     s.preflight_decision ? tr('tab3.decision', {preflight_decision: s.preflight_decision}) : '',
   ].filter(Boolean).join(' · ');
 
-  const filas = lin('L2', l2) + lin('L8', l8) + lin('Procedencia', procTxt)
+  const filas = lin('L2', l2) + lin('L8', l8) + lin(tr('tab3.ev_procedencia'), procTxt)
               + lin('Sheet', sheet) + lin('Pre-flight', pf)
-              + lin('Recomendación', s.recommended_action_label || '');
+              + lin(tr('tab3.ev_recomendacion'), s.recommended_action_label || '');
   if (!filas) return '';
 
   return `
@@ -4546,7 +4555,7 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
     const omitidas = (s.phases_skipped || []).length;
     summary = `${pasan}/${claves.length} gates`
       + (_cmv40DropIn(s) ? ' · drop-in' : '')
-      + (omitidas ? ` · ${omitidas} fases omitidas` : '');
+      + (omitidas ? tr('tab3.n_fases_omitidas', {n: omitidas}) : '');
   }
 
   let body = '';
