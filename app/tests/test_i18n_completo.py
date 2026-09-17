@@ -72,6 +72,13 @@ def _catalogos() -> set[str]:
 _CONSOLA = re.compile(r"console\.\w+\s*\(")
 
 
+# Literales del servidor que se quedan en castellano A PROPÓSITO, con su
+# motivo. **Vacía a propósito**: si hace falta una entrada, que cueste
+# escribir por qué — es la misma regla que la lista de excepciones del guard
+# del event loop.
+FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {}
+
+
 class TestNoQuedaCastellanoSuelto(unittest.TestCase):
     """La prueba de que la traducción está completa, y sigue estándolo."""
 
@@ -127,10 +134,21 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
             + "\n  · ".join(fuera[:12])))
 
     def test_ninguna_linea_del_backend_se_ha_quedado_fuera(self):
+        """Un literal capturado es una fuga, **esté o no en el catálogo**.
+
+        Antes se eximía la frase cuyo texto coincidía con el valor de alguna
+        clave, y eso es el «estar en el catálogo NO es pasar por `tr()`» otra
+        vez: el literal seguía en el código, así que en ejecución salía en
+        castellano pasara lo que pasara. Tapaba **siete**, y dos de ellas
+        —«Montando el ISO…» y «Extrayendo HEVC del MKV origen»— son de las
+        que el usuario leyó con la app en inglés.
+
+        La exención es ahora una lista con su motivo, que es la forma que el
+        resto del proyecto usa para esto.
+        """
         fuera = sorted(
             f for f in captura.frases_del_backend()
-            if " ".join(f.split()) not in self.cat
-            and self._sin_prefijo(f) not in self.cat
+            if " ".join(f.split()) not in FUERA_DEL_CATALOGO_BACKEND
             # Una línea que se queda SIN PROSA al quitarle el prefijo y el
             # hueco no tiene nada que traducir: es `f"[Validación] {msg}"`,
             # donde el texto lo aporta el parámetro.

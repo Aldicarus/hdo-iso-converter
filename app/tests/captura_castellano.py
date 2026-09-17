@@ -362,8 +362,97 @@ def frases_del_frontend() -> set[str]:
 # —empezando por los docstrings, que son prosa castellana igualmente— no lo ve
 # ningún usuario: meterlos en el golden exigiría que la documentación interna
 # no cambie nunca.
+# ── El criterio que ve los RÓTULOS ────────────────────────────────────
+#
+# `es_frase` acaba en «un acento O una palabra función», y eso es correcto para
+# prosa y **ciego para rótulos**: «Analizando candidato» son dos palabras sin
+# acento y sin función, así que no la ve. Fue el agujero por el que el usuario
+# leyó «Analizando candidato 6/18: 00055.mpls» con la app en inglés.
+#
+# El criterio que sí los caza no es otro umbral sino un dato: **una palabra de
+# ≥4 letras que está en los valores castellanos del catálogo y NO está en los
+# ingleses es castellano**. Se afina solo con cada frase que se traduce.
+#
+# `es_frase` NO se toca: hay un test que exige que cada entrada del golden la
+# pase, y el golden se capturó con ella.
+# Como `CODIGO` pero SIN la regla del token único, que se comía los rótulos
+# de una palabra.
+_CODIGO_ROTULO = re.compile(
+    r"<[a-zA-Z/!]|\$\{|=>|/api/|\bfunction\b|===|!==|"
+    r"[:;]\s*[\w.#-]+\s*[;{]|\b(px|rem|vh|vw)\b|^https?:")
+
+_VOCABULARIO: set[str] | None = None
+
+
+def vocabulario_solo_castellano() -> set[str]:
+    """Palabras de ≥4 letras que el catálogo `es` usa y el `en` no."""
+    global _VOCABULARIO
+    if _VOCABULARIO is None:
+        import json
+        es: set[str] = set()
+        en: set[str] = set()
+        for d in (APP_DIR / "i18n", APP_DIR / "static" / "i18n"):
+            for idioma, acc in (("es", es), ("en", en)):
+                f = d / f"{idioma}.json"
+                if not f.exists():
+                    continue
+                for v in json.loads(f.read_text(encoding="utf-8")).values():
+                    acc |= set(re.findall(r"[a-záéíóúñü]{4,}", v.lower()))
+        _VOCABULARIO = es - en
+    return _VOCABULARIO
+
+
+def es_rotulo(s: str) -> bool:
+    """¿Es un rótulo castellano, aunque `es_frase` no lo vea?
+
+    Deja fuera lo que tiene forma de identificador —`serie`,
+    `copia_biblioteca`— porque el `detalle` de un trabajo es el
+    discriminador de qué vista pintar, no texto. Un rótulo de verdad trae
+    espacios o mayúscula.
+    """
+    t = " ".join(s.split())
+    if len(t) < 4 or len(t) > 400 or _CODIGO_ROTULO.search(t):
+        return False
+    # Un identificador en minúsculas es un slug, no texto: `serie`,
+    # `copia_biblioteca`. Un rótulo de verdad trae mayúscula o espacios, y por
+    # eso «Completado» —que es una etiqueta de fase y se ve— sí pasa. Este es
+    # el motivo de no reusar `CODIGO`: su regla `^[\w.#/-]+$` descarta
+    # cualquier token único, y ahí se escondían los rótulos de una palabra.
+    if re.fullmatch(r"[a-z][a-z0-9_]*", t):
+        return False
+    return bool(set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
+                & vocabulario_solo_castellano())
+
+
 _LOG = {"log", "_log", "log_callback", "_emit_progress", "emit", "anotar"}
 _EXC = {"HTTPException", "RuntimeError", "ValueError", "MkvmergePlaylistError"}
+
+# Funciones cuyo texto de usuario llega en un argumento POSICIONAL, con su
+# índice. Era el quinto agujero: la captura mira `n.args[:3]` solo para los
+# nombres de `_LOG`, así que los once `workload.marca("Análisis del disco",
+# TAB_RIP)` de los decoradores no los veía nadie — y ese texto es el que sale
+# en `/api/activity` y en la columna de trabajo.
+_POSICIONAL = {"marca": (0,), "registrar": (2,), "ocupado": (2,)}
+
+# Los campos cuyo valor ACABA EN PANTALLA aunque nadie los pase a una llamada.
+# Este era el agujero: la lista blanca de arriba solo mira LLAMADAS, y el
+# backend anuncia su progreso **asignando** —
+# `_disc_probe_progress["current_label"] = f"Analizando candidato …"`—. Una
+# asignación no es una llamada, así que no la veía nadie, pasara el criterio
+# que pasara. Eran ~50.
+#
+# Va por PATRÓN y no por lista de nombres, que es exactamente como se llegó
+# aquí: `current_episode_title` no casaba con ningún patrón castellano porque
+# el código va en inglés.
+_CAMPO_VISIBLE = re.compile(
+    r"(?:^|_)(?:label|lbl|text|txt|texto|message|msg|mensaje|title|titulo|que)$"
+    r"|^detail$")
+
+# `detalle` (en castellano) NO es texto: es el discriminador de qué vista de
+# detalle pinta el frontend (`registrarDetalleDeTrabajo`), y sus valores son
+# slugs — `serie`, `copia_biblioteca`, `analisis_extendido`. `detail` (en
+# inglés) sí lo es: es el campo de `HTTPException`.
+_CAMPO_SLUG = {"detalle"}
 
 
 def _texto_de(nodo) -> str:
@@ -379,6 +468,36 @@ def _texto_de(nodo) -> str:
                 partes.append(" ⟦⟧ ")
         return "".join(partes)
     return ""
+
+
+def _textos_dentro(nodo) -> list[str]:
+    """Los literales de una expresión, entrando solo donde hace falta.
+
+    `_texto_de` entiende una constante o un f-string, y con eso se escapaba
+    «Montando el ISO…» porque su valor es un TERNARIO:
+
+        "current_label": ("Montando el ISO…" if stype == "iso"
+                          else "Leyendo la carpeta BDMV…")
+
+    Se entra en el ternario y en la concatenación con `+`, y **en nada más**.
+    Un `ast.walk` a pelo sí las coge, pero se lleva por delante todas las
+    cadenas de cualquier expresión anidada: medido, pasaba de 58 frases a
+    **510**, con lo que el guard dejaba de servir. Acotarlo a dos formas es
+    predecible y cubre lo que el backend escribe de verdad.
+    """
+    if nodo is None:
+        # Llega de un `**kwargs` (su `arg` es None) y de un `AnnAssign` sin
+        # valor; sin el guard, esto revienta con un AttributeError.
+        return []
+    if isinstance(nodo, ast.JoinedStr):
+        return [_texto_de(nodo)]
+    if isinstance(nodo, ast.Constant):
+        return [nodo.value] if isinstance(nodo.value, str) else []
+    if isinstance(nodo, ast.IfExp):
+        return _textos_dentro(nodo.body) + _textos_dentro(nodo.orelse)
+    if isinstance(nodo, ast.BinOp) and isinstance(nodo.op, ast.Add):
+        return _textos_dentro(nodo.left) + _textos_dentro(nodo.right)
+    return []
 
 
 def frases_del_backend() -> set[str]:
@@ -407,6 +526,9 @@ def frases_del_backend() -> set[str]:
             elif nombre in _EXC:
                 candidatos = list(n.args[:1]) + [k.value for k in n.keywords
                                                  if k.arg in ("detail", "msg")]
+            elif nombre in _POSICIONAL:
+                candidatos = [n.args[i] for i in _POSICIONAL[nombre]
+                              if i < len(n.args)]
             else:
                 # `que=`/`label=`/`message=` de cualquier llamada: es el texto
                 # con el que un trabajo se anuncia en la columna y el historial.
@@ -414,9 +536,59 @@ def frases_del_backend() -> set[str]:
                               if k.arg in ("que", "label", "message", "mensaje",
                                            "step_label", "detalle")]
             for c in candidatos:
-                s = " ".join(_texto_de(c).split())
-                if es_frase(s):
-                    fuera.add(s)
+                for bruto in _textos_dentro(c):
+                    s = " ".join(bruto.split())
+                    if es_frase(s) or es_rotulo(s):
+                        fuera.add(s)
+        # Y los campos que ACABAN EN PANTALLA sin pasar por ninguna llamada.
+        #
+        # `dev_fixtures.py` se salta SOLO aquí: son datos falsos de `DEV_MODE`
+        # que ningún usuario ve, y meterlos exigiría traducir la maqueta. No se
+        # salta arriba porque el golden se capturó con ese fichero dentro y
+        # quitarlo haría desaparecer frases que el golden exige que sigan
+        # existiendo.
+        if f.name == "dev_fixtures.py":
+            continue
+        # Las constantes de MÓDULO en mayúsculas con texto dentro: es la clase
+        # de `CMV40_PHASE_LABELS` en el frontend —una constante evaluada al
+        # cargar— y aquí eran `MOTIVO_CANCELADO`, `AVISO_INTERRUMPIDA` y la
+        # etiqueta de pestaña `TAB_MKV`. Traducirlas al importar CONGELA el
+        # idioma hasta reiniciar, así que se resuelven al usarlas.
+        for nodo in arbol.body:
+            if not isinstance(nodo, ast.Assign):
+                continue
+            for t in nodo.targets:
+                if not (isinstance(t, ast.Name) and t.id.isupper()):
+                    continue
+                for bruto in _textos_dentro(nodo.value):
+                    s = " ".join(bruto.split())
+                    if es_frase(s) or es_rotulo(s):
+                        fuera.add(s)
+        for n in ast.walk(arbol):
+            visibles = []
+            if isinstance(n, (ast.Assign, ast.AnnAssign)):
+                objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
+                nombre = ""
+                for t in objetivos:
+                    if isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant):
+                        nombre = str(t.slice.value)
+                    elif isinstance(t, ast.Attribute):
+                        nombre = t.attr
+                    elif isinstance(t, ast.Name):
+                        nombre = t.id
+                if nombre and _CAMPO_VISIBLE.search(nombre) and nombre not in _CAMPO_SLUG:
+                    visibles = [n.value]
+            elif isinstance(n, ast.Dict):
+                for k, valor in zip(n.keys, n.values):
+                    if (isinstance(k, ast.Constant) and isinstance(k.value, str)
+                            and _CAMPO_VISIBLE.search(k.value)
+                            and k.value not in _CAMPO_SLUG):
+                        visibles.append(valor)
+            for c in visibles:
+                for bruto in _textos_dentro(c):
+                    s = " ".join(bruto.split())
+                    if es_frase(s) or es_rotulo(s):
+                        fuera.add(s)
     return fuera
 
 
