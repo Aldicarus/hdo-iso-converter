@@ -189,8 +189,8 @@ async function _doAnalyzeMkvFromPickerPath(absPath, fileName, forceRefresh = fal
           barFill.style.width = pct + '%';
         }
         if (statsEl) {
-          let line = `${mm}:${ss} transcurridos`;
-          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
+          let line = tr('ui.transcurridos_mm_ss', { mm, ss });
+          if (pct != null) line += tr('ui.pct_leido', { pct: pct.toFixed(1) });
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');
@@ -1433,8 +1433,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
             ${cell(tr('tab2.offsets_l_r'), `${lLft} / ${lRgt} px`)}
             ${cell(tr('tab2.area_activa'), `${aWi} × ${aHi}`)}
             ${cell(tr('tab2.aspect_ratio'), aspectLabel)}
-            ${cell('Simetría vertical', sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
-            ${cell('Simetría horizontal', sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
+            ${cell(tr('tab2.simetria_vertical'), sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
+            ${cell(tr('tab2.simetria_horizontal'), sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
           </div>
           <div class="dv-viz-side">${_rgrfL5Svg(dv, frameW, frameH)}</div>
         </div>

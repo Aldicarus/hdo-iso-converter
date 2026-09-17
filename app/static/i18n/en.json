@@ -1635,5 +1635,10 @@
   "core.tmdb_no_disponible_sin_clave": "TMDb is not available — there is no active key. You can add your own in ⚙︎ Settings.",
   "tab3.excelente": "Excellent",
   "tab3.buena": "Good",
-  "tab3.moderada": "Moderate"
+  "tab3.moderada": "Moderate",
+  "tab2.simetria_vertical": "Vertical symmetry",
+  "tab2.simetria_horizontal": "Horizontal symmetry",
+  "ui.transcurridos_mm_ss": "{mm}:{ss} elapsed",
+  "ui.pct_leido": " · {pct}% read",
+  "tab3.rango_de_a": "Range: {desde} — {hasta}"
 }

@@ -465,7 +465,15 @@ class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
                 palabras = [w.lower() for w in
                             re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", norm)
                             if not _TECNICO.fullmatch(w)]
-                if not any(w in self.vocabulario for w in palabras):
+                # «Una palabra que YA está traducida en otra clave» es un
+                # criterio CIRCULAR: la primera aparición de una palabra es
+                # invisible. `Simetría vertical` de la radiografía DV+HDR no
+                # la veía nadie porque «simetría» no estaba en ningún valor
+                # del catálogo — precisamente porque nadie la había
+                # traducido. Se añade el criterio de los otros guards, que
+                # mira el CONTENIDO y no el catálogo.
+                if not (captura.es_frase(norm) or captura.es_rotulo(norm)
+                        or any(w in self.vocabulario for w in palabras)):
                     continue
                 i = bisect.bisect_right(base, pos) - 1
                 if _NO_ES_TEXTO.search(lineas[i] if i < len(lineas) else ""):
@@ -875,7 +883,15 @@ class TestNingunaCadenaCastellanaSeCuelaPorUnHueco(unittest.TestCase):
                     palabras = [w.lower() for w in
                                 re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", norm)
                                 if not _TECNICO.fullmatch(w)]
-                    if not any(w in self.vocabulario for w in palabras):
+                    # «Una palabra que YA está traducida en otra clave» es un
+                    # criterio CIRCULAR: la primera aparición de una palabra es
+                    # invisible. `Simetría vertical` de la radiografía DV+HDR no
+                    # la veía nadie porque «simetría» no estaba en ningún valor
+                    # del catálogo — precisamente porque nadie la había
+                    # traducido. Se añade el criterio de los otros guards, que
+                    # mira el CONTENIDO y no el catálogo.
+                    if not (captura.es_frase(norm) or captura.es_rotulo(norm)
+                            or any(w in self.vocabulario for w in palabras)):
                         continue
                     linea = src[:ini].count("\n") + 1
                     fuera.append(f"{Path(r).name}:{linea} ({fn}): {norm[:62]}")

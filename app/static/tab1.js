@@ -876,8 +876,8 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
           barFill.style.width = pct + '%';
         }
         if (statsEl) {
-          let line = `${mm}:${ss} transcurridos`;
-          if (pct != null) line += ` · ${pct.toFixed(1)}% leído`;
+          let line = tr('ui.transcurridos_mm_ss', { mm, ss });
+          if (pct != null) line += tr('ui.pct_leido', { pct: pct.toFixed(1) });
           if (eta && eta > 0) {
             const em = Math.floor(eta / 60);
             const es = (eta % 60).toString().padStart(2, '0');

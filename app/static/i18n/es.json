@@ -1635,5 +1635,10 @@
   "core.tmdb_no_disponible_sin_clave": "TMDb no está disponible — no hay ninguna clave activa. Puedes poner la tuya en ⚙︎ Configuración.",
   "tab3.excelente": "Excelente",
   "tab3.buena": "Buena",
-  "tab3.moderada": "Moderada"
+  "tab3.moderada": "Moderada",
+  "tab2.simetria_vertical": "Simetría vertical",
+  "tab2.simetria_horizontal": "Simetría horizontal",
+  "ui.transcurridos_mm_ss": "{mm}:{ss} transcurridos",
+  "ui.pct_leido": " · {pct}% leído",
+  "tab3.rango_de_a": "Rango: {desde} — {hasta}"
 }

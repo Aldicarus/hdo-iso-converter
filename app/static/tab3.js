@@ -6624,7 +6624,8 @@ function _renderCMv40Chart(project) {
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.font = '11px sans-serif';
-  ctx.fillText(`Rango: ${fmtTime(startSec)} — ${fmtTime(endSec)}`, W - padding.right, 14);
+  ctx.fillText(tr('tab3.rango_de_a', { desde: fmtTime(startSec), hasta: fmtTime(endSec) }),
+               W - padding.right, 14);
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.font = '10px sans-serif';
   ctx.fillText(`(${(end - start).toLocaleString()} de ${totalFrames.toLocaleString()} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
