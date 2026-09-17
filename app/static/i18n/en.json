@@ -1489,6 +1489,7 @@
   "ui.modificado": "Modified",
   "ui.montando_el_iso": "Mounting the ISO…",
   "ui.mostrar_u_ocultar_la_columna_de": "Show or hide the jobs column",
+  "ui.n_paq": "{n} pkts",
   "ui.navega_hasta_el_iso_que_quieras": "Browse to the .iso you want to process and click to select it",
   "ui.navega_hasta_la_carpeta_marcada_como": "Browse to the folder flagged as a disc (it has a BDMV structure inside) and click to select it",
   "ui.navega_tu_biblioteca_y_elige_el": "Browse your library and pick the file to process",

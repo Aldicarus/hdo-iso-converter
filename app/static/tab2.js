@@ -1003,19 +1003,19 @@ function _rgrfL1StatsCard(stats, hdr) {
               <span class="dv-l1-bar-label"><span data-i18n="tab2.sdr_like"></span> &lt;100n</span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p1}%; background:#94a3b8"></div></div>
               <span class="dv-l1-bar-pct">${p1}%</span>
-              <span class="dv-l1-bar-count">(${stats.bucket_dim.toLocaleString()})</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_dim.toLocaleString(localeActual())})</span>
             </div>
             <div class="dv-l1-bar-row">
               <span class="dv-l1-bar-label" data-i18n="tab2.midtone_100_300n"></span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p2}%; background:#3395ff"></div></div>
               <span class="dv-l1-bar-pct">${p2}%</span>
-              <span class="dv-l1-bar-count">(${stats.bucket_mid.toLocaleString()})</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_mid.toLocaleString(localeActual())})</span>
             </div>
             <div class="dv-l1-bar-row">
               <span class="dv-l1-bar-label" data-i18n="tab2.highlight_300n"></span>
               <div class="dv-l1-bar-track"><div class="dv-l1-bar-fill" style="width:${p3}%; background:#f59e0b"></div></div>
               <span class="dv-l1-bar-pct">${p3}%</span>
-              <span class="dv-l1-bar-count">(${stats.bucket_high.toLocaleString()})</span>
+              <span class="dv-l1-bar-count">(${stats.bucket_high.toLocaleString(localeActual())})</span>
             </div>
           </div>
         </div>
@@ -1336,7 +1336,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   const sceneCutsCell = (dv?.quality_scene_cuts || 0) > 0
     ? cell(
         'Scene cuts',
-        `${dv.quality_scene_cuts.toLocaleString()} (~${
+        `${dv.quality_scene_cuts.toLocaleString(localeActual())} (~${
           (a.duration_seconds / dv.quality_scene_cuts).toFixed(1)
         }s/escena)`,
         { tooltip: tr('tab2.no_de_frames_con_scene_refresh') }
@@ -1349,7 +1349,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
       <div class="dv-grid-3">
         ${cell('Profile', profile)}
         ${cell(tr('tab2.cm_version'), cmLabel)}
-        ${cell('Frames', framesTotal ? framesTotal.toLocaleString() : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
+        ${cell('Frames', framesTotal ? framesTotal.toLocaleString(localeActual()) : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
         ${cell(tr('tab1.duracion'), durationStr)}
         ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
@@ -1396,7 +1396,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
           <td><code>T${z.top}/B${z.bottom}/L${z.left}/R${z.right}</code></td>
           <td>${aw} × ${ah}</td>
           <td>${ratio}:1</td>
-          <td>${z.frames.toLocaleString()}</td>
+          <td>${z.frames.toLocaleString(localeActual())}</td>
           <td><strong>${z.pct}%</strong></td>
         </tr>`;
     }).join('');
@@ -1468,7 +1468,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         <div class="dv-cmv4-stats-row">
           <div class="dv-cmv4-stats-key">L8</div>
           <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString()}</strong> <span data-i18n="tab2.combos_unicos"></span>
+            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString(localeActual())}</strong> <span data-i18n="tab2.combos_unicos"></span>
             <span class="dv-cmv4-stats-sub">
               ${dv.quality_scene_cuts > 0
                 ? `· ${(dv.quality_l8_unique_count / dv.quality_scene_cuts).toFixed(2)} combos/shot`
@@ -1484,7 +1484,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
         <div class="dv-cmv4-stats-row">
           <div class="dv-cmv4-stats-key">L2</div>
           <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString()}</strong> <span data-i18n="tab2.combos_unicos"></span>
+            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString(localeActual())}</strong> <span data-i18n="tab2.combos_unicos"></span>
             ${(dv.quality_l2_target_pqs?.length || 0) > 0
               ? `<span class="dv-cmv4-stats-sub">· ${dv.quality_l2_target_pqs.length} target_pqs</span>`
               : ''}
@@ -1674,15 +1674,15 @@ function _rgrfQualityAuditCard(dv, isV40) {
       </div>
       <div class="dv-quality-stats">
         <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${l8Count.toLocaleString()}</div>
+          <div class="dv-quality-stat-value">${l8Count.toLocaleString(localeActual())}</div>
           <div class="dv-quality-stat-label" data-i18n="tab2.combos_l8_unicos"></div>
         </div>
         <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${l2Count.toLocaleString()}</div>
+          <div class="dv-quality-stat-value">${l2Count.toLocaleString(localeActual())}</div>
           <div class="dv-quality-stat-label" data-i18n="tab2.combos_l2_unicos"></div>
         </div>
         <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${scenes.toLocaleString()}</div>
+          <div class="dv-quality-stat-value">${scenes.toLocaleString(localeActual())}</div>
           <div class="dv-quality-stat-label"><span data-i18n="tab2.scene_cuts"></span> <span style="opacity:.6">(~${combosPerShot} L8/shot)</span></div>
         </div>
         <div class="dv-quality-stat">
@@ -1874,7 +1874,7 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);
   showToast(
     tr('tab2.analisis_rpu_luz_completado', {quality_verdict_text: data.quality_verdict_text})
-    + (conPerfil ? tr('tab2.perfil_de_luminancia_frames', {p1: (data.light_profile?.total_frames || 0).toLocaleString()}) : ''),
+    + (conPerfil ? tr('tab2.perfil_de_luminancia_frames', {p1: (data.light_profile?.total_frames || 0).toLocaleString(localeActual())}) : ''),
     'success');
 }
 
@@ -1923,7 +1923,7 @@ async function _rgrfCopyToClipboard(evt) {
     `## 1. Identidad`,
     `- Profile: **${fmt(dv.profile)}${el}**`,
     `- CM version: **${fmt(dv.cm_version)}**`,
-    `- Frames totales: ${fmt(realFrames?.toLocaleString())}`,
+    `- Frames totales: ${fmt(realFrames?.toLocaleString(localeActual()))}`,
     `- FPS: ${fmt(realFps?.toFixed(3))}`,
     `- Bit depth: ${fmt(mainV?.bit_depth, '-bit')}`,
     `- Niveles detectados: ${levels.join(' · ')}`,
@@ -1985,7 +1985,7 @@ function _renderMkvEditPanel(project = mkvProject) {
     mainVideo.codec || 'HEVC',
     mainVideo.pixel_dimensions || '',
     mainVideo.bit_depth ? `${mainVideo.bit_depth}-bit` : '',
-    mainVideo.bitrate_kbps ? `${mainVideo.bitrate_kbps.toLocaleString()} kbps` : '',
+    mainVideo.bitrate_kbps ? `${mainVideo.bitrate_kbps.toLocaleString(localeActual())} kbps` : '',
   ].filter(Boolean).join(' · ') : '';
 
   // HDR10 / color space
@@ -2090,7 +2090,7 @@ function _renderMkvEditPanel(project = mkvProject) {
         <div class="section-body">
           <div class="video-summary-line">
             <strong>${escHtml(videoCodecLine)}</strong>
-            ${elVideo ? `<span class="video-el">+EL ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString() + ' kbps' : ''}</span>` : ''}
+            ${elVideo ? `<span class="video-el">+EL ${escHtml(elVideo.codec || 'HEVC')} ${escHtml(elVideo.pixel_dimensions || '')}${elVideo.bitrate_kbps ? ' · ' + elVideo.bitrate_kbps.toLocaleString(localeActual()) + ' kbps' : ''}</span>` : ''}
           </div>
           ${dvDetected && dv ? _renderMkvDvRadiography(a, dv, mainVideo, elVideo, project.comparacion) : (dvDetected && !dv ? `<div style="font-size:11px; color:var(--text-3); font-style:italic; margin-top:6px" data-i18n="tab2.rpu_no_analizado_en_detalle_dovi"></div>` : '')}
         </div>
@@ -2237,9 +2237,9 @@ function _attachSparklineHover() {
 
       // Tooltip: peak / avg / min en filas con codigo de color matching las curvas.
       const lines = [];
-      lines.push(`<span style="color:#7cc4ff"><span data-i18n="tab2.peak"></span></span> ${v.toLocaleString()} nits`);
-      if (av != null) lines.push(`<span style="color:#86efac"><span data-i18n="tab2.avg"></span></span> ${av.toLocaleString()} nits`);
-      if (mn != null) lines.push(`<span style="color:#cbd5e1"><span data-i18n="tab2.min"></span></span> ${mn.toLocaleString()} nits`);
+      lines.push(`<span style="color:#7cc4ff"><span data-i18n="tab2.peak"></span></span> ${v.toLocaleString(localeActual())} nits`);
+      if (av != null) lines.push(`<span style="color:#86efac"><span data-i18n="tab2.avg"></span></span> ${av.toLocaleString(localeActual())} nits`);
+      if (mn != null) lines.push(`<span style="color:#cbd5e1"><span data-i18n="tab2.min"></span></span> ${mn.toLocaleString(localeActual())} nits`);
       if (dur > 0) lines.push(`<span style="color:#94a3b8">@</span> ${_rgrfFmtTime(t)}`);
       tooltip.innerHTML = lines.join('<br>');
       tooltip.style.display = '';
@@ -2289,7 +2289,7 @@ function _renderMkvTracks(project = mkvProject) {
       channelsPretty,
       t.channel_layout ? escHtml(t.channel_layout) : '',
       t.sample_rate ? `${t.sample_rate/1000} kHz` : '',
-      t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString()} kbps` : '',
+      t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString(localeActual())} kbps` : '',
     ].filter(Boolean).join(' · ');
     const def = t.flag_default ? ' active-default' : '';
     const tooltip = [
@@ -2299,7 +2299,7 @@ function _renderMkvTracks(project = mkvProject) {
       chCount ? tr('tab2.canales_p1_p2', {p1: chCount, p2: channelsPretty}) : null,
       t.channel_layout ? `Layout: ${t.channel_layout}` : null,
       t.sample_rate ? `Sample rate: ${t.sample_rate/1000} kHz` : null,
-      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
+      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString(localeActual())} kbps` : null,
       t.compression_mode ? tr('tab1.compresion', {compression_mode: t.compression_mode}) : null,
       tr('tab2.track_id_p1', {p1: t.id}),
     ].filter(Boolean).join('\n');
@@ -2370,12 +2370,12 @@ function _renderMkvTracks(project = mkvProject) {
     const inferredMark = (derivedForced && !flagForcedLit) ? ' <span style="color:var(--orange); font-size:10px; font-weight:600" data-i18n-tip="tab2.clasificacion_inferida_por_volumen"><span data-icono="info"></span> inferido</span>' : '';
 
     // Info visible: codec + resolución + paq. + bitrate + tipo
-    const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
+    const pktTag = packets > 0 ? `${packets.toLocaleString(localeActual())} paq.` : '';
     const desc = [
       codecPretty,
       t.pixel_dimensions ? escHtml(t.pixel_dimensions) : '',
       pktTag,
-      t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString()} kbps` : '',
+      t.bitrate_kbps ? `${t.bitrate_kbps.toLocaleString(localeActual())} kbps` : '',
       forcedLabel,
     ].filter(Boolean).join(' · ');
     const tooltip = [
@@ -2384,7 +2384,7 @@ function _renderMkvTracks(project = mkvProject) {
       tr('comun.tipo_p1', {p1: forcedLabel + (forcedSource ? ` (${forcedSource})` : '')}),
       t.pixel_dimensions ? tr('tab2.resolucion_bitmap', {pixel_dimensions: t.pixel_dimensions}) : null,
       packets > 0 ? tr('comun.paquetes_pes_p1_ffprobe', {p1: packets.toLocaleString(localeActual())}) : null,
-      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString()} kbps` : null,
+      t.bitrate_kbps ? `Bitrate: ${t.bitrate_kbps.toLocaleString(localeActual())} kbps` : null,
       tr('tab2.track_id_p1', {p1: t.id}),
     ].filter(Boolean).join('\n');
     const li = document.createElement('li');

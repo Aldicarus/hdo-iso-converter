@@ -1489,6 +1489,7 @@
   "ui.modificado": "Modificat",
   "ui.montando_el_iso": "S'està muntant l'ISO…",
   "ui.mostrar_u_ocultar_la_columna_de": "Mostrar o amagar la columna de treball",
+  "ui.n_paq": "{n} paq.",
   "ui.navega_hasta_el_iso_que_quieras": "Navega fins al .iso que vulguis processar i fes clic per seleccionar-lo",
   "ui.navega_hasta_la_carpeta_marcada_como": "Navega fins a la carpeta marcada com a disc (conté una estructura BDMV) i fes clic per seleccionar-la",
   "ui.navega_tu_biblioteca_y_elige_el": "Navega per la teva biblioteca i tria el fitxer a processar",

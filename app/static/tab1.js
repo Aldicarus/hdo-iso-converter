@@ -2672,7 +2672,7 @@ function renderIncludedTracks(tracks) {
         tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
         raw.description ? tr('tab1.canales_frecuencia_p1', {p1: raw.description}) : null,
         raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
-        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+        raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString(localeActual())} kbps` : null,
         raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
         tr('tab1.posicion_en_mkv', {p1: flatIdx + 1}),
         '',
@@ -2692,7 +2692,7 @@ function renderIncludedTracks(tracks) {
         langLit,
         raw.codec,
         desc,
-        raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+        raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString(localeActual())} kbps` : null,
       ].filter(Boolean).join(' · ');
       const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
@@ -2746,7 +2746,8 @@ function renderIncludedTracks(tracks) {
         '',
         tr('tab1.razon', {p1: track.selection_reason || '—'}),
       ].filter(Boolean).join('\n');
-      const pktTag = packets > 0 ? ` · ${packets.toLocaleString()} paq.` : '';
+      const pktTag = packets > 0
+        ? ' \u00b7 ' + tr('ui.n_paq', {n: packets.toLocaleString(localeActual())}) : '';
       const rawLine = `PGS · ${langLiteral(raw.language)} · ${subTypeLabel}${pktTag}`;
       const origIdx = (typeof track._orig_index === 'number') ? track._orig_index : -1;
       const origLabel = origIdx >= 0 ? `#${origIdx + 1}` : '';
@@ -2941,7 +2942,7 @@ function renderDiscardedTracks(tracks) {
           tr('comun.idioma_p1_p2', {p1: raw.language || '—', p2: langLiteral(raw.language) || '—'}),
           raw.description ? tr('tab1.canales_frecuencia_p1', {p1: raw.description}) : null,
           raw.channel_layout ? `Layout: ${raw.channel_layout}` : null,
-          raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString()} kbps` : null,
+          raw.bitrate_kbps ? `Bitrate: ${raw.bitrate_kbps.toLocaleString(localeActual())} kbps` : null,
           raw.compression_mode ? tr('tab1.compresion', {compression_mode: raw.compression_mode}) : null,
           '',
           tr('tab1.razon_del_descarte', {p1: track.discard_reason || '—'}),
@@ -2968,11 +2969,12 @@ function renderDiscardedTracks(tracks) {
         // raw.description para no duplicar.
         const desc = (raw.description || '').replace(/\s*\/\s*\d[\d,.]*\s*kbps\s*/i, ' / ').replace(/\/\s*\//g, '/').replace(/^\s*\/|\/\s*$/g, '').trim();
         codecInfo = [langLit, raw.codec, desc,
-          raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString()} kbps` : null
+          raw.bitrate_kbps ? `${raw.bitrate_kbps.toLocaleString(localeActual())} kbps` : null
         ].filter(Boolean).join(' · ');
       } else {
         const packets = raw.packet_count || 0;
-        const pktTag = packets > 0 ? `${packets.toLocaleString()} paq.` : '';
+        const pktTag = packets > 0
+          ? tr('ui.n_paq', {n: packets.toLocaleString(localeActual())}) : '';
         codecInfo = [langLit, 'PGS', pktTag].filter(Boolean).join(' · ');
       }
 
@@ -3070,7 +3072,7 @@ function showRawAnalysisData() {
     lines.push(`── Audio adaptado (${bd.audio_tracks?.length || 0} pistas) ──`);
     (bd.audio_tracks || []).forEach((t, i) => {
       const parts = [`codec="${t.codec}"`, `lang="${t.language}"`, `desc="${t.description}"`];
-      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString()} kbps`);
+      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString(localeActual())} kbps`);
       if (t.format_commercial) parts.push(`format="${t.format_commercial}"`);
       if (t.compression_mode) parts.push(`${t.compression_mode}`);
       lines.push(`  #${i+1} ${parts.join(' | ')}`);
@@ -3102,7 +3104,7 @@ function showRawAnalysisData() {
     if (mi.source_size_bytes) lines.push(tr('tab1.tamano_m2ts', {source_size_bytes: _fmtBytes(mi.source_size_bytes)}));
     (mi.tracks || []).forEach((t, i) => {
       const parts = [`type=${t.track_type}`];
-      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString()} kbps`);
+      if (t.bitrate_kbps) parts.push(`bitrate=${t.bitrate_kbps.toLocaleString(localeActual())} kbps`);
       if (t.format_commercial) parts.push(`"${t.format_commercial}"`);
       if (t.channel_layout) parts.push(`layout="${t.channel_layout}"`);
       if (t.compression_mode) parts.push(`${t.compression_mode}`);
@@ -3174,7 +3176,7 @@ function showRawAnalysisData() {
   (s.discarded_tracks || []).forEach((t, i) => {
     const raw = t.raw || {};
     if (t.track_type === 'audio') {
-      const br = raw.bitrate_kbps ? ` | bitrate=${raw.bitrate_kbps.toLocaleString()} kbps` : '';
+      const br = raw.bitrate_kbps ? ` | bitrate=${raw.bitrate_kbps.toLocaleString(localeActual())} kbps` : '';
       const fc = raw.format_commercial ? ` | format="${raw.format_commercial}"` : '';
       lines.push(`  ${i+1}. [AUDIO] lang="${raw.language}" codec="${raw.codec}" desc="${raw.description}"${br}${fc}`);
     } else {
@@ -4232,7 +4234,7 @@ function renderExecutionHistory(session) {
     tr.className = isDone ? '' : 'exec-row-error';
     tr.innerHTML = `
       <td class="exec-h-num">${rec.run_number}</td>
-      <td class="exec-h-date" data-tooltip="${rec.started_at ? escHtml(new Date(rec.started_at).toLocaleString()) : ''}">${escHtml(dateStr)}</td>
+      <td class="exec-h-date" data-tooltip="${rec.started_at ? escHtml(new Date(rec.started_at).toLocaleString(localeActual())) : ''}">${escHtml(dateStr)}</td>
       <td class="exec-h-status"${errTitle}>${icon}</td>
       <td>${fmtPh('mount')}</td>
       <td>${fmtPh('extract')}</td>
@@ -4627,7 +4629,7 @@ function showLogModal(idx) {
   if (!rec) return;
 
   const isDone  = rec.status === 'done';
-  const dateStr = rec.started_at ? new Date(rec.started_at).toLocaleString() : '—';
+  const dateStr = rec.started_at ? new Date(rec.started_at).toLocaleString(localeActual()) : '—';
   const status  = icono(isDone ? 'check' : 'cruz') + (isDone ? ' ' + tr('tab1.completada') : ' Error');
 
   document.getElementById('log-viewer-title').innerHTML =

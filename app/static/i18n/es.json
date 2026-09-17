@@ -1489,6 +1489,7 @@
   "ui.modificado": "Modificado",
   "ui.montando_el_iso": "Montando el ISO…",
   "ui.mostrar_u_ocultar_la_columna_de": "Mostrar u ocultar la columna de trabajo",
+  "ui.n_paq": "{n} paq.",
   "ui.navega_hasta_el_iso_que_quieras": "Navega hasta el .iso que quieras procesar y haz clic para seleccionarlo",
   "ui.navega_hasta_la_carpeta_marcada_como": "Navega hasta la carpeta marcada como disco (contiene una estructura BDMV) y haz clic para seleccionarla",
   "ui.navega_tu_biblioteca_y_elige_el": "Navega tu biblioteca y elige el fichero a procesar",

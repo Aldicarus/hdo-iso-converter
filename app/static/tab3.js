@@ -3238,7 +3238,7 @@ function _renderCMv40Info(s, pid) {
             <div style="font-size:11px; color:var(--text-3); margin-bottom:2px" data-i18n="tab3.mkv_origen"></div>
             <div style="font-weight:600">${escHtml(s.source_mkv_name)}</div>
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
-              ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString()} frames` : tr('tab3.sin_analizar')}
+              ${srcDv ? `Profile ${srcDv.profile}${srcDv.el_type ? ` (${srcDv.el_type})` : ''} · CM ${srcDv.cm_version} · ${s.source_frame_count.toLocaleString(localeActual())} frames` : tr('tab3.sin_analizar')}
             </div>
             ${s.source_workflow ? `<div style="font-size:10px; margin-top:4px">
               <span class="cmv40-workflow-badge cmv40-workflow-${s.source_workflow}">${_cmv40WorkflowLabel(s.source_workflow)}</span>
@@ -3253,7 +3253,7 @@ function _renderCMv40Info(s, pid) {
                     onkeydown="if(event.key==='Enter'){this.blur()}">`
               : `<div style="font-weight:600">${escHtml(s.output_mkv_name)}</div>`}
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
-              ${tgtDv ? `RPU target: Profile ${tgtDv.profile}${tgtDv.el_type ? ` (${tgtDv.el_type})` : ''} · CM ${tgtDv.cm_version} · ${s.target_frame_count.toLocaleString()} frames` : ''}
+              ${tgtDv ? `RPU target: Profile ${tgtDv.profile}${tgtDv.el_type ? ` (${tgtDv.el_type})` : ''} · CM ${tgtDv.cm_version} · ${s.target_frame_count.toLocaleString(localeActual())} frames` : ''}
               ${s.sync_delta ? ` · <span style="color:var(--orange)">Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta} frames</span>` : ''}
             </div>
           </div>
@@ -4636,7 +4636,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
     // Frame count
     rows.push(_cmv40GateRowHtml(state === 'done' ? 'ok' : 'pending',
       'Frame count',
-      state === 'done' ? `${(s.source_frame_count || 0).toLocaleString()} frames` : '—',
+      state === 'done' ? `${(s.source_frame_count || 0).toLocaleString(localeActual())} frames` : '—',
       state === 'done'
         ? tr('tab3.el_numero_de_frames_del_mkv')
         : tr('tab3.se_compara_frame_count_del_resultado')));
@@ -4706,11 +4706,11 @@ function _cmv40FaseSummary(key, s) {
   const arts = s.artifacts || {};
   if (key === 'A' && s.source_dv_info) {
     const d = s.source_dv_info;
-    return `Profile ${d.profile}${d.el_type ? ` (${d.el_type})` : ''} · CM ${d.cm_version} · ${s.source_frame_count.toLocaleString()} frames`;
+    return `Profile ${d.profile}${d.el_type ? ` (${d.el_type})` : ''} · CM ${d.cm_version} · ${s.source_frame_count.toLocaleString(localeActual())} frames`;
   }
   if (key === 'B' && s.target_dv_info) {
     const d = s.target_dv_info;
-    return `CM ${d.cm_version} · ${s.target_frame_count.toLocaleString()} frames (Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta})`;
+    return `CM ${d.cm_version} · ${s.target_frame_count.toLocaleString(localeActual())} frames (Δ ${s.sync_delta > 0 ? '+' : ''}${s.sync_delta})`;
   }
   if (key === 'C') {
     const sizes = ['BL.hevc', 'EL.hevc', 'per_frame_data.json'].map(n => arts[n] || 0);
@@ -4760,7 +4760,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
       <div style="font-size:12px; line-height:1.8">
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.profile"></span></span> ${d.profile}${d.el_type ? ` (${d.el_type})` : ''}</div>
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.cm_version"></span></span> ${d.cm_version}</div>
-        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.source_frame_count.toLocaleString()}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.source_frame_count.toLocaleString(localeActual())}</div>
         ${d.has_l1 ? '<div><span style="color:var(--text-3)">Metadata:</span> L1 L2 L5 L6</div>' : ''}
       </div>`;
   }
@@ -4780,7 +4780,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.path"></span></span> <code>${escHtml(s.target_rpu_path || '—')}</code></div>
         ${hashLine}
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.cm_version"></span></span> ${d.cm_version}</div>
-        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.target_frame_count.toLocaleString()}</div>
+        <div><span style="color:var(--text-3)"><span data-i18n="tab3.frames"></span></span> ${s.target_frame_count.toLocaleString(localeActual())}</div>
         <div><span style="color:var(--text-3)"><span data-i18n="tab3.vs_origen"></span></span> <b style="color:${s.sync_delta === 0 ? 'var(--green)' : 'var(--orange)'}">${tr('tab3.p1_sync_delta_frames', {p1: s.sync_delta > 0 ? '+' : '', sync_delta: s.sync_delta})}</b></div>
         <div style="margin-top:8px; font-size:11px; color:var(--text-3); font-style:italic"><span data-icono="bombilla"></span> <span data-i18n="tab3.los_resultados_de_los_trust_gates"></span></div>
       </div>`;
@@ -6105,8 +6105,8 @@ function _renderCMv40SyncStats(project) {
 
   container.innerHTML = `
     <div class="cmv40-sync-row">
-      <div><span class="sync-label"><span data-i18n="tab3.frames_origen"></span></span> <b>${srcFrames.toLocaleString()}</b></div>
-      <div><span class="sync-label"><span data-i18n="tab3.frames_target"></span></span> <b>${tgtFrames.toLocaleString()}</b></div>
+      <div><span class="sync-label"><span data-i18n="tab3.frames_origen"></span></span> <b>${srcFrames.toLocaleString(localeActual())}</b></div>
+      <div><span class="sync-label"><span data-i18n="tab3.frames_target"></span></span> <b>${tgtFrames.toLocaleString(localeActual())}</b></div>
       <div><span class="sync-label"><span data-i18n="tab3.diferencia"></span></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${delta > 0 ? '+' : ''}${delta}</b></div>
     </div>
     ${suggested.offset !== undefined && suggested.offset !== 0 ? `
@@ -6544,7 +6544,7 @@ function _renderCMv40Chart(project) {
     ctx.fillText(`${mm}:${ss}`, x, H - 22);
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '9px sans-serif';
-    ctx.fillText(`f ${frame.toLocaleString()}`, x, H - 8);
+    ctx.fillText(`f ${frame.toLocaleString(localeActual())}`, x, H - 8);
     ctx.font = '10px sans-serif';
   }
   ctx.textAlign = 'left';
@@ -6628,7 +6628,7 @@ function _renderCMv40Chart(project) {
                W - padding.right, 14);
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.font = '10px sans-serif';
-  ctx.fillText(`(${(end - start).toLocaleString()} de ${totalFrames.toLocaleString()} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
+  ctx.fillText(`(${(end - start).toLocaleString(localeActual())} de ${totalFrames.toLocaleString(localeActual())} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
   ctx.textAlign = 'left';
 
   // Hover handler
@@ -6652,7 +6652,7 @@ function _renderCMv40Chart(project) {
       tooltip.style.top  = `${e.clientY - rect.top - 30}px`;
       const mm = Math.floor(absFrame / FPS / 60);
       const ss = Math.floor((absFrame / FPS) % 60).toString().padStart(2, '0');
-      tooltip.innerHTML = `Frame ${absFrame.toLocaleString()} (${mm}:${ss})<br>
+      tooltip.innerHTML = `Frame ${absFrame.toLocaleString(localeActual())} (${mm}:${ss})<br>
         <span style="color:#ef4444">${tr('tab3.origen_p1_pq', {p1: (d.src_maxcll || 0).toFixed(0)})}</span><br>
         <span style="color:#3b82f6">${tr('tab3.target_p1_pq', {p1: (d.tgt_maxcll || 0).toFixed(0)})}</span>`;
     }

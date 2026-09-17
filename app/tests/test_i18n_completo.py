@@ -957,3 +957,55 @@ class TestNingunLiteralCastellanoEnUnaPropiedadQueSeVe(unittest.TestCase):
         self.assertEqual(fuera, [], (
             f"\n{len(fuera)} literal(es) castellanos en una propiedad que se "
             f"pinta.\nPásalos por `tr('clave')`:\n  · " + "\n  · ".join(fuera[:15])))
+
+
+class TestLasFechasYLosNumerosSiguenElIdiomaDeLaApp(unittest.TestCase):
+    """`toLocale*()` sin argumento usa el locale del NAVEGADOR, no el de la app.
+
+    Es la otra mitad del bug de los 16 `toLocaleDateString('es-ES')`
+    cableados: se arreglaron los que decían un locale explícito y quedaron
+    **45** que no decían ninguno, así que con la app en inglés sobre un
+    navegador en castellano los miles salían `141.336` en vez de `141,336`.
+    No es texto, así que ningún guard de traducción lo miraba — y el usuario
+    lo vio en la ficha de un proyecto.
+
+    `localeActual()` es el único sitio que decide el locale (`es-ES`,
+    `en-GB`, `ca-ES`), así que toda llamada tiene que pasar por él.
+    """
+
+    # `i18n.js` es quien los define, y `core.js` no formatea nada.
+    _EXENTOS = {"i18n.js": "define localeActual() y los tres locales"}
+
+    _SIN_LOCALE = re.compile(r"\.toLocale(?:String|DateString|TimeString)\(\s*\)")
+    _LOCALE_CABLEADO = re.compile(r"""['"](?:es|en|ca)-[A-Z]{2}['"]""")
+
+    def _fuentes(self):
+        for r in rutas():
+            if Path(r).name in self._EXENTOS:
+                continue
+            yield Path(r).name, Path(r).read_text(encoding="utf-8")
+
+    def test_nadie_formatea_sin_locale(self):
+        fuera = []
+        for nombre, src in self._fuentes():
+            for m in self._SIN_LOCALE.finditer(src):
+                fuera.append(f"{nombre}:{src[:m.start()].count(chr(10)) + 1}: "
+                             f"{m.group(0)}")
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} formateo(s) sin locale — usan el del navegador, "
+            f"no el de la app.\nPasa `localeActual()`:\n  · "
+            + "\n  · ".join(fuera[:15])))
+
+    def test_nadie_cablea_un_locale(self):
+        fuera = []
+        for nombre, src in self._fuentes():
+            for m in self._LOCALE_CABLEADO.finditer(src):
+                linea = src[:m.start()].count("\n") + 1
+                # En un comentario es documentación, no código.
+                inicio = src.rfind("\n", 0, m.start()) + 1
+                if src[inicio:m.start()].lstrip().startswith(("//", "*")):
+                    continue
+                fuera.append(f"{nombre}:{linea}: {m.group(0)}")
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} locale(s) cableados. El locale sale de "
+            f"`localeActual()`:\n  · " + "\n  · ".join(fuera[:15])))
