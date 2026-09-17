@@ -119,7 +119,24 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
                 if any(a <= m.start() < b for a, b in plantillas):
                     continue
                 s = " ".join((m.group(1) or m.group(2) or "").split())
-                if not captura.es_frase(s):
+                # Dos agujeros que este guard tuvo hasta el 2026-09-17, los
+                # dos del MISMO tipo que los del servidor:
+                #
+                #   1. filtraba con `es_frase` a secas, que es correcto para
+                #      prosa y ciego para rótulos («Nuevo proyecto»,
+                #      «Procesando…», «Guardada»);
+                #   2. juzgaba la cadena ENTERA, así que un
+                #      `'<option value="">— Elige temporada —</option>'` no
+                #      pasaba ningún criterio —parece código— y el rótulo de
+                #      dentro se colaba. La captura ya sacaba el HTML de las
+                #      cadenas entrecomilladas; el guard no.
+                #
+                # Eran 59, entre ellas el «— Elige temporada —» que el
+                # usuario leyó con la app en catalán.
+                for t in self._textos_de(s):
+                    if captura.es_frase(t) or captura.es_rotulo(t):
+                        break
+                else:
                     continue
                 # Estar en el catálogo NO es pasar por `tr()`. El guard daba
                 # por buena la cadena si su texto coincidía con el valor de
@@ -139,6 +156,22 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
             f"\n{len(sueltas)} frase(s) castellanas sueltas en el JS. Pasa por "
             f"`tr('clave')` o, si de verdad no es texto de usuario, di por qué "
             f"en FUERA_DEL_CATALOGO:\n  · " + "\n  · ".join(sueltas[:15])))
+
+    # Un id del DOM o un selector CSS no tiene mayúsculas ni acentos y se
+    # escribe solo con lo que la sintaxis permite; un rótulo de interfaz trae
+    # mayúscula inicial o un acento. Sin esta regla el criterio por
+    # vocabulario denunciaba 150 `progress-modal-poster` y `.paso-ico`, que
+    # son la mitad de lo que hay en un `querySelector`.
+    _ID_O_SELECTOR = re.compile(r"^[a-z0-9 _.#\[\]:>~+*^$=\"'/()-]+$")
+
+    @classmethod
+    def _textos_de(cls, s: str) -> list[str]:
+        """Lo que de una cadena entrecomillada acaba siendo TEXTO."""
+        if cls._ID_O_SELECTOR.fullmatch(s):
+            return []
+        trozos = (captura._del_html(captura.sin_huecos(s)) if "<" in s
+                  else [s])
+        return [t for t in trozos if not cls._ID_O_SELECTOR.fullmatch(t)]
 
     def test_ningun_texto_del_marcado_se_ha_quedado_fuera(self):
         fuera = [x for x in captura._del_html(html())
