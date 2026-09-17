@@ -712,7 +712,7 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
     """
     # Sin bloques CMv4.0 → no aplica (caso degenerado, se reporta como default)
     if analysis.frames_with_cmv40 == 0 or analysis.l8_unique_count == 0:
-        return ("default", "El bin no tiene bloques L8 (CMv4.0).")
+        return ("default", tr('rpu_analyze.el_bin_no_tiene_bloques_l8_cmv4'))
 
     if (analysis.l8_unique_count >= L8_REAL_MIN_UNIQUE_COMBOS
             and analysis.l8_neutral_pct < L8_REAL_MAX_NEUTRAL_PCT):
@@ -723,8 +723,7 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
         else:
             profile = "CORE"
         return ("real",
-                f"L8 trabajado por colorista — {analysis.l8_unique_count} combos únicos, "
-                f"{(1.0 - analysis.l8_neutral_pct) * 100:.0f}% frames con trim ({profile}).")
+                tr('rpu_analyze.l8_trabajado_por_colorista_l8_unique_count', l8_unique_count=analysis.l8_unique_count, p2=format((1.0 - analysis.l8_neutral_pct) * 100, '.0f'), profile=profile))
 
     # Rama "real minimal": pocos combos pero con campos CMv4.0-only poblados
     # Y al menos un combo con trim significativo (>50 unidades del neutro).
@@ -750,10 +749,7 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
             if analysis.l8_has_clip_trim:
                 extras.append("clip_trim")
             return ("real",
-                    f"L8 minimal trabajado — {analysis.l8_unique_count} combos únicos "
-                    f"con trims significativos, campos CMv4.0-only poblados "
-                    f"({', '.join(extras)}). Master con look global uniforme + "
-                    f"toning por brackets de shot.")
+                    tr('rpu_analyze.l8_minimal_trabajado_l8_unique_count_combos', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)))
 
     # Default (sintético) si: muy pocos combos únicos (1-2 = look global de
     # conversión al vuelo), O bien mayoría de frames neutros PERO sin alcanzar
@@ -768,14 +764,10 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
             or (analysis.l8_neutral_pct >= L8_DEFAULT_MIN_NEUTRAL_PCT
                 and analysis.l8_unique_count < L8_REAL_MIN_UNIQUE_COMBOS)):
         return ("default",
-                f"Bin sintético — {analysis.l8_unique_count} combos L8 únicos, "
-                f"{analysis.l8_neutral_pct * 100:.0f}% frames neutros. "
-                f"Equivalente a la conversión CMv4.0 al vuelo de reproductores p3i/avdvplus.")
+                tr('rpu_analyze.bin_sintetico_l8_unique_count_combos_l8', l8_unique_count=analysis.l8_unique_count, p2=format(analysis.l8_neutral_pct * 100, '.0f')))
 
     return ("indeterminate",
-            f"L8 ambiguo — {analysis.l8_unique_count} combos únicos, "
-            f"{analysis.l8_neutral_pct * 100:.0f}% frames neutros. "
-            f"Caso límite, mejor avanzar y decidir tras Fase A.")
+            tr('rpu_analyze.l8_ambiguo_l8_unique_count_combos_unicos', l8_unique_count=analysis.l8_unique_count, p2=format(analysis.l8_neutral_pct * 100, '.0f')))
 
 
 # Umbral combos-por-shot para distinguir "CORE+" de "CORE":
@@ -829,18 +821,12 @@ def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
             return (
                 "full",
                 "CMv4 FULL",
-                f"Master CMv4.0 FULL minimal — {analysis.l8_unique_count} "
-                f"combos L8 con look global uniforme, campos exclusivos "
-                f"CMv4.0 poblados ({', '.join(extras)}). El colorista "
-                f"trabajó el toolkit completo pero con pocos brackets de "
-                f"toning (look unificado de la peli).",
+                tr('rpu_analyze.master_cmv4_0_full_minimal_l8_unique', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)),
             )
         return (
             "full",
             "CMv4 FULL",
-            f"Master CMv4.0 FULL — {analysis.l8_unique_count} combos L8, "
-            f"campos exclusivos CMv4.0 poblados ({', '.join(extras)}). "
-            f"Calidad máxima: el colorista usó el toolkit completo de CMv4.0.",
+            tr('rpu_analyze.master_cmv4_0_full_l8_unique_count', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)),
         )
 
     # CORE+: muchos combos relativos a la longitud de la peli
@@ -856,19 +842,14 @@ def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
         return (
             "core_rich",
             "CMv4 CORE+",
-            f"Master CMv4.0 CORE+ — {analysis.l8_unique_count} combos L8 "
-            f"({combos_per_cut:.2f} combos/shot). Grading dinámico shot-a-shot "
-            f"intenso; el colorista trabajó casi todas las escenas.",
+            tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=analysis.l8_unique_count, combos_per_cut=format(combos_per_cut, '.2f')),
         )
 
     # CORE: estándar streaming — funcional pero no excepcional
     return (
         "core",
         "CMv4 CORE",
-        f"Master CMv4.0 CORE — {analysis.l8_unique_count} combos L8 "
-        f"({combos_per_cut:.2f} combos/shot). Trims básicos por shot, sin "
-        f"campos CMv4.0-only. Calidad típica de release streaming "
-        f"(Apple TV+, Disney+, Netflix).",
+        tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=analysis.l8_unique_count, combos_per_cut=format(combos_per_cut, '.2f')),
     )
 
 
@@ -917,30 +898,23 @@ def compare_l2(source_combos: list, target_combos: list) -> tuple[str, str]:
     equivalentes para chips CMv2.9 aunque las frecuencias difieran.
     """
     if not source_combos and not target_combos:
-        return ("unknown", "No hay datos L2 de ningún lado para comparar")
+        return ("unknown", tr('rpu_analyze.no_hay_datos_l2_de_ningun_lado'))
     if not source_combos or not target_combos:
         return ("unknown",
-                "Falta análisis L2 de "
-                + ("source" if not source_combos else "target")
-                + " — no se puede comparar")
+                tr('rpu_analyze.falta_analisis_l2_de_p1_no_se', p1="source" if not source_combos else "target"))
 
     source_set = {_combo_to_tuple_l2(c) for c in source_combos}
     target_set = {_combo_to_tuple_l2(c) for c in target_combos}
 
     if source_set == target_set:
         return ("identical",
-                f"L2 byte-a-byte idéntico ({len(source_set)} combos únicos en ambos). "
-                f"El bin preservó el L2 del BD original.")
+                tr('rpu_analyze.l2_byte_a_byte_identico_p1_combos', p1=len(source_set)))
 
     only_in_source = source_set - target_set
     only_in_target = target_set - source_set
     common = source_set & target_set
     return ("different",
-            f"L2 distinto: {len(common)} combos comunes, "
-            f"{len(only_in_source)} solo en source, "
-            f"{len(only_in_target)} solo en target. "
-            f"El bin trae un L2 derivado de un grading distinto al del BD — "
-            f"preservar el L2 del source por seguridad (no degradar).")
+            tr('rpu_analyze.l2_distinto_p1_combos_comunes_p2_solo', p1=len(common), p2=len(only_in_source), p3=len(only_in_target)))
 
 
 def recommend_action(session) -> tuple[str, str, str]:
@@ -973,17 +947,16 @@ def recommend_action(session) -> tuple[str, str, str]:
     if session.preflight_decision in ("keep_l8_default", "keep_no_l8", "abort_no_cmv40"):
         return (
             "keep",
-            "Mantener MKV actual",
-            session.preflight_message or "El pre-flight detectó que procesar este bin no aporta mejora.",
+            tr('rpu_analyze.mantener_mkv_actual'),
+            session.preflight_message or tr('rpu_analyze.el_pre_flight_detecto_que_procesar_este'),
         )
 
     # Sin bin descargado / sin pre-flight OK → KEEP por defecto
     if not session.target_preflight_ok:
         return (
             "keep",
-            "Mantener MKV actual",
-            "El bin no está validado (sin pre-flight OK). "
-            "Sin un RPU CMv4.0 que aportar, el MKV original ya tiene lo mejor disponible.",
+            tr('rpu_analyze.mantener_mkv_actual'),
+            tr('rpu_analyze.el_bin_no_esta_validado_sin_pre'),
         )
 
     # Si llegamos aquí el bin está validado y tiene L8 trabajado.
@@ -991,9 +964,8 @@ def recommend_action(session) -> tuple[str, str, str]:
     if session.source_l2_unique_count == 0:
         return (
             "unknown",
-            "Análisis pendiente",
-            "Fase A no se ha ejecutado todavía — falta analizar el L2 del MKV original "
-            "para decidir entre inyección rápida o combinada.",
+            tr('rpu_analyze.analisis_pendiente'),
+            tr('rpu_analyze.fase_a_no_se_ha_ejecutado_todavia'),
         )
 
     # Comparación L2 source vs target
@@ -1021,11 +993,8 @@ def recommend_action(session) -> tuple[str, str, str]:
     if profile_match and l2_verdict == "identical":
         return (
             "drop_in",
-            "Inyectar RPU CMv4.0 (rápido)",
-            f"El perfil del bin coincide con el del MKV original "
-            f"({source_wf.upper().replace('_', ' ')}) y el L2 es idéntico → "
-            f"sustituimos el RPU completo del bin sobre el MKV (~30 segundos). "
-            f"Calidad del bin: {quality_label}.",
+            tr('rpu_analyze.inyectar_rpu_cmv4_0_rapido'),
+            tr('rpu_analyze.el_perfil_del_bin_coincide_con_el', p1=source_wf.upper().replace('_', ' '), quality_label=quality_label),
         )
 
     # Cualquier otro caso real → merge selectivo
@@ -1042,7 +1011,7 @@ def recommend_action(session) -> tuple[str, str, str]:
         reason = tr('rpu_analyze.l2_difiere', motivo=l2_reason,
                     calidad=quality_label)
 
-    return ("merge", "Inyectar RPU CMv4.0 (preserva L2)", reason)
+    return ("merge", tr('rpu_analyze.inyectar_rpu_cmv4_0_preserva_l2'), reason)
 
 
 # ── Procedencia declarada en el nombre del bin ───────────────────────────────
