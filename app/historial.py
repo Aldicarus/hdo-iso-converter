@@ -217,9 +217,18 @@ def leer(limite: int = 200) -> list[dict]:
 #
 # Así que el nombre se actualiza **al leer**. El fichero no se toca y en la
 # columna no conviven dos nombres para el mismo trabajo, que es lo que se ve.
+# **El lado izquierdo NO se traduce, y es la parte importante.** Es el
+# prefijo que se busca en lo que ya está ESCRITO en `historial.jsonl`, y ahí
+# hay líneas de antes de que la app hablara tres idiomas: son castellano
+# literal y lo seguirán siendo, porque el fichero no se migra. Pasarlo por
+# `tr()` haría que con la app en inglés no casara ninguna y el renombrado
+# dejara de aplicarse en silencio.
+#
+# El lado derecho sí, que es lo que se enseña, y se resuelve al leer —no
+# aquí— porque un literal en el ámbito del módulo congela el idioma.
 _RENOMBRADOS = (
-    ("Análisis extendido · ", "Análisis RPU/Luz MKV · "),
-    ("Análisis RPU/Luz · ",   "Análisis RPU/Luz MKV · "),
+    ("Análisis extendido ·", 'historial.analisis_rpu_luz_mkv'),
+    ("Análisis RPU/Luz ·",   'historial.analisis_rpu_luz_mkv'),
 )
 
 
@@ -227,8 +236,9 @@ def _con_el_nombre_de_hoy(registro: dict) -> dict:
     que = registro.get("que")
     if not isinstance(que, str):
         return registro
-    for viejo, nuevo in _RENOMBRADOS:
+    for viejo, clave_nueva in _RENOMBRADOS:
         if que.startswith(viejo):
+            nuevo = tr(clave_nueva)
             # Copia: los registros salen a la API y no se guardan de vuelta,
             # pero mutar lo que se acaba de leer del disco invita a sorpresas.
             return {**registro, "que": nuevo + que[len(viejo):]}

@@ -670,11 +670,7 @@ def _match_tracks_to_source(
                         for sid in empatan
                     )
                     avisos.append(
-                        f"«{getattr(track, 'label', raw.language)}» encaja con "
-                        f"{len(empatan)} pistas del disco indistinguibles entre sí "
-                        f"[{detalle}] — se usa la primera (id {best_id}). El disco no "
-                        f"aporta nombre de pista para elegir; suele pasar con los "
-                        f"comentarios del director."
+                        tr('phase_e.p1_encaja_con_p2_pistas_del_disco', p1=getattr(track, 'label', raw.language), p2=len(empatan), detalle=detalle, best_id=best_id)
                     )
 
         if best_id is not None:

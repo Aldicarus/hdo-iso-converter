@@ -515,6 +515,13 @@ def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
             if isinstance(f, ast.Name) and f.id == "Field":
                 for h in ast.walk(n):
                     fuera.add(id(h))
+            # El patrón de un `re.compile` no es texto: se casa contra un
+            # dato. Los del sheet de DoviTools están además en INGLÉS
+            # (`no bd yet`, `shots are different`) porque la hoja lo está.
+            if (isinstance(f, ast.Attribute) and f.attr == "compile"
+                    and isinstance(f.value, ast.Name) and f.value.id == "re"):
+                for h in ast.walk(n):
+                    fuera.add(id(h))
         if isinstance(n, (ast.Assign, ast.AnnAssign)):
             objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
             if (n.value is not None

@@ -228,7 +228,7 @@ class Source:
         """
         p = Path(path)
         if not p.exists():
-            raise SourceError(f"Path no encontrado: {path}")
+            raise SourceError(tr('iso_mount.path_no_encontrado_path', path=path))
         if p.is_file():
             ext = p.suffix.lower()
             if ext == ".iso":
@@ -236,7 +236,7 @@ class Source:
             if ext == ".m2ts":
                 return "m2ts"
             raise SourceError(
-                f"Extensión no reconocida: {ext} (esperado .iso o .m2ts)"
+                tr('iso_mount.extension_no_reconocida_ext_esperado_iso_o', ext=ext)
             )
         if p.is_dir():
             for candidate in [p / "BDMV" / "PLAYLIST", p / "PLAYLIST"]:
@@ -244,7 +244,7 @@ class Source:
                     return "bdmv_folder"
             raise SourceError(
                 tr('iso_mount.carpeta_sin_bdmv', nombre=p.name))
-        raise SourceError(f"Path ni fichero ni directorio: {path}")
+        raise SourceError(tr('iso_mount.path_ni_fichero_ni_directorio_path', path=path))
 
     @classmethod
     async def open(cls, path: str, m2ts_paths: list[str] | None = None) -> "Source":
@@ -287,7 +287,7 @@ class Source:
                 original_path=path,
                 m2ts_paths=[path],
             )
-        raise SourceError(f"Tipo desconocido: {stype}")
+        raise SourceError(tr('iso_mount.tipo_desconocido_stype', stype=stype))
 
     async def __aenter__(self) -> "Source":
         if self.source_type == "iso":
@@ -328,7 +328,6 @@ def safe_source_path(user_path: str, allowed_root: str) -> str:
         target.relative_to(root)
     except ValueError:
         raise SourceError(
-            f"Path fuera del directorio permitido: {user_path} "
-            f"(esperado bajo {allowed_root})"
+            tr('iso_mount.path_fuera_del_directorio_permitido_user_path', user_path=user_path, allowed_root=allowed_root)
         )
     return str(target)

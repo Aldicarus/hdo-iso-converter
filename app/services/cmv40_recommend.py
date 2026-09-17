@@ -17,6 +17,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from i18n import t as tr
+
 from services.rec999_sheet import (
     RecommendationRow,
     _YEAR_RE,
@@ -95,14 +97,23 @@ _BLOCKER_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"no bd yet", re.I), BLOCKER_NO_BD),
 ]
 
-BLOCKER_LABELS: dict[str, str] = {
-    BLOCKER_P8_ONLY: "Solo afecta a la conversión a P8.1 — esta app preserva el FEL",
-    BLOCKER_STATIC_DV: "Metadata DV estática en la fuente — el upgrade puede no aportar",
-    BLOCKER_GRADING: "El master de referencia tiene otro grading (MDL / brillo / cortes)",
-    BLOCKER_NO_BD: "Aún no hay Blu-ray — la fila documenta solo la fuente streaming",
-    BLOCKER_OTHER: "Motivo específico — ver la nota del sheet",
-    BLOCKER_UNSPEC: "El sheet no indica el motivo",
+# El rótulo de cada motivo, del catálogo y resuelto AL PEDIRLO. Un
+# diccionario con las frases dentro se evalúa al importar y congela el idioma
+# que hubiera al arrancar el contenedor.
+_BLOCKER_CLAVE = {
+    BLOCKER_P8_ONLY: 'cmv40_recommend.solo_afecta_a_la_conversion_a_p8',
+    BLOCKER_STATIC_DV: 'cmv40_recommend.metadata_dv_estatica_en_la_fuente_el',
+    BLOCKER_GRADING: 'cmv40_recommend.el_master_de_referencia_tiene_otro_grading',
+    BLOCKER_NO_BD: 'cmv40_recommend.aun_no_hay_blu_ray_la_fila',
+    BLOCKER_OTHER: 'cmv40_recommend.motivo_especifico_ver_la_nota_del_sheet',
+    BLOCKER_UNSPEC: 'cmv40_recommend.el_sheet_no_indica_el_motivo',
 }
+
+
+def blocker_label(blocker: str) -> str:
+    """El rótulo del motivo; el propio id si no lo conocemos."""
+    clave = _BLOCKER_CLAVE.get(blocker)
+    return tr(clave) if clave else blocker
 
 
 def classify_blockers(notes: str) -> list[str]:
@@ -449,7 +460,7 @@ def _to_match_row(row: RecommendationRow, score: float) -> SheetMatchRow:
         comparisons_2=row.comparisons_2,
         notes=row.notes,
         blockers=blockers,
-        blocker_labels=[BLOCKER_LABELS.get(b, b) for b in blockers],
+        blocker_labels=[blocker_label(b) for b in blockers],
         applies_to_our_workflow=(
             blockers_apply_to_fel_workflow(blockers) if blockers else True
         ),
@@ -484,7 +495,7 @@ def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
         (status, verdict_label, verdict_detail)
     """
     if not match_rows:
-        return "unknown", "Sin datos", ""
+        return "unknown", tr('cmv40_recommend.sin_datos'), ""
 
     feasible_rows = [r for r in match_rows if r.feasible]
     infeasible_rows = [r for r in match_rows if not r.feasible]
@@ -494,31 +505,26 @@ def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
     if feasible_rows:
         only_probably_ok = all(r.section == "probably_ok" for r in feasible_rows)
         if relevant:
-            labels = [BLOCKER_LABELS.get(b, b) for b in all_blockers
+            labels = [blocker_label(b) for b in all_blockers
                       if b != BLOCKER_P8_ONLY]
-            return ("caveats", "Viable con avisos",
-                    "El sheet documenta la ruta de restore CMv4.0, pero hay avisos: "
-                    + " · ".join(labels))
+            return ("caveats", tr('cmv40_recommend.viable_con_avisos'),
+                    tr('cmv40_recommend.el_sheet_documenta_la_ruta_de_restore', p1=" · ".join(labels)))
         if only_probably_ok:
-            return ("caveats", "Probablemente OK",
-                    "El sheet lo cataloga como \"Not Sure!\" — viable pero sin "
-                    "verificación completa. Conviene revisar la sincronización a mano.")
+            return ("caveats", tr('cmv40_recommend.probablemente_ok'),
+                    tr('cmv40_recommend.el_sheet_lo_cataloga_como_not_sure'))
         # Si además hay filas cuyo único impedimento es la conversión a P8.1,
         # no se mencionan: hablan de una ruta que esta app no ejecuta y su
         # única aportación sería ruido.
-        return ("recommended", "Factible",
-                "El sheet confirma que el bloque CMv4.0 se puede restaurar sobre el RPU.")
+        return ("recommended", tr('cmv40_recommend.factible'),
+                tr('cmv40_recommend.el_sheet_confirma_que_el_bloque_cmv4'))
 
     # Solo filas no factibles
     if all_blockers and not relevant:
-        return ("p8_only_note", "No convertible a P8.1",
-                "El único impedimento que documenta el sheet es aplanar el disco a "
-                "P8.1 single-layer — algo que esta app no hace. No hay fila de restore "
-                "verificada para este título, así que la sincronización no está "
-                "comprobada por la comunidad.")
-    labels = [BLOCKER_LABELS.get(b, b) for b in all_blockers]
-    return ("not_feasible", "No recomendado",
-            "Motivos que sí afectan al resultado: " + " · ".join(labels))
+        return ("p8_only_note", tr('cmv40_recommend.no_convertible_a_p8_1'),
+                tr('cmv40_recommend.el_unico_impedimento_que_documenta_el_sheet'))
+    labels = [blocker_label(b) for b in all_blockers]
+    return ("not_feasible", tr('cmv40_recommend.no_recomendado'),
+            tr('cmv40_recommend.motivos_que_si_afectan_al_resultado_p1', p1=" · ".join(labels)))
 
 
 def _threshold_for(best: RecommendationRow | None, year: int | None) -> float:

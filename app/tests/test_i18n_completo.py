@@ -325,6 +325,66 @@ _TECNICO = re.compile(
     r"|demux|hdr|pipeline|log|json|html|mpls|m2ts|bdmv)", re.I)
 
 
+class TestNadieTraduceAlImportar(unittest.TestCase):
+    """Un `tr()` en el ámbito del módulo CONGELA el idioma.
+
+    Se resuelve una sola vez, al cargar, así que la frase se queda en el
+    idioma que hubiera al arrancar el contenedor y no vuelve a cambiar
+    aunque el usuario toque el ajuste. El síntoma es el peor posible: la
+    app funciona, media interfaz cambia de idioma y esas frases no, sin un
+    error ni una línea de log.
+
+    Apareció **cinco veces** en la traducción del servidor —las diez
+    etiquetas de fase de Tab 3, los siete pasos del análisis de un
+    episodio, los cinco de abrir un MKV, las dos tablas de workflow del
+    pipeline, el `BLOCKER_LABELS` de las recomendaciones— y las tres
+    últimas las metió la propia herramienta de reescritura, que no sabe
+    distinguir el cuerpo de una función del ámbito del módulo. Así que se
+    comprueba en vez de vigilarse.
+
+    La forma correcta es siempre la misma: la tabla guarda la CLAVE y una
+    función la resuelve al pedirla. En el frontend no aplica —el catálogo
+    va sembrado por un script bloqueante antes de que carguen los ocho
+    scripts, y cambiar de idioma recarga la página.
+    """
+
+    def test_ningun_modulo_del_servidor_llama_a_tr_al_cargar(self):
+        import ast
+        malos = []
+        for f in sorted((APP_DIR).rglob("*.py")):
+            if "tests" in f.parts or "__pycache__" in str(f):
+                continue
+            try:
+                arbol = ast.parse(f.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            # Lo que cuelga de una `def`/`class` se evalúa al llamarla; lo
+            # que está en el cuerpo del módulo, al importarlo.
+            dentro = set()
+            for n in ast.walk(arbol):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.Lambda)):
+                    for h in ast.walk(n):
+                        dentro.add(id(h))
+            for n in ast.walk(arbol):
+                if id(n) in dentro or not isinstance(n, ast.Call):
+                    continue
+                fn = n.func
+                nombre = (fn.id if isinstance(fn, ast.Name)
+                          else fn.attr if isinstance(fn, ast.Attribute) else "")
+                if nombre in ("tr", "t"):
+                    clave = (n.args[0].value
+                             if n.args and isinstance(n.args[0], ast.Constant)
+                             else "?")
+                    malos.append(
+                        f"{f.relative_to(APP_DIR.parent)}:{n.lineno}: "
+                        f"tr({clave!r})")
+        self.assertEqual(malos, [], (
+            f"\n{len(malos)} `tr()` en el ámbito del módulo: congelan el "
+            f"idioma al importar.\nGuarda la CLAVE en la tabla y resuélvela "
+            f"al pedirla:\n  · " + "\n  · ".join(malos[:12])))
+
+
 class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
     """Un rótulo de dos palabras pegado a un hueco también es texto.
 

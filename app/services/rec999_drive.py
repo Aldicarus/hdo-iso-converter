@@ -82,9 +82,7 @@ async def _list_children(client: httpx.AsyncClient, api_key: str,
         resp = await client.get(f"{DRIVE_API}/files", params=params)
         if resp.status_code == 403:
             raise PermissionError(
-                "Drive API denegó la petición (403). Comprueba que la API "
-                "key tenga habilitada 'Drive API' y sin restricciones HTTP "
-                "que bloqueen tu despliegue."
+                tr('rec999_drive.drive_api_denego_la_peticion_403_comprueba')
             )
         resp.raise_for_status()
         data = resp.json()
@@ -216,7 +214,7 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
     Devuelve (ok, mensaje) — ok=True si al menos Drive funciona."""
     key = api_key.strip()
     if not key:
-        return False, "API key vacía"
+        return False, tr('rec999_drive.api_key_vacia')
 
     # Import tardío para evitar ciclos de importación
     from services.settings_store import get_cmv40_sheet_id_gid
@@ -310,9 +308,9 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
 
     composite = f"{drive_msg} · {sheets_msg}"
     if drive_ok and sheets_ok:
-        return True, f"API key válida — {composite}"
+        return True, tr('rec999_drive.api_key_valida_composite', composite=composite)
     if drive_ok:
-        return True, f"API key OK para descargas, pero {sheets_msg} (habilítala para ver los enlaces del sheet)"
+        return True, tr('rec999_drive.api_key_ok_para_descargas_pero_sheets', sheets_msg=sheets_msg)
     return False, composite
 
 
@@ -326,11 +324,11 @@ async def test_folder_access(folder_url_or_id: str, api_key: str = "") -> tuple[
     from services.settings_store import parse_drive_folder_id
     folder_id = parse_drive_folder_id(folder_url_or_id)
     if not folder_id:
-        return False, "URL/ID de carpeta no válido (formato esperado: https://drive.google.com/drive/folders/XXX o el ID)", 0
+        return False, tr('rec999_drive.url_id_de_carpeta_no_valido_formato'), 0
 
     key = (api_key or get_google_api_key()).strip()
     if not key:
-        return False, "Necesitas una Google API key configurada antes de probar el folder", 0
+        return False, tr('rec999_drive.necesitas_una_google_api_key_configurada_antes'), 0
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -346,9 +344,9 @@ async def test_folder_access(folder_url_or_id: str, api_key: str = "") -> tuple[
             except Exception:
                 emsg = ""
             if resp.status_code == 404:
-                return False, f"Folder no encontrado (404). Verifica la URL. {emsg[:80]}", 0
+                return False, tr('rec999_drive.folder_no_encontrado_404_verifica_la_url', p1=emsg[:80]), 0
             if resp.status_code == 403:
-                return False, f"Acceso denegado (403). Permisos del folder o API key restringida. {emsg[:100]}", 0
+                return False, tr('rec999_drive.acceso_denegado_403_permisos_del_folder_o', p1=emsg[:100]), 0
             return False, f"Error Drive ({resp.status_code}): {emsg[:120]}", 0
 
         items = resp.json().get("files", [])
@@ -357,13 +355,11 @@ async def test_folder_access(folder_url_or_id: str, api_key: str = "") -> tuple[
                            if it.get("mimeType") == "application/vnd.google-apps.folder")
         # Si no hay nada, es sospechoso — puede que el folder sea incorrecto o esté vacío
         if not items:
-            return False, "Folder accesible pero vacío. ¿Es la URL correcta del repo DoviTools?", 0
+            return False, tr('rec999_drive.folder_accesible_pero_vacio_es_la_url'), 0
         # Mensaje con muestra
-        return True, (f"Folder accesible — {len(items)} entradas en la muestra "
-                      f"({bin_count} .bin, {folder_count} subcarpetas). "
-                      f"El listado completo se indexará al usar el repo."), bin_count
+        return True, (tr('rec999_drive.folder_accesible_p1_entradas_en_la_muestra', p1=len(items), bin_count=bin_count, folder_count=folder_count)), bin_count
     except Exception as e:
-        return False, f"Error de red consultando Drive: {e}", 0
+        return False, tr('rec999_drive.error_de_red_consultando_drive_p1', p1=e), 0
 
 
 async def test_sheet_access(sheet_url: str) -> tuple[bool, str, int]:
@@ -371,7 +367,7 @@ async def test_sheet_access(sheet_url: str) -> tuple[bool, str, int]:
     from services.settings_store import parse_sheet_id_gid
     sid, gid = parse_sheet_id_gid(sheet_url)
     if not sid:
-        return False, "URL de sheet no válida (formato esperado: https://docs.google.com/spreadsheets/d/XXX/edit#gid=YYY)", 0
+        return False, tr('rec999_drive.url_de_sheet_no_valida_formato_esperado'), 0
     csv_url = (f"https://docs.google.com/spreadsheets/d/{sid}"
                f"/export?format=csv&gid={gid}")
     try:
@@ -379,18 +375,17 @@ async def test_sheet_access(sheet_url: str) -> tuple[bool, str, int]:
             resp = await client.get(csv_url)
         if resp.status_code != 200:
             if resp.status_code == 404:
-                return False, f"Sheet o pestaña no encontrada (404). Verifica el sheet ID y el GID.", 0
+                return False, tr('rec999_drive.sheet_o_pestana_no_encontrada_404_verifica'), 0
             if resp.status_code == 403:
-                return False, f"Acceso denegado (403). El sheet debe ser público (compartir con 'cualquiera con el enlace').", 0
-            return False, f"Error ({resp.status_code}) descargando el sheet", 0
+                return False, tr('rec999_drive.acceso_denegado_403_el_sheet_debe_ser'), 0
+            return False, tr('rec999_drive.error_status_code_descargando_el_sheet', status_code=resp.status_code), 0
         text = resp.text
         if not text.strip():
-            return False, "Sheet accesible pero vacío", 0
+            return False, tr('rec999_drive.sheet_accesible_pero_vacio'), 0
         lines = [l for l in text.split("\n") if l.strip()]
-        return True, (f"Sheet accesible — {len(lines)} filas en CSV export. "
-                      f"El parser completo se ejecuta al usar las recomendaciones."), len(lines)
+        return True, (tr('rec999_drive.sheet_accesible_p1_filas_en_csv_export', p1=len(lines))), len(lines)
     except Exception as e:
-        return False, f"Error de red consultando el sheet: {e}", 0
+        return False, tr('rec999_drive.error_de_red_consultando_el_sheet_p1', p1=e), 0
 
 
 # ── Descarga ───────────────────────────────────────────────────────────

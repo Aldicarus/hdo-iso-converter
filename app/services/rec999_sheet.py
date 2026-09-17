@@ -490,11 +490,9 @@ def _parse_sheets_api_error(resp) -> str:
         # "Google Sheets API has not been used in project ... before or it is
         # disabled. Enable it by visiting https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=..."
         if "has not been used" in msg or "disabled" in msg:
-            return ("Google Sheets API no está habilitada en tu proyecto de "
-                    "Google Cloud. Actívala en "
-                    "https://console.cloud.google.com/apis/library/sheets.googleapis.com")
+            return (tr('rec999_sheet.google_sheets_api_no_esta_habilitada_en'))
         if status == "PERMISSION_DENIED":
-            return f"Acceso denegado por Google: {msg}"
+            return tr('rec999_sheet.acceso_denegado_por_google_msg', msg=msg)
         return msg or f"HTTP {resp.status_code}"
     except Exception:
         return f"HTTP {resp.status_code}"
