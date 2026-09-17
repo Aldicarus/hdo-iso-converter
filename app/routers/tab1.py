@@ -811,20 +811,13 @@ async def analyze_iso(body: AnalyzeRequest):
             analysis_log.append(f"[{ts}] {msg}")
         except Exception:
             analysis_log.append(msg)
-        # Mapear mensajes de log a pasos del modal. Matches especificos
-        # para evitar falsos positivos (ej. el resumen final menciona
-        # "packet_count" pero NO debe disparar el step pgs otra vez).
-        msg_l = msg.lower()
-        if "paso 1/4" in msg_l or "identificando mpls" in msg_l:
-            analysis_progress.fijar(step="identify", done=False)
-        elif "paso 2/4" in msg_l or "extrayendo capítulos" in msg_l:
-            analysis_progress.fijar(step="chapters", done=False)
-        elif "ejecutando mediainfo" in msg_l:
-            analysis_progress.fijar(step="mediainfo", done=False)
-        elif "contando paquetes pgs" in msg_l:
-            analysis_progress.fijar(step="pgs", done=False, pct=0, eta_s=0)
-        elif "paso 4/4" in msg_l or "analizando dolby vision" in msg_l:
-            analysis_progress.fijar(step="dovi", done=False)
+        # El paso del modal lo ANUNCIA `phase_a`, no se adivina leyendo su
+        # log. Aquí había un mapeo de once subcadenas castellanas —«paso
+        # 1/4», «identificando mpls», «contando paquetes pgs»— contra un log
+        # que desde la traducción llega en el idioma de la app: con la app en
+        # catalán `phase_a` escribe «Pas 1/4» y **el modal se quedaba en el
+        # primer paso**, sin un error ni una línea que lo dijera. Para eso
+        # existe `analysis_progress`, que es lo que Tab 2 ya usaba.
 
     # Callback de progreso granular para el step PGS (bytes leídos por ffprobe)
     async def _pgs_progress_callback(pct: float, eta_s: int):
@@ -1797,20 +1790,17 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     # phase_a a los sub-pasos del modal para que la barra avance gradual
     # dentro de cada episodio (antes saltaba 33%/66%/100% sin detalle).
     # El orden de los elif importa: lo más específico primero.
+    # Igual que arriba: el paso lo anuncia `phase_a` por
+    # `analysis_progress`, y aquí solo se copia al progreso de la serie. Lo
+    # que había era el mismo mapeo por subcadena castellana, con el mismo
+    # fallo mudo en cuanto la app no está en castellano.
     async def _ep_progress_callback(msg: str):
-        msg_l = msg.lower()
-        if "contando paquetes pgs" in msg_l:
-            _series_create_progress["current_episode_step"] = "pgs"
-            _series_create_progress["pgs_pct"] = 0
-            _series_create_progress["pgs_eta_s"] = 0
-        elif "paso 4/4" in msg_l or "analizando dolby vision" in msg_l or "dolby vision con dovi_tool" in msg_l:
-            _series_create_progress["current_episode_step"] = "dovi"
-        elif "paso 3/4" in msg_l or ("enriqueciendo con mediainfo" in msg_l) or ("analizando m2ts del episodio" in msg_l):
-            _series_create_progress["current_episode_step"] = "mediainfo"
-        elif "paso 2/4" in msg_l or ("extrayendo capítulos" in msg_l) or ("sin mpls" in msg_l and "auto-generarán" in msg_l):
-            _series_create_progress["current_episode_step"] = "chapters"
-        elif "paso 1/4" in msg_l or "identificando pistas" in msg_l:
-            _series_create_progress["current_episode_step"] = "identify"
+        paso = (analysis_progress.leer() or {}).get("step")
+        if paso:
+            _series_create_progress["current_episode_step"] = paso
+            if paso == "pgs":
+                _series_create_progress["pgs_pct"] = 0
+                _series_create_progress["pgs_eta_s"] = 0
 
     async def _ep_pgs_progress_callback(pct: float, eta_s: int):
         _series_create_progress["current_episode_step"] = "pgs"

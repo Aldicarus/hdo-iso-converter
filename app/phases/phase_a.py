@@ -44,6 +44,7 @@ enrich_dovi():
 run_full_analysis() — orquestador:
   Ejecuta todo secuencialmente, captura errores de herramientas opcionales.
 """
+import analysis_progress
 from i18n import t as tr
 import array
 import asyncio
@@ -2464,12 +2465,14 @@ async def run_full_analysis(
 
     # 1. mkvmerge -J
     if log_callback:
+        analysis_progress.fijar(step='identify', done=False)
         await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_mpls_y'))
     mkvmerge_data, mpls_path = await run_mkvmerge_identify(share_path, log_callback)
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
 
     # 2. Capítulos
     if log_callback:
+        analysis_progress.fijar(step='chapters', done=False)
         await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_extrayendo_capitulos_del'))
     chapters_raw = parse_mpls_chapters(mpls_path)
 
@@ -2479,6 +2482,7 @@ async def run_full_analysis(
         bdinfo.main_m2ts = Path(m2ts_path).name
         size_gb = Path(m2ts_path).stat().st_size / 1e9
         if log_callback:
+            analysis_progress.fijar(step='mediainfo', done=False)
             await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_3_4_analizando_m2ts_principal', main_m2ts=bdinfo.main_m2ts, p2=format(size_gb, '.1f')))
 
         try:
@@ -2527,6 +2531,7 @@ async def run_full_analysis(
 
         try:
             if log_callback:
+                analysis_progress.fijar(step='pgs', done=False)
                 await log_callback(
                     '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_parseando_ts_del')
                 )
@@ -2561,6 +2566,7 @@ async def run_full_analysis(
         if has_el:
             try:
                 if log_callback:
+                    analysis_progress.fijar(step='dovi', done=False)
                     await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_2'))
                 dovi = await run_dovi_analysis(m2ts_path)
                 if dovi:
@@ -2575,6 +2581,7 @@ async def run_full_analysis(
                     await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
         else:
             if log_callback:
+                analysis_progress.fijar(step='dovi', done=False)
                 await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
     else:
         if log_callback:
@@ -2691,6 +2698,7 @@ async def run_full_analysis_for_mpls(
         await log_callback(
             '[Fase A] 📋 Plan' + tr('phase_a.analizar_mpls_especifico_modo_serie_episodio', p1=Path(mpls_path).name)
         )
+        analysis_progress.fijar(step='identify', done=False)
         await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_pistas_del'))
 
     mkvmerge_data = await _run_mkvmerge_j(mpls_path)
@@ -2701,6 +2709,7 @@ async def run_full_analysis_for_mpls(
     bdinfo = parse_mkvmerge_json(mkvmerge_data)
 
     if log_callback:
+        analysis_progress.fijar(step='chapters', done=False)
         await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_extrayendo_capitulos_del'))
     chapters_raw = parse_mpls_chapters(mpls_path)
 
@@ -2710,6 +2719,7 @@ async def run_full_analysis_for_mpls(
         bdinfo.main_m2ts = Path(m2ts_path).name
         size_gb = Path(m2ts_path).stat().st_size / 1e9
         if log_callback:
+            analysis_progress.fijar(step='mediainfo', done=False)
             await log_callback(
                 '[Fase A] ├─ ' + tr('phase_a.paso_3_4_analizando_m2ts_del', main_m2ts=bdinfo.main_m2ts, p2=format(size_gb, '.1f'))
             )
@@ -2737,6 +2747,7 @@ async def run_full_analysis_for_mpls(
 
         try:
             if log_callback:
+                analysis_progress.fijar(step='pgs', done=False)
                 await log_callback(
                     '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_del_m2ts_del')
                 )
@@ -2761,6 +2772,7 @@ async def run_full_analysis_for_mpls(
         if has_el:
             try:
                 if log_callback:
+                    analysis_progress.fijar(step='dovi', done=False)
                     await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_3'))
                 dovi = await run_dovi_analysis(m2ts_path)
                 if dovi:
@@ -2775,6 +2787,7 @@ async def run_full_analysis_for_mpls(
                     await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
         else:
             if log_callback:
+                analysis_progress.fijar(step='dovi', done=False)
                 await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
     else:
         if log_callback:
@@ -2818,6 +2831,7 @@ async def run_full_analysis_for_m2ts(
         await log_callback(
             '[Fase A] 📋 Plan' + tr('phase_a.analizar_m2ts_directo_sin_bdmv_capitulos', p1=Path(m2ts_path).name)
         )
+        analysis_progress.fijar(step='identify', done=False)
         await log_callback('[Fase A] ┌─ ' + tr('phase_a.paso_1_4_identificando_pistas_del_2'))
 
     mkvmerge_data = await _run_mkvmerge_j(m2ts_path)
@@ -2831,11 +2845,13 @@ async def run_full_analysis_for_m2ts(
     # Capítulos: sin MPLS. El caller (main.py) los auto-genera por
     # duración usando generate_auto_chapters(). Devolvemos lista vacía.
     if log_callback:
+        analysis_progress.fijar(step='chapters', done=False)
         await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_sin_mpls_capitulos'))
     chapters_raw: list[dict] = []
 
     size_gb = Path(m2ts_path).stat().st_size / 1e9
     if log_callback:
+        analysis_progress.fijar(step='mediainfo', done=False)
         await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_3_4_enriqueciendo_con_mediainfo', p1=format(size_gb, '.1f')))
 
     mi = None
@@ -2877,6 +2893,7 @@ async def run_full_analysis_for_m2ts(
     # PGS counting sin MPLS PIDs — fallback a rango por defecto.
     try:
         if log_callback:
+            analysis_progress.fijar(step='pgs', done=False)
             await log_callback(
                 '[Fase A] ├─   ' + tr('phase_a.contando_paquetes_pgs_rango_0x1200_0x12ff')
             )
@@ -2905,6 +2922,7 @@ async def run_full_analysis_for_m2ts(
     if has_el:
         try:
             if log_callback:
+                analysis_progress.fijar(step='dovi', done=False)
                 await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision'))
             dovi = await run_dovi_analysis(m2ts_path)
             if dovi:
@@ -2919,6 +2937,7 @@ async def run_full_analysis_for_m2ts(
                 await log_callback('[Fase A] └─   ' + tr('phase_a.dovi_tool_fallo_no_bloquea', e=e))
     else:
         if log_callback:
+            analysis_progress.fijar(step='dovi', done=False)
             await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_sin_enhancement_layer'))
 
     return bdinfo, chapters_raw
