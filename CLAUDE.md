@@ -1565,8 +1565,42 @@ Cinco decisiones que la definen:
 existía en el CSS** — caía al estilo base y se veía como texto suelto. Es la
 misma trampa que una `var()` inexistente.
 
+### El idioma de TMDb sale del ajuste, y la carátula NO
+
+`locale_tmdb()` (en `services/tmdb.py`) traduce el idioma de la app al
+locale de TMDb, y es el único sitio que lo dice. Estaba cableado a `es-ES`
+en **cinco** peticiones —`search/movie`, `movie/{id}`, `search/tv`,
+`tv/{id}`, `tv/{id}/season/{n}`— así que con la app en inglés la ficha
+seguía llegando en castellano.
+
+- **`en-US`, no `en-GB`.** TMDb indexa las traducciones por ese código y con
+  `en-GB` devuelve el original sin avisar. Es la elección CONTRARIA a la de
+  `localeActual()` del frontend, que usa `en-GB` a propósito porque ahí lo
+  que se decide es el formato de fecha.
+- **El locale va en la clave de la caché**, y era la otra mitad del bug: sin
+  él, la primera consulta en castellano se servía después a la app en inglés
+  durante los 30 días del TTL. Arreglar solo una de las dos no cambiaba nada
+  visible.
+- **La carátula NO lleva locale.** `_cache_base` (sin) y `_cache_key` (con)
+  son dos funciones por eso: el título y la sinopsis cambian con el idioma,
+  la URL de una imagen no. `poster_en_cache` busca por la base, porque si no
+  la columna de trabajo se queda sin imagen al cambiar de idioma **y no la
+  recupera** — esa columna nunca sale a la red.
+- **Una ficha muda se repite en castellano** (`_con_respaldo`). TMDb contesta
+  200 con los campos traducibles en blanco cuando no tiene esa
+  localización, y en catalán es lo normal. Importa sobre todo en
+  `tv/season`: el nombre del episodio acaba DENTRO del nombre del fichero.
+- **El `en-US` de `_fetch_english_title` no se toca**, y hay un test que lo
+  fija: existe para la traducción ES→EN del match contra la hoja de
+  DoviTools, que está en inglés. Seguir el idioma de la app haría el match
+  contra un título catalán.
+
+`test_idioma_de_tmdb.py` afirma sobre **el `language` que sale en la
+petición**, con un `httpx` de mentira. Mirar el retorno no prueba nada: el
+fake devuelve lo que le pidas.
+
 ### TMDb — Ficha de película
-- Fetch de **poster (w342), backdrop (w780), sinopsis, géneros, runtime, rating** via `/movie/{id}?language=es-ES`
+- Fetch de **poster (w342), backdrop (w780), sinopsis, géneros, runtime, rating** con el locale de `locale_tmdb()`
 - Para películas no-ASCII (cine asiático) hace llamada extra `?language=en-US` para obtener título inglés fiable
 - **Ficha visible en los 3 tabs** (Crear MKV, Editar MKV, CMv4.0) — reusa `renderTmdbCardHTML`
 - Cache persistente en `/config/tmdb_cache.json` (TTL 30 días)
@@ -2324,8 +2358,8 @@ diseño anterior, que es la peor clase: el próximo lector se lo cree.
 
 | dónde | qué |
 |---|---|
-| `app/static/i18n/{es,en,ca}.json` | la interfaz — **1.275 claves** |
-| `app/i18n/{es,en,ca}.json` | el servidor: log, errores HTTP, etiquetas de paso — **482** |
+| `app/static/i18n/{es,en,ca}.json` | la interfaz — **1.615 claves** |
+| `app/i18n/{es,en,ca}.json` | el servidor: log, errores HTTP, etiquetas de paso — **775** |
 | `app/static/i18n/manual/{es,en,ca}.json` | el manual CMv4.0, 7 secciones de HTML |
 | `app/i18n/REGISTRO.md` | tono, registro y glosario. **Es normativo**: lo comprueba un test |
 
@@ -2420,6 +2454,47 @@ cadena si su texto coincidía con el valor de alguna clave, y así sobrevivieron
 `tr(`, no el texto. **Volvió a pasar** con el guard de plantillas, que
 aceptaba un `data-tooltip="Nombre de la pista en el MKV"` porque ese texto era
 el valor de una clave `tab2.*`: quitar esa aceptación destapó 15 sitios más.
+
+**Un guard que denuncia solo donde alguien apuntó no termina nunca.** Es el
+mismo fallo cuatro veces, y conviene leerlo antes de tocar
+`captura_castellano`: la lista blanca se amplía por donde se acaba de romper
+y sigue sin ver el sitio que nadie apuntó. El recorrido fue **0 → 51 → 79 →
+92 → 114 → 190** literales del servidor, y cada salto se abrió por una forma
+sintáctica distinta:
+
+1. el guard miraba **llamadas** y el texto se **asignaba**
+   (`_disc_probe_progress["current_label"] = …`);
+2. miraba la **asignación** (`plan_text = "…"`) y no el **argumento con
+   nombre** (`plan_text="…"`), así que los diez planes que
+   `cmv40_strategy` construye dentro de un `InjectPlan(...)` no los veía
+   nadie;
+3. miraba una **lista de nombres de campo escrita a mano**, y le faltaban
+   los que el frontend lee de verdad;
+4. y ningún nombre de campo podía cazar la **tabla `id → rótulo`**, donde
+   la clave es un identificador y el rótulo está a la derecha.
+
+Lo que rompió el ciclo fue dejar de imaginar la lista y **cruzarla**: se
+recogió todo nombre de campo al que el backend asigna castellano y se
+comprobó si el JS lo lee. Así entraron `reason` —«Descartada: idioma French
+no es Castellano ni VO», que sale en el panel de Tab 1 en cada pista
+descartada desde el primer día—, `why`, `verdict`, `note`, `hint`,
+`warning`, `error`, `descripcion` y `name`.
+
+**Las exenciones van por FUNCIÓN y con su motivo, nunca por forma.** Las
+cinco: `dev_fixtures.py` y `tools/` (maqueta y CLI de depuración), lo que
+cuelga de un `if DEV_MODE:` (la misma maqueta, dentro de un router), las
+tablas de la spec (`LANGUAGE_MAP` — ojo, está ANOTADA, así que una exención
+que solo mire `ast.Assign` no la cubre), los métodos de `logger` (lo lee
+quien mira `docker logs`) y `FUERA_DEL_CATALOGO_BACKEND`, que tiene **dos**
+entradas y las dos escritas: la `description=` de FastAPI y `TAB_MKV`, que
+es un id y no un rótulo.
+
+**Lo que el guard sigue sin ver, medido: ~490 literales**, casi todos líneas
+del log del pipeline. La causa es la misma de siempre y está localizada:
+`_LOG` son **seis nombres escritos a mano**, así que `_cmv40_log`,
+`_mkv_quality_log`, `_paso`, `_emit` y `log_cb` —o sea el log que el usuario
+lee— nunca estuvieron dentro. La salida es invertir la polaridad (castellano
+= fuga salvo exención); está medida y prototipada, no aplicada.
 
 **El umbral de `es_frase` es correcto para prosa y ciego para rótulos.** Pide
 seis caracteres, DOS palabras y un acento o una palabra función, así que
@@ -2603,6 +2678,29 @@ Tres trampas de los arneses, las tres con su cicatriz:
   que no es el catálogo.
 - **Un test que afirme sobre texto renderizado pasa por `pintar_en()`**, que
   resuelve los `data-i18n` de lo que el JS devolvió sin insertar en el DOM.
+
+### Una tabla de rótulos NO se evalúa al importar
+
+Un `dict` con frases dentro en el ámbito del módulo se resuelve **una vez, al
+cargar**, así que congela el idioma que hubiera al arrancar el contenedor y
+no vuelve a cambiar. Aparecía seis veces —las diez etiquetas de fase de Tab
+3, los siete pasos del análisis de un episodio, los cinco de abrir un MKV,
+las dos tablas de workflow del pipeline y los nombres de origen de Tab 1— y
+la solución es la misma en todas: **la clave se compone del id**
+(`tr(f'cmv40.fase_{fase}')`) y la tabla se queda como tupla de ids.
+
+De paso deja de haber dos listas: los ids de workflow del pipeline eran la
+tercera copia de `cmv40_strategy.WORKFLOWS`.
+
+Lo mismo con una **constante** (`MOTIVO_CANCELADO`, `AVISO_INTERRUMPIDA`,
+`TAB_MKV`) y con un **decorador**, que también se evalúa al importar: por eso
+`workload.marca` acepta un callable y lo resuelve dentro de la petición.
+
+**Y ojo con el literal que es a la vez id y rótulo.** `workload.TAB_RIP` y
+compañía los indexa `TAB_IDS`, la UI compara contra ellos y `historial.jsonl`
+los tiene escritos en las líneas ya persistidas: no pueden cambiar de idioma.
+Pero `/api/activity` manda `tab` como «lo que enseña». El id se queda donde
+estaba y `workload.rotulo_de_tab()` da el texto al pintarlo.
 
 ### Un plural no se resuelve con un sufijo de una letra
 

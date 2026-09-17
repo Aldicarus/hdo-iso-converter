@@ -40,6 +40,16 @@ asistente. En concreto:
   decisión 2).
 - `Forzados` → `Forced`; `Completos` → `Full`. Son los dos tipos de subtítulo
   y aparecen dentro del MKV.
+- **«serie» → `TV series`** donde es el TIPO de contenido, no `Series` a
+  secas: es el término de la cabecera, y `series` solo no distingue en inglés
+  una serie de televisión de una colección de películas. Decidido el
+  2026-09-17 tras verlo en pantalla. Son 25 claves y se aplicaron **una a
+  una**, nunca con un reemplazo global: `series` es también «serie de datos»
+  en el veredicto de sincronización (`cmv40_pipeline.sync_sin_variacion`) y
+  ahí habría sido un error.
+- **Ortografía de EE. UU.**: `artifact`, no `artefact`; `canceled`, no
+  `cancelled`. Lo comprueba `test_calidad_de_la_traduccion`, y se cuela con
+  facilidad porque las dos formas se leen bien.
 
 ## Catalán — la regla que pidió el usuario
 
