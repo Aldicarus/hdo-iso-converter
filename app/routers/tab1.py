@@ -885,17 +885,16 @@ async def analyze_iso(body: AnalyzeRequest):
         # Para m2ts no hay MPLS — esta rama no se ejecuta (mpls_chapters_raw
         # está vacío para run_full_analysis_for_m2ts), así que el texto
         # menciona MPLS sin problema.
-        chapters_reason = f"{len(chapters)} capítulos extraídos del disco (MPLS)"
+        chapters_reason = tr('tab1.cap_extraidos_del_disco', n=len(chapters))
     elif bdinfo_result.duration_seconds > 0:
         chapters      = generate_auto_chapters(bdinfo_result.duration_seconds)
         chapters_auto = True
-        chapters_reason = (
-            f"Sin capítulos en {source_label} — generados automáticamente cada 10 min"
-        )
+        chapters_reason = tr('tab1.cap_sin_capitulos_auto',
+                             origen=source_label)
     else:
         chapters      = []
         chapters_auto = True
-        chapters_reason = f"No se pudo determinar la duración de {source_label}"
+        chapters_reason = tr('tab1.cap_sin_duracion', origen=source_label)
 
     # ── Reutilizar sesión existente por fingerprint ─────────────────
     # Para ISO: huella del fichero .iso (1 MB + tamaño). Para
@@ -1311,13 +1310,8 @@ async def disc_probe(body: DiscProbeRequest):
                     candidates = []
                     big_count = _count_big_m2ts(src.bdmv_root, min_size_gb=5.0)
                     if big_count >= 3:
-                        movie_warning = (
-                            f"Este origen tiene {big_count} ficheros M2TS de más de 5 GB. "
-                            f"Parece un disco de serie con varios episodios. "
-                            f"Si confirmas modo película se usará el MPLS principal "
-                            f"(el de mayor duración). Cambia a modo serie si quieres "
-                            f"procesar todos los episodios."
-                        )
+                        movie_warning = tr(
+                            'tab1.aviso_modo_pelicula_varios_m2ts', n=big_count)
                     _disc_probe_progress.update({"pct": 100, "step": "done"})
                 elif hint == "series":
                     _disc_probe_progress.update({
@@ -1590,7 +1584,17 @@ _rip_progress: dict = {
 
 
 # Cómo se llama cada origen para el usuario. El `source_type` es interno.
-_RIP_ORIGEN = {"iso": "ISO", "bdmv_folder": "Carpeta BDMV", "m2ts": "M2TS"}
+# El valor se resuelve al usarlo, no al importar: un diccionario de rótulos
+# evaluado en el import congela el idioma hasta reiniciar.
+_RIP_ORIGEN_CLAVE = {"bdmv_folder": 'tab1.origen_carpeta_bdmv'}
+
+
+def _rip_origen(source_type: str) -> str:
+    """Cómo se llama el origen para el usuario. El `source_type` es interno."""
+    if source_type in ("iso", "m2ts"):
+        return source_type.upper()
+    clave = _RIP_ORIGEN_CLAVE.get(source_type)
+    return tr(clave) if clave else ""
 
 
 def _rip_progress_reset(session_id: str, nombre: str, origen: str = "") -> None:
@@ -1858,7 +1862,9 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                     if ep_source_path is None:
                         failed_episodes.append({
                             "episode_number": ep.episode_number,
-                            "error": f"MPLS {mpls_name} no encontrado en {src.bdmv_root}",
+                            "error": tr('tab1.mpls_no_encontrado_en',
+                                        mpls=mpls_name,
+                                        origen=src.bdmv_root),
                         })
                         continue
                 else:
@@ -1921,15 +1927,18 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 if mpls_chapters_raw:
                     chapters = [Chapter(**c) for c in mpls_chapters_raw]
                     chapters_auto = False
-                    chapters_reason = f"{len(chapters)} capítulos extraídos de {ep_origin_label}"
+                    chapters_reason = tr('tab1.cap_extraidos_de',
+                                         n=len(chapters),
+                                         origen=ep_origin_label)
                 elif bdinfo.duration_seconds > 0:
                     chapters = generate_auto_chapters(bdinfo.duration_seconds)
                     chapters_auto = True
-                    chapters_reason = f"Sin capítulos en {ep_origin_label} — generados cada 10 min"
+                    chapters_reason = tr('tab1.cap_sin_capitulos_episodio',
+                                         origen=ep_origin_label)
                 else:
                     chapters = []
                     chapters_auto = True
-                    chapters_reason = "No se pudo determinar la duración del episodio"
+                    chapters_reason = tr('tab1.cap_sin_duracion_episodio')
 
                 # Nombre del MKV con jerarquía Plex/Jellyfin
                 mkv_name = build_series_mkv_name(
@@ -2066,7 +2075,8 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         poster = trabajos.poster_de({"poster_url": body.series_poster_url}),
         inicio = _inicio,
         estado = "error" if failed_episodes and not created_sessions else "done",
-        error  = f"{len(failed_episodes)} episodio(s) fallaron" if failed_episodes else None,
+        error  = (tr('tab1.n_episodios_fallaron', n=len(failed_episodes))
+                  if failed_episodes else None),
     )
 
 
@@ -2366,7 +2376,8 @@ async def reset_chapters(session_id: str):
     from models import Chapter
     session.chapters = [Chapter(**c) for c in chapters_raw]
     session.chapters_auto_generated = False
-    session.chapters_auto_reason = f"{len(session.chapters)} capítulos restaurados del disco (MPLS)"
+    session.chapters_auto_reason = tr('tab1.cap_restaurados_del_disco',
+                                      n=len(session.chapters))
     save_session(session)
     return session.model_dump()
 
@@ -2423,9 +2434,9 @@ async def check_iso(session_id: str):
     available, source_type, source_path = _check_source_available(session)
     source_label = {
         "iso": "ISO",
-        "bdmv_folder": "carpeta BDMV",
-        "m2ts": "fichero M2TS",
-    }.get(source_type, "origen")
+        "bdmv_folder": tr('tab1.origen_carpeta_bdmv_min'),
+        "m2ts": tr('tab1.origen_fichero_m2ts'),
+    }.get(source_type, tr('tab1.origen_generico'))
     return {
         "available": available,
         "iso_path": session.iso_path,
@@ -2603,7 +2614,7 @@ async def _run_pipeline(session_id: str) -> None:
     session.output_mkv_path     = None
     save_session(session)
     _rip_progress_reset(session_id, session.mkv_name or session_id,
-                        _RIP_ORIGEN.get(session.source_type or "iso", ""))
+                        _rip_origen(session.source_type or "iso"))
 
     # Tracking de tiempos por fase
     _phase_starts: dict[str, datetime] = {}
@@ -3573,15 +3584,13 @@ queue_manager.registrar_runner(queue_manager_mod.TIPO_SERIE,
                                _runner_creacion_de_serie)
 # Los siete pasos del análisis de un episodio, con el nombre que ve el
 # usuario. Los emite `phase_a` en `current_episode_step`.
-_SERIE_PASOS = {
-    "identify":  "Identificando pistas (mkvmerge)",
-    "chapters":  "Extrayendo capítulos del MPLS",
-    "mediainfo": "Leyendo metadatos (MediaInfo)",
-    "pgs":       "Contando paquetes PGS",
-    "dovi":      "Analizando el RPU Dolby Vision",
-    "rules":     "Aplicando las reglas de selección",
-    "save":      "Guardando el proyecto",
-}
+_SERIE_PASOS = ("identify", "chapters", "mediainfo", "pgs", "dovi", "rules",
+                "save")
+
+
+def _serie_paso(paso: str) -> str:
+    """El rótulo del paso, del catálogo; el id crudo si no lo conocemos."""
+    return tr(f'tab1.paso_{paso}') if paso in _SERIE_PASOS else paso
 
 
 def _serie_adaptador(trabajo) -> dict | None:
@@ -3622,7 +3631,7 @@ def _serie_adaptador(trabajo) -> dict | None:
         # Analizar un episodio son siete pasos y el de los PGS se lleva la
         # mayor parte, así que decir solo «episodio 3 de 6» deja diez minutos
         # sin ninguna señal de avance.
-        "paso": _SERIE_PASOS.get(paso, paso)
+        "paso": _serie_paso(paso)
                 + (f" · {pgs} %" if paso == "pgs" and pgs else ""),
         "fase_n": prog.get("current_index") or 0,
         "fases_total": total,

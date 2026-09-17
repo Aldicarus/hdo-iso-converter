@@ -174,7 +174,8 @@ async def library_browse(
         raise HTTPException(status_code=400, detail=tr('tab2.root_desconocido_2', root=root))
     if not base_dir.exists() or not base_dir.is_dir():
         return {"root": root, "path": path, "parent": None, "base": str(base_dir),
-                "entries": [], "error": f"Root '{root}' no configurado o inaccesible"}
+                "entries": [],
+                "error": tr('tab2.root_no_configurado', root=root)}
 
     target, base_resolved = _safe_library_path(path, root_key=root)
     if not target.exists() or not target.is_dir():
@@ -456,7 +457,8 @@ async def analyze_mkv_endpoint(body: dict):
     # pone nombre al trabajo que ESTA petición registró.
     _peli = trabajos.nombre_de_trabajo(fichero=mkv_path_obj.name)
     workload.detallar_actual(
-        que=f"Apertura de un MKV · {_peli}" if _peli else "Apertura de un MKV",
+        que=(tr('tab2.wl_apertura_de_un_mkv_de', que=_peli) if _peli
+             else tr('tab2.wl_apertura_de_un_mkv')),
         titulo=_peli)
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado', rel_path=rel_path))
@@ -476,11 +478,11 @@ async def analyze_mkv_endpoint(body: dict):
     # el log del container — paridad con Tab 1's Session.analysis_log.
     analysis_log: list[str] = []
     _MKV_STEP_LABELS = {
-        "identify": "Identificando pistas con mkvmerge -J",
-        "mediainfo": "Analizando metadata extendida con MediaInfo",
-        "pgs": "Contando paquetes PGS por subtítulo (ffprobe)",
-        "dovi": "Analizando Dolby Vision (dovi_tool)",
-        "cache_hit": "Resultado servido desde caché (sin re-analizar)",
+        "identify": tr('tab2.paso_identify'),
+        "mediainfo": tr('tab2.paso_mediainfo'),
+        "pgs": tr('tab2.paso_pgs'),
+        "dovi": tr('tab2.paso_dovi'),
+        "cache_hit": tr('tab2.paso_cache_hit'),
     }
     cache_was_hit = False
 
@@ -596,7 +598,7 @@ def _mkv_quality_reset(file_name: str = "", audit_id: str = "") -> str:
         "active": True,
         "audit_id": audit_id,
         "step": "ffmpeg",
-        "step_label": "Iniciando auditoría…",
+        "step_label": tr('tab2.iniciando_auditoria'),
         "global_pct": 0,
         "elapsed_s": 0,
         "log_lines": [],
@@ -912,16 +914,17 @@ async def mkv_light_profile_cached(file_path: str = ""):
     def _leer() -> dict:
         fp = compute_mkv_fingerprint(str(mkv_path_obj))
         if not fp:
-            return {"cached": False, "reason": "no se pudo calcular el fingerprint"}
+            return {"cached": False,
+                    "reason": tr('tab2.comparador_sin_fingerprint')}
         cached = read_mkv_cache(fp, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
         if not cached:
-            return {"cached": False, "reason": "sin análisis previo de este MKV"}
+            return {"cached": False,
+                    "reason": tr('tab2.comparador_sin_analisis')}
         quality = cached.get("quality") or {}
         perfil = quality.get("light_profile")
         if not perfil:
             return {"cached": False,
-                    "reason": "analizado, pero sin perfil de luminancia — "
-                              "hazle el 🔬 Análisis extendido"}
+                    "reason": tr('tab2.comparador_sin_perfil')}
         basic = cached.get("basic") or {}
         return {
             "cached": True,
@@ -1121,7 +1124,8 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
     # finally NO pisen el state si un audit posterior ya hizo reset (race
     # cuando el usuario cancela y relanza muy rápido).
     workload.registrar(my_audit_id, workload.TAB_MKV,
-                       f"Análisis RPU/Luz MKV · {mkv_path_obj.name}")
+                       tr('tab2.wl_analisis_rpu_luz',
+                          que=mkv_path_obj.name))
     _logger.warning("[QualityAudit] START audit_id=%s file=%s",
                     my_audit_id, mkv_path_obj.name)
 
@@ -1229,8 +1233,8 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
             titulo = _titulo_hist, poster = _poster_hist,
             inicio = _historial_inicio,
             estado = _paso if _paso in ("done", "cancelled", "error") else "error",
-            error  = _mkv_quality_state.get("error") if _mio else
-                     "relevado por un análisis posterior",
+            error  = (_mkv_quality_state.get("error") if _mio else
+                      tr('tab2.relevado_por_analisis_posterior')),
         )
         # Mismo guard en el finally: si el audit_id ha cambiado (un nuevo
         # audit ya empezó), NO marcamos active=False — pertenece al nuevo.
@@ -1345,11 +1349,9 @@ def recuperar_apply_interrumpido() -> None:
     _mkv_apply_state.update(persisted)
     _mkv_apply_state["active"] = False
     _mkv_apply_state["step"] = "error"
-    _mkv_apply_state["error"] = (
-        f"Operación interrumpida por reinicio del servidor. Destino parcial "
-        f"borrado ({freed / 1e9:.2f} GB liberados). Vuelve a aplicar los cambios "
-        f"sobre {file_name}."
-    )
+    _mkv_apply_state["error"] = tr(
+        'tab2.apply_interrumpido_por_reinicio',
+        gb=format(freed / 1e9, '.2f'), fichero=file_name)
     _persist_mkv_apply_state()
 
 
@@ -1413,7 +1415,8 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
     import time as _t
     total = src.stat().st_size
     _mkv_apply_state["total_bytes"] = total
-    _mkv_apply_set_step("copying", f"Copiando MKV a /mnt/output ({total / 1e9:.1f} GB)…")
+    _mkv_apply_set_step("copying", tr('tab2.copiando_mkv_a_output',
+                                      gb=format(total / 1e9, '.1f')))
 
     CHUNK = 8 * 1024 * 1024  # 8 MB
 
@@ -1504,7 +1507,7 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
     resultado y el error.
     """
     workload.registrar(_clave_copia, workload.TAB_MKV,
-                       f"copia de {src_path.name} a /mnt/output")
+                       tr('tab2.copia_de_a_output', fichero=src_path.name))
     paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
     _mkv_apply_reset(
         total_bytes=src_path.stat().st_size,
@@ -1779,7 +1782,7 @@ def _descartada_copia(trabajo) -> None:
         return
     _mkv_apply_state["active"] = False
     _mkv_apply_state["step"] = "cancelled"
-    _mkv_apply_state["step_label"] = "Retirada de la cola"
+    _mkv_apply_state["step_label"] = tr('tab2.retirada_de_la_cola')
     _persist_mkv_apply_state()
 
 

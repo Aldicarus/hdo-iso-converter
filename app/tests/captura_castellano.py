@@ -483,6 +483,21 @@ _TABLAS_EXENTAS = {"LANGUAGE_MAP", "ISO639_TO_ENGLISH", "MKVMERGE_CODEC_TO_BDINF
 _SLUG = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
+def _nodos_de_dev_mode(arbol: ast.AST) -> set[int]:
+    """Los ids de los nodos que cuelgan de un `if DEV_MODE:`."""
+    fuera: set[int] = set()
+    for n in ast.walk(arbol):
+        if not isinstance(n, ast.If):
+            continue
+        nombres = {x.id for x in ast.walk(n.test) if isinstance(x, ast.Name)}
+        if "DEV_MODE" not in nombres:
+            continue
+        for rama in n.body:
+            for h in ast.walk(rama):
+                fuera.add(id(h))
+    return fuera
+
+
 def _texto_de(nodo) -> str:
     """El literal de un `str` o la parte fija de un f-string, con centinela."""
     if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str):
@@ -557,7 +572,15 @@ def frases_del_backend() -> set[str]:
             arbol = ast.parse(f.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
+        # Lo que cuelga de un `if DEV_MODE:` es maqueta. Es la misma decisión
+        # que exime `dev_fixtures.py` —datos falsos para desarrollar la UI sin
+        # discos delante— pero esos bloques viven DENTRO de los routers, así
+        # que la exención por fichero no llega. La simulación del análisis
+        # extendido de Tab 2 son 40 líneas de log inventado.
+        de_dev = _nodos_de_dev_mode(arbol)
         for n in ast.walk(arbol):
+            if id(n) in de_dev:
+                continue
             if not isinstance(n, ast.Call):
                 continue
             nombre = (n.func.id if isinstance(n.func, ast.Name)
@@ -614,6 +637,8 @@ def frases_del_backend() -> set[str]:
             and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
                     for t in nodo.targets)}
         for n in ast.walk(arbol):
+            if id(n) in de_dev:
+                continue
             visibles = []
             if isinstance(n, (ast.Assign, ast.AnnAssign)):
                 objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
