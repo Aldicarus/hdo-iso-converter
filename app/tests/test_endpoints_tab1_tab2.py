@@ -455,3 +455,73 @@ class TestLaFichaDeLaPelicula(ApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLaFichaDeUnEpisodioNoSeBuscaComoPelicula(ApiTestCase):
+    """Rehidratar un episodio por el índice de PELÍCULAS mete datos falsos.
+
+    De «Juego de tronos» lo más parecido que hay en ese índice es un
+    documental sobre la serie —el bug que CLAUDE.md documenta para el lookup
+    de Tab 3—, así que al rehacer la ficha por idioma se sustituiría una
+    ficha buena por una equivocada. La sesión guarda `series_tmdb_id`,
+    `season_number` y `episode_number`, así que se relee por id y no se
+    busca nada.
+
+    Se espía `services.tmdb.search_movies` —donde `_hydrate_session_tmdb`
+    lo importa— y `_rehidratar_ficha_de_episodio`, y se deja correr la
+    función REAL. Reimplementar la ramificación en el test lo haría
+    autorreferente: pasaría en verde consigo mismo.
+    """
+
+    async def _ramas(self, sid: str, idioma: str = "en"):
+        from unittest import mock
+        import i18n
+        import services.tmdb as tmdb
+        from routers import tab1
+        buscadas: list[str] = []
+        episodios: list[str] = []
+
+        async def _buscar(titulo, anyo=None, limit=1):
+            buscadas.append(titulo or "")
+            return []
+
+        async def _ep(session_id):
+            episodios.append(session_id)
+
+        with mock.patch.object(i18n, "idioma_activo", lambda: idioma), \
+             mock.patch.object(tmdb, "search_movies", _buscar), \
+             mock.patch.object(tmdb, "is_configured", lambda: True), \
+             mock.patch.object(tab1, "_rehidratar_ficha_de_episodio", _ep):
+            await tab1._hydrate_session_tmdb(sid)
+        return buscadas, episodios
+
+    def test_un_episodio_va_por_la_ruta_de_serie(self):
+        import asyncio
+        sid = self.crear_sesion_tab1(
+            media_type="series", series_tmdb_id=1399, series_name="Game of Thrones",
+            season_number=5, episode_number=6,
+            episode_title="Unbowed, Unbent, Unbroken",
+            tmdb_info={"title": "Juego de tronos · S05E06", "idioma": "es"})
+        buscadas, episodios = asyncio.run(self._ramas(sid))
+        self.assertEqual(buscadas, [], "un episodio NO se busca como película")
+        self.assertEqual(episodios, [sid])
+
+    def test_una_pelicula_sigue_yendo_por_la_de_siempre(self):
+        import asyncio
+        sid = self.crear_sesion_tab1(
+            media_type="movie", source_path="Blade Runner 2049 (2017).iso",
+            tmdb_info={"title": "Blade Runner 2049", "idioma": "es"})
+        buscadas, episodios = asyncio.run(self._ramas(sid))
+        self.assertEqual(episodios, [])
+        self.assertEqual(len(buscadas), 1, buscadas)
+
+    def test_un_episodio_sin_id_de_serie_no_toca_la_ficha(self):
+        """Sin id no se puede releer, y buscar sería peor que no hacer nada."""
+        import asyncio
+        from routers import tab1
+        sid = self.crear_sesion_tab1(
+            media_type="series", series_tmdb_id=None, season_number=5,
+            episode_number=6, tmdb_info={"title": "Juego de tronos · S05E06"})
+        asyncio.run(tab1._rehidratar_ficha_de_episodio(sid))
+        self.assertEqual(self.leer_sesion_tab1(sid).tmdb_info["title"],
+                         "Juego de tronos · S05E06")

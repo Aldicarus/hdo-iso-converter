@@ -954,6 +954,54 @@ async def analyze_iso(body: AnalyzeRequest):
     return _session_payload(session)
 
 
+async def _rehidratar_ficha_de_episodio(session_id: str) -> None:
+    """Rehace `tmdb_info` de un episodio EN EL IDIOMA DE AHORA, por id.
+
+    No hay búsqueda: `series_tmdb_id`, `season_number` y `episode_number`
+    están en la sesión, así que se pide la serie y su temporada y se toma el
+    episodio que toca. La forma del dict es la MISMA que escribe el modal de
+    series (`renderTmdbCardHTML` la consume tal cual).
+
+    Un fallo NO borra la ficha que hubiera: es el error que tuvo el
+    `tmdb-refresh` de Tab 3, que escribía `None` sin match y dejaba sin
+    carátula un proyecto que la tenía.
+    """
+    from services.tmdb import fetch_tv_details, fetch_tv_season
+
+    s = load_session(session_id)
+    if not s or not s.series_tmdb_id or not s.season_number:
+        return
+    serie = await fetch_tv_details(s.series_tmdb_id)
+    if not serie:
+        return
+    eps = await fetch_tv_season(s.series_tmdb_id, s.season_number)
+    ep = next((e for e in eps if e.episode_number == s.episode_number), None)
+
+    titulo = f"{serie.name} · S{s.season_number:02d}E{(s.episode_number or 0):02d}"
+    if ep and ep.name:
+        titulo += f" \u2014 {ep.name}"
+    ficha = {
+        "title": titulo,
+        "original_title": (ep.name if ep else "") or serie.name,
+        "year": serie.year,
+        "overview": (ep.overview if ep else "") or serie.overview or "",
+        "poster_url": (ep.still_url if ep else "") or serie.poster_url or "",
+        "backdrop_url": serie.backdrop_url or "",
+        "runtime_minutes": (ep.runtime_minutes if ep else 0) or 0,
+        "vote_average": serie.vote_average,
+        "vote_count": 0,
+        "genres": [],
+        "tagline": "",
+        "imdb_id": "",
+        "idioma": idioma_activo(),
+    }
+    fresh = load_session(session_id)
+    if not fresh:
+        return
+    fresh.tmdb_info = ficha
+    save_session(fresh)
+
+
 async def _hydrate_session_tmdb(session_id: str) -> None:
     """Rellena `session.tmdb_info` (ficha de la cabecera de Tab 1) y, si el
     nombre del ISO no traía año, completa el `mkv_name` con el año de TMDb.
@@ -972,6 +1020,18 @@ async def _hydrate_session_tmdb(session_id: str) -> None:
     try:
         session = load_session(session_id)
         if not session:
+            return
+        # ── Un episodio de serie NO se busca en el índice de películas.
+        #
+        # Su ficha es la del EPISODIO —título, sinopsis y still— y la
+        # escribió el modal de series con los datos de TMDb de entonces. Con
+        # una búsqueda de película sobre «Juego de tronos» lo más parecido
+        # que hay es un documental sobre la serie (el bug que CLAUDE.md
+        # documenta para el lookup de Tab 3), así que rehidratar por esa vía
+        # **sustituiría una ficha buena por una equivocada**. Se relee por
+        # id, que la sesión sí guarda, y si no hay id no se toca nada.
+        if session.media_type == "series":
+            await _rehidratar_ficha_de_episodio(session_id)
             return
         name = session.source_path or session.iso_path or ""
         query_title, query_year = parse_mkv_filename(name)

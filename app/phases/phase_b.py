@@ -73,7 +73,7 @@ el stem completo como título y ``0000`` como año.
 
 Ref: spec §5.1, §5.2, §5.3, §5.4
 """
-from i18n import t as tr
+from i18n import t as tr, hay_texto
 import math
 import re
 from pathlib import Path
@@ -367,8 +367,8 @@ def _select_audio_tracks(
                     raw=t,
                     discard_reason=tr(
                         'phase_b.motivo_idioma_no_target_audio',
-                        idioma=lang_lit,
-                        vo=_language_literal(vo_language.lower())),
+                        idioma=nombre_de_idioma(lang_norm),
+                        vo=nombre_de_idioma(vo_language.lower())),
                 ))
 
     # Idiomas incluidos: seleccionar mejor pista de cada uno
@@ -483,14 +483,14 @@ def _select_audio_tracks(
                 ambig_text = ambiguity_text_discarded_similar
             elif id(t) in different_ids:
                 reason_disc = (
-                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_tecnica', p1=_language_literal(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
+                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_tecnica', p1=nombre_de_idioma(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
                 )
                 ambig_text = ambiguity_text_discarded_different
             else:
                 # No debería pasar (similar+different cubre rest), pero
                 # por defensa: razón clásica sin warning.
                 reason_disc = (
-                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_t', p1=_language_literal(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
+                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_t', p1=nombre_de_idioma(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
                 )
                 ambig_text = ""
             discarded.append(DiscardedTrack(
@@ -800,6 +800,27 @@ def _extract_channels(description: str) -> str:
     if "-Atmos" in part or "-atmos" in part:
         part = re.split(r"-[Aa]tmos", part)[0].strip()
     return part or "?"
+
+
+def nombre_de_idioma(lang_norm: str) -> str:
+    """El nombre del idioma para PANTALLA, en el idioma de la app.
+
+    **No es `_language_literal`, y la diferencia importa.** Esa produce los
+    literales que acaban DENTRO del MKV («Castellano TrueHD Atmos 7.1»), y
+    son los de la spec: no cambian de idioma porque describen el fichero, no
+    la interfaz. Esta rotula el idioma de una pista del ORIGEN en un motivo
+    de descarte o en un aviso, que son texto de interfaz y el usuario los lee
+    en su idioma.
+
+    Estaban confundidas en la misma tabla castellana, así que con la app en
+    inglés se leía «Discarded: second Castellano track». Lo reportó el
+    usuario el 2026-09-17 abriendo un proyecto antiguo.
+
+    Si el idioma no está en el catálogo, cae al literal de la spec — que es
+    lo que hacía antes, y para un idioma raro es mejor que el código ISO.
+    """
+    clave = f"idioma.{lang_norm}"
+    return tr(clave) if hay_texto(clave) else _language_literal(lang_norm)
 
 
 def _language_literal(lang_norm: str) -> str:
@@ -1184,9 +1205,9 @@ def _select_subtitle_tracks(
                     raw=t,
                     discard_reason=tr(
                         'phase_b.motivo_sub_alternativa_descartada',
-                        idioma=lang_lit),
+                        idioma=nombre_de_idioma(lang_norm)),
                     ambiguity_warning=tr('phase_b.aviso_sub_alternativa',
-                                         idioma=lang_lit),
+                                         idioma=nombre_de_idioma(lang_norm)),
                     inferred_subtitle_type="complete",
                 ))
             # Descartar pistas sobrantes del mismo idioma. Las clasificó
@@ -1197,7 +1218,7 @@ def _select_subtitle_tracks(
                     track_type="subtitle",
                     raw=t,
                     discard_reason=tr('phase_b.motivo_sub_adicional',
-                                      idioma=lang_lit),
+                                      idioma=nombre_de_idioma(lang_norm)),
                     inferred_subtitle_type="forced",
                 ))
 
@@ -1350,8 +1371,8 @@ def _select_subtitle_tracks(
                     raw=t,
                     discard_reason=tr(
                         'phase_b.motivo_idioma_no_target_sub',
-                        idioma=_language_literal(lang_norm),
-                        vo=_language_literal(vo_language.lower())),
+                        idioma=nombre_de_idioma(lang_norm),
+                        vo=nombre_de_idioma(vo_language.lower())),
                     inferred_subtitle_type=_infer_sub_type(lang_norm, t),
                 ))
 
@@ -1371,7 +1392,7 @@ def _select_subtitle_tracks(
                     raw=t,
                     discard_reason=tr('phase_b.motivo_sin_posicion',
                                       tipo=tipo,
-                                      idioma=_language_literal(lang_norm)),
+                                      idioma=nombre_de_idioma(lang_norm)),
                     inferred_subtitle_type=(
                         "forced" if tipo == tr('phase_b.tipo_forzado')
                         else "complete"),

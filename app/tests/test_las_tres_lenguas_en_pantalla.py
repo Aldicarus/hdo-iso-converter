@@ -634,9 +634,15 @@ NI_TRADUCIBLE_NI_FUGA = {
     # el bloque de selección de pistas, no con la traducción.
     "catal": "«Català», el nombre de la lengua en su propia lengua — el "
                "selector de ⚙︎ Configuración enseña los tres así",
-    "francés": "LANGUAGE_MAP (literal de pista)",
-    "castellano": "LANGUAGE_MAP (literal de pista)",
-    "inglés": "LANGUAGE_MAP (literal de pista)",
+    # El NOMBRE DE PISTA que acaba dentro del MKV, que es el literal de la
+    # spec y describe el fichero, no la interfaz. Lo escribe
+    # `phase_b._language_literal` y no cambia de idioma a propósito: verlo
+    # traducido en pantalla mentiría sobre lo que lleva el MKV. El nombre
+    # del idioma que sí es interfaz —el de un motivo de descarte o el chip
+    # de una pista del origen— va por `phase_b.nombre_de_idioma` y por
+    # `langLiteral`, y esos sí siguen el idioma.
+    "castellano": "literal de pista de la spec; es el nombre DENTRO del MKV",
+    "inglés": "ídem",
 }
 
 
@@ -703,14 +709,14 @@ class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
     eso obliga a decidir —añadirla o escribir por qué no— en vez de
     descubrirlo cuando el usuario la lee en el otro idioma.
 
-    Los 62 huecos de hoy están agrupados: el panel de edición de Tab 2
+    Los 61 huecos de hoy están agrupados: el panel de edición de Tab 2
     (`_renderMkvEditPanel`, `_renderMkvTracks`, `_renderMkvChapterList`,
     `_renderMkvRecientes`…), el modal de creación de CMv4.0 y la ayuda
     (`_cmv40New*`, `_cmv40Help*`, `_cmv40Lookup*`) y la tabla de episodios
     de una serie (`_renderSeriesEpisodesTable`).
     """
 
-    HUECOS_MAXIMOS = 62
+    HUECOS_MAXIMOS = 61
 
     def _censo(self):
         from frontend_sources import rutas

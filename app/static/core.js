@@ -32,23 +32,25 @@
  *   switchTab       — Gestiona los tres tabs del header.
  */
 
-// ── Tabla de idiomas (inglés → literal en español) ───────────────
-const LANGUAGE_MAP = {
-  spanish: 'Castellano', english: 'Inglés', french: 'Francés',
-  german: 'Alemán', italian: 'Italiano', japanese: 'Japonés',
-  portuguese: 'Portugués', chinese: 'Chino', korean: 'Coreano',
-  dutch: 'Holandés', russian: 'Ruso', polish: 'Polaco',
-  czech: 'Checo', hungarian: 'Húngaro', swedish: 'Sueco',
-  norwegian: 'Noruego', danish: 'Danés', finnish: 'Finlandés',
-  turkish: 'Turco', arabic: 'Árabe', hebrew: 'Hebreo',
-  thai: 'Tailandés', greek: 'Griego', romanian: 'Rumano',
-  croatian: 'Croata', slovak: 'Eslovaco', ukrainian: 'Ucraniano',
-};
+// ── El nombre de un idioma, para PANTALLA ────────────────────────
+//
+// **Esto NO es `phase_b.LANGUAGE_MAP`, y la diferencia importa.** Esa tabla
+// del servidor produce los literales que acaban DENTRO del MKV («Castellano
+// TrueHD Atmos 7.1»), y son los de la spec: no cambian de idioma porque
+// describen el fichero, no la interfaz. Esta función es lo contrario —
+// rotula en pantalla el idioma de una pista del ORIGEN— y por eso sí sigue
+// el idioma de la app. Estaban confundidas en una sola tabla castellana, así
+// que con la app en inglés se leía «Castellano · Dolby Digital · 2.0».
+//
+// Los 27 idiomas viven en el catálogo como `idioma.<inglés en minúsculas>`,
+// que es el mismo criterio del id del que se compone la clave en el resto
+// del proyecto (`cmv40.fase_{fase}`).
 
-/** Convierte un idioma en inglés (cualquier capitalización) al literal en español. */
+/** El nombre del idioma en el idioma de la app; si no está, el código tal cual. */
 function langLiteral(bdInfoLang) {
   if (!bdInfoLang) return '';
-  return LANGUAGE_MAP[bdInfoLang.toLowerCase()] || bdInfoLang;
+  const clave = 'idioma.' + String(bdInfoLang).toLowerCase();
+  return hayTexto(clave) ? tr(clave) : bdInfoLang;
 }
 
 // ── Estado global ─────────────────────────────────────────────────
