@@ -448,8 +448,21 @@ _POSICIONAL = {"marca": (0,), "registrar": (2,), "ocupado": (2,)}
 # Va por PATRÓN y no por lista de nombres, que es exactamente como se llegó
 # aquí: `current_episode_title` no casaba con ningún patrón castellano porque
 # el código va en inglés.
+# La segunda mitad de la lista salió de CRUZAR los campos contra el frontend
+# en vez de imaginarlos: se recogió todo nombre de campo al que el backend
+# asigna castellano y se comprobó si el JS lo lee. Los que lo leen están aquí
+# y valían 93 fugas más — entre ellas el `reason` de cada pista descartada
+# («Descartada: idioma X no es Castellano ni VO»), que se ve en el panel de
+# Tab 1 desde el primer día, y los `why` de los trust gates.
+#
+# `name` entra a pesar de casar con `mkv_name`, `video_track_name` y
+# `series_name`: ahí el valor es un nombre de fichero o de pista y el
+# criterio por vocabulario lo descarta solo. Lo único que caza son los
+# «Capítulo {n}» auto-generados, que van DENTRO del MKV y por tanto siguen el
+# idioma de la app (decisión 3 del registro).
 _CAMPO_VISIBLE = re.compile(
-    r"(?:^|_)(?:label|lbl|text|txt|texto|message|msg|mensaje|title|titulo|que)$"
+    r"(?:^|_)(?:label|lbl|text|txt|texto|message|msg|mensaje|title|titulo|que"
+    r"|reason|why|error|warning|description|verdict|hint|note|name)$"
     r"|^detail$")
 
 # `detalle` (en castellano) NO es texto: es el discriminador de qué vista de
@@ -457,6 +470,16 @@ _CAMPO_VISIBLE = re.compile(
 # slugs — `serie`, `copia_biblioteca`, `analisis_extendido`. `detail` (en
 # inglés) sí lo es: es el campo de `HTTPException`.
 _CAMPO_SLUG = {"detalle"}
+
+# Tablas `id → rótulo` que NO son interfaz, exentas por su función y no por
+# su forma. `LANGUAGE_MAP` son los literales de pista de la spec
+# (`spanish: 'Castellano'`) y acaban en el nombre de las pistas del MKV, no
+# en la pantalla; que sigan el idioma de la app es una decisión distinta y va
+# con el bloque de selección de pistas, que está pendiente.
+_TABLAS_EXENTAS = {"LANGUAGE_MAP", "ISO639_TO_ENGLISH", "MKVMERGE_CODEC_TO_BDINFO"}
+
+# Un slug: la clave de una tabla de rótulos por id (`p7_fel`, `analyze_source`).
+_SLUG = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def _texto_de(nodo) -> str:
@@ -515,6 +538,20 @@ def frases_del_backend() -> set[str]:
         # al castellano cuando un catálogo está roto.
         if f.name == "i18n.py":
             continue
+        # Dos ficheros más que no son interfaz:
+        #
+        #   * `dev_fixtures.py` son los datos falsos de `DEV_MODE=1` —pistas
+        #     «Inglés TrueHD Atmos 7.1», capítulos «Capítulo 03»— que existen
+        #     para maquetar la UI sin discos delante. Traducirlos obligaría a
+        #     traducir la maqueta.
+        #   * `tools/` son CLI standalone de depuración: su `argparse` lo lee
+        #     quien ejecuta el script a mano.
+        #
+        # Se saltan ENTEROS y no solo en la captura ampliada: el golden
+        # comprueba que sus frases sigan existiendo en el FUENTE, y ahí
+        # siguen. Verificado — `test_castellano_intacto` queda en verde.
+        if f.name == "dev_fixtures.py" or "tools" in f.parts:
+            continue
         try:
             arbol = ast.parse(f.read_text(encoding="utf-8"))
         except SyntaxError:
@@ -555,14 +592,6 @@ def frases_del_backend() -> set[str]:
                     if es_frase(s) or es_rotulo(s):
                         fuera.add(s)
         # Y los campos que ACABAN EN PANTALLA sin pasar por ninguna llamada.
-        #
-        # `dev_fixtures.py` se salta SOLO aquí: son datos falsos de `DEV_MODE`
-        # que ningún usuario ve, y meterlos exigiría traducir la maqueta. No se
-        # salta arriba porque el golden se capturó con ese fichero dentro y
-        # quitarlo haría desaparecer frases que el golden exige que sigan
-        # existiendo.
-        if f.name == "dev_fixtures.py":
-            continue
         # Las constantes de MÓDULO en mayúsculas con texto dentro: es la clase
         # de `CMV40_PHASE_LABELS` en el frontend —una constante evaluada al
         # cargar— y aquí eran `MOTIVO_CANCELADO`, `AVISO_INTERRUMPIDA` y la
@@ -578,6 +607,11 @@ def frases_del_backend() -> set[str]:
                     s = " ".join(bruto.split())
                     if es_frase(s) or es_rotulo(s):
                         fuera.add(s)
+        exentas = {
+            nodo.value for nodo in ast.walk(arbol)
+            if isinstance(nodo, ast.Assign) and isinstance(nodo.value, ast.Dict)
+            and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
+                    for t in nodo.targets)}
         for n in ast.walk(arbol):
             visibles = []
             if isinstance(n, (ast.Assign, ast.AnnAssign)):
@@ -598,6 +632,17 @@ def frases_del_backend() -> set[str]:
                             and _CAMPO_VISIBLE.search(k.value)
                             and k.value not in _CAMPO_SLUG):
                         visibles.append(valor)
+                # Y la tabla `id → rótulo`: si TODAS las claves son slugs, lo
+                # que hay a la derecha es texto indexado por un identificador
+                # —los pasos del modal «Analizando disco», los nombres de fase
+                # del overlay de CMv4.0— y ahí el nombre del campo no dice
+                # nada porque la clave ES el id. Eran 34 rótulos que se ven en
+                # cuanto abres un proyecto.
+                if (n.keys and n not in exentas
+                        and all(isinstance(k, ast.Constant)
+                                and isinstance(k.value, str) and _SLUG.match(k.value)
+                                for k in n.keys)):
+                    visibles.extend(n.values)
             for c in visibles:
                 for bruto in _textos_dentro(c):
                     s = " ".join(bruto.split())
