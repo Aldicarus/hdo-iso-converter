@@ -40,13 +40,25 @@ asistente. En concreto:
   decisión 2).
 - `Forzados` → `Forced`; `Completos` → `Full`. Son los dos tipos de subtítulo
   y aparecen dentro del MKV.
-- **«serie» → `TV series`** donde es el TIPO de contenido, no `Series` a
-  secas: es el término de la cabecera, y `series` solo no distingue en inglés
-  una serie de televisión de una colección de películas. Decidido el
-  2026-09-17 tras verlo en pantalla. Son 25 claves y se aplicaron **una a
-  una**, nunca con un reemplazo global: `series` es también «serie de datos»
-  en el veredicto de sincronización (`cmv40_pipeline.sync_sin_variacion`) y
-  ahí habría sido un error.
+- **«serie» → `TV show`** donde es el TIPO de contenido. Decidido el
+  2026-09-17, en dos pasos: primero `TV series` (porque `Series` a secas no
+  distingue en inglés una serie de televisión de una colección de películas)
+  y el mismo día `TV show`, que es la forma correcta aquí por tres motivos:
+
+  1. es lo que dicen **los dos sistemas con los que la app habla** — TMDb
+     llama «TV Shows» a su índice (el que consultan `search_tv_series` y
+     `fetch_tv_season`) y Plex llama «TV Shows» al tipo de biblioteca donde
+     acaban estos MKV;
+  2. el inglés de la app es el de **EE. UU.**, y ahí «TV show» es la forma
+     corriente — «TV series» suena a catalogación (es la de IMDb y la
+     británica);
+  3. deja **`series` libre** para su otro significado, que la app también
+     usa: la *serie de datos* del veredicto de sincronización
+     (`cmv40_pipeline.sync_sin_variacion`).
+
+  Son 27 claves y **el reemplazo se hizo sobre «TV series», no sobre
+  «series»**: así las dos series de datos y el nombre literal del endpoint
+  `create-series-sessions` quedaron fuera por construcción.
 - **Ortografía de EE. UU.**: `artifact`, no `artefact`; `canceled`, no
   `cancelled`. Lo comprueba `test_calidad_de_la_traduccion`, y se cuela con
   facilidad porque las dos formas se leen bien.
