@@ -92,6 +92,15 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
+    "Análisis extendido ·":
+        "el lado IZQUIERDO de `historial._RENOMBRADOS`: es el prefijo que se "
+        "busca en lo que ya está ESCRITO en `historial.jsonl`, que es "
+        "append-only y no se migra. Son líneas de antes de que la app "
+        "hablara tres idiomas, así que son castellano literal para siempre; "
+        "traducirlo haría que con la app en inglés no casara ninguna y el "
+        "renombrado dejara de aplicarse sin un error.",
+    "Análisis RPU/Luz ·":
+        "lo mismo, la otra entrada de `historial._RENOMBRADOS`.",
     "✏️ Consultar / Editar MKV":
         "`workload.TAB_MKV` es un ID, no un rótulo: lo indexa `TAB_IDS`, la "
         "UI compara contra él y `historial.jsonl` lo tiene escrito en las "

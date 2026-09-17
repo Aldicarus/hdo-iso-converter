@@ -905,5 +905,16 @@
   "main.cancelacion_o_crash_durante_la_auditoria_del": "Una cancel·lació o un crash durant l'auditoria de l'RPU (Tab 2)",
   "main.path_no_existe": "el path no existeix",
   "main.ruta_no_resoluble_p1": "el path no es pot resoldre: {p1}",
-  "main.es_el_propio_directorio_raiz_no_un": "és el directori arrel mateix, no un orfe"
+  "main.es_el_propio_directorio_raiz_no_un": "és el directori arrel mateix, no un orfe",
+  "tab2.en_curso": "en curs",
+  "tab2.esperando_turno_en_la_cola": "s'està esperant el torn a la cua",
+  "tab2.fase_a_extraccion_del_rpu": "Fase A — extracció de l'RPU",
+  "tab2.fase_b_combos_y_perfil_de_luminancia": "Fase B — combos i perfil de luminància",
+  "tab2.fase_a_copia_del_mkv": "Fase A — còpia del MKV",
+  "tab2.fase_b_escritura_de_metadatos": "Fase B — escriptura de les metadades",
+  "tab2.la_auditoria_anterior_no_produjo_resultado": "L'auditoria anterior no ha produït cap resultat",
+  "tab2.aplicando_cambios_con_mkvpropedit": "S'estan aplicant els canvis amb mkvpropedit…",
+  "tab2.cambios_aplicados_correctamente": "Canvis aplicats correctament",
+  "tab2.copia_cancelada_por_el_usuario": "Còpia cancel·lada per l'usuari",
+  "tab2.cancelado": "Cancel·lat"
 }

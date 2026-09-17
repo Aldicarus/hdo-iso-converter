@@ -905,5 +905,16 @@
   "main.cancelacion_o_crash_durante_la_auditoria_del": "Cancelación o crash durante la auditoría del RPU (Tab 2)",
   "main.path_no_existe": "path no existe",
   "main.ruta_no_resoluble_p1": "ruta no resoluble: {p1}",
-  "main.es_el_propio_directorio_raiz_no_un": "es el propio directorio raíz, no un huérfano"
+  "main.es_el_propio_directorio_raiz_no_un": "es el propio directorio raíz, no un huérfano",
+  "tab2.en_curso": "en curso",
+  "tab2.esperando_turno_en_la_cola": "esperando turno en la cola",
+  "tab2.fase_a_extraccion_del_rpu": "Fase A — Extracción del RPU",
+  "tab2.fase_b_combos_y_perfil_de_luminancia": "Fase B — Combos y perfil de luminancia",
+  "tab2.fase_a_copia_del_mkv": "Fase A — Copia del MKV",
+  "tab2.fase_b_escritura_de_metadatos": "Fase B — Escritura de metadatos",
+  "tab2.la_auditoria_anterior_no_produjo_resultado": "La auditoría anterior no produjo resultado",
+  "tab2.aplicando_cambios_con_mkvpropedit": "Aplicando cambios con mkvpropedit…",
+  "tab2.cambios_aplicados_correctamente": "Cambios aplicados correctamente",
+  "tab2.copia_cancelada_por_el_usuario": "Copia cancelada por el usuario",
+  "tab2.cancelado": "Cancelado"
 }

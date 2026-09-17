@@ -957,10 +957,10 @@ def _analisis_ya_pedido(mkv_full: str) -> str:
     tipo = queue_manager_mod.TIPO_ANALISIS_EXTENDIDO
     corriendo = estado.get("running_job") or {}
     if corriendo.get("tipo") == tipo and corriendo.get("sobre") == mkv_full:
-        return "en curso"
+        return tr('tab2.en_curso')
     if any(j.get("tipo") == tipo and j.get("sobre") == mkv_full
            for j in estado.get("jobs") or []):
-        return "esperando turno en la cola"
+        return tr('tab2.esperando_turno_en_la_cola')
     return ""
 
 
@@ -1071,8 +1071,8 @@ async def mkv_quality_audit_endpoint(body: dict, request: Request = None):
         if st.get("result"):
             _logger.info("[QualityAudit] re-envío del request_id=%s ya completado — devuelvo resultado", request_id)
             return st["result"]
-        msg = st.get("error") or "La auditoría anterior no produjo resultado"
-        raise HTTPException(status_code=499 if "Cancelado" in msg else 500, detail=msg)
+        msg = st.get("error") or tr('tab2.la_auditoria_anterior_no_produjo_resultado')
+        raise HTTPException(status_code=499 if tr('tab2.cancelado') in msg else 500, detail=msg)
 
     # Lo único que se rechaza es repetir el MISMO MKV: varios análisis a la
     # vez SÍ se admiten, que para eso está la cola. Antes bastaba con que
@@ -1333,7 +1333,7 @@ def recuperar_apply_interrumpido() -> None:
         _persist_mkv_apply_state()
         return
     dst = persisted.get("dst_path") or ""
-    file_name = persisted.get("file_name") or "(desconocido)"
+    file_name = persisted.get("file_name") or tr('cmv40_pipeline.valor_desconocido')
     freed = 0
     if dst:
         try:
@@ -1519,10 +1519,10 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
     )
     try:
         await _mkv_copy_to_output_with_progress(src_path, dst_path)
-        _mkv_apply_set_step("applying", "Aplicando cambios con mkvpropedit…")
+        _mkv_apply_set_step("applying", tr('tab2.aplicando_cambios_con_mkvpropedit'))
         body.file_path = str(dst_path)
         result = await apply_mkv_edits(body)
-        _mkv_apply_set_step("done", "Cambios aplicados correctamente")
+        _mkv_apply_set_step("done", tr('tab2.cambios_aplicados_correctamente'))
         # mkvpropedit cambia mtime y posiblemente el primer 1MB del
         # MKV → cache previo (del source o del destino si existía)
         # debe quedar invalidado para que el próximo open re-analice.
@@ -1541,7 +1541,7 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         _mkv_apply_state["result"] = result
         _persist_mkv_apply_state()
     except MkvApplyCancelled:
-        _mkv_apply_set_step("cancelled", "Copia cancelada por el usuario")
+        _mkv_apply_set_step("cancelled", tr('tab2.copia_cancelada_por_el_usuario'))
     except Exception as e:
         _mkv_apply_state["error"] = str(e)
         _mkv_apply_set_step("error", f"Error: {e}")
@@ -1624,7 +1624,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
                 dst_path=str(dst_path),
                 file_name=src_path.name,
             )
-            _mkv_apply_set_step("en_cola", "Esperando turno en la cola…")
+            _mkv_apply_set_step("en_cola", tr('tab1.prog_esperando_turno_cola'))
             _titulo_copia, _poster_copia = trabajos.cartel_de(fichero=src_path.name)
             await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
                 tab="mkv",
@@ -1699,12 +1699,14 @@ async def _runner_copia_biblioteca(trabajo) -> None:
 # no es una fase sino la espera previa. Numerando la lista de pasos tal cual,
 # la fase 1 salía como la 2 y el modal enseñaba la extracción terminada con
 # los combos en curso cuando en realidad iba por la extracción.
+# Se guarda la CLAVE, no la frase: una tabla con texto dentro se evalúa al
+# importar y congela el idioma del arranque.
 _PASOS_ANALISIS = (
-    ("en_cola",     0, "Esperando turno"),
-    ("ffmpeg",      1, "Fase A — Extracción del RPU"),
-    ("extract_rpu", 1, "Fase A — Extracción del RPU"),
-    ("combos",      2, "Fase B — Combos y perfil de luminancia"),
-    ("done",        2, "Fase B — Combos y perfil de luminancia"),
+    ("en_cola",     0, 'tab1.fase_esperando_turno'),
+    ("ffmpeg",      1, 'tab2.fase_a_extraccion_del_rpu'),
+    ("extract_rpu", 1, 'tab2.fase_a_extraccion_del_rpu'),
+    ("combos",      2, 'tab2.fase_b_combos_y_perfil_de_luminancia'),
+    ("done",        2, 'tab2.fase_b_combos_y_perfil_de_luminancia'),
 )
 _ANALISIS_FASES_TOTAL = 2
 
@@ -1714,8 +1716,9 @@ def _analisis_adaptador(trabajo) -> dict | None:
     if not st.get("active") or st.get("audit_id") != trabajo.clave:
         return None
     paso = st.get("step") or ""
-    tabla = {p: (n, etiqueta) for p, n, etiqueta in _PASOS_ANALISIS}
-    fase_n, fase_label = tabla.get(paso, (0, ""))
+    tabla = {p: (n, clave) for p, n, clave in _PASOS_ANALISIS}
+    fase_n, clave = tabla.get(paso, (0, ""))
+    fase_label = tr(clave) if clave else ""
     pct = st.get("global_pct")
     segundos = round(st.get("elapsed_s") or 0)
     return {
@@ -1735,9 +1738,9 @@ def _analisis_adaptador(trabajo) -> dict | None:
 
 
 _PASOS_COPIA = (
-    ("en_cola",  "Esperando turno"),
-    ("copying",  "Fase A — Copia del MKV"),
-    ("applying", "Fase B — Escritura de metadatos"),
+    ("en_cola",  'tab1.fase_esperando_turno'),
+    ("copying",  'tab2.fase_a_copia_del_mkv'),
+    ("applying", 'tab2.fase_b_escritura_de_metadatos'),
 )
 
 
@@ -1757,7 +1760,8 @@ def _copia_adaptador(trabajo) -> dict | None:
     eta = st.get("eta_s") or None
     return {
         "fase": paso,
-        "fase_label": dict(_PASOS_COPIA).get(paso, ""),
+        "fase_label": (lambda c: tr(c) if c else "")(
+            dict(_PASOS_COPIA).get(paso, "")),
         # Los bytes son el paso: una barra al 40 % no dice si quedan 3 GB o 30.
         "paso": (f"{_gb(st.get('bytes_copied'))} de {_gb(st.get('total_bytes'))}"
                  if paso == "copying" and st.get("total_bytes")

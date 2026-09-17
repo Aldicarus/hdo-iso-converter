@@ -1302,7 +1302,11 @@ def _select_subtitle_tracks(
                         tr('phase_b.completos_packet_based_packet_count_paquetes_pista', packet_count=complete_track.packet_count, p2=lang_norm.capitalize())
                     )
             else:
-                reason_complete = tr('phase_b.completos_p1_para_p2', p1='única pista' if not forced_track else 'pista completa', p2=lang_norm.capitalize())
+                reason_complete = tr(
+                    'phase_b.completos_p1_para_p2',
+                    p1=tr('phase_b.unica_pista' if not forced_track
+                          else 'phase_b.pista_completa'),
+                    p2=lang_norm.capitalize())
             # Si hay alternativas ambiguas (otras pistas del mismo idioma
             # con tamaño similar al elegido, ratio <3×), avisar en la
             # incluida — la heurística no puede decidir cuál es la
