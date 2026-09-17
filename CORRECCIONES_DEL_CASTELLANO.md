@@ -301,3 +301,54 @@ aparecieron dos matices que conviene dejar por escrito:
   interfaz: es el literal de pista de la spec y acaba en el nombre de las
   pistas del MKV. Que siga el idioma de la app es una decisión distinta y va
   con el bloque de selección de pistas, que sigue pendiente.
+
+## 8. La preposición y el artículo no contraen: «extraídos de el MPLS»
+
+Lo destapó el usuario el 2026-09-17 leyendo la ficha de un proyecto antiguo
+de Tab 1: **«8 capítulos extraídos de el MPLS del episodio»**. No es un
+defecto de la migración — el fuente de `pre-i18n` ya decía
+`f"{len(chapters)} capítulos extraídos de {ep_origin_label}"` con
+`ep_origin_label = "el MPLS del episodio"`.
+
+La causa es estructural y no se arregla con una tilde: **el fragmento lleva
+el artículo y la plantilla lleva la preposición**, así que se encuentran sin
+contraer. Y el mismo fragmento se usa con DOS preposiciones distintas
+(`de {origen}` en dos mensajes y `a {origen}` en otros dos), así que no se
+puede mover la preposición al fragmento: `de` + `el` da `del` pero `a` + `el`
+da `al`.
+
+Medido con un detector sobre el AST —las 97 composiciones en las que un
+`tr()` rellena un parámetro de otro `tr()`, renderizadas y buscando
+`de el` / `a el` (y en catalán también `de els` / `per el`)— salen **once**:
+
+| lengua | rendido | dónde |
+|---|---|---|
+| es | `{n} capítulos extraídos de el MPLS del episodio` | `tab1.py:1922` |
+| es | `{n} capítulos extraídos de el fichero M2TS` | `tab1.py:1922` |
+| es | `No se pudo determinar la duración de el disco` | `tab1.py:890` |
+| es | `No se pudo determinar la duración de el fichero M2TS` | `tab1.py:890` |
+| ca | `{n} capítols extrets de el fitxer M2TS` | `tab1.py:1922` |
+| ca | `Sense capítols a el disc — generats automàticament…` | `tab1.py:885` |
+| ca | `Sense capítols a el fitxer M2TS — generats automàticament…` | `tab1.py:885` |
+| ca | `Sense capítols a el fitxer M2TS — generats cada 10 min` | `tab1.py:1928` |
+| ca | `No s'ha pogut determinar la durada de el disc` | `tab1.py:890` |
+| ca | `No s'ha pogut determinar la durada de el fitxer M2TS` | `tab1.py:890` |
+| ca | `Enquadrament VARIABLE a el bin — típic d'un màster…` | `cmv40_pipeline.py:3176` |
+
+**Ojo con el detector**: `de los` NO contrae en castellano, así que las dos
+apariciones de «merge selectivo de los levels» de `cmv40_pipeline` son
+falsos positivos. El patrón correcto en castellano es solo `de el` y `a el`.
+
+**El arreglo es partir las claves**, una por (mensaje × origen) —nueve
+claves en lugar de cuatro plantillas más tres fragmentos—, que es el mismo
+criterio que ya se aplicó a los plurales irregulares (`_uno` / `_varios`, §5)
+y por la misma razón: un hueco no puede llevar dentro algo que cambie la
+palabra de al lado. Reordenar la preposición no vale, porque
+`de l'MPLS` y `del fitxer` no salen de la misma plantilla — el catalán elide
+ante vocal y `MPLS` empieza por una.
+
+**No está aplicado**: cambia el castellano que se ve (de «de el disco» a
+«del disco»), así que necesita el visto bueno del usuario, y arrastra
+`golden_castellano.json` —las cuatro plantillas están capturadas byte a
+byte— con su entrada en `EXCEPCIONES`. Las siete del catalán salen gratis en
+la misma pasada.

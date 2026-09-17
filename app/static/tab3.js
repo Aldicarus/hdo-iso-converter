@@ -1269,7 +1269,7 @@ function _cmv40RenderRecommendation(data, containerId) {
     const viaLabel = data.match_source === 'tmdb' ? 'TMDb' : data.match_source;
     metaHtml = `<div class="cmv40-rec-meta">
       <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.similitud_entre_el_titulo_del_fichero">${tr('tab3.pct_match', {pct: pct})}</span>
-      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.fuente_del_matching_tmdb_traduce_es">vía ${escHtml(viaLabel)}</span>
+      <span class="cmv40-rec-meta-tag" data-i18n-tip="tab3.fuente_del_matching_tmdb_traduce_es">${tr('tab3.via_fuente', {fuente: escHtml(viaLabel)})}</span>
     </div>`;
   }
 
@@ -3375,7 +3375,7 @@ function _renderCMv40RecommendationCard(s, pid) {
   // que tabla HTML y sin riesgo de solape. Padding fijo + line-height claro.
   const techRows = [];
   if (s.target_l8_unique_count) {
-    techRows.push({ label: 'Combos L8', value: String(s.target_l8_unique_count) });
+    techRows.push({ label: tr('tab3.combos_l8'), value: String(s.target_l8_unique_count) });
   }
   if (s.target_l8_neutral_frames_pct != null && s.target_frames_analyzed) {
     const worked = (1.0 - s.target_l8_neutral_frames_pct) * 100;

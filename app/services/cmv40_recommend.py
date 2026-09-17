@@ -488,14 +488,62 @@ def _relevant_rows(match_rows: list[SheetMatchRow]) -> list[SheetMatchRow]:
     return [r for r in match_rows if r.feasible or r.applies_to_our_workflow]
 
 
+def textos_del_veredicto(
+    status: str,
+    blockers: list[str] | None,
+    aplican_a_nuestro_flujo: bool,
+) -> tuple[str, str]:
+    """El rótulo y el detalle del veredicto, derivados del ESTADO.
+
+    Devuelve `(verdict_label, verdict_detail)`.
+
+    Existe porque el veredicto se persiste en `session.sheet_recommendation`
+    al crear el proyecto, y hasta ahora se persistía **redactado**: un
+    proyecto creado con la app en castellano seguía diciendo «Factible» y
+    «El sheet confirma que el bloque CMv4.0 se puede restaurar…» con la app
+    en inglés. Lo reportó el usuario sobre un proyecto de su histórico.
+
+    Los tres argumentos son neutros y ya están en la sesión (`status`,
+    `blockers` —ids como `p8_only`— y `blockers_apply_to_our_workflow`),
+    así que el texto se rehace al servirlo y no hay que migrar nada.
+
+    `aplican_a_nuestro_flujo` es lo que distingue las DOS variantes de
+    `caveats`: con impedimentos que nos afectan es «viable con avisos», y
+    sin ellos es la fila de la sección «Not Sure!».
+    """
+    blockers = blockers or []
+    if status == "recommended":
+        return (tr('cmv40_recommend.factible'),
+                tr('cmv40_recommend.el_sheet_confirma_que_el_bloque_cmv4'))
+    if status == "caveats":
+        if aplican_a_nuestro_flujo:
+            labels = [blocker_label(b) for b in blockers if b != BLOCKER_P8_ONLY]
+            return (tr('cmv40_recommend.viable_con_avisos'),
+                    tr('cmv40_recommend.el_sheet_documenta_la_ruta_de_restore', p1=" · ".join(labels)))
+        return (tr('cmv40_recommend.probablemente_ok'),
+                tr('cmv40_recommend.el_sheet_lo_cataloga_como_not_sure'))
+    if status == "p8_only_note":
+        return (tr('cmv40_recommend.no_convertible_a_p8_1'),
+                tr('cmv40_recommend.el_unico_impedimento_que_documenta_el_sheet'))
+    if status == "not_feasible":
+        labels = [blocker_label(b) for b in blockers]
+        return (tr('cmv40_recommend.no_recomendado'),
+                tr('cmv40_recommend.motivos_que_si_afectan_al_resultado_p1', p1=" · ".join(labels)))
+    return (tr('cmv40_recommend.sin_datos'), "")
+
+
 def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
     """Veredicto para el flujo de esta app (que preserva el FEL).
+
+    Decide el `status`; el texto lo pone `textos_del_veredicto`, que es el
+    único sitio que lo escribe — así la sesión persistida y lo que se sirve
+    no pueden divergir.
 
     Returns:
         (status, verdict_label, verdict_detail)
     """
     if not match_rows:
-        return "unknown", tr('cmv40_recommend.sin_datos'), ""
+        return ("unknown", *textos_del_veredicto("unknown", [], False))
 
     feasible_rows = [r for r in match_rows if r.feasible]
     infeasible_rows = [r for r in match_rows if not r.feasible]
@@ -505,26 +553,22 @@ def _build_verdict(match_rows: list[SheetMatchRow]) -> tuple[str, str, str]:
     if feasible_rows:
         only_probably_ok = all(r.section == "probably_ok" for r in feasible_rows)
         if relevant:
-            labels = [blocker_label(b) for b in all_blockers
-                      if b != BLOCKER_P8_ONLY]
-            return ("caveats", tr('cmv40_recommend.viable_con_avisos'),
-                    tr('cmv40_recommend.el_sheet_documenta_la_ruta_de_restore', p1=" · ".join(labels)))
-        if only_probably_ok:
-            return ("caveats", tr('cmv40_recommend.probablemente_ok'),
-                    tr('cmv40_recommend.el_sheet_lo_cataloga_como_not_sure'))
-        # Si además hay filas cuyo único impedimento es la conversión a P8.1,
-        # no se mencionan: hablan de una ruta que esta app no ejecuta y su
-        # única aportación sería ruido.
-        return ("recommended", tr('cmv40_recommend.factible'),
-                tr('cmv40_recommend.el_sheet_confirma_que_el_bloque_cmv4'))
+            status = "caveats"
+        elif only_probably_ok:
+            # Misma `status` que la de arriba, y el texto lo separa
+            # `relevant` — que aquí es False.
+            status = "caveats"
+        else:
+            # Si además hay filas cuyo único impedimento es la conversión a
+            # P8.1, no se mencionan: hablan de una ruta que esta app no
+            # ejecuta y su única aportación sería ruido.
+            status = "recommended"
+    elif all_blockers and not relevant:
+        status = "p8_only_note"
+    else:
+        status = "not_feasible"
 
-    # Solo filas no factibles
-    if all_blockers and not relevant:
-        return ("p8_only_note", tr('cmv40_recommend.no_convertible_a_p8_1'),
-                tr('cmv40_recommend.el_unico_impedimento_que_documenta_el_sheet'))
-    labels = [blocker_label(b) for b in all_blockers]
-    return ("not_feasible", tr('cmv40_recommend.no_recomendado'),
-            tr('cmv40_recommend.motivos_que_si_afectan_al_resultado_p1', p1=" · ".join(labels)))
+    return (status, *textos_del_veredicto(status, all_blockers, relevant))
 
 
 def _threshold_for(best: RecommendationRow | None, year: int | None) -> float:

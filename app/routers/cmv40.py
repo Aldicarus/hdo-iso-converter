@@ -2523,6 +2523,62 @@ _CMV40_FAKE_ARTIFACT_SIZES = {
 }
 
 
+def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
+    """Rehace en el idioma de AHORA el texto que la sesión trae redactado.
+
+    La sesión de un proyecto CMv4.0 persiste dos textos que no son un
+    registro de lo que pasó sino la explicación de un estado: el veredicto
+    de la hoja de DoviTools (`sheet_recommendation.verdict_label/detail`,
+    escrito al crear el proyecto) y la recomendación del modelo de cuatro
+    caminos (`recommended_action_label/reason`, escrita en el pre-flight).
+    Los dos se redactaron una vez, así que un proyecto de hace meses decía
+    «Factible», «El sheet confirma que el bloque CMv4.0 se puede
+    restaurar…» e «Inyectar RPU CMv4.0 (rápido)» con la app en inglés. Lo
+    reportó el usuario sobre un proyecto de su histórico.
+
+    Es el mismo criterio que con la caché de auditorías de Tab 2: **lo que
+    se persiste y manda son las DECISIONES y los números** —`status`,
+    `blockers`, `recommended_action`—, que son ids neutros; la prosa se
+    deriva de ellos al servirla. Así no hay que migrar ningún `/config`.
+
+    **No se persiste nada** y **no se cambia ninguna decisión**: si
+    `recommend_action` sobre la sesión de hoy resolviera otra acción que la
+    guardada (una recalibración de `compare_l2`, por ejemplo), el rótulo se
+    deja como está — describiría una decisión distinta de la que la UI
+    tiene al lado, y eso es peor que tenerlo en el otro idioma.
+
+    Que falle no puede costar la petición: quedarse con el texto viejo es
+    un inconveniente, no ver el proyecto no lo es.
+    """
+    try:
+        from phases.rpu_analyze import recommend_action
+        accion, rotulo, motivo = recommend_action(session)
+        if not session.recommended_action or accion == session.recommended_action:
+            data["recommended_action_label"] = rotulo
+            data["recommended_action_reason"] = motivo
+    except Exception as e:
+        _logger.warning("No se pudo rehacer la recomendación de %s: %s",
+                        session.session_id, e)
+
+    try:
+        hoja = data.get("sheet_recommendation")
+        if isinstance(hoja, dict) and hoja.get("status"):
+            from services.cmv40_recommend import textos_del_veredicto
+            rotulo, detalle = textos_del_veredicto(
+                str(hoja.get("status") or ""),
+                list(hoja.get("blockers") or []),
+                bool(hoja.get("blockers_apply_to_our_workflow")),
+            )
+            # Copia: `model_dump` puede devolver el mismo dict que la sesión
+            # tiene en memoria, y esto no debe tocar la sesión.
+            data["sheet_recommendation"] = {
+                **hoja, "verdict_label": rotulo, "verdict_detail": detalle,
+            }
+    except Exception as e:
+        _logger.warning("No se pudo rehacer el veredicto de la hoja de %s: %s",
+                        session.session_id, e)
+
+
 @router.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
 async def cmv40_get(session_id: str, include_log: bool = True):
     """Detalle completo de un proyecto CMv4.0.
@@ -2669,6 +2725,8 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     # mano en app.js (la regla de trust, once veces y en dos variantes). Cada
     # réplica se desincroniza en silencio de la tabla que manda.
     data["plan"] = resolve_plan(session).to_dict()
+    # El texto derivado se rehace al servirlo — ver el docstring.
+    _cmv40_refrescar_textos_derivados(session, data)
     return data
 
 

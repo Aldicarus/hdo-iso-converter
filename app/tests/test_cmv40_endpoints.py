@@ -595,3 +595,82 @@ class TestListadoYResumen(ApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElTextoDerivadoNoCongelaElIdioma(ApiTestCase):
+    """La sesión trae el veredicto y la recomendación ya REDACTADOS.
+
+    Los escriben el modal de creación y el pre-flight, así que un proyecto
+    de hace meses seguía diciendo «Factible», «El sheet confirma que el
+    bloque CMv4.0 se puede restaurar…» e «Inyectar RPU CMv4.0 (rápido)»
+    con la app en inglés. Lo reportó el usuario sobre un proyecto de su
+    histórico el 2026-09-17.
+
+    `GET /api/cmv40/{id}` los rehace de los ids neutros que la sesión sí
+    guarda (`status`, `blockers`, `recommended_action`). Sin este test,
+    quitar esa llamada deja la suite en verde.
+    """
+
+    def _idioma(self, cual: str):
+        import i18n
+        from unittest import mock
+        return mock.patch.object(i18n, "idioma_activo", lambda: cual)
+
+    def _proyecto(self):
+        return self.crear_sesion(
+            sheet_recommendation={
+                "status": "recommended",
+                "blockers": [],
+                "blockers_apply_to_our_workflow": False,
+                "verdict_label": "Factible",
+                "verdict_detail": "El sheet confirma que el bloque CMv4.0 "
+                                  "se puede restaurar sobre el RPU.",
+            },
+            recommended_action="keep",
+            recommended_action_label="Mantener MKV actual",
+            recommended_action_reason="El bin no está validado.",
+        )
+
+    def test_el_veredicto_de_la_hoja_se_rehace(self):
+        sid = self._proyecto()
+        with self._idioma("en"):
+            hoja = self.client.get(f"/api/cmv40/{sid}").json()["sheet_recommendation"]
+        self.assertEqual(hoja["verdict_label"], "Feasible")
+        self.assertNotIn("confirma", hoja["verdict_detail"])
+        # El estado y los blockers son datos: no se tocan.
+        self.assertEqual(hoja["status"], "recommended")
+
+    def test_en_castellano_dice_lo_mismo_que_antes(self):
+        sid = self._proyecto()
+        with self._idioma("es"):
+            hoja = self.client.get(f"/api/cmv40/{sid}").json()["sheet_recommendation"]
+        self.assertEqual(hoja["verdict_label"], "Factible")
+
+    def test_la_recomendacion_se_rehace(self):
+        sid = self._proyecto()
+        with self._idioma("en"):
+            d = self.client.get(f"/api/cmv40/{sid}").json()
+        self.assertNotEqual(d["recommended_action_label"], "Mantener MKV actual")
+        # La DECISIÓN sigue siendo la persistida.
+        self.assertEqual(d["recommended_action"], "keep")
+
+    def test_no_se_persiste_nada(self):
+        """Servir en inglés no puede reescribir el /config del usuario."""
+        sid = self._proyecto()
+        with self._idioma("en"):
+            self.client.get(f"/api/cmv40/{sid}")
+        s = self.leer_sesion(sid)
+        self.assertEqual(s.recommended_action_label, "Mantener MKV actual")
+        self.assertEqual(s.sheet_recommendation["verdict_label"], "Factible")
+
+    def test_si_la_accion_ya_no_coincide_el_rotulo_no_se_toca(self):
+        """Un rótulo que describa otra decisión es peor que otro idioma."""
+        sid = self.crear_sesion(
+            recommended_action="drop_in",
+            recommended_action_label="ROTULO PERSISTIDO",
+            recommended_action_reason="MOTIVO PERSISTIDO",
+        )
+        # Sin bin validado, `recommend_action` resuelve "keep" ≠ "drop_in".
+        with self._idioma("en"):
+            d = self.client.get(f"/api/cmv40/{sid}").json()
+        self.assertEqual(d["recommended_action_label"], "ROTULO PERSISTIDO")
