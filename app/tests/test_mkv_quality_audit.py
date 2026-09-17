@@ -16,8 +16,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from phases.mkv_analyze import (  # noqa: E402
     _build_quality_audit_from_rpu_analysis,
     _compute_provenance_hints,
+    regenerar_textos_del_veredicto,
 )
-from phases.rpu_analyze import RpuAnalysis  # noqa: E402
+import i18n  # noqa: E402
+from unittest import mock  # noqa: E402
+
+
+def idioma(cual: str):
+    """Fija el idioma del servidor durante el bloque.
+
+    El idioma sale de `settings_store.get_idioma()`, o sea del `/config` de
+    la instalación; en un test se parchea el resolutor, que es el único
+    sitio que lo dice.
+    """
+    return mock.patch.object(i18n, "idioma_activo", lambda: cual)
+from phases.rpu_analyze import RpuAnalysis, numeros_de_l8  # noqa: E402
 from models import L8Combo  # noqa: E402
 
 
@@ -113,47 +126,47 @@ class TestProvenanceHints(unittest.TestCase):
                         mid_c=True, clip=True)
         flags = {"has_l4": False, "has_l9": True, "has_l10": True,
                  "has_l11": True, "has_l254": True}
-        hints = _compute_provenance_hints(rpu, "real", "full", flags, False)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "real", "full", flags, False)
         self.assertTrue(any("nativo CMv4.0 reciente" in h for h in hints))
         self.assertTrue(any("Metadata DV completa" in h for h in hints))
 
     def test_synthetic_bin_no_l4(self):
         rpu = _make_rpu(l8=1, neutral=1.0, cmv40_frames=100)
         flags = {"has_l4": False, "has_l11": False}
-        hints = _compute_provenance_hints(rpu, "default", "", flags, False)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "default", "", flags, False)
         self.assertTrue(any("sintético" in h.lower() for h in hints))
         self.assertTrue(any("Sin L11" in h for h in hints))
 
     def test_converted_bin_with_l4(self):
         rpu = _make_rpu(l8=2, neutral=0.96, cmv40_frames=100)
         flags = {"has_l4": True, "has_l11": False}
-        hints = _compute_provenance_hints(rpu, "default", "", flags, False)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "default", "", flags, False)
         self.assertTrue(any("convertido" in h.lower() for h in hints))
 
     def test_cmv4_pre_l11_master(self):
         rpu = _make_rpu(l8=2547, neutral=0.11, scene_cuts=1487, mid_c=True)
         flags = {"has_l4": False, "has_l9": True, "has_l10": True,
                  "has_l11": False, "has_l254": True}
-        hints = _compute_provenance_hints(rpu, "real", "full", flags, False)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "real", "full", flags, False)
         self.assertTrue(any("pre-L11" in h or "pre-IQ" in h for h in hints))
 
     def test_cmv29_native_with_l2(self):
         rpu = _make_rpu(l2=73, l2_pqs=[62, 2081, 2851, 3079])
         flags = {"has_l4": False}
-        hints = _compute_provenance_hints(rpu, "real", "", flags, True)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "real", "", flags, True)
         self.assertTrue(any("CMv2.9 puro" in h for h in hints))
         self.assertTrue(any("trabajado por colorista" in h for h in hints))
 
     def test_cmv29_with_l4_compat(self):
         rpu = _make_rpu(l2=15, l2_pqs=[100, 1000])
         flags = {"has_l4": True}
-        hints = _compute_provenance_hints(rpu, "real", "", flags, True)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "real", "", flags, True)
         self.assertTrue(any("L4 presente" in h for h in hints))
 
     def test_no_flags_no_hints(self):
         """Si dv_flags vacío, no peta y devuelve hints solo basados en classifier."""
         rpu = _make_rpu(l8=1, neutral=1.0, cmv40_frames=100)
-        hints = _compute_provenance_hints(rpu, "default", "", {}, False)
+        hints = _compute_provenance_hints(numeros_de_l8(rpu), "default", "", {}, False)
         # Siempre hay al menos 1 (default → "Bin sintético" o "Bin convertido")
         self.assertTrue(len(hints) >= 1)
 
@@ -297,3 +310,80 @@ class TestCancelByAuditId(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElVeredictoCacheadoNoCongelaElIdioma(unittest.TestCase):
+    """La caché de `/config/mkv_audits/` guarda el veredicto como TEXTO.
+
+    Un MKV auditado con la app en castellano seguía diciendo «CMv2.9
+    estándar — trims básicos del master» con la app en inglés, porque el
+    bloque `quality` se reinyecta tal cual en el `DoviInfo`. Lo reportó el
+    usuario sobre su histórico el 2026-09-17.
+
+    La salida no es bumpear `CACHE_VERSION_QUALITY` —eso invalida la
+    auditoría de todo el mundo y cuesta ~10 min de `extract-rpu` por MKV—
+    sino re-derivar la prosa de los NÚMEROS, que son neutros y sí están
+    cacheados. Lo que la caché decide sigue decidiéndolo la caché.
+    """
+
+    def _bloque(self, **kw):
+        """Un bloque `quality` como el que hay en disco, con textos ES."""
+        rpu = _make_rpu(**kw)
+        return _build_quality_audit_from_rpu_analysis(rpu, kw.pop("_cmv29", False))
+
+    def test_los_textos_se_rehacen_en_el_idioma_de_ahora(self):
+        # CMv2.9 puro: es el caso del usuario («CMv2.9 estándar — trims
+        # básicos del master» + tier «CMv2.9 CORE»).
+        rpu = _make_rpu(l8=0, cmv40_frames=0, l2=1026, l2_pqs=[2081, 3079])
+        with idioma("es"):
+            en_disco = _build_quality_audit_from_rpu_analysis(rpu, True)
+        # Las dos cadenas que el usuario pegó del navegador, literales.
+        self.assertIn("trims básicos del master", en_disco["quality_verdict_text"])
+        self.assertIn("combos únicos", en_disco["quality_reason"])
+        self.assertEqual("CMv2.9 CORE", en_disco["quality_tier_label"])
+
+        with idioma("en"):
+            servido = regenerar_textos_del_veredicto(en_disco, {})
+        self.assertNotIn("básicos", servido["quality_verdict_text"])
+        self.assertNotIn("únicos", servido["quality_reason"])
+        # El tier es un rótulo neutro y NO cambia: no era una fuga.
+        self.assertEqual("CMv2.9 CORE", servido["quality_tier_label"])
+
+    def test_las_decisiones_cacheadas_no_cambian(self):
+        """Lo que se rehace es la prosa; la clasificación es un dato."""
+        rpu = _make_rpu(l8=1132, neutral=0.0, scene_cuts=2000, mid_c=True, clip=True)
+        with idioma("es"):
+            en_disco = _build_quality_audit_from_rpu_analysis(rpu, False)
+        with idioma("en"):
+            servido = regenerar_textos_del_veredicto(en_disco, {})
+        for k in ("quality_classification", "quality_tier", "quality_verdict_color",
+                  "quality_l8_unique_count", "quality_total_frames_rpu"):
+            self.assertEqual(servido[k], en_disco[k], k)
+        self.assertEqual(servido["quality_tier_label"], "CMv4 FULL")
+
+    def test_un_bloque_sin_clasificacion_no_se_toca(self):
+        """Una auditoría a medias no se reinterpreta: se deja como está."""
+        self.assertEqual(regenerar_textos_del_veredicto({"a": 1}, {}), {"a": 1})
+
+    def test_el_veredicto_regenerado_es_el_mismo_que_el_recien_calculado(self):
+        """Regenerar desde la caché tiene que dar EXACTAMENTE lo que daría
+        un análisis nuevo. Si no, la card cambiaría de contenido al cerrar
+        y reabrir el MKV, que es indistinguible de un bug del classifier."""
+        casos = [
+            dict(l8=1132, neutral=0.0, scene_cuts=2000, mid_c=True, clip=True),
+            dict(l8=69, neutral=0.30, scene_cuts=2887),
+            dict(l8=1119, neutral=0.10, scene_cuts=2617),
+            dict(l8=1, neutral=0.99, scene_cuts=500),
+            dict(l8=5, neutral=0.80, scene_cuts=500),
+            dict(l8=3, neutral=0.20, scene_cuts=100, mid_c=True),
+        ]
+        flags = {"has_l9": True, "has_l11": True, "has_l254": True}
+        for kw in casos:
+            rpu = _make_rpu(**kw)
+            fresco = _build_quality_audit_from_rpu_analysis(rpu, False, dv_flags=flags)
+            self.assertEqual(regenerar_textos_del_veredicto(fresco, flags), fresco, kw)
+        # Y el camino CMv2.9 puro.
+        for l2 in (1026, 40, 12, 4):
+            rpu = _make_rpu(l8=0, cmv40_frames=0, l2=l2, l2_pqs=[2081, 3079, 3696])
+            fresco = _build_quality_audit_from_rpu_analysis(rpu, True, dv_flags=flags)
+            self.assertEqual(regenerar_textos_del_veredicto(fresco, flags), fresco, l2)

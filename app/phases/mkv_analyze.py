@@ -183,6 +183,14 @@ async def analyze_mkv(
                 quality_block = cached.get("quality")
                 if quality_block and result.dovi:
                     if _quality_payload_is_valid(quality_block):
+                        # El veredicto se cacheó como TEXTO, en el idioma que
+                        # la app tenía cuando se auditó el MKV. Los números
+                        # son neutros, así que la prosa se rehace al servirla
+                        # en vez de invalidar el bloque — re-auditar son ~10
+                        # min de extract-rpu por MKV.
+                        quality_block = regenerar_textos_del_veredicto(
+                            quality_block, flags_dv_de(result.dovi),
+                        )
                         for k, v in quality_block.items():
                             if hasattr(result.dovi, k):
                                 setattr(result.dovi, k, v)
@@ -404,7 +412,7 @@ async def analyze_mkv(
 
 
 def _compute_provenance_hints(
-    rpu_analysis,
+    n: dict,
     classification: str,
     tier: str,
     dv_flags: dict,
@@ -416,6 +424,10 @@ def _compute_provenance_hints(
     classifier para emitir frases legibles. Devuelve una lista de strings
     (puede estar vacía si nada concluyente). El frontend las muestra como
     bullets debajo del veredicto.
+
+    `n` son los números de `rpu_analyze.numeros_de_l8` — no el RpuAnalysis,
+    para que las pistas se puedan regenerar desde la caché (ver
+    `_textos_de_calidad`).
 
     Las heurísticas reflejan patrones observados empíricamente:
       - L11 + L254 + CMv4.0 → master nativo reciente
@@ -434,7 +446,7 @@ def _compute_provenance_hints(
 
     if is_cmv29_only:
         hints.append(tr('mkv_analyze.rpu_cmv2_9_puro_blu_ray_original'))
-        if rpu_analysis.l2_unique_count >= 30:
+        if n["l2_unique_count"] >= 30:
             hints.append(tr('mkv_analyze.l2_trabajado_por_colorista_grading_dinamico_nativo'))
         if has_l4:
             hints.append(tr('mkv_analyze.l4_presente_compat_trim_legacy'))
@@ -472,44 +484,89 @@ def _compute_provenance_hints(
     return hints
 
 
-def _build_quality_audit_from_rpu_analysis(
-    rpu_analysis,
-    is_cmv29_only: bool,
-    dv_flags: dict | None = None,
-) -> dict:
-    """Construye el dict de campos quality_* a partir de un RpuAnalysis.
+# Los campos del bloque `quality` que son TEXTO — los que `_textos_de_calidad`
+# regenera. Van juntos aquí porque son exactamente los que NO se pueden
+# confiar a la caché: se escribieron en el idioma que la app tenía cuando se
+# hizo el análisis, y el análisis cuesta ~10 min por MKV.
+CAMPOS_DE_TEXTO_DEL_VEREDICTO = (
+    "quality_reason",
+    "quality_tier_label",
+    "quality_tier_description",
+    "quality_verdict_text",
+    "quality_verdict_color",
+    "quality_provenance_hints",
+)
 
-    Devuelve un dict ya con shape para inyectar en DoviInfo.model_validate(
-    {**dovi_existing, **quality_dict}). Centraliza la lógica de verdict
-    text/color para que el frontend reciba un payload coherente sin
-    re-implementar el árbol de decisión en JavaScript.
 
-    is_cmv29_only: True si el RPU NO tiene bloques CMv4.0 (l8_unique_count==0
-    Y frames_with_cmv40==0). En ese caso el veredicto se basa en L2.
+def flags_dv_de(dovi) -> dict:
+    """Los has_l* que las pistas de procedencia necesitan, de un DoviInfo.
 
-    dv_flags: dict opcional con has_l4/has_l9/has_l10/has_l11/has_l254 del
-    análisis básico (DoviInfo enriquecido por _enrich_dovi_from_json_export).
-    Si se pasa, se calculan provenance_hints — si no, lista vacía.
+    El camino del análisis los saca del bloque `basic` de la caché (en
+    `routers/tab2`); al servir una auditoría cacheada ya están en el
+    `DoviInfo` reconstruido, y tienen que ser los MISMOS seis o las pistas
+    regeneradas no coincidirían con las que se guardaron.
     """
-    from phases.rpu_analyze import classify_l8, classify_l8_quality
-
-    base = {
-        "quality_total_frames_rpu": rpu_analysis.total_frames,
-        "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
-        "quality_scene_cuts": rpu_analysis.scene_cuts,
-        "quality_l2_unique_count": rpu_analysis.l2_unique_count,
-        "quality_l2_target_pqs": list(rpu_analysis.l2_target_pqs),
-        "quality_l8_unique_count": rpu_analysis.l8_unique_count,
-        "quality_l8_neutral_pct": rpu_analysis.l8_neutral_pct,
-        "quality_l8_has_mid_contrast": rpu_analysis.l8_has_mid_contrast,
-        "quality_l8_has_clip_trim": rpu_analysis.l8_has_clip_trim,
+    return {
+        "has_l3":   bool(getattr(dovi, "has_l3", False)),
+        "has_l4":   bool(getattr(dovi, "has_l4", False)),
+        "has_l9":   bool(getattr(dovi, "has_l9", False)),
+        "has_l10":  bool(getattr(dovi, "has_l10", False)),
+        "has_l11":  bool(getattr(dovi, "has_l11", False)),
+        "has_l254": bool(getattr(dovi, "has_l254", False)),
     }
+
+
+def numeros_del_bloque_quality(q: dict) -> dict:
+    """Traduce el bloque `quality` de la caché a los números de `rpu_analyze`.
+
+    La caché lleva los nombres con prefijo (`quality_l8_unique_count`) y las
+    funciones puras del classifier los usan sin él; `quality_l2_target_pqs`
+    además se guarda como lista y lo que se mira es cuántas hay.
+    """
+    return {
+        "frames_with_cmv40": q.get("quality_frames_with_cmv40") or 0,
+        "scene_cuts": q.get("quality_scene_cuts") or 0,
+        "l8_unique_count": q.get("quality_l8_unique_count") or 0,
+        "l8_neutral_pct": q.get("quality_l8_neutral_pct") or 0.0,
+        "l8_has_mid_contrast": bool(q.get("quality_l8_has_mid_contrast")),
+        "l8_has_clip_trim": bool(q.get("quality_l8_has_clip_trim")),
+        "l2_unique_count": q.get("quality_l2_unique_count") or 0,
+        "l2_target_pqs": len(q.get("quality_l2_target_pqs") or []),
+    }
+
+
+def _textos_de_calidad(
+    n: dict,
+    classification: str,
+    tier: str,
+    is_cmv29_only: bool,
+    dv_flags: dict,
+) -> dict:
+    """Los seis campos de TEXTO del veredicto, derivados de los números.
+
+    Es el único sitio que los escribe, y se llama desde los dos caminos: al
+    terminar la auditoría y al servir una auditoría cacheada. Esto último es
+    el motivo de que exista: `/config/mkv_audits/` guarda el veredicto como
+    texto, así que un MKV analizado con la app en castellano seguía diciendo
+    «CMv2.9 estándar — trims básicos del master» con la app en inglés. Los
+    NÚMEROS sí son neutros, y de ellos sale todo esto.
+
+    La alternativa era bumpear `CACHE_VERSION_QUALITY`, que invalida las
+    auditorías de todos los usuarios y cuesta ~10 min de `extract-rpu` por
+    MKV al reabrirlo — pagar un re-análisis por un cambio de idioma.
+
+    `classification` y `tier` llegan YA decididos (los decide el classifier
+    con los combos delante, y la caché los persiste). Aquí solo se explica
+    lo que ya está decidido; si esto los recalculara, un bloque cacheado
+    podría cambiar de veredicto al leerlo.
+    """
+    from phases.rpu_analyze import motivo_de_l8, tier_de_l8
 
     if is_cmv29_only:
         # RPU CMv2.9 puro: el veredicto es sobre L2 (Tier 1 del modelo).
         # Mismo umbral cualitativo: muchos combos = master nativo; pocos = generado.
-        l2_count = rpu_analysis.l2_unique_count
-        l2_pqs = len(rpu_analysis.l2_target_pqs)
+        l2_count = n["l2_unique_count"]
+        l2_pqs = n["l2_target_pqs"]
         if l2_count >= 30 and l2_pqs >= 3:
             verdict = tr('mkv_analyze.veredicto_cmv29_nativo')
             color = "green"
@@ -527,24 +584,19 @@ def _build_quality_audit_from_rpu_analysis(
             color = "red"
             reason = tr('mkv_analyze.motivo_cmv29_minimo', combos=l2_count)
             tier_label = "CMv2.9 MIN"
-        classification_cmv29 = "real" if l2_count >= 10 else "default"
         return {
-            **base,
-            "quality_classification": classification_cmv29,
             "quality_reason": reason,
-            "quality_tier": "",  # tiers son solo CMv4.0
             "quality_tier_label": tier_label,
             "quality_tier_description": reason,
             "quality_verdict_text": verdict,
             "quality_verdict_color": color,
             "quality_provenance_hints": _compute_provenance_hints(
-                rpu_analysis, classification_cmv29, "", dv_flags or {}, True,
+                n, classification, "", dv_flags or {}, True,
             ),
         }
 
-    # CMv4.0: aplica el classifier de Tab 3 íntegro.
-    classification, reason = classify_l8(rpu_analysis)
-    tier, tier_label, tier_desc = classify_l8_quality(rpu_analysis)
+    reason = motivo_de_l8(n, classification)
+    _, tier_label, tier_desc = tier_de_l8(n, classification)
 
     if classification == "real" and tier == "full":
         verdict = tr('mkv_analyze.veredicto_cmv40_full')
@@ -567,17 +619,88 @@ def _build_quality_audit_from_rpu_analysis(
         color = "gray"
 
     return {
-        **base,
-        "quality_classification": classification,
         "quality_reason": reason,
-        "quality_tier": tier,
         "quality_tier_label": tier_label,
         "quality_tier_description": tier_desc,
         "quality_verdict_text": verdict,
         "quality_verdict_color": color,
         "quality_provenance_hints": _compute_provenance_hints(
-            rpu_analysis, classification, tier, dv_flags or {}, False,
+            n, classification, tier, dv_flags or {}, False,
         ),
+    }
+
+
+def regenerar_textos_del_veredicto(q: dict, dv_flags: dict | None = None) -> dict:
+    """Devuelve el bloque `quality` con sus textos rehechos en el idioma de ahora.
+
+    Lo que la caché conserva y se respeta son las DECISIONES
+    (`quality_classification`, `quality_tier`) y los números; lo que se
+    rehace es la prosa. Si el bloque no trae clasificación no se toca nada:
+    es una auditoría a medias y `_quality_payload_is_valid` ya la descarta.
+    """
+    if not isinstance(q, dict) or not q.get("quality_classification"):
+        return q
+    n = numeros_del_bloque_quality(q)
+    is_cmv29_only = n["frames_with_cmv40"] == 0 and n["l8_unique_count"] == 0
+    return {
+        **q,
+        **_textos_de_calidad(
+            n,
+            str(q.get("quality_classification") or ""),
+            str(q.get("quality_tier") or ""),
+            is_cmv29_only,
+            dv_flags or {},
+        ),
+    }
+
+
+def _build_quality_audit_from_rpu_analysis(
+    rpu_analysis,
+    is_cmv29_only: bool,
+    dv_flags: dict | None = None,
+) -> dict:
+    """Construye el dict de campos quality_* a partir de un RpuAnalysis.
+
+    Devuelve un dict ya con shape para inyectar en DoviInfo.model_validate(
+    {**dovi_existing, **quality_dict}). Centraliza la lógica de verdict
+    text/color para que el frontend reciba un payload coherente sin
+    re-implementar el árbol de decisión en JavaScript.
+
+    is_cmv29_only: True si el RPU NO tiene bloques CMv4.0 (l8_unique_count==0
+    Y frames_with_cmv40==0). En ese caso el veredicto se basa en L2.
+
+    dv_flags: dict opcional con has_l4/has_l9/has_l10/has_l11/has_l254 del
+    análisis básico (DoviInfo enriquecido por _enrich_dovi_from_json_export).
+    Si se pasa, se calculan provenance_hints — si no, lista vacía.
+    """
+    from phases.rpu_analyze import classify_l8, classify_l8_quality, numeros_de_l8
+
+    base = {
+        "quality_total_frames_rpu": rpu_analysis.total_frames,
+        "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
+        "quality_scene_cuts": rpu_analysis.scene_cuts,
+        "quality_l2_unique_count": rpu_analysis.l2_unique_count,
+        "quality_l2_target_pqs": list(rpu_analysis.l2_target_pqs),
+        "quality_l8_unique_count": rpu_analysis.l8_unique_count,
+        "quality_l8_neutral_pct": rpu_analysis.l8_neutral_pct,
+        "quality_l8_has_mid_contrast": rpu_analysis.l8_has_mid_contrast,
+        "quality_l8_has_clip_trim": rpu_analysis.l8_has_clip_trim,
+    }
+    n = numeros_de_l8(rpu_analysis)
+
+    if is_cmv29_only:
+        classification = "real" if rpu_analysis.l2_unique_count >= 10 else "default"
+        tier = ""  # tiers son solo CMv4.0
+    else:
+        # CMv4.0: aplica el classifier de Tab 3 íntegro.
+        classification, _ = classify_l8(rpu_analysis)
+        tier, _, _ = classify_l8_quality(rpu_analysis)
+
+    return {
+        **base,
+        "quality_classification": classification,
+        "quality_tier": tier,
+        **_textos_de_calidad(n, classification, tier, is_cmv29_only, dv_flags or {}),
     }
 
 

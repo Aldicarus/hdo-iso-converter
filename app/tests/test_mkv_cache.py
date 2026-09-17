@@ -412,3 +412,82 @@ class TestListMkvAuditEntries(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── El idioma del veredicto cacheado ─────────────────────────────────
+
+class TestElVeredictoCacheadoSeSirveEnElIdiomaDeAhora(
+        unittest.IsolatedAsyncioTestCase):
+    """El cableado: abrir un MKV ya auditado tiene que hablar el idioma de hoy.
+
+    `TestElVeredictoCacheadoNoCongelaElIdioma` (en
+    `test_mkv_quality_audit`) prueba la función pura; esto prueba que
+    `analyze_mkv` la llama al servir el cache hit — que es lo que el
+    usuario ve. Sin este test, quitar la llamada del camino de la caché
+    deja la suite en verde.
+
+    No hace falta ningún binario falso: un cache hit de `basic` retorna
+    antes de lanzar mkvmerge.
+    """
+
+    def setUp(self):
+        import i18n
+        from models import DoviInfo, MkvAnalysisResult
+        from phases.mkv_analyze import (
+            CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY,
+            _build_quality_audit_from_rpu_analysis,
+        )
+        from phases.rpu_analyze import RpuAnalysis
+        from unittest import mock
+        self.i18n, self.mock = i18n, mock
+        self.mkv = _make_fake_mkv(b"cacheado" * 2048)
+        self.addCleanup(lambda: self.mkv.unlink(missing_ok=True))
+
+        # El veredicto del usuario: un RPU CMv2.9 puro con 1026 combos L2.
+        rpu = RpuAnalysis()
+        rpu.total_frames, rpu.l2_unique_count = 141336, 1026
+        rpu.l2_target_pqs = [2081, 3079]
+        with mock.patch.object(i18n, "idioma_activo", lambda: "es"):
+            self.quality = _build_quality_audit_from_rpu_analysis(rpu, True)
+        self.es_verdict = self.quality["quality_verdict_text"]
+
+        basic = MkvAnalysisResult(
+            file_path=str(self.mkv), file_name=self.mkv.name,
+            file_size_bytes=self.mkv.stat().st_size,
+            dovi=DoviInfo(**{k: v for k, v in self.quality.items()
+                             if k in DoviInfo.model_fields}),
+        )
+        fp = compute_mkv_fingerprint(str(self.mkv))
+        write_mkv_cache_basic(
+            fingerprint=fp, cache_version_basic=CACHE_VERSION_BASIC,
+            basic_payload=basic.model_dump(mode="json"),
+            cache_version_quality_existing=None, original_file_path=str(self.mkv),
+        )
+        write_mkv_cache_quality(
+            fingerprint=fp, cache_version_basic_existing=CACHE_VERSION_BASIC,
+            cache_version_quality=CACHE_VERSION_QUALITY,
+            quality_payload=self.quality, original_file_path=str(self.mkv),
+        )
+
+    async def _abrir(self, idioma: str):
+        from phases.mkv_analyze import analyze_mkv
+        with self.mock.patch.object(self.i18n, "idioma_activo", lambda: idioma):
+            return await analyze_mkv(str(self.mkv))
+
+    async def test_en_castellano_sale_lo_de_siempre(self):
+        r = await self._abrir("es")
+        self.assertEqual(r.dovi.quality_verdict_text, self.es_verdict)
+
+    async def test_en_ingles_ya_no_sale_el_castellano_del_disco(self):
+        r = await self._abrir("en")
+        self.assertNotEqual(r.dovi.quality_verdict_text, self.es_verdict)
+        self.assertNotIn("básicos", r.dovi.quality_verdict_text)
+        self.assertNotIn("únicos", r.dovi.quality_reason)
+
+    async def test_los_numeros_y_la_clasificacion_siguen_siendo_los_cacheados(self):
+        r = await self._abrir("ca")
+        self.assertEqual(r.dovi.quality_l2_unique_count, 1026)
+        self.assertEqual(r.dovi.quality_total_frames_rpu, 141336)
+        self.assertEqual(r.dovi.quality_classification,
+                         self.quality["quality_classification"])
+        self.assertEqual(r.dovi.quality_tier_label, "CMv2.9 CORE")

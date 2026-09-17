@@ -698,6 +698,137 @@ async def analyze_rpu_combos(
             pass
 
 
+def numeros_de_l8(analysis: RpuAnalysis) -> dict:
+    """Los NÚMEROS de los que dependen el motivo y el tier, sin los combos.
+
+    El veredicto de un RPU se guarda en la caché de Tab 2 como TEXTO, así
+    que un análisis hecho con la app en castellano se servía en castellano
+    para siempre. La salida es no guardar el texto sino re-derivarlo al
+    leer, y para eso hace falta que la explicación dependa solo de lo que
+    la caché sí tiene: estos ocho números.
+
+    `l8_combos` queda fuera a propósito — es la lista completa de combos
+    (miles en un UHD) y no se persiste; lo único que decide es la RAMA
+    «real minimal» de `_clasificacion_de_l8`, cuyo resultado sí está
+    cacheado como `quality_classification`.
+    """
+    return {
+        "frames_with_cmv40": analysis.frames_with_cmv40,
+        "scene_cuts": analysis.scene_cuts,
+        "l8_unique_count": analysis.l8_unique_count,
+        "l8_neutral_pct": analysis.l8_neutral_pct,
+        "l8_has_mid_contrast": analysis.l8_has_mid_contrast,
+        "l8_has_clip_trim": analysis.l8_has_clip_trim,
+        "l2_unique_count": analysis.l2_unique_count,
+        "l2_target_pqs": len(analysis.l2_target_pqs),
+    }
+
+
+def _l8_sin_bloques(n: dict) -> bool:
+    """Sin bloques CMv4.0 → no aplica (caso degenerado, se da por default)."""
+    return n["frames_with_cmv40"] == 0 or n["l8_unique_count"] == 0
+
+
+def _l8_real_por_combos(n: dict) -> bool:
+    """Muchos combos únicos y pocos frames neutros: master trabajado."""
+    return (n["l8_unique_count"] >= L8_REAL_MIN_UNIQUE_COMBOS
+            and n["l8_neutral_pct"] < L8_REAL_MAX_NEUTRAL_PCT)
+
+
+def _l8_sintetico(n: dict) -> bool:
+    """Muy pocos combos únicos (1-2 = look global de conversión al vuelo), O
+    bien mayoría de frames neutros PERO sin alcanzar un nº de combos propio
+    de un master trabajado. El antiguo `OR neutral>=95%` a secas marcaba
+    "default" másters CORE reales de pelis OSCURAS (50+ combos reales, pero
+    la mayoría de frames en escenas oscuras → trims a neutro), recomendando
+    Mantener y descartando un bin válido (audit #3). `combos<=2` sigue
+    siendo disparador INDEPENDIENTE (1-2 combos = sintético siempre, aunque
+    el combo sea no-neutro) para no regresar la detección de bins sintéticos
+    de 1 combo con trim global no-neutro."""
+    return (n["l8_unique_count"] <= L8_DEFAULT_MAX_UNIQUE_COMBOS
+            or (n["l8_neutral_pct"] >= L8_DEFAULT_MIN_NEUTRAL_PCT
+                and n["l8_unique_count"] < L8_REAL_MIN_UNIQUE_COMBOS))
+
+
+def _l8_trim_significativo(combos) -> bool:
+    """¿Algún combo se aparta más de 50 unidades del neutro en algún trim?
+
+    Es lo que separa un master real con look uniforme de un sintético con
+    jitter: los dos tienen pocos combos, y el sintético los tiene todos
+    pegados al 2048.
+    """
+    d = L8_REAL_MINIMAL_SIGNIFICANT_DELTA
+    return any(
+        abs((c.trim_slope or 2048) - 2048) > d
+        or abs((c.trim_offset or 2048) - 2048) > d
+        or abs((c.trim_power or 2048) - 2048) > d
+        or abs((c.trim_saturation_gain or 2048) - 2048) > d
+        for c in combos
+    )
+
+
+def _clasificacion_de_l8(analysis: RpuAnalysis) -> str:
+    """Decide si el bin del target tiene L8 "real", "default" o "indeterminate".
+
+    Es la única parte que necesita la lista de combos, y por eso es la única
+    que no se puede recalcular desde la caché.
+    """
+    n = numeros_de_l8(analysis)
+    if _l8_sin_bloques(n):
+        return "default"
+    if _l8_real_por_combos(n):
+        return "real"
+    # Rama "real minimal": pocos combos pero con campos CMv4.0-only poblados
+    # Y al menos un combo con trim significativo (>50 unidades del neutro).
+    # Casos validados: Black Phone 2 (3 combos, mid_c=2121, clip=2503,
+    # slope+117/+119), Expediente Warren (5 combos, clip=1901, slope=-276,
+    # sat=-410). Sin esta rama caerían en "indeterminate" y la UI los marcaba
+    # como ambiguos cuando son masters reales con look global uniforme.
+    if (n["l8_unique_count"] >= L8_REAL_MINIMAL_MIN_COMBOS
+            and (n["l8_has_mid_contrast"] or n["l8_has_clip_trim"])
+            and analysis.l8_combos
+            and _l8_trim_significativo(analysis.l8_combos)):
+        return "real"
+    if _l8_sintetico(n):
+        return "default"
+    return "indeterminate"
+
+
+def motivo_de_l8(n: dict, classification: str) -> str:
+    """El MOTIVO legible, derivado de los números y de la clasificación ya
+    decidida — nunca al revés.
+
+    Con `classification` dada, la rama que produjo el texto queda
+    determinada por los números: si no es el caso degenerado, un "real"
+    viene de `_l8_real_por_combos` o, si esa no se cumple, de la rama
+    minimal; un "default" viene de `_l8_sintetico`. Así el texto se puede
+    reconstruir desde la caché sin tener los combos delante.
+    """
+    if _l8_sin_bloques(n):
+        return tr('rpu_analyze.el_bin_no_tiene_bloques_l8_cmv4')
+
+    if classification == "real":
+        if _l8_real_por_combos(n):
+            # Refinamiento: detectar perfil "FULL" (mid_contrast + clip_trim
+            # poblados) para emitir motivo descriptivo. No cambia la decisión.
+            if n["l8_has_mid_contrast"] or n["l8_has_clip_trim"]:
+                profile = "FULL"
+            else:
+                profile = "CORE"
+            return tr('rpu_analyze.l8_trabajado_por_colorista_l8_unique_count', l8_unique_count=n["l8_unique_count"], p2=format((1.0 - n["l8_neutral_pct"]) * 100, '.0f'), profile=profile)
+        extras = []
+        if n["l8_has_mid_contrast"]:
+            extras.append("mid_contrast")
+        if n["l8_has_clip_trim"]:
+            extras.append("clip_trim")
+        return tr('rpu_analyze.l8_minimal_trabajado_l8_unique_count_combos', l8_unique_count=n["l8_unique_count"], p2=', '.join(extras))
+
+    if classification == "default":
+        return tr('rpu_analyze.bin_sintetico_l8_unique_count_combos_l8', l8_unique_count=n["l8_unique_count"], p2=format(n["l8_neutral_pct"] * 100, '.0f'))
+
+    return tr('rpu_analyze.l8_ambiguo_l8_unique_count_combos_unicos', l8_unique_count=n["l8_unique_count"], p2=format(n["l8_neutral_pct"] * 100, '.0f'))
+
+
 def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
     """Decide si el bin del target tiene L8 "real" o "default".
 
@@ -710,64 +841,8 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
 
     Umbrales calibrados con 4 bins reales (Bloque 1, sample mayo 2026).
     """
-    # Sin bloques CMv4.0 → no aplica (caso degenerado, se reporta como default)
-    if analysis.frames_with_cmv40 == 0 or analysis.l8_unique_count == 0:
-        return ("default", tr('rpu_analyze.el_bin_no_tiene_bloques_l8_cmv4'))
-
-    if (analysis.l8_unique_count >= L8_REAL_MIN_UNIQUE_COMBOS
-            and analysis.l8_neutral_pct < L8_REAL_MAX_NEUTRAL_PCT):
-        # Refinamiento: detectar perfil "FULL" (mid_contrast + clip_trim poblados)
-        # para emitir motivo descriptivo. No cambia la decisión.
-        if analysis.l8_has_mid_contrast or analysis.l8_has_clip_trim:
-            profile = "FULL"
-        else:
-            profile = "CORE"
-        return ("real",
-                tr('rpu_analyze.l8_trabajado_por_colorista_l8_unique_count', l8_unique_count=analysis.l8_unique_count, p2=format((1.0 - analysis.l8_neutral_pct) * 100, '.0f'), profile=profile))
-
-    # Rama "real minimal": pocos combos pero con campos CMv4.0-only poblados
-    # Y al menos un combo con trim significativo (>50 unidades del neutro).
-    # Casos validados: Black Phone 2 (3 combos, mid_c=2121, clip=2503,
-    # slope+117/+119), Expediente Warren (5 combos, clip=1901, slope=-276,
-    # sat=-410). Sin esta rama caerían en "indeterminate" y la UI los marcaba
-    # como ambiguos cuando son masters reales con look global uniforme.
-    if (analysis.l8_unique_count >= L8_REAL_MINIMAL_MIN_COMBOS
-            and (analysis.l8_has_mid_contrast or analysis.l8_has_clip_trim)
-            and analysis.l8_combos):
-        d = L8_REAL_MINIMAL_SIGNIFICANT_DELTA
-        significant = any(
-            abs((c.trim_slope or 2048) - 2048) > d
-            or abs((c.trim_offset or 2048) - 2048) > d
-            or abs((c.trim_power or 2048) - 2048) > d
-            or abs((c.trim_saturation_gain or 2048) - 2048) > d
-            for c in analysis.l8_combos
-        )
-        if significant:
-            extras = []
-            if analysis.l8_has_mid_contrast:
-                extras.append("mid_contrast")
-            if analysis.l8_has_clip_trim:
-                extras.append("clip_trim")
-            return ("real",
-                    tr('rpu_analyze.l8_minimal_trabajado_l8_unique_count_combos', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)))
-
-    # Default (sintético) si: muy pocos combos únicos (1-2 = look global de
-    # conversión al vuelo), O bien mayoría de frames neutros PERO sin alcanzar
-    # un nº de combos propio de un master trabajado. El antiguo `OR neutral>=95%`
-    # a secas marcaba "default" másters CORE reales de pelis OSCURAS (50+ combos
-    # reales, pero la mayoría de frames en escenas oscuras → trims a neutro),
-    # recomendando Mantener y descartando un bin válido (audit #3). `combos<=2`
-    # sigue siendo disparador INDEPENDIENTE (1-2 combos = sintético siempre,
-    # aunque el combo sea no-neutro) para no regresar la detección de bins
-    # sintéticos de 1 combo con trim global no-neutro.
-    if (analysis.l8_unique_count <= L8_DEFAULT_MAX_UNIQUE_COMBOS
-            or (analysis.l8_neutral_pct >= L8_DEFAULT_MIN_NEUTRAL_PCT
-                and analysis.l8_unique_count < L8_REAL_MIN_UNIQUE_COMBOS)):
-        return ("default",
-                tr('rpu_analyze.bin_sintetico_l8_unique_count_combos_l8', l8_unique_count=analysis.l8_unique_count, p2=format(analysis.l8_neutral_pct * 100, '.0f')))
-
-    return ("indeterminate",
-            tr('rpu_analyze.l8_ambiguo_l8_unique_count_combos_unicos', l8_unique_count=analysis.l8_unique_count, p2=format(analysis.l8_neutral_pct * 100, '.0f')))
+    classification = _clasificacion_de_l8(analysis)
+    return (classification, motivo_de_l8(numeros_de_l8(analysis), classification))
 
 
 # Umbral combos-por-shot para distinguir "CORE+" de "CORE":
@@ -779,6 +854,62 @@ def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
 L8_RICH_COMBOS_PER_SCENE_CUT = 0.1
 # Fallback si no tenemos scene_cuts (raro pero posible): valor absoluto.
 L8_RICH_MIN_COMBOS = 400
+
+
+def tier_de_l8(n: dict, classification: str) -> tuple[str, str, str]:
+    """El tier, su label y su descripción — puros sobre los números.
+
+    No necesita los combos: `classify_l8_quality` solo los usaba para
+    llamar a `classify_l8` y quedarse con la clasificación, que aquí llega
+    ya decidida (y en la caché está persistida).
+    """
+    if classification != "real":
+        return ("", "", "")
+
+    # FULL: el master usa los campos CMv4.0-only
+    if n["l8_has_mid_contrast"] or n["l8_has_clip_trim"]:
+        extras = []
+        if n["l8_has_mid_contrast"]:
+            extras.append("target_mid_contrast")
+        if n["l8_has_clip_trim"]:
+            extras.append("clip_trim")
+        # Subtipo "minimal" si tiene pocos combos (look global) pero igual
+        # poblados los campos CMv4.0-only — masters tipo Black Phone 2,
+        # Expediente Warren: poca variación shot-a-shot, look uniforme.
+        if n["l8_unique_count"] < L8_REAL_MIN_UNIQUE_COMBOS:
+            return (
+                "full",
+                "CMv4 FULL",
+                tr('rpu_analyze.master_cmv4_0_full_minimal_l8_unique', l8_unique_count=n["l8_unique_count"], p2=', '.join(extras)),
+            )
+        return (
+            "full",
+            "CMv4 FULL",
+            tr('rpu_analyze.master_cmv4_0_full_l8_unique_count', l8_unique_count=n["l8_unique_count"], p2=', '.join(extras)),
+        )
+
+    # CORE+: muchos combos relativos a la longitud de la peli
+    combos_per_cut = (
+        n["l8_unique_count"] / n["scene_cuts"]
+        if n["scene_cuts"] > 0 else 0.0
+    )
+    is_rich = (
+        combos_per_cut >= L8_RICH_COMBOS_PER_SCENE_CUT
+        or n["l8_unique_count"] >= L8_RICH_MIN_COMBOS
+    )
+    if is_rich:
+        return (
+            "core_rich",
+            "CMv4 CORE+",
+            tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=n["l8_unique_count"], combos_per_cut=format(combos_per_cut, '.2f')),
+        )
+
+    # CORE: estándar streaming — funcional pero no excepcional
+    return (
+        "core",
+        "CMv4 CORE",
+        tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=n["l8_unique_count"], combos_per_cut=format(combos_per_cut, '.2f')),
+    )
 
 
 def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
@@ -803,54 +934,7 @@ def classify_l8_quality(analysis: RpuAnalysis) -> tuple[str, str, str]:
       - "core":      L8 estándar de streaming — trabajado por shot pero con
                      cambios poco frecuentes, sin campos extra.
     """
-    classification, _ = classify_l8(analysis)
-    if classification != "real":
-        return ("", "", "")
-
-    # FULL: el master usa los campos CMv4.0-only
-    if analysis.l8_has_mid_contrast or analysis.l8_has_clip_trim:
-        extras = []
-        if analysis.l8_has_mid_contrast:
-            extras.append("target_mid_contrast")
-        if analysis.l8_has_clip_trim:
-            extras.append("clip_trim")
-        # Subtipo "minimal" si tiene pocos combos (look global) pero igual
-        # poblados los campos CMv4.0-only — masters tipo Black Phone 2,
-        # Expediente Warren: poca variación shot-a-shot, look uniforme.
-        if analysis.l8_unique_count < L8_REAL_MIN_UNIQUE_COMBOS:
-            return (
-                "full",
-                "CMv4 FULL",
-                tr('rpu_analyze.master_cmv4_0_full_minimal_l8_unique', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)),
-            )
-        return (
-            "full",
-            "CMv4 FULL",
-            tr('rpu_analyze.master_cmv4_0_full_l8_unique_count', l8_unique_count=analysis.l8_unique_count, p2=', '.join(extras)),
-        )
-
-    # CORE+: muchos combos relativos a la longitud de la peli
-    combos_per_cut = (
-        analysis.l8_unique_count / analysis.scene_cuts
-        if analysis.scene_cuts > 0 else 0.0
-    )
-    is_rich = (
-        combos_per_cut >= L8_RICH_COMBOS_PER_SCENE_CUT
-        or analysis.l8_unique_count >= L8_RICH_MIN_COMBOS
-    )
-    if is_rich:
-        return (
-            "core_rich",
-            "CMv4 CORE+",
-            tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=analysis.l8_unique_count, combos_per_cut=format(combos_per_cut, '.2f')),
-        )
-
-    # CORE: estándar streaming — funcional pero no excepcional
-    return (
-        "core",
-        "CMv4 CORE",
-        tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=analysis.l8_unique_count, combos_per_cut=format(combos_per_cut, '.2f')),
-    )
+    return tier_de_l8(numeros_de_l8(analysis), _clasificacion_de_l8(analysis))
 
 
 def filename_label_from_tier(tier: str) -> str:
