@@ -173,7 +173,7 @@ def is_configured() -> bool:
 async def test_api_key(api_key: str) -> tuple[bool, str]:
     """Valida una TMDb key contra /configuration. Devuelve (ok, mensaje)."""
     if not api_key.strip():
-        return False, "API key vacía"
+        return False, tr('rec999_drive.api_key_vacia')
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
@@ -181,9 +181,9 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
                 params={"api_key": api_key.strip()},
             )
         if resp.status_code == 200:
-            return True, "API key válida"
+            return True, tr('tmdb.api_key_valida')
         if resp.status_code == 401:
-            return False, "API key inválida"
+            return False, tr('tmdb.api_key_invalida')
         return False, f"Error TMDb ({resp.status_code})"
     except Exception as e:
         return False, tr('tmdb.error_de_red', motivo=e)

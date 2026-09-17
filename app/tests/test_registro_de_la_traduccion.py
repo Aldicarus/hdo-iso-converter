@@ -290,15 +290,31 @@ class TestLosTresCatalogosCuadran(CatalogoCase):
 
 class TestElGlosarioSeRespeta(CatalogoCase):
 
+    # El término se busca con FRONTERA DE PALABRA, no como subcadena. Con
+    # `in` a secas, «bin» casaba dentro de «com*bin*ó» y el test exigía un
+    # «bin» en un inglés que dice «merged»: un falso positivo latente que
+    # solo salta el día que alguien traduce esa frase. La frontera se pone
+    # solo en los bordes que son carácter de palabra, para que `[DV FEL]` y
+    # `(DCP 9.1.6)` sigan buscándose tal cual.
+    @staticmethod
+    def _patron(termino: str) -> re.Pattern:
+        ini = r"(?<!\w)" if termino[:1].isalnum() else ""
+        # El plural inglés cuenta: «The two RPUs» SÍ lleva el término. Lo que
+        # no cuenta es la subcadena dentro de otra palabra, que es lo que la
+        # mirada atrás descarta («com*bin*ó» no es un «bin»).
+        fin = r"s?(?!\w)" if termino[-1:].isalpha() else ""
+        return re.compile(ini + re.escape(termino) + fin)
+
     def test_los_terminos_del_glosario_no_se_traducen(self):
         fallos = []
+        patrones = {t: self._patron(t) for t in GLOSARIO}
         for donde, cat in self.catalogos():
             for clave, es in cat["es"].items():
-                for termino in GLOSARIO:
-                    if termino not in es:
+                for termino, pat in patrones.items():
+                    if not pat.search(es):
                         continue
                     for otra in ("en", "ca"):
-                        if clave in cat[otra] and termino not in cat[otra][clave]:
+                        if clave in cat[otra] and not pat.search(cat[otra][clave]):
                             fallos.append(f"[{donde}] `{clave}` ({otra}): "
                                           f"falta «{termino}»")
         self.assertEqual(fallos, [], "\n  · ".join([""] + fallos[:12]))

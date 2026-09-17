@@ -529,8 +529,38 @@ def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
                             for t in objetivos)):
                 for h in ast.walk(n.value):
                     fuera.add(id(h))
+    # Y los envoltorios LOCALES del logger. `models.py` define un
+    # `def avisa(que, arreglo): _logger.warning(…)` para sus diez avisos de
+    # invariante, y eximir `logger.*` no los alcanza porque los argumentos
+    # los recibe `avisa`. Se derivan —una función cuyo cuerpo es una sola
+    # llamada a un logger— en vez de escribir una lista de nombres, que es
+    # el error que este subsistema ya ha cometido cuatro veces.
+    for nombre in _envoltorios_de_logger(arbol):
+        for n in ast.walk(arbol):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                    and n.func.id == nombre):
+                for h in ast.walk(n):
+                    fuera.add(id(h))
     fuera |= _nodos_de_dev_mode(arbol)
     return fuera
+
+
+def _envoltorios_de_logger(arbol: ast.AST) -> set[str]:
+    """Funciones cuyo cuerpo es UNA sola llamada a un logger."""
+    out: set[str] = set()
+    for n in ast.walk(arbol):
+        if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        cuerpo = [x for x in n.body
+                  if not (isinstance(x, ast.Expr)
+                          and isinstance(x.value, ast.Constant))]
+        if len(cuerpo) != 1 or not isinstance(cuerpo[0], ast.Expr):
+            continue
+        c = cuerpo[0].value
+        if (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                and c.func.attr in _LOGGING):
+            out.add(n.name)
+    return out
 
 
 def frases_del_backend() -> set[str]:

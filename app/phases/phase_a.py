@@ -1043,8 +1043,7 @@ def _detect_fel(
     )
     if el_track is not None:
         return True, None, (
-            "Dolby Vision dual-layer: Enhancement Layer HEVC 1080p presente como "
-            "track separado. FEL asumido — pendiente de confirmar con dovi_tool."
+            tr('phase_a.dolby_vision_dual_layer_enhancement_layer_hevc')
         )
 
     # ── Método 2: Gap en IDs de tracks (mkvmerge v81+ combina BL+EL) ──
@@ -1057,12 +1056,10 @@ def _detect_fel(
         first_non_video = min(non_video_ids)
         if first_non_video >= 2:
             return True, None, (
-                f"Dolby Vision dual-layer: gap en IDs de tracks (video id=0, siguiente "
-                f"id={first_non_video}) — mkvmerge v81+ combinó BL+EL en un solo track. "
-                f"FEL asumido — pendiente de confirmar con dovi_tool."
+                tr('phase_a.dolby_vision_dual_layer_gap_en_ids', first_non_video=first_non_video)
             )
 
-    return False, None, "Sin capa de mejora Dolby Vision detectada"
+    return False, None, tr('phase_a.sin_capa_de_mejora_dolby_vision_detectada')
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1376,7 +1373,7 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
     try:
         data = Path(mpls_path).read_bytes()
     except Exception as e:
-        return [], f"read falló: {e}"
+        return [], tr('phase_a.read_fallo_p1', p1=e)
 
     if len(data) < 40:
         return [], f"file too short ({len(data)} bytes)"
@@ -1425,7 +1422,7 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
             p += max(0, (n_angles - 1) * 10)
 
         if p + 16 > pi_end:
-            return [], f"STN_table no cabe (p={p}, pi_end={pi_end})"
+            return [], tr('phase_a.stn_table_no_cabe_p_p1_pi', p1=p, pi_end=pi_end)
 
         # STN_table: length(2) + reserved(2) + 7×counts + reserved(5)
         stn_length = int.from_bytes(data[p:p + 2], "big")
@@ -1442,17 +1439,17 @@ def parse_mpls_pg_streams(mpls_path: str) -> tuple[list[dict], str]:
         # Skip primary video y primary audio
         for i in range(n_pv + n_pa):
             if p >= pi_end:
-                return [], f"truncado en pv/pa entry {i}"
+                return [], tr('phase_a.truncado_en_pv_pa_entry_p1', p1=i)
             se_len = data[p]; p += 1 + se_len
             if p >= pi_end:
-                return [], f"truncado tras se_len pv/pa entry {i}"
+                return [], tr('phase_a.truncado_tras_se_len_pv_pa_entry', p1=i)
             sa_len = data[p]; p += 1 + sa_len
 
         # Read PG streams
         pg_streams: list[dict] = []
         for i in range(n_pg):
             if p >= pi_end:
-                return pg_streams, f"truncado en PG entry {i} de {n_pg}"
+                return pg_streams, tr('phase_a.truncado_en_pg_entry_p1_de_n', p1=i, n_pg=n_pg)
             se_len = data[p]
             se = data[p + 1:p + 1 + se_len]
             p += 1 + se_len
@@ -1517,7 +1514,7 @@ def asignar_packet_counts(
     nada de lo que hoy funciona cambia de comportamiento.
     """
     if not pgs_packets or not subtitle_tracks:
-        return False, "sin conteos"
+        return False, tr('phase_a.sin_conteos')
 
     def _idiomas_cuadran(pids: list[int]) -> bool:
         """¿La secuencia de idiomas del MPLS coincide con la de mkvmerge?"""
@@ -1542,18 +1539,16 @@ def asignar_packet_counts(
                   if len(o) == len(subtitle_tracks)]
     if not candidatos:
         return False, (
-            f"{len(pgs_packets)} conteos para {len(subtitle_tracks)} pistas de "
-            "subtítulo — no se puede emparejar sin desplazar; se usará el patrón "
-            "estructural"
+            tr('phase_a.p1_conteos_para_p2_pistas_de_subtitulo', p1=len(pgs_packets), p2=len(subtitle_tracks))
         )
 
     # 2) Entre los que cuadran en longitud, el ascendente manda salvo que el
     #    idioma diga lo contrario.
-    elegido, motivo = candidatos[0], "orden ascendente de PID"
+    elegido, motivo = candidatos[0], tr('phase_a.orden_ascendente_de_pid')
     if (candidatos[0] is ascendente and del_mpls in candidatos
             and del_mpls != ascendente
             and not _idiomas_cuadran(ascendente) and _idiomas_cuadran(del_mpls)):
-        elegido, motivo = del_mpls, "orden del MPLS (el ascendente no cuadra por idioma)"
+        elegido, motivo = del_mpls, tr('phase_a.orden_del_mpls_el_ascendente_no_cuadra')
 
     for pid, track in zip(elegido, subtitle_tracks):
         track.packet_count = pgs_packets[pid]
@@ -1880,7 +1875,7 @@ async def count_pgs_packets_ts_parse(
             )
         else:
             top_pids = sorted(all_non_av.items(), key=lambda kv: -kv[1])[:10]
-            top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or "(ninguno)"
+            top_str = ", ".join(f"0x{pid:04X}={c}" for pid, c in top_pids) or tr('phase_a.ninguno')
             await log_callback(
                 '[Fase A] ├─   ' + tr('phase_a.ts_parse_b_pkt_0_paquetes', packet_size=packet_size, sample_desc=sample_desc, p3=format(elapsed, '.1f'), top_str=top_str)
             )
@@ -2034,7 +2029,7 @@ async def run_pgs_packet_counts(
         stdout_text = stdout.decode("utf-8", errors="replace")
         stderr_text = stderr.decode("utf-8", errors="replace").strip()
         if proc.returncode != 0:
-            stderr_msg = stderr_text[:200] or "(stderr vacío)"
+            stderr_msg = stderr_text[:200] or tr('phase_a.stderr_vacio')
             _logger.warning("ffprobe packet count falló (%d): %s", proc.returncode, stderr_msg)
             if log_callback:
                 await log_callback(
@@ -2963,7 +2958,7 @@ async def identify_episode_candidates_from_m2ts_list(
                 pass
         data = await _run_mkvmerge_j(path)
         if data is None:
-            skipped.append((Path(path).name, "mkvmerge -J falló o devolvió vacío"))
+            skipped.append((Path(path).name, tr('phase_a.mkvmerge_j_fallo_o_devolvio_vacio')))
             continue
         audio_count = _audio_track_count(data)
         # Cascada con sanity check de bitrate — detecta y rechaza
@@ -2981,12 +2976,12 @@ async def identify_episode_candidates_from_m2ts_list(
         # ficheros explícitamente. Solo descartamos los manifestamente
         # rotos (sin duración o sin audio).
         if audio_count < 1:
-            skipped.append((Path(path).name, "sin pistas de audio detectadas"))
+            skipped.append((Path(path).name, tr('phase_a.sin_pistas_de_audio_detectadas')))
             continue
         if dur_min <= 0:
             skipped.append((
                 Path(path).name,
-                "no se pudo determinar la duración (mkvmerge + MediaInfo + ffprobe fallaron)",
+                tr('phase_a.no_se_pudo_determinar_la_duracion_mkvmerge'),
             ))
             continue
         candidates.append({
