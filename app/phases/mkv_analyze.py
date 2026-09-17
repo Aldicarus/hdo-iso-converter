@@ -433,41 +433,41 @@ def _compute_provenance_hints(
     has_l254 = bool(dv_flags.get("has_l254"))
 
     if is_cmv29_only:
-        hints.append("RPU CMv2.9 puro — Blu-ray original sin upgrade a CMv4.0")
+        hints.append(tr('mkv_analyze.rpu_cmv2_9_puro_blu_ray_original'))
         if rpu_analysis.l2_unique_count >= 30:
-            hints.append("L2 trabajado por colorista — grading dinámico nativo")
+            hints.append(tr('mkv_analyze.l2_trabajado_por_colorista_grading_dinamico_nativo'))
         if has_l4:
-            hints.append("L4 presente — compat trim legacy")
+            hints.append(tr('mkv_analyze.l4_presente_compat_trim_legacy'))
         return hints
 
     # CMv4.0 — combina con classifier
     if classification == "real" and tier in ("full", "core_rich"):
         if has_l11 and has_l254:
-            hints.append("Master nativo CMv4.0 reciente — L11 + L254 presentes")
+            hints.append(tr('mkv_analyze.master_nativo_cmv4_0_reciente_l11_l254'))
         elif has_l254:
-            hints.append("Master CMv4.0 con marker L254 (CMv4.0 bien señalado)")
+            hints.append(tr('mkv_analyze.master_cmv4_0_con_marker_l254_cmv4'))
         if has_l9 and has_l10 and has_l11:
-            hints.append("Metadata DV completa — source primaries (L9) + target primaries (L10) + content type (L11)")
+            hints.append(tr('mkv_analyze.metadata_dv_completa_source_primaries_l9_target'))
         if not has_l11 and (has_l9 or has_l10):
-            hints.append("Master CMv4.0 pre-L11 — anterior a Dolby Vision IQ (~2020)")
+            hints.append(tr('mkv_analyze.master_cmv4_0_pre_l11_anterior_a'))
 
     elif classification == "real" and tier == "core":
-        hints.append("Master CMv4.0 estándar — calidad de release streaming")
+        hints.append(tr('mkv_analyze.master_cmv4_0_estandar_calidad_de_release'))
         if not has_l11:
-            hints.append("Sin L11 — Dolby Vision IQ no aplicable en este master")
+            hints.append(tr('mkv_analyze.sin_l11_dolby_vision_iq_no_aplicable'))
 
     elif classification == "default":
         if has_l4:
-            hints.append("Bin convertido — L4 (compat CMv2.9) + L8 sintético sugieren transfer P5/P8→CMv4.0")
+            hints.append(tr('mkv_analyze.bin_convertido_l4_compat_cmv2_9_l8'))
         else:
-            hints.append("Bin sintético — equivalente a la conversión al vuelo de p3i / avdvplus / appletvplus")
+            hints.append(tr('mkv_analyze.bin_sintetico_equivalente_a_la_conversion_al'))
         if not has_l11:
-            hints.append("Sin L11 — confirma origen automático (los conversores no añaden content type)")
+            hints.append(tr('mkv_analyze.sin_l11_confirma_origen_automatico_los_conversores'))
 
     elif classification == "indeterminate":
-        hints.append("L8 ambiguo — el clasificador no puede decidir con seguridad")
+        hints.append(tr('mkv_analyze.l8_ambiguo_el_clasificador_no_puede_decidir'))
         if has_l11 and has_l254:
-            hints.append("Pero L11 + L254 sugieren master nativo, dudoso por densidad de combos")
+            hints.append(tr('mkv_analyze.pero_l11_l254_sugieren_master_nativo_dudoso'))
 
     return hints
 
@@ -762,7 +762,7 @@ async def analyze_rpu_quality_for_mkv(
         # stdout y dovi_tool lee de stdin. Misma técnica que la Fase A de
         # CMv4.0, verificada bit a bit (mismo md5 del RPU).
         _check()
-        _emit("ffmpeg", 0.0, "Extrayendo el RPU (ffmpeg → dovi_tool)")
+        _emit("ffmpeg", 0.0, tr('mkv_analyze.extrayendo_el_rpu_ffmpeg_dovi_tool'))
         _log('━━━ ' + tr('mkv_analyze.fase_a_extraccion_del_rpu_ffmpeg') + ' ━━━')
         _log('[Audit] 📋 Plan' + tr('mkv_analyze.ffmpeg_lee_el_v_0_del', expected_hevc=_fmt_bytes(expected_hevc)))
 
@@ -797,12 +797,12 @@ async def analyze_rpu_quality_for_mkv(
             _check()
             rpu_size = rpu_path.stat().st_size
             _log('[Audit] ' + tr('mkv_analyze.rpu_extraido_en_sin_volcar_el', t_step=_fmt_elapsed(_t.monotonic() - t_step), rpu_size=_fmt_bytes(rpu_size)))
-            _emit("extract_rpu", 80.0, "RPU extraído")
+            _emit("extract_rpu", 80.0, tr('cmv40_pipeline.rpu_extraido'))
 
         if not piped_ok:
             # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
             _check()
-            _emit("ffmpeg", 0.0, "Extrayendo el HEVC con ffmpeg")
+            _emit("ffmpeg", 0.0, tr('mkv_analyze.extrayendo_el_hevc_con_ffmpeg'))
             _log('━━━ ' + tr('mkv_analyze.fase_a_extraccion_del_hevc') + ' ━━━')
             _log('[Audit] 📋 Plan' + tr('mkv_analyze.ffmpeg_stream_copy_del_v_0', expected_hevc=_fmt_bytes(expected_hevc)))
             ff_cmd = [
@@ -831,7 +831,7 @@ async def analyze_rpu_quality_for_mkv(
                             size = hevc_path.stat().st_size
                             local_pct = min(99, size * 100 / expected_hevc)
                             global_pct = local_pct * 0.55
-                            _emit("ffmpeg", global_pct, "Extrayendo el HEVC con ffmpeg")
+                            _emit("ffmpeg", global_pct, tr('mkv_analyze.extrayendo_el_hevc_con_ffmpeg'))
                             # Loguear progreso cada 10% para no saturar
                             if int(local_pct) >= last_logged_pct + 10:
                                 last_logged_pct = int(local_pct // 10) * 10
@@ -867,12 +867,12 @@ async def analyze_rpu_quality_for_mkv(
                 _log('[Audit] ' + tr('mkv_analyze.ffmpeg_fallo', err=err))
                 raise RuntimeError(tr('mkv_analyze.ffmpeg_fallo_2', err=err))
             hevc_size = hevc_path.stat().st_size
-            _emit("ffmpeg", 55.0, "HEVC extraído")
+            _emit("ffmpeg", 55.0, tr('cmv40_pipeline.hevc_extraido'))
             _log('[Audit] ' + tr('mkv_analyze.hevc_extraido_en', t_step=_fmt_elapsed(_t.monotonic() - t_step), hevc_size=_fmt_bytes(hevc_size)))
 
             # ── Paso 2: dovi_tool extract-rpu ────────────────────────────
             _check()
-            _emit("extract_rpu", 55.0, "Extrayendo el RPU Dolby Vision del HEVC")
+            _emit("extract_rpu", 55.0, tr('mkv_analyze.extrayendo_el_rpu_dolby_vision_del_hevc'))
             _log('━━━ ' + tr('mkv_analyze.fase_a_extraccion_del_rpu_dolby') + ' ━━━')
             _log('[Audit] 📋 Plan' + tr('mkv_analyze.dovi_tool_extract_rpu_lee_el'))
             dt_cmd = [DOVI_TOOL_BIN, "extract-rpu", str(hevc_path), "-o", str(rpu_path)]
@@ -897,7 +897,7 @@ async def analyze_rpu_quality_for_mkv(
                     pct = dt_reader.sample()
                     if pct is not None:
                         _emit("extract_rpu", 55.0 + pct * 0.25,
-                              "Extrayendo el RPU Dolby Vision del HEVC")
+                              tr('mkv_analyze.extrayendo_el_rpu_dolby_vision_del_hevc'))
                     try:
                         await asyncio.wait_for(stop_dt.wait(), timeout=1.5)
                     except asyncio.TimeoutError:
@@ -938,11 +938,11 @@ async def analyze_rpu_quality_for_mkv(
                 _log('[Audit] ' + tr('mkv_analyze.hevc_intermedio_liberado_no_se_vuelve'))
             except Exception:
                 pass
-            _emit("extract_rpu", 80.0, "RPU extraído")
+            _emit("extract_rpu", 80.0, tr('cmv40_pipeline.rpu_extraido'))
 
         # ── Paso 3: analyze_rpu_combos (export -d all + parse) ───────
         _check()
-        _emit("combos", 80.0, "Exportando niveles del RPU y agregando combos L8/L2")
+        _emit("combos", 80.0, tr('mkv_analyze.exportando_niveles_del_rpu_y_agregando_combos'))
         _log('━━━ ' + tr('mkv_analyze.fase_b_combos_l8_l2_y') + ' ━━━')
         _niveles_txt = (tr('mkv_analyze.niveles_con_luminancia')
                         if con_luminancia else "L1, L2, L8")
@@ -977,7 +977,7 @@ async def analyze_rpu_quality_for_mkv(
         if rpu_analysis.l2_unique_count > 0:
             _log('[Audit] ' + tr('mkv_analyze.l2_combos_unicos_target_pqs', p1=format(rpu_analysis.l2_unique_count, ','), l2_target_pqs=len(rpu_analysis.l2_target_pqs), l2_target_pqs2=rpu_analysis.l2_target_pqs))
         _log('[Audit] ' + tr('mkv_analyze.combos_agregados_en', t_step=_fmt_elapsed(_t.monotonic() - t_step)))
-        _emit("combos", 95.0, "Combos agregados")
+        _emit("combos", 95.0, tr('mkv_analyze.combos_agregados'))
 
         # ── Paso 4: classify + verdict ───────────────────────────────
         is_cmv29_only = (rpu_analysis.frames_with_cmv40 == 0
@@ -992,7 +992,7 @@ async def analyze_rpu_quality_for_mkv(
             _log('[Audit] ' + tr('mkv_analyze.perfil_de_luminancia_frames_peak_nits', p1=format(luz['total_frames'], ','), p2=luz['stats']['peak'], p3=luz['stats']['p95'], p4=len(luz['references']['l5_zones'])))
         elif con_luminancia:
             _log('[Audit] ' + tr('mkv_analyze.sin_perfil_de_luminancia_el_export'))
-        _emit("done", 100.0, "Análisis completado")
+        _emit("done", 100.0, tr('cmv40_pipeline.analisis_completado'))
         _log(f"[Audit] 🎯 Resultado: {result.get('quality_verdict_text', '—')}")
         if result.get("quality_tier_label"):
             _log('[Audit] ' + tr('mkv_analyze.tier', p1=result['quality_tier_label']))
