@@ -353,7 +353,7 @@ def raise_if_cancelled() -> None:
     """
     predicado = _cancel_check.get()
     if predicado is not None and predicado():
-        raise CMv40Cancelled("Cancelado por el usuario")
+        raise CMv40Cancelled(tr('historial.motivo_cancelado'))
 
 
 async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) -> tuple[int, str, str]:
@@ -838,7 +838,7 @@ async def _run_streaming(
                     last_hb = ahora
                     await _emit_heartbeat(
                         log_callback,
-                        f"{label or 'Proceso'} ({ultimo_real_pct:.0f}%)",
+                        f"{label or tr('cmv40_pipeline.proceso')} ({ultimo_real_pct:.0f}%)",
                         ahora - step_start, ultimo_real_eta)
                 try:
                     await asyncio.wait_for(stop_ticker.wait(), timeout=1.5)
@@ -873,7 +873,7 @@ async def _run_streaming(
                 # reloj sería una cifra inventada con pinta de dato.
                 await _emit_heartbeat(
                     log_callback,
-                    f"{label or 'Proceso'} ({step_pct:.0f}%)" if real else (label or "Proceso"),
+                    f"{label or tr('cmv40_pipeline.proceso')} ({step_pct:.0f}%)" if real else (label or tr('cmv40_pipeline.proceso')),
                     elapsed, eta)
             try:
                 await asyncio.wait_for(stop_ticker.wait(), timeout=1.5)
@@ -1035,9 +1035,9 @@ def _fmt_ffmpeg_speed(line: str) -> str:
 
 def _fmt_eta(eta_s: float | None) -> str:
     if not eta_s or eta_s <= 0:
-        return "casi listo"
+        return tr('cmv40_pipeline.casi_listo')
     m, s = int(eta_s) // 60, int(eta_s) % 60
-    return f"quedan ~{m}min {s}s" if m else f"quedan ~{s}s"
+    return tr('cmv40_pipeline.quedan_p1_min_p2_s', p1=m, p2=s) if m else tr('cmv40_pipeline.quedan_p1_s', p1=s)
 
 
 # Tamaño del buffer del pipe entre ffmpeg y dovi_tool. Linux da 64 KB por
@@ -1117,7 +1117,7 @@ async def _ffmpeg_extract_rpu_piped(
     proc_callback=None,
     offset: float = 0.0,
     weight: float = 100.0,
-    label: str = "Extrayendo HEVC + RPU",
+    label: str = tr('cmv40_pipeline.extrayendo_hevc_rpu'),
     estimated_s: float = 0.0,
     total_frames: int = 0,
 ) -> bool:
@@ -1456,7 +1456,7 @@ async def _run_with_time_estimate(
                 last_hb = now
                 await _emit_heartbeat(
                     log_callback,
-                    f"{label or 'Proceso'} ({step_pct:.0f}%)" if used_real else (label or "Proceso"),
+                    f"{label or tr('cmv40_pipeline.proceso')} ({step_pct:.0f}%)" if used_real else (label or tr('cmv40_pipeline.proceso')),
                     elapsed, eta)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=1.5)
@@ -2482,57 +2482,40 @@ async def _analyze_target_rpu(
             if session.target_type == "trusted_p7_fel_final":
                 if sw == "p7_fel":
                     implication = (
-                        "bin P7 FEL CMv4.0 + source P7 FEL → drop-in viable. "
-                        "Sin demux ni revisión visual; inyección directa sobre "
-                        "source.hevc (BL+EL intactos). Ahorro ~90 GB de I/O."
+                        tr('cmv40_pipeline.bin_p7_fel_cmv4_0_source_p7')
                     )
                 else:
                     implication = (
-                        f"bin P7 FEL CMv4.0 + source {sw.upper()} → no drop-in "
-                        f"(profiles distintos). Merge selectivo de levels CMv4.0 "
-                        f"sobre el RPU del source preservando su estructura "
-                        f"single-layer. Resultado: P8.1 CMv4.0."
+                        tr('cmv40_pipeline.bin_p7_fel_cmv4_0_source_p1', p1=sw.upper())
                     )
             elif session.target_type == "trusted_p7_mel_final":
                 if sw == "p7_mel":
                     implication = (
-                        "bin P7 MEL CMv4.0 + source P7 MEL → mismo profile. "
-                        "Sin revisión visual; el EL MEL se descarta y el RPU "
-                        "target se inyecta directamente en BL → P8.1 CMv4.0."
+                        tr('cmv40_pipeline.bin_p7_mel_cmv4_0_source_p7')
                     )
                 elif sw == "p7_fel":
                     implication = (
-                        "bin P7 MEL CMv4.0 + source P7 FEL → merge CMv4.0 sobre "
-                        "el RPU P7 del source preservando la FEL. Resultado: "
-                        "P7 FEL CMv4.0."
+                        tr('cmv40_pipeline.bin_p7_mel_cmv4_0_source_p7')
                     )
                 else:  # p8
                     implication = (
-                        "bin P7 MEL CMv4.0 + source P8.1 → merge selectivo de los "
-                        "levels CMv4.0 del target en el RPU P8 del source "
-                        "(allow_cmv4_transfer). Resultado: P8.1 CMv4.0."
+                        tr('cmv40_pipeline.bin_p7_mel_cmv4_0_source_p8')
                     )
             elif session.target_type == "trusted_p8_source":
                 if sw == "p7_fel":
                     implication = (
-                        "bin P8 retail CMv4.0 + source P7 FEL → merge CMv4.0 "
-                        "sobre el RPU P7 preservando la FEL. Resultado: "
-                        "P7 FEL CMv4.0."
+                        tr('cmv40_pipeline.bin_p8_retail_cmv4_0_source_p7')
                     )
                 elif sw == "p7_mel":
                     implication = (
-                        "bin P8 retail CMv4.0 + source P7 MEL → el EL MEL se "
-                        "descarta y el RPU P8 se inyecta directamente sobre BL. "
-                        "Resultado: P8.1 CMv4.0."
+                        tr('cmv40_pipeline.bin_p8_retail_cmv4_0_source_p7')
                     )
                 else:  # p8
                     implication = (
-                        "bin P8 retail CMv4.0 + source P8.1 → mismo profile. "
-                        "Inyección directa del RPU target sobre source.hevc. "
-                        "Resultado: P8.1 CMv4.0 refinado."
+                        tr('cmv40_pipeline.bin_p8_retail_cmv4_0_source_p8')
                     )
             else:
-                implication = "se salta la revisión manual del chart de sincronización."
+                implication = tr('cmv40_pipeline.se_salta_la_revision_manual_del_chart')
             await log_callback(
                 '[Fase B] 🎯 Resultado' + tr('cmv40_pipeline.target_clasificado_como_trusted_gates_ok', target_type=session.target_type, implication=implication)
             )
@@ -2548,18 +2531,15 @@ async def _analyze_target_rpu(
             )
             if crit_fail:
                 implication = (
-                    "algún gate crítico ha fallado — el pipeline se aborta. "
-                    "Cambia de target o corrige sincronización manualmente."
+                    tr('cmv40_pipeline.algun_gate_critico_ha_fallado_el_pipeline')
                 )
             elif has_ack_required:
                 implication = (
-                    "gates con degradación previsible — el pipeline se detiene "
-                    "a la espera de que confirmes la decisión (ver detalles abajo)."
+                    tr('cmv40_pipeline.gates_con_degradacion_previsible_el_pipeline_se')
                 )
             else:
                 implication = (
-                    "gates soft con avisos (divergencias no críticas) — el chart "
-                    "de sincronización es revisable pero no bloquea el avance."
+                    tr('cmv40_pipeline.gates_soft_con_avisos_divergencias_no_criticas')
                 )
             await log_callback(
                 '[Fase B] 🎯 Resultado' + tr('cmv40_pipeline.target_clasificado_como_no_trusted', target_type=session.target_type, implication=implication)
@@ -3128,38 +3108,20 @@ def _veredicto_l5(cmp: dict) -> tuple[str, bool, str]:
     seg = cmp["segundos_cuerpo_max"]
     body_total = cmp["por_zona"]["body"][1]
     base = (
-        f"Comparados {_fmt_miles(cmp['comparados'])} frames: "
-        f"{_fmt_miles(cmp['divergentes'])} divergen "
-        f"({_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100)}%) — "
-        f"cuerpo {_fmt_miles(cmp['por_zona']['body'][0])}/{_fmt_miles(body_total)}."
+        tr('cmv40_pipeline.comparados_p1_frames_p2_divergen_p3_cuerpo', p1=_fmt_miles(cmp['comparados']), p2=_fmt_miles(cmp['divergentes']), p3=_fmt_dec(cmp['divergentes'] / cmp['comparados'] * 100), p4=_fmt_miles(cmp['por_zona']['body'][0]), p5=_fmt_miles(body_total))
     )
 
     if body_total <= 0:
-        return ("ack_required", False, base + (
-            " La comparación no cubrió el cuerpo principal, así que no hay nada "
-            "que confirme que los dos másters usan el mismo encuadre. Sin "
-            "evidencia no se aprueba."))
+        return ("ack_required", False, tr('cmv40_pipeline.base_la_comparacion_no_cubrio_el_cuerpo', base=base))
 
     tramo_largo = seg >= TRAMO_L5_MAX_SEGUNDOS
     if tramo_largo:
-        return ("ack_required", False, base + (
-            f" Cobertura del cuerpo {pct}%, pero hay {_fmt_dec(seg, 1)} s seguidos con un "
-            f"active area distinto (umbral {TRAMO_L5_MAX_SEGUNDOS:.0f} s): eso no "
-            f"es una transición desalineada, es una escena entera con otro "
-            f"encuadre. El TV calculará las bandas mal durante ese tramo."))
+        return ("ack_required", False, tr('cmv40_pipeline.base_cobertura_del_cuerpo_pct_pero_hay', base=base, pct=pct, p3=_fmt_dec(seg, 1), p4=format(TRAMO_L5_MAX_SEGUNDOS, '.0f')))
     if cob >= 0.90:
-        return ("warn", True, base + (
-            f" El cuerpo principal coincide en {pct}% y el mayor tramo divergente "
-            f"dura {_fmt_dec(seg, 1)} s — desalineaciones de transición, sin impacto real."))
+        return ("warn", True, tr('cmv40_pipeline.base_el_cuerpo_principal_coincide_en_pct', base=base, pct=pct, p3=_fmt_dec(seg, 1)))
     if cob >= 0.70:
-        return ("warn", True, base + (
-            f" El cuerpo principal coincide en {pct}% (umbral 90% para no decir "
-            f"nada). Tolerable, pero conviene mirar el desglose antes de dar el "
-            f"resultado por bueno."))
-    return ("ack_required", False, base + (
-        f" El cuerpo principal coincide solo en {pct}% (umbral 70%) — el target "
-        f"tiene un patrón de active area distinto del BD en buena parte de la "
-        f"película."))
+        return ("warn", True, tr('cmv40_pipeline.base_el_cuerpo_principal_coincide_en_pct', base=base, pct=pct))
+    return ("ack_required", False, tr('cmv40_pipeline.base_el_cuerpo_principal_coincide_solo_en', base=base, pct=pct))
 
 
 async def _refinar_gate_l5(gates: dict,
@@ -3216,16 +3178,16 @@ async def _refinar_gate_l5(gates: dict,
         reparto = " · ".join(
             f"({v[0]},{v[1]},{v[2]},{v[3]}) {n / max(1, frames) * 100:.0f}%"
             for v, n in perfil["valores"]
-        ) or "sin bloques"
-        extra = (f" · {_fmt_miles(perfil['sin_bloque'])} sin bloque → neutro"
+        ) or tr('cmv40_pipeline.sin_bloques')
+        extra = (tr('cmv40_pipeline.p1_sin_bloque_neutro', p1=_fmt_miles(perfil['sin_bloque']))
                  if perfil["sin_bloque"] else "")
         await _log(
             log_callback,
             '[Fase B] ' + tr('cmv40_pipeline.l5_con_bloque', etiqueta=etiqueta, p2=_fmt_miles(perfil['frames_con_bloque']), frames=_fmt_miles(frames), reparto=reparto, extra=extra)
         )
     if perfil_src["variable"] or perfil_tgt["variable"]:
-        cuales = ("ambos másters" if perfil_src["variable"] and perfil_tgt["variable"]
-                  else ("el BD" if perfil_src["variable"] else "el bin"))
+        cuales = (tr('cmv40_pipeline.ambos_masters') if perfil_src["variable"] and perfil_tgt["variable"]
+                  else ("el BD" if perfil_src["variable"] else tr('cmv40_pipeline.el_bin')))
         await _log(
             log_callback,
             '[Fase B] ' + tr('cmv40_pipeline.encuadre_variable_en_tipico_de_un', cuales=cuales)
@@ -3798,10 +3760,10 @@ async def run_phase_e_correct_sync(
             ops_parts.append(f"remove {len(editor_config['remove'])} rangos")
         if editor_config.get("duplicate"):
             ops_parts.append(f"duplicate {len(editor_config['duplicate'])} rangos")
-        ops_summary = ", ".join(ops_parts) if ops_parts else "sin cambios"
+        ops_summary = ", ".join(ops_parts) if ops_parts else tr('cmv40_pipeline.sin_cambios')
         sync_status = (
             "sync perfecto (Δ=0)" if session.sync_delta == 0
-            else f"Δ = {session.sync_delta:+d} frames respecto al source"
+            else tr('cmv40_pipeline.sync_delta_frames_respecto_al_source', sync_delta=format(session.sync_delta, '+d'))
         )
         await log_callback(
             '[Fase E] 🎯 Resultado' + tr('cmv40_pipeline.correccion_aplicada_rpu_corregido_en_rpu', ops_summary=ops_summary, sync_status=sync_status)
@@ -4215,27 +4177,25 @@ async def _merge_cmv40_into_p7(
     errors: list[str] = []
     if expected_profile and result_info.profile != expected_profile:
         errors.append(
-            f"profile={result_info.profile} (esperado {expected_profile} — "
-            f"el transfer alteró la profile del source, deberia haber sido idempotente)"
+            tr('cmv40_pipeline.profile_profile_esperado_expected_profile_el_transfer', profile=result_info.profile, expected_profile=expected_profile)
         )
     if result_info.el_type != expected_el_type:
         errors.append(
-            f"el_type={result_info.el_type!r} (esperado {expected_el_type!r} — "
-            f"el transfer alteró la estructura de capas del source)"
+            tr('cmv40_pipeline.el_type_el_type_esperado_expected_el', el_type=result_info.el_type, expected_el_type=expected_el_type)
         )
     if result_info.cm_version != "v4.0":
         errors.append(
-            f"cm_version={result_info.cm_version!r} (esperado 'v4.0' — la transferencia no se aplicó)"
+            tr('cmv40_pipeline.cm_version_cm_version_esperado_v4_0', cm_version=result_info.cm_version)
         )
     if result_info.frame_count != frames_bd:
         errors.append(
-            f"frame_count={result_info.frame_count} (esperado {frames_bd} — frames perdidos/añadidos)"
+            tr('cmv40_pipeline.frame_count_frame_count_esperado_frames_bd', frame_count=result_info.frame_count, frames_bd=frames_bd)
         )
     # Comprobar que L8 está presente: parseamos el summary textual
     # (dovi_tool info -s lista "L8 trims: ..." si existen bloques L8)
     has_l8 = "l8" in summary.lower() or "level 8" in summary.lower()
     if not has_l8:
-        errors.append("no se detectan bloques L8 en el RPU merged (L8 trims ausentes)")
+        errors.append(tr('cmv40_pipeline.no_se_detectan_bloques_l8_en_el'))
 
     if errors:
         src_label = f"P{expected_profile}{(' ' + expected_el_type) if expected_el_type else ''}"
