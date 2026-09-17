@@ -211,6 +211,70 @@ DOVI_TAB2 = {
 }
 
 
+# ── La columna de trabajo, ⚙︎ Configuración, la consulta rápida y el file
+#    browser estaban a CERO pantallas medidas. Un trabajo con la forma que
+#    `trabajos.py` emite, y los payloads de los otros tres.
+TRABAJO = {
+  "id": "c1", "sobre": "c1", "tab": "cmv40", "tipo": "cmv40_fase",
+  "que": "CMv4.0 upgrade · Blade Runner 2049", "titulo": "Blade Runner 2049",
+  "poster": "https://image.tmdb.org/t/p/w92/br.jpg",
+  "fase": "extract", "fase_label": "Phase C · Extract BL/EL", "paso": "Demuxing BL/EL",
+  "chips": ["merge", "auto"], "fase_n": 3, "fases_total": 7,
+  "pct": 42.0, "pct_medido": True, "segundos": 1204, "eta_s": 900,
+  "eta_fuente": "medido", "cancelable": True,
+  "fase_progreso": {"pct": 61.0, "pct_medido": True, "segundos": 300,
+                    "eta_s": 180, "eta_fuente": "medido"},
+}
+TRABAJO_COLA = {**TRABAJO, "id": "c2", "sobre": "c2", "pct": None,
+                "pct_medido": False, "eta_s": None, "eta_fuente": None,
+                "segundos": 0, "cancelable": False}
+RECIENTE = {"id": "r1", "tab": "rip", "tipo": "rip",
+            "que": "MKV conversion · Blade Runner 2049",
+            "titulo": "Blade Runner 2049", "poster": "",
+            "inicio": "2026-09-17T08:00:00Z", "fin": "2026-09-17T08:35:00Z",
+            "segundos": 2100, "estado": "done", "error": None, "ref_log": None}
+
+AJUSTES = {
+  "tmdb": {"configured": True, "source": "default", "last4": None},
+  "google": {"configured": False, "source": "none", "last4": None},
+  "sheet_url": "https://docs.google.com/spreadsheets/d/x",
+  "sheet_is_default": True,
+  "drive_folder": {"configured": True, "source": "default", "url": "https://drive.google.com/x"},
+  "idioma": {"activo": "en", "disponibles": ["es", "en", "ca"]},
+  "aviso_fin": True, "aviso_sonido": False,
+  "update_ignored_version": "",
+}
+
+# El payload de la consulta rápida: recomendación de la hoja + bins del repo
+# + candidatos de TMDb. Todo en inglés, como el resto de las fixtures.
+LOOKUP_REC = {
+  "status": "recommended", "verdict_label": "Feasible",
+  "verdict_detail": "The sheet confirms the CMv4.0 block can be restored.",
+  "input_title": "Blade Runner 2049", "input_year": 2017,
+  "match_title": "Blade Runner 2049", "match_year": 2017,
+  "match_source": "tmdb", "match_confidence": 1.0, "tmdb_configured": True,
+  "rows": [{"feasible": True, "section": "feasible", "dv_source": "retail",
+            "sync_offset": "(+16)", "sync_offset_frames": 16,
+            "notes": "cmv4.0 bloc can be restored", "blockers": [],
+            "blocker_labels": [], "applies_to_our_workflow": True,
+            "match_confidence": 1.0}],
+  "rows_omitted": 0, "feasible_row_count": 1, "infeasible_row_count": 0,
+  "blockers": [], "blockers_apply_to_our_workflow": False,
+  "primary_section": "feasible", "feasible": True, "dv_source": "retail",
+  "sync_offset": "(+16)", "sync_offset_frames": 16,
+  "notes": "cmv4.0 bloc can be restored", "sheet_rows_loaded": 828,
+  "sheet_source": "api", "google_configured": False,
+}
+LOOKUP_REPO = {"configured": True, "candidates": [
+  {"name": "Blade Runner 2049 2017 UHD BD_P7 FEL.bin", "id": "f1",
+   "size": 13000000, "score": 0.97, "predicted_type": "trusted_p7_fel_final",
+   "provenance": "retail", "folder": "BR2049"}]}
+LOOKUP_TMDB = {"title": "Blade Runner 2049", "year": 2017, "tmdb_id": 335984,
+               "poster_url": "https://image.tmdb.org/t/p/w342/br.jpg",
+               "overview": "A young blade runner.", "runtime": 164,
+               "genres": ["Science Fiction"], "rating": 7.6}
+
+
 _SONDA = ("<script>window.__errores=[];"
           "window.addEventListener('error',e=>window.__errores.push("
           "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
@@ -219,7 +283,7 @@ _SONDA = ("<script>window.__errores=[];"
 
 _CUERPO = """
 (function () {
-  const S = %s, T1 = %s, DV = %s;
+  const S = %s, T1 = %s, DV = %s, X = %s;
   const salida = {errores: [], pantallas: {}, fallos: {}, constantes: {}};
   const host = document.createElement('div');
   host.id = '__host'; document.body.appendChild(host);
@@ -284,6 +348,31 @@ _CUERPO = """
     'tab2·l5':              () => _rgrfL5Svg(DV),
     'tab2·gamut':           () => _rgrfGamutSvg(DV.l9_primaries, null),
     'tab2·distribucion':    () => _rgrfDistributionSvg(DV.per_scene_max_cll),
+    // ── Los cuatro ficheros que estaban a CERO pantallas medidas.
+    'workbar·activo':       () => _workbarActivoHTML(X.act),
+    'workbar·tarjeta':      () => _workbarTarjeta(X.cola, {ref: 'cola:c2'}),
+    'workbar·reciente':     () => _workbarTarjeta(X.rec, {ref: 'rec:r1'}),
+    'workbar·chips':        () => _workbarChips(X.act),
+    'workbar·descripcion':  () => _workbarDescripcion(X.act),
+    // ⚙︎ Configuración escribe en los ids de `index.html`, no devuelve
+    // marcado: se llama y se lee el modal entero, que es lo que se ve.
+    'settings·panel':       () => { _renderSettings(X.aj); renderAvisoFinSettings();
+                                    const e = document.getElementById('settings-modal');
+                                    return e ? e.innerHTML : ''; },
+    // `_cmv40LookupTagMeta` devuelve un OBJETO; lo que se lee es su `label`.
+    'modals·lookup_res':    () => { const c = document.createElement('div');
+                                    _cmv40LookupRenderResults(c, X.lrec, X.lrepo, X.ltmdb);
+                                    return c.innerHTML; },
+    'modals·lookup_tag':    () => ['trusted_p7_fel_final', 'trusted_p7_mel_final',
+                                   'trusted_p8_source', 'generic', 'incompatible']
+                                  .map(t => (_cmv40LookupTagMeta(t) || {}).label || '')
+                                  .join(' · '),
+    'modals·lookup_pipe':   () => _cmv40LookupPipelineSummary(
+                                    'trusted_p7_fel_final', 'retail'),
+    'browser·roots':        () => { _fileBrowser.roots = ROOTS_MKV;
+                                    _renderFileBrowserRoots();
+                                    const e = document.getElementById('file-browser-roots');
+                                    return e ? e.innerHTML : ''; },
   };
   for (const [nombre, fn] of Object.entries(CASOS)) {
     try {
@@ -310,7 +399,11 @@ _CUERPO = """
 def _pintar(idioma: str) -> dict:
     import html as H
     cuerpo = _CUERPO % (json.dumps(SESION_CMV40), json.dumps(SESION_TAB1),
-                        json.dumps(DOVI_TAB2))
+                        json.dumps(DOVI_TAB2), json.dumps({
+                            "act": TRABAJO, "cola": TRABAJO_COLA,
+                            "rec": RECIENTE, "aj": AJUSTES,
+                            "lrec": LOOKUP_REC, "lrepo": LOOKUP_REPO,
+                            "ltmdb": LOOKUP_TMDB}))
     pagina = html().replace("</head>", _SONDA + semilla_catalogo(idioma) + "</head>")
     pagina = pagina.replace(
         "</body>", f'<pre id="__out"></pre><script>{cuerpo}</script></body>')
@@ -491,8 +584,16 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
 
     @classmethod
     def _palabras_del_dato(cls) -> set:
-        return _palabras({"a": json.dumps(SESION_CMV40, ensure_ascii=False),
-                          "b": json.dumps(SESION_TAB1, ensure_ascii=False)})
+        """Lo que viene de la FIXTURE no es una fuga de la app.
+
+        Tienen que estar TODAS las fixtures: con solo dos de ellas, el
+        `paso` de la columna de trabajo («Demuxing BL/EL») se denunciaba
+        como si fuera un literal cableado.
+        """
+        crudo = {str(i): json.dumps(x, ensure_ascii=False) for i, x in enumerate(
+            (SESION_CMV40, SESION_TAB1, DOVI_TAB2, TRABAJO, TRABAJO_COLA,
+             RECIENTE, AJUSTES, LOOKUP_REC, LOOKUP_REPO, LOOKUP_TMDB))}
+        return _palabras(crudo)
 
     def test_ninguna_palabra_sobrevive_al_cambio_de_idioma(self):
         base = APP_DIR / "static" / "i18n"
@@ -531,10 +632,129 @@ NI_TRADUCIBLE_NI_FUGA = {
     # `LANGUAGE_MAP`: los literales de pista de la spec, que acaban en el
     # nombre de las pistas del MKV. Decisión escrita en CLAUDE.md; cambia con
     # el bloque de selección de pistas, no con la traducción.
+    "catal": "«Català», el nombre de la lengua en su propia lengua — el "
+               "selector de ⚙︎ Configuración enseña los tres así",
     "francés": "LANGUAGE_MAP (literal de pista)",
     "castellano": "LANGUAGE_MAP (literal de pista)",
     "inglés": "LANGUAGE_MAP (literal de pista)",
 }
+
+
+# Palabras función castellanas que **no pueden** aparecer en la pantalla
+# inglesa. El criterio del vocabulario pide cuatro letras, así que un «3 de 7»
+# —el paso de la columna de trabajo, vivo hasta el 2026-09-17— es invisible
+# para los otros dos criterios.
+#
+# El conjunto está CURADO por medición, no copiado de una lista de stop-words:
+# se probó con 44 palabras y las tres que dan falsos positivos se quitaron —
+# «no» y «son» son inglés, y «el» es la Enhancement Layer del Dolby Vision,
+# que sale en nueve pantallas. Con las 21 que quedan, la única aparición en
+# toda la app era la de verdad.
+FUNCION_CASTELLANA = (
+    "de", "del", "los", "las", "una", "con", "por", "para", "más", "hay",
+    "está", "están", "desde", "hasta", "entre", "cada", "pero", "cuando",
+    "donde", "aún", "todavía",
+)
+
+
+@unittest.skipUnless(CHROME, "sin Chrome")
+class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
+        unittest.TestCase):
+    """El tercer criterio, y el que caza lo corto.
+
+    Los otros dos miran palabras de cuatro letras o más: uno contra el
+    vocabulario del catálogo y otro contra el render castellano. Ninguno
+    puede ver «3 de 7», que es lo que la columna de trabajo enseñaba en
+    inglés. Una preposición castellana en la pantalla inglesa no tiene
+    ninguna lectura inocente.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.vista = _pintar("en")
+
+    def test_ni_una(self):
+        pat = {w: re.compile(r"(?<![\w'])" + w + r"(?![\w'])", re.I)
+               for w in FUNCION_CASTELLANA}
+        malas = []
+        for nombre, p in self.vista["pantallas"].items():
+            txt = p["texto"] + " ⁞ " + " ⁞ ".join(p["atributos"])
+            hits = sorted(w for w, r in pat.items() if r.search(txt))
+            if hits:
+                malas.append(f"{nombre}: {hits}")
+        self.assertEqual(malas, [], (
+            "\npalabra función castellana en la pantalla INGLESA — es un "
+            "literal cableado, y los otros dos criterios no lo ven porque "
+            "tiene menos de cuatro letras:\n  · " + "\n  · ".join(malas)))
+
+
+class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
+    """Los tres criterios son buenos; lo que fallaba era CUÁNTO miran.
+
+    El 2026-09-17 el usuario reportó fallos en Tab 3 que la suite no veía, y
+    el diagnóstico fue de cobertura: la sonda llamaba a 26 de las 208
+    funciones que pintan marcado. Dicho así es injusto —una función cubierta
+    arrastra a las que llama—, así que lo que se mide aquí es el **cierre
+    transitivo**: si la sonda llama a `_cmv40GateBloque3`, el
+    `_cmv40GateFilaHtml` que esa usa también se está midiendo.
+
+    El número no es un objetivo: es un trinquete. Una función nueva que
+    pinte marcado y que nadie llame desde la sonda hace fallar el test, y
+    eso obliga a decidir —añadirla o escribir por qué no— en vez de
+    descubrirlo cuando el usuario la lee en el otro idioma.
+
+    Los 62 huecos de hoy están agrupados: el panel de edición de Tab 2
+    (`_renderMkvEditPanel`, `_renderMkvTracks`, `_renderMkvChapterList`,
+    `_renderMkvRecientes`…), el modal de creación de CMv4.0 y la ayuda
+    (`_cmv40New*`, `_cmv40Help*`, `_cmv40Lookup*`) y la tabla de episodios
+    de una serie (`_renderSeriesEpisodesTable`).
+    """
+
+    HUECOS_MAXIMOS = 62
+
+    def _censo(self):
+        from frontend_sources import rutas
+        cuerpo, emite = {}, set()
+        for r in rutas():
+            if not str(r).endswith(".js"):
+                continue
+            src = Path(r).read_text(encoding="utf-8")
+            pos = [(m.start(), m.group(1)) for m in re.finditer(
+                r"^(?:async )?function ([A-Za-z_][\w]*)\s*\(", src, re.M)]
+            for k, (i, fn) in enumerate(pos):
+                j = pos[k + 1][0] if k + 1 < len(pos) else len(src)
+                cuerpo[fn] = src[i:j]
+                if re.search(r"return\s*`?\s*<|innerHTML\s*=", src[i:j]):
+                    emite.add(fn)
+        sonda = Path(__file__).read_text(encoding="utf-8")
+        alcanzado = {fn for fn in cuerpo
+                     if re.search(r"\b" + re.escape(fn) + r"\s*\(", sonda)}
+        frontera = list(alcanzado)
+        while frontera:
+            fn = frontera.pop()
+            for otra in re.findall(r"\b([A-Za-z_][\w]*)\s*\(",
+                                   cuerpo.get(fn, "")):
+                if otra in cuerpo and otra not in alcanzado:
+                    alcanzado.add(otra)
+                    frontera.append(otra)
+        return emite, emite & alcanzado
+
+    def test_no_aparece_ninguna_pantalla_nueva_sin_medir(self):
+        emite, cubiertas = self._censo()
+        huecos = sorted(emite - cubiertas)
+        self.assertLessEqual(len(huecos), self.HUECOS_MAXIMOS, (
+            f"\n{len(huecos)} funciones pintan marcado y la sonda no llega a "
+            f"ellas (el tope es {self.HUECOS_MAXIMOS}). Añádela a `CASOS` o "
+            f"baja el tope con el motivo:\n  · " + "\n  · ".join(huecos[:12])))
+
+    def test_el_tope_esta_ajustado(self):
+        """Un tope holgado deja entrar pantallas sin medir sin que nada
+        avise. Se baja al cerrar un hueco, y este test lo obliga."""
+        emite, cubiertas = self._censo()
+        huecos = len(emite - cubiertas)
+        self.assertEqual(huecos, self.HUECOS_MAXIMOS, (
+            f"\nquedan {huecos} huecos y el tope dice {self.HUECOS_MAXIMOS}: "
+            f"ajusta `HUECOS_MAXIMOS`"))
 
 
 class TestLaListaDeNoTraducibleNoSeQuedaVieja(unittest.TestCase):

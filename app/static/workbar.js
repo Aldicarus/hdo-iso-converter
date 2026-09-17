@@ -182,8 +182,10 @@ function _workbarPips(a) {
     p.push(`<span class="wb-pip${i < a.fase_n ? ' hecha'
                                 : i === a.fase_n ? ' ahora' : ''}"></span>`);
   }
-  return `<div class="wb-pips" data-tooltip="Fase ${a.fase_n || '–'} de `
-       + `${a.fases_total}">${p.join('')}</div>`;
+  const tip = tr('workbar.fase_n_de_total', {n: a.fase_n || '–',
+                                             total: a.fases_total});
+  return `<div class="wb-pips" data-tooltip="${escHtml(tip)}">`
+       + `${p.join('')}</div>`;
 }
 
 /** Lo que distingue a este trabajo de los otros cinco, en dos palabras.
@@ -251,7 +253,8 @@ function _workbarActivoHTML(a) {
         + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
     : _relojHTML(a.segundos, tr('workbar.lleva') + ' ');
   const fase = a.fases_total
-    ? `${a.fase_label || a.fase} · ${a.fase_n || '–'} de ${a.fases_total}`
+    ? `${a.fase_label || a.fase} · `
+      + tr('workbar.n_de_total', {n: a.fase_n || '–', total: a.fases_total})
     : (a.fase_label || a.fase || _workbarDescripcion(a));
   return _workbarTarjeta(a, {
     ref: 'act', clase: 'wb-activa', pordefecto: true,
