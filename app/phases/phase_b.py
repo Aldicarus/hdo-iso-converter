@@ -273,17 +273,14 @@ def _detect_vo_language(tracks: list[RawAudioTrack]) -> tuple[str, str]:
 
     if "spanish" in langs_lower:
         return "spanish", (
-            "Fallback VO: el disco no contiene pistas en inglés. "
-            "Se usa Castellano como VO. Verifica que la selección de pistas es correcta."
+            tr('phase_b.fallback_vo_el_disco_no_contiene_pistas')
         )
 
     # Emergencia: ningún idioma esperado
     first_lang = langs_lower[0] if langs_lower else "english"
     first_display = tracks[0].language if tracks else "English"
     return first_lang, (
-        f"⚠️ No se puede determinar la VO automáticamente: el disco no contiene "
-        f"pistas en inglés ni en español. Se ha usado '{first_display}' como VO provisional. "
-        f"Revisa las pistas incluidas y ajusta manualmente."
+        tr('phase_b.no_se_puede_determinar_la_vo_automaticamente', first_display=first_display)
     )
 
 
@@ -425,10 +422,7 @@ def _select_audio_tracks(
             parts_included = []
             if similar_quality:
                 parts_included.append(
-                    f"Hay {len(similar_quality)} pista{'s' if len(similar_quality) > 1 else ''} "
-                    f"{lang_lit} adicional{'es' if len(similar_quality) > 1 else ''} con calidad "
-                    f"muy parecida (mismo codec, bitrate similar). Pueden ser ediciones "
-                    f"diferentes (España/Latam, mezclas alternativas, comentarios)."
+                    tr('phase_b.hay_p1_pista_p2_lang_lit_adicional', p1=len(similar_quality), p2='s' if len(similar_quality) > 1 else '', lang_lit=lang_lit, p4='es' if len(similar_quality) > 1 else '')
                 )
             # Aviso "different_quality" solo cuando es Castellano y la
             # elegida no es la primera. Si la elegida ES la primera, no
@@ -436,32 +430,22 @@ def _select_audio_tracks(
             # VO, no avisamos: codec priority es fiable.
             if different_quality and not picked_is_first and is_castellano:
                 parts_included.append(
-                    f"Hay {len(different_quality)} pista{'s' if len(different_quality) > 1 else ''} "
-                    f"{lang_lit} adicional{'es' if len(different_quality) > 1 else ''} con calidad "
-                    f"técnica distinta. Pueden ser ediciones diferentes (España/Latam, "
-                    f"mezclas alternativas, comentarios)."
+                    tr('phase_b.hay_p1_pista_p2_lang_lit_adicional', p1=len(different_quality), p2='s' if len(different_quality) > 1 else '', lang_lit=lang_lit, p4='es' if len(different_quality) > 1 else '')
                 )
 
             if parts_included:
                 ambiguity_text_included = (
-                    " ".join(parts_included)
-                    + " Compruébalo audiblemente y recupera otra si no era la versión "
-                    + "que querías."
+                    tr('phase_b.p1_compruebalo_audiblemente_y_recupera_otra_si', p1=" ".join(parts_included))
                 )
             else:
                 ambiguity_text_included = ""
             ambiguity_text_discarded_similar = (
-                f"Calidad similar a la pista {lang_lit} incluida (mismo codec, "
-                f"bitrate similar). Si es la versión que querías, recupérala y "
-                f"compruébalo audiblemente."
+                tr('phase_b.calidad_similar_a_la_pista_lang_lit', lang_lit=lang_lit)
             )
             # Aviso de descartadas "different" solo en Castellano (mismo
             # razonamiento que arriba — para VO el codec priority manda).
             ambiguity_text_discarded_different = (
-                f"Otra pista {lang_lit} con calidad técnica distinta. Puede ser "
-                f"una edición diferente (España/Latam, mezcla alternativa, "
-                f"comentarios). Si era la versión que querías, recupérala y "
-                f"compruébalo audiblemente."
+                tr('phase_b.otra_pista_lang_lit_con_calidad_tecnica', lang_lit=lang_lit)
             ) if (not picked_is_first and is_castellano) else ""
         else:
             ambiguity_text_included = ""
@@ -494,23 +478,19 @@ def _select_audio_tracks(
             t_codec_lit = _codec_literal(t, False)
             if id(t) in similar_ids:
                 reason_disc = (
-                    f"Descartada por defecto: hay otra pista {lang_lit} "
-                    f"({best_codec_lit}) de calidad similar y nos quedamos "
-                    f"con la primera del disco."
+                    tr('phase_b.descartada_por_defecto_hay_otra_pista_lang', lang_lit=lang_lit, best_codec_lit=best_codec_lit)
                 )
                 ambig_text = ambiguity_text_discarded_similar
             elif id(t) in different_ids:
                 reason_disc = (
-                    f"Descartada: segunda pista {_language_literal(t.language.lower())}. "
-                    f"Menor calidad técnica: {t_codec_lit} < {best_codec_lit}"
+                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_tecnica', p1=_language_literal(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
                 )
                 ambig_text = ambiguity_text_discarded_different
             else:
                 # No debería pasar (similar+different cubre rest), pero
                 # por defensa: razón clásica sin warning.
                 reason_disc = (
-                    f"Descartada: segunda pista {_language_literal(t.language.lower())}. "
-                    f"Menor calidad: {t_codec_lit} < {best_codec_lit}"
+                    tr('phase_b.descartada_segunda_pista_p1_menor_calidad_t', p1=_language_literal(t.language.lower()), t_codec_lit=t_codec_lit, best_codec_lit=best_codec_lit)
                 )
                 ambig_text = ""
             discarded.append(DiscardedTrack(
@@ -881,14 +861,14 @@ def _select_subtitle_tracks(
             # Clasificar tipo por packets (si hay) o bitrate sintético
             if t.packet_count > 0:
                 if t.packet_count < 500:
-                    sub_type, type_lit = "forced", "Forzados"
+                    sub_type, type_lit = "forced", tr('phase_b.forzados')
                 else:
-                    sub_type, type_lit = "complete", "Completos"
+                    sub_type, type_lit = "complete", tr('phase_b.completos')
             else:
                 if t.bitrate_kbps < 3.0:
-                    sub_type, type_lit = "forced", "Forzados"
+                    sub_type, type_lit = "forced", tr('phase_b.forzados')
                 else:
-                    sub_type, type_lit = "complete", "Completos"
+                    sub_type, type_lit = "complete", tr('phase_b.completos')
             label = f"{lang_lit} {type_lit} (PGS)"
             flag_forced = sub_type == "forced"
             flag_default = False
@@ -1266,22 +1246,18 @@ def _select_subtitle_tracks(
                 if complete_track and complete_track.packet_count > 0:
                     ratio = complete_track.packet_count / forced_track.packet_count
                     reason_forced = (
-                        f"Forzados (packet-based): {forced_track.packet_count} paquetes "
-                        f"vs {complete_track.packet_count} de la pista completa "
-                        f"({ratio:.1f}× menor → forzado). Primera pista forzada para "
-                        f"{lang_norm.capitalize()}"
+                        tr('phase_b.forzados_packet_based_packet_count_paquetes_vs', packet_count=forced_track.packet_count, p2=complete_track.packet_count, ratio=format(ratio, '.1f'), p4=lang_norm.capitalize())
                     )
                 else:
                     reason_forced = (
-                        f"Forzados (packet-based): {forced_track.packet_count} paquetes "
-                        f"(<500, tamaño típico de un forzado puro). Única pista de "
-                        f"subtítulos para {lang_norm.capitalize()}"
+                        tr('phase_b.forzados_packet_based_packet_count_paquetes_500', packet_count=forced_track.packet_count, p2=lang_norm.capitalize())
                     )
             else:
                 reason_forced = (
-                    f"Forzados Forma A: bitrate {forced_track.bitrate_kbps:.3f} kbps < umbral 3 kbps. "
-                    f"Pista completa {lang_norm.capitalize()} presente"
-                    + (f" con bitrate {complete_track.bitrate_kbps:.3f} kbps" if complete_track else "")
+                    tr('phase_b.forzados_forma_a_bitrate_bitrate_kbps_kbps', bitrate_kbps=format(forced_track.bitrate_kbps, '.3f'), p2=lang_norm.capitalize(), p3=(" " + tr('phase_b.con_bitrate_bitrate_kbps_kbps',
+                                     bitrate_kbps=format(
+                                         complete_track.bitrate_kbps, '.3f'))
+                           if complete_track else ""))
                 )
             # flag_forced solo a Castellano (spec §5.2). Es el track que el
             # reproductor enseñará automáticamente cuando se reproduzca el
@@ -1319,18 +1295,14 @@ def _select_subtitle_tracks(
                 )
                 if bigger_alt:
                     reason_complete = (
-                        f"Completos (packet-based): {complete_track.packet_count} paquetes. "
-                        f"Primera pista del disco para {lang_norm.capitalize()}; hay otra casi "
-                        f"idéntica con más paquetes (probable versión con descripciones para "
-                        f"sordos, SDH)"
+                        tr('phase_b.completos_packet_based_packet_count_paquetes_primera', packet_count=complete_track.packet_count, p2=lang_norm.capitalize())
                     )
                 else:
                     reason_complete = (
-                        f"Completos (packet-based): {complete_track.packet_count} paquetes — "
-                        f"pista completa de {lang_norm.capitalize()}"
+                        tr('phase_b.completos_packet_based_packet_count_paquetes_pista', packet_count=complete_track.packet_count, p2=lang_norm.capitalize())
                     )
             else:
-                reason_complete = f"Completos: {'única pista' if not forced_track else 'pista completa'} para {lang_norm.capitalize()}"
+                reason_complete = tr('phase_b.completos_p1_para_p2', p1='única pista' if not forced_track else 'pista completa', p2=lang_norm.capitalize())
             # Si hay alternativas ambiguas (otras pistas del mismo idioma
             # con tamaño similar al elegido, ratio <3×), avisar en la
             # incluida — la heurística no puede decidir cuál es la
