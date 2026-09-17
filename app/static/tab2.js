@@ -1336,9 +1336,9 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   const sceneCutsCell = (dv?.quality_scene_cuts || 0) > 0
     ? cell(
         'Scene cuts',
-        `${dv.quality_scene_cuts.toLocaleString(localeActual())} (~${
-          (a.duration_seconds / dv.quality_scene_cuts).toFixed(1)
-        }s/escena)`,
+        tr('tab2.scene_cuts_cada', {
+          n: dv.quality_scene_cuts.toLocaleString(localeActual()),
+          seg: (a.duration_seconds / dv.quality_scene_cuts).toFixed(1)}),
         { tooltip: tr('tab2.no_de_frames_con_scene_refresh') }
       )
     : '';
@@ -1524,7 +1524,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
   // BLOQUE 6 · Perfil de luminancia (sparkline + distribución) + botón
   // ═══════════════════════════════════════════════════════════════
   const lightMeta = hasLightProfile
-    ? `${dv.per_scene_max_cll.length} buckets · max ${Math.max(...dv.per_scene_max_cll)} nits`
+    ? tr('tab2.n_buckets_max_nits', {n: dv.per_scene_max_cll.length,
+                                     max: Math.max(...dv.per_scene_max_cll)})
     : '';
   // Referencias del RPU + HDR10 del container para overlay
   const sparkRefs = hasLightProfile ? {
@@ -3215,7 +3216,7 @@ function _renderMkvRecientes() {
       ? new Date(r.analizado_en).toLocaleString(localeActual(), {
           day: '2-digit', month: '2-digit', year: '2-digit',
           hour: '2-digit', minute: '2-digit' })
-      : 'desconocido';
+      : tr('tab2.fecha_desconocida');
     const tamano = r.tamano_bytes ? _fmtBytes(r.tamano_bytes) : '—';
     const duracion = r.duracion_segundos ? ` · ${_fmtDuration(r.duracion_segundos)}` : '';
 

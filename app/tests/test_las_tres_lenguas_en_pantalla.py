@@ -203,7 +203,10 @@ DOVI_TAB2 = {
   "l1_stats": {"total": 141336, "peak": 1000, "p99": 940, "p95": 700,
                "p50": 120, "avg_of_max": 180, "bucket_dim": 90000,
                "bucket_mid": 40000, "bucket_high": 11336},
-  "l1_references": {"l5_zones": [{"zone": "0/0/0/0", "frames": 141336}],
+  # Una zona L5 con la forma REAL de `luminance.py` (top/bottom/left/right/
+  # frames/pct). Sin `top` el panel enseñaba «undefined / undefined px».
+  "l1_references": {"l5_zones": [{"top": 0, "bottom": 0, "left": 0,
+                                  "right": 0, "frames": 141336, "pct": 100.0}],
                     "l2_targets": [100, 600], "l6": {"max_cll": 1000}},
   # Lista PLANA de nits por escena: es lo que `_rgrfSparklineSvg`
   # consume. Con pares `[i, v]` el SVG sale entero a `NaN`.
@@ -265,6 +268,17 @@ LOOKUP_REC = {
   "notes": "cmv4.0 bloc can be restored", "sheet_rows_loaded": 828,
   "sheet_source": "api", "google_configured": False,
 }
+LOOKUP_REC_ROWS = LOOKUP_REC["rows"] + [
+  {"feasible": False, "section": "infeasible", "dv_source": "",
+   "sync_offset": "", "sync_offset_frames": None,
+   "notes": "can only be played on a FEL device",
+   "blockers": ["p8_only"], "blocker_labels": ["P8 only"],
+   "applies_to_our_workflow": False, "match_confidence": 1.0},
+  {"feasible": True, "section": "probably_ok", "dv_source": "DSNP",
+   "sync_offset": "(-8)", "sync_offset_frames": -8,
+   "notes": "not sure", "blockers": [], "blocker_labels": [],
+   "applies_to_our_workflow": True, "match_confidence": 0.9},
+]
 LOOKUP_REPO = {"configured": True, "candidates": [
   {"name": "Blade Runner 2049 2017 UHD BD_P7 FEL.bin", "id": "f1",
    "size": 13000000, "score": 0.97, "predicted_type": "trusted_p7_fel_final",
@@ -273,6 +287,113 @@ LOOKUP_TMDB = {"title": "Blade Runner 2049", "year": 2017, "tmdb_id": 335984,
                "poster_url": "https://image.tmdb.org/t/p/w342/br.jpg",
                "overview": "A young blade runner.", "runtime": 164,
                "genres": ["Science Fiction"], "rating": 7.6}
+
+
+# ── El panel de edición de Tab 2, que es la pestaña de la que salió el
+#    primer reporte del usuario y la peor cubierta. Es un
+#    `MkvAnalysisResult` serializado: las claves se cruzan contra el modelo
+#    en `TestElFixtureCorrespondeAlModelo`.
+ANALISIS_MKV = {
+  "file_path": "/mnt/output/Blade Runner 2049 (2017) [DV FEL].mkv",
+  "file_name": "Blade Runner 2049 (2017) [DV FEL].mkv",
+  "file_size_bytes": 78_000_000_000, "duration_seconds": 5904.0,
+  "title": "Blade Runner 2049",
+  "has_fel": True,
+  "hdr": {"max_cll": 1000, "max_fall": 400, "color_primaries": "BT.2020",
+          "transfer_characteristics": "PQ", "bit_depth": 10,
+          "mastering_display_luminance": "min: 0.0050 cd/m2, max: 1000 cd/m2",
+          "mastering_display_primaries": "Display P3"},
+  "dovi": None,   # se rellena con DOVI_TAB2 en el JS
+  "mediainfo_raw": None, "analysis_log": [],
+  "tracks": [
+    {"id": 0, "type": "video", "codec": "HEVC", "language": "und", "name": "",
+     "flag_default": True, "flag_forced": False, "pixel_dimensions": "3840x2160",
+     "bitrate_kbps": 58000, "bit_depth": 10, "color_primaries": "BT.2020",
+     "hdr_format": "Dolby Vision / SMPTE ST 2086", "fps": 23.976,
+     "frame_count": 141336, "format_commercial": "HEVC"},
+    {"id": 1, "type": "video", "codec": "HEVC", "language": "und",
+     "name": "Dolby Vision EL", "flag_default": False, "flag_forced": False,
+     "pixel_dimensions": "1920x1080", "bitrate_kbps": 6000},
+    {"id": 2, "type": "audio", "codec": "TrueHD Atmos",
+     "language": "spa", "name": "Castellano TrueHD Atmos 7.1 (DCP 9.1.6)",
+     "flag_default": True, "flag_forced": False, "channels": 8,
+     "sample_rate": 48000, "bitrate_kbps": 4500,
+     "format_commercial": "Dolby TrueHD with Dolby Atmos",
+     "channel_layout": "L R C LFE Lss Rss Lrs Rrs",
+     "compression_mode": "Lossless"},
+    {"id": 3, "type": "audio", "codec": "AC-3", "language": "eng",
+     "name": "English DD 5.1", "flag_default": False, "flag_forced": False,
+     "channels": 6, "sample_rate": 48000, "bitrate_kbps": 640,
+     "format_commercial": "Dolby Digital", "compression_mode": "Lossy"},
+    {"id": 4, "type": "subtitles", "codec": "PGS", "language": "spa",
+     "name": "Castellano Forzados (PGS)", "flag_default": True,
+     "flag_forced": True, "pixel_dimensions": "1920x1080", "packet_count": 248},
+    {"id": 5, "type": "subtitles", "codec": "PGS", "language": "eng",
+     "name": "English Completos (PGS)", "flag_default": False,
+     "flag_forced": False, "pixel_dimensions": "1920x1080",
+     "packet_count": 4516},
+  ],
+  "chapters": [
+    {"number": 1, "name": "Chapter 01", "timestamp": "00:00:00.000",
+     "name_custom": False},
+    {"number": 2, "name": "The Farm", "timestamp": "00:08:12.400",
+     "name_custom": True},
+    {"number": 3, "name": "Chapter 03", "timestamp": "00:21:40.000",
+     "name_custom": False},
+  ],
+}
+
+
+# La columna izquierda de Tab 2: los MKVs analizados, con la forma que sirve
+# **el ENDPOINT** (`ruta`, `analizado_en`, `tamano_bytes`, `tiene_*`), no la
+# de `storage.list_mkv_audit_entries`. Escribirla con la del storage dejaba
+# la tarjeta entera en `undefined` sin que nada fallara — la misma trampa que
+# el fixture de CMv4.0 con `trust_gates`.
+#
+# Tres tarjetas a propósito: una completa, una sin análisis extendido y una
+# cuyo MKV ya no está en su ruta (que se MARCA, no se oculta).
+MKV_RECIENTES = [
+  {"ruta": "/mnt/output/Blade Runner 2049 (2017) [DV FEL].mkv",
+   "nombre": "Blade Runner 2049 (2017) [DV FEL].mkv",
+   "titulo": "Blade Runner 2049", "poster": "",
+   "tamano_bytes": 78_000_000_000, "duracion_segundos": 5904.0,
+   "analizado_en": "2026-09-16T08:00:00+00:00", "existe": True,
+   "tiene_basico": True, "tiene_extendido": True, "tiene_luminancia": True},
+  {"ruta": "/mnt/output/Dune Part Two (2024).mkv",
+   "nombre": "Dune Part Two (2024).mkv",
+   "titulo": "Dune: Part Two", "poster": "",
+   "tamano_bytes": 64_000_000_000, "duracion_segundos": 9_960.0,
+   "analizado_en": "2026-09-10T08:00:00+00:00", "existe": True,
+   "tiene_basico": True, "tiene_extendido": False, "tiene_luminancia": False},
+  {"ruta": "/mnt/output/moved away.mkv", "nombre": "moved away.mkv",
+   "titulo": "", "poster": "", "tamano_bytes": 40_000_000_000,
+   "duracion_segundos": None, "analizado_en": None, "existe": False,
+   "tiene_basico": True, "tiene_extendido": False, "tiene_luminancia": False},
+]
+
+# El `probe` con el que `openSeriesModal` arranca: tres candidatos a
+# episodio, uno de ellos con sesión previa (badge «✓ Existe» y fila ámbar).
+PROBE_SERIE = {
+  "source_type": "bdmv_folder", "iso_path": "Game of Thrones S05 DISC2",
+  "source_path": "Game of Thrones S05 DISC2",
+  "media_type": "series", "disc_type": "series",
+  "episode_candidates": [
+    {"mpls_name": "00801.mpls", "mpls_path": "00801.mpls",
+     "duration_minutes": 54.2, "audio_track_count": 3,
+     "m2ts_size_bytes": 32_000_000_000},
+    {"mpls_name": "00802.mpls", "mpls_path": "00802.mpls",
+     "duration_minutes": 52.8, "audio_track_count": 3,
+     "m2ts_size_bytes": 31_000_000_000},
+    {"mpls_name": "00803.mpls", "mpls_path": "00803.mpls",
+     "duration_minutes": 61.4, "audio_track_count": 3,
+     "m2ts_size_bytes": 36_000_000_000},
+  ],
+  "existing_series_sessions": [
+    {"id": "got_s05e06", "mpls_path": "00801.mpls", "season_number": 5,
+     "episode_number": 6, "mkv_name": "GoT - S05E06.mkv", "status": "done"},
+  ],
+  "suggested_title": "Game of Thrones", "suggested_year": 2011,
+}
 
 
 _SONDA = ("<script>window.__errores=[];"
@@ -317,6 +438,29 @@ _CUERPO = """
       salida.pantallas['tab1·panel_de_proyecto'] = leer(panel);
     }
   } catch (e) { salida.fallos['tab1·panel_de_proyecto'] = String(e && e.message || e); }
+
+  // El proyecto de Tab 2, montado como lo monta la app: los renders
+  // escriben en ids prefijados por el id del proyecto, así que sin la
+  // sub-pestaña en el DOM no hay dónde leer.
+  X.mkv.dovi = DV;
+  // La forma REAL de `project.comparacion` (ver `_mkvCompararCon`): con
+  // otras claves la tabla de deltas sale entera a `undefined`.
+  const CMP = {serie: DV.per_scene_max_cll, etiqueta: 'another copy.mkv',
+               stats: DV.l1_stats, duracion: 5904.0,
+               fichero: '/mnt/output/another copy.mkv'};
+  const PM = {id: 'm1', fileName: X.mkv.file_name, filePath: X.mkv.file_path,
+              analysis: X.mkv, originalAnalysis: JSON.parse(JSON.stringify(X.mkv)),
+              dirty: false, comparacion: null};
+  try {
+    openMkvProjects.push(PM);
+    _mkvCreateSubTab(PM);
+    _mkvCreatePanel(PM);          // el `<div id="mkv-panel-m1">` donde escribe
+    switchMkvSubTab(PM.id);
+    _renderMkvEditPanel(PM);
+    const pe = document.getElementById('mkv-panel-' + PM.id);
+    if (pe) { pintarTextos(pe);
+              salida.pantallas['tab2·panel_de_edicion'] = leer(pe); }
+  } catch (e) { salida.fallos['tab2·panel_de_edicion'] = String(e && e.message || e); }
 
   const CASOS = {
     'tab3·info':            () => _renderCMv40Info(S, 'c1'),
@@ -369,6 +513,73 @@ _CUERPO = """
                                   .join(' · '),
     'modals·lookup_pipe':   () => _cmv40LookupPipelineSummary(
                                     'trusted_p7_fel_final', 'retail'),
+    // ── Tab 2: el panel de edición entero, que estaba sin medir.
+    'tab2·subtab':          () => _mkvSubTabInnerHtml(PM),
+    'tab2·pistas':          () => { _renderMkvTracks(PM);
+                                    return ['mkv-audio-list-', 'mkv-sub-list-']
+                                      .map(p => (document.getElementById(p + PM.id) || {}).innerHTML || '')
+                                      .join(''); },
+    'tab2·capitulos':       () => { _renderMkvChapterList(PM);
+                                    const e = document.getElementById('mkv-chapters-list-' + PM.id);
+                                    return e ? e.innerHTML : ''; },
+    'tab2·radiografia':     () => _renderMkvDvRadiography(
+                                    X.mkv, DV, X.mkv.tracks[0], X.mkv.tracks[1], CMP),
+    'tab2·comparacion':     () => _mkvTablaComparacionHtml(DV, X.mkv, CMP),
+    'tab2·recientes':       () => { _mkvRecientes = X.recientes;
+                                    _renderMkvRecientes();
+                                    const e = document.getElementById('mkv-recientes-list');
+                                    return e ? e.innerHTML : ''; },
+    'tab2·recientes_error': () => { _renderMkvRecientesErrorDeCarga();
+                                    const e = document.getElementById('mkv-recientes-list');
+                                    return e ? e.innerHTML : ''; },
+    // ── Tab 3: la fila de la hoja y los pasos de la timeline.
+    'tab3·fila_hoja':       () => X.filas.map(_cmv40RenderSheetRowBlock).join(''),
+    'tab3·timeline_pasos':  () => { const pasos = _cmv40PlanAutoSteps(S, {id: 'c1', session: S});
+                                    return _cmv40RenderTimelineStepsHTML(
+                                      pasos, pasos.map(x => _cmv40StepStatus(x, S)), S); },
+    'tab3·repo_vacio':      () => { _cmv40NewResetRepoList(
+                                      tr('tab3.cargando_candidatos_del_repositorio'), true);
+                                    const e = document.getElementById('cmv40-new-repo-list');
+                                    return e ? e.innerHTML : ''; },
+    // ── La columna de trabajo: el log del modal de detalle.
+    'workbar·log':          () => _trabajoLogHTML(
+                                    ['━━━ Phase C ━━━', '$ dovi_tool demux',
+                                     '✓ Phase C completed']),
+    'workbar·log_vacio':    () => _trabajoLogHTML([]),
+    // ── Tab 1: el modal de progreso y el aviso de conflictos de serie.
+    'tab1·modal_progreso':  () => { showProgressModal({title: 'Analyzing disc',
+                                      sub: 'Blade Runner 2049.iso'});
+                                    updateProgressModal({current: 'mkvmerge -J',
+                                      pct: 42, addStep: 'Mount', checklist: null});
+                                    const e = document.getElementById('progress-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·analyze_modal':   () => { _configureAnalyzeModalForSource('m2ts');
+                                    const e = document.getElementById('analyze-modal');
+                                    return e ? e.innerHTML : ''; },
+    // ── El modal de series, que arrastra media docena de renders.
+    'tab1·modal_series':    () => { openSeriesModal(X.probe);
+                                    const e = document.getElementById('series-modal');
+                                    return e ? e.innerHTML : ''; },
+    // ── Los tres modales de CMv4.0 que estaban sin medir. `fetch` está
+    //    parado en la sonda, así que se lee el armazón —que es lo que el
+    //    usuario ve primero— sin que la red resuelva.
+    'modals·lookup':        () => { openCMv40LookupModal();
+                                    const e = document.getElementById('cmv40-lookup-modal');
+                                    return e ? e.innerHTML : ''; },
+    'modals·limpieza':      () => { openCMv40CleanupModal();
+                                    const e = document.getElementById('cmv40-cleanup-modal');
+                                    return e ? e.innerHTML : ''; },
+    'modals·manual':        () => { openCMv40HelpModal(); _cmv40HelpSwitch('general');
+                                    const e = document.getElementById('cmv40-help-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab3·wizard':          () => { _showCMv40NewProjectWizard();
+                                    const e = document.getElementById('cmv40-new-modal');
+                                    return e ? e.innerHTML : ''; },
+    'browser·modal':        () => { openFileBrowser({title: 'Open MKV',
+                                      subtitle: 'Pick a file', roots: ROOTS_MKV,
+                                      onSelect: () => {}});
+                                    const e = document.getElementById('file-browser-modal');
+                                    return e ? e.innerHTML : ''; },
     'browser·roots':        () => { _fileBrowser.roots = ROOTS_MKV;
                                     _renderFileBrowserRoots();
                                     const e = document.getElementById('file-browser-roots');
@@ -403,7 +614,10 @@ def _pintar(idioma: str) -> dict:
                             "act": TRABAJO, "cola": TRABAJO_COLA,
                             "rec": RECIENTE, "aj": AJUSTES,
                             "lrec": LOOKUP_REC, "lrepo": LOOKUP_REPO,
-                            "ltmdb": LOOKUP_TMDB}))
+                            "ltmdb": LOOKUP_TMDB, "mkv": ANALISIS_MKV,
+                            "filas": LOOKUP_REC_ROWS,
+                            "probe": PROBE_SERIE,
+                            "recientes": MKV_RECIENTES}))
     pagina = html().replace("</head>", _SONDA + semilla_catalogo(idioma) + "</head>")
     pagina = pagina.replace(
         "</body>", f'<pre id="__out"></pre><script>{cuerpo}</script></body>')
@@ -443,8 +657,20 @@ EN_CASTELLANO_A_PROPOSITO: dict[str, str] = {}
 
 
 def _palabras(cat: dict) -> set:
-    return {w.lower() for v in cat.values()
-            for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+    """Las palabras de 4+ letras, con los pegotes deshechos.
+
+    `innerText` concatena dos `<span>` en línea sin espacio, así que
+    «4.500 kbps» junto a «Lossless» sale como `kbpsLossless` y el detector
+    lo denunciaba como palabra desconocida. Se corta donde una minúscula se
+    encuentra con una mayúscula, que es exactamente la costura del pegote y
+    no parte ninguna palabra real de las tres lenguas.
+    """
+    out = set()
+    for v in cat.values():
+        v = re.sub(r"(?<=[a-záéíóúñü])(?=[A-ZÁÉÍÓÚÑ])", " ", v)
+        out |= {w.lower() for w in
+                re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
+    return out
 
 
 class TestElFixtureCorrespondeAlModelo(unittest.TestCase):
@@ -480,8 +706,11 @@ class TestElFixtureCorrespondeAlModelo(unittest.TestCase):
         sys.path.insert(0, str(APP_DIR))
         from models import CMv40Session, Session
         fuera = []
+        from models import MkvAnalysisResult
         for nombre, fixture, modelo in (("CMv40Session", SESION_CMV40, CMv40Session),
-                                        ("Session", SESION_TAB1, Session)):
+                                        ("Session", SESION_TAB1, Session),
+                                        ("MkvAnalysisResult", ANALISIS_MKV,
+                                         MkvAnalysisResult)):
             for k in sorted(fixture):
                 if k in modelo.model_fields or k in self.DEL_ENDPOINT:
                     continue
@@ -592,7 +821,9 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
         """
         crudo = {str(i): json.dumps(x, ensure_ascii=False) for i, x in enumerate(
             (SESION_CMV40, SESION_TAB1, DOVI_TAB2, TRABAJO, TRABAJO_COLA,
-             RECIENTE, AJUSTES, LOOKUP_REC, LOOKUP_REPO, LOOKUP_TMDB))}
+             RECIENTE, AJUSTES, LOOKUP_REC, LOOKUP_REPO, LOOKUP_TMDB,
+             ANALISIS_MKV, MKV_RECIENTES, LOOKUP_REC_ROWS,
+             PROBE_SERIE))}
         return _palabras(crudo)
 
     def test_ninguna_palabra_sobrevive_al_cambio_de_idioma(self):
@@ -625,7 +856,9 @@ NI_TRADUCIBLE_NI_FUGA = {
     # identificadores, no texto: nadie los lee en pantalla.
     "caja": "nombre de glifo", "diana": "nombre de glifo",
     "icon": "clave de objeto", "warn": "clave de objeto",
-    "blurb": "clave de objeto", "autoendsat": "clave de objeto",
+    "blurb": "clave de objeto",
+    # `autoEndsAt`, partido por la regla del pegote (minúscula→Mayúscula).
+    "ends": "trozo de la clave `autoEndsAt`",
     # El codec de los subtítulos Blu-ray se llama así en las tres lenguas.
     "presentation": "«Presentation Graphics», el nombre del codec PGS",
     "graphics": "ídem",
@@ -675,9 +908,24 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
     ninguna lectura inocente.
     """
 
+    # Por (pantalla, palabra) y con el motivo: una exención por pantalla
+    # taparía todo lo demás que ahí se lea.
+    A_PROPOSITO = {
+        ("modals·lookup", "de"):
+            "el placeholder de la consulta rápida pone EJEMPLOS de título "
+            "castellano («La jungla de cristal») en las tres lenguas, porque "
+            "la app busca por el título español para resolver el inglés "
+            "contra TMDb. Está escrito en CORRECCIONES_DEL_CASTELLANO.md",
+    }
+
     @classmethod
     def setUpClass(cls):
         cls.vista = _pintar("en")
+
+    def test_cada_exencion_corresponde_a_una_pantalla_real(self):
+        pantallas = set(self.vista["pantallas"])
+        fuera = sorted(n for n, _ in self.A_PROPOSITO if n not in pantallas)
+        self.assertEqual(fuera, [], f"\npantallas que ya no existen: {fuera}")
 
     def test_ni_una(self):
         pat = {w: re.compile(r"(?<![\w'])" + w + r"(?![\w'])", re.I)
@@ -685,7 +933,8 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
         malas = []
         for nombre, p in self.vista["pantallas"].items():
             txt = p["texto"] + " ⁞ " + " ⁞ ".join(p["atributos"])
-            hits = sorted(w for w, r in pat.items() if r.search(txt))
+            hits = sorted(w for w, r in pat.items() if r.search(txt)
+                           and (nombre, w) not in self.A_PROPOSITO)
             if hits:
                 malas.append(f"{nombre}: {hits}")
         self.assertEqual(malas, [], (
@@ -709,14 +958,17 @@ class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
     eso obliga a decidir —añadirla o escribir por qué no— en vez de
     descubrirlo cuando el usuario la lee en el otro idioma.
 
-    Los 61 huecos de hoy están agrupados: el panel de edición de Tab 2
-    (`_renderMkvEditPanel`, `_renderMkvTracks`, `_renderMkvChapterList`,
-    `_renderMkvRecientes`…), el modal de creación de CMv4.0 y la ayuda
-    (`_cmv40New*`, `_cmv40Help*`, `_cmv40Lookup*`) y la tabla de episodios
-    de una serie (`_renderSeriesEpisodesTable`).
+    Los 23 que quedan son de **otra clase**, y por eso el trinquete se para
+    aquí: son manejadores que necesitan que la RED resuelva
+    (`analyzeSelectedISO`, `seriesCreateSessions`, `srcFbNavigate`,
+    `cleanupScanAndShow`, `cmv40LookupSearch`), y en la sonda `fetch` está
+    parado a propósito para que nada salga a pedir nada. Cubrirlos pide un
+    `fetch` de mentira que CONTESTE, o sea otro arnés. El resto son toggles
+    de una línea que solo cambian una clase (`_updateSortDirBtn`,
+    `_cmv40ToggleSortDir`).
     """
 
-    HUECOS_MAXIMOS = 61
+    HUECOS_MAXIMOS = 23
 
     def _censo(self):
         from frontend_sources import rutas

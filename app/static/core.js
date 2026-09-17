@@ -1365,7 +1365,7 @@ function tarjetaDeProyecto(o) {
         ${estado ? `<span class="proj-estado"${o.estadoTooltip
             ? ` data-tooltip="${escHtml(o.estadoTooltip)}"` : ''}>${estado}</span>` : ''}
         ${o.insignia || ''}
-        ${o.abierto ? '<span class="session-item-badge">abierto</span>' : ''}
+        ${o.abierto ? `<span class="session-item-badge">${escHtml(tr('core.proyecto_abierto'))}</span>` : ''}
       </div>
     </div>
     ${_projPipsHTML(o.pips)}
