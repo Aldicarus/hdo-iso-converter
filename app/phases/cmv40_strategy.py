@@ -23,9 +23,16 @@ Aquí la decisión y su explicación salen del **mismo objeto**, así que no
 pueden divergir: si cambias lo que hace una rama, el texto que el usuario
 lee en el log cambia con ella.
 
-El módulo es puro — sin IO, sin subprocess, sin tocar la sesión — así que
-la matriz completa se puede recorrer en un test (ver
-`tests/test_cmv40_strategy.py`).
+El módulo es puro — sin subprocess, sin red y sin tocar la sesión — así
+que la matriz completa se puede recorrer en un test (ver
+`tests/test_cmv40_strategy.py`, 48 combinaciones en 0,2 s).
+
+Lo único que lee es el catálogo de traducción, y por lo mismo: el texto que
+el usuario ve tiene que salir del MISMO objeto que la decisión, así que
+sacarlo a otro módulo rompería justo el invariante que este fichero existe
+para sostener. `tr()` cachea el JSON en la primera llamada — ni subprocess ni
+red. Para que los tests no dependan de la redacción, cada `InjectPlan` lleva
+además su `plan_key`: **lo estable es la clave, no la frase.**
 
 Lo que NO se decide aquí, a propósito:
 
@@ -38,6 +45,8 @@ Lo que NO se decide aquí, a propósito:
     `_ensure_profile8_rpu`.
 """
 from dataclasses import dataclass, field
+
+from i18n import t as tr
 
 # Nombres de artefactos en el workdir. Están aquí porque quién produce y
 # quién consume cada uno es parte de la matriz: Fase F escribe
@@ -158,7 +167,9 @@ class ExtractPlan:
 
     @property
     def plan_text(self) -> str:
-        return "[Fase C] 📋 Plan: " + " y ".join(self.plan_parts) + "."
+        # El separador va al catálogo porque es gramática: «y», «and», «i».
+        return ("[Fase C] 📋 Plan: "
+                + f" {tr('comun.y')} ".join(self.plan_parts) + ".")
 
     @property
     def result_text(self) -> str:
@@ -167,10 +178,9 @@ class ExtractPlan:
         if self.needs_demux:
             partes.append(" + ".join(self.demux_artifacts))
         if not self.skip_per_frame_data:
-            partes.append("per_frame_data.json para el chart")
+            partes.append(tr('cmv40_strategy.res_c_per_frame'))
         if not partes:
-            partes.append("sin artefactos intermedios — la cadena drop-in "
-                          "usará directamente source.hevc")
+            partes.append(tr('cmv40_strategy.res_c_sin_artefactos'))
         return "[Fase C] 🎯 Resultado: " + ", ".join(partes) + "."
 
 
@@ -185,12 +195,15 @@ class InjectPlan:
     needs_profile8: bool
     inject_label: str
     plan_text: str
+    plan_key: str        # lo estable para un test: la clave, no la frase
     result_text: str
     skipped_markers: tuple[str, ...] = ()
 
     @property
     def missing_input_error(self) -> str:
-        return f"{self.required_input} no existe — {self.required_input_hint}"
+        return tr('cmv40_strategy.falta_entrada',
+                  entrada=self.required_input,
+                  consejo=self.required_input_hint)
 
 
 @dataclass(frozen=True)
@@ -284,29 +297,22 @@ def _extract_plan(inp: WorkflowInputs) -> ExtractPlan:
 
     parts: list[str] = []
     if needs_demux:
-        parts.append("separar el HEVC dual-layer en BL.hevc + EL.hevc (dovi_tool demux)")
+        parts.append(tr('cmv40_strategy.parte_c_demux'))
     if not skip_pfd:
-        parts.append("generar per_frame_data.json con la luminancia por frame "
-                     "de source y target (para el chart de Fase D)")
+        parts.append(tr('cmv40_strategy.parte_c_per_frame'))
     if not parts:
-        parts.append("no hacer nada — tanto el demux como el per-frame se saltan "
-                     "porque el target es trusted drop-in")
+        parts.append(tr('cmv40_strategy.parte_c_nada'))
 
     if inp.drop_in:
-        skip_reason = (
-            "[Fase C] ⏭ Demux omitido — drop-in FEL: inject-rpu irá "
-            "directo sobre source.hevc (BL+EL), no hace falta separar capas. "
-            "Ahorro ~90 GB I/O."
-        )
+        skip_reason = "[Fase C] " + tr('cmv40_strategy.skip_c_drop_in')
     else:
-        skip_reason = (
-            "[Fase C] Workflow P8: sin demux necesario (source ya es single-layer)"
-        )
+        skip_reason = "[Fase C] " + tr('cmv40_strategy.skip_c_p8')
 
     es_fel = inp.source_workflow == "p7_fel"
     return ExtractPlan(
         needs_demux=needs_demux,
-        demux_label="BL + EL" if es_fel else "BL (EL MEL será ignorado)",
+        demux_label=("BL + EL" if es_fel
+                     else tr('cmv40_strategy.demux_label_mel')),
         skip_per_frame_data=skip_pfd,
         skipped_markers=tuple(markers),
         plan_parts=tuple(parts),
@@ -320,108 +326,74 @@ def _inject_plan(inp: WorkflowInputs) -> InjectPlan:
     if inp.drop_in:
         return InjectPlan(
             required_input=SOURCE_HEVC,
-            required_input_hint="ejecuta Fase A primero (drop-in opera sobre BL+EL)",
+            required_input_hint=tr('cmv40_strategy.hint_fase_a_drop_in'),
             hevc_input=SOURCE_HEVC,
             hevc_output=SOURCE_INJECTED,
             needs_merge=False,
             needs_profile8=False,
-            inject_label="Inyectando RPU trusted directo sobre BL+EL (drop-in)",
-            plan_text=(
-                "[Fase F] 📋 Plan: target P7 FEL CMv4.0 ya cocinado y gates trusted → "
-                "ruta DROP-IN. Inyectamos el RPU target directamente en source.hevc "
-                "(BL+EL intactos, sin demux previo ni mux posterior). Es la vía más "
-                "rápida y limpia — el byte-identical del RPU queda garantizado."
-            ),
-            result_text=(
-                "BL+EL intactos con el RPU CMv4.0 inyectado — stream dual-layer "
-                "íntegro listo para multiplexar."
-            ),
+            inject_label=tr('cmv40_strategy.label_f_drop_in'),
+            plan_text=("[Fase F] 📋 Plan: "
+                       + tr('cmv40_strategy.plan_f_drop_in')),
+            plan_key='cmv40_strategy.plan_f_drop_in',
+            result_text=tr('cmv40_strategy.res_f_drop_in'),
             skipped_markers=("merge_cmv40_transfer",),
         )
 
     if inp.source_workflow == "p7_fel":
         return InjectPlan(
             required_input=EL_HEVC,
-            required_input_hint="ejecuta Fase C primero",
+            required_input_hint=tr('cmv40_strategy.hint_fase_c'),
             hevc_input=EL_HEVC,
             hevc_output=EL_INJECTED,
             needs_merge=True,
             needs_profile8=False,
-            inject_label="Inyectando RPU merged en EL (preserva FEL)",
-            plan_text=(
-                "[Fase F] 📋 Plan: source P7 FEL + target P8.x (retail/generated) → "
-                "MERGE clásico. Transferimos L3/L8-L11 del target al RPU P7 del source "
-                "preservando la FEL, luego inyectamos el RPU merged en EL.hevc. "
-                "Resultado: P7 FEL con trims CMv4.0."
-            ),
-            result_text=(
-                "EL con el RPU merged inyectado; BL.hevc original sin tocar — "
-                "stream dual-layer P7 FEL listo para combinar."
-            ),
+            inject_label=tr('cmv40_strategy.label_f_p7fel_merge'),
+            plan_text=("[Fase F] 📋 Plan: "
+                       + tr('cmv40_strategy.plan_f_p7fel_merge')),
+            plan_key='cmv40_strategy.plan_f_p7fel_merge',
+            result_text=tr('cmv40_strategy.res_f_p7fel_merge'),
         )
 
     if inp.source_workflow == "p7_mel":
         if inp.target_needs_merge:
-            plan_text = (
-                "[Fase F] 📋 Plan: source P7 MEL + target P7/generic → descartamos "
-                "el EL MEL del source y mergeamos los levels CMv4.0 del target "
-                "en el RPU del source preservando profile. Inyectamos el RPU "
-                "merged en BL.hevc. Resultado: MKV single-layer P8.1 CMv4.0."
-            )
-            inject_label = "Inyectando RPU merged en BL (MEL descartado → P8.1 CMv4.0)"
+            plan_key = 'cmv40_strategy.plan_f_p7mel_merge'
+            inject_label = tr('cmv40_strategy.label_f_p7mel_merge')
         else:
-            plan_text = (
-                "[Fase F] 📋 Plan: source P7 MEL + target P8 retail → descartamos "
-                "EL MEL e inyectamos el RPU target directamente en BL.hevc. "
-                "Resultado: MKV single-layer P8.1 CMv4.0 — mismo profile, sin merge."
-            )
-            inject_label = "Inyectando RPU target en BL (MEL descartado → P8.1)"
+            plan_key = 'cmv40_strategy.plan_f_p7mel_directo'
+            inject_label = tr('cmv40_strategy.label_f_p7mel_directo')
         return InjectPlan(
             required_input=BL_HEVC,
-            required_input_hint="ejecuta Fase C primero",
+            required_input_hint=tr('cmv40_strategy.hint_fase_c'),
             hevc_input=BL_HEVC,
             hevc_output=BL_INJECTED,
             needs_merge=inp.target_needs_merge,
             needs_profile8=True,
             inject_label=inject_label,
-            plan_text=plan_text,
-            result_text=(
-                "BL con el RPU inyectado (EL MEL descartado) — stream single-layer "
-                "P8.1 CMv4.0 listo para remuxar."
-            ),
+            plan_text="[Fase F] 📋 Plan: " + tr(plan_key),
+            plan_key=plan_key,
+            result_text=tr('cmv40_strategy.res_f_p7mel'),
         )
 
     # p8: el source ya es single-layer, se inyecta sobre él mismo. El output
     # reutiliza el slot BL_injected porque Fase G lee ese nombre para las dos
     # ramas single-layer.
     if inp.target_needs_merge:
-        plan_text = (
-            "[Fase F] 📋 Plan: source P8.1 + target P7/generic → mergeamos los "
-            "levels CMv4.0 del target (L3/L8/L9/L11) en el RPU P8 del source. El output "
-            "hereda el profile P8.1 del source (no se mezclan capas, solo metadata). "
-            "Inyectamos el RPU merged en source.hevc. Resultado: P8.1 CMv4.0."
-        )
-        inject_label = "Inyectando RPU merged en source.hevc (P8.1 CMv4.0)"
+        plan_key = 'cmv40_strategy.plan_f_p8_merge'
+        inject_label = tr('cmv40_strategy.label_f_p8_merge')
     else:
-        plan_text = (
-            "[Fase F] 📋 Plan: source P8.1 + target P8 retail → mismo profile, "
-            "inyectamos el RPU target directamente en source.hevc (reemplaza el "
-            "RPU CMv2.9 existente). Resultado: P8.1 con CMv4.0 refinado."
-        )
-        inject_label = "Inyectando RPU target en source.hevc (P8 → P8.1 CMv4.0)"
+        plan_key = 'cmv40_strategy.plan_f_p8_directo'
+        inject_label = tr('cmv40_strategy.label_f_p8_directo')
     return InjectPlan(
         required_input=SOURCE_HEVC,
-        required_input_hint="ejecuta Fase A primero",
+        required_input_hint=tr('cmv40_strategy.hint_fase_a'),
         hevc_input=SOURCE_HEVC,
         hevc_output=BL_INJECTED,
         needs_merge=inp.target_needs_merge,
         needs_profile8=True,
         inject_label=inject_label,
-        plan_text=plan_text,
-        result_text=(
-            "HEVC single-layer con el RPU CMv4.0 inyectado — listo para "
-            "remuxar."
-        ),
+        plan_text="[Fase F] 📋 Plan: " + tr(plan_key),
+        plan_key=plan_key,
+        result_text=tr('cmv40_strategy.res_f_p8'),
     )
 
 
@@ -433,12 +405,8 @@ def _remux_plan(inp: WorkflowInputs) -> RemuxPlan:
             hevc_for_mkv=SOURCE_INJECTED,
             video_track_name="HEVC DV P7 FEL CMv4.0",
             prewarm_validation=False,
-            plan_text=(
-                "[Fase G] 📋 Plan: ensamblar el MKV final. source_injected.hevc ya es "
-                "BL+EL dual-layer con el RPU CMv4.0 inyectado (drop-in) — solo "
-                "necesitamos mkvmerge para añadir audio/subs/capítulos del origen. "
-                "Saltamos el dovi_tool mux (innecesario, el stream ya está íntegro)."
-            ),
+            plan_text="[Fase G] 📋 Plan: " + tr(
+                'cmv40_strategy.plan_g_drop_in', hevc=SOURCE_INJECTED),
         )
 
     if inp.source_workflow == "p7_fel":
@@ -448,26 +416,17 @@ def _remux_plan(inp: WorkflowInputs) -> RemuxPlan:
             hevc_for_mkv=DV_DUAL,
             video_track_name="HEVC DV P7 FEL CMv4.0",
             prewarm_validation=True,
-            plan_text=(
-                "[Fase G] 📋 Plan: ensamblar el MKV final. Workflow P7 FEL con merge "
-                "— primero dovi_tool mux combina BL.hevc + EL_injected.hevc en un "
-                "HEVC dual-layer, luego mkvmerge añade audio/subs/capítulos del origen."
-            ),
+            plan_text="[Fase G] 📋 Plan: " + tr(
+                'cmv40_strategy.plan_g_p7fel', bl=BL_HEVC, el=EL_INJECTED),
         )
 
     if inp.source_workflow == "p7_mel":
-        plan_text = (
-            "[Fase G] 📋 Plan: ensamblar el MKV final single-layer. El EL MEL "
-            "se descarta (no aporta) → mkvmerge directo sobre BL_injected.hevc "
-            "con audio/subs/capítulos del origen. Resultado: P8.1 CMv4.0 ligero."
-        )
+        plan_text = "[Fase G] 📋 Plan: " + tr(
+            'cmv40_strategy.plan_g_p7mel', hevc=BL_INJECTED)
         track = "HEVC DV P8.1 CMv4.0 (from P7 MEL)"
     else:
-        plan_text = (
-            "[Fase G] 📋 Plan: ensamblar el MKV final. Source era P8.1 single-layer "
-            "→ mkvmerge directo sobre BL_injected.hevc con audio/subs/"
-            "capítulos del origen."
-        )
+        plan_text = "[Fase G] 📋 Plan: " + tr(
+            'cmv40_strategy.plan_g_p8', hevc=BL_INJECTED)
         track = "HEVC DV P8.1 CMv4.0"
     return RemuxPlan(
         needs_dovi_mux=False,
@@ -485,26 +444,16 @@ def _validate_plan(inp: WorkflowInputs) -> ValidatePlan:
             fast_path=True,
             expected_el_type="FEL",
             plan_text=(
-                "[Fase H] 📋 Plan (fast path drop-in FEL): el RPU del MKV es bit-a-bit "
-                "el RPU_target.bin — inject-rpu lo copió íntegro sin tocarlo. El bin ya "
-                "pasó pre-flight + Fase B con CMv4.0 confirmado y trust gates OK, así "
-                "que la cadena upstream garantiza Profile 7 FEL CMv4.0 en el output. "
-                "Validamos integridad del MKV con mkvmerge -J y frame count con ffprobe; "
-                "saltamos el extract-rpu completo (ahorra ~5-8 min en UHD)."
-            ),
+                "[Fase H] 📋 Plan "
+                + tr('cmv40_strategy.plan_h_drop_in_rama') + ": "
+                + tr('cmv40_strategy.plan_h_drop_in')),
         )
     return ValidatePlan(
         fast_path=False,
         # Solo p7_fel conserva capa de mejora; en el resto el el_type del RPU
         # final no está fijado por el workflow.
         expected_el_type="FEL" if inp.source_workflow == "p7_fel" else None,
-        plan_text=(
-            "[Fase H] 📋 Plan: validar el resultado antes de mover el MKV al output "
-            "final. Leemos el RPU del HEVC resultante, confirmamos que tiene CMv4.0 "
-            "y que el frame count coincide con el source. Si todo OK, rename atómico "
-            ".tmp → .mkv (instantáneo, mismo filesystem) y cleanup de artefactos "
-            "intermedios."
-        ),
+        plan_text="[Fase H] 📋 Plan: " + tr('cmv40_strategy.plan_h_merge'),
     )
 
 

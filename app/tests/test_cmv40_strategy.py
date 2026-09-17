@@ -275,32 +275,72 @@ class TestSaltarLaRevisionDeSync(unittest.TestCase):
 
 class TestElTextoNoPuedeDivergirDeLaDecision(unittest.TestCase):
     """El `📋 Plan` y la decisión salen del mismo objeto. Estas
-    comprobaciones fijan que sigan describiendo lo mismo."""
+    comprobaciones fijan que sigan describiendo lo mismo.
+
+    **Se afirma sobre la CLAVE, no sobre la frase.** Contar una palabra
+    castellana en `plan_text` dejó de contar nada el día que el texto se
+    fue al catálogo: con la app en inglés `"mergeamos" in plan_text` es
+    False siempre, así que el test pasaba en verde sin comprobar una sola
+    rama. La clave describe la decisión y no cambia de idioma.
+
+    Lo que SÍ se sigue leyendo del texto son los nombres de fichero, y a
+    propósito: van interpolados, así que no se pueden perder al traducir.
+    """
+
+    # La clave de cada rama, y qué promete. Es la tabla que los tests
+    # cruzan contra la decisión.
+    CLAVE_DROP_IN = 'cmv40_strategy.plan_f_drop_in'
+    CLAVES_MERGE = ('cmv40_strategy.plan_f_p7fel_merge',
+                    'cmv40_strategy.plan_f_p7mel_merge',
+                    'cmv40_strategy.plan_f_p8_merge')
+    CLAVES_DIRECTO = ('cmv40_strategy.plan_f_drop_in',
+                      'cmv40_strategy.plan_f_p7mel_directo',
+                      'cmv40_strategy.plan_f_p8_directo')
+    CLAVES_SINGLE_LAYER = ('cmv40_strategy.plan_f_p7mel_merge',
+                           'cmv40_strategy.plan_f_p7mel_directo',
+                           'cmv40_strategy.plan_f_p8_merge',
+                           'cmv40_strategy.plan_f_p8_directo')
+
+    def test_cada_rama_tiene_su_clave_y_la_clave_existe(self):
+        import json
+        from pathlib import Path
+        cat = json.loads((Path(__file__).parent.parent / 'i18n' / 'es.json')
+                         .read_text(encoding='utf-8'))
+        usadas = set()
+        for inp in ALL_INPUTS:
+            clave = plan_for(inp).inject.plan_key
+            usadas.add(clave)
+            with self.subTest(inp=inp):
+                self.assertIn(clave, cat, "la clave del plan no está en el "
+                                          "catálogo: se pintaría cruda")
+        self.assertEqual(usadas, set(self.CLAVES_MERGE)
+                         | set(self.CLAVES_DIRECTO) | {self.CLAVE_DROP_IN})
 
     def test_solo_la_rama_drop_in_dice_drop_in(self):
         for inp in ALL_INPUTS:
             with self.subTest(inp=inp):
                 plan = plan_for(inp)
-                self.assertEqual("DROP-IN" in plan.inject.plan_text, inp.drop_in)
+                self.assertEqual(plan.inject.plan_key == self.CLAVE_DROP_IN,
+                                 inp.drop_in)
 
     def test_quien_dice_merge_mergea(self):
         for inp in ALL_INPUTS:
             plan = plan_for(inp)
-            if "mergeamos" in plan.inject.plan_text or "MERGE" in plan.inject.plan_text:
+            if plan.inject.plan_key in self.CLAVES_MERGE:
                 with self.subTest(inp=inp):
                     self.assertTrue(plan.inject.needs_merge)
 
     def test_quien_dice_sin_merge_no_mergea(self):
         for inp in ALL_INPUTS:
             plan = plan_for(inp)
-            if "sin merge" in plan.inject.plan_text or "directamente" in plan.inject.plan_text:
+            if plan.inject.plan_key in self.CLAVES_DIRECTO:
                 with self.subTest(inp=inp):
                     self.assertFalse(plan.inject.needs_merge)
 
     def test_quien_anuncia_single_layer_produce_single_layer(self):
         for inp in ALL_INPUTS:
             plan = plan_for(inp)
-            if "single-layer" in plan.inject.plan_text:
+            if plan.inject.plan_key in self.CLAVES_SINGLE_LAYER:
                 with self.subTest(inp=inp):
                     self.assertTrue(inp.single_layer_output)
                     self.assertTrue(plan.inject.needs_profile8)

@@ -146,7 +146,15 @@ async def _flush_session_save(session) -> None:
         state["last_save_ts"] = _t.monotonic()
         state["lines_since"] = 0
 
-AVISO_INTERRUMPIDA = "Sesión interrumpida por reinicio del servidor"
+def aviso_interrumpida() -> str:
+    """El aviso de una sesión que un reinicio dejó a medias.
+
+    Función y no constante: una constante de módulo se evalúa al IMPORTAR, y
+    ahí el `tr()` congelaría el idioma que hubiera en ese momento — cambiarlo
+    en ⚙︎ no lo movería hasta reiniciar el contenedor. Es la misma trampa que
+    las constantes de módulo del frontend que resuelven texto con `tr()`.
+    """
+    return tr('tab1.aviso_interrumpida')
 
 
 def _mkv_tiene_pista_de_video(path: Path) -> bool | None:
@@ -196,7 +204,7 @@ def _borrar_salida_a_medias(session) -> str:
     listado. El recovery devolvía la sesión a `pending` y no tocaba el fichero.
     """
     if not session.mkv_name:
-        return AVISO_INTERRUMPIDA
+        return aviso_interrumpida()
     destino = paths.OUTPUT_DIR_MKV / session.mkv_name
     # `mkv_name` es editable por el usuario y puede traer subdirectorios (modo
     # serie), así que se resuelve antes de comparar: regla del proyecto para
@@ -205,28 +213,27 @@ def _borrar_salida_a_medias(session) -> str:
         destino = destino.resolve()
         destino.relative_to(paths.OUTPUT_DIR_MKV.resolve())
     except (OSError, ValueError):
-        return AVISO_INTERRUMPIDA
+        return aviso_interrumpida()
     if not destino.is_file():
-        return AVISO_INTERRUMPIDA
+        return aviso_interrumpida()
 
     if _mkv_tiene_pista_de_video(destino) is not False:
         # Completo, o sin poder comprobarlo. En ninguno de los dos casos se
         # borra: pero sí se dice, porque el MKV está escrito y NO llegó a
         # pasar la validación final.
-        return (f"{AVISO_INTERRUMPIDA}. El MKV de salida está escrito pero no "
-                f"llegó a validarse — re-ejecuta la sesión o compruébalo en "
-                f"«Consultar / Editar MKV».")
+        return tr('tab1.interrumpida_mkv_sin_validar',
+                  aviso=aviso_interrumpida())
 
     try:
         liberado = destino.stat().st_size
         destino.unlink()
     except OSError as e:
         _logger.warning("[Startup] no se pudo borrar el MKV a medias %s: %s", destino, e)
-        return AVISO_INTERRUMPIDA
+        return aviso_interrumpida()
     _logger.info("[Startup] MKV a medias borrado (%.2f GB): %s",
                  liberado / 1e9, destino)
-    return (f"{AVISO_INTERRUMPIDA}. El MKV había quedado a medias y se ha "
-            f"borrado ({liberado / 1e9:.2f} GB liberados): vuelve a ejecutarla.")
+    return tr('tab1.interrumpida_mkv_a_medias_borrado',
+              aviso=aviso_interrumpida(), gb=f"{liberado / 1e9:.2f}")
 
 
 def recuperar_sesiones_interrumpidas() -> None:
@@ -743,7 +750,7 @@ async def disc_probe_progress():
 
 
 @router.post("/api/analyze", summary="Analiza un ISO (Fase A + B)",
-             dependencies=[Depends(workload.marca("Análisis del disco", workload.TAB_RIP))])
+             dependencies=[Depends(workload.marca(lambda: tr('tab1.wl_analisis_del_disco'), workload.TAB_RIP))])
 async def analyze_iso(body: AnalyzeRequest):
     """
     Lanza el análisis completo de un origen (ISO, carpeta BDMV o M2TS).
@@ -784,7 +791,8 @@ async def analyze_iso(body: AnalyzeRequest):
     # Idem que en Tab 2: «Análisis del disco» a secas no dice cuál.
     _peli = trabajos.nombre_de_trabajo(fichero=Path(source_abs).name)
     workload.detallar_actual(
-        que=f"Análisis del disco · {_peli}" if _peli else "Análisis del disco",
+        que=(tr('tab1.wl_analisis_del_disco_de', peli=_peli) if _peli
+             else tr('tab1.wl_analisis_del_disco')),
         titulo=_peli)
 
     audio_dcp = "audio dcp" in (spath or "").lower()
@@ -867,9 +875,9 @@ async def analyze_iso(body: AnalyzeRequest):
     # "el disco" aunque el origen fuera carpeta BDMV o fichero M2TS suelto.
     from models import Chapter
     source_label = (
-        "el disco" if stype == "iso"
-        else "la carpeta BDMV" if stype == "bdmv_folder"
-        else "el fichero M2TS"
+        tr('tab1.origen_el_disco') if stype == "iso"
+        else tr('tab1.origen_la_carpeta_bdmv') if stype == "bdmv_folder"
+        else tr('tab1.origen_el_fichero_m2ts')
     )
     if mpls_chapters_raw:
         chapters      = [Chapter(**c) for c in mpls_chapters_raw]
@@ -1132,7 +1140,7 @@ class DiscProbeRequest(_BaseModel):
 
 @router.post("/api/disc-probe",
           summary="Detecta tipo y devuelve candidatos. Soporta ISO, carpeta BDMV y m2ts sueltos",
-          dependencies=[Depends(workload.marca("Detección de contenido del disco", workload.TAB_RIP))])
+          dependencies=[Depends(workload.marca(lambda: tr('tab1.wl_deteccion_de_contenido'), workload.TAB_RIP))])
 async def disc_probe(body: DiscProbeRequest):
     """Detecta media_type y devuelve candidatos a episodio para los 3
     tipos de fuente. NO crea sesión.
@@ -1204,7 +1212,7 @@ async def disc_probe(body: DiscProbeRequest):
     global _disc_probe_progress
     _disc_probe_progress = {
         "running": True,
-        "current_label": "Preparando origen…",
+        "current_label": tr('tab1.prog_preparando_origen'),
         "pct": 0,
         "step": "mount",
     }
@@ -1214,9 +1222,9 @@ async def disc_probe(body: DiscProbeRequest):
         Actualiza el progreso global con el % real y el nombre del fichero."""
         if total > 0:
             _disc_probe_progress["pct"] = round((idx / total) * 100, 1)
-        _disc_probe_progress["current_label"] = (
-            f"Analizando candidato {idx}/{total}: {item_name}"
-        )
+        _disc_probe_progress["current_label"] = tr(
+            'tab1.prog_analizando_candidato',
+            idx=idx, total=total, item=item_name)
         _disc_probe_progress["step"] = "analyze"
 
     try:
@@ -1236,7 +1244,7 @@ async def disc_probe(body: DiscProbeRequest):
                         ),
                     )
                 _disc_probe_progress.update({
-                    "current_label": "Película + 1 fichero M2TS — no requiere análisis previo",
+                    "current_label": tr('tab1.prog_pelicula_un_m2ts'),
                     "pct": 100,
                     "step": "classify",
                 })
@@ -1245,7 +1253,7 @@ async def disc_probe(body: DiscProbeRequest):
             elif hint == "series":
                 # El usuario eligió serie → cada m2ts es un episodio.
                 _disc_probe_progress.update({
-                    "current_label": f"Analizando {len(m2ts_paths)} ficheros M2TS…",
+                    "current_label": tr('tab1.prog_analizando_m2ts', n=len(m2ts_paths)),
                     "pct": 0,
                     "step": "scan",
                 })
@@ -1278,8 +1286,8 @@ async def disc_probe(body: DiscProbeRequest):
             # con barra indeterminada (pct=0 hasta que arranque el scan).
             _disc_probe_progress.update({
                 "current_label": (
-                    "Montando el ISO…" if stype == "iso"
-                    else "Leyendo la carpeta BDMV…"
+                    tr('tab1.prog_montando_iso') if stype == "iso"
+                    else tr('tab1.prog_leyendo_bdmv')
                 ),
                 "pct": 0,
                 "step": "mount",
@@ -1295,7 +1303,7 @@ async def disc_probe(body: DiscProbeRequest):
                     # Pero contamos los m2ts grandes (>5GB) en BDMV/STREAM/
                     # para advertir si el disco parece tener varios episodios.
                     _disc_probe_progress.update({
-                        "current_label": "Contando ficheros M2TS de gran tamaño…",
+                        "current_label": tr('tab1.prog_contando_m2ts_grandes'),
                         "pct": 50,
                         "step": "classify",
                     })
@@ -1313,7 +1321,7 @@ async def disc_probe(body: DiscProbeRequest):
                     _disc_probe_progress.update({"pct": 100, "step": "done"})
                 elif hint == "series":
                     _disc_probe_progress.update({
-                        "current_label": "Buscando episodios candidatos…",
+                        "current_label": tr('tab1.prog_buscando_candidatos'),
                         "pct": 0,
                         "step": "scan",
                     })
@@ -1331,7 +1339,7 @@ async def disc_probe(body: DiscProbeRequest):
                 else:
                     # Legacy auto-detect
                     _disc_probe_progress.update({
-                        "current_label": "Buscando episodios candidatos…",
+                        "current_label": tr('tab1.prog_buscando_candidatos'),
                         "pct": 0,
                         "step": "scan",
                     })
@@ -1342,7 +1350,7 @@ async def disc_probe(body: DiscProbeRequest):
         else:
             raise HTTPException(status_code=400, detail=tr('tab1.source_type_desconocido', stype=stype))
         _disc_probe_progress.update({
-            "current_label": f"Detección completada ({media_type})",
+            "current_label": tr('tab1.prog_deteccion_completada', tipo=media_type),
             "pct": 100,
             "step": "done",
             "running": False,
@@ -1760,9 +1768,9 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     # 'stype' eran términos internos). El usuario ve "Montando el ISO…",
     # no "Montando origen (iso)…".
     _prep_label = (
-        "Montando el ISO…" if stype == "iso"
-        else "Preparando carpeta BDMV…" if stype == "bdmv_folder"
-        else "Preparando ficheros M2TS…"
+        tr('tab1.prog_montando_iso') if stype == "iso"
+        else tr('tab1.prog_preparando_bdmv') if stype == "bdmv_folder"
+        else tr('tab1.prog_preparando_m2ts')
     )
     _series_create_progress = {
         # De quién es este progreso. Sin el sello, dos trabajos de serie
@@ -1824,7 +1832,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     try:
         # Context manager: monta el ISO si stype='iso', no-op si bdmv/m2ts.
         async with await Source.open(source_abs) as src:
-            _series_create_progress["current_label"] = "Origen preparado · empezando con el primer episodio"
+            _series_create_progress["current_label"] = tr('tab1.prog_origen_preparado')
             for idx, ep in enumerate(episodes_to_process):
                 _series_create_progress["current_index"] = idx + 1
                 _series_create_progress["current_episode_step"] = "identify"
@@ -1832,9 +1840,9 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 _series_create_progress["pgs_eta_s"] = 0
                 ep_label = ep.episode_title or f"Episodio S{body.season_number:02d}E{ep.episode_number:02d}"
                 _series_create_progress["current_episode_title"] = ep_label
-                _series_create_progress["current_label"] = (
-                    f"Analizando episodio {idx+1}/{len(episodes_to_process)}: {ep_label}"
-                )
+                _series_create_progress["current_label"] = tr(
+                    'tab1.prog_analizando_episodio', idx=idx + 1,
+                    total=len(episodes_to_process), titulo=ep_label)
                 # Localizar el MPLS/M2TS de este episodio según source_type
                 ep_source_path: str | None = None
                 if stype in ("iso", "bdmv_folder") and src.bdmv_root:
@@ -1906,8 +1914,9 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 # para que el panel del proyecto no mencione "MPLS" cuando
                 # el episodio viene de un m2ts directo.
                 ep_origin_label = (
-                    "el MPLS del episodio" if stype in ("iso", "bdmv_folder")
-                    else "el fichero M2TS"
+                    tr('tab1.origen_el_mpls_del_episodio')
+                    if stype in ("iso", "bdmv_folder")
+                    else tr('tab1.origen_el_fichero_m2ts')
                 )
                 if mpls_chapters_raw:
                     chapters = [Chapter(**c) for c in mpls_chapters_raw]
@@ -2030,10 +2039,11 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
 
     # Marca progreso como terminado
     _series_create_progress["running"] = False
-    _series_create_progress["current_label"] = (
-        f"✓ {len(created_sessions)} proyecto{'' if len(created_sessions) == 1 else 's'} creado"
-        f"{'' if len(created_sessions) == 1 else 's'}"
-    )
+    # Dos claves y no un sufijo de una letra: el plural del catalán no siempre
+    # añade una `s` y el REGISTRO lo prohíbe por eso.
+    _series_create_progress["current_label"] = tr(
+        'tab1.prog_proyecto_creado_uno' if len(created_sessions) == 1
+        else 'tab1.prog_proyectos_creados_varios', n=len(created_sessions))
     _series_create_progress["failed"] = failed_episodes
 
     # El resultado va al ESTADO, no de vuelta por HTTP: el POST respondió
@@ -2155,9 +2165,8 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
             detail={
                 "error": "episode_conflicts",
                 "message": (
-                    f"{len(conflicts)} episodio(s) ya tienen una sesión existente. "
-                    f"Reenvía con mode='replace' para sobrescribir o "
-                    f"mode='skip_existing' para crear solo los nuevos."
+                    tr('tab1.episodios_con_sesion_existente',
+                       n=len(conflicts))
                 ),
                 "conflicts": [
                     {
@@ -2209,7 +2218,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
         "running": True,
         "current_index": 0,
         "total": len(body.episodes),
-        "current_label": "Esperando turno en la cola…",
+        "current_label": tr('tab1.prog_esperando_turno_cola'),
         "completed": [],
         "failed": [],
         "current_episode_step": "en_cola",
@@ -2302,7 +2311,7 @@ async def recalculate_mkv_name(session_id: str):
 @router.post(
     "/api/sessions/{session_id}/reset-chapters",
     summary="Restaura los capítulos originales del disco",
-    dependencies=[Depends(workload.marca("Relectura de capítulos", workload.TAB_RIP))],
+    dependencies=[Depends(workload.marca(lambda: tr('tab1.wl_relectura_de_capitulos'), workload.TAB_RIP))],
 )
 async def reset_chapters(session_id: str):
     """
@@ -2583,7 +2592,8 @@ async def _run_pipeline(session_id: str) -> None:
         return
 
     workload.registrar(session_id, workload.TAB_RIP,
-                       f"Conversión a MKV · {session.mkv_name or session.id}")
+                       tr('tab1.wl_conversion_a_mkv_de',
+                          nombre=session.mkv_name or session.id))
 
     # Marcar como ejecutando
     session.status              = "running"
@@ -2662,23 +2672,11 @@ async def _run_pipeline(session_id: str) -> None:
         # intermedio, capítulos auto) se anuncian en sus propios markers
         # cuando llegan, no aquí.
         if stype == "iso":
-            plan_text = (
-                "[Pipeline] 📋 Plan: montar el ISO, localizar el playlist principal "
-                "del Blu-ray, extraer las pistas elegidas a un MKV con sus metadatos "
-                "(nombres, flags, capítulos), validar el resultado y desmontar."
-            )
+            plan_text = '[Pipeline] 📋 Plan: ' + tr('tab1.plan_pipeline_iso')
         elif stype == "bdmv_folder":
-            plan_text = (
-                "[Pipeline] 📋 Plan: leer la carpeta BDMV, localizar el playlist "
-                "principal, extraer las pistas elegidas a un MKV con sus metadatos "
-                "(nombres, flags, capítulos) y validar el resultado."
-            )
+            plan_text = '[Pipeline] 📋 Plan: ' + tr('tab1.plan_pipeline_bdmv')
         else:  # m2ts
-            plan_text = (
-                "[Pipeline] 📋 Plan: leer el fichero M2TS, extraer las pistas elegidas "
-                "a un MKV con sus metadatos. El M2TS no contiene marcas de capítulo, "
-                "así que se generan automáticamente cada 10 minutos."
-            )
+            plan_text = '[Pipeline] 📋 Plan: ' + tr('tab1.plan_pipeline_m2ts')
         await log(plan_text)
 
         # ── 1. Preparar origen (Source abstraction) ───────────────
@@ -2851,11 +2849,8 @@ async def _run_pipeline(session_id: str) -> None:
         # `error_message`, que en Tab 1 no pinta banner —solo se muestra con
         # running/queued— y que `_append_execution_record` copia al historial.
         session.status         = "done"
-        session.error_message  = None if validation_ok else (
-            "Completado con discrepancias en la verificación final. "
-            "Revisa el log de esta ejecución: las líneas con ⚠️ o ❌ dicen qué "
-            "campo no cuadra (pista, idioma, flag, tier de codec o capítulos)."
-        )
+        session.error_message  = None if validation_ok else tr(
+            'tab1.completado_con_discrepancias')
         session.last_executed  = datetime.now(timezone.utc)
 
         if validation_ok:
@@ -3007,14 +3002,15 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             # v65 legacy: EL como track separado — DV puede no funcionar
             await log('[Validación]   ' + tr('tab1.dolby_vision_fel_enhancement_layer_en'))
         else:
-            msg = "❌ Dolby Vision FEL esperado pero no se ha encontrado el enhancement layer"
+            msg = tr('tab1.val_fel_sin_enhancement_layer')
             await log(f"[Validación] {msg}")
             warnings.append(msg)
             all_ok = False
 
     # ── Validar audio ────────────────────────────────────────────
     if len(actual_audio) != len(expected_audio):
-        msg = f"❌ Audio: {len(actual_audio)} pistas en el MKV vs {len(expected_audio)} esperadas en la sesión"
+        msg = tr('tab1.val_audio_cuenta', real=len(actual_audio),
+                  esperadas=len(expected_audio))
         await log(f"[Validación] {msg}")
         warnings.append(msg)
         all_ok = False
@@ -3040,7 +3036,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             exp_lang = exp.raw.language.lower()
             if lang_name != exp_lang:
                 status = "❌"
-                detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                detail = tr('tab1.val_detalle_esperado_real',
+                            esperado=exp_lang, real=lang_name)
                 warnings.append(f"Audio #{i+1}: idioma {lang_name} ≠ {exp_lang}")
                 all_ok = False
 
@@ -3065,7 +3062,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 all_ok = False
         else:
             status = "⚠️"
-            detail = " (pista extra no esperada)"
+            detail = tr('tab1.val_pista_extra_no_esperada')
 
         flag_str = " [DEFAULT]" if is_default else ""
         await log('[Validación]   ' + tr('tab1.audio', p1=i+1, codec=codec, lang_iso=lang_iso, flag_str=flag_str, p5=name, detail=detail, status=status))
@@ -3073,14 +3070,16 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     # Pistas esperadas que no están en el MKV
     for i in range(len(actual_audio), len(expected_audio)):
         exp = expected_audio[i]
-        msg = f"❌ Falta la pista de audio #{i+1} esperada: {exp.raw.language} {exp.raw.codec}"
+        msg = tr('tab1.val_falta_audio', n=i + 1,
+                 idioma=exp.raw.language, codec=exp.raw.codec)
         await log(f"[Validación]   {msg}")
         warnings.append(msg)
         all_ok = False
 
     # ── Validar subtítulos ───────────────────────────────────────
     if len(actual_subs) != len(expected_subs):
-        msg = f"❌ Subtítulos: {len(actual_subs)} pistas en el MKV vs {len(expected_subs)} esperadas en la sesión"
+        msg = tr('tab1.val_subs_cuenta', real=len(actual_subs),
+                  esperadas=len(expected_subs))
         await log(f"[Validación] {msg}")
         warnings.append(msg)
         all_ok = False
@@ -3100,12 +3099,13 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             exp_lang = exp.raw.language.lower()
             if lang_name != exp_lang:
                 status = "❌"
-                detail = f" (esperado: {exp_lang}, real: {lang_name})"
+                detail = tr('tab1.val_detalle_esperado_real',
+                            esperado=exp_lang, real=lang_name)
                 warnings.append(f"Subtítulo #{i+1}: idioma {lang_name} ≠ {exp_lang}")
                 all_ok = False
         else:
             status = "⚠️"
-            detail = " (pista extra)"
+            detail = tr('tab1.val_pista_extra')
 
         flags = []
         if is_default: flags.append("DEF")
@@ -3115,7 +3115,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     for i in range(len(actual_subs), len(expected_subs)):
         exp = expected_subs[i]
-        msg = f"❌ Falta el subtítulo #{i+1} esperado: {exp.raw.language} {exp.subtitle_type}"
+        msg = tr('tab1.val_falta_subtitulo', n=i + 1,
+                 idioma=exp.raw.language, tipo=exp.subtitle_type)
         await log(f"[Validación]   {msg}")
         warnings.append(msg)
         all_ok = False
@@ -3132,7 +3133,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         num_chapters = 0
     expected_chapters = len(session.chapters)
     if num_chapters != expected_chapters and expected_chapters > 0:
-        msg = f"⚠️ Capítulos: {num_chapters} en el MKV vs {expected_chapters} esperados en la sesión"
+        msg = tr('tab1.val_capitulos_cuenta', real=num_chapters,
+                  esperados=expected_chapters)
         await log(f"[Validación] {msg}")
         warnings.append(msg)
     else:
@@ -3462,7 +3464,8 @@ if DEV_MODE:
             ids = [s.id for s in candidates]
 
         if not ids:
-            return {"ok": False, "detail": "No hay sesiones disponibles (todas en ejecución o en cola)"}
+            return {"ok": False,
+                    "detail": tr('tab1.sin_sesiones_disponibles_en_curso')}
 
         enqueued = []
         for sid in ids:
@@ -3598,7 +3601,8 @@ def _serie_adaptador(trabajo) -> dict | None:
     paso = prog.get("current_episode_step") or ""
     # Mientras espera turno no hay episodio en curso: cero, no interpolación.
     if paso == "en_cola":
-        return {"fase": "en_cola", "fase_label": "Esperando turno",
+        return {"fase": "en_cola",
+                "fase_label": tr('tab1.fase_esperando_turno'),
                 "fase_n": 0, "fases_total": total, "pct": 0,
                 "pct_medido": False, "detalle": "serie"}
     desde = prog.get("_desde") or 0.0
@@ -3610,8 +3614,9 @@ def _serie_adaptador(trabajo) -> dict | None:
     pgs = prog.get("pgs_pct")
     return {
         "fase": paso,
-        "fase_label": (f"Episodio {prog.get('current_index') or hechos + 1}"
-                       f"/{total}"
+        "fase_label": (tr('tab1.fase_episodio_n_de_total',
+                          n=prog.get('current_index') or hechos + 1,
+                          total=total)
                        + (f" · {prog.get('current_episode_title')}"
                           if prog.get("current_episode_title") else "")),
         # Analizar un episodio son siete pasos y el de los PGS se lleva la

@@ -278,8 +278,15 @@ def hay_contencion(excepto: str | None = None) -> bool:
 _secuencia = itertools.count(1)
 
 
-def marca(que: str, tab: str):
+def marca(que, tab: str):
     """Dependencia de FastAPI que registra el endpoint como INTERACTIVO.
+
+    `que` admite texto o un **invocable** que lo devuelva, y esto último es lo
+    que usan los routers: el texto es traducible y esta función se evalúa en el
+    DECORADOR, o sea al importar el módulo. Con un `tr()` ahí, el idioma
+    quedaría congelado en el que hubiera al arrancar y cambiarlo en ⚙︎ no lo
+    movería hasta reiniciar el contenedor. El invocable se resuelve dentro de
+    `_dep`, que corre en cada petición.
 
     Se pone en el decorador de la ruta:
 
@@ -304,8 +311,8 @@ def marca(que: str, tab: str):
         try:
             # Sin tarjeta en la columna: esto vive lo que vive la
             # petición, y mientras tanto el usuario está mirando su modal.
-            with ocupado(clave, tab, que, CLASE_INTERACTIVO,
-                         en_columna=False):
+            with ocupado(clave, tab, que() if callable(que) else que,
+                         CLASE_INTERACTIVO, en_columna=False):
                 yield
         finally:
             _en_curso_aqui.reset(ficha)

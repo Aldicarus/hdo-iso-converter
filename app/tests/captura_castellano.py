@@ -418,7 +418,11 @@ def es_rotulo(s: str) -> bool:
     # eso «Completado» —que es una etiqueta de fase y se ve— sí pasa. Este es
     # el motivo de no reusar `CODIGO`: su regla `^[\w.#/-]+$` descarta
     # cualquier token único, y ahí se escondían los rótulos de una palabra.
-    if re.fullmatch(r"[a-z][a-z0-9_]*", t):
+    # Los puntos entran porque una CLAVE del catálogo tiene esa forma
+    # (`cmv40_strategy.res_c_sin_artefactos`) y su slug está en castellano:
+    # sin ellos, la clave que se le pasa a `tr()` se denuncia como el rótulo
+    # que acaba de sustituir.
+    if re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*", t):
         return False
     return bool(set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
                 & vocabulario_solo_castellano())
@@ -535,6 +539,16 @@ def frases_del_backend() -> set[str]:
                 candidatos = [k.value for k in n.keywords
                               if k.arg in ("que", "label", "message", "mensaje",
                                            "step_label", "detalle")]
+            # Y CUALQUIER argumento con nombre de campo visible, en cualquier
+            # llamada. Es el agujero simétrico del que dejó fuera 7 fugas: la
+            # rama de asignación cazaba `plan_text = "…"` y no `plan_text="…"`,
+            # así que los diez planes que `cmv40_strategy` construye dentro de
+            # un `InjectPlan(...)` no los miraba nadie. El nombre del campo es
+            # lo que dice si el texto se ve; que viaje por un `=` o por un
+            # argumento es sintaxis.
+            candidatos += [k.value for k in n.keywords
+                           if k.arg and _CAMPO_VISIBLE.search(k.arg)
+                           and k.arg not in _CAMPO_SLUG]
             for c in candidatos:
                 for bruto in _textos_dentro(c):
                     s = " ".join(bruto.split())
