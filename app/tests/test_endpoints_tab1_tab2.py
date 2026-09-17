@@ -441,7 +441,12 @@ class TestLaFichaDeLaPelicula(ApiTestCase):
         self.addCleanup(tab1._tmdb_intentadas.clear)
         sid = self.crear_sesion_tab1()
         self.client.get(f"/api/sessions/{sid}")
-        self.assertIn(sid, tab1._tmdb_intentadas)
+        # La marca lleva el IDIOMA además del id desde que la ficha se
+        # rehace al cambiar de idioma: con el id solo, un segundo cambio
+        # no volvería a preguntar. Ver `ficha_caducada_de_idioma`.
+        self.assertTrue(any(m.startswith(sid + '·')
+                            for m in tab1._tmdb_intentadas),
+                        tab1._tmdb_intentadas)
         # La segunda apertura no vuelve a intentarlo.
         antes = set(tab1._tmdb_intentadas)
         self.client.get(f"/api/sessions/{sid}")

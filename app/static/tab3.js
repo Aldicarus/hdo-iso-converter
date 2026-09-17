@@ -4034,7 +4034,13 @@ function _cmv40Timecode(frame, fps) {
 function _cmv40Num(n) {
   // El separador de miles lo decide el IDIOMA, no el código: cableado a `.`
   // salía «141.336» con la app en inglés, donde toca «141,336».
-  return Math.round(Number(n) || 0).toLocaleString(localeActual());
+  //
+  // `useGrouping: 'always'` **no es decorativo**: `es-ES` sigue la RAE y NO
+  // agrupa los números de cuatro cifras, así que sin él «2.313 escenas»
+  // pasaba a «2313» — un cambio del castellano que nadie pidió. Con él, el
+  // castellano sale byte a byte como antes y el inglés se arregla.
+  return Math.round(Number(n) || 0)
+    .toLocaleString(localeActual(), {useGrouping: 'always'});
 }
 
 /** Segundos → "1min 23s" / "45s". */
