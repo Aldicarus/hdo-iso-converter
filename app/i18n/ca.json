@@ -916,5 +916,12 @@
   "tab2.aplicando_cambios_con_mkvpropedit": "S'estan aplicant els canvis amb mkvpropedit…",
   "tab2.cambios_aplicados_correctamente": "Canvis aplicats correctament",
   "tab2.copia_cancelada_por_el_usuario": "Còpia cancel·lada per l'usuari",
-  "tab2.cancelado": "Cancel·lat"
+  "tab2.cancelado": "Cancel·lat",
+  "tab1.fase_a_apertura_del_origen": "Fase A — obertura de l'origen",
+  "tab1.fase_b_extraccion_de_pistas": "Fase B — extracció de les pistes",
+  "tab1.fase_c_escritura_de_metadatos": "Fase C — escriptura de les metadades",
+  "tab1.fase_d_cierre_del_origen": "Fase D — tancament de l'origen",
+  "tab1.episodio_s_season_number_e_episode_number": "Episodi S{season_number}E{episode_number}",
+  "tab1.audio_p1_la_etiqueta_dice_nom_esp": "Àudio #{p1}: l'etiqueta diu {nom_esp} però el stream és {nom_real} ({codec})",
+  "tab1.subtitulo_p1_idioma_lang_name_exp_lang": "Subtítol #{p1}: idioma {lang_name} ≠ {exp_lang}"
 }

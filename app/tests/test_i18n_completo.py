@@ -92,6 +92,12 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
+    "serie:{spath}:{temporada}":
+        "la CLAVE con la que un trabajo de serie entra en la cola "
+        "(`_clave_de_serie`). Es un identificador que se compara y se "
+        "persiste en `queue_state.json`: traducirlo haría que el "
+        "`workload.liberar` de un trabajo soltara el hueco de otro, que es "
+        "el bug del 2026-09-12 con Juego de Tronos.",
     "Análisis extendido ·":
         "el lado IZQUIERDO de `historial._RENOMBRADOS`: es el prefijo que se "
         "busca en lo que ya está ESCRITO en `historial.jsonl`, que es "

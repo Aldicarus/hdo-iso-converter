@@ -422,7 +422,11 @@ def es_rotulo(s: str) -> bool:
     # (`cmv40_strategy.res_c_sin_artefactos`) y su slug está en castellano:
     # sin ellos, la clave que se le pasa a `tr()` se denuncia como el rótulo
     # que acaba de sustituir.
-    if re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*", t):
+    # Se admite el guion bajo inicial (`_desde`, un sufijo), los dos puntos
+    # (`serie:{spath}:{temporada}`, la clave de la cola) y los huecos, que en
+    # una clave compuesta son parte del identificador. Un rótulo de interfaz
+    # trae mayúscula inicial o un acento, así que «Completado» sigue pasando.
+    if re.fullmatch(r"[_a-z][a-z0-9_{}]*(?:[.:][a-z0-9_{}]+)*", t):
         return False
     return bool(set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
                 & vocabulario_solo_castellano())

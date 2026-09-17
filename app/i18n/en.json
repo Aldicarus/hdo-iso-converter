@@ -916,5 +916,12 @@
   "tab2.aplicando_cambios_con_mkvpropedit": "Applying the changes with mkvpropedit…",
   "tab2.cambios_aplicados_correctamente": "Changes applied",
   "tab2.copia_cancelada_por_el_usuario": "Copy canceled by the user",
-  "tab2.cancelado": "Canceled"
+  "tab2.cancelado": "Canceled",
+  "tab1.fase_a_apertura_del_origen": "Phase A — opening the source",
+  "tab1.fase_b_extraccion_de_pistas": "Phase B — extracting the tracks",
+  "tab1.fase_c_escritura_de_metadatos": "Phase C — writing the metadata",
+  "tab1.fase_d_cierre_del_origen": "Phase D — closing the source",
+  "tab1.episodio_s_season_number_e_episode_number": "Episode S{season_number}E{episode_number}",
+  "tab1.audio_p1_la_etiqueta_dice_nom_esp": "Audio #{p1}: the label says {nom_esp} but the stream is {nom_real} ({codec})",
+  "tab1.subtitulo_p1_idioma_lang_name_exp_lang": "Subtitle #{p1}: language {lang_name} ≠ {exp_lang}"
 }

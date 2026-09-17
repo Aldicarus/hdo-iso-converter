@@ -1559,11 +1559,12 @@ def _clave_de_serie(spath: str, temporada) -> str:
 # describe UNA ejecución, que empieza al abrir el origen. Que el log dijera
 # «[Fase D]» para lo que la UI llama la segunda fase era esa numeración
 # interna asomando.
+# La CLAVE, no la frase: una tabla con texto dentro se evalúa al importar.
 _RIP_FASES = (
-    ("mount",   "Fase A — Apertura del origen"),
-    ("extract", "Fase B — Extracción de pistas"),
-    ("write",   "Fase C — Escritura de metadatos"),
-    ("unmount", "Fase D — Cierre del origen"),
+    ("mount",   'tab1.fase_a_apertura_del_origen'),
+    ("extract", 'tab1.fase_b_extraccion_de_pistas'),
+    ("write",   'tab1.fase_c_escritura_de_metadatos'),
+    ("unmount", 'tab1.fase_d_cierre_del_origen'),
 )
 
 _rip_progress: dict = {
@@ -1663,7 +1664,7 @@ def _rip_adaptador(trabajo) -> dict | None:
         return None
     fase = _rip_progress.get("fase") or ""
     ids = [f for f, _ in _RIP_FASES]
-    etiquetas = dict(_RIP_FASES)
+    etiquetas = {f: tr(c) for f, c in _RIP_FASES}
     pct = _rip_progress.get("pct")
     segundos = max(0.0, _t.monotonic() - (_rip_progress.get("desde") or 0.0))
     return {
@@ -1832,7 +1833,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 _series_create_progress["current_episode_step"] = "identify"
                 _series_create_progress["pgs_pct"] = 0
                 _series_create_progress["pgs_eta_s"] = 0
-                ep_label = ep.episode_title or f"Episodio S{body.season_number:02d}E{ep.episode_number:02d}"
+                ep_label = ep.episode_title or tr('tab1.episodio_s_season_number_e_episode_number', season_number=format(body.season_number, '02d'), episode_number=format(ep.episode_number, '02d'))
                 _series_create_progress["current_episode_title"] = ep_label
                 _series_create_progress["current_label"] = tr(
                     'tab1.prog_analizando_episodio', idx=idx + 1,
@@ -3058,8 +3059,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 status = "❌"
                 detail += f" (codec esperado: {nom_esp}, real: {nom_real})"
                 warnings.append(
-                    f"Audio #{i+1}: la etiqueta dice {nom_esp} pero el stream "
-                    f"es {nom_real} ({codec})"
+                    tr('tab1.audio_p1_la_etiqueta_dice_nom_esp', p1=i+1, nom_esp=nom_esp, nom_real=nom_real, codec=codec)
                 )
                 all_ok = False
         else:
@@ -3103,7 +3103,9 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 status = "❌"
                 detail = tr('tab1.val_detalle_esperado_real',
                             esperado=exp_lang, real=lang_name)
-                warnings.append(f"Subtítulo #{i+1}: idioma {lang_name} ≠ {exp_lang}")
+                warnings.append(tr(
+                    'tab1.subtitulo_p1_idioma_lang_name_exp_lang',
+                    p1=i + 1, lang_name=lang_name, exp_lang=exp_lang))
                 all_ok = False
         else:
             status = "⚠️"
