@@ -3169,11 +3169,15 @@ async def _refinar_gate_l5(gates: dict,
             '[Fase B] ' + tr('cmv40_pipeline.l5_con_bloque', etiqueta=etiqueta, p2=_fmt_miles(perfil['frames_con_bloque']), frames=_fmt_miles(frames), reparto=reparto, extra=extra)
         )
     if perfil_src["variable"] or perfil_tgt["variable"]:
-        cuales = (tr('cmv40_pipeline.ambos_masters') if perfil_src["variable"] and perfil_tgt["variable"]
-                  else ("el BD" if perfil_src["variable"] else tr('cmv40_pipeline.el_bin')))
+        # El sufijo de la clave, no un rótulo: en catalán la preposición
+        # contrae con el artículo («al bin», no «a el bin») y eso no se puede
+        # resolver interpolando el sujeto en la frase. De paso se va el «el
+        # BD» que estaba cableado en castellano.
+        cual = ("ambos" if perfil_src["variable"] and perfil_tgt["variable"]
+                else "bd" if perfil_src["variable"] else "bin")
         await _log(
             log_callback,
-            '[Fase B] ' + tr('cmv40_pipeline.encuadre_variable_en_tipico_de_un', cuales=cuales)
+            '[Fase B] ' + tr(f'cmv40_pipeline.encuadre_variable_{cual}')
         )
 
     pz = cmp["por_zona"]

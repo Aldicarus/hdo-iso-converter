@@ -347,8 +347,40 @@ palabra de al lado. Reordenar la preposición no vale, porque
 `de l'MPLS` y `del fitxer` no salen de la misma plantilla — el catalán elide
 ante vocal y `MPLS` empieza por una.
 
-**No está aplicado**: cambia el castellano que se ve (de «de el disco» a
-«del disco»), así que necesita el visto bueno del usuario, y arrastra
-`golden_castellano.json` —las cuatro plantillas están capturadas byte a
-byte— con su entrada en `EXCEPCIONES`. Las siete del catalán salen gratis en
-la misma pasada.
+**APLICADO** el 2026-09-17 con el visto bueno del usuario. Las cuatro
+plantillas de `tab1` y la del encuadre variable pasan a **trece claves
+completas**, una por (mensaje × origen), y el código compone el sufijo
+desde el id del origen (`tr(f'tab1.cap_sin_duracion_{origen_clave}')`) en
+vez de interpolar un rótulo — el patrón que ya usaban `cmv40.fase_{fase}`
+y `cmv40_pipeline.workflow_label_{…}`.
+
+Lo que cambia y lo que no:
+
+- **el castellano cambia en cuatro renders**, y solo para contraer: «de el
+  disco» → «del disco», «de el fichero M2TS» → «del fichero M2TS», «de el
+  MPLS del episodio» → «del MPLS del episodio». Los que iban con `en` ya
+  eran correctos y se quedan **byte a byte** igual;
+- **el inglés no cambia en ninguno**: las trece claves rinden exactamente lo
+  que rendía la composición;
+- **el catalán se arregla en siete**, con las dos contracciones que la
+  lengua obliga (`de`+`el` → `del`, `a`+`el` → `al`) y respetando la elisión
+  ante vocal, que es lo que hacía imposible resolverlo con una plantilla:
+  `de l'MPLS` y `del fitxer` no salen de la misma.
+
+`golden_castellano.json` solo tenía capturada **una** de las cinco —la del
+encuadre variable, `[Fase B] Encuadre VARIABLE en ⟦⟧ — …`— y va con su
+entrada en `EXCEPCIONES`. Las cuatro de `tab1` nunca entraron en el golden:
+son de las que el detector de entonces no veía, porque se **asignaban** a
+`chapters_reason` en vez de pasarse a una llamada.
+
+**Y de paso salió una fuga viva**: el `"el BD"` de
+`cmv40_pipeline.py:3173` era un literal castellano cableado —dos palabras
+sin acento, así que `es_frase` no lo veía— que se colaba dentro de la frase
+en las tres lenguas. Con la partición desaparece.
+
+**Ya no puede volver**:
+`test_calidad_de_la_traduccion::TestLaPreposicionYElArticuloContraen`
+recorre el AST del servidor buscando un `tr()` cuyo parámetro con nombre sea
+otro `tr()` —85 composiciones directas hoy—, renderiza cada par en castellano
+y en catalán y busca la contracción perdida. No es una lista de sitios, así
+que un mensaje nuevo con la misma forma cae igual. Verificado por mutación.

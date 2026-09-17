@@ -303,3 +303,104 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLaPreposicionYElArticuloContraen(unittest.TestCase):
+    """«extraídos de el MPLS del episodio», que el usuario leyó en la ficha
+    de un proyecto antiguo el 2026-09-17.
+
+    No era un defecto del i18n: el fuente de `pre-i18n` ya componía
+    `f"{n} capítulos extraídos de {ep_origin_label}"` con
+    `ep_origin_label = "el MPLS del episodio"`. La causa es que **el
+    fragmento lleva el artículo y la plantilla lleva la preposición**, así
+    que se encuentran sin contraer — y no se arregla moviendo la
+    preposición al fragmento, porque el mismo fragmento se usaba con `de` y
+    con `en`/`a`, que contraen distinto. La salida es una clave completa por
+    (mensaje × origen), igual que con los plurales irregulares.
+
+    El guard mide las composiciones REALES: recorre el AST del servidor
+    buscando un `tr()` cuyo parámetro con nombre sea otro `tr()`, renderiza
+    el par y busca la contracción perdida. No es una lista de sitios, así
+    que un mensaje nuevo con la misma forma lo caza igual.
+
+    Solo cuentan las que la lengua obliga a contraer:
+      · castellano — `de el` → del · `a el` → al
+      · catalán    — `de el` → del · `a el` → al · `de els`/`a els` ·
+                     `per el` → pel
+    `de los` **no contrae** en castellano, y darlo por error es lo que hacía
+    que el detector señalara «merge selectivo de los levels», que está bien.
+    """
+
+    _MAL = {"es": r"\b(?:de|a)\s+el\b",
+            "ca": r"\b(?:de|a|per)\s+(?:el|els)\b"}
+
+    @staticmethod
+    def _claves_de(n) -> list[str]:
+        """Las claves que un nodo puede resolver: un `tr()` o una ternaria."""
+        import ast
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == "tr" and n.args
+                and isinstance(n.args[0], ast.Constant)
+                and isinstance(n.args[0].value, str)):
+            return [n.args[0].value]
+        if isinstance(n, ast.IfExp):
+            return (TestLaPreposicionYElArticuloContraen._claves_de(n.body)
+                    + TestLaPreposicionYElArticuloContraen._claves_de(n.orelse))
+        return []
+
+    def _composiciones(self) -> set[tuple[str, str, str, str]]:
+        """`(clave externa, parámetro, clave interna, dónde)` del servidor.
+
+        Solo composiciones DIRECTAS: el valor del keyword ES un `tr()`, o una
+        ternaria de `tr()`, o una variable a la que se asignó una de las dos.
+        Bajar por todo el subárbol cruzaría claves que no se juntan nunca.
+        """
+        import ast
+        pares: set[tuple[str, str, str, str]] = set()
+        for f in sorted(APP_DIR.rglob("*.py")):
+            if "tests" in f.parts or "__pycache__" in str(f):
+                continue
+            try:
+                arbol = ast.parse(f.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            var: dict[str, list[str]] = {}
+            for n in ast.walk(arbol):
+                if (isinstance(n, ast.Assign) and len(n.targets) == 1
+                        and isinstance(n.targets[0], ast.Name)):
+                    if ks := self._claves_de(n.value):
+                        var.setdefault(n.targets[0].id, []).extend(ks)
+            for n in ast.walk(arbol):
+                if not isinstance(n, ast.Call):
+                    continue
+                for ext in self._claves_de(n):
+                    for kw in n.keywords:
+                        dentro = (var.get(kw.value.id, [])
+                                  if isinstance(kw.value, ast.Name)
+                                  else self._claves_de(kw.value))
+                        for ic in dentro:
+                            pares.add((ext, str(kw.arg), ic,
+                                       f"{f.name}:{n.lineno}"))
+        return pares
+
+    def test_ninguna_composicion_deja_la_contraccion_sin_hacer(self):
+        cat = {l: {} for l in ("es", "ca")}
+        for _, porl in _catalogos():
+            for l in cat:
+                cat[l].update(porl[l])
+        pares = self._composiciones()
+        self.assertGreater(len(pares), 20, "el AST no encontró composiciones")
+        fuera = []
+        for ext, param, ic, donde in sorted(pares):
+            for l in ("es", "ca"):
+                pl, fr = cat[l].get(ext), cat[l].get(ic)
+                hueco = "{" + param + "}"
+                if not (pl and fr) or hueco not in pl:
+                    continue
+                r = pl.replace(hueco, fr)
+                if re.search(self._MAL[l], r, re.I):
+                    fuera.append(f"{donde} [{l}] {ext} ← {ic}: {r[:70]}")
+        self.assertEqual(fuera, [], (
+            f"\n{len(fuera)} composición(es) con la contracción sin hacer. El "
+            f"hueco no puede llevar dentro el artículo: parte el mensaje en "
+            f"una clave por origen.\n  · " + "\n  · ".join(fuera[:12])))

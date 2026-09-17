@@ -121,6 +121,17 @@ EXCEPCIONES: dict[str, str] = {
     # con el hueco al final ya no existe.
     "L8 target displays · escala logarítmica de nits ⟦⟧":
         "partida en `tab2.l8_escala_validado_film_completo` / `_sample_30s`",
+
+    # ── El hueco que llevaba el artículo dentro, y la contracción perdida.
+    #
+    # `Encuadre VARIABLE en {cuales}` con `cuales` ∈ {«ambos másters», «el
+    # BD», «el bin»}: en castellano `en` no contrae y la frase salía bien,
+    # pero en catalán la preposición es `a` y «a el bin» tiene que ser «al
+    # bin» — y eso no se puede resolver interpolando el sujeto. Son tres
+    # claves completas. El castellano RENDERIZADO no cambia, y de paso se fue
+    # el «el BD» que estaba cableado en el código.
+    "[Fase B] Encuadre VARIABLE en ⟦⟧ — típico de un máster con escenas expandidas (IMAX / open matte).":
+        "partida en `cmv40_pipeline.encuadre_variable_ambos` / `_bd` / `_bin`",
 }
 
 

@@ -866,12 +866,18 @@ async def analyze_iso(body: AnalyzeRequest):
     # ── Capítulos ─────────────────────────────────────────────────
     # Textos dinámicos según el tipo de origen — antes hablaban siempre de
     # "el disco" aunque el origen fuera carpeta BDMV o fichero M2TS suelto.
+    #
+    # Lo que varía es el SUFIJO DE LA CLAVE, no un rótulo que se interpole:
+    # el origen lleva artículo y la plantilla llevaba la preposición, así que
+    # al juntarse no contraían — «No se pudo determinar la duración de el
+    # disco», vivo desde antes del i18n. Y no se arregla moviendo la
+    # preposición al rótulo, porque el mismo origen se usa con `de` y con
+    # `en`, que contraen distinto (y en catalán `de l'MPLS` frente a `del
+    # fitxer` ni siquiera sale de la misma plantilla).
     from models import Chapter
-    source_label = (
-        tr('tab1.origen_el_disco') if stype == "iso"
-        else tr('tab1.origen_la_carpeta_bdmv') if stype == "bdmv_folder"
-        else tr('tab1.origen_el_fichero_m2ts')
-    )
+    origen_clave = ("disco" if stype == "iso"
+                    else "bdmv" if stype == "bdmv_folder"
+                    else "m2ts")
     if mpls_chapters_raw:
         chapters      = [Chapter(**c) for c in mpls_chapters_raw]
         chapters_auto = False
@@ -882,12 +888,11 @@ async def analyze_iso(body: AnalyzeRequest):
     elif bdinfo_result.duration_seconds > 0:
         chapters      = generate_auto_chapters(bdinfo_result.duration_seconds)
         chapters_auto = True
-        chapters_reason = tr('tab1.cap_sin_capitulos_auto',
-                             origen=source_label)
+        chapters_reason = tr(f'tab1.cap_sin_capitulos_auto_{origen_clave}')
     else:
         chapters      = []
         chapters_auto = True
-        chapters_reason = tr('tab1.cap_sin_duracion', origen=source_label)
+        chapters_reason = tr(f'tab1.cap_sin_duracion_{origen_clave}')
 
     # ── Reutilizar sesión existente por fingerprint ─────────────────
     # Para ISO: huella del fichero .iso (1 MB + tamaño). Para
@@ -1911,22 +1916,19 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 # sino auto. Texto del reason adaptado al tipo de origen
                 # para que el panel del proyecto no mencione "MPLS" cuando
                 # el episodio viene de un m2ts directo.
-                ep_origin_label = (
-                    tr('tab1.origen_el_mpls_del_episodio')
-                    if stype in ("iso", "bdmv_folder")
-                    else tr('tab1.origen_el_fichero_m2ts')
-                )
+                ep_origen_clave = ("mpls" if stype in ("iso", "bdmv_folder")
+                                   else "m2ts")
                 if mpls_chapters_raw:
                     chapters = [Chapter(**c) for c in mpls_chapters_raw]
                     chapters_auto = False
-                    chapters_reason = tr('tab1.cap_extraidos_de',
-                                         n=len(chapters),
-                                         origen=ep_origin_label)
+                    chapters_reason = tr(
+                        f'tab1.cap_extraidos_de_{ep_origen_clave}',
+                        n=len(chapters))
                 elif bdinfo.duration_seconds > 0:
                     chapters = generate_auto_chapters(bdinfo.duration_seconds)
                     chapters_auto = True
-                    chapters_reason = tr('tab1.cap_sin_capitulos_episodio',
-                                         origen=ep_origin_label)
+                    chapters_reason = tr(
+                        f'tab1.cap_sin_capitulos_episodio_{ep_origen_clave}')
                 else:
                     chapters = []
                     chapters_auto = True
