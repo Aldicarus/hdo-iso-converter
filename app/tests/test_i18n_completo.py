@@ -92,12 +92,6 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
-    "serie:{spath}:{temporada}":
-        "la CLAVE con la que un trabajo de serie entra en la cola "
-        "(`_clave_de_serie`). Es un identificador que se compara y se "
-        "persiste en `queue_state.json`: traducirlo haría que el "
-        "`workload.liberar` de un trabajo soltara el hueco de otro, que es "
-        "el bug del 2026-09-12 con Juego de Tronos.",
     "Análisis extendido ·":
         "el lado IZQUIERDO de `historial._RENOMBRADOS`: es el prefijo que se "
         "busca en lo que ya está ESCRITO en `historial.jsonl`, que es "
@@ -247,7 +241,13 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
         import extraer_backend as eb
         m = eb._PREFIJO.match(frase)
         prosa = m.group(5) if m else frase
-        return " ".join(re.sub(r"\s*━+\s*$", "", prosa).split())
+        prosa = re.sub(r"\s*━+\s*$", "", prosa)
+        # Y los grupos de marcador que NO están al principio. El log de la
+        # auditoría de Tab 2 es `f"[{ts}] [Análisis MKV] {label}…"`: el
+        # marcador va detrás del timestamp, así que el patrón anclado en `^`
+        # no lo veía y denunciaba el marcador como si fuera prosa.
+        prosa = re.sub(r"\[[^\]]{1,26}\]", " ", prosa)
+        return " ".join(prosa.split())
 
 
 def _llamadas_a_tr(src: str) -> list[tuple[str, int, int]]:

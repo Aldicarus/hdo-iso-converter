@@ -2154,17 +2154,8 @@ async def _preflight_validate_bin(
     # descargado para no dejar basura y para forzar re-download si el
     # usuario reintenta con el mismo target.
     if session.target_type == "incompatible":
-        cm = dovi_info.cm_version or "desconocido"
-        abort_msg = (
-            f"El bin target no aporta CMv4.0 (CM {cm}). No hay metadata "
-            f"L8-L11 que transferir al RPU del BD — este pipeline solo "
-            f"puede inyectar CMv4.0 sobre CMv2.9, no v2.9 sobre v2.9. "
-            f"Causa típica: bins 'P5 to P8 transfer' del repo DoviTools que "
-            f"solo cambian de profile sin upgrade de CM. Busca otro bin con "
-            f"'CMv4.0' / 'v4.0' / 'CMv4 transfer' en el nombre, o extrae de "
-            f"un MKV cuyo mkvinfo muestre 'dv_cm_version: v4.0'. Pre-flight "
-            f"ha ahorrado la extracción del HEVC del BD (~12 min)."
-        )
+        cm = dovi_info.cm_version or tr('cmv40.desconocido')
+        abort_msg = tr('cmv40_pipeline.bin_target_no_aporta_cmv40', cm=cm)
         session.compat_warning = abort_msg
         await _log(log_callback, '[Pre-flight] ' + '⛔ ' + str(abort_msg))
         try:
@@ -2731,18 +2722,10 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
             l5_sev, l5_why = "ok", ""
         elif l5_max <= 30:
             l5_sev = "sync_review"
-            l5_why = (
-                f"Letterbox del target diverge {l5_max} px del BD — Fase D "
-                f"permite revisar el chart antes de continuar."
-            )
+            l5_why = tr('cmv40_pipeline.gate_l5_sync_review', px=l5_max)
         else:
             l5_sev = "ack_required"
-            l5_why = (
-                f"Letterbox del target distinto en {l5_max} px (umbral 30). "
-                f"El TV calculará active-area y bandas negras según los datos "
-                f"del target → tone-mapping desviado en bordes. Fase D no "
-                f"puede corregir L5: solo arregla sincronización temporal."
-            )
+            l5_why = tr('cmv40_pipeline.gate_l5_ack', px=l5_max)
         gates["l5_div"] = {
             "ok": l5_max <= 30,
             "px_max": l5_max,

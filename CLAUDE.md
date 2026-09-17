@@ -2358,8 +2358,8 @@ diseño anterior, que es la peor clase: el próximo lector se lo cree.
 
 | dónde | qué |
 |---|---|
-| `app/static/i18n/{es,en,ca}.json` | la interfaz — **1.615 claves** |
-| `app/i18n/{es,en,ca}.json` | el servidor: log, errores HTTP, etiquetas de paso — **775** |
+| `app/static/i18n/{es,en,ca}.json` | la interfaz — **1.644 claves** |
+| `app/i18n/{es,en,ca}.json` | el servidor: log, errores HTTP, etiquetas de paso — **1.010** |
 | `app/static/i18n/manual/{es,en,ca}.json` | el manual CMv4.0, 7 secciones de HTML |
 | `app/i18n/REGISTRO.md` | tono, registro y glosario. **Es normativo**: lo comprueba un test |
 
@@ -2489,12 +2489,31 @@ quien mira `docker logs`) y `FUERA_DEL_CATALOGO_BACKEND`, que tiene **dos**
 entradas y las dos escritas: la `description=` de FastAPI y `TAB_MKV`, que
 es un id y no un rótulo.
 
-**Lo que el guard sigue sin ver, medido: ~490 literales**, casi todos líneas
-del log del pipeline. La causa es la misma de siempre y está localizada:
-`_LOG` son **seis nombres escritos a mano**, así que `_cmv40_log`,
-`_mkv_quality_log`, `_paso`, `_emit` y `log_cb` —o sea el log que el usuario
-lee— nunca estuvieron dentro. La salida es invertir la polaridad (castellano
-= fuga salvo exención); está medida y prototipada, no aplicada.
+**La polaridad se invirtió el 2026-09-17, y con ella los dos guards están a
+cero.** Ya no hay lista de sitios: se recorre TODO literal y se juzga por su
+contenido; lo que no es interfaz se exime por FUNCIÓN, con el motivo escrito
+y verificado por mutación (una exención de más tapa tanto como una lista
+blanca de menos):
+
+| exención | sin ella |
+|---|---|
+| docstrings, **incluidos los de atributo** | 1.109 en vez de 434 |
+| `logger.*` y sus **envoltorios locales** de una línea | 613 |
+| lo que cuelga de un `if DEV_MODE:` | 483 |
+| el `summary=`/`description=` de un decorador de ruta y de `FastAPI(...)` | +99 |
+| las tablas de traducción de la spec (ojo: ANOTADAS) | 435 |
+| el patrón de un `re.compile` | +1 |
+
+Quedan **cinco** entradas por literal en total, cada una con su motivo:
+`TAB_MKV` y las dos de `historial._RENOMBRADOS` (identificadores, no
+rótulos) en el servidor, y el `LANGUAGE_MAP` de `core.js` más el marcador
+`🎯 Resultado:` en el JS.
+
+**El envoltorio del logger se DERIVA, no se lista**: una función cuyo cuerpo
+es una sola llamada a un logger es un envoltorio, y sus argumentos tampoco
+son interfaz. Eso puso `models.py` a cero sin escribir ninguna exención — y
+listar nombres a mano es exactamente el error que este subsistema cometió
+cuatro veces.
 
 **El umbral de `es_frase` es correcto para prosa y ciego para rótulos.** Pide
 seis caracteres, DOS palabras y un acento o una palabra función, así que
@@ -2679,6 +2698,35 @@ Tres trampas de los arneses, las tres con su cicatriz:
 - **Un test que afirme sobre texto renderizado pasa por `pintar_en()`**, que
   resuelve los `data-i18n` de lo que el JS devolvió sin insertar en el DOM.
 
+### Nadie detecta una fase leyendo prosa del log
+
+Es la clase de fallo **más silenciosa** que tiene la traducción, y salió
+DOS veces el mismo día:
+
+- **`routers/tab1.py`** mapeaba once subcadenas castellanas —«paso 1/4»,
+  «identificando mpls», «contando paquetes pgs»— contra el log que escribe
+  `phase_a`. Desde que el log se traduce, con la app en catalán `phase_a`
+  escribe «Pas 1/4» y ninguna casaba: **el modal «Analizando disco» se
+  quedaba en el primer paso**, y el de creación de series igual. Sin un
+  error, sin una línea de log. Estaba vivo en el NAS.
+- **`static/tab1.js`** hacía lo mismo con `[Origen] ✓ ISO desmontado` para
+  la píldora de la sub-pestaña. Ahí no se notaba porque las tres ramas
+  llamaban a la misma función y `[Fase D]` sí casaba, pero eran doce
+  condiciones inalcanzables: el marcador `[Origen]` tampoco lo emite nadie
+  desde que el pipeline soporta tres orígenes.
+
+**El arreglo no es traducir el matcher** —sería la misma fragilidad con más
+pasos— sino que **el paso lo anuncie quien lo ejecuta**: `phase_a` llama a
+`analysis_progress.fijar(step=…)`, que es para lo que ese módulo existe y
+lo que Tab 2 ya hacía.
+
+Lo que SÍ se puede comparar es un **marcador**, porque el servidor lo
+concatena en el código —fuera de la cadena traducible— y llega igual en los
+tres idiomas: `[Fase X]`, `━━━`, `📋 Plan`, `🎯 Resultado`, `§§PROGRESS§§`.
+`test_el_paso_no_se_adivina.py` falla si alguien vuelve a comparar contra
+prosa del catálogo, en el servidor o en el JS, y lleva la lista de
+marcadores.
+
 ### Una tabla de rótulos NO se evalúa al importar
 
 Un `dict` con frases dentro en el ámbito del módulo se resuelve **una vez, al
@@ -2695,6 +2743,12 @@ tercera copia de `cmv40_strategy.WORKFLOWS`.
 Lo mismo con una **constante** (`MOTIVO_CANCELADO`, `AVISO_INTERRUMPIDA`,
 `TAB_MKV`) y con un **decorador**, que también se evalúa al importar: por eso
 `workload.marca` acepta un callable y lo resuelve dentro de la petición.
+
+Apareció **nueve veces** en total, y las cuatro últimas las metió la
+herramienta de reescritura, que no sabe distinguir el cuerpo de una función
+del ámbito del módulo. Así que se comprueba en vez de vigilarse:
+`TestNadieTraduceAlImportar` recorre el AST, ignora lo que cuelga de una
+`def`/`class`/`lambda` y falla con el fichero y la línea.
 
 **Y ojo con el literal que es a la vez id y rótulo.** `workload.TAB_RIP` y
 compañía los indexa `TAB_IDS`, la UI compara contra ellos y `historial.jsonl`

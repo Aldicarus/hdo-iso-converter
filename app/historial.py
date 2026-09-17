@@ -37,6 +37,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from i18n import t as tr
+
 logger = logging.getLogger(__name__)
 
 # Los `tab_id` son los mismos que expone `/api/activity` (`workload.TAB_IDS`),
@@ -74,7 +76,6 @@ def motivo_cancelado() -> str:
     importar y dejaría el motivo en el idioma que hubiera al arrancar el
     contenedor, pasara lo que pasara después con el ajuste.
     """
-    from i18n import t as tr
     return tr('historial.motivo_cancelado')
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"

@@ -1639,5 +1639,8 @@
   "tab2.completos": "Completos",
   "tab2.mediana": "Mediana",
   "browser.cargando": "Cargando…",
-  "core.tmdb_no_disponible_sin_clave": "TMDb no está disponible — no hay ninguna clave activa. Puedes poner la tuya en ⚙︎ Configuración."
+  "core.tmdb_no_disponible_sin_clave": "TMDb no está disponible — no hay ninguna clave activa. Puedes poner la tuya en ⚙︎ Configuración.",
+  "tab3.excelente": "Excelente",
+  "tab3.buena": "Buena",
+  "tab3.moderada": "Moderada"
 }

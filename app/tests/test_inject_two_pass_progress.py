@@ -133,10 +133,33 @@ class TestElEtaNoDesaparece(unittest.TestCase):
 
     def test_el_heartbeat_solo_anuncia_el_porcentaje_si_es_medido(self):
         """Un % venido de la estimación por reloj no puede presentarse como
-        dato: en Fase F la estimación era 919 s y la fase duró 815 s."""
+        dato: en Fase F la estimación era 919 s y la fase duró 815 s.
+
+        Se comprueba sobre el ÁRBOL, no contando una frase en el fuente.
+        Contaba `f"{label or 'Proceso'} ({step_pct:.0f}%)" if real else` y
+        pasó a contar **cero** el día que «Proceso» se tradujo, sin decir
+        nada — que es justo el fallo que CLAUDE.md documenta: lo estable no
+        es la frase. Lo estable aquí es la FORMA: el porcentaje vive en la
+        rama verdadera de una condicional cuyo test es la bandera de
+        «medido», y la rama falsa no lo lleva.
+        """
+        import ast
         src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        self.assertEqual(
-            src.count('f"{label or \'Proceso\'} ({step_pct:.0f}%)" if real else'), 1)
+        encontrados = []
+        for n in ast.walk(ast.parse(src)):
+            if not isinstance(n, ast.IfExp):
+                continue
+            prueba = ast.unparse(n.test)
+            if prueba not in ("real", "used_real"):
+                continue
+            con = ast.unparse(n.body)
+            sin = ast.unparse(n.orelse)
+            if "step_pct" in con and "step_pct" not in sin:
+                encontrados.append(prueba)
+        self.assertEqual(sorted(encontrados), ["real", "used_real"], (
+            "el heartbeat debe llevar el % SOLO en la rama medida, y hay "
+            f"dos sitios (`_run_streaming` y `_run_with_time_estimate`): "
+            f"encontrados {encontrados}"))
 
 
 class TestFaseFDeclaraLasDosPasadas(unittest.TestCase):

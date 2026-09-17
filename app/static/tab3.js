@@ -6196,9 +6196,9 @@ function _renderCMv40Confidence(project) {
     'no_variance':       'var(--text-3)',
   }[rating];
   const ratingLabel = {
-    'excellent': 'Excelente',
-    'good':      'Buena',
-    'moderate':  'Moderada',
+    'excellent': tr('tab3.excelente'),
+    'good':      tr('tab3.buena'),
+    'moderate':  tr('tab3.moderada'),
     'poor':      tr('tab3.baja'),
     'insufficient_data': tr('tab3.datos_insuficientes'),
     'no_variance':       tr('tab3.sin_variacion'),

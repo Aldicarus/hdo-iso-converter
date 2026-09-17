@@ -194,7 +194,7 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
         await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': 0, 'label': label, 'eta_s': int(total_seconds)})}")
         for i, line in enumerate(log_lines):
             if _cmv40_cancel_flags.get(session.id):
-                await _cmv40_log(session, "🛑 Cancelado por el usuario")
+                await _cmv40_log(session, '🛑 Cancelado ' + tr('tab1.por_el_usuario'))
                 return
             await _cmv40_log(session, line)
             await asyncio.sleep(delay_per)
@@ -498,9 +498,9 @@ async def _cmv40_log_phase_failed(
     """
     recientes = _cmv40_log_completo(session)[-3:]
     if msg and any(msg in linea for linea in recientes):
-        await _cmv40_log(session, f"✗ Fase {fase} FALLÓ")
+        await _cmv40_log(session, '✗ Fase ' + tr('cmv40.fase_fallo', fase=fase))
     else:
-        await _cmv40_log(session, f"✗ Fase {fase} FALLÓ: {msg}")
+        await _cmv40_log(session, '✗ Fase ' + tr('cmv40.fase_fallo_msg', fase=fase, msg=msg))
 
 
 # Timeouts de envío consecutivos por conexión — {id(ws): n}. Se limpia en
@@ -708,7 +708,7 @@ async def _run_cmv40_phase(
         if running and running != phase_name:
             await _cmv40_log(
                 session,
-                f"⏭ Fase {phase_name} ignorada — ya hay otra fase ({running}) en curso para este proyecto"
+                tr('cmv40.fase_phase_name_ignorada_ya_hay_otra', phase_name=phase_name, running=running)
             )
         return
 
@@ -725,9 +725,7 @@ async def _run_cmv40_phase(
             if on_disk and on_disk.phase == new_phase and not on_disk.error_message:
                 await _cmv40_log(
                     session,
-                    f"⏭ Fase {phase_name} omitida — el proyecto ya está en "
-                    f"'{new_phase}': el trabajo de esta fase ya está hecho. "
-                    f"(Para rehacerla, usa 🔄 Rehacer, que retrocede el estado.)"
+                    tr('cmv40.fase_phase_name_omitida_el_proyecto_ya', phase_name=phase_name, new_phase=new_phase)
                 )
                 return
         await _run_cmv40_phase_locked(
@@ -801,7 +799,7 @@ async def _run_cmv40_phase_locked(
             # fase debe emitirse siempre, aunque coincida con la última de
             # la fase anterior.
             _cmv40_last_progress.pop(session.id, None)
-            await _cmv40_log(session, f"━━━ Inicio fase: {phase_name} ━━━")
+            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_phase_name', phase_name=phase_name) + ' ━━━')
             await coro_factory(_log_cb, _proc_cb)
 
             record.status = "done"
@@ -821,7 +819,7 @@ async def _run_cmv40_phase_locked(
                     if "merge_cmv40_transfer" in (session.phases_skipped or [])
                     else "restore_merge"
                 )
-            await _cmv40_log(session, f"✓ Fase {phase_name} completada en {record.elapsed_seconds:.1f}s")
+            await _cmv40_log(session, '✓ Fase ' + tr('cmv40.phase_name_completada_en_elapsed_seconds_s', phase_name=phase_name, elapsed_seconds=format(record.elapsed_seconds, '.1f')))
         except _cmv40_pipeline_mod.CMv40Cancelled:
             # No es un fallo: el usuario canceló. Se registra como cancelada y
             # NO se puebla error_message — así el guard de 409 no bloquea el
@@ -832,9 +830,10 @@ async def _run_cmv40_phase_locked(
             session.phase = previous_phase
             await _cmv40_log(
                 session,
-                f"🛑 Cancelado: fase {phase_name} detenida a petición del usuario "
-                f"tras {record.elapsed_seconds:.1f}s. Los artefactos completados "
-                f"se conservan; relanza la fase cuando quieras.")
+                '🛑 Cancelado: ' + tr(
+                    'cmv40.cancelado_fase_detenida_a_peticion',
+                    fase=phase_name,
+                    segundos=format(record.elapsed_seconds, '.1f')))
         except Exception as e:
             record.status = "error"
             record.finished_at = datetime.now(timezone.utc)
@@ -852,7 +851,7 @@ async def _run_cmv40_phase_locked(
                 if freed > 0:
                     await _cmv40_log(
                         session,
-                        f"🧹 Borrado .mkv.tmp huérfano ({freed / 1e9:.2f} GB liberados)"
+                        tr('cmv40.borrado_mkv_tmp_huerfano_p1_gb_liberados', p1=format(freed / 1e9, '.2f'))
                     )
             elif phase_name == "validate":
                 from phases.cmv40_pipeline import OUTPUT_DIR as _OUT_DIR
@@ -861,9 +860,7 @@ async def _run_cmv40_phase_locked(
                     size_gb = tmp_path.stat().st_size / 1e9
                     await _cmv40_log(
                         session,
-                        f"ℹ️ .mkv.tmp preservado ({size_gb:.2f} GB) — la mux de Fase G "
-                        f"terminó ok, solo falló la validación. Inspecciona o renombra "
-                        f"manualmente: mv '{tmp_path.name}' '{session.output_mkv_name}'"
+                        tr('cmv40.i_mkv_tmp_preservado_size_gb_gb', size_gb=format(size_gb, '.2f'), name=tmp_path.name, output_mkv_name=session.output_mkv_name)
                     )
         finally:
             _cmv40_active_procs.pop(session.id, None)
@@ -1072,8 +1069,7 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
             save_cmv40_session(fresh)
             await _cmv40_log(
                 fresh,
-                "🤖 Auto: target trusted — sync verification omitida, "
-                "avanzando directo a Fase F."
+                tr('cmv40.auto_target_trusted_sync_verification_omitida_avanzando')
             )
             # Recursivo: ahora phase=sync_verified, lanzar Fase F
             await _cmv40_dispatch_next_phase(session_id)
@@ -1146,7 +1142,7 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
             # deja en el log para que quede en el historial del proyecto.
             if result is not None:
                 _cmv40_log_buffer.setdefault(session.id, []).append(
-                    f"Validación final: {result}")
+                    tr('cmv40.validacion_final_result', result=result))
 
         return _coro, new_phase
 
@@ -1456,13 +1452,12 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
 
     wd = cmv40_get_workdir(session)
     target_bin = wd / "RPU_target.bin"
-    await log_cb("[Pre-flight] Analizando combos L2/L8 del bin (dovi_tool export)…")
+    await log_cb('[Pre-flight] ' + tr('cmv40.analizando_combos_l2_l8_del_bin_dovi'))
     analysis = await analyze_rpu_combos(target_bin)
 
     if analysis.total_frames == 0:
         await log_cb(
-            "[Pre-flight] ⚠ Análisis de combos no pudo completarse "
-            "(continuamos sin enriquecimiento)"
+            '[Pre-flight] ' + tr('cmv40.analisis_de_combos_no_pudo_completarse_continuamos')
         )
         return True
 
@@ -1483,10 +1478,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     session.target_l8_classification = classification
 
     await log_cb(
-        f"[Pre-flight] L2: {analysis.l2_unique_count} combos únicos · "
-        f"L8: {analysis.l8_unique_count} combos únicos, "
-        f"{(1.0 - analysis.l8_neutral_pct) * 100:.0f}% frames con trim · "
-        f"clasificación: {classification.upper()}"
+        '[Pre-flight] ' + tr('cmv40.l2_l2_unique_count_combos_unicos_l8', l2_unique_count=analysis.l2_unique_count, l8_unique_count=analysis.l8_unique_count, p3=format((1.0 - analysis.l8_neutral_pct) * 100, '.0f'), p4=classification.upper())
     )
 
     # Veredicto visual con emoji por clasificación + el reason calculado por
@@ -1497,9 +1489,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         await log_cb(f"[Pre-flight] 🟢 L8 real — {reason}")
     elif classification == "indeterminate":
         await log_cb(
-            f"[Pre-flight] 🟡 L8 ambiguo — {reason} El pipeline avanza "
-            f"igualmente; la decisión Mantener/Inyectar se afinará tras "
-            f"analizar el L2 del source en Fase A."
+            '[Pre-flight] ' + tr('cmv40.l8_ambiguo_reason_el_pipeline_avanza_igualmente', reason=reason)
         )
 
     if classification == "default":
@@ -1514,11 +1504,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         session.recommended_action_label = action_label
         session.recommended_action_reason = action_reason
         await log_cb(
-            f"🛑 Pre-flight: el bin no tiene un L8 trabajado real. {reason} "
-            f"Recomendación: mantener el MKV actual (no procesar). Un "
-            f"reproductor compatible con CMv4.0 (p3i T4 / avdvplus / Sony / "
-            f"LG modernos) hará la conversión al vuelo con el mismo resultado "
-            f"visible que tendría inyectar este RPU."
+            tr('cmv40.pre_flight_el_bin_no_tiene_un', reason=reason)
         )
         return False
 
@@ -1530,7 +1516,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         session.target_l8_quality_tier = tier
         session.target_l8_quality_label = label
         session.target_l8_quality_description = description
-        await log_cb(f"[Pre-flight] 🎯 Calidad del bin: {label} — {description}")
+        await log_cb('[Pre-flight] ' + tr('cmv40.calidad_del_bin_label_description', label=label, description=description))
         # Actualizar output_mkv_name con el label correcto si está en formato
         # auto (contiene "[CMv4.0]" o "[CMv4 XXX]"). No tocamos si el usuario
         # lo editó a algo personalizado.
@@ -1606,7 +1592,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
-            await _cmv40_log(session, "━━━ Inicio fase: preflight ━━━")
+            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
@@ -1628,7 +1614,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                 await _emit_progress(_log_cb, pct, label)
 
             try:
-                await _paso(5, "Comprobando el Dolby Vision del MKV origen")
+                await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
 
                 kind = session.pending_target_kind
@@ -1654,11 +1640,11 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                         session, session.pending_target_source_mkv_path,
                         _log_cb, _proc_cb,
                     )
-                await _paso(55, "Validando que el bin aporta CMv4.0")
+                await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
                 # Análisis profundo del bin + decisión Keep/continuar
-                await _paso(65, "Analizando los combos L2/L8 del bin")
+                await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
                 avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
-                await _paso(100, "Validación terminada")
+                await _paso(100, tr('cmv40.validacion_terminada'))
                 if avanzar:
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
@@ -1673,7 +1659,7 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                         else 'cmv40.hint_auto_pipeline_desactivado')
                     await _cmv40_log(
                         session,
-                        f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
+                        '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
                     )
                 # Si NO avanzar, la helper ya pobló preflight_decision/message
             except Exception as e:
@@ -1724,7 +1710,7 @@ async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
                               {"mkv": session.pending_target_source_mkv_path or ""})
         if not turno["siguiente"][0]:
             turno["siguiente"] = None
-            await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
+            await _cmv40_log(session, tr('cmv40.pending_target_kind_desconocido_kind', kind=kind))
         return
 
     if kind == "path":
@@ -1746,7 +1732,7 @@ async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
             {"mkv": session.pending_target_source_mkv_path or ""})
         return
     else:
-        await _cmv40_log(session, f"⚠ pending_target_kind desconocido: {kind!r}")
+        await _cmv40_log(session, tr('cmv40.pending_target_kind_desconocido_kind', kind=kind))
         return
 
     _cmv40_launch_phase(session, phase_name, _coro, CMv40Phase.TARGET_PROVIDED)
@@ -2178,9 +2164,9 @@ async def cmv40_repo_survey(refresh: bool = False):
         folder_ok = drive_folder_configured()
         key_ok = bool(get_google_api_key())
         if not folder_ok:
-            err = "URL del repositorio DoviTools no configurada — configúrala en ⚙︎ Configuración (requiere donación al autor del repo)"
+            err = tr('cmv40.url_del_repositorio_dovitools_no_configurada_configurala')
         else:
-            err = "Google API key no configurada — añádela en ⚙︎ Configuración"
+            err = tr('cmv40.google_api_key_no_configurada_anadela_en')
         return {
             "drive_configured": False,
             "drive_folder_configured": folder_ok,
@@ -2278,11 +2264,11 @@ async def cmv40_repo_rpus(title: str = "", year: int | None = None,
         folder_ok = drive_folder_configured()
         key_ok = bool(get_google_api_key())
         if not folder_ok and not key_ok:
-            err = "Falta la URL del repositorio DoviTools Y la Google API key — configura ambas en ⚙︎ Configuración"
+            err = tr('cmv40.falta_la_url_del_repositorio_dovitools_y')
         elif not folder_ok:
-            err = "URL del repositorio DoviTools no configurada — el acceso al repo es privado (donación al autor). Configúralo en ⚙︎ Configuración"
+            err = tr('cmv40.url_del_repositorio_dovitools_no_configurada_el')
         else:
-            err = "Google API key no configurada — añádela en ⚙︎ Configuración"
+            err = tr('cmv40.google_api_key_no_configurada_anadela_en')
         return {
             "drive_configured": False,
             "drive_folder_configured": folder_ok,
@@ -2813,7 +2799,7 @@ async def cmv40_cleanup(session_id: str):
         _logger.warning("No se pudo borrar .mkv.tmp: %s", e)
     session.archived = True
     save_cmv40_session(session)
-    await _cmv40_log(session, f"🗃️ Artefactos borrados ({freed / 1e9:.2f} GB liberados). Proyecto archivado en modo solo lectura.")
+    await _cmv40_log(session, tr('cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado', p1=format(freed / 1e9, '.2f')))
     return {"ok": True, "freed_bytes": freed, "archived": True}
 
 
@@ -2891,10 +2877,7 @@ async def cmv40_accept_keep(session_id: str):
     save_cmv40_session(session)
     await _cmv40_log(
         session,
-        "✓ Proyecto cerrado manteniendo el MKV actual — el fichero original "
-        "queda sin tocar. Un reproductor compatible con CMv4.0 (p3i T4 / Sony "
-        "/ LG modernos) hará la conversión al vuelo en runtime con el mismo "
-        "resultado visible que tendría inyectar el RPU."
+        tr('cmv40.proyecto_cerrado_manteniendo_el_mkv_actual_el')
     )
     # La línea que estaba pidiendo la decisión —la del pre-flight— pasa a
     # «terminado», y su texto dice qué se decidió. No se abre ninguna de
@@ -2943,10 +2926,7 @@ async def cmv40_override_recommendation(session_id: str):
     save_cmv40_session(session)
     await _cmv40_log(
         session,
-        "🔬 Inyección forzada por el usuario — el pipeline continuará "
-        "procesando el MKV aunque el bin sea sintético. El resultado es "
-        "funcionalmente equivalente a la conversión al vuelo del reproductor, "
-        "pero queda archivado como MKV CMv4.0 'completo' para compatibilidad."
+        tr('cmv40.inyeccion_forzada_por_el_usuario_el_pipeline')
     )
     # La espera desaparece: el trabajo continúa y su línea se volverá a
     # escribir cuando vuelva a quedarse quieto. Dejarla pediría una decisión
@@ -2973,12 +2953,12 @@ async def cmv40_set_auto_pipeline(session_id: str, body: CMv40AutoPipelineReques
     session.auto_pipeline = body.enabled
     save_cmv40_session(session)
     if body.enabled:
-        await _cmv40_log(session, "🤖 Auto-pipeline backend ACTIVADO — el job avanzará automáticamente sin depender del cliente")
+        await _cmv40_log(session, tr('cmv40.auto_pipeline_backend_activado_el_job_avanzara'))
         # Dispara orquestador inmediatamente — si la sesión está en una fase
         # intermedia y no hay running_phase, retoma la cadena.
         asyncio.create_task(_cmv40_dispatch_next_phase(session_id))
     else:
-        await _cmv40_log(session, "🤖 Auto-pipeline backend DESACTIVADO — las transiciones requerirán acción manual o frontend activo")
+        await _cmv40_log(session, tr('cmv40.auto_pipeline_backend_desactivado_las_transiciones_requeriran'))
     return session.model_dump()
 
 
@@ -3180,8 +3160,7 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
         session.archived = True
         save_cmv40_session(session)
         await _cmv40_log(session,
-            f"🗃️ Artefactos borrados via cleanup masivo ({freed / 1e9:.2f} GB). "
-            f"Proyecto archivado.")
+            tr('cmv40.artefactos_borrados_via_cleanup_masivo_p1_gb', p1=format(freed / 1e9, '.2f')))
         deleted.append({"id": sid, "freed_bytes": freed})
         total_freed += freed
     return {
@@ -3342,7 +3321,7 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     session.phase = target_phase
     session.error_message = ""
     save_cmv40_session(session)
-    await _cmv40_log(session, f"🔄 Estado reseteado a fase: {target_phase} — artefactos posteriores borrados")
+    await _cmv40_log(session, tr('cmv40.estado_reseteado_a_fase_target_phase_artefactos', target_phase=target_phase))
     return session.model_dump()
 
 
@@ -3421,43 +3400,43 @@ async def cmv40_cancel(session_id: str):
         # Paso 1: SIGTERM
         try:
             proc.terminate()
-            log_lines.append(f"🛑 SIGTERM al proceso {proc.pid}, esperando salida limpia (máx. 5s)…")
+            log_lines.append(tr('cmv40.sigterm_al_proceso_pid_esperando_salida_limpia', pid=proc.pid))
         except ProcessLookupError:
-            log_lines.append("ℹ El proceso ya había terminado antes del cancel.")
+            log_lines.append(tr('cmv40.i_el_proceso_ya_habia_terminado_antes'))
         except Exception as e:
-            log_lines.append(f"⚠ SIGTERM falló ({e}); intentando SIGKILL directo.")
+            log_lines.append(tr('cmv40.sigterm_fallo_p1_intentando_sigkill_directo', p1=e))
 
         # Paso 2: esperar hasta 5s a que salga limpio
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-            log_lines.append(f"✓ Proceso {proc.pid} terminado limpiamente (rc={proc.returncode}).")
+            log_lines.append(tr('cmv40.proceso_pid_terminado_limpiamente_rc_returncode', pid=proc.pid, returncode=proc.returncode))
         except asyncio.TimeoutError:
             # Paso 3: SIGKILL
-            log_lines.append("⏱ El proceso no respondió a SIGTERM en 5s — escalando a SIGKILL…")
+            log_lines.append(tr('cmv40.el_proceso_no_respondio_a_sigterm_en'))
             try:
                 proc.kill()
             except ProcessLookupError:
                 pass
             except Exception as e:
-                log_lines.append(f"⚠ SIGKILL falló ({e}).")
+                log_lines.append(tr('cmv40.sigkill_fallo_p1', p1=e))
 
             # Paso 4: si sigue vivo, intentar killpg al grupo de procesos
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
-                log_lines.append("✓ Proceso terminado por SIGKILL.")
+                log_lines.append(tr('cmv40.proceso_terminado_por_sigkill'))
             except asyncio.TimeoutError:
-                log_lines.append("⚠ Proceso no muere ni con SIGKILL — intentando matar el grupo de procesos…")
+                log_lines.append(tr('cmv40.proceso_no_muere_ni_con_sigkill_intentando'))
                 try:
                     pgid = os.getpgid(proc.pid)
                     os.killpg(pgid, signal.SIGKILL)
                     await asyncio.wait_for(proc.wait(), timeout=2.0)
-                    log_lines.append("✓ Grupo de procesos terminado (killpg).")
+                    log_lines.append(tr('cmv40.grupo_de_procesos_terminado_killpg'))
                 except (ProcessLookupError, PermissionError, asyncio.TimeoutError) as e:
-                    log_lines.append(f"⚠ killpg también falló ({e}); el proceso queda como zombi pero la sesión se libera.")
+                    log_lines.append(tr('cmv40.killpg_tambien_fallo_p1_el_proceso_queda', p1=e))
                 except Exception as e:
                     log_lines.append(f"⚠ killpg error inesperado ({e}).")
         except Exception as e:
-            log_lines.append(f"⚠ Error esperando salida del proceso: {e}")
+            log_lines.append(tr('cmv40.error_esperando_salida_del_proceso_p1', p1=e))
 
     # Limpieza del estado de sesión — siempre, incluso si el kill falló:
     # mejor sesión liberada con proceso zombi que UI bloqueada esperando.
@@ -3466,7 +3445,7 @@ async def cmv40_cancel(session_id: str):
         _cmv40_marcar_libre(session)
         for line in log_lines:
             await _cmv40_log(session, line)
-        await _cmv40_log(session, "🛑 Cancelado por el usuario")
+        await _cmv40_log(session, '🛑 Cancelado ' + tr('tab1.por_el_usuario'))
         save_cmv40_session(session)
     _cmv40_active_procs.pop(session_id, None)
     return {"ok": True, "log": log_lines}
@@ -3785,7 +3764,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             session.error_message = ""
             session.target_preflight_ok = False
             save_cmv40_session(session)
-            await _cmv40_log(session, "━━━ Inicio fase: preflight ━━━")
+            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
@@ -3819,11 +3798,11 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 else:  # mkv
                     await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
 
-                await _paso(55, "Validando que el bin aporta CMv4.0")
+                await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
                 # Análisis profundo del bin + decisión Keep/continuar
-                await _paso(65, "Analizando los combos L2/L8 del bin")
+                await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
                 avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
-                await _paso(100, "Validación terminada")
+                await _paso(100, tr('cmv40.validacion_terminada'))
                 if avanzar:
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
@@ -3834,7 +3813,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                         else 'cmv40.hint_auto_pipeline_desactivado')
                     await _cmv40_log(
                         session,
-                        f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
+                        '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
                     )
                 # Si NO avanzar, la helper ya pobló preflight_decision/message
                 # y dejó target_preflight_ok=False.
@@ -3926,7 +3905,7 @@ async def cmv40_preflight_source(session_id: str):
                 titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
             save_cmv40_session(session)
-            await _cmv40_log(session, "━━━ Inicio fase: preflight (source-only) ━━━")
+            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight_source_only') + ' ━━━')
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
@@ -3939,7 +3918,7 @@ async def cmv40_preflight_source(session_id: str):
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
                 await _cmv40_log(
                     session,
-                    "✓ Fase preflight (source) completada — origen valido"
+                    '✓ Fase ' + tr('cmv40.preflight_source_completada_origen_valido')
                 )
             except Exception as e:
                 msg = str(e)
@@ -4168,7 +4147,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
                           if session.trust_override == "force_interactive"
                           else tr('cmv40.apertura_manual_del_chart'))
                 await _cmv40_log(session,
-                    f"[sync-data] per_frame_data.json no existe — regenerando on-demand ({reason})")
+                    '[sync-data] ' + tr('cmv40.per_frame_data_json_no_existe_regenerando', reason=reason))
                 try:
                     await _generate_per_frame_data(
                         session, rpu_source, rpu_target, pf, _log_cb,
@@ -4351,7 +4330,7 @@ async def cmv40_reset_sync(session_id: str):
 
     session.sync_config = None
     save_cmv40_session(session)
-    await _cmv40_log(session, "Corrección descartada — target restaurado a estado original")
+    await _cmv40_log(session, tr('cmv40.correccion_descartada_target_restaurado_a_estado_original'))
 
     # Regenerar per_frame_data.json desde el RPU target original
     from phases.cmv40_pipeline import _generate_per_frame_data, FPS_EXPORT
