@@ -73,6 +73,7 @@ el stem completo como título y ``0000`` como año.
 
 Ref: spec §5.1, §5.2, §5.3, §5.4
 """
+import i18n
 from i18n import t as tr, hay_texto
 import math
 import re
@@ -175,8 +176,14 @@ def apply_rules(
     included_audio, discarded_audio = _select_audio_tracks(
         bdinfo.audio_tracks, vo_language, audio_dcp, mode=audio_mode,
     )
+    # ¿Hay doblaje en el idioma preferido? Se mira sobre las pistas de audio
+    # que han ENTRADO: si el disco no trae la lengua del usuario, el
+    # subtítulo por defecto pasa del forzado al completo.
+    _prefs = idiomas_preferidos()
+    hay_doblaje = any(t.raw.language.lower() in _prefs for t in included_audio)
     included_subs, discarded_subs = _select_subtitle_tracks(
         bdinfo.subtitle_tracks, vo_language, mode=subtitle_mode,
+        hay_doblaje=hay_doblaje,
     )
 
     # Asignar posiciones: video implícita (makemkvcon la incluye siempre), luego audio, luego subs
@@ -320,7 +327,7 @@ def _select_audio_tracks(
         best_spanish_codec_key: str | None = None
         for t in tracks:
             lang_norm = t.language.lower()
-            lang_lit = _language_literal(lang_norm)
+            lang_lit = nombre_de_idioma(lang_norm)
             is_castellano = lang_norm == "spanish"
             codec_lit = _codec_literal(t, audio_dcp and is_castellano)
             label = f"{lang_lit} {codec_lit}"
@@ -342,9 +349,9 @@ def _select_audio_tracks(
             ))
         return included_all, []
 
-    target_langs = {"spanish"}
-    if vo_norm != "spanish":
-        target_langs.add(vo_norm)
+    preferidos = idiomas_preferidos()
+    target_langs = set(preferidos)
+    target_langs.add(vo_norm)
 
     # Agrupar por idioma
     by_lang: dict[str, list[RawAudioTrack]] = {}
@@ -376,22 +383,28 @@ def _select_audio_tracks(
         ranked = sorted(lang_tracks, key=lambda t: (_codec_priority(t), -t.bitrate_kbps))
         return ranked[0], ranked[1:]
 
-    # Castellano primero, luego VO
-    order = ["spanish"]
-    if vo_norm != "spanish":
+    # Los preferidos primero y en su orden, luego el VO si no está ya.
+    order = [p for p in preferidos]
+    if vo_norm not in order:
         order.append(vo_norm)
+
+    # El `flag_default` va al PRIMER preferido que el disco traiga: es la
+    # pista que el reproductor elige solo. Con el perfil castellano sale
+    # «spanish», que es lo de siempre.
+    primero = next((p for p in preferidos if p in by_lang), None)
 
     for lang_norm in order:
         if lang_norm not in by_lang:
             continue
         best, rest = _select_best(by_lang[lang_norm])
-        lang_lit = _language_literal(lang_norm)
+        lang_lit = nombre_de_idioma(lang_norm)
         is_castellano = lang_norm == "spanish"
+        es_preferido_principal = lang_norm == primero
         codec_lit = _codec_literal(best, audio_dcp and is_castellano)
         label = f"{lang_lit} {codec_lit}"
 
         # Razón de selección
-        if is_castellano:
+        if es_preferido_principal:
             reason = tr('phase_b.motivo_mejor_calidad',
                         idioma=best.language,
                         escalera=_quality_ladder_text(best))
@@ -428,7 +441,7 @@ def _select_audio_tracks(
             # elegida no es la primera. Si la elegida ES la primera, no
             # avisamos: la heurística es coherente y no hay duda. Si es
             # VO, no avisamos: codec priority es fiable.
-            if different_quality and not picked_is_first and is_castellano:
+            if different_quality and not picked_is_first and es_preferido_principal:
                 parts_included.append(
                     tr('phase_b.hay_p1_pista_p2_lang_lit_adicional', p1=len(different_quality), p2='s' if len(different_quality) > 1 else '', lang_lit=lang_lit, p4='es' if len(different_quality) > 1 else '')
                 )
@@ -446,7 +459,7 @@ def _select_audio_tracks(
             # razonamiento que arriba — para VO el codec priority manda).
             ambiguity_text_discarded_different = (
                 tr('phase_b.otra_pista_lang_lit_con_calidad_tecnica', lang_lit=lang_lit)
-            ) if (not picked_is_first and is_castellano) else ""
+            ) if (not picked_is_first and es_preferido_principal) else ""
         else:
             ambiguity_text_included = ""
             ambiguity_text_discarded_similar = ""
@@ -460,7 +473,7 @@ def _select_audio_tracks(
             language_literal=lang_lit,
             codec_literal=codec_lit,
             label=label,
-            flag_default=is_castellano,
+            flag_default=es_preferido_principal,
             flag_forced=False,
             selection_reason=reason,
             ambiguity_warning=ambiguity_text_included,
@@ -802,22 +815,61 @@ def _extract_channels(description: str) -> str:
     return part or "?"
 
 
+# ── El perfil de selección: una LISTA ORDENADA de idiomas ────────────
+#
+# El idioma de la app decide con qué pistas nace un proyecto. Estaba clavado
+# a Castellano, así que un usuario en inglés tenía que quitar a mano el audio
+# castellano de cada disco.
+#
+# **Es una lista ordenada y no tres casos especiales**, que es menos código:
+# el primero manda (lleva el `flag_default` y el forzado del contenedor) y
+# los demás se conservan detrás. El VO se añade siempre — es la regla que ya
+# había y no depende del idioma de quien mira.
+#
+# Decidido con el usuario el 2026-09-15:
+#   · el idioma fija el DEFAULT del perfil, pero los tres siguen elegibles
+#     («Mantener todas» sigue donde estaba);
+#   · catalán conserva también el castellano, porque muy pocos discos traen
+#     pista catalana — medido: 2 de los 41 del corpus;
+#   · sin doblaje en el idioma preferido, el subtítulo por defecto pasa del
+#     forzado al COMPLETO: sin voz que seguir, lo que hace falta es el
+#     diálogo entero;
+#   · el `(DCP 9.1.6)` se queda SIEMPRE en la castellana — es una propiedad
+#     de esa mezcla, no del idioma de la interfaz.
+IDIOMAS_DEL_PERFIL: dict[str, tuple[str, ...]] = {
+    "es": ("spanish",),
+    "en": ("english",),
+    "ca": ("catalan", "spanish"),
+}
+
+
+def idiomas_preferidos(idioma_app: str | None = None) -> tuple[str, ...]:
+    """Los idiomas que el perfil `filtered` conserva, en orden.
+
+    Sin argumento resuelve el idioma activo de la app. Un idioma que no esté
+    en la tabla cae a castellano, que es el comportamiento de siempre.
+    """
+    if idioma_app is None:
+        # Por el MÓDULO, no por el nombre importado: `from i18n import
+        # idioma_activo` ata el nombre en el import y un parche sobre
+        # `i18n.idioma_activo` no lo vería — que es cómo se cambia el idioma
+        # en los tests y cómo lo hace `t()` por dentro.
+        idioma_app = i18n.idioma_activo()
+    return IDIOMAS_DEL_PERFIL.get(idioma_app, ("spanish",))
+
+
 def nombre_de_idioma(lang_norm: str) -> str:
-    """El nombre del idioma para PANTALLA, en el idioma de la app.
+    """El nombre del idioma en el idioma de la app.
 
-    **No es `_language_literal`, y la diferencia importa.** Esa produce los
-    literales que acaban DENTRO del MKV («Castellano TrueHD Atmos 7.1»), y
-    son los de la spec: no cambian de idioma porque describen el fichero, no
-    la interfaz. Esta rotula el idioma de una pista del ORIGEN en un motivo
-    de descarte o en un aviso, que son texto de interfaz y el usuario los lee
-    en su idioma.
+    Lo usan las dos cosas, y desde el 2026-09-15 a propósito: el texto de
+    interfaz (un motivo de descarte, un aviso) **y** el literal que acaba
+    DENTRO del MKV. Que el nombre de pista siga el idioma lo decidió el
+    usuario con el bloque de selección de pistas — un MKV creado con la app
+    en inglés dice «English DTS-HD MA 5.1», no «Inglés».
 
-    Estaban confundidas en la misma tabla castellana, así que con la app en
-    inglés se leía «Discarded: second Castellano track». Lo reportó el
-    usuario el 2026-09-17 abriendo un proyecto antiguo.
-
-    Si el idioma no está en el catálogo, cae al literal de la spec — que es
-    lo que hacía antes, y para un idioma raro es mejor que el código ISO.
+    `LANGUAGE_MAP` se queda como la tabla de la spec y como respaldo: es lo
+    que se usa si el catálogo no tiene ese idioma, y para uno raro es mejor
+    que el código ISO.
     """
     clave = f"idioma.{lang_norm}"
     return tr(clave) if hay_texto(clave) else _language_literal(lang_norm)
@@ -844,6 +896,7 @@ def _select_subtitle_tracks(
     tracks: list[RawSubtitleTrack],
     vo_language: str,
     mode: str = "filtered",
+    hay_doblaje: bool = True,
 ) -> tuple[list[IncludedSubtitleTrack], list[DiscardedTrack]]:
     """
     Selecciona las pistas de subtítulos según las reglas de la spec §5.2.
@@ -877,7 +930,7 @@ def _select_subtitle_tracks(
             if t.language.lower() == "qad":
                 continue  # Audio Description siempre descartada
             lang_norm = t.language.lower()
-            lang_lit = _language_literal(lang_norm)
+            lang_lit = nombre_de_idioma(lang_norm)
             is_castellano = lang_norm == "spanish"
             # Clasificar tipo por packets (si hay) o bitrate sintético
             if t.packet_count > 0:
@@ -1182,11 +1235,12 @@ def _select_subtitle_tracks(
     classified: dict[str, tuple[
         RawSubtitleTrack | None, RawSubtitleTrack | None, list[RawSubtitleTrack]
     ]] = {}
-    target_langs = {"spanish"}
-    if vo_norm != "spanish":
-        target_langs.add(vo_norm)
-    if "english" not in target_langs:
-        target_langs.add("english")
+    preferidos = idiomas_preferidos()
+    target_langs = set(preferidos)
+    target_langs.add(vo_norm)
+    # El inglés entra siempre como red: es el idioma en el que hay subtítulo
+    # cuando no hay otro, y era la regla de la spec desde el principio.
+    target_langs.add("english")
 
     for lang_norm in target_langs:
         if lang_norm in classified_full:
@@ -1230,18 +1284,24 @@ def _select_subtitle_tracks(
     # Si VO == Spanish, se adapta para no duplicar.
     ordered_entries: list[tuple[str, str]] = []  # (lang_norm, "forced"|"complete")
 
-    # 1. Forzados Castellano
-    ordered_entries.append(("spanish", "forced"))
+    # El orden de la spec, con «Castellano» generalizado a los idiomas del
+    # perfil. Con el perfil castellano sale exactamente la lista de antes;
+    # el `seen` de abajo quita los duplicados que el VO pueda producir.
+    #
+    # 1. Forzados del/los preferidos
+    for pref in preferidos:
+        ordered_entries.append((pref, "forced"))
     # 2. Completos VO
     ordered_entries.append((vo_norm, "complete"))
-    # 3. Completos Castellano (si VO no es castellano, para no duplicar)
-    if vo_norm != "spanish":
-        ordered_entries.append(("spanish", "complete"))
-    # 4. Forzados VO (si VO no es castellano)
-    if vo_norm != "spanish":
+    # 3. Completos de los preferidos
+    for pref in preferidos:
+        if pref != vo_norm:
+            ordered_entries.append((pref, "complete"))
+    # 4. Forzados VO (si el VO no es ya un preferido)
+    if vo_norm not in preferidos:
         ordered_entries.append((vo_norm, "forced"))
-    # 5. Completos Inglés (si VO no es inglés, incluir inglés como extra)
-    if vo_norm != "english":
+    # 5. Completos Inglés como red, si no ha entrado ya
+    if vo_norm != "english" and "english" not in preferidos:
         ordered_entries.append(("english", "complete"))
 
     # Emitir pistas en el orden definido
@@ -1254,11 +1314,20 @@ def _select_subtitle_tracks(
         if lang_norm not in classified:
             continue
         forced_track, complete_track, ambiguous_alts = classified[lang_norm]
-        lang_lit = _language_literal(lang_norm)
+        lang_lit = nombre_de_idioma(lang_norm)
         is_castellano = lang_norm == "spanish"
+        # El primer preferido que el disco traiga: es quien lleva el default
+        # y el `flag_forced` del contenedor. Con el perfil castellano sale
+        # «spanish», o sea lo de siempre.
+        principal = next((p for p in preferidos if p in classified), None)
+        es_principal = lang_norm == principal
 
         if track_type == "forced" and forced_track:
-            flag_default = is_castellano
+            # **Sin doblaje en el idioma preferido, el default se va al
+            # COMPLETO.** Un forzado solo traduce los carteles y los diálogos
+            # en otro idioma: sirve cuando estás oyendo tu lengua. Si no hay
+            # esa pista de audio, lo que hace falta es el diálogo entero.
+            flag_default = es_principal and hay_doblaje
             if forced_track.packet_count > 0:
                 # Construir razón coherente con la heurística nueva:
                 # si hay completo, mencionamos el ratio; si no, decimos
@@ -1289,7 +1358,7 @@ def _select_subtitle_tracks(
             # Sin esta restricción, MKV terminaba con varias pistas
             # flag_forced=yes y el reproductor las solapaba al cambiar
             # de audio.
-            flag_forced_matroska = is_castellano
+            flag_forced_matroska = es_principal
             flag_note = ""
             if flag_default:
                 flag_note = tr('phase_b.nota_flag_forzados_castellano')
@@ -1354,7 +1423,10 @@ def _select_subtitle_tracks(
                 language_literal=lang_lit,
                 subtitle_type="complete",
                 label=tr('phase_b.completos_pgs', lang_lit=lang_lit),
-                flag_default=False,
+                # Sin doblaje en el idioma preferido, el default se queda
+                # aquí en vez de en el forzado: es la otra mitad de la
+                # decisión del 2026-09-15 (ver `idiomas_preferidos`).
+                flag_default=es_principal and not hay_doblaje,
                 flag_forced=False,
                 selection_reason=reason_complete,
                 ambiguity_warning=ambiguity_text,

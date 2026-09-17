@@ -2764,14 +2764,56 @@ tiene ninguna palabra que pluralice con `n` —escribía «not foundn»— y el
 catalán tampoco cuando el plural es irregular (`dia` → **dies**). Esos casos
 se parten en dos claves `_uno`/`_varios`. Eran los tres únicos del repo.
 
-### Lo que falta, y es otra cosa
+### El idioma decide con qué pistas nace un proyecto
 
-El idioma **todavía no cambia las reglas de selección de pistas**. Está
-decidido y medido —el idioma fija el perfil por defecto, los tres siguen
-elegibles, catalán = VO+catalán+castellano, sin doblaje el subtítulo por
-defecto pasa al completo— pero no implementado: `phase_b` sigue con
-`filtered` clavado a Castellano. Eso no es traducción, cambia el contenido
-del MKV.
+**Esto no es traducción: cambia el contenido del MKV**, y por eso lleva sus
+propios tests (`test_perfil_de_idioma_de_pistas.py`, 15 casos) además de los
+41 discos reales del golden.
+
+El perfil `filtered` estaba clavado a Castellano, así que un usuario en
+inglés tenía que quitar a mano el audio castellano de cada disco. Hoy es una
+**lista ordenada** (`phase_b.IDIOMAS_DEL_PERFIL`), que es menos código que
+tres casos especiales: el primero manda —lleva el `flag_default` y el
+`flag_forced` del contenedor— y los demás se conservan detrás. El VO se
+añade siempre, y el inglés entra como red en los subtítulos.
+
+| idioma | perfil |
+|---|---|
+| `es` | `spanish` |
+| `en` | `english` |
+| `ca` | `catalan`, `spanish` |
+
+Las seis decisiones, cerradas con el usuario el 2026-09-15:
+
+- el idioma fija el DEFAULT del perfil, pero los tres siguen elegibles —
+  «Mantener todas» sigue donde estaba;
+- **catalán conserva también el castellano**, porque muy pocos discos traen
+  pista catalana: 2 de los 41 del corpus;
+- **sin doblaje en el idioma preferido, el subtítulo por defecto pasa del
+  forzado al COMPLETO.** Un forzado solo traduce los carteles: sirve cuando
+  estás oyendo tu lengua. El `flag_forced` del contenedor NO se mueve;
+- **los nombres de pista del MKV sí siguen el idioma** — un MKV creado con
+  la app en inglés dice «English DTS-HD MA 5.1». `nombre_de_idioma` es quien
+  los resuelve y `LANGUAGE_MAP` se queda como la tabla de la spec y como
+  respaldo para un idioma que el catálogo no tenga;
+- el `(DCP 9.1.6)` se queda SIEMPRE en la castellana: es una propiedad de esa
+  mezcla, no del idioma de la interfaz;
+- el manual, en los tres idiomas.
+
+**La garantía que hace seguro el cambio: en castellano no cambia nada.** El
+perfil `("spanish",)` produce exactamente el orden de antes, y lo sostienen
+los 84 tests de reglas más el golden de los 41 discos. Un idioma que no esté
+en la tabla cae a castellano.
+
+**Ojo con `idioma_activo`**: `idiomas_preferidos` lo llama **por el módulo**
+(`i18n.idioma_activo()`), no por el nombre importado. `from i18n import
+idioma_activo` ata el nombre en el import y un parche sobre
+`i18n.idioma_activo` no lo vería — que es cómo se cambia el idioma en los
+tests y cómo lo hace `t()` por dentro. Costó cuatro tests en rojo.
+
+Cambiar el idioma **no retoca los proyectos que ya existen**: su selección es
+estado del usuario. Para rehacerla está `POST /api/sessions/{id}/reapply-rules`,
+que es lo que ya disparan los toggles de modo de audio/subtítulos.
 
 ## El frontend son siete scripts, y clásicos a propósito
 
