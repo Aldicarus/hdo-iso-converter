@@ -25,6 +25,47 @@ CONFIG_DIR   = Path(os.environ.get("CONFIG_DIR", "/config"))
 CACHE_PATH   = CONFIG_DIR / "tmdb_cache.json"
 CACHE_TTL_SECONDS = 30 * 24 * 3600  # 30 días
 
+# El locale con el que se le pide a TMDb el título y la sinopsis. Estaba
+# cableado a `es-ES` en cinco sitios, así que con la app en inglés la ficha
+# de la película seguía llegando en castellano — el bug que el usuario
+# reportó el 2026-09-17.
+#
+# `en-US` y no `en-GB`: TMDb indexa las traducciones por ese código y con
+# `en-GB` devuelve el original sin avisar. (Es la elección contraria a la de
+# `localeActual()` del frontend, que usa `en-GB` porque ahí lo que se decide
+# es el formato de fecha.)
+_LOCALE_TMDB = {"es": "es-ES", "en": "en-US", "ca": "ca-ES"}
+# Si el idioma pedido no tiene ficha, se cae al castellano: la cobertura
+# catalana de TMDb es fina y un `overview` vacío deja la tarjeta muda.
+_LOCALE_RESPALDO = "es-ES"
+
+
+def locale_tmdb() -> str:
+    """El locale de TMDb que toca al idioma activo de la app."""
+    from i18n import idioma_activo
+    return _LOCALE_TMDB.get(idioma_activo(), _LOCALE_RESPALDO)
+
+
+async def _con_respaldo(client: httpx.AsyncClient, url: str, params: dict,
+                        campo: str) -> dict:
+    """La respuesta de TMDb, y si `campo` viene vacío, la castellana.
+
+    TMDb contesta 200 con los campos traducibles en blanco cuando no tiene
+    esa localización, y eso no es un error: es lo normal en catalán, que
+    tiene poca cobertura. Una ficha muda es peor que una ficha en
+    castellano, y en el caso del nombre de un episodio es peor todavía —
+    va DENTRO del nombre del fichero (`… - S01E01 - {nombre}.mkv`).
+    """
+    resp = await client.get(url, params=params)
+    resp.raise_for_status()
+    raw = resp.json()
+    if params.get("language") != _LOCALE_RESPALDO and not (raw.get(campo) or ""):
+        resp = await client.get(url, params={**params,
+                                             "language": _LOCALE_RESPALDO})
+        resp.raise_for_status()
+        raw = resp.json()
+    return raw
+
 
 class TmdbMatch(BaseModel):
     tmdb_id: int
@@ -102,7 +143,10 @@ def _save_cache() -> None:
 
 
 def _cache_key(title: str, year: int | None) -> str:
-    return f"{title.lower().strip()}|{year or ''}"
+    """La clave lleva el LOCALE, y hace falta: sin él la primera consulta en
+    castellano se servía luego a la app en inglés durante treinta días, que
+    es la mitad del bug del idioma —la otra mitad era pedirlo mal—."""
+    return f"{title.lower().strip()}|{year or ''}|{locale_tmdb()}"
 
 
 def _safe_err(e: Exception) -> str:
@@ -191,7 +235,7 @@ async def search_movies(title_es: str, year: int | None,
     base_params: dict[str, str] = {
         "api_key": api_key,
         "query": title_es,
-        "language": "es-ES",
+        "language": locale_tmdb(),
         "include_adult": "false",
     }
 
@@ -307,10 +351,16 @@ _POSTER_SIZE   = "w342"
 _BACKDROP_SIZE = "w780"
 
 
-async def fetch_details(tmdb_id: int, lang: str = "es-ES") -> TmdbDetails | None:
-    """Trae info extendida de una película. Cache en disco con TTL largo."""
+async def fetch_details(tmdb_id: int, lang: str | None = None) -> TmdbDetails | None:
+    """Trae info extendida de una película. Cache en disco con TTL largo.
+
+    `lang=None` es «el idioma de la app». El default era `es-ES` fijo y los
+    ocho llamadores lo usaban, así que la sinopsis salía en castellano
+    estuviera la app como estuviera.
+    """
     if not tmdb_id:
         return None
+    lang = lang or locale_tmdb()
 
     cache = _load_cache()
     ck = f"details|{tmdb_id}|{lang}"
@@ -325,12 +375,9 @@ async def fetch_details(tmdb_id: int, lang: str = "es-ES") -> TmdbDetails | None
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"https://api.themoviedb.org/3/movie/{tmdb_id}",
-                params={"api_key": api_key, "language": lang},
-            )
-            resp.raise_for_status()
-            raw = resp.json()
+            raw = await _con_respaldo(
+                client, f"https://api.themoviedb.org/3/movie/{tmdb_id}",
+                {"api_key": api_key, "language": lang}, "overview")
     except Exception as e:
         _logger.warning("TMDb details falló (id=%s): %s", tmdb_id, _safe_err(e))
         return None
@@ -453,7 +500,7 @@ async def search_tv_series(
         return []
 
     cache = _load_cache()
-    ck = f"tv:search:{query.lower().strip()}|{year or ''}"
+    ck = f"tv:search:{query.lower().strip()}|{year or ''}|{locale_tmdb()}"
     cached = cache.get(ck)
     if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
         return [TvSearchResult(**r) for r in cached.get("result", [])]
@@ -461,7 +508,7 @@ async def search_tv_series(
     params = {
         "api_key": api_key,
         "query": query,
-        "language": "es-ES",
+        "language": locale_tmdb(),
         "include_adult": "false",
     }
     if year:
@@ -514,19 +561,16 @@ async def fetch_tv_details(tmdb_id: int) -> TvDetails | None:
         return None
 
     cache = _load_cache()
-    ck = f"tv:details:{tmdb_id}"
+    ck = f"tv:details:{tmdb_id}|{locale_tmdb()}"
     cached = cache.get(ck)
     if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
         return TvDetails(**cached.get("result", {}))
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                f"https://api.themoviedb.org/3/tv/{tmdb_id}",
-                params={"api_key": api_key, "language": "es-ES"},
-            )
-            r.raise_for_status()
-            raw = r.json()
+            raw = await _con_respaldo(
+                client, f"https://api.themoviedb.org/3/tv/{tmdb_id}",
+                {"api_key": api_key, "language": locale_tmdb()}, "overview")
     except Exception:
         return None
 
@@ -580,19 +624,17 @@ async def fetch_tv_season(
         return []
 
     cache = _load_cache()
-    ck = f"tv:season:{tmdb_id}:{season_number}"
+    ck = f"tv:season:{tmdb_id}:{season_number}|{locale_tmdb()}"
     cached = cache.get(ck)
     if cached and time.time() - cached.get("fetched_at", 0) < CACHE_TTL_SECONDS:
         return [TvEpisode(**e) for e in cached.get("result", [])]
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
+            raw = await _con_respaldo(
+                client,
                 f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}",
-                params={"api_key": api_key, "language": "es-ES"},
-            )
-            r.raise_for_status()
-            raw = r.json()
+                {"api_key": api_key, "language": locale_tmdb()}, "episodes")
     except Exception:
         return []
 
