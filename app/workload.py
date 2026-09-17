@@ -87,6 +87,22 @@ TAB_RIP = "💿 Blu-Ray ISO → MKV"
 TAB_MKV = "✏️ Consultar / Editar MKV"
 TAB_CMV40 = "✨ Upgrade Dolby Vision CMv4.0"
 
+# Y las mismas tres traducidas, que es lo que se le enseña. Las constantes de
+# arriba siguen siendo el ID —`TAB_IDS` las indexa y la UI compara contra
+# ellas— así que no pueden cambiar de idioma; el rótulo se resuelve al
+# pintarlo, porque un módulo se importa una vez y congelaría el idioma.
+_CLAVE_DE_TAB = {TAB_RIP: 'workload.tab_rip', TAB_MKV: 'workload.tab_mkv',
+                 TAB_CMV40: 'workload.tab_cmv40'}
+
+
+def rotulo_de_tab(tab: str) -> str:
+    """El nombre de la pestaña en el idioma activo; el id si no la conocemos."""
+    clave = _CLAVE_DE_TAB.get(tab)
+    if not clave:
+        return tab
+    from i18n import t as tr
+    return tr(clave)
+
 # Las etiquetas de arriba son para leerlas; esto es para compararlas. La UI
 # necesita saber de qué pestaña es un trabajo, y hacerlo contra el literal con
 # emoji la ata a un texto que existe para poder cambiarse.
@@ -150,9 +166,17 @@ class Trabajo:
         return max(0.0, time.monotonic() - self.desde)
 
     def describir(self) -> str:
+        """El texto del 409: qué bloquea, en qué pestaña y desde cuándo.
+
+        El rótulo de la pestaña se resuelve AQUÍ y no en `self.tab`, que es
+        el id con el que la UI compara y por eso no puede cambiar de idioma.
+        """
+        from i18n import t as tr
         mins = int(self.segundos // 60)
-        tiempo = f"{mins} min" if mins else f"{int(self.segundos)} s"
-        return f"{self.tab} — {self.que} (lleva {tiempo})"
+        tiempo = (tr('workload.minutos', n=mins) if mins
+                  else tr('workload.segundos', n=int(self.segundos)))
+        return tr('workload.describir_trabajo', tab=rotulo_de_tab(self.tab),
+                  que=self.que, tiempo=tiempo)
 
 
 _activos: dict[str, Trabajo] = {}

@@ -462,7 +462,8 @@ _POSICIONAL = {"marca": (0,), "registrar": (2,), "ocupado": (2,)}
 # idioma de la app (decisión 3 del registro).
 _CAMPO_VISIBLE = re.compile(
     r"(?:^|_)(?:label|lbl|text|txt|texto|message|msg|mensaje|title|titulo|que"
-    r"|reason|why|error|warning|description|verdict|hint|note|name)$"
+    r"|reason|why|error|warning|description|descripcion|verdict|hint|note"
+    r"|name)$"
     r"|^detail$")
 
 # `detalle` (en castellano) NO es texto: es el discriminador de qué vista de

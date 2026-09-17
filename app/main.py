@@ -331,7 +331,12 @@ if DEV_MODE:
 app = FastAPI(
     title="UHD Blu-ray Toolkit",
     version="1.3.0",
-    description="Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y soporte Dolby Vision FEL.",
+    # La descripción de FastAPI va a la página `/docs`, que es para quien
+    # integra contra la API — no es interfaz y no puede seguir el idioma: se
+    # evalúa al importar y congelaría el que hubiera al arrancar.
+    description=(
+        "Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas "
+        "y soporte Dolby Vision FEL."),
 )
 
 # ── Estáticos ─────────────────────────────────────────────────────────────────
@@ -533,14 +538,14 @@ async def test_tmdb_key(body: SettingsUpdate):
         probada = "app" if (key and key == clave_tmdb_de_la_app()) else "guardada"
     if not key:
         return {"ok": False, "probada": "ninguna",
-                "message": "No hay ninguna clave que probar — pega una arriba"}
+                "message": tr('main.tmdb_ninguna_clave_que_probar')}
     ok, msg = await test_api_key(key)
     if probada == "app":
-        msg = ("La clave de la app funciona" if ok else
-               f"La clave de la app ya no funciona ({msg}) — configura la tuya")
+        msg = (tr('main.tmdb_clave_app_funciona') if ok else
+               tr('main.tmdb_clave_app_no_funciona', motivo=msg))
     elif probada == "guardada":
-        msg = ("Tu clave configurada funciona" if ok else
-               f"Tu clave configurada ya no funciona ({msg})")
+        msg = (tr('main.tmdb_clave_tuya_funciona') if ok else
+               tr('main.tmdb_clave_tuya_no_funciona', motivo=msg))
     return {"ok": ok, "message": msg, "probada": probada}
 
 
@@ -619,12 +624,13 @@ def _scan_orphans() -> list[dict]:
                 except OSError: age = 0
                 out.append({
                     "category": "cmv40_workdir",
-                    "label": "Workdir CMv4.0 sin sesión",
+                    "label": tr('main.orfano_workdir_sin_sesion'),
                     "path": str(wd),
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": True,
-                    "reason": f"No existe /config/cmv40/{wd.name}.json — sesión borrada o nunca persistida",
+                    "reason": tr('main.orfano_workdir_sin_sesion_motivo',
+                                 id=wd.name),
                 })
         except Exception:
             pass
@@ -651,12 +657,12 @@ def _scan_orphans() -> list[dict]:
                 except OSError: age = 0
                 out.append({
                     "category": "iso_mount_zombie",
-                    "label": "Mount point ISO huérfano",
+                    "label": tr('main.orfano_mount_point'),
                     "path": str(mp),
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": True,
-                    "reason": "Directorio sin montaje activo (umount falló o nunca se hizo)",
+                    "reason": tr('main.orfano_mount_point_motivo'),
                 })
         except Exception:
             pass
@@ -692,8 +698,8 @@ def _scan_orphans() -> list[dict]:
                         "size_bytes": size,
                         "age_seconds": age,
                         "safe": age > 3600,
-                        "reason": motivo + ("" if age > 3600
-                                            else " — RECIENTE, podría estar activo"),
+                        "reason": motivo + ("" if age > 3600 else
+                                            tr('main.orfano_reciente_activo')),
                     })
             except Exception:
                 pass
@@ -711,13 +717,14 @@ def _scan_orphans() -> list[dict]:
                 except OSError: age = 0
                 out.append({
                     "category": "remux_mkv_tmp",
-                    "label": "Remux .mkv.tmp incompleto",
+                    "label": tr('main.orfano_remux_incompleto'),
                     "path": str(tf),
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": age > 3600,
-                    "reason": "Fase G de CMv4.0 abortada o aún en curso"
-                              + ("" if age > 3600 else " — RECIENTE, podría estar siendo escrito"),
+                    "reason": tr('main.orfano_remux_incompleto_motivo')
+                              + ("" if age > 3600 else
+                                 tr('main.orfano_reciente_escribiendose')),
                 })
         except Exception:
             pass
@@ -742,12 +749,13 @@ def _scan_orphans() -> list[dict]:
             if entry.get("corrupt"):
                 out.append({
                     "category": "mkv_cache_corrupt",
-                    "label": "Cache MKV corrupto (JSON inválido)",
+                    "label": tr('main.orfano_cache_corrupto'),
                     "path": cache_path,
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": True,
-                    "reason": entry.get("error", "JSON corrupto"),
+                    "reason": (entry.get("error")
+                               or tr('main.orfano_json_corrupto')),
                 })
                 continue
             # (a) huérfano — el MKV original ya no existe
@@ -755,12 +763,13 @@ def _scan_orphans() -> list[dict]:
             if orig and not Path(orig).exists():
                 out.append({
                     "category": "mkv_cache_orphan",
-                    "label": "Cache MKV huérfano (fichero borrado/movido)",
+                    "label": tr('main.orfano_cache_huerfano'),
                     "path": cache_path,
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": True,
-                    "reason": f"Fichero original ya no existe: {orig}",
+                    "reason": tr('main.orfano_cache_huerfano_motivo',
+                                 ruta=orig),
                 })
                 continue
             # (b) quality basura
@@ -772,16 +781,16 @@ def _scan_orphans() -> list[dict]:
                 if not _qpv(quality_summary):
                     out.append({
                         "category": "mkv_cache_invalid_quality",
-                        "label": "Cache MKV con auditoría inválida",
+                        "label": tr('main.orfano_cache_auditoria_invalida'),
                         "path": cache_path,
                         "size_bytes": size,
                         "age_seconds": age,
                         "safe": True,
-                        "reason": (
-                            f"Bloque quality basura (frames={entry.get('quality_total_frames')}, "
-                            f"classification={entry.get('quality_classification')!r}) — "
-                            f"borrar permite relanzar la auditoría limpia"
-                        ),
+                        "reason": tr(
+                            'main.orfano_cache_quality_basura',
+                            frames=entry.get('quality_total_frames'),
+                            clasificacion=repr(
+                                entry.get('quality_classification'))),
                     })
                     continue
             # (c) versions obsoletas
@@ -796,12 +805,12 @@ def _scan_orphans() -> list[dict]:
             if stale_msgs:
                 out.append({
                     "category": "mkv_cache_stale_version",
-                    "label": "Cache MKV con versión obsoleta",
+                    "label": tr('main.orfano_cache_version_obsoleta'),
                     "path": cache_path,
                     "size_bytes": size,
                     "age_seconds": age,
                     "safe": True,
-                    "reason": "Mejora del clasificador desde el último análisis: "
+                    "reason": tr('main.orfano_cache_clasificador_mejorado')
                               + " · ".join(stale_msgs),
                 })
     except Exception as e:
@@ -863,7 +872,8 @@ class CleanupExecuteRequest(BaseModel):
 
 
 @app.post("/api/cleanup/execute", summary="Borra huérfanos seleccionados",
-          dependencies=[Depends(workload.marca("Borrado de ficheros huérfanos", workload.TAB_MKV))])
+          dependencies=[Depends(workload.marca(
+              lambda: tr('main.wl_borrado_de_huerfanos'), workload.TAB_MKV))])
 async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     """Borra los paths indicados. Solo se aceptan paths bajo prefixes
     conocidos, que salen de `_cleanup_targets()` — la misma tabla que alimenta
@@ -1299,8 +1309,9 @@ async def app_activity():
     UI pueda decir *qué* bloquea, no solo que está bloqueado.
     """
     trabajos = [
-        {"clave": t.clave, "tab": t.tab,
-         # `tab_id` es lo que la UI compara; `tab` es lo que enseña.
+        {"clave": t.clave, "tab": workload.rotulo_de_tab(t.tab),
+         # `tab_id` es lo que la UI compara; `tab` es lo que ENSEÑA, así que
+         # va traducido y el id se queda como id.
          "tab_id": workload.TAB_IDS.get(t.tab, ""),
          "que": t.que,
          # `clase` distingue lo que BLOQUEA (diferido) de lo que solo se ve

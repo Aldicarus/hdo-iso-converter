@@ -4809,7 +4809,8 @@ async def run_phase_h_validate(
                         m=2 if drop_in_fel else 3)
         try:
             mkv_gb_for_log = output_mkv.stat().st_size / 1e9
-            size_hint = f" sobre {mkv_gb_for_log:.1f} GB"
+            size_hint = tr('cmv40_pipeline.sobre_n_gb',
+                           gb=format(mkv_gb_for_log, '.1f'))
         except Exception:
             size_hint = ""
         await log_callback(

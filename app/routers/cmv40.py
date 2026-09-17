@@ -3144,7 +3144,8 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
         if session.running_phase:
             skipped.append({
                 "id": sid,
-                "reason": f"Fase {session.running_phase} en curso",
+                "reason": tr('cmv40.limpieza_fase_en_curso_corto',
+                             fase=session.running_phase),
             })
             continue
         wd = Path(session.artifacts_dir) if session.artifacts_dir else None
