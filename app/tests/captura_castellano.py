@@ -522,6 +522,18 @@ def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
                     and isinstance(f.value, ast.Name) and f.value.id == "re"):
                 for h in ast.walk(n):
                     fuera.add(id(h))
+            # La documentación de la API: el `summary=` de un decorador de
+            # ruta y la `description=` de `FastAPI(...)` salen en la página
+            # `/docs`, que la lee quien integra contra la API. No es interfaz
+            # —y encima se evalúa al importar, así que traducirla congelaría
+            # el idioma del arranque—.
+            if _ES_DECORADOR_DE_RUTA(f) or (isinstance(f, ast.Name)
+                                            and f.id == "FastAPI"):
+                for k in n.keywords:
+                    if k.arg in ("summary", "description",
+                                 "response_description"):
+                        for h in ast.walk(k.value):
+                            fuera.add(id(h))
         if isinstance(n, (ast.Assign, ast.AnnAssign)):
             objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
             if (n.value is not None
@@ -543,6 +555,15 @@ def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
                     fuera.add(id(h))
     fuera |= _nodos_de_dev_mode(arbol)
     return fuera
+
+
+def _ES_DECORADOR_DE_RUTA(f) -> bool:
+    """`@app.get(...)`, `@router.post(...)` y compañía."""
+    return (isinstance(f, ast.Attribute)
+            and f.attr in ("get", "post", "put", "patch", "delete", "head",
+                           "options", "websocket", "api_route")
+            and isinstance(f.value, ast.Name)
+            and f.value.id in ("app", "router"))
 
 
 def _envoltorios_de_logger(arbol: ast.AST) -> set[str]:

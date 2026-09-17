@@ -219,7 +219,7 @@ def _cleanup_path_allowed(path_str: str) -> tuple[bool, str]:
     try:
         real = Path(path_str).resolve()
     except OSError as e:
-        return (False, f"ruta no resoluble: {e}")
+        return (False, tr('main.ruta_no_resoluble_p1', p1=e))
     for target in _cleanup_targets():
         for base in target["bases"]:
             try:
@@ -231,14 +231,14 @@ def _cleanup_path_allowed(path_str: str) -> tuple[bool, str]:
             except ValueError:
                 continue
             if str(rel) in ("", "."):
-                return (False, "es el propio directorio raíz, no un huérfano")
+                return (False, tr('main.es_el_propio_directorio_raiz_no_un'))
             # Solo el primer nivel: nada de borrar un fichero de DENTRO de un
             # workdir suelto, y desde luego nada de subir por el árbol.
             if len(rel.parts) != 1:
                 continue
             if fnmatch(rel.parts[0], target["patron"]):
                 return (True, target["category"])
-    return (False, "path fuera de los roots permitidos")
+    return (False, tr('main.path_fuera_de_los_roots_permitidos'))
 
 
 def _cleanup_obvious_orphans_at_startup() -> None:
@@ -673,10 +673,10 @@ def _scan_orphans() -> list[dict]:
     #    así que un huérfano de decenas de GB no aparecía en el panel. Y de
     #    `mkv_quality_audit_*` no había categoría siquiera.
     _etiquetas_tmp = {
-        "lightprofile_tmp": ("Tmp del análisis de luminancia",
-                             "Cancelación o crash durante extracción de luminancia (Tab 2)"),
-        "quality_audit_tmp": ("Tmp de la auditoría de calidad del RPU",
-                              "Cancelación o crash durante la auditoría del RPU (Tab 2)"),
+        "lightprofile_tmp": (tr('main.tmp_del_analisis_de_luminancia'),
+                             tr('main.cancelacion_o_crash_durante_extraccion_de_luminancia')),
+        "quality_audit_tmp": (tr('main.tmp_de_la_auditoria_de_calidad_del'),
+                              tr('main.cancelacion_o_crash_durante_la_auditoria_del')),
     }
     for _t in _cleanup_targets():
         etiqueta = _etiquetas_tmp.get(_t["category"])
@@ -829,7 +829,7 @@ def _delete_orphan_path(path_str: str) -> tuple[bool, int, str]:
         return (False, 0, motivo)
     p = Path(path_str)
     if not p.exists():
-        return (False, 0, "path no existe")
+        return (False, 0, tr('main.path_no_existe'))
     try:
         if p.is_file():
             try: size = p.stat().st_size
@@ -849,7 +849,7 @@ def _delete_orphan_path(path_str: str) -> tuple[bool, int, str]:
             return (True, size, "")
     except Exception as e:
         return (False, 0, str(e))
-    return (False, 0, "tipo de path desconocido")
+    return (False, 0, tr('main.tipo_de_path_desconocido'))
 
 
 @app.get("/api/cleanup/scan", summary="Scan de huérfanos sin borrar nada")

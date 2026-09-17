@@ -92,12 +92,6 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
-    "Convierte ISOs UHD Blu-ray a MKV con selección automática de pistas y "
-    "soporte Dolby Vision FEL.":
-        "la `description=` de FastAPI, que sale en la página `/docs`. No es "
-        "interfaz —la lee quien integra contra la API— y encima se evalúa al "
-        "importar, así que traducirla congelaría el idioma que hubiera al "
-        "arrancar el contenedor.",
     "✏️ Consultar / Editar MKV":
         "`workload.TAB_MKV` es un ID, no un rótulo: lo indexa `TAB_IDS`, la "
         "UI compara contra él y `historial.jsonl` lo tiene escrito en las "

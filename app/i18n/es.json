@@ -896,5 +896,14 @@
   "mkv_analyze.bin_sintetico_equivalente_a_la_conversion_al": "Bin sintético — equivalente a la conversión al vuelo de p3i / avdvplus / appletvplus",
   "mkv_analyze.sin_l11_confirma_origen_automatico_los_conversores": "Sin L11 — confirma origen automático (los conversores no añaden content type)",
   "mkv_analyze.l8_ambiguo_el_clasificador_no_puede_decidir": "L8 ambiguo — el clasificador no puede decidir con seguridad",
-  "mkv_analyze.pero_l11_l254_sugieren_master_nativo_dudoso": "Pero L11 + L254 sugieren master nativo, dudoso por densidad de combos"
+  "mkv_analyze.pero_l11_l254_sugieren_master_nativo_dudoso": "Pero L11 + L254 sugieren master nativo, dudoso por densidad de combos",
+  "main.path_fuera_de_los_roots_permitidos": "path fuera de los roots permitidos",
+  "main.tipo_de_path_desconocido": "tipo de path desconocido",
+  "main.tmp_del_analisis_de_luminancia": "Tmp del análisis de luminancia",
+  "main.cancelacion_o_crash_durante_extraccion_de_luminancia": "Cancelación o crash durante extracción de luminancia (Tab 2)",
+  "main.tmp_de_la_auditoria_de_calidad_del": "Tmp de la auditoría de calidad del RPU",
+  "main.cancelacion_o_crash_durante_la_auditoria_del": "Cancelación o crash durante la auditoría del RPU (Tab 2)",
+  "main.path_no_existe": "path no existe",
+  "main.ruta_no_resoluble_p1": "ruta no resoluble: {p1}",
+  "main.es_el_propio_directorio_raiz_no_un": "es el propio directorio raíz, no un huérfano"
 }
