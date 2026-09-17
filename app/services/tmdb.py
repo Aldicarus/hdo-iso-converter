@@ -142,11 +142,16 @@ def _save_cache() -> None:
             pass
 
 
+def _cache_base(title: str, year: int | None) -> str:
+    """La parte de la clave que NO depende del idioma."""
+    return f"{title.lower().strip()}|{year or ''}"
+
+
 def _cache_key(title: str, year: int | None) -> str:
     """La clave lleva el LOCALE, y hace falta: sin él la primera consulta en
     castellano se servía luego a la app en inglés durante treinta días, que
     es la mitad del bug del idioma —la otra mitad era pedirlo mal—."""
-    return f"{title.lower().strip()}|{year or ''}|{locale_tmdb()}"
+    return f"{_cache_base(title, year)}|{locale_tmdb()}"
 
 
 def _safe_err(e: Exception) -> str:
@@ -330,9 +335,13 @@ def poster_en_cache(title: str, year: int | None) -> str:
     """
     if not title:
         return ""
-    prefijo = _cache_key(title, year) + "|n="
+    # El prefijo va SIN locale a propósito: una URL de póster no depende
+    # del idioma, así que la de cualquier idioma vale y la columna no se
+    # queda sin carátula al cambiarlo. Es lo contrario que con el título y
+    # la sinopsis, que sí cambian y por eso el locale está en la clave.
+    prefijo = _cache_base(title, year) + "|"
     for clave, valor in _load_cache().items():
-        if not clave.startswith(prefijo):
+        if not clave.startswith(prefijo) or "|n=" not in clave:
             continue
         resultados = (valor or {}).get("results") or []
         if resultados:

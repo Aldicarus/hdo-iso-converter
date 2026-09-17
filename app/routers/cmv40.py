@@ -132,7 +132,7 @@ def recuperar_sesiones_interrumpidas() -> None:
     """
     from storage import list_cmv40_sessions, save_cmv40_session
     count = 0
-    msg = "Sesión interrumpida por reinicio del servidor"
+    msg = tr('cmv40.sesion_interrumpida_por_reinicio')
     for s in list_cmv40_sessions():
         if not s.running_phase:
             continue
@@ -204,7 +204,8 @@ async def _dev_simulate_phase(session: CMv40Session, phase_name: str,
         if apply_fn:
             apply_fn(session)
         session.phase = new_phase
-        await _cmv40_log(session, f"§§PROGRESS§§{_json.dumps({'pct': 100, 'label': 'Completado', 'eta_s': 0})}")
+        await _cmv40_log(session, "§§PROGRESS§§" + _json.dumps(
+            {'pct': 100, 'label': tr('cmv40.completado'), 'eta_s': 0}))
         await _cmv40_log(session, f"✓ Fase {phase_name} completada")
     finally:
         _cmv40_marcar_libre(session)
@@ -1590,7 +1591,8 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {_titulo_wl or session.id}",
+                tr('cmv40.validacion_previa_de',
+                   que=_titulo_wl or session.id),
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -1630,11 +1632,11 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
 
                 kind = session.pending_target_kind
                 await _paso(25, {
-                    "drive": "Descargando el RPU del repositorio",
-                    "repo":  "Descargando el RPU del repositorio",
-                    "path":  "Copiando el RPU de la carpeta local",
-                    "mkv":   "Extrayendo el RPU del MKV target",
-                }.get(kind, "Obteniendo el RPU target"))
+                    "drive": tr('cmv40.paso_descargando_rpu_repo'),
+                    "repo":  tr('cmv40.paso_descargando_rpu_repo'),
+                    "path":  tr('cmv40.paso_copiando_rpu_local'),
+                    "mkv":   tr('cmv40.paso_extrayendo_rpu_mkv'),
+                }.get(kind, tr('cmv40.paso_obteniendo_rpu_target')))
                 if kind == "drive" or kind == "repo":
                     await preflight_target_drive(
                         session,
@@ -1664,11 +1666,10 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                     # auto_pipeline=True el dispatcher emitirá su propio
                     # ━━━ Inicio fase: analyze_source ━━━; si está desactivado,
                     # el usuario decide cuándo lanzar Fase A.
-                    next_hint = (
-                        " — auto-pipeline encadenará Fase A a continuación."
+                    next_hint = tr(
+                        'cmv40.hint_auto_pipeline_encadena'
                         if session.auto_pipeline
-                        else " — auto-pipeline desactivado: pulsa ▶ para lanzar Fase A."
-                    )
+                        else 'cmv40.hint_auto_pipeline_desactivado')
                     await _cmv40_log(
                         session,
                         f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
@@ -2685,7 +2686,9 @@ async def cmv40_get(session_id: str, include_log: bool = True):
 
 
 @router.delete("/api/cmv40/{session_id}", summary="Borra un proyecto CMv4.0",
-               dependencies=[Depends(workload.marca("Borrado de un proyecto", workload.TAB_CMV40))])
+               dependencies=[Depends(workload.marca(
+                   lambda: tr('cmv40.wl_borrado_de_un_proyecto'),
+                   workload.TAB_CMV40))])
 async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
@@ -2751,7 +2754,9 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
 
 
 @router.post("/api/cmv40/{session_id}/cleanup", summary="Borra artefactos intermedios",
-             dependencies=[Depends(workload.marca("Limpieza de artefactos", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca(
+                 lambda: tr('cmv40.wl_limpieza_de_artefactos'),
+                 workload.TAB_CMV40))])
 async def cmv40_cleanup(session_id: str):
     """
     Borra todos los artefactos intermedios del workdir. Tras esta acción el
@@ -2895,8 +2900,8 @@ async def cmv40_accept_keep(session_id: str):
     # conversión: no ha habido conversión.
     historial.resolver_espera(
         session_id, nuevo_estado=historial.ESTADO_HECHO,
-        nuevo_que=f"Mantener el MKV actual · "
-                  f"{_cartel_cmv40(session)[0] or session.id}")
+        nuevo_que=tr('cmv40.wl_mantener_el_mkv_actual',
+                     que=_cartel_cmv40(session)[0] or session.id))
     return session.model_dump()
 
 
@@ -3062,19 +3067,21 @@ async def cmv40_cleanup_preview():
             error_message = s.get("error_message")
             if fase_activa:
                 state, safe = "running", False
-                reason = f"Fase {fase_activa} en curso — no borrar"
+                reason = tr('cmv40.limpieza_fase_en_curso', fase=fase_activa)
             elif s.get("archived"):
                 state, safe = "archived", False
-                reason = "Ya archivado (sin artefactos)"
+                reason = tr('cmv40.limpieza_ya_archivado')
             elif s.get("phase") == "done":
                 state, safe = "done", True
-                reason = "Pipeline terminado, listo para limpiar"
+                reason = tr('cmv40.limpieza_listo')
             elif error_message:
                 state, safe = "error", True
-                reason = f"Última fase falló: {error_message[:80]}"
+                reason = tr('cmv40.limpieza_ultima_fase_fallo',
+                            error=error_message[:80])
             else:
                 state, safe = "in_progress", True
-                reason = f"Pipeline detenido en fase {s.get('phase')}"
+                reason = tr('cmv40.limpieza_detenido_en_fase',
+                            fase=s.get('phase'))
 
             items.append({
                 "id": s["id"],
@@ -3115,7 +3122,8 @@ class CMv40CleanupBulkRequest(BaseModel):
 @router.post(
     "/api/cmv40/cleanup/bulk",
     summary="Limpia artefactos de varios proyectos CMv4.0 a la vez",
-    dependencies=[Depends(workload.marca("Limpieza masiva de artefactos", workload.TAB_CMV40))],
+    dependencies=[Depends(workload.marca(
+        lambda: tr('cmv40.wl_limpieza_masiva'), workload.TAB_CMV40))],
 )
 async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
     """Borra los artefactos del workdir de cada session_id de la lista. Marca
@@ -3130,7 +3138,8 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
     for sid in body.session_ids or []:
         session = load_cmv40_session(sid)
         if not session:
-            failed.append({"id": sid, "error": "Proyecto no encontrado"})
+            failed.append({"id": sid,
+                           "error": tr('cmv40.proyecto_no_encontrado')})
             continue
         if session.running_phase:
             skipped.append({
@@ -3232,7 +3241,9 @@ async def cmv40_reset_preview(session_id: str, target_phase: str):
 
 @router.post("/api/cmv40/{session_id}/reset-to/{target_phase}",
              summary="Resetea a una fase anterior (para rehacer)",
-             dependencies=[Depends(workload.marca("Borrado de artefactos", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca(
+                 lambda: tr('cmv40.wl_borrado_de_artefactos'),
+                 workload.TAB_CMV40))])
 async def cmv40_reset_to(session_id: str, target_phase: str):
     """
     Rebobina el estado de la sesión a una fase anterior y borra los
@@ -3351,7 +3362,7 @@ async def cmv40_verify_artifacts(session_id: str):
             "changed": False,
             "valid_phase": session.phase,
             "missing": [],
-            "message": "Proyecto ejecutándose — validación omitida",
+            "message": tr('cmv40.proyecto_ejecutandose_validacion_omitida'),
             "all_missing": False,
             "session": session.model_dump(),
         }
@@ -3513,7 +3524,9 @@ class CMv40TargetPathRequest(BaseModel):
 
 
 @router.post("/api/cmv40/{session_id}/target-rpu-path", summary="Fase B1: RPU target desde path",
-             dependencies=[Depends(workload.marca("Selección del RPU", workload.TAB_CMV40))])
+             dependencies=[Depends(workload.marca(
+                 lambda: tr('cmv40.wl_seleccion_del_rpu'),
+                 workload.TAB_CMV40))])
 async def cmv40_target_path(session_id: str, body: CMv40TargetPathRequest):
     session = load_cmv40_session(session_id)
     if not session:
@@ -3560,8 +3573,9 @@ class CMv40TargetDriveRequest(BaseModel):
 
 @router.post("/api/cmv40/{session_id}/target-rpu-from-drive",
           summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive",
-          dependencies=[Depends(workload.marca("Descarga del RPU",
-                                               workload.TAB_CMV40))])
+          dependencies=[Depends(workload.marca(
+              lambda: tr('cmv40.wl_descarga_del_rpu'),
+              workload.TAB_CMV40))])
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
     if not session:
@@ -3699,8 +3713,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     if session.preflight_decision and session.preflight_decision != "ok":
         return {
             "ok": True, "started": False,
-            "reason": f"preflight_decision={session.preflight_decision} ya emitida — "
-                      f"esperando acción del usuario (cancelar o forzar inyección)",
+            "reason": tr('cmv40.preflight_ya_emitida',
+                         decision=session.preflight_decision),
             "preflight_decision": session.preflight_decision,
             "preflight_message": session.preflight_message,
         }
@@ -3742,7 +3756,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
     # Si ya hay otra fase corriendo para esta sesión, no disparamos
     lock = _get_cmv40_phase_lock(session.id)
     if lock.locked():
-        return {"ok": True, "started": False, "reason": "ya hay otra fase en curso"}
+        return {"ok": True, "started": False,
+                "reason": tr('cmv40.ya_hay_otra_fase_en_curso')}
 
     _cmv40_cancel_flags.pop(session.id, None)
 
@@ -3754,7 +3769,8 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {_titulo_wl or session.id}",
+                tr('cmv40.validacion_previa_de',
+                   que=_titulo_wl or session.id),
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -3810,11 +3826,10 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                     session.preflight_decision = "ok"
                     session.preflight_message = ""
                     session.target_preflight_ok = True
-                    next_hint = (
-                        " — auto-pipeline encadenará Fase A a continuación."
+                    next_hint = tr(
+                        'cmv40.hint_auto_pipeline_encadena'
                         if session.auto_pipeline
-                        else " — auto-pipeline desactivado: pulsa ▶ para lanzar Fase A."
-                    )
+                        else 'cmv40.hint_auto_pipeline_desactivado')
                     await _cmv40_log(
                         session,
                         f"✓ Fase preflight completada — origen y bin validos.{next_hint}"
@@ -3883,7 +3898,8 @@ async def cmv40_preflight_source(session_id: str):
 
     lock = _get_cmv40_phase_lock(session.id)
     if lock.locked():
-        return {"ok": True, "started": False, "reason": "ya hay otra fase en curso"}
+        return {"ok": True, "started": False,
+                "reason": tr('cmv40.ya_hay_otra_fase_en_curso')}
 
     _cmv40_cancel_flags.pop(session.id, None)
 
@@ -3895,7 +3911,8 @@ async def cmv40_preflight_source(session_id: str):
             _titulo_wl, _poster_wl = _cartel_cmv40(session)
             workload.registrar(
                 session.id, workload.TAB_CMV40,
-                f"Validación previa · {_titulo_wl or session.id}",
+                tr('cmv40.validacion_previa_de',
+                   que=_titulo_wl or session.id),
                 # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
                 # sobre 91 pre-flights del NAS. Se apunta para que se vea,
                 # pero no puede vetar a nadie — es lo primero que corre al
@@ -4147,7 +4164,7 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
                 # es una carga legitima (usuario expandio Fase D en proyecto quiescente).
                 reason = ("force_interactive"
                           if session.trust_override == "force_interactive"
-                          else "apertura manual del chart")
+                          else tr('cmv40.apertura_manual_del_chart'))
                 await _cmv40_log(session,
                     f"[sync-data] per_frame_data.json no existe — regenerando on-demand ({reason})")
                 try:
@@ -4534,18 +4551,25 @@ async def cmv40_ws(websocket: WebSocket, session_id: str):
 # Las etiquetas legibles de las fases. Existen ya en el frontend
 # (`CMV40_RUNNING_LABELS` en tab3.js) y aquí hacen falta para que la columna
 # —que es la misma en las tres pestañas— no tenga que saber de CMv4.0.
-_CMV40_FASE_LABELS = {
-    "preflight":        "Validando el bin target",
-    "analyze_source":   "Fase A — Analizando el MKV origen",
-    "target_rpu_path":  "Fase B — Cargando el RPU de carpeta local",
-    "target_rpu_drive": "Fase B — Descargando el RPU del repositorio",
-    "target_rpu_mkv":   "Fase B — Extrayendo el RPU de otro MKV",
-    "extract":          "Fase C — Extrayendo BL/EL y datos per-frame",
-    "correct_sync":     "Fase E — Aplicando la corrección de sincronización",
-    "inject":           "Fase F — Inyectando el RPU en la EL",
-    "remux":            "Fase G — Remuxando el MKV final",
-    "validate":         "Fase H — Validando el MKV final",
-}
+_CMV40_FASES_CON_LABEL = (
+    "preflight", "analyze_source", "target_rpu_path", "target_rpu_drive",
+    "target_rpu_mkv", "extract", "correct_sync", "inject", "remux",
+    "validate",
+)
+
+
+def _cmv40_fase_label(fase: str) -> str:
+    """El rótulo de una fase, del catálogo; el id crudo si no la conocemos.
+
+    Era un diccionario con las diez frases dentro, y un diccionario de
+    rótulos evaluado al importar CONGELA el idioma hasta reiniciar. La
+    clave se compone del id, así que una fase nueva sin rótulo se ve al
+    instante en `test_cmv40_endpoints`. El respaldo es el id, como hacía el
+    `.get(fase, fase)` de antes.
+    """
+    if fase not in _CMV40_FASES_CON_LABEL:
+        return fase
+    return tr(f'cmv40.fase_{fase}')
 
 # Las OCHO estaciones del pipeline, A-H, en el orden en que se pasa por ellas.
 # Es lo que cuentan los puntitos de la tarjeta, así que la posición tiene que
@@ -4694,7 +4718,7 @@ def _cmv40_adaptador(trabajo) -> dict | None:
         # un 24 % clavado durante veinte minutos.
         "fase_progreso": _cmv40_progreso_de_la_fase(session, fase, prog),
         "fase": fase,
-        "fase_label": _CMV40_FASE_LABELS.get(fase, fase),
+        "fase_label": _cmv40_fase_label(fase),
         # El `label` del progreso dice en qué PASO de la fase va (el demux, el
         # merge…). Va aparte, no en lugar de la fase: pisándola se perdía de
         # vista en qué fase del pipeline estaba el proyecto.

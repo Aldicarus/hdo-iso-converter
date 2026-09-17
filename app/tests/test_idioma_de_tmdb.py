@@ -158,6 +158,22 @@ class IdiomaDeTmdb(unittest.TestCase):
                                      "overview": ""}, vacios=("overview",))
         self.assertEqual(f.idiomas, ["es-ES"])
 
+    def test_la_caratula_cacheada_vale_para_cualquier_idioma(self):
+        """El título y la sinopsis cambian con el idioma; la URL del póster
+        no. Si el locale entrara también en la búsqueda de la carátula, la
+        columna de trabajo se quedaría sin imagen al cambiar de idioma hasta
+        que TMDb volviera a contestar — y esa columna NUNCA sale a la red."""
+        self._idioma("es")
+        self.tmdb._cache = {
+            self.tmdb._cache_key("Drive", 2011) + "|n=1": {
+                "fetched_at": 9e12,
+                "results": [{"tmdb_id": 1, "title": "Drive", "year": 2011,
+                             "poster_url": "https://x/t/p/w185/d.jpg"}]}}
+        self.assertTrue(self.tmdb.poster_en_cache("Drive", 2011))
+        self._idioma("en")
+        self.assertTrue(self.tmdb.poster_en_cache("Drive", 2011),
+                        "la carátula cacheada en castellano sigue sirviendo")
+
     # ── Lo que NO debe cambiar ────────────────────────────────────────
     def test_el_titulo_ingles_del_match_sigue_pidiendose_en_en_us(self):
         """`_fetch_english_title` existe para la traducción ES→EN del match
