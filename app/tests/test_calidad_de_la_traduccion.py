@@ -67,6 +67,57 @@ TRAMPAS = {
 }
 
 
+class TestLaMismaFraseSeTraduceIgual(unittest.TestCase):
+    """Dos claves con el MISMO castellano tienen la misma traducción.
+
+    Es la versión sin heurística del detector de consistencia: los cruces
+    de término que la lectura por pantalla destapó —«cercar» contra
+    «buscar», «memòria cau» contra «cache»— son todos este caso, y aquí no
+    hay que adivinar nada.
+
+    **Los huecos se normalizan antes de comparar**, y ahí está el caso que
+    lo motivó: `cmv40.validacion_previa` y `cmv40.validacion_previa_de`
+    dicen los dos «Validación previa · …» y en inglés decían «Pre-flight
+    check» y «Pre-check». Con el nombre del hueco dentro
+    (`{id}` vs `{que}`) el castellano no coincide byte a byte y la
+    comparación exacta no los veía — que es justo el agujero por el que
+    este guard no existía todavía aunque CLAUDE.md lo diera por escrito.
+    """
+
+    @staticmethod
+    def catalogos():
+        return _catalogos()
+
+    @staticmethod
+    def _sin_huecos(v: str) -> str:
+        return " ".join(re.sub(r"\{\w+\}", "⟦⟧", v).split())
+
+    def test_el_mismo_castellano_no_tiene_dos_traducciones(self):
+        # Se acumula y se afirma UNA vez: con el `assertEqual` dentro del
+        # bucle, el primer par (frontend, en) abortaba y los cruces del
+        # backend no se veían — y ahí estaba justo el caso que motivó el
+        # guard. Un test que para en el primer hallazgo esconde los demás.
+        cruces = []
+        for donde, cat in self.catalogos():
+            for otra in ("en", "ca"):
+                por_es: dict[str, list[tuple[str, str]]] = {}
+                for k, es in cat["es"].items():
+                    if k not in cat[otra]:
+                        continue
+                    por_es.setdefault(self._sin_huecos(es), []).append(
+                        (k, self._sin_huecos(cat[otra][k])))
+                for es, xs in por_es.items():
+                    distintas = {t for _, t in xs}
+                    if len(distintas) > 1:
+                        cruces.append(
+                            f"[{donde}/{otra}] «{es[:46]}» → "
+                            f"{sorted(distintas)[:2]} "
+                            f"({', '.join(k for k, _ in xs[:3])})")
+        self.assertEqual(sorted(cruces), [], (
+            f"\n{len(cruces)} frase(s) castellanas con DOS traducciones:"
+            f"\n  · " + "\n  · ".join(sorted(cruces)[:14])))
+
+
 class TestElInglesNoLlevaCalcos(unittest.TestCase):
 
     def test_ninguna_trampa_conocida(self):

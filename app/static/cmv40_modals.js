@@ -43,7 +43,7 @@ async function openCMv40CleanupModal() {
   const body = document.getElementById('cmv40-cleanup-body');
   const foot = document.getElementById('cmv40-cleanup-foot');
   if (body) body.innerHTML = '<div class="cmv40-cleanup-loading"><span data-icono="reloj"></span> '
-                           + tr('cmv40_modals.escaneando_proyectos') + '</div>';
+                           + tr('ui.escaneando_proyectos') + '</div>';
   if (foot) foot.style.display = 'none';
 
   const data = await apiFetch('/api/cmv40/cleanup/preview');

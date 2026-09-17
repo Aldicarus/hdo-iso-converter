@@ -1360,7 +1360,7 @@ function _cmv40NewSwitchTargetTab(tab) {
 
 async function _cmv40NewLoadRpus() {
   const select = document.getElementById('cmv40-new-rpu-select');
-  select.innerHTML = '<option value="">' + tr('tab3.opt_cargando') + '</option>';
+  select.innerHTML = '<option value="">' + tr('ui.cargando_2') + '</option>';
   const data = await apiFetch('/api/cmv40/rpu-files');
   select.innerHTML = '<option value="">' + tr('tab3.opt_seleccionar_rpu') + '</option>';
   if (data?.files?.length) {
@@ -1377,7 +1377,7 @@ async function _cmv40NewLoadRpus() {
 
 async function _cmv40NewLoadTargetMkvs() {
   const select = document.getElementById('cmv40-new-target-mkv-select');
-  select.innerHTML = '<option value="">' + tr('tab3.opt_cargando') + '</option>';
+  select.innerHTML = '<option value="">' + tr('ui.cargando_2') + '</option>';
   const data = await apiFetch('/api/mkv/files-in-isos');
   select.innerHTML = '<option value="">' + tr('tab3.seleccionar_mkv_con_cmv40') + '</option>';
   if (data?.files?.length) {

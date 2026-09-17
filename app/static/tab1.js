@@ -258,7 +258,7 @@ async function srcFbNavigate(filter, relPath) {
   const listEl = document.getElementById(`src-fb-${filter}-list`);
   const bcEl = document.getElementById(`src-fb-${filter}-breadcrumb`);
   if (listEl) listEl.innerHTML = '<div class="src-fb-loading"><span data-icono="reloj"></span> '
-                                 + tr('tab1.cargando') + '</div>';
+                                 + tr('ui.cargando') + '</div>';
   // `innerHTML`: el icono es un SVG, antes iba como carácter en el texto.
   if (bcEl) bcEl.innerHTML = icono('carpeta') + ' /mnt/isos'
                            + (relPath ? ` / ${escHtml(relPath)}` : '');
@@ -511,9 +511,9 @@ function showProgressModal({ title, sub, icon, posterUrl } = {}) {
       posterEl.innerHTML = `<span id="progress-modal-icon">${icon || icono('reloj', 'ico-xl')}</span>`;
     }
   }
-  document.getElementById('progress-modal-title').textContent = title || tr('tab1.procesando');
+  document.getElementById('progress-modal-title').textContent = title || tr('ui.procesando');
   document.getElementById('progress-modal-sub').textContent = sub || '';
-  document.getElementById('progress-modal-current').textContent = tr('tab1.iniciando');
+  document.getElementById('progress-modal-current').textContent = tr('ui.iniciando');
   const barEl = document.getElementById('progress-modal-bar');
   if (barEl) { barEl.style.width = '0%'; barEl.classList.remove('done'); }
   document.getElementById('progress-modal-pct').textContent = '';
