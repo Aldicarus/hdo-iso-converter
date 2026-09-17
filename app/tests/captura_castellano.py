@@ -428,49 +428,9 @@ def es_rotulo(s: str) -> bool:
                 & vocabulario_solo_castellano())
 
 
-_LOG = {"log", "_log", "log_callback", "_emit_progress", "emit", "anotar"}
-_EXC = {"HTTPException", "RuntimeError", "ValueError", "MkvmergePlaylistError"}
 
-# Funciones cuyo texto de usuario llega en un argumento POSICIONAL, con su
-# índice. Era el quinto agujero: la captura mira `n.args[:3]` solo para los
-# nombres de `_LOG`, así que los once `workload.marca("Análisis del disco",
-# TAB_RIP)` de los decoradores no los veía nadie — y ese texto es el que sale
-# en `/api/activity` y en la columna de trabajo.
-_POSICIONAL = {"marca": (0,), "registrar": (2,), "ocupado": (2,)}
 
-# Los campos cuyo valor ACABA EN PANTALLA aunque nadie los pase a una llamada.
-# Este era el agujero: la lista blanca de arriba solo mira LLAMADAS, y el
-# backend anuncia su progreso **asignando** —
-# `_disc_probe_progress["current_label"] = f"Analizando candidato …"`—. Una
-# asignación no es una llamada, así que no la veía nadie, pasara el criterio
-# que pasara. Eran ~50.
-#
-# Va por PATRÓN y no por lista de nombres, que es exactamente como se llegó
-# aquí: `current_episode_title` no casaba con ningún patrón castellano porque
-# el código va en inglés.
-# La segunda mitad de la lista salió de CRUZAR los campos contra el frontend
-# en vez de imaginarlos: se recogió todo nombre de campo al que el backend
-# asigna castellano y se comprobó si el JS lo lee. Los que lo leen están aquí
-# y valían 93 fugas más — entre ellas el `reason` de cada pista descartada
-# («Descartada: idioma X no es Castellano ni VO»), que se ve en el panel de
-# Tab 1 desde el primer día, y los `why` de los trust gates.
-#
-# `name` entra a pesar de casar con `mkv_name`, `video_track_name` y
-# `series_name`: ahí el valor es un nombre de fichero o de pista y el
-# criterio por vocabulario lo descarta solo. Lo único que caza son los
-# «Capítulo {n}» auto-generados, que van DENTRO del MKV y por tanto siguen el
-# idioma de la app (decisión 3 del registro).
-_CAMPO_VISIBLE = re.compile(
-    r"(?:^|_)(?:label|lbl|text|txt|texto|message|msg|mensaje|title|titulo|que"
-    r"|reason|why|error|warning|description|descripcion|verdict|hint|note"
-    r"|name)$"
-    r"|^detail$")
 
-# `detalle` (en castellano) NO es texto: es el discriminador de qué vista de
-# detalle pinta el frontend (`registrarDetalleDeTrabajo`), y sus valores son
-# slugs — `serie`, `copia_biblioteca`, `analisis_extendido`. `detail` (en
-# inglés) sí lo es: es el campo de `HTTPException`.
-_CAMPO_SLUG = {"detalle"}
 
 # Tablas `id → rótulo` que NO son interfaz, exentas por su función y no por
 # su forma. `LANGUAGE_MAP` son los literales de pista de la spec
@@ -479,8 +439,6 @@ _CAMPO_SLUG = {"detalle"}
 # con el bloque de selección de pistas, que está pendiente.
 _TABLAS_EXENTAS = {"LANGUAGE_MAP", "ISO639_TO_ENGLISH", "MKVMERGE_CODEC_TO_BDINFO"}
 
-# Un slug: la clave de una tabla de rótulos por id (`p7_fel`, `analyze_source`).
-_SLUG = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def _nodos_de_dev_mode(arbol: ast.AST) -> set[int]:
@@ -513,172 +471,107 @@ def _texto_de(nodo) -> str:
     return ""
 
 
-def _textos_dentro(nodo) -> list[str]:
-    """Los literales de una expresión, entrando solo donde hace falta.
 
-    `_texto_de` entiende una constante o un f-string, y con eso se escapaba
-    «Montando el ISO…» porque su valor es un TERNARIO:
 
-        "current_label": ("Montando el ISO…" if stype == "iso"
-                          else "Leyendo la carpeta BDMV…")
+# Métodos de logging: lo que escriben lo lee quien mira `docker logs`, no un
+# usuario de la app. Se eximen con TODOS sus argumentos.
+_LOGGING = {"info", "warning", "error", "debug", "exception", "critical"}
 
-    Se entra en el ternario y en la concatenación con `+`, y **en nada más**.
-    Un `ast.walk` a pelo sí las coge, pero se lleva por delante todas las
-    cadenas de cualquier expresión anidada: medido, pasaba de 58 frases a
-    **510**, con lo que el guard dejaba de servir. Acotarlo a dos formas es
-    predecible y cubre lo que el backend escribe de verdad.
+
+def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
+    """Los ids de nodo que NO son texto de interfaz, por FUNCIÓN.
+
+    Cinco clases, y cada una está aquí porque eximirla es correcto, no
+    porque fuera incómoda:
+
+      * **docstrings**, incluidos los de ATRIBUTO —un literal que es una
+        sentencia entera—. Los de `models.py` llevan EJEMPLOS dentro
+        («Ej: 'Descartada: idioma French…'»), así que sin esta regla el
+        guard denuncia la documentación del esquema: 244 en un fichero.
+      * **la clave que se le pasa a `tr()`**: su slug va en castellano y no
+        es texto, es la clave que acabas de escribir.
+      * **`logger.info/warning/…`**, que sale por `docker logs`.
+      * **`Field(...)`** de Pydantic, que documenta el esquema.
+      * **las tablas de traducción de la spec** (`LANGUAGE_MAP` y
+        compañía): sus valores acaban en el NOMBRE de las pistas del MKV,
+        no en la pantalla. Ojo, están ANOTADAS (`dict[str, str] = {...}`),
+        así que hay que mirar `AnnAssign` además de `Assign`.
+      * y lo que cuelga de un **`if DEV_MODE:`**, que es maqueta.
     """
-    if nodo is None:
-        # Llega de un `**kwargs` (su `arg` es None) y de un `AnnAssign` sin
-        # valor; sin el guard, esto revienta con un AttributeError.
-        return []
-    if isinstance(nodo, ast.JoinedStr):
-        return [_texto_de(nodo)]
-    if isinstance(nodo, ast.Constant):
-        return [nodo.value] if isinstance(nodo.value, str) else []
-    if isinstance(nodo, ast.IfExp):
-        return _textos_dentro(nodo.body) + _textos_dentro(nodo.orelse)
-    if isinstance(nodo, ast.BinOp) and isinstance(nodo.op, ast.Add):
-        return _textos_dentro(nodo.left) + _textos_dentro(nodo.right)
-    return []
+    fuera: set[int] = set()
+    for n in ast.walk(arbol):
+        if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant):
+            fuera.add(id(n.value))
+        if isinstance(n, ast.Call):
+            f = n.func
+            nombre = (f.id if isinstance(f, ast.Name)
+                      else f.attr if isinstance(f, ast.Attribute) else "")
+            if nombre in ("tr", "t") and n.args:
+                for h in ast.walk(n.args[0]):
+                    fuera.add(id(h))
+            if isinstance(f, ast.Attribute) and f.attr in _LOGGING:
+                for h in ast.walk(n):
+                    fuera.add(id(h))
+            if isinstance(f, ast.Name) and f.id == "Field":
+                for h in ast.walk(n):
+                    fuera.add(id(h))
+        if isinstance(n, (ast.Assign, ast.AnnAssign)):
+            objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
+            if (n.value is not None
+                    and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
+                            for t in objetivos)):
+                for h in ast.walk(n.value):
+                    fuera.add(id(h))
+    fuera |= _nodos_de_dev_mode(arbol)
+    return fuera
 
 
 def frases_del_backend() -> set[str]:
-    """Lo que el usuario ve del servidor: log, errores y etiquetas de paso."""
+    """Lo que el usuario ve del servidor: log, errores y etiquetas de paso.
+
+    **La polaridad es «castellano = fuga salvo exención»**, y ese es el
+    punto. Durante cuatro auditorías fue la contraria —lo era solo si
+    aparecía en un sitio de una lista blanca— y el recuento fue 0 → 51 →
+    79 → 92 → 114 → 190 → 680: cada vez se amplió la lista por donde se
+    acababa de romper y cada vez seguía sin ver el sitio que nadie había
+    apuntado. El último fue el más caro: `_LOG` eran SEIS nombres escritos
+    a mano, así que `_cmv40_log`, `_mkv_quality_log`, `_paso`, `_emit` y
+    `log_cb` —el log que el usuario lee en el overlay de Tab 3— nunca
+    estuvieron dentro.
+
+    Así que ya no hay lista de sitios. Se recorre TODO literal del
+    servidor y se juzga por su contenido; lo que no es interfaz se exime
+    por FUNCIÓN en `_exentos_del_modulo`, que es una lista cerrada y
+    revisable con el motivo de cada clase escrito.
+    """
     fuera: set[str] = set()
     for f in sorted(APP_DIR.rglob("*.py")):
         if "tests" in f.parts or "__pycache__" in str(f):
             continue
         # El propio motor de traducción no es texto de usuario: su único
-        # literal es un `ValueError` que se captura ahí dentro para poder caer
-        # al castellano cuando un catálogo está roto.
-        if f.name == "i18n.py":
-            continue
-        # Dos ficheros más que no son interfaz:
+        # literal es un `ValueError` que se captura ahí dentro para poder
+        # caer al castellano cuando un catálogo está roto.
         #
-        #   * `dev_fixtures.py` son los datos falsos de `DEV_MODE=1` —pistas
-        #     «Inglés TrueHD Atmos 7.1», capítulos «Capítulo 03»— que existen
-        #     para maquetar la UI sin discos delante. Traducirlos obligaría a
-        #     traducir la maqueta.
-        #   * `tools/` son CLI standalone de depuración: su `argparse` lo lee
-        #     quien ejecuta el script a mano.
-        #
-        # Se saltan ENTEROS y no solo en la captura ampliada: el golden
-        # comprueba que sus frases sigan existiendo en el FUENTE, y ahí
-        # siguen. Verificado — `test_castellano_intacto` queda en verde.
-        if f.name == "dev_fixtures.py" or "tools" in f.parts:
+        # `dev_fixtures.py` son los datos falsos de `DEV_MODE=1` —pistas
+        # «Inglés TrueHD Atmos 7.1», capítulos «Capítulo 03»— que existen
+        # para maquetar la UI sin discos delante, y `tools/` son CLI
+        # standalone de depuración: su `argparse` lo lee quien ejecuta el
+        # script a mano.
+        if f.name in ("i18n.py", "dev_fixtures.py") or "tools" in f.parts:
             continue
         try:
             arbol = ast.parse(f.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
-        # Lo que cuelga de un `if DEV_MODE:` es maqueta. Es la misma decisión
-        # que exime `dev_fixtures.py` —datos falsos para desarrollar la UI sin
-        # discos delante— pero esos bloques viven DENTRO de los routers, así
-        # que la exención por fichero no llega. La simulación del análisis
-        # extendido de Tab 2 son 40 líneas de log inventado.
-        de_dev = _nodos_de_dev_mode(arbol)
+        exentos = _exentos_del_modulo(arbol)
         for n in ast.walk(arbol):
-            if id(n) in de_dev:
+            if not (isinstance(n, ast.Constant) and isinstance(n.value, str)):
                 continue
-            if not isinstance(n, ast.Call):
+            if id(n) in exentos:
                 continue
-            nombre = (n.func.id if isinstance(n.func, ast.Name)
-                      else n.func.attr if isinstance(n.func, ast.Attribute) else "")
-            candidatos = []
-            if nombre in _LOG:
-                candidatos = list(n.args[:3])
-            elif nombre in _EXC:
-                candidatos = list(n.args[:1]) + [k.value for k in n.keywords
-                                                 if k.arg in ("detail", "msg")]
-            elif nombre in _POSICIONAL:
-                candidatos = [n.args[i] for i in _POSICIONAL[nombre]
-                              if i < len(n.args)]
-            else:
-                # `que=`/`label=`/`message=` de cualquier llamada: es el texto
-                # con el que un trabajo se anuncia en la columna y el historial.
-                candidatos = [k.value for k in n.keywords
-                              if k.arg in ("que", "label", "message", "mensaje",
-                                           "step_label", "detalle")]
-            # Y CUALQUIER argumento con nombre de campo visible, en cualquier
-            # llamada. Es el agujero simétrico del que dejó fuera 7 fugas: la
-            # rama de asignación cazaba `plan_text = "…"` y no `plan_text="…"`,
-            # así que los diez planes que `cmv40_strategy` construye dentro de
-            # un `InjectPlan(...)` no los miraba nadie. El nombre del campo es
-            # lo que dice si el texto se ve; que viaje por un `=` o por un
-            # argumento es sintaxis.
-            candidatos += [k.value for k in n.keywords
-                           if k.arg and _CAMPO_VISIBLE.search(k.arg)
-                           and k.arg not in _CAMPO_SLUG]
-            for c in candidatos:
-                for bruto in _textos_dentro(c):
-                    s = " ".join(bruto.split())
-                    if es_frase(s) or es_rotulo(s):
-                        fuera.add(s)
-        # Y los campos que ACABAN EN PANTALLA sin pasar por ninguna llamada.
-        # Las constantes de MÓDULO en mayúsculas con texto dentro: es la clase
-        # de `CMV40_PHASE_LABELS` en el frontend —una constante evaluada al
-        # cargar— y aquí eran `MOTIVO_CANCELADO`, `AVISO_INTERRUMPIDA` y la
-        # etiqueta de pestaña `TAB_MKV`. Traducirlas al importar CONGELA el
-        # idioma hasta reiniciar, así que se resuelven al usarlas.
-        for nodo in arbol.body:
-            if not isinstance(nodo, ast.Assign):
-                continue
-            for t in nodo.targets:
-                if not (isinstance(t, ast.Name) and t.id.isupper()):
-                    continue
-                for bruto in _textos_dentro(nodo.value):
-                    s = " ".join(bruto.split())
-                    if es_frase(s) or es_rotulo(s):
-                        fuera.add(s)
-        exentas = set()
-        for nodo in ast.walk(arbol):
-            if not isinstance(nodo, (ast.Assign, ast.AnnAssign)):
-                continue
-            objetivos = (nodo.targets if isinstance(nodo, ast.Assign)
-                         else [nodo.target])
-            if (isinstance(nodo.value, ast.Dict)
-                    and any(isinstance(t, ast.Name) and t.id in _TABLAS_EXENTAS
-                            for t in objetivos)):
-                exentas.add(nodo.value)
-        for n in ast.walk(arbol):
-            if id(n) in de_dev:
-                continue
-            visibles = []
-            if isinstance(n, (ast.Assign, ast.AnnAssign)):
-                objetivos = (n.targets if isinstance(n, ast.Assign) else [n.target])
-                nombre = ""
-                for t in objetivos:
-                    if isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant):
-                        nombre = str(t.slice.value)
-                    elif isinstance(t, ast.Attribute):
-                        nombre = t.attr
-                    elif isinstance(t, ast.Name):
-                        nombre = t.id
-                if nombre and _CAMPO_VISIBLE.search(nombre) and nombre not in _CAMPO_SLUG:
-                    visibles = [n.value]
-            elif isinstance(n, ast.Dict):
-                for k, valor in zip(n.keys, n.values):
-                    if (isinstance(k, ast.Constant) and isinstance(k.value, str)
-                            and _CAMPO_VISIBLE.search(k.value)
-                            and k.value not in _CAMPO_SLUG):
-                        visibles.append(valor)
-                # Y la tabla `id → rótulo`: si TODAS las claves son slugs, lo
-                # que hay a la derecha es texto indexado por un identificador
-                # —los pasos del modal «Analizando disco», los nombres de fase
-                # del overlay de CMv4.0— y ahí el nombre del campo no dice
-                # nada porque la clave ES el id. Eran 34 rótulos que se ven en
-                # cuanto abres un proyecto.
-                if (n.keys and n not in exentas
-                        and all(isinstance(k, ast.Constant)
-                                and isinstance(k.value, str) and _SLUG.match(k.value)
-                                for k in n.keys)):
-                    visibles.extend(n.values)
-            for c in visibles:
-                for bruto in _textos_dentro(c):
-                    s = " ".join(bruto.split())
-                    if es_frase(s) or es_rotulo(s):
-                        fuera.add(s)
+            s = " ".join(n.value.split())
+            if es_frase(s) or es_rotulo(s):
+                fuera.add(s)
     return fuera
 
 
