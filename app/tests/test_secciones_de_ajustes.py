@@ -154,10 +154,17 @@ def _medir() -> dict:
 (function () {
   // Lo que `/api/settings` contesta: dos claves puestas por el usuario, una
   // que trae la app y los tres idiomas del servidor.
+  // Copiado de la respuesta real del NAS: `sheet` trae `url` —y por eso su
+  // campo se pre-pobla, que es la condición del falso aviso de «cambios sin
+  // guardar»—. Un stub sin `url` deja el campo vacío y el test pasa sin
+  // comprobar nada.
+  const URL_SHEET = 'https://docs.google.com/spreadsheets/d/15i0a84uiBtWiHZ5CXZZ7wygLFXwYOd84/edit?gid=828864432';
   window.apiFetch = async () => ({
-    tmdb:   {configured: true,  source: 'default'},
-    google: {configured: true,  source: 'settings', last4: 'ab12'},
-    sheet:  {configured: false, default_url: 'https://x/y'},
+    tmdb:   {configured: true,  source: 'default', is_default: true},
+    google: {configured: true,  source: 'settings', last4: 'ab12', is_default: false},
+    sheet:  {configured: true,  source: 'default', url: URL_SHEET,
+             default_url: URL_SHEET, sheet_id_last6: 'wYOd84',
+             gid: '828864432', is_default: true},
     'drive-folder': {configured: true, source: 'default'},
     idioma: {activo: 'es', disponibles: ['es', 'en', 'ca'], por_defecto: 'es'},
   });
@@ -192,6 +199,27 @@ def _medir() -> dict:
       // Un idioma sin bandera cae a las dos letras, que es lo que permite crecer.
       out.desconocido = distintivoDeIdioma('pt');
       out.conocido = (bandera('ca') || '').slice(0, 5);
+      // ── El aviso de «cambios sin guardar» ──
+      // Recién abierto y sin tocar nada NO puede haber cambios, aunque el
+      // campo del sheet venga pre-poblado con la URL activa.
+      out.sucioAlAbrir = _ajustesSinGuardar();
+      const sheet = document.getElementById('settings-sheet-input');
+      out.sheetPrepoblado = (sheet?.value || '') !== '';
+      // Reescribir el sheet con LO MISMO tampoco es un cambio.
+      sheet.value = sheet.value;
+      out.sucioTrasReescribirIgual = _ajustesSinGuardar();
+      // Tocar de verdad, sí.
+      const tmdb = document.getElementById('settings-tmdb-input');
+      tmdb.value = 'deadbeef';
+      out.sucioTrasEscribir = _ajustesSinGuardar();
+      // Y deshacerlo deja de serlo.
+      tmdb.value = '';
+      out.sucioTrasDeshacer = _ajustesSinGuardar();
+      // Cambiar la URL del sheet también cuenta.
+      sheet.value = 'https://docs.google.com/spreadsheets/d/OTRA';
+      out.sucioTrasCambiarSheet = _ajustesSinGuardar();
+      sheet.value = sheet.dataset.inicial;
+
       // Cambiar de sección.
       activarSeccionDeAjustes('integraciones');
       await new Promise(r => setTimeout(r, 60));
@@ -226,6 +254,47 @@ def _medir() -> dict:
     if not m:
         raise unittest.SkipTest("Chrome no devolvió el volcado")
     return json.loads(_html.unescape(m.group(1)))
+
+
+@unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
+class TestElAvisoDeCambiosSoloSaleSiLosHay(unittest.TestCase):
+    """Cambiar de idioma recarga la página, así que se avisa de lo que se
+    perdería. Pero salía SIEMPRE, sin haber tocado nada.
+
+    La causa: tres campos se pintan vacíos y el del sheet **viene
+    pre-poblado con la URL activa** —es pública y se enseña a propósito—,
+    así que compararlos todos con la cadena vacía daba «hay cambios» de
+    entrada. Un aviso que sale siempre se aprende a cerrar sin leerlo, que
+    es peor que no tenerlo. Reportado por el usuario el 2026-09-18.
+
+    Tampoco valía reusar el criterio de `saveSettings` («¿mandaría algo?»):
+    ese compara el sheet con la URL por DEFECTO, así que a quien tenga una
+    propia guardada le habría seguido saliendo.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _medir()
+
+    def test_el_campo_del_sheet_viene_pre_poblado(self):
+        """La premisa del bug: si esto deja de ser cierto, el test de abajo
+        pasaría sin comprobar nada."""
+        self.assertTrue(self.m["sheetPrepoblado"])
+
+    def test_recien_abierto_no_hay_cambios(self):
+        self.assertEqual(self.m["sucioAlAbrir"], [])
+
+    def test_reescribir_lo_mismo_no_es_un_cambio(self):
+        self.assertEqual(self.m["sucioTrasReescribirIgual"], [])
+
+    def test_escribir_de_verdad_si_lo_es(self):
+        self.assertEqual(self.m["sucioTrasEscribir"], ["settings-tmdb-input"])
+
+    def test_y_deshacerlo_deja_de_serlo(self):
+        self.assertEqual(self.m["sucioTrasDeshacer"], [])
+
+    def test_cambiar_la_url_del_sheet_cuenta(self):
+        self.assertEqual(self.m["sucioTrasCambiarSheet"], ["settings-sheet-input"])
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")

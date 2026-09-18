@@ -552,16 +552,49 @@ function _renderSettingsIdioma(data) {
   `).join('');
 }
 
-/** Los campos del formulario que el usuario ha tocado y no ha guardado.
+// Los cuatro campos del formulario de Configuración.
+const _CAMPOS_DE_AJUSTES = [
+  'settings-tmdb-input', 'settings-google-input',
+  'settings-drive-folder-input', 'settings-sheet-input',
+];
+
+/** Deja constancia de con qué valor se pintó cada campo.
  *
- *  Los inputs se pintan SIEMPRE vacíos —de una clave configurada solo se
- *  enseña el `last4` en el placeholder— así que cualquier valor escrito es,
- *  por construcción, un cambio pendiente.
+ *  Es lo que permite saber después si el usuario ha tocado algo. Se llama
+ *  cuando el formulario queda sincronizado con el servidor: al pintarlo y
+ *  al terminar de guardar.
+ */
+function _marcarAjustesComoGuardados() {
+  for (const id of _CAMPOS_DE_AJUSTES) {
+    const inp = document.getElementById(id);
+    if (inp) inp.dataset.inicial = inp.value || '';
+  }
+}
+
+/** Los campos que el usuario ha tocado y no ha guardado.
+ *
+ *  **No basta con mirar si están vacíos.** Tres se pintan en blanco —de una
+ *  clave configurada solo se enseña el `last4` en el placeholder— pero el
+ *  del sheet **viene pre-poblado con la URL activa**, que es pública y se
+ *  enseña a propósito. Compararlo con la cadena vacía daba «tienes cambios
+ *  sin guardar» SIEMPRE, sin haber tocado nada, que es justo lo que el aviso
+ *  no debe hacer: un diálogo que sale siempre se aprende a cerrar sin leer.
+ *
+ *  Tampoco vale reusar el criterio de `saveSettings` —«¿mandaría algo?»—,
+ *  porque ese compara el sheet con la URL POR DEFECTO: a quien tenga una
+ *  propia guardada le saldría el aviso igual sin tocar nada.
+ *
+ *  Lo que se compara es contra el valor CON EL QUE SE PINTÓ el campo. Es
+ *  exacto, no depende de la semántica de ninguno, y un campo nuevo que
+ *  nadie marque cuenta como «cambiado» en cuanto tenga texto, que es el
+ *  default conservador.
  */
 function _ajustesSinGuardar() {
-  return ['settings-tmdb-input', 'settings-google-input',
-          'settings-drive-folder-input', 'settings-sheet-input']
-    .filter(id => (document.getElementById(id)?.value || '').trim() !== '');
+  return _CAMPOS_DE_AJUSTES.filter(id => {
+    const inp = document.getElementById(id);
+    if (!inp) return false;
+    return (inp.value || '').trim() !== (inp.dataset.inicial || '').trim();
+  });
 }
 
 /** Cambiar de idioma recarga la página; antes, preguntar si hay que perder algo.
@@ -619,6 +652,8 @@ function _renderSettings(data) {
   const sheetUserSet  = _renderSettingsSheet(data);
   _hayClavesDelUsuario = tmdbUserSet || googleUserSet || driveUserSet || sheetUserSet;
   _actualizarBotonBorrar();
+  // Aquí es donde el sheet se pre-pobla, así que la foto se toma después.
+  _marcarAjustesComoGuardados();
 }
 
 // ¿Hay alguna clave o URL puesta POR EL USUARIO? Lo decide `_renderSettings`
@@ -735,6 +770,7 @@ async function saveSettings() {
   if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = tr('settings.guardada');  fbDrive.className = 'settings-feedback ok'; } }
   if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = tr('settings.guardada'); fbSheet.className = 'settings-feedback ok'; }
   showToast(tr('settings.configuracion_guardada'), 'success');
+  _marcarAjustesComoGuardados();
   return true;
 }
 

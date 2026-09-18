@@ -1569,6 +1569,23 @@ sección ya no las tienes delante al pulsar—. Y por eso `saveSettings`
 devuelve ahora un booleano: si el guardado falla **no se recarga**, o el
 usuario se quedaría sin el error y sin la clave.
 
+**«Hay cambios» se mide contra el valor CON EL QUE SE PINTÓ el campo**, y no
+contra la cadena vacía. Tres campos se pintan en blanco —de una clave solo
+se enseña el `last4` en el placeholder— pero **el del sheet viene
+pre-poblado con la URL activa**, que es pública y se enseña a propósito, así
+que compararlos todos con `''` sacaba el aviso SIEMPRE sin haber tocado
+nada. Un diálogo que sale siempre se aprende a cerrar sin leerlo, que es
+peor que no tenerlo. Lo reportó el usuario el 2026-09-18.
+
+Tampoco vale reusar el criterio de `saveSettings` («¿mandaría algo?»): ese
+compara el sheet con la URL **por defecto**, así que a quien tenga una
+propia guardada le seguiría saliendo. La foto la toma
+`_marcarAjustesComoGuardados` en los dos momentos en que el formulario queda
+sincronizado con el servidor —al pintarlo y al terminar de guardar—, y hacen
+falta **los dos**: `_renderSettings` corre ANTES de que `saveSettings` vacíe
+los campos de clave. Un campo nuevo que nadie marque cuenta como «cambiado»
+en cuanto tenga texto, que es el default conservador.
+
 ### TMDb viene configurada — la clave de la app
 
 La app se distribuye con una clave de TMDb propia (`clave_tmdb_de_la_app`, en
