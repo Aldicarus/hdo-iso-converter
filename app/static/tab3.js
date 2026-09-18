@@ -4316,11 +4316,11 @@ function _cmv40GateBloque3(s) {
       g.l6_div.why || tr('tab3.la_metadata_hdr_estatica_del_target')));
   }
   if (g.l1_div) {
-    rows.push(_cmv40GateFilaHtml(estado(g.l1_div), tr('tab3.l1_maxcll_dinamico_por_escena'),
+    rows.push(_cmv40GateFilaHtml(estado(g.l1_div), tr('tab3.l1_maxcll_del_metadata_dinamico'),
       `Δ ${g.l1_div.pct_diff}%`,
       `≤ ${g.l1_div.threshold_pct != null ? g.l1_div.threshold_pct : 5}%`,
       g.l1_div.severity, g.l1_div.critical,
-      g.l1_div.why || tr('tab3.promedio_de_brillo_escena_a_escena')));
+      g.l1_div.why || tr('tab3.pico_de_brillo_de_todo_el_metraje')));
   }
   if (!rows.length) return '';
   return _cmv40BloqueHead('③', tr('tab3.gates'), tr('tab3.valor_umbral_severidad')) + rows.join('');

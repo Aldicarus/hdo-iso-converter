@@ -3224,10 +3224,25 @@ guard `> 0`.
 **El perfil de luminancia NO estaba afectado**, y conviene saber por qué:
 `cargar_niveles` **salta la clave `scenes`** explícitamente (su formato no es
 una lista JSON), y `payload_de_luminancia` no usa cortes de escena para
-nada. Cuidado con el naming: sus `per_scene_max_cll` / `per_scene_max_fall` /
-`per_scene_min` son reducciones por **cubos** de la serie por frame
-(`_reducir` con `MAX_POINTS`, el nombre lo lleva por compatibilidad con el
-frontend) y los `bucket_dim`/`mid`/`high` cuentan **frames**, no escenas.
+nada. Sus `per_scene_max_cll` / `per_scene_max_fall` / `per_scene_min` son
+reducciones por **cubos** de la serie por frame (`_reducir` con
+`MAX_POINTS`; el nombre lo lleva por compatibilidad con el frontend) y los
+`bucket_dim`/`mid`/`high` cuentan **frames**.
+
+De ahí salió una corrección de vocabulario: **ocho rótulos decían «escena»
+para un dato que es por frame**, y el peor era «Distribución por brillo de
+escena», donde el número entre paréntesis es un recuento de frames — en un
+UHD de 159.000 se lee como 159.000 escenas. Y estaba al lado de un stat
+«scene cuts» que sí son escenas: dos cosas distintas con el mismo nombre en
+la misma pantalla. Los dos del gate L1 de Tab 3 llevaban además una segunda
+imprecisión: compara el `l1_max_cll` del `info --summary`, que es el **pico
+de todo el metraje**, no un promedio ni una comparación escena a escena.
+
+**La prosa didáctica del manual NO se tocó** («metadata de tone-mapping
+dinámico por escena», «MaxCLL/MaxFALL dinámico por escena»): ahí «por
+escena» describe bien la naturaleza del L1, y cambiarlo a «frame»
+empeoraría la explicación. La regla es la del dato: si el rótulo etiqueta un
+NÚMERO, tiene que decir la unidad de ese número.
 
 ### Decisión de 4 caminos (`recommend_action`)
 

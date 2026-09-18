@@ -176,6 +176,46 @@ EXCEPCIONES: dict[str, str] = {
     # el «el BD» que estaba cableado en el código.
     "[Fase B] Encuadre VARIABLE en ⟦⟧ — típico de un máster con escenas expandidas (IMAX / open matte).":
         "partida en `cmv40_pipeline.encuadre_variable_ambos` / `_bd` / `_bin`",
+    # ── «escena» donde el dato es POR FRAME (2026-09-18, a petición del
+    #    usuario). El perfil de luminancia sale del bloque L1, que tiene un
+    #    registro por FRAME; lo que el chart pinta son cubos de la serie y
+    #    los `bucket_dim/mid/high` cuentan FRAMES. Y justo al lado, en la
+    #    misma pantalla, hay un stat «scene cuts» que sí son escenas de
+    #    verdad: dos cosas distintas con el mismo nombre.
+    #
+    #    La peor era «Distribución por brillo de escena», porque el número
+    #    entre paréntesis es un recuento de frames y en un UHD de 159.000 se
+    #    lee como 159.000 escenas.
+    #
+    #    Los dos del gate L1 de Tab 3 tenían además otra imprecisión: compara
+    #    el `l1_max_cll` del `info --summary`, que es el PICO de todo el
+    #    metraje, no un promedio ni una comparación escena a escena.
+    #
+    #    NO se ha tocado la prosa didáctica del manual («metadata de
+    #    tone-mapping dinámico por escena», «MaxCLL/MaxFALL dinámico por
+    #    escena»): ahí «por escena» describe bien la naturaleza del L1 y
+    #    cambiarlo a «frame» empeoraría la explicación.
+    "Perfil de luminancia DV L1 por escena ⟦⟧":
+        "el L1 tiene un registro por FRAME; hoy dice «por frame»",
+    "pico de luz por escena · nits (escala logarítmica)":
+        "el eje Y del chart es el max_pq del frame; hoy dice «por frame»",
+    "Distribución por brillo de escena":
+        "cuenta FRAMES (`bucket_dim/mid/high`), y el recuento iba bajo la "
+        "palabra «escena»; hoy «Distribución de frames por brillo»",
+    "Valores extraídos del bloque L1 del RPU Dolby Vision (peak/avg de PQ por escena, según etiquetó el colorista). No son medidas reales en pantalla — un disco conservadoramente mastered (BR2049, p.ej.) puede mostrar peaks de metadata bajos aunque la imagen real alcance valores mayores tras tone-mapping. Coincide exactamente con dovi_tool info --summary.":
+        "el peak/avg de PQ es por FRAME; el resto del tooltip no cambia",
+    "Análisis per-escena no generado":
+        "es el estado vacío del perfil de luminancia y no hay ningún "
+        "análisis «per-escena»; hoy «Perfil de luminancia no generado»",
+    "L1 — MaxCLL dinámico por escena":
+        "el gate compara el `l1_max_cll` del summary, que es el pico de todo "
+        "el metraje; hoy «L1 — MaxCLL del metadata dinámico»",
+    "Promedio de brillo escena a escena. Por encima del umbral el grading del bin diverge del BD.":
+        "ni es un promedio (es el PICO) ni se compara escena a escena (son "
+        "dos números agregados del `info --summary`)",
+    "Source y target tienen exactamente el mismo número de frames — condición crítica para que el RPU se inyecte alineado escena a escena.":
+        "el gate cuenta FRAMES y la inyección del RPU es frame a frame, que "
+        "es como lo llama el resto de la app",
 }
 
 

@@ -997,7 +997,7 @@ function _rgrfL1StatsCard(stats, hdr) {
           </div>
         </div>
         <div class="dv-l1-stats-block">
-          <div class="dv-l1-stats-block-title" data-i18n="tab2.distribucion_por_brillo_de_escena"></div>
+          <div class="dv-l1-stats-block-title" data-i18n="tab2.distribucion_de_frames_por_brillo"></div>
           <div class="dv-l1-bars">
             <div class="dv-l1-bar-row">
               <span class="dv-l1-bar-label"><span data-i18n="tab2.sdr_like"></span> &lt;100n</span>
@@ -1256,7 +1256,7 @@ function _rgrfDistributionSvg(series) {
       <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}"
             stroke="rgba(15,23,42,0.25)" stroke-width="1" />
       <text x="${padL + usableW/2}" y="${svgH - 10}" fill="#64748b" font-size="11"
-            font-family="SF Mono,monospace" text-anchor="middle" font-weight="500" data-i18n="tab2.pico_de_luz_por_escena_nits"></text>
+            font-family="SF Mono,monospace" text-anchor="middle" font-weight="500" data-i18n="tab2.pico_de_luz_por_frame_nits"></text>
     </svg>`;
 }
 
@@ -1554,7 +1554,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
        <div class="dv-chart-large">${_rgrfDistributionSvg(dv.per_scene_max_cll)}</div>`
     : `<div class="dv-chart-empty">
          <div class="dv-chart-empty-icon"><span data-icono="grafico"></span></div>
-         <div class="dv-chart-empty-text" data-i18n="tab2.analisis_per_escena_no_generado"></div>
+         <div class="dv-chart-empty-text" data-i18n="tab2.perfil_de_luminancia_no_generado"></div>
          <div class="dv-chart-empty-hint"><span data-i18n-html="tab2.sale_del_analisis_rpu_luz"></span></div>
        </div>`;
   // Un solo botón: el perfil sale del mismo análisis extendido que la
