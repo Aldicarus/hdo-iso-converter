@@ -680,6 +680,8 @@ def _build_quality_audit_from_rpu_analysis(
         "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
         "quality_scene_cuts": rpu_analysis.scene_cuts,
         "quality_l2_unique_count": rpu_analysis.l2_unique_count,
+        "quality_l8_max_delta": rpu_analysis.l8_max_delta,
+        "quality_l8_frames_sig_pct": rpu_analysis.l8_frames_significativos_pct,
         "quality_l3_unique_count": rpu_analysis.l3_unique_count,
         "quality_l3_frames": rpu_analysis.l3_frames,
         "quality_l2_target_pqs": list(rpu_analysis.l2_target_pqs),

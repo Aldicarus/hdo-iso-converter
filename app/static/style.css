@@ -6326,6 +6326,60 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    lengua, y dentro de un <option> no cabe marcado. El activo va deshabilitado
    porque volver a elegirlo recargaría la página por nada. */
 
+
+/* ── Los niveles del bin, con su papel (card de decisión de Tab 3) ───────
+ *
+ *  Cuatro columnas: nivel · qué aporta · el bin · tu disco. La última es
+ *  la que hace entendible el veredicto — enseña que L2 y L1 ya los tienes
+ *  y que lo único que el bin añade de un humano es el L8.
+ */
+.cmv40-niveles {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 5px 14px;
+  align-items: baseline;
+}
+.cmv40-niveles-cab {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--sep);
+}
+.cmv40-nivel-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* El que decide va marcado: es la diferencia entre mirar cuatro números
+   y entender cuál de ellos manda. */
+.cmv40-nivel-id.decide { color: var(--blue); }
+.cmv40-nivel-papel { font-size: 11px; color: var(--text-3); line-height: 1.35; }
+.cmv40-nivel-decide {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 7px;
+  background: var(--blue-dim);
+  color: var(--blue);
+  white-space: nowrap;
+}
+.cmv40-nivel-val {
+  font-size: 12px;
+  color: var(--text-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.cmv40-nivel-extra { font-size: 10px; color: var(--text-3); }
+/* «Tu disco» en gris: es contexto, no el dato que se consulta. */
+.cmv40-nivel-disco { color: var(--text-3); }
+
 /* ── La navegación de secciones del modal de Configuración ───────────────
  *
  *  Vertical y no en pestañas horizontales porque el modal está pensado para

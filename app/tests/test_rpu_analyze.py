@@ -37,140 +37,129 @@ def _write_json(data) -> Path:
 # ── classify_l8 ──────────────────────────────────────────────────────────────
 
 class TestClassifyL8(unittest.TestCase):
+    """El criterio es la MAGNITUD de los trims L8, no cuántos combos hay.
+
+    Recalibrado el 2026-09-18 sobre 40 bins del repo DoviTools (18 retail,
+    22 generados) más dos pares controlados del mismo título. Lo que se
+    midió, y por qué el conteo de combos no vale:
+
+        generados por análisis .......  maxΔ  0 – 30
+        másters con colorista ........  maxΔ  126 – 2.046
+
+    Dogma trae 2 combos con maxΔ 606 (retail) y un generado trae 2 combos
+    con maxΔ 0. Contando combos se perdían 5 de 18 retail. Y el % de
+    frames neutros tampoco separa: hay retail al 81 % y generados al 33 %.
+
+    El umbral (50) es el `L8_REAL_MINIMAL_SIGNIFICANT_DELTA` que ya estaba
+    calibrado; lo que cambia es que pasa de rama secundaria a criterio.
+    """
 
     def _make(self, *, l8_count=0, neutral_pct=0.0, cmv40_frames=100,
-              has_mid_contrast=False, has_clip_trim=False) -> RpuAnalysis:
+              has_mid_contrast=False, has_clip_trim=False,
+              delta=0, mid_contrast=None, clip_trim=None) -> RpuAnalysis:
+        """`delta` es la desviación del trim respecto al neutro: lo que decide."""
         a = RpuAnalysis()
         a.l8_unique_count = l8_count
         a.l8_neutral_pct = neutral_pct
         a.frames_with_cmv40 = cmv40_frames
         a.l8_has_mid_contrast = has_mid_contrast
         a.l8_has_clip_trim = has_clip_trim
+        a.l8_combos = [
+            L8Combo(target_display_index=1,
+                    trim_slope=2048 + (delta if i == 0 else 0),
+                    trim_offset=2048, trim_power=2048,
+                    trim_chroma_weight=2048, trim_saturation_gain=2048,
+                    ms_weight=0,
+                    target_mid_contrast=mid_contrast, clip_trim=clip_trim,
+                    occurrence_count=cmv40_frames)
+            for i in range(max(0, l8_count))
+        ]
         return a
 
-    def test_real_when_many_combos_and_low_neutral(self):
-        # Caso típico de los bins reales analizados (Spider-Man: 69 combos, 30% neutros)
-        a = self._make(l8_count=69, neutral_pct=0.30)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "real")
-        self.assertIn("69 combos", reason)
-        self.assertIn("CORE", reason)
+    # ── el bin trae trims de colorista ──────────────────────────────
 
-    def test_real_full_when_mid_contrast_populated(self):
-        # Caso Smashing Machine: combos altos + mid_contrast/clip_trim poblados
-        a = self._make(l8_count=152, neutral_pct=0.001,
-                       has_mid_contrast=True, has_clip_trim=True)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "real")
-        self.assertIn("FULL", reason)
-
-    def test_default_when_single_combo(self):
-        # Caso patológico: 1 combo único en todos los frames
-        a = self._make(l8_count=1, neutral_pct=1.0)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "default")
-        self.assertIn("sintético", reason.lower())
-
-    def test_dark_master_many_combos_high_neutral_is_indeterminate(self):
-        # audit #3: un master CORE real de peli OSCURA tiene muchos combos
-        # reales (50) pero la mayoría de frames en escenas oscuras → trims a
-        # neutro (98%). Antes el `OR neutral>=95%` lo marcaba "default" →
-        # Mantener → descartaba un bin válido. Ahora, con >=10 combos, el alto
-        # % neutro NO basta para "default": cae a "indeterminate" (avanza y
-        # decide tras Fase A) en lugar de auto-descartarse.
-        a = self._make(l8_count=50, neutral_pct=0.98)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "indeterminate")
-
-    def test_single_combo_nonneutral_still_default(self):
-        # Guarda contra la regresión del fix #3: un bin sintético de 1 combo
-        # con trim global NO-neutro (0% frames neutros) debe seguir siendo
-        # "default" — `combos<=2` es disparador independiente, no condicionado
-        # al % neutro.
-        a = self._make(l8_count=1, neutral_pct=0.0)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "default")
-
-    def test_default_when_no_cmv40_blocks(self):
-        # Edge: RPU CMv2.9 puro sin nada de CMv4.0
-        a = self._make(l8_count=0, neutral_pct=0.0, cmv40_frames=0)
+    def test_real_cuando_los_trims_se_apartan_del_neutro(self):
+        a = self._make(l8_count=69, neutral_pct=0.30, delta=200)
         cls, _ = classify_l8(a)
-        self.assertEqual(cls, "default")
-
-    def test_indeterminate_when_in_between(self):
-        # Entre los dos umbrales: 5 combos (>= 2 y < 10), neutral 80% (< 95%)
-        # Sin mid_c/clip y sin l8_combos rehidratados → no salta a "real minimal"
-        a = self._make(l8_count=5, neutral_pct=0.80)
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "indeterminate")
-        self.assertIn("límite", reason.lower())
-
-    def test_real_minimal_with_few_combos_and_significant_trim(self):
-        # Caso Black Phone 2: 3 combos, mid_c poblado, trims significativos
-        # (slope=2165 = +117 del neutro)
-        a = self._make(l8_count=3, neutral_pct=0.10, has_mid_contrast=True)
-        a.l8_combos = [
-            L8Combo(target_display_index=1, trim_slope=2048, trim_offset=2048,
-                    trim_power=2048, trim_chroma_weight=2048,
-                    trim_saturation_gain=2048, ms_weight=2048,
-                    target_mid_contrast=2048, clip_trim=None,
-                    occurrence_count=100),
-            L8Combo(target_display_index=1, trim_slope=2165, trim_offset=2048,
-                    trim_power=2183, trim_chroma_weight=2048,
-                    trim_saturation_gain=2066, ms_weight=2048,
-                    target_mid_contrast=2121, clip_trim=2503,
-                    occurrence_count=50),
-        ]
-        cls, reason = classify_l8(a)
         self.assertEqual(cls, "real")
-        self.assertIn("minimal", reason.lower())
-        self.assertIn("mid_contrast", reason)
 
-    def test_real_minimal_with_clip_trim_and_negative_delta(self):
-        # Caso Expediente Warren: 5 combos, clip poblado, slope=-276
-        a = self._make(l8_count=5, neutral_pct=0.05, has_clip_trim=True)
-        a.l8_combos = [
-            L8Combo(target_display_index=1, trim_slope=1772, trim_offset=2096,
-                    trim_power=2239, trim_chroma_weight=2048,
-                    trim_saturation_gain=1843, ms_weight=2048,
-                    target_mid_contrast=2048, clip_trim=1901,
-                    occurrence_count=200),
-        ]
-        cls, reason = classify_l8(a)
-        self.assertEqual(cls, "real")
-        self.assertIn("minimal", reason.lower())
-        self.assertIn("clip_trim", reason)
+    def test_el_caso_posesion_infernal_dos_combos_y_trims_fuertes(self):
+        """Retail con 2 combos y `power −184`, `sat −328` en 158.942 frames.
 
-    def test_real_minimal_requires_significant_delta(self):
-        # 5 combos + mid_c poblado pero todos los trims a delta ≤ 50 → sigue
-        # siendo indeterminate (jitter, no master real)
-        a = self._make(l8_count=5, neutral_pct=0.20, has_mid_contrast=True)
-        a.l8_combos = [
-            L8Combo(target_display_index=1, trim_slope=2080, trim_offset=2050,
-                    trim_power=2070, trim_chroma_weight=2048,
-                    trim_saturation_gain=2055, ms_weight=2048,
-                    target_mid_contrast=2049, clip_trim=None,
-                    occurrence_count=100),
-        ]
-        cls, _ = classify_l8(a)
-        self.assertEqual(cls, "indeterminate")
+        Con el criterio viejo (combos <= 2 -> sintético) se descartaba, y
+        es un máster con trabajo real. Es el caso que motivó recalibrar.
+        """
+        a = self._make(l8_count=2, delta=328)
+        self.assertEqual(classify_l8(a)[0], "real")
 
-    def test_real_minimal_requires_extra_cmv4_field(self):
-        # 5 combos con trims significativos pero sin mid_c ni clip → no es
-        # "minimal" (sería un CORE incipiente, dejarlo en indeterminate)
-        a = self._make(l8_count=5, neutral_pct=0.20)
-        a.l8_combos = [
-            L8Combo(target_display_index=1, trim_slope=1800, trim_offset=2048,
-                    trim_power=2200, trim_chroma_weight=2048,
-                    trim_saturation_gain=2048, ms_weight=2048,
-                    target_mid_contrast=None, clip_trim=None,
-                    occurrence_count=100),
-        ]
-        cls, _ = classify_l8(a)
-        self.assertEqual(cls, "indeterminate")
+    def test_el_caso_dogma_dos_combos_y_delta_606(self):
+        a = self._make(l8_count=2, delta=606, clip_trim=1442)
+        self.assertEqual(classify_l8(a)[0], "real")
+
+    def test_real_con_mid_contrast_poblado(self):
+        """`mid_contrast` y `clip_trim` son CMv4.0-only y el análisis no los
+        rellena: 11 de 18 retail los traen, 1 de 22 generados."""
+        a = self._make(l8_count=3, has_mid_contrast=True, mid_contrast=2121)
+        self.assertEqual(classify_l8(a)[0], "real")
+
+    # ── el bin NO trae trims de colorista ───────────────────────────
+
+    def test_default_cuando_los_trims_son_neutros(self):
+        """El caso de los generados: haya los combos que haya, si no se
+        apartan del neutro es lo que `cm_analyze` haría sobre tu disco."""
+        a = self._make(l8_count=2, delta=0)
+        self.assertEqual(classify_l8(a)[0], "default")
+
+    def test_default_con_muchos_combos_pero_todos_pegados_al_neutro(self):
+        a = self._make(l8_count=400, delta=0)
+        self.assertEqual(classify_l8(a)[0], "default")
+
+    def test_una_desviacion_por_debajo_del_umbral_no_cuenta(self):
+        """El generado más fuerte medido se queda en 30; el retail más flojo
+        con L8 real, en 126. El umbral de 50 cae en medio."""
+        self.assertEqual(classify_l8(self._make(l8_count=2, delta=30))[0], "default")
+        self.assertEqual(classify_l8(self._make(l8_count=2, delta=126))[0], "real")
+
+    def test_default_sin_bloques_cmv40(self):
+        a = self._make(l8_count=0, cmv40_frames=0)
+        self.assertEqual(classify_l8(a)[0], "default")
+
+    def test_avatar_fire_and_ash_un_combo_enteramente_neutro(self):
+        """Retail que la regla descarta, y con razón: su L8 no tiene trims."""
+        a = self._make(l8_count=1, delta=0)
+        self.assertEqual(classify_l8(a)[0], "default")
+
+    # ── el contrato ────────────────────────────────────────────────
+
+    def test_solo_hay_DOS_veredictos(self):
+        """«Indeterminate» se retiró: no era accionable. A un usuario no se
+        le puede pedir que decida sobre un bin que la app no sabe clasificar."""
+        vistos = set()
+        for combos in (0, 1, 2, 3, 10, 400):
+            for d in (0, 30, 51, 600):
+                vistos.add(classify_l8(self._make(l8_count=combos, delta=d))[0])
+        self.assertEqual(vistos, {"real", "default"})
+
+    def test_ms_weight_no_cuenta_como_trim(self):
+        """Su neutro es 0, no 2048. Incluirlo daba un combo neutro por
+        trabajado y dejaba `l8_neutral_pct` a 0 % en bins enteramente
+        neutros — el bug que destapó Evil Dead Burn."""
+        from phases.rpu_analyze import _is_l8_neutral
+        self.assertTrue(_is_l8_neutral((1, 2048, 2048, 2048, 2048, 2048, 0, None, None)))
+        self.assertTrue(_is_l8_neutral((1, 2048, 2048, 2048, 2048, 2048, 2048, None, None)))
+        self.assertFalse(_is_l8_neutral((1, 2048, 2048, 1864, 2048, 1720, 0, None, None)))
+
+    def test_l3_no_decide_nada(self):
+        """57 % de acierto sobre 40 bins —azar— y mediana MAYOR en los
+        generados. El mid tone offset lo produce el análisis de Dolby."""
+        pobre = self._make(l8_count=2, delta=0)
+        pobre.l3_unique_count, pobre.l3_frames = 2583, 150000
+        self.assertEqual(classify_l8(pobre)[0], "default")
+        rico = self._make(l8_count=2, delta=328)
+        rico.l3_unique_count, rico.l3_frames = 1, 88
+        self.assertEqual(classify_l8(rico)[0], "real")
 
 
-# ── _parse_export ────────────────────────────────────────────────────────────
 
 class TestParseExport(unittest.TestCase):
 
@@ -374,6 +363,15 @@ class TestClassifyL8Quality(unittest.TestCase):
 
     def _make_real(self, *, l8_count=64, neutral_pct=0.1, scene_cuts=2000,
                    has_mid_contrast=False, has_clip_trim=False) -> RpuAnalysis:
+        """Un análisis que `classify_l8` da por «real».
+
+        El tier solo se calcula sobre un bin ya clasificado como real, y
+        desde la recalibración eso exige trims que se aparten del neutro —
+        no basta con el conteo de combos. Por eso el fixture trae un combo
+        con desviación: sin él, `classify_l8` diría «default» y el tier
+        saldría vacío, que es lo que rompió estos cinco tests al cambiar
+        el criterio.
+        """
         a = RpuAnalysis()
         a.l8_unique_count = l8_count
         a.l8_neutral_pct = neutral_pct
@@ -381,6 +379,13 @@ class TestClassifyL8Quality(unittest.TestCase):
         a.scene_cuts = scene_cuts
         a.l8_has_mid_contrast = has_mid_contrast
         a.l8_has_clip_trim = has_clip_trim
+        a.l8_combos = [L8Combo(
+            target_display_index=1, trim_slope=2048 + 300, trim_offset=2048,
+            trim_power=2048, trim_chroma_weight=2048, trim_saturation_gain=2048,
+            ms_weight=0,
+            target_mid_contrast=2121 if has_mid_contrast else None,
+            clip_trim=1901 if has_clip_trim else None,
+            occurrence_count=100000)]
         return a
 
     def test_full_when_mid_contrast_populated(self):

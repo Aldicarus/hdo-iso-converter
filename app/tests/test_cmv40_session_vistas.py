@@ -53,7 +53,7 @@ class TestElJsonNoCambia(unittest.TestCase):
         self.assertEqual(d["target_l8_unique_count"], 412)
 
     def test_el_numero_de_campos_no_cambia(self):
-        # 82 campos. Si esto sube, alguien añadió un campo al modelo: revisar
+        # 83 campos. Si esto sube, alguien añadió un campo al modelo: revisar
         # que el summary del sidebar no lo vacíe y que la UI lo espere.
         #
         # Los dos últimos son `target_l3_unique_count` y `target_l3_frames`
@@ -63,8 +63,13 @@ class TestElJsonNoCambia(unittest.TestCase):
         # así que estos dos viajan enteros, que es lo que quiere la card de
         # análisis del bin.
         #
+        # Y el último, `target_l8_max_delta` (2026-09-18): la desviación
+        # máxima de los trims L8 respecto al neutro, que es lo que decide
+        # si el bin trae trabajo de colorista. Se persiste porque el
+        # criterio la lee; la lista de combos de la que sale ya estaba.
+        #
         # Antes de esos, `preflight_user_choice{,_at}` (2026-09-10).
-        self.assertEqual(len(sesion().model_dump()), 82)
+        self.assertEqual(len(sesion().model_dump()), 83)
 
     def test_un_json_plano_se_carga_intacto(self):
         # El caso que hace inviable anidar: aquí NO se pierde nada.

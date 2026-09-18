@@ -1657,6 +1657,8 @@ function _rgrfQualityAuditCard(dv, isV40) {
   const l8Count = dv.quality_l8_unique_count || 0;
   const l2Count = dv.quality_l2_unique_count || 0;
   const l3Count = dv.quality_l3_unique_count || 0;
+  // La magnitud es lo que decide el veredicto; los combos solo dicen cuántos hay.
+  const l8Delta = dv.quality_l8_max_delta || 0;
   const scenes = dv.quality_scene_cuts || 0;
   const totalFrames = dv.quality_total_frames_rpu || 0;
   const cmv40Frames = dv.quality_frames_with_cmv40 || 0;
@@ -1675,9 +1677,10 @@ function _rgrfQualityAuditCard(dv, isV40) {
                 onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.re_analizar_5_10_min_util"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>
       </div>
       <div class="dv-quality-stats">
-        <div class="dv-quality-stat">
+        <div class="dv-quality-stat" data-i18n-tip="tab2.l8_maxdelta_que_es">
           <div class="dv-quality-stat-value">${l8Count.toLocaleString(localeActual())}</div>
-          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l8_unicos"></div>
+          <div class="dv-quality-stat-label"><span data-i18n="tab2.combos_l8_unicos"></span>${
+            l8Delta ? ` <span style="opacity:.7">· maxΔ ${l8Delta.toLocaleString(localeActual())}</span>` : ''}</div>
         </div>
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${l2Count.toLocaleString(localeActual())}</div>

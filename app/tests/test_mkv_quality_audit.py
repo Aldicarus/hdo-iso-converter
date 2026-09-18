@@ -4,8 +4,13 @@ Cubre la lógica de verdict (color + texto + tier) y los provenance hints
 para todos los caminos del classifier:
   - CMv4.0 real FULL / CORE+ / CORE / minimal
   - CMv4.0 default (sintético)
-  - CMv4.0 indeterminate
   - CMv2.9 puro (sin L8) en sus 3 tiers
+
+El estado «indeterminate» se retiró el 2026-09-18: no era accionable — a un
+usuario no se le puede pedir que decida sobre un bin que la app no sabe
+clasificar. Y con el criterio nuevo (la MAGNITUD de los trims L8, no su
+conteo) la frontera es nítida: los bins generados por análisis se quedan en
+maxΔ 0-30 y los másters con colorista arrancan en 126.
 """
 import sys
 import unittest
@@ -35,7 +40,14 @@ from models import L8Combo  # noqa: E402
 
 
 def _make_rpu(*, l8=0, l2=0, neutral=0.0, cmv40_frames=100, scene_cuts=0,
-              mid_c=False, clip=False, l2_pqs=None, l2_combos=0) -> RpuAnalysis:
+              mid_c=False, clip=False, l2_pqs=None, l2_combos=0,
+              delta=152) -> RpuAnalysis:
+    """`delta` es la desviación de los trims respecto al neutro.
+
+    Desde la recalibración del 2026-09-18 es lo que decide el veredicto, así
+    que un fixture sin combos da «default» pase lo que pase con el conteo.
+    Por defecto trae trabajo; pásalo a 0 para describir un bin generado.
+    """
     a = RpuAnalysis()
     a.l8_unique_count = l8
     a.l2_unique_count = l2
@@ -47,16 +59,15 @@ def _make_rpu(*, l8=0, l2=0, neutral=0.0, cmv40_frames=100, scene_cuts=0,
     a.l8_has_clip_trim = clip
     a.l2_target_pqs = l2_pqs or []
     a.l2_combos = [None] * l2_combos if l2_combos else []
-    # Para "real minimal" — al menos un combo con delta significativo
-    if mid_c or clip:
+    if l8:
         a.l8_combos = [L8Combo(
-            target_display_index=1, trim_slope=2200,  # +152 del neutro
+            target_display_index=1, trim_slope=2048 + delta,
             trim_offset=2048, trim_power=2048, trim_chroma_weight=2048,
-            trim_saturation_gain=2048, ms_weight=2048,
+            trim_saturation_gain=2048, ms_weight=0,
             target_mid_contrast=2121 if mid_c else None,
             clip_trim=2503 if clip else None,
             occurrence_count=10,
-        )]
+        )] * max(1, l8)
     return a
 
 
@@ -85,17 +96,29 @@ class TestVerdictCMv4(unittest.TestCase):
         self.assertEqual(out["quality_verdict_color"], "yellow")
 
     def test_default_red(self):
-        rpu = _make_rpu(l8=1, neutral=1.0, cmv40_frames=100)
+        # `neutral=1.0` y trims a cero es lo mismo dicho dos veces: un bin
+        # sin trabajo. Antes bastaba con el conteo; hoy lo que decide es
+        # que los trims no se aparten del neutro, así que va explícito.
+        rpu = _make_rpu(l8=1, neutral=1.0, cmv40_frames=100, delta=0)
         out = _build_quality_audit_from_rpu_analysis(rpu, False)
         self.assertEqual(out["quality_classification"], "default")
         self.assertEqual(out["quality_verdict_color"], "red")
         self.assertIn("sintético", out["quality_verdict_text"].lower())
 
-    def test_indeterminate_gray(self):
-        rpu = _make_rpu(l8=5, neutral=0.80, cmv40_frames=100)
+    def test_un_l8_pegado_al_neutro_es_sintetico(self):
+        """Ya no hay «indeterminate»: el veredicto es binario.
+
+        Y lo que lo decide es la magnitud — cinco combos con los trims a
+        cero es lo que `cm_analyze` produce sobre cualquier disco.
+        """
+        rpu = _make_rpu(l8=5, neutral=0.80, cmv40_frames=100, delta=0)
         out = _build_quality_audit_from_rpu_analysis(rpu, False)
-        self.assertEqual(out["quality_classification"], "indeterminate")
-        self.assertEqual(out["quality_verdict_color"], "gray")
+        self.assertEqual(out["quality_classification"], "default")
+
+    def test_los_mismos_cinco_combos_con_trims_reales_si_valen(self):
+        rpu = _make_rpu(l8=5, neutral=0.80, cmv40_frames=100, delta=300)
+        out = _build_quality_audit_from_rpu_analysis(rpu, False)
+        self.assertEqual(out["quality_classification"], "real")
 
 
 class TestVerdictCMv29(unittest.TestCase):

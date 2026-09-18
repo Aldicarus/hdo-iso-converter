@@ -3371,33 +3371,64 @@ function _renderCMv40RecommendationCard(s, pid) {
     ? `<span style="background:var(--orange-dim); color:var(--orange); border:1px solid var(--orange-border); padding:3px 9px; border-radius:10px; font-size:11px; font-weight:600" data-i18n="tab3.l2_distinto_del_mkv_original"></span>`
     : '';
 
-  // Datos técnicos en formato lista (grid 2-col label/value) — más legible
-  // que tabla HTML y sin riesgo de solape. Padding fijo + line-height claro.
-  const techRows = [];
-  if (s.target_l8_unique_count) {
-    techRows.push({ label: tr('tab3.combos_l8'), value: String(s.target_l8_unique_count) });
-  }
-  if (s.target_l8_neutral_frames_pct != null && s.target_frames_analyzed) {
-    const worked = (1.0 - s.target_l8_neutral_frames_pct) * 100;
-    techRows.push({ label: tr('tab3.frames_con_trim'), value: `${worked.toFixed(0)}%` });
-  }
-  if (s.target_l8_has_mid_contrast || s.target_l8_has_clip_trim) {
+  // ── Los niveles, con su PAPEL y con lo que ya tiene tu disco ──
+  //
+  // Antes esto era una lista de números sueltos («combos L8: 2») que no
+  // decían si eso era bueno. Hoy cada fila dice de dónde sale el nivel,
+  // porque es lo que permite entender el veredicto:
+  //
+  //   L8  lo pone el COLORISTA  -> es lo único que decide
+  //   L3  lo pone el ANÁLISIS   -> lo produce cm_analyze sobre cualquier disco
+  //   L2  lo pone el colorista  -> pero YA lo tienes en el Blu-ray
+  //   L1  lo pone el análisis   -> ya lo tienes
+  //
+  // La columna «tu disco» es la clave didáctica: enseña de un vistazo que
+  // lo único que el bin aporta de un humano es el L8.
+  const delta = s.target_l8_max_delta || 0;
+  const nivelRows = [];
+  if (s.target_l8_unique_count || delta) {
+    const trabajados = s.target_l8_neutral_frames_pct != null
+      ? `${((1.0 - s.target_l8_neutral_frames_pct) * 100).toFixed(0)}%` : '—';
     const extras = [];
-    if (s.target_l8_has_mid_contrast) extras.push('target_mid_contrast');
+    if (s.target_l8_has_mid_contrast) extras.push('mid_contrast');
     if (s.target_l8_has_clip_trim) extras.push('clip_trim');
-    techRows.push({ label: 'CMv4.0 extras', value: extras.join(' · ') });
+    nivelRows.push({
+      nivel: 'L8', papel: tr('tab3.nivel_l8_papel'), decide: true,
+      bin: tr('tab3.nivel_l8_valor', {
+        combos: _cmv40Num(s.target_l8_unique_count || 0),
+        delta: _cmv40Num(delta), pct: trabajados }),
+      extra: extras.join(' · '),
+      disco: '—',
+    });
   }
-  if (s.target_l2_unique_count) {
-    techRows.push({ label: tr('tab3.combos_l2_bin'), value: String(s.target_l2_unique_count) });
+  if (s.target_l2_unique_count || s.source_l2_unique_count) {
+    nivelRows.push({
+      nivel: 'L2', papel: tr('tab3.nivel_l2_papel'),
+      bin: tr('tab3.n_combos', {n: _cmv40Num(s.target_l2_unique_count || 0)}),
+      disco: s.source_l2_unique_count
+        ? tr('tab3.n_combos', {n: _cmv40Num(s.source_l2_unique_count)}) : '—',
+    });
   }
-  if (s.source_l2_unique_count) {
-    techRows.push({ label: tr('tab3.combos_l2_mkv_original'), value: String(s.source_l2_unique_count) });
+  if (s.target_l3_unique_count || s.target_l3_frames) {
+    nivelRows.push({
+      nivel: 'L3', papel: tr('tab3.nivel_l3_papel'),
+      bin: tr('tab3.n_combos', {n: _cmv40Num(s.target_l3_unique_count || 0)}),
+      disco: '—',
+    });
   }
-  const techGrid = techRows.length ? `
-    <div style="margin-top:14px; display:grid; grid-template-columns:auto 1fr; gap:6px 16px; align-items:baseline">
-      ${techRows.map(r => `
-        <div style="font-size:11px; color:var(--text-3); font-weight:500">${escHtml(r.label)}</div>
-        <div style="font-size:12px; color:var(--text-1); font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escHtml(r.value)}</div>
+  const techGrid = nivelRows.length ? `
+    <div class="cmv40-niveles" data-i18n-tip="tab3.niveles_quien_los_crea">
+      <div class="cmv40-niveles-cab"></div>
+      <div class="cmv40-niveles-cab" data-i18n="tab3.col_papel"></div>
+      <div class="cmv40-niveles-cab" data-i18n="tab3.col_bin"></div>
+      <div class="cmv40-niveles-cab" data-i18n="tab3.col_disco"></div>
+      ${nivelRows.map(r => `
+        <div class="cmv40-nivel-id${r.decide ? ' decide' : ''}">${escHtml(r.nivel)}</div>
+        <div class="cmv40-nivel-papel">${escHtml(r.papel)}${
+            r.decide ? ` <span class="cmv40-nivel-decide" data-i18n="tab3.decide"></span>` : ''}</div>
+        <div class="cmv40-nivel-val">${escHtml(r.bin)}${
+            r.extra ? `<br><span class="cmv40-nivel-extra">${escHtml(r.extra)}</span>` : ''}</div>
+        <div class="cmv40-nivel-val cmv40-nivel-disco">${escHtml(r.disco)}</div>
       `).join('')}
     </div>` : '';
 

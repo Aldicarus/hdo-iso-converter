@@ -196,6 +196,17 @@ class DoviInfo(BaseModel):
     quality_l2_unique_count: int = 0
     """Nº de combos L2 únicos (trims CMv2.9) a lo largo del RPU."""
 
+    quality_l8_max_delta: int = 0
+    """Desviación máxima de los trims L8 respecto al neutro (2048).
+
+    Es lo que decide si el bin trae trabajo de colorista: medido sobre 40
+    bins del repo DoviTools, los generados por análisis se quedan en 0-30
+    y los másters con colorista arrancan en 126. El número de combos no
+    separa — hay retail con 2 combos y maxΔ 606."""
+
+    quality_l8_frames_sig_pct: float = 0.0
+    """Fracción del metraje con trims que se apartan del neutro."""
+
     quality_l3_unique_count: int = 0
     """Nº de combos L3 únicos (offsets sobre el L1) a lo largo del RPU.
 
@@ -1536,6 +1547,9 @@ class CMv40Session(BaseModel):
     # números: la lista de combos serían miles y no se persiste.
     target_l3_unique_count: int = 0
     target_l3_frames: int = 0
+
+    # La magnitud del L8: lo que DECIDE si el bin trae trims de colorista.
+    target_l8_max_delta: int = 0
 
     # Análisis del L8 del bin target — poblado en pre-flight
     target_l8_combos: list[L8Combo] = []

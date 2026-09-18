@@ -1465,6 +1465,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     session.target_l2_combos = analysis.l2_combos
     session.target_l2_unique_count = analysis.l2_unique_count
     session.target_l2_target_pqs = analysis.l2_target_pqs
+    session.target_l8_max_delta = analysis.l8_max_delta
     session.target_l3_unique_count = analysis.l3_unique_count
     session.target_l3_frames = analysis.l3_frames
     session.target_l8_combos = analysis.l8_combos
@@ -2575,6 +2576,39 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     Que falle no puede costar la petición: quedarse con el texto viejo es
     un inconveniente, no ver el proyecto no lo es.
     """
+    # Los NÚMEROS del bin siguen siendo válidos; lo que cambió el
+    # 2026-09-18 es el criterio que los lee. Un proyecto analizado antes
+    # trae `target_l8_classification` decidido por conteo de combos, que
+    # descartaba 5 de cada 18 bins retail. Como `target_l8_combos` SÍ está
+    # persistido, la clasificación se re-deriva al servir y esos proyectos
+    # se corrigen solos al abrirlos — sin migrar ni re-analizar nada.
+    #
+    # Solo se toca la clasificación, no las decisiones del usuario
+    # (`preflight_decision`, los ACK): esas son suyas.
+    try:
+        if session.target_l8_combos:
+            from phases.rpu_analyze import (
+                RpuAnalysis, classify_l8, classify_l8_quality)
+            a = RpuAnalysis()
+            a.l8_combos = list(session.target_l8_combos)
+            a.l8_unique_count = session.target_l8_unique_count
+            a.l8_neutral_pct = session.target_l8_neutral_frames_pct
+            a.frames_with_cmv40 = session.target_frames_analyzed
+            a.scene_cuts = session.target_l8_scene_cuts
+            a.l8_has_mid_contrast = session.target_l8_has_mid_contrast
+            a.l8_has_clip_trim = session.target_l8_has_clip_trim
+            clas, motivo_l8 = classify_l8(a)
+            data["target_l8_classification"] = clas
+            data["target_l8_max_delta"] = a.l8_max_delta or 0
+            tier, etiqueta, desc = classify_l8_quality(a)
+            if tier:
+                data["target_l8_quality_tier"] = tier
+                data["target_l8_quality_label"] = etiqueta
+                data["target_l8_quality_description"] = desc
+    except Exception as e:
+        _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
+                        session.session_id, e)
+
     try:
         from phases.rpu_analyze import recommend_action
         accion, rotulo, motivo = recommend_action(session)
