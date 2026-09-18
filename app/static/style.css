@@ -7835,7 +7835,10 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
 .dv-quality-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Cinco desde que L3 tiene su número: es una señal independiente de L8
+     —hay másters con el L8 plano y el L3 trabajado— así que no cabe como
+     sub-etiqueta de otro stat. */
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-bottom: 10px;
 }

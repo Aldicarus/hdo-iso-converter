@@ -3253,6 +3253,46 @@ Tres categorías:
 - **`default`** — Bin sintético: ≤2 combos únicos, O ≥95% frames neutros **con <10 combos**. Restore == conversión al vuelo del p3i/avdvplus → recomendación: Mantener MKV actual. Un % neutro alto **con muchos combos** (≥10) es típico de un master CORE real de peli oscura (escenas oscuras → trims a neutro), así que cae a `indeterminate`, no a `default`, para no descartar un bin válido. `≤2 combos` sigue siendo disparador independiente (sintético aunque el combo sea no-neutro).
 - **`indeterminate`** — Caso límite (incluye master con muchos combos pero mayoría neutros), avanzar y decidir tras Fase A.
 
+### L3: la señal que estaba delante y no se miraba
+
+`has_l3` valía **False en el 100 % de los casos** desde siempre, y con él el
+pill «L3 · local scene trim» de la radiografía. Dos causas, las dos mudas:
+el regex buscaba `L3` en la salida de `dovi_tool info --summary`, que emite
+**exactamente cuatro** líneas de niveles al final —`L5 offsets`, `L2 trims`,
+`L8 trims`, `L9 MDP`— y ninguna de L3; y la otra vía, `export --levels`, no
+pedía `level3`. Lo mismo les pasaba a L4, L10, L11 y L254 (a L11 lo rescataba
+el export). Los patrones inertes se retiraron: **un flag sin fuente se deja
+en su default antes que fingir que se comprueba**, y L254 se queda así
+porque `--levels` no lo acepta y sacarlo pediría el volcado de 682 MB.
+
+Lo que se midió antes de tocar nada:
+
+- **El BD no trae L3.** Sniff de 60 s sobre un RPU P7 MEL CM v2.9 → el export
+  de `level3` sale **vacío**. Así que L3 es aportación exclusiva del bin y el
+  `rpu_levels: [3,8,9,11,254]` del merge no pisa nada del disco.
+- **Los 21 MKVs CMv4.0 muestreados de la biblioteca tienen L3**, de 1 a 224
+  combos en 90 s. La app decía que ninguno.
+- **L3 y L8 divergen sobre los MISMOS frames**: Transformers One da L8=1 y
+  L3=83, Pulp Fiction 1 y 8, Supergirl 1 y 7. No es la misma señal vista dos
+  veces — un máster con el L8 plano puede llevar grading L3 real, y mirando
+  solo L8 se le llama sintético y se recomienda Mantener.
+
+**El umbral de L3 está HEREDADO del de L8** (`L3_REAL_MIN_UNIQUE_COMBOS =
+L8_REAL_MIN_UNIQUE_COMBOS`), no calibrado: los conteos son de un sniff de
+90 s, que vale para ver que las señales divergen pero no para fijar un corte.
+De ahí la regla que lo hace seguro: **L3 solo puede RESCATAR, nunca
+degradar**. Un L8 plano con L3 trabajado sube de `default` a
+`indeterminate` —no a `real`, que sería afirmar de más— y puede dar
+`core_rich` por el mismo criterio relativo ya calibrado
+(`combos/scene_cuts >= 0.1`); un L3 pobre **no** baja nada. En el peor caso
+de que el umbral esté mal, un bin sintético deja de llamarse sintético y
+decide el usuario. Revisar con conteos completos de unos cuantos jobs.
+
+Y **el fake tuvo que aprender a emitir `level3`** con el formato real
+(`min_pq_offset`/`max_pq_offset`/`avg_pq_offset`, y ojo: el `avg` **nunca**
+vale el neutro 2048 en los RPUs medidos). Sin eso ningún test podía ver un
+L3 distinto de cero — la misma trampa que el fichero de `scenes`.
+
 ### Tiers de calidad (`classify_l8_quality`)
 
 Solo aplica cuando la clasificación L8 es "real":

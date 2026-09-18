@@ -680,6 +680,8 @@ def _build_quality_audit_from_rpu_analysis(
         "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
         "quality_scene_cuts": rpu_analysis.scene_cuts,
         "quality_l2_unique_count": rpu_analysis.l2_unique_count,
+        "quality_l3_unique_count": rpu_analysis.l3_unique_count,
+        "quality_l3_frames": rpu_analysis.l3_frames,
         "quality_l2_target_pqs": list(rpu_analysis.l2_target_pqs),
         "quality_l8_unique_count": rpu_analysis.l8_unique_count,
         "quality_l8_neutral_pct": rpu_analysis.l8_neutral_pct,
@@ -1391,7 +1393,9 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     from phases.rpu_analyze import export_levels
 
     niveles = await export_levels(
-        Path(rpu_path), ("level8", "level9", "level11"), timeout=900)
+        Path(rpu_path),
+        ("level3", "level4", "level8", "level9", "level10", "level11"),
+        timeout=900)
     if not niveles:
         _logger.info("export --levels no disponible sobre %s", rpu_path)
         return
@@ -1424,6 +1428,23 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
         ct = l11[0]["content_type"]
         dovi.l11_content_type = _L11_CONTENT_TYPE.get(ct, f"Type {ct}")
         dovi.has_l11 = True
+
+    # ── L3, L4 y L10: presencia ───────────────────────────────────────
+    # Los tres se «detectaban» con un regex sobre `dovi_tool info --summary`
+    # que NO PUEDE casar: ese summary emite exactamente cuatro líneas de
+    # niveles —`L5 offsets`, `L2 trims`, `L8 trims`, `L9 MDP`— y ninguna de
+    # L3, L4, L10, L11 ni L254. Así que `has_l3` valía False en el 100 % de
+    # los casos, y el pill «L3 · local scene trim» de la radiografía nunca
+    # se encendió. Medido sobre 21 MKVs CMv4.0 de la biblioteca: **los 21
+    # tienen L3**, de 1 a 224 combos en 90 s de muestra.
+    #
+    # L254 (el marker CMv4.0) se queda sin fuente: `--levels` no lo acepta y
+    # sacarlo pediría el volcado completo, que son 682 MB. Mejor no saberlo
+    # que fingir que se comprueba.
+    for nivel, campo in (("level3", "has_l3"), ("level4", "has_l4"),
+                         ("level10", "has_l10")):
+        if any(isinstance(r, dict) for r in niveles.get(nivel, [])):
+            setattr(dovi, campo, True)
 
 
 def _pq_code_to_nits_local(code_value: float) -> float:

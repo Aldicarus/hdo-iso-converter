@@ -1465,6 +1465,8 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     session.target_l2_combos = analysis.l2_combos
     session.target_l2_unique_count = analysis.l2_unique_count
     session.target_l2_target_pqs = analysis.l2_target_pqs
+    session.target_l3_unique_count = analysis.l3_unique_count
+    session.target_l3_frames = analysis.l3_frames
     session.target_l8_combos = analysis.l8_combos
     session.target_l8_unique_count = analysis.l8_unique_count
     session.target_l8_target_indices = analysis.l8_target_indices

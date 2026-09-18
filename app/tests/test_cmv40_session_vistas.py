@@ -53,14 +53,18 @@ class TestElJsonNoCambia(unittest.TestCase):
         self.assertEqual(d["target_l8_unique_count"], 412)
 
     def test_el_numero_de_campos_no_cambia(self):
-        # 80 campos. Si esto sube, alguien añadió un campo al modelo: revisar
+        # 82 campos. Si esto sube, alguien añadió un campo al modelo: revisar
         # que el summary del sidebar no lo vacíe y que la UI lo espere.
         #
-        # Los dos últimos son `preflight_user_choice{,_at}` (2026-09-10). El
-        # summary solo vacía las listas pesadas de `_CMV40_SUMMARY_EMPTY_LIST_
-        # FIELDS`, así que estos dos viajan enteros; y quien los lee es el
-        # modal del pre-flight, que pide el detalle completo.
-        self.assertEqual(len(sesion().model_dump()), 80)
+        # Los dos últimos son `target_l3_unique_count` y `target_l3_frames`
+        # (2026-09-18): los NÚMEROS del L3 del bin, sin la lista de combos
+        # —serían miles y no cabe persistirla, igual que con L8—. El summary
+        # solo vacía las listas pesadas de `_CMV40_SUMMARY_EMPTY_LIST_FIELDS`,
+        # así que estos dos viajan enteros, que es lo que quiere la card de
+        # análisis del bin.
+        #
+        # Antes de esos, `preflight_user_choice{,_at}` (2026-09-10).
+        self.assertEqual(len(sesion().model_dump()), 82)
 
     def test_un_json_plano_se_carga_intacto(self):
         # El caso que hace inviable anidar: aquí NO se pierde nada.

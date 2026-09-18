@@ -57,6 +57,23 @@ L8_DEFAULT_MIN_NEUTRAL_PCT = 0.95
 L8_REAL_MINIMAL_MIN_COMBOS = 3
 L8_REAL_MINIMAL_SIGNIFICANT_DELTA = 50
 
+# ── L3, y por qué su umbral es el de L8 ───────────────────────────────────
+#
+# L3 son los offsets sobre el L1 y **solo los trae el bin**: el export de
+# `level3` sobre el RPU de un BD (P7 MEL, CM v2.9) sale vacío. Es además
+# una señal INDEPENDIENTE de L8 — sobre los mismos 2.159 frames de una
+# muestra de 21 películas de la biblioteca, Transformers One da L8=1 y
+# L3=83, Pulp Fiction 1 y 8, Supergirl 1 y 7.
+#
+# **El umbral está HEREDADO de L8, no calibrado sobre L3.** Los conteos que
+# hay son de un sniff de 90 s, que sirve para ver que las dos señales
+# divergen pero no para fijar un corte. Por eso L3 **solo puede RESCATAR**:
+# nunca degrada una clasificación ni baja un tier, así que en el peor caso
+# de que el umbral esté mal, lo que pasa es que un bin sintético deja de
+# llamarse sintético y el usuario decide — no que uno bueno se descarte.
+# Revisar cuando haya conteos completos de unos cuantos jobs reales.
+L3_REAL_MIN_UNIQUE_COMBOS = L8_REAL_MIN_UNIQUE_COMBOS
+
 
 @dataclass
 class RpuAnalysis:
@@ -75,6 +92,20 @@ class RpuAnalysis:
     l8_neutral_pct: float = 0.0
     l8_has_mid_contrast: bool = False
     l8_has_clip_trim: bool = False
+
+    # L3 — offsets sobre el L1 (min/max/avg PQ) por escena. Es metadata
+    # EXCLUSIVA del bin CMv4.0 en este flujo: medido con un sniff sobre el
+    # RPU de un BD (P7 MEL, CM v2.9) el export de `level3` sale **vacío**,
+    # así que el merge que lo transfiere no pisa nada del disco.
+    #
+    # Es una señal INDEPENDIENTE de L8, no la misma vista dos veces. Sobre
+    # los mismos 2.159 frames de una muestra de 21 películas de la
+    # biblioteca: Transformers One da **L8=1 y L3=83**, Pulp Fiction 1 y 8,
+    # Supergirl 1 y 7. O sea que un máster con el L8 plano puede llevar
+    # grading L3 real, y mirando solo L8 se le llama sintético.
+    l3_unique_count: int = 0
+    l3_frames: int = 0
+    l3_neutral_pct: float = 0.0
 
 
 async def _run_export(
@@ -173,7 +204,10 @@ async def _run_export_simple(rpu_path: Path, out_path: Path) -> tuple[int, str]:
 
 # Niveles que necesita el análisis de combos. L1 sirve de censo de frames
 # (un registro por frame), L2/L8 son los combos y `scenes` da los cortes.
-_EXPORT_LEVELS = ("level1", "level2", "level8")
+# L3 va en la lista base: alimenta el classifier igual que L2 y L8, y su
+# coste es un fichero más en un export que ya corre (12,3 MB medidos sobre
+# 155.001 frames, frente a los ~115 MB del conjunto).
+_EXPORT_LEVELS = ("level1", "level2", "level3", "level8")
 
 
 async def export_levels(
@@ -433,6 +467,7 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
 
     l1 = _load("level1")
     l2 = _load("level2")
+    l3 = _load("level3")
     l8 = _load("level8")
 
     analysis = RpuAnalysis()
@@ -456,6 +491,25 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
         l2_counter[combo] += 1
         if combo[0] is not None:
             l2_pq_set.add(combo[0])
+
+    # L3: offsets sobre el L1. El neutro es 2048 en los tres, igual que en
+    # los trims de L2/L8 — pero ojo, en los RPUs reales medidos el
+    # `avg_pq_offset` **nunca** vale 2048 (The Amateur: (2048,2048,1909) en
+    # los 176.448 frames), así que el porcentaje de neutros de L3 no es
+    # comparable con el de L8 y no se usa como umbral. Lo que discrimina es
+    # el número de combos.
+    l3_counter: Counter = Counter()
+    for r in l3:
+        if not isinstance(r, dict):
+            continue
+        l3_counter[(r.get("min_pq_offset"), r.get("max_pq_offset"),
+                    r.get("avg_pq_offset"))] += 1
+    analysis.l3_frames = sum(l3_counter.values())
+    analysis.l3_unique_count = len(l3_counter)
+    if analysis.l3_frames:
+        neutros = sum(n for c, n in l3_counter.items()
+                      if all(v in (None, 2048) for v in c))
+        analysis.l3_neutral_pct = neutros / analysis.l3_frames
 
     l8_counter: Counter = Counter()
     l8_idx_set: set[int] = set()
@@ -773,6 +827,8 @@ def numeros_de_l8(analysis: RpuAnalysis) -> dict:
         "l8_has_clip_trim": analysis.l8_has_clip_trim,
         "l2_unique_count": analysis.l2_unique_count,
         "l2_target_pqs": len(analysis.l2_target_pqs),
+        "l3_unique_count": analysis.l3_unique_count,
+        "l3_frames": analysis.l3_frames,
     }
 
 
@@ -785,6 +841,17 @@ def _l8_real_por_combos(n: dict) -> bool:
     """Muchos combos únicos y pocos frames neutros: master trabajado."""
     return (n["l8_unique_count"] >= L8_REAL_MIN_UNIQUE_COMBOS
             and n["l8_neutral_pct"] < L8_REAL_MAX_NEUTRAL_PCT)
+
+
+def _l3_trabajado(n: dict) -> bool:
+    """¿El L3 del bin tiene trabajo por escena?
+
+    Solo se consulta para RESCATAR un bin que el L8 daría por sintético.
+    Un `default` significa «no proceses, el reproductor hace lo mismo al
+    vuelo», y eso deja de ser cierto si el bin trae offsets L3 que el
+    reproductor no puede inventarse — el BD no los tiene.
+    """
+    return n.get("l3_unique_count", 0) >= L3_REAL_MIN_UNIQUE_COMBOS
 
 
 def _l8_sintetico(n: dict) -> bool:
@@ -842,7 +909,12 @@ def _clasificacion_de_l8(analysis: RpuAnalysis) -> str:
             and _l8_trim_significativo(analysis.l8_combos)):
         return "real"
     if _l8_sintetico(n):
-        return "default"
+        # …salvo que el L3 diga lo contrario. Se sube a «indeterminate» y no
+        # a «real» a propósito: el umbral de L3 está heredado de L8, así que
+        # lo honesto es «no puedo afirmar que sea sintético», que es
+        # exactamente lo que esa clasificación significa. Nunca al revés —
+        # un L3 pobre no degrada un L8 bueno.
+        return "indeterminate" if _l3_trabajado(n) else "default"
     return "indeterminate"
 
 
@@ -945,9 +1017,17 @@ def tier_de_l8(n: dict, classification: str) -> tuple[str, str, str]:
         n["l8_unique_count"] / n["scene_cuts"]
         if n["scene_cuts"] > 0 else 0.0
     )
+    # L3 cuenta con el MISMO criterio relativo, y solo para sumar: un L3
+    # pobre no puede bajar de CORE+ a CORE un máster cuyo L8 ya lo merece.
+    l3_por_corte = (
+        n.get("l3_unique_count", 0) / n["scene_cuts"]
+        if n["scene_cuts"] > 0 else 0.0
+    )
     is_rich = (
         combos_per_cut >= L8_RICH_COMBOS_PER_SCENE_CUT
         or n["l8_unique_count"] >= L8_RICH_MIN_COMBOS
+        or l3_por_corte >= L8_RICH_COMBOS_PER_SCENE_CUT
+        or n.get("l3_unique_count", 0) >= L8_RICH_MIN_COMBOS
     )
     if is_rich:
         return (

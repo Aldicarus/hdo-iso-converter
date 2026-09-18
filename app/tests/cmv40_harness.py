@@ -190,18 +190,26 @@ class FakeToolbox:
     def define_rpu_levels(self, name: str, *, l8_indices: list[int] | None = None,
                           l9_primary: int | None = None,
                           l11_content_type: int | None = None,
-                          l5_pattern: list | None = None) -> None:
+                          l5_pattern: list | None = None,
+                          l3_combos: int | None = None) -> None:
         """Los niveles que `dovi_tool export --levels` devolverá para un RPU.
 
         Formatos verificados contra RPUs reales del repo DoviTools:
           level5  → {"frame", "active_area_{top,bottom,left,right}_offset"}
           level8  → {"frame", "length", "target_display_index", "trim_*"}
+          level3  → {"frame", "min_pq_offset", "max_pq_offset", "avg_pq_offset"}
           level9  → {"frame", "length", "source_primary_index"}
           level11 → {"frame", "content_type", "whitepoint",
                      "reference_mode_flag"}
 
         `l9_primary` es 0 (BT.709) en los RPUs reales, así que `None` y `0`
         tienen que poder distinguirse: pasar 0 declara el nivel, no lo omite.
+
+        `l3_combos` es cuántos valores distintos de `avg_pq_offset` emitir:
+        `1` describe un bin con L3 constante (The Amateur: un solo combo en
+        176.448 frames) y un número alto, uno con grading por escena
+        (Zootopia 2: 1.489). `None` = el RPU no trae L3, que es lo que pasa
+        con el de un BD CM v2.9 — comprobado, su export sale vacío.
 
         `l5_pattern` describe el perfil L5 por tramos de frames INCLUSIVOS,
         con los offsets en el orden `[top, bottom, left, right]`:
@@ -228,6 +236,7 @@ class FakeToolbox:
             "l9_primary": l9_primary,
             "l11_content_type": l11_content_type,
             "l5_pattern": l5_pattern,
+            "l3_combos": l3_combos,
         }
         self._flush()
 
@@ -1042,6 +1051,18 @@ def dovi_tool(sc, sub, json_args):
                                 "trim_slope": 2312, "trim_offset": 2059,
                                 "trim_power": 2034, "trim_chroma_weight": 2048,
                                 "trim_saturation_gain": 2048, "ms_weight": 2048,
+                            })
+                    elif lv == "level3":
+                        # Formato copiado de un bin del repo DoviTools:
+                        # `{"frame":0,"min_pq_offset":2048,"max_pq_offset":2047,
+                        #   "avg_pq_offset":1589}`. Ojo al `avg_pq_offset`, que
+                        # en los RPUs reales **nunca** vale el neutro 2048.
+                        n3 = niveles.get("l3_combos")
+                        if n3:
+                            rows.append({
+                                "frame": i, "min_pq_offset": 2048,
+                                "max_pq_offset": 2047,
+                                "avg_pq_offset": 1589 + (i % int(n3)),
                             })
                     elif lv == "level9":
                         # OJO: 0 es un valor válido (BT.709) y el que traen los

@@ -2259,17 +2259,23 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     # L8 (CMv4.0 target display colorimetry) — marker del transfer CMv4.0
     info.has_l8 = bool(re.search(r"L8\b|Level 8|content light level \(L8\)", summary, re.I))
 
-    # Niveles "de autoría" — más presentes en masters nativos de colorista:
-    # L3 (ajuste local por escena), L9 (source primaries), L10 (target primaries),
-    # L11 (content type). Su ausencia combinada sugiere RPU generado/transferred.
-    info.has_l3  = bool(re.search(r"L3\b|Level 3|L3 (?:offsets|trims)", summary, re.I))
-    info.has_l9  = bool(re.search(r"L9\b|Level 9|source (?:primaries|colour|color)", summary, re.I))
-    info.has_l10 = bool(re.search(r"L10\b|Level 10|target (?:primaries|display primaries)", summary, re.I))
-    info.has_l11 = bool(re.search(r"L11\b|Level 11|content type", summary, re.I))
+    # L9 es el único nivel "de autoría" que el summary menciona, como
+    # `L9 MDP: DCI-P3 D65`.
+    info.has_l9 = bool(re.search(r"L9\b|Level 9|source (?:primaries|colour|color)", summary, re.I))
 
-    # L4 (legacy CMv2.9 trim, a veces coexiste con v4.0) y L254 (marker CMv4.0)
-    info.has_l4   = bool(re.search(r"L4\b|Level 4\b", summary, re.I))
-    info.has_l254 = bool(re.search(r"L254\b|Level 254\b|CMv4\.0 marker", summary, re.I))
+    # L3, L4, L10, L11 y L254 NO salen de aquí, y tenían su regex: el
+    # summary de dovi_tool 2.3.3 emite **exactamente cuatro** líneas de
+    # niveles al final —`L5 offsets`, `L2 trims`, `L8 trims`, `L9 MDP`— así
+    # que esos cinco patrones no podían casar nunca y los flags valían False
+    # en el 100 % de los casos. Verificado contra bins reales del repo
+    # DoviTools, y contra los 21 MKVs CMv4.0 de la biblioteca: **los 21
+    # tienen L3** y la app decía que ninguno.
+    #
+    # Los pueblan `_enrich_dovi_from_json_export` (L3/L4/L8/L9/L10/L11) y
+    # `_parse_export_levels` (los combos), que leen `export --levels`, que
+    # es donde ese dato existe de verdad. L254 se queda sin fuente:
+    # `--levels` no lo acepta y sacarlo pediría el volcado completo de 682
+    # MB. Un flag sin fuente se deja en su default antes que fingirlo.
 
     # Lista de nits de cada trim L8 (ej: "L8 trims: 100, 600, 1000, 2000")
     # Guardamos el conteo (legacy) + la lista explicita (nueva, para UI detallada).

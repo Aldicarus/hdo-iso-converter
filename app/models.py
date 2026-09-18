@@ -196,6 +196,16 @@ class DoviInfo(BaseModel):
     quality_l2_unique_count: int = 0
     """Nº de combos L2 únicos (trims CMv2.9) a lo largo del RPU."""
 
+    quality_l3_unique_count: int = 0
+    """Nº de combos L3 únicos (offsets sobre el L1) a lo largo del RPU.
+
+    L3 solo lo traen los RPUs CMv4.0: el export de `level3` sobre el RPU de
+    un BD CM v2.9 sale vacío. Y es una señal INDEPENDIENTE de L8 — hay
+    másters con el L8 casi plano y el L3 trabajado por escena."""
+
+    quality_l3_frames: int = 0
+    """Frames con bloque L3. Cero = el RPU no lo trae."""
+
     quality_l2_target_pqs: list[int] = []
     """Target_max_pq distintos del L2 (ej: [62, 2081, 2851, 3079] = 4 targets)."""
 
@@ -1521,6 +1531,11 @@ class CMv40Session(BaseModel):
     target_l2_combos: list[L2Combo] = []
     target_l2_unique_count: int = 0
     target_l2_target_pqs: list[int] = []
+
+    # Análisis del L3 del bin target — poblado en pre-flight. Solo los
+    # números: la lista de combos serían miles y no se persiste.
+    target_l3_unique_count: int = 0
+    target_l3_frames: int = 0
 
     # Análisis del L8 del bin target — poblado en pre-flight
     target_l8_combos: list[L8Combo] = []

@@ -1656,6 +1656,7 @@ function _rgrfQualityAuditCard(dv, isV40) {
   // 4 mini-stats
   const l8Count = dv.quality_l8_unique_count || 0;
   const l2Count = dv.quality_l2_unique_count || 0;
+  const l3Count = dv.quality_l3_unique_count || 0;
   const scenes = dv.quality_scene_cuts || 0;
   const totalFrames = dv.quality_total_frames_rpu || 0;
   const cmv40Frames = dv.quality_frames_with_cmv40 || 0;
@@ -1681,6 +1682,10 @@ function _rgrfQualityAuditCard(dv, isV40) {
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${l2Count.toLocaleString(localeActual())}</div>
           <div class="dv-quality-stat-label" data-i18n="tab2.combos_l2_unicos"></div>
+        </div>
+        <div class="dv-quality-stat" data-i18n-tip="tab2.l3_que_es">
+          <div class="dv-quality-stat-value">${l3Count.toLocaleString(localeActual())}</div>
+          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l3_unicos"></div>
         </div>
         <div class="dv-quality-stat">
           <div class="dv-quality-stat-value">${scenes.toLocaleString(localeActual())}</div>
