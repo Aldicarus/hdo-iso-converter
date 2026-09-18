@@ -29,6 +29,7 @@ from unittest import mock
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "tests"))
 
 import i18n  # noqa: E402
 from models import RawAudioTrack, RawSubtitleTrack  # noqa: E402
@@ -205,3 +206,152 @@ class TestSubtitulos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElToggleDiceElPerfilDeVerdad(unittest.TestCase):
+    """La etiqueta del toggle AFIRMA qué pistas conserva el perfil.
+
+    Decía «Spanish + original» con la app en inglés mientras el perfil ya
+    conservaba solo el inglés: la selección funcionaba y el rótulo mentía.
+    Lo reportó el usuario el 2026-09-18, y **ningún detector de traducción
+    podía verlo** — «Spanish + original» es inglés perfectamente correcto;
+    lo que estaba mal era el contenido de la frase, no su lengua.
+
+    Lo único que lo caza es cruzar la etiqueta con `IDIOMAS_DEL_PERFIL`. Y se
+    cruza contra el CATÁLOGO y no contra una tabla en el JS a propósito: una
+    réplica de una regla del backend en el frontend se desincroniza en
+    silencio, que es la regla del proyecto. El catálogo ya es por idioma, así
+    que cada lengua nombra su propio perfil sin que el JS decida nada.
+    """
+
+    # Las cuatro cadenas que describen el perfil `filtered`, y si además del
+    # preferido tienen que nombrar el inglés (la red de los subtítulos).
+    ETIQUETAS = {
+        "core.castellano_vo": False,
+        "core.solo_castellano_vo_con_seleccion_por": False,
+        "core.castellano_vo_ingles": True,
+        "core.solo_castellano_vo_ingles_detecta_forzados": True,
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        front = APP_DIR / "static" / "i18n"
+        srv = APP_DIR / "i18n"
+        cls.cat = {}
+        for l in ("es", "en", "ca"):
+            cls.cat[l] = {
+                **json.loads((srv / f"{l}.json").read_text(encoding="utf-8")),
+                **json.loads((front / f"{l}.json").read_text(encoding="utf-8")),
+            }
+
+    def test_la_siembra_manda_el_idioma_que_manda(self):
+        """El nombre del idioma preferido viaja en `window.__I18N`, no como
+        clave del catálogo.
+
+        Como clave chocaba con «el mismo castellano se traduce igual»: su
+        castellano es «Castellano», igual que `idioma.spanish`, pero su
+        inglés es «English» y el de la otra «Spanish». Y replicar la tabla en
+        el JS sería la réplica de una regla del backend que se desincroniza
+        en silencio. Así que lo manda el servidor, que es quien resuelve el
+        perfil — y aquí se comprueba que manda lo que toca.
+        """
+        from phases.phase_b import nombre_de_idioma
+        for lengua in ("es", "en", "ca"):
+            with self.subTest(idioma=lengua):
+                with idioma(lengua):
+                    pref = nombre_de_idioma(idiomas_preferidos(lengua)[0])
+                self.assertEqual(pref, self.cat[lengua][
+                    f"idioma.{idiomas_preferidos(lengua)[0]}"])
+
+    def test_el_frontend_no_replica_la_tabla_del_perfil(self):
+        """Si alguien vuelve a escribir los idiomas del perfil en el JS, la
+        réplica se desincroniza y nadie se enteraría."""
+        import re
+        from frontend_sources import rutas
+        fuera = []
+        for r in rutas():
+            if not str(r).endswith(".js"):
+                continue
+            src = Path(r).read_text(encoding="utf-8")
+            for m in re.finditer(r"catalan\s*['\"]?\s*[:,]", src):
+                linea = src[:m.start()].count("\n") + 1
+                fuera.append(f"{Path(r).name}:{linea}")
+        self.assertEqual(fuera, [], (
+            "\nel perfil de idiomas se lee de la siembra "
+            "(`idiomaDePistaPreferido`), no de una tabla en el JS:\n  · "
+            + "\n  · ".join(fuera)))
+
+    def test_ningun_mensaje_afirma_un_idioma_en_vez_de_usar_el_hueco(self):
+        """Los cinco mensajes que hablan del idioma que manda lo llevan como
+        PARÁMETRO (`{pref}`), no escrito dentro.
+
+        Decían «no es Castellano» y «solo el de Castellano lleva flag
+        forced»; con el perfil inglés eso es falso. Es el mismo defecto que
+        el del toggle, un nivel más abajo: una frase correcta en su lengua
+        que afirma algo que ya no pasa.
+        """
+        claves = ("phase_b.motivo_idioma_no_target_audio",
+                  "phase_b.motivo_idioma_no_target_sub",
+                  "phase_b.nota_flag_forced_no",
+                  "phase_b.nota_flag_forzados_castellano",
+                  "tab1.sin_flag_forced_de_matroska_porque")
+        fallos = []
+        for lengua in ("es", "en", "ca"):
+            for clave in claves:
+                v = self.cat[lengua][clave]
+                if "{pref}" not in v:
+                    fallos.append(f"[{lengua}] `{clave}` sin `{{pref}}`")
+                    continue
+                # Y que no lo diga ADEMÁS escrito: sería decirlo dos veces y
+                # una de ellas mal.
+                for lang in ("spanish", "english", "catalan"):
+                    if lang in idiomas_preferidos(lengua):
+                        continue
+                    nombre = self.cat[lengua][f"idioma.{lang}"]
+                    # «Inglés» es legítimo en el mensaje de subtítulos: el
+                    # inglés entra siempre como red, no como preferido.
+                    if lang == "english" and "no_target_sub" in clave:
+                        continue
+                    if nombre.lower() in v.lower():
+                        fallos.append(f"[{lengua}] `{clave}` escribe "
+                                      f"«{nombre}» en vez de usar el hueco")
+        self.assertEqual(fallos, [], "\n  · ".join([""] + fallos))
+
+    def test_cada_etiqueta_nombra_los_idiomas_que_el_perfil_conserva(self):
+        fallos = []
+        for lengua in ("es", "en", "ca"):
+            prefs = idiomas_preferidos(lengua)
+            for clave, con_ingles in self.ETIQUETAS.items():
+                etiqueta = self.cat[lengua][clave]
+                esperados = list(prefs)
+                if con_ingles and "english" not in prefs:
+                    esperados.append("english")
+                for lang in esperados:
+                    nombre = self.cat[lengua][f"idioma.{lang}"]
+                    if nombre.lower() not in etiqueta.lower():
+                        fallos.append(
+                            f"[{lengua}] `{clave}` no nombra «{nombre}» "
+                            f"(perfil: {esperados}): {etiqueta[:54]}")
+        self.assertEqual(fallos, [], (
+            "\nla etiqueta del toggle no dice el perfil que el idioma "
+            "aplica:\n  · " + "\n  · ".join(fallos)))
+
+    def test_ninguna_etiqueta_nombra_un_idioma_que_el_perfil_descarta(self):
+        """El defecto reportado era éste: la inglesa decía «Spanish» y el
+        perfil inglés no conserva el castellano."""
+        fallos = []
+        for lengua in ("es", "en", "ca"):
+            prefs = idiomas_preferidos(lengua)
+            for clave, con_ingles in self.ETIQUETAS.items():
+                etiqueta = self.cat[lengua][clave].lower()
+                permitidos = set(prefs) | ({"english"} if con_ingles else set())
+                for lang in ("spanish", "english", "catalan"):
+                    if lang in permitidos:
+                        continue
+                    nombre = self.cat[lengua][f"idioma.{lang}"].lower()
+                    if nombre in etiqueta:
+                        fallos.append(
+                            f"[{lengua}] `{clave}` nombra «{nombre}», que el "
+                            f"perfil {prefs} NO conserva")
+        self.assertEqual(fallos, [], "\n  · ".join([""] + fallos))

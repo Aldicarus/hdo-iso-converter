@@ -56,16 +56,44 @@ FUERA_DEL_CATALOGO = {
 # puede eximir por función —porque vive en el ámbito del módulo—. Mismo
 # mecanismo que `FUERA_DEL_CATALOGO_BACKEND`.
 FUERA_DEL_CATALOGO_JS: dict[str, str] = {
-    "Inglés":
-        "el `LANGUAGE_MAP` de `core.js`, gemelo del de `phase_b`: son los "
-        "literales de pista de la spec y acaban en el NOMBRE de las pistas "
-        "del MKV, no en la interfaz. Que sigan el idioma de la app es una "
-        "decisión distinta y va con el bloque de selección de pistas.",
+    # El `LANGUAGE_MAP` de `core.js` se fue el 2026-09-17: el nombre del
+    # idioma en PANTALLA sale ahora del catálogo (`langLiteral` →
+    # `idioma.<lang>`) y el literal que va dentro del MKV lo escribe el
+    # servidor. Con la tabla se fue su exención — y no había ningún test que
+    # lo cazara, así que se quedó una entrada vigilando el vacío.
     "🎯 Resultado:":
         "un MARCADOR del log, no texto: el servidor lo concatena en el "
         "código —fuera de la cadena traducible— así que llega igual en los "
         "tres idiomas y `_classifyLogLine` puede compararlo.",
 }
+
+
+class TestLasExencionesNoSeQuedanViejas(unittest.TestCase):
+    """Una exención que ya no corresponde a código real parece cobertura.
+
+    Las dos listas —`FUERA_DEL_CATALOGO_JS` y `_BACKEND`— **no tenían este
+    test**, y se notó: la entrada del `LANGUAGE_MAP` de `core.js` sobrevivió
+    a la tabla que describía y se quedó vigilando el vacío. Es la regla que
+    CLAUDE.md pide para las otras cuatro listas de exención del subsistema.
+    """
+
+    def test_cada_exencion_del_js_sigue_en_el_codigo(self):
+        fuente = " ".join(Path(r).read_text(encoding="utf-8") for r in rutas())
+        fuera = sorted(k for k in FUERA_DEL_CATALOGO_JS if k not in fuente)
+        self.assertEqual(fuera, [], (
+            "\nexenciones del JS que ya no citan ningún literal:\n  · "
+            + "\n  · ".join(fuera)))
+
+    def test_cada_exencion_del_backend_sigue_en_el_codigo(self):
+        fuente = ""
+        for f in sorted((APP_DIR).rglob("*.py")):
+            if "tests" in f.parts or "__pycache__" in str(f):
+                continue
+            fuente += f.read_text(encoding="utf-8")
+        fuera = sorted(k for k in FUERA_DEL_CATALOGO_BACKEND if k not in fuente)
+        self.assertEqual(fuera, [], (
+            "\nexenciones del servidor que ya no citan ningún literal:\n  · "
+            + "\n  · ".join(fuera)))
 
 
 def _catalogos() -> set[str]:
@@ -92,6 +120,11 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
+    "window.__I18N = {idioma: %s, pista_preferida: %s, catalogo: %s};":
+        "es JAVASCRIPT, no texto: la plantilla de la siembra del catálogo "
+        "que sirve `/api/i18n/catalogo.js`. Los nombres de sus campos son "
+        "identificadores del contrato con `i18n.js`, y `pista_preferida` "
+        "lleva dos palabras castellanas por eso.",
     "Análisis extendido ·":
         "el lado IZQUIERDO de `historial._RENOMBRADOS`: es el prefijo que se "
         "busca en lo que ya está ESCRITO en `historial.jsonl`, que es "

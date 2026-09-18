@@ -95,6 +95,11 @@ from models import (
 
 LANGUAGE_MAP: dict[str, str] = {
     "spanish": "Castellano",
+    # El catalán FALTABA en la tabla, así que una pista catalana salía con el
+    # código capitalizado («Catalan») en vez de su literal. Lo destapó el
+    # perfil `ca`, que sí conserva esas pistas — y hay discos que las traen
+    # (Avatar Fuego y Ceniza, en el corpus).
+    "catalan": "Catalán",
     "english": "Inglés",
     "french": "Francés",
     "german": "Alemán",
@@ -375,6 +380,7 @@ def _select_audio_tracks(
                     discard_reason=tr(
                         'phase_b.motivo_idioma_no_target_audio',
                         idioma=nombre_de_idioma(lang_norm),
+                        pref=nombre_de_idioma(preferidos[0]),
                         vo=nombre_de_idioma(vo_language.lower())),
                 ))
 
@@ -1361,9 +1367,11 @@ def _select_subtitle_tracks(
             flag_forced_matroska = es_principal
             flag_note = ""
             if flag_default:
-                flag_note = tr('phase_b.nota_flag_forzados_castellano')
+                flag_note = tr('phase_b.nota_flag_forzados_castellano',
+                               pref=nombre_de_idioma(preferidos[0]))
             elif lang_norm == vo_norm:
-                flag_note = tr('phase_b.nota_flag_forced_no')
+                flag_note = tr('phase_b.nota_flag_forced_no',
+                               pref=nombre_de_idioma(preferidos[0]))
             included.append(IncludedSubtitleTrack(
                 position=0,
                 raw=forced_track,
@@ -1444,6 +1452,7 @@ def _select_subtitle_tracks(
                     discard_reason=tr(
                         'phase_b.motivo_idioma_no_target_sub',
                         idioma=nombre_de_idioma(lang_norm),
+                        pref=nombre_de_idioma(preferidos[0]),
                         vo=nombre_de_idioma(vo_language.lower())),
                     inferred_subtitle_type=_infer_sub_type(lang_norm, t),
                 ))

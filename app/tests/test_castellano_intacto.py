@@ -79,6 +79,18 @@ EXCEPCIONES: dict[str, str] = {
     "── Subtítulos adaptado ( ⟦⟧ pistas) ──":
         "falta de concordancia: «adaptados»",
 
+    # ── El idioma que manda pasa a ser un HUECO.
+    #
+    # La frase afirmaba «Castellano» y desde el 2026-09-17 el perfil de
+    # pistas depende del idioma de la app: con el perfil inglés eso es
+    # falso. Es el mismo defecto que el rótulo del toggle, un nivel más
+    # abajo. El castellano RENDERIZADO no cambia —`{pref}` vale
+    # «Castellano» con la app en castellano— y lo que cambia es que hay un
+    # hueco donde había una palabra escrita.
+    "— sin flag forced de Matroska porque no es Castellano":
+        "el idioma preferido pasa a `{pref}`, que lo manda el servidor con "
+        "la siembra del catálogo (`idiomaDePistaPreferido`)",
+
     # ── Los tres plurales por sufijo de una letra, partidos en dos claves.
     #
     # `{p2}` = 's'/'' y `{p3}` = 'n'/'' pluralizan en castellano por pura

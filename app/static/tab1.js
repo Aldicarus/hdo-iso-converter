@@ -3412,7 +3412,8 @@ function recoverTrack(idx) {
     flag_default: false,
     flag_forced: setForcedFlag,
     selection_reason: tr('tab1.recuperada_manualmente_por_el_usuario')
-      + (!isAudio ? tr('tab1.tipo_inferido_por_fase_b', {inferredsubtype: inferredSubType, p2: isForcedSub && !setForcedFlag ? ' ' + tr('tab1.sin_flag_forced_de_matroska_porque') : ''}) : ''),
+      + (!isAudio ? tr('tab1.tipo_inferido_por_fase_b', {inferredsubtype: inferredSubType, p2: isForcedSub && !setForcedFlag ? ' ' + tr('tab1.sin_flag_forced_de_matroska_porque',
+                                 {pref: idiomaDePistaPreferido()}) : ''}) : ''),
     language_literal: langLit,
     codec_literal: codecLit,
     subtitle_type: isForcedSub ? 'forced' : 'complete',

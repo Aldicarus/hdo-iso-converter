@@ -486,8 +486,22 @@ async def i18n_catalogo_js(request: Request):
     if not ruta.exists():
         ruta = _STATIC_DIR / "i18n" / "es.json"
         idioma = "es"
-    cuerpo = ("window.__I18N = {idioma: %s, catalogo: %s};"
-              % (json.dumps(idioma), ruta.read_text(encoding="utf-8")))
+    # El nombre del idioma que MANDA en el perfil de pistas viaja con la
+    # siembra. No es texto del catálogo: es un DATO que solo el servidor
+    # sabe —lo resuelve `phase_b.idiomas_preferidos`— y meterlo como clave
+    # choca con «el mismo castellano se traduce igual» (su castellano es
+    # «Castellano», igual que `idioma.spanish`, pero su inglés es «English»
+    # y el de la otra «Spanish»). Replicar la tabla en el JS sería la
+    # réplica que se desincroniza en silencio.
+    try:
+        from phases.phase_b import idiomas_preferidos, nombre_de_idioma
+        pref = nombre_de_idioma(idiomas_preferidos(idioma)[0])
+    except Exception as e:                                  # noqa: BLE001
+        _logger.warning("[i18n] idioma preferido no resuelto: %s", e)
+        pref = ""
+    cuerpo = ("window.__I18N = {idioma: %s, pista_preferida: %s, catalogo: %s};"
+              % (json.dumps(idioma), json.dumps(pref),
+                 ruta.read_text(encoding="utf-8")))
     return Response(content=cuerpo, media_type="application/javascript",
                     headers={"Cache-Control": "no-store"})
 

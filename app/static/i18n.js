@@ -73,6 +73,13 @@ const TOKEN_I18N = (() => {
 const _SEMBRADO = (typeof globalThis !== 'undefined' && globalThis.__I18N) || null;
 let _catalogo = (_SEMBRADO && _SEMBRADO.catalogo) || {};
 let _idioma = (_SEMBRADO && _SEMBRADO.idioma) || IDIOMA_POR_DEFECTO;
+// El nombre del idioma que manda en el perfil de pistas. Lo manda el
+// servidor con la siembra porque la tabla vive en `phase_b`: una réplica en
+// el JS se desincronizaría en silencio. Vacío si la siembra no llegó.
+const _PISTA_PREFERIDA = (_SEMBRADO && _SEMBRADO.pista_preferida) || "";
+
+/** El nombre del idioma preferido del perfil de pistas, como lo dice el servidor. */
+function idiomaDePistaPreferido() { return _PISTA_PREFERIDA; }
 // Claves pedidas que no existen. Se acumulan en vez de avisar una por una: en
 // una vuelta de render se piden cientos, y un toast por cada una tapa la app.
 const _ausentes = new Set();
