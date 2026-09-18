@@ -47,6 +47,38 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── Los nueve defectos DEL CASTELLANO, corregidos el 2026-09-17 con el
+    #    visto bueno del usuario. Están en CORRECCIONES_DEL_CASTELLANO.md con
+    #    su motivo: casi todos son texto que describía bien algo que después
+    #    cambió, más tres faltas de ortografía y concordancia.
+    "Se recalcula automáticamente al cambiar los toggles":
+        "los toggles se retiraron —los sustituyeron las dos tarjetas del "
+        "disco— y el nombre lo construye solo el backend",
+    "Iniciando extracción… Sigue el progreso en \"Trabajos en Curso\".":
+        "el panel «Trabajos en Curso» se movió al modal de detalle de la "
+        "columna de trabajo; mandaba al usuario a un sitio que no existe",
+    "Añadido a la cola en posición ⟦⟧ . Sigue el progreso en \"Trabajos en Curso\".":
+        "el segundo de los tres mensajes que mandaban al panel retirado; hoy "
+        "cita la columna de trabajo",
+    "Monitoriza el progreso en el panel":
+        "el tercero, y además estaba PARTIDO por el `<strong>`: el golden "
+        "capturó solo el trozo de delante. Hoy es una clave con el marcado "
+        "dentro, que es la regla de «una frase es UNA clave»",
+    "Trabajos en Curso":
+        "clave huérfana: la única referencia que quedaba estaba dentro de un "
+        "comentario, y llevaba mayúsculas de título, que el REGISTRO prohíbe",
+    "Error en analisis: ⟦⟧":
+        "le faltaba la tilde de «análisis»",
+    "mkvpropedit in-place (solo ruta sin reordenación, — en ruta directa)":
+        "la frase COLGABA: faltaba lo que iba después de la raya. Hoy dice "
+        "que en la ruta directa no se ejecuta, que es lo que pasa",
+    "Paso 2: elige el origen (un fichero) y púlsa Analizar.":
+        "«pulsa» es llana y no lleva tilde",
+    "Paso 2: elige el origen (varios episodios) y púlsa Analizar.":
+        "la misma falta en la hermana: se escribió una vez y se copió",
+    "── Subtítulos adaptado ( ⟦⟧ pistas) ──":
+        "falta de concordancia: «adaptados»",
+
     # ── Los tres plurales por sufijo de una letra, partidos en dos claves.
     #
     # `{p2}` = 's'/'' y `{p3}` = 'n'/'' pluralizan en castellano por pura

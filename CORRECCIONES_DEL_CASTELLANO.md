@@ -384,3 +384,42 @@ recorre el AST del servidor buscando un `tr()` cuyo parámetro con nombre sea
 otro `tr()` —85 composiciones directas hoy—, renderiza cada par en castellano
 y en catalán y busca la contracción perdida. No es una lista de sitios, así
 que un mensaje nuevo con la misma forma cae igual. Verificado por mutación.
+
+
+## 9. Los nueve defectos del castellano, APLICADOS
+
+Aplicados el 2026-09-17 con el visto bueno del usuario, después de las once
+contracciones de §8. Van todos con su entrada en `EXCEPCIONES` del golden,
+porque cambian el castellano que se ve — que es exactamente por lo que ese
+guard existe.
+
+| clave | decía | dice |
+|---|---|---|
+| `core.se_recalcula_automaticamente_al_cambiar_los` | «al cambiar los **toggles**» | «Lo construye el análisis con las reglas de nombrado; si lo editas, se respeta» |
+| `tab1.iniciando_extraccion_…` · `…anadido_a_la_cola…` · `…monitoriza_el_progreso…` | «Sigue el progreso en **"Trabajos en Curso"**» | «…en la **columna de trabajo**» |
+| `tab1.trabajos_en_curso` | «Trabajos en Curso» | **borrada** |
+| `tab2.error_en_analisis` | «Error en **analisis**» | «Error en **análisis**» |
+| `core.mkvpropedit_in_place_solo_ruta_sin` | «(solo ruta sin reordenación, **— en ruta directa)**» | «solo en la ruta sin reordenación; **en la ruta directa no se ejecuta**» |
+| `tab1.paso_2_elige_el_origen_un` · `_varios` | «y **púlsa** Analizar» | «y **pulsa** Analizar» |
+| `cmv40_modals.borrar_artefactos_de_proyecto` | «**Borrar** artefactos…**?**» | «**¿**Borrar artefactos…?» |
+| `tab1.subtitulos_adaptado_pistas` | «Subtítulos **adaptado**» | «Subtítulos **adaptados**» |
+
+Tres cosas que salieron al aplicarlo y no estaban previstas:
+
+- **«Monitoriza el progreso en el panel» estaba PARTIDA por el `<strong>`.**
+  El golden solo había capturado el trozo de delante, así que la frase
+  completa nunca se comprobó. Hoy es una clave con el marcado dentro, que es
+  la regla de «una frase es UNA clave».
+- **El rótulo que las tres citan no era consistente entre lenguas.**
+  `tab2.columna_de_trabajo` decía «columna de trabajo» en castellano pero
+  «jobs column» en inglés y «columna de treballs» (plural) en catalán. Lo
+  cazó `test_una_cita_a_un_rotulo_usa_el_rotulo_traducido`, que existe para
+  esto: una cita tiene que usar el rótulo tal como se traduce. Los dos se
+  alinearon al singular, que es como la llama CLAUDE.md.
+- **Un «ídem» no es un motivo.** `test_cada_excepcion_lleva_su_motivo` exige
+  quince caracteres, y hace bien: una excepción que no se explica es una
+  excepción que nadie va a poder revisar.
+
+Con esto y con `ajustes.idioma.nota_pistas` —que dejó de prometer lo que la
+app no hacía cuando el perfil por idioma se implementó— **la lista de
+defectos del castellano queda vacía**.
