@@ -2588,7 +2588,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     try:
         if session.target_l8_combos:
             from phases.rpu_analyze import (
-                RpuAnalysis, classify_l8, classify_l8_quality)
+                RpuAnalysis, classify_l8, classify_l8_quality, delta_l8_de)
             a = RpuAnalysis()
             a.l8_combos = list(session.target_l8_combos)
             a.l8_unique_count = session.target_l8_unique_count
@@ -2599,7 +2599,11 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             a.l8_has_clip_trim = session.target_l8_has_clip_trim
             clas, motivo_l8 = classify_l8(a)
             data["target_l8_classification"] = clas
-            data["target_l8_max_delta"] = a.l8_max_delta or 0
+            # `a.l8_max_delta` lo fija el PARSER, no el constructor: aquí el
+            # análisis se rearma desde la caché, así que hay que derivarlo.
+            # Servirlo sin esto daba «maxΔ 0» al lado de un veredicto
+            # «real» — incoherente en la misma tarjeta.
+            data["target_l8_max_delta"] = delta_l8_de(a)
             tier, etiqueta, desc = classify_l8_quality(a)
             if tier:
                 data["target_l8_quality_tier"] = tier
