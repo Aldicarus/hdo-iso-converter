@@ -611,7 +611,7 @@ Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_ack
 
 **Ojo con confundirla con `trust_effective`**: `mark_synced` usa esa otra a propósito, porque responde otra pregunta —si el usuario *revisó* la Fase D o solo la dio por buena— y ahí el ACK no cuenta. Confundir las dos es lo que produjo la divergencia.
 
-**Regla**: ninguna condición de trust se escribe a mano fuera de `cmv40_strategy.py`. `is_drop_in_fel` del pipeline delega en `plan.drop_in` por lo mismo — era una segunda definición del drop-in.
+**Regla**: ninguna condición de trust se escribe a mano fuera de `cmv40_strategy.py`. `is_drop_in_fel` del pipeline delega en `plan.drop_in` por lo mismo — era una segunda definición del drop-in. Y `recommend_action` era la **tercera**, la que más se notaba porque su texto va a la card del proyecto: ver «Decisión de 4 caminos» más abajo.
 
 ### Un router por pestaña, y la dependencia en un solo sentido
 
@@ -3175,19 +3175,80 @@ Solo aplica cuando la clasificación L8 es "real":
 
 El label se inyecta al `output_mkv_name` al terminar el pre-flight via `_cmv40_apply_quality_label_to_output_name`.
 
-### Decisión de 4 caminos (`recommend_action`)
+**El export de `scenes` NO es JSON**, y de ahí salía `scene_cuts = 0`. Aunque
+el export lleve `-f json` y la ruta acabe en `.json`, `dovi_tool export -d
+scenes=…` escribe **un índice de frame por línea**, en texto plano
+(comprobado contra un bin del repo DoviTools: 2.585 líneas, la primera un `0`
+suelto). Pasarlo por `json.load` falla con «Extra data: line 2 column 1 (char
+2)» —el primer entero ya es un documento completo— así que desde `48e369f`
+(el cambio del volcado entero al export por niveles, 16-ago-2026)
+`scene_cuts` valía **siempre 0**: el criterio relativo de CORE+ quedó muerto
+y el tier solo podía salir por el respaldo absoluto de 400 combos. En el
+`/config` del NAS el corte se ve limpio — los 23 proyectos con `scene_cuts >
+0` son todos anteriores a ese commit y los 95 posteriores están a 0.
 
-Árbol de decisión:
+Lo lee `_contar_cortes_de_escena`, que acepta también un array JSON por si
+una versión futura lo emite y devuelve **0 con un aviso** ante cualquier otro
+formato: un número a medias con pinta de dato es peor que el hueco, que
+además tiene respaldo. Ojo, `cargar_niveles` **salta** la clave `scenes` a
+propósito por esto mismo.
+
+Y no lo cazó nada porque el fixture del test escribía `json.dumps([0,4,7])`
+—un array— con el docstring diciendo «muestras copiadas del output real». Es
+el patrón del `MaxCLL` de mediainfo sin su unidad: **antes de escribir un
+binario falso, comprobar el formato real**. Con el fixture arreglado,
+reintroducir el bug hace fallar tres tests, uno de ellos el que ya existía.
+
+### Decisión de 4 caminos (`recommend_action`)
 
 ```
 ¿target_preflight_ok=True Y l8="real"?
 ├─ NO  → Mantener MKV actual (keep)
-└─ SÍ  → ¿Profile source ↔ bin match (FEL↔FEL / MEL↔MEL / P8↔P8)?
-         ├─ NO  → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo [3,8,9,11,254]
-         └─ SÍ  → ¿L2 del source == L2 del bin?
-                  ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in, ~30s
-                  └─ NO → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo
+└─ SÍ  → ¿va por drop-in?   ← lo responde cmv40_strategy.va_por_drop_in
+         ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in, ~30s
+         └─ NO → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo [3,8,9,11,254]
 ```
+
+**La ruta la decide la matriz, no esta función.** El árbol de aquí fue durante
+meses «¿el perfil coincide (FEL↔FEL / MEL↔MEL / P8↔P8) **y** el L2 es
+idéntico?», que es una **segunda definición del drop-in** con criterios
+distintos de los tres de `TrustContext.drop_in` (`p7_fel` +
+`trusted_p7_fel_final` + trust efectivo): aceptaba tres combinaciones de
+perfil donde la matriz acepta una, exigía un L2 que la matriz no mira, y
+**no consultaba los trust gates ni el `target_type`**.
+
+Medido sobre el `/config` del NAS: **10 de los 41 proyectos con
+recomendación** prometían «Inyectar RPU CMv4.0 (rápido) … ~30 segundos» —con
+su badge verde— mientras el pipeline hacía el merge, y los 8 que llegaron al
+final quedaron con `output_workflow=restore_merge` al lado, que son ~34
+minutos. Dos familias: **7** con source P7 MEL (el drop-in es exclusivo de
+FEL) y **3** con FEL/FEL y los gates caídos, que es el bug literal. Cero
+casos al revés.
+
+**`va_por_drop_in(session)` responde lo que se puede saber HOY**, porque los
+gates parten la respuesta en dos momentos y `plan.drop_in` solo sirve para el
+segundo:
+
+- **antes de la Fase B** no existe `target_trust_ok`, así que se usa la
+  predicción estructural (`WorkflowInputs.drop_in_posible`: las dos
+  condiciones que el pre-flight y la Fase A ya fijaron). Exigir el trust ahí
+  diría «merge» durante toda la Fase A a un job que va a ir por drop-in — es
+  el mismo motivo por el que el frontend predice en `_cmv40PlanAutoSteps`;
+- **después** manda el dato real: `drop_in = drop_in_posible and
+  target_trust_ok`.
+
+La señal de «los gates ya se evaluaron» es que `target_trust_gates` esté
+poblado —lo escribe `_analyze_target_rpu` y nadie más—, no el orden de fases.
+
+El invariante lo fija `test_rpu_analyze::TestLaRecomendacionNoSeInventaLaRuta`,
+que recorre workflow × target_type × trust × override y exige
+`accion == "drop_in"` ⟺ `resolve_plan(session).drop_in`.
+
+**Los 10 proyectos históricos se corrigen al abrirlos**, sin migrar nada:
+`_cmv40_refrescar_textos_derivados` re-deriva también la ACCIÓN cuando el
+cambio es `drop_in` ↔ `merge`. Lo que **no** re-deriva es `keep`, que sí es
+una decisión: `accept-keep` y `override-recommendation` comparan contra lo
+persistido, y enseñar otra cosa dejaría a la vista un botón que contesta 400.
 
 Endpoints relacionados:
 - `POST /api/cmv40/{id}/accept-keep` — cierra el proyecto como `done` con `output_workflow="keep_cmv29"`.

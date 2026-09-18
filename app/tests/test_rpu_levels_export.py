@@ -31,6 +31,20 @@ def _write(d: Path, name: str, payload) -> Path:
     return p
 
 
+def _write_scenes(d: Path, name: str, cortes) -> Path:
+    """Escribe el export de `-d scenes` con el formato REAL de dovi_tool.
+
+    NO es JSON, aunque el export lleve `-f json` y el fichero acabe en
+    `.json`: es un índice de frame por línea. Este fichero se escribía con
+    `json.dumps` y por eso el test daba `scene_cuts == 3` mientras en el NAS
+    valía **siempre 0** — el mismo patrón que el `MaxCLL` de mediainfo sin
+    su unidad. Copiado de un bin del repo DoviTools.
+    """
+    p = d / name
+    p.write_text("".join(f"{c}\n" for c in cortes), encoding="utf-8")
+    return p
+
+
 class TestParseExportLevels(unittest.TestCase):
     """Muestras copiadas del output real de `dovi_tool 2.3.3 export -f json`."""
 
@@ -42,7 +56,7 @@ class TestParseExportLevels(unittest.TestCase):
                 "level1": _write(d, "l1.json", l1),
                 "level2": _write(d, "l2.json", l2),
                 "level8": _write(d, "l8.json", l8),
-                "scenes": _write(d, "scenes.json", scenes if scenes is not None else []),
+                "scenes": _write_scenes(d, "scenes.json", scenes if scenes is not None else []),
             }
             return _parse_export_levels(paths)
 
@@ -137,7 +151,7 @@ class TestClasificacionSobreLevels(unittest.TestCase):
                 "level1": _write(d, "l1.json", l1),
                 "level2": _write(d, "l2.json", []),
                 "level8": _write(d, "l8.json", l8),
-                "scenes": _write(d, "scenes.json", list(range(0, 200, 10))),
+                "scenes": _write_scenes(d, "scenes.json", list(range(0, 200, 10))),
             }
             a = _parse_export_levels(paths)
             self.assertEqual(a.scene_cuts, 20)
@@ -145,6 +159,84 @@ class TestClasificacionSobreLevels(unittest.TestCase):
             self.assertEqual(kind, "real")
             self.assertIn("FULL", reason)
 
+
+
+class TestElExportDeScenesNoEsJson(unittest.TestCase):
+    """`dovi_tool export -d scenes=…` escribe un índice por línea, no JSON.
+
+    El parser lo pasaba por `json.load`, que falla con «Extra data: line 2
+    column 1 (char 2)» en cuanto hay un segundo número, así que `scene_cuts`
+    valía 0 desde que se cambió el volcado completo por el export por
+    niveles. Con 0, el criterio relativo del tier CORE+
+    (`combos/scene_cuts >= 0.1`) no puede dispararse nunca.
+    """
+
+    def _contar(self, texto: str) -> int:
+        from phases.rpu_analyze import _contar_cortes_de_escena
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "scenes.json"
+            p.write_text(texto, encoding="utf-8")
+            return _contar_cortes_de_escena(p)
+
+    def test_el_formato_real_un_indice_por_linea(self):
+        # Primeras líneas literales del export de un bin del repo DoviTools.
+        self.assertEqual(
+            self._contar("0\n40\n423\n857\n1304\n1330\n1335\n"), 7)
+
+    def test_un_solo_corte_no_es_un_json_valido_por_casualidad(self):
+        # Con un único número `json.load` SÍ funciona (es un int válido) y
+        # devolvía 0 por el `isinstance(data, list)`. O sea que ni el caso
+        # degenerado se contaba.
+        self.assertEqual(self._contar("0\n"), 1)
+
+    def test_un_array_json_se_acepta_igual(self):
+        # Por si una versión futura lo emite así.
+        self.assertEqual(self._contar("[0, 40, 423]"), 3)
+
+    def test_un_formato_desconocido_da_cero_y_no_una_cuenta_a_medias(self):
+        # Preferimos el hueco —que tiene respaldo, el umbral absoluto de
+        # combos— a un número con pinta de dato.
+        self.assertEqual(self._contar("frame,scene\n0,1\n40,1\n"), 0)
+
+    def test_un_fichero_vacio_o_ausente_da_cero(self):
+        from phases.rpu_analyze import _contar_cortes_de_escena
+        self.assertEqual(self._contar(""), 0)
+        self.assertEqual(self._contar("\n\n"), 0)
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(
+                _contar_cortes_de_escena(Path(td) / "no_existe.json"), 0)
+        self.assertEqual(_contar_cortes_de_escena(None), 0)
+
+    def test_el_tier_core_mas_sale_por_el_criterio_RELATIVO(self):
+        """El caso que el bug se comía: pocos combos, pero muchos por plano.
+
+        Con `scene_cuts` a 0 esto salía `core`; el `[CMv4 CORE+]` del nombre
+        del MKV solo aparecía con >= 400 combos absolutos.
+        """
+        from phases.rpu_analyze import _parse_export_levels, classify_l8_quality
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            l1 = [{"frame": i, "min_pq": 0, "max_pq": 2081, "avg_pq": 819}
+                  for i in range(1000)]
+            # 50 combos L8 con trabajo real, sin campos CMv4.0 (no es FULL).
+            l8 = [{"frame": i, "length": 20, "target_display_index": 1,
+                   "trim_slope": 2048 + (i % 50) * 13, "trim_offset": 2048,
+                   "trim_power": 2048, "trim_chroma_weight": 2048,
+                   "trim_saturation_gain": 2048, "ms_weight": 2048}
+                  for i in range(1000)]
+            paths = {
+                "level1": _write(d, "l1.json", l1),
+                "level2": _write(d, "l2.json", []),
+                "level8": _write(d, "l8.json", l8),
+                # 100 cortes: 50/100 = 0.5 >= 0.1 -> CORE+
+                "scenes": _write_scenes(d, "scenes.json", range(0, 1000, 10)),
+            }
+            a = _parse_export_levels(paths)
+            self.assertEqual(a.scene_cuts, 100)
+            self.assertEqual(a.l8_unique_count, 50)
+            tier, label, _ = classify_l8_quality(a)
+            self.assertEqual(tier, "core_rich")
+            self.assertIn("CORE+", label)
 
 
 # `TestRpusFromLevels` vivía aquí y cubría `main._rpus_from_levels`, el

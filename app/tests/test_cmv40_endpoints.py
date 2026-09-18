@@ -674,6 +674,51 @@ class TestElTextoDerivadoNoCongelaElIdioma(ApiTestCase):
         with self._idioma("en"):
             d = self.client.get(f"/api/cmv40/{sid}").json()
         self.assertEqual(d["recommended_action_label"], "ROTULO PERSISTIDO")
+        # Y la decisión persistida tampoco: `keep` tiene endpoints colgando.
+        self.assertEqual(d["recommended_action"], "drop_in")
+
+    def _proyecto_mel(self, **extra):
+        """Un P7 MEL con bin MEL trusted: la matriz hace merge, no drop-in."""
+        from models import DoviInfo, L2Combo
+        l2 = [L2Combo(target_max_pq=2081, trim_slope=2000, trim_offset=2048,
+                      trim_power=2048, trim_chroma_weight=2048,
+                      trim_saturation_gain=2048, ms_weight=2048)]
+        campos = dict(
+            target_preflight_ok=True, preflight_decision="ok",
+            source_workflow="p7_mel",
+            source_l2_combos=l2, source_l2_unique_count=1,
+            target_l2_combos=l2,
+            target_type="trusted_p7_mel_final", target_trust_ok=True,
+            target_trust_gates={"frames": {"ok": True, "critical": True}},
+            target_dv_info=DoviInfo(profile=7, el_type="MEL",
+                                    cm_version="v4.0", frame_count=1000),
+            target_l8_classification="real",
+            recommended_action="drop_in",
+            recommended_action_label="ROTULO VIEJO",
+            recommended_action_reason="MOTIVO VIEJO",
+        )
+        campos.update(extra)
+        return self.crear_sesion(**campos)
+
+    def test_la_prediccion_de_la_ruta_si_se_rehace(self):
+        """`drop_in` ↔ `merge` no manda nada: se re-deriva como el texto.
+
+        Es el caso de 10 proyectos reales del `/config`, que enseñaban un
+        badge verde «(rápido) … ~30 segundos» al lado de su propio
+        `output_workflow=restore_merge` — 34 minutos de merge.
+        """
+        sid = self._proyecto_mel(output_workflow="restore_merge")
+        d = self.client.get(f"/api/cmv40/{sid}").json()
+        self.assertEqual(d["recommended_action"], "merge")
+        self.assertNotEqual(d["recommended_action_label"], "ROTULO VIEJO")
+        self.assertNotIn("30 segundos", d["recommended_action_reason"])
+        # Y la coherencia con la ruta que el pipeline ejecutó de verdad.
+        self.assertFalse(d["plan"]["drop_in"])
+
+    def test_rehacerla_no_reescribe_el_config(self):
+        sid = self._proyecto_mel()
+        self.client.get(f"/api/cmv40/{sid}")
+        self.assertEqual(self.leer_sesion(sid).recommended_action, "drop_in")
 
 
 class TestAbrirElProyectoRehaceLaFichaSiCambioElIdioma(ApiTestCase):

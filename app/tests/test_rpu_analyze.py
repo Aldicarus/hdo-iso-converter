@@ -540,6 +540,11 @@ class TestRecommendAction(unittest.TestCase):
         s.target_l2_combos = [_make_l2(2081, slope=2000)]
         s.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0", frame_count=100)
         s.target_l8_quality_label = "CMv4 FULL"
+        # Lo que la matriz mira: el tipo que le puso el pre-flight y los
+        # gates que evaluó la Fase B. Sin ellos el bin es `generic` → merge.
+        s.target_type = "trusted_p7_fel_final"
+        s.target_trust_ok = True
+        s.target_trust_gates = {"frames": {"ok": True, "critical": True}}
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "drop_in")
         self.assertIn("Inyectar RPU", label)
@@ -576,6 +581,108 @@ class TestRecommendAction(unittest.TestCase):
         self.assertEqual(action, "merge")
         self.assertIn("L2 difiere", reason)
         self.assertIn("preserva", label.lower())
+
+
+class TestLaRecomendacionNoSeInventaLaRuta(unittest.TestCase):
+    """La ruta la decide `cmv40_strategy`; aquí solo se consulta.
+
+    `recommend_action` la tenía replicada con otras reglas: perfil
+    coincidente en las TRES combinaciones (FEL/FEL, MEL/MEL, P8/P8) más L2
+    idéntico, sin mirar `target_type` ni los trust gates. El drop-in de la
+    matriz exige otra cosa —`p7_fel` + `trusted_p7_fel_final` + trust
+    efectivo— así que la card prometía «~30 segundos» a jobs que acababan
+    haciendo el merge completo.
+
+    Medido sobre el `/config` del NAS: **10 de los 41 proyectos con
+    recomendación**, y los 8 que llegaron al final salieron con
+    `output_workflow=restore_merge`. Dos familias: 7 con source P7 MEL (el
+    drop-in es exclusivo de FEL) y 3 con FEL/FEL y los gates caídos.
+    """
+
+    def _sesion(self, *, wf, tipo, trust, gates=True, override="auto"):
+        s = CMv40Session(id="t", source_mkv_path="/tmp/x.mkv",
+                         source_mkv_name="x.mkv", output_mkv_name="x.mkv")
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        s.source_workflow = wf
+        s.source_l2_combos = [_make_l2(2081, slope=2000)]
+        s.source_l2_unique_count = 1
+        s.target_l2_combos = [_make_l2(2081, slope=2000)]   # idéntico
+        s.target_type = tipo
+        s.target_trust_ok = trust
+        s.trust_override = override
+        el = "MEL" if wf == "p7_mel" else "FEL"
+        perfil = 8 if wf == "p8" else 7
+        s.target_dv_info = DoviInfo(profile=perfil, el_type=("" if perfil == 8 else el),
+                                    cm_version="v4.0", frame_count=100)
+        if gates:
+            s.target_trust_gates = {"frames": {"ok": True, "critical": True}}
+        return s
+
+    def test_p7_mel_no_es_drop_in_aunque_coincida_todo(self):
+        """El caso de 7 de los 10: MEL↔MEL, L2 idéntico y gates OK."""
+        s = self._sesion(wf="p7_mel", tipo="trusted_p7_mel_final", trust=True)
+        accion, label, motivo = recommend_action(s)
+        self.assertEqual(accion, "merge")
+        self.assertNotIn("30 segundos", motivo)
+        self.assertIn("P7 FEL", motivo)
+
+    def test_un_bin_fel_con_los_gates_caidos_va_por_merge(self):
+        """El caso de los otros 3: el bug literal de no mirar los gates."""
+        s = self._sesion(wf="p7_fel", tipo="trusted_p7_fel_final", trust=False)
+        s.target_trust_gates = {
+            "frames": {"ok": True, "critical": True},
+            "l5_div": {"ok": False, "critical": True},
+        }
+        accion, _, motivo = recommend_action(s)
+        self.assertEqual(accion, "merge")
+        self.assertIn("l5_div", motivo)
+
+    def test_pedir_revision_manual_tambien_quita_la_ruta_rapida(self):
+        s = self._sesion(wf="p7_fel", tipo="trusted_p7_fel_final", trust=True,
+                         override="force_interactive")
+        accion, _, motivo = recommend_action(s)
+        self.assertEqual(accion, "merge")
+        self.assertIn("manual", motivo.lower())
+
+    def test_antes_de_fase_b_se_predice_por_la_estructura(self):
+        """Sin gates evaluados, `target_trust_ok` todavía no existe.
+
+        Exigirlo diría «merge» durante toda la Fase A a un job que va a ir
+        por drop-in. La predicción usa lo que ya se sabe: el tipo lo puso el
+        pre-flight y el workflow, la Fase A.
+        """
+        s = self._sesion(wf="p7_fel", tipo="trusted_p7_fel_final",
+                         trust=False, gates=False)
+        self.assertEqual(recommend_action(s)[0], "drop_in")
+        # …y en cuanto la Fase B los evalúa, manda el dato real.
+        s.target_trust_gates = {"frames": {"ok": False, "critical": True}}
+        self.assertEqual(recommend_action(s)[0], "merge")
+
+    def test_la_recomendacion_coincide_con_el_plan_que_se_ejecuta(self):
+        """El invariante que evita que vuelvan a divergir.
+
+        Con los gates ya evaluados, `drop_in` de la recomendación y
+        `plan.drop_in` tienen que ser el mismo booleano en TODAS las
+        combinaciones. Es lo que no se cumplía en 10 proyectos reales.
+        """
+        from phases.cmv40_strategy import resolve_plan, WORKFLOWS
+        tipos = ("trusted_p7_fel_final", "trusted_p7_mel_final",
+                 "trusted_p8_source", "generic", "")
+        vistos = set()
+        for wf in WORKFLOWS:
+            for tipo in tipos:
+                for trust in (True, False):
+                    for override in ("auto", "force_interactive"):
+                        s = self._sesion(wf=wf, tipo=tipo, trust=trust,
+                                         override=override)
+                        accion = recommend_action(s)[0]
+                        self.assertIn(accion, ("drop_in", "merge"))
+                        self.assertEqual(
+                            accion == "drop_in", resolve_plan(s).drop_in,
+                            f"wf={wf} tipo={tipo!r} trust={trust} ov={override}")
+                        vistos.add(accion)
+        self.assertEqual(vistos, {"drop_in", "merge"}, "el barrido no ejercita las dos ramas")
 
 
 if __name__ == "__main__":

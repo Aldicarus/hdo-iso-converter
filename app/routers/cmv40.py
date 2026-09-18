@@ -2551,11 +2551,24 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     `blockers`, `recommended_action`—, que son ids neutros; la prosa se
     deriva de ellos al servirla. Así no hay que migrar ningún `/config`.
 
-    **No se persiste nada** y **no se cambia ninguna decisión**: si
-    `recommend_action` sobre la sesión de hoy resolviera otra acción que la
-    guardada (una recalibración de `compare_l2`, por ejemplo), el rótulo se
-    deja como está — describiría una decisión distinta de la que la UI
-    tiene al lado, y eso es peor que tenerlo en el otro idioma.
+    **No se persiste nada.** Y cuando la acción de hoy no coincide con la
+    guardada hay que distinguir dos casos, porque no todas mandan lo mismo:
+
+    - **`keep` SÍ es una decisión**, con dos endpoints colgando
+      (`accept-keep` y `override-recommendation`) que comparan contra lo
+      PERSISTIDO. Enseñar una acción distinta dejaría un botón a la vista
+      que contesta 400, así que ahí se respeta lo guardado.
+    - **`drop_in` ↔ `merge` no manda nada**: es la predicción de por dónde
+      irá el pipeline, derivable entera de campos que ya están en la sesión
+      (`source_workflow`, `target_type`, `target_trust_ok`,
+      `trust_override`). Se re-deriva como cualquier otro texto.
+
+    Eso segundo no es cosmético: `recommend_action` replicaba la regla del
+    drop-in con otros criterios y **10 de los 41 proyectos con
+    recomendación** del `/config` quedaron con un badge verde «Inyectar RPU
+    CMv4.0 (rápido) … ~30 segundos» al lado de su propio
+    `output_workflow=restore_merge`, que son 34 minutos. Al re-derivarla se
+    corrigen solos al abrirlos, sin migrar ningún fichero.
 
     Que falle no puede costar la petición: quedarse con el texto viejo es
     un inconveniente, no ver el proyecto no lo es.
@@ -2563,7 +2576,12 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     try:
         from phases.rpu_analyze import recommend_action
         accion, rotulo, motivo = recommend_action(session)
-        if not session.recommended_action or accion == session.recommended_action:
+        guardada = session.recommended_action or ""
+        if not guardada or accion == guardada:
+            data["recommended_action_label"] = rotulo
+            data["recommended_action_reason"] = motivo
+        elif "keep" not in (accion, guardada):
+            data["recommended_action"] = accion
             data["recommended_action_label"] = rotulo
             data["recommended_action_reason"] = motivo
     except Exception as e:

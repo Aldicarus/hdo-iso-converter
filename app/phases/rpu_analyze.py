@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from models import L2Combo, L8Combo
+from phases.cmv40_strategy import va_por_drop_in
 
 logger = logging.getLogger("hdo.rpu_analyze")
 
@@ -348,6 +349,57 @@ def cargar_niveles(paths: dict[str, Path]) -> dict[str, list]:
     return fuera
 
 
+def _contar_cortes_de_escena(ruta) -> int:
+    """Cuenta los cortes de escena del export `-d scenes` de dovi_tool.
+
+    **Ese fichero NO es JSON**, aunque el export lleve `-f json` y la ruta
+    acabe en `.json`: `dovi_tool export -d scenes=…` escribe un índice de
+    frame por línea, en texto plano. Comprobado contra un bin del repo
+    DoviTools (2.585 líneas, la primera un `0` suelto).
+
+    Pasarlo por `json.load` falla con «Extra data: line 2 column 1 (char 2)»
+    —el primer entero ya es un documento JSON completo y el segundo es
+    basura para el parser—, así que desde `48e369f` (el export por niveles)
+    `scene_cuts` valía **siempre 0**: el criterio relativo del tier CORE+
+    (`combos/scene_cuts >= 0.1`) quedó muerto y solo podía salir CORE+ por
+    el respaldo absoluto de 400 combos. Medido en el `/config` del NAS: los
+    23 proyectos con `scene_cuts > 0` son todos anteriores a ese commit.
+
+    Un array JSON se acepta igual, por si una versión futura lo emite. Y
+    ante cualquier OTRO formato se devuelve 0 con un aviso en vez de una
+    cuenta a medias: un número inventado con pinta de dato es peor que el
+    hueco, que además tiene respaldo (el umbral absoluto de combos).
+    """
+    if not ruta or not ruta.exists():
+        return 0
+    try:
+        texto = ruta.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        logger.warning("No se pudo leer el export de scenes: %s", e)
+        return 0
+    if not texto:
+        return 0
+    if texto[0] == "[":
+        try:
+            datos = json.loads(texto)
+        except ValueError as e:
+            logger.warning("No se pudo leer el export de scenes: %s", e)
+            return 0
+        return len(datos) if isinstance(datos, list) else 0
+    cortes = 0
+    for linea in texto.splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+        if not linea.lstrip("-").isdigit():
+            logger.warning(
+                "El export de scenes no tiene el formato esperado "
+                "(un indice de frame por linea); linea: %r", linea[:40])
+            return 0
+        cortes += 1
+    return cortes
+
+
 def analysis_desde_paths(paths: dict[str, Path]) -> RpuAnalysis:
     """`RpuAnalysis` a partir de ficheros de `--levels` ya generados."""
     return _parse_export_levels(paths)
@@ -382,13 +434,13 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
     l1 = _load("level1")
     l2 = _load("level2")
     l8 = _load("level8")
-    scenes = _load("scenes")
 
     analysis = RpuAnalysis()
     # L1 tiene exactamente un registro por frame del RPU.
     analysis.total_frames = len(l1)
-    # `scenes` es la lista de índices con scene_refresh_flag=1.
-    analysis.scene_cuts = len(scenes)
+    # `scenes` son los índices con scene_refresh_flag=1, y NO van en JSON:
+    # uno por línea. Por eso tiene su propio lector y no pasa por `_load`.
+    analysis.scene_cuts = _contar_cortes_de_escena(paths.get("scenes"))
 
     l2_counter: Counter = Counter()
     l2_pq_set: set[int] = set()
@@ -1073,27 +1125,50 @@ def recommend_action(session) -> tuple[str, str, str]:
     )
 
     quality_label = session.target_l8_quality_label or "CMv4"
+    perfil_mkv = source_wf.upper().replace('_', ' ') if source_wf else '?'
 
-    if profile_match and l2_verdict == "identical":
+    # La RUTA la decide `cmv40_strategy`, que es quien la ejecuta. Aquí
+    # estaba replicada con otras reglas —perfil coincidente en las tres
+    # combinaciones más L2 idéntico, sin mirar `target_type` ni los gates—
+    # y prometía «~30 segundos» a jobs que acababan haciendo el merge
+    # entero: 10 de los 41 proyectos con recomendación del `/config` del
+    # NAS, con los 8 terminados en `output_workflow=restore_merge`.
+    if va_por_drop_in(session):
         return (
             "drop_in",
             tr('rpu_analyze.inyectar_rpu_cmv4_0_rapido'),
-            tr('rpu_analyze.el_perfil_del_bin_coincide_con_el', p1=source_wf.upper().replace('_', ' '), quality_label=quality_label),
+            tr('rpu_analyze.el_perfil_del_bin_coincide_con_el', p1=perfil_mkv, quality_label=quality_label),
         )
 
-    # Cualquier otro caso real → merge selectivo
+    # Merge selectivo. El motivo, del más raíz al más fino: `profile_match`
+    # y el L2 ya no deciden nada, pero siguen siendo lo que hay que contarle
+    # al usuario cuando son ellos los que impiden la ruta rápida.
     if not profile_match:
         reason = tr(
             'rpu_analyze.perfil_no_coincide',
             perfil_bin=target.profile if target else '?',
             el_bin=(' ' + target.el_type) if target and target.el_type else '',
-            perfil_mkv=(source_wf.upper().replace('_', ' ')
-                        if source_wf else '?'),
+            perfil_mkv=perfil_mkv,
             calidad=quality_label)
-    else:
-        # profile match pero L2 different
+    elif l2_verdict != "identical":
         reason = tr('rpu_analyze.l2_difiere', motivo=l2_reason,
                     calidad=quality_label)
+    elif not (source_wf == "p7_fel"
+              and session.target_type == "trusted_p7_fel_final"):
+        # Coincide todo y aun así no hay ruta rápida: sustituir el RPU
+        # entero solo existe para P7 FEL. Es el caso de 7 de los 10.
+        reason = tr('rpu_analyze.drop_in_solo_fel',
+                    perfil_mkv=perfil_mkv, calidad=quality_label)
+    elif (session.trust_override or "auto") == "force_interactive":
+        reason = tr('rpu_analyze.drop_in_revision_manual',
+                    calidad=quality_label)
+    else:
+        caidos = ", ".join(
+            k for k, v in (session.target_trust_gates or {}).items()
+            if isinstance(v, dict) and not v.get("ok", True)
+        )
+        reason = tr('rpu_analyze.drop_in_gates_caidos',
+                    gates=caidos or "?", calidad=quality_label)
 
     return ("merge", tr('rpu_analyze.inyectar_rpu_cmv4_0_preserva_l2'), reason)
 

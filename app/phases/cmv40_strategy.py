@@ -122,17 +122,31 @@ class WorkflowInputs:
         return self.target_trust_ok or self.user_acknowledged
 
     @property
+    def drop_in_posible(self) -> bool:
+        """Las condiciones del drop-in que NO dependen de los trust gates.
+
+        Sirve para PREDECIR la ruta antes de que la Fase B evalúe los gates,
+        que es cuando `target_trust_ok` todavía no existe. Las dos
+        estructurales se saben mucho antes: el `target_type` lo fija el
+        pre-flight y el `source_workflow`, la Fase A.
+
+        No es el drop-in: un bin `trusted_p7_fel_final` cuyos gates no pasen
+        va por merge. Quien tenga los gates delante debe usar `drop_in`.
+        """
+        return (
+            self.source_workflow == "p7_fel"
+            and self.target_type == "trusted_p7_fel_final"
+            and self.trust_override != "force_interactive"
+        )
+
+    @property
     def drop_in(self) -> bool:
         """Bin P7 FEL CMv4.0 ya cocinado sobre un source P7 FEL, con gates OK.
 
         Permite inyectar sobre BL+EL sin demux ni mux: ahorra ~90 GB de I/O
         temporal y las dos operaciones más largas del pipeline.
         """
-        return (
-            self.source_workflow == "p7_fel"
-            and self.target_type == "trusted_p7_fel_final"
-            and self.trust_effective
-        )
+        return self.drop_in_posible and self.target_trust_ok
 
     @property
     def single_layer_output(self) -> bool:
@@ -472,3 +486,34 @@ def plan_for(inp: WorkflowInputs) -> WorkflowPlan:
         remux=_remux_plan(inp),
         validate=_validate_plan(inp),
     )
+
+
+def va_por_drop_in(session) -> bool:
+    """¿Va esta sesión por la ruta drop-in? La respuesta que puede darse HOY.
+
+    Existe para que nadie vuelva a escribir la condición a mano fuera de
+    aquí. `recommend_action` la tenía replicada con otras reglas —perfil
+    coincidente en las TRES combinaciones (FEL/FEL, MEL/MEL, P8/P8) más L2
+    idéntico, sin mirar `target_type` ni los gates— y prometía «~30
+    segundos» en jobs que acababan haciendo el merge completo. Medido sobre
+    el `/config` del NAS: **10 de los 41 proyectos con recomendación**, y
+    los 8 terminados salieron con `output_workflow=restore_merge`.
+
+    Los gates parten la respuesta en dos momentos, y por eso no basta con
+    `plan.drop_in`:
+
+    - **antes de la Fase B** no existe `target_trust_ok`, así que lo único
+      honesto es la predicción estructural (`drop_in_posible`). Es lo que
+      hace ya el frontend en `_cmv40PlanAutoSteps` para no sumarle al ETA un
+      demux fantasma de ~13 min;
+    - **después** manda el dato real, gates incluidos: un bin
+      `trusted_p7_fel_final` que no los pase va por merge.
+
+    La señal de «los gates ya se evaluaron» es que `target_trust_gates` esté
+    poblado — lo escribe `_analyze_target_rpu` y nadie más. Se prefiere al
+    orden de fases porque no depende de por dónde vaya el pipeline.
+    """
+    inp = WorkflowInputs.from_session(session)
+    if getattr(session, "target_trust_gates", None):
+        return inp.drop_in
+    return inp.drop_in_posible
