@@ -979,6 +979,26 @@ def dovi_tool(sc, sub, json_args):
         props = read_props(src, sc)
         n = min(int(props["frames"]), 200)
 
+        # `-d scenes=<fichero>`: el real escribe **un índice de frame por
+        # LÍNEA**, texto plano, aunque el export lleve `-f json` y el destino
+        # acabe en `.json` (comprobado en el NAS: 2.585 líneas, la primera un
+        # `0` suelto). El pipeline lo pide SIEMPRE, junto con `--levels`, así
+        # que va antes de las dos ramas.
+        #
+        # El fake no lo escribía en ninguna de las dos, así que `scene_cuts`
+        # salía 0 en todos los tests de integración y el bug de leerlo con
+        # `json.load` no lo podía ver ninguno — el mismo agujero que el
+        # `MaxCLL` sin unidad. Escribirlo como array JSON sería peor que no
+        # escribirlo: haría pasar en verde un `json.load` que en el NAS falla
+        # siempre.
+        for a in ARGV:
+            if a.startswith("scenes="):
+                total = max(1, int(props["frames"]))
+                cortes = max(1, min(int(props["scenes"]), total))
+                paso = max(1, total // cortes)
+                Path(a.split("=", 1)[1]).write_text(
+                    "".join(f"{i * paso}\n" for i in range(cortes)))
+
         # Camino preferente del pipeline (dovi_tool >= 2.3.3):
         #   export -i RPU -f json --levels level1=/path/a.json,level5=/path/b.json
         # Es el que se usa en el NAS; volcar el RPU entero son 682 MB frente a 8.

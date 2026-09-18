@@ -3199,6 +3199,36 @@ el patrón del `MaxCLL` de mediainfo sin su unidad: **antes de escribir un
 binario falso, comprobar el formato real**. Con el fixture arreglado,
 reintroducir el bug hace fallar tres tests, uno de ellos el que ya existía.
 
+Y había un segundo agujero, más callado: **el `dovi_tool` del arnés no
+escribía ese fichero en absoluto**. El pipeline pide `-d scenes=…` y
+`--levels …` en la MISMA invocación, y el fake, al ver `--levels`, procesaba
+solo esos pares y se iba. Así que `paths["scenes"]` no existía, el filtro
+`utiles` de `mkv_analyze` lo descartaba por no existir y **ningún test de
+integración podía ver un `scene_cuts` distinto de 0** — pasaban todos, y el
+del payload de calidad afirmaba los otros campos sin mirar este.
+
+Ojo al orden de las dos verificaciones, porque una sola no basta:
+`_contar_cortes_de_escena` **acepta un array JSON a propósito**, así que un
+fake que escribiera `json.dumps([...])` haría pasar en verde el test
+end-to-end. Hacen falta las dos: el end-to-end (que el valor llegue al
+payload) y un guard de fidelidad que compruebe que lo que el fake escribe
+**NO** es JSON parseable, sino líneas de dígitos. Demostrado por mutación:
+sin escribir el fichero caen los dos; escribiéndolo como array, solo el
+segundo.
+
+**El caso más visible era Tab 2**, y no era una fila oculta: la mini-card de
+la radiografía DV+HDR pintaba `scene cuts: 0` con `(~— L8/shot)` al lado, o
+sea un cero con pinta de dato. El de `scene_cuts_cada` sí se ocultaba por su
+guard `> 0`.
+
+**El perfil de luminancia NO estaba afectado**, y conviene saber por qué:
+`cargar_niveles` **salta la clave `scenes`** explícitamente (su formato no es
+una lista JSON), y `payload_de_luminancia` no usa cortes de escena para
+nada. Cuidado con el naming: sus `per_scene_max_cll` / `per_scene_max_fall` /
+`per_scene_min` son reducciones por **cubos** de la serie por frame
+(`_reducir` con `MAX_POINTS`, el nombre lo lleva por compatibilidad con el
+frontend) y los `bucket_dim`/`mid`/`high` cuentan **frames**, no escenas.
+
 ### Decisión de 4 caminos (`recommend_action`)
 
 ```

@@ -232,6 +232,56 @@ class TestElPayloadDeCalidad(AuditoriaCase):
         self.assertIn("quality_verdict_text", r)
 
 
+class TestLosCortesDeEscenaLleganDeVerdad(AuditoriaCase):
+    """`quality_scene_cuts` valía 0 en cada job desde el 16-ago-2026.
+
+    El export `-d scenes` de dovi_tool es **un índice de frame por línea**,
+    no JSON, y el parser lo pasaba por `json.load`: fallaba con «Extra data:
+    line 2 column 1» siempre. Alimenta el criterio relativo del tier CORE+
+    (`combos/scene_cuts >= 0.1`) y la fila «scene cuts cada N s» más los
+    «combos/shot» de la radiografía DV+HDR, que no se pintaban nunca.
+
+    Y el fake **no escribía ese fichero**, así que ningún test de
+    integración lo podía ver: pasaban todos con 0.
+    """
+
+    async def test_el_payload_de_calidad_trae_los_cortes(self):
+        r, _ = await self.auditar()
+        # El RPU del setUp tiene 50 frames y `scenes` topa en el frame count.
+        self.assertEqual(r["quality_scene_cuts"], 50)
+
+    async def test_el_export_escribe_el_fichero_y_no_es_un_array_json(self):
+        """El fake tiene que emitir el formato REAL, no el cómodo.
+
+        `_contar_cortes_de_escena` acepta un array JSON a propósito, por si
+        una versión futura lo emite — así que un fake que escribiera
+        `json.dumps([...])` pasaría en verde y el arnés podría volver a
+        divergir del NAS sin que nada avisara. Esto fija lo que dovi_tool
+        escribe de verdad.
+        """
+        import json as _json
+        import subprocess
+        rpu = self.tmp / "suelto.bin"
+        rpu.write_bytes(b"x" * 16)
+        self.tb.define_rpu(rpu.name, profile=7, el_type="FEL",
+                           cm_version="v4.0", frames=1000, scenes=120,
+                           has_l8=True)
+        destino = self.tmp / ".suelto_scenes.json"
+        r = subprocess.run(
+            ["dovi_tool", "export", "-i", str(rpu), "-f", "json",
+             "-d", f"scenes={destino}",
+             "--levels", f"level1={self.tmp / 'l1.json'}"],
+            capture_output=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr[:300])
+        texto = destino.read_text()
+        with self.assertRaises(ValueError):
+            _json.loads(texto)          # lo que falla en el NAS
+        lineas = [l for l in texto.splitlines() if l.strip()]
+        self.assertEqual(len(lineas), 120)
+        self.assertTrue(all(l.strip().isdigit() for l in lineas))
+        self.assertEqual(lineas[0].strip(), "0")
+
+
 class TestFallosDelPipeline(AuditoriaCase):
 
     async def test_si_ffmpeg_falla_lanza(self):
