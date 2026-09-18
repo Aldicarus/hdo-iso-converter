@@ -1676,6 +1676,67 @@ function icono(nombre, clase = '') {
 }
 
 
+/* ══════════════════════════════════════════════════════════════════════
+ *  BANDERAS — una familia APARTE de `GLIFOS`, y a propósito
+ *
+ *  `GLIFOS` es monocromo por diseño: trazo 1.6 sobre rejilla de 24 y
+ *  `currentColor`, que es lo que hace que los 50 se lean como una familia.
+ *  Una bandera sin sus colores no es una bandera, así que no cabe ahí y
+ *  tiene su propio catálogo, su propio viewBox (4:3, la proporción de una
+ *  bandera) y sus colores literales.
+ *
+ *  Por qué no emoji: los dibuja el sistema operativo —cambian de forma
+ *  entre máquinas y no heredan nada—, y además el guard de la app prohíbe
+ *  emoji en el marcado. Ojo también con el fondo: `🇪🇸` sobre un chip claro
+ *  y sobre uno oscuro se ve distinto, y un SVG no.
+ *
+ *  Y una advertencia que conviene no perder: **no existen banderas de
+ *  idiomas, existen de países**. `en` lleva la Union Jack por convención
+ *  —coherente con el `en-GB` que `localeActual()` ya usa para las fechas—,
+ *  y el catalán NO tiene punto de código en Unicode, que es otra razón para
+ *  dibujarlos nosotros.
+ *
+ *  **El respaldo es lo que permite crecer**: un idioma sin bandera no deja
+ *  un hueco, sale con las dos letras de su código en el mismo recuadro. Así
+ *  añadir un catálogo nuevo funciona sin tocar este fichero.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+const BANDERAS = {
+  // Rojigualda, sin escudo (el escudo a 20 px es una mancha).
+  es: '<rect width="24" height="18" fill="#c60b1e"/>'
+    + '<rect y="4.5" width="24" height="9" fill="#ffc400"/>',
+  // Union Jack: aspa blanca, aspa roja y la cruz de San Jorge encima.
+  en: '<rect width="24" height="18" fill="#012169"/>'
+    + '<path d="M0 0 L24 18 M24 0 L0 18" stroke="#fff" stroke-width="3.6"/>'
+    + '<path d="M0 0 L24 18 M24 0 L0 18" stroke="#c8102e" stroke-width="2.1"/>'
+    + '<path d="M12 0 V18 M0 9 H24" stroke="#fff" stroke-width="6"/>'
+    + '<path d="M12 0 V18 M0 9 H24" stroke="#c8102e" stroke-width="3.6"/>',
+  // Senyera: cuatro barras rojas sobre oro.
+  ca: '<rect width="24" height="18" fill="#fcdd09"/>'
+    + '<path d="M0 3.1 H24 M0 7.4 H24 M0 11.7 H24 M0 16 H24" '
+    + 'stroke="#da121a" stroke-width="2.15"/>',
+};
+
+/** La bandera de un idioma, o `null` si no la tenemos.
+ *
+ *  Devuelve `null` en vez de una cadena vacía para que el llamador pueda
+ *  distinguir «no hay» y pintar el respaldo de las dos letras: una cadena
+ *  vacía dejaría el chip mudo, que es justo lo que no queremos cuando
+ *  alguien añada un idioma.
+ */
+function bandera(codigo) {
+  const b = BANDERAS[String(codigo || '').toLowerCase()];
+  if (!b) return null;
+  return '<svg class="bandera" viewBox="0 0 24 18" width="20" height="15" '
+       + 'aria-hidden="true" focusable="false">' + b + '</svg>';
+}
+
+/** El distintivo de un idioma: su bandera, o su código si no la hay. */
+function distintivoDeIdioma(codigo) {
+  return bandera(codigo)
+      || '<span class="bandera-codigo">' + escHtml(String(codigo || '?').toUpperCase()) + '</span>';
+}
+
 /** El TONO lo da la PESTAÑA, no el tipo.
  *
  *  Antes cada tipo tenía el suyo y no seguía ninguna regla: el rip azul y la

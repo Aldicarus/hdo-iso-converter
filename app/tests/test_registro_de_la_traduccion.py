@@ -94,6 +94,10 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "ajustes.seccion.general":
+        "«General» se escribe igual en castellano y en inglés; en catalán "
+        "también. Es el rótulo de la primera sección del modal de "
+        "Configuración y no hay nada que traducir",
     "tab3.l5_letterbox":
         "«L5», «letterbox» y «active area» son los tres el nombre del "
         "campo del RPU, tal cual en la spec de Dolby: no queda ninguna "

@@ -13,6 +13,118 @@
 // del repo DoviTools están configuradas sin tener que llamar cada vez.
 let _settingsCache = null;
 
+/* ══════════════════════════════════════════════════════════════════════
+ *  Las secciones del modal — una tabla, no marcado
+ *
+ *  El modal llegó a OCHO bloques en un solo scroll y ya no se encontraba
+ *  nada. La partición NO se hizo reordenando el HTML: cada
+ *  `.settings-section` declara su `data-bloque` y esta tabla dice a qué
+ *  sección va y en qué orden; al abrir, `_montarSeccionesDeAjustes` mueve
+ *  los nodos a su panel con `appendChild`, que MUEVE en vez de copiar.
+ *
+ *  Lo que eso compra, y es el motivo de hacerlo así:
+ *
+ *  - reordenar —«la versión primero»— es mover una cadena de sitio;
+ *  - añadir una sección es una fila aquí más un `data-bloque` en el bloque
+ *    nuevo, sin tocar layout ni CSS;
+ *  - **ningún id del DOM cambia**, así que las ~30 referencias por id de
+ *    este fichero y `test_ids_del_dom` siguen valiendo tal cual;
+ *  - el `MutationObserver` de iconos e i18n no se realimenta: los nodos que
+ *    se mueven ya están pintados y llevan su `data-ico-puesto`.
+ *
+ *  **Un bloque que no esté en ninguna sección desaparecería de la pantalla
+ *  sin dar un error**, que es la clase de fallo mudo que este repo persigue.
+ *  Lo cruza `test_secciones_de_ajustes` en las dos direcciones.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+// El rótulo y la descripción NO van aquí: se componen del `id`
+// (`ajustes.seccion.general` y `..._desc`), que es el patrón del backend con
+// `tr(f'cmv40.fase_{fase}')`. Guardar el texto —o su clave— en un campo es lo
+// que los guards de i18n persiguen, y con razón: no hay forma de comprobar
+// estáticamente que un string guardado en una propiedad acabe en un
+// `data-i18n`. Que las dos claves de cada sección existan y se pinten lo
+// cruza `test_secciones_de_ajustes`.
+const SECCIONES_AJUSTES = [
+  {
+    id: 'general',
+    icono: 'ajustes',
+    // La versión va PRIMERO: es lo que se viene a mirar cuando se abre esto
+    // sin una tarea concreta, y lo único que puede pedir una acción (actualizar).
+    bloques: ['version', 'idioma', 'aviso', 'mantenimiento'],
+  },
+  {
+    id: 'integraciones',
+    icono: 'enlaceExterno',
+    // El botón rojo del pie borra claves y URLs, que viven aquí. Con las
+    // secciones dejó de tener sentido enseñarlo desde General: un botón de
+    // borrar en rojo sobre una pantalla donde no se ve ni una clave.
+    tieneClaves: true,
+    bloques: ['tmdb', 'google', 'drive', 'sheet'],
+  },
+];
+
+// Qué sección se está viendo. En memoria y no en `localStorage` a propósito:
+// al volver a abrir el modal se empieza por arriba, que es lo predecible.
+let _seccionDeAjustes = SECCIONES_AJUSTES[0].id;
+
+/** Reparte los bloques en sus paneles y pinta la navegación.
+ *
+ *  Idempotente: se puede llamar en cada apertura. Los `appendChild` sobre un
+ *  nodo que ya está en su sitio no hacen nada visible.
+ */
+function _montarSeccionesDeAjustes() {
+  const panel = document.getElementById('settings-panel');
+  const nav = document.getElementById('settings-nav');
+  if (!panel || !nav) return;
+
+  for (const sec of SECCIONES_AJUSTES) {
+    let caja = panel.querySelector(`.settings-seccion[data-seccion="${sec.id}"]`);
+    if (!caja) {
+      caja = document.createElement('div');
+      caja.className = 'settings-seccion';
+      caja.dataset.seccion = sec.id;
+      panel.appendChild(caja);
+    }
+    // El orden de `bloques` manda: `appendChild` mueve el nodo al final, así
+    // que recorrer la lista en orden los deja en ese orden.
+    for (const b of sec.bloques) {
+      const nodo = document.querySelector(`.settings-section[data-bloque="${b}"]`);
+      if (nodo) caja.appendChild(nodo);
+    }
+  }
+
+  nav.innerHTML = SECCIONES_AJUSTES.map(sec => `
+    <button type="button" class="settings-nav-item" data-seccion="${sec.id}"
+            onclick="activarSeccionDeAjustes('${sec.id}')">
+      <span class="settings-nav-ico">${icono(sec.icono)}</span>
+      <span class="settings-nav-txt">
+        <span class="settings-nav-titulo" data-i18n="ajustes.seccion.${sec.id}"></span>
+        <span class="settings-nav-desc" data-i18n="ajustes.seccion.${sec.id}_desc"></span>
+      </span>
+    </button>`).join('');
+
+  activarSeccionDeAjustes(_seccionDeAjustes);
+}
+
+/** Muestra una sección y marca su fila. */
+function activarSeccionDeAjustes(id) {
+  if (!SECCIONES_AJUSTES.some(s => s.id === id)) id = SECCIONES_AJUSTES[0].id;
+  _seccionDeAjustes = id;
+  document.querySelectorAll('#settings-panel .settings-seccion').forEach(c => {
+    c.style.display = c.dataset.seccion === id ? '' : 'none';
+  });
+  document.querySelectorAll('#settings-nav .settings-nav-item').forEach(b => {
+    const activo = b.dataset.seccion === id;
+    b.classList.toggle('activo', activo);
+    b.setAttribute('aria-current', activo ? 'true' : 'false');
+  });
+  _actualizarBotonBorrar();
+  // El scroll es del panel, y al cambiar de sección se vuelve arriba: dejarlo
+  // a media altura de la sección anterior desorienta.
+  const panel = document.getElementById('settings-panel');
+  if (panel) panel.scrollTop = 0;
+}
+
 async function openSettingsModal() {
   ['settings-tmdb-feedback', 'settings-google-feedback',
    'settings-drive-folder-feedback', 'settings-sheet-feedback'].forEach(id => {
@@ -26,13 +138,17 @@ async function openSettingsModal() {
   });
   // El sheet NO se borra — pre-populamos con la URL actual para que el
   // usuario vea qué está usando y pueda editarlo directamente.
+  _montarSeccionesDeAjustes();
   await _loadSettings();
   // Versión + chequeo de updates (no force, usa cache 1h)
   _renderVersionInfo();
   checkForUpdates(false);
   renderAvisoFinSettings();
   openModal('settings-modal');
-  setTimeout(() => document.getElementById('settings-tmdb-input')?.focus(), 50);
+  // El foco NO va al campo de TMDb: desde que hay secciones vive en la otra,
+  // y enfocarlo la abriría sola o —peor— escribirías a ciegas en un input
+  // que no se ve. Va a la navegación, que es desde donde se elige.
+  setTimeout(() => document.querySelector('#settings-nav .settings-nav-item.activo')?.focus(), 50);
 }
 
 /** Comprobacion silenciosa de updates al arrancar la app. Sin force (usa
@@ -400,15 +516,99 @@ function _renderSettingsSheet(data) {
  * traducido al idioma activo: quien abre los ajustes porque la app está en un
  * idioma que no entiende tiene que poder reconocer el suyo.
  */
+/** Los idiomas que ofrecer, SEGÚN EL SERVIDOR.
+ *
+ *  `IDIOMAS` (i18n.js) es una constante del frontend y el servidor manda
+ *  además `idioma.disponibles`: son DOS listas de lo mismo. Añadir un
+ *  catálogo en el servidor sin tocar la constante no pintaba el botón, y al
+ *  revés pintaba uno que no funciona — y ninguna de las dos cosas da un
+ *  error. Manda el servidor, que es quien tiene los catálogos; `IDIOMAS`
+ *  queda como la tabla de NOMBRES (cada idioma escrito en su propia lengua,
+ *  que es lo que permite encontrarlo sin entender el idioma actual) y como
+ *  respaldo si la respuesta no trae la lista.
+ *
+ *  Un idioma que el servidor ofrezca y la tabla no conozca sale con su
+ *  código en mayúsculas: se puede elegir, que es lo que importa.
+ */
+function _idiomasOfrecidos(data) {
+  const nombres = new Map(IDIOMAS.map(i => [i.codigo, i.nombre]));
+  const codigos = (data && data.idioma && Array.isArray(data.idioma.disponibles)
+                   && data.idioma.disponibles.length)
+    ? data.idioma.disponibles
+    : IDIOMAS.map(i => i.codigo);
+  return codigos.map(c => ({ codigo: c, nombre: nombres.get(c) || c.toUpperCase() }));
+}
+
 function _renderSettingsIdioma(data) {
   const caja = document.getElementById('settings-idiomas');
   if (!caja) return;
   const activo = (data.idioma && data.idioma.activo) || idiomaActivo();
-  caja.innerHTML = IDIOMAS.map(i => `
+  caja.innerHTML = _idiomasOfrecidos(data).map(i => `
     <button class="btn btn-sm settings-idioma${i.codigo === activo ? ' activo' : ''}"
-            onclick="cambiarIdioma('${i.codigo}')"
-            ${i.codigo === activo ? 'disabled' : ''}>${escHtml(i.nombre)}</button>
+            onclick="pedirCambioDeIdioma('${i.codigo}')"
+            ${i.codigo === activo ? 'disabled' : ''}
+            ><span class="settings-idioma-bandera">${distintivoDeIdioma(i.codigo)}</span
+            ><span>${escHtml(i.nombre)}</span></button>
   `).join('');
+}
+
+/** Los campos del formulario que el usuario ha tocado y no ha guardado.
+ *
+ *  Los inputs se pintan SIEMPRE vacíos —de una clave configurada solo se
+ *  enseña el `last4` en el placeholder— así que cualquier valor escrito es,
+ *  por construcción, un cambio pendiente.
+ */
+function _ajustesSinGuardar() {
+  return ['settings-tmdb-input', 'settings-google-input',
+          'settings-drive-folder-input', 'settings-sheet-input']
+    .filter(id => (document.getElementById(id)?.value || '').trim() !== '');
+}
+
+/** Cambiar de idioma recarga la página; antes, preguntar si hay que perder algo.
+ *
+ *  `cambiarIdioma` hace `location.reload()`, así que lo escrito y no guardado
+ *  se va. Ya pasaba, pero con las claves en OTRA sección deja de ser evidente:
+ *  al pulsar el idioma no las tienes delante. Mismo patrón que Tab 2 al cerrar
+ *  un MKV con cambios pendientes.
+ */
+async function pedirCambioDeIdioma(codigo) {
+  if (!_ajustesSinGuardar().length) return cambiarIdioma(codigo);
+  const que = await _confirmarCambioDeIdioma();
+  if (que === 'cancel') return;
+  // Si el guardado falla no se recarga: el usuario se quedaría sin el error
+  // y sin la clave.
+  if (que === 'guardar' && !(await saveSettings())) return;
+  return cambiarIdioma(codigo);
+}
+
+/** El diálogo de tres salidas, con el patrón de `_seriesConfirmConflicts`:
+ *  `showConfirm` es de callback y el tercer botón se inserta a mano. */
+function _confirmarCambioDeIdioma() {
+  return new Promise(resolve => {
+    showConfirm(
+      tr('ajustes.idioma_cambios_titulo'),
+      tr('ajustes.idioma_cambios_texto'),
+      () => resolve('guardar'),
+      tr('ajustes.idioma_guardar_y_cambiar'),
+    );
+    const sinGuardar = document.createElement('button');
+    sinGuardar.className = 'btn btn-secondary btn-sm confirm-extra-btn';
+    sinGuardar.textContent = tr('ajustes.idioma_cambiar_sin_guardar');
+    sinGuardar.onclick = () => {
+      closeModal('confirm-modal');
+      resolve('descartar');
+    };
+    const ok = document.getElementById('confirm-ok-btn');
+    if (ok) ok.parentNode.insertBefore(sinGuardar, ok);
+    const cancelar = document.querySelector('#confirm-modal .btn-ghost');
+    if (cancelar) {
+      const alCancelar = () => {
+        cancelar.removeEventListener('click', alCancelar);
+        resolve('cancel');
+      };
+      cancelar.addEventListener('click', alCancelar);
+    }
+  });
 }
 
 function _renderSettings(data) {
@@ -417,11 +617,20 @@ function _renderSettings(data) {
   const googleUserSet = _renderSettingsSection('google', data);
   const driveUserSet  = _renderSettingsDriveFolder(data);
   const sheetUserSet  = _renderSettingsSheet(data);
-  const clearBtn = document.getElementById('settings-clear-btn');
-  if (clearBtn) {
-    const anyUserSet = tmdbUserSet || googleUserSet || driveUserSet || sheetUserSet;
-    clearBtn.style.display = anyUserSet ? '' : 'none';
-  }
+  _hayClavesDelUsuario = tmdbUserSet || googleUserSet || driveUserSet || sheetUserSet;
+  _actualizarBotonBorrar();
+}
+
+// ¿Hay alguna clave o URL puesta POR EL USUARIO? Lo decide `_renderSettings`
+// al leer la respuesta; el botón lo consulta cada vez que cambia la sección.
+let _hayClavesDelUsuario = false;
+
+/** El botón rojo del pie se ve si hay algo que borrar y estás donde vive. */
+function _actualizarBotonBorrar() {
+  const btn = document.getElementById('settings-clear-btn');
+  if (!btn) return;
+  const sec = SECCIONES_AJUSTES.find(s => s.id === _seccionDeAjustes);
+  btn.style.display = (_hayClavesDelUsuario && sec && sec.tieneClaves) ? '' : 'none';
 }
 
 async function _testKeyGeneric(key, fieldKey, endpoint, payloadKey) {
@@ -479,6 +688,12 @@ function resetSheetUrlToDefault() {
   });
 }
 
+/** Guarda las claves del formulario. Devuelve `true` si se guardó.
+ *
+ *  El retorno lo estrenó `pedirCambioDeIdioma`: si el guardado falla, NO se
+ *  puede recargar la página encima — el usuario se quedaría sin el error y
+ *  sin la clave. Antes no devolvía nada y no había forma de distinguirlo.
+ */
 async function saveSettings() {
   const tmdbInp        = document.getElementById('settings-tmdb-input');
   const googleInp      = document.getElementById('settings-google-input');
@@ -505,14 +720,14 @@ async function saveSettings() {
   }
   if (!Object.keys(payload).length) {
     closeModal('settings-modal');
-    return;
+    return true;
   }
   btn.disabled = true;
   const data = await apiFetch('/api/settings', {
     method: 'POST', body: JSON.stringify(payload),
   });
   btn.disabled = false;
-  if (!data) return;
+  if (!data) return false;
   _settingsCache = data;
   _renderSettings(data);
   if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = tr('settings.guardada');   fbTmdb.className = 'settings-feedback ok'; } }
@@ -520,6 +735,7 @@ async function saveSettings() {
   if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = tr('settings.guardada');  fbDrive.className = 'settings-feedback ok'; } }
   if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = tr('settings.guardada'); fbSheet.className = 'settings-feedback ok'; }
   showToast(tr('settings.configuracion_guardada'), 'success');
+  return true;
 }
 
 async function clearAllKeys() {

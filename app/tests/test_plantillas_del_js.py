@@ -295,6 +295,21 @@ class TestNingunaClavePedidaFaltaDelCatalogo(unittest.TestCase):
                     continue
                 for m in self._PEDIDOS.finditer(linea):
                     clave = m.group(1) or m.group(2)
+                    if "${" in clave:
+                        # Clave COMPUESTA (`ajustes.seccion.${sec.id}`), el
+                        # patrón del backend con `tr(f'cmv40.fase_{fase}')`.
+                        # No se puede resolver aquí sin ejecutar el JS, así
+                        # que se comprueba lo que sí se sabe: que el prefijo
+                        # literal sea una familia que existe. Eso caza el
+                        # error probable —un prefijo mal escrito— y quien
+                        # use una clave así tiene que cubrir los valores
+                        # concretos con su propio test, como hace
+                        # `test_secciones_de_ajustes`.
+                        prefijo = clave.split("${")[0]
+                        if not prefijo or not any(k.startswith(prefijo) for k in es):
+                            malas.append(f"{Path(r).name}:{i}: {clave} "
+                                         f"(prefijo «{prefijo}» sin ninguna clave)")
+                        continue
                     if clave not in es:
                         malas.append(f"{Path(r).name}:{i}: {clave}")
         self.assertEqual(malas, [], (

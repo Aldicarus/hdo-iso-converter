@@ -1496,6 +1496,79 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 - Nunca se exponen secretos crudos al frontend — solo `{configured, source, last4}`
 - Validación live: botón "Probar" contra endpoint oficial de cada API
 
+#### Las secciones salen de una TABLA, no del marcado
+
+El modal llegó a **ocho bloques en un solo scroll** y ya no se encontraba
+nada. Hoy son dos secciones —**General** (versión · idioma · aviso al
+terminar · mantenimiento) e **Integraciones** (TMDb · Google · repo
+DoviTools · sheet)— con navegación en el lateral izquierdo.
+
+**La partición no reordenó el HTML.** Cada `.settings-section` declara un
+`data-bloque` y `SECCIONES_AJUSTES` (en `settings.js`) dice a qué sección va
+y en qué orden; `_montarSeccionesDeAjustes` mueve los nodos a su panel con
+`appendChild`, que **mueve en vez de copiar**. Lo que eso compra:
+
+- reordenar —«la versión primero»— es mover una cadena de sitio;
+- una sección nueva es una fila en la tabla más un `data-bloque` en su
+  bloque, sin tocar layout ni CSS;
+- **ningún id del DOM cambia**, así que las ~30 referencias por id de
+  `settings.js` y `test_ids_del_dom` siguen valiendo tal cual;
+- el `MutationObserver` de iconos e i18n no se realimenta: los nodos que se
+  mueven ya están pintados y llevan su `data-ico-puesto`.
+
+**El fallo mudo que eso abre**: un bloque que no esté en ninguna sección —o
+una sección que cite uno que no existe— desaparece de la pantalla **sin dar
+un error**, y el modal sigue abriendo. Lo cruza
+`test_secciones_de_ajustes::TestLaTablaYElMarcadoCuadran` en las **dos**
+direcciones, y sin Chrome, porque es el guard y no puede depender de tenerlo.
+
+**Vertical y no en pestañas** porque lo que se pedía era crecer: unas tabs en
+920 px se quedan sin sitio hacia la quinta sección y acaban con scroll
+horizontal, que es el problema que la partición venía a quitar. Por debajo de
+720 px el nav pasa a tira horizontal y se le caen las descripciones.
+
+**El botón rojo del pie va atado a su sección** (`tieneClaves`). El pie es
+global —`Guardar` guarda todo— pero «Borrar claves guardadas» sobre una
+pantalla donde no se ve ni una clave no se entiende. Salió de mirar la
+captura, no el código.
+
+#### Las banderas son una familia APARTE de los iconos
+
+`BANDERAS` + `bandera(codigo)` en `core.js`, con su propio viewBox (4:3) y
+sus colores literales. **No caben en `GLIFOS`**, que es monocromo por diseño
+(`currentColor`, trazo 1.6 sobre rejilla de 24): una bandera sin sus colores
+no es una bandera. Y no son emoji porque los dibuja el sistema operativo
+—cambian de forma entre máquinas— y el guard de la app los prohíbe en el
+marcado.
+
+Tres cosas que conviene no perder:
+
+- **No existen banderas de idiomas, existen de países.** `en` lleva la Union
+  Jack por convención, coherente con el `en-GB` que `localeActual()` ya usa
+  para las fechas; el catalán **no tiene** punto de código en Unicode, que es
+  otra razón para dibujarlas nosotros.
+- **El respaldo es lo que permite crecer**: `distintivoDeIdioma` cae a las
+  dos letras del código en un recuadro del mismo tamaño, así que añadir un
+  idioma nunca deja un hueco. Tiene test.
+- `bandera()` devuelve `null` y no `''` a propósito: el llamador tiene que
+  poder distinguir «no hay» para pintar el respaldo.
+
+#### La lista de idiomas la manda el SERVIDOR
+
+`IDIOMAS` (en `i18n.js`) y el `idioma.disponibles` de `/api/settings` eran
+**dos listas de lo mismo**: añadir un catálogo en el servidor sin tocar la
+constante no pintaba el botón, y al revés pintaba uno que no funciona — sin
+error en ninguno de los dos casos. Manda el servidor, que es quien tiene los
+catálogos; `IDIOMAS` queda como tabla de NOMBRES (cada idioma escrito en su
+propia lengua, que es lo que deja encontrarlo sin entender el idioma actual)
+y como respaldo si la respuesta no trae la lista.
+
+**Cambiar de idioma recarga la página**, así que `pedirCambioDeIdioma`
+pregunta antes si hay algo escrito sin guardar —con las claves en la OTRA
+sección ya no las tienes delante al pulsar—. Y por eso `saveSettings`
+devuelve ahora un booleano: si el guardado falla **no se recarga**, o el
+usuario se quedaría sin el error y sin la clave.
+
 ### TMDb viene configurada — la clave de la app
 
 La app se distribuye con una clave de TMDb propia (`clave_tmdb_de_la_app`, en

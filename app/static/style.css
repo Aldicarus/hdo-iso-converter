@@ -5699,7 +5699,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    quepan en pantallas pequeñas sin desbordar. Head (título) y foot
    (botones) fijos; body scrollea. */
 .settings-modal-box {
-  max-width: 860px;
+  max-width: 920px;
   width: calc(100vw - 48px);
   max-height: 92vh;
   display: flex;
@@ -5715,11 +5715,17 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .settings-head .modal-title { margin-bottom: 2px; }
 .settings-head .modal-sub   { margin-bottom: 0; line-height: 1.35; }
-.settings-body {
+.settings-cuerpo {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.settings-panel {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-y: auto;
-  padding: 4px 22px 8px;
+  padding: 10px 22px 12px;
   background: var(--bg);
   /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
   contain: paint;
@@ -6319,6 +6325,106 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    Tres botones y no un <select>: cada idioma lleva su nombre en su propia
    lengua, y dentro de un <option> no cabe marcado. El activo va deshabilitado
    porque volver a elegirlo recargaría la página por nada. */
+
+/* ── La navegación de secciones del modal de Configuración ───────────────
+ *
+ *  Vertical y no en pestañas horizontales porque el modal está pensado para
+ *  CRECER: unas tabs en 920 px se quedan sin sitio hacia la quinta sección y
+ *  acaban con scroll horizontal, que es justo el problema que la partición
+ *  venía a quitar. Además deja leer el nombre entero y admite una línea de
+ *  descripción. Es el patrón de System Settings de macOS, que es el lenguaje
+ *  visual de la app.
+ */
+.settings-nav {
+  flex: 0 0 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--sep);
+  background: var(--surface-1);
+  overflow-y: auto;
+}
+.settings-nav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.settings-nav-item:hover { background: var(--surface-2); color: var(--text-1); }
+.settings-nav-item.activo {
+  background: var(--blue-dim);
+  border-color: var(--blue-border);
+  color: var(--blue);
+}
+.settings-nav-ico { display: flex; flex-shrink: 0; margin-top: 1px; }
+.settings-nav-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.settings-nav-titulo { font-size: 12px; font-weight: 600; }
+.settings-nav-desc {
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-3);
+  /* Dos líneas como mucho: la descripción orienta, no explica. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.settings-nav-item.activo .settings-nav-desc { color: inherit; opacity: 0.75; }
+
+/* En estrecho el modal es `calc(100vw - 48px)`, así que 196 px de columna
+   dejarían el panel sin sitio: la navegación pasa a una tira horizontal y
+   las descripciones se van (en horizontal no caben y no hacen falta: con
+   dos o tres secciones el título basta). */
+@media (max-width: 720px) {
+  .settings-cuerpo { flex-direction: column; }
+  .settings-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--sep);
+  }
+  .settings-nav-item { width: auto; white-space: nowrap; }
+  .settings-nav-desc { display: none; }
+}
+
+/* La bandera del selector de idioma. No hereda `currentColor` —lleva sus
+   colores— así que es una familia aparte de los iconos; ver `BANDERAS` en
+   core.js. El borde la separa del fondo cuando la bandera tiene blanco. */
+.settings-idioma { display: inline-flex; align-items: center; gap: 7px; }
+.settings-idioma-bandera { display: inline-flex; flex-shrink: 0; }
+.bandera {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.16);
+  display: block;
+}
+/* El respaldo cuando no hay bandera para ese idioma: las dos letras en un
+   recuadro del MISMO tamaño, para que la fila no baile. */
+.bandera-codigo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 15px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.16);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
 .settings-idiomas { display: flex; gap: 8px; flex-wrap: wrap; }
 .settings-idioma.activo {
   background: var(--blue-dim, rgba(0, 122, 255, 0.14));
