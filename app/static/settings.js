@@ -601,18 +601,18 @@ async function cleanupScanAndShow() {
       <thead>
         <tr>
           <th><input type="checkbox" id="cleanup-select-all" title="${tr('cmv40_modals.seleccionar_todo')}"></th>
-          <th>Tipo</th>
-          <th>Ruta</th>
-          <th>Tamaño</th>
-          <th>Edad</th>
-          <th>Motivo</th>
+          <th data-i18n="settings.limpieza_tipo"></th>
+          <th data-i18n="settings.limpieza_ruta"></th>
+          <th data-i18n="ui.tamano"></th>
+          <th data-i18n="settings.limpieza_edad"></th>
+          <th data-i18n="tab3.motivo"></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="cleanup-actions">
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('settings-cleanup-result').innerHTML=''">Cancelar</button>
-      <button class="btn btn-danger btn-sm" onclick="cleanupExecuteSelected()"><span data-icono="papelera"></span> Borrar seleccionados</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('settings-cleanup-result').innerHTML=''" data-i18n="ui.cancelar"></button>
+      <button class="btn btn-danger btn-sm" onclick="cleanupExecuteSelected()"><span data-icono="papelera"></span> <span data-i18n="ui.borrar_seleccionados"></span></button>
     </div>
   `;
 

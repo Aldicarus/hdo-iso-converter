@@ -17,6 +17,11 @@ Así que aquí se mide lo que el usuario ve:
   panel de proyecto de Tab 1 con sus pistas incluidas, descartadas y sus
   capítulos;
 - se renderizan los paneles y se lee el TEXTO y los ATRIBUTOS resultantes;
+- **`fetch` contesta**, no se cuelga: un enrutador por URL con la forma que
+  cada consumidor lee de verdad. Con el `fetch` parado quedaban fuera justo
+  los renders que enseñan lo que el servidor manda, y un endpoint sin
+  respuesta se anota en `sin_respuesta` en vez de convertirse en un render
+  vacío — fue así como aparecieron nueve que nadie había previsto;
 - y se exige, en las tres lenguas, que no se vea ninguna clave, ningún
   `undefined`, ningún `⟦⟧` y ni un error de JS — y en inglés, ninguna palabra
   que solo exista en el catálogo castellano.
@@ -396,15 +401,133 @@ PROBE_SERIE = {
 }
 
 
-_SONDA = ("<script>window.__errores=[];"
-          "window.addEventListener('error',e=>window.__errores.push("
-          "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
-          "window.fetch=()=>new Promise(()=>{});"
-          "window.WebSocket=function(){this.close=()=>{};this.send=()=>{};};</script>")
+# ── Las respuestas del servidor, para la mitad de la sonda que sí sale a la
+#    red. `fetch` estaba parado (una promesa que no resuelve), así que seis
+#    de los renders no se podían medir: los que ENSEÑAN lo que el servidor
+#    contesta. Cada entrada es la forma que el consumidor lee de verdad —
+#    escribirla «a ojo» deja el render en `undefined` sin que nada falle,
+#    que es la trampa del fixture de `trust_gates`.
+RESPUESTAS = {
+  "/api/cmv40/recommend": None,        # LOOKUP_REC, se enchufa abajo
+  "/api/cmv40/repo-rpus": None,        # LOOKUP_REPO
+  "/api/cmv40/tmdb-lookup": None,      # LOOKUP_TMDB
+  "/api/cmv40/tmdb-search": {
+      "tmdb_configured": True,
+      "candidates": [
+          {"tmdb_id": 335984, "title": "Blade Runner 2049", "year": 2017,
+           "poster_url": "https://image.tmdb.org/t/p/w342/br.jpg",
+           "overview": "A young blade runner."},
+          {"tmdb_id": 78, "title": "Blade Runner", "year": 1982,
+           "poster_url": "", "overview": "A blade runner must pursue."},
+      ]},
+  "/api/cleanup/scan": {
+      "total_count": 3, "safe_count": 2, "total_bytes": 402_000_000_000,
+      "items": [
+          {"label": "CMv4.0 workdir · Predator (2026)", "path": "/mnt/tmp/cmv40/x",
+           "size_bytes": 380_000_000_000, "age_seconds": 172_800,
+           "safe": True, "reason": "no session attached"},
+          {"label": "Intermediate MKV", "path": "/mnt/tmp/y_intermediate.mkv",
+           "size_bytes": 22_000_000_000, "age_seconds": 7_200,
+           "safe": True, "reason": "left over by an aborted mux"},
+          {"label": "MKV audit cache", "path": "/config/mkv_audits/z.json",
+           "size_bytes": 396_000, "age_seconds": 900,
+           "safe": False, "reason": "in use"},
+      ]},
+  "/api/library/browse": {
+      "entries": [
+          {"name": "Blade Runner 2049", "type": "dir", "is_bdmv": True},
+          {"name": "Extras", "type": "dir", "is_bdmv": False},
+          {"name": "Dune Part Two (2024).iso", "type": "file", "is_bdmv": False},
+      ]},
+  "/api/check-duplicate": {"duplicate": False, "sessions": []},
+  "/api/analyze/progress": {"step": "identify", "pct": 30, "running": True,
+                            "current_label": "Identifying MPLS 3/20"},
+  "/api/series-create-progress": {"running": True, "pct": 40, "job": "j1",
+                                  "current_label": "Episode 2 · PGS",
+                                  "done": 1, "total": 3, "resultado": None},
+  "/api/create-series-sessions": {"queued": True, "job": "j1"},
+  "/api/analyze": None,                # SESION_TAB1
+  "/api/sources": {"sources": []},
+  # Los tres que el propio enrutador delató: los piden los modales que la
+  # sonda ya abría, y sin respuesta el render se quedaba a medias.
+  "/api/tv-search": {
+      "tmdb_configured": True,
+      "results": [
+          {"tmdb_id": 1399, "name": "Game of Thrones",
+           "original_name": "Game of Thrones", "year": 2011,
+           "vote_average": 8.4, "poster_url": "https://image.tmdb.org/t/p/w342/got.jpg",
+           "overview": "Seven noble families fight for control."},
+          {"tmdb_id": 2, "name": "Game of Thrones: The Last Watch",
+           "original_name": "", "year": 2019, "vote_average": 7.1,
+           "poster_url": "", "overview": "A documentary."},
+      ]},
+  "/api/cmv40/cleanup/preview": {
+      "deletable_count": 2,
+      "items": [
+          {"session_id": "c1", "name": "Blade Runner 2049 (2017)",
+           "phase": "done", "size_bytes": 380_000_000_000,
+           "artifacts": 5, "deletable": True},
+          {"session_id": "c2", "name": "Predator Badlands (2025)",
+           "phase": "extracted", "size_bytes": 120_000_000_000,
+           "artifacts": 3, "deletable": True},
+      ]},
+  "/api/cmv40/rpu-files": {
+      "files": [
+          {"name": "Blade Runner 2049 P7 FEL.bin",
+           "path": "/mnt/cmv40_rpus/Blade Runner 2049 P7 FEL.bin",
+           "size_bytes": 13_000_000},
+      ]},
+  # Y los seis de la segunda vuelta. El enrutador los fue diciendo uno a
+  # uno: es justo lo que se quería de él — un endpoint sin contestar se ve
+  # en vez de convertirse en un render vacío.
+  "/api/disc-probe": {
+      "source_type": "bdmv_folder", "media_type": "series",
+      "disc_type": "series", "movie_warning": None,
+      "episode_candidates": [], "existing_series_sessions": []},
+  "/api/sessions": {"sessions": [], "count": 0},
+  "/api/status": {"tmdb": {"configured": True, "source": "default"},
+                  "google": {"configured": False, "source": "none"}},
+  "/api/trabajos": {"activo": None, "cola": [], "interactivo": [],
+                    "consultas": {"n": 0, "nombres": []}, "recientes": []},
+  "/api/cmv40/eta-model": {"share_dropin": 0.4,
+                           "dropin": {"analyze_source": 1.0},
+                           "merge": {"analyze_source": 1.0}},
+  "/api/sessions/": {"exists": True, "sessions": []},
+}
+
+
+def _sonda(respuestas: dict) -> str:
+    """El armazón: captura errores de JS y contesta a la red.
+
+    **El `fetch` CONTESTA, no se cuelga.** Estaba puesto como una promesa que
+    no resuelve, y eso dejaba fuera de la medición justo los renders que
+    enseñan lo que el servidor manda. Ahora es un enrutador por prefijo de
+    URL; lo que no esté en la tabla devuelve `{}` y se anota en
+    `salida.sin_respuesta`, así que un endpoint nuevo se ve en vez de
+    convertirse en un render vacío.
+    """
+    return (
+        "<script>window.__errores=[];window.__sinResp=[];"
+        "window.addEventListener('error',e=>window.__errores.push("
+        "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
+        "window.__RESP=" + json.dumps(respuestas) + ";"
+        "window.fetch=function(u,o){"
+        "  const url=String(u).split('?')[0];"
+        "  let cuerpo=null, visto=false;"
+        "  for (const k in window.__RESP) {"
+        "    if (url === k || url.indexOf(k) === 0) { cuerpo=window.__RESP[k]; visto=true; break; }"
+        "  }"
+        "  if (!visto) window.__sinResp.push(url);"
+        "  return Promise.resolve({ok:true, status:200, statusText:'OK',"
+        "    json:()=>Promise.resolve(cuerpo === null ? {} : cuerpo),"
+        "    text:()=>Promise.resolve('')});"
+        "};"
+        "window.WebSocket=function(){this.close=()=>{};this.send=()=>{};};</script>")
 
 _CUERPO = """
-(function () {
+(async function () {
   const S = %s, T1 = %s, DV = %s, X = %s;
+  const RESP_TMDB_SEARCH = X.tmdbsearch;
   const salida = {errores: [], pantallas: {}, fallos: {}, constantes: {}};
   const host = document.createElement('div');
   host.id = '__host'; document.body.appendChild(host);
@@ -575,6 +698,106 @@ _CUERPO = """
     'tab3·wizard':          () => { _showCMv40NewProjectWizard();
                                     const e = document.getElementById('cmv40-new-modal');
                                     return e ? e.innerHTML : ''; },
+    // ══ Los 23 que faltaban ══════════════════════════════════════════
+    //
+    // Seis salen a la RED y por eso estaban fuera: el `fetch` de la sonda
+    // se colgaba a propósito. Las otras diecisiete solo necesitaban que
+    // alguien las llamara con sus argumentos — decir que «eran manejadores
+    // de red» era impreciso.
+    //
+    // ── Tab 1: el asistente de serie a mitad de camino.
+    'tab1·serie_busqueda':  async () => { openSeriesModal(X.probe);
+                                    await seriesTmdbSearch();
+                                    const e = document.getElementById('series-tmdb-results');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·serie_episodios': () => { openSeriesModal(X.probe);
+                                    _seriesState.selectedSeries = {tmdb_id: 1399,
+                                      name: 'Game of Thrones', year: 2011};
+                                    _seriesState.selectedSeason = {season_number: 5,
+                                      episode_count: 10};
+                                    _seriesState.seasonEpisodes = [
+                                      {episode_number: 5, name: 'Kill the Boy',
+                                       runtime_minutes: 54, overview: ''},
+                                      {episode_number: 6, name: 'Unbowed, Unbent, Unbroken',
+                                       runtime_minutes: 53, overview: ''},
+                                      {episode_number: 7, name: 'The Gift',
+                                       runtime_minutes: 61, overview: ''}];
+                                    _seriesState.mapping = {};
+                                    X.probe.episode_candidates.forEach((c, i) => {
+                                      _seriesState.mapping[c.mpls_path] = {include: true,
+                                        episode_number: 5 + i, episode_title: '',
+                                        runtime_minutes: 54}; });
+                                    _renderSeriesEpisodesTable();
+                                    _seriesUpdateCreateButton();
+                                    const e = document.getElementById('series-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·serie_manual':    () => { openSeriesModal(X.probe);
+                                    seriesConfirmManual();
+                                    const e = document.getElementById('series-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·serie_conflicto': () => { _seriesConfirmConflicts(2, '00801.mpls · 00802.mpls');
+                                    const e = document.getElementById('confirm-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·serie_crear':     async () => { openSeriesModal(X.probe);
+                                    _seriesState.selectedSeries = {tmdb_id: 1399,
+                                      name: 'Game of Thrones', year: 2011};
+                                    _seriesState.selectedSeason = {season_number: 5};
+                                    await seriesCreateSessions();
+                                    const e = document.getElementById('progress-modal');
+                                    return e ? e.innerHTML : ''; },
+    // ── Tab 1: el selector de origen del modal de proyecto nuevo.
+    'tab1·origen_browser':  async () => { await srcFbNavigate('iso', '');
+                                    const e = document.getElementById('src-fb-iso-list');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·origen_m2ts':     () => { srcFbSelectIso('Dune Part Two (2024).iso');
+                                    srcFbSelectBdmv('Blade Runner 2049');
+                                    _updateM2tsStatusText(); _updateSortDirBtn();
+                                    _renderSrcFb('m2ts');
+                                    const e = document.getElementById('nuevo-proyecto-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·analizar':        async () => { await analyzeSelectedISO();
+                                    const e = document.getElementById('nuevo-proyecto-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab1·analizar_origen': async () => { await _doAnalyzeSource('iso',
+                                      'Dune Part Two (2024).iso',
+                                      'Dune Part Two (2024).iso', null);
+                                    const e = document.getElementById('analyze-modal');
+                                    return e ? e.innerHTML : ''; },
+    // ── Tab 2 y Tab 3: los renglones y los toggles de orden.
+    'tab2·renglones':       () => _rgrfRow('Codec', 'HEVC', {tooltip: 'x'})
+                                  + _rgrfRow('Bitrate', '58 Mbps', {status: 'ok'})
+                                  + _rgrfPresence(true, 'L8 trims', {tooltip: 'y'})
+                                  + _rgrfPresence(false, 'L11 content'),
+    'tab2·orden':           () => { _actualizarBotonOrdenMkvRecientes();
+                                    const e = document.getElementById('mkv-recientes-sort-dir');
+                                    return e ? e.outerHTML : ''; },
+    'tab3·orden':           () => { _cmv40ToggleSortDir();
+                                    const e = document.getElementById('cmv40-sort-dir');
+                                    return e ? e.outerHTML : ''; },
+    'tab3·fila_hoja_una':   () => _cmv40RenderSheetRowBlock(X.filas[1]),
+    'tab3·timeline_incr':   () => { const w = document.createElement('div');
+                                    w.innerHTML = '<div class="cmv40-tl-steps"></div>';
+                                    _cmv40UpdateTimelineIncremental(w, S,
+                                      {id: 'c1', session: S, expandedPhases: {}});
+                                    return w.innerHTML; },
+    // ── Los modales de CMv4.0 que sí salen a la red.
+    'modals·lookup_buscar': async () => { openCMv40LookupModal();
+                                    const t = document.getElementById('cmv40-lookup-title');
+                                    if (t) t.value = 'Blade Runner 2049';
+                                    await cmv40LookupSearch();
+                                    const e = document.getElementById('cmv40-lookup-modal');
+                                    return e ? e.innerHTML : ''; },
+    'modals·lookup_full':   async () => { const c = document.createElement('div');
+                                    await _cmv40LookupFullFetch(c, 'Blade Runner 2049', 2017);
+                                    return c.innerHTML; },
+    'modals·lookup_sel':    () => { const c = document.createElement('div');
+                                    _cmv40LookupRenderSelector(c,
+                                      RESP_TMDB_SEARCH.candidates, 'Blade Runner');
+                                    _cmv40LookupClearTitle();
+                                    return c.innerHTML; },
+    'settings·limpieza':    async () => { await cleanupScanAndShow();
+                                    const e = document.getElementById('settings-cleanup-result');
+                                    return e ? e.innerHTML : ''; },
     'browser·modal':        () => { openFileBrowser({title: 'Open MKV',
                                       subtitle: 'Pick a file', roots: ROOTS_MKV,
                                       onSelect: () => {}});
@@ -587,7 +810,14 @@ _CUERPO = """
   };
   for (const [nombre, fn] of Object.entries(CASOS)) {
     try {
-      const h = fn();
+      // `await` porque seis de los casos salen a la red. Con un tope: un
+      // await que no resuelva se llevaría por delante TODO el volcado, y
+      // perder una pantalla es mejor que perder las cincuenta y cinco.
+      const h = await Promise.race([
+        Promise.resolve(fn()),
+        new Promise(r => setTimeout(() => r('§§TIMEOUT§§'), 2500)),
+      ]);
+      if (h === '§§TIMEOUT§§') { salida.fallos[nombre] = 'timeout'; continue; }
       host.innerHTML = (typeof h === 'string') ? h : '';
       pintarTextos(host);
       salida.pantallas[nombre] = leer(host);
@@ -602,6 +832,7 @@ _CUERPO = """
   } catch (e) { salida.fallos['constante·pipeline_preview'] = String(e); }
 
   salida.errores = window.__errores || [];
+  salida.sin_respuesta = [...new Set(window.__sinResp || [])];
   document.getElementById('__out').textContent = JSON.stringify(salida);
 })();
 """
@@ -617,8 +848,15 @@ def _pintar(idioma: str) -> dict:
                             "ltmdb": LOOKUP_TMDB, "mkv": ANALISIS_MKV,
                             "filas": LOOKUP_REC_ROWS,
                             "probe": PROBE_SERIE,
+                            "tmdbsearch": RESPUESTAS["/api/cmv40/tmdb-search"],
                             "recientes": MKV_RECIENTES}))
-    pagina = html().replace("</head>", _SONDA + semilla_catalogo(idioma) + "</head>")
+    respuestas = {**RESPUESTAS,
+                  "/api/cmv40/recommend": LOOKUP_REC,
+                  "/api/cmv40/repo-rpus": LOOKUP_REPO,
+                  "/api/cmv40/tmdb-lookup": LOOKUP_TMDB,
+                  "/api/analyze": SESION_TAB1}
+    pagina = html().replace(
+        "</head>", _sonda(respuestas) + semilla_catalogo(idioma) + "</head>")
     pagina = pagina.replace(
         "</body>", f'<pre id="__out"></pre><script>{cuerpo}</script></body>')
     pagina = (pagina.replace('src="/static/', 'src="')
@@ -823,7 +1061,7 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
             (SESION_CMV40, SESION_TAB1, DOVI_TAB2, TRABAJO, TRABAJO_COLA,
              RECIENTE, AJUSTES, LOOKUP_REC, LOOKUP_REPO, LOOKUP_TMDB,
              ANALISIS_MKV, MKV_RECIENTES, LOOKUP_REC_ROWS,
-             PROBE_SERIE))}
+             PROBE_SERIE, RESPUESTAS))}
         return _palabras(crudo)
 
     def test_ninguna_palabra_sobrevive_al_cambio_de_idioma(self):
@@ -859,6 +1097,9 @@ NI_TRADUCIBLE_NI_FUGA = {
     "blurb": "clave de objeto",
     # `autoEndsAt`, partido por la regla del pegote (minúscula→Mayúscula).
     "ends": "trozo de la clave `autoEndsAt`",
+    # Unidades: se escriben igual en las tres lenguas.
+    "mbps": "unidad de bitrate", "kbps": "unidad de bitrate",
+    "nits": "unidad de luminancia",
     # El codec de los subtítulos Blu-ray se llama así en las tres lenguas.
     "presentation": "«Presentation Graphics», el nombre del codec PGS",
     "graphics": "ídem",
@@ -911,6 +1152,9 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
     # Por (pantalla, palabra) y con el motivo: una exención por pantalla
     # taparía todo lo demás que ahí se lea.
     A_PROPOSITO = {
+        ("modals·lookup_buscar", "de"):
+            "la misma pantalla con la búsqueda hecha: el placeholder sigue "
+            "ahí debajo",
         ("modals·lookup", "de"):
             "el placeholder de la consulta rápida pone EJEMPLOS de título "
             "castellano («La jungla de cristal») en las tres lenguas, porque "
@@ -958,17 +1202,18 @@ class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
     eso obliga a decidir —añadirla o escribir por qué no— en vez de
     descubrirlo cuando el usuario la lee en el otro idioma.
 
-    Los 23 que quedan son de **otra clase**, y por eso el trinquete se para
-    aquí: son manejadores que necesitan que la RED resuelva
-    (`analyzeSelectedISO`, `seriesCreateSessions`, `srcFbNavigate`,
-    `cleanupScanAndShow`, `cmv40LookupSearch`), y en la sonda `fetch` está
-    parado a propósito para que nada salga a pedir nada. Cubrirlos pide un
-    `fetch` de mentira que CONTESTE, o sea otro arnés. El resto son toggles
-    de una línea que solo cambian una clase (`_updateSortDirBtn`,
-    `_cmv40ToggleSortDir`).
+    **Hoy el tope es CERO**: las 176 están cubiertas. Lo que faltaba era
+    mitad y mitad —seis salían a la red y diecisiete solo necesitaban que
+    alguien las llamara con sus argumentos—, así que decir que «eran
+    manejadores de red» era impreciso: lo caro fue el `fetch`.
+
+    A partir de aquí el trinquete es absoluto: **una función nueva que pinte
+    marcado y que la sonda no alcance hace fallar el test**. Si de verdad no
+    se puede medir, hay que subir el tope y escribir por qué — que es
+    justamente lo que se quiere que cueste.
     """
 
-    HUECOS_MAXIMOS = 23
+    HUECOS_MAXIMOS = 0
 
     def _censo(self):
         from frontend_sources import rutas
