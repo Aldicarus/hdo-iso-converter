@@ -912,6 +912,51 @@ def numeros_de_l8(analysis: RpuAnalysis) -> dict:
     }
 
 
+# Los dos números que el criterio lee y la sesión NO guarda. Al rearmar se
+# quedan como estén: `l8_frames_sig_pct` no lo mira ninguno de los dos
+# consumidores del rearmado, y `frames_with_cmv40` se aproxima con los frames
+# analizados porque su único uso es la comprobación de «¿hay bloques?».
+NUMEROS_QUE_LA_SESION_NO_GUARDA = ("l8_frames_sig_pct", "frames_with_cmv40")
+
+
+def analisis_desde_sesion(session) -> RpuAnalysis:
+    """El análisis del bin target, rearmado desde lo que la sesión guarda.
+
+    `GET /api/cmv40/{id}` re-deriva el veredicto al servirlo —así un proyecto
+    analizado con el criterio viejo se corrige solo al abrirlo— y para eso
+    tiene que reconstruir el análisis que midió el pre-flight. Estaba escrito
+    a mano dentro del endpoint y con SIETE campos; el tercer veredicto, que
+    mira `l3_*`, llegó después y nadie volvió por ahí.
+
+    El resultado era mudo y peor que un error: el mismo proyecto salía
+    `tone_mapping` en el listado (valor persistido) y `default` en el panel
+    (re-derivado), a la vez. Caso real, Pulp Fiction el 2026-09-19 — con el
+    pipeline inyectando mientras la ficha decía «sintético».
+
+    Vive aquí, pegada al clasificador, para que quien añada un número al
+    criterio la tenga delante. Lo guarda
+    `test_criterio_cmv40.TestElRearmadoNoPierdeNingunNumero`, que compara
+    `numeros_de_l8` de los dos lados.
+    """
+    a = RpuAnalysis()
+    a.l8_combos = list(session.target_l8_combos or [])
+    a.l8_unique_count = session.target_l8_unique_count
+    a.l8_target_indices = list(session.target_l8_target_indices or [])
+    a.l8_neutral_pct = session.target_l8_neutral_frames_pct
+    a.l8_has_mid_contrast = session.target_l8_has_mid_contrast
+    a.l8_has_clip_trim = session.target_l8_has_clip_trim
+    a.l8_max_delta = session.target_l8_max_delta
+    a.l2_combos = list(session.target_l2_combos or [])
+    a.l2_unique_count = session.target_l2_unique_count
+    a.l2_target_pqs = list(session.target_l2_target_pqs or [])
+    a.l3_unique_count = session.target_l3_unique_count
+    a.l3_frames = session.target_l3_frames
+    a.scene_cuts = session.target_l8_scene_cuts
+    a.total_frames = session.target_frames_analyzed
+    a.frames_with_cmv40 = session.target_frames_analyzed
+    return a
+
+
 def _l8_sin_bloques(n: dict) -> bool:
     """Sin bloques CMv4.0 → no aplica (caso degenerado, se da por default)."""
     return n["frames_with_cmv40"] == 0 or n["l8_unique_count"] == 0
@@ -1274,6 +1319,33 @@ def recommend_action(session) -> tuple[str, str, str]:
             "keep",
             tr('rpu_analyze.mantener_mkv_actual'),
             session.preflight_message or tr('rpu_analyze.el_pre_flight_detecto_que_procesar_este'),
+        )
+
+    # El tercer veredicto es el ÚNICO que la app no resuelve: el bin no trae
+    # trims de colorista, pero sí L3/L9/L11 reales del análisis de Dolby, y
+    # lo que se gana con eso depende del reproductor. La recomendación por
+    # defecto es mantener —es lo que ahorra media hora de pipeline— y los dos
+    # botones se quedan a la vista hasta que el usuario conteste.
+    #
+    # Va por delante del pre-flight porque ahí `target_preflight_ok` está en
+    # False a propósito (el pre-flight se detiene a preguntar), y el motivo
+    # genérico de «bin sin validar» no describe nada de esto.
+    #
+    # La señal es que el pre-flight SE DETUVO a preguntar, no la
+    # clasificación a secas: así un proyecto anterior a este cambio —cuyo
+    # pre-flight pasó de largo— conserva la recomendación con la que se creó
+    # en vez de que le aparezca una pregunta que nadie le hizo. `accept-keep`
+    # no toca `preflight_decision`, así que un proyecto cerrado por esta vía
+    # sigue explicándose con el mismo texto; `override-recommendation` sí lo
+    # limpia, y a partir de ahí la recomendación vuelve a ser la RUTA, que es
+    # lo que interesa mientras el trabajo corre.
+    if (session.preflight_decision == "ask_tone_mapping"
+            and session.target_l8_classification == "tone_mapping"):
+        return (
+            "keep",
+            tr('rpu_analyze.lo_decides_tu_tone_mapping'),
+            motivo_de_l8(numeros_de_l8(analisis_desde_sesion(session)),
+                         "tone_mapping"),
         )
 
     # Sin bin descargado / sin pre-flight OK → KEEP por defecto

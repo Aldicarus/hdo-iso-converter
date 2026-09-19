@@ -3338,7 +3338,18 @@ function _renderCMv40RecommendationCard(s, pid) {
   // por ti, y a propósito: lo que gana el usuario depende de con qué
   // reproduce, y eso la app no lo sabe.
   const esToneMapping = s.target_l8_classification === 'tone_mapping';
-  const isKeep = action === 'keep' && !esToneMapping;
+  // `isKeep` ya no excluye el tercer veredicto. Lo excluía cuando el pipeline
+  // encadenaba sin preguntar: entonces sacar los dos botones habría ofrecido
+  // una decisión sobre algo que ya estaba corriendo. Hoy el pre-flight SE
+  // DETIENE también con `tone_mapping` —lo pidió el usuario el 2026-09-19— y
+  // `recommend_action` devuelve «keep» mientras no haya contestado, así que
+  // este es exactamente el caso que tiene que ofrecer las dos salidas. Sin
+  // esto, el único veredicto que existe para que decida el usuario era el
+  // único sin ningún sitio donde decidirlo.
+  const isKeep = action === 'keep';
+  // Qué contestó, si contestó. Es lo que convierte la card en el seguimiento
+  // de la decisión en vez de una pregunta que reaparece.
+  const decision = s.preflight_user_choice || '';
   const isDropIn = action === 'drop_in';
   const isMerge = action === 'merge';
   const isUnknown = action === 'unknown' || action === '';
@@ -3346,11 +3357,14 @@ function _renderCMv40RecommendationCard(s, pid) {
 
   // Badge alineado a la paleta de la app (light mode, variables CSS).
   // Patrón estándar: dim background + border + color del nivel semántico.
-  // Ámbar con las variables que EXISTEN (`--dv-amber-*`, las de la
-  // radiografía). Una `var()` inventada invalida la declaración entera y
-  // el estilo cae al heredado sin dar ningún error — hay un guard para eso.
+  // Ámbar de la PALETA (`--amber-*`, en `:root`). Antes citaba las de la
+  // radiografía (`--dv-amber-*`), que están declaradas dentro de `.dv-detail`
+  // — o sea fuera del alcance de esta card, así que las tres declaraciones
+  // caían y el badge se quedaba sin fondo, sin color y sin borde. Una `var()`
+  // fuera de alcance no da error: se lleva la declaración entera, y el guard
+  // de variables sin definir no lo ve porque definidas sí están.
   const badgeStyle = esToneMapping
-    ? 'background:var(--dv-amber-bg); color:var(--dv-amber-text); border:1px solid var(--dv-amber-border)'
+    ? 'background:var(--amber-dim); color:var(--amber-text); border:1px solid var(--amber-border)'
     : isKeep
     ? 'background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue-border)'
     : isDropIn
@@ -3363,14 +3377,23 @@ function _renderCMv40RecommendationCard(s, pid) {
   // servidor y se pinta con `escHtml`, que convertiría el SVG en el código
   // fuente del SVG, visible en pantalla.
   const esperando = isUnknown && !s.recommended_action_label;
-  const label = esToneMapping
-    ? tr('tab3.aporta_tone_mapping_no_autoria')
+  // Con el tercer veredicto sin contestar el rótulo lo pone el servidor
+  // («Lo decides tú — aporta tone-mapping, no autoría»), que es el mismo que
+  // lee la fila «Recomendación» del modal del pre-flight: dos sitios que
+  // hablan del mismo bin no pueden llamarlo de dos maneras. Una vez
+  // contestado, manda la ruta — que es lo que interesa mientras corre.
+  const label = (esToneMapping && !decision)
+    ? (s.recommended_action_label || tr('tab3.aporta_tone_mapping_no_autoria'))
     : (s.recommended_action_label || (isUnknown ? tr('tab3.esperando_analisis') : '—'));
   const reason = s.recommended_action_reason || '';
 
   // Tag de calidad del bin (la que va al filename)
   const qualityTag = s.target_l8_quality_label || (
     s.target_l8_classification === 'default' ? tr('tab3.cmv4_sintetico') :
+    // El tercer veredicto no tenía entrada y caía al «CMv4 ?» del final: un
+    // interrogante justo donde la app sabe exactamente qué es el bin —CMv4.0
+    // de verdad, producido por el análisis y no por un colorista.
+    s.target_l8_classification === 'tone_mapping' ? tr('tab3.cmv4_solo_analisis') :
     s.target_l8_classification === 'real' ? 'CMv4 (real)' :
     s.target_l8_classification === 'indeterminate' ? tr('tab3.cmv4_ambiguo') :
     'CMv4 ?'
@@ -3445,10 +3468,34 @@ function _renderCMv40RecommendationCard(s, pid) {
       `).join('')}
     </div>` : '';
 
+  // El seguimiento de la decisión: qué falta por contestar, o qué se
+  // contestó y cuándo. Sin esto las fases pasaban por delante y no quedaba
+  // en ninguna parte que hubiera habido algo que decidir — que es
+  // literalmente lo que el usuario reportó el 2026-09-19.
+  const pideDecision = isKeep && !projectDone && !decision;
+  let decisionLinea = '';
+  if (pideDecision) {
+    decisionLinea = `
+      <div class="cmv40-decision pendiente">
+        <span data-icono="reloj"></span> <span data-i18n="tab3.esperando_tu_decision"></span>
+      </div>`;
+  } else if (decision) {
+    const cuando = (typeof _cmv40PfCuando === 'function')
+      ? _cmv40PfCuando(s.preflight_user_choice_at) : '';
+    const txt = decision === 'keep'
+      ? tr('tab3.decidiste_mantener') : tr('tab3.decidiste_inyectar');
+    decisionLinea = `
+      <div class="cmv40-decision tomada">
+        <span data-icono="check"></span> ${escHtml(txt + (cuando ? ` · ${cuando}` : ''))}
+      </div>`;
+  }
+
   // Botones de acción cuando la recomendación es KEEP y el proyecto no está
-  // cerrado todavía. Si el proyecto ya está done/archived, no se muestran.
+  // cerrado todavía. Si el proyecto ya está done/archived —o si el usuario ya
+  // contestó— no se muestran: volver a preguntar lo ya decidido es lo que
+  // hacía el modal antes de que existiera `preflight_user_choice`.
   let actionButtons = '';
-  if (isKeep && !projectDone) {
+  if (pideDecision) {
     actionButtons = `
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="cmv40AcceptKeep('${pid}')" data-i18n-tip="tab3.cierra_el_proyecto_sin_tocar_el">
@@ -3513,6 +3560,7 @@ function _renderCMv40RecommendationCard(s, pid) {
           ${l2Chip}
         </div>
         ${reason ? `<div style="margin-top:12px; color:var(--text-2); font-size:12px; line-height:1.5">${escHtml(reason)}</div>` : ''}
+        ${decisionLinea}
         ${techGrid}
         ${actionButtons}
         ${doneBanner}
@@ -3960,7 +4008,14 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   let body = '';
   if (isExpanded) {
     if (state === 'active') {
-      body = _cmv40FaseBody(fase.key, pid, s);
+      // La fase activa sigue explicando lo que va a hacer, pero mientras hay
+      // trabajo en marcha NO ofrece su botón: `_cmv40PhaseState` decide
+      // `active` mirando solo `s.phase`, así que la card de la fase que se
+      // está ejecutando enseñaba su lanzador como si se pudiera pulsar. El
+      // backend lo rechaza (`_cmv40_guard_no_duplicado`, 409), o sea que lo
+      // único que producía era un toast rojo — un botón que solo sabe dar un
+      // error es peor que uno que no está.
+      body = _cmv40FaseBodyBloqueable(fase.key, pid, s);
     } else if (state === 'done') {
       body = `
         <div class="section-body">
@@ -5199,6 +5254,31 @@ function _cmv40FaseGBody(pid, s) {
       <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')"><span data-icono="caja"></span> <span data-i18n="tab3.remux_mkv_final"></span></button>
     </div>`;
 }
+
+/** El cuerpo de la fase activa, sin lanzadores si ya hay trabajo en marcha.
+ *
+ *  No se toca el HTML que devuelven los `_cmv40Fase?Body`: se envuelve. Una
+ *  sustitución sobre la cadena generada es justo lo que partió un `class` en
+ *  la migración de i18n y dejó un `querySelector` sin encontrar nada durante
+ *  semanas. La clase apaga los `.btn-primary`, que en los cuerpos de fase son
+ *  siempre los lanzadores (los controles del gráfico de la Fase D son
+ *  `btn-ghost`).
+ */
+function _cmv40FaseBodyBloqueable(key, pid, s) {
+  const cuerpo = _cmv40FaseBody(key, pid, s);
+  if (!s.running_phase && !s.cola) return cuerpo;
+  // Sin nombrar la fase: el título de la card y su chip «En curso» ya la
+  // dicen, y repetirla daba «Fase G — Remux final … Fase G — Remuxando MKV
+  // final está en curso».
+  const aviso = s.running_phase
+    ? tr('tab3.fase_en_curso_no_relanzar')
+    : tr('tab3.fase_en_cola_no_relanzar');
+  return `<div class="fase-bloqueada">
+      <div class="fase-bloqueada-aviso"><span data-icono="reloj"></span> ${escHtml(aviso)}</div>
+      ${cuerpo}
+    </div>`;
+}
+
 
 function _cmv40FaseHBody(pid, s) {
   return `
@@ -6939,6 +7019,17 @@ function _cmv40PfVeredicto(s, trabajo) {
       motivos: _cmv40PfMotivosDelLog(s),
     };
   }
+  // El tercer veredicto NO es «el bin no sirve»: es «la app no puede decidir
+  // esto por ti». Compartir el título del bin sintético era la mitad del
+  // mensaje que el usuario no podía entender.
+  if (s.preflight_decision === 'ask_tone_mapping') {
+    return {
+      clase: 'aviso',
+      titulo: tr('tab3.esto_lo_decides_tu'),
+      cuerpo: s.preflight_message || s.recommended_action_reason || '',
+      motivos: _cmv40PfMotivosDelLog(s),
+    };
+  }
   if (s.preflight_decision && s.preflight_decision !== 'ok') {
     return {
       clase: 'aviso',
@@ -7035,27 +7126,44 @@ function _cmv40PfChecks(s) {
     s?.target_l8_quality_tier] || '';
   const combos = s?.target_l8_unique_count;
   const neutros = s?.target_l8_neutral_frames_pct;
+  const delta = s?.target_l8_max_delta || 0;
   filas.push({
     titulo: tr('tab3.el_l8_es_trabajo_de_colorista'),
     valor: !clase ? (abortado ? tr('tab3.no_se_llego_a_comprobar')
                               : tr('tab3.analizando_los_combos_del_rpu')) : [
+      // Sin la entrada de `tone_mapping` el `|| clase` escribía el
+      // identificador crudo en la fila. Y el maxΔ va delante de los combos
+      // porque es EL número que decide desde la recalibración: dos combos
+      // pueden ser un máster retail (Δ 606) o un bin generado (Δ 0).
       { real: tier ? tr('tab3.si_calidad', {tier: tier}) : 'Sí',
         indeterminate: tr('tab3.no_concluyente'),
+        tone_mapping: tr('tab3.l8_solo_tone_mapping'),
         default: tr('tab3.no_el_rpu_es_sintetico') }[clase] || clase,
+      delta ? tr('tab3.desviacion_max_del_neutro', {delta: delta}) : '',
       combos != null ? tr('tab3.combos_unicos', {combos: combos}) : '',
       neutros != null ? tr('tab3.de_frames_neutros', {p1: Math.round(neutros * 100)}) : '',
     ].filter(Boolean).join(' · '),
     estado: !clase ? 'pend' : clase === 'real' ? 'ok'
-          : clase === 'default' ? 'aviso' : 'duda',
+          : (clase === 'default' || clase === 'tone_mapping') ? 'aviso' : 'duda',
   });
 
-  if (s?.recommended_action_label) {
-    filas.push({
-      titulo: tr('tab3.recomendacion'),
-      valor: s.recommended_action_label,
-      estado: s.recommended_action === 'keep' ? 'aviso' : 'ok',
-    });
-  }
+  // La recomendación es la última conclusión del pre-flight, y hasta que el
+  // bin está clasificado NO existe: el servidor rellena
+  // `recommended_action_label` siempre —para un proyecto recién creado
+  // devuelve «Mantener MKV actual» porque el bin aún no está validado, y
+  // entre el pre-flight y la Fase A, «Análisis pendiente»—, así que la fila
+  // salía pintada y resuelta desde el primer repintado, antes de haber
+  // mirado nada. Se empuja SIEMPRE, para que el checklist enseñe el paso
+  // que falta, y en gris mientras no haya clasificación.
+  const clasificado = !!s?.target_l8_classification;
+  filas.push({
+    titulo: tr('tab3.recomendacion'),
+    valor: clasificado
+      ? (s.recommended_action_label || '—')
+      : tr('tab3.pendiente_del_analisis_del_bin'),
+    estado: !clasificado ? 'pend'
+          : s.recommended_action === 'keep' ? 'aviso' : 'ok',
+  });
   // La respuesta del usuario es la última conclusión del pre-flight, y la
   // única que no sale de un análisis. Queda aquí para que reabrir el detalle
   // diga qué se decidió en vez de volver a preguntarlo.

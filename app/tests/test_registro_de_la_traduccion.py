@@ -97,9 +97,6 @@ IGUAL_EN_INGLES = {
     "tab3.n_combos":
         "«combos» es el término del glosario y lo demás es una cifra: no "
         "queda ninguna palabra que traducir, en ninguna de las tres lenguas",
-    "tab3.nivel_l8_valor":
-        "igual — «combos», «maxΔ» y tres huecos. Es la fila del L8 en la "
-        "tabla de niveles del bin",
     "ajustes.seccion.general":
         "«General» se escribe igual en castellano y en inglés; en catalán "
         "también. Es el rótulo de la primera sección del modal de "

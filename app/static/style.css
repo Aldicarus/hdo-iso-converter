@@ -27,6 +27,17 @@
   --orange:       #FF9500;
   --orange-dim:   rgba(255, 149, 0, 0.12);
   --orange-border:rgba(255, 149, 0, 0.30);
+  /* Ámbar — NO es el naranja: en la card de decisión de Tab 3 el naranja es
+     «va por merge» y el ámbar es «esto lo decides tú», y son dos cosas que no
+     pueden verse igual. Los valores son los que ya usaba la radiografía
+     DV+HDR, que los tenía declarados DENTRO de `.dv-detail`: la card de Tab 3
+     los citaba desde fuera de ese bloque, así que las tres declaraciones del
+     badge caían y el ámbar se quedaba sin fondo, sin color y sin borde. Una
+     `var()` fuera de alcance no da error: se lleva la declaración entera. */
+  --amber:        #d97706;
+  --amber-dim:    rgba(217, 119, 6, 0.09);
+  --amber-border: rgba(217, 119, 6, 0.22);
+  --amber-text:   #92400e;
   --teal:         #32ADE6;
   --purple:       #AF52DE;
   --purple-border:rgba(175, 82, 222, 0.35);
@@ -6326,6 +6337,58 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    lengua, y dentro de un <option> no cabe marcado. El activo va deshabilitado
    porque volver a elegirlo recargaría la página por nada. */
 
+
+/* ── El seguimiento de la decisión (card de Tab 3) ──────────────────────
+ *
+ *  Dos estados y no uno: «esperando tu decisión» y «decidiste X el día Y».
+ *  El segundo es el que faltaba — las fases pasaban por delante y no quedaba
+ *  en ninguna parte que hubiera habido algo que decidir.
+ */
+.cmv40-decision {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.cmv40-decision.pendiente {
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-text);
+}
+.cmv40-decision.tomada {
+  background: var(--surface-2);
+  border: 1px solid var(--sep);
+  color: var(--text-2);
+}
+
+/* ── La fase activa mientras hay trabajo en marcha ──────────────────────
+ *
+ *  Se sigue leyendo lo que la fase va a hacer; lo que no se ofrece es el
+ *  botón. `pointer-events:none` en vez de `disabled` para no tocar el HTML
+ *  que generan los ocho `_cmv40Fase?Body` — una sustitución sobre la cadena
+ *  ya montada es lo que partió un `class` en la migración de i18n.
+ */
+.fase-bloqueada .btn-primary {
+  pointer-events: none;
+  opacity: .45;
+}
+.fase-bloqueada-aviso {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
 
 /* ── Los niveles del bin, con su papel (card de decisión de Tab 3) ───────
  *

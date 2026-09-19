@@ -1448,6 +1448,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     """
     from phases.rpu_analyze import (
         analyze_rpu_combos, classify_l8, classify_l8_quality,
+        L8_REAL_MINIMAL_SIGNIFICANT_DELTA,
     )
 
     wd = cmv40_get_workdir(session)
@@ -1494,10 +1495,30 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         await log_cb(
             '[Pre-flight] ' + tr('cmv40.l8_ambiguo_reason_el_pipeline_avanza_igualmente', reason=reason)
         )
+    elif classification == "tone_mapping":
+        # El tercer veredicto no tenía rama y CAÍA POR LAS TRES: lo único que
+        # el usuario veía de él era su identificador en mayúsculas al final de
+        # la línea de combos. Aquí se dice qué se ha medido y contra qué
+        # umbral, que es lo que hace el veredicto trazable.
+        await log_cb(
+            '[Pre-flight] ' + tr('cmv40.veredicto_tone_mapping',
+                                 delta=analysis.l8_max_delta,
+                                 umbral=L8_REAL_MINIMAL_SIGNIFICANT_DELTA,
+                                 reason=reason)
+        )
 
-    if classification == "default":
-        # Recomendación firme: mantener MKV actual. No avanzar.
-        session.preflight_decision = "keep_l8_default"
+    # Los dos veredictos que no son «real» detienen el pipeline, y por el
+    # mismo motivo: detrás hay media hora de proceso y la app no puede decidir
+    # sola que vale la pena. Se diferencian en quién tiene la razón —con
+    # `default` la app recomienda mantener; con `tone_mapping` dice que
+    # depende del reproductor y no se moja— pero la mecánica es la misma, y
+    # es la que ya estaba montada: `preflight_decision` distinto de 'ok'
+    # bloquea al orquestador (`_cmv40_dispatch_next_phase`), deja la línea
+    # «esperando» en el historial (`_cmv40_anotar_preflight`) y saca los dos
+    # botones en el modal del pre-flight y en la ficha del proyecto.
+    if classification in ("default", "tone_mapping"):
+        session.preflight_decision = (
+            "keep_l8_default" if classification == "default" else "ask_tone_mapping")
         session.preflight_message = reason
         session.target_preflight_ok = False
         # Persistir la recomendación del modelo (modelo Bloque 2)
@@ -1508,6 +1529,8 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         session.recommended_action_reason = action_reason
         await log_cb(
             tr('cmv40.pre_flight_el_bin_no_tiene_un', reason=reason)
+            if classification == "default"
+            else tr('cmv40.pre_flight_tone_mapping_decide')
         )
         return False
 
@@ -2588,21 +2611,20 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     try:
         if session.target_l8_combos:
             from phases.rpu_analyze import (
-                RpuAnalysis, classify_l8, classify_l8_quality, delta_l8_de)
-            a = RpuAnalysis()
-            a.l8_combos = list(session.target_l8_combos)
-            a.l8_unique_count = session.target_l8_unique_count
-            a.l8_neutral_pct = session.target_l8_neutral_frames_pct
-            a.frames_with_cmv40 = session.target_frames_analyzed
-            a.scene_cuts = session.target_l8_scene_cuts
-            a.l8_has_mid_contrast = session.target_l8_has_mid_contrast
-            a.l8_has_clip_trim = session.target_l8_has_clip_trim
-            clas, motivo_l8 = classify_l8(a)
+                analisis_desde_sesion, classify_l8, classify_l8_quality,
+                delta_l8_de)
+            # El rearmado vive en `rpu_analyze`, pegado al criterio. Estaba
+            # aquí, a mano y con siete campos, y cuando el criterio ganó el
+            # tercer veredicto —que mira `l3_*`— nadie volvió por este
+            # endpoint: el listado servía `tone_mapping` y el panel `default`
+            # para el mismo proyecto, a la vez y sin un error.
+            a = analisis_desde_sesion(session)
+            clas, _motivo = classify_l8(a)
             data["target_l8_classification"] = clas
-            # `a.l8_max_delta` lo fija el PARSER, no el constructor: aquí el
-            # análisis se rearma desde la caché, así que hay que derivarlo.
-            # Servirlo sin esto daba «maxΔ 0» al lado de un veredicto
-            # «real» — incoherente en la misma tarjeta.
+            # `l8_max_delta` puede faltar en sesiones anteriores al campo;
+            # `delta_l8_de` lo deriva de los combos. Servirlo sin esto daba
+            # «maxΔ 0» al lado de un veredicto «real» — incoherente en la
+            # misma tarjeta.
             data["target_l8_max_delta"] = delta_l8_de(a)
             tier, etiqueta, desc = classify_l8_quality(a)
             if tier:
