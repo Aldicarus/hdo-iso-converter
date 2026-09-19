@@ -7141,7 +7141,11 @@ function _cmv40PfChecks(s) {
         default: tr('tab3.no_el_rpu_es_sintetico') }[clase] || clase,
       delta ? tr('tab3.desviacion_max_del_neutro', {delta: delta}) : '',
       combos != null ? tr('tab3.combos_unicos', {combos: combos}) : '',
-      neutros != null ? tr('tab3.de_frames_neutros', {p1: Math.round(neutros * 100)}) : '',
+      // El mismo dato que la tabla de niveles de la ficha, y dicho igual:
+      // en negativo («0 % sin ajuste») se leía como lo contrario de lo que
+      // dice el veredicto justo al lado. La clave conserva su nombre viejo.
+      neutros != null ? tr('tab3.de_frames_neutros',
+                           {p1: Math.round((1 - neutros) * 100)}) : '',
     ].filter(Boolean).join(' · '),
     estado: !clase ? 'pend' : clase === 'real' ? 'ok'
           : (clase === 'default' || clase === 'tone_mapping') ? 'aviso' : 'duda',

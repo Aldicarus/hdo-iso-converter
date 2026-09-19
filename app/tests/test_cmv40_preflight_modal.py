@@ -168,8 +168,8 @@ console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
         self.assertIn("CM v4.0", valores)
         self.assertIn("L8 presente", valores)
         self.assertIn("FULL", valores)
-        self.assertIn("412 combos", valores)
-        self.assertIn("8 % de frames neutros", valores)
+        self.assertIn("412", valores)          # los ajustes medidos
+        self.assertIn("92 %", valores)         # y la parte de la peli con ajuste
         self.assertTrue(all(x["estado"] == "ok" for x in f))
 
     def test_el_bin_sintetico_marca_SU_fila_en_ambar(self):
@@ -178,9 +178,11 @@ console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
             "target_dv_info": {"profile": 7, "cm_version": "v4.0", "has_l8": True},
             "target_l8_classification": "default", "target_l8_unique_count": 2,
             "target_l8_neutral_frames_pct": 0.99})
-        l8 = next(x for x in f if "L8" in x["titulo"])
+        from frontend_sources import catalogo_es
+        rotulo = catalogo_es()["tab3.el_l8_es_trabajo_de_colorista"]
+        l8 = next(x for x in f if x["titulo"] == rotulo)
         self.assertEqual(l8["estado"], "aviso")
-        self.assertIn("sintético", l8["valor"])
+        self.assertIn(catalogo_es()["tab3.no_el_rpu_es_sintetico"], l8["valor"])
         # Y las de antes siguen en verde: el fallo está localizado.
         self.assertEqual(f[0]["estado"], "ok")
 
@@ -1058,10 +1060,12 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
             self.assertNotIn(palabra, self.d["titulo"])
 
     def test_el_veredicto_encabeza_el_CUERPO(self):
-        self.assertIn("L8", self.d["estado"])
+        from frontend_sources import catalogo_es
+        self.assertEqual(self.d["estado"],
+                         catalogo_es()["tab3.el_bin_no_aporta_un_l8"])
         self.assertIn("cmv40-pf-check", self.d["checks"])
         self.assertIn("cmv40-pf-banner aviso", self.d["veredicto"])
-        self.assertIn("combos", self.d["veredicto"])
+        self.assertTrue(self.d["veredicto"].strip(), "el banner viene vacío")
 
     def test_con_veredicto_la_barra_desaparece(self):
         """Ya no hay nada que medir; dejarla al 65 % sugeriría que sigue."""
@@ -1096,3 +1100,86 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElChecklistSeRellenaSegunAvanza(ApiTestCase):
+    """«Se rellenan según avanza, y ése es el punto» — el docstring de
+    `_cmv40PfChecks`. No pasaba.
+
+    Las filas del modal se pintan con lo que devuelve `GET /api/cmv40/{id}`,
+    o sea con lo que hay EN DISCO. Y entre el guardado de arranque y el del
+    `finally` no había ninguno: `preflight_source` avisa en su propio
+    docstring de que no guarda («no save aquí — el caller») y el caller no lo
+    hacía. Resultado: las cuatro comprobaciones en gris toda la validación y
+    todas en verde de golpe al terminar.
+
+    No se veía porque la última fila —«Recomendación»— salía rellena desde el
+    primer repintado, que era otro defecto; al arreglarlo, quedó el checklist
+    entero mudo. Reportado el 2026-09-19.
+
+    El test no mira el reloj: los dobles de cada paso comprueban qué hay en
+    disco **en el momento en que les toca correr**, que es exactamente lo que
+    vería el modal en su siguiente poll.
+    """
+
+    def _correr(self):
+        import asyncio
+        import storage
+        from routers import cmv40
+        from phases import cmv40_pipeline as pipe
+
+        visto = {}
+
+        async def _fuente(session, **kw):
+            session.source_preflight_ok = True
+
+        async def _target(session, *a, **kw):
+            from models import DoviInfo
+            # Lo que el modal vería AHORA mismo en su siguiente poll.
+            visto["al_obtener_el_bin"] = getattr(
+                storage.load_cmv40_session(session.id), "source_preflight_ok", None)
+            session.target_dv_info = DoviInfo(profile=7, el_type="FEL",
+                                              cm_version="v4.0", frame_count=100)
+
+        async def _analizar(session, log_cb):
+            en_disco = storage.load_cmv40_session(session.id)
+            visto["al_analizar_el_l8"] = bool(en_disco.target_dv_info)
+            return True
+
+        for nombre, doble in (("preflight_source", _fuente),
+                              ("preflight_target_path", _target)):
+            orig = getattr(pipe, nombre)
+            setattr(pipe, nombre, doble)
+            self.addCleanup(setattr, pipe, nombre, orig)
+        orig_an = cmv40._cmv40_preflight_analyze_target
+        cmv40._cmv40_preflight_analyze_target = _analizar
+        self.addCleanup(setattr, cmv40,
+                        "_cmv40_preflight_analyze_target", orig_an)
+
+        sid = self.crear_sesion(sid="cmv40_pf_pasos", phase="created")
+        s = storage.load_cmv40_session(sid)
+        s.pending_target_kind = "path"
+        s.pending_target_rpu_path = "/no/existe.bin"
+        s.auto_pipeline = False
+        storage.save_cmv40_session(s)
+
+        async def _todo():
+            await cmv40._cmv40_dispatch_preflight(s)
+            for _ in range(200):
+                if "al_analizar_el_l8" in visto:
+                    break
+                await asyncio.sleep(0.02)
+
+        asyncio.run(_todo())
+        return visto
+
+    def test_el_disco_va_contando_lo_que_ya_se_ha_comprobado(self):
+        visto = self._correr()
+        self.assertIs(
+            visto.get("al_obtener_el_bin"), True,
+            "al bajar el bin, el disco todavía no dice que el origen pasó: "
+            "el modal no puede tachar la primera fila")
+        self.assertIs(
+            visto.get("al_analizar_el_l8"), True,
+            "al analizar el L8, el disco todavía no tiene el bin: las dos "
+            "filas del medio siguen en gris durante el paso más largo")

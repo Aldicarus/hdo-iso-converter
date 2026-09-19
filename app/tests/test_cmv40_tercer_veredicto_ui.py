@@ -38,7 +38,8 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import argv_node, js_en_disco, pintar_en  # noqa: E402
+from frontend_sources import (argv_node, catalogo_es,  # noqa: E402
+                              js_en_disco, pintar_en)
 
 NODE = shutil.which("node")
 
@@ -123,11 +124,19 @@ class _Base(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
         return pintar_en(json.loads(proc.stdout))
 
-    def fila(self, filas, titulo_contiene):
+    def fila(self, filas, clave):
+        """La fila por su CLAVE del catálogo, no por un trozo de su rótulo.
+
+        Los rótulos dejaron de nombrar niveles de la spec el 2026-09-19 —la
+        fila del L8 se llama «Los ajustes del bin son trabajo de un
+        colorista»— y todo test que buscara «L8» dejó de encontrar nada. La
+        clave no cambia cuando cambia la redacción.
+        """
+        rotulo = catalogo_es()[clave]
         for f in filas:
-            if titulo_contiene.lower() in (f.get("titulo") or "").lower():
+            if (f.get("titulo") or "") == rotulo:
                 return f
-        self.fail(f"no hay fila «{titulo_contiene}» en {[f['titulo'] for f in filas]}")
+        self.fail(f"no hay fila «{rotulo}» en {[f['titulo'] for f in filas]}")
 
 
 class TestElModalNoAdelantaConclusiones(_Base):
@@ -142,17 +151,17 @@ class TestElModalNoAdelantaConclusiones(_Base):
             "recommended_action": "keep",
             "recommended_action_label": "Mantener MKV actual",
         }}])[0]
-        self.assertEqual(self.fila(filas, "Recomendaci")["estado"], "pend")
+        self.assertEqual(self.fila(filas, "tab3.recomendacion")["estado"], "pend")
 
     def test_y_aparece_aunque_el_servidor_no_mande_nada(self):
         """La fila es un PASO del checklist: si solo existe cuando ya hay
         respuesta, el usuario no sabe que queda ese paso."""
         filas = self.evaluar([{"fn": "checks", "s": {"running_phase": "preflight"}}])[0]
-        self.fila(filas, "Recomendaci")
+        self.fila(filas, "tab3.recomendacion")
 
     def test_con_el_bin_clasificado_la_fila_concluye(self):
         filas = self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0]
-        f = self.fila(filas, "Recomendaci")
+        f = self.fila(filas, "tab3.recomendacion")
         self.assertEqual(f["estado"], "aviso")
         self.assertIn("decides", f["valor"])
 
@@ -161,14 +170,15 @@ class TestLaFilaDelL8HablaCastellano(_Base):
 
     def test_no_se_escribe_el_identificador_en_crudo(self):
         f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0],
-                      "L8")
+                      "tab3.el_l8_es_trabajo_de_colorista")
         self.assertNotIn("tone_mapping", f["valor"],
                          "la fila escribe el identificador interno")
 
     def test_lleva_el_numero_que_decide(self):
         """Desde la recalibración manda el maxΔ, no el conteo: dos combos
         pueden ser un retail (Δ 606) o un generado (Δ 0)."""
-        f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0], "L8")
+        f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0],
+                      "tab3.el_l8_es_trabajo_de_colorista")
         self.assertIn("41", f["valor"])
         self.assertEqual(f["estado"], "aviso")
 

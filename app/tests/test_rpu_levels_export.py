@@ -157,7 +157,9 @@ class TestClasificacionSobreLevels(unittest.TestCase):
             self.assertEqual(a.scene_cuts, 20)
             kind, reason = classify_l8(a)
             self.assertEqual(kind, "real")
-            self.assertIn("FULL", reason)
+            # El tier va en su propio campo; el motivo cuenta los ajustes.
+            from phases.rpu_analyze import classify_l8_quality
+            self.assertEqual(classify_l8_quality(a)[0], "full")
 
 
 

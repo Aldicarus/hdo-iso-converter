@@ -1190,11 +1190,18 @@ def tier_de_l8(n: dict, classification: str) -> tuple[str, str, str]:
             tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=n["l8_unique_count"], combos_per_cut=format(combos_per_cut, '.2f')),
         )
 
-    # CORE: estándar streaming — funcional pero no excepcional
+    # CORE: estándar streaming — funcional pero no excepcional.
+    #
+    # Su descripción era LA MISMA que la de CORE+, así que un máster estándar
+    # se anunciaba como «grading dinámico shot-a-shot intenso; el colorista
+    # trabajó casi todas las escenas», que es justo lo que NO es. El test que
+    # lo cubría comprobaba `'CORE' in desc` y «CORE+» contiene «CORE», así que
+    # pasaba en verde. Salió al reescribir los textos el 2026-09-19: el nuevo
+    # de CORE+ ya no lleva la palabra dentro y el test dejó de poder taparlo.
     return (
         "core",
         "CMv4 CORE",
-        tr('rpu_analyze.master_cmv4_0_core_l8_unique_count', l8_unique_count=n["l8_unique_count"], combos_per_cut=format(combos_per_cut, '.2f')),
+        tr('rpu_analyze.master_cmv4_0_core_estandar', l8_unique_count=n["l8_unique_count"], combos_per_cut=format(combos_per_cut, '.2f')),
     )
 
 

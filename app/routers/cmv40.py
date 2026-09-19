@@ -1642,6 +1642,14 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
             try:
                 await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+                # El checklist del modal se rellena con lo que hay EN DISCO, y
+                # entre el guardado de arranque y el del `finally` no había
+                # ninguno: las cuatro comprobaciones se quedaban en gris toda
+                # la validación y se ponían verdes de golpe. `preflight_source`
+                # ya lo avisa en su docstring —«no save aquí, el caller»— y el
+                # caller no lo hacía. Cuesta un JSON de kilobytes: en este
+                # punto la sesión no tiene ni combos ni log dentro.
+                await _save_cmv40_session_async(session)
 
                 kind = session.pending_target_kind
                 await _paso(25, {
@@ -1666,6 +1674,9 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
                         session, session.pending_target_source_mkv_path,
                         _log_cb, _proc_cb,
                     )
+                # El bin ya está analizado: que el modal pueda tachar sus dos
+                # filas antes del paso largo (el export de combos).
+                await _save_cmv40_session_async(session)
                 await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
                 # Análisis profundo del bin + decisión Keep/continuar
                 await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
@@ -3938,6 +3949,10 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 # el MKV no tiene DV.
                 from phases.cmv40_pipeline import preflight_source
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+                # Ver el mismo guardado en `_cmv40_dispatch_preflight`: el
+                # checklist del modal lee del disco, y sin esto no puede
+                # tachar nada hasta el `finally`.
+                await _save_cmv40_session_async(session)
 
                 if body.kind == "drive":
                     await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
@@ -3946,6 +3961,7 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
                 else:  # mkv
                     await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
 
+                await _save_cmv40_session_async(session)
                 await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
                 # Análisis profundo del bin + decisión Keep/continuar
                 await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))

@@ -423,3 +423,65 @@ Tres cosas que salieron al aplicarlo y no estaban previstas:
 Con esto y con `ajustes.idioma.nota_pistas` —que dejó de prometer lo que la
 app no hacía cuando el perfil por idioma se implementó— **la lista de
 defectos del castellano queda vacía**.
+
+---
+
+## Anexo (2026-09-19) — los textos del veredicto CMv4.0
+
+El fichero decía que la lista quedaba vacía. Se reabre con una tanda que **no
+salió de traducir**: el usuario lanzó dos proyectos CMv4.0, leyó el veredicto
+y pidió literalmente *«estructurado, entendible y formal para un usuario
+medio»*, citando una frase suya que no se entendía — «solo ganas que el
+upgrade viaje dentro del fichero».
+
+El defecto era común a los treinta y tantos textos del veredicto y del
+pre-flight: **describían el formato de la metadata en lugar de la decisión**.
+Hablaban de *combos*, *trims de colorista*, *frames neutros*, *append
+on-the-fly*, *brackets de toning*, *trim pass* y *bloques L8* — vocabulario de
+la especificación de Dolby, no de quien tiene que elegir entre mantener el MKV
+o gastar media hora de proceso.
+
+La reescritura aplica tres reglas, en este orden:
+
+1. **Fuera la jerga de la spec.** `combos` → `ajustes`; `trims de colorista` →
+   `ajustes hechos a mano por un colorista`; `frames neutros` → `parte de la
+   película sin ajuste`; `maxΔ / desviación del neutro` → `intensidad`;
+   `append on-the-fly` → `convertir a CMv4.0 sobre la marcha`; `bloques L8` →
+   `la capa de ajustes CMv4.0`.
+2. **Se queda el vocabulario que el usuario de esta app sí usa**: `bin`,
+   `RPU`, `Dolby Vision`, `CMv4.0`, `Blu-ray`, `colorista`. No es un público
+   que no sepa qué es un bin; es un público que no ha leído la spec.
+3. **Una idea por frase y siempre la misma estructura**: qué trae el bin → qué
+   significa para el resultado → qué puedes hacer. Los números se quedan, pero
+   **detrás** de la frase que se entiende, no en su lugar.
+
+El «tú» **no se toca**: lo fija `REGISTRO.md` para toda la aplicación, y
+«formal» aquí es la redacción, no el tratamiento.
+
+Siete frases estaban en el golden y van en `EXCEPCIONES` con su motivo una a
+una. Las demás son posteriores a `pre-i18n` y no estaban vigiladas.
+
+Dos incoherencias salieron **de mirar el render, no el código**, y son las que
+justifican haberlo mirado:
+
+- el chip de calidad del tercer veredicto caía al `CMv4 ?` del final de la
+  cascada — un interrogante justo donde la app sabe exactamente qué es el bin;
+- el modal decía «0 % de frames neutros» al lado de «sin ajuste manual», que
+  se lee como lo contrario. Hoy dice «con ajuste en el 100 % de la película»,
+  que es **el mismo dato y con las mismas palabras** que la tabla de niveles
+  de la ficha.
+
+Y la reescritura destapó **un fallo de verdad**, no de redacción: los tiers
+`core` y `core_rich` compartían la misma descripción, así que un máster CORE
+estándar se anunciaba como «grading dinámico shot-a-shot intenso; el colorista
+trabajó casi todas las escenas», que es exactamente lo que no es. El test que
+lo cubría comprobaba `'CORE' in desc` y **«CORE+» contiene «CORE»**, así que
+pasaba en verde. Al quedarse el texto nuevo de CORE+ sin la palabra dentro, el
+test dejó de poder taparlo. Hoy cada tier tiene su clave, y el test fija **qué
+clave usa cada uno** leyéndola del catálogo — comparar las dos descripciones
+no servía, porque difieren igualmente por los números.
+
+Lo que **no** se ha tocado, y queda anotado: las descripciones de las fases
+(«dovi_tool mux combina BL.hevc + EL_injected.hevc…»). Son otra familia —
+cuentan lo que la herramienta hace, no lo que el usuario decide— y revisarlas
+es su propia tanda.

@@ -47,6 +47,59 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── Los textos del veredicto CMv4.0, reescritos el 2026-09-19 a petición
+    #    del usuario: «estructurado, entendible y formal para un usuario
+    #    medio». Todos describían el FORMATO de la metadata —combos, trims,
+    #    frames neutros, L8— en lugar de lo que el usuario tiene que decidir,
+    #    y el propio usuario citó una frase que no se entendía. Ver
+    #    CORRECCIONES_DEL_CASTELLANO.md.
+    "El L8 es trabajo de colorista":
+        "la fila del checklist nombraba un nivel de la spec; hoy dice lo que "
+        "comprueba: «Los ajustes del bin son trabajo de un colorista»",
+    "El bin no aporta un L8 trabajado":
+        "mismo caso en el título del veredicto: «ningún ajuste hecho a mano» "
+        "dice lo mismo sin pedir saber qué es el L8",
+    "No — el RPU es sintético":
+        "«sintético» es la palabra del clasificador, no del usuario: lo que "
+        "significa es que el RPU no lleva ningún ajuste",
+    "El RPU es sintético: inyectarlo daría el mismo resultado visible":
+        "igual, en el cuerpo del veredicto; además «resultado visible» pasa a "
+        "«resultado en pantalla», que es lo que se mira",
+    "CMv4 sintético":
+        "el chip de calidad, con la misma palabra; hoy «CMv4 sin ajustes»",
+    "Decisión Mantener vs Inyectar (rápido / preserva L2) basada en el análisis del bin: clasificación L8, tier de calidad CMv4 y comparación L2 source vs target":
+        "el subtítulo de la card encadenaba cinco términos internos "
+        "(clasificación L8, tier, L2 source vs target) para decir qué aporta "
+        "el bin y qué hacer con él, que es lo que dice ahora",
+    "⟦⟧ % de frames neutros":
+        "un «frame neutro» es un frame sin ajuste, y así se dice: el dato no "
+        "cambia, cambia el nombre que se le da",
+
+    # ── Y el vocabulario de la MISMA decisión, unificado en la misma tanda.
+    #    Convivían «al vuelo», «en runtime», «resultado visible» y «bin
+    #    sintético» con los textos ya reescritos, que es la incoherencia que
+    #    el usuario señalaba un nivel por encima de cada frase suelta. Hoy:
+    #    «sobre la marcha», «resultado en pantalla», «no lleva ajustes
+    #    propios». Ni una de las tres decía nada que la nueva no diga.
+    "Cierra el proyecto sin tocar el MKV original. Un reproductor compatible con CMv4.0 (p3i T4 / Sony / LG modernos) hará la conversión al vuelo en runtime.":
+        "«al vuelo en runtime» dice dos veces lo mismo y la segunda en inglés",
+    "El resultado visible es equivalente a la conversión al vuelo del":
+        "«resultado visible» → «resultado en pantalla», que es lo que se mira",
+    "Inyectar RPU CMv4.0 aunque el bin sea sintético":
+        "«sintético» es la palabra del clasificador; el botón dice ahora qué "
+        "le pasa al bin: no lleva ajustes propios",
+    "Procesa el MKV inyectando el RPU CMv4.0 aunque el bin sea sintético. Resultado equivalente a la conversión al vuelo del reproductor pero quedará archivado como MKV CMv4.0 completo.":
+        "el tooltip del mismo botón, con las dos sustituciones",
+    "compatible con CMv4.0 hace la conversión al vuelo, con el":
+        "fragmento del veredicto de «Mantener»: «sobre la marcha»",
+    "hará la conversión al vuelo en runtime — el resultado visible es":
+        "fragmento del diálogo de confirmación, con las dos sustituciones",
+    "mismo resultado visible que tendría inyectar el RPU.":
+        "cierre del mismo veredicto: «resultado en pantalla»",
+    "— el fichero original quedó intacto. Tu reproductor (p3i T4 / Sony / LG modernos) hace la conversión CMv4.0 al vuelo en runtime.":
+        "el banner del proyecto cerrado por «Mantener», con la misma "
+        "sustitución que su veredicto",
+
     # ── Los nueve defectos DEL CASTELLANO, corregidos el 2026-09-17 con el
     #    visto bueno del usuario. Están en CORRECCIONES_DEL_CASTELLANO.md con
     #    su motivo: casi todos son texto que describía bien algo que después

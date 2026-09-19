@@ -94,9 +94,6 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
-    "tab3.n_combos":
-        "«combos» es el término del glosario y lo demás es una cifra: no "
-        "queda ninguna palabra que traducir, en ninguna de las tres lenguas",
     "ajustes.seccion.general":
         "«General» se escribe igual en castellano y en inglés; en catalán "
         "también. Es el rótulo de la primera sección del modal de "

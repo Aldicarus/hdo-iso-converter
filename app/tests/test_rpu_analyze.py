@@ -368,6 +368,20 @@ class TestParseExport(unittest.TestCase):
 
 # ── classify_l8_quality ──────────────────────────────────────────────────────
 
+def _plantilla(clave: str) -> str:
+    """El trozo FIJO del texto de una clave: lo que va antes del primer hueco.
+
+    Sirve para afirmar qué clave del catálogo se usó sin atar el test a la
+    redacción — que es lo que dejó a este módulo señalando al vacío cuando los
+    textos del veredicto se reescribieron el 2026-09-19.
+    """
+    import json
+    cat = json.loads(
+        (Path(__file__).resolve().parents[1] / "i18n" / "es.json")
+        .read_text(encoding="utf-8"))
+    return cat[f"rpu_analyze.{clave}"].split("{")[0]
+
+
 class TestClassifyL8Quality(unittest.TestCase):
 
     def _make_real(self, *, l8_count=64, neutral_pct=0.1, scene_cuts=2000,
@@ -404,7 +418,8 @@ class TestClassifyL8Quality(unittest.TestCase):
         tier, label, desc = classify_l8_quality(a)
         self.assertEqual(tier, "full")
         self.assertEqual(label, "CMv4 FULL")
-        self.assertIn("FULL", desc)
+        # El campo que lo hace FULL sí va en la descripción: es el DATO que
+        # sostiene el veredicto, no la redacción.
         self.assertIn("target_mid_contrast", desc)
 
     def test_full_when_clip_trim_populated(self):
@@ -421,7 +436,10 @@ class TestClassifyL8Quality(unittest.TestCase):
         tier, label, desc = classify_l8_quality(a)
         self.assertEqual(tier, "core_rich")
         self.assertEqual(label, "CMv4 CORE+")
-        self.assertIn("CORE+", desc)
+        self.assertIn("1119", desc)      # los ajustes medidos
+        self.assertIn("0.43", desc)      # y su densidad por plano
+        self.assertTrue(desc.startswith(_plantilla("master_cmv4_0_core_l8_unique_count")),
+                        "CORE+ no usa su propia descripción")
 
     def test_core_when_standard_streaming(self):
         # Spider-Man: 69/2887 = 0.024 → CORE estándar
@@ -429,7 +447,20 @@ class TestClassifyL8Quality(unittest.TestCase):
         tier, label, desc = classify_l8_quality(a)
         self.assertEqual(tier, "core")
         self.assertEqual(label, "CMv4 CORE")
-        self.assertIn("CORE", desc)
+        self.assertIn("69", desc)
+        # CORE y CORE+ compartían el MISMO texto, así que un máster estándar
+        # se anunciaba como «intenso, el colorista trabajó casi todas las
+        # escenas». El test que lo cubría comprobaba «CORE in desc» y «CORE+»
+        # contiene «CORE», así que pasaba en verde.
+        #
+        # Comparar las dos descripciones tampoco basta: difieren igualmente
+        # porque los números son otros. Lo que hay que fijar es QUÉ CLAVE del
+        # catálogo usa cada tier, y eso se lee del catálogo — no de cómo esté
+        # redactada hoy.
+        self.assertTrue(desc.startswith(_plantilla("master_cmv4_0_core_estandar")),
+                        f"CORE no usa su propia descripción: {desc[:60]}")
+        self.assertFalse(desc.startswith(_plantilla("master_cmv4_0_core_l8_unique_count")),
+                         "CORE se describe con el texto de CORE+")
 
     def test_returns_empty_for_default_bins(self):
         # Si classify_l8 devuelve "default" → no aplica quality
@@ -563,7 +594,10 @@ class TestRecommendAction(unittest.TestCase):
         self.assertEqual(action, "drop_in")
         self.assertIn("Inyectar RPU", label)
         self.assertIn("rápido", label.lower())
-        self.assertIn("idéntico", reason)
+        # El motivo cuenta las dos cosas que habilitan el drop-in —mismo
+        # formato DV y la metadata compartida— y la calidad del bin. Se
+        # afirma lo que DICE, no con qué palabras.
+        self.assertIn("P7 FEL", reason)
         self.assertIn("CMv4 FULL", reason)
 
     def test_merge_when_profile_mismatch(self):
