@@ -3314,6 +3314,29 @@ generados al 33 %.
 - **«Indeterminate» se retiró.** No era accionable: a un usuario no se le
   puede pedir que decida sobre un bin que la app no sabe clasificar.
 
+**Los veredictos son TRES, y el tercero no es el de antes.** Un bin sin
+trims de colorista pero con L3/L9/L11 reales del análisis **no está
+vacío**: los 19 generados medidos traen L3 de 773 a 3.226 combos, metadata
+auténtica que el Blu-ray no tiene. Se separa de «default» porque la
+diferencia es accionable —ahí se gana el pipeline CMv4.0 y un ajuste de
+tonos medios plano a plano— y **es el caso normal de un generado**, no una
+rareza.
+
+La diferencia con el viejo «indeterminate» es que aquel decía «no sé qué es
+esto» y este dice exactamente qué trae y qué no. Va en ámbar y con las dos
+salidas, y es **el único sitio donde la app no decide por ti**: lo que se
+gana depende de con qué reproduces, y eso la app no lo sabe. El texto lo
+dice — si tu reproductor ya hace el append on-the-fly (Ugoos, CoreELEC con
+avdvplus o panni), el pipeline ya lo tienes y lo único que ganas es que el
+upgrade viaje dentro del fichero.
+
+**Y «default» distingue dos motivos**, porque llevan a decisiones
+distintas: un L8 presente pero enteramente neutro es un máster que no pasó
+por un trim pass; **sin un solo bloque L8** el fichero nunca fue un máster
+CMv4.0 —típicamente una conversión de profile, «P5 to P8»— y lo que toca es
+buscar otro bin. Son los dos casos reales del corpus: Avatar Fire and Ash y
+Pan's Labyrinth.
+
 **Los proyectos ya analizados se corrigen solos**: `target_l8_combos` está
 persistido, así que `GET /api/cmv40/{id}` re-deriva la clasificación al
 servir. No se migra ni se re-analiza nada. La caché de Tab 2 conserva su

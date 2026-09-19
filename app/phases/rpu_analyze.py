@@ -1000,10 +1000,20 @@ def _clasificacion_de_l8(analysis: RpuAnalysis) -> str:
     Y se devuelven DOS estados porque el tercero no era accionable: a un
     usuario «indeterminado» no le dice qué hacer.
     """
-    n = numeros_de_l8(analysis)
-    if _l8_sin_bloques(n):
-        return "default"
-    return "real" if delta_l8_de(analysis) > L8_REAL_MINIMAL_SIGNIFICANT_DELTA else "default"
+    if delta_l8_de(analysis) > L8_REAL_MINIMAL_SIGNIFICANT_DELTA:
+        return "real"
+    # Sin trims de colorista. Pero un bin así NO siempre está vacío: los 19
+    # generados medidos traen L3 de 773 a 3.226 combos, más L9 y L11, todo
+    # producido por `cm_analyze`. Es metadata auténtica que el Blu-ray no
+    # tiene — solo que es análisis del contenido, no decisiones de nadie.
+    #
+    # Se separa de «default» porque la diferencia es accionable: aquí el
+    # usuario gana el pipeline CMv4.0 y un tone-mapping por plano, y puede
+    # querer eso aunque no haya autoría. «Default» queda para el bin que no
+    # aporta ni eso.
+    if analysis.l3_frames or analysis.l3_unique_count:
+        return "tone_mapping"
+    return "default"
 
 
 def motivo_de_l8(n: dict, classification: str) -> str:
@@ -1035,17 +1045,35 @@ def motivo_de_l8(n: dict, classification: str) -> str:
             extras.append("clip_trim")
         return tr('rpu_analyze.l8_minimal_trabajado_l8_unique_count_combos', l8_unique_count=n["l8_unique_count"], p2=', '.join(extras))
 
-    if classification == "default":
-        return tr('rpu_analyze.bin_sintetico_l8_unique_count_combos_l8', l8_unique_count=n["l8_unique_count"], p2=format(n["l8_neutral_pct"] * 100, '.0f'))
+    if classification == "tone_mapping":
+        return tr('rpu_analyze.aporta_tone_mapping',
+                  l3=n.get("l3_unique_count", 0))
 
-    return tr('rpu_analyze.l8_ambiguo_l8_unique_count_combos_unicos', l8_unique_count=n["l8_unique_count"], p2=format(n["l8_neutral_pct"] * 100, '.0f'))
+    # «Default» con L8 presente pero enteramente neutro y «default» sin un
+    # solo bloque L8 significan cosas distintas, y el usuario decide cosas
+    # distintas con cada una: en el primero el máster existe pero no pasó
+    # por un trim pass; en el segundo el fichero nunca fue un máster CMv4.0
+    # —típicamente una conversión de profile, «P5 to P8»— y lo que toca es
+    # buscar otro bin.
+    if n["l8_unique_count"]:
+        return tr('rpu_analyze.l8_presente_pero_neutro',
+                  l8_unique_count=n["l8_unique_count"])
+    return tr('rpu_analyze.sin_bloques_l8_no_es_un_master')
 
 
 def classify_l8(analysis: RpuAnalysis) -> tuple[str, str]:
-    """Decide si el bin del target tiene L8 "real" o "default".
+    """Qué aporta el bin del target. Tres respuestas, todas accionables.
 
     Devuelve (classification, human_readable_reason) donde classification es:
-      - "real": bin con L8 trabajado por colorista. Restore aporta calidad.
+      - "real": trims de colorista (maxΔ > 50). Inyectar aporta autoría.
+      - "tone_mapping": sin trims de colorista, pero con L3/L9/L11 reales
+        del análisis de Dolby, que el Blu-ray no tiene. Gana el pipeline
+        CMv4.0 y el offset de medios por plano; lo decide el usuario.
+      - "default": ni eso. Mantener el MKV.
+
+    El tercero NO es el viejo «indeterminate», que se retiró por no ser
+    accionable: aquel decía «no sé qué es esto» y este dice exactamente qué
+    trae y qué no. Y no es marginal — es el caso normal de un bin generado.
       - "default": bin sintético sin trabajo real. Restore == Auto on-the-fly,
         recomendar Keep para ahorrar ~25 min de pipeline.
       - "indeterminate": en medio. Mejor avanzar y dejar al usuario decidir

@@ -3332,7 +3332,13 @@ function _renderCMv40RecommendationCard(s, pid) {
   if (!s.target_l8_classification) return '';
 
   const action = s.recommended_action || '';
-  const isKeep = action === 'keep';
+  // El tercer veredicto: sin trims de colorista, pero con L3/L9/L11 reales
+  // del análisis. No es «no aporta» y tampoco es autoría, así que va en
+  // ámbar y con las dos salidas — es el único caso donde la app no decide
+  // por ti, y a propósito: lo que gana el usuario depende de con qué
+  // reproduce, y eso la app no lo sabe.
+  const esToneMapping = s.target_l8_classification === 'tone_mapping';
+  const isKeep = action === 'keep' && !esToneMapping;
   const isDropIn = action === 'drop_in';
   const isMerge = action === 'merge';
   const isUnknown = action === 'unknown' || action === '';
@@ -3340,7 +3346,12 @@ function _renderCMv40RecommendationCard(s, pid) {
 
   // Badge alineado a la paleta de la app (light mode, variables CSS).
   // Patrón estándar: dim background + border + color del nivel semántico.
-  const badgeStyle = isKeep
+  // Ámbar con las variables que EXISTEN (`--dv-amber-*`, las de la
+  // radiografía). Una `var()` inventada invalida la declaración entera y
+  // el estilo cae al heredado sin dar ningún error — hay un guard para eso.
+  const badgeStyle = esToneMapping
+    ? 'background:var(--dv-amber-bg); color:var(--dv-amber-text); border:1px solid var(--dv-amber-border)'
+    : isKeep
     ? 'background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue-border)'
     : isDropIn
     ? 'background:var(--green-dim); color:var(--green); border:1px solid var(--green-border)'
@@ -3352,7 +3363,9 @@ function _renderCMv40RecommendationCard(s, pid) {
   // servidor y se pinta con `escHtml`, que convertiría el SVG en el código
   // fuente del SVG, visible en pantalla.
   const esperando = isUnknown && !s.recommended_action_label;
-  const label = s.recommended_action_label || (isUnknown ? tr('tab3.esperando_analisis') : '—');
+  const label = esToneMapping
+    ? tr('tab3.aporta_tone_mapping_no_autoria')
+    : (s.recommended_action_label || (isUnknown ? tr('tab3.esperando_analisis') : '—'));
   const reason = s.recommended_action_reason || '';
 
   // Tag de calidad del bin (la que va al filename)

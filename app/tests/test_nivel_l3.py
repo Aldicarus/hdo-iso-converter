@@ -93,8 +93,13 @@ class TestSeMideL3(unittest.TestCase):
         self.assertIn("level3", _EXPORT_LEVELS)
 
 
-class TestL3NoDecideNada(unittest.TestCase):
-    """L3 se mide y se enseña, pero **no entra en el veredicto**.
+class TestL3NoDecideLaAutoria(unittest.TestCase):
+    """L3 no puede hacer «real» a un bin: eso lo decide solo el L8.
+
+    Lo que sí hace, desde que el veredicto tiene tres estados, es separar
+    «aporta tone-mapping» de «no aporta nada» — un bin sin trims de
+    colorista pero con L3/L9/L11 del análisis trae metadata auténtica que
+    el Blu-ray no tiene, y eso es una decisión distinta de la de autoría.
 
     Esta clase fijaba lo contrario —un «rescate» por L3— durante unas
     horas del 2026-09-18, con el umbral heredado del de L8. El estudio
@@ -128,11 +133,20 @@ class TestL3NoDecideNada(unittest.TestCase):
             target_mid_contrast=None, clip_trim=None, occurrence_count=1000)]
         return a
 
-    def test_un_l3_riquisimo_no_salva_un_l8_plano(self):
-        """El caso de los 22 generados: L3 de cuatro cifras y L8 neutro."""
+    def test_un_l3_riquisimo_no_convierte_un_l8_plano_en_REAL(self):
+        """El caso de los 19 generados: L3 de cuatro cifras y L8 neutro.
+
+        No es «real» —no hay autoría— pero tampoco «default»: ese L3 lo
+        produjo `cm_analyze` y es metadata que el disco no tiene.
+        """
         from phases.rpu_analyze import classify_l8
         a = self._con(l3_combos=2583, l8_delta=0)
-        self.assertEqual(classify_l8(a)[0], "default")
+        self.assertEqual(classify_l8(a)[0], "tone_mapping")
+        self.assertNotEqual(classify_l8(a)[0], "real")
+
+    def test_sin_l8_y_sin_l3_no_aporta_nada(self):
+        from phases.rpu_analyze import classify_l8
+        self.assertEqual(classify_l8(self._con(l3_combos=0, l8_delta=0))[0], "default")
 
     def test_un_l3_ridiculo_no_hunde_un_l8_con_trabajo(self):
         """Posesión infernal: L3 en 88 frames de 159.030 y L8 con maxΔ 328."""
@@ -140,13 +154,13 @@ class TestL3NoDecideNada(unittest.TestCase):
         a = self._con(l3_combos=1, l8_delta=328)
         self.assertEqual(classify_l8(a)[0], "real")
 
-    def test_el_veredicto_no_cambia_con_l3(self):
-        """Mismo L8, cualquier L3: el resultado es idéntico."""
+    def test_con_trims_de_colorista_el_l3_es_irrelevante(self):
+        """Con maxΔ por encima del umbral, el veredicto es «real» lleve el
+        L3 que lleve: la autoría no se negocia con el análisis."""
         from phases.rpu_analyze import classify_l8
-        for delta, esperado in ((0, "default"), (328, "real")):
-            vistos = {classify_l8(self._con(l3_combos=n, l8_delta=delta))[0]
-                      for n in (0, 1, 50, 2583)}
-            self.assertEqual(vistos, {esperado}, f"L3 alteró el veredicto con Δ={delta}")
+        vistos = {classify_l8(self._con(l3_combos=n, l8_delta=328))[0]
+                  for n in (0, 1, 50, 2583)}
+        self.assertEqual(vistos, {"real"})
 
     def test_el_tier_tampoco_lo_decide_l3(self):
         from phases.rpu_analyze import classify_l8_quality

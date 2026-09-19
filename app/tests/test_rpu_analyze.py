@@ -131,14 +131,19 @@ class TestClassifyL8(unittest.TestCase):
 
     # ── el contrato ────────────────────────────────────────────────
 
-    def test_solo_hay_DOS_veredictos(self):
-        """«Indeterminate» se retiró: no era accionable. A un usuario no se
-        le puede pedir que decida sobre un bin que la app no sabe clasificar."""
+    def test_los_tres_veredictos_y_ni_uno_mas(self):
+        """«Indeterminate» se retiró por no ser accionable —decía «no sé qué
+        es esto»—. El tercero de hoy, «tone_mapping», sí lo es: dice
+        exactamente qué trae el bin y qué no."""
         vistos = set()
         for combos in (0, 1, 2, 3, 10, 400):
             for d in (0, 30, 51, 600):
-                vistos.add(classify_l8(self._make(l8_count=combos, delta=d))[0])
-        self.assertEqual(vistos, {"real", "default"})
+                for l3 in (0, 1200):
+                    a = self._make(l8_count=combos, delta=d)
+                    a.l3_unique_count = a.l3_frames = l3
+                    vistos.add(classify_l8(a)[0])
+        self.assertEqual(vistos, {"real", "tone_mapping", "default"})
+        self.assertNotIn("indeterminate", vistos)
 
     def test_ms_weight_no_cuenta_como_trim(self):
         """Su neutro es 0, no 2048. Incluirlo daba un combo neutro por
@@ -149,12 +154,16 @@ class TestClassifyL8(unittest.TestCase):
         self.assertTrue(_is_l8_neutral((1, 2048, 2048, 2048, 2048, 2048, 2048, None, None)))
         self.assertFalse(_is_l8_neutral((1, 2048, 2048, 1864, 2048, 1720, 0, None, None)))
 
-    def test_l3_no_decide_nada(self):
+    def test_l3_no_decide_la_autoria(self):
         """57 % de acierto sobre 40 bins —azar— y mediana MAYOR en los
-        generados. El mid tone offset lo produce el análisis de Dolby."""
+        generados: el mid tone offset lo produce el análisis de Dolby.
+
+        Así que L3 nunca hace «real» a un bin. Lo que sí hace es separar
+        «aporta tone-mapping» de «no aporta nada», que es otra pregunta.
+        """
         pobre = self._make(l8_count=2, delta=0)
         pobre.l3_unique_count, pobre.l3_frames = 2583, 150000
-        self.assertEqual(classify_l8(pobre)[0], "default")
+        self.assertEqual(classify_l8(pobre)[0], "tone_mapping")
         rico = self._make(l8_count=2, delta=328)
         rico.l3_unique_count, rico.l3_frames = 1, 88
         self.assertEqual(classify_l8(rico)[0], "real")
