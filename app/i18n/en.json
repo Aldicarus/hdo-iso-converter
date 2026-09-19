@@ -1,7 +1,7 @@
 {
   "cmv40.analisis_de_combos_no_pudo_completarse_continuamos": "⚠ The combo analysis could not finish (carrying on without the enrichment)",
-  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "Analyzing the L2/L8 combos of the bin (dovi_tool export)…",
-  "cmv40.analizando_los_combos_l2_l8_del_bin": "Analyzing the bin's L2/L8 combos",
+  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "Analyzing the bin's image adjustments (dovi_tool export)…",
+  "cmv40.analizando_los_combos_l2_l8_del_bin": "Analyzing the bin's image adjustments",
   "cmv40.apertura_manual_del_chart": "the chart was opened by hand",
   "cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado": "🗃️ Artifacts deleted ({p1} GB freed). Project archived read-only.",
   "cmv40.artefactos_borrados_via_cleanup_masivo_p1_gb": "🗃️ Artifacts deleted via bulk cleanup ({p1} GB). Project archived.",

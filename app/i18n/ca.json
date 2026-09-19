@@ -1,7 +1,7 @@
 {
   "cmv40.analisis_de_combos_no_pudo_completarse_continuamos": "⚠ L'anàlisi de combos no s'ha pogut acabar (es continua sense l'enriquiment)",
-  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "S'estan analitzant els combos L2/L8 del bin (dovi_tool export)…",
-  "cmv40.analizando_los_combos_l2_l8_del_bin": "S'estan analitzant els combos L2/L8 del bin",
+  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "S'estan analitzant els ajustos d'imatge del bin (dovi_tool export)…",
+  "cmv40.analizando_los_combos_l2_l8_del_bin": "S'estan analitzant els ajustos d'imatge del bin",
   "cmv40.apertura_manual_del_chart": "obertura manual del chart",
   "cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado": "🗃️ Artefactes esborrats ({p1} GB alliberats). Projecte arxivat en mode només lectura.",
   "cmv40.artefactos_borrados_via_cleanup_masivo_p1_gb": "🗃️ Artefactes esborrats amb la neteja massiva ({p1} GB). Projecte arxivat.",

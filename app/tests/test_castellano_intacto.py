@@ -99,6 +99,10 @@ EXCEPCIONES: dict[str, str] = {
     "— el fichero original quedó intacto. Tu reproductor (p3i T4 / Sony / LG modernos) hace la conversión CMv4.0 al vuelo en runtime.":
         "el banner del proyecto cerrado por «Mantener», con la misma "
         "sustitución que su veredicto",
+    "Analizando los combos del RPU…":
+        "el rótulo del paso mientras corre el pre-flight, en la misma "
+        "pantalla donde el veredicto ya dice «ajustes»: dejarlo en «combos» "
+        "era el vocabulario viejo sobreviviendo justo al lado del nuevo",
 
     # ── Los nueve defectos DEL CASTELLANO, corregidos el 2026-09-17 con el
     #    visto bueno del usuario. Están en CORRECCIONES_DEL_CASTELLANO.md con

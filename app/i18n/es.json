@@ -1,7 +1,7 @@
 {
   "cmv40.analisis_de_combos_no_pudo_completarse_continuamos": "⚠ Análisis de combos no pudo completarse (continuamos sin enriquecimiento)",
-  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "Analizando combos L2/L8 del bin (dovi_tool export)…",
-  "cmv40.analizando_los_combos_l2_l8_del_bin": "Analizando los combos L2/L8 del bin",
+  "cmv40.analizando_combos_l2_l8_del_bin_dovi": "Analizando los ajustes de imagen del bin (dovi_tool export)…",
+  "cmv40.analizando_los_combos_l2_l8_del_bin": "Analizando los ajustes de imagen del bin",
   "cmv40.apertura_manual_del_chart": "apertura manual del chart",
   "cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado": "🗃️ Artefactos borrados ({p1} GB liberados). Proyecto archivado en modo solo lectura.",
   "cmv40.artefactos_borrados_via_cleanup_masivo_p1_gb": "🗃️ Artefactos borrados via cleanup masivo ({p1} GB). Proyecto archivado.",
