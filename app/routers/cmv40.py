@@ -80,6 +80,11 @@ import historial  # noqa: E402
 import queue_manager as queue_manager_mod  # noqa: E402
 import trabajos  # noqa: E402
 import workload  # noqa: E402
+import relato  # noqa: E402
+from phases.cmv40_relato import resolver as _resolver_relato  # noqa: E402
+
+# La pestaña aporta su resolutor; `relato` no conoce ninguna pestaña.
+relato.registrar(workload.TAB_CMV40, _resolver_relato)
 from queue_manager import queue_manager  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
@@ -2825,7 +2830,16 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     # trust efectivo, el drop-in y si hay demux/merge/mux estaban calculados a
     # mano en app.js (la regla de trust, once veces y en dos variantes). Cada
     # réplica se desincroniza en silencio de la tabla que manda.
-    data["plan"] = resolve_plan(session).to_dict()
+    plan = resolve_plan(session)
+    data["plan"] = plan.to_dict()
+    # El relato: qué pasa, dónde estoy, por qué y qué se decidió, resuelto UNA
+    # vez para las cinco superficies que le hablan al usuario. Antes cada una
+    # lo derivaba por su cuenta y por eso discrepaban — la ficha decía
+    # «Análisis pendiente» en dos proyectos con estados opuestos y no
+    # mencionaba que el usuario había cancelado. Mismo sitio y mismo criterio
+    # que `plan`: computado al servir, NO persistido.
+    data["relato"] = relato.resolver(
+        workload.TAB_CMV40, session, en_cola=data.get("cola"), plan=plan)
     # El texto derivado se rehace al servirlo — ver el docstring.
     _cmv40_refrescar_textos_derivados(session, data)
     return data

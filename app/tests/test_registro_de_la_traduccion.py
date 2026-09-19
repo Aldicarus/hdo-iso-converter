@@ -134,6 +134,9 @@ IGUAL_EN_INGLES = {
     "tab2.stream":           "cabecera de la columna de MediaInfo",
     "tab2.frames":           "cabecera de tabla",
     "tab3.frames":           "etiqueta de dato",
+    "relato.n_frames":       "un número y «frames», que es el término tal "
+                             "cual en las tres lenguas: no queda nada que "
+                             "traducir",
     "tab3.path":             "etiqueta de dato",
     "tab3.generated":        "procedencia del bin; en catalán sí se traduce",
     "tab3.bd_source":        "cabecera; su pareja es `Bin (target)` y se leen en paralelo",
