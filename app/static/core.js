@@ -1810,6 +1810,59 @@ function iconoDeEstado(estado, clase = '') {
   return _chipIcono(_ICONOS_ESTADO[estado], clase);
 }
 
+// ── El relato: cómo se dibuja una situación ────────────────────────────────
+//
+// El servidor resuelve QUÉ le pasa a un trabajo (`relato.situacion`) con un
+// vocabulario común a las tres pestañas; estas dos tablas dicen cómo se ve.
+// Van aquí y no en cada pestaña porque el sentido de «esto ya está» o «esto
+// hay que rehacerlo» no puede depender de en qué columna lo mires — que es
+// justo lo que pasaba: Tab 1, Tab 2 y Tab 3 derivaban su estado por separado,
+// con sus propias palabras y sus propios colores.
+//
+// Los valores son los mismos que cada columna usaba ya, así que el aspecto no
+// cambia: lo que cambia es que ahora hay UNA tabla.
+const ICONO_DE_SITUACION = {
+  preparando: 'listo',            en_marcha: 'corriendo',
+  esperando_turno: 'en_cola',     esperando_decision: 'esperando',
+  detenido_por_error: 'error',    cancelado: 'cancelado',
+  terminado: 'hecho',             archivado: 'archivado',
+  // El fichero que no está pide algo al usuario (devolverlo o borrar la
+  // entrada), así que lleva el ámbar de «esperando»; el análisis caducado no
+  // pide nada, solo cuesta tiempo la próxima vez.
+  no_disponible: 'esperando',     caducado: 'en_cola',
+};
+
+const ACENTO_DE_SITUACION = {
+  en_marcha: 'estado-curso',      esperando_turno: 'estado-curso',
+  terminado: 'estado-hecho',      detenido_por_error: 'estado-error',
+  // El cancelado va en rojo como el error: pararlo a medias es un final
+  // abrupto, y en gris se confundía con «sin empezar», que es justo la
+  // confusión que este relato viene a quitar.
+  cancelado: 'estado-error',      esperando_decision: 'estado-aviso',
+  no_disponible: 'estado-aviso',  caducado: 'estado-aviso',
+};
+
+/** La situación que el servidor resolvió, o '' si no la mandó. */
+function situacionDe(o) {
+  return (o && o.relato && o.relato.situacion) || '';
+}
+
+/** Lo que hay que pintar de una situación: chip, acento y cómo se lee. */
+function pinturaDeSituacion(o, respaldo = 'preparando') {
+  const sit = situacionDe(o) || respaldo;
+  return {
+    situacion: sit,
+    chip: ICONO_DE_SITUACION[sit] || 'listo',
+    acento: ACENTO_DE_SITUACION[sit] || '',
+    // El rótulo lo escribe el SERVIDOR (`situacion_rotulo`): el mismo id
+    // significa lo mismo en las tres pestañas pero no se llama igual —«Sin
+    // ejecutar» en un rip es «Analizado» en un MKV— y una tabla de rótulos
+    // en el JS, además, se evalúa al cargar y congela el idioma.
+    rotulo: (o && o.relato && o.relato.situacion_rotulo) || '',
+    porque: (o && o.relato && o.relato.porque) || '',
+  };
+}
+
 /** Rellena los iconos del marcado estático de `index.html`.
  *
  *  El HTML no puede llamar a `icono()`, y pegar 43 SVG a mano ahí dejaría los

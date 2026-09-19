@@ -109,6 +109,53 @@ class TestSesiones(ApiTestCase):
                          "has_fel se ha podido cambiar desde la API")
 
 
+class TestElRelatoViajaEnLasDosRespuestas(ApiTestCase):
+    """El sidebar se pinta con el summary y la ficha con el detalle. Si el
+    relato viajara solo en una, la columna volvería a derivarlo a mano — que
+    es el defecto que este bloque cierra."""
+
+    def test_el_detalle_y_el_listado_lo_traen(self):
+        sid = self.crear_sesion_tab1()
+        detalle = self.client.get(f"/api/sessions/{sid}").json()
+        fila = self.client.get("/api/sessions").json()["sessions"][0]
+        for r in (detalle["relato"], fila["relato"]):
+            self.assertEqual(r["situacion"], "preparando")
+            self.assertTrue(r["situacion_rotulo"])
+            self.assertTrue(r["porque"])
+
+    def test_el_relato_no_se_persiste(self):
+        """Se calcula al servir, como `estimated_size_bytes` y `plan`. Un
+        campo que Pydantic no conoce se pierde en silencio al primer save, y
+        con el `/config` de un usuario delante eso no tiene vuelta atrás."""
+        sid = self.crear_sesion_tab1()
+        self.client.get(f"/api/sessions/{sid}")
+        crudo = (self.config_dir / f"{sid}.json").read_text()
+        self.assertNotIn('"relato"', crudo)
+
+    def test_el_cache_del_summary_no_congela_la_situacion(self):
+        """El summary se invalida por `stat`, y ni el turno en la cola ni la
+        fase en marcha tocan el JSON: con el relato DENTRO del cache, una
+        sesión que empieza a correr seguiría diciendo «Sin ejecutar»."""
+        sid = self.crear_sesion_tab1()
+        self.assertEqual(
+            self.client.get("/api/sessions").json()["sessions"][0]["relato"]["situacion"],
+            "preparando")
+        import queue_manager as qm
+        original = qm.queue_manager.esta_en_cola
+        qm.queue_manager.esta_en_cola = lambda clave: clave == sid
+        try:
+            fila = self.client.get("/api/sessions").json()["sessions"][0]
+        finally:
+            qm.queue_manager.esta_en_cola = original
+        self.assertEqual(fila["relato"]["situacion"], "esperando_turno")
+
+    def test_el_mkv_analizado_tambien(self):
+        recientes = self.client.get("/api/mkv/recientes").json()["recientes"]
+        for r in recientes:
+            self.assertIn("relato", r)
+            self.assertTrue(r["relato"]["situacion_rotulo"])
+
+
 class TestCola(ApiTestCase):
 
     def test_estado_vacio(self):

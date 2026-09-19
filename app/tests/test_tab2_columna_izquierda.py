@@ -83,7 +83,7 @@ FUNCIONES = (
     "refrescarMkvRecientes", "_renderMkvRecientesErrorDeCarga",
     "filtrarMkvRecientes", "onMkvRecientesSortChange",
     "toggleMkvRecientesSortDir", "_actualizarBotonOrdenMkvRecientes",
-    "onMkvRecientesFilterClick", "_mkvRecienteEstado", "_renderMkvRecientes",
+    "onMkvRecientesFilterClick", "_situacionDeMkv", "_renderMkvRecientes",
     "_mkvToggleSeleccionReciente", "abrirMkvReciente",
     # De otras piezas, pero reales: son las que dan el formato de la tarjeta.
     "escHtml", "normalizeSearch", "formatRelativeDate", "_fmtBytes",
@@ -100,6 +100,7 @@ FUNCIONES = (
 # extractor de arriba no las ve.
 CONSTANTES = (
     "const _PROJ_CHIP_LARGO = ",
+    "const _MKV_PILL_SITUACIONES = {",
 )
 
 # DOM mínimo: sólo lo que este código toca. No es jsdom y no pretende serlo.

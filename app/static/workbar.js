@@ -289,6 +289,11 @@ const _CMV40_FIN = {
   done: tr('workbar.terminado'), cancelled: tr('workbar.cancelado'),
   error: tr('workbar.terminado_con_error'),
   esperando: tr('workbar.requiere_una_decision'),
+  // El quinto desenlace: se lo llevó un reinicio del contenedor. Antes esa
+  // línea llegaba con el estado interno de la sesión (`running`), que esta
+  // tabla no conoce, así que caía al genérico y se pintaba como un error
+  // rojo sin mensaje — y para siempre, porque el historial no se reescribe.
+  interrupted: tr('workbar.interrumpido'),
 };
 
 function _workbarRefReciente(r) {
@@ -619,9 +624,14 @@ function _workbarTarjetaReciente(r) {
     // abrir el detalle para saber por qué había fallado algo. Y una
     // cancelación cuenta el suyo igual que un fallo — es el mismo final
     // abrupto, y de los cinco tipos solo el análisis extendido lo decía.
-    aviso: (r.estado === 'error' || r.estado === 'cancelled')
+    aviso: (r.estado === 'error' || r.estado === 'cancelled'
+            || r.estado === 'interrupted')
              ? (r.error || '').split('\n')[0] : '',
+    // `interrupted` lleva el mismo chip que `cancelled`: los dos son un final
+    // abrupto y así se leen de un vistazo. El motivo va debajo y los
+    // distingue — no lo paraste tú, se reinició la aplicación.
     estado: iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
+                            interrupted: 'cancelado',
                             esperando: 'esperando' }[r.estado] || 'error',
                           'icono-chip-sm'),
     // Cuánto duró y cuándo fue, en dos renglones: en uno solo el texto se
@@ -1100,7 +1110,8 @@ function _trabajoModalPinta(a, vista) {
     iconoEl.className = enMarcha ? 'cmv40-running-spinner' : 'modal-icon';
     iconoEl.innerHTML = enMarcha ? ''
       : a.terminal
-      ? iconoDeEstado({ done: 'hecho', cancelled: 'cancelado' }[
+      ? iconoDeEstado({ done: 'hecho', cancelled: 'cancelado',
+                        interrupted: 'cancelado' }[
           (a.historial || {}).estado] || 'error', 'icono-chip-lg')
       : iconoDeTrabajo(a.tipo, a.tab, 'icono-chip-lg');
   }

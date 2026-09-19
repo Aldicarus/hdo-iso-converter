@@ -2052,15 +2052,40 @@ function onSidebarFilterClick(btn) {
 }
 
 /**
- * Determina el estado de ejecución efectivo de una sesión para filtros y badge.
- * Usa la última entrada de execution_history si existe, o el status directo.
+ * La situación de una sesión, tal como la resolvió el servidor.
+ *
+ * Antes se derivaba aquí, y se derivaba MAL en dos casos:
+ *
+ *  - un rip **cancelado** volvía a `pending` sin apilar `ExecutionRecord`, así
+ *    que era indistinguible de uno que nunca se lanzó;
+ *  - y si la cancelación interrumpía una RE-ejecución, esta función leía
+ *    `execution_history[-1]`, que es la pasada buena de ayer: la tarjeta se
+ *    quedaba en «Completado» en verde mientras el pipeline había borrado el
+ *    MKV que esa pasada produjo.
+ *
+ * El respaldo cubre las sesiones que llegan de un sitio que todavía no lo
+ * manda —ninguno hoy, pero son ocho endpoints— y mantiene el comportamiento
+ * anterior en vez de dejar la tarjeta sin estado.
  */
-function _sessionExecStatus(s) {
-  if (s.status === 'running' || s.status === 'queued') return s.status;
-  const hist = s.execution_history || [];
-  if (hist.length) return hist[hist.length - 1].status; // 'done' | 'error'
-  return 'pending'; // nunca ejecutado
+function _situacionDeSesion(s) {
+  const sit = situacionDe(s);
+  if (sit) return sit;
+  if (s.status === 'running')  return 'en_marcha';
+  if (s.status === 'queued')   return 'esperando_turno';
+  if (s.status === 'error')    return 'detenido_por_error';
+  if (s.status === 'done')     return 'terminado';
+  return s.last_cancelled_at ? 'cancelado' : 'preparando';
 }
+
+// Qué situaciones enseña cada pill del filtro. «Sin ejecutar» incluye el
+// cancelado a propósito: las dos son «todavía no hay MKV», y darle un pill
+// propio a un estado poco frecuente engorda la columna para nada. La
+// distinción se ve en la tarjeta, que es donde importa.
+const _PILL_SITUACIONES = {
+  pending: ['preparando', 'cancelado'],
+  done:    ['terminado'],
+  error:   ['detenido_por_error'],
+};
 
 /**
  * Aplica ordenación, filtro de texto y filtro de estado sobre _sessionsCache.
@@ -2080,7 +2105,8 @@ function _doFilterSidebarSessions() {
 
   // Filtro de estado
   if (_sidebarFilter !== 'all') {
-    list = list.filter(s => _sessionExecStatus(s) === _sidebarFilter);
+    const quiere = _PILL_SITUACIONES[_sidebarFilter] || [];
+    list = list.filter(s => quiere.includes(_situacionDeSesion(s)));
   }
 
   // Ordenación (dir: _sidebarSortAsc invierte el resultado)
@@ -2101,8 +2127,9 @@ function _doFilterSidebarSessions() {
         break;
       }
       case 'status': {
-        const order = { running: 0, queued: 1, error: 2, pending: 3, done: 4 };
-        cmp = (order[_sessionExecStatus(a)] ?? 5) - (order[_sessionExecStatus(b)] ?? 5);
+        const order = { en_marcha: 0, esperando_turno: 1, detenido_por_error: 2,
+                        cancelado: 3, preparando: 4, terminado: 5 };
+        cmp = (order[_situacionDeSesion(a)] ?? 9) - (order[_situacionDeSesion(b)] ?? 9);
         break;
       }
       default: { // modified
@@ -2123,16 +2150,10 @@ function _doFilterSidebarSessions() {
  * @param {Object[]} sessions - Sesiones ya ordenadas y filtradas.
  * @param {string}   [query]  - Término de filtro activo (para el contador).
  */
-// Estado de un proyecto → chip del catálogo común (el mismo dibujo que en la
-// columna de trabajo), color del acento lateral y cómo se lee. `queued` va en
-// azul como `running` —el trabajo ya está en el sistema— y el reloj del chip
-// lo distingue del aro que gira.
-const ESTADO_CHIP  = { pending: 'listo', queued: 'en_cola', running: 'corriendo',
-                       done: 'hecho', error: 'error' };
-const ESTADO_CLASE = { queued: 'estado-curso', running: 'estado-curso',
-                       done: 'estado-hecho', error: 'estado-error' };
-const ESTADO_TEXTO = { pending: tr('ui.sin_ejecutar'), queued: tr('tab1.en_cola'),
-                       running: tr('workbar.en_curso'), done: tr('tab1.completado'), error: 'Error' };
+// El chip, el acento y el rótulo salen de `pinturaDeSituacion` (core.js), que
+// es la misma tabla para las tres pestañas. Aquí había tres constantes
+// paralelas —y la del texto se evaluaba al cargar el script, congelando el
+// idioma— con un «Error» suelto que nunca llegó al catálogo.
 
 function renderSidebarSessions(sessions, query = '') {
   const container = document.getElementById('sessions-list');
@@ -2166,7 +2187,7 @@ function renderSidebarSessions(sessions, query = '') {
   container.innerHTML = '';
   sessions.forEach(s => {
     const isSelected = selectedSidebarSessionId === s.id;
-    const execStatus = _sessionExecStatus(s);
+    const pintura = pinturaDeSituacion(s, _situacionDeSesion(s));
 
     const name = _sessionDisplayName(s);
     // Los tags del nombre (`[DV FEL]`, `[Audio DCP]`) salen del título y
@@ -2202,14 +2223,13 @@ function renderSidebarSessions(sessions, query = '') {
 
     const card = document.createElement('div');
     card.className = `session-card${isSelected ? ' selected' : ''}`
-                   + ` ${ESTADO_CLASE[execStatus] || ''}`;
+                   + ` ${pintura.acento}`;
     card.dataset.sid = s.id;
     const isOpen = !!openProjects.find(p => p.sessionId === s.id);
     card.innerHTML = tarjetaDeProyecto({
       titulo: cabeza,
       tituloTooltip: esSerie && s.episode_title ? `${name}\n${s.episode_title}` : name,
-      sub: esSerie && s.episode_title
-        ? s.episode_title : (ESTADO_TEXTO[execStatus] || ''),
+      sub: esSerie && s.episode_title ? s.episode_title : pintura.rotulo,
       chips: [
         // Primero el episodio: es el dato que separa esta fila de las demás
         // del mismo disco, y por eso no puede ir detrás de los tags.
@@ -2220,8 +2240,11 @@ function renderSidebarSessions(sessions, query = '') {
           tono: /DV|FEL|MEL|CMv4/i.test(t) ? 'morado' : 'teal',
         })),
       ],
-      estado: ESTADO_CHIP[execStatus] || 'listo',
-      estadoTooltip: ESTADO_TEXTO[execStatus] || '',
+      estado: pintura.chip,
+      // El «por qué» va al tooltip del chip: es una frase, no cabe en la
+      // tarjeta, y es lo que contesta «¿y esto por qué está así?» sin abrir
+      // el proyecto. Con respaldo al rótulo cuando no hay motivo que dar.
+      estadoTooltip: pintura.porque || pintura.rotulo,
       poster: (s.tmdb_info || {}).poster_url || '',
       icono: typeof iconoDeTrabajo === 'function'
         ? iconoDeTrabajo(esSerie ? 'crear_serie' : 'rip', 'rip') : '',
@@ -4138,6 +4161,17 @@ function renderExecResultBanner(session) {
       : '';
     actions.innerHTML = `
       <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()" data-i18n-tip="tab1.ver_el_progreso_en_tiempo_real"><span data-icono="tv"></span> <span data-i18n="tab1.ver_progreso"></span></button>${cancelBtn}`;
+  } else if (_situacionDeSesion(session) === 'cancelado') {
+    // Una cancelación NO deja fila en la tabla de ejecuciones —el proyecto
+    // vuelve a estar listo para relanzarse—, así que sin esto el hecho más
+    // importante que le ha pasado al proyecto no aparecía en la ficha por
+    // ninguna parte: solo en el log y en el historial transversal.
+    banner.style.display = '';
+    banner.className = 'banner warning';
+    icon.innerHTML = icono('cruz');
+    title.textContent = session.relato?.situacion_rotulo || '';
+    detail.textContent = session.relato?.porque || '';
+    actions.innerHTML = '';
   } else {
     banner.style.display = 'none';
   }
@@ -4535,14 +4569,20 @@ function _updateSidebarRunningIcon() {
     const sid = card.dataset.sid;
     const corriendo = sid === runningId;
     if (corriendo === (hueco.dataset.corriendo === '1')) return;   // sin cambios
-    const estado = corriendo
-      ? 'running'
-      : _sessionExecStatus(_sessionsCache.find(s => s.id === sid) || {});
+    const cacheada = _sessionsCache.find(s => s.id === sid) || {};
+    // El rótulo se resuelve aquí y no se lee del relato cuando se fuerza «en
+    // marcha»: esta función existe para adelantarse al refresco del summary,
+    // así que la sesión cacheada todavía dice otra cosa. `tr` se llama al
+    // usarlo, nunca en el ámbito del módulo.
+    const pintura = corriendo
+      ? { ...pinturaDeSituacion({}, 'en_marcha'), rotulo: tr('workbar.en_curso'),
+          porque: '' }
+      : pinturaDeSituacion(cacheada, _situacionDeSesion(cacheada));
     hueco.dataset.corriendo = corriendo ? '1' : '';
-    hueco.innerHTML = iconoDeEstado(ESTADO_CHIP[estado] || 'listo', 'icono-chip-sm');
-    hueco.dataset.tooltip = ESTADO_TEXTO[estado] || '';
+    hueco.innerHTML = iconoDeEstado(pintura.chip, 'icono-chip-sm');
+    hueco.dataset.tooltip = pintura.porque || pintura.rotulo;
     card.classList.remove('estado-curso', 'estado-hecho', 'estado-error');
-    if (ESTADO_CLASE[estado]) card.classList.add(ESTADO_CLASE[estado]);
+    if (pintura.acento) card.classList.add(pintura.acento);
   });
 }
 

@@ -40,9 +40,13 @@ NODE = shutil.which("node")
 
 # Las constantes de módulo que resuelven texto. La lista se comprueba: una
 # entrada que ya no exista hace fallar un test de aquí abajo.
+# `ESTADO_TEXTO` estuvo aquí y ya no existe: el rótulo de estado de la
+# tarjeta de Tab 1 lo escribe ahora el SERVIDOR (`relato.situacion_rotulo`),
+# que es lo que hace falta para que la misma situación no se llame igual en
+# las tres pestañas — «Sin ejecutar» en un rip es «Analizado» en un MKV.
 CONSTANTES = [
     "CMV40_PHASE_LABELS", "CMV40_RUNNING_LABELS", "_CMV40_PIPELINE_PREVIEW",
-    "ESTADO_TEXTO", "CMV40_CHIP_META", "CMV40_VERDICT_STYLE",
+    "CMV40_CHIP_META", "CMV40_VERDICT_STYLE",
     "CMV40_FASES_DEF", "_CMV40_TARGET_TYPE_LABELS", "_CMV40_FIN",
     "_MOTIVO_SIN_LOG", "CMV40_SHEET_SECTION_LABEL", "ROOTS_MKV",
 ]

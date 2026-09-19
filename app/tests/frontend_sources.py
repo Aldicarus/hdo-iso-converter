@@ -104,6 +104,14 @@ def sistema_de_iconos() -> str:
         fn("_chipIcono"),
         fn("iconoDeTrabajo"),
         fn("iconoDeEstado"),
+        # Cómo se PINTA una situación del relato. Va aquí y no en cada arnés
+        # por lo que dice el docstring: es la misma pieza del sistema visual
+        # —usa los mismos nombres de `_ICONOS_ESTADO`— y las tres columnas la
+        # llaman, así que enumerarla a mano se rompería en las tres a la vez.
+        const("const ICONO_DE_SITUACION = {"),
+        const("const ACENTO_DE_SITUACION = {"),
+        fn("situacionDe"),
+        fn("pinturaDeSituacion"),
     ])
 
 

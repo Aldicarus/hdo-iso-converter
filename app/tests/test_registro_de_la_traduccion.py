@@ -76,6 +76,11 @@ NOMBRE_PROPIO = {
         "(dovi_tool)». Es la gemela de `ui.analizando_dolby_vision_dovi_tool`, "
         "que ya está aquí abajo",
 
+    "relato.rip_hecho_dv":
+        "«The disc has Dolby Vision»: de las tres palabras largas, dos son el "
+        "nombre comercial y van juntas al final, así que el heurístico de "
+        "proporción las toma por Title Case",
+
     "tab1.pistas_capitulos_subtitulos_pgs_y_dolby":
         "la lista acaba en «Dolby Vision», que es nombre comercial; antes no "
         "saltaba porque la traducción añadía un «metadata» que el castellano "

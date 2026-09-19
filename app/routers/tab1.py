@@ -43,6 +43,7 @@ import analysis_progress
 import paths
 import historial
 import queue_manager as queue_manager_mod
+import relato
 import trabajos
 import workload
 from dev_fixtures import DEV_FAKE_ISOS, DEV_MODE, build_fake_session
@@ -65,6 +66,7 @@ from phases.phase_d import (
     m2ts_covers_title,
     run_phase_d,
 )
+from phases import tab1_relato
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from queue_manager import queue_manager
 from storage import (
@@ -556,7 +558,24 @@ def _session_payload(session: Session) -> dict:
     """
     payload = session.model_dump()
     payload["estimated_size_bytes"] = estimate_output_size_bytes(session)
+    payload["relato"] = _relato_de(payload)
     return payload
+
+
+def _relato_de(s) -> dict | None:
+    """El relato del rip, con lo que solo este proceso sabe.
+
+    `en_cola` y `fase_en_curso` no están en la sesión: el turno lo sabe la
+    cola y la fase en marcha vive en `_rip_progress`, memoria de este
+    proceso. Se le pasan al resolutor ya resueltos, igual que `cmv40_relato`
+    recibe el `plan`.
+    """
+    sid = s.get("id") if isinstance(s, dict) else getattr(s, "id", "")
+    en_curso = (_rip_progress.get("fase") or ""
+                if _rip_progress.get("session_id") == sid else "")
+    return relato.resolver(workload.TAB_RIP, s,
+                           en_cola=queue_manager.esta_en_cola(sid),
+                           fase_en_curso=en_curso)
 
 
 @router.get("/api/sessions", summary="Lista todas las sesiones")
@@ -566,9 +585,20 @@ async def get_sessions():
     # event loop leyendo/serializando N JSON. El detalle completo (logs,
     # bdinfo) está en GET /api/sessions/{id}, que es lo que usa el frontend al
     # abrir un proyecto. Mismo patrón que GET /api/cmv40.
+    # El relato se compone FUERA del cache y DENTRO del mismo thread: fuera
+    # porque el cache se invalida por `stat` del fichero y ni el turno en la
+    # cola ni la fase en marcha tocan el JSON —con el relato dentro, una
+    # sesión que empieza a correr seguiría diciendo «Sin ejecutar» hasta que
+    # algo la reescribiera— y dentro del thread porque es trabajo que crece
+    # con el número de proyectos (4 ms con los 73 del NAS, pero la regla de
+    # este repo no admite excepciones por ser poco). Los dicts del cache se
+    # comparten, así que se copian antes de añadirles nada.
     from storage import list_sessions_summary
-    sessions = await asyncio.to_thread(list_sessions_summary)
-    return {"sessions": sessions}
+
+    def _listar():
+        return [{**s, "relato": _relato_de(s)} for s in list_sessions_summary()]
+
+    return {"sessions": await asyncio.to_thread(_listar)}
 
 
 @router.get("/api/sessions/{session_id}", summary="Obtiene una sesión")
@@ -2675,6 +2705,10 @@ async def _run_pipeline(session_id: str) -> None:
     session.error_message       = None
     session.execution_started_at = datetime.now(timezone.utc)
     session.output_mkv_path     = None
+    # `last_cancelled_at` describe la ÚLTIMA tentativa, no un historial: al
+    # relanzar deja de ser cierto que el proyecto esté parado porque lo
+    # paraste tú. Se limpia aquí y no en el `except`, que es donde se pone.
+    session.last_cancelled_at   = None
     save_session(session)
     _rip_progress_reset(session_id, session.mkv_name or session_id,
                         _rip_origen(session.source_type or "iso"))
@@ -2943,6 +2977,10 @@ async def _run_pipeline(session_id: str) -> None:
         if cancelled:
             session.status        = "pending"
             session.error_message = None
+            # Volver a `pending` sin más dejaba el proyecto igual que uno que
+            # nunca se lanzó: la cancelación solo constaba en el log y en el
+            # historial transversal, no en la ficha. Ver el campo en `models`.
+            session.last_cancelled_at = datetime.now(timezone.utc)
             await log('[Pipeline] 🛑 Cancelado ' + tr('tab1.por_el_usuario'))
         else:
             session.status        = "error"
@@ -3216,6 +3254,10 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         await log('[Validación]   ' + tr('tab1.capitulos', num_chapters=num_chapters))
 
     # ── Resumen ──────────────────────────────────────────────────
+    # El recuento se guarda para que la ficha pueda distinguir «terminado» de
+    # «terminado con avisos», que hasta ahora se veían exactamente igual: el
+    # número vivía solo en esta línea del log.
+    session.last_validation_warnings = len(warnings)
     if all_ok:
         await log('[Validación] ' + tr('tab1.verificacion_correcta_el_mkv_coincide_con'))
     else:
@@ -3723,4 +3765,7 @@ def _descartado_rip(trabajo) -> None:
 queue_manager.registrar_descarte(queue_manager_mod.TIPO_RIP, _descartado_rip)
 trabajos.registrar(queue_manager_mod.TIPO_RIP, _rip_adaptador)
 trabajos.registrar(queue_manager_mod.TIPO_SERIE, _serie_adaptador)
+# Quién sabe contar qué le pasa a un rip. Mismo registro que `trabajos`, y
+# por lo mismo: `relato` no conoce ninguna pestaña.
+relato.registrar(workload.TAB_RIP, tab1_relato.resolver)
 queue_manager.on_update(_broadcast_queue)

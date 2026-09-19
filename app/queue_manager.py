@@ -348,6 +348,15 @@ class QueueManager:
             "jobs": [t.a_json() for t in self._queue],
         }
 
+    def esta_en_cola(self, clave: str) -> bool:
+        """¿Este trabajo está esperando turno? (no cuenta el que corre)
+
+        Existe para que el relato no tenga que construir la vista completa de
+        la cola —dos listas y un `a_json()` por entrada— solo para responder
+        un booleano por sesión.
+        """
+        return any(t.clave == clave for t in self._queue)
+
     # ── Internos ──────────────────────────────────────────────────────
 
     async def _notify(self) -> None:

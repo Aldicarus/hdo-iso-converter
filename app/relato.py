@@ -53,9 +53,16 @@ DETENIDO_POR_ERROR  = "detenido_por_error"    # parado, hay que resolver algo
 CANCELADO           = "cancelado"             # lo paraste tú
 TERMINADO           = "terminado"             # hay fichero
 ARCHIVADO           = "archivado"             # terminado y limpiado
+# Las dos últimas las aporta Tab 2, y describen algo que las otras dos no
+# tenían cómo decir: el fichero ya no está donde se analizó (que NO es un
+# error — la caché va por fingerprint y se reaprovecha en cuanto reaparezca),
+# y hay trabajo hecho pero de una versión anterior, así que no sirve.
+NO_DISPONIBLE       = "no_disponible"         # el fichero no está donde estaba
+CADUCADO            = "caducado"              # hay trabajo, pero ya no vale
 
 SITUACIONES = (PREPARANDO, EN_MARCHA, ESPERANDO_TURNO, ESPERANDO_DECISION,
-               DETENIDO_POR_ERROR, CANCELADO, TERMINADO, ARCHIVADO)
+               DETENIDO_POR_ERROR, CANCELADO, TERMINADO, ARCHIVADO,
+               NO_DISPONIBLE, CADUCADO)
 
 # Estado de un hecho comprobado. Mismos nombres que los chips del modal del
 # pre-flight, que es de donde salen: reusar su vocabulario evita traducir

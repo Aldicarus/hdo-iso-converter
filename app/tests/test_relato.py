@@ -33,6 +33,7 @@ def cancelada(fase: str) -> CMv40PhaseRecord:
     from datetime import datetime, timezone
     return CMv40PhaseRecord(phase=fase, status="cancelled",
                             started_at=datetime.now(timezone.utc))
+from phases import tab1_relato, tab2_relato  # noqa: E402
 from phases.cmv40_relato import (ETAPAS, porque_de_fase,  # noqa: E402
                                  resolver)
 
@@ -147,7 +148,12 @@ class TestLaSituacionEsUnaYExcluyente(unittest.TestCase):
 
     def test_todas_las_situaciones_del_vocabulario_son_alcanzables(self):
         """Una situación que nadie produce es vocabulario muerto que la UI
-        tendría que pintar igual."""
+        tendría que pintar igual.
+
+        Se recorren **los tres** resolutores: el vocabulario es común, así que
+        una palabra que solo produjera una pestaña la pagarían las otras dos
+        en forma de tabla de pintado con una fila que nunca se usa.
+        """
         vistas = {resolver(s)["situacion"] for s in (
             sesion(), sesion(running_phase="extract"),
             sesion(error_message="x"), sesion(phase="done"),
@@ -155,6 +161,18 @@ class TestLaSituacionEsUnaYExcluyente(unittest.TestCase):
             sesion(phase_history=[cancelada("inject")]),
         )}
         vistas.add(resolver(sesion(), en_cola={"posicion": 1})["situacion"])
+        vistas |= {tab1_relato.resolver(s)["situacion"] for s in (
+            {"id": "x"}, {"id": "x", "status": "running"},
+            {"id": "x", "status": "queued"}, {"id": "x", "status": "error"},
+            {"id": "x", "status": "done"},
+            {"id": "x", "last_cancelled_at": "2026-09-19T10:00:00Z"},
+        )}
+        vistas |= {tab2_relato.resolver(t)["situacion"] for t in (
+            {"existe": False},
+            {"existe": True, "tiene_extendido": True},
+            {"existe": True, "tiene_basico": True},
+            {"existe": True},
+        )}
         self.assertEqual(vistas, set(relato.SITUACIONES))
 
 

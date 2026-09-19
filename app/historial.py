@@ -60,10 +60,24 @@ ESTADO_HECHO = "done"
 ESTADO_ERROR = "error"
 ESTADO_CANCELADO = "cancelled"
 ESTADO_ESPERANDO = "esperando"
+# El quinto: el trabajo no terminó ni falló ni lo paraste — se lo llevó por
+# delante un reinicio del contenedor. Existe porque un trabajo muerto así
+# llegaba aquí con el estado que tuviera la sesión en ese instante
+# (`running`), que NO es del vocabulario y nadie validaba: la columna lo
+# pintaba con el chip rojo de error y sin mensaje, para siempre. Hay dos
+# líneas así en el NAS, de un deploy a mitad de la cola de Juego de Tronos
+# (2026-09-12) que este mismo repo documenta por otro motivo.
+ESTADO_INTERRUMPIDO = "interrupted"
 
 # Los estados que cierran un trabajo: una línea con uno de estos ya no se
 # reescribe. `esperando` NO está, justamente porque puede resolverse.
-_CERRADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO)
+_CERRADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO,
+             ESTADO_INTERRUMPIDO)
+
+#: Todo lo que puede escribirse en `estado`. Cualquier otra cosa describe un
+#: trabajo que no llegó a cerrarse, y se anota como interrumpido.
+ESTADOS = (ESTADO_HECHO, ESTADO_ERROR, ESTADO_CANCELADO, ESTADO_ESPERANDO,
+           ESTADO_INTERRUMPIDO)
 
 # Por qué se paró, cuando nadie lo dice. Un trabajo cancelado sin motivo se
 # quedaba con su icono y nada más: el análisis extendido contaba «Cancelado
@@ -77,6 +91,15 @@ def motivo_cancelado() -> str:
     contenedor, pasara lo que pasara después con el ajuste.
     """
     return tr('historial.motivo_cancelado')
+
+
+def motivo_interrumpido() -> str:
+    """Por qué se paró un trabajo que nadie paró.
+
+    Función y no constante, por lo mismo que `motivo_cancelado`: un literal
+    en el ámbito del módulo congela el idioma del arranque.
+    """
+    return tr('historial.motivo_interrumpido')
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 
@@ -133,8 +156,15 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
     """
     try:
         fin = fin or datetime.now(timezone.utc)
-        if estado == ESTADO_CANCELADO and not error:
-            error = motivo_cancelado()
+        # El vocabulario se valida AQUÍ, que es el único sitio por el que se
+        # escribe. `anotar` se llama desde el `finally` de cada trabajo, así
+        # que un proceso que muere en mitad del rip llega con el estado que
+        # tuviera la sesión —`running`— y lo escribía tal cual.
+        if estado not in ESTADOS:
+            estado = ESTADO_INTERRUMPIDO
+        if estado in (ESTADO_CANCELADO, ESTADO_INTERRUMPIDO) and not error:
+            error = (motivo_cancelado() if estado == ESTADO_CANCELADO
+                     else motivo_interrumpido())
         registro = {
             "id": id, "tab": tab, "tipo": tipo, "que": que,
             # La película y su miniatura, escritas AQUÍ porque aquí la sesión
@@ -234,6 +264,15 @@ _RENOMBRADOS = (
 
 
 def _con_el_nombre_de_hoy(registro: dict) -> dict:
+    # Lo mismo que con el nombre, y por el mismo motivo: el fichero no se
+    # migra. Las líneas escritas antes de que `anotar` validara el
+    # vocabulario traen el estado que tuviera la sesión al morir el proceso
+    # —hay dos con `running` en el NAS—, y la columna las pinta como un error
+    # rojo sin mensaje porque su tabla no las conoce.
+    estado = registro.get("estado")
+    if estado and estado not in ESTADOS:
+        registro = {**registro, "estado": ESTADO_INTERRUMPIDO,
+                    "error": registro.get("error") or motivo_interrumpido()}
     que = registro.get("que")
     if not isinstance(que, str):
         return registro

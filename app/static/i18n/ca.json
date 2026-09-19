@@ -1715,6 +1715,7 @@
   "workbar.fase_n_de_total": "Fase {n} de {total}",
   "workbar.hace_p1": "fa {p1}",
   "workbar.hace_un_momento": "fa un moment",
+  "workbar.interrumpido": "Interromput",
   "workbar.lleva": "Fa",
   "workbar.mas_n_consultas_en_curso": "+ {n} consultes en curs",
   "workbar.mas_una_consulta_en_curso": "+ {n} consulta en curs",

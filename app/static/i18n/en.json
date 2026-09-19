@@ -1715,6 +1715,7 @@
   "workbar.fase_n_de_total": "Phase {n} of {total}",
   "workbar.hace_p1": "{p1} ago",
   "workbar.hace_un_momento": "a moment ago",
+  "workbar.interrumpido": "Interrupted",
   "workbar.lleva": "Running for",
   "workbar.mas_n_consultas_en_curso": "+ {n} lookups in progress",
   "workbar.mas_una_consulta_en_curso": "+ {n} lookup in progress",

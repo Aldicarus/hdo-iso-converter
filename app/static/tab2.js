@@ -3133,23 +3133,28 @@ function onMkvRecientesFilterClick(btn) {
  * exactamente lo que es, y así ninguna tarjeta se queda sin pill que la
  * alcance.
  */
-function _mkvRecienteEstado(r) {
-  if (!r.existe) {
-    return { estado: 'esperando', clase: 'missing', acento: 'estado-aviso',
-             etiqueta: tr('tab2.el_mkv_ya_no_esta_en') };
-  }
-  if (r.tiene_extendido) {
-    return { estado: 'hecho', clase: 'extendido', acento: 'estado-hecho',
-             etiqueta: tr('ui.con_analisis_rpu_luz_hecho') };
-  }
-  if (r.tiene_basico) {
-    return { estado: 'listo', clase: 'basico', acento: '',
-             etiqueta: tr('tab2.analizado_abrirlo_es_instantaneo') };
-  }
-  // Caché de una versión anterior: el análisis está, pero no sirve. En ámbar
-  // porque abrirlo cuesta los minutos que costó la primera vez.
-  return { estado: 'en_cola', clase: 'basico', acento: 'estado-aviso',
-           etiqueta: tr('tab2.analizado_con_una_version_anterior_al') };
+// Qué situaciones enseña cada pill. «Sin extendido» incluye la caché caducada
+// a propósito: si exigiera tener el básico al día, esas tarjetas solo saldrían
+// con «Todos» y quien filtra las daría por desaparecidas. Los tres pills más
+// «Todos» cubren TODAS las tarjetas, que es la regla de esta columna.
+const _MKV_PILL_SITUACIONES = {
+  extendido: ['terminado'],
+  basico:    ['preparando', 'caducado'],
+  missing:   ['no_disponible'],
+};
+
+/** La situación de un MKV analizado, tal como la resolvió el servidor.
+ *
+ *  Se derivaba aquí, con palabras y colores propios: la misma idea que en las
+ *  otras dos columnas —«esto ya está», «esto hay que rehacerlo»— se decía de
+ *  otra forma según dónde la miraras. El respaldo mantiene lo de antes si
+ *  alguna vez llega una tarjeta sin relato.
+ */
+function _situacionDeMkv(r) {
+  return situacionDe(r)
+      || (!r.existe ? 'no_disponible'
+          : r.tiene_extendido ? 'terminado'
+          : r.tiene_basico ? 'preparando' : 'caducado');
 }
 
 function _renderMkvRecientes() {
@@ -3171,7 +3176,8 @@ function _renderMkvRecientes() {
     filtrada = filtrada.filter(r => normalizeSearch(r.nombre || '').includes(consulta));
   }
   if (_mkvRecientesFilter !== 'all') {
-    filtrada = filtrada.filter(r => _mkvRecienteEstado(r).clase === _mkvRecientesFilter);
+    const quiere = _MKV_PILL_SITUACIONES[_mkvRecientesFilter] || [];
+    filtrada = filtrada.filter(r => quiere.includes(_situacionDeMkv(r)));
   }
 
   const dir = _mkvRecientesSortAsc ? 1 : -1;
@@ -3214,7 +3220,7 @@ function _renderMkvRecientes() {
 
   lista.innerHTML = '';
   filtrada.forEach(r => {
-    const estado = _mkvRecienteEstado(r);
+    const pintura = pinturaDeSituacion(r, _situacionDeMkv(r));
     const nombre = (r.nombre || '').replace(/\.mkv$/i, '');
     const abierto = !!openMkvProjects.find(p => _mkvRutaDe(p) === r.ruta);
     const seleccionada = _mkvRecienteSeleccion === r.ruta;
@@ -3256,7 +3262,7 @@ function _renderMkvRecientes() {
     const card = document.createElement('div');
     card.className = `session-card${seleccionada ? ' selected' : ''}`
                    + (r.existe ? '' : ' no-encontrado')
-                   + (estado.acento ? ' ' + estado.acento : '');
+                   + (pintura.acento ? ' ' + pintura.acento : '');
     card.dataset.ruta = r.ruta;
     card.innerHTML = tarjetaDeProyecto({
       // El título de la ficha cuando se conoce; si no, el nombre sin tags.
@@ -3265,8 +3271,10 @@ function _renderMkvRecientes() {
       tituloTooltip: r.ruta || nombre,
       sub: tamano + duracion,
       chips,
-      estado: estado.estado,
-      estadoTooltip: estado.etiqueta,
+      estado: pintura.chip,
+      // El «por qué» al tooltip, igual que en Tab 1: es lo que contesta «¿y
+      // esto por qué está así?» sin tener que abrirlo.
+      estadoTooltip: pintura.porque || pintura.rotulo,
       poster: r.poster || '',
       icono: typeof iconoDeTrabajo === 'function'
         ? iconoDeTrabajo('analisis_extendido', 'mkv') : '',

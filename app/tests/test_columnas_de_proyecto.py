@@ -47,6 +47,7 @@ import unittest
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from frontend_sources import html, js_completo, pintar_en, stub_catalogo_es  # noqa: E402
@@ -81,8 +82,14 @@ SESIONES = [
     {"id": "s_pend", "mkv_name": "El día de la revelación (2026) [DV FEL].mkv",
      "status": "pending", "media_type": "movie", "execution_history": [],
      "updated_at": "2026-09-04T09:00:00Z", "tmdb_info": {}},
-    {"id": "s_err", "mkv_name": "Un fallo (2020).mkv", "status": "pending",
-     "media_type": "movie", "execution_history": [{"status": "error"}],
+    # `status: "error"`, que es como queda una sesión que falla. El fixture
+    # decía `pending` con el error dentro de `execution_history`, y el chip
+    # salía rojo porque la columna leía la ÚLTIMA ejecución en vez del estado
+    # de la sesión — la derivación que este bloque quitó, y que es la misma
+    # por la que cancelar una re-ejecución dejaba la tarjeta en «Completado».
+    {"id": "s_err", "mkv_name": "Un fallo (2020).mkv", "status": "error",
+     "media_type": "movie", "error_message": "algo falló",
+     "execution_history": [{"status": "error"}],
      "updated_at": "2026-09-01T09:00:00Z"},
     {"id": "s_tocho",
      "mkv_name": "Spider-Man (2023) "
@@ -119,6 +126,23 @@ CMV40 = [
      "error_message": "", "output_workflow": "restore_merge",
      "updated_at": "2026-05-24T08:00:00Z", "tmdb_info": {}},
 ]
+
+def _con_relato(filas, resolutor):
+    """Cada fila con el relato que el servidor le habría puesto."""
+    return [{**f, "relato": resolutor(f)} for f in filas]
+
+
+def _rel1(f):
+    from phases import tab1_relato
+    return tab1_relato.resolver(f)
+
+
+def _rel3(f):
+    """Tab 3 resuelve sobre el MODELO, no sobre un dict."""
+    from models import CMv40Session
+    from phases.cmv40_relato import resolver
+    return resolver(CMv40Session(source_mkv_path="/mnt/output/x.mkv", **f))
+
 
 _SONDA = ("<script>window.__errores=[];"
           "window.addEventListener('error',e=>window.__errores.push("
@@ -193,8 +217,12 @@ def _medir() -> dict:
     # `file://` el fetch del catálogo falla y toda la interfaz mostraría
     # claves en vez de texto — un fallo del arnés con pinta de fallo de la app.
     pagina = html().replace("</head>", _SONDA + stub_catalogo_es() + "</head>")
-    datos = (f"<script>window.__SES={json.dumps(SESIONES)};"
-             f"window.__CM={json.dumps(CMV40)};</script>")
+    # Las sesiones pasan por el resolutor REAL antes de entrar en la página.
+    # La columna ya no deriva el estado: lo lee de `relato`, que es lo que el
+    # endpoint manda. Un fixture sin él comprobaría el respaldo —el camino que
+    # NO corre en el NAS— y encima con el rótulo vacío.
+    datos = (f"<script>window.__SES={json.dumps(_con_relato(SESIONES, _rel1))};"
+             f"window.__CM={json.dumps(_con_relato(CMV40, _rel3))};</script>")
     pagina = pagina.replace("</body>", datos + _CUERPO + "</body>")
     pagina = (pagina.replace('src="/static/', 'src="')
                     .replace('href="/static/', 'href="'))

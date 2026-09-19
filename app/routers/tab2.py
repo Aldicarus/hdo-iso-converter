@@ -43,8 +43,10 @@ import analysis_progress
 import historial
 import paths
 import queue_manager as queue_manager_mod
+import relato
 import trabajos
 import workload
+from phases import tab2_relato
 from queue_manager import queue_manager
 from dev_fixtures import (
     DEV_FAKE_MKV_FILES,
@@ -330,6 +332,11 @@ def _mkv_recientes_desde_cache(limite: int) -> tuple[list[dict], int]:
             "tiene_extendido": extendido,
             "tiene_luminancia": extendido and bool(e.get("light_profile_present")),
         })
+        # El estado de la fila lo resuelve el servidor, con el vocabulario de
+        # las otras dos pestañas. Antes lo derivaba el JS (`_mkvRecienteEstado`)
+        # con palabras y colores propios: la misma idea —«esto ya está», «esto
+        # hay que rehacerlo»— se decía distinto según la columna.
+        tarjetas[-1]["relato"] = relato.resolver(workload.TAB_MKV, tarjetas[-1])
     tarjetas.sort(key=lambda t: t["analizado_en"], reverse=True)
     return tarjetas[:limite], len(tarjetas)
 
@@ -370,6 +377,8 @@ async def mkv_recientes(limite: int = TOPE_RECIENTES):
             }
             for i, nombre in enumerate(DEV_FAKE_MKV_FILES)
         ]
+        for f in falsos:
+            f["relato"] = relato.resolver(workload.TAB_MKV, f)
         return {"recientes": falsos[:limite], "total": len(falsos)}
     recientes, total = await asyncio.to_thread(_mkv_recientes_desde_cache, limite)
     return {"recientes": recientes, "total": total}
@@ -1800,3 +1809,8 @@ queue_manager.registrar_descarte(queue_manager_mod.TIPO_COPIA_BIBLIOTECA,
                                  _descartada_copia)
 trabajos.registrar(queue_manager_mod.TIPO_ANALISIS_EXTENDIDO, _analisis_adaptador)
 trabajos.registrar(queue_manager_mod.TIPO_COPIA_BIBLIOTECA, _copia_adaptador)
+
+
+# Quién sabe contar qué le pasa a un MKV analizado. El registro va al final del
+# módulo, igual que el de `trabajos`, para que el resolutor ya exista.
+relato.registrar(workload.TAB_MKV, tab2_relato.resolver)

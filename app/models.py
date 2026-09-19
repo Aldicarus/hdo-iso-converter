@@ -907,6 +907,26 @@ class Session(BaseModel):
     """Historial de ejecuciones anteriores. Cada ejecución (éxito o error)
     se registra como un ExecutionRecord con tiempos por fase y log completo."""
 
+    last_cancelled_at: datetime | None = None
+    """Cuándo se canceló la última ejecución (UTC), o None.
+
+    **Cancelar devuelve la sesión a `pending` y NO apila un
+    `ExecutionRecord`** —a propósito: el proyecto queda listo para
+    relanzarse— así que sin este campo un rip cancelado es indistinguible de
+    uno que nunca se lanzó, y la ficha no menciona por ninguna parte el hecho
+    más importante que le ha pasado al proyecto.
+
+    Se limpia al arrancar la ejecución siguiente: describe la ÚLTIMA
+    tentativa, no un historial. Campo aditivo — las sesiones anteriores lo
+    cargan a None y se comportan como siempre."""
+
+    last_validation_warnings: int = 0
+    """Cuántas discrepancias encontró la validación del MKV final.
+
+    Sin esto, «terminado» y «terminado con avisos» se ven exactamente igual:
+    el recuento vivía solo en el log y no llegaba a ninguna superficie. Se
+    reescribe en cada ejecución."""
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  PAYLOADS DE API
