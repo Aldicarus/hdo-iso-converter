@@ -90,6 +90,13 @@ class ApiTestCase(unittest.TestCase):
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
             (storage, "MKV_AUDIT_DIR", self.config_dir / "mkv_audits"),
+            # Misma trampa que `settings_store`: el índice del sidebar de
+            # CMv4.0 se resuelve en el import (`CONFIG_DIR / "…​.idx"`), así
+            # que redirigir `storage.CONFIG_DIR` no lo mueve. En el Mac fallaba
+            # con un WARNING («read-only file system: /config») y dentro del
+            # contenedor —donde /config SÍ se puede escribir— la suite le
+            # habría metido su índice al usuario.
+            (storage, "_CMV40_INDICE", self.config_dir / "cmv40_summary.idx"),
             # Los directorios de Tab 1/2 viven en `paths.py`, y main y los
             # routers los referencian como `paths.X`: se parchea ahí, en un
             # solo sitio, y lo ve todo el mundo.
