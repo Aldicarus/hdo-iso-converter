@@ -3347,9 +3347,12 @@ function _renderCMv40RecommendationCard(s, pid) {
   // esto, el único veredicto que existe para que decida el usuario era el
   // único sin ningún sitio donde decidirlo.
   const isKeep = action === 'keep';
-  // Qué contestó, si contestó. Es lo que convierte la card en el seguimiento
-  // de la decisión en vez de una pregunta que reaparece.
-  const decision = s.preflight_user_choice || '';
+  // Qué contestó, si contestó — del relato, que resuelve de una vez los tres
+  // campos que antes leía cada superficie por su lado (y el respaldo de los
+  // proyectos cerrados antes de que el campo existiera).
+  const rel = s.relato || null;
+  const decision = (rel?.decision?.estado === 'tomada' && rel.decision.elegida)
+                 || '';
   const isDropIn = action === 'drop_in';
   const isMerge = action === 'merge';
   const isUnknown = action === 'unknown' || action === '';
@@ -3382,10 +3385,25 @@ function _renderCMv40RecommendationCard(s, pid) {
   // lee la fila «Recomendación» del modal del pre-flight: dos sitios que
   // hablan del mismo bin no pueden llamarlo de dos maneras. Una vez
   // contestado, manda la ruta — que es lo que interesa mientras corre.
-  const label = (esToneMapping && !decision)
-    ? (s.recommended_action_label || tr('tab3.aporta_tone_mapping_no_autoria'))
-    : (s.recommended_action_label || (isUnknown ? tr('tab3.esperando_analisis') : '—'));
-  const reason = s.recommended_action_reason || '';
+  // El rótulo: si hay una decisión pendiente, la pregunta; si hay ruta, la
+  // ruta; y si no hay ninguna de las dos, la SITUACIÓN. Antes caía siempre en
+  // `recommended_action_label`, que vale «Análisis pendiente» hasta que la
+  // Fase A puebla el L2 — y por eso dos proyectos en estados opuestos, uno
+  // decidido por el usuario y otro pasado de largo, enseñaban lo mismo.
+  // Cuando NO hay ruta todavía, el rótulo es la situación — no
+  // `recommended_action_label`, que en ese caso vale «Análisis pendiente» y
+  // era el mismo texto para dos proyectos opuestos. Ponerlo como respaldo
+  // no bastaba: llega relleno, así que ganaba igual.
+  const label = rel?.decision?.estado === 'pendiente'
+    ? (rel.decision.titulo || '')
+    : isUnknown
+    ? (rel?.situacion_rotulo || tr('tab3.esperando_analisis'))
+    : (s.recommended_action_label || '—');
+  // `porque` del relato manda sobre el motivo de la recomendación: cuenta por
+  // qué el trabajo está DONDE está (parado, cancelado, por la vía rápida),
+  // que es la pregunta que el usuario tiene delante. El motivo de la ruta se
+  // queda detrás como respaldo.
+  const reason = rel?.porque || s.recommended_action_reason || '';
 
   // Tag de calidad del bin (la que va al filename)
   const qualityTag = s.target_l8_quality_label || (
@@ -3481,7 +3499,7 @@ function _renderCMv40RecommendationCard(s, pid) {
       </div>`;
   } else if (decision) {
     const cuando = (typeof _cmv40PfCuando === 'function')
-      ? _cmv40PfCuando(s.preflight_user_choice_at) : '';
+      ? _cmv40PfCuando(rel?.decision?.cuando) : '';
     const txt = decision === 'keep'
       ? tr('tab3.decidiste_mantener') : tr('tab3.decidiste_inyectar');
     decisionLinea = `
@@ -6961,19 +6979,6 @@ function _cmv40PfSet(id, txt) {
   if (el) el.textContent = txt;
 }
 
-/** Qué contestó el usuario al pre-flight: 'keep' | 'inject' | ''.
- *
- *  El fallback existe para los proyectos que se cerraron ANTES de que el
- *  campo existiera: `output_workflow = 'keep_cmv29'` solo lo escribe
- *  `accept-keep`, así que identifica la decisión igual de bien. Para el
- *  «inyectar igualmente» no hay equivalente antiguo, pero ahí tampoco se
- *  ofrecían los botones (el override deja `preflight_decision` en 'ok').
- */
-function _cmv40PfDecision(s) {
-  if (!s) return '';
-  if (s.preflight_user_choice) return s.preflight_user_choice;
-  return s.output_workflow === 'keep_cmv29' ? 'keep' : '';
-}
 
 /** «el 10/09/2026 a las 09:12», o '' si no hay fecha que enseñar. */
 function _cmv40PfCuando(iso) {
@@ -6986,69 +6991,48 @@ function _cmv40PfCuando(iso) {
 }
 
 /** El veredicto: `{clase, titulo, cuerpo, motivos[]}` o null si sigue. */
+/** El veredicto: `{clase, titulo, cuerpo, motivos[]}` o null si sigue.
+ *
+ *  **Sale del relato.** Antes encadenaba seis condiciones sobre cuatro campos
+ *  de la sesión (`preflight_user_choice`, `error_message`,
+ *  `preflight_decision`, `target_preflight_ok`) y la ficha tenía su propia
+ *  versión de la misma cascada. `situacion` y `decision` la resuelven una vez
+ *  en el servidor, que es el único que tiene el estado real.
+ */
 function _cmv40PfVeredicto(s, trabajo) {
-  if (!s) return null;
-  // Una decisión ya tomada CIERRA la pregunta. Va por delante del resto
-  // porque `accept-keep` no toca `preflight_decision`: sin esto el modal
-  // seguía enseñando el aviso y sus dos botones al reabrirlo, pidiendo algo
-  // que el usuario ya había contestado.
-  const decision = _cmv40PfDecision(s);
-  if (decision === 'keep') {
-    return {
-      clase: 'ok',
-      titulo: tr('tab3.se_mantiene_el_mkv_actual'),
-      cuerpo: tr('tab3.el_proyecto_se_cerro_sin_tocar') + ' '
-            + tr('tab3.compatible_con_cmv4_0_hace_la') + ' '
-            + tr('tab3.mismo_resultado_visible_que_tendria_inyectar'),
-      motivos: [],
-    };
+  const r = s?.relato;
+  if (!r) return null;
+  const d = r.decision || {};
+
+  // Lo que pasó DESPUÉS manda sobre la decisión: un proyecto que el usuario
+  // paró no se titula «Se inyecta el RPU igualmente» por lo que contestó
+  // veinte minutos antes. La ficha ya decía «Lo paraste tú» y el modal decía
+  // otra cosa — la misma discrepancia que este bloque venía a quitar.
+  if (r.situacion === 'cancelado') {
+    return {clase: 'aviso', titulo: r.situacion_rotulo || '',
+            cuerpo: r.porque || '', motivos: _cmv40PfMotivosDelLog(s)};
   }
-  if (decision === 'inject') {
-    return {
-      clase: 'ok',
-      titulo: tr('tab3.se_inyecta_el_rpu_igualmente'),
-      cuerpo: trabajo || tr('tab3.el_trabajo_continua_en_segundo_plano'),
-      motivos: [],
-    };
+  // Una decisión ya tomada CIERRA la pregunta, aunque el proyecto siga
+  // corriendo: sin esto el modal volvía a ofrecer los dos botones al
+  // reabrirlo, pidiendo algo que el usuario ya había contestado.
+  if (d.estado === 'tomada') {
+    return {clase: 'ok', titulo: d.titulo || '',
+            cuerpo: trabajo || r.porque || tr('tab3.el_trabajo_continua_en_segundo_plano'),
+            motivos: []};
   }
-  if (s.error_message) {
-    return {
-      clase: 'error',
-      titulo: tr('tab3.el_bin_no_sirve_para_este'),
-      cuerpo: s.error_message,
-      motivos: _cmv40PfMotivosDelLog(s),
-    };
+  if (r.situacion === 'detenido_por_error') {
+    return {clase: 'error', titulo: tr('tab3.el_bin_no_sirve_para_este'),
+            cuerpo: s.error_message || '', motivos: _cmv40PfMotivosDelLog(s)};
   }
-  // El tercer veredicto NO es «el bin no sirve»: es «la app no puede decidir
-  // esto por ti». Compartir el título del bin sintético era la mitad del
-  // mensaje que el usuario no podía entender.
-  if (s.preflight_decision === 'ask_tone_mapping') {
-    return {
-      clase: 'aviso',
-      titulo: tr('tab3.esto_lo_decides_tu'),
-      cuerpo: s.preflight_message || s.recommended_action_reason || '',
-      motivos: _cmv40PfMotivosDelLog(s),
-    };
-  }
-  if (s.preflight_decision && s.preflight_decision !== 'ok') {
-    return {
-      clase: 'aviso',
-      titulo: tr('tab3.el_bin_no_aporta_un_l8'),
-      cuerpo: s.preflight_message
-        || tr('tab3.el_rpu_es_sintetico_inyectarlo_daria') + ' '
-         + tr('tab3.que_dejar_el_mkv_como_esta'),
-      motivos: _cmv40PfMotivosDelLog(s),
-    };
+  if (d.estado === 'pendiente') {
+    return {clase: 'aviso', titulo: d.titulo || '',
+            cuerpo: d.porque || r.porque || '', motivos: _cmv40PfMotivosDelLog(s)};
   }
   if (s.target_preflight_ok) {
-    return {
-      clase: 'ok',
-      titulo: tr('tab3.validacion_superada'),
-      // Solo lo que las filas NO dicen ya: dónde ha quedado el trabajo.
-      // Repetir la calidad del bin debajo de la fila que la enseña es ruido.
-      cuerpo: trabajo || tr('tab3.el_trabajo_continua_en_segundo_plano'),
-      motivos: [],
-    };
+    // Solo lo que las filas NO dicen ya: dónde ha quedado el trabajo.
+    return {clase: 'ok', titulo: tr('tab3.validacion_superada'),
+            cuerpo: trabajo || tr('tab3.el_trabajo_continua_en_segundo_plano'),
+            motivos: []};
   }
   return null;
 }
@@ -7076,118 +7060,40 @@ async function _cmv40PfDondeQuedo(pid) {
  *  cuánto falta; esto dice QUÉ ha verificado y con qué dato. Cuando falla,
  *  la fila que falla es la explicación.
  */
+/** Las conclusiones del pre-flight, una fila por comprobación.
+ *
+ *  **Ya no se derivan aquí.** Eran ~85 líneas que leían diez campos de la
+ *  sesión para reconstruir lo que el servidor ya sabía, y la ficha hacía su
+ *  propia versión de lo mismo: por eso las dos podían contar —y contaban—
+ *  cosas distintas del mismo proyecto. Hoy las dos pintan `relato.hechos`,
+ *  que es UNA lista, así que no pueden discrepar porque no hay dos cálculos.
+ *
+ *  La decisión va como última fila: es la única conclusión del pre-flight que
+ *  no sale de un análisis, y reabrir el modal tiene que decir qué se
+ *  contestó en vez de volver a preguntarlo.
+ */
 function _cmv40PfChecks(s) {
-  // OJO con el origen: el pre-flight NO lo analiza, hace un **sniff de 30 s**
-  // que solo comprueba que hay NALs de Dolby Vision (`preflight_source`). El
-  // perfil, la CM version y el frame count los saca la Fase A extrayendo el
-  // RPU entero. Enganchada a `source_dv_info`, esta fila no podía ponerse
-  // verde nunca y se quedaba en gris toda la validación.
-  const srcOk = !!s?.source_preflight_ok;
-  const src = s?.source_dv_info || null;
-  const tgt = s?.target_dv_info || null;
-  const dv = (i) => !i ? '' : [
-    tr('comun.perfil_p1', {p1: i.profile + (i.el_type ? ' ' + i.el_type : '')}),
-    i.cm_version ? `CM ${i.cm_version}` : '',
-    i.frame_count ? `${i.frame_count.toLocaleString(localeActual())} frames` : '',
-  ].filter(Boolean).join(' · ');
+  const r = s?.relato;
+  if (!r) return [];                       // sin relato no se inventa nada
+  const filas = r.hechos.map(h => ({
+    titulo: h.que,
+    valor: h.evidencia,
+    // El vocabulario del relato es el de estos chips —de aquí salió— salvo
+    // los dos nombres largos, que el chip abrevia.
+    estado: h.estado === 'pendiente' ? 'pend'
+          : h.estado === 'en_curso' ? 'curso' : h.estado,
+  }));
 
-  const filas = [];
-
-  filas.push({
-    titulo: tr('tab3.el_mkv_origen_lleva_dolby_vision'),
-    valor: src ? dv(src)
-         : srcOk ? tr('tab3.rpu_detectado_en_los_primeros_30')
-         : tr('tab3.comprobando_los_primeros_30_s_del'),
-    estado: (src || srcOk) ? 'ok' : 'pend',
-  });
-
-  const nombreBin = s?.pending_target_file_name
-                 || (s?.target_rpu_path || '').split('/').pop() || '';
-  filas.push({
-    titulo: tr('tab3.rpu_target_disponible'),
-    valor: tgt ? (nombreBin || tr('tab3.obtenido_en_el_directorio_de_trabajo'))
-               : (nombreBin ? tr('tab3.obteniendo_p1', {p1: nombreBin}) : tr('tab3.obteniendo_el_rpu')),
-    estado: tgt ? 'ok' : 'pend',
-  });
-
-  const esV40 = (tgt?.cm_version || '') === 'v4.0';
-  const falloCm = !!s?.error_message && /CMv4\.0|CM v/i.test(s.error_message);
-  filas.push({
-    titulo: tr('tab3.el_rpu_aporta_cmv4_0'),
-    valor: falloCm ? s.error_message
-         : tgt ? `${dv(tgt)}· ${tr(tgt.has_l8 ? 'tab3.l8_presente' : 'tab3.sin_l8')}`
-         : tr('tab3.pendiente_de_leer_el_rpu'),
-    estado: falloCm ? 'fallo' : esV40 ? 'ok' : tgt ? 'aviso' : 'pend',
-  });
-
-  const abortado = !!s?.error_message;
-  const clase = s?.target_l8_classification || '';
-  const tier = { full: 'FULL', core_rich: 'CORE+', core: 'CORE' }[
-    s?.target_l8_quality_tier] || '';
-  const combos = s?.target_l8_unique_count;
-  const neutros = s?.target_l8_neutral_frames_pct;
-  const delta = s?.target_l8_max_delta || 0;
-  filas.push({
-    titulo: tr('tab3.el_l8_es_trabajo_de_colorista'),
-    valor: !clase ? (abortado ? tr('tab3.no_se_llego_a_comprobar')
-                              : tr('tab3.analizando_los_combos_del_rpu')) : [
-      // Sin la entrada de `tone_mapping` el `|| clase` escribía el
-      // identificador crudo en la fila. Y el maxΔ va delante de los combos
-      // porque es EL número que decide desde la recalibración: dos combos
-      // pueden ser un máster retail (Δ 606) o un bin generado (Δ 0).
-      { real: tier ? tr('tab3.si_calidad', {tier: tier}) : 'Sí',
-        indeterminate: tr('tab3.no_concluyente'),
-        tone_mapping: tr('tab3.l8_solo_tone_mapping'),
-        default: tr('tab3.no_el_rpu_es_sintetico') }[clase] || clase,
-      delta ? tr('tab3.desviacion_max_del_neutro', {delta: delta}) : '',
-      combos != null ? tr('tab3.combos_unicos', {combos: combos}) : '',
-      // El mismo dato que la tabla de niveles de la ficha, y dicho igual:
-      // en negativo («0 % sin ajuste») se leía como lo contrario de lo que
-      // dice el veredicto justo al lado. La clave conserva su nombre viejo.
-      neutros != null ? tr('tab3.de_frames_neutros',
-                           {p1: Math.round((1 - neutros) * 100)}) : '',
-    ].filter(Boolean).join(' · '),
-    estado: !clase ? 'pend' : clase === 'real' ? 'ok'
-          : (clase === 'default' || clase === 'tone_mapping') ? 'aviso' : 'duda',
-  });
-
-  // La recomendación es la última conclusión del pre-flight, y hasta que el
-  // bin está clasificado NO existe: el servidor rellena
-  // `recommended_action_label` siempre —para un proyecto recién creado
-  // devuelve «Mantener MKV actual» porque el bin aún no está validado, y
-  // entre el pre-flight y la Fase A, «Análisis pendiente»—, así que la fila
-  // salía pintada y resuelta desde el primer repintado, antes de haber
-  // mirado nada. Se empuja SIEMPRE, para que el checklist enseñe el paso
-  // que falta, y en gris mientras no haya clasificación.
-  const clasificado = !!s?.target_l8_classification;
-  filas.push({
-    titulo: tr('tab3.recomendacion'),
-    valor: clasificado
-      ? (s.recommended_action_label || '—')
-      : tr('tab3.pendiente_del_analisis_del_bin'),
-    estado: !clasificado ? 'pend'
-          : s.recommended_action === 'keep' ? 'aviso' : 'ok',
-  });
-  // La respuesta del usuario es la última conclusión del pre-flight, y la
-  // única que no sale de un análisis. Queda aquí para que reabrir el detalle
-  // diga qué se decidió en vez de volver a preguntarlo.
-  const decision = _cmv40PfDecision(s);
-  if (decision) {
-    const cuando = _cmv40PfCuando(s?.preflight_user_choice_at);
-    filas.push({
-      titulo: tr('tab3.titulo_decision'),
-      valor: (decision === 'keep' ? tr('tab3.mantener_el_mkv_actual')
-                                  : tr('tab3.inyectar_el_rpu_igualmente'))
-           + (cuando ? ` · ${cuando}` : ''),
-      estado: 'ok',
-    });
-  }
-  // Mientras corre, la primera sin resolver es la que se está haciendo. Sin
-  // esto la lista se queda entera en gris y solo se rellena al final, que es
-  // justo lo que hace que un checklist no parezca vivo.
-  if (s?.running_phase === 'preflight' && !abortado) {
-    const i = filas.findIndex(f => f.estado === 'pend');
-    if (i >= 0) filas[i].estado = 'curso';
+  const d = r.decision || {};
+  if (d.estado === 'pendiente') {
+    filas.push({titulo: tr('tab3.titulo_decision'), valor: d.pregunta || '',
+                estado: 'aviso'});
+  } else if (d.estado === 'tomada') {
+    const cuando = _cmv40PfCuando(d.cuando);
+    const rotulo = (d.opciones || []).find(o => o.id === d.elegida)?.rotulo
+                || d.elegida || '';
+    filas.push({titulo: tr('tab3.titulo_decision'),
+                valor: rotulo + (cuando ? ` · ${cuando}` : ''), estado: 'ok'});
   }
   return filas;
 }

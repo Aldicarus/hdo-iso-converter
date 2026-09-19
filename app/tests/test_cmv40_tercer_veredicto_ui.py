@@ -41,6 +41,27 @@ sys.path.insert(0, str(APP_DIR / "tests"))
 from frontend_sources import (argv_node, catalogo_es,  # noqa: E402
                               js_en_disco, pintar_en)
 
+
+def catalogo_servidor() -> dict:
+    """El catálogo del SERVIDOR: el relato se compone allí."""
+    import json
+    return json.loads((APP_DIR / "i18n" / "es.json").read_text(encoding="utf-8"))
+
+
+def con_relato(sesion: dict) -> dict:
+    """La sesión tal y como la sirve el endpoint, con su `relato` dentro.
+
+    El modal y la ficha dejaron de derivar el 2026-09-19 y leen el relato.
+    Alimentarlos con una sesión cruda mediría un camino que ya no existe.
+    """
+    from models import CMv40Session
+    from phases.cmv40_relato import resolver
+    from phases.cmv40_strategy import resolve_plan
+    base = dict(id="cmv40_t", source_mkv_path="/x/a.mkv", source_mkv_name="a.mkv")
+    obj = CMv40Session(**{**base, **{k: v for k, v in sesion.items()
+                                     if k in CMv40Session.model_fields}})
+    return {**sesion, "relato": resolver(obj, plan=resolve_plan(obj))}
+
 NODE = shutil.which("node")
 
 # Carga las siete piezas tal cual las carga el navegador y llama a la función
@@ -120,11 +141,12 @@ class _Base(unittest.TestCase):
             argv_node(_DRIVER),
             env={**os.environ, "JS_CONCAT": js_en_disco(),
                  "CATALOGO": str(APP_DIR / "static" / "i18n" / "es.json")},
-            input=json.dumps(casos), capture_output=True, text=True, timeout=60)
+            input=json.dumps([{**c, "s": con_relato(c["s"])} for c in casos]),
+            capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
         return pintar_en(json.loads(proc.stdout))
 
-    def fila(self, filas, clave):
+    def fila(self, filas, clave, titulo=None):
         """La fila por su CLAVE del catálogo, no por un trozo de su rótulo.
 
         Los rótulos dejaron de nombrar niveles de la spec el 2026-09-19 —la
@@ -132,7 +154,7 @@ class _Base(unittest.TestCase):
         colorista»— y todo test que buscara «L8» dejó de encontrar nada. La
         clave no cambia cuando cambia la redacción.
         """
-        rotulo = catalogo_es()[clave]
+        rotulo = titulo if titulo is not None else catalogo_servidor()[clave]
         for f in filas:
             if (f.get("titulo") or "") == rotulo:
                 return f
@@ -140,37 +162,55 @@ class _Base(unittest.TestCase):
 
 
 class TestElModalNoAdelantaConclusiones(_Base):
+    """Era el punto 1 del usuario: «el paso final de recomendación sale activo
+    en lugar de oscurecido porque no ha llegado aún».
 
-    def test_la_recomendacion_sale_en_gris_hasta_que_hay_clasificacion(self):
-        """El servidor manda `recommended_action_label` desde el primer poll
-        —para un proyecto recién creado es «Mantener MKV actual», porque el
-        bin aún no está validado—, así que la fila salía en ámbar como una
-        conclusión antes de mirar el bin."""
+    La causa era que la fila se empujaba «si el servidor manda un rótulo», y
+    el servidor manda uno SIEMPRE. Ahora el checklist son los hechos del
+    relato, que nacen pendientes y se resuelven cuando hay dato, así que
+    ninguna fila puede adelantarse **por construcción**: no hay una rama que
+    se pueda equivocar.
+    """
+
+    def test_a_mitad_del_trabajo_nada_esta_resuelto_de_mas(self):
         filas = self.evaluar([{"fn": "checks", "s": {
-            "running_phase": "preflight",
+            "running_phase": "preflight", "source_preflight_ok": True,
+            # El servidor sigue mandando esto; ya no lo lee nadie del modal.
             "recommended_action": "keep",
             "recommended_action_label": "Mantener MKV actual",
         }}])[0]
-        self.assertEqual(self.fila(filas, "tab3.recomendacion")["estado"], "pend")
+        resueltos = [f for f in filas if f["estado"] not in ("pend", "curso")]
+        self.assertEqual(len(resueltos), 1,
+                         "hay filas resueltas sin dato que las sostenga")
+        self.assertEqual(resueltos[0]["titulo"],
+                         catalogo_servidor()["relato.hecho_origen_dv"])
 
-    def test_y_aparece_aunque_el_servidor_no_mande_nada(self):
-        """La fila es un PASO del checklist: si solo existe cuando ya hay
-        respuesta, el usuario no sabe que queda ese paso."""
-        filas = self.evaluar([{"fn": "checks", "s": {"running_phase": "preflight"}}])[0]
-        self.fila(filas, "tab3.recomendacion")
+    def test_exactamente_una_fila_esta_en_curso(self):
+        """Una lista entera en gris es lo que hace que un checklist no
+        parezca vivo; dos a la vez, que no se sepa dónde va."""
+        filas = self.evaluar([{"fn": "checks", "s": {
+            "running_phase": "preflight", "source_preflight_ok": True}}])[0]
+        self.assertEqual(len([f for f in filas if f["estado"] == "curso"]), 1)
 
-    def test_con_el_bin_clasificado_la_fila_concluye(self):
-        filas = self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0]
-        f = self.fila(filas, "tab3.recomendacion")
+    def test_la_decision_solo_aparece_cuando_la_hay(self):
+        sin = self.evaluar([{"fn": "checks", "s": {"running_phase": "preflight"}}])[0]
+        con = self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0]
+        titulo = catalogo_es()["tab3.titulo_decision"]
+        self.assertNotIn(titulo, [f["titulo"] for f in sin])
+        self.assertIn(titulo, [f["titulo"] for f in con])
+
+    def test_y_cuando_la_hay_dice_qué_se_pregunta(self):
+        f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0],
+                      None, titulo=catalogo_es()["tab3.titulo_decision"])
         self.assertEqual(f["estado"], "aviso")
-        self.assertIn("decides", f["valor"])
+        self.assertIn("Inyectar", f["valor"])
 
 
 class TestLaFilaDelL8HablaCastellano(_Base):
 
     def test_no_se_escribe_el_identificador_en_crudo(self):
         f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0],
-                      "tab3.el_l8_es_trabajo_de_colorista")
+                      "relato.hecho_bin_colorista")
         self.assertNotIn("tone_mapping", f["valor"],
                          "la fila escribe el identificador interno")
 
@@ -178,7 +218,7 @@ class TestLaFilaDelL8HablaCastellano(_Base):
         """Desde la recalibración manda el maxΔ, no el conteo: dos combos
         pueden ser un retail (Δ 606) o un generado (Δ 0)."""
         f = self.fila(self.evaluar([{"fn": "checks", "s": TONE_MAPPING}])[0],
-                      "tab3.el_l8_es_trabajo_de_colorista")
+                      "relato.hecho_bin_colorista")
         self.assertIn("41", f["valor"])
         self.assertEqual(f["estado"], "aviso")
 
@@ -189,6 +229,18 @@ class TestElVeredictoDistingueLosDosMotivosDeParada(_Base):
         v = self.evaluar([{"fn": "veredicto", "s": TONE_MAPPING}])[0]
         self.assertEqual(v["clase"], "aviso")
         self.assertIn("decides", v["titulo"].lower())
+
+    def test_un_proyecto_cancelado_no_se_titula_con_lo_que_decidiste(self):
+        """Lo que pasó DESPUÉS manda. El modal decía «Se inyecta el RPU
+        igualmente» de un trabajo que el usuario había parado, mientras la
+        ficha decía «Lo paraste tú»: la misma discrepancia entre las dos
+        superficies que todo esto venía a quitar."""
+        s = {**TONE_MAPPING, "preflight_decision": "",
+             "preflight_user_choice": "inject",
+             "phase_history": [{"phase": "analyze_source", "status": "cancelled",
+                                "started_at": "2026-09-19T11:40:00Z"}]}
+        v = self.evaluar([{"fn": "veredicto", "s": s}])[0]
+        self.assertIn("paraste", v["titulo"].lower())
 
     def test_el_bin_sintetico_conserva_su_veredicto(self):
         s = {**TONE_MAPPING, "target_l8_classification": "default",
@@ -206,6 +258,26 @@ class TestLaCardOfreceYRegistraLaDecision(_Base):
         html = self.evaluar([{"fn": "card", "s": TONE_MAPPING}])[0]
         self.assertIn("cmv40AcceptKeep", html)
         self.assertIn("cmv40OverrideRecommendation", html)
+
+    def test_sin_ruta_todavia_el_badge_dice_la_SITUACION(self):
+        """El caso de los dos proyectos del 2026-09-19: uno decidido por el
+        usuario y otro pasado de largo, los dos con `recommended_action` vacío
+        y `recommended_action_label` = «Análisis pendiente». Enseñaban lo
+        mismo. Ahora cada uno dice en qué situación está."""
+        corriendo = {**TONE_MAPPING, "recommended_action": "",
+                     "recommended_action_label": "Análisis pendiente",
+                     "preflight_decision": "", "preflight_user_choice": "inject",
+                     "running_phase": "analyze_source"}
+        parado = {**corriendo, "running_phase": None,
+                  "phase_history": [{"phase": "analyze_source",
+                                     "status": "cancelled",
+                                     "started_at": "2026-09-19T11:40:00Z"}]}
+        a, b = self.evaluar([{"fn": "card", "s": corriendo},
+                             {"fn": "card", "s": parado}])
+        self.assertNotIn("Análisis pendiente", a)
+        self.assertNotIn("Análisis pendiente", b)
+        self.assertIn("En marcha", a)
+        self.assertIn("Lo paraste tú", b)
 
     def test_dice_que_esta_esperando(self):
         html = self.evaluar([{"fn": "card", "s": TONE_MAPPING}])[0]

@@ -137,6 +137,12 @@ def _decision(session) -> dict:
     cambia es que dejan de leerse sueltos: aquí se resuelven una vez.
     """
     elegida = session.preflight_user_choice or ""
+    if not elegida and session.output_workflow == "keep_cmv29":
+        # Proyectos cerrados ANTES de que existiera `preflight_user_choice`:
+        # ese workflow solo lo escribe `accept-keep`, así que identifica la
+        # decisión igual de bien. Sin esto el modal vuelve a ofrecer los dos
+        # botones de algo que el usuario ya cerró hace meses.
+        elegida = "keep"
     pendiente = (session.preflight_decision or "") not in ("", "ok")
     if not pendiente and not elegida:
         return {"estado": relato.DECISION_NO_PROCEDE}
@@ -149,9 +155,20 @@ def _decision(session) -> dict:
     }
     if elegida:
         return {**comun, "estado": relato.DECISION_TOMADA, "elegida": elegida,
-                "cuando": session.preflight_user_choice_at or ""}
+                "cuando": session.preflight_user_choice_at or "",
+                # El titular de lo que pasó, para que reabrir el modal diga
+                # qué se contestó en vez de volver a preguntarlo.
+                "titulo": tr('relato.titulo_se_mantiene' if elegida == "keep"
+                             else 'relato.titulo_se_inyecta')}
+    # Los dos motivos de parada NO son el mismo: con el bin sintético la app
+    # recomienda mantener; con el tercer veredicto dice que depende de tu
+    # reproductor y no se moja. Compartir titular era la mitad del mensaje
+    # que el usuario no podía entender.
     return {**comun, "estado": relato.DECISION_PENDIENTE,
-            "porque": session.preflight_message or ""}
+            "porque": session.preflight_message or "",
+            "titulo": tr('relato.titulo_lo_decides_tu'
+                         if session.preflight_decision == "ask_tone_mapping"
+                         else 'relato.titulo_bin_sin_ajustes')}
 
 
 def _dv(info) -> str:
@@ -195,12 +212,23 @@ def _hechos(session) -> list[dict]:
             session.pending_target_file_name
             or (session.target_rpu_path or "").split("/")[-1]),
     ]
+    # El fallo del pre-flight por CM version es lo que tiene que leerse EN la
+    # fila que falla: mandar al usuario al banner de error para enterarse de
+    # cuál de las cuatro comprobaciones no pasó es lo que hacía el modal
+    # antes de tener checklist.
+    fallo_cm = bool(session.error_message) and bool(
+        _RE_CM.search(session.error_message or ""))
     es_v40 = bool(tgt) and (tgt.cm_version or "") == "v4.0"
+    dv_tgt = _dv(tgt)
+    if dv_tgt and tgt is not None:
+        dv_tgt += " · " + tr('relato.l8_presente' if getattr(tgt, "has_l8", False)
+                             else 'relato.sin_l8')
     hechos.append(relato.hecho(
         "bin_cmv40", tr('relato.hecho_bin_cmv40'),
-        relato.HECHO_OK if es_v40
+        relato.HECHO_FALLO if fallo_cm
+        else relato.HECHO_OK if es_v40
         else relato.HECHO_AVISO if tgt else relato.HECHO_PENDIENTE,
-        _dv(tgt)))
+        session.error_message if fallo_cm else dv_tgt))
 
     clase = session.target_l8_classification or ""
     estado_l8 = {"real": relato.HECHO_OK,
@@ -208,15 +236,64 @@ def _hechos(session) -> list[dict]:
                  "default": relato.HECHO_AVISO,
                  "indeterminate": relato.HECHO_DUDA}.get(
                      clase, relato.HECHO_PENDIENTE)
-    evidencia = ""
-    if clase:
-        evidencia = " · ".join(x for x in (
-            tr('relato.intensidad_max', delta=session.target_l8_max_delta),
-            tr('relato.n_ajustes', n=session.target_l8_unique_count),
-        ) if x)
     hechos.append(relato.hecho("bin_colorista", tr('relato.hecho_bin_colorista'),
-                               estado_l8, evidencia))
+                               estado_l8, _evidencia_l8(session, clase)))
     return hechos
+
+
+# «no aporta CMv4.0», «CM v2.9»… — lo que distingue un fallo de esa
+# comprobación de cualquier otro error del pre-flight.
+_RE_CM = __import__("re").compile(r"CMv4\.0|CM v", __import__("re").I)
+
+
+def _evidencia_l8(session, clase: str) -> str:
+    """El veredicto del L8 y los tres números que lo sostienen.
+
+    El veredicto va DELANTE porque es la respuesta; los números detrás,
+    porque son la prueba. Es la misma regla con la que se reescribieron los
+    textos el 2026-09-19.
+    """
+    if not clase:
+        # Cuando el pre-flight aborta, la fila que se quedó sin respuesta
+        # tiene que decirlo: si no, se lee como «pendiente» de algo que ya no
+        # va a pasar.
+        return tr('relato.no_se_llego_a_comprobar') if session.error_message else ""
+    tier = {"full": "FULL", "core_rich": "CORE+", "core": "CORE"}.get(
+        session.target_l8_quality_tier or "", "")
+    veredicto = {
+        "real": (tr('relato.l8_si_calidad', tier=tier) if tier
+                 else tr('relato.l8_si')),
+        "tone_mapping": tr('relato.l8_solo_automatico'),
+        "default": tr('relato.l8_sin_ajustes'),
+        "indeterminate": tr('relato.l8_no_concluyente'),
+    }.get(clase, clase)
+    trozos = [veredicto]
+    if session.target_l8_max_delta:
+        trozos.append(tr('relato.intensidad_max',
+                         delta=session.target_l8_max_delta))
+    if session.target_l8_unique_count:
+        trozos.append(tr('relato.n_ajustes', n=session.target_l8_unique_count))
+    neutros = session.target_l8_neutral_frames_pct
+    if neutros is not None:
+        trozos.append(tr('relato.con_ajuste_en_el_pct',
+                         pct=round((1.0 - neutros) * 100)))
+    return " · ".join(trozos)
+
+
+def _marcar_el_que_se_esta_haciendo(hechos: list[dict], situacion: str) -> None:
+    """Con el trabajo en marcha, el primer hecho sin resolver es el de ahora.
+
+    Lo calculaba el JS del modal. Aquí lo ve también la ficha, que es la mitad
+    del encargo: sin esto, una superficie sabe en qué comprobación va y la
+    otra no. Y una lista entera en gris es lo que hace que un checklist no
+    parezca vivo.
+    """
+    if situacion != relato.EN_MARCHA:
+        return
+    for h in hechos:
+        if h["estado"] == relato.HECHO_PENDIENTE:
+            h["estado"] = relato.HECHO_EN_CURSO
+            return
 
 
 def _porque(session, situacion: str, plan) -> str:
@@ -247,6 +324,8 @@ def resolver(session, *, en_cola=None, plan=None) -> dict:
     veces en la misma petición — el endpoint ya lo tiene en la mano."""
     situacion = _situacion(session, en_cola)
     etapa = _etapa(session, situacion)
+    hechos = _hechos(session)
+    _marcar_el_que_se_esta_haciendo(hechos, situacion)
     idx = ETAPAS.index(etapa)
     # `siguiente` es SOLO para la interfaz, que se repinta y se corrige sola.
     # En el log sería la promesa colgando que la regla del proyecto prohíbe.
@@ -255,10 +334,13 @@ def resolver(session, *, en_cola=None, plan=None) -> dict:
         siguiente = rotulo_de_etapa(ETAPAS[idx + 1])
     return {
         "situacion": situacion,
+        # El rótulo lo pone el servidor para que la ficha, la columna de
+        # trabajo y el modal digan lo mismo — que es de lo que iba todo esto.
+        "situacion_rotulo": tr(f"relato.situacion_{situacion}"),
         "etapa": {"id": etapa, "rotulo": rotulo_de_etapa(etapa),
                   "indice": idx + 1, "total": len(ETAPAS)},
         "porque": _porque(session, situacion, plan),
         "decision": _decision(session),
-        "hechos": _hechos(session),
+        "hechos": hechos,
         "siguiente": siguiente,
     }

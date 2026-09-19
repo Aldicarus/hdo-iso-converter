@@ -297,5 +297,83 @@ class TestElEndpointLoSirve(unittest.TestCase):
         self.assertNotIn("relato", crudo)
 
 
+class TestNadieVuelveADerivarloAMano(unittest.TestCase):
+    """El guard: la regla vive en el servidor y el JS la LEE.
+
+    Es el mismo patrón que `TestNoQuedanReplicas` con `force_interactive`, y
+    por el mismo motivo: una réplica de una regla del backend se desincroniza
+    en silencio. La mañana del 2026-09-19 se arreglaron tres defectos de esa
+    familia uno a uno; esto es lo que impide el cuarto.
+
+    **Las excepciones van por FUNCIÓN y con su motivo.** Hay una: el guard del
+    auto-pipeline, que es control de flujo y no relato — decide si volver a
+    disparar una fase, y tiene que funcionar aunque el relato no se haya
+    podido componer.
+    """
+
+    #: función → por qué puede leer los campos crudos
+    EXENTAS = {
+        "_cmv40MaybeAutoAdvance":
+            "control de flujo, no relato: decide si re-disparar el pre-flight "
+            "y debe seguir funcionando aunque el relato falle",
+        "_cmv40GateBloque5":
+            "el bloque ⑤ de la card 🛡️ Validaciones es uno de los volcados de "
+            "diagnóstico que CLAUDE.md exime por función: enseña el valor "
+            "CRUDO del campo, para leerlo contra el log, no para contar nada",
+    }
+    CAMPOS = ("preflight_user_choice", "preflight_decision")
+
+    def _funciones(self, src: str):
+        """(nombre, cuerpo) de cada `function X(...) {...}` de primer nivel."""
+        import re
+        for m in re.finditer(r"^function (\w+)\(", src, re.M):
+            nombre, i = m.group(1), m.start()
+            prof, abierto = 0, False
+            for j in range(i, len(src)):
+                if src[j] == "{":
+                    prof += 1; abierto = True
+                elif src[j] == "}":
+                    prof -= 1
+                    if abierto and prof == 0:
+                        yield nombre, src[i:j + 1]
+                        break
+
+    def test_las_superficies_leen_el_relato(self):
+        # Por la FUNCIÓN, no por el nombre del fichero: si mañana el modal
+        # se va a su propia pieza, el guard la sigue. Leer `tab3.js` por su
+        # ruta pasaría en verde vigilando el vacío — lo prohíbe
+        # `TestNadieLeeUnaPiezaSuelta`.
+        from frontend_sources import pieza_de
+        _, src = pieza_de("_cmv40PfChecks")
+        malas = []
+        for nombre, cuerpo in self._funciones(src):
+            if nombre in self.EXENTAS:
+                continue
+            # Los comentarios explican el cambio y citan los campos; lo que se
+            # persigue es el CÓDIGO que los lee.
+            codigo = "\n".join(l for l in cuerpo.splitlines()
+                                if not l.lstrip().startswith(("//", "*", "/*")))
+            for campo in self.CAMPOS:
+                if f"s.{campo}" in codigo or f"session.{campo}" in codigo:
+                    malas.append(f"{nombre} lee s.{campo} a mano")
+        self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
+
+    def test_cada_exencion_sigue_existiendo(self):
+        """Una exención que ya no corresponde a código real parece cobertura
+        y no cubre nada."""
+        # Por la FUNCIÓN, no por el nombre del fichero: si mañana el modal
+        # se va a su propia pieza, el guard la sigue. Leer `tab3.js` por su
+        # ruta pasaría en verde vigilando el vacío — lo prohíbe
+        # `TestNadieLeeUnaPiezaSuelta`.
+        from frontend_sources import pieza_de
+        _, src = pieza_de("_cmv40PfChecks")
+        nombres = {n for n, _ in self._funciones(src)}
+        self.assertEqual(set(self.EXENTAS) - nombres, set())
+
+    def test_cada_exencion_lleva_su_motivo(self):
+        for nombre, motivo in self.EXENTAS.items():
+            self.assertGreater(len(motivo), 20, nombre)
+
+
 if __name__ == "__main__":
     unittest.main()

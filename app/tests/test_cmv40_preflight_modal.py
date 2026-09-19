@@ -43,6 +43,24 @@ from frontend_sources import (html, argv_node, js_completo, motor_i18n,  # noqa:
                               pintar_en, stub_catalogo_es)
 
 NODE = shutil.which("node")
+
+
+def con_relato(sesion: dict) -> dict:
+    """La sesión tal y como la SIRVE el endpoint: con su `relato` dentro.
+
+    El modal dejó de derivar sus filas el 2026-09-19 y las lee del relato, que
+    compone el servidor. Alimentarlo con una sesión cruda mediría un camino
+    que no existe — es la regla de los fakes fieles: el productor real, no uno
+    que conteste lo que al test le conviene.
+    """
+    from models import CMv40Session
+    from phases.cmv40_relato import resolver
+    from phases.cmv40_strategy import resolve_plan
+    base = dict(id="cmv40_t", source_mkv_path="/x/a.mkv", source_mkv_name="a.mkv")
+    obj = CMv40Session(**{**base,
+                          **{k: v for k, v in sesion.items()
+                             if k in CMv40Session.model_fields}})
+    return {**sesion, "relato": resolver(obj, plan=resolve_plan(obj))}
 JS = js_completo()
 
 _CHROME_CANDIDATOS = [
@@ -62,7 +80,9 @@ def _fn(nombre: str) -> str:
 # por la decisión, y la decisión formatea su fecha. Van juntas o no van.
 def _pf_helpers() -> str:
     return "\n".join(_fn(n) for n in (
-        "_cmv40PfMotivosDelLog", "_cmv40PfDecision", "_cmv40PfCuando"))
+        # `_cmv40PfDecision` se retiró el 2026-09-19: la decisión la resuelve
+        # el servidor en `relato.decision` y el modal la lee.
+        "_cmv40PfMotivosDelLog", "_cmv40PfCuando"))
 
 
 def _node(guion: str) -> dict:
@@ -87,7 +107,7 @@ class TestLosTresDesenlaces(unittest.TestCase):
 globalThis.escHtml = t => String(t);
 {_pf_helpers()}
 {_fn('_cmv40PfVeredicto')}
-const v = _cmv40PfVeredicto({json.dumps(sesion)}, {json.dumps(trabajo)});
+const v = _cmv40PfVeredicto({json.dumps(con_relato(sesion))}, {json.dumps(trabajo)});
 console.log(JSON.stringify({{v}}));
 """
         return _node(guion)["v"]
@@ -144,7 +164,7 @@ class TestLasConclusiones(unittest.TestCase):
 globalThis.escHtml = t => String(t);
 {_pf_helpers()}
 {_fn('_cmv40PfChecks')}
-console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
+console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})}}));
 """
         return _node(guion)["f"]
 
@@ -819,7 +839,7 @@ class TestElModalNoRepiteUnaPreguntaYaContestada(unittest.TestCase):
 globalThis.escHtml = t => String(t);
 {_pf_helpers()}
 {_fn('_cmv40PfVeredicto')}
-console.log(JSON.stringify({{v: _cmv40PfVeredicto({json.dumps(sesion)},
+console.log(JSON.stringify({{v: _cmv40PfVeredicto({json.dumps(con_relato(sesion))},
                                                   {json.dumps(trabajo)})}}));
 """
         return _node(guion)["v"]
@@ -838,7 +858,7 @@ let _cmv40PfSesion = 'p1';
 {_fn('_cmv40PfVeredicto')}
 {_pf_helpers()}
 {_fn('_cmv40PfPintarPie')}
-const s = {json.dumps(sesion)};
+const s = {json.dumps(con_relato(sesion))};
 _cmv40PfPintarPie(s, _cmv40PfVeredicto(s, null));
 console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
 """
@@ -849,7 +869,7 @@ console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
 globalThis.escHtml = t => String(t);
 {_pf_helpers()}
 {_fn('_cmv40PfChecks')}
-console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(sesion)})}}));
+console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})}}));
 """
         return _node(guion)["f"]
 
@@ -984,7 +1004,7 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
         sonda = ("<script>window.__errores=[];"
                  "window.addEventListener('error',e=>window.__errores.push("
                  "(e.message||'')+' @ '+(e.filename||'').split('/').pop()"
-                 f"+':'+e.lineno));window.__S={json.dumps(sesion)};</script>")
+                 f"+':'+e.lineno));window.__S={json.dumps(con_relato(sesion))};</script>")
         cuerpo = """
 <pre id="__out"></pre>
 <script>
