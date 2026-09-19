@@ -33,7 +33,8 @@ def cancelada(fase: str) -> CMv40PhaseRecord:
     from datetime import datetime, timezone
     return CMv40PhaseRecord(phase=fase, status="cancelled",
                             started_at=datetime.now(timezone.utc))
-from phases.cmv40_relato import ETAPAS, resolver  # noqa: E402
+from phases.cmv40_relato import (ETAPAS, porque_de_fase,  # noqa: E402
+                                 resolver)
 
 
 def sesion(**campos) -> CMv40Session:
@@ -199,6 +200,83 @@ class TestLosHechosSonLaMismaLista(unittest.TestCase):
                           "bin_colorista"])
 
 
+class TestCadaFaseDiceDeDondeViene(unittest.TestCase):
+    """El punto 7 del mapa: ninguna fase se refería a lo medido antes.
+
+    La regla del proyecto prohíbe PROMETER la fase siguiente —nació de
+    promesas que quedaban colgando al cancelar— pero no dice nada de mirar
+    atrás, y nadie lo hacía.
+    """
+
+    def _plan(self, s):
+        from phases.cmv40_strategy import resolve_plan
+        return resolve_plan(s)
+
+    def test_la_fase_a_cuenta_lo_que_dejo_el_pre_flight(self):
+        s = sesion(**bin_analizado("real"))
+        t = porque_de_fase(s, "analyze_source", plan=self._plan(s))
+        self.assertIn("Perfil 7 FEL", t)        # el dato
+        self.assertIn("colorista", t)           # y el veredicto
+
+    def test_la_fase_b_cuenta_lo_que_leyo_la_fase_a(self):
+        from models import DoviInfo
+        s = sesion(source_dv_info=DoviInfo(profile=7, el_type="FEL",
+                                           cm_version="v2.9", frame_count=1000))
+        self.assertIn("CM v2.9", porque_de_fase(s, "target_rpu_drive"))
+
+    def test_sin_dato_no_se_dice_nada(self):
+        """Una frase vacía de contenido cada vez que arranca una fase es
+        ruido, y el log de un job largo ya tiene bastante."""
+        self.assertEqual(porque_de_fase(sesion(), "analyze_source"), "")
+        self.assertEqual(porque_de_fase(sesion(), "target_rpu_drive"), "")
+
+    def test_la_fase_c_se_ancla_en_lo_que_RAMIFICA(self):
+        """No en `drop_in` sino en `needs_demux`, que es sobre lo que la fase
+        decide. Si la explicación y la decisión salen de campos distintos
+        pueden contar cosas distintas — el fallo que cerró `cmv40_strategy`.
+        """
+        from phases.cmv40_strategy import resolve_plan
+        # `p8` es el caso que los separa: no va por drop-in **y** tampoco
+        # tiene capas que separar, así que anclar en `drop_in` haría decir
+        # «hay que recomponer el RPU» de una fase que no hace nada. Medido
+        # sobre la matriz: 16 de las 48 combinaciones discrepan, todas P8.
+        for wf, tipo, trust in (("p7_fel", "trusted_p7_fel_final", True),
+                                ("p7_fel", "generic", False),
+                                ("p7_mel", "trusted_p7_mel_final", True),
+                                ("p8", "trusted_p8_source", True),
+                                ("p8", "generic", False)):
+            s = sesion(source_workflow=wf, target_type=tipo,
+                       target_trust_ok=trust)
+            plan = resolve_plan(s)
+            t = porque_de_fase(s, "extract", plan=plan)
+            with self.subTest(wf=wf, demux=plan.extract.needs_demux):
+                self.assertEqual("recomponer" in t, plan.extract.needs_demux)
+
+    def test_la_fase_f_distingue_sync_revisada_de_omitida(self):
+        omitida = sesion(phases_skipped=["sync_verification_pause"])
+        revisada = sesion(sync_delta=0)
+        self.assertIn("no hizo falta", porque_de_fase(omitida, "inject"))
+        self.assertIn("verificada", porque_de_fase(revisada, "inject"))
+
+    def test_todas_las_fases_del_orquestador_tienen_su_linea(self):
+        """Si una fase se queda sin justificación, el hilo se corta ahí — y
+        el orquestador la emite para TODAS, así que el hueco sería mudo."""
+        from routers.cmv40 import _FASE_CORTA
+        from phases.cmv40_strategy import resolve_plan
+        s = sesion(**bin_analizado("real"),
+                   source_dv_info=__import__("models").DoviInfo(
+                       profile=7, el_type="FEL", cm_version="v2.9",
+                       frame_count=1000),
+                   source_workflow="p7_fel",
+                   target_type="trusted_p7_fel_final", target_trust_ok=True,
+                   output_mkv_name="x.mkv")
+        plan = resolve_plan(s)
+        sin = [f for f in _FASE_CORTA
+               if f != "correct_sync"                 # Fase E se repite dentro de D
+               and not porque_de_fase(s, f, plan=plan)]
+        self.assertEqual(sin, [])
+
+
 class TestElSiguienteEsSoloDeInterfaz(unittest.TestCase):
 
     def test_hay_siguiente_mientras_el_trabajo_avanza(self):
@@ -295,6 +373,103 @@ class TestElEndpointLoSirve(unittest.TestCase):
         self.caso.client.get(f"/api/cmv40/{sid}")
         crudo = self.caso.leer_sesion(sid).model_dump()
         self.assertNotIn("relato", crudo)
+
+
+class TestElOrquestadorEmiteElPorque(unittest.TestCase):
+    """Que la función exista no basta: hay que ejecutar el SITIO que la usa.
+
+    Es la lección del 2026-09-19 por la mañana — un test que llamaba al
+    helper en vez de al sitio que lo llama dejó pasar la mutación entera. El
+    porqué se emite en `_run_cmv40_phase_locked`, en un solo punto, para que
+    ninguna fase pueda quedarse sin él.
+    """
+
+    def _correr_una_fase(self, session):
+        import asyncio
+        from routers import cmv40
+        from api_harness import ApiTestCase
+
+        caso = type("_C", (ApiTestCase,), {"runTest": lambda s: None})()
+        caso.setUpClass(); caso.setUp()
+        self.addCleanup(caso.doCleanups)
+
+        import storage
+        storage.save_cmv40_session(session)
+        emitidas = []
+        orig = cmv40._cmv40_log
+
+        async def _espia(s, msg):
+            emitidas.append(msg)
+        cmv40._cmv40_log = _espia
+        self.addCleanup(setattr, cmv40, "_cmv40_log", orig)
+
+        async def _coro(log_cb, proc_cb):
+            return None
+
+        asyncio.run(cmv40._run_cmv40_phase_locked(
+            session, "analyze_source", _coro, "source_analyzed",
+            asyncio.Lock()))
+        return emitidas
+
+    def test_la_fase_abre_contando_de_donde_viene(self):
+        s = sesion(**bin_analizado("real"))
+        emitidas = self._correr_una_fase(s)
+        porque = [l for l in emitidas if "↩" in l]
+        self.assertTrue(porque, "la fase arranca sin decir de dónde viene")
+        self.assertIn("[Fase A]", porque[0],
+                      "la línea no se lee como una más de la fase")
+        self.assertIn("Perfil 7 FEL", porque[0])
+
+    def test_va_detras_del_banner_de_arranque(self):
+        """Primero «de qué fase hablamos» y luego «por qué»; al revés se lee
+        como el cierre de la fase anterior."""
+        s = sesion(**bin_analizado("real"))
+        emitidas = self._correr_una_fase(s)
+        banner = next(i for i, l in enumerate(emitidas) if "━━━" in l)
+        porque = next(i for i, l in enumerate(emitidas) if "↩" in l)
+        self.assertGreater(porque, banner)
+
+    def test_sin_nada_que_contar_no_se_emite_una_linea_vacia(self):
+        emitidas = self._correr_una_fase(sesion())
+        self.assertEqual([l for l in emitidas if "↩" in l], [])
+
+
+class TestElLogNoLlevaEstructurasDePython(unittest.TestCase):
+    """El despachador volcaba el valor de RETORNO de la fase al log.
+
+    Producía dos líneas sin hora y sin prefijo de fase —una con una ruta y
+    otra con el `repr` de un diccionario— porque se metían directamente en el
+    buffer, saltándose `_cmv40_log`. En un log que el usuario lee para
+    entender qué ha pasado, eso es ruido con pinta de dato.
+    """
+
+    def test_el_valor_de_retorno_de_una_fase_no_acaba_en_el_log(self):
+        import asyncio
+        from routers import cmv40
+        from models import CMv40Session
+
+        s = CMv40Session(id="cmv40_x", source_mkv_path="/a.mkv",
+                         source_mkv_name="a.mkv")
+
+        async def _runner_que_devuelve_algo(session, log_cb, proc_cb):
+            return {"profile": 7, "el_type": "FEL", "output_path": "/x.mkv"}
+
+        import phases.cmv40_pipeline as pipeline
+        orig = getattr(pipeline, "run_phase_h_validate")
+        pipeline.run_phase_h_validate = _runner_que_devuelve_algo
+        self.addCleanup(setattr, pipeline, "run_phase_h_validate", orig)
+        cmv40._cmv40_log_buffer.pop(s.id, None)
+
+        coro, _ = cmv40._cmv40_construir_fase(s, "validate", {})
+
+        async def _nada(_m):
+            return None
+        asyncio.run(coro(_nada, lambda _p: None))
+
+        buffer = cmv40._cmv40_log_buffer.get(s.id) or []
+        self.assertEqual(
+            [l for l in buffer if "profile" in l], [],
+            "el diccionario de vuelta de la fase ha acabado en el log")
 
 
 class TestNadieVuelveADerivarloAMano(unittest.TestCase):

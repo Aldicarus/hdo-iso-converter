@@ -4497,6 +4497,72 @@ def resolve_validation_target(session: CMv40Session, wd: Path) -> tuple[Path, bo
     )
 
 
+def _resumen_del_mkv(mkvmerge_json: str, info, ruta) -> list[str]:
+    """Lo que ACABÓ en el fichero, enumerado y legible.
+
+    La Fase H ya ejecutaba `mkvmerge -J` sobre el MKV final y **tiraba la
+    salida**: solo miraba el código de retorno. Así que el job cerraba con un
+    `🎯 Resultado` de una línea y, detrás, un `repr` de diccionario de Python
+    escrito directamente en el buffer del log —sin hora y sin fase— porque el
+    despachador volcaba el valor de retorno.
+
+    El pipeline de Tab 1 lleva desde siempre el patrón bueno: enumerar el
+    resultado y ticarlo. Esto es lo mismo para Tab 3, que es lo que el usuario
+    pedía al decir que las fases «no aportan evidencias de lo que hacen».
+    """
+    import json as _json
+    lineas = []
+    try:
+        gb = ruta.stat().st_size / 1e9
+        lineas.append('[Fase H] ' + tr('cmv40_pipeline.resumen_fichero',
+                                       nombre=ruta.name, gb=format(gb, '.2f')))
+    except OSError:
+        lineas.append('[Fase H] ' + tr('cmv40_pipeline.resumen_fichero',
+                                       nombre=ruta.name, gb='?'))
+
+    dv = tr('cmv40_pipeline.resumen_dv', perfil=info.profile,
+            el=(' ' + info.el_type) if info.el_type else '',
+            cm=info.cm_version,
+            frames=f"{info.frame_count:,}".replace(",", "."))
+    try:
+        pistas = (_json.loads(mkvmerge_json or "{}") or {}).get("tracks") or []
+    except ValueError:
+        # Un JSON ilegible no puede costar el cierre del job: se pierde el
+        # detalle de las pistas, no el resultado.
+        pistas = []
+
+    def _desc(t):
+        pr = t.get("properties") or {}
+        trozos = [pr.get("language") or "und", t.get("codec") or ""]
+        if pr.get("track_name"):
+            trozos.append(f'"{pr["track_name"]}"')
+        return " · ".join(x for x in trozos if x)
+
+    por_tipo = {"video": [], "audio": [], "subtitles": []}
+    for t in pistas:
+        por_tipo.setdefault(t.get("type") or "", []).append(t)
+
+    for t in por_tipo.get("video", []):
+        lineas.append('[Fase H]   ' + tr('cmv40_pipeline.resumen_video',
+                                         codec=t.get("codec") or "?", dv=dv))
+    if not por_tipo.get("video"):
+        lineas.append('[Fase H]   ' + tr('cmv40_pipeline.resumen_video',
+                                         codec="?", dv=dv))
+    for clave, etiqueta in (("audio", 'cmv40_pipeline.resumen_audio'),
+                            ("subtitles", 'cmv40_pipeline.resumen_subs')):
+        lista = por_tipo.get(clave) or []
+        if not lista:
+            continue
+        # Una pista y varias van en claves distintas: el plural catalán de
+        # «pista» es irregular (pistes), así que el sufijo de una letra no
+        # sirve — es la regla que el proyecto ya aplicó con «dia/dies».
+        lineas.append('[Fase H]   ' + (tr(etiqueta + '_uno') if len(lista) == 1
+                                       else tr(etiqueta, n=len(lista))))
+        for t in lista:
+            lineas.append('[Fase H]     · ' + _desc(t))
+    return lineas
+
+
 async def run_phase_h_validate(
     session: CMv40Session,
     log_callback=None,
@@ -4782,6 +4848,8 @@ async def run_phase_h_validate(
             await log_callback(
                 '[Fase H] ' + tr('cmv40_pipeline.revalidado_el_mkv_ya_existente', final_path=final_path)
             )
+            for linea in _resumen_del_mkv(out, result_info, final_path):
+                await log_callback(linea)
             await log_callback(
                 '[Fase H] 🎯 Resultado' + tr('cmv40_pipeline.el_upgrade_ya_estaba_completo_profile', profile=result_info.profile, p2=' ' + result_info.el_type if result_info.el_type else '', cm_version=result_info.cm_version, frame_count=result_info.frame_count)
             )
@@ -4882,6 +4950,8 @@ async def run_phase_h_validate(
         await log_callback(
             '[Fase H] ' + tr('cmv40_pipeline.mkv_validado_y_movido_a_ubicacion', final_path=final_path)
         )
+        for linea in _resumen_del_mkv(out, result_info, final_path):
+            await log_callback(linea)
         await log_callback(
             '[Fase H] 🎯 Resultado' + tr('cmv40_pipeline.upgrade_cmv4_0_completado_con_exito', profile=result_info.profile, p2=' ' + result_info.el_type if result_info.el_type else '', cm_version=result_info.cm_version, frame_count=result_info.frame_count)
         )

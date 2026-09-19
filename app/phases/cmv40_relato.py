@@ -344,3 +344,68 @@ def resolver(session, *, en_cola=None, plan=None) -> dict:
         "hechos": hechos,
         "siguiente": siguiente,
     }
+
+
+# ── La justificación: de dónde viene la fase que va a empezar ───────────────
+#
+# La regla del proyecto prohíbe PROMETER la fase siguiente —nació de promesas
+# que quedaban colgando al cancelar— pero no dice nada de mirar atrás, y nadie
+# lo hacía: cada fase abría con su `📋 Plan` sin referirse a lo que se había
+# medido antes. Eso es lo que el usuario describió como «cada fase corre de
+# manera independiente sin justificar lo que hace».
+#
+# El texto sale de AQUÍ y no de cada fase, por lo mismo que el `📋 Plan` de
+# las que ramifican sale de `cmv40_strategy`: si la explicación y el dato no
+# son el mismo objeto, se separan. Y lo emite el orquestador en un solo sitio,
+# así que ninguna fase puede quedarse sin ella.
+
+def porque_de_fase(session, phase_name: str, plan=None) -> str:
+    """El hecho que la fase anterior dejó establecido y que ésta usa.
+
+    Devuelve "" cuando no hay nada que contar: una frase vacía de contenido
+    cada vez que arranca una fase es ruido, y el log de un job largo ya tiene
+    bastante.
+    """
+    etapa = _RUNNING_A_ETAPA.get(phase_name, "")
+
+    if etapa == "analyze_source":
+        tgt = session.target_dv_info
+        if not tgt or not tgt.profile:
+            return ""
+        clase = session.target_l8_classification or ""
+        veredicto = {
+            "real": tr('relato.porque_fase_a_real'),
+            "tone_mapping": tr('relato.porque_fase_a_tone_mapping'),
+            "default": tr('relato.porque_fase_a_default'),
+        }.get(clase, "")
+        return tr('relato.porque_fase_a', dv=_dv(tgt), veredicto=veredicto)
+
+    if etapa == "target_rpu":
+        src = session.source_dv_info
+        return tr('relato.porque_fase_b', dv=_dv(src)) if src and src.profile else ""
+
+    if etapa == "extract":
+        if plan is None:
+            return ""
+        # Se ancla en lo que la fase RAMIFICA (`needs_demux`), no en
+        # `drop_in`: si la explicación y la decisión no salen del mismo campo
+        # pueden contar cosas distintas, que es el fallo que `cmv40_strategy`
+        # vino a cerrar («Te van a matar», 2026-08-15).
+        return tr('relato.porque_fase_c_merge' if plan.extract.needs_demux
+                  else 'relato.porque_fase_c_dropin')
+
+    if etapa == "inject":
+        if "sync_verification_pause" in (session.phases_skipped or []) or (
+                plan is not None and plan.inputs.skip_sync_review):
+            return tr('relato.porque_fase_f_sin_revisar')
+        if session.sync_delta == 0:
+            return tr('relato.porque_fase_f_sync_ok')
+        return tr('relato.porque_fase_f_sync_corregido', delta=session.sync_delta)
+
+    if etapa == "remux":
+        return tr('relato.porque_fase_g')
+
+    if etapa == "validate":
+        return tr('relato.porque_fase_h', nombre=session.output_mkv_name or "")
+
+    return ""

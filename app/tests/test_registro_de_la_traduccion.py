@@ -134,6 +134,9 @@ IGUAL_EN_INGLES = {
     "tab2.stream":           "cabecera de la columna de MediaInfo",
     "tab2.frames":           "cabecera de tabla",
     "tab3.frames":           "etiqueta de dato",
+    "cmv40_pipeline.resumen_fichero":
+        "un icono, el nombre del fichero y su tamaño en GB: la línea no "
+        "tiene ninguna palabra",
     "relato.n_frames":       "un número y «frames», que es el término tal "
                              "cual en las tres lenguas: no queda nada que "
                              "traducir",

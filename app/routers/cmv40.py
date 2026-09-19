@@ -81,10 +81,21 @@ import queue_manager as queue_manager_mod  # noqa: E402
 import trabajos  # noqa: E402
 import workload  # noqa: E402
 import relato  # noqa: E402
+from phases.cmv40_relato import porque_de_fase as _porque_de_fase  # noqa: E402
 from phases.cmv40_relato import resolver as _resolver_relato  # noqa: E402
 
 # La pestaña aporta su resolutor; `relato` no conoce ninguna pestaña.
 relato.registrar(workload.TAB_CMV40, _resolver_relato)
+
+#: `phase_name` → el prefijo con el que el pipeline marca sus líneas. La
+#: justificación se emite con el MISMO, para que se lea como una línea más de
+#: la fase y no como un comentario suelto del orquestador.
+_FASE_CORTA = {
+    "analyze_source": "Fase A", "target_rpu_path": "Fase B",
+    "target_rpu_drive": "Fase B", "target_rpu_mkv": "Fase B",
+    "extract": "Fase C", "correct_sync": "Fase E", "inject": "Fase F",
+    "remux": "Fase G", "validate": "Fase H",
+}
 from queue_manager import queue_manager  # noqa: E402
 from phases.cmv40_strategy import resolve_plan  # noqa: E402
 
@@ -805,6 +816,19 @@ async def _run_cmv40_phase_locked(
             # la fase anterior.
             _cmv40_last_progress.pop(session.id, None)
             await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_phase_name', phase_name=phase_name) + ' ━━━')
+            # De dónde viene esta fase. Va AQUÍ y no en cada `run_phase_*` por
+            # dos motivos: ninguna se puede quedar sin ella, y el texto sale
+            # del mismo objeto que el resto del relato, así que no puede
+            # contar algo distinto de lo que la ficha enseña. Mirar atrás está
+            # permitido; lo que la regla prohíbe es prometer la fase siguiente.
+            try:
+                porque = _porque_de_fase(session, phase_name,
+                                         plan=resolve_plan(session))
+                if porque:
+                    await _cmv40_log(session, f"[{_FASE_CORTA.get(phase_name, 'Fase')}] {porque}")
+            except Exception as e:      # noqa: BLE001 — nunca cuesta la fase
+                _logger.warning("No se pudo componer el porqué de %s: %s",
+                                phase_name, e)
             await coro_factory(_log_cb, _proc_cb)
 
             record.status = "done"
@@ -1142,12 +1166,13 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
         runner = getattr(pipeline, runner_name)
 
         async def _coro(log_cb, proc_cb):
-            result = await runner(session, log_cb, proc_cb)
-            # Solo Fase H devuelve algo: el resumen de la validación, que se
-            # deja en el log para que quede en el historial del proyecto.
-            if result is not None:
-                _cmv40_log_buffer.setdefault(session.id, []).append(
-                    tr('cmv40.validacion_final_result', result=result))
+            # El valor de retorno de la fase **no se vuelca al log**. Se hacía,
+            # y producía dos líneas sin hora y sin fase —una con una ruta y
+            # otra con el `repr` de un diccionario de Python— porque se metían
+            # directamente en el buffer, saltándose `_cmv40_log`. Lo que
+            # contenían ya lo dice la propia fase en su `🎯 Resultado`, y desde
+            # hoy la Fase H además enumera lo que acabó en el fichero.
+            await runner(session, log_cb, proc_cb)
 
         return _coro, new_phase
 

@@ -349,6 +349,40 @@ class TestFaseHValidacion(CmvPhaseCase):
         self.assertEqual(result["profile"], 7)
         self.assertEqual(result["cm_version"], "v4.0")
 
+    async def test_cierra_enumerando_lo_que_acabo_en_el_fichero(self):
+        """El punto 6 del mapa: Tab 3 cerraba con un `🎯 Resultado` de una
+        línea y, detrás, un `repr` de diccionario de Python escrito sin hora
+        y sin fase. La Fase H ya ejecutaba `mkvmerge -J` sobre el MKV final y
+        **tiraba la salida**: solo miraba el código de retorno.
+
+        El pipeline de Tab 1 lleva desde siempre el patrón bueno —enumerar el
+        resultado y ticarlo— y es lo que el usuario echaba de menos al decir
+        que las fases «no aportan evidencias de lo que hacen».
+        """
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        self.stage_output(session)
+        await self.run_h(session)
+        texto = self.log.text
+
+        self.assertIn("📁", texto, "no dice qué fichero ha quedado")
+        self.assertIn("🎬", texto, "no dice qué vídeo lleva dentro")
+        self.assertIn("Dolby Vision", texto)
+        # Y NADA de estructuras de Python: era la mitad del defecto.
+        self.assertNotIn("{'profile'", texto)
+        self.assertNotIn("'el_type':", texto)
+
+    async def test_ninguna_linea_del_cierre_se_queda_sin_fase(self):
+        """Las dos líneas del volcado crudo no llevaban prefijo, así que en
+        el log aparecían sueltas entre las de la fase."""
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        self.stage_output(session)
+        await self.run_h(session)
+        sueltas = [l for l in self.log.lines
+                   if ("📁" in l or "🎬" in l) and "[Fase H]" not in l]
+        self.assertEqual(sueltas, [])
+
     async def test_rama_merge_valida_el_rpu_del_hevc_pre_mux(self):
         session = self.prepare(trust_ok=False,
                                artifacts=("BL.hevc", "DV_dual.hevc"),
