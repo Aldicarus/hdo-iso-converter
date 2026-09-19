@@ -11,8 +11,14 @@ Dolby: *«L8 is not generated and must fully come from the colorist»*. Así
 que un L8 que no se aparta del neutro es, por construcción, lo que
 `cm_analyze` produciría sobre tu propio disco — procesarlo no aporta nada.
 
-    generados por análisis .......  maxΔ  0 – 30
-    másters con colorista ........  maxΔ  126 – 2.046
+    generados por análisis (n=19) ..  maxΔ  0 – 30   · mid/clip 0 de 17
+    másters con colorista (n=11) ..  maxΔ  126 – 2.046 · mid/clip 11 de 18
+
+Ni un solo solape, con el umbral de 50 en medio. En la tanda de cierre los
+17 generados dieron maxΔ **exactamente 0** con 1-2 combos y L3 de 773 a
+3.226: la firma de `cm_analyze`, que analiza el contenido (L1, L3) y no
+inventa trims (L8). Ninguno traía L3 identidad, así que ninguno es de
+avdvplus.
 
 El conteo de combos NO separa (Dogma: 2 combos y maxΔ 606; un generado: 2
 combos y maxΔ 0) y con él se perdían **5 de 18** retail. El % de frames

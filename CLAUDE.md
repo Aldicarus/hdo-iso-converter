@@ -3284,10 +3284,17 @@ real     si maxΔ > 50      (L8_REAL_MINIMAL_SIGNIFICANT_DELTA, ya calibrado)
 default  si no
 ```
 
-| | maxΔ medido |
-|---|---|
-| generados por análisis | **0 – 30** |
-| másters con colorista | **126 – 2.046** |
+| | n | maxΔ medido | mid/clip |
+|---|---|---|---|
+| generados por análisis | **19** | **0 – 30** (17 de ellos, exactamente 0) | **0 / 17** |
+| másters con colorista | **11** | **126 – 2.046** | 11 / 18 |
+| retail sin L8 | 2 | 0 | — |
+
+**Ni un solo solape**, con el umbral de 50 en medio y margen de 1,7× por
+abajo y 2,5× por arriba. Los 17 generados de la tanda de cierre dieron
+maxΔ **0** y 1-2 combos, con L3 de 773 a 3.226 — la firma exacta de
+`cm_analyze`: analiza el contenido (L1, L3) y no inventa trims (L8).
+Ninguno traía L3 identidad, así que ninguno pasó por avdvplus.
 
 El conteo de combos **no separa**: Dogma trae 2 combos con maxΔ 606 (retail)
 y un generado trae 2 con maxΔ 0. Con él se perdían **5 de 18** retail —
