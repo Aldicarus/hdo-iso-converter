@@ -39,6 +39,16 @@ ETAPAS = (
     "sync", "inject", "remux", "validate",
 )
 
+#: etapa → la letra con la que el usuario la conoce. El pre-flight no lleva:
+#: no es una de las fases con letra del pipeline. Es la MISMA tabla que las
+#: cards del panel usaban para inventarse sus títulos —había cuatro variantes
+#: del rótulo de la Fase A— y ahora sale de aquí.
+LETRAS = {
+    "preflight": "", "analyze_source": "A", "target_rpu": "B",
+    "extract": "C", "sync": "D", "inject": "F", "remux": "G",
+    "validate": "H",
+}
+
 # `running_phase` → etapa. Fase B tiene tres variantes según de dónde venga el
 # bin y Fase E cae dentro de la D, que es donde el usuario está mirando.
 _RUNNING_A_ETAPA = {
@@ -334,11 +344,19 @@ def resolver(session, *, en_cola=None, plan=None) -> dict:
         siguiente = rotulo_de_etapa(ETAPAS[idx + 1])
     return {
         "situacion": situacion,
+        # Las ocho, para que las cards del panel y la tira de fases pinten
+        # los MISMOS rótulos que el log y la columna de trabajo.
+        "etapas": [{"id": e, "letra": LETRAS.get(e, ""),
+                    "rotulo": rotulo_de_etapa(e)} for e in ETAPAS],
         # El rótulo lo pone el servidor para que la ficha, la columna de
         # trabajo y el modal digan lo mismo — que es de lo que iba todo esto.
         "situacion_rotulo": tr(f"relato.situacion_{situacion}"),
         "etapa": {"id": etapa, "rotulo": rotulo_de_etapa(etapa),
-                  "indice": idx + 1, "total": len(ETAPAS)},
+                  "indice": idx + 1, "total": len(ETAPAS),
+                  # El MISMO texto que el log escribe al arrancar la fase, no
+                  # una segunda redacción: que las dos superficies cuenten lo
+                  # mismo era el encargo.
+                  "porque": porque_de_fase(session, etapa, plan=plan)},
         "porque": _porque(session, situacion, plan),
         "decision": _decision(session),
         "hechos": hechos,
@@ -367,6 +385,10 @@ def porque_de_fase(session, phase_name: str, plan=None) -> str:
     bastante.
     """
     etapa = _RUNNING_A_ETAPA.get(phase_name, "")
+    if not etapa and phase_name in ETAPAS:
+        # El relato pregunta por el id de etapa; el orquestador, por el
+        # `running_phase`. Aceptar los dos evita una segunda tabla.
+        etapa = phase_name
 
     if etapa == "analyze_source":
         tgt = session.target_dv_info

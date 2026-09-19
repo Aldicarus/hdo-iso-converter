@@ -4026,6 +4026,11 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   let body = '';
   if (isExpanded) {
     if (state === 'active') {
+      // La MISMA línea que el log escribe al arrancar la fase — no una
+      // segunda redacción. Solo en la activa: en una pendiente sería una
+      // promesa, y en una terminada, ruido.
+      const suyo = _cmv40RotuloDeFase(s, fase.key, '') === (s.relato?.etapa?.rotulo || '')
+        ? (s.relato?.etapa?.porque || '') : '';
       // La fase activa sigue explicando lo que va a hacer, pero mientras hay
       // trabajo en marcha NO ofrece su botón: `_cmv40PhaseState` decide
       // `active` mirando solo `s.phase`, así que la card de la fase que se
@@ -4033,7 +4038,8 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
       // backend lo rechaza (`_cmv40_guard_no_duplicado`, 409), o sea que lo
       // único que producía era un toast rojo — un botón que solo sabe dar un
       // error es peor que uno que no está.
-      body = _cmv40FaseBodyBloqueable(fase.key, pid, s);
+      body = (suyo ? `<div class="section-body fase-porque">${escHtml(suyo)}</div>` : '')
+           + _cmv40FaseBodyBloqueable(fase.key, pid, s);
     } else if (state === 'done') {
       body = `
         <div class="section-body">
@@ -4074,7 +4080,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','${fase.key}')">
         <div class="cmv40-fase-state-icon">${stateIcon}</div>
         <div style="flex:1">
-          <div class="section-title">${escHtml(fase.title)}${titleSuffix}</div>
+          <div class="section-title">${escHtml(_cmv40RotuloDeFase(s, fase.key, fase.title))}${titleSuffix}</div>
           <div class="section-subtitle">${subtitle}</div>
         </div>
         <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
@@ -5135,10 +5141,40 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
 
 // ── Tarjetas por fase ────────────────────────────────────────────
 
+/** El rótulo de una fase, del relato — no de la tabla local.
+ *
+ *  Había CUATRO variantes del nombre de la Fase A: `[Fase A]` en el log,
+ *  «Fase A — Analizar MKV origen» en la card, «Fase A — Analizando el MKV
+ *  origen» en la columna de trabajo y `analyze_source` por dentro. El
+ *  usuario las veía todas. El relato tiene una, y el respaldo es el título
+ *  local para que una sesión cacheada sin relato siga pintando algo.
+ */
+function _cmv40RotuloDeFase(s, key, porDefecto) {
+  const e = (s?.relato?.etapas || []).find(x => x.letra === key);
+  return e?.rotulo || porDefecto;
+}
+
+/** El cuerpo de una fase: qué le pasa a tu película, y debajo el detalle.
+ *
+ *  Las cards describían HERRAMIENTAS —«dovi_tool mux combina BL.hevc +
+ *  EL_injected.hevc en un HEVC dual-layer»— que dice qué binario corre, no
+ *  qué está pasando con tu fichero. El detalle no se tira: se pliega, porque
+ *  es justo lo que hace falta cuando algo va mal.
+ */
+function _cmv40DosCapas(humano, tecnico) {
+  return `
+    <div class="fase-que-pasa">${humano}</div>
+    ${tecnico ? `<details class="fase-detalle">
+      <summary data-i18n="tab3.detalle_tecnico"></summary>
+      <div class="fase-detalle-cuerpo">${tecnico}</div>
+    </details>` : ''}`;
+}
+
 function _cmv40FaseABody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.extrae_el_stream_hevc_y_el"></div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_a"></span>',
+                        '<span data-i18n="tab3.extrae_el_stream_hevc_y_el"></span>')}
       <button class="btn btn-primary btn-md" onclick="cmv40DoAnalyzeSource('${pid}')"><span data-icono="lupa"></span> <span data-i18n="tab3.analizar_origen"></span></button>
     </div>`;
 }
@@ -5198,7 +5234,8 @@ function _cmv40FaseCBody(pid, s) {
     : tr('tab3.se_evaluara_en_fase_d_chart');
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px"><span data-i18n="tab3.separa_el_hevc_en_bl_capa"></span></div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_c"></span>',
+                        '<span data-i18n="tab3.separa_el_hevc_en_bl_capa"></span>')}
       ${s.sync_delta !== 0 ? `<div class="banner warning" style="margin-bottom:10px"><span class="banner-icon"><span data-icono="aviso"></span></span><span>${tr('tab3.diferencia_de_frames_detectada_delta', {delta: `${s.sync_delta > 0 ? '+' : ''}${s.sync_delta}`, nota: deltaNote})}</span></div>` : ''}
       <button class="btn btn-primary btn-md" onclick="cmv40DoExtract('${pid}')"><span data-icono="tijeras"></span> <span data-i18n="tab3.extraer_bl_el_per_frame_data"></span></button>
     </div>`;
@@ -5207,7 +5244,8 @@ function _cmv40FaseCBody(pid, s) {
 function _cmv40FaseDBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.chart_de_maxpq_l1_del_rpu"></div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_d"></span>',
+                        '<span data-i18n="tab3.chart_de_maxpq_l1_del_rpu"></span>')}
       <div id="cmv40-sync-stats-${pid}" class="cmv40-sync-stats"></div>
       <div id="cmv40-chart-wrap-${pid}" class="cmv40-chart-wrap">
         <canvas id="cmv40-chart-${pid}" width="1000" height="320"></canvas>
@@ -5247,7 +5285,7 @@ function _cmv40FaseFBody(pid, s) {
     : '';
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_f"></span>', escHtml(desc))}
       ${reviewBanner}
       <button class="btn btn-primary btn-md" onclick="cmv40DoInject('${pid}')"><span data-icono="inyectar"></span> <span data-i18n="tab3.inyectar_rpu"></span></button>
     </div>`;
@@ -5268,7 +5306,7 @@ function _cmv40FaseGBody(pid, s) {
   }
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px">${escHtml(desc)}</div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_g"></span>', escHtml(desc))}
       <button class="btn btn-primary btn-md" onclick="cmv40DoRemux('${pid}')"><span data-icono="caja"></span> <span data-i18n="tab3.remux_mkv_final"></span></button>
     </div>`;
 }
@@ -5301,7 +5339,8 @@ function _cmv40FaseBodyBloqueable(key, pid, s) {
 function _cmv40FaseHBody(pid, s) {
   return `
     <div class="section-body">
-      <div style="font-size:12px; color:var(--text-3); margin-bottom:10px" data-i18n="tab3.verifica_que_el_mkv_resultante_tiene"></div>
+      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_h"></span>',
+                        '<span data-i18n="tab3.verifica_que_el_mkv_resultante_tiene"></span>')}
       <button class="btn btn-primary btn-md" onclick="cmv40DoValidate('${pid}')"><span data-icono="check"></span> <span data-i18n="tab3.validar_y_finalizar"></span></button>
     </div>`;
 }

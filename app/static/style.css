@@ -6365,6 +6365,50 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--text-2);
 }
 
+/* ── El cuerpo de una fase: qué le pasa a tu película, y luego el detalle ─
+ *
+ *  Las cards describían HERRAMIENTAS («dovi_tool mux combina BL.hevc +
+ *  EL_injected.hevc…»), que dice qué binario corre y no qué está pasando con
+ *  tu fichero. El detalle no se tira: se pliega, porque es justo lo que hace
+ *  falta cuando algo va mal.
+ */
+.fase-que-pasa {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+.fase-detalle {
+  margin-bottom: 10px;
+}
+.fase-detalle > summary {
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.fase-detalle > summary:hover { color: var(--text-2); }
+.fase-detalle-cuerpo {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+  padding: 6px 0 2px 12px;
+  border-left: 2px solid var(--sep);
+  margin-top: 4px;
+}
+
+/* El porqué de la fase en curso: la MISMA línea que el log escribe al
+   arrancarla. Que las dos superficies cuenten lo mismo era el encargo. */
+.fase-porque {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amber-text);
+  background: var(--amber-dim);
+  border-left: 3px solid var(--amber-border);
+  padding: 8px 12px;
+}
+
 /* ── La fase activa mientras hay trabajo en marcha ──────────────────────
  *
  *  Se sigue leyendo lo que la fase va a hacer; lo que no se ofrece es el

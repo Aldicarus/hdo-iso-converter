@@ -342,6 +342,54 @@ class TestLaFaseEnCursoNoOfreceSuBoton(_Base):
         self.assertIn("cmv40DoRemux", html)
 
 
+class TestLaFichaCuentaElTrabajoNoLasHerramientas(_Base):
+    """Bloque 3 del hilo. Las cards decían «dovi_tool mux combina BL.hevc +
+    EL_injected.hevc en un HEVC dual-layer», que es qué binario corre y no
+    qué está pasando con tu película. El detalle no se tira: se pliega."""
+
+    def card_g(self, extra=None):
+        s = {"phase": "injected", "source_workflow": "p7_fel",
+             "target_type": "trusted_p7_fel_final", "target_trust_ok": True,
+             **(extra or {})}
+        r = self.evaluar([{"fn": "cuerpo", "fase": "G", "s": s}])[0]
+        self.assertEqual(r["estado"], "active")
+        return r["html"]
+
+    def test_lo_primero_es_que_le_pasa_a_tu_pelicula(self):
+        html = self.card_g()
+        humano = catalogo_es()["tab3.que_pasa_fase_g"]
+        self.assertIn(humano, html)
+        self.assertIn("fase-que-pasa", html)
+
+    def test_y_el_detalle_tecnico_queda_plegado(self):
+        html = self.card_g()
+        self.assertIn("<details", html)
+        self.assertIn("fase-detalle", html)
+        # El texto de herramientas sigue estando: se pliega, no se tira.
+        self.assertIn("mkvmerge", html)
+
+    def test_el_nombre_de_la_fase_sale_del_relato(self):
+        """Había cuatro variantes del rótulo de la Fase A —log, card, columna
+        de trabajo y el id interno— y el usuario las veía todas."""
+        html = self.card_g()
+        from json import loads
+        rotulo = loads((APP_DIR / "i18n" / "es.json").read_text(
+            encoding="utf-8"))["relato.etapa_remux"]
+        self.assertIn(rotulo, html)
+
+    def test_la_fase_en_curso_enseña_el_mismo_porque_que_el_log(self):
+        html = self.card_g()
+        self.assertIn("fase-porque", html)
+        self.assertIn("↩", html)
+
+    def test_una_fase_que_no_es_la_actual_no_lo_enseña(self):
+        """En una pendiente sería una promesa y en una terminada, ruido."""
+        s = {"phase": "injected", "source_workflow": "p7_fel",
+             "target_type": "trusted_p7_fel_final", "target_trust_ok": True}
+        r = self.evaluar([{"fn": "cuerpo", "fase": "H", "s": s}])[0]
+        self.assertNotIn("fase-porque", r["html"])
+
+
 class TestElCssQueLoSostiene(unittest.TestCase):
     """Las dos reglas sin las que el JS de arriba no cambia nada en pantalla."""
 
@@ -352,6 +400,12 @@ class TestElCssQueLoSostiene(unittest.TestCase):
         raiz = self.css[self.css.index(":root"):self.css.index("}", self.css.index(":root"))]
         for v in ("--amber-dim", "--amber-text", "--amber-border"):
             self.assertIn(v, raiz, f"{v} no está en :root — fuera de alcance no pinta")
+
+    def test_el_detalle_plegado_se_distingue_del_texto_principal(self):
+        """Sin estilo propio, plegar el detalle no separa nada: las dos capas
+        se leerían igual y la card seguiría contando herramientas."""
+        self.assertRegex(self.css, r"\.fase-detalle-cuerpo\s*\{[^}]*border-left")
+        self.assertRegex(self.css, r"\.fase-que-pasa\s*\{[^}]*color:\s*var\(--text-1\)")
 
     def test_la_fase_bloqueada_apaga_los_lanzadores(self):
         self.assertRegex(
