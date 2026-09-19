@@ -389,7 +389,17 @@ def _hms_to_seconds(h: str, m: str, s: str) -> float:
 
 
 async def _probe_duration(media_path: str) -> float:
-    """Devuelve la duración del fichero en segundos (0.0 si falla)."""
+    """Devuelve la duración del fichero en segundos (0.0 si falla).
+
+    Ojo con el `except`: **la cancelación no es un fallo de la sonda**.
+    `_run` llama a `raise_if_cancelled()` y `CMv40Cancelled` es una
+    `Exception`, así que un `except Exception` a secas se la tragaba y la
+    sonda devolvía 0.0 — con lo que la fase remataba diciendo «el MKV origen
+    no tiene duración detectable: fichero corrupto, transferencia
+    interrumpida…». O sea, culpando al fichero del usuario de que el usuario
+    hubiera pulsado cancelar. Es la misma familia que el paso fantasma del
+    camino de reserva, encontrada al escribir su test.
+    """
     try:
         rc, out, _ = await _run([
             FFPROBE_BIN, "-v", "error",
@@ -399,6 +409,8 @@ async def _probe_duration(media_path: str) -> float:
         ], timeout=15)
         if rc == 0:
             return float(out.strip())
+    except CMv40Cancelled:
+        raise
     except Exception:
         pass
     return 0.0
@@ -416,6 +428,9 @@ async def _probe_frame_count(media_path: str) -> int:
         ], timeout=15)
         if rc == 0 and out.strip() and out.strip() != "N/A":
             return int(out.strip())
+    except CMv40Cancelled:
+        # Ver `_probe_duration`: cancelar no es que la sonda falle.
+        raise
     except Exception:
         pass
     # Fallback: calcular desde duration × fps
@@ -1684,6 +1699,26 @@ async def run_phase_a_analyze_source(
     if not piped_ok and existing_too_small:
         # Camino en dos pasos: el pipeline no se pudo usar (ruta no apta para
         # el muxer tee, dovi_tool sin soporte de stdin, o falló a medias).
+        #
+        # **Antes de anunciar nada, comprobar si nos han cancelado.**
+        # `_ffmpeg_extract_rpu_piped` devuelve `False` sin lanzar ante
+        # CUALQUIER problema —incluido el SIGTERM del cancel— así que este
+        # caller lo tomaba por «el pipe no era viable» y arrancaba el camino
+        # de reserva, anunciando su paso. En el log quedaba así:
+        #
+        #     Exiting normally, received signal 15.
+        #     [Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC…
+        #     🛑 Cancelado: fase analyze_source detenida tras 276.0s.
+        #
+        # o sea, la fase anunciando un paso que no iba a ocurrir, después de
+        # que el proceso hubiera muerto. Caso real del 2026-09-19.
+        raise_if_cancelled()
+        # Y si el pipe falló de verdad, se DICE: el usuario ve cambiar el
+        # denominador de «1/3» a «1/4» a mitad de fase y hasta ahora nada lo
+        # explicaba, porque la rama del fallo solo borraba los parciales.
+        await _log(
+        log_callback,
+            '[Fase A] ' + tr('cmv40_pipeline.el_camino_rapido_no_se_pudo_usar'))
         await _log(
         log_callback,
             '[Fase A] ┌─ ' + tr('cmv40_pipeline.paso_1_4_extrayendo_stream_hevc'))
@@ -2917,6 +2952,9 @@ async def _l5_por_frame(rpu_path: Path, frame_count: int,
                 DOVI_TOOL_BIN, "export", "-i", str(rpu_path),
                 "-d", f"all={export_json}",
             ], timeout=timeout)
+        except CMv40Cancelled:
+            # Cancelar no es que esto falle — ver `_probe_duration`.
+            raise
         except Exception as e:
             _logger.warning("dovi_tool export para L5 falló: %s", e)
             return {}
@@ -3544,6 +3582,9 @@ async def _export_rpu_frames(
             data = json.loads(export_json.read_text(encoding="utf-8"))
             export_json.unlink(missing_ok=True)
             return _normalize_export_data(data)
+    except CMv40Cancelled:
+        # Cancelar no es que esto falle — ver `_probe_duration`.
+        raise
     except Exception as e:
         _logger.info("dovi_tool export no disponible: %s — usando muestreo", e)
 
@@ -3573,6 +3614,9 @@ async def _export_rpu_frames(
                 info = _parse_frame_info(out)
                 info["frame"] = i
                 data.append(info)
+        except CMv40Cancelled:
+            # Cancelar no es que esto falle — ver `_probe_duration`.
+            raise
         except Exception:
             continue
         # Emitir progreso cada ~2% del paso
@@ -4231,6 +4275,9 @@ async def _prewarm_validation_rpu(
         return True
     except asyncio.CancelledError:
         out_rpu.unlink(missing_ok=True)
+        raise
+    except CMv40Cancelled:
+        # Cancelar no es que esto falle — ver `_probe_duration`.
         raise
     except Exception as e:
         _logger.info("prewarm extract-rpu falló: %s", e)

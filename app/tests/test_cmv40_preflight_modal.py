@@ -969,14 +969,119 @@ class TestElAvanceEsMedido(unittest.TestCase):
     repo ya ha pagado con los parsers de log.
     """
 
-    def test_el_dispatch_emite_los_pasos(self):
-        src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
-        i = src.index("async def _cmv40_dispatch_preflight(")
-        j = src.index("\nasync def ", i + 10)
-        cuerpo = src[i:j]
-        self.assertIn("_emit_progress", cuerpo)
-        # Los cuatro tramos: origen, bin, validación de CMv4.0 y combos.
-        self.assertGreaterEqual(cuerpo.count("await _paso("), 4)
+    def test_el_preflight_emite_los_cuatro_tramos(self):
+        """Ejecutándolo, no leyendo su fuente.
+
+        Este test comprobaba `"_emit_progress" in cuerpo` sobre el texto de
+        `_cmv40_dispatch_preflight`, así que al fusionar las dos copias del
+        pre-flight en una se quedó señalando al envoltorio: pasaba a rojo sin
+        que nada se hubiera roto. Un `assertIn` sobre el fuente no es un test.
+
+        Y al ejecutarlo cubre además la divergencia que la fusión destapó:
+        una de las dos copias **se saltaba los pasos del 5 % y el 25 %**, así
+        que su barra arrancaba directamente en el 55 %.
+        """
+        import asyncio
+        from routers import cmv40
+        from phases import cmv40_pipeline as pipe
+
+        # El pre-flight persiste la sesión: hace falta el /config aislado.
+        caso = type("_C", (ApiTestCase,), {"runTest": lambda s: None})()
+        caso.setUpClass(); caso.setUp()
+        self.addCleanup(caso.doCleanups)
+
+        emitidas = []
+
+        async def _nada(*a, **kw):
+            return None
+
+        async def _analiza(sesion, log_cb):
+            return True
+
+        for nombre in ("preflight_source", "preflight_target_drive",
+                       "preflight_target_path", "preflight_target_mkv"):
+            orig = getattr(pipe, nombre)
+            setattr(pipe, nombre, _nada)
+            self.addCleanup(setattr, pipe, nombre, orig)
+        orig_an = cmv40._cmv40_preflight_analyze_target
+        cmv40._cmv40_preflight_analyze_target = _analiza
+        self.addCleanup(setattr, cmv40,
+                        "_cmv40_preflight_analyze_target", orig_an)
+        orig_log = cmv40._cmv40_log
+
+        async def _espia(_s, msg):
+            emitidas.append(msg)
+        cmv40._cmv40_log = _espia
+        self.addCleanup(setattr, cmv40, "_cmv40_log", orig_log)
+
+        from models import CMv40Session
+        s = CMv40Session(id="cmv40_pasos", source_mkv_path="/a.mkv",
+                         source_mkv_name="a.mkv", auto_pipeline=False)
+        asyncio.run(cmv40._cmv40_correr_preflight(
+            s, asyncio.Lock(), "drive", file_id="f", file_name="x.bin"))
+
+        # El marcador lleva un JSON detrás: `§§PROGRESS§§{"pct": 5, …}`.
+        pcts = [json.loads(l.split("§§PROGRESS§§", 1)[1])["pct"]
+                for l in emitidas if "§§PROGRESS§§" in l]
+        self.assertGreaterEqual(len(pcts), 4,
+                                f"solo {len(pcts)} tramos: {emitidas}")
+        # La barra tiene que ARRANCAR al principio. Comprobar que «5» está en
+        # la primera línea no vale: «25» también lo contiene, y con eso la
+        # mutación que borra el primer tramo pasaba en verde.
+        self.assertLessEqual(pcts[0], 10,
+                             f"la barra arranca en {pcts[0]} %, no al principio")
+
+    def test_parado_a_preguntar_no_encadena_la_fase_a(self):
+        """Las dos copias del pre-flight tenían condiciones DISTINTAS para
+        esto: una exigía `target_preflight_ok` y la otra no. Solo no se
+        notaba porque el dispatcher vuelve a mirar `preflight_decision` y se
+        para — una red que no debería hacer falta."""
+        import asyncio
+        from routers import cmv40
+        from phases import cmv40_pipeline as pipe
+        from models import CMv40Session
+
+        caso = type("_C", (ApiTestCase,), {"runTest": lambda s: None})()
+        caso.setUpClass(); caso.setUp()
+        self.addCleanup(caso.doCleanups)
+
+        async def _nada(*a, **kw):
+            return None
+
+        async def _para_a_preguntar(sesion, log_cb):
+            sesion.preflight_decision = "ask_tone_mapping"
+            sesion.target_preflight_ok = False
+            return False
+
+        for nombre in ("preflight_source", "preflight_target_drive"):
+            orig = getattr(pipe, nombre)
+            setattr(pipe, nombre, _nada)
+            self.addCleanup(setattr, pipe, nombre, orig)
+        orig_an = cmv40._cmv40_preflight_analyze_target
+        cmv40._cmv40_preflight_analyze_target = _para_a_preguntar
+        self.addCleanup(setattr, cmv40,
+                        "_cmv40_preflight_analyze_target", orig_an)
+
+        lanzadas = []
+        orig_disp = cmv40._cmv40_dispatch_next_phase
+
+        async def _espia(sid):
+            lanzadas.append(sid)
+        cmv40._cmv40_dispatch_next_phase = _espia
+        self.addCleanup(setattr, cmv40, "_cmv40_dispatch_next_phase", orig_disp)
+
+        s = CMv40Session(id="cmv40_nochain", source_mkv_path="/a.mkv",
+                         source_mkv_name="a.mkv", auto_pipeline=True)
+
+        async def _todo():
+            await cmv40._cmv40_correr_preflight(
+                s, asyncio.Lock(), "drive", file_id="f", file_name="x.bin")
+            await asyncio.sleep(0.05)   # la task del dispatch, si la hubiera
+        asyncio.run(_todo())
+
+        self.assertEqual(lanzadas, [],
+                         "se encadenó la Fase A de un trabajo que está "
+                         "esperando una decisión del usuario")
 
     def test_el_modal_lee_last_progress_no_el_log(self):
         i = JS.index("function _cmv40PfPintar(")

@@ -30,7 +30,8 @@ for _p in (str(APP_DIR), str(APP_DIR / "tests")):
         sys.path.insert(0, _p)
 
 from cmv40_harness import (  # noqa: E402
-    CollectingLog, FakeToolbox, PhaseTestCase, RpuProps, write_artifacts,
+    CollectingLog, FakeToolbox, PhaseTestCase, RpuProps, make_session,
+    write_artifacts,
 )
 
 
@@ -119,6 +120,85 @@ class TestPipeFaseA(PhaseTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoSeAnunciaUnPasoQueNoVaAOcurrir(PhaseTestCase):
+    """El caso que abrió el bloque 4, con el log real del 2026-09-19:
+
+        Exiting normally, received signal 15.
+        [Fase A] ┌─ Paso 1/4: Extrayendo stream HEVC del MKV origen…
+        🛑 Cancelado: fase analyze_source detenida tras 276.0s.
+
+    La fase anunciaba el arranque del camino de reserva **después** de que el
+    proceso hubiera muerto. `_ffmpeg_extract_rpu_piped` devuelve `False` sin
+    lanzar ante CUALQUIER problema —incluido el SIGTERM del cancel— así que
+    el caller lo tomaba por «el pipe no era viable» y seguía adelante.
+    """
+
+    def _sesion(self):
+        """Mismo montaje que `test_cmv40_fase_a`: el MKV en el workdir, con
+        su media definida. Sin la media, `ffprobe` falso no da duración y la
+        fase muere ANTES del punto que se quiere probar — el segundo test
+        pasaría en verde por el motivo equivocado."""
+        from cmv40_harness import make_session
+        session = make_session(self.wd)
+        mkv = Path(session.source_mkv_path)
+        props = RpuProps(profile=7, el_type="FEL", cm_version="v2.9",
+                         frames=1000)
+        write_artifacts(self.wd, mkv.name, props=props)
+        self.tb.define_media(mkv.name, duration=7200.0, frames=1000)
+        self.tb.define_rpu("RPU_source.bin", **props.as_dict())
+        return session
+
+    async def test_cancelar_durante_el_pipe_no_anuncia_el_camino_de_reserva(self):
+        import phases.cmv40_pipeline as pipe
+        from phases.cmv40_pipeline import CMv40Cancelled
+
+        # La cancelación llega DURANTE el pipe, que es como pasó: el usuario
+        # canceló a los 276 s, mucho después de la sonda de duración. Ponerla
+        # a True desde el principio mataría la fase antes de llegar al punto
+        # que se quiere probar — y con eso la mutación pasaba en verde.
+        cancelado = {"si": False}
+
+        async def _pipe_muerto(*a, **kw):
+            cancelado["si"] = True
+            return False        # lo que devuelve tras el SIGTERM
+        orig = pipe._ffmpeg_extract_rpu_piped
+        pipe._ffmpeg_extract_rpu_piped = _pipe_muerto
+        self.addCleanup(setattr, pipe, "_ffmpeg_extract_rpu_piped", orig)
+        pipe.set_cancel_check(lambda: cancelado["si"])
+        self.addCleanup(pipe.set_cancel_check, None)
+
+        session = self._sesion()
+        log = CollectingLog()
+        with self.assertRaises(CMv40Cancelled):
+            await pipe.run_phase_a_analyze_source(session, log)
+
+        self.assertEqual(
+            [l for l in log.lines if "1/4" in l], [],
+            "la fase anuncia un paso después de que la hayan cancelado")
+
+    async def test_si_el_pipe_falla_de_verdad_se_dice_y_se_sigue(self):
+        """La contraprueba: sin cancelación, el camino de reserva arranca —
+        y ahora lo DICE, que es lo que faltaba. El usuario veía cambiar el
+        denominador de «1/3» a «1/4» sin ninguna explicación."""
+        import phases.cmv40_pipeline as pipe
+
+        async def _pipe_no_viable(*a, **kw):
+            return False
+        orig = pipe._ffmpeg_extract_rpu_piped
+        pipe._ffmpeg_extract_rpu_piped = _pipe_no_viable
+        self.addCleanup(setattr, pipe, "_ffmpeg_extract_rpu_piped", orig)
+        pipe.set_cancel_check(None)
+
+        session = self._sesion()
+        log = CollectingLog()
+        try:
+            await pipe.run_phase_a_analyze_source(session, log)
+        except Exception:
+            pass        # lo que interesa es lo que se dijo por el camino
+        self.assertTrue([l for l in log.lines if "camino rápido" in l],
+                        "el cambio de camino no se explica")
 
 
 class TestProgresoSinFicheroDeSalida(PhaseTestCase):
@@ -219,3 +299,41 @@ class TestProgresoSinFicheroDeSalida(PhaseTestCase):
             self.assertIsNotNone(m, linea)
             mb = int(m.group(1)) * _SIZE_UNIT_MB[m.group(2)]
             self.assertAlmostEqual(mb, esperado_mb, places=2, msg=linea)
+
+
+class TestNadieSeTragaLaCancelacion(unittest.TestCase):
+    """`CMv40Cancelled` es una `Exception`, así que cualquier `except
+    Exception` alrededor de un subproceso se la traga — y lo que el usuario
+    ve entonces no es «cancelado» sino el mensaje de error de esa operación.
+
+    Encontrado el 2026-09-19 escribiendo el test del paso fantasma: al
+    cancelar durante la Fase A, la sonda de duración devolvía 0.0 y la fase
+    remataba con «El MKV origen no tiene duración detectable: fichero
+    corrupto, transferencia interrumpida…». O sea, culpando al fichero del
+    usuario de que el usuario hubiera pulsado cancelar.
+
+    Había CINCO sitios así. El guard recorre el AST porque el patrón se
+    escribe solo: cualquier `try` nuevo alrededor de un `_run` lo repite.
+    """
+
+    def test_ningun_except_amplio_alrededor_de_un_subproceso_la_pierde(self):
+        import ast
+        from pathlib import Path as _P
+        ruta = _P(__file__).resolve().parents[1] / "phases" / "cmv40_pipeline.py"
+        src = ruta.read_text(encoding="utf-8")
+        lineas = src.splitlines(keepends=True)
+        malos = []
+        for nodo in ast.walk(ast.parse(src)):
+            if not isinstance(nodo, ast.Try):
+                continue
+            if any(isinstance(h.type, ast.Name) and h.type.id == "CMv40Cancelled"
+                   for h in nodo.handlers):
+                continue            # ya la deja pasar
+            cuerpo = "".join(lineas[nodo.lineno - 1:nodo.end_lineno])
+            if "_run(" not in cuerpo and "_run_streaming(" not in cuerpo:
+                continue            # no lanza ningún subproceso
+            if any(h.type is None
+                   or (isinstance(h.type, ast.Name) and h.type.id == "Exception")
+                   for h in nodo.handlers):
+                malos.append(f"cmv40_pipeline.py:{nodo.lineno}")
+        self.assertEqual(malos, [], "\n  · ".join([""] + malos))

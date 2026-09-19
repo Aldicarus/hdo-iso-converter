@@ -1602,6 +1602,152 @@ def _cmv40_apply_quality_label_to_output_name(session: CMv40Session, new_label: 
         session.output_mkv_name = new_name
 
 
+async def _cmv40_correr_preflight(
+    session: CMv40Session, lock, kind: str, *,
+    file_id: str = "", file_name: str = "", rpu_path: str = "",
+    mkv_path: str = "",
+) -> None:
+    """El pre-flight completo. **Los dos puntos de entrada pasan por aquí.**
+
+    Había dos copias de este cuerpo —el dispatcher del auto-pipeline y el
+    endpoint `preflight-target` que llama el modal de «Nuevo proyecto»— y el
+    comentario de una de ellas cuenta que estuvo días sin la definición de
+    `_paso`, muriendo con un `NameError` que el `except` convertía en un
+    banner con texto de Python. El 2026-09-19 hubo que poner los mismos dos
+    guardados de sesión en las dos.
+
+    Al fusionarlas aparecieron dos divergencias que nadie había pedido:
+
+    · una se saltaba los pasos del 5 % y el 25 %, así que su barra de
+      progreso arrancaba directamente en el 55 %;
+    · y la otra encadenaba la Fase A sin exigir `target_preflight_ok`.
+
+    Lo único que las diferenciaba de verdad es **de dónde sale el bin**, y eso
+    es lo que viaja en los parámetros.
+    """
+    from phases.cmv40_pipeline import (
+        preflight_source, preflight_target_drive,
+        preflight_target_path, preflight_target_mkv,
+    )
+
+    from datetime import datetime as _dt, timezone as _tz
+    _inicio_pf = _dt.now(_tz.utc)
+    async with lock:
+        _cmv40_marcar_activa(session, "preflight")
+        _titulo_wl, _poster_wl = _cartel_cmv40(session)
+        workload.registrar(
+            session.id, workload.TAB_CMV40,
+            tr('cmv40.validacion_previa_de',
+               que=_titulo_wl or session.id),
+            # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
+            # sobre 91 pre-flights del NAS. Se apunta para que se vea,
+            # pero no puede vetar a nadie — es lo primero que corre al
+            # crear un proyecto y bloquearlo dejaba el flujo muerto.
+            workload.CLASE_INTERACTIVO,
+            # Tiene modal propio y se puede parar: la columna ofrece los
+            # dos botones, como con cualquier trabajo en curso.
+            detalle="preflight", cancelable=True,
+            titulo=_titulo_wl, poster=_poster_wl)
+        session.error_message = ""
+        session.target_preflight_ok = False
+        save_cmv40_session(session)
+        await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
+
+        async def _log_cb(msg: str):
+            await _cmv40_log(session, msg)
+
+        def _proc_cb(proc):
+            _cmv40_proc_register(session.id, proc)
+
+        # El avance del pre-flight se emite como el de cualquier fase, con
+        # `§§PROGRESS§§`. Antes solo existía como texto en el log, y sacar
+        # el estado de la UI de un regex sobre líneas de log es el
+        # acoplamiento que este repo ya ha pagado más de una vez.
+        #
+        # Los pesos salen de los 91 pre-flights medidos en el NAS: el sniff
+        # del origen y la obtención del bin son segundos, y el `export` de
+        # combos se lleva el resto.
+        from phases.cmv40_pipeline import _emit_progress
+
+        async def _paso(pct: float, label: str):
+            await _emit_progress(_log_cb, pct, label)
+
+        try:
+            await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
+            await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
+            # El checklist del modal se rellena con lo que hay EN DISCO, y
+            # entre el guardado de arranque y el del `finally` no había
+            # ninguno: las cuatro comprobaciones se quedaban en gris toda
+            # la validación y se ponían verdes de golpe. `preflight_source`
+            # ya lo avisa en su docstring —«no save aquí, el caller»— y el
+            # caller no lo hacía. Cuesta un JSON de kilobytes: en este
+            # punto la sesión no tiene ni combos ni log dentro.
+            await _save_cmv40_session_async(session)
+
+            await _paso(25, {
+                "drive": tr('cmv40.paso_descargando_rpu_repo'),
+                "repo":  tr('cmv40.paso_descargando_rpu_repo'),
+                "path":  tr('cmv40.paso_copiando_rpu_local'),
+                "mkv":   tr('cmv40.paso_extrayendo_rpu_mkv'),
+            }.get(kind, tr('cmv40.paso_obteniendo_rpu_target')))
+            if kind in ("drive", "repo"):
+                await preflight_target_drive(session, file_id, file_name, _log_cb)
+            elif kind == "path":
+                await preflight_target_path(session, rpu_path, _log_cb)
+            elif kind == "mkv":
+                await preflight_target_mkv(session, mkv_path, _log_cb, _proc_cb)
+            # El bin ya está analizado: que el modal pueda tachar sus dos
+            # filas antes del paso largo (el export de combos).
+            await _save_cmv40_session_async(session)
+            await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
+            # Análisis profundo del bin + decisión Keep/continuar
+            await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
+            avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
+            await _paso(100, tr('cmv40.validacion_terminada'))
+            if avanzar:
+                session.preflight_decision = "ok"
+                session.preflight_message = ""
+                session.target_preflight_ok = True
+                # El cierre canónico de fase no anuncia la siguiente — si
+                # auto_pipeline=True el dispatcher emitirá su propio
+                # ━━━ Inicio fase: analyze_source ━━━; si está desactivado,
+                # el usuario decide cuándo lanzar Fase A.
+                next_hint = tr(
+                    'cmv40.hint_auto_pipeline_encadena'
+                    if session.auto_pipeline
+                    else 'cmv40.hint_auto_pipeline_desactivado')
+                await _cmv40_log(
+                    session,
+                    '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
+                )
+            # Si NO avanzar, la helper ya pobló preflight_decision/message
+        except Exception as e:
+            msg = str(e)
+            await _cmv40_log_phase_failed(session, "preflight", msg)
+            session.error_message = msg
+            session.target_preflight_ok = False
+        finally:
+            _cmv40_active_procs.pop(session.id, None)
+            cancelado = _cmv40_cancel_flags.pop(session.id, False)
+            _cmv40_marcar_libre(session)
+            workload.liberar(session.id)
+            await _save_cmv40_session_async(session)
+            # El pre-flight no dejaba rastro en ninguna parte: ni al
+            # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
+            # cuando MÁS falta hace verlo. Al soltar el hueco de workload
+            # desaparecía de la columna y había que ir a la pestaña.
+            _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
+    # Fuera del lock. El criterio es el ESTRICTO de los dos que había: una de
+    # las copias encadenaba sin exigir `target_preflight_ok`, y solo no se
+    # notaba porque `_cmv40_dispatch_next_phase` vuelve a mirar
+    # `preflight_decision` y se para. Dos copias, dos condiciones distintas
+    # para lo mismo: exactamente lo que esta fusión venía a quitar.
+    if (session.auto_pipeline and not session.error_message
+            and session.target_preflight_ok):
+        asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
+
+
+
 async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
     """Dispara el preflight del bin target persistido en pending_target_*.
     Tras éxito, el orquestador (en finally) detecta target_preflight_ok=True
@@ -1626,132 +1772,13 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
 
     _cmv40_cancel_flags.pop(session.id, None)
 
-    async def _run():
-        from datetime import datetime as _dt, timezone as _tz
-        _inicio_pf = _dt.now(_tz.utc)
-        async with lock:
-            _cmv40_marcar_activa(session, "preflight")
-            _titulo_wl, _poster_wl = _cartel_cmv40(session)
-            workload.registrar(
-                session.id, workload.TAB_CMV40,
-                tr('cmv40.validacion_previa_de',
-                   que=_titulo_wl or session.id),
-                # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
-                # sobre 91 pre-flights del NAS. Se apunta para que se vea,
-                # pero no puede vetar a nadie — es lo primero que corre al
-                # crear un proyecto y bloquearlo dejaba el flujo muerto.
-                workload.CLASE_INTERACTIVO,
-                # Tiene modal propio y se puede parar: la columna ofrece los
-                # dos botones, como con cualquier trabajo en curso.
-                detalle="preflight", cancelable=True,
-                titulo=_titulo_wl, poster=_poster_wl)
-            session.error_message = ""
-            session.target_preflight_ok = False
-            save_cmv40_session(session)
-            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
-
-            async def _log_cb(msg: str):
-                await _cmv40_log(session, msg)
-
-            def _proc_cb(proc):
-                _cmv40_proc_register(session.id, proc)
-
-            # El avance del pre-flight se emite como el de cualquier fase, con
-            # `§§PROGRESS§§`. Antes solo existía como texto en el log, y sacar
-            # el estado de la UI de un regex sobre líneas de log es el
-            # acoplamiento que este repo ya ha pagado más de una vez.
-            #
-            # Los pesos salen de los 91 pre-flights medidos en el NAS: el sniff
-            # del origen y la obtención del bin son segundos, y el `export` de
-            # combos se lleva el resto.
-            from phases.cmv40_pipeline import _emit_progress
-
-            async def _paso(pct: float, label: str):
-                await _emit_progress(_log_cb, pct, label)
-
-            try:
-                await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
-                await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
-                # El checklist del modal se rellena con lo que hay EN DISCO, y
-                # entre el guardado de arranque y el del `finally` no había
-                # ninguno: las cuatro comprobaciones se quedaban en gris toda
-                # la validación y se ponían verdes de golpe. `preflight_source`
-                # ya lo avisa en su docstring —«no save aquí, el caller»— y el
-                # caller no lo hacía. Cuesta un JSON de kilobytes: en este
-                # punto la sesión no tiene ni combos ni log dentro.
-                await _save_cmv40_session_async(session)
-
-                kind = session.pending_target_kind
-                await _paso(25, {
-                    "drive": tr('cmv40.paso_descargando_rpu_repo'),
-                    "repo":  tr('cmv40.paso_descargando_rpu_repo'),
-                    "path":  tr('cmv40.paso_copiando_rpu_local'),
-                    "mkv":   tr('cmv40.paso_extrayendo_rpu_mkv'),
-                }.get(kind, tr('cmv40.paso_obteniendo_rpu_target')))
-                if kind == "drive" or kind == "repo":
-                    await preflight_target_drive(
-                        session,
-                        session.pending_target_file_id,
-                        session.pending_target_file_name,
-                        _log_cb,
-                    )
-                elif kind == "path":
-                    await preflight_target_path(
-                        session, session.pending_target_rpu_path, _log_cb,
-                    )
-                elif kind == "mkv":
-                    await preflight_target_mkv(
-                        session, session.pending_target_source_mkv_path,
-                        _log_cb, _proc_cb,
-                    )
-                # El bin ya está analizado: que el modal pueda tachar sus dos
-                # filas antes del paso largo (el export de combos).
-                await _save_cmv40_session_async(session)
-                await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
-                # Análisis profundo del bin + decisión Keep/continuar
-                await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
-                avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
-                await _paso(100, tr('cmv40.validacion_terminada'))
-                if avanzar:
-                    session.preflight_decision = "ok"
-                    session.preflight_message = ""
-                    session.target_preflight_ok = True
-                    # El cierre canónico de fase no anuncia la siguiente — si
-                    # auto_pipeline=True el dispatcher emitirá su propio
-                    # ━━━ Inicio fase: analyze_source ━━━; si está desactivado,
-                    # el usuario decide cuándo lanzar Fase A.
-                    next_hint = tr(
-                        'cmv40.hint_auto_pipeline_encadena'
-                        if session.auto_pipeline
-                        else 'cmv40.hint_auto_pipeline_desactivado')
-                    await _cmv40_log(
-                        session,
-                        '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
-                    )
-                # Si NO avanzar, la helper ya pobló preflight_decision/message
-            except Exception as e:
-                msg = str(e)
-                await _cmv40_log_phase_failed(session, "preflight", msg)
-                session.error_message = msg
-                session.target_preflight_ok = False
-            finally:
-                _cmv40_active_procs.pop(session.id, None)
-                cancelado = _cmv40_cancel_flags.pop(session.id, False)
-                _cmv40_marcar_libre(session)
-                workload.liberar(session.id)
-                await _save_cmv40_session_async(session)
-                # El pre-flight no dejaba rastro en ninguna parte: ni al
-                # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
-                # cuando MÁS falta hace verlo. Al soltar el hueco de workload
-                # desaparecía de la columna y había que ir a la pestaña.
-                _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
-        # Tras finally, si auto_pipeline + preflight OK + no error → orquestar
-        # siguiente: en este caso CREATED → dispatch llevará a Fase A porque
-        # target_preflight_ok=True ahora.
-        if session.auto_pipeline and not session.error_message:
-            asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
-
-    asyncio.create_task(_run())
+    asyncio.create_task(_cmv40_correr_preflight(
+        session, lock, session.pending_target_kind,
+        file_id=session.pending_target_file_id or "",
+        file_name=session.pending_target_file_name or "",
+        rpu_path=session.pending_target_rpu_path or "",
+        mkv_path=session.pending_target_source_mkv_path or "",
+    ))
 
 
 async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
@@ -3940,114 +3967,11 @@ async def cmv40_preflight_target(session_id: str, body: CMv40PreflightRequest):
 
     _cmv40_cancel_flags.pop(session.id, None)
 
-    async def _run():
-        from datetime import datetime as _dt, timezone as _tz
-        _inicio_pf = _dt.now(_tz.utc)
-        async with lock:
-            _cmv40_marcar_activa(session, "preflight")
-            _titulo_wl, _poster_wl = _cartel_cmv40(session)
-            workload.registrar(
-                session.id, workload.TAB_CMV40,
-                tr('cmv40.validacion_previa_de',
-                   que=_titulo_wl or session.id),
-                # Interactivo: mediana 9 s, p90 49 s y máximo 116 s medidos
-                # sobre 91 pre-flights del NAS. Se apunta para que se vea,
-                # pero no puede vetar a nadie — es lo primero que corre al
-                # crear un proyecto y bloquearlo dejaba el flujo muerto.
-                workload.CLASE_INTERACTIVO,
-                # Tiene modal propio y se puede parar: la columna ofrece los
-                # dos botones, como con cualquier trabajo en curso.
-                detalle="preflight", cancelable=True,
-                titulo=_titulo_wl, poster=_poster_wl)
-            session.error_message = ""
-            session.target_preflight_ok = False
-            save_cmv40_session(session)
-            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
-
-            async def _log_cb(msg: str):
-                await _cmv40_log(session, msg)
-
-            def _proc_cb(proc):
-                _cmv40_proc_register(session.id, proc)
-
-            # El MISMO `_paso` que `_cmv40_dispatch_preflight`. Las tres
-            # llamadas de abajo estaban aquí desde `7a3c52e` (2026-09-09) SIN
-            # la definición, así que este endpoint —el que llama el modal de
-            # «Nuevo proyecto CMv4.0»— moría con `name '_paso' is not
-            # defined` en TODO pre-flight. El `except` de abajo lo convertía
-            # en un `error_message`, o sea en un banner con un texto de
-            # Python, y por eso no había ni un traceback en el log.
-            from phases.cmv40_pipeline import _emit_progress
-
-            async def _paso(pct: float, label: str):
-                await _emit_progress(_log_cb, pct, label)
-
-            try:
-                # Source preflight primero (idempotente — skip si ya hecho).
-                # Validar el origen ANTES del target evita descargar el bin si
-                # el MKV no tiene DV.
-                from phases.cmv40_pipeline import preflight_source
-                await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
-                # Ver el mismo guardado en `_cmv40_dispatch_preflight`: el
-                # checklist del modal lee del disco, y sin esto no puede
-                # tachar nada hasta el `finally`.
-                await _save_cmv40_session_async(session)
-
-                if body.kind == "drive":
-                    await preflight_target_drive(session, body.file_id, body.file_name, _log_cb)
-                elif body.kind == "path":
-                    await preflight_target_path(session, body.rpu_path, _log_cb)
-                else:  # mkv
-                    await preflight_target_mkv(session, body.source_mkv_path, _log_cb, _proc_cb)
-
-                await _save_cmv40_session_async(session)
-                await _paso(55, tr('cmv40.validando_que_el_bin_aporta_cmv4_0'))
-                # Análisis profundo del bin + decisión Keep/continuar
-                await _paso(65, tr('cmv40.analizando_los_combos_l2_l8_del_bin'))
-                avanzar = await _cmv40_preflight_analyze_target(session, _log_cb)
-                await _paso(100, tr('cmv40.validacion_terminada'))
-                if avanzar:
-                    session.preflight_decision = "ok"
-                    session.preflight_message = ""
-                    session.target_preflight_ok = True
-                    next_hint = tr(
-                        'cmv40.hint_auto_pipeline_encadena'
-                        if session.auto_pipeline
-                        else 'cmv40.hint_auto_pipeline_desactivado')
-                    await _cmv40_log(
-                        session,
-                        '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
-                    )
-                # Si NO avanzar, la helper ya pobló preflight_decision/message
-                # y dejó target_preflight_ok=False.
-            except Exception as e:
-                # Igual que el resto de fases: error al log de la sesión +
-                # error_message para que la UI lo muestre como banner. SIN
-                # toast (es ruido — el log del proyecto ya tiene el motivo).
-                msg = str(e)
-                await _cmv40_log_phase_failed(session, "preflight", msg)
-                session.error_message = msg
-                session.target_preflight_ok = False
-            finally:
-                _cmv40_active_procs.pop(session.id, None)
-                cancelado = _cmv40_cancel_flags.pop(session.id, False)
-                _cmv40_marcar_libre(session)
-                workload.liberar(session.id)
-                await _save_cmv40_session_async(session)
-                # El pre-flight no dejaba rastro en ninguna parte: ni al
-                # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
-                # cuando MÁS falta hace verlo. Al soltar el hueco de workload
-                # desaparecía de la columna y había que ir a la pestaña.
-                _cmv40_anotar_preflight(session, _inicio_pf, cancelado)
-        # Fuera del lock: si auto_pipeline está activo y el preflight pasó,
-        # encadena Fase A automáticamente. Sin esto, si el cliente disparó
-        # este endpoint manualmente (en lugar del orquestador interno), Fase
-        # A no arrancaría sola — fragil ante cliente cerrado tras el POST.
-        # Mismo patrón que `_cmv40_dispatch_preflight`.
-        if session.auto_pipeline and not session.error_message and session.target_preflight_ok:
-            asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
-
-    asyncio.create_task(_run())
+    asyncio.create_task(_cmv40_correr_preflight(
+        session, lock, body.kind,
+        file_id=body.file_id or "", file_name=body.file_name or "",
+        rpu_path=body.rpu_path or "", mkv_path=body.source_mkv_path or "",
+    ))
     return {"ok": True, "started": True}
 
 
