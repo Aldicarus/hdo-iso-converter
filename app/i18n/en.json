@@ -256,6 +256,7 @@
   "cmv40_pipeline.i_total_de_warnings_dts_no": "ℹ Total non-monotonic DTS warnings suppressed: {p1} (cosmetic; the HEVC copied fine).",
   "cmv40_pipeline.l1_de_frames_export_selectivo_sin": "L1 of {label}: {rows} frames (selective export — without dumping the whole RPU)",
   "cmv40_pipeline.l2_source_combos_unicos_peaks": "L2 source: {l2_unique_count} unique combos · peaks {l2_target_pqs}",
+  "cmv40_pipeline.l3_del_disco": "Disc L3: {combos} mid-tone adjustments",
   "cmv40_pipeline.l5_con_bloque": "L5 {etiqueta}: {p2}/{frames} with a block · {reparto}{extra}",
   "cmv40_pipeline.l5_cuerpo_mayor_tramo_s_umbrales": "{icono} L5 '{severidad}' — body {p3}% · longest run {p4} s (thresholds 90% and {p5} s).",
   "cmv40_pipeline.l5_estatico_sospechoso_px_30_comparando": "Suspicious static L5 ({p1} px > 30) — comparing the two RPUs frame by frame ({total} frames)…",

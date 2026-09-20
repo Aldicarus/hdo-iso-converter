@@ -1577,6 +1577,39 @@ async def preflight_source(
                 pass
 
 
+async def _medir_l3(rpu: Path, dovi_info, log_callback=None) -> None:
+    """Cuenta el L3 de un RPU y lo anota en su `DoviInfo`. Best-effort.
+
+    **`dovi_tool info --summary` NO emite L3**, así que el parser del summary
+    no puede poblarlo: emite exactamente cuatro líneas de niveles —`L5
+    offsets`, `L2 trims`, `L8 trims`, `L9 MDP`— y ninguna es esa. El dato
+    existe solo en `export --levels level3`, y hasta hoy esa vía estaba
+    únicamente en el análisis extendido de Tab 2 y en el pre-flight del bin:
+    el RPU del disco no se exportaba nunca, así que la tabla «los dos RPU,
+    lado a lado» enseñaba L1/L5/L6/L8/L9/L11 y **ningún L3 en ninguna de las
+    dos columnas**. Lo reportó el usuario el 2026-09-20.
+
+    Son ~7 s sobre un RPU ya extraído, contra los ~12 min de la fase. Si
+    falla no se anota nada y `l3_medido` se queda en False, que es lo que la
+    tabla lee para decir «sin medir» en vez de un guion: un flag sin fuente
+    se deja en su default antes que fingir que se comprueba.
+    """
+    try:
+        from phases.rpu_analyze import contar_l3, export_levels
+        niveles = await export_levels(rpu, ("level3",), timeout=300)
+        if niveles is None:
+            return
+        combos, frames, _ = contar_l3(niveles.get("level3") or [])
+        dovi_info.l3_medido = True
+        dovi_info.l3_unique_count = combos
+        dovi_info.l3_frames = frames
+        dovi_info.has_l3 = combos > 0
+        await _log(log_callback, '[Fase A] └─ ' + tr(
+            'cmv40_pipeline.l3_del_disco', combos=combos))
+    except Exception as e:                       # noqa: BLE001
+        _logger.info("no se pudo medir el L3 de %s: %s", rpu, e)
+
+
 async def run_phase_a_analyze_source(
     session: CMv40Session,
     log_callback=None,
@@ -1806,6 +1839,7 @@ async def run_phase_a_analyze_source(
         raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
+    await _medir_l3(rpu_source, dovi_info, log_callback)
     session.source_dv_info = dovi_info
     session.source_frame_count = dovi_info.frame_count
 

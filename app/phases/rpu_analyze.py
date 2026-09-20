@@ -509,6 +509,28 @@ def _contar_cortes_de_escena(ruta) -> int:
     return cortes
 
 
+def contar_l3(filas) -> tuple[int, int, float]:
+    """(combos únicos, frames, % neutros) del nivel 3 de un export.
+
+    Vive aquí y no en cada llamador porque lo piden DOS rutas —el pre-flight
+    del bin y la Fase A sobre el RPU del disco— y la regla del proyecto es
+    que ese JSON tenga un solo parser: tenerlo por duplicado es lo que
+    permitió que el de `mkv_analyze` divergiera del formato real.
+    """
+    contador: Counter = Counter()
+    for r in filas or ():
+        if not isinstance(r, dict):
+            continue
+        contador[(r.get("min_pq_offset"), r.get("max_pq_offset"),
+                  r.get("avg_pq_offset"))] += 1
+    frames = sum(contador.values())
+    if not frames:
+        return 0, 0, 0.0
+    neutros = sum(n for c, n in contador.items()
+                  if all(v in (None, 2048) for v in c))
+    return len(contador), frames, neutros / frames
+
+
 def analysis_desde_paths(paths: dict[str, Path]) -> RpuAnalysis:
     """`RpuAnalysis` a partir de ficheros de `--levels` ya generados."""
     return _parse_export_levels(paths)
@@ -573,18 +595,8 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
     # los 176.448 frames), así que el porcentaje de neutros de L3 no es
     # comparable con el de L8 y no se usa como umbral. Lo que discrimina es
     # el número de combos.
-    l3_counter: Counter = Counter()
-    for r in l3:
-        if not isinstance(r, dict):
-            continue
-        l3_counter[(r.get("min_pq_offset"), r.get("max_pq_offset"),
-                    r.get("avg_pq_offset"))] += 1
-    analysis.l3_frames = sum(l3_counter.values())
-    analysis.l3_unique_count = len(l3_counter)
-    if analysis.l3_frames:
-        neutros = sum(n for c, n in l3_counter.items()
-                      if all(v in (None, 2048) for v in c))
-        analysis.l3_neutral_pct = neutros / analysis.l3_frames
+    (analysis.l3_unique_count, analysis.l3_frames,
+     analysis.l3_neutral_pct) = contar_l3(l3)
 
     l8_counter: Counter = Counter()
     l8_idx_set: set[int] = set()

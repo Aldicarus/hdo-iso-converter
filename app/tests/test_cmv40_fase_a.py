@@ -85,6 +85,57 @@ class TestElAvisoDeL2(FaseACase):
         self.assertEqual(session.source_frame_count, FRAMES)
 
 
+class TestElL3DelDiscoSeMide(FaseACase):
+    """Fase A no miraba el L3 del RPU del disco, y nadie más lo hacía.
+
+    `dovi_tool info --summary` emite **cuatro** líneas de niveles —`L5
+    offsets`, `L2 trims`, `L8 trims`, `L9 MDP`— y ninguna es de L3, así que
+    `_parse_dovi_summary` no puede poblar `has_l3`. El dato existe solo en
+    `export --levels level3`, y esa vía estaba en el análisis extendido de
+    Tab 2 y en el pre-flight del bin: el RPU del disco no se exportaba
+    nunca. Resultado en la tabla «los dos RPU, lado a lado»: ninguna de las
+    dos columnas mencionaba L3.
+
+    Son ~7 s sobre un RPU ya extraído, contra los ~12 min de la fase.
+    """
+
+    async def test_el_disco_sin_l3_queda_MEDIDO_y_vacio(self):
+        """El caso normal: sobre un RPU de BD (P7, CM v2.9) el export de
+        `level3` sale vacío — comprobado con un sniff de 60 s. Lo que cambia
+        es que ahora consta que se miró."""
+        session, _ = await self.correr()
+        dv = session.source_dv_info
+        self.assertTrue(dv.l3_medido, "no se llegó a medir")
+        self.assertFalse(dv.has_l3)
+        self.assertEqual(dv.l3_unique_count, 0)
+
+    async def test_un_disco_con_l3_lo_cuenta(self):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.define_rpu_levels("RPU_source.bin", l3_combos=7)
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        dv = session.source_dv_info
+        self.assertTrue(dv.l3_medido)
+        self.assertTrue(dv.has_l3)
+        self.assertEqual(dv.l3_unique_count, 7)
+
+    async def test_si_el_export_falla_no_se_finge_que_se_miro(self):
+        """Un flag sin fuente se deja en su default antes que fingir que se
+        comprueba: es lo que la tabla lee para decir «sin medir»."""
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.fail("dovi_tool", "export")
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        self.assertFalse(session.source_dv_info.l3_medido)
+
+    async def test_y_el_fallo_no_tumba_la_fase(self):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.fail("dovi_tool", "export")
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        self.assertEqual(session.source_frame_count, FRAMES)
+
+
 class TestLoQueLaFaseDeja(FaseACase):
     """Los artefactos y campos de los que dependen las fases siguientes."""
 

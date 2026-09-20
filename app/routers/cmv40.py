@@ -2703,6 +2703,26 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
         _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
                         session.session_id, e)
 
+    # El L3 del BIN vive en la sesión (`target_l3_*`, lo escribe el
+    # pre-flight) y NO en `target_dv_info`, que sale del summary de
+    # `dovi_tool info` — y ese summary no emite L3. Así que un proyecto con
+    # 485 combos L3 medidos llegaba a la tabla de validaciones con
+    # `has_l3=False` y sin ninguna fila que lo dijera.
+    #
+    # Se deriva al servir, como la clasificación de arriba: los números ya
+    # están persistidos, así que los proyectos existentes se corrigen al
+    # abrirlos sin migrar ni re-analizar nada.
+    try:
+        tgt = data.get("target_dv_info")
+        if isinstance(tgt, dict) and session.target_l3_frames:
+            tgt["l3_medido"] = True
+            tgt["l3_unique_count"] = session.target_l3_unique_count
+            tgt["l3_frames"] = session.target_l3_frames
+            tgt["has_l3"] = session.target_l3_unique_count > 0
+    except Exception as e:
+        _logger.warning("No se pudo derivar el L3 del bin de %s: %s",
+                        session.session_id, e)
+
     try:
         from phases.rpu_analyze import recommend_action
         accion, rotulo, motivo = recommend_action(session)

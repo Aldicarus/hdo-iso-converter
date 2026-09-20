@@ -4319,6 +4319,14 @@ function _cmv40GateBloque2(s) {
   };
   const l1txt = dv => (!dv || (!dv.l1_max_cll && !dv.l1_max_fall)) ? '—'
     : `${dv.l1_max_cll || 0} / ${dv.l1_max_fall || 0} nits`;
+  // El L3 distingue TRES cosas, y hasta hoy la tabla no enseñaba ninguna:
+  // no medido (el summary de `dovi_tool info` no emite L3, así que ningún
+  // RPU lo traía), medido y ausente, y medido con su cuenta.
+  const l3txt = dv => {
+    if (!dv || !dv.l3_medido) return tr('tab3.rpu_sin_medir');
+    if (!dv.l3_unique_count) return tr('tab3.rpu_sin_l3');
+    return tr('tab3.rpu_l3_ajustes', { n: _cmv40Num(dv.l3_unique_count) });
+  };
   const l6txt = dv => !dv ? '—' : `${dv.l6_max_cll || 0} nits`;
 
   const perfS = l5g.perfil_source || null;
@@ -4331,6 +4339,13 @@ function _cmv40GateBloque2(s) {
   const marcaNiv = (nivS !== nivT && tdv && tdv.has_l8 && sdv && !sdv.has_l8)
     ? { txt: '+L8', color: '#0a5cab' } : null;
   const l5S = l5txt(sdv, perfS), l5T = l5txt(tdv, perfT);
+  // Lo que el bin APORTA, que es la pregunta de este bloque: el ajuste de
+  // tonos medios lo calcula el análisis de Dolby y el Blu-ray no lo trae
+  // —medido sobre un RPU P7 MEL CM v2.9, el export de `level3` sale vacío—
+  // así que traerlo es una mejora real aunque el L8 esté plano.
+  const marcaL3 = (tdv && tdv.l3_unique_count && sdv && sdv.l3_medido
+                   && !sdv.l3_unique_count)
+    ? { txt: '+L3', color: '#0a5cab' } : null;
 
   return `
     ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
@@ -4345,6 +4360,7 @@ function _cmv40GateBloque2(s) {
       ${_cmv40RpuFila(tr('tab3.rpu_escenas'), sdv ? _cmv40Num(sdv.scene_count) : '—', tdv ? _cmv40Num(tdv.scene_count) : '—')}
       ${_cmv40RpuFila(tr('tab3.rpu_niveles'), nivS, nivT, marcaNiv)}
       ${_cmv40RpuFila('L1 CLL/FALL', l1txt(sdv), l1txt(tdv))}
+      ${_cmv40RpuFila(tr('tab3.rpu_l3_tonos_medios'), l3txt(sdv), l3txt(tdv), marcaL3)}
       ${_cmv40RpuFila('L5 active area', l5S, l5T)}
       ${_cmv40RpuFila('L6 MaxCLL', l6txt(sdv), l6txt(tdv))}
       ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}

@@ -225,6 +225,71 @@ class TestLosCincoBloques(CardTestCase):
         self.assertIn("crítico", html)
 
 
+class TestElL3SaleEnLaTabla(CardTestCase):
+    """El L3 no aparecía por ninguna de las dos columnas, y el bin lo tiene.
+
+    Reportado el 2026-09-20 sobre la ficha de un proyecto: la tabla listaba
+    L1, L5, L6, L8, L9 y L11, y la fila «Niveles» decía «L1 L2 L5 L6» contra
+    «L1 L2 L5 L6 L8 L9». Dos causas encadenadas:
+
+    · **`dovi_tool info --summary` no emite L3** —emite exactamente cuatro
+      líneas de niveles: `L5 offsets`, `L2 trims`, `L8 trims`, `L9 MDP`— así
+      que el parser del summary no puede poblar `has_l3`, y es de ahí de
+      donde salen los dos `*_dv_info` de esta pestaña. El arreglo del
+      2026-09-18 llegó al análisis extendido de Tab 2 y **no** aquí.
+    · y la tabla **no tenía fila de L3**, así que aunque el flag llegara no
+      había dónde verlo.
+
+    Medido sobre el NAS: Pulp Fiction tiene **485 combos L3** en el bin y
+    llegaba con `has_l3=False`.
+    """
+
+    def _con_l3(self, src=None, tgt=None):
+        s = sesion_mandalorian()
+        for lado, v in (("source_dv_info", src), ("target_dv_info", tgt)):
+            if v is not None:
+                s[lado] = {**s[lado], **v}
+        return self.render(s)
+
+    def test_la_fila_existe(self):
+        self.assertIn("L3 tonos medios", self._con_l3())
+
+    def test_el_bin_medido_enseña_su_cuenta(self):
+        html = self._con_l3(tgt={"l3_medido": True, "l3_unique_count": 485,
+                                 "l3_frames": 190021})
+        self.assertIn("485 ajustes", html)
+
+    def test_sin_medir_no_se_lee_como_ausente(self):
+        """Es la distinción que faltaba: un guion decía «no lo tiene» de algo
+        que nadie había mirado."""
+        html = self._con_l3()
+        self.assertIn("sin medir", html)
+        self.assertNotIn("sin L3", html)
+
+    def test_medido_y_vacio_lo_dice(self):
+        html = self._con_l3(src={"l3_medido": True, "l3_unique_count": 0})
+        self.assertIn("sin L3", html)
+
+    def test_lo_que_el_bin_APORTA_se_marca(self):
+        """Con el disco medido y sin L3 y el bin con L3, la fila lleva su
+        marca: es justo lo que este bloque contesta."""
+        html = self._con_l3(src={"l3_medido": True, "l3_unique_count": 0},
+                            tgt={"l3_medido": True, "l3_unique_count": 485})
+        self.assertIn("+L3", html)
+
+    def test_sin_medir_el_disco_no_se_marca_nada(self):
+        """Sin saber qué trae el disco, decir que el bin «aporta» L3 sería
+        una conclusión sacada de un hueco."""
+        html = self._con_l3(tgt={"l3_medido": True, "l3_unique_count": 485})
+        self.assertNotIn("+L3", html)
+
+    def test_y_la_fila_de_niveles_lo_incluye(self):
+        html = self._con_l3(tgt={"l3_medido": True, "l3_unique_count": 485,
+                                 "has_l3": True})
+        # `niveles()` compone «L1 L2 L3 …» filtrando por `has_lN`.
+        self.assertRegex(html, r"L1 L2 L3\b")
+
+
 class TestTimecodes(CardTestCase):
     """Lo que convierte «558 frames divergen» en algo que se puede ir a mirar."""
 

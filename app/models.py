@@ -93,6 +93,21 @@ class DoviInfo(BaseModel):
     — sin L8 el bin no sirve como fuente de transfer."""
 
     has_l3: bool = False
+
+    l3_medido: bool = False
+    """True si el L3 de este RPU se llegó a exportar y contar.
+
+    Distingue «no lo tiene» de «no lo hemos mirado», que en la tabla de
+    validaciones se veían igual —un guion— y no son lo mismo: el summary de
+    `dovi_tool info` NO emite L3, así que hasta hoy todo RPU salía sin él.
+    Es la misma distinción que con `source_primary_index`, donde cero no
+    puede confundirse con ausente."""
+
+    l3_unique_count: int = 0
+    """Combos L3 distintos (min/max/avg PQ offset). Solo con `l3_medido`."""
+
+    l3_frames: int = 0
+    """Frames con bloque L3. Solo con `l3_medido`."""
     """L3: Ajuste local por escena (introducido en CMv4.0). Presente típicamente
     en grading nativo de colorista; ausente en bins generados algorítmicamente."""
 

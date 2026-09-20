@@ -256,6 +256,7 @@
   "cmv40_pipeline.i_total_de_warnings_dts_no": "ℹ Total de warnings DTS no monotònics suprimits: {p1} (cosmètics; el HEVC s'ha copiat bé).",
   "cmv40_pipeline.l1_de_frames_export_selectivo_sin": "L1 de {label}: {rows} frames (export selectiu — sense bolcar l'RPU sencer)",
   "cmv40_pipeline.l2_source_combos_unicos_peaks": "L2 source: {l2_unique_count} combos únics · peaks {l2_target_pqs}",
+  "cmv40_pipeline.l3_del_disco": "L3 del disc: {combos} ajustos de tons mitjans",
   "cmv40_pipeline.l5_con_bloque": "L5 {etiqueta}: {p2}/{frames} amb bloc · {reparto}{extra}",
   "cmv40_pipeline.l5_cuerpo_mayor_tramo_s_umbrales": "{icono} L5 '{severidad}' — cos {p3}% · tram més llarg {p4} s (llindars 90% i {p5} s).",
   "cmv40_pipeline.l5_estatico_sospechoso_px_30_comparando": "L5 estàtic sospitós ({p1} px > 30) — s'estan comparant els dos RPUs frame a frame ({total} frames)…",

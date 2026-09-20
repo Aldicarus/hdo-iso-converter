@@ -173,6 +173,46 @@ class TestElPanelSirveElMismoVeredictoQueElListado(_PreflightBase):
                          "el panel sirve un veredicto distinto del medido")
         self.assertEqual(d["target_l8_max_delta"], 41)
 
+    def test_y_el_L3_medido_llega_al_dv_info_del_bin(self):
+        """El L3 del bin lo escribe el pre-flight en `target_l3_*`, pero la
+        tabla de validaciones lee `target_dv_info`, que sale del summary de
+        `dovi_tool info` — y ese summary **no emite L3**. Así que un proyecto
+        con 485 combos medidos llegaba con `has_l3=False` y la tabla no
+        enseñaba L3 por ninguna de sus dos columnas.
+
+        Se deriva al servir, como la clasificación: los números ya están
+        persistidos, así que los proyectos existentes se corrigen al abrirlos
+        sin migrar ni re-analizar nada."""
+        from models import DoviInfo
+        s, _, _ = self.correr_preflight(bin_pulp_fiction())
+        # El pre-flight cuenta los combos del bin; `target_dv_info` lo
+        # escribe la Fase B, y es donde la tabla los busca.
+        s.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")
+        import storage
+        storage.save_cmv40_session(s)
+        self.assertTrue(s.target_l3_frames, "el pre-flight no midió el L3")
+
+        tgt = self.client.get(f"/api/cmv40/{s.id}?include_log=false").json()["target_dv_info"]
+        self.assertTrue(tgt["l3_medido"])
+        self.assertTrue(tgt["has_l3"])
+        self.assertEqual(tgt["l3_unique_count"], s.target_l3_unique_count)
+        self.assertEqual(tgt["l3_frames"], s.target_l3_frames)
+
+    def test_sin_L3_medido_no_se_inventa_que_se_miro(self):
+        """`l3_medido` es lo que la tabla lee para decir «sin medir» en vez
+        de un guion. Un proyecto anterior al export de `level3` no lo tiene,
+        y decir que se comprobó sería fingirlo."""
+        from models import DoviInfo
+        s, _, _ = self.correr_preflight(bin_pulp_fiction())
+        s.target_dv_info = DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")
+        s.target_l3_frames = s.target_l3_unique_count = 0
+        import storage
+        storage.save_cmv40_session(s)
+
+        tgt = self.client.get(f"/api/cmv40/{s.id}?include_log=false").json()["target_dv_info"]
+        self.assertFalse(tgt["l3_medido"])
+        self.assertFalse(tgt["has_l3"])
+
     def test_lo_persistido_y_lo_re_derivado_coinciden(self):
         """El listado sirve lo PERSISTIDO y el panel lo re-deriva, así que un
         pre-flight que guarde un veredicto distinto del que el criterio

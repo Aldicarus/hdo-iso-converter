@@ -256,6 +256,7 @@
   "cmv40_pipeline.i_total_de_warnings_dts_no": "ℹ Total de warnings DTS no monotonicos suprimidos: {p1} (cosmeticos; el HEVC se copio bien).",
   "cmv40_pipeline.l1_de_frames_export_selectivo_sin": "L1 de {label}: {rows} frames (export selectivo — sin volcar el RPU entero)",
   "cmv40_pipeline.l2_source_combos_unicos_peaks": "L2 source: {l2_unique_count} combos únicos · peaks {l2_target_pqs}",
+  "cmv40_pipeline.l3_del_disco": "L3 del disco: {combos} ajustes de tonos medios",
   "cmv40_pipeline.l5_con_bloque": "L5 {etiqueta}: {p2}/{frames} con bloque · {reparto}{extra}",
   "cmv40_pipeline.l5_cuerpo_mayor_tramo_s_umbrales": "{icono} L5 '{severidad}' — cuerpo {p3}% · mayor tramo {p4} s (umbrales 90% y {p5} s).",
   "cmv40_pipeline.l5_estatico_sospechoso_px_30_comparando": "L5 estático sospechoso ({p1} px > 30) — comparando los dos RPUs frame a frame ({total} frames)…",
