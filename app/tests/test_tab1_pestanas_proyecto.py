@@ -236,6 +236,80 @@ console.log(JSON.stringify({{ destruidos, toast, sueltos: {{
         self.assertIsNone(self._cerrar(self._base(session=None))["toast"])
 
 
+@unittest.skipIf(NODE is None, "node no está instalado")
+class TestElBannerDeUnaEjecucionCancelada(unittest.TestCase):
+    """Cancelar un rip no dejaba rastro en la ficha.
+
+    El `except` del pipeline devuelve `status` a `pending`, limpia
+    `error_message` y **no** apila un `ExecutionRecord` —el proyecto queda
+    listo para relanzarse— así que ni el banner (que solo miraba
+    running/queued) ni la tabla de ejecuciones (que no tiene fila) lo decían.
+    El hecho más importante que le había pasado al proyecto vivía solo en el
+    log.
+    """
+
+    def _banner(self, sesion: dict) -> dict:
+        from frontend_sources import sistema_de_iconos
+        guion = f"""
+{sistema_de_iconos()}
+{_fn('_situacionDeSesion')}
+{_fn('renderExecResultBanner')}
+const nodos = {{}};
+for (const id of ['exec-result-banner', 'exec-result-icon',
+                  'exec-result-title', 'exec-result-detail',
+                  'exec-result-actions']) {{
+  nodos[id] = {{ style: {{}}, className: '', innerHTML: '', textContent: '' }};
+}}
+globalThis.E = (id) => nodos[id];
+globalThis.escHtml = (s) => String(s);
+renderExecResultBanner({json.dumps(sesion)});
+console.log(JSON.stringify({{
+  visible: nodos['exec-result-banner'].style.display !== 'none',
+  clase: nodos['exec-result-banner'].className,
+  titulo: nodos['exec-result-title'].textContent,
+  detalle: nodos['exec-result-detail'].textContent,
+  acciones: nodos['exec-result-actions'].innerHTML,
+}}));
+"""
+        return _node(guion)
+
+    #: cómo llega una sesión cancelada del servidor
+    CANCELADA = {"id": "p1", "status": "pending",
+                 "last_cancelled_at": "2026-09-19T10:00:00Z",
+                 "relato": {"situacion": "cancelado",
+                            "situacion_rotulo": "Lo paraste tú",
+                            "porque": "Paraste la ejecución."}}
+
+    def test_sale_y_dice_que_lo_paraste(self):
+        b = self._banner(self.CANCELADA)
+        self.assertTrue(b["visible"])
+        self.assertIn("Lo paraste", b["titulo"])
+        self.assertIn("Paraste la ejecución", b["detalle"])
+
+    def test_en_ambar_y_no_en_azul(self):
+        """El azul es el de «esto está pasando»; esto ya pasó y no va a
+        seguir."""
+        self.assertIn("warning", self._banner(self.CANCELADA)["clase"])
+
+    def test_sin_botones_porque_no_hay_nada_que_seguir(self):
+        """«Ver progreso» y «Cancelar» son de un trabajo vivo."""
+        self.assertEqual(self._banner(self.CANCELADA)["acciones"].strip(), "")
+
+    def test_una_que_nunca_se_lanzo_no_saca_banner(self):
+        self.assertFalse(self._banner(
+            {"id": "p1", "status": "pending",
+             "relato": {"situacion": "preparando", "situacion_rotulo": "Sin ejecutar",
+                        "porque": ""}})["visible"])
+
+    def test_y_la_que_corre_sigue_en_azul_con_sus_botones(self):
+        b = self._banner({"id": "p1", "status": "running",
+                          "relato": {"situacion": "en_marcha",
+                                     "situacion_rotulo": "En curso", "porque": ""}})
+        self.assertTrue(b["visible"])
+        self.assertIn("info", b["clase"])
+        self.assertIn("cancelRunningSession", b["acciones"])
+
+
 class TestNoQuedanCamposDeTab3EnTab1(unittest.TestCase):
     """Guard: los campos que Tab 1 no tiene no pueden volver a consultarse.
 

@@ -282,6 +282,25 @@ class TestDiscrepancias(ValidacionCase):
         self.tb.fail("mkvmerge", "*", rc=2, stderr="no es un MKV\n")
         self.assertFalse(await self._validar(self._sesion()))
 
+    async def test_el_recuento_queda_en_la_sesion(self):
+        """«Terminado» y «terminado con avisos» eran la misma tarjeta: el
+        número vivía SOLO en la línea del resumen del log, así que no llegaba
+        a ninguna superficie. La ficha lo lee de aquí."""
+        self._declarar_mkv([self.VIDEO])
+        s = self._sesion(audios=[_audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                                        "Castellano TrueHD Atmos 7.1")])
+        await self._validar(s)
+        self.assertGreater(s.last_validation_warnings, 0)
+
+    async def test_y_una_validacion_limpia_lo_deja_a_cero(self):
+        """Se reescribe en cada ejecución: si solo se sumara, un proyecto que
+        falló una vez arrastraría el aviso para siempre."""
+        self._declarar_mkv([self.VIDEO])
+        s = self._sesion()
+        s.last_validation_warnings = 7        # como si la anterior hubiera ido mal
+        self.assertTrue(await self._validar(s), self.log.text)
+        self.assertEqual(s.last_validation_warnings, 0)
+
     async def test_el_resumen_lista_el_diagnostico(self):
         """Cuando algo no cuadra, el log tiene que traer con qué depurarlo."""
         self._declarar_mkv([self.VIDEO])

@@ -278,10 +278,14 @@ class TestElHistorialNoAceptaCualquierCosa(unittest.TestCase):
             id="s1", tab=self.historial.TAB_RIP, tipo=self.historial.TIPO_RIP,
             que="Conversión", inicio=datetime.now(timezone.utc),
             estado="running")
-        (r,) = self.historial.leer()
-        self.assertEqual(r["estado"], self.historial.ESTADO_INTERRUMPIDO)
+        # Se mira la LÍNEA ESCRITA, no lo que devuelve `leer`: el lector
+        # normaliza también, así que por ahí la validación de escritura
+        # parecería estar haciendo algo aunque no hiciera nada — y el fichero
+        # es append-only, o sea que lo que se escribe mal se queda mal.
+        crudo = json.loads(self.historial.ruta().read_text().splitlines()[0])
+        self.assertEqual(crudo["estado"], self.historial.ESTADO_INTERRUMPIDO)
         # Y con un motivo: sin él la columna enseña un chip y nada más.
-        self.assertTrue(r["error"])
+        self.assertTrue(crudo["error"])
 
     def test_los_estados_buenos_pasan_tal_cual(self):
         for estado in self.historial.ESTADOS:

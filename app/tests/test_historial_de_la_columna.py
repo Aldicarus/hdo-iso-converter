@@ -177,6 +177,34 @@ class TestUnaCancelacionSeLeeComoTal(HistorialCase):
         self.assertNotIn("wb-card-error", h)
 
 
+class TestElTrabajoQueSeLlevoUnReinicio(HistorialCase):
+    """El quinto desenlace: ni terminó, ni falló, ni lo paraste tú.
+
+    `anotar` se llama desde el `finally` del trabajo, así que un proceso que
+    muere con el contenedor llega con el estado interno de la sesión
+    —`running`—, que no es del vocabulario. La tabla de esta columna no lo
+    conocía, así que caía al genérico y se pintaba **como un error rojo sin
+    mensaje**; y para siempre, porque el fichero es append-only. Hay dos
+    líneas así en el NAS: los dos episodios de Juego de Tronos que un deploy
+    pilló a mitad de la cola el 2026-09-12.
+    """
+
+    #: la cruz de `_ICONOS_ESTADO.cancelado`, que no dibuja ningún otro chip.
+    CRUZ = "M8.2 8.2l7.6 7.6"
+
+    def test_lleva_el_chip_del_final_abrupto_y_no_el_de_error_mudo(self):
+        """Se afirma sobre el TRAZO, no sobre el tono: `cancelado` y `error`
+        son los dos rojos, así que `icono-rojo` no distingue nada."""
+        h = self._render([_linea_hist("p1", estado="interrupted",
+                                      error="Interrumpido al reiniciarse")])
+        self.assertIn(self.CRUZ, h)
+        self.assertIn("Interrumpido al reiniciarse", h)
+
+    def test_un_fallo_de_verdad_lleva_otro_trazo(self):
+        h = self._render([_linea_hist("p1", estado="error", error="x")])
+        self.assertNotIn(self.CRUZ, h)
+
+
 class TestSeVeCuandoPasoYPorQueFallo(HistorialCase):
 
     def test_ademas_de_lo_que_duro_dice_cuando_fue(self):

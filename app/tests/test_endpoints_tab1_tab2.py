@@ -150,10 +150,42 @@ class TestElRelatoViajaEnLasDosRespuestas(ApiTestCase):
         self.assertEqual(fila["relato"]["situacion"], "esperando_turno")
 
     def test_el_mkv_analizado_tambien(self):
+        """Con una caché SEMBRADA. Sin ella la lista sale vacía y el bucle no
+        afirma nada: un guard que pasa en verde vigilando el vacío."""
+        import json as _json
+        from phases.mkv_analyze import CACHE_VERSION_BASIC
+        mkv = self.output_dir / "Peli (2024).mkv"
+        mkv.write_bytes(b"x")
+        d = self.config_dir / "mkv_audits"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "abc.json").write_text(_json.dumps({
+            "original_file_path": str(mkv),
+            "cached_at": "2026-09-19T10:00:00+00:00",
+            "versions": {"basic": CACHE_VERSION_BASIC},
+            "basic": {"duration_seconds": 7200},
+            "fingerprint": {"sha256_1mb": "abc", "size_bytes": 1},
+        }), encoding="utf-8")
         recientes = self.client.get("/api/mkv/recientes").json()["recientes"]
-        for r in recientes:
-            self.assertIn("relato", r)
-            self.assertTrue(r["relato"]["situacion_rotulo"])
+        self.assertEqual(len(recientes), 1)
+        r = recientes[0]["relato"]
+        self.assertEqual(r["situacion"], "preparando")   # solo el básico
+        self.assertTrue(r["situacion_rotulo"])
+        self.assertTrue(r["porque"])
+
+    def test_y_el_mkv_que_ya_no_esta_lo_dice(self):
+        import json as _json
+        from phases.mkv_analyze import CACHE_VERSION_BASIC
+        d = self.config_dir / "mkv_audits"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "def.json").write_text(_json.dumps({
+            "original_file_path": str(self.output_dir / "se_fue.mkv"),
+            "cached_at": "2026-09-19T10:00:00+00:00",
+            "versions": {"basic": CACHE_VERSION_BASIC},
+            "basic": {"duration_seconds": 1},
+            "fingerprint": {"sha256_1mb": "def", "size_bytes": 1},
+        }), encoding="utf-8")
+        (r,) = self.client.get("/api/mkv/recientes").json()["recientes"]
+        self.assertEqual(r["relato"]["situacion"], "no_disponible")
 
 
 class TestCola(ApiTestCase):

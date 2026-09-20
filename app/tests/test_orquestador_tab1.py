@@ -339,6 +339,8 @@ class TestUnaConversionCanceladaDejaRastro(OrquestadorCase):
         from routers import tab1 as r1
         from phases import phase_d
         real = phase_d.run_phase_d
+        # Se guarda para que un test pueda quitar el doble antes del cleanup.
+        self.tb.run_phase_d_real = real
         sid = "Peli_2024_1700000000"
 
         async def cancelando(*a, **kw):
@@ -371,6 +373,33 @@ class TestUnaConversionCanceladaDejaRastro(OrquestadorCase):
     async def test_pero_no_cuenta_como_ejecucion_del_proyecto(self):
         s = await self._cancelar_a_media_extraccion()
         self.assertEqual(s.execution_history, [])
+
+    async def test_y_la_ficha_lo_dice(self):
+        """Volver a `pending` sin más dejaba el proyecto igual que uno que
+        nunca se lanzó: la cancelación constaba en el log y en el historial
+        transversal, y en la ficha por ninguna parte."""
+        from phases import tab1_relato
+        import relato
+        s = await self._cancelar_a_media_extraccion()
+        self.assertIsNotNone(s.last_cancelled_at)
+        self.assertEqual(tab1_relato.resolver(s)["situacion"], relato.CANCELADO)
+
+    async def test_y_relanzar_borra_la_marca(self):
+        """`last_cancelled_at` describe la ÚLTIMA tentativa, no un historial:
+        con la ejecución terminada ya no es cierto que esté parado."""
+        from phases import tab1_relato
+        import relato
+        from routers import tab1 as r1
+        from phases import phase_d
+        s = await self._cancelar_a_media_extraccion()
+        self.assertIsNotNone(s.last_cancelled_at)
+        # El doble que cancela sigue instalado hasta el cleanup: hay que
+        # quitarlo o la segunda pasada se cancela también.
+        phase_d.run_phase_d = r1.run_phase_d = self.tb.run_phase_d_real
+        s2 = await self._correr(s)             # sin cancelar, esta vez
+        self.assertEqual(s2.status, "done", s2.error_message)
+        self.assertIsNone(s2.last_cancelled_at)
+        self.assertEqual(tab1_relato.resolver(s2)["situacion"], relato.TERMINADO)
 
 
 class TestElLogVaSincronizadoConLaFase(OrquestadorCase):
