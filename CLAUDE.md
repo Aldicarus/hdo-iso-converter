@@ -613,6 +613,117 @@ Antes cada parte tenía su versión: el backend hacía `trusted_auto or user_ack
 
 **Regla**: ninguna condición de trust se escribe a mano fuera de `cmv40_strategy.py`. `is_drop_in_fel` del pipeline delega en `plan.drop_in` por lo mismo — era una segunda definición del drop-in. Y `recommend_action` era la **tercera**, la que más se notaba porque su texto va a la card del proyecto: ver «Decisión de 4 caminos» más abajo.
 
+### El relato: un solo sitio donde se resuelve qué está pasando
+
+Un job le habla al usuario por **cinco superficies** —el modal del pre-flight,
+el log, la card de análisis, las cards de fase y la columna de trabajo— y cada
+una derivaba por su cuenta en qué estado estaba. De ahí salían las
+incoherencias que el usuario reportó el 2026-09-19: dos proyectos CMv4.0 en
+estados opuestos enseñaban el mismo rótulo, y tras cancelar uno la ficha no
+mencionaba la cancelación por ninguna parte.
+
+`relato.py` es el vocabulario común más un **registro de adaptadores** —el
+mismo patrón que `trabajos.registrar` y `queue_manager.registrar_runner`, así
+que el módulo no conoce ninguna pestaña—, y cada una aporta su resolutor
+PURO: `phases/cmv40_relato.py`, `phases/tab1_relato.py`,
+`phases/tab2_relato.py`. Lo sirven `GET /api/cmv40/{id}`,
+`GET /api/sessions[/{id}]` y `GET /api/mkv/recientes`, y la UI lo **lee**.
+
+```python
+{situacion, situacion_rotulo, etapas[], etapa{id,rotulo,indice,total,porque},
+ porque, decision{estado,…}, hechos[], siguiente}
+```
+
+Diez situaciones excluyentes, resueltas **en un orden fijo que ES la
+decisión**: `preparando · en_marcha · esperando_turno · esperando_decision ·
+detenido_por_error · cancelado · terminado · archivado · no_disponible ·
+caducado`. Un proyecto archivado que arrastra un error es «archivado» — ya no
+hay nada que resolver.
+
+Lo que cerró en cada pestaña, que no es lo mismo:
+
+- **Tab 3**: dos proyectos con `recommended_action='unknown'` decían «Análisis
+  pendiente» estuvieran donde estuvieran, el estado de la decisión vivía en
+  **tres** campos (`preflight_decision` · `recommended_action` ·
+  `preflight_user_choice`) y cada superficie miraba uno, y la misma fase tenía
+  **cuatro** nombres (`[Fase A]`, «Fase A — Analizar MKV origen», «Fase A —
+  Analizando el MKV origen», `analyze_source`).
+- **Tab 1**: **un rip cancelado era indistinguible de uno que nunca se
+  lanzó.** Cancelar devuelve `status` a `pending`, limpia `error_message` y no
+  apila `ExecutionRecord` —deliberado, el proyecto queda listo para
+  relanzarse—, así que el hecho más importante vivía solo en el log. Y en su
+  forma peor: si la cancelación interrumpe una RE-ejecución,
+  `_sessionExecStatus` leía `execution_history[-1]`, que es la pasada buena de
+  ayer, y la tarjeta se quedaba en «Completado» en verde mientras el `except`
+  del pipeline había borrado el MKV que esa pasada produjo. Lo resuelven dos
+  campos **aditivos**: `last_cancelled_at` (se limpia al relanzar: describe la
+  última tentativa, no un historial) y `last_validation_warnings`, que separa
+  «terminado» de «terminado con avisos» — el recuento vivía en una línea del
+  log y no llegaba a ninguna superficie.
+- **Tab 2**: derivaba el estado de cada fila en el JS con palabras y colores
+  propios. Aporta las dos situaciones que faltaban: `no_disponible` (el
+  fichero no está donde se analizó, que **no es un error** — la caché va por
+  fingerprint y se reaprovecha en cuanto reaparezca) y `caducado` (hay
+  análisis, de una versión anterior, así que abrirlo lo rehace).
+
+Seis decisiones que no son obvias:
+
+- **No se persiste.** Se calcula al servir, como `session.plan` y
+  `estimated_size_bytes`. Pydantic ignora en silencio lo que no reconoce y el
+  primer save borraría lo que no supiera leer, con el `/config` de usuarios
+  que no podemos inspeccionar.
+- **El `situacion` se comparte; el rótulo NO.** «Sin ejecutar» en un rip es
+  «Analizado» en un MKV: el estado es el mismo —queda trabajo por hacer— y la
+  palabra no puede serlo. Lo escribe el servidor, así que además desapareció
+  `ESTADO_TEXTO`, una tabla de módulo con `tr()` dentro que se evaluaba al
+  parsear el script.
+- **El relato del listado de Tab 1 se compone FUERA del cache** y dentro del
+  mismo `to_thread`. El summary se invalida por `stat` del fichero y ni el
+  turno en la cola ni la fase en marcha tocan el JSON: con el relato dentro,
+  una sesión que empieza a correr seguiría diciendo «Sin ejecutar».
+- **`siguiente` NUNCA se escribe en el log.** Es un rótulo de interfaz, que se
+  repinta y se corrige solo; en el log sería la promesa colgando que la regla
+  del proyecto prohíbe.
+- **`porque` mira ATRÁS, nunca adelante.** La regla de «describir estado, no
+  predecir futuro» prohíbe prometer la fase siguiente; justificar lo ya
+  decidido con lo ya medido es lo que faltaba. `porque_de_fase` lo emite el
+  orquestador en un solo sitio, así que ninguna fase puede quedarse sin ella,
+  y la Fase C se ancla en `plan.extract.needs_demux` y **no** en
+  `plan.drop_in` — 16 de las 48 combinaciones difieren.
+- **Tab 2 no tiene etapas, y se queda sin ellas.** No es un trabajo por fases:
+  es un fichero con más o menos cosas sabidas.
+
+Cómo se pinta lo decide **`pinturaDeSituacion` en `core.js`**, con dos tablas
+(`ICONO_DE_SITUACION`, `ACENTO_DE_SITUACION`) comunes a las tres columnas: el
+sentido de «esto ya está» no puede depender de en qué columna lo mires. Los
+guards cruzan las dos tablas contra `relato.SITUACIONES`, los chips contra
+`_ICONOS_ESTADO` y los acentos contra el CSS — una `var()` o un nombre que no
+existe cae al respaldo **sin dar ningún error**. Y `frontend_sources.sistema_de_iconos()`
+las entrega a los arneses, por lo mismo que el resto: enumerarlas a mano se
+rompe en los quince a la vez.
+
+**Regla**: cualquier decisión sobre en qué estado está un trabajo se lee del
+relato. `test_relato::TestNadieVuelveADerivarloAMano` y
+`test_relato_tab1_tab2::TestNadieVuelveADerivarElEstadoAMano` fallan si
+reaparece la derivación a mano; las excepciones van por FUNCIÓN y con su
+motivo escrito.
+
+### El historial transversal tiene un quinto desenlace: `interrupted`
+
+`historial.anotar` aceptaba cualquier cadena en `estado`, y se llama desde el
+`finally` de cada trabajo: un proceso al que se lleva por delante un reinicio
+del contenedor llega con el estado interno de la sesión —`running`—, que no es
+del vocabulario. La columna lo pintaba con el chip **rojo de error y sin
+mensaje**, y para siempre, porque el fichero es append-only. Hay **dos líneas
+así en el NAS**: los dos episodios de Juego de Tronos que un deploy pilló a
+mitad de la cola el 2026-09-12, el mismo incidente que dejó el MKV a medias.
+
+Se valida **al escribir** (`ESTADOS`, con su motivo por defecto) y se
+normaliza **al leer**, que es exactamente lo que ya se hacía con los trabajos
+renombrados y por el mismo motivo: el historial **no se migra**. Un test que
+afirme sobre `leer()` no prueba la validación de escritura —el lector arregla
+igual— así que se mira la línea escrita.
+
 ### Un router por pestaña, y la dependencia en un solo sentido
 
 `main.py` era un fichero de 6.000 líneas con las tres pestañas dentro. Hoy:

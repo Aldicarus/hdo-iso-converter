@@ -164,15 +164,50 @@ independientes, cada una con su propio arranque y su propio cierre.
 
 ## 4. El orden propuesto
 
-| bloque | qué | cierra |
-|---|---|---|
-| 1 | **Un solo relato, resuelto en el servidor**: qué se ha hecho, por qué, qué toca ahora y qué queda. Servido y pintado sin re-derivar. | H3, H4, H8, H10 |
-| 2 | **Cada fase justifica mirando atrás** y cierra con evidencia legible, al estilo de Tab 1. | H5, H6, H7 |
-| 3 | **La ficha cuenta el trabajo**; el detalle técnico se pliega. | el resto de H3/H6 |
-| 4 | **Deduplicar el pre-flight** y arreglar el anuncio del paso fantasma. | H1, H2, H9 |
-| 5 | **Tab 1 y Tab 2 al mismo modelo.** | — |
+| bloque | qué | cierra | |
+|---|---|---|---|
+| 1 | **Un solo relato, resuelto en el servidor**: qué se ha hecho, por qué, qué toca ahora y qué queda. Servido y pintado sin re-derivar. | H3, H4, H8, H10 | ✅ |
+| 2 | **Cada fase justifica mirando atrás** y cierra con evidencia legible, al estilo de Tab 1. | H5, H6, H7 | ✅ |
+| 3 | **La ficha cuenta el trabajo**; el detalle técnico se pliega. | el resto de H3/H6 | ✅ |
+| 4 | **Deduplicar el pre-flight** y arreglar el anuncio del paso fantasma. | H1, H2, H9 | ✅ |
+| 5 | **Tab 1 y Tab 2 al mismo modelo.** | — | ✅ |
 
 Bloque 1 va primero porque H3, H4 y H10 no se pueden arreglar caso a caso sin
 que vuelvan: son derivaciones paralelas del mismo estado. Es el mismo
 razonamiento que llevó a `cmv40_strategy`, y la mañana del 2026-09-19 es la
 demostración de lo que pasa si se parchean de uno en uno.
+
+
+---
+
+## 5. Cerrado — 2026-09-19/20
+
+Los diez hallazgos, cerrados y desplegados (`v2.8.1-317-g3ce95a0`). El diseño
+que salió está en CLAUDE.md, «El relato: un solo sitio donde se resuelve qué
+está pasando»; aquí queda lo que este documento aportó y que no estaba en el
+encargo.
+
+**Tres defectos no se veían desde el código, solo desde el render o desde los
+datos del NAS**, y son los que justifican el bloque 0:
+
+- el veredicto `tone_mapping` estaba **sin cablear en seis sitios** y el
+  sidebar y la ficha del MISMO proyecto discrepaban, porque `GET
+  /api/cmv40/{id}` re-derivaba la clasificación del L8 sin L3;
+- **`CMv40Cancelled` es una `Exception`**, así que cinco `except Exception`
+  alrededor de subprocesos se la tragaban: al cancelar, la Fase A remataba
+  con «el MKV origen no tiene duración detectable… fichero corrupto», o sea
+  culpando al fichero del usuario de que el usuario pulsara cancelar;
+- y **dos líneas del `historial.jsonl` del NAS dicen `running`** y lo dirían
+  siempre, pintadas como un error rojo mudo. Son los dos episodios de Juego
+  de Tronos del deploy del 2026-09-12.
+
+**Y dos de los cinco bloques destaparon divergencias que nadie había pedido**,
+las dos al fusionar o unificar: las dos copias del pre-flight diferían en los
+tramos de progreso y en si exigían `target_preflight_ok` antes de encadenar;
+y los fixtures de `test_columnas_de_proyecto` no correspondían a lo que manda
+el endpoint —el de la sesión con error decía `status: "pending"` con el error
+dentro del historial, que es literalmente la derivación que el bloque 5
+quitó.
+
+Lo que queda por hacer no es de este hilo: **verificarlo con discos reales**.
+Nada de esto se ha usado todavía contra un rip ni contra un upgrade de verdad.
