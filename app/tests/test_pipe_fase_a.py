@@ -197,7 +197,10 @@ class TestNoSeAnunciaUnPasoQueNoVaAOcurrir(PhaseTestCase):
             await pipe.run_phase_a_analyze_source(session, log)
         except Exception:
             pass        # lo que interesa es lo que se dijo por el camino
-        self.assertTrue([l for l in log.lines if "camino rápido" in l],
+        from frontend_sources import catalogo_servidor_es
+        aviso = catalogo_servidor_es()[
+            'cmv40_pipeline.el_camino_rapido_no_se_pudo_usar']
+        self.assertTrue([l for l in log.lines if aviso in l],
                         "el cambio de camino no se explica")
 
 

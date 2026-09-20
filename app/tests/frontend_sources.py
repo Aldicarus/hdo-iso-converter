@@ -16,7 +16,8 @@ import re
 import shutil
 from pathlib import Path
 
-STATIC = Path(__file__).resolve().parents[1] / "static"
+APP = Path(__file__).resolve().parents[1]
+STATIC = APP / "static"
 INDEX = STATIC / "index.html"
 
 # Solo los locales: el `src` de Sortable.js apunta a un CDN.
@@ -135,6 +136,25 @@ def catalogo_es() -> dict:
     """El catálogo castellano, tal cual lo sirve la app."""
     import json
     ruta = STATIC / "i18n" / "es.json"
+    if not ruta.exists():
+        return {}
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def catalogo_servidor_es() -> dict:
+    """El catálogo castellano del SERVIDOR (`app/i18n/es.json`).
+
+    Vive aquí, junto al del frontend, porque los dos contestan la misma
+    pregunta —«¿qué castellano tiene esta clave?»— y cuatro módulos de test
+    necesitan el segundo desde que el relato lo resuelve en el servidor. Con
+    un cargador por fichero, el día que cambie la ruta se rompen los cuatro.
+
+    **Un test de comportamiento se ancla en la CLAVE**: una frase copiada en
+    el test deja de contar nada en cuanto alguien la reescribe, y eso ya ha
+    puesto en rojo tests de código que funcionaba.
+    """
+    import json
+    ruta = APP / "i18n" / "es.json"
     if not ruta.exists():
         return {}
     return json.loads(ruta.read_text(encoding="utf-8"))

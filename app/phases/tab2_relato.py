@@ -32,7 +32,7 @@ from i18n import t as tr
 def _rotulo(situacion: str) -> str:
     """El rótulo lo pone la pestaña, el id lo comparten las tres.
 
-    «Sin empezar» describe un proyecto de Tab 1 que nunca se lanzó; el mismo
+    «Sin iniciar» describe un proyecto de Tab 1 que nunca se lanzó; el mismo
     id en Tab 2 es un MKV que SÍ está analizado, solo que sin el extendido.
     El estado es el mismo —queda trabajo por hacer— y la palabra no puede
     serlo.

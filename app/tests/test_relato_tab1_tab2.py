@@ -477,3 +477,102 @@ class TestNadieVuelveADerivarElEstadoAMano(unittest.TestCase):
     def test_cada_exencion_lleva_su_motivo(self):
         for nombre, motivo in self.EXENTAS.items():
             self.assertGreater(len(motivo), 20, nombre)
+
+
+class TestElRegistroDeLosRotulos(unittest.TestCase):
+    """Un rótulo de estado NOMBRA la situación; no se dirige al usuario.
+
+    Lo reportó el usuario el 2026-09-20 sobre los literales de este hilo:
+    «En marcha» donde la app dice «En curso», «Lo paraste tú» donde tocaba
+    «Cancelado», y un tooltip que decía «Ya está en curso. El botón vuelve
+    cuando termine», que es una conversación, no un rótulo.
+
+    El guard se queda en los rótulos —las situaciones y los titulares— y no
+    en la prosa: ahí la segunda persona sigue siendo el registro de la app
+    («Pega aquí tu clave»), que es lo que dice `REGISTRO.md`. Lo que no cabe
+    en una etiqueta de estado es hablarle a nadie.
+    """
+
+    #: marcas de segunda persona, por lengua
+    SEGUNDA_PERSONA = {
+        "es": (r"\btú\b", r"\bti\b", r"aste\b", r"iste\b", r"\bdecides\b",
+               r"\bpuedes\b", r"\btienes\b", r"\bespera\b"),
+        "en": (r"\byou\b", r"\byour\b"),
+        "ca": (r"\btu\b", r"\bvas\b", r"\bpots\b", r"\btens\b"),
+    }
+    #: un rótulo que no cabe en un chip ya no es un rótulo
+    TOPE = 32
+
+    def _rotulos(self, lang):
+        import json
+        from pathlib import Path
+        cat = json.loads((Path(__file__).resolve().parents[1] / "i18n" /
+                          f"{lang}.json").read_text(encoding="utf-8"))
+        return {k: v for k, v in cat.items()
+                if k.startswith("relato.") and
+                ("situacion_" in k or k.startswith("relato.titulo_"))}
+
+    def test_ningun_rotulo_se_dirige_al_usuario(self):
+        import re
+        malos = []
+        for lang, marcas in self.SEGUNDA_PERSONA.items():
+            for k, v in self._rotulos(lang).items():
+                for m in marcas:
+                    if re.search(m, v, re.I):
+                        malos.append(f"[{lang}] {k}: «{v}»")
+        self.assertEqual(sorted(malos), [], "\n  · ".join([""] + sorted(malos)))
+
+    def test_ninguna_situacion_es_una_frase(self):
+        """Solo las SITUACIONES: son el chip y el subtítulo de la tarjeta, y
+        ahí no cabe una oración. Los titulares del modal son otra cosa —
+        encabezan un bloque— y no llevan tope de largo."""
+        largos = [f"[{lang}] {k}: «{v}»" for lang in self.SEGUNDA_PERSONA
+                  for k, v in self._rotulos(lang).items()
+                  if "situacion_" in k and len(v) > self.TOPE]
+        self.assertEqual(sorted(largos), [], "\n  · ".join([""] + sorted(largos)))
+
+    def test_el_guard_mira_algo(self):
+        """Una lista vacía pasaría en verde sin vigilar nada."""
+        self.assertGreaterEqual(len(self._rotulos("es")), 15)
+
+
+class TestNingunaClaveDelRelatoSeQuedaSinConsumidor(unittest.TestCase):
+    """Una clave que nadie pide es texto muerto que parece cobertura.
+
+    Al revisar los literales de este hilo había **seis**: las cinco primeras
+    redacciones del veredicto en `tab3.*`, que el paso a `relato.*` dejó
+    atrás, y un `relato.titulo_error` que nunca llegó a cablearse. Ninguna
+    daba un error — sencillamente no se leían.
+
+    Se comprueba solo el espacio de nombres `relato.*`, donde la composición
+    de claves es conocida y acotada (`tr(f'relato.etapa_{id}')` y sus cuatro
+    hermanas). Un guard general daría falsos positivos con patrones como
+    `tr(etiqueta + '_uno')`, y un guard que denuncia de más se desactiva.
+    """
+
+    def test_todas_se_piden_desde_el_codigo(self):
+        import json, re
+        from pathlib import Path
+        app = Path(__file__).resolve().parents[1]
+        fuente = "\n".join(p.read_text(encoding="utf-8") for p in app.rglob("*.py")
+                           if "tests" not in p.parts)
+        literales = set(re.findall(r"""['"](relato\.[\w.]+)['"]""", fuente))
+        # `tr(f"relato.etapa_{etapa}")` → el prefijo `relato.etapa_`
+        prefijos = set(re.findall(r"""f['"](relato\.[\w.]*?)\{""", fuente))
+        cat = json.loads((app / "i18n" / "es.json").read_text(encoding="utf-8"))
+        huerfanas = [k for k in cat if k.startswith("relato.")
+                     and k not in literales
+                     and not any(k.startswith(p) for p in prefijos)]
+        self.assertEqual(sorted(huerfanas), [],
+                         "\n  · ".join(["claves sin consumidor:"] + sorted(huerfanas)))
+
+    def test_el_guard_encuentra_los_dos_caminos(self):
+        """Si la detección de prefijos se rompiera, el test de arriba
+        denunciaría las 30 claves compuestas y alguien lo desactivaría."""
+        import re
+        from pathlib import Path
+        app = Path(__file__).resolve().parents[1]
+        fuente = "\n".join(p.read_text(encoding="utf-8") for p in app.rglob("*.py")
+                           if "tests" not in p.parts)
+        self.assertTrue(re.findall(r"""['"](relato\.[\w.]+)['"]""", fuente))
+        self.assertTrue(re.findall(r"""f['"](relato\.[\w.]*?)\{""", fuente))

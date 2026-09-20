@@ -198,11 +198,15 @@ console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})
             "target_dv_info": {"profile": 7, "cm_version": "v4.0", "has_l8": True},
             "target_l8_classification": "default", "target_l8_unique_count": 2,
             "target_l8_neutral_frames_pct": 0.99})
-        from frontend_sources import catalogo_es
-        rotulo = catalogo_es()["tab3.el_l8_es_trabajo_de_colorista"]
-        l8 = next(x for x in f if x["titulo"] == rotulo)
+        # Las claves son las del SERVIDOR: desde que el checklist lo compone
+        # `relato.hechos`, el texto no sale del catálogo del frontend. Apuntar
+        # al de `tab3.*` funcionaba de casualidad, mientras las dos cadenas
+        # coincidían palabra por palabra.
+        from frontend_sources import catalogo_servidor_es
+        srv = catalogo_servidor_es()
+        l8 = next(x for x in f if x["titulo"] == srv["relato.hecho_bin_colorista"])
         self.assertEqual(l8["estado"], "aviso")
-        self.assertIn(catalogo_es()["tab3.no_el_rpu_es_sintetico"], l8["valor"])
+        self.assertIn(srv["relato.l8_sin_ajustes"], l8["valor"])
         # Y las de antes siguen en verde: el fallo está localizado.
         self.assertEqual(f[0]["estado"], "ok")
 
@@ -1185,9 +1189,9 @@ class TestElModalSeAbreDeVerdad(unittest.TestCase):
             self.assertNotIn(palabra, self.d["titulo"])
 
     def test_el_veredicto_encabeza_el_CUERPO(self):
-        from frontend_sources import catalogo_es
+        from frontend_sources import catalogo_servidor_es
         self.assertEqual(self.d["estado"],
-                         catalogo_es()["tab3.el_bin_no_aporta_un_l8"])
+                         catalogo_servidor_es()["relato.titulo_bin_sin_ajustes"])
         self.assertIn("cmv40-pf-check", self.d["checks"])
         self.assertIn("cmv40-pf-banner aviso", self.d["veredicto"])
         self.assertTrue(self.d["veredicto"].strip(), "el banner viene vacío")

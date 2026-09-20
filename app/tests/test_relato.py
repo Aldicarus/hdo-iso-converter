@@ -25,6 +25,12 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 import relato  # noqa: E402
+
+
+def _texto(clave: str) -> str:
+    """El castellano de una clave del servidor. Ver `catalogo_servidor_es`."""
+    from frontend_sources import catalogo_servidor_es
+    return catalogo_servidor_es()[clave]
 from models import CMv40Session, CMv40PhaseRecord, DoviInfo  # noqa: E402
 
 
@@ -267,14 +273,22 @@ class TestCadaFaseDiceDeDondeViene(unittest.TestCase):
                        target_trust_ok=trust)
             plan = resolve_plan(s)
             t = porque_de_fase(s, "extract", plan=plan)
+            # Contra la CLAVE que tocaba, no contra una palabra suelta de la
+            # frase: la redacción se reescribió al registro de la app y este
+            # test se puso en rojo sin que la decisión cambiara.
+            esperada = _texto('relato.porque_fase_c_merge'
+                              if plan.extract.needs_demux
+                              else 'relato.porque_fase_c_dropin')
             with self.subTest(wf=wf, demux=plan.extract.needs_demux):
-                self.assertEqual("recomponer" in t, plan.extract.needs_demux)
+                self.assertEqual(t, esperada)
 
     def test_la_fase_f_distingue_sync_revisada_de_omitida(self):
         omitida = sesion(phases_skipped=["sync_verification_pause"])
         revisada = sesion(sync_delta=0)
-        self.assertIn("no hizo falta", porque_de_fase(omitida, "inject"))
-        self.assertIn("verificada", porque_de_fase(revisada, "inject"))
+        self.assertEqual(porque_de_fase(omitida, "inject"),
+                         _texto('relato.porque_fase_f_sin_revisar'))
+        self.assertEqual(porque_de_fase(revisada, "inject"),
+                         _texto('relato.porque_fase_f_sync_ok'))
 
     def test_todas_las_fases_del_orquestador_tienen_su_linea(self):
         """Si una fase se queda sin justificación, el hilo se corta ahí — y

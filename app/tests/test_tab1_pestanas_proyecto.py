@@ -277,14 +277,16 @@ console.log(JSON.stringify({{
     CANCELADA = {"id": "p1", "status": "pending",
                  "last_cancelled_at": "2026-09-19T10:00:00Z",
                  "relato": {"situacion": "cancelado",
-                            "situacion_rotulo": "Lo paraste tú",
-                            "porque": "Paraste la ejecución."}}
+                            "situacion_rotulo": "Cancelado",
+                            "porque": "La ejecución se canceló."}}
 
     def test_sale_y_dice_que_lo_paraste(self):
         b = self._banner(self.CANCELADA)
         self.assertTrue(b["visible"])
-        self.assertIn("Lo paraste", b["titulo"])
-        self.assertIn("Paraste la ejecución", b["detalle"])
+        # El rótulo y el motivo los escribe el SERVIDOR: aquí se comprueba
+        # que el banner los pinta, no cómo están redactados.
+        self.assertEqual(b["titulo"], self.CANCELADA["relato"]["situacion_rotulo"])
+        self.assertEqual(b["detalle"], self.CANCELADA["relato"]["porque"])
 
     def test_en_ambar_y_no_en_azul(self):
         """El azul es el de «esto está pasando»; esto ya pasó y no va a

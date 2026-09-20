@@ -30,6 +30,19 @@ asistente. En concreto:
 - **El log describe estado, no promete futuro** (regla ya establecida del
   proyecto). Al traducir se mantiene: `Extracting the enhancement layer`, no
   `Will extract…`.
+- **Un rótulo de estado NOMBRA la situación; no le habla a nadie.** La
+  segunda persona de arriba es para las INSTRUCCIONES («Pega aquí tu clave»);
+  una etiqueta de estado va en forma nominal. «Cancelado», no «Lo paraste
+  tú»; «Pendiente de decisión», no «Esto lo decides tú»; «Fase en curso.», no
+  «Ya está en curso. El botón vuelve cuando termine.» Lo mismo con la prosa
+  que explica por qué un trabajo está donde está: cuenta lo que pasó, sin
+  tranquilizar al lector. Lo comprueba
+  `test_relato_tab1_tab2::TestElRegistroDeLosRotulos` sobre las situaciones y
+  los titulares del relato.
+- **Y se usa la palabra que la app YA usa.** «En marcha» era una tercera
+  forma de decir lo que treinta cadenas llaman «En curso» — y el relato
+  existe justamente para que el mismo estado no tenga dos nombres. Antes de
+  redactar un rótulo nuevo, buscar si el estado ya tiene el suyo.
 
 ## Inglés
 

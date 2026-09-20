@@ -114,6 +114,16 @@ process.stdin.on('end', () => {
 """
 
 # El bin de Pulp Fiction tal como lo sirve el endpoint tras el arreglo.
+# Los rótulos salen del CATÁLOGO, no escritos a mano: así un cambio de
+# redacción no pone en rojo un test de comportamiento.
+from frontend_sources import catalogo_es, catalogo_servidor_es  # noqa: E402
+
+_SRV, _WEB = catalogo_servidor_es(), catalogo_es()
+ROTULO_EN_CURSO = _SRV["relato.situacion_en_marcha"]
+ROTULO_CANCELADO = _SRV["relato.situacion_cancelado"]
+ROTULO_DECIDIR = _SRV["relato.titulo_lo_decides_tu"]
+DECISION_INYECTAR = _WEB["tab3.decidiste_inyectar"]
+
 TONE_MAPPING = {
     "target_l8_classification": "tone_mapping",
     "target_l8_max_delta": 41,
@@ -226,28 +236,34 @@ class TestLaFilaDelL8HablaCastellano(_Base):
 class TestElVeredictoDistingueLosDosMotivosDeParada(_Base):
 
     def test_tone_mapping_no_dice_que_el_bin_no_sirve(self):
+        """Los DOS veredictos son ámbar, así que la clase no los distingue:
+        lo que los separa es el titular, y son dos claves distintas."""
         v = self.evaluar([{"fn": "veredicto", "s": TONE_MAPPING}])[0]
         self.assertEqual(v["clase"], "aviso")
-        self.assertIn("decides", v["titulo"].lower())
+        self.assertEqual(v["titulo"], ROTULO_DECIDIR)
 
-    def test_un_proyecto_cancelado_no_se_titula_con_lo_que_decidiste(self):
+    def test_un_proyecto_cancelado_no_se_titula_con_lo_que_decidio(self):
         """Lo que pasó DESPUÉS manda. El modal decía «Se inyecta el RPU
         igualmente» de un trabajo que el usuario había parado, mientras la
-        ficha decía «Lo paraste tú»: la misma discrepancia entre las dos
-        superficies que todo esto venía a quitar."""
+        ficha lo daba por cancelado: la misma discrepancia entre las dos
+        superficies que todo esto venía a quitar.
+
+        Se afirma contra la CLAVE del catálogo y no contra la frase: el
+        rótulo se reescribió al registro de la app y este test se puso en
+        rojo sin que nada del comportamiento cambiara."""
         s = {**TONE_MAPPING, "preflight_decision": "",
              "preflight_user_choice": "inject",
              "phase_history": [{"phase": "analyze_source", "status": "cancelled",
                                 "started_at": "2026-09-19T11:40:00Z"}]}
         v = self.evaluar([{"fn": "veredicto", "s": s}])[0]
-        self.assertIn("paraste", v["titulo"].lower())
+        self.assertEqual(v["titulo"], ROTULO_CANCELADO)
 
     def test_el_bin_sintetico_conserva_su_veredicto(self):
         s = {**TONE_MAPPING, "target_l8_classification": "default",
              "preflight_decision": "keep_l8_default"}
         v = self.evaluar([{"fn": "veredicto", "s": s}])[0]
         self.assertEqual(v["clase"], "aviso")
-        self.assertNotIn("decides", v["titulo"].lower())
+        self.assertNotEqual(v["titulo"], ROTULO_DECIDIR)
 
 
 class TestLaCardOfreceYRegistraLaDecision(_Base):
@@ -276,8 +292,8 @@ class TestLaCardOfreceYRegistraLaDecision(_Base):
                              {"fn": "card", "s": parado}])
         self.assertNotIn("Análisis pendiente", a)
         self.assertNotIn("Análisis pendiente", b)
-        self.assertIn("En marcha", a)
-        self.assertIn("Lo paraste tú", b)
+        self.assertIn(ROTULO_EN_CURSO, a)
+        self.assertIn(ROTULO_CANCELADO, b)
 
     def test_dice_que_esta_esperando(self):
         html = self.evaluar([{"fn": "card", "s": TONE_MAPPING}])[0]
@@ -291,7 +307,7 @@ class TestLaCardOfreceYRegistraLaDecision(_Base):
         html = self.evaluar([{"fn": "card", "s": s}])[0]
         self.assertNotIn("cmv40AcceptKeep", html)
         self.assertIn("cmv40-decision tomada", html)
-        self.assertIn("Decidiste inyectar", html)
+        self.assertIn(DECISION_INYECTAR, html)
 
     def test_el_ambar_usa_la_paleta_y_no_las_variables_de_la_radiografia(self):
         """`--dv-amber-*` viven DENTRO de `.dv-detail`; citadas desde esta

@@ -3381,7 +3381,7 @@ function _renderCMv40RecommendationCard(s, pid) {
   // fuente del SVG, visible en pantalla.
   const esperando = isUnknown && !s.recommended_action_label;
   // Con el tercer veredicto sin contestar el rótulo lo pone el servidor
-  // («Lo decides tú — aporta tone-mapping, no autoría»), que es el mismo que
+  // («Requiere decisión — mejora automática, sin ajuste manual»), el mismo que
   // lee la fila «Recomendación» del modal del pre-flight: dos sitios que
   // hablan del mismo bin no pueden llamarlo de dos maneras. Una vez
   // contestado, manda la ruta — que es lo que interesa mientras corre.
@@ -7045,7 +7045,7 @@ function _cmv40PfVeredicto(s, trabajo) {
 
   // Lo que pasó DESPUÉS manda sobre la decisión: un proyecto que el usuario
   // paró no se titula «Se inyecta el RPU igualmente» por lo que contestó
-  // veinte minutos antes. La ficha ya decía «Lo paraste tú» y el modal decía
+  // veinte minutos antes. La ficha ya lo daba por cancelado y el modal decía
   // otra cosa — la misma discrepancia que este bloque venía a quitar.
   if (r.situacion === 'cancelado') {
     return {clase: 'aviso', titulo: r.situacion_rotulo || '',
